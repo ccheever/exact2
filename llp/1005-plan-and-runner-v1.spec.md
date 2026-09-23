@@ -100,7 +100,14 @@ effects (`StoreSlot Command`), stack (`Pop BindLocal DropLocal`), `Return`.
 `LoadItem`/`LoadBound` take a depth in region frames (0 = innermost).
 `StoreSlot` outside an action's declared `writes` is `Trap::WriteNotDeclared`.
 A derive or resource read before it settles this update is `Trap::Pending`
-(§6). Every failure is a typed `Trap` by pc; there is no undefined behavior
+(§6). A `List`, `Record` or `Some` whose expanded tree — a shared value
+counted in every place it appears, as equality, shape checks and encoding
+walk it — would pass 2^24 values or 64 MiB of string bytes is
+`Trap::ValueTooLarge`, and one nesting deeper than `Value::decode`'s 64 is
+`Trap::ValueTooDeep` (2026-09-23): a list doubled through a local was
+otherwise exponential in instructions (2^24 leaves: 376 ms to compare,
+636 ms to encode). Sizing is memoized per evaluation, so doubling costs one
+lookup a level. Every failure is a typed `Trap` by pc; there is no undefined behavior
 and no ambient read that is not an operand — `now()` reads the clock the
 runner passes in. `Asm` emits opcodes by declared layout and resolves forward
 jumps by label; a compiler never writes a raw byte.

@@ -21,6 +21,25 @@ use std::rc::Rc;
 /// otherwise outruns memory within one evaluation.
 pub const MAX_STRING: usize = 1 << 26;
 
+/// The most values a list, record or option the VM builds may hold, a shared
+/// one counted once per place it appears: that expanded tree is what
+/// equality, shape checks and conversions walk. A list doubled through a
+/// local (`[x, x]`, then again) is otherwise exponential in instructions.
+pub const MAX_VALUE_NODES: u64 = 1 << 24;
+
+/// The most string bytes such a value may hold, counted the same way: a
+/// shared string repeated in a doubled list multiplies what encoding writes.
+pub const MAX_VALUE_BYTES: u64 = MAX_STRING as u64;
+
+/// The deepest such a value may nest: [`Value::decode`]'s bound, so that
+/// whatever the VM builds can cross the data seam, and a value nested once
+/// per action cannot grow past what walking or dropping it recurses through.
+pub const MAX_VALUE_DEPTH: u32 = 64;
+
+/// Only extents at least this large are remembered: smaller ones cost less
+/// to walk again than to look up.
+const REMEMBERED: u64 = 64;
+
 /// A keyed row's own slots — the values of the `state` a child component
 /// declared, one set per row (LLP 1017 P4c) — shared by the row and every
 /// frame that reaches it, so a read during an update and a write applied
@@ -136,6 +155,137 @@ pub enum Trap {
     Pending {
         pc: usize,
     },
+    /// A `List`, `Record` or `Some` would hold more than [`MAX_VALUE_NODES`]
+    /// values or [`MAX_VALUE_BYTES`] string bytes, shared ones counted where
+    /// they appear.
+    ValueTooLarge {
+        pc: usize,
+    },
+    /// A `List`, `Record` or `Some` would nest deeper than [`MAX_VALUE_DEPTH`].
+    ValueTooDeep {
+        pc: usize,
+    },
+}
+
+/// A value's expanded extent: its values (a shared one counted once per
+/// place), their string bytes, and how deep below it they nest.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+struct Extent {
+    nodes: u64,
+    bytes: u64,
+    depth: u32,
+}
+
+impl Extent {
+    fn scalar(v: &Value) -> Option<Extent> {
+        match v {
+            Value::List(_) | Value::Record(_) | Value::Option(Some(_)) => None,
+            Value::Str(s) => Some(Extent {
+                nodes: 1,
+                bytes: s.len() as u64,
+                depth: 0,
+            }),
+            _ => Some(Extent {
+                nodes: 1,
+                ..Extent::default()
+            }),
+        }
+    }
+
+    fn check(self, pc: usize) -> Result<Extent, Trap> {
+        if self.depth > MAX_VALUE_DEPTH {
+            Err(Trap::ValueTooDeep { pc })
+        } else if self.nodes > MAX_VALUE_NODES || self.bytes > MAX_VALUE_BYTES {
+            Err(Trap::ValueTooLarge { pc })
+        } else {
+            Ok(self)
+        }
+    }
+
+    /// Add `part` as one child of a value being built.
+    fn with(mut self, part: Extent, pc: usize) -> Result<Extent, Trap> {
+        self.nodes += part.nodes;
+        self.bytes += part.bytes;
+        self.depth = self.depth.max(part.depth + 1);
+        self.check(pc)
+    }
+}
+
+/// The extents of the lists, records and options one evaluation met, by
+/// allocation, so building from shared parts costs the parts' count and not
+/// their expansion. Each entry pins its value: an address cannot be reused
+/// for another while it is remembered.
+#[derive(Default)]
+struct Extents(std::collections::HashMap<usize, (Value, Extent)>);
+
+impl Extents {
+    fn key(v: &Value) -> Option<usize> {
+        match v {
+            Value::List(items) | Value::Record(items) => Some(Rc::as_ptr(items) as usize),
+            Value::Option(Some(inner)) => Some(Rc::as_ptr(inner) as usize),
+            _ => None,
+        }
+    }
+
+    /// The extent of `v`, walked only if this evaluation has not measured
+    /// that allocation, and only as far as the bounds.
+    fn of(&mut self, v: &Value, pc: usize) -> Result<Extent, Trap> {
+        if let Some(e) = Extent::scalar(v) {
+            return e.check(pc);
+        }
+        let key = Self::key(v);
+        if let Some((_, e)) = key.and_then(|k| self.0.get(&k)) {
+            return Ok(*e);
+        }
+        let mut total = Extent::default();
+        measure(v, 0, &mut total, pc)?;
+        self.remember(v, total);
+        Ok(total)
+    }
+
+    /// The extent of a list or record of `items`, or an option around one.
+    fn built(&mut self, items: &[Value], pc: usize) -> Result<Extent, Trap> {
+        let mut e = Extent {
+            nodes: 1,
+            ..Extent::default()
+        };
+        for item in items {
+            e = e.with(self.of(item, pc)?, pc)?;
+        }
+        Ok(e)
+    }
+
+    fn remember(&mut self, v: &Value, e: Extent) {
+        if e.nodes >= REMEMBERED {
+            if let Some(k) = Self::key(v) {
+                self.0.insert(k, (v.clone(), e));
+            }
+        }
+    }
+}
+
+/// Count `v`, `depth` below where the walk began, into `total`; stops at the
+/// first bound passed, so neither its time nor its recursion outgrows them.
+fn measure(v: &Value, depth: u32, total: &mut Extent, pc: usize) -> Result<(), Trap> {
+    #[cfg(test)]
+    MEASURED.with(|m| m.set(m.get() + 1));
+    total.nodes += 1;
+    total.depth = total.depth.max(depth);
+    match v {
+        Value::Str(s) => total.bytes += s.len() as u64,
+        Value::Option(Some(inner)) => {
+            total.check(pc)?;
+            measure(inner, depth + 1, total, pc)?;
+        }
+        Value::List(items) | Value::Record(items) => {
+            total.check(pc)?;
+            for item in items.iter() {
+                measure(item, depth + 1, total, pc)?;
+            }
+        }
+        _ => {}
+    }
+    total.check(pc).map(|_| ())
 }
 
 /// What a body produced: its value, slot writes in order, and commands.
@@ -245,6 +395,7 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
     let mut stack: Vec<Value> = Vec::with_capacity(16);
     let mut locals: Vec<Value> = Vec::new();
     let mut out = Outcome::default();
+    let mut extents = Extents::default();
     let mut r = Reader::new(code);
     let malformed = |pc: usize| Trap::Malformed { pc };
     macro_rules! pop {
@@ -282,7 +433,10 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
             Opcode::Unit => stack.push(Value::Unit),
             Opcode::Some => {
                 let v = pop!(pc);
-                stack.push(Value::some(v));
+                let e = extents.built(std::slice::from_ref(&v), pc)?;
+                let v = Value::some(v);
+                extents.remember(&v, e);
+                stack.push(v);
             }
             Opcode::LoadSlot => {
                 let slot = args[0] as usize;
@@ -372,7 +526,10 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                     return Err(Trap::StackUnderflow { pc });
                 }
                 let fields = stack.split_off(stack.len() - n);
-                stack.push(Value::record(fields));
+                let e = extents.built(&fields, pc)?;
+                let v = Value::record(fields);
+                extents.remember(&v, e);
+                stack.push(v);
             }
             Opcode::List => {
                 let n = args[0] as usize;
@@ -380,7 +537,10 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                     return Err(Trap::StackUnderflow { pc });
                 }
                 let items = stack.split_off(stack.len() - n);
-                stack.push(Value::list(items));
+                let e = extents.built(&items, pc)?;
+                let v = Value::list(items);
+                extents.remember(&v, e);
+                stack.push(v);
             }
             Opcode::Add => num2!(pc, op, |a, b| Value::Number(a + b)),
             Opcode::Sub => num2!(pc, op, |a, b| Value::Number(a - b)),
@@ -557,4 +717,164 @@ fn jump(code: &[u8], target: u32) -> Option<Reader<'_>> {
     let mut r = Reader::new(code);
     r.bytes(target as usize).ok()?;
     Some(r)
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Values `measure` walked on this thread: sizing, counted.
+    static MEASURED: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use exact_plan::asm::Asm;
+    use exact_plan::builder::PlanBuilder;
+
+    fn run(body: Asm) -> Result<Outcome, Trap> {
+        let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+        let code = b.code(body);
+        let plan = b.finish().unwrap();
+        let strings = intern(&plan);
+        let env = Env {
+            plan: &plan,
+            strings: &strings,
+            router: None,
+            slots: &[],
+            derives: &[],
+            resources: &[],
+            params: &[],
+            frames: &[],
+            now_ms: 0.0,
+            pending_resources: &[],
+            pending_mutations: &[],
+            store_dependent_derives: &[],
+            store_dependent_resources: &[],
+        };
+        eval(plan.code(code), &env, &[])
+    }
+
+    /// `x` on the stack becomes `[x, x]`, `times` times, through a local.
+    fn doubled(body: &mut Asm, times: usize) -> &mut Asm {
+        for _ in 0..times {
+            body.bind_local()
+                .load_local(0)
+                .load_local(0)
+                .list(2)
+                .drop_local();
+        }
+        body
+    }
+
+    fn measured(f: impl FnOnce()) -> u64 {
+        MEASURED.with(|m| m.set(0));
+        f();
+        MEASURED.with(|m| m.get())
+    }
+
+    /// Doubling through a local makes one instruction's value exponential in
+    /// instructions: 2^k leaves after k doublings, which equality, shape
+    /// checks and encoding then walk leaf by leaf. The VM refuses the
+    /// doubling that passes `MAX_VALUE_NODES`, and sizing a shared part
+    /// costs one lookup, not its expansion.
+    #[test]
+    fn a_doubled_list_is_refused_where_it_is_built() {
+        // k doublings of a number hold 2^(k+1) - 1 values: 23 fit in 2^24.
+        let mut body = Asm::new();
+        body.number(1.0);
+        doubled(&mut body, 23);
+        let mut value = Value::Unit;
+        let walked = measured(|| value = run(body).unwrap().value);
+        assert!(walked < 1_000, "sizing 23 doublings walked {walked} values");
+        let (mut leaves, mut v) = (1u64, &value);
+        while let Value::List(items) = v {
+            assert_eq!(items.len(), 2);
+            leaves *= 2;
+            v = &items[0];
+        }
+        assert_eq!(leaves, 1 << 23);
+
+        let mut body = Asm::new();
+        body.number(1.0);
+        doubled(&mut body, 64);
+        match run(body) {
+            // The 24th doubling's `List`: `Number` is 9 bytes, a doubling
+            // 13 (bind 1, load 3, load 3, list 5, drop 1).
+            Err(Trap::ValueTooLarge { pc }) => assert_eq!(pc, 9 + 23 * 13 + 7),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// A shared string counts its bytes wherever it appears: 64 copies of a
+    /// 1 MiB string fit `MAX_VALUE_BYTES`, 128 do not.
+    #[test]
+    fn a_shared_string_counts_its_bytes_in_every_place() {
+        let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+        let x = b.str("x");
+        let mut fits = Asm::new();
+        fits.str(x);
+        for _ in 0..20 {
+            fits.bind_local()
+                .load_local(0)
+                .load_local(0)
+                .op(exact_plan::Opcode::Concat, &[])
+                .drop_local();
+        }
+        let mut refused = Asm::new();
+        refused.str(x);
+        for _ in 0..20 {
+            refused
+                .bind_local()
+                .load_local(0)
+                .load_local(0)
+                .op(exact_plan::Opcode::Concat, &[])
+                .drop_local();
+        }
+        doubled(&mut fits, 6);
+        doubled(&mut refused, 7);
+        let fits = b.code(fits);
+        let refused = b.code(refused);
+        let plan = b.finish().unwrap();
+        let strings = intern(&plan);
+        let env = Env {
+            plan: &plan,
+            strings: &strings,
+            router: None,
+            slots: &[],
+            derives: &[],
+            resources: &[],
+            params: &[],
+            frames: &[],
+            now_ms: 0.0,
+            pending_resources: &[],
+            pending_mutations: &[],
+            store_dependent_derives: &[],
+            store_dependent_resources: &[],
+        };
+        assert!(eval(plan.code(fits), &env, &[]).is_ok());
+        assert!(matches!(
+            eval(plan.code(refused), &env, &[]),
+            Err(Trap::ValueTooLarge { .. })
+        ));
+    }
+
+    /// The VM nests no deeper than `Value::decode` reads: 64 `some`s around a
+    /// number round-trip through the canonical bytes, a 65th is refused.
+    #[test]
+    fn nesting_stops_where_decoding_does() {
+        let nested = |n: usize| {
+            let mut body = Asm::new();
+            body.number(1.0);
+            for _ in 0..n {
+                body.simple(exact_plan::Opcode::Some);
+            }
+            run(body)
+        };
+        let deepest = nested(64).unwrap().value;
+        assert_eq!(Value::from_bytes(&deepest.to_bytes()).unwrap(), deepest);
+        assert!(matches!(nested(65), Err(Trap::ValueTooDeep { .. })));
+        let mut too_deep = deepest.clone();
+        too_deep = Value::some(too_deep);
+        assert!(Value::from_bytes(&too_deep.to_bytes()).is_err());
+    }
 }
