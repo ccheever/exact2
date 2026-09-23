@@ -66,9 +66,9 @@ The home feed, articles and profiles arrive as anonymous HTML. Their public
 responses are cached for 60 seconds by default (`--lifetime` changes this).
 Links work without the runtime; buttons and inputs load it on interaction,
 and a kept sign-in starts it to restore the account. Login and editing routes
-start the client normally. Serve behind a compressing HTTP proxy for production;
-the loopback renderer serves identity bytes. Reading-page transfer and the
-later runtime download are separate costs.
+start the client normally. The renderer compresses what it sends (brotli, else
+gzip, by `Accept-Encoding`), and SIGTERM drains it. Reading-page transfer and
+the later runtime download are separate costs.
 
 ## Inspect and format Contract
 
