@@ -1,7 +1,7 @@
 # LLP 1048: Rendering across the curve — one renderer, from static pages to per-request HTML
 
 **Type:** RFC
-**Status:** Draft — direction approved by Charlie 2026-09-23 ("ok let's do pre-rendering etc. … we might as well have a great solution for almost every point on that curve"); the NOT-DOING take (§5) and the Contract surface (LLP 1048.003) await his ruling
+**Status:** Draft — direction approved by Charlie 2026-09-23 ("ok let's do pre-rendering etc. … we might as well have a great solution for almost every point on that curve"); ruled the same day (§9): the Contract surface in LLP 1048.003 is approved, Interview is the website consumer (§10), and the server target is a native Rust binary. The NOT-DOING take (§5) is still open
 **Systems:** Web host (`host/web`: a page serializer beside `Host::create`, adoption in `glue.js`, the page shell); build (`contract::bake`, `host/web/build.mjs`); Runner (carried state as a page payload, provenance, placeholders); Contract (head, semantic elements, media variants, route policies — LLP 1048.003); serving (`host/web/serve.mjs`, a request renderer — LLP 1048.002); Router (route enumeration, navigation payloads); Delivery (web releases carry rendered pages)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Implementer:** assigned by Charlie per phase (§7)
@@ -198,15 +198,16 @@ Today `rules/NOT-DOING.md` refuses "Server generation in every form: SSR,
 streaming, static export, progressive forms, hydration, route payloads,
 response caching." Proposed entry:
 
-> **Expanded (Charlie, 2026-09-23: "ok let's do pre-rendering etc."):** web
-> rendering across the curve (LLP 1048) — build-time pages, adoption instead of
-> hydration, route payloads, request-time rendering with cache policies,
+> **Expanded (Charlie, 2026-09-23: "ok let's do pre-rendering etc."; "let's use
+> Interview as our website"):** web rendering across the curve (LLP 1048), with
+> Interview as its consumer — build-time and per-request pages from a native
+> renderer, adoption instead of hydration, route payloads, cache policies,
 > inferred partial prerendering and streaming. Unblocks websites that crawlers,
 > link previews and readers without JavaScript can read, and that paint before
-> the runtime loads. Take: *(Charlie's choice; proposed — the game-engine
-> add-on, LLP 1046, waits behind websites)*. Still refused: progressive forms
-> (server actions without the runtime) and server-driven UI; no Node on the
-> render path.
+> the runtime loads. Take: *(open — Charlie is working on the game engine, so
+> it stays; the options are in his reply of 2026-09-23)*. Still refused:
+> progressive forms (server actions without the runtime) and server-driven UI;
+> no Node on the render path.
 
 ## 6. Prerequisites
 
@@ -222,12 +223,15 @@ response caching." Proposed entry:
 
 | Phase | Sub-LLPs | What users get |
 |---|---|---|
-| 1 | 1048.003 part A (head, document scrolling, semantic elements) + **1048.000** (build renderer, enumeration, `dist/`, parity; the runtime replaces the page on boot) | Crawlable pages, link previews, per-route titles, first paint at HTML arrival |
+| 1 | 1048.003 part A (head, document scrolling, semantic elements, route fields) + **1048.000** (the renderer, `dist/`, parity; rendering at build and per request from the native binary, with an empty store and no cache; the runtime replaces the page on boot) | Interview's question, post and profile pages as real HTML with their own titles and link previews; first paint at HTML arrival |
 | 2 | **1048.001** (adoption, activation, payloads, navigation) + 1048.003 part B (media variants, placeholders) | No swap, zero-JS pages, a lazy runtime, instant navigation |
-| 3 | **1048.002** (provenance holes, the request renderer, cache policies, streaming, edge) | Personalized and fresh pages at CDN speed |
+| 3 | **1048.002** (provenance holes, cache policies, streaming, edge) | Cached question pages at CDN speed; personalized holes; streaming |
 
-`client` stays the default until phase 1 ships; then `build` becomes the default
-for routes whose content is available at build.
+Interview's content is data-driven (§10), so per-request rendering from the
+native binary is part of phase 1 in its simplest form: the same renderer as the
+build, called per request with an empty store — as bake already renders — with
+no cache and no holes. Private parts render their logged-out state and the
+runtime corrects them on boot. `client` stays the default until phase 1 ships.
 
 ## 8. Verification
 
@@ -244,12 +248,43 @@ for routes whose content is available at build.
 - **Privacy:** no request- or client-provenance value in any `build` or
   `cached` page — a renderer refusal, with a test.
 
-## 9. Questions for Charlie
+## 9. Rulings (Charlie, 2026-09-23)
 
-1. The NOT-DOING take (§5).
-2. The Contract surface in LLP 1048.003 (the `head` element, semantic elements,
-   media variants, route policy fields, placeholders).
-3. The v1 bar: add a website consumer? Proposed: exact2's own site — landing
-   page, docs from the LLP reader, a blog — built in Contract and served as
-   rendered pages.
-4. The server target: a native Rust binary (proposed) or Bun with the wasm.
+1. **The NOT-DOING take (§5): open.** The game engine stays on the doing-list
+   (Charlie is working on it); a different take is needed.
+2. **The Contract surface in LLP 1048.003: approved** — the `head` element,
+   semantic elements, media variants, route policy fields and placeholders.
+3. **The website consumer: Interview** (`~/projects/interview`, §10).
+4. **The server target: a native Rust binary.**
+
+## 10. The consumer: Interview
+
+Interview (`~/projects/interview`) is a successor to Quora built on exact2 and
+Snapback4: questions, AI and human answers, profiles, votes, comments, search, a
+feed and Markdown posts, on iOS, macOS and the web. Its question pages are what
+people share and what search engines should index — the case this LLP exists
+for. Its routes (`app.contract`'s `routes nav`) map onto render policies:
+
+| Route | Content | Phase 1 | Phase 3 |
+|---|---|---|---|
+| `/prompt/:question`, `/post/:post`, `/people/:person` | Public content | `request` (native binary) | `cached`, revalidated by the item's tag |
+| `/`, `/prompts` | Feeds | `request` (anonymous view) | `cached` shell; the viewer's parts are holes |
+| `/search` | Query results | `request` | `request` |
+| `/prompts/new`, `/prompt/:question/write`, `/messages`, `/notifications`, `/profile`, `/settings` | Private | `client` | `client` |
+
+Interview's own work, in its repository:
+
+- **Split public content from the viewer.** One `data` resource,
+  `app(started, question, person, post, …)`, answers everything today from a
+  store-held session token and a local Snapback4 replica, so nothing in it can
+  render on a server. Public content — a question with its answers, a post, a
+  person, a feed page — becomes its own source, answered from anonymous
+  backend reads (request provenance). The viewer, drafts and accounts stay
+  client-side.
+- **Anonymous reads on the backend** for public questions, answers, posts and
+  profiles; everything else keeps its current authentication.
+- **A `head` per route**: the question's text as the title, the leading
+  answer's excerpt as the description, the author, and an image.
+- **The rail.** Today `wide` comes from `exactViewport()`, which a server render
+  cannot know. Move it to media variants (LLP 1048.003 D3), or read the
+  width from client hints (LLP 1048.002 D8) when phase 3 lands.
