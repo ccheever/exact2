@@ -1161,7 +1161,9 @@ if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only'
         let tree;
         for (let i = 0; i < 100; i++) { tree = await f.tree(); if (byTestId(tree, 'other')?.accessibleName === 'Other reloaded') break; await sleep(20); }
         check(byTestId(tree, 'other')?.accessibleName === 'Other reloaded', 'development plan reloaded in the same session: ' + JSON.stringify(await f.logs()));
-        check(byTestId(await f.tree(), 'first')?.focused !== true, 'reload does not steal focus for First');
+        const reloaded = await f.tree();
+        check(byTestId(reloaded, 'first')?.focused !== true, 'reload does not steal focus for First');
+        check(byTestId(reloaded, 'other')?.focused === true, 'reload keeps the focus on Other, at its place in the tree');
       }
     } catch (error) {
       failures.push(`the accessibility fixture stopped: ${error.message}`);
