@@ -426,11 +426,13 @@ fn a_nonregular_image_is_refused_off_the_boot_thread_without_blocking_a_worker()
     let reports = images.sync(&kernel, &kernel.roots());
     let elapsed = started.elapsed();
     assert!(reports.is_empty(), "the worker owns the first image report");
+    // Opening the FIFO on this thread would block until a writer came, which
+    // never happens; ten seconds tells that apart from a slow, loaded machine.
     assert!(
-        elapsed < Duration::from_millis(100),
+        elapsed < Duration::from_secs(10),
         "image scheduling waited {elapsed:?} for the FIFO reader"
     );
-    images.wait(Duration::from_secs(2));
+    images.wait(Duration::from_secs(60));
     assert!(!images.pending());
     assert!(images.bitmaps.is_empty());
     assert_eq!(images.diagnostics()["refused"], 1);

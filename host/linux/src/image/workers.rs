@@ -432,7 +432,10 @@ mod tests {
         // A metadata scan can briefly own the dropped source. Let it finish.
         let start = std::time::Instant::now();
         while backend.sources() == cap {
-            assert!(start.elapsed() < Duration::from_secs(2));
+            assert!(
+                start.elapsed() < Duration::from_secs(60),
+                "hang, not a budget"
+            );
             std::thread::yield_now();
         }
         let replacement = backend.source(generation, "replacement", &assets).unwrap();

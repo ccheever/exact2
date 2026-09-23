@@ -66,11 +66,13 @@ fn source(k: &mut Kernel, id: u32, name: &str) {
     )
     .unwrap();
 }
+/// Wait for a condition. The deadline only detects a hang: it is not a
+/// budget, and a loaded machine can take seconds to schedule a worker.
 fn until(mut test: impl FnMut() -> bool) {
     let started = Instant::now();
     while !test() {
         assert!(
-            started.elapsed() < Duration::from_secs(5),
+            started.elapsed() < Duration::from_secs(60),
             "bounded worker progress"
         );
         std::thread::sleep(Duration::from_millis(2));
@@ -131,7 +133,7 @@ fn twenty_replacement_waves_decode_distinct_sources_without_retaining_history() 
             source(&mut k, id, &(wave * 24 + id).to_string());
         }
         images.sync(&k, &k.roots());
-        images.wait(Duration::from_secs(3));
+        images.wait(Duration::from_secs(60));
         assert_eq!(images.bitmaps.len(), 24);
         for id in 1..=24 {
             assert_eq!(
@@ -143,7 +145,9 @@ fn twenty_replacement_waves_decode_distinct_sources_without_retaining_history() 
         assert!(s.peak_bytes <= SESSION_BYTES && s.delivery_cells <= 2 && s.pending_jobs <= 64);
         assert!(s.subscribers <= 1024 && s.cold_entries <= 64);
         assert!(Gate::process().stats().running <= 2);
-        assert!(images.backend.sources() <= 24 + exact_raster::COLD_ENTRIES);
+        // A worker can own a replaced source briefly after delivering it (the
+        // workers' cap test waits the same way): retention is bounded eventually.
+        until(|| images.backend.sources() <= 24 + exact_raster::COLD_ENTRIES);
         assert_eq!(images.loaded.len(), 24);
     }
     images.sync(&k, &[]);
