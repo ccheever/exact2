@@ -526,12 +526,12 @@ impl<D: DataSource> Host<D> {
                     self.create(id, batch, handlers.get(&id).map_or(&[], Vec::as_slice));
                 }
             }
-            for key in r.created.iter().chain(r.touched.iter()) {
+            // `touched` excludes created nodes (the kernel's receipt contract),
+            // so walk it alone: a search of it per key was quadratic.
+            for key in &r.touched {
                 if let Some(node) = self.runner.kernel().node_by_key(*key) {
                     let id = node.id;
-                    if r.touched.contains(key) {
-                        self.update(id, batch);
-                    }
+                    self.update(id, batch);
                 }
             }
             // This commit's springs, at its own time: the style (the target)

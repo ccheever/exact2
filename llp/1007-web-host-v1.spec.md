@@ -37,7 +37,10 @@ for the receipts: destroyed keys → `destroy`; created keys → `create` with t
 element's tag, DOM props, `cssText`, and handler kinds; touched keys → `props`
 (set/clear deltas), `style` (whole `cssText`, only when it changed),
 `children` (only when the ordered list changed), and `animate` for
-any spring the commit released (§3). When one advance collects several receipts,
+any spring the commit released (§3). The receipt's `touched` excludes created
+keys (the kernel's contract), so each list is walked once: a batch costs time
+linear in the nodes it names (a 10k-row restyle, 188 → 25 ms natively,
+2026-09-23). When one advance collects several receipts,
 all surviving elements are created before their final child lists are attached:
 an early receipt reads the final kernel tree and can name a later receipt's child.
 Springs retain their receipt's due time. `now_ms` is the page's clock

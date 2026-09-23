@@ -1111,3 +1111,53 @@ fn live_regions_and_autofocus_use_html_attributes() {
         .agent("{\"op\":\"tree\"}")
         .contains("accessibilityLive"));
 }
+
+/// A theme flip restyles every row: each touched row gets one style op and
+/// nothing else. A receipt's `touched` never holds a created node (the
+/// kernel's contract), so the host walks it once; searching it per key made
+/// this quadratic — 163 ms for 10k rows in the browser against 2.4 ms in the
+/// runner (review, 2026-09-22).
+#[test]
+fn a_theme_flip_restyles_each_touched_row_once() {
+    const ROWS: usize = 10_000;
+    struct Rows;
+    impl exact_runner::DataSource for Rows {
+        fn query(
+            &mut self,
+            _: &str,
+            _: &[exact_runner::Value],
+        ) -> Result<exact_runner::Value, exact_runner::DataError> {
+            let row =
+                |i: usize| exact_runner::Value::record(vec![exact_runner::Value::Number(i as f64)]);
+            Ok(exact_runner::Value::list((0..ROWS).map(row).collect()))
+        }
+    }
+    let source = r##"shape Row
+  id: number
+component App
+  state dark = false
+  resource rows = rows() as shape list<Row>
+  action flip writes dark
+    dark = !dark
+  view
+    column
+      button press=flip testId="flip"
+        text "Flip"
+      each r in rows key=r.id
+        text `${r.id}` color=(dark ? "#ffffff" : "#000000")
+"##;
+    let plan = contract::bake(contract::compile(source).unwrap(), Rows).unwrap();
+    let (mut host, _) = Host::boot(&plan.encode(), Rows, Default::default(), "/").unwrap();
+    let flip = view_with_test_id_any(&host, "flip");
+    let started = std::time::Instant::now();
+    let batch = host.dispatch(flip, Event::Press);
+    let ms = started.elapsed().as_secs_f64() * 1e3;
+    eprintln!("theme flip over {ROWS} rows: {ms:.1} ms (dispatch, commit and batch)");
+    assert_eq!(
+        batch.matches("\"op\":\"style\"").count(),
+        ROWS,
+        "one style op per row"
+    );
+    assert_eq!(batch.matches("\"op\":\"create\"").count(), 0);
+    assert_eq!(batch.matches("\"op\":\"props\"").count(), 0);
+}
