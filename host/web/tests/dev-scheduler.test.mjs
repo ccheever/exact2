@@ -4,7 +4,7 @@ import {readFileSync, writeFileSync, mkdirSync, unlinkSync, mkdtempSync, openSyn
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {open} from '../../../scripts/agent.mjs';
-import {compilerPaths, pendingBuildInputs} from '../../../scripts/app.mjs';
+import {compilerPaths, gpuModules, pendingBuildInputs} from '../../../scripts/app.mjs';
 import {createHash} from 'node:crypto';
 import {runInNewContext} from 'node:vm';
 import {watchStaticTrees} from '../serve.mjs';
@@ -250,7 +250,7 @@ test('GPU reloads refresh their includes while retaining the current app input g
   const dir=mkdtempSync(join(tmpdir(),'exact-dev-input-owner-'));
   try {
     const target=join(dir,'target'), workspace=join(dir,'.shells');
-    const app={target,workspace,crate:kind=>'fixture-'+kind}, reads=[];
+    const app={target,workspace,crate:kind=>'fixture-'+kind,manifest:{}}, reads=[];
     const input=(kind,profile,paths)=>{
       const file=join(target,'wasm32-unknown-unknown',profile,'fixture_'+kind+'.d');
       mkdirSync(resolve(file,'..'),{recursive:true});writeFileSync(file,`unit: ${paths.map(p=>join(dir,p)).join(' ')}\n`);
@@ -259,12 +259,12 @@ test('GPU reloads refresh their includes while retaining the current app input g
     input('gpu','gpu-dev',['game.rs','shared.rs','new-include.rs']);
     let classifications=0;
     const start=source.indexOf('function readGpuInputs('), end=source.indexOf('\nfunction gameRuntimeInputs(',start);
-    const api=new Function('app','resolve','existsSync','compilerPaths','readFileSync','gameRuntimeInputs',`
+    const api=new Function('app','resolve','existsSync','compilerPaths','readFileSync','gameRuntimeInputs','gpuModules',`
       let appInputs=new Set(),gpuInputs=new Set();
       ${source.slice(start,end)}
       const gpuOnly=files=>files.length>0&&appInputs.size>0&&files.every(p=>p.endsWith('.rs')&&gpuInputs.has(p)&&!appInputs.has(p));
       return {refresh:readGpuInputs,gpuOnly,app:()=>[...appInputs]};
-    `)(app,resolve,existsSync,compilerPaths,(path,...args)=>{reads.push(path);return readFileSync(path,...args);},inputs=>{classifications++;return inputs;});
+    `)(app,resolve,existsSync,compilerPaths,(path,...args)=>{reads.push(path);return readFileSync(path,...args);},inputs=>{classifications++;return inputs;},gpuModules);
     api.refresh();const hostInputs=api.app();reads.length=0;
     api.refresh('gpu-dev');
     assert.deepEqual(api.app(),hostInputs);

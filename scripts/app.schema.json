@@ -30,6 +30,17 @@
               "minLength": 1
             }
           }
+        },
+        "modules": {
+          "type": "object",
+          "description": "GPU artifacts beside the primary <app>-gpu (LLP 1009 D6): module name -> the surface names it registers. Module m is the crate <app>-gpu-m, loaded the first time a canvas of one of its surfaces is on screen; every other surface is the primary's.",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            }
+          }
         }
       }
     },

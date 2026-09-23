@@ -10,9 +10,12 @@ one module, loaded after the app's first pixel. Apps without a world carry none 
 and no core crate depends on an `exact-game*` crate or Rapier. An app opts in by
 linking `exact-game` and `exact-game-render` into its **GPU module**, never its
 host or data module. The host loads that artifact after first paint when a canvas
-needs it. Removing the app's game module removes the engine from its bundle.
+needs it. An app whose other screens draw too can give the world a module of its own
+(`gpu.modules` in `app.json`, LLP 1009 D6), loaded only when the world's canvas mounts.
+Removing the app's game module removes the engine from its bundle.
 The root build, test and boot checks stay independent of the engine workspace.
-Weird Castle is the external consumer, with a full-screen Beacons demo.
+Weird Castle is the external consumer, with a full-screen Beacons demo in its own
+engine module; its title sky never loads the engine.
 
 The integration source is Black's `lane/game` at `126daba5` plus its working-tree
 snapshot `321055e1` (2026-09-21). The original checkout remains intact.

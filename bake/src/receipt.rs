@@ -29,6 +29,7 @@ pub(crate) fn emit(
         "EXACT_BAKE_ANALYSIS",
         "EXACT_RUST_BUNDLE",
         "EXACT_GPU_PRODUCT",
+        "EXACT_GPU_MODULES",
         "EXACT_GPU_DEVELOPMENT",
     ] {
         println!("cargo:rerun-if-env-changed={name}");
@@ -77,23 +78,27 @@ pub(crate) fn emit(
     // The GPU product is built (and on Apple, signed) before the host. Its
     // exact bytes belong to this app/cohort; a sibling filename is not identity.
     if platform != "web" {
-        let product = match std::env::var_os("EXACT_GPU_PRODUCT") {
-            Some(path) => {
-                let path = PathBuf::from(path);
-                println!("cargo:rerun-if-changed={}", path.display());
-                let bytes = std::fs::read(&path)
-                    .map_err(|e| format!("GPU product {}: {e}", path.display()))?;
-                let name = path.file_name().and_then(|n| n.to_str());
-                Some((
-                    name.ok_or("GPU product filename is not UTF-8")?.to_string(),
-                    hash(&bytes),
-                ))
-            }
-            None => None,
-        };
+        let product = std::env::var_os("EXACT_GPU_PRODUCT")
+            .map(|path| gpu_product(Path::new(&path)))
+            .transpose()?;
         let development = std::env::var("EXACT_GPU_DEVELOPMENT").ok();
         if let Some(card) = gpu_card(&manifest.id, &compat.id, trust, development, product) {
             compat.embedded["gpu"] = card;
+        }
+        // One card per module (LLP 1009 D6), the same shape as the primary's
+        // product card: a module always binds its signed digest.
+        if let Ok(modules) = std::env::var("EXACT_GPU_MODULES") {
+            let products: serde_json::Map<String, Value> =
+                serde_json::from_str(&modules).map_err(|e| format!("EXACT_GPU_MODULES: {e}"))?;
+            let mut cards = serde_json::Map::new();
+            for (name, path) in products {
+                let path = path.as_str().ok_or("EXACT_GPU_MODULES: a product path")?;
+                let product = Some(gpu_product(Path::new(path))?);
+                if let Some(card) = gpu_card(&manifest.id, &compat.id, trust, None, product) {
+                    cards.insert(name, card);
+                }
+            }
+            compat.embedded["gpuModules"] = Value::Object(cards);
         }
     }
     // A binary without an updater has no stream or rollback floor.
@@ -566,6 +571,18 @@ fn apply_release(compat: &mut Compat, bytes: &[u8], plan: &[u8]) -> Result<(), S
     compat.embedded["entryDigest"] = json!(envelope.digest);
     compat.embedded["genesis"] = Value::Bool(false);
     Ok(())
+}
+
+/// A signed GPU product's file name and digest, watched by the bake: its exact
+/// bytes belong to this app and cohort, which the loader checks before opening it.
+fn gpu_product(path: &Path) -> Result<(String, String), String> {
+    println!("cargo:rerun-if-changed={}", path.display());
+    let bytes = std::fs::read(path).map_err(|e| format!("GPU product {}: {e}", path.display()))?;
+    let name = path.file_name().and_then(|n| n.to_str());
+    Ok((
+        name.ok_or("GPU product filename is not UTF-8")?.to_string(),
+        hash(&bytes),
+    ))
 }
 
 fn hash(bytes: &[u8]) -> String {

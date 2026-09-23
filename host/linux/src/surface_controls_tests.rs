@@ -67,7 +67,9 @@ fn fixture_with_hud_removal(remove_hud: bool) -> (Presenter<NoData>, PathBuf) {
         path.parent().unwrap().into(),
     )
     .unwrap();
-    p.surfaces.abi = Some(Abi::open_path(&path, &compat).unwrap());
+    p.surfaces
+        .abis
+        .insert(String::new(), Abi::open_path(&path, &compat, "").unwrap());
     for (i, name) in ["a", "b", "raw"].iter().enumerate() {
         let view = find(&p, name);
         p.surfaces.canvases.insert(
@@ -75,6 +77,7 @@ fn fixture_with_hud_removal(remove_hud: bool) -> (Presenter<NoData>, PathBuf) {
             Canvas {
                 id: i as u32 + 1,
                 name: (*name).into(),
+                artifact: String::new(),
                 owner: true,
                 since: 0,
                 held: Default::default(),
@@ -167,7 +170,7 @@ fn blur_cancels_restored_keyboard_hold_without_focus() {
     restore(&mut p, "a", json!([{"id":4294967294u32,"action":"jump"}]));
     p.focus = None;
     p.blur();
-    let abi = p.surfaces.abi.as_ref().unwrap();
+    let abi = &p.surfaces.abis[""];
     let cancels = unsafe { abi.symbol::<unsafe extern "C" fn() -> u32>(b"test_cancels")() };
     assert_eq!(cancels, 1);
     assert!(p.control_bindings.is_empty());
@@ -187,7 +190,7 @@ fn restored_contact_cancels_when_control_unmounts() {
     assert!(p.host.kernel().node(button).is_none());
     p.cancel_removed_controls();
     assert!(p.control_bindings.is_empty());
-    let abi = p.surfaces.abi.as_ref().unwrap();
+    let abi = &p.surfaces.abis[""];
     let cancels = unsafe { abi.symbol::<unsafe extern "C" fn() -> u32>(b"test_cancels")() };
     assert_eq!(cancels, 1);
     done(p, path);
@@ -322,15 +325,13 @@ fn r13_named_and_empty_arguments_reach_linux_gpu_binding() {
             path.parent().unwrap().into(),
         )
         .unwrap();
-        p.surfaces.abi = Some(Abi::open_path(&path, &compat).unwrap());
-        p.surfaces.attempted = true;
+        p.surfaces
+            .abis
+            .insert(String::new(), Abi::open_path(&path, &compat, "").unwrap());
+        p.surfaces.attempted.insert(String::new());
         p.surfaces.sync(&mut p.host, &p.compat, &p.assets);
         let text = unsafe {
-            let ptr = p
-                .surfaces
-                .abi
-                .as_ref()
-                .unwrap()
+            let ptr = p.surfaces.abis[""]
                 .symbol::<unsafe extern "C" fn() -> *const std::ffi::c_char>(b"test_bound")(
             );
             std::ffi::CStr::from_ptr(ptr).to_str().unwrap().to_owned()
@@ -502,7 +503,7 @@ fn blur_clears_raw_hold_without_focus() {
 }
 
 fn last_input(p: &Presenter<NoData>) -> (u32, u32, Value) {
-    let abi = p.surfaces.abi.as_ref().unwrap();
+    let abi = &p.surfaces.abis[""];
     unsafe {
         let text = std::ffi::CStr::from_ptr(abi
             .symbol::<unsafe extern "C" fn() -> *const std::ffi::c_char>(b"test_input")(
@@ -659,4 +660,38 @@ fn removed_hud_pointer_press_returns_focus_to_its_canvas() {
 #[test]
 fn removed_hud_keyboard_press_returns_focus_to_its_canvas() {
     removing_hud_button_returns_input_to_its_canvas(true);
+}
+
+#[test]
+fn a_declared_module_is_routed_by_surface_and_verified_by_its_own_card() {
+    // LLP 1009 D6: every surface a module does not list is the primary's, and
+    // each artifact is admitted only by its own signed digest.
+    use sha2::{Digest, Sha256};
+    let dir = std::env::temp_dir().join(format!("d6-gpu-modules-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (night, world) = (dir.join("libnight.dylib"), dir.join("libworld.dylib"));
+    std::fs::write(&night, b"night").unwrap();
+    std::fs::write(&world, b"world").unwrap();
+    let card = |bytes: &[u8]| json!({"app":"app","cohort":"cohort","trust":"production","sha256":format!("{:x}", Sha256::digest(bytes))});
+    let compat = json!({"id":"cohort","inputs":{"app":"app","gpuModules":{"world":["world","arena"]}},
+        "embedded":{"gpu":card(b"night"),"gpuModules":{"world":card(b"world")}}});
+    assert_eq!(artifact_of(&compat, "arena"), "world");
+    assert_eq!(artifact_of(&compat, "night"), "");
+    assert_eq!(
+        artifact_of(&json!({}), "world"),
+        "",
+        "one artifact owns every surface"
+    );
+    verify_module(&night, &compat, "").unwrap();
+    verify_module(&world, &compat, "world").unwrap();
+    assert!(verify_module(&world, &compat, "")
+        .unwrap_err()
+        .contains("digest mismatch"));
+    assert!(verify_module(&night, &compat, "world")
+        .unwrap_err()
+        .contains("digest mismatch"));
+    assert!(verify_module(&world, &compat, "other")
+        .unwrap_err()
+        .contains("missing baked identity"));
+    std::fs::remove_dir_all(&dir).unwrap();
 }

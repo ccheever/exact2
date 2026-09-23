@@ -3,8 +3,17 @@
 // the app's GPU wasm (wgpu on the browser's WebGPU, wasm-bindgen glue) and
 // runs each canvas's surface: bind on new inputs, render while dirty or
 // wanted, resize from the element's box and devicePixelRatio.
+//
+// One artifact per instance (LLP 1009 D6): with no query this is the app's
+// one module, `gpu.js`, and it is `exact.gpu`. An app with declared modules
+// loads gpu-modules.js instead, which imports this file once per artifact as
+// `gpu-glue.js?artifact=<stem>` — a URL is one module instance, so each
+// artifact keeps its own device, surfaces, recovery and frame loop — and each
+// instance registers with that router rather than taking `exact.gpu`.
 import { pacer } from "./pace.js";
 import { assetDelivery } from "./gpu-assets.js";
+const artifact = new URL(import.meta.url).searchParams.get("artifact");
+const stem = artifact ?? "gpu";
 let gpu;
 const WORLD_LIMIT = 256 * 1024 * 1024;
 const HOST_WORK_LIMIT = 16 * 1024 * 1024;
@@ -21,7 +30,7 @@ const surfaces = new Map(); // view id -> surface, input listeners and journal c
 const inputStyle = document.createElement("style");
 inputStyle.textContent = "[data-gpu-input]:focus{outline:none}";
 document.head.append(inputStyle);
-let loaded = false;
+let loaded = false, loadMs;
 let recoveringDevice;
 let pendingCutover;
 let recoveryTimer, recoveryFailures = 0, lossDuringRecovery = false;
@@ -83,7 +92,7 @@ async function settled() {
         }
         await new Promise(resolve => setTimeout(resolve, 0));
       }
-      if (exact.gpu.recovery?.status === "recovered") exact.gpu.recovery.instances = [...surfaces.values()].filter(e => e.id).map(e => ({id:e.id, preparation:JSON.parse(gpu.gpu_agent(e.id, '{"op":"state"}') || "null")}));
+      if (api.recovery?.status === "recovered") api.recovery.instances = [...surfaces.values()].filter(e => e.id).map(e => ({id:e.id, preparation:JSON.parse(gpu.gpu_agent(e.id, '{"op":"state"}') || "null")}));
   }
   return pending;
 }
@@ -186,7 +195,7 @@ function recoverDevice() {
     if (gpu !== module) { for (const [, e] of staged) e.el.remove(); return; }
     if (["healthy", "no device"].includes(outcome.status)) {
       for (const [, e] of staged) e.el.remove();
-      exact.gpu.recovery = outcome; recoveryFailures = 0; return;
+      api.recovery = outcome; recoveryFailures = 0; return;
     }
     if (outcome.status !== "recovered") throw new Error(JSON.stringify(outcome));
     pendingCutover = {module, staged, outcome};
@@ -201,7 +210,7 @@ function recoverDevice() {
       attach(entry); assets(entry);
     }
     pendingCutover = null;
-    exact.gpu.recovery = outcome;
+    api.recovery = outcome;
     recoveryFailures = 0;
     schedule();
   })().catch(error => {
@@ -219,7 +228,7 @@ function recoverDevice() {
     }
     recoveryFailures++;
     if (recoveryFailures < 5) recoveryTimer = setTimeout(() => { recoveryTimer = null; recoverDevice(); }, 100 * 2 ** (recoveryFailures - 1));
-    exact.gpu.recovery = {status:"failed", error:String(error)};
+    api.recovery = {status:"failed", error:String(error)};
     exact.devError?.(String(error)); console.error("exact gpu recovery:", error);
   }).finally(() => { recoveringDevice = null; if (lossDuringRecovery && !recoveryFailures) queueMicrotask(recoverDevice); });
   return recoveringDevice;
@@ -562,14 +571,14 @@ function worlds(request) {
         const entry = surfaces.get(view);
         world.perf = { ...world.perf, wallClock: true,
           navigationToFirstContentfulPaintMs: performance.getEntriesByName('first-contentful-paint')[0]?.startTime ?? null,
-          gpuMs: Number(exact.root.dataset.gpuMs),
+          gpuMs: loadMs === undefined ? NaN : Number(loadMs.toFixed(1)),
           inputMs: entry.inputMs ?? null,
           firstFrameSubmittedMs: entry.firstFrameSubmittedMs ?? null,
           firstFrameMs: entry.firstFrameMs ?? null,
           inputToFirstFrameMs: entry.inputMs != null && entry.firstFrameMs != null ? entry.firstFrameMs - entry.inputMs : null,
           firstFrameMeaning: 'rendering opportunity after GPU submission; not scanout',
           resources: performance.getEntriesByType('resource')
-            .filter(r => /\/(?:app\.wasm|gpu(?:-glue)?\.js|gpu_bg\.wasm)$/.test(new URL(r.name).pathname))
+            .filter(r => /\/(?:app\.wasm|gpu(?:-glue)?\.js|gpu_bg\.wasm|gpu\/[^/]+(?:\.js|_bg\.wasm))$/.test(new URL(r.name).pathname))
             .map(r => ({ name: new URL(r.name).pathname, startMs: r.startTime, endMs: r.responseEnd, bytes: r.decodedBodySize })),
         };
       }
@@ -579,7 +588,7 @@ function worlds(request) {
   return out;
 }
 
-exact.gpu = {
+const api = {
   deviceLost() { if (recoveringDevice) lossDuringRecovery = true; else queueMicrotask(() => recoverDevice()); },
   drainRecords,
   agent,
@@ -644,16 +653,16 @@ exact.gpu = {
     return restoreReply(tagged(reply));
   },
   decorate(request, reply) {
-    if (reply?.then) return reply.then((r) => exact.gpu.decorate(request, r));
+    if (reply?.then) return reply.then((r) => api.decorate(request, r));
     if (!reply || reply.error) return reply;
-    if (exact.gpu.answers(request)) return restoreReply(reply);
+    if (api.answers(request)) return restoreReply(reply);
     if (request.op === "tree") for (const node of reply.nodes ?? []) {
       const summary = agent(node.id, { op: "tree", summary: true });
       if (summary?.world) node.world = summary.world;
     }
     if (request.op === "state") {
       const world = worlds({ op: "state" });
-      if (world.length) reply.world = world;
+      if (world.length) reply.world = [...(reply.world ?? []), ...world]; // another artifact's worlds too
     }
     if (request.op === "logs") {
       const world = [];
@@ -665,7 +674,7 @@ exact.gpu = {
         entry.logCursor = next;
       }
       for (const {canvas, error} of restoreJournal.splice(0)) world.push({canvas, lines:[error]});
-      if (world.length) reply.world = world;
+      if (world.length) reply.world = [...(reply.world ?? []), ...world]; // another artifact's worlds too
     }
     return restoreReply(reply);
   },
@@ -770,6 +779,9 @@ exact.gpu = {
   /// Time moved (the agent's `clock`): render what wants a frame, once.
   schedule() { for (const entry of surfaces.values()) if (entry.id && entry.wants) { entry.wants = false; gpu.gpu_bind_at(entry.id, JSON.stringify(entry.values), exact.now?.()); } schedule(); },
 };
+// Standalone, the one module is `exact.gpu`. Routed, the router hands this
+// instance the surfaces queued for its artifact before its script arrived.
+if (artifact === null) exact.gpu = api; else exact.gpu.register(stem, api);
 
 function shaderRows(assets, module = gpu) {
   const names = new Set(JSON.parse(module.gpu_shader_names())), decoder = new TextDecoder("utf-8", { fatal: true });
@@ -794,22 +806,22 @@ async function loadShaders(module) {
 // entry owns a candidate's Wasm memory. Production remains the static ES module.
 async function loadModule(version) {
   if (!version) {
-    const module = await import("./gpu.js");
-    await module.default({ module_or_path: new URL("./gpu_bg.wasm", import.meta.url) });
+    const module = await import(`./${stem}.js`);
+    await module.default({ module_or_path: new URL(`./${stem}_bg.wasm`, import.meta.url) });
     if (typeof module.gpu_child_view !== "function") throw new Error("GPU module is missing gpu_child_view");
     return module;
   }
-  const response = await fetch(new URL(`./gpu.js?g=${version}`, import.meta.url));
+  const response = await fetch(new URL(`./${stem}.js?g=${version}`, import.meta.url));
   if (!response.ok) throw new Error(`GPU loader HTTP ${response.status}`);
   const module = new Function(`${await response.text()}; return wasm_bindgen;`)();
-  await module({ module_or_path: new URL(`./gpu_bg.wasm?g=${version}`, import.meta.url) });
+  await module({ module_or_path: new URL(`./${stem}_bg.wasm?g=${version}`, import.meta.url) });
   if (typeof module.gpu_child_view !== "function") throw new Error("GPU module is missing gpu_child_view");
   return module;
 }
 async function swap(version) {
   await ready;
   await recoveringDevice;
-  if (loaded && version === exact.gpu.version) return { ms: 0, errors: [] };
+  if (loaded && version === api.version) return { ms: 0, errors: [] };
   const start = performance.now(), next = await loadModule(version), staged = [];
   const carrier = { worldCarry: exact.worldCarry };
   try {
@@ -852,7 +864,7 @@ async function swap(version) {
     placeChildren(entry);
   }
   for (const [, entry] of staged) if (entry.pendingRestore?.carrier === carrier) entry.pendingRestore.carrier = exact;
-  exact.gpu.version = version;
+  api.version = version;
   if (carrier.worldCarry === undefined) { delete exact.worldCarry; delete globalThis.exactWorldCarry; }
   const depth = exact.applyDepth ?? 0; exact.applyDepth = depth + 1;
   try { for (const [,entry] of staged) attach(entry); }
@@ -862,22 +874,25 @@ async function swap(version) {
 }
 const t0 = performance.now();
 try {
-  const version = exact.gpuVersion ?? 0;
+  const version = (stem === "gpu" ? exact.gpuVersion : exact.gpuVersions?.[stem]) ?? 0;
   gpu = await loadModule(version);
   await gpu.gpu_load();
   if (exact.now) gpu.gpu_seekable(true);
   replaceShaders(await loadShaders(gpu));
-  exact.gpu.version = version;
+  api.version = version;
   loaded = true;
 } catch (error) { gpu?.gpu_unload(); gpu = undefined; console.error("exact gpu:", error); }
-if (loaded) exact.root.dataset.gpuMs = (performance.now() - t0).toFixed(1);
+if (loaded) { loadMs = performance.now() - t0; if (stem === "gpu") exact.root.dataset.gpuMs = loadMs.toFixed(1); }
 try {
   const waiting = [...surfaces.values()];
   const report = error => { exact.devError?.(String(error)); console.error("exact gpu:", error); };
-  for (const s of exact.pendingSurfaces ?? []) if (s.generation === exact.generation) {
-    try { exact.gpu.surface(s.id, s.name, s.values); } catch (error) { report(error); }
+  // Routed, the router delivered this artifact's queued surfaces at registration.
+  if (artifact === null) {
+    for (const s of exact.pendingSurfaces ?? []) if (s.generation === exact.generation) {
+      try { api.surface(s.id, s.name, s.values); } catch (error) { report(error); }
+    }
+    exact.pendingSurfaces = [];
   }
-  exact.pendingSurfaces = [];
   // A refused initial surface must not prevent independent canvases from loading.
   for (const entry of waiting) { try { ensure(entry); } catch (error) { report(error); } }
 } finally { finishReady(loaded); }

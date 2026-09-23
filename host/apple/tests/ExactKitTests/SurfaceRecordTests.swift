@@ -21,7 +21,7 @@ final class SurfaceRecordTests: XCTestCase {
         let bytes = try Data(contentsOf: dir.appendingPathComponent("app.plan"))
         plan?(bytes)
         let session = ExactApp.shared.makeSession(label: "surface-record")
-        session.canvases.loadRequested = true // No GPU is needed to exercise publication ownership.
+        session.canvases.attempted = [""] // No GPU is needed to exercise publication ownership.
         let batch = session.boot(plan: bytes, size: CGSize(width: 300, height: 100))
         XCTAssertNil(batch.error)
         return session

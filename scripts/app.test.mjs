@@ -754,6 +754,27 @@ test('E11 partial bakes select only their graph and production retains GPU bindi
   assert.equal(bindGpuProduct('release','development'),true);
 });
 
+test('D6 GPU modules bake beside the primary and each surface has one owner', async () => {
+  const {bakeSelection, gpuModules, readManifest} = await import('./app.mjs');
+  const {mkdtempSync, writeFileSync, rmSync} = await import('node:fs');
+  const {resolve} = await import('node:path');
+  const {tmpdir} = await import('node:os');
+  const graph = {root:{id:'host'}, surface:{id:'gpu'}, modules:[{id:'world'}]};
+  assert.deepEqual(bakeSelection(graph, 'gpu'), [graph.surface, graph.modules[0]]);
+  assert.deepEqual(bakeSelection(graph), [graph.surface, graph.modules[0], graph.root]);
+  assert.deepEqual(bakeSelection({...graph, surface:undefined}), [graph.modules[0], graph.root], 'a module needs no primary');
+  assert.deepEqual(gpuModules({gpu:{modules:{world:['world', 'arena']}}}), [{name:'world', surfaces:['world', 'arena']}]);
+  assert.deepEqual(gpuModules({}), []);
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-gpu-modules-'));
+  const manifest = gpu => { writeFileSync(resolve(dir, 'app.json'), JSON.stringify({name:'M', app:{id:'com.exact.m', name:'M'}, gpu})); return () => readManifest(dir, 'm'); };
+  try {
+    assert.equal(manifest({modules:{world:['world']}})().gpu.modules.world[0], 'world');
+    assert.throws(manifest({modules:{a:['world'], b:['world']}}), /surface world is claimed by both a and b/);
+    assert.throws(manifest({modules:{World:['world']}}), /gpu\.modules\.World: a module name/);
+    assert.throws(manifest({modules:{world:[]}}), /gpu\.modules\.world: names no surface/);
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
+
 test('a worktree whose target resolves into another checkout is refused', async () => {
   const { mkdtempSync, mkdirSync, symlinkSync, rmSync, writeFileSync } = await import('node:fs');
   const { resolve } = await import('node:path');

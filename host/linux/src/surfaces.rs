@@ -1,4 +1,6 @@
 //! Device-free canvas ownership over the same dynamic module ABI as Apple.
+//! One library per GPU artifact (LLP 1009 D6): the primary, and each declared
+//! module, opened the first time a canvas of one of its surfaces appears.
 //! @ref LLP 1046.001 D7; LLP 1015 §7
 #![allow(unsafe_code)]
 use crate::{Host, Presenter};
@@ -27,21 +29,26 @@ struct Abi {
     output_error: std::cell::RefCell<Option<String>>,
 }
 impl Abi {
-    fn open(compat: &Value) -> Result<Self, String> {
+    fn open(compat: &Value, artifact: &str) -> Result<Self, String> {
         let binary = std::env::current_exe().map_err(|e| e.to_string())?;
-        let card = &compat["embedded"]["gpu"];
-        let name = card["name"]
+        let name = gpu_card(compat, artifact)["name"]
             .as_str()
             .ok_or("GPU module has no baked identity")?;
-        let path = module_path(
-            &binary.with_file_name(name),
-            compat,
-            std::env::var_os("EXACT_GPU_MODULE").map(PathBuf::from),
-        );
-        Self::open_path(&path, compat)
+        // A declared module sits beside the binary; only the primary has a
+        // development override.
+        let path = if artifact.is_empty() {
+            module_path(
+                &binary.with_file_name(name),
+                compat,
+                std::env::var_os("EXACT_GPU_MODULE").map(PathBuf::from),
+            )
+        } else {
+            binary.with_file_name(name)
+        };
+        Self::open_path(&path, compat, artifact)
     }
-    fn open_path(path: &std::path::Path, compat: &Value) -> Result<Self, String> {
-        verify_module(path, compat)?;
+    fn open_path(path: &std::path::Path, compat: &Value, artifact: &str) -> Result<Self, String> {
+        verify_module(path, compat, artifact)?;
         // SAFETY: the app's own module, with the ABI checked before any call.
         let abi = Self {
             library: unsafe { Library::new(path) }.map_err(|e| e.to_string())?,
@@ -177,9 +184,31 @@ fn module_path(
     }
     default.to_path_buf()
 }
-fn verify_module(path: &std::path::Path, compat: &Value) -> Result<(), String> {
+/// The baked identity of `artifact`: "" the primary's, else a declared
+/// module's (LLP 1009 D6), one signed digest each.
+fn gpu_card<'a>(compat: &'a Value, artifact: &str) -> &'a Value {
+    if artifact.is_empty() {
+        &compat["embedded"]["gpu"]
+    } else {
+        &compat["embedded"]["gpuModules"][artifact]
+    }
+}
+/// The artifact that owns surface `name`: the declared module that lists it, else "".
+fn artifact_of(compat: &Value, name: &str) -> String {
+    let owns = |(_, names): &(&String, &Value)| {
+        names
+            .as_array()
+            .is_some_and(|n| n.iter().any(|n| n == name))
+    };
+    compat["inputs"]["gpuModules"]
+        .as_object()
+        .and_then(|modules| modules.iter().find(owns))
+        .map(|(module, _)| module.clone())
+        .unwrap_or_default()
+}
+fn verify_module(path: &std::path::Path, compat: &Value, artifact: &str) -> Result<(), String> {
     use sha2::{Digest, Sha256};
-    let card = &compat["embedded"]["gpu"];
+    let card = gpu_card(compat, artifact);
     let refuse = |reason: &str| format!("GPU module {}: {reason}", path.display());
     if !card.is_object() {
         return Err(refuse("missing baked identity"));
@@ -226,6 +255,8 @@ pub(crate) struct ControlBinding {
 struct Canvas {
     id: u32,
     name: String,
+    /// The artifact that created it (LLP 1009 D6): "" the primary.
+    artifact: String,
     owner: bool,
     since: u64,
     held: BTreeSet<String>,
@@ -270,8 +301,9 @@ impl Canvas {
 }
 #[derive(Default)]
 pub(crate) struct Surfaces {
-    abi: Option<Abi>,
-    attempted: bool,
+    /// Each opened artifact by name, "" the primary; each is tried once.
+    abis: BTreeMap<String, Abi>,
+    attempted: BTreeSet<String>,
     canvases: BTreeMap<u32, Canvas>,
     restore: Option<Result<Vec<u8>, String>>,
     restore_read: bool,
@@ -320,7 +352,7 @@ impl Surfaces {
             .collect();
         for view in dead {
             let c = self.canvases.remove(&view).unwrap();
-            self.abi.as_ref().unwrap().destroy(c.id);
+            self.abis[&c.artifact].destroy(c.id);
             if c.owner {
                 self.error = self.error.take().or(host.surface_record(&c.name, None));
                 changed = true;
@@ -339,9 +371,16 @@ impl Surfaces {
             }));
             return changed;
         }
-        if !updates.is_empty() && !self.attempted {
-            self.attempted = true;
-            match Abi::open(&serde_json::from_str(compat).unwrap_or(Value::Null)) {
+        let compat: Value = if updates.is_empty() {
+            Value::Null
+        } else {
+            serde_json::from_str(compat).unwrap_or(Value::Null)
+        };
+        for artifact in updates.iter().map(|u| artifact_of(&compat, &u.name)) {
+            if !self.attempted.insert(artifact.clone()) {
+                continue;
+            }
+            match Abi::open(&compat, &artifact) {
                 Ok(abi) => {
                     let length =
                         unsafe { abi.symbol::<unsafe extern "C" fn() -> u32>(b"gpu_recover")() };
@@ -351,13 +390,13 @@ impl Surfaces {
                     if report.as_ref().is_none_or(|r| r["status"] != "no device") {
                         self.error = Some("headless recovery did not report no device".into());
                     }
-                    self.abi = Some(abi);
+                    self.abis.insert(artifact, abi);
                 }
                 Err(e) => host.log(format!("surface module unavailable: {e}")),
             }
         }
-        let Some(abi) = &self.abi else {
-            if self.attempted {
+        if self.abis.is_empty() {
+            if !self.attempted.is_empty() {
                 self.outcomes.extend(self.work.drain(..).map(|request| {
                     (
                         request.ticket,
@@ -371,18 +410,22 @@ impl Surfaces {
             return changed;
         };
         for update in updates {
+            let artifact = artifact_of(&compat, &update.name);
             if self
                 .canvases
                 .get(&update.view)
                 .is_some_and(|c| c.name != update.name)
             {
                 let old = self.canvases.remove(&update.view).unwrap();
-                abi.destroy(old.id);
+                self.abis[&old.artifact].destroy(old.id);
                 if old.owner {
                     self.error = self.error.take().or(host.surface_record(&old.name, None));
                     changed = true;
                 }
             }
+            let Some(abi) = self.abis.get(&artifact) else {
+                continue;
+            };
             if !self.canvases.contains_key(&update.view) {
                 let id = unsafe {
                     abi.symbol::<unsafe extern "C" fn(*const u8, usize) -> u32>(
@@ -405,6 +448,7 @@ impl Surfaces {
                     Canvas {
                         id,
                         name: update.name.clone(),
+                        artifact,
                         owner,
                         since: 0,
                         held: BTreeSet::new(),
@@ -469,6 +513,7 @@ impl Surfaces {
             }
         }
         for (&view, c) in &mut self.canvases {
+            let abi = &self.abis[&c.artifact];
             let mut delivered = false;
             for _ in 0..16 {
                 let names = abi
@@ -584,7 +629,7 @@ impl Surfaces {
                 .filter(|(view, canvas)| {
                     canvas.name == name && host.kernel().node(**view).is_some()
                 })
-                .map(|(view, canvas)| (*view, canvas.id))
+                .map(|(view, canvas)| (*view, canvas.id, canvas.artifact.clone()))
                 .collect();
             if matches.len() != 1 {
                 completed.push((
@@ -599,7 +644,8 @@ impl Surfaces {
                 ));
                 continue;
             }
-            let (view, id) = matches[0];
+            let (view, id, ref artifact) = matches[0];
+            let abi = &self.abis[artifact];
             if let Some(bytes) = restore {
                 let ok = unsafe {
                     abi.symbol::<unsafe extern "C" fn(u32, *const u8, usize, u32) -> bool>(
@@ -655,8 +701,10 @@ impl Surfaces {
             }
         }
         self.outcomes.extend(completed);
-        if let Some(error) = abi.error() {
-            self.error = Some(error);
+        for abi in self.abis.values() {
+            if let Some(error) = abi.error() {
+                self.error = Some(error);
+            }
         }
         changed
     }
@@ -666,11 +714,10 @@ impl Surfaces {
     ) -> BTreeMap<u32, crate::placement::Placement> {
         use crate::placement::Placement;
         let mut result = BTreeMap::new();
-        let Some(abi) = &self.abi else {
-            return result;
-        };
         for (&view, canvas) in &self.canvases {
-            let Some(node) = host.kernel().node(view) else {
+            let (Some(node), Some(abi)) =
+                (host.kernel().node(view), self.abis.get(&canvas.artifact))
+            else {
                 continue;
             };
             if unsafe { abi.symbol::<Read>(b"gpu_children_mode")(canvas.id) } != 3 {
@@ -756,11 +803,7 @@ impl Surfaces {
 
     pub(crate) fn wants_input(&self, view: u32) -> bool {
         self.canvases.get(&view).is_some_and(|c| unsafe {
-            self.abi
-                .as_ref()
-                .unwrap()
-                .symbol::<Read>(b"gpu_wants_input")(c.id)
-                != 0
+            self.abis[&c.artifact].symbol::<Read>(b"gpu_wants_input")(c.id) != 0
         })
     }
     fn input(&mut self, view: u32, event: Value) -> bool {
@@ -769,7 +812,7 @@ impl Surfaces {
             if event["t"] == "key" && event["down"] == false && !c.held.contains(code) {
                 return true;
             }
-            let abi = self.abi.as_ref().unwrap();
+            let abi = &self.abis[&c.artifact];
             if abi.text(b"gpu_input", c.id, &event.to_string()) != 0 {
                 self.error = abi.error();
                 return false;
@@ -833,7 +876,7 @@ impl<D: DataSource> Presenter<D> {
         let Some(c) = self.surfaces.canvases.get_mut(&view) else {
             return json!({"unavailable":true,"device":false});
         };
-        let abi = self.surfaces.abi.as_ref().unwrap();
+        let abi = &self.surfaces.abis[&c.artifact];
         q["now"] = self.host.now().into();
         if let Some((x, y, w, h)) = rect.filter(|r| r.2 > 0. && r.3 > 0.) {
             q["width"] = w.into();
@@ -1021,6 +1064,7 @@ mod tests {
             let mut c = Canvas {
                 id: 1,
                 name: "world".into(),
+                artifact: String::new(),
                 owner: true,
                 since: 0,
                 held: Default::default(),
@@ -1146,7 +1190,7 @@ const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)reply; }
         ] {
             let mut wrong = compat.clone();
             wrong["embedded"]["gpu"][key] = value.into();
-            let error = Abi::open_path(&path, &wrong)
+            let error = Abi::open_path(&path, &wrong, "")
                 .err()
                 .expect("mismatch must refuse");
             assert!(
@@ -1154,8 +1198,8 @@ const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)reply; }
                 "{error}"
             );
         }
-        assert!(Abi::open_path(&path, &Value::Null).is_err());
-        drop(Abi::open_path(&path, &compat).unwrap());
+        assert!(Abi::open_path(&path, &Value::Null, "").is_err());
+        drop(Abi::open_path(&path, &compat, "").unwrap());
         // A digest-authenticated old child ABI must refuse before any call.
         let source = path.with_file_name("probe.c");
         let old = std::fs::read_to_string(&source)
@@ -1173,7 +1217,7 @@ const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)reply; }
         let mut old_compat = compat.clone();
         old_compat["embedded"]["gpu"]["sha256"] =
             format!("{:x}", Sha256::digest(std::fs::read(&path).unwrap())).into();
-        let error = Abi::open_path(&path, &old_compat)
+        let error = Abi::open_path(&path, &old_compat, "")
             .err()
             .expect("old ABI refused");
         assert!(error.contains("gpu_child_view"), "{error}");
@@ -1201,12 +1245,15 @@ const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)reply; }
             path.parent().unwrap().into(),
         )
         .unwrap();
-        p.surfaces.abi = Some(Abi::open_path(&path, &compat).unwrap());
+        p.surfaces
+            .abis
+            .insert(String::new(), Abi::open_path(&path, &compat, "").unwrap());
         p.surfaces.canvases.insert(
             1,
             Canvas {
                 id: 1,
                 name: "world".into(),
+                artifact: String::new(),
                 owner: true,
                 since: 0,
                 held: BTreeSet::new(),
@@ -1273,12 +1320,15 @@ const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)reply; }
         let canvas = find(&p, "world");
         let button = find(&p, "jump");
         let rename = find(&p, "rename");
-        p.surfaces.abi = Some(Abi::open_path(&path, &compat).unwrap());
+        p.surfaces
+            .abis
+            .insert(String::new(), Abi::open_path(&path, &compat, "").unwrap());
         p.surfaces.canvases.insert(
             canvas,
             Canvas {
                 id: 1,
                 name: "world".into(),
+                artifact: String::new(),
                 owner: true,
                 since: 0,
                 held: Default::default(),
@@ -1351,12 +1401,15 @@ const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)reply; }
         .unwrap();
         let canvas = find(&p, "world");
         let under = find(&p, "under");
-        p.surfaces.abi = Some(Abi::open_path(&path, &compat).unwrap());
+        p.surfaces
+            .abis
+            .insert(String::new(), Abi::open_path(&path, &compat, "").unwrap());
         p.surfaces.canvases.insert(
             canvas,
             Canvas {
                 id: 1,
                 name: "world".into(),
+                artifact: String::new(),
                 owner: true,
                 since: 0,
                 held: Default::default(),
@@ -1385,7 +1438,7 @@ const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)reply; }
         std::fs::write(&product, b"module").unwrap();
         // A standalone app without delivery has no trust component in its cohort.
         let mut compat = json!({"id":"cohort","inputs":{"app":"game","trust":null},"embedded":{"gpu":{"app":"game","cohort":"cohort","trust":"development","receipt":true}}});
-        assert!(verify_module(&product, &compat).is_err());
+        assert!(verify_module(&product, &compat, "").is_err());
         use sha2::{Digest, Sha256};
         std::fs::write(
             &receipt,
@@ -1393,15 +1446,15 @@ const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)reply; }
                 .to_string(),
         )
         .unwrap();
-        verify_module(&product, &compat).unwrap();
+        verify_module(&product, &compat, "").unwrap();
         std::fs::write(&product, b"changed").unwrap();
-        assert!(verify_module(&product, &compat).is_err());
+        assert!(verify_module(&product, &compat, "").is_err());
         std::fs::write(&product, b"module").unwrap();
         compat["inputs"]["trust"] = json!("production");
-        assert!(verify_module(&product, &compat).is_err());
+        assert!(verify_module(&product, &compat, "").is_err());
         compat["inputs"]["trust"] = Value::Null;
         compat["embedded"]["gpu"]["trust"] = json!("production");
-        assert!(verify_module(&product, &compat).is_err());
+        assert!(verify_module(&product, &compat, "").is_err());
         std::fs::remove_dir_all(dir).unwrap();
     }
     #[test]
@@ -1421,7 +1474,7 @@ const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)reply; }
     #[test]
     fn oversized_module_output_is_a_structured_refusal() {
         let (path, compat) = fixture();
-        let abi = Abi::open_path(&path, &compat).unwrap();
+        let abi = Abi::open_path(&path, &compat, "").unwrap();
         let reply = abi.agent(1, &json!({"op":"state"}));
         assert!(reply["error"].as_str().unwrap().contains("256 MiB"));
         for symbol in [b"gpu_carry".as_slice(), b"gpu_published", b"gpu_messages"] {
