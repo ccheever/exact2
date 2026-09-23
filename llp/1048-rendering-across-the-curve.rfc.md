@@ -411,6 +411,26 @@ answers them after it takes over.
     their own view is ready;
   - desktop layout;
   - navigation.
+- **As built (1b, 2026-09-23): the acceptance case passes** (Interview 4d72261 on
+  exact2 dc7d9a28, the Interview lane):
+  - under the server's real CSP, the prompt, post, person and `/` pages are
+    adopted (`adopted: true`, "6 of 6 answers taken");
+  - no content is lost while the runtime starts;
+  - a signed-in reader with a cold replica keeps the public content until their
+    own view is ready;
+  - parsed parity differs only by the Sign in button, which the client adds
+    after its session check;
+  - status codes, HEAD, ETag/304 and D11's caching headers are as specified.
+
+  At 150 ms per request (a loopback proxy) and 6 Mbit/s:
+
+  | Page | Content visible, served | Content visible, client-rendered | Adopted at |
+  |---|---|---|---|
+  | Question | 343 ms | 3,689 ms | 3.9 s |
+  | `/` | 345 ms | 3,575 ms | 3.9 s |
+
+  The server renders a page in 30–69 ms median, at load 90–230. The time to
+  adoption is what LLP 1047's runtime size buys down.
 - **Parity.** The served HTML, parsed, equals the live host's document for every
   rendered route of every app, normalized. A difference names the element and
   attribute.
