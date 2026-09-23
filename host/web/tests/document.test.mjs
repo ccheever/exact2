@@ -103,7 +103,7 @@ function differences(served, live, where = 'root', out = []) {
 
 /** Serve the rendered page for `location` beside dist/, launch Chrome, and
  * hand `drive` a way to open tabs on it; everything is torn down after. */
-async function withDocument(location, drive, { wasmAfter = null, tamper = (page) => page, origin = null, html = null, files = {} } = {}) {
+async function withDocument(location, drive, { wasmAfter = null, glueAfter = null, tamper = (page) => page, origin = null, html = null, files = {} } = {}) {
   let server = null, url = `${origin}${location}`;
   if (!origin) {
     const page = tamper(html ?? renderedPage(location));
@@ -112,6 +112,7 @@ async function withDocument(location, drive, { wasmAfter = null, tamper = (page)
       if (files[req.url]) { res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(files[req.url]); return; }
       // A slow network, where a test needs the runtime to still be loading.
       if (wasmAfter && req.url.startsWith('/app.wasm')) await wasmAfter;
+      if (glueAfter && req.url.startsWith('/glue.js')) await glueAfter;
       serveStatic(dist, req, res);
     });
     await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
@@ -223,6 +224,36 @@ check(`a press on the document before the runtime starts is replayed once${unava
     await live(settled);
     expect(await live("document.documentElement.style.colorScheme")).toBe('dark');
   }, { wasmAfter });
+}, 180000);
+
+check(`a press before the glue runs is captured, replays once, and a later one isn't doubled${unavailable ? ` — ${unavailable}` : ''}`, async () => {
+  // LLP 1048.000 D6, 1048.001 D5: the page's inline capture script hears a
+  // press from first parse; here the glue is held back until after it.
+  let release;
+  const glueAfter = new Promise((resolve) => { release = resolve; });
+  await withDocument('/?agent=1', async (tab) => {
+    const live = await tab(true);
+    await live.until("!!document.querySelector('[data-testid=scheme-dark]') && typeof globalThis.exact?.taps === 'function'", 'the served document');
+    const press = async (testId) => {
+      const at = await live(`(() => { const r = document.querySelector('[data-testid=${testId}]').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
+      for (const type of ['mousePressed', 'mouseReleased']) await live.call('Input.dispatchMouseEvent', { type, x: at[0], y: at[1], button: 'left', clickCount: 1 });
+    };
+    await press('scheme-dark');
+    expect(await live('typeof globalThis.exact.agent')).toBe('undefined');
+    expect(await live("document.documentElement.style.colorScheme")).toBe('');
+    release();
+    await live.until("document.getElementById('exact-root')?.dataset.moduleReady === 'true'", 'the runtime');
+    await live.until("document.documentElement.style.colorScheme === 'dark'", 'the replayed press');
+    await live(settled);
+    const presses = async () => (await live("exact.agent({op:'logs'})")).lines.filter((l) => /press view \d+ \(setScheme\)/.test(l)).length;
+    expect(await presses()).toBe(1);
+    expect((await live("exact.agent({op:'state'})")).adopted).toBe(true);
+    // After adoption a press is the runtime's own: once.
+    await press('scheme-light');
+    await live.until("document.documentElement.style.colorScheme === 'light'", 'the live press');
+    await live(settled);
+    expect(await presses()).toBe(2);
+  }, { glueAfter });
 }, 180000);
 
 /** An app's render server (LLP 1048.000 D10) over its dist, on loopback —

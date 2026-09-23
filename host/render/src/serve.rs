@@ -899,12 +899,16 @@ fn csp(grants: &str, dist: &Path) -> String {
     }
     // The admitted TypeScript module and its host prelude run in a private
     // same-origin realm. Admit their exact baked bytes, never arbitrary inline JS.
-    let mut scripts = String::from("'self' 'wasm-unsafe-eval'");
+    // A document's one inline script, the host's capture script, likewise.
+    use sha2::{Digest, Sha256};
+    let hash = |bytes: &[u8]| exact_data::envelope::base64(&Sha256::digest(bytes));
+    let mut scripts = format!(
+        "'self' 'wasm-unsafe-eval' 'sha256-{}'",
+        hash(crate::page::capture().as_bytes())
+    );
     for file in ["module-prelude.js", "app.js"] {
         if let Ok(bytes) = std::fs::read(dist.join(file)) {
-            use sha2::{Digest, Sha256};
-            let hash = exact_data::envelope::base64(&Sha256::digest(bytes));
-            let _ = write!(scripts, " 'sha256-{hash}'");
+            let _ = write!(scripts, " 'sha256-{}'", hash(&bytes));
         }
     }
     format!(

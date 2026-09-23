@@ -219,6 +219,19 @@ fn each_route_answers_by_its_policy() {
         csp.contains("connect-src 'self' https://api.blog.test;"),
         "{csp}"
     );
+    // The page's one inline script that runs, the capture script, by hash.
+    let capture = {
+        use sha2::{Digest, Sha256};
+        let digest = Sha256::digest(exact_render::capture().as_bytes());
+        exact_data::envelope::base64(&digest)
+    };
+    assert!(csp.contains(&format!("'sha256-{capture}'")), "{csp}");
+    assert!(body.contains(&format!("<script>{}</script>", exact_render::capture())));
+    let scripts = csp
+        .split(';')
+        .find(|d| d.trim().starts_with("script-src"))
+        .unwrap();
+    assert!(!scripts.contains("unsafe-inline"), "{scripts}");
     for source in ["prelude", "module"] {
         use sha2::{Digest, Sha256};
         let hash = exact_data::envelope::base64(&Sha256::digest(source.as_bytes()));

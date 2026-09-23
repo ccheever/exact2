@@ -221,7 +221,8 @@ globalThis.exact.documentHead = documentHead;
 const checkpoint = document.querySelector('script[type="application/vnd.exact.checkpoint"]');
 if (checkpoint?.dataset.activate === "interaction" && !globalThis.exact.documentPage) {
   const root = document.getElementById("exact-root");
-  const page = globalThis.exact.documentPage = documentBoot({ root });
+  // The presses the page's capture script took before this ran come first.
+  const page = globalThis.exact.documentPage = documentBoot({ root, early: globalThis.exact.taps?.() });
   page.started.then(() => requestAnimationFrame(() => requestAnimationFrame(() => {
     // The same parallel downloads as a client page, started only by intent.
     for (const [file, rel] of [["./app.wasm", "preload"], ["./navigation.js", "modulepreload"]]) {

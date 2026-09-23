@@ -26,7 +26,7 @@ mod serve;
 mod source;
 
 pub use executor::Executor;
-pub use page::page;
+pub use page::{capture, page};
 pub use pages::pages;
 pub use serve::{Serve, Server, Stopper};
 pub use source::Anonymous;
