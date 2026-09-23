@@ -268,6 +268,9 @@ fn files_health_and_the_edges_of_http() {
         header(&headers, "content-type"),
         Some("text/javascript; charset=utf-8")
     );
+    // The CSP is a page's: on a script it would govern only a worker made
+    // from it, and the module worker evaluates the module it verified.
+    assert!(header(&headers, "content-security-policy").is_none());
     assert_eq!(get(addr, "/assets/dot.png").0, 200);
     let (status, _, body) = get(addr, "/.exact/health");
     assert_eq!((status, body.as_str()), (200, "ok\n"));

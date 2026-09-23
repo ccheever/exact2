@@ -209,9 +209,19 @@ impl Response {
         for (name, value) in &self.headers {
             let _ = write!(out, "{name}: {value}\r\n");
         }
+        // A page's policy. On a script's response a CSP would govern only a
+        // worker made from it, and a module worker evaluates the module text
+        // it verified against the receipt (LLP 1027.002 D2).
+        let page = self
+            .headers
+            .iter()
+            .any(|(name, value)| *name == "Content-Type" && value.starts_with("text/html"));
+        if page {
+            let _ = write!(out, "Content-Security-Policy: {csp}\r\n");
+        }
         let _ = write!(
             out,
-            "Content-Security-Policy: {csp}\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: strict-origin-when-cross-origin\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            "X-Content-Type-Options: nosniff\r\nReferrer-Policy: strict-origin-when-cross-origin\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
             self.body.len()
         );
         let _ = stream.write_all(out.as_bytes());
