@@ -661,3 +661,37 @@ fn removed_hud_pointer_press_returns_focus_to_its_canvas() {
 fn removed_hud_keyboard_press_returns_focus_to_its_canvas() {
     removing_hud_button_returns_input_to_its_canvas(true);
 }
+
+#[test]
+fn a_declared_module_is_routed_by_surface_and_verified_by_its_own_card() {
+    // LLP 1009 D6: every surface a module does not list is the primary's, and
+    // each artifact is admitted only by its own signed digest.
+    use sha2::{Digest, Sha256};
+    let dir = std::env::temp_dir().join(format!("d6-gpu-modules-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (night, world) = (dir.join("libnight.dylib"), dir.join("libworld.dylib"));
+    std::fs::write(&night, b"night").unwrap();
+    std::fs::write(&world, b"world").unwrap();
+    let card = |bytes: &[u8]| json!({"app":"app","cohort":"cohort","trust":"production","sha256":format!("{:x}", Sha256::digest(bytes))});
+    let compat = json!({"id":"cohort","inputs":{"app":"app","gpuModules":{"world":["world","arena"]}},
+        "embedded":{"gpu":card(b"night"),"gpuModules":{"world":card(b"world")}}});
+    assert_eq!(artifact_of(&compat, "arena"), "world");
+    assert_eq!(artifact_of(&compat, "night"), "");
+    assert_eq!(
+        artifact_of(&json!({}), "world"),
+        "",
+        "one artifact owns every surface"
+    );
+    verify_module(&night, &compat, "").unwrap();
+    verify_module(&world, &compat, "world").unwrap();
+    assert!(verify_module(&world, &compat, "")
+        .unwrap_err()
+        .contains("digest mismatch"));
+    assert!(verify_module(&night, &compat, "world")
+        .unwrap_err()
+        .contains("digest mismatch"));
+    assert!(verify_module(&world, &compat, "other")
+        .unwrap_err()
+        .contains("missing baked identity"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
