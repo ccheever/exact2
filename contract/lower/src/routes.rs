@@ -17,6 +17,21 @@ impl Lowerer<'_> {
                 Ok((render, activate)) => self.b.set_route_policy(id, render, activate),
                 Err(e) => self.errors.push(e),
             }
+            // @ref LLP 1048.000 D2 — the source listing its pages, and its
+            // arguments (values, as types checked).
+            let pages = row.fields.iter().find(|f| f.name == "pages");
+            if let Some(Expr::Call(source, args, _)) = pages.map(|f| &f.value) {
+                let args: Vec<Value> = args
+                    .iter()
+                    .map(|arg| match arg {
+                        Expr::Number(n, _) => Value::Number(*n),
+                        Expr::Str(s, _) => Value::str(s),
+                        Expr::Bool(b, _) => Value::Bool(*b),
+                        _ => Value::Unit,
+                    })
+                    .collect();
+                self.b.set_route_pages(id, source, &args);
+            }
         }
         // expand inserted this root slot before all authored/lifted states.
         self.b.set_router(self.slots[0]);
@@ -81,11 +96,13 @@ fn route_policy(
                 activate = ActivatePolicy::Interaction;
                 continue;
             }
+            // Its source call is types' and `declare_routes`'.
+            ("pages", _) => continue,
             ("render", _) => "`render` is a word: client, build, cached or request".to_owned(),
             ("activate", _) => "`activate` is a word: idle, never or interaction".to_owned(),
-            (other, _) => {
-                format!("a route has no field `{other}`: it takes `render=` and `activate=`")
-            }
+            (other, _) => format!(
+                "a route has no field `{other}`: it takes `render=`, `activate=` and `pages=`"
+            ),
         };
         return err(
             "lower-route-field",
@@ -93,13 +110,27 @@ fn route_policy(
             field.span,
         );
     }
-    // A parameterized route's pages are listed at build by `pages=`, which
-    // comes with enumeration (LLP 1048.000 D2).
-    if render == RenderPolicy::Build && row.pattern.split('/').any(|s| s.starts_with(':')) {
+    // A parameterized route renders at build only the pages `pages=` lists
+    // (LLP 1048.000 D2); `pages=` names pages a build or a server renders.
+    let listed = row.fields.iter().any(|f| f.name == "pages");
+    if render == RenderPolicy::Build
+        && !listed
+        && row.pattern.split('/').any(|s| s.starts_with(':'))
+    {
         return err(
             "lower-route-field",
             format!(
-                "route `{}` has parameters, so it can't render at build until its pages are listed (`pages=`, with enumeration)",
+                "route `{}` has parameters, so it renders at build only the pages `pages=source()` lists",
+                row.name
+            ),
+            row.span,
+        );
+    }
+    if listed && render == RenderPolicy::Client {
+        return err(
+            "lower-route-field",
+            format!(
+                "route `{}` renders on the client, so it has no pages to list: `pages=` goes with `render=build`, `cached` or `request`",
                 row.name
             ),
             row.span,

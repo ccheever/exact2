@@ -233,6 +233,16 @@ impl Plan {
                 return Err(bad("notfound"));
             }
             notfound |= route.notfound;
+            // @ref LLP 1048.000 D2 — a pages source's arguments are a list.
+            let listed = matches!(
+                Value::from_bytes(self.bytes(route.pages_args)),
+                Ok(Value::List(_))
+            );
+            if self.str(route.pages).is_empty() != (route.pages_args.len == 0)
+                || (route.pages_args.len > 0 && !listed)
+            {
+                return Err(bad("pages_args"));
+            }
         }
         if let Some(id) = self.router {
             let slot = self.slot(id);

@@ -453,6 +453,16 @@
           "name": "activate",
           "codec": "enum:ActivatePolicy",
           "_comment": "@ref LLP 1048.003 D5: when a rendered page's runtime loads; inferred when undeclared."
+        },
+        {
+          "name": "pages",
+          "codec": "str",
+          "_comment": "@ref LLP 1048.000 D2, LLP 1048.003 D5: the source that lists a parameterized route's pages \u2014 the values of its one parameter, a list<string> \u2014 for the build to render and the server's sitemap to name. Empty: none."
+        },
+        {
+          "name": "pages_args",
+          "codec": "bytes",
+          "_comment": "@ref LLP 1048.000 D2: that source's arguments, values (a list in the plan's value encoding); empty bytes without a source."
         }
       ]
     }

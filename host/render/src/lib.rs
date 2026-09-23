@@ -19,16 +19,18 @@
 
 mod executor;
 mod page;
+mod pages;
 mod serve;
 mod source;
 
 pub use executor::Executor;
 pub use page::page;
+pub use pages::pages;
 pub use serve::{Serve, Server};
 pub use source::Anonymous;
 
 use exact_kernel::Kernel;
-use exact_plan::Plan;
+use exact_plan::{Plan, RenderPolicy};
 use exact_runner::{
     DataSource, Dispatch, FailureKind, Interrupt, Outcome, RequestOut, Runner, RunnerError,
 };
@@ -53,6 +55,28 @@ pub enum Settled {
     /// their placeholders with `pending(x)` true, and the checkpoint lists
     /// them for the runtime to ask again.
     Deadline,
+    /// The executor turned requests away at its limits: the page is
+    /// answered as one at its deadline is, and no cache keeps it.
+    Busy,
+}
+
+impl Rendered {
+    /// The HTTP status (LLP 1048.000 D11), in this order:
+    /// 1. a location the router sends to its not-found route is 404 — or
+    ///    410 if its head says so. Neither its data failing nor the
+    ///    deadline makes an unknown URL one to try again;
+    /// 2. a render at its deadline, or turned away (`Busy`), is 503;
+    /// 3. the head's own status: 404, 410, or 503 for failed data;
+    /// 4. otherwise 200.
+    pub fn status(&self, notfound: bool) -> u16 {
+        match (notfound, self.settled, self.document.head.status) {
+            (true, _, Some(410)) => 410,
+            (true, _, _) => 404,
+            (false, Settled::Deadline | Settled::Busy, _) => 503,
+            (false, Settled::Complete, Some(status)) => status,
+            (false, Settled::Complete, None) => 200,
+        }
+    }
 }
 
 /// One location, rendered.
@@ -85,11 +109,12 @@ pub fn render<D: DataSource>(
     site: &Site,
     deadline: Duration,
 ) -> Result<Rendered, String> {
-    let until = Instant::now() + deadline;
     let data = Anonymous::new(data);
     let initially_ready = data.ready();
-    let watchdog = Watchdog::arm(data.interrupt(), until);
+    // The deadline waits for sources, not for the transport to start.
     let executor = Executor::start(exact_runner::DataSource::grants(&data));
+    let until = Instant::now() + deadline;
+    let watchdog = Watchdog::arm(data.interrupt(), until);
     let mut runner = Runner::boot_with_delivery(
         plan.clone(),
         data,
@@ -256,10 +281,9 @@ pub fn settle<D: DataSource>(
     executor: &Executor,
     deadline: Instant,
 ) -> Result<Settled, RunnerError> {
-    let mut parked = BTreeMap::new();
-    let mut refused = BTreeSet::new();
+    let mut held = Held::default();
     loop {
-        hand_out(runner, executor, &mut parked, &mut refused);
+        hand_out(runner, executor, &mut held);
         let outcomes = executor.drain();
         if !outcomes.is_empty() {
             for (ticket, outcome) in outcomes {
@@ -272,7 +296,7 @@ pub fn settle<D: DataSource>(
                         ..
                     }
                 ) {
-                    refused.insert(ticket);
+                    held.refused.insert(ticket);
                     continue;
                 }
                 runner.fulfill(ticket, outcome)?;
@@ -282,9 +306,13 @@ pub fn settle<D: DataSource>(
         if runner
             .pending()
             .iter()
-            .all(|(_, ticket)| refused.contains(ticket))
+            .all(|(_, t)| held.refused.contains(t) || held.busy.contains(t))
         {
-            return Ok(Settled::Complete);
+            return Ok(if held.busy.is_empty() {
+                Settled::Complete
+            } else {
+                Settled::Busy
+            });
         }
         if Instant::now() >= deadline {
             return Ok(Settled::Deadline);
@@ -296,54 +324,53 @@ pub fn settle<D: DataSource>(
 /// What the last commit asked for goes to the executor (LLP 1016 D2); a
 /// continuation is dispatched on this thread, after that commit (LLP
 /// 1027.002 D3), and one its source holds waits for a later release.
-fn hand_out<D: DataSource>(
-    runner: &mut Runner<D>,
-    executor: &Executor,
-    parked: &mut BTreeMap<u64, RequestOut>,
-    refused: &mut BTreeSet<u64>,
-) {
+/// A render's requests that aren't simply in flight.
+#[derive(Default)]
+struct Held {
+    /// Held by their source until a later commit releases them.
+    parked: BTreeMap<u64, RequestOut>,
+    /// Refused by the environment: the resource keeps its placeholder.
+    refused: BTreeSet<u64>,
+    /// Turned away at the executor's limits: the render is busy.
+    busy: BTreeSet<u64>,
+}
+
+fn hand_out<D: DataSource>(runner: &mut Runner<D>, executor: &Executor, held: &mut Held) {
     // The runner holds no refusals in a render, so nothing fences the lane.
     executor.resume_ordered();
     for r in runner.take_requests() {
         // Device capabilities: the environment has none.
         if r.request.surface.is_some() || r.request.storage.is_some() {
-            refused.insert(r.ticket);
+            held.refused.insert(r.ticket);
             continue;
         }
         let dispatch = match r.request.continuation {
             Some(token) => runner.dispatch_work(token),
             None => Dispatch::Missing,
         };
-        run(executor, parked, refused, r, dispatch);
+        run(executor, held, r, dispatch);
     }
     for (token, dispatch) in runner.release_work() {
-        if let Some(r) = parked.remove(&token) {
-            run(executor, parked, refused, r, dispatch);
+        if let Some(r) = held.parked.remove(&token) {
+            run(executor, held, r, dispatch);
         }
     }
 }
 
-fn run(
-    executor: &Executor,
-    parked: &mut BTreeMap<u64, RequestOut>,
-    refused: &mut BTreeSet<u64>,
-    r: RequestOut,
-    dispatch: Dispatch,
-) {
+fn run(executor: &Executor, held: &mut Held, r: RequestOut, dispatch: Dispatch) {
     let ticket = r.ticket;
     let admitted = match dispatch {
         Dispatch::Run(work) => executor.run(r, Some(work)),
         Dispatch::Held => {
             if let Some(token) = r.request.continuation {
-                parked.insert(token, r);
+                held.parked.insert(token, r);
             }
             Ok(())
         }
         Dispatch::Host(_) | Dispatch::Missing => executor.run(r, None),
     };
-    // Over the executor's limits: the client asks it.
     if admitted.is_err() {
-        refused.insert(ticket);
+        held.busy.insert(ticket);
     }
 }
 
@@ -501,6 +528,20 @@ pub fn main<D: DataSource + Default + 'static>(baked: &[u8]) -> std::process::Ex
                 return ExitCode::FAILURE;
             }
         }
+        // @ref LLP 1048.000 D2 — and every page a build route's source lists.
+        for row in decoded
+            .routes
+            .iter()
+            .filter(|r| r.render == RenderPolicy::Build)
+        {
+            match pages(&decoded, D::default(), row, deadline) {
+                Ok(found) => locations.extend(found.into_iter().map(|l| (l, false))),
+                Err(e) => {
+                    eprintln!("render: {e}");
+                    return ExitCode::FAILURE;
+                }
+            }
+        }
     } else if locations.is_empty() {
         return usage();
     }
@@ -524,12 +565,7 @@ pub fn main<D: DataSource + Default + 'static>(baked: &[u8]) -> std::process::Ex
         match rendered {
             Ok((rendered, page)) => {
                 let settled = rendered.settled == Settled::Complete;
-                let status = match rendered.document.head.status {
-                    _ if !settled => 503,
-                    Some(status) => status,
-                    None if notfound => 404,
-                    None => 200,
-                };
+                let status = rendered.status(notfound);
                 let _ = write!(
                     line,
                     ",\"notfound\":{notfound},\"status\":{status},\"settled\":{settled},\"robots\":{}",

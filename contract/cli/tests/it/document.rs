@@ -306,6 +306,66 @@ fn routes_declare_their_render_and_activation_policies() {
 }
 
 #[test]
+fn a_parameterized_route_lists_its_pages_with_a_source() {
+    // @ref LLP 1048.000 D2, LLP 1048.003 D5
+    let src = "routes nav\n  tab home \"/\"\n    post \"/post/:post\" render=build pages=posts(\"public\", 50)\n  person \"/people/:person\" render=cached pages=people()\ncomponent A\n  view\n    text \"a\"\n";
+    let plan = contract::compile(src).unwrap();
+    let row = |name: &str| {
+        plan.routes
+            .iter()
+            .find(|r| plan.str(r.name) == name)
+            .unwrap()
+    };
+    assert_eq!(plan.str(row("post").pages), "posts");
+    assert_eq!(
+        exact_plan::Value::from_bytes(plan.bytes(row("post").pages_args)).unwrap(),
+        exact_plan::Value::list(vec![Value::str("public"), Value::Number(50.0)])
+    );
+    assert_eq!(plan.str(row("person").pages), "people");
+    assert_eq!(plan.str(row("home").pages), "");
+    // The source's signature is the seam's: its values, a list of strings.
+    let posts = plan
+        .sources
+        .iter()
+        .find(|s| plan.str(s.name) == "posts")
+        .unwrap();
+    assert_eq!(posts.params.len, 2);
+    assert_eq!(plan.type_(posts.ty).kind, exact_plan::TypeKind::List);
+    for (routes, id, says) in [
+        (
+            "  tab home \"/\" render=build pages=posts()\n",
+            "type-route-pages",
+            "route `home` has 0",
+        ),
+        (
+            "  tab home \"/\"\n    pair \"/a/:a/b/:b\" render=build pages=pairs()\n",
+            "type-route-pages",
+            "route `pair` has 2",
+        ),
+        (
+            "  tab home \"/\"\n    post \"/post/:post\" render=build pages=\"all\"\n",
+            "type-route-pages",
+            "`pages=` is a source call",
+        ),
+        (
+            "  tab home \"/\"\n    post \"/post/:post\" render=build pages=posts(nav)\n",
+            "type-route-pages",
+            "arguments are values",
+        ),
+        (
+            "  tab home \"/\"\n    post \"/post/:post\" pages=posts()\n",
+            "lower-route-field",
+            "renders on the client",
+        ),
+    ] {
+        let src = format!("routes nav\n{routes}component A\n  view\n    text \"a\"\n");
+        let error = contract::compile(&src).unwrap_err();
+        assert_eq!(error.id, id, "{src}: {error}");
+        assert!(error.message.contains(says), "{src}: {}", error.message);
+    }
+}
+
+#[test]
 fn scroll_document_binds_an_expression_too() {
     use exact_kernel::PropValue;
     let marked = |src: &str| {

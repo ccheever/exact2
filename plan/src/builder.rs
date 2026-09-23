@@ -319,8 +319,23 @@ impl PlanBuilder {
             notfound,
             render: RenderPolicy::Client,
             activate: ActivatePolicy::Inferred,
+            pages: StrId(0),
+            pages_args: Bytes { offset: 0, len: 0 },
         });
-        RoutesId(self.plan.routes.len() as u32 - 1)
+        let id = RoutesId(self.plan.routes.len() as u32 - 1);
+        self.plan.routes[id.0 as usize].pages = self.str("");
+        self.plan.routes[id.0 as usize].pages_args = self.no_data();
+        id
+    }
+
+    /// The source that lists a parameterized route's pages, with its
+    /// arguments (LLP 1048.000 D2).
+    pub fn set_route_pages(&mut self, id: RoutesId, source: &str, args: &[Value]) {
+        let source = self.str(source);
+        let args = self.data(&Value::list(args.to_vec()));
+        let row = &mut self.plan.routes[id.0 as usize];
+        row.pages = source;
+        row.pages_args = args;
     }
 
     /// A route's declared render and activation policies (LLP 1048.003 D5);

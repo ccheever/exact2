@@ -131,7 +131,7 @@ const SITE: Site<'static> = Site {
     origin: None,
 };
 
-fn warm_transport() {
+pub fn warm_transport() {
     // Server::bind prepares the platform transport before accepting requests.
     // The per-render deadlines below exercise that same running-server path.
     static WARM: std::sync::Once = std::sync::Once::new();
@@ -210,6 +210,8 @@ fn at_the_deadline_the_placeholder_stays_and_the_checkpoint_lists_it() {
         started.elapsed()
     );
     assert_eq!(r.settled, Settled::Deadline);
+    // A deadline is a 503, but an unknown URL stays a 404 (LLP 1048.000 D11).
+    assert_eq!((r.status(false), r.status(true)), (503, 404));
     assert!(r.document.root.contains(">loading<"), "{}", r.document.root);
     assert!(
         r.checkpoint.contains("\"pending\":[\"post\"]"),
@@ -315,4 +317,72 @@ fn a_page_is_the_shell_around_the_document() {
     assert!(html.contains("src=\"./document-glue.js\""));
     assert!(!html.contains("src=\"./glue.js\""));
     assert!(!html.contains("app.wasm"));
+}
+
+#[test]
+fn a_route_lists_its_pages_with_its_source() {
+    // @ref LLP 1048.000 D2
+    #[derive(Default)]
+    struct Listed {
+        later: bool,
+    }
+    impl DataSource for Listed {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+        fn answer(
+            &mut self,
+            _: &mut Store,
+            source: &str,
+            args: &[Value],
+        ) -> Result<Answer, DataError> {
+            assert_eq!((source, args), ("posts", &[Value::str("public")][..]));
+            Ok(if self.later {
+                Answer::Later(Request::continuation(9))
+            } else {
+                Answer::Now(Value::list(vec![Value::str("1"), Value::str("two words")]))
+            })
+        }
+        fn continuation(&mut self, _: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
+            Some(Box::new(|| {
+                Outcome::Response(Response {
+                    status: 200,
+                    headers: vec![],
+                    body: b"3".to_vec(),
+                })
+            }))
+        }
+        fn parse(
+            &mut self,
+            _: &mut Store,
+            _: &str,
+            _: &[Value],
+            outcome: Outcome,
+        ) -> Result<Answer, DataError> {
+            let Outcome::Response(r) = outcome else {
+                return Err(DataError::Unavailable("no reply".into()));
+            };
+            Ok(Answer::Now(Value::list(vec![Value::str(
+                &String::from_utf8_lossy(&r.body),
+            )])))
+        }
+    }
+    let plan = contract::compile(
+        "routes nav\n  tab home \"/\" render=build\n    post \"/post/:post\" render=build pages=posts(\"public\")\ncomponent A\n  view\n    text \"a\"\n",
+    )
+    .unwrap();
+    let row = plan
+        .routes
+        .iter()
+        .find(|r| plan.str(r.name) == "post")
+        .unwrap();
+    let listed = exact_render::pages(&plan, Listed::default(), row, Duration::from_secs(5));
+    assert_eq!(listed.unwrap(), ["/post/1", "/post/two%20words"]);
+    let later = exact_render::pages(&plan, Listed { later: true }, row, Duration::from_secs(5));
+    assert_eq!(later.unwrap(), ["/post/3"]);
+    // The build's own list leaves the listed route to its source.
+    assert_eq!(
+        exact_web::document::build_locations(&plan).unwrap(),
+        vec![("/".to_string(), false)]
+    );
 }

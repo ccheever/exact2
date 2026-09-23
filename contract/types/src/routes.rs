@@ -215,3 +215,59 @@ pub fn expand_path(
     }
     Ok(Expr::Template(parts, span))
 }
+
+/// A route's `pages=` (LLP 1048.000 D2, LLP 1048.003 D5): a source call over
+/// values that lists the values of the route's one parameter, `list<string>`.
+/// The build asks it once, and the server for its sitemap. Its signature
+/// joins the seam's.
+pub(super) fn pages_source(
+    row: &contract_syntax::RouteDecl,
+    field: &contract_syntax::Attr,
+    ct: &mut ComponentTypes,
+) -> Result<(), TypeError> {
+    let params = row
+        .pattern
+        .split('/')
+        .filter(|s| s.starts_with(':'))
+        .count();
+    if params != 1 {
+        return err(
+            "type-route-pages",
+            format!(
+                "`pages=` lists the values of one parameter; route `{}` has {params}",
+                row.name
+            ),
+            field.span,
+        );
+    }
+    let Expr::Call(source, args, _) = &field.value else {
+        return err(
+            "type-route-pages",
+            format!(
+                "`pages=` is a source call, `pages=source(…)` (route `{}`)",
+                row.name
+            ),
+            field.span,
+        );
+    };
+    let mut params = Vec::with_capacity(args.len());
+    for arg in args {
+        params.push(match arg {
+            Expr::Number(..) => Ty::Number,
+            Expr::Str(..) => Ty::String,
+            Expr::Bool(..) => Ty::Bool,
+            other => {
+                return err(
+                    "type-route-pages",
+                    format!(
+                        "`pages=`'s arguments are values, asked once (route `{}`)",
+                        row.name
+                    ),
+                    other.span(),
+                )
+            }
+        });
+    }
+    let list = Ty::List(Box::new(Ty::String));
+    record_source(ct, source, params, list, field.span)
+}

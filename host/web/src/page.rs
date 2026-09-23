@@ -440,17 +440,25 @@ pub fn route_at<'p>(plan: &'p Plan, location: &str) -> Option<&'p exact_plan::Ro
     plan.routes.iter().find(|r| plan.str(r.name) == hit.name)
 }
 
-/// The locations a build renders: every route declared `render=build`
-/// (their patterns have no parameters; the compiler refuses one that does),
-/// and the not-found document when that route is declared so. The
-/// not-found document renders at `/404.html`, which no pattern may match.
+/// Where route `name` is with `value` for its one parameter: a listed page
+/// (LLP 1048.000 D2).
+pub fn route_location(plan: &Plan, name: &str, value: &str) -> Result<String, String> {
+    route_table(plan)
+        .path(name, &[value])
+        .map_err(|e| format!("{e:?}"))
+}
+
+/// The locations a build renders: every route declared `render=build` but
+/// the ones whose pages a source lists (the render host asks it), and the
+/// not-found document when that route is declared so. The not-found
+/// document renders at `/404.html`, which no pattern may match.
 pub fn build_locations(plan: &Plan) -> Result<Vec<(String, bool)>, String> {
     let table = route_table(plan);
     let mut out = Vec::new();
     for row in plan
         .routes
         .iter()
-        .filter(|r| r.render == RenderPolicy::Build)
+        .filter(|r| r.render == RenderPolicy::Build && plan.str(r.pages).is_empty())
     {
         if row.notfound {
             if let Some(hit) = table.matches_pattern("/404.html") {

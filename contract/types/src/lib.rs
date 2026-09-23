@@ -1052,6 +1052,12 @@ fn check_root(
     }
     types.components[0] =
         component::check_component(&expanded.root, types, Some(&expanded.owners), sink);
+    // @ref LLP 1048.000 D2 — each route's `pages=` source, in the root's seam.
+    for row in file.routes.iter().flat_map(|r| &r.rows) {
+        for field in row.fields.iter().filter(|f| f.name == "pages") {
+            sink.keep_unit(routes::pages_source(row, field, &mut types.components[0]));
+        }
+    }
     let scope = types.component_scope(&expanded.root, &types.components[0]);
     let root = &file.components[0];
     uses::check_uses(&root.view, &scope, types, file, sink);

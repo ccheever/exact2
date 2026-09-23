@@ -290,9 +290,18 @@ impl<D: DataSource> Bridge<D> {
     /// The locations `plan` renders at build (LLP 1048.000 D7), as a JSON
     /// array: the web build runs no render step when there are none.
     pub fn build_locations(&mut self, plan: &[u8]) -> u32 {
+        // The routes whose pages a source lists count too, by pattern.
         let found = exact_plan::Plan::decode(plan)
             .map_err(|e| format!("{e:?}"))
-            .and_then(|plan| crate::document::build_locations(&plan));
+            .and_then(|plan| {
+                let mut found = crate::document::build_locations(&plan)?;
+                for row in plan.routes.iter().filter(|r| {
+                    r.render == exact_plan::RenderPolicy::Build && !plan.str(r.pages).is_empty()
+                }) {
+                    found.push((plan.str(row.pattern).to_string(), false));
+                }
+                Ok(found)
+            });
         let out = match found {
             Ok(found) => {
                 let mut json = String::from("[");

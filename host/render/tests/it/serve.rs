@@ -14,7 +14,7 @@ use std::time::Duration;
 const SRC: &str = r#"
 routes nav
   tab home "/" render=build
-    post "/post/:post" render=cached
+    post "/post/:post" render=cached pages=posts("public")
     live "/live/:post" render=request
   tab app "/app"
   notfound render=build
@@ -62,6 +62,10 @@ impl DataSource for Posts {
         };
         match (source, id.as_str()) {
             ("emptyPost", _) => Ok(Answer::Now(post(""))),
+            ("posts", _) if args == [Value::str("public")] => Ok(Answer::Now(Value::list(vec![
+                Value::str("7"),
+                Value::str("an idea"),
+            ]))),
             ("post", "slow") => Ok(Answer::Later(Request::continuation(1))),
             ("post", "boom") => Err(DataError::Unavailable("boom".into())),
             ("post", "cache-probe") => Ok(Answer::Now(post(&format!(
@@ -115,6 +119,7 @@ fn dist(name: &str) -> PathBuf {
 }
 
 fn start(name: &str, renders: usize, queue: usize, deadline: u64) -> SocketAddr {
+    super::warm_transport();
     let serve = Serve {
         dist: dist(name),
         port: 0,
@@ -286,12 +291,18 @@ fn files_health_and_the_edges_of_http() {
 #[test]
 fn a_full_queue_answers_503_at_once() {
     // One render at a time, and nothing may wait for it.
-    // The slow render holds the only worker for a second.
+    // The slow render holds the only worker for a second. A probe that
+    // reaches the worker first (a loaded machine) is simply served.
     let addr = start("queue", 1, 0, 1000);
     let slow = std::thread::spawn(move || get(addr, "/post/slow"));
-    std::thread::sleep(Duration::from_millis(200));
-    let (status, headers, body) = get(addr, "/post/7");
-    assert_eq!((status, body.as_str()), (503, "busy\n"));
+    let (headers, body) = (0..40)
+        .find_map(|_| {
+            std::thread::sleep(Duration::from_millis(20));
+            let (status, headers, body) = get(addr, "/post/7");
+            (status == 503).then_some((headers, body))
+        })
+        .expect("a probe found the queue full");
+    assert_eq!(body, "busy\n");
     assert_eq!(header(&headers, "retry-after"), Some("1"));
     // The slow one was rendered, at its deadline.
     let (status, _, body) = slow.join().unwrap();
@@ -330,4 +341,30 @@ fn cached_pages_reuse_public_answers_and_honor_request_cache_controls() {
     assert_eq!(get(addr, "/post/cache-probe").2, refreshed);
     assert!(get(addr, "/live/cache-probe").2.contains("Read 4"));
     assert!(get(addr, "/live/cache-probe").2.contains("Read 5"));
+}
+
+#[test]
+fn the_sitemap_lists_each_rendered_route_and_its_listed_pages() {
+    let addr = start("sitemap", 1, 8, 300);
+    let (status, headers, body) = get(addr, "/sitemap.xml");
+    assert_eq!(status, 200);
+    assert_eq!(
+        header(&headers, "content-type"),
+        Some("application/xml; charset=utf-8")
+    );
+    for url in [
+        "https://blog.test/",
+        "https://blog.test/post/7",
+        "https://blog.test/post/an%20idea",
+    ] {
+        assert!(body.contains(&format!("<loc>{url}</loc>")), "{url}\n{body}");
+    }
+    // A route without a pages source isn't in it; neither is the shell's.
+    assert!(!body.contains("/live/") && !body.contains("/app"), "{body}");
+    let (status, _, body) = get(addr, "/robots.txt");
+    assert_eq!(status, 200);
+    assert_eq!(
+        body,
+        "User-agent: *\nAllow: /\nSitemap: https://blog.test/sitemap.xml\n"
+    );
 }
