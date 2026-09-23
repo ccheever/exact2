@@ -787,6 +787,7 @@ mod upstream_layout_differential {
         }
     }
     #[test]
+    #[ignore = "async lane: 512 seeded trees, ~11 s warm; bun scripts/async.mjs runs it"]
     fn seeded_512_trees_match_fresh_frames_content_and_baselines() {
         let mut seed = 0x1043_0007_d1ff_u64;
         let mut measured = 0;

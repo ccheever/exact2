@@ -473,6 +473,7 @@ fn canonical_source_overflow_refuses_193_without_omitting_a_paragraph() {
     );
 }
 #[test]
+#[ignore = "async lane: 192 content-sized sources, ~14 s warm; bun scripts/async.mjs runs it"]
 fn scalar_overflow_is_separate_from_192_source_admission() {
     // This deliberately uses content-dependent flex widths; if it does not
     // exercise M768, retain that fixture failure before changing its shape.
