@@ -15,7 +15,6 @@
 
 - **`bun test host/web/agent.test.mjs`: 17 of 27 fail on main** (2026-09-22, at `c3b585bf`): the glue fixtures lack names the glue now uses (`ReferenceError: mutate is not defined` ×10, `HTMLTextAreaElement` ×4) and one `exact-filesystem` launch fails.
 
-- **Swift `TextMetricsTests` raster cases fail on Mac.lan at `origin/main`** (2026-09-21, after the 73-commit sweep to `2ee75e8`…): 23 failures in six tests (`testWorkerPublicationDefersOnlyOffscreenCurrentPixels`, `testBatchPaintsVisibleTextButDefersOffscreenPreparation`, `testOffscreenResizeRetiresTheRasterItsLayerWouldStretch`, `testRasterPreservesDescendersOutsideTightLineBox`, two more) with LLP 1045's slice 2 removed; the same 23 with it. Not caused by the markup row.
 
 - **CPU nonfinite corner radius** (2026-09-21): a direct internal `Raster.fill` with radii `[4, NaN, 4, 4]`, scale 0.75 and a reflected transform panics in tiny-skia AA scan conversion. Reproduced on published `fb9f8b65`; no authored-app reproduction. Validate malformed internal geometry before path rasterization. Evidence: `/tmp/exact-rounded-interior-fb9f8b65/baseline-pixels.log`.
 

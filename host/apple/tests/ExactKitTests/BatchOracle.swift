@@ -247,3 +247,12 @@ private struct OracleInlineColor: Decodable {
         }
     }
 }
+
+/// A batch as the library sends it: JSON ops through the same typed decoder,
+/// for tests that state a batch as dictionaries.
+func wireBatch(_ ops: [[String: Any]]) -> Batch {
+    let data = try! JSONSerialization.data(withJSONObject: ["ops": ops])
+    let batch = Batch.decode(data)
+    precondition(batch.error == nil, "a test batch did not decode: \(ops)")
+    return batch
+}

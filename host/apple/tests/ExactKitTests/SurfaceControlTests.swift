@@ -107,7 +107,7 @@ final class SurfaceControlTests: XCTestCase {
         let window=NSWindow(contentRect:NSRect(x:0,y:0,width:400,height:200),styleMask:[.borderless],backing:.buffered,defer:false)
         window.contentView=s.presenter.viewport
         s.presenter.onPress = { _ in
-            s.presenter.apply(Batch(ops:[["op":"destroy","id":Int(button.id)]],timers:false,motion:false,clock:nil,error:nil))
+            s.presenter.apply(wireBatch([["op":"destroy","id":Int(button.id)]]))
         }
         XCTAssertTrue(window.makeFirstResponder(button)); button.pressed=true
         let point=button.convert(NSPoint(x:10,y:10),to:nil)
@@ -128,7 +128,7 @@ final class SurfaceControlTests: XCTestCase {
             window.contentView=s.presenter.viewport
             XCTAssertTrue(window.makeFirstResponder(button))
             s.presenter.onPress = { _ in
-                s.presenter.apply(Batch(ops:[["op":"destroy","id":Int(button.id)]],timers:false,motion:false,clock:nil,error:nil))
+                s.presenter.apply(wireBatch([["op":"destroy","id":Int(button.id)]]))
             }
             let event=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:[],timestamp:1,windowNumber:window.windowNumber,context:nil,characters:characters,charactersIgnoringModifiers:characters,isARepeat:false,keyCode:keyCode)!
             window.sendEvent(event)
@@ -146,7 +146,7 @@ final class SurfaceControlTests: XCTestCase {
             s.presenter.root.addSubview(explicit); s.presenter.views[102]=explicit
             XCTAssertTrue(window.makeFirstResponder(button))
             s.presenter.onPress = { _ in
-                s.presenter.apply(Batch(ops:[["op":"destroy","id":Int(button.id)]],timers:false,motion:false,clock:nil,error:nil))
+                s.presenter.apply(wireBatch([["op":"destroy","id":Int(button.id)]]))
                 XCTAssertTrue(window.makeFirstResponder(explicit))
             }
             let enter=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:[],timestamp:1,windowNumber:window.windowNumber,context:nil,characters:"\r",charactersIgnoringModifiers:"\r",isARepeat:false,keyCode:36)!
@@ -161,7 +161,7 @@ final class SurfaceControlTests: XCTestCase {
             window.contentView=s.presenter.viewport
             XCTAssertTrue(window.makeFirstResponder(button))
             s.presenter.onPress = { _ in
-                s.presenter.apply(Batch(ops:[["op":"destroy","id":Int(button.id)],["op":"destroy","id":Int(canvas.id)]],timers:false,motion:false,clock:nil,error:nil))
+                s.presenter.apply(wireBatch([["op":"destroy","id":Int(button.id)],["op":"destroy","id":Int(canvas.id)]]))
             }
             let space=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:[],timestamp:1,windowNumber:window.windowNumber,context:nil,characters:" ",charactersIgnoringModifiers:" ",isARepeat:false,keyCode:49)!
             window.sendEvent(space)
@@ -175,7 +175,7 @@ final class SurfaceControlTests: XCTestCase {
         let (s,_,_)=fixture();defer {s.destroy()}
         for values: [String:Any] in [["restart":false,"seed":7,"paused":true], [:]] {
             boundObjects.removeAll()
-            s.apply(Batch(ops:[["op":"surface","id":100,"name":"world","values":values]],timers:false,motion:false,clock:nil,error:nil))
+            s.apply(wireBatch([["op":"surface","id":100,"name":"world","values":values]]))
             XCTAssertEqual(boundObjects.last,values as NSDictionary)
         }
     }
@@ -250,7 +250,7 @@ final class SurfaceControlTests: XCTestCase {
         let e=Canvases.Entry(view:other,name:"other",values:[]);e.id=2;e.wantsInput=true;s.canvases.entries[200]=e
         XCTAssertTrue(button.control("down",id:7));XCTAssertTrue(second.control("up",id:7));XCTAssertTrue(s.canvases.entries[100]!.controls.isEmpty)
         XCTAssertTrue(button.control("down",id:8));other.addSubview(button)
-        s.presenter.apply(Batch(ops:[],timers:false,motion:false,clock:nil,error:nil))
+        s.presenter.apply(wireBatch([]))
         XCTAssertTrue(s.canvases.entries[100]!.controls.isEmpty)
         withExtendedLifetime((window,canvas)) {}
     }

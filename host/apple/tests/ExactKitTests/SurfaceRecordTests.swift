@@ -35,10 +35,10 @@ final class SurfaceRecordTests: XCTestCase {
             session.canvases.surfaceRecord("world", "{\"beacons\":7}")
             XCTAssertEqual(text.props["text"], "Count 0")
         }
-        session.apply(Batch(ops: [
+        session.apply(wireBatch([
             ["op": "command", "name": "publish", "args": []],
             ["op": "props", "id": Int(text.id), "set": ["text": "stale"], "clear": []],
-        ], timers: false, motion: false, clock: nil, error: nil))
+        ]))
         XCTAssertEqual(text.props["text"], "Count 7")
     }
 
