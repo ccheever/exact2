@@ -860,6 +860,56 @@ mod retained_tests {
         assert_eq!(q.order.capacity(), capacity);
     }
     #[test]
+    fn emitter_reach_contains_every_derived_particle_quad() {
+        let mut w = World::new(60, 3);
+        let shapes = [
+            exact_game::emitter::Shape::Point,
+            exact_game::emitter::Shape::Sphere(1.5),
+            exact_game::emitter::Shape::Cone(0.7, 2.),
+        ];
+        let mut ids = Vec::new();
+        for (i, shape) in shapes.into_iter().enumerate() {
+            for drag in [0., 0.8] {
+                ids.push(w.spawn(Emitter {
+                    shape,
+                    drag,
+                    speed: 4. + i as f32,
+                    spread: 2.5,
+                    gravity: Vec3::new(1., -9.81, 0.5),
+                    size: [0.3, 0.9],
+                    ..Emitter::sparks().rate(200.).lifetime(1.5).seed(i as u64)
+                }));
+            }
+        }
+        for _ in 0..120 {
+            exact_game::emitter::step(&w);
+        }
+        let t = glam::Mat4::from_scale_rotation_translation(
+            Vec3::new(2., 0.5, 1.),
+            glam::Quat::from_rotation_z(0.7),
+            Vec3::new(3., 1., -2.),
+        );
+        let (right, up) = (Vec3::X, Vec3::Y);
+        for id in ids {
+            let e = w.get::<Emitter>(id).unwrap();
+            let reach = emitter_reach(&e, &t);
+            let mut seen = 0;
+            for alpha in [0., 0.5, 1.] {
+                e.particles(60, alpha, |p| {
+                    seen += 1;
+                    let centre = t.transform_point3(p.position);
+                    let x = right * p.size * t.x_axis.truncate().length();
+                    let y = up * p.size * t.y_axis.truncate().length();
+                    for corner in [x + y, x - y, -x + y, -x - y] {
+                        let d = (centre + corner * 0.5).distance(t.w_axis.truncate());
+                        assert!(d <= reach * 1.0001, "{d} beyond reach {reach}");
+                    }
+                });
+            }
+            assert!(seen > 100);
+        }
+    }
+    #[test]
     fn every_kind_and_owner_ordinal_has_the_same_total_order() {
         let mut kinds = vec![Kind::Particle(false), Kind::Model(0, 0), Kind::Sprite(0)];
         #[cfg(not(target_arch = "wasm32"))]

@@ -89,10 +89,16 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         }
         let (scene_copy, retained) = self.prepare_targets(size, needs);
         let cascades = self.prepare_effects(frame);
+        self.environment.prepare(&self.queue, &frame.environment);
         self.queue.write_buffer(
             &self.uniform,
             0,
-            bytes(&frame::uniform(frame, cascades.as_ref(), size)),
+            bytes(&frame::uniform(
+                frame,
+                cascades.as_ref(),
+                size,
+                &self.environment.irradiance,
+            )),
         );
         self.quads
             .frame::<ASSETS>(frame, &self.models.textures, !self.cull.keep_all);
@@ -110,6 +116,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             draws: 0,
         };
         let mut encoder = self.device.create_command_encoder(&Default::default());
+        self.environment.encode(&mut encoder);
         if ASSETS {
             if let Some(skin) = &self.models.skinning {
                 skin.encode(&mut encoder, frame.timestamps);

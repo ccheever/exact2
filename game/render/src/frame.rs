@@ -1,7 +1,7 @@
 use crate::{shadows::Cascades, FrameInput};
 use glam::Vec3;
 
-pub(crate) const FLOATS: usize = 260;
+pub(crate) const FLOATS: usize = 296;
 
 pub(crate) fn has_sky(frame: &FrameInput<'_>) -> bool {
     let e = frame.environment;
@@ -19,6 +19,7 @@ pub(crate) fn uniform(
     frame: &FrameInput<'_>,
     cascades: Option<&Cascades>,
     size: (u32, u32),
+    irradiance: &[f32; 36],
 ) -> [f32; FLOATS] {
     let mut data = [0.0; FLOATS];
     data[..16].copy_from_slice(&(frame.proj * frame.view).to_cols_array());
@@ -73,5 +74,6 @@ pub(crate) fn uniform(
     }
     data[256] = size.0 as f32;
     data[257] = size.1 as f32;
+    data[260..296].copy_from_slice(irradiance);
     data
 }

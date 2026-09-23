@@ -19,6 +19,7 @@ mod cull;
 mod cull_tests;
 mod frame;
 pub mod hooks;
+mod ibl;
 mod model_pipeline;
 mod models;
 mod perf;

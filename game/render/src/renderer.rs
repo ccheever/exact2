@@ -54,6 +54,7 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     culled_binds: [wgpu::BindGroup; 2],
     culled_key: (wgpu::Buffer, u64),
     pub(crate) cull: crate::cull::Cull,
+    pub(crate) environment: crate::ibl::EnvironmentLight,
     vertices: Buffer,
     indices: Buffer,
     pub(crate) meshes: Vec<Mesh>,
@@ -158,6 +159,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             wgpu::BufferUsages::STORAGE,
             "game attachment matrices",
         );
+        let environment = crate::ibl::EnvironmentLight::new(device, false);
         let retained_binds = scene_binds(
             device,
             &pipelines.scene_layout,
@@ -166,6 +168,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             &materials,
             (&slots.raw, None),
             &attachment_matrices,
+            &environment,
         );
         let cull = crate::cull::Cull::new(device);
         let culled_key = (cull.compacted.raw.clone(), cull.window);
@@ -177,6 +180,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             &materials,
             (&cull.compacted.raw, Some(cull.window)),
             &attachment_matrices,
+            &environment,
         );
         let targets = Targets::new(device, (64, 64), &pipelines.tone_layout, &uniform);
         Self {
@@ -198,6 +202,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             culled_binds,
             culled_key,
             cull,
+            environment,
             vertices: Buffer::new(device, 1024, wgpu::BufferUsages::VERTEX, "game vertices"),
             indices: Buffer::new(device, 1024, wgpu::BufferUsages::INDEX, "game indices"),
             meshes: Vec::new(),
@@ -206,7 +211,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             targets,
             shadows: None,
             bloom: None,
-            texture_creations: 3,
+            texture_creations: 4,
             hook_binding: None,
             custom_bindings: None,
             hook_targets: None,
@@ -598,6 +603,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             &self.materials,
             (&self.slots.raw, None),
             &self.attachment_matrices,
+            &self.environment,
         );
         self.rebind_culled();
     }
@@ -611,6 +617,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             &self.materials,
             (&self.cull.compacted.raw, Some(self.cull.window)),
             &self.attachment_matrices,
+            &self.environment,
         );
     }
 }
@@ -622,6 +629,7 @@ fn record_end(first: u32, len: usize, stride: usize) -> u64 {
 
 // `slots` is the retained list (whole buffer, offset zero) or the culled lists
 // through a fixed window whose dynamic offset selects one view's group region.
+#[allow(clippy::too_many_arguments)]
 fn scene_binds(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
@@ -630,26 +638,36 @@ fn scene_binds(
     materials: &Buffer,
     slots: (&wgpu::Buffer, Option<u64>),
     attachments: &Buffer,
+    environment: &crate::ibl::EnvironmentLight,
 ) -> [wgpu::BindGroup; 2] {
     std::array::from_fn(|current| {
-        let buffers = [
-            uniform,
-            &transforms[1 - current].raw,
-            &transforms[current].raw,
-            &materials.raw,
-            slots.0,
-            &attachments.raw,
+        let slots = match slots.1 {
+            Some(size) => wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                buffer: slots.0,
+                offset: 0,
+                size: std::num::NonZeroU64::new(size),
+            }),
+            None => slots.0.as_entire_binding(),
+        };
+        let resources = [
+            uniform.as_entire_binding(),
+            transforms[1 - current].raw.as_entire_binding(),
+            transforms[current].raw.as_entire_binding(),
+            materials.raw.as_entire_binding(),
+            slots,
+            attachments.raw.as_entire_binding(),
+            wgpu::BindingResource::TextureView(&environment.view),
+            wgpu::BindingResource::Sampler(&environment.sampler),
         ];
-        let entries: [_; 6] = std::array::from_fn(|i| wgpu::BindGroupEntry {
-            binding: i as u32,
-            resource: match (i, slots.1) {
-                (4, Some(size)) => wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                    buffer: slots.0,
-                    offset: 0,
-                    size: std::num::NonZeroU64::new(size),
-                }),
-                _ => buffers[i].as_entire_binding(),
-            },
+        let entries = resources.map({
+            let mut binding = 0;
+            move |resource| {
+                binding += 1;
+                wgpu::BindGroupEntry {
+                    binding: binding - 1,
+                    resource,
+                }
+            }
         });
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("game scene"),

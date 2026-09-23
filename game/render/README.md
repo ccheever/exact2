@@ -106,9 +106,10 @@ Culling does not reduce CPU draw calls; measurements are in
 
 ## Effects
 
-`FrameInput::default()` supplies a shadowed sun, gradient sky, hemisphere ambient
-light and bloom. Supply matching view/projection/camera position. All colours are
-linear. `Bloom` and `Fog` are re-exports of the engine's saved types.
+`FrameInput::default()` supplies a shadowed sun, gradient sky, [environment
+light](#environment-lighting) and bloom. Supply matching view/projection/camera
+position. All colours are linear. `Bloom` and `Fog` are re-exports of the engine's
+saved types.
 
 - Sun shadows default to 60 m, three 2048² Depth32Float cascades, practical splits
   (lambda 0.7), rotation-invariant fitting spheres and texel snapping. Casters up
@@ -125,11 +126,28 @@ linear. `Bloom` and `Fog` are re-exports of the engine's saved types.
 - Bloom defaults to threshold 1, intensity 0.16, radius 1.5: one-sided knee, 13-tap
   downsampling and additive tent upsampling. Up to six RGBA16F levels, stopping
   before either dimension falls below 8; tiny outputs retain one level.
-- Sky and hemisphere illumination share zenith/horizon/ground colours. A constant
+- Sky and environment lighting share zenith/horizon/ground colours. A constant
   sky without disc or differing fog colour uses the clear directly. `sun_disc` is
   angular radius in radians. Fog integrates exponential distance and Y-height
   density analytically, including a stable near-horizontal limit; sky uses 10 km.
   Fog is enabled by default. Default density is 0.012/m and height falloff 0.1/m; absent fog colour uses horizon.
+
+### Environment lighting
+
+Ambient light is image-based, from the procedural sky (`Environment.zenith`,
+`horizon`, `ground`) — the flat `background` stays independent of lighting, and the
+sun disc is left out because the sun is a direct light. When those colours change
+(and only then) the renderer projects the sky onto nine SH coefficients on the CPU
+(irradiance / π, in the frame uniform's `irradiance`, part of `FRAME_WGSL`) and
+renders a 32² RGBA16F cube whose six mips hold GGX-prefiltered radiance, roughness
+`mip / 5`, 256 samples per texel: 36 small passes before the frame's geometry.
+Primitive and model shaders share `ibl.wgsl`: split-sum specular samples the cube at
+the reflected direction and `roughness × 5` and scales it by Karis's analytic
+environment BRDF; diffuse is SH irradiance × base × (1 − metallic) × (1 − specular).
+`Environment.ambient` scales both, model occlusion multiplies both, and exposure and
+ACES apply once as before. Metals reflect the sky out of direct light; dielectrics
+reflect about 4% of it at normal incidence. An authored environment map would replace
+only the prefilter's `source()` and the SH projection's radiance function.
 
 `Material::grid(color, spacing)` uses a derivative-antialiased world-space grid,
 projected onto any face in the existing forward shader. Positive saved spacing
@@ -138,9 +156,9 @@ slot (negative spacing). Uploads stay twelve floats per instance and there is no
 extra texture or pipeline. Non-grid materials skip the grid branch. The cubes
 bench explicitly disables fog/bloom to retain its effects-off fast path.
 
-Nineteen primitive/effect pipelines compile at renderer startup: eight forward, two
-shadow, one sky, two tone, three bloom and three culling compute. This is startup
-work, not per-frame work. The
+Twenty primitive/effect pipelines compile at renderer startup: eight forward, two
+shadow, one sky, two tone, three bloom, three culling compute and the environment
+prefilter. This is startup work, not per-frame work. The
 model family is lazy: two shared shader modules and three shared pipeline layouts,
 with only the material/winding variants needed by arrived models. All four
 shadow/fog combinations for each used forward variant are prepared during asset
@@ -205,8 +223,6 @@ Opaque batches stay retained. Only transparent draws are sorted each displayed
 frame, back-to-front in camera depth, using retained tick poses and local centers.
 They keep depth testing, disable depth writes, and do not cast shadows. A model's
 own materials are multiplied by entity base colour and have entity emission added.
-The environment's hemisphere approximation supplies ambient metallic reflection;
-this is not image-based lighting.
 
 Camera/sun/point rotations use normalized linear interpolation histories. The first posed sun
 wins. Point-light selection is feed-only: up to sixteen with positive tick-end
@@ -321,6 +337,7 @@ cargo build -p greybox-gpu --profile web --target wasm32-unknown-unknown
 cargo run -p exact-game-render --release --example cubes -- 500000 240
 cargo run -p exact-game-render --release --example cubes -- 500000 240 one-percent
 cargo run -p exact-game-render --release --example cubes -- 500000 240 still
+cargo run -p exact-game-render --release --example cubes -- 100000 240 field
 cargo test -p exact-game-render --release --lib feed_cpu_cost -- --ignored --nocapture --test-threads=1
 cargo test -p exact-game-render --release -- --ignored --nocapture --test-threads=1
 bun games/greybox/proof.mjs web

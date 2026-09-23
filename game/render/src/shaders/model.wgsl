@@ -100,8 +100,7 @@ fn model_shade(input:ModelVarying, front:bool, visibility:f32) -> vec4<f32> {
     let v=normalize(frame.camera_alpha.xyz-input.world);
     let i=input.slot*12u;
     let glow=vec3(materials[i+6u],materials[i+7u],materials[i+8u]);
-    let f0=mix(vec3(0.04),base.rgb,metallic);
-    var color=(environment(n.y)*base.rgb*(1.0-metallic)+environment(reflect(-v,n).y)*f0*(1.0-roughness*0.5))*frame.zenith_ambient.w*ao+emission*baked.emission_cutoff.rgb+glow;
+    var color=ambient(n,v,base.rgb,metallic,roughness)*ao+emission*baked.emission_cutoff.rgb+glow;
     if frame.sun_direction_illuminance.w>0.0 {
         color+=brdf(n,v,normalize(-frame.sun_direction_illuminance.xyz),base.rgb,metallic,roughness)*frame.sun_color_count.xyz*frame.sun_direction_illuminance.w*visibility;
     }

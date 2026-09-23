@@ -324,8 +324,11 @@ fn sky_gradient_sun_disc_and_height_fog() {
         ),
     )
     .unwrap();
+    // Emission only: without ambient, the black cube reflects no environment.
+    f.environment.ambient = 0.0;
     let high = render(&gpu, &mut r, &texture, &f);
-    assert!(at_world(&high, &f, far + Vec3::Y * 20.0).abs_diff(tone(0.02)) <= 3);
+    let seen = at_world(&high, &f, far + Vec3::Y * 20.0);
+    assert!(seen.abs_diff(tone(0.02)) <= 3, "{seen} vs {}", tone(0.02));
 }
 
 pub(super) mod shadow_quality;

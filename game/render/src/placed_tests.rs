@@ -328,9 +328,10 @@ fn captured_children_share_draw_and_hit_depth_and_a_wall_occludes_them() {
     );
     let pixels = fixture::render(&gpu, &mut s, &frame).unwrap().0;
     let [r, g, b, _] = pixels.at(50, 50);
+    // The blue dielectric also reflects a few percent of the sky; red text would be > 200.
     assert!(
-        b > 200 && r < 5 && g < 5,
-        "opaque wall depth-tests captured text"
+        b > 200 && r < 16 && g < 16,
+        "opaque wall depth-tests captured text {r},{g},{b}"
     );
     // Place the captured planes behind the existing camera's near plane.
     s.sim()

@@ -12,12 +12,15 @@ const FRAME: &str = piece!("frame");
 const TRANSFORM: &str = piece!("transform");
 const SHADOW_SAMPLE: &str = piece!("shadow_sample");
 const NO_SHADOW_SAMPLE: &str = piece!("no_shadow_sample");
+const IBL: &str = piece!("ibl");
 const FORWARD: &str = piece!("forward");
 const MODEL: &str = piece!("model");
+/// The environment prefilter, a standalone module (ibl.rs).
+pub(crate) const ENVIRONMENT: &str = piece!("environment");
 
 fn primitive_sources() -> [String; 5] {
     [
-        [FRAME, TRANSFORM, SHADOW_SAMPLE, FORWARD].concat(),
+        [FRAME, TRANSFORM, SHADOW_SAMPLE, IBL, FORWARD].concat(),
         [FRAME, TRANSFORM, piece!("shadow")].concat(),
         [FRAME, piece!("sky")].concat(),
         [FRAME, piece!("tonemap")].concat(),
@@ -26,18 +29,11 @@ fn primitive_sources() -> [String; 5] {
 }
 
 #[cfg(test)]
-pub(crate) fn shader_sources() -> [String; 8] {
+pub(crate) fn shader_sources() -> [String; 9] {
     let [a, b, c, d, e] = primitive_sources();
-    [
-        a,
-        b,
-        c,
-        d,
-        e,
-        model_source(false),
-        model_source(true),
-        cull_source(),
-    ]
+    let models = [model_source(false), model_source(true)];
+    let [f, g] = models;
+    [a, b, c, d, e, f, g, cull_source(), ENVIRONMENT.into()]
 }
 
 /// Frustum culling reuses the scene's transform bindings (0-5) in compute.
@@ -48,24 +44,17 @@ pub(crate) fn cull_source() -> String {
 pub(crate) fn model_source(shadow: bool) -> String {
     // Separate entry points leave the primitive path free of texture bindings/samples.
     // Group 1 is the cascade camera in shadow passes, so sampling is stubbed there.
-    if shadow {
-        [
-            FRAME,
-            TRANSFORM,
-            NO_SHADOW_SAMPLE,
-            FORWARD,
-            MODEL,
-            piece!("model_shadow"),
-        ]
-        .concat()
+    let (sample, tail) = if shadow {
+        (NO_SHADOW_SAMPLE, piece!("model_shadow"))
     } else {
-        [FRAME, TRANSFORM, SHADOW_SAMPLE, FORWARD, MODEL].concat()
-    }
+        (SHADOW_SAMPLE, "")
+    };
+    [FRAME, TRANSFORM, sample, IBL, FORWARD, MODEL, tail].concat()
 }
 
 /// Pipelines every renderer creates at construction: eight forward, two shadow,
-/// sky, two tone, three bloom and three culling compute.
-pub(crate) const STARTUP_PIPELINES: u64 = 19;
+/// sky, two tone, three bloom, three culling compute and the environment prefilter.
+pub(crate) const STARTUP_PIPELINES: u64 = 20;
 
 pub(crate) struct Pipelines {
     pub models: Option<ModelPipelines>,
@@ -146,6 +135,18 @@ impl Pipelines {
                     count: None,
                 },
                 storage(5, wgpu::ShaderStages::VERTEX),
+                // The environment's prefiltered radiance (ibl.wgsl).
+                wgpu::BindGroupLayoutEntry {
+                    binding: 6,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::Cube,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                sampler(7, wgpu::SamplerBindingType::Filtering),
             ],
         );
         let tone_layout = layout(
