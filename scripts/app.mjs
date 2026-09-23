@@ -649,8 +649,10 @@ export function buildBake(app, platform, target, options = {}) {
       const product = output.filter(m => m.reason === 'compiler-artifact' && m.package_id === pkg.id)
         .flatMap(m => m.filenames).find(path => /\.(so|dylib|dll)$/.test(path));
       if (!product) throw new Error(`GPU product missing for ${pkg.name}`);
-      options.prepareGpu?.(product);
-      if (!options.part || bindGpuProduct(options.profile, env.EXACT_UPDATE_TRUST)) env.EXACT_GPU_PRODUCT = product;
+      // A host may prepare (sign) a copy; that copy is the product from here on.
+      const prepared = options.prepareGpu?.(product) ?? product;
+      if (prepared !== product) for (const m of output) if (m.filenames) m.filenames = m.filenames.map((f) => f === product ? prepared : f);
+      if (!options.part || bindGpuProduct(options.profile, env.EXACT_UPDATE_TRUST)) env.EXACT_GPU_PRODUCT = prepared;
     }
   }
   if (options.part === 'gpu') {

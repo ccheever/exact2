@@ -28,7 +28,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { homedir, tmpdir } from 'node:os';
-import { isAbsolute, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { copyShaders, appleCargoClaims, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, bakeTarget, developmentBuildEnv, developmentURLScheme, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
@@ -494,14 +494,29 @@ function main(args) {
   const development = cargoEnv.EXACT_UPDATE_TRUST === 'development' && args.includes('--url') ? developmentAdmission(app, launchEnv.EXACT_DEV_PLAN) : null;
   cargoEnv.EXACT_BAKE_OUTPUT = bakeOutput(app, cargoEnv);
   const buildReceipt = buildBake(app, ios ? 'ios' : 'macos', target, { env: cargoEnv, prepareGpu(product) {
-    run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', product], {stdio:'ignore'});
+    // Cargo puts its own unsigned file back on every build, and a signature
+    // carries its signing time: signing in place made the app's bake (which
+    // names this product's digest) run on every build. Sign a copy beside it,
+    // again only when Cargo's bytes or the identity change.
+    const signed = resolve(dirname(product), 'signed', basename(product)), record = `${signed}.source`;
+    const source = `${createHash('sha256').update(readFileSync(product)).digest('hex')} ${sha1 ?? '-'}\n`;
+    const current = existsSync(signed) && existsSync(record) && readFileSync(record, 'utf8') === source
+      && read('codesign', ['--verify', '--strict', ...(sha1 ? ['-R', `=certificate leaf = H"${sha1}"`] : []), signed]).status === 0;
+    if (!current) {
+      mkdirSync(dirname(signed), { recursive: true });
+      copyFileSync(product, signed);
+      run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', signed], {stdio:'ignore'});
+      writeFileSync(record, source);
+    }
+    return signed;
   }, capture(buildReceipt) {
     const composition = buildReceipt.compat.inputs?.store?.L === '0' ? 'embedded' : 'updating';
     paths = appleArtifacts(app, { destination: ios ? (device ? 'ios' : 'ios-simulator') : 'macos', composition, trust: cargoEnv.EXACT_UPDATE_TRUST });
     mkdirSync(paths.namespace, { recursive: true });
     const capture = mkdtempSync(resolve(paths.namespace, '.capture-'));
     cleanup.push(capture);
-    for (const file of [`lib${crate.replace(/-/g, '_')}.a`, ...(hasGpu ? [dylib] : [])]) captureAppleProduct(buildReceipt, resolve(cargoLibDir, file), resolve(capture, file));
+    captureAppleProduct(buildReceipt, resolve(cargoLibDir, `lib${crate.replace(/-/g, '_')}.a`), resolve(capture, `lib${crate.replace(/-/g, '_')}.a`));
+    if (hasGpu) captureAppleProduct(buildReceipt, resolve(cargoLibDir, 'signed', dylib), resolve(capture, dylib));
     bakedPlan = readFileSync(resolve(cargoEnv.EXACT_BAKE_OUTPUT, `${ios ? 'ios' : 'macos'}-${target}.plan`));
     copyAppleStaticTrees(app.dir, capture, [['assets', 'assets'], ['deck', 'deck']]);
     copyShaders(app, resolve(capture, 'shaders'));
