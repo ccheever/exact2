@@ -87,6 +87,7 @@ const startupStub=()=>{
       exact_compat:()=>out({inputs:{app:'test.startup'}}),exact_logic:()=>out(rustOnly?null:{appId:'test.startup',grants:''}),
       ...(rustOnly?{}:{exact_module_artifact:()=>0}),
       exact_plan:()=>out([]),exact_plan_fonts:()=>out([]),exact_boot:()=>out(batch),exact_boot_plan:()=>out(batch),
+      exact_agent:()=>out({nodes:[]}),
       exact_data_ready:()=>{startup.activations++;startup.activated=true;startup.painted=!!document.getElementById('exact-root').dataset.frameCallbackMs;return out({ops:[
         {op:'props',id:7,set:{disabled:'true'},clear:[]},
         {op:'props',id:8,set:{},clear:['disabled']}
