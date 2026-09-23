@@ -42,7 +42,7 @@ export function developmentOpenPage(app, links = [], page = '/') {
   const scheme = developmentURLScheme(app.id);
   const labels = { macos: 'Open in the Mac client', 'ios-simulator': 'Open in the Simulator client', ios: 'Open in the iPhone or iPad client' };
   const native = links.map(link => `<a class="native" href="${escape(link.href)}">${escape(labels[link.destination] ?? 'Open in native client')}</a>`).join('');
-  return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  return `<!doctype html><html lang="${escape(app.manifest.lang ?? 'en')}"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="referrer" content="no-referrer"><title>Open ${name}</title>
 <style>body{font:17px/1.5 system-ui;margin:0;background:#f4f5f8;color:#172033}main{max-width:620px;margin:6vh auto;padding:28px}h1{line-height:1.15}a{color:#164bc4}nav{display:flex;flex-wrap:wrap;gap:14px;margin:28px 0}nav a{padding:12px 18px;border:1px solid #164bc4;border-radius:10px;text-decoration:none}nav a.native{background:#164bc4;color:white}input{box-sizing:border-box;width:100%;padding:12px;font:14px ui-monospace,monospace}pre{overflow:auto;background:#e7eaf0;padding:12px;border-radius:8px}small{color:#4b566b}</style>
 <main><small>Exact · development</small><h1>Open ${name}</h1>

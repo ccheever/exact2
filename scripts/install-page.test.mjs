@@ -297,3 +297,16 @@ test('the dev opening page offers only the admitted, token-bearing links, escape
   assert.match(none, /No development client built on this Mac admits this server/);
   assert.match(none, /--bundle --url http:\/\/127\.0\.0\.1:8879\/\?q=&quot;x&quot;/);
 });
+
+test('a page takes its language from the manifest, en when it names none', () => {
+  assert.match(installPage(manifest), /<html lang="en">/);
+  assert.match(installPage({...manifest, lang:'fr-CA'}), /<html lang="fr-CA">/);
+  const dir = mkdtempSync(join(tmpdir(), 'exact-lang-'));
+  try {
+    for (const [lang, ok] of [['pt-BR', true], ['en', true], ['en_US', false], ['"><script>', false]]) {
+      writeFileSync(join(dir, 'app.json'), JSON.stringify({name:'L', app:{id:'test.lang', name:'L'}, lang}));
+      if (ok) assert.equal(readManifest(dir, 'l').lang, lang);
+      else assert.throws(() => readManifest(dir, 'l'), /lang/);
+    }
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});

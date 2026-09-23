@@ -1,4 +1,5 @@
 <!doctype html>
+<html lang="en">
 <meta charset="utf-8">
 <!-- @ref LLP 1038 D7 — assets resolve from the origin at any launch path. -->
 <base href="/">
@@ -20,6 +21,10 @@
   #exact-root { height: 100%; font-synthesis: none; }
   body { font: 16px system-ui, sans-serif; }
   button, input, textarea { all: unset; display: block; box-sizing: content-box; cursor: default; }
+  /* A text node with a heading level is an <h1>–<h6> for the accessibility
+     tree; its box is a bare div's, so the UA's heading margins, size and
+     weight go. The node's own style rows, inline, still win. */
+  h1, h2, h3, h4, h5, h6 { margin: 0; font-size: inherit; font-weight: inherit; }
   #exact-root button:focus-visible { outline: revert; outline-offset: 2px; }
   #exact-root button:enabled:hover:not(:focus-visible) { outline: 1px solid currentColor; outline-offset: 2px; }
   input, textarea { cursor: text; -webkit-user-select: text; user-select: text; }

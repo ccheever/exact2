@@ -61,6 +61,11 @@
     "background_color": {
       "type": "string"
     },
+    "lang": {
+      "description": "The W3C manifest's language: a BCP 47 tag for the page's <html lang> and the web manifest. Absent is en.",
+      "type": "string",
+      "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$"
+    },
     "icons": {
       "type": "array",
       "items": {

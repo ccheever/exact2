@@ -54,7 +54,15 @@ Tags: node type → element (`View`→`div`, `Text`→`div`, or `span` for an
 inline run, `ScrollView`→`div[data-scroll]`, `TextInput`→`input`,
 `Pressable`→`button`, `Image`→`img`, `Toggle`→`input[type=checkbox]`), refined
 by `semanticTag` (`main`, `header`, `nav`, `section`, `footer`, `article`,
-`aside`, `dialog`). Props → DOM names: `text`→`textContent`, `testId`→`data-testid`,
+`aside`, `dialog`). A text block with `aria-level` 1–6 and no other role is
+`h1`–`h6` (deeper: a `div` with `role="heading"`); `index.html` resets the
+UA heading margins, size and weight, so its box is a div's — Caltrain's 277
+and the Markdown reader's 120 boxes are unchanged, and Chrome's
+accessibility tree now lists 1 and 6 headings where it listed none
+(2026-09-23). The document's `<html lang>` is `app.json`'s W3C `lang`, `en`
+when absent (every app here is English; WCAG 3.1.1 wants it determinable),
+written into `index.html` and `manifest.json` by the build — every boot starts
+from that page. Props → DOM names: `text`→`textContent`, `testId`→`data-testid`,
 `accessibilityLabel`→`aria-label`, `accessibilityRole`→`role`,
 `placeholder`, `value`, `disabled`, `inert`, `lang`, `imageSource`→`src`; any other
 prop rides as `data-<name>` so nothing is lost. `scrollTop` and `scrollLeft`

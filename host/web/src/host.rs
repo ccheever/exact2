@@ -1078,7 +1078,15 @@ fn tag_for(node: &NodeRef<'_>) -> &'static str {
             if node.is_inline_run() {
                 "span"
             } else {
-                "div"
+                match heading_level(node) {
+                    Some(1) => "h1",
+                    Some(2) => "h2",
+                    Some(3) => "h3",
+                    Some(4) => "h4",
+                    Some(5) => "h5",
+                    Some(6) => "h6",
+                    _ => "div",
+                }
             }
         }
         NodeType::Image => "img",
@@ -1088,6 +1096,29 @@ fn tag_for(node: &NodeRef<'_>) -> &'static str {
         NodeType::Canvas => "canvas",
         NodeType::WebView => "iframe",
         NodeType::Video => "video",
+    }
+}
+
+/// A text block's heading level, when it is a heading: `aria-level` with no
+/// other role. HTML's `h1`–`h6` carry levels 1–6 into the accessibility tree
+/// (an `aria-level` on a role-less `div` is ignored); a deeper level is a
+/// `div` with `role="heading"`. `index.html` resets the UA heading styles, so
+/// the box stays a bare div's. The tag is fixed at creation; a level bound
+/// to data that changes later still reaches `aria-level`.
+fn heading_level(node: &NodeRef<'_>) -> Option<i64> {
+    if node.node_type != NodeType::Text || node.is_inline_run() {
+        return None;
+    }
+    if node
+        .props
+        .str(PropId::AccessibilityRole)
+        .is_some_and(|role| role != "heading")
+    {
+        return None;
+    }
+    match node.props.get(PropId::AccessibilityHeadingLevel) {
+        Some(PropValue::Int(level)) if *level >= 1 => Some(*level),
+        _ => None,
     }
 }
 
@@ -1280,6 +1311,9 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
             }
         };
         out.insert(name.to_string(), text);
+    }
+    if heading_level(node).is_some_and(|level| level > 6) {
+        out.entry("role".into()).or_insert_with(|| "heading".into());
     }
     if node.node_type.scrolls_by_default() {
         out.insert("data-scroll".into(), "true".into());
