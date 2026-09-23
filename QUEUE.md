@@ -22,7 +22,7 @@
 
 - **An XCTest with a wall deadline that load breaks** (2026-09-23, native lane): `TextMetricsTests.testReaderRetainsAcceptedPixelsAndPublishesWhileScrollDemandMoves` shares one 3 s deadline between the first worker raster and the moving-demand loop; at load 120–200 it failed 1 of 4 runs on unmodified sources ("continuous demand cannot discard every worker completion"). Not in the gate; `build.mjs --test` runs it.
 
-- **iOS keyboard focus, after 3a24683c** (2026-09-23, native lane): Tab moves the first responder but does not scroll a focused control into view (the web does); an open sheet does not confine the order (background nodes stay in it); the simulator XCTests (`KeyboardFocusIOSTests`, `FieldCompositionIOSTests`) run only by the `xcodebuild` command in their header — `ExactKitTests` now builds for iOS.
+- **iOS keyboard focus, after 3a24683c** (2026-09-23, native lane): Tab moves the first responder but does not scroll a focused control into view (the web does); an open sheet does not confine the order (background nodes stay in it). The simulator XCTests (every `*IOSTests` class) now run in the async lane for commits under host/apple (87fa8b61; `bun host/apple/build.mjs --test --ios`).
 
 - **Linux autofocus dispatches no `focus`** (2026-09-23, native lane): focus changes now dispatch `blur`/`focus` (2731702d), but autofocus inside the commit service still sets the focus directly; the web and Apple fire `focus` for it.
 
