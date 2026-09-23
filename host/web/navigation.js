@@ -1399,20 +1399,30 @@ export function arrangeController({views,collections,motion,request,applyBatch,n
 // (`[text, scale, weight, flags, href]`; flags italic 1, mono 2, strike 4, link 8,
 // quiet 16), built into spans with textContent — never HTML. Lives here because it
 // must run at boot and glue.js is at its line cap. LLP 1045 D3/D4.
-function markupHref(href) {
+//
+// One scheme allowlist for every URL the page can navigate to: a link's
+// `href` (an authored `link`, an inline run bound to data, a Markdown link),
+// an iframe's `src`, and `openURL`. A `javascript:` URL in any of them runs
+// in this page's origin. The browser's own parser reads the scheme, with the
+// whitespace and control characters `java\tscript:` hides behind.
+export function navigableURL(href, base = document.baseURI) {
   try {
-    // Check the browser's parsed protocol, including its whitespace/control
-    // normalization. Keep source destinations intact; only navigation is gated.
-    const url = new URL(href, document.baseURI);
+    const url = new URL(href, base);
     return ["http:", "https:", "mailto:", "tel:"].includes(url.protocol) ? url.href : null;
   } catch { return null; }
+}
+export const navigates = (el, name) => name === "href" || (name === "src" && el.localName === "iframe");
+/** A refused URL is never written: a link loses its `href`, an iframe shows about:blank. */
+export function refuseURL(el, name, value) {
+  console.warn(`exact: refused ${name} ${JSON.stringify(String(value).slice(0, 80))}: only http, https, mailto and tel navigate`);
+  if (name === "src") el.setAttribute(name, "about:blank"); else el.removeAttribute(name);
 }
 export function renderMarkup(el, json) {
   let pieces;
   try { pieces = JSON.parse(json); } catch { pieces = []; }
   el.replaceChildren();
   for (const [text, scale, weight, flags, href] of pieces) {
-    const destination = flags & 8 && href ? markupHref(href) : null;
+    const destination = flags & 8 && href ? navigableURL(href) : null;
     const span = document.createElement(destination ? "a" : "span");
     // Newlines are `<br>`s: the node's own white-space row still applies to the rest.
     text.split("\n").forEach((line, i) => { if (i) span.appendChild(document.createElement("br")); if (line) span.appendChild(document.createTextNode(line)); });

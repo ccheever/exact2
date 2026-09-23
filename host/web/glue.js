@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { focusController, navigation, collectionController, applyCollectionFeedback, scrollFollowers, motionController, motionBytes, arrangeController, renderMarkup } from "./navigation.js";
+import { focusController, navigation, collectionController, applyCollectionFeedback, scrollFollowers, motionController, motionBytes, arrangeController, renderMarkup, navigableURL, navigates, refuseURL } from "./navigation.js";
 let httpModule;
 function httpHelpers() {
   return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
@@ -424,7 +424,8 @@ function applyProps(el, set, clear) {
       if (value === "true") el.setAttribute(name, ""); else el.removeAttribute(name);
     } else {
       if (el instanceof HTMLIFrameElement && name === "src") iframeLoading.set(el, true);
-      el.setAttribute(name, (name === "src" || name === "href" || name === "poster") ? localAssetURL(value) : value);
+      if (navigates(el, name) && !navigableURL(value)) refuseURL(el, name, value);
+      else el.setAttribute(name, (name === "src" || name === "href" || name === "poster") ? localAssetURL(value) : value);
     }
   }
   if (!inputReady && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLButtonElement)) {
@@ -759,9 +760,9 @@ function apply(batch) {
             console.error("exact: openURL requires one string");
           } else {
             try {
-              const target = new URL(op.args[0]);
-              if (!["http:", "https:", "mailto:", "tel:"].includes(target.protocol)) throw Error("unsupported external URL scheme");
-              window.open(target.href, "_blank", "noopener,noreferrer");
+              const target = navigableURL(new URL(op.args[0]).href);
+              if (!target) throw Error("unsupported external URL scheme");
+              window.open(target, "_blank", "noopener,noreferrer");
             } catch (error) { console.error("exact: openURL refused", String(error)); }
           }
         }

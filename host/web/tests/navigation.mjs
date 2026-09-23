@@ -157,6 +157,19 @@ try {
     const row = {name:'Markdown reader URL policy',rejected:unsafe.length,accepted:safe.length,probe:0,safeClick:true};
     rows.push(row);console.log(JSON.stringify(row));
   });
+  await run('an authored link, a data-bound run and an iframe refuse script URLs', async () => {
+    await fresh();
+    const key = (await state()).navigation.route;
+    await evaluate('new Promise(r => setTimeout(r, 250))'); // an iframe navigates after insertion
+    const attrs = await evaluate(`(()=>{const q=id=>document.querySelector('[data-testid="'+id+'-${key}"]');
+      return {link:[q('script-link').tagName,q('script-link').getAttribute('href')],run:[q('script-run').tagName,q('script-run').getAttribute('href')],frame:q('script-frame').getAttribute('src')};})()`);
+    assert.deepEqual(attrs, {link:['A',null],run:['A',null],frame:'about:blank'});
+    await tap('script-link'); await tap('script-run');
+    await evaluate('new Promise(r => setTimeout(r, 100))');
+    assert.equal(await evaluate('globalThis.scriptProbe ?? 0'), 0, 'no script URL ran');
+    assert.equal(await evaluate('location.pathname'), '/');
+    const row = {name:'script URLs refused', ...attrs, probe:0}; rows.push(row); console.log(JSON.stringify(row));
+  });
   await run('focused route teardown ignores retired blur but preserves live blur', async () => {
     await call('Emulation.setDeviceMetricsOverride', {width:800,height:1200,deviceScaleFactor:1,mobile:false});
     await fresh('/post/42');

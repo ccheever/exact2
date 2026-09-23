@@ -42,6 +42,17 @@ fn browser_session_history_and_published_deep_locations() {
             "  state initialUrl",
             "  state redirectLink = false\n  state followEnabled = true\n  state navigatePresses = 0\n  state backEnabled = true\n  state backReplacement = false\n  state backPresses = 0\n  state initialUrl",
         )
+        // Every attribute that navigates, given a script URL: a literal
+        // `link href`, an inline run's `href` and an iframe's `src` bound
+        // to data (the tab hides the scheme from a naive prefix check).
+        .replace(
+            "  state initialUrl",
+            "  state scriptURL = \"java\\tscript:parent.scriptProbe++\"\n  state initialUrl",
+        )
+        .replace(
+            "          when e.name == \"home\"\n            text \"Home\"\n",
+            "          when e.name == \"home\"\n            text \"Home\"\n            link href=\"javascript:globalThis.scriptProbe++\" testId=`script-link-${e.id}` padding=8\n              text \"Script link\"\n            text testId=`script-text-${e.id}`\n              text \"Script run\" href=scriptURL testId=`script-run-${e.id}`\n            iframe scriptURL width=40 height=20 testId=`script-frame-${e.id}`\n",
+        )
         .replace(
             "  action followLink(url: string) writes nav\n    nav = go(nav, url)",
             "  action followLink(url: string) writes nav, navigatePresses\n    navigatePresses = navigatePresses + 1\n    if redirectLink\n      nav = push(nav, \"/other\")\n    else\n      if followEnabled\n        nav = go(nav, url)\n  action redirectNextLink writes redirectLink\n    redirectLink = true\n  action refuseLink writes followEnabled\n    followEnabled = false",

@@ -215,6 +215,15 @@ selected route is interactive; only it and its immediate modal underlay are
 visible. An unmatched key leaves the previous projection alone and journals
 once per key (1035.001 D6).
 
+**URLs that navigate (2026-09-23).** One allowlist, `navigableURL` in
+`navigation.js` — http, https, mailto and tel, read by the browser's own URL
+parser — gates every `href` `applyProps` writes (an authored `link`, an inline
+run bound to data), a Markdown link's `href` and an iframe's `src`, and the
+`openURL` command. A refused `href` is not written; a refused iframe shows
+`about:blank`; both log a warning. The router sweep (`tests/navigation.mjs`)
+holds a literal `javascript:` link, a `java\tscript:` run and iframe bound to
+data to it.
+
 LLP 1039 adds `exact_resize(width, height, now_ms)` to the original six
 buffer/boot/event exports; later font, agent, store, delivery and module exports
 also remain, so six is no longer the ABI’s total. The glue passes `innerWidth` and
