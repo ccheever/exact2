@@ -249,7 +249,7 @@ impl DataSource for Counted {
 }
 
 fn boot() -> Runner<Counted> {
-    let plan = contract::compile(include_str!("../../app.contract")).unwrap();
+    let plan = contract::compile(include_str!("../../../app.contract")).unwrap();
     let baked = contract::bake(plan, MarkdownStress::default()).unwrap();
     Runner::boot(
         baked,

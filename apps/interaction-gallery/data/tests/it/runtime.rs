@@ -5,7 +5,7 @@ use exact_runner::{DataError, DataSource, Event, Runner};
 use interaction_gallery_data::Gallery;
 
 fn boot() -> Runner<Gallery> {
-    let plan = contract::compile(include_str!("../../app.contract")).unwrap();
+    let plan = contract::compile(include_str!("../../../app.contract")).unwrap();
     let baked = contract::bake(plan, Gallery::default()).unwrap();
     let mut runner = Runner::boot(
         baked,
@@ -196,7 +196,7 @@ impl DataSource for CountedGallery {
 #[test]
 fn sheet_release_updates_the_latest_numeric_target_synchronously_while_held() {
     let mut r = Runner::boot(
-        contract::compile(include_str!("../../app.contract")).unwrap(),
+        contract::compile(include_str!("../../../app.contract")).unwrap(),
         CountedGallery::default(),
         Kernel::with_monospace(),
         Default::default(),

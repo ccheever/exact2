@@ -21,7 +21,7 @@ impl DataSource for CountedGallery {
 
 fn boot() -> Runner<CountedGallery> {
     Runner::boot(
-        contract::compile(include_str!("../../app.contract")).unwrap(),
+        contract::compile(include_str!("../../../app.contract")).unwrap(),
         CountedGallery::default(),
         Kernel::with_monospace(),
         Default::default(),

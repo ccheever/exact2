@@ -35,7 +35,7 @@ impl DataSource for Counted {
     }
 }
 fn boot(width: f64) -> Runner<Counted> {
-    let plan = contract::compile(include_str!("../../app.contract")).unwrap();
+    let plan = contract::compile(include_str!("../../../app.contract")).unwrap();
     let baked = contract::bake(plan, Live::default()).unwrap();
     Runner::boot(
         baked,

@@ -137,9 +137,9 @@ fn indexed_parser_matches_old_behavior_over_seeded_corpus() {
         }
         equivalent(&text);
     }
-    for line in include_str!("../../../../llp/1033-markdown-viewer.plan.md")
+    for line in include_str!("../../../../../llp/1033-markdown-viewer.plan.md")
         .lines()
-        .chain(include_str!("../../../../llp/1044.000-text-performance-claude.plan.md").lines())
+        .chain(include_str!("../../../../../llp/1044.000-text-performance-claude.plan.md").lines())
     {
         equivalent(line);
     }

@@ -199,7 +199,7 @@ fn the_published_stream_is_staged_whole_by_a_client() {
         head.stream.channel, head.stream.compatibility_id
     );
     let blob_prefix = format!("{origin}/.exact/blobs/");
-    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/publisher");
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/it/fixtures/publisher");
     let asked = std::cell::RefCell::new(Vec::new());
     let mut fetch = |url: &str| -> Result<Vec<u8>, String> {
         asked.borrow_mut().push(url.to_string());

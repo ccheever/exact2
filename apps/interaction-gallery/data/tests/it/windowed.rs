@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 fn boot() -> Runner<Gallery> {
     Runner::boot(
-        contract::compile(include_str!("../../app.contract")).unwrap(),
+        contract::compile(include_str!("../../../app.contract")).unwrap(),
         Gallery::default(),
         Kernel::with_monospace(),
         Default::default(),

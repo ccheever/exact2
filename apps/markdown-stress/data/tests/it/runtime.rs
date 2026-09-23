@@ -5,7 +5,7 @@ use exact_runner::{DataSource, Event, Runner};
 use markdown_stress_data::MarkdownStress;
 
 fn boot() -> Runner<MarkdownStress> {
-    let plan = contract::compile(include_str!("../../app.contract")).unwrap();
+    let plan = contract::compile(include_str!("../../../app.contract")).unwrap();
     let baked = contract::bake(plan, MarkdownStress::default()).unwrap();
     Runner::boot(
         baked,

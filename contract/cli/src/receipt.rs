@@ -834,10 +834,11 @@ mod tests {
     }
 
     fn signed_fixture() -> (Compat, Value, Vec<u8>) {
-        let raw = include_bytes!("../../../update/tests/fixtures/publisher/exact.json");
+        let raw = include_bytes!("../../../update/tests/it/fixtures/publisher/exact.json");
         let head = Envelope::parse(raw).unwrap();
-        let plan = include_bytes!("../../../update/tests/fixtures/publisher/app.plan").to_vec();
-        let key = include_str!("../../../update/tests/fixtures/publisher/caltrain-2026.pub").trim();
+        let plan = include_bytes!("../../../update/tests/it/fixtures/publisher/app.plan").to_vec();
+        let key =
+            include_str!("../../../update/tests/it/fixtures/publisher/caltrain-2026.pub").trim();
         let mut assets = head
             .assets
             .iter()

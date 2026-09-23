@@ -1,7 +1,8 @@
 //! App-local protocol relocation; real Runner tickets, no HTTP/server execution.
-#[path = "../src/jobs.rs"]
-mod jobs;
+#[path = "../../src/jobs.rs"]
+mod app_jobs;
 
+use app_jobs::{JobOrigins, Jobs};
 use completion_storm_data::Storm;
 use exact_kernel::{Kernel, PropId};
 use exact_plan::Value;
@@ -9,7 +10,6 @@ use exact_runner::{
     Answer, DataSource, Event, FailureKind, HttpScheduling, Outcome, Request, RequestOut, Response,
     Runner, Store,
 };
-use jobs::{JobOrigins, Jobs};
 
 const CONFIG: &str =
     "DATA=https://jobs-data.example.test\nCONTROL=https://jobs-control.example.test\n";
@@ -44,7 +44,8 @@ fn completion(wave: f64, lane: f64) -> Vec<Value> {
     ]
 }
 fn boot() -> Runner<Jobs> {
-    let plan = contract::compile(include_str!("../../../completion-storm/app.contract")).unwrap();
+    let plan =
+        contract::compile(include_str!("../../../../completion-storm/app.contract")).unwrap();
     let baked = contract::bake(plan, source()).unwrap();
     Runner::boot(
         baked,
@@ -163,7 +164,8 @@ fn isolated_defaults_never_share_the_old_fixture() {
         jobs.grants(),
         "net.fetch http://127.0.0.1:4339\nnet.fetch http://127.0.0.1:4340"
     );
-    let configured = Jobs::new(JobOrigins::parse(include_str!("../../job-origins.txt")).unwrap());
+    let configured =
+        Jobs::new(JobOrigins::parse(include_str!("../../../job-origins.txt")).unwrap());
     assert_eq!(Jobs::default().grants(), configured.grants());
 }
 

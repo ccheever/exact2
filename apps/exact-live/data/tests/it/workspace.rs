@@ -5,7 +5,7 @@ use exact_plan::Value;
 use exact_runner::{Outcome, Response, Runner, Viewport};
 
 fn boot(width: f64) -> Runner<Live> {
-    let plan = contract::compile(include_str!("../../app.contract")).unwrap();
+    let plan = contract::compile(include_str!("../../../app.contract")).unwrap();
     let baked = contract::bake(plan, Live::default()).unwrap();
     Runner::boot(
         baked,
@@ -179,7 +179,7 @@ fn resize_recomposes_without_resetting_workload_or_local_echo() {
 
 #[test]
 fn all_job_resources_belong_to_the_root_not_a_conditional_pane() {
-    let source = include_str!("../../app.contract");
+    let source = include_str!("../../../app.contract");
     let root = source.split("\ncomponent ").nth(1).unwrap();
     let declarations = root.split("\n  view\n").next().unwrap();
     assert_eq!(

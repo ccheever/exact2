@@ -273,7 +273,7 @@ impl DataSource for Counted {
 #[test]
 fn real_runner_terminal_is_synchronous_and_stale_refusal_does_not_poison_actions() {
     // Uses only today's mutation API; no pending common reorder schema required.
-    let shapes = include_str!("../../app.contract")
+    let shapes = include_str!("../../../app.contract")
         .split("component InteractionGallery")
         .next()
         .unwrap();
@@ -322,7 +322,7 @@ fn real_runner_terminal_is_synchronous_and_stale_refusal_does_not_poison_actions
 // App/common validation below waits for the exact frozen common overlay. These
 // are synthesized typed terminals, not evidence of pointer recognition or pins.
 fn boot_app() -> Runner<Counted> {
-    let plan = contract::compile(include_str!("../../app.contract")).unwrap();
+    let plan = contract::compile(include_str!("../../../app.contract")).unwrap();
     let baked = contract::bake(plan, Gallery::default()).unwrap();
     Runner::boot(
         baked,

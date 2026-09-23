@@ -36,7 +36,7 @@
 // `EXACT_SIGNING_KEY_DIR`, default `~/.config/exact/keys`), whose public half
 // must be the manifest's `deploy.signing.keys[<id>]`. `keygen` writes a fresh
 // key and prints the public half to paste in; the private key never enters
-// the repository. `update/tests/publisher.rs` reads a head this script
+// the repository. `update/tests/it/publisher.rs` reads a head this script
 // produced and proves the client verifies it.
 //
 // Owed, not built: `--watch` (D5's continuous publisher: the same library,

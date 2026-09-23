@@ -189,7 +189,7 @@ not yet been measured in the full-host giant-paragraph workload; see §8.31.
 
 ```sh
 cargo test -p markdown-stress-data
-cargo test -p markdown-stress-data --test fixtures -- --ignored
+cargo test -p markdown-stress-data --test it fixtures:: -- --ignored
 cargo clippy -p markdown-stress-data -p markdown-stress-web -p markdown-stress-apple -p markdown-stress-linux --all-targets -- -D warnings
 
 # Start the local web server first; set CHROME to an installed Chrome binary
