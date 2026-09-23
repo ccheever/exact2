@@ -13,8 +13,6 @@
 
 - **`bun scripts/smoke.mjs linux` fails at its first tap** (2026-09-22, at `c3b585bf` unmodified and on `runner/deps`): `view 20 is covered or not hit at its projected center` for Caltrain's `scheme-dark` right after boot. `agent.mjs linux` drives `change-station`, the station search, a station choice and clock seeks correctly on the same build. Likely the same hit-test cause as the macOS smoke's first tap.
 
-- **A fresh macOS release build links unloadable proc macros** (2026-09-22, this Mac): with `MACOSX_DEPLOYMENT_TARGET` set (the Apple build sets 14.0) and `[profile.release] strip = true`, rustc 1.97's stripped proc-macro dylibs fail dyld with `mis-aligned LINKEDIT string pool`; `bun host/apple/build.mjs` then fails with `can't find crate for serde_derive`/`thiserror_impl`. Checkouts with proc macros cached from before the OS update don't notice. `CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false` builds; `[profile.release.build-override] strip = false` would make it permanent without touching shipped binaries.
-
 - **`bun test host/web/agent.test.mjs`: 17 of 27 fail on main** (2026-09-22, at `c3b585bf`): the glue fixtures lack names the glue now uses (`ReferenceError: mutate is not defined` ×10, `HTMLTextAreaElement` ×4) and one `exact-filesystem` launch fails.
 
 - **Swift `TextMetricsTests` raster cases fail on Mac.lan at `origin/main`** (2026-09-21, after the 73-commit sweep to `2ee75e8`…): 23 failures in six tests (`testWorkerPublicationDefersOnlyOffscreenCurrentPixels`, `testBatchPaintsVisibleTextButDefersOffscreenPreparation`, `testOffscreenResizeRetiresTheRasterItsLayerWouldStretch`, `testRasterPreservesDescendersOutsideTightLineBox`, two more) with LLP 1045's slice 2 removed; the same 23 with it. Not caused by the markup row.
