@@ -1,9 +1,17 @@
 {
+  "ticks": {
+    "0": "0x8c5dca88afc8d546",
+    "1420": "0xe43cabcb943cc28d"
+  },
+  "saves": {
+    "continuation": "b894031b43d73bd11741458cea6ad5a4dc07d6c4960d18367e5b5aed6e3f43d9"
+  },
+  "hosts": [
+    "linux",
+    "web"
+  ],
+  "inputs": "616e6d12ec5ad7eb2feb05a4544907355606674186ec7227bc58729dbdd1fdf3",
   "game": "tennis",
-  "ticks": {},
-  "saves": {},
-  "hosts": [],
-  "generated": "bun game/prove.mjs tennis",
-  "at": "unverified",
-  "help": "First baseline: bun game/prove.mjs tennis; changed golden: add --repin. Empty pins fail ordinary proofs."
+  "generated": "bun game/prove.mjs tennis --hosts linux,web",
+  "at": "dc607bbfb6bab1a757ea552a74824e4cb4c9ba47"
 }
