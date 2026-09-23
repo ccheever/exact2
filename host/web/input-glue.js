@@ -1,5 +1,27 @@
 // Input-only glue: loaded after the baked first pixel, independently of data readiness.
 export function createInputHandlers({ root, views, retiredViews, ready, inertAncestor, dispatch }) {
+  // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
+  // route stays in this document: a link with its own `press` navigates by
+  // it; any other goes to the root's `navigate` handler, as popstate does.
+  // A modified or other-button click, a `target` or `download`, is the
+  // browser's alone — a pressing link's press does not also run — and so are
+  // other origins, fragments of this page and undeclared paths (a file).
+  // The page's own `exact` names the route table and the root's handler.
+  document.addEventListener("click", event => {
+    const a = event.target.closest?.("a[href]");
+    if (!a || !root.contains(a) || event.defaultPrevented || !ready()) return;
+    const press = a.exactHandlers?.includes("press");
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey
+      || (a.target && a.target !== "_self") || a.hasAttribute("download")) { if (press) event.stopPropagation(); return; }
+    const url = new URL(a.href), to = url.pathname + url.search, here = to === location.pathname + location.search;
+    const { wasm, writeIn, navigate } = globalThis.exact;
+    if (url.origin !== location.origin || (here && url.hash) || wasm.exact_route_match(writeIn(to)) !== 1) return;
+    const nav = root.firstElementChild;
+    if (!press && !(nav?.hasAttribute("navigationBack") && nav.exactHandlers?.includes("navigate"))) return;
+    event.preventDefault();
+    if (press || here) return;
+    if (!navigate(to)?.ops?.some(op => op.op === "router")) wasm.exact_log(writeIn(`history: link ${JSON.stringify(to)} refused`));
+  }, true);
   document.addEventListener("keydown", (event) => {
     if (event.isComposing || !ready() || event.defaultPrevented) return;
     const matches = (chord) => {

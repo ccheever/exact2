@@ -1496,4 +1496,4 @@ ready.catch((e) => { console.error(e); root.dataset.error = String(e); });
 
 // @ref LLP 1038 D7/D8/D11 — the mirror observes the handler's synchronous commit.
 function navigate(location) { return globalThis.exact.navigate(location); }
-navigation.connect(root, navigate, log, location => !!wasm && wasm.exact_route_match(writeIn(location)) === 1);
+navigation.connect(root, navigate, log);

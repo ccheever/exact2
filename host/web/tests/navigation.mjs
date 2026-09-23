@@ -229,11 +229,14 @@ try {
     await tap('link-press'); await until(`location.pathname==='/prompts'`);
     const pressed = await record('a pressing link navigates by its press', '/prompts', n + 3, 1, 1);
     assert.equal(pressed.navigatePresses, 3, 'no navigate dispatch beside the press');
-    // New-tab and middle clicks stay the browser's: this page does not move.
+    // New-tab and middle clicks are the browser's alone: this page does not
+    // move, and a pressing link's press (a push) does not run.
     const key = (await state()).navigation.route;
-    const at = await evaluate(`(()=>{const r=document.querySelector('[data-testid="link-post-${key}"]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
-    for (const [button, modifiers] of [['left', process.platform === 'darwin' ? 4 : 2], ['middle', 0]]) {
-      for (const type of ['mousePressed', 'mouseReleased']) await call('Input.dispatchMouseEvent', { type, button, clickCount: 1, modifiers, ...at });
+    for (const target of ['link-post', 'link-push']) {
+      const at = await evaluate(`(()=>{const r=document.querySelector('[data-testid="${target}-${key}"]').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+      for (const [button, modifiers] of [['left', process.platform === 'darwin' ? 4 : 2], ['left', 8], ['middle', 0]]) {
+        for (const type of ['mousePressed', 'mouseReleased']) await call('Input.dispatchMouseEvent', { type, button, clickCount: 1, modifiers, ...at });
+      }
     }
     await evaluate('new Promise(r => setTimeout(r, 250))');
     const stayed = await record('modified and middle clicks stay native', '/prompts', n + 3, 1, 1);

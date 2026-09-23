@@ -660,7 +660,9 @@ Each with the trigger that would earn it back:
   own `press` navigates by it; any other goes to the root's `navigate`
   handler, as a popstate does, and a refusal journals once. Other clicks,
   origins, fragments of this page and undeclared paths (a file) are the
-  browser's. The match is the plan's table in the host (`exact_route_match`).
+  browser's; a modified or other-button click on a pressing link runs no
+  press (the browser's new tab alone). The match is the plan's table in the
+  host (`exact_route_match`); the listener is input glue, after paint.
 - A `navigationTitle`: 1035.001 D9 stays the path.
 
 One line goes onto `rules/NOT-DOING.md` under Features at acceptance, so §7

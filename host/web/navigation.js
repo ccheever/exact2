@@ -108,27 +108,8 @@ function settled() {
 }
 
 export const navigation = {
-  connect(hostRoot, dispatch, journal, routeMatches) {
+  connect(hostRoot, dispatch, journal) {
     root = hostRoot; navigate = dispatch; log = journal;
-    // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
-    // route stays in this document: a link with its own `press` navigates by
-    // it; any other goes to the root's `navigate` handler, as popstate does.
-    // Modified, other-button and targeted clicks, downloads, other origins,
-    // fragments of this page and undeclared paths stay the browser's.
-    root.addEventListener("click", event => {
-      const a = event.target.closest?.("a[href]");
-      if (!a || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey
-        || (a.target && a.target !== "_self") || a.hasAttribute("download")) return;
-      const url = new URL(a.href), to = url.pathname + url.search, here = to === location.pathname + location.search;
-      if (url.origin !== location.origin || (here && url.hash) || !routeMatches(to)) return;
-      const press = a.exactHandlers?.includes("press"), nav = root.firstElementChild;
-      if (!press && !(nav?.hasAttribute("navigationBack") && nav.exactHandlers?.includes("navigate"))) return;
-      event.preventDefault();
-      if (press || here) return;
-      const before = last;
-      navigate(to);
-      if (last === before) log(`history: link ${JSON.stringify(to)} refused`);
-    }, true);
     addEventListener("popstate", event => {
       if (!last) return;
       const index = browserIndex();

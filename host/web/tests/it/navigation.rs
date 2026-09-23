@@ -51,7 +51,7 @@ fn browser_session_history_and_published_deep_locations() {
         )
         .replace(
             "          when e.name == \"home\"\n",
-            "          link href=\"/post/42\" testId=`link-post-${e.id}` padding=8\n            text \"Link post\"\n          text testId=`link-text-${e.id}`\n            text \"Link person\" href=\"/people/7\" testId=`link-person-${e.id}`\n          link href=\"/prompts\" press=selectTab(\"prompts\") testId=`link-press-${e.id}` padding=8\n            text \"Link prompts by press\"\n          link href=\"/manifest.json\" testId=`link-file-${e.id}` padding=8\n            text \"Link undeclared\"\n          when e.name == \"home\"\n",
+            "          link href=\"/post/42\" testId=`link-post-${e.id}` padding=8\n            text \"Link post\"\n          text testId=`link-text-${e.id}`\n            text \"Link person\" href=\"/people/7\" testId=`link-person-${e.id}`\n          link href=\"/prompts\" press=selectTab(\"prompts\") testId=`link-press-${e.id}` padding=8\n            text \"Link prompts by press\"\n          link href=\"/post/43\" press=push(\"/post/43\") testId=`link-push-${e.id}` padding=8\n            text \"Link that pushes\"\n          link href=\"/manifest.json\" testId=`link-file-${e.id}` padding=8\n            text \"Link undeclared\"\n          when e.name == \"home\"\n",
         )
         .replace(
             "          when e.name == \"home\"\n            text \"Home\"\n",
