@@ -16,7 +16,7 @@ mod carry;
 mod checkpoint;
 mod collection;
 mod source;
-pub use source::{DataError, DataSource};
+pub use source::{DataError, DataSource, Target};
 mod delivery;
 mod kept;
 mod lists;
@@ -189,13 +189,6 @@ enum Seed<'a> {
     Carried(&'a Carried),
     /// A rendered document's answers (LLP 1048.000 D6).
     Checkpoint(&'a Checkpoint),
-}
-
-/// A resource or a mutation, as the target of a request in flight.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Target {
-    Resource(usize),
-    Mutation(usize),
 }
 
 /// A request the host is running: the ticket its reply carries, what it
@@ -1043,7 +1036,7 @@ impl<D: DataSource> Runner<D> {
         // @ref LLP 1038 D5 / §8 — distinguish asked sources from compiled boot values.
         self.log(format!("query {resource}: {source}"));
         self.data
-            .answer(&mut self.store, &source, args)
+            .answer_for(Target::Resource(i), &mut self.store, &source, args)
             .map_err(|error| RunnerError::Data { resource, error })
     }
 }

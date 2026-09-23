@@ -106,6 +106,38 @@ macro_rules! configured {
             ) -> Result<$crate::exact_runner::Answer, $crate::exact_runner::DataError> {
                 $crate::exact_runner::DataSource::parse(&mut self.0, store, source, args, outcome)
             }
+            fn answer_for(
+                &mut self,
+                target: $crate::exact_runner::Target,
+                store: &mut $crate::exact_runner::Store,
+                source: &str,
+                args: &[$crate::exact_plan::Value],
+            ) -> Result<$crate::exact_runner::Answer, $crate::exact_runner::DataError> {
+                $crate::exact_runner::DataSource::answer_for(
+                    &mut self.0,
+                    target,
+                    store,
+                    source,
+                    args,
+                )
+            }
+            fn parse_for(
+                &mut self,
+                target: $crate::exact_runner::Target,
+                store: &mut $crate::exact_runner::Store,
+                source: &str,
+                args: &[$crate::exact_plan::Value],
+                outcome: $crate::exact_runner::Outcome,
+            ) -> Result<$crate::exact_runner::Answer, $crate::exact_runner::DataError> {
+                $crate::exact_runner::DataSource::parse_for(
+                    &mut self.0,
+                    target,
+                    store,
+                    source,
+                    args,
+                    outcome,
+                )
+            }
         }
     };
 }

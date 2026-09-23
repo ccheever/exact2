@@ -1,7 +1,7 @@
 //! Relocate the existing Storm protocol without replacing its source owner.
 use completion_storm_data::{Storm, CONTROL, DATA};
 use exact_plan::Value;
-use exact_runner::{Answer, DataError, DataSource, Outcome, Request, Store};
+use exact_runner::{Answer, DataError, DataSource, Outcome, Request, Store, Target};
 
 /// One build input supplies both request destinations and capability grants.
 pub struct JobOrigins {
@@ -188,6 +188,27 @@ impl DataSource for Jobs {
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
         let answer = self.storm.parse(store, source, args, outcome)?;
+        self.relay(answer)
+    }
+    fn answer_for(
+        &mut self,
+        target: Target,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        let answer = self.storm.answer_for(target, store, source, args)?;
+        self.relay(answer)
+    }
+    fn parse_for(
+        &mut self,
+        target: Target,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        let answer = self.storm.parse_for(target, store, source, args, outcome)?;
         self.relay(answer)
     }
 }

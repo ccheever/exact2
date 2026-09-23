@@ -75,6 +75,15 @@ impl DataSource for Composed {
     ) -> Result<exact_runner::Answer, exact_runner::DataError> {
         self.0.answer(store, source, args)
     }
+    fn answer_for(
+        &mut self,
+        target: exact_runner::Target,
+        store: &mut exact_runner::Store,
+        source: &str,
+        args: &[exact_plan::Value],
+    ) -> Result<exact_runner::Answer, exact_runner::DataError> {
+        self.0.answer_for(target, store, source, args)
+    }
     fn app_id(&self) -> &str {
         self.0.app_id()
     }
@@ -186,6 +195,18 @@ impl DataSource for Seeded<'_> {
             return self.query(source, args).map(exact_runner::Answer::Now);
         }
         self.module.answer(store, source, args)
+    }
+    fn answer_for(
+        &mut self,
+        target: exact_runner::Target,
+        store: &mut exact_runner::Store,
+        source: &str,
+        args: &[exact_plan::Value],
+    ) -> Result<exact_runner::Answer, exact_runner::DataError> {
+        if self.seed.values.contains_key(source) {
+            return self.query(source, args).map(exact_runner::Answer::Now);
+        }
+        self.module.answer_for(target, store, source, args)
     }
     fn app_id(&self) -> &str {
         self.module.app_id()

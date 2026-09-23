@@ -1,7 +1,9 @@
 //! Optional app storage executor. The runner and portable Rust module own no I/O.
 //! @ref LLP 1027.001 D2 — requests travel as values; native work stays on workers.
 use exact_plan::{Plan, Value};
-use exact_runner::{Answer, DataError, DataSource, Dispatch, Outcome, Placement, Store, Work};
+use exact_runner::{
+    Answer, DataError, DataSource, Dispatch, Outcome, Placement, Store, Target, Work,
+};
 use std::{collections::BTreeMap, path::PathBuf};
 #[cfg(not(target_arch = "wasm32"))]
 mod native;
@@ -142,6 +144,27 @@ impl<D: DataSource> DataSource for Storage<D> {
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
         let answer = self.source.parse(store, name, args, outcome);
+        self.step(store, answer)
+    }
+    fn answer_for(
+        &mut self,
+        target: Target,
+        store: &mut Store,
+        name: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        let answer = self.source.answer_for(target, store, name, args);
+        self.step(store, answer)
+    }
+    fn parse_for(
+        &mut self,
+        target: Target,
+        store: &mut Store,
+        name: &str,
+        args: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        let answer = self.source.parse_for(target, store, name, args, outcome);
         self.step(store, answer)
     }
     fn app_id(&self) -> &str {

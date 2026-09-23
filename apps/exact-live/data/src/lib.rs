@@ -6,7 +6,7 @@ mod jobs;
 mod runbook;
 
 use exact_plan::Value;
-use exact_runner::{Answer, DataError, DataSource, Outcome, Store};
+use exact_runner::{Answer, DataError, DataSource, Outcome, Store, Target};
 use interaction_gallery_data::Gallery;
 use jobs::Jobs;
 use messages_stress_data::ReusableMessagesStress;
@@ -141,6 +141,35 @@ impl DataSource for Live {
             self.runbook.parse(store, args, outcome)
         } else {
             Err(DataError::UnknownSource(source.into()))
+        }
+    }
+
+    fn answer_for(
+        &mut self,
+        target: Target,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        if job_source(source) {
+            self.jobs.answer_for(target, store, source, args)
+        } else {
+            self.answer(store, source, args)
+        }
+    }
+
+    fn parse_for(
+        &mut self,
+        target: Target,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        if job_source(source) {
+            self.jobs.parse_for(target, store, source, args, outcome)
+        } else {
+            self.parse(store, source, args, outcome)
         }
     }
 

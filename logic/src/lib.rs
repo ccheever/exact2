@@ -7,7 +7,7 @@ pub use exact_plan;
 use exact_plan::{Plan, Value};
 #[doc(hidden)]
 pub use exact_runner;
-use exact_runner::{Answer, DataError, DataSource, Outcome, Store};
+use exact_runner::{Answer, DataError, DataSource, Outcome, Store, Target};
 use sha2::{Digest, Sha256};
 
 /// Version of the data-only Rust module protocol this host accepts.
@@ -408,6 +408,35 @@ impl<D: DataSource> DataSource for Swappable<D> {
     ) -> Result<Answer, DataError> {
         if let Some(embedded) = &mut self.embedded {
             embedded.parse(store, source, args, outcome)
+        } else {
+            self.call(store, source, args, Some(&outcome))
+        }
+    }
+    /// The embedded source keys by target; a replaced module's seam carries
+    /// no target, and a Rust source parks nothing between its calls.
+    fn answer_for(
+        &mut self,
+        target: Target,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        if let Some(embedded) = &mut self.embedded {
+            embedded.answer_for(target, store, source, args)
+        } else {
+            self.call(store, source, args, None)
+        }
+    }
+    fn parse_for(
+        &mut self,
+        target: Target,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        if let Some(embedded) = &mut self.embedded {
+            embedded.parse_for(target, store, source, args, outcome)
         } else {
             self.call(store, source, args, Some(&outcome))
         }

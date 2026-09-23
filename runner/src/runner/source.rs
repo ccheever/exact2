@@ -3,6 +3,18 @@ use crate::request::{Answer, Dispatch, Outcome, Placement, Work};
 use crate::store::Store;
 use exact_plan::{Plan, Value};
 
+/// What a request answers: a resource or a mutation, by its index in the
+/// plan. The runner keeps at most one request in flight per target (LLP
+/// 1016 D5), so an executor that parks a call until its reply comes keys
+/// it by target: two targets may ask one source with equal arguments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Target {
+    /// `plan.resources[i]`.
+    Resource(usize),
+    /// `plan.mutations[i]`.
+    Mutation(usize),
+}
+
 /// The app's data source: the one seam through which computation enters
 /// (LLP 1004 D4). Implemented once, in Rust, by the app's data crate.
 pub trait DataSource {
@@ -141,6 +153,40 @@ pub trait DataSource {
     ) -> Result<Answer, DataError> {
         let _ = (store, args, outcome);
         Err(DataError::UnknownSource(source.to_string()))
+    }
+
+    /// [`answer`] for `target`, which is how the runner asks. A source that
+    /// parks a call until its reply keys it by target; one that forwards to
+    /// another source forwards this and [`parse_for`] too. The default
+    /// forgets the target.
+    ///
+    /// [`answer`]: DataSource::answer
+    /// [`parse_for`]: DataSource::parse_for
+    fn answer_for(
+        &mut self,
+        target: Target,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        let _ = target;
+        self.answer(store, source, args)
+    }
+
+    /// [`parse`] for the reply to `target`'s request; see [`answer_for`].
+    ///
+    /// [`parse`]: DataSource::parse
+    /// [`answer_for`]: DataSource::answer_for
+    fn parse_for(
+        &mut self,
+        target: Target,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        let _ = target;
+        self.parse(store, source, args, outcome)
     }
 
     /// What the app may reach and keep (LLP 1016 D6, LLP 1018 D3; ibex LLP

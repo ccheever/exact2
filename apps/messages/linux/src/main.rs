@@ -1,6 +1,6 @@
 //! Messages on the shared Linux host, with the native Snapback device.
 use exact_plan::{Plan, Value};
-use exact_runner::{Answer, DataError, DataSource, Outcome, Store};
+use exact_runner::{Answer, DataError, DataSource, Outcome, Store, Target};
 include!(concat!(env!("OUT_DIR"), "/module.rs"));
 #[path = "../../native.rs"]
 mod native;
@@ -34,6 +34,25 @@ impl DataSource for Messages {
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
         self.0.parse(store, source, args, outcome)
+    }
+    fn answer_for(
+        &mut self,
+        target: Target,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        self.0.answer_for(target, store, source, args)
+    }
+    fn parse_for(
+        &mut self,
+        target: Target,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        self.0.parse_for(target, store, source, args, outcome)
     }
     fn bind(&mut self, plan: &Plan) {
         self.0.bind(plan);

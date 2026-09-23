@@ -285,7 +285,8 @@ impl<D: DataSource> Runner<D> {
             let m = *m as usize;
             let mrow = self.plan.mutations[m].clone();
             let name = self.plan.str(mrow.name).to_string();
-            let answer = match self.data.answer(&mut self.store, source, sargs) {
+            let target = Target::Mutation(m);
+            let answer = match self.data.answer_for(target, &mut self.store, source, sargs) {
                 Ok(answer) => answer,
                 Err(error) => {
                     self.discard_later(&later);
@@ -598,7 +599,7 @@ impl<D: DataSource> Runner<D> {
         };
         let value = match self
             .data
-            .parse(&mut self.store, &p.source, &p.args, outcome)
+            .parse_for(p.target, &mut self.store, &p.source, &p.args, outcome)
             .map_err(|error| RunnerError::Data {
                 resource: name.clone(),
                 error,
