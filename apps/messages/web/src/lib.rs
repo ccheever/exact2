@@ -16,7 +16,6 @@ exact_web::host!(
     app_data,
     [
         include_bytes!(concat!(env!("OUT_DIR"), "/app.module.json")) as &[u8],
-        include_bytes!(concat!(env!("OUT_DIR"), "/app.js")) as &[u8],
-        include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc")) as &[u8]
+        include_bytes!(concat!(env!("OUT_DIR"), "/app.js")) as &[u8]
     ]
 );

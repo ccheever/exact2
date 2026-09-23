@@ -105,15 +105,23 @@ if (planBytes.length < 36 || planBytes.subarray(0, 4).toString() !== 'EXPL') thr
 writeFileSync(planOut, planBytes);
 let pairedModule = null;
 // A module client's build script emits paired artifacts beside its receipt.
-// Extract the exact embedded receipt/JS/HBC rather than rebaking moving sources.
+// Extract the exact embedded receipt/JS rather than rebaking moving sources.
+// Native bytecode is a separate download: it never executes in the browser.
 if (typeof exports.exact_module_artifact === 'function') {
   const files = new Map([['app.plan', planBytes]]);
-  for (const [index, name] of ['app.module.json', 'app.js', 'app.hbc'].entries()) {
+  for (const [index, name] of ['app.module.json', 'app.js'].entries()) {
     const len = exports.exact_module_artifact(index);
     const body = Buffer.from(new Uint8Array(exports.memory.buffer, exports.exact_out(), len));
     files.set(name, body); writeFileSync(resolve(stage, name), body);
   }
+  const moduleInput = buildReceipt.binary.inputs.find(input => input.name === `generated:${crate}:wasm32-unknown-unknown/app.module.json`);
+  if (!moduleInput) throw new Error('the build receipt does not name the paired module output');
+  const bytecode = readFileSync(resolve(moduleInput.path, '..', 'app.hbc'));
+  files.set('app.hbc', bytecode);
+  // moduleCards checks every byte against the receipt embedded in this wasm,
+  // including the native digest/version. A concurrent rebake cannot mix pairs.
   pairedModule = Object.fromEntries(Object.entries(moduleCards(files, app.id)).map(([key, card]) => [key, { ...card, url: './' + MODULE_FILES[key] }]));
+  writeFileSync(resolve(stage, 'app.hbc'), bytecode);
   copyHostFiles('module');
   // Remove the module-glue → storage → fs/sqlite request chain's middle
   // step. Keep the stateful adapters as shared modules: Rust requests also

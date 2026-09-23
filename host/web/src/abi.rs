@@ -763,7 +763,7 @@ pub type Cell<D> = RefCell<Bridge<D>>;
 /// `$plan` a `&'static [u8]` of baked plan bytes (typically `include_bytes!`
 /// of what the app's `build.rs` wrote).
 /// A fourth argument supplies a data factory; a fifth supplies the paired
-/// module's `[receipt, browser script, native bytecode]` byte slices for bake extraction.
+/// module's `[receipt, browser script]` byte slices for bake extraction and loading.
 #[macro_export]
 macro_rules! host {
     ($data:ty, $plan:expr, $compat:expr, $new:expr, $module:expr) => {

@@ -1,27 +1,44 @@
 // Storage completions belong to an answer checkpoint, not an arbitrary browser
 // microtask. @ref LLP 1027 D10: host work returns through the data seam.
-import { createFileSystem } from './storage-fs.js';
-import { createSqlite } from './storage-sqlite.js';
+import { directories } from './storage-environment.js';
+let fileFactory, sqliteFactory;
 
 export function createStorage(win, admitted, scope, agent = new URL(location.href).searchParams.has('agent')) {
-  const fs = createFileSystem(admitted.appId, admitted.grants);
-  const sqlite = createSqlite(admitted.appId, admitted.grants);
+  // Once storage has been used, a replacement reserves its owner before the
+  // old realm is disposed, retaining the shared SQLite worker across reloads.
+  let fs = fileFactory?.(admitted.appId, admitted.grants);
+  let sqlite = sqliteFactory?.(admitted.appId, admitted.grants);
+  let fsLoading, sqliteLoading;
   const queues = new Map(), waiters = new Map(), retired = new WeakSet();
   let disposed = false;
   const error = e => Object.assign(new win.Error(e?.message || String(e)), {kind:e?.kind || 'Unavailable'});
   const unavailable = () => error({kind:'Unavailable',message:'storage environment disposed'});
   const clone = value => win.structuredClone(value);
+  // Keep adapters as shared modules: the Rust request path uses the same
+  // filesystem mutation queues and SQLite owners. A module that never calls
+  // storage downloads neither adapter.
+  const fileSystem = () => fs ? Promise.resolve(fs) : fsLoading ??= import('./storage-fs.js').then(({ createFileSystem }) => {
+    fileFactory = createFileSystem;
+    if (disposed) throw unavailable();
+    return fs = createFileSystem(admitted.appId, admitted.grants);
+  });
+  const databaseSystem = () => sqlite ? Promise.resolve(sqlite) : sqliteLoading ??= import('./storage-sqlite.js').then(({ createSqlite }) => {
+    sqliteFactory = createSqlite;
+    if (disposed) throw unavailable();
+    return sqlite = createSqlite(admitted.appId, admitted.grants);
+  });
   function enqueue(invoke, convert = clone, discard = () => {}) {
     if (disposed) return win.Promise.reject(unavailable());
     if (agent) return win.Promise.reject(error({message:'storage is unavailable in agent mode'}));
     const owner = scope();
+    const active = () => { if (disposed || retired.has(owner)) throw unavailable(); };
     return new win.Promise((resolve, reject) => {
       const ready = (complete, cleanup = () => {}) => {
         if (disposed || retired.has(owner)) { cleanup(); return; }
         const queue = queues.get(owner) || []; queue.push({complete, cleanup}); queues.set(owner, queue);
         waiters.get(owner)?.(); waiters.delete(owner);
       };
-      Promise.resolve().then(invoke).then(
+      Promise.resolve().then(() => { active(); return invoke(active); }).then(
         value => ready(() => { try { resolve(convert(value)); } catch(e) { discard(value); reject(error(e)); } }, () => discard(value)),
         e => ready(() => reject(error(e))),
       );
@@ -44,16 +61,18 @@ export function createStorage(win, admitted, scope, agent = new URL(location.hre
     transaction: commands => method(raw, 'transaction', [commands]),
     close: () => method(raw, 'close', []),
   });
-  const files = {directories:fs.directories};
+  const files = {directories};
   for (const method of ['readFile','writeFile','atomicWriteFile','appendFile','readdir','mkdir','rm','stat','rename','copyFile','realpath']) {
     files[method] = (...args) => {
       // Snapshot input bytes before the caller can mutate its buffers.
       const captured = structuredClone(args);
-      return enqueue(() => fs[method](...captured));
+      return enqueue(async active => { const backend = await fileSystem(); active(); return backend[method](...captured); });
     };
   }
   return {
-    capability: Object.freeze({fs:Object.freeze(files),sqlite:Object.freeze({open:path => enqueue(() => sqlite.open(path), database, closeDiscarded)})}),
+    capability: Object.freeze({fs:Object.freeze(files),sqlite:Object.freeze({open:path => enqueue(async active => {
+      const backend = await databaseSystem(); active(); return backend.open(path);
+    }, database, closeDiscarded)})}),
     async deliver(owner) {
       if (disposed || retired.has(owner)) throw unavailable();
       if (!queues.get(owner)?.length) await new Promise(resolve => waiters.set(owner,resolve));
@@ -70,7 +89,7 @@ export function createStorage(win, admitted, scope, agent = new URL(location.hre
       waiters.get(owner)?.(); waiters.delete(owner);
     },
     dispose() {
-      disposed = true; sqlite.dispose(); fs.dispose(); queues.clear();
+      disposed = true; sqlite?.dispose(); fs?.dispose(); queues.clear();
       for (const wake of waiters.values()) wake(); waiters.clear();
     },
   };

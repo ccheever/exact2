@@ -562,6 +562,10 @@ Bake gains three steps, all build-time, all reproducible:
 Two outputs from one source, as LLP 1026 D9 has it: `app.hbc` embedded
 in the native binaries and named by the update bundle's `module` card
 (D7); `app.js` — step 1's output, unminified — served to the web (D6).
+The browser wasm embeds the module receipt and browser script, not native
+bytecode. The web producer copies `app.hbc` from the actual Cargo bake output
+and checks its digest and bytecode version against that embedded receipt before
+publishing the paired files for native clients.
 
 **The types are generated.** `contract` already knows every `shape`,
 every resource's argument types, and every `send`'s; bake emits
@@ -1085,6 +1089,11 @@ statement and filesystem handles close with the realm. Overlapping realms of one
 app share the SQLite worker, with separate client handles and queues; the last
 owner terminates it. This lets a reload reuse initialized SQLite while refusing
 old handles and pending answers. Agent mode rejects storage.
+The browser module loads filesystem and SQLite adapters on their first operation,
+not when it creates a realm. The synchronous directory names and the host clock
+are captured before Worker globals are hardened. Disposal while an adapter is
+loading creates no backend; retired answers cannot start an operation after it
+loads. Adapters remain shared with Rust's storage request path.
 The build captures the runtime sources and pinned npm artifacts in its receipt,
 and serves them lazily after first pixel. Browser/native fixtures cover grants,
 SQL restrictions, integer/blob types, transactions, fetch interleaving, and

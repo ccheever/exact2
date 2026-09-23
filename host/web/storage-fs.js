@@ -4,8 +4,7 @@
 // Modification times come from the platform's clock, captured when this
 // module evaluates: a realm that later refuses ambient time to app code (the
 // module Worker, LLP 1027.002 D2) still stamps files with the real one.
-const now = Date.now.bind(Date);
-const roots = Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' });
+import { directories as roots, now } from './storage-environment.js';
 const rootPaths = Object.values(roots);
 // Calls from one host module retain invocation order. Web Locks still reject
 // conflicts with a live SQLite handle or a mutation in another browser tab.

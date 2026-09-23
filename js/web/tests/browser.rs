@@ -318,6 +318,13 @@ try {
     const beforeStorage=(await indexedDB.databases()).length;
     let storage=await prepare(await payload(fixtures.storage,storageIdentity),storageIdentity);
     if((await indexedDB.databases()).length!==beforeStorage)throw new Error('prepare opened storage');
+    if(performance.getEntriesByType('resource').some(entry=>/\/storage-(fs|sqlite)\.js$/.test(entry.name)))throw new Error('unused storage adapters downloaded');
+    const {createStorage}=await import('/storage.js');
+    const canceled=createStorage(globalThis,storageIdentity,()=>({}),false);
+    void canceled.capability.fs.writeFile('app:/data/canceled-load',new Uint8Array([1]));
+    void canceled.capability.sqlite.open('app:/data/notes.db');
+    await Promise.resolve(); // start the first adapter imports, then unload
+    canceled.dispose();
     const storageCall=async(op,value='')=>{
       const result=await invoke(storage,'work',[op,value],[],['session']);
       if(result.tag!==0)throw new Error(`storage ${op}: ${JSON.stringify(result)}`);
@@ -325,6 +332,10 @@ try {
       return result.value.text;
     };
     if(await storageCall('file','hello')!=='hello')throw new Error('file bytes');
+    const {createFileSystem:inspectFiles}=await import('/storage-fs.js');
+    const filesAfterCancel=inspectFiles(storageIdentity.appId,storageIdentity.grants);
+    if((await filesAfterCancel.readdir('app:/data')).includes('canceled-load')||workersCreated!==0)throw new Error('disposed lazy storage started I/O');
+    filesAfterCancel.dispose();
     if(await storageCall('add','remember')!=='remember')throw new Error('prepared insert');
     if(await storageCall('rollback','discard')!=='remember')throw new Error('transaction rollback');
     if(await storageCall('refused')!=='denied')throw new Error('filesystem grant');
