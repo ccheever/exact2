@@ -420,6 +420,96 @@ fn the_runner_drives_a_typescript_login_and_a_two_request_profile() {
     assert_eq!(text_of(&r, "remembered").as_deref(), Some(""));
 }
 
+/// Two targets that ask one source with equal arguments, both in flight.
+const TWINS: &str = r#"
+shape Session
+  ok: bool
+  username: string
+  error: string
+
+component App
+  mutation first as shape Session
+  mutation second as shape Session
+
+  action both writes first, second
+    send first = profile()
+    send second = profile()
+
+  view
+    column
+      button press=both aria-label="Both" testId="both"
+        text "Both"
+      match first
+        case some(s)
+          text s.username testId="first-user"
+          text s.error testId="first-text"
+        case none
+          text "none" testId="first-none"
+      match second
+        case some(s)
+          text s.username testId="second-user"
+          text s.error testId="second-text"
+        case none
+          text "none" testId="second-none"
+"#;
+
+fn targets(requests: &[exact_runner::RequestOut]) -> Vec<(&str, &str)> {
+    requests
+        .iter()
+        .map(|q| (q.target.as_str(), q.request.url.as_str()))
+        .collect()
+}
+
+#[test]
+fn two_targets_asking_one_source_with_equal_arguments_each_settle_with_their_own_replies() {
+    let mut r = Runner::boot_stored(
+        contract::compile(TWINS).expect("the fixture's Contract compiles"),
+        Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap(),
+        Kernel::with_monospace(),
+        vec![(
+            "castle.session".into(),
+            r#"{"token":"t0k","username":"ada"}"#.into(),
+        )],
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.dispatch(view_of(&r, "both"), Event::Press).unwrap();
+    let me = r.take_requests();
+    assert_eq!(
+        targets(&me),
+        [
+            ("first", "https://api.castle.xyz/me"),
+            ("second", "https://api.castle.xyz/me"),
+        ]
+    );
+    assert_eq!(r.data().in_flight(), 2, "both calls are parked");
+    // Each `/me` reply resumes its own call, which asks for its own profile.
+    r.fulfill(me[0].ticket, response(200, r#"{"username":"ada"}"#))
+        .unwrap();
+    r.fulfill(me[1].ticket, response(200, r#"{"username":"bob"}"#))
+        .unwrap();
+    let profiles = r.take_requests();
+    assert_eq!(
+        targets(&profiles),
+        [
+            ("first", "https://api.castle.xyz/profile/ada"),
+            ("second", "https://api.castle.xyz/profile/bob"),
+        ]
+    );
+    // The replies, the other way round.
+    r.fulfill(profiles[1].ticket, response(200, "bob's"))
+        .unwrap();
+    r.fulfill(profiles[0].ticket, response(200, "ada's"))
+        .unwrap();
+    assert_eq!(text_of(&r, "first-user").as_deref(), Some("ada"));
+    assert_eq!(text_of(&r, "first-text").as_deref(), Some("ada's"));
+    assert_eq!(text_of(&r, "second-user").as_deref(), Some("bob"));
+    assert_eq!(text_of(&r, "second-text").as_deref(), Some("bob's"));
+    assert!(!r.has_pending());
+    assert_eq!(r.data().in_flight(), 0);
+}
+
 // --- the kept answer (LLP 1027 D4, as ruled 2026-09-03) --------------------
 
 #[test]

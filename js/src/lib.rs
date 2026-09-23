@@ -50,7 +50,7 @@ pub use paired::Paired;
 
 use engine::{Engine, HostFn};
 use exact_plan::{Plan, Value};
-use exact_runner::{Answer, DataError, DataSource, Outcome, Request, Store};
+use exact_runner::{Answer, DataError, DataSource, Outcome, Request, Store, Target};
 use serde_json::{json, Value as Json};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -87,6 +87,12 @@ struct Sig {
     result: Shape,
 }
 
+/// A parked answer's key: the runner's target when it named one, then the
+/// source and its arguments. The runner keeps one request in flight per
+/// target, so two targets asking one source with equal arguments are two
+/// calls; a new call on the same key replaces the old one.
+type Key = (Option<Target>, String, Vec<u8>);
+
 /// An answer that awaited a fetch: the prelude's call id, and the fetch
 /// ticket the runner's request stands for.
 struct Parked {
@@ -121,7 +127,7 @@ pub struct Module {
     /// The bound plan, kept so an owner thread can bind its own instance.
     plan: Option<Plan>,
     sigs: HashMap<String, Sig>,
-    parked: Vec<((String, Vec<u8>), Parked)>,
+    parked: Vec<(Key, Parked)>,
     budget_ms: f64,
     max_heap: u32,
     logs: Vec<String>,
@@ -618,18 +624,19 @@ impl Module {
         Some(self.host.requests.remove(pos).1)
     }
 
-    fn key(source: &str, args: &[Value]) -> (String, Vec<u8>) {
+    fn key(target: Option<Target>, source: &str, args: &[Value]) -> Key {
         let mut bytes = Vec::new();
         for a in args {
             bytes.extend(a.to_bytes());
         }
-        (source.to_string(), bytes)
+        (target, source.to_string(), bytes)
     }
 
     /// Begin an answer: marshal, call, drain, settle.
     fn begin(
         &mut self,
         store: Option<&mut Store>,
+        target: Option<Target>,
         source: &str,
         args: &[Value],
     ) -> Result<Answer, DataError> {
@@ -704,7 +711,7 @@ impl Module {
                         DataError::Unavailable(format!("`{source}` awaits a fetch it never made"))
                     })?
                 };
-                let key = Module::key(source, args);
+                let key = Module::key(target, source, args);
                 self.parked.retain(|(k, _)| *k != key);
                 self.parked.push((
                     key,
@@ -723,6 +730,7 @@ impl Module {
     fn resume(
         &mut self,
         store: &mut Store,
+        target: Option<Target>,
         source: &str,
         args: &[Value],
         outcome: Outcome,
@@ -732,7 +740,7 @@ impl Module {
                 "exact-js: the engine is not loaded".into(),
             ));
         }
-        let key = Module::key(source, args);
+        let key = Module::key(target, source, args);
         let Some(pos) = self.parked.iter().position(|(k, _)| *k == key) else {
             return Err(DataError::Unavailable(format!(
                 "`{source}`: a reply for an answer not in flight"
@@ -910,10 +918,11 @@ impl DataSource for Module {
     /// The bake's path and the in-process path: no store, and an answer that
     /// awaits a fetch cannot be given now.
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
-        match self.begin(None, source, args)? {
+        match self.begin(None, None, source, args)? {
             Answer::Now(v) => Ok(v),
             Answer::Later(_) => {
-                self.parked.retain(|(k, _)| *k != Module::key(source, args));
+                self.parked
+                    .retain(|(k, _)| *k != Module::key(None, source, args));
                 Err(DataError::Unavailable(format!(
                     "`{source}` fetches, and there is no host to run it here"
                 )))
@@ -927,7 +936,7 @@ impl DataSource for Module {
         source: &str,
         args: &[Value],
     ) -> Result<Answer, DataError> {
-        self.begin(Some(store), source, args)
+        self.begin(Some(store), None, source, args)
     }
 
     fn parse(
@@ -937,7 +946,28 @@ impl DataSource for Module {
         args: &[Value],
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
-        self.resume(store, source, args, outcome)
+        self.resume(store, None, source, args, outcome)
+    }
+
+    fn answer_for(
+        &mut self,
+        target: Target,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        self.begin(Some(store), Some(target), source, args)
+    }
+
+    fn parse_for(
+        &mut self,
+        target: Target,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        self.resume(store, Some(target), source, args, outcome)
     }
 }
 
