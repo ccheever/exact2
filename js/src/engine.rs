@@ -55,6 +55,7 @@ mod real {
             out: *mut *mut c_char,
         ) -> i32;
         fn exact_js_drain(h: *mut c_void, out: *mut *mut c_char) -> i32;
+        fn exact_js_interrupt(h: *mut c_void);
         fn exact_js_take_log(h: *mut c_void, out: *mut *mut c_char);
         fn exact_js_free(p: *mut c_char);
         fn exact_js_destroy(h: *mut c_void);
@@ -62,6 +63,24 @@ mod real {
 
     /// One runtime with one module evaluated into it.
     pub struct Engine(*mut c_void, Vec<(Vec<String>, String)>);
+
+    /// A runtime as another thread may reach it: only to interrupt it, and
+    /// only while its owner keeps it alive (`Module`'s watch).
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    pub struct Raw(*mut c_void);
+
+    // SAFETY: the one thing another thread does with it is interrupt, which
+    // Hermes allows from any thread; the watch's lock keeps the runtime alive.
+    unsafe impl Send for Raw {}
+
+    impl Raw {
+        /// Stop the runtime's running execution, or its next.
+        pub fn interrupt(self) {
+            // SAFETY: the caller holds the watch's lock, so the runtime is
+            // alive; `asyncTriggerTimeout` may be called on any thread.
+            unsafe { exact_js_interrupt(self.0) }
+        }
+    }
 
     fn take(out: *mut c_char) -> String {
         if out.is_null() {
@@ -135,6 +154,11 @@ mod real {
             } else {
                 Err(text)
             }
+        }
+
+        /// This runtime, for an interrupt from another thread.
+        pub fn raw(&self) -> Raw {
+            Raw(self.0)
         }
 
         pub fn load(&mut self, bytecode: &[u8]) -> Result<(), String> {
@@ -320,6 +344,14 @@ mod real {
     /// No engine in this binary: every operation refuses by name.
     pub struct Engine(());
 
+    /// Nothing runs, so nothing is interrupted.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    pub struct Raw;
+
+    impl Raw {
+        pub fn interrupt(self) {}
+    }
+
     const NONE: &str = "this binary links no engine (built without a lean Hermes; see js/build.rs)";
 
     impl Engine {
@@ -329,6 +361,9 @@ mod real {
             _ctx: *mut c_void,
         ) -> Result<Engine, String> {
             Err(NONE.into())
+        }
+        pub fn raw(&self) -> Raw {
+            Raw
         }
         pub fn install_storage(
             &mut self,
@@ -364,7 +399,7 @@ mod real {
     }
 }
 
-pub(crate) use real::{Engine, HostFn};
+pub(crate) use real::{Engine, HostFn, Raw};
 
 /// Whether this binary links an engine at all.
 pub const ENGINE_LINKED: bool = cfg!(exact_js_engine);

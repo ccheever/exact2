@@ -32,6 +32,12 @@
 //! Intl.DateTimeFormat formatting without an explicit timestamp refuse,
 //! including at module initialization and after await. Explicit-value Date
 //! construction and UTC arithmetic remain available. There are no timers.
+//!
+//! **Interrupts (LLP 1048.000 D10).** Another thread may stop a running call
+//! through [`DataSource::interrupt`]'s handle: the bake compiles with async
+//! break checks, so Hermes stops at the next loop iteration or call, and the
+//! call is refused as `Unavailable`. The per-call budget is still measured
+//! after a call returns; an interrupt is what ends one that doesn't.
 
 #![deny(missing_docs)]
 
@@ -40,6 +46,7 @@ mod native;
 mod paired;
 mod pure;
 mod storage;
+mod watch;
 
 pub use engine::ENGINE_LINKED;
 pub use exact_data::Placed;
@@ -50,12 +57,14 @@ pub use paired::Paired;
 
 use engine::{Engine, HostFn};
 use exact_plan::{Plan, Value};
-use exact_runner::{Answer, DataError, DataSource, Outcome, Request, Store, Target};
+use exact_runner::{Answer, DataError, DataSource, Interrupt, Outcome, Request, Store, Target};
 use serde_json::{json, Value as Json};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::ffi::{c_char, c_void, CStr};
+use std::sync::Arc;
 use std::time::Instant;
+use watch::{Watch, Watched};
 
 type NativeFactory = fn(&str) -> Box<dyn NativeModule>;
 
@@ -119,7 +128,10 @@ pub struct Module {
     app_id: String,
     grants: String,
     revision: String,
-    engine: Option<Engine>,
+    engine: Option<Watched>,
+    /// What an interrupt from another thread reaches; a built worker
+    /// instance shares its template's.
+    watch: Arc<Watch>,
     storage: Option<storage::Session>,
     directories: Option<storage::Directories>,
     host: Box<HostState>,
@@ -348,6 +360,7 @@ impl Module {
             app_id: app_id.into(),
             grants: grants.into(),
             engine: None,
+            watch: Arc::default(),
             storage: None,
             directories: None,
             host: Box::default(),
@@ -390,8 +403,11 @@ impl Module {
         let plan = template.plan.as_ref().map(Plan::encode);
         let budget_ms = template.budget_ms;
         let max_heap = template.max_heap;
+        let watch = template.watch.clone();
         Box::new(move || {
             let mut module = Module::new(bytecode, app_id, grants);
+            // The template's interrupt reaches the instance on its owner.
+            module.watch = watch;
             if let Some(factory) = native_factory {
                 module = module.with_native(factory);
             }
@@ -430,7 +446,13 @@ impl Module {
         if self.engine.is_some() {
             return Ok(());
         }
-        let engine = self.load_engine()?;
+        let engine = self.load_engine().map_err(|error| {
+            if self.watch.take() {
+                "exact-js: the module was interrupted while it loaded".to_string()
+            } else {
+                error
+            }
+        })?;
         let app_id = engine.string("appId")?;
         if app_id != self.app_id {
             return Err(format!(
@@ -460,11 +482,13 @@ impl Module {
         Ok(module)
     }
 
-    fn load_engine(&mut self) -> Result<Engine, String> {
+    fn load_engine(&mut self) -> Result<Watched, String> {
         let ctx = &mut *self.host as *mut HostState as *mut c_void;
         let host: HostFn = host_door;
-        let mut engine =
-            Engine::new(self.max_heap, host, ctx).map_err(|e| format!("exact-js: {e}"))?;
+        let engine = Engine::new(self.max_heap, host, ctx).map_err(|e| format!("exact-js: {e}"))?;
+        // Reachable before anything runs in it: module initialization is
+        // application code too.
+        let mut engine = Watched::new(engine, self.watch.clone());
         engine
             .load(PRELUDE)
             .map_err(|e| format!("exact-js: the prelude did not load: {e}"))?;
@@ -694,6 +718,11 @@ impl Module {
         if result.is_err() || took_ms > self.budget_ms {
             self.engine.as_mut().expect("checked above").clear_reply();
         }
+        if result.is_err() && self.watch.take() {
+            return Err(DataError::Unavailable(format!(
+                "`{source}` was interrupted"
+            )));
+        }
         if took_ms > self.budget_ms {
             self.overruns += 1;
             return Err(DataError::Unavailable(format!(
@@ -787,6 +816,11 @@ impl Module {
         let took_ms = started.elapsed().as_secs_f64() * 1e3;
         if result.is_err() || took_ms > self.budget_ms {
             self.engine.as_mut().expect("checked above").clear_reply();
+        }
+        if result.is_err() && self.watch.take() {
+            return Err(DataError::Unavailable(format!(
+                "`{source}` was interrupted"
+            )));
         }
         if took_ms > self.budget_ms {
             self.overruns += 1;
@@ -883,6 +917,13 @@ impl DataSource for Module {
 
     fn revision(&self) -> Option<&str> {
         Some(&self.revision)
+    }
+
+    /// Stops the running call, or the next one to start, from any thread:
+    /// at module initialization too, and on a worker's owner thread.
+    fn interrupt(&self) -> Option<Interrupt> {
+        let watch = self.watch.clone();
+        Some(Interrupt::new(move || watch.trigger()))
     }
 
     /// Not before the host loads it (LLP 1027 D4): the runner boots

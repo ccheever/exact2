@@ -16,7 +16,7 @@ mod carry;
 mod checkpoint;
 mod collection;
 mod source;
-pub use source::{DataError, DataSource, Target};
+pub use source::{DataError, DataSource, Interrupt, Target};
 mod delivery;
 mod kept;
 mod lists;

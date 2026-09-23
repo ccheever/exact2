@@ -662,10 +662,19 @@ fn contract_error(mut error: contract::CompileError, stage: &Path, app: &Path) -
     error.to_string()
 }
 
+/// With async break checks in every loop and function, so a host can
+/// interrupt a running call from another thread (LLP 1048.000 D10).
 fn compile_bytecode(stage: &Path, hermesc: &Path) -> Result<(), String> {
     run(
         hermesc,
-        &["-O", "-emit-binary", "-out", "app.hbc", "app.js"],
+        &[
+            "-O",
+            "-emit-async-break-check",
+            "-emit-binary",
+            "-out",
+            "app.hbc",
+            "app.js",
+        ],
         stage,
     )
 }

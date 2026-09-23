@@ -60,7 +60,7 @@ pub use request::{
     RequestOut, Response, SurfaceOutcome, SurfaceRequest, Work, MAX_HOST_WORK_BYTES,
 };
 pub use runner::{
-    Advanced, Carried, Checkpoint, Command, DataError, DataSource, Event, ListStatus,
+    Advanced, Carried, Checkpoint, Command, DataError, DataSource, Event, Interrupt, ListStatus,
     ListTextPosition, ListViewport, RouterChange, Runner, RunnerError, Target, Timed, JOURNAL_RING,
     MAX_CLOCK_MS, TIMER_FIRE_LIMIT,
 };

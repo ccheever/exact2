@@ -7,7 +7,8 @@
 use crate::envelope;
 use exact_plan::{Plan, Value};
 use exact_runner::{
-    Answer, DataError, DataSource, Dispatch, Outcome, Placement, Request, Store, Target, Work,
+    Answer, DataError, DataSource, Dispatch, Interrupt, Outcome, Placement, Request, Store, Target,
+    Work,
 };
 use serde_json::Value as Json;
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
@@ -641,6 +642,17 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
     }
     fn ready(&self) -> bool {
         self.javascript.ready() && self.rust.ready()
+    }
+
+    /// Stops whichever child is running a call.
+    fn interrupt(&self) -> Option<Interrupt> {
+        match (self.javascript.interrupt(), self.rust.interrupt()) {
+            (Some(javascript), Some(rust)) => Some(Interrupt::new(move || {
+                javascript.trigger();
+                rust.trigger();
+            })),
+            (javascript, rust) => javascript.or(rust),
+        }
     }
 
     fn bind(&mut self, plan: &Plan) {

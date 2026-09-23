@@ -228,9 +228,11 @@ fn main() {
         "exact-js: rolldown not found at {} (run `bun install` at the repo root, or set EXACT_ROLLDOWN)",
         rolldown.display()
     );
+    // Async break checks in every loop and function: what lets another thread
+    // interrupt a running call (LLP 1048.000 D10), as the bake compiles.
     let compile = |script: &PathBuf, bytecode: &PathBuf| {
         let status = Command::new(&hermesc)
-            .args(["-O", "-emit-binary", "-out"])
+            .args(["-O", "-emit-async-break-check", "-emit-binary", "-out"])
             .arg(bytecode)
             .arg(script)
             .status()
@@ -271,6 +273,7 @@ fn main() {
         "ambient-init",
         "storage",
         "pure",
+        "spin",
     ] {
         let source = manifest.join(format!("tests/fixtures/{name}.ts"));
         println!("cargo:rerun-if-changed={}", source.display());

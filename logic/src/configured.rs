@@ -48,6 +48,9 @@ macro_rules! configured {
             fn placement(&self) -> $crate::exact_runner::Placement {
                 $crate::exact_runner::DataSource::placement(&self.0)
             }
+            fn interrupt(&self) -> Option<$crate::exact_runner::Interrupt> {
+                $crate::exact_runner::DataSource::interrupt(&self.0)
+            }
             fn dispatch(
                 &mut self,
                 token: u64,

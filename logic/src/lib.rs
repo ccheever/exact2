@@ -249,6 +249,10 @@ impl<D: DataSource> DataSource for Swappable<D> {
             .map(DataSource::placement)
             .unwrap_or_default()
     }
+    /// A replaced Rust module's calls run to completion.
+    fn interrupt(&self) -> Option<exact_runner::Interrupt> {
+        self.embedded.as_ref().and_then(DataSource::interrupt)
+    }
     fn dispatch(&mut self, token: u64, store: &Store) -> exact_runner::Dispatch {
         match self.embedded.as_mut() {
             Some(embedded) => embedded.dispatch(token, store),

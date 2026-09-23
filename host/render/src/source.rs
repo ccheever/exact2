@@ -5,7 +5,9 @@
 //! answers what a new anonymous device would see. A render never configures
 //! storage and never replaces the logic it booted with.
 use exact_plan::{Plan, Value};
-use exact_runner::{Answer, DataError, DataSource, Dispatch, Outcome, Placement, Store, Target};
+use exact_runner::{
+    Answer, DataError, DataSource, Dispatch, Interrupt, Outcome, Placement, Store, Target,
+};
 
 /// The app's data source in a render's environment.
 pub struct Anonymous<D> {
@@ -96,6 +98,9 @@ impl<D: DataSource> DataSource for Anonymous<D> {
     }
     fn placement(&self) -> Placement {
         self.inner.placement()
+    }
+    fn interrupt(&self) -> Option<Interrupt> {
+        self.inner.interrupt()
     }
     fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {
         self.inner.dispatch(token, store)

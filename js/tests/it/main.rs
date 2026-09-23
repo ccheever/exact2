@@ -4,5 +4,6 @@
 mod caltrain;
 mod castle;
 mod inputs;
+mod interrupt;
 mod pure;
 mod storage;

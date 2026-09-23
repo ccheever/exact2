@@ -304,6 +304,14 @@ bool exact_js_capture(void *h, size_t index, const char **path, size_t *path_len
 }
 void exact_js_clear_captures(void *h) { clear_captures(static_cast<State *>(h)); }
 
+// Stop the running execution, or the next to start, from any thread (LLP
+// 1048.000 D10): Hermes raises an uncatchable timeout at the next async break
+// check, which bytecode compiled with -emit-async-break-check has in every
+// loop and function. The caller keeps the runtime alive through this call.
+void exact_js_interrupt(void *h) {
+  static_cast<State *>(h)->rt->asyncTriggerTimeout();
+}
+
 // Run every queued microtask: the continuations of resolved fetches.
 int exact_js_drain(void *h, char **out) {
   auto *state = static_cast<State *>(h);

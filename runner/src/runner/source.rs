@@ -3,6 +3,25 @@ use crate::request::{Answer, Dispatch, Outcome, Placement, Work};
 use crate::store::Store;
 use exact_plan::{Plan, Value};
 
+/// Stops a source's running call from another thread (LLP 1048.000 D10: a
+/// render's deadline). The call ends as a refusal, as one that threw does,
+/// and its resource keeps what it showed. Clones stop the same source.
+#[derive(Clone)]
+pub struct Interrupt(std::sync::Arc<dyn Fn() + Send + Sync>);
+
+impl Interrupt {
+    /// A handle whose [`Interrupt::trigger`] runs `stop`, on the caller's
+    /// thread.
+    pub fn new(stop: impl Fn() + Send + Sync + 'static) -> Interrupt {
+        Interrupt(std::sync::Arc::new(stop))
+    }
+
+    /// Stop the call running now, or the next one to start.
+    pub fn trigger(&self) {
+        (self.0)()
+    }
+}
+
 /// What a request answers: a resource or a mutation, by its index in the
 /// plan. The runner keeps at most one request in flight per target (LLP
 /// 1016 D5), so an executor that parks a call until its reply comes keys
@@ -211,6 +230,14 @@ pub trait DataSource {
     /// crate has nothing to learn and ignores it.
     fn bind(&mut self, plan: &Plan) {
         let _ = plan;
+    }
+
+    /// A handle another thread may trigger to stop this source's running
+    /// call (LLP 1048.000 D10), or `None` when a call always returns on its
+    /// own, as a Rust source's does. A source that forwards to another
+    /// forwards this too.
+    fn interrupt(&self) -> Option<Interrupt> {
+        None
     }
 
     /// Whether answers are available now. A TypeScript module before its

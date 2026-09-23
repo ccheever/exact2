@@ -10,8 +10,8 @@
 use crate::envelope;
 use exact_plan::{Plan, Value};
 use exact_runner::{
-    Answer, DataError, DataSource, Dispatch, Outcome, Placement, Reply, Request, Store, Target,
-    Work,
+    Answer, DataError, DataSource, Dispatch, Interrupt, Outcome, Placement, Reply, Request, Store,
+    Target, Work,
 };
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::mpsc::{channel, Sender};
@@ -112,6 +112,9 @@ pub struct Placed<D> {
     app_id: String,
     grants: String,
     revision: Option<String>,
+    /// Taken at construction: a moved source's handle still reaches it on its
+    /// owner, and a built instance shares its template's.
+    interrupt: Option<Interrupt>,
     owner: Option<Sender<Job>>,
     recorded: BTreeMap<u64, Recorded>,
     stages: HashMap<Key, VecDeque<Stage>>,
@@ -146,6 +149,7 @@ impl<D: DataSource + 'static> Placed<D> {
             app_id: source.app_id().to_string(),
             grants: source.grants().to_string(),
             revision: source.revision().map(str::to_string),
+            interrupt: source.interrupt(),
             inner: Some(source),
             placement,
             spawn,
@@ -350,6 +354,10 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
 
     fn revision(&self) -> Option<&str> {
         self.revision.as_deref()
+    }
+
+    fn interrupt(&self) -> Option<Interrupt> {
+        self.interrupt.clone()
     }
 
     fn ready(&self) -> bool {

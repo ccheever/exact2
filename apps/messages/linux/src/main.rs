@@ -1,6 +1,6 @@
 //! Messages on the shared Linux host, with the native Snapback device.
 use exact_plan::{Plan, Value};
-use exact_runner::{Answer, DataError, DataSource, Outcome, Store, Target};
+use exact_runner::{Answer, DataError, DataSource, Interrupt, Outcome, Store, Target};
 include!(concat!(env!("OUT_DIR"), "/module.rs"));
 #[path = "../../native.rs"]
 mod native;
@@ -88,6 +88,9 @@ impl DataSource for Messages {
     }
     fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
         self.0.continuation(token)
+    }
+    fn interrupt(&self) -> Option<Interrupt> {
+        self.0.interrupt()
     }
 }
 type ExactEmbeddedData = Messages;
