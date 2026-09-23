@@ -276,6 +276,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "image" => AttrTarget::Prop(p("headImage")),
         "canonical" => AttrTarget::Prop(p("headCanonical")),
         "robots" => AttrTarget::Prop(p("headRobots")),
+        "status" => AttrTarget::Prop(p("headStatus")),
         "virtualized" => AttrTarget::Prop(p("virtualized")),
         "testId" => AttrTarget::Prop(p("testId")),
         "navigationKey" => AttrTarget::Prop(p("navigationKey")),
@@ -621,7 +622,14 @@ pub(crate) fn validate_list(
 }
 
 /// The attributes `head` takes, and only `head` (LLP 1048.003 D1).
-pub const HEAD_FIELDS: &[&str] = &["title", "description", "image", "canonical", "robots"];
+pub const HEAD_FIELDS: &[&str] = &[
+    "title",
+    "description",
+    "image",
+    "canonical",
+    "robots",
+    "status",
+];
 
 /// Suggest one unambiguous single-edit spelling from the existing attribute
 /// lookup. No second vocabulary is maintained, and this never admits an alias.

@@ -208,8 +208,8 @@ impl Batch {
     }
 
     /// `{"op":"head","title":…,"description":…,"image":…,"canonical":…,
-    /// "robots":…}`: the active head's fields, `null` where none is set
-    /// (LLP 1048.003 D1).
+    /// "robots":…,"status":…}`: the active head's fields, `null` where none
+    /// is set (LLP 1048.003 D1).
     pub fn head(&mut self, head: &exact_runner::Head) {
         let mut s = String::from("{\"op\":\"head\"");
         for (name, value) in head.fields() {
@@ -218,6 +218,12 @@ impl Batch {
                 Some(value) => quote(value, &mut s),
                 None => s.push_str("null"),
             }
+        }
+        match head.status {
+            Some(code) => {
+                let _ = write!(s, ",\"status\":{code}");
+            }
+            None => s.push_str(",\"status\":null"),
         }
         s.push('}');
         self.ops.push(s);

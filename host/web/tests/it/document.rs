@@ -296,7 +296,7 @@ component App
     let plan = contract::bake(contract::compile(src).unwrap(), Says("")).unwrap();
     let (mut host, first) = Host::boot(&plan.encode(), Says(""), Default::default(), "/").unwrap();
     assert!(
-        first.contains(r#"{"op":"head","title":"Count 0","description":"Counting","image":null,"canonical":null,"robots":null}"#),
+        first.contains(r#"{"op":"head","title":"Count 0","description":"Counting","image":null,"canonical":null,"robots":null,"status":null}"#),
         "{first}"
     );
     let kernel = host.runner().kernel();
@@ -328,7 +328,7 @@ component App
     // A deeper head arrives: the page's head follows, field by field.
     let changed = host.dispatch(bump, exact_runner::Event::Press);
     assert!(
-        changed.contains(r#"{"op":"head","title":"Counted","description":"Counting","image":null,"canonical":null,"robots":null}"#),
+        changed.contains(r#"{"op":"head","title":"Counted","description":"Counting","image":null,"canonical":null,"robots":null,"status":null}"#),
         "{changed}"
     );
     // A commit that moves no head sends none.

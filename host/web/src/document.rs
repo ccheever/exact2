@@ -169,6 +169,10 @@ pub fn main<D: DataSource + Default>(baked: &[u8]) -> std::process::ExitCode {
                         None => line.push_str("null"),
                     }
                 }
+                match doc.head.status {
+                    Some(code) => line.push_str(&format!(",\"status\":{code}")),
+                    None => line.push_str(",\"status\":null"),
+                }
             }
             Err(error) => {
                 failed = true;

@@ -1,11 +1,13 @@
 // Accept fixture: documents in Contract (`@ref LLP 1048.003` part A). The
 // innermost active `head` wins field by field (D1): the route's title and
 // description over the site's, the site's image where the route sets none,
-// and nothing from a route the navigation root has not selected. A route's
-// content scrolls as the page (`scroll document`, D4).
+// and nothing from a route the navigation root has not selected. The
+// not-found view declares its HTTP status. A route's content scrolls as the
+// page (`scroll document`, D4).
 routes nav
   tab home "/"
     post "/post/:post"
+  notfound
 
 shape Post
   title: string
@@ -26,6 +28,9 @@ component Site
           when e.name == "post"
             head title=post.title description=post.summary canonical=`/post/${e.params.post}`
             text post.title
+          when e.name == "notfound"
+            head title="Not found" robots="noindex" status=404
+            text "Nothing here"
           scroll document flex=1 min-height=0 testId="page"
             text "Content"
             scroll height=100 testId="inner"

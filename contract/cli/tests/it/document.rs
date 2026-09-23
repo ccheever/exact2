@@ -56,6 +56,7 @@ fn the_innermost_active_head_wins_field_by_field() {
             image: some("/assets/site.png"),
             canonical: some("/"),
             robots: some("index"),
+            status: None,
         }
     );
     // The home route is still in the stack, covered: its head is inactive.
@@ -67,8 +68,14 @@ fn the_innermost_active_head_wins_field_by_field() {
             image: some("/assets/site.png"),
             canonical: some("/post/7"),
             robots: some("index"),
+            status: None,
         }
     );
+    // The not-found view declares its status; its robots wins over the site's.
+    let missing = boot("/nowhere").head();
+    assert_eq!(missing.status, Some(404));
+    assert_eq!(missing.title, some("Not found"));
+    assert_eq!(missing.robots, some("noindex"));
 }
 
 #[test]
@@ -103,6 +110,7 @@ fn heads_take_no_space_and_the_agent_reports_the_active_one() {
             "image": "/assets/site.png",
             "canonical": "/post/7",
             "robots": "index",
+            "status": null,
         })
     );
 }
@@ -133,7 +141,7 @@ fn head_fields_belong_to_head_and_head_takes_only_them() {
         (
             "component A\n  view\n    column\n      head title=\"x\" testId=\"h\"\n",
             "lower-attr-tag",
-            "`head` takes only title, description, image, canonical, robots; `testId` is not one",
+            "`head` takes only title, description, image, canonical, robots, status; `testId` is not one",
         ),
         (
             "component A\n  view\n    column\n      head title=\"x\" width=10\n",
@@ -149,6 +157,16 @@ fn head_fields_belong_to_head_and_head_takes_only_them() {
             "component A\n  view\n    column\n      head \"x\"\n",
             "lower-positional",
             "`head` takes no positional argument",
+        ),
+        (
+            "component A\n  view\n    column\n      head status=200\n",
+            "lower-attr-value",
+            "`status` is 404 or 410",
+        ),
+        (
+            "component A\n  state gone = true\n  view\n    column\n      head status=(gone ? 410 : 404)\n",
+            "lower-attr-value",
+            "as a literal",
         ),
         (
             "component A\n  view\n    title \"x\"\n",

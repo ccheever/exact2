@@ -592,6 +592,12 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
             None => s.push_str("null"),
         }
     }
+    match runner.head().status {
+        Some(code) => {
+            let _ = write!(s, ",\"status\":{code}");
+        }
+        None => s.push_str(",\"status\":null"),
+    }
     s.push_str("},\"delivery\":");
     delivery(runner, &mut s);
     s.push_str(",\"logic\":");

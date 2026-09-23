@@ -1190,6 +1190,16 @@ impl<'a> Lowerer<'a> {
                 a.span,
             );
         }
+        // A not-found view's HTTP status, known at compile time (LLP
+        // 1048.003 D1, LLP 1048.000 D11).
+        if a.name == "status" && !matches!(a.value, Expr::Number(n, _) if n == 404.0 || n == 410.0)
+        {
+            return err(
+                "lower-attr-value",
+                "`status` is 404 or 410, as a literal: the page answers with it",
+                a.span,
+            );
+        }
         if tag != "list" && matches!(a.name.as_str(), "reachstart" | "reachend") {
             return err(
                 "lower-attr-tag",

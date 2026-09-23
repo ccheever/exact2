@@ -11,7 +11,7 @@
 //! a window's title and the agent's `state` agree.
 
 use crate::{DataSource, Runner};
-use exact_kernel::{NodeType, PropId, ViewId};
+use exact_kernel::{NodeType, PropId, PropValue, ViewId};
 
 /// The active head's fields; `None` where no active head sets one.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -26,10 +26,14 @@ pub struct Head {
     pub canonical: Option<String>,
     /// Directions to crawlers (`noindex`, `nofollow`, …).
     pub robots: Option<String>,
+    /// The HTTP status a not-found view declares: 404 or 410 (LLP 1048.000
+    /// D11). Native hosts ignore it.
+    pub status: Option<u16>,
 }
 
 impl Head {
-    /// Each field with its `head` attribute name, in declaration order.
+    /// Each text field with its `head` attribute name, in declaration
+    /// order; `status` is the one number.
     pub fn fields(&self) -> [(&'static str, Option<&str>); 5] {
         [
             ("title", self.title.as_deref()),
@@ -55,6 +59,7 @@ impl<D: DataSource> Runner<D> {
     pub fn head(&self) -> Head {
         let kernel = self.kernel();
         let mut best: [Option<(usize, &str)>; 5] = [None; 5];
+        let mut status: Option<(usize, u16)> = None;
         let mut stack: Vec<(ViewId, usize)> = self
             .roots()
             .into_iter()
@@ -71,6 +76,11 @@ impl<D: DataSource> Runner<D> {
                         if slot.is_none_or(|(at, _)| depth >= at) {
                             *slot = Some((depth, value));
                         }
+                    }
+                }
+                if let Some(&PropValue::Int(code)) = node.props.get(PropId::HeadStatus) {
+                    if status.is_none_or(|(at, _)| depth >= at) {
+                        status = u16::try_from(code).ok().map(|code| (depth, code));
                     }
                 }
                 continue;
@@ -109,6 +119,7 @@ impl<D: DataSource> Runner<D> {
             image,
             canonical,
             robots,
+            status: status.map(|(_, code)| code),
         }
     }
 }
