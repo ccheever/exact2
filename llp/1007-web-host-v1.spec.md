@@ -122,7 +122,11 @@ lengths in `px`, percentages, `auto`; unitless where CSS is (`flex-grow`,
 for symbol images; raster-image tint remains unsupported. An `env()` length (LLP 1001
 §2) lowers to its CSS text — `env(safe-area-inset-top)`,
 `calc(env(safe-area-inset-bottom) + 12px)` — and the browser resolves it
-(2026-08-30).
+(2026-08-30). A generic `font_family` Chrome does not know carries its CSS
+generic (`ui-monospace,monospace`, `ui-serif,serif`,
+`ui-sans-serif,system-ui,sans-serif`, `ui-rounded,system-ui,sans-serif`):
+bare, each rendered as Times — the Markdown reader's code, now Menlo
+(2026-09-23).
 
 **`transition`** lowers to CSS `transition` — property, duration, easing
 (`linear`, keywords, `cubic-bezier()`, `steps(n, jump-*)`, `linear()` with

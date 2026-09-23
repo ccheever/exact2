@@ -274,6 +274,18 @@ fn style_rows_lower_to_css_by_their_names() {
     assert!(css.contains("font-family:sans-serif;"), "{css}");
     assert!(!css.contains("font-family:\"sans-serif\";"), "{css}");
     assert!(skipped.is_empty(), "{skipped:?}");
+    // Chrome knows no `ui-*` family: bare, each rendered as Times.
+    for (family, stack) in [
+        ("ui-monospace", "ui-monospace,monospace"),
+        ("ui-serif", "ui-serif,serif"),
+        ("ui-sans-serif", "ui-sans-serif,system-ui,sans-serif"),
+        ("ui-rounded", "ui-rounded,system-ui,sans-serif"),
+        ("system-ui", "system-ui"),
+    ] {
+        let families = vec![String::new(), String::new(), family.into()];
+        let (css, _) = css_text(&s, &families);
+        assert!(css.contains(&format!("font-family:{stack};")), "{css}");
+    }
 }
 
 #[test]

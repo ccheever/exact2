@@ -84,7 +84,7 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
             ("font_family", RowValue::Number(index)) => {
                 if let Some(family) = font_names.get(*index as usize) {
                     let value = if is_generic_family(family) {
-                        family.clone()
+                        generic_stack(family).to_string()
                     } else {
                         css_string(family)
                     };
@@ -156,6 +156,21 @@ fn is_generic_family(value: &str) -> bool {
             | "monospace"
             | "ui-rounded"
     )
+}
+
+/// A generic family as a stack every browser renders. Only Safari knows the
+/// `ui-*` families: elsewhere a bare one names no font and the text falls to
+/// the browser's default, Times (every Markdown code block in Chrome). Each
+/// carries the CSS generic it means — for sans-serif and rounded, through
+/// `system-ui`, the face Apple's `ui-*` families are.
+fn generic_stack(family: &str) -> &str {
+    match family {
+        "ui-monospace" => "ui-monospace,monospace",
+        "ui-serif" => "ui-serif,serif",
+        "ui-sans-serif" => "ui-sans-serif,system-ui,sans-serif",
+        "ui-rounded" => "ui-rounded,system-ui,sans-serif",
+        other => other,
+    }
 }
 
 fn css_string(value: &str) -> String {
