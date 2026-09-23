@@ -134,13 +134,13 @@ refused: progressive forms (server actions without the runtime) and
 server-driven UI; no Node on the render path.
 
 **Expanded (Charlie, 2026-09-23: "let's build it in exact2 and see how we
-stack up"; "do both but start with realworld"):** RealWorld/Conduit
-(`apps/realworld`), the spec'd Medium clone, against its hosted API, measured
-for browser load against a React 19 build of the same spec. An exact2 entry in
-js-framework-benchmark follows. Unblocks comparing exact2 with React on an app
-we didn't design. Take: no measurement harness, script or check in this repo.
-The React build, the benchmark entry and the numbers live outside it. Other
-benchmark and showcase apps wait behind this one.
+stack up"):** RealWorld/Conduit (`apps/realworld`), the spec'd Medium clone,
+against its hosted API, measured for browser load against a React 19 build of
+the same spec. Unblocks comparing exact2 with React on an app we didn't design.
+Take: no measurement harness, script or check in this repo; the React build and
+the numbers live outside it. Other benchmark and showcase apps wait behind this
+one. js-framework-benchmark stays out (Charlie, 2026-09-23: "let's skip it"):
+its harness needs a table and Bootstrap class names the web host doesn't emit.
 
 ## Surfaces
 
