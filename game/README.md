@@ -65,8 +65,8 @@ generate its hosts, Cargo workspace and lock, ignored, under `.shells/`.
 The crate is `<Game::ID>-logic` and the bundle id `com.exact.<Game::ID>`; the title
 follows the directory name. Run the Rust tests with
 `bun game/app/shells.mjs ./my-game --test` — in a fresh clone too, with no bake and
-no environment variables. It generates `.shells/`, resolves offline and locked, and
-runs `cargo test` on the game's crates.
+no environment variables. It generates `.shells/`, resolves offline and locked, runs
+the determinism lints and then `cargo test` on the game's crates.
 
 ## The programming model
 
@@ -272,6 +272,19 @@ on every host. Pixels have a tolerance; simulation state is exact.
 4. Keep semantic state in components and resources, without interior mutation
    through shared references. The journal is telemetry, outside hashes and observation.
 
+Clippy holds every game's logic library to rules 1–3 with the SDK's
+[`app/determinism/clippy.toml`](app/determinism/clippy.toml): std float transcendentals
+(`sin` … `powi`, `hypot`, `mul_add`), `HashMap`, `HashSet`, `RandomState`, `Instant`,
+`SystemTime`, `std::thread::spawn` and `rand`'s ambient generators are refused, each
+naming its replacement. `sqrt` is correctly rounded and allowed; glam is built with
+`libm`, so `Vec3::length`, `Quat::slerp` and the other glam methods are portable. The
+lints run in `shells.mjs --test`, before first pins and `--repin`, and in every
+production-profile bake (web, Apple, release Linux, deploy); the gpu-dev edit loop
+leaves them to those. An `#[allow(clippy::disallowed_types)]` on an item is a
+visible exception — a `HashMap` that is only ever looked up, say. Tests may time
+themselves. Setting `RUSTFLAGS` replaces the workspace's `-fp-contract=off`, so a
+game build under it is refused until the flag is appended.
+
 Seekable advances observe the final tick pair. Ambient entities and explicitly
 ambient resources/derived publications stay outside rest observation, but retain
 their save rules. Settle does not pause time or force physics bodies asleep.
@@ -389,8 +402,8 @@ bun test ./proof.test.mjs
 bun app/shells.mjs --test
 ```
 
-The last command checks the SDK lock, then tests every in-tree game's crates in
-its own workspace. Generated adapters are products, not empty test harnesses.
+The last command checks the SDK lock, then lints and tests every in-tree game's
+crates in its own workspace. Generated adapters are products, not empty test harnesses.
 Pass an app directory to test only that app: `bun app/shells.mjs /path/to/my-game --test`.
 Run the affected game's real-host proof too. Device lifecycle tests are opt-in:
 `cargo test -p exact-game-render surface_lifecycle -- --ignored` on a GPU host.

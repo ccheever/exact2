@@ -206,7 +206,7 @@ if (args[0] === 'test' && process.cwd() === process.env.SCOPE_TEST_FAIL) process
     };
     const selected = run([external, '--test']);
     assert.equal(selected.result.status, 0, selected.result.stderr);
-    assert.deepEqual(selected.commands.map(command => command.args[0]), ['metadata','run','test']);
+    assert.deepEqual(selected.commands.map(command => command.args[0]), ['metadata','run','clippy','test']);
     assert.deepEqual(selected.bakes[0].args, ['run','--manifest-path',resolve(sdk,'Cargo.toml'),'-p',
       'exact-game-bake','--locked','--offline','--','--art',external]);
     assert.equal(selected.bakes[0].cwd, sdk);
@@ -532,3 +532,37 @@ test('R15 explicit crate and type without an inferred declaration require identi
     assert.equal(gameDefaults(app).app.id,'org.example.odd');
   } finally {rmSync(parent,{recursive:true,force:true});}
 });
+
+test('the determinism lints refuse f32::sin, HashMap and Instant in game logic, naming each fix', async () => {
+  const {prepareGame,gameDefaults,lintGame}=await import('./app/shells.mjs');
+  const root=realpathSync(mkdtempSync(resolve(tmpdir(),'determinism-lints-'))), app=resolve(root,'lint-game');
+  try {
+    createGame(app);
+    const game=gameDefaults(app).game, env={...process.env,CARGO_TARGET_DIR:resolve(import.meta.dir,'target')};
+    prepareGame(app,game);
+    lintGame(app,game,{env});
+    const source=resolve(app,'logic/src/lib.rs');
+    writeFileSync(source,readFileSync(source,'utf8').replace(/fn tick\(w: &mut World[^{]*\{/,match=>`${match}
+        let _wobble = w.dt().sin();
+        let _seen: std::collections::HashMap<u32, u32> = Default::default();
+        let _wall = std::time::Instant::now();`));
+    assert.throws(()=>lintGame(app,game,{env}),error=>['f32::sin differs across hosts; use exact_game::math::sin',
+      'use std::collections::BTreeMap','use world time: w.now()'].every(fix=>error.message.includes(fix)) || assert.fail(error.message));
+  } finally {rmSync(root,{recursive:true,force:true});}
+},300000);
+
+test('RUSTFLAGS without -fp-contract=off is refused in a generated game shell, naming the fix', async () => {
+  const {gameDefaults,gameShells}=await import('./app/shells.mjs');
+  const root=realpathSync(mkdtempSync(resolve(tmpdir(),'rustflags-guard-'))), app=resolve(root,'flags-game');
+  try {
+    createGame(app);
+    gameShells(app,gameDefaults(app).game,import.meta.dir);
+    assert.match(readFileSync(resolve(app,'.shells/.cargo/config.toml'),'utf8'),/EXACT_GAME_FP_CONTRACT = "off"/);
+    const env={...process.env,RUSTFLAGS:'-C debug-assertions=off',CARGO_TARGET_DIR:resolve(root,'target'),CARGO_BUILD_BUILD_DIR:resolve(root,'build')};
+    delete env.CARGO_ENCODED_RUSTFLAGS;
+    const checked=spawnSync('cargo',['check','--offline','-p','flags-game-logic'],{cwd:resolve(app,'.shells'),env,encoding:'utf8'});
+    assert.notEqual(checked.status,0);
+    assert.match(checked.stderr,/RUSTFLAGS replaced the game workspace's `-C llvm-args=-fp-contract=off`/);
+    assert.match(checked.stderr,/RUSTFLAGS="\$RUSTFLAGS -C llvm-args=-fp-contract=off"/);
+  } finally {rmSync(root,{recursive:true,force:true});}
+},300000);

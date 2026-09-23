@@ -4,6 +4,7 @@ import {spawn, spawnSync} from 'node:child_process';
 import {existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync} from 'node:fs';
 import {basename, resolve} from 'node:path';
 import {equal, agreePins, pinInputs, webUnavailable, paranoidRuns, proofCommand} from './proof.mjs';
+import {gameDefaults, lintGame, prepareGame} from './app/shells.mjs';
 
 const [destination, ...args] = process.argv.slice(2);
 const local = destination === '.' || destination?.includes('/');
@@ -62,6 +63,12 @@ const run = async (host, index, build = false, mode = '0', profile = 'gpu-dev') 
   return summary;
 };
 if (repin) {
+  // A baseline records only a game that holds the determinism contract.
+  const game = gameDefaults(app)?.game;
+  if (game) {
+    prepareGame(app, game);
+    lintGame(app, game, {env:{...process.env, CARGO_TARGET_DIR:process.env.CARGO_TARGET_DIR ?? resolve(app, 'target')}});
+  }
   const pinFile = resolve(app, 'pins.json'), before = JSON.parse(readFileSync(pinFile, 'utf8'));
   const rows = [], errors = [], exercised = [];
   if (!hosts.includes('linux')) throw new Error('repin requires the linux host; use --hosts linux,web');

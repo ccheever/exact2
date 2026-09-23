@@ -44,7 +44,8 @@ release without changing the game.
 
 Run the Rust tests, from a fresh clone too, with
 `bun /path/to/exact2/game/app/shells.mjs . --test`: it generates `.shells/`,
-resolves against the SDK's lock offline and locked, and runs the tests.
+resolves against the SDK's lock offline and locked, and checks the SDK's
+determinism lints (exact2's `game/README.md`, "Determinism — the contract").
 To depend on another crate, write `logic/Cargo.toml` (`package.workspace =
 "../.shells"`, SDK crates as `exact-game.workspace = true`), then capture
 this game's own lock with `bun /path/to/exact2/game/app/shells.mjs . --update-lock`

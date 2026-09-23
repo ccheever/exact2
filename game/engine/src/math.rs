@@ -64,6 +64,87 @@ pub fn ln(x: f32) -> f32 {
 pub fn powf(x: f32, y: f32) -> f32 {
     libm::powf(x, y)
 }
+/// Sine and cosine together.
+pub fn sin_cos(x: f32) -> (f32, f32) {
+    libm::sincosf(x)
+}
+/// Hyperbolic sine.
+pub fn sinh(x: f32) -> f32 {
+    libm::sinhf(x)
+}
+/// Hyperbolic cosine.
+pub fn cosh(x: f32) -> f32 {
+    libm::coshf(x)
+}
+/// Hyperbolic tangent.
+pub fn tanh(x: f32) -> f32 {
+    libm::tanhf(x)
+}
+/// Inverse hyperbolic sine.
+pub fn asinh(x: f32) -> f32 {
+    libm::asinhf(x)
+}
+/// Inverse hyperbolic cosine.
+pub fn acosh(x: f32) -> f32 {
+    libm::acoshf(x)
+}
+/// Inverse hyperbolic tangent.
+pub fn atanh(x: f32) -> f32 {
+    libm::atanhf(x)
+}
+/// Base-2 exponential.
+pub fn exp2(x: f32) -> f32 {
+    libm::exp2f(x)
+}
+/// `exp(x) - 1`, accurate near zero.
+pub fn exp_m1(x: f32) -> f32 {
+    libm::expm1f(x)
+}
+/// `ln(1 + x)`, accurate near zero.
+pub fn ln_1p(x: f32) -> f32 {
+    libm::log1pf(x)
+}
+/// Logarithm in an arbitrary base, as std's `f32::log`: `ln(x) / ln(base)`.
+pub fn log(x: f32, base: f32) -> f32 {
+    libm::logf(x) / libm::logf(base)
+}
+/// Base-2 logarithm.
+pub fn log2(x: f32) -> f32 {
+    libm::log2f(x)
+}
+/// Base-10 logarithm.
+pub fn log10(x: f32) -> f32 {
+    libm::log10f(x)
+}
+/// Raise x to an integer power by squaring, in one fixed order on every host
+/// (std's `powi` is an LLVM intrinsic whose rounding varies by target).
+pub fn powi(x: f32, n: i32) -> f32 {
+    let (mut base, mut exponent, mut result) = (x, n.unsigned_abs(), 1.0f32);
+    while exponent > 0 {
+        if exponent & 1 == 1 {
+            result *= base;
+        }
+        base *= base;
+        exponent >>= 1;
+    }
+    if n < 0 {
+        1.0 / result
+    } else {
+        result
+    }
+}
+/// Cube root.
+pub fn cbrt(x: f32) -> f32 {
+    libm::cbrtf(x)
+}
+/// `sqrt(x² + y²)` without undue overflow.
+pub fn hypot(x: f32, y: f32) -> f32 {
+    libm::hypotf(x, y)
+}
+/// `x * y + z` rounded once, in software on every host.
+pub fn mul_add(x: f32, y: f32, z: f32) -> f32 {
+    libm::fmaf(x, y, z)
+}
 /// Nonnegative square root.
 pub fn sqrt(x: f32) -> f32 {
     libm::sqrtf(x)
@@ -154,6 +235,18 @@ pub fn ease<T: Ease>(current: T, target: T, lag: f32, dt: f32) -> T {
 #[cfg(test)]
 mod tests {
     use super::clamp;
+
+    #[test]
+    fn portable_powi_and_log_agree_with_their_definitions() {
+        assert_eq!(
+            super::powi(1.5, 3).to_bits(),
+            (1.5f32 * 1.5 * 1.5).to_bits()
+        );
+        assert_eq!(super::powi(2.0, -2), 0.25);
+        assert_eq!(super::powi(-3.0, 0), 1.0);
+        assert_eq!(super::log(8.0, 2.0), libm::logf(8.0) / libm::logf(2.0));
+        assert_eq!(super::sin_cos(0.5), (super::sin(0.5), super::cos(0.5)));
+    }
 
     #[test]
     fn compact_clamp_matches_std_bits_and_rejects_the_same_bounds() {

@@ -29,7 +29,7 @@ import { createHash } from 'node:crypto';
 import { prepareRustBundle } from './rust.mjs';
 import { filesystem } from './filesystem.mjs';
 import { installProblems } from './install-page.mjs';
-import { gameDefaults, prepareGame } from '../game/app/shells.mjs';
+import { gameDefaults, lintGame, prepareGame } from '../game/app/shells.mjs';
 
 // @ref llp/1046.006.000-render-hooks.rfc.md#d5-shaders-that-live-with-the-game
 /** Explicit source roots, relative to app.json. Only packaged names reach a host. */
@@ -622,6 +622,9 @@ export function buildBake(app, platform, target, options = {}) {
   const rustBundle=prepareRustBundle(app,platform,target,env);
   if(rustBundle)env.EXACT_RUST_BUNDLE=rustBundle;
   const graph=buildGraph(app,target,kind,env,app.hasGpu),messages=[],roots=[];
+  // Production-profile game bakes (web, Apple, release Linux, deploy) hold the
+  // logic to the determinism lints; the gpu-dev edit loop leaves them to --test.
+  if(app.manifest.game&&(options.profile??'')!=='gpu-dev')lintGame(app.dir,app.manifest.game,{env});
   delete env.EXACT_GPU_PRODUCT;
   if (options.part && !bindGpuProduct(options.profile, env.EXACT_UPDATE_TRUST) && graph.surface) {
     const extension = target.includes('apple') ? 'dylib' : target.includes('windows') ? 'dll' : 'so';

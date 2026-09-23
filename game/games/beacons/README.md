@@ -12,7 +12,7 @@ in `logic/tests/` and the proof's `pins.json`. From the repository root:
 bun game/dev.mjs beacons                    # live world; gameplay edits carry state
 bun game/prove.mjs beacons                  # GPU-less Linux proof against pins.json
 bun game/games/beacons/proof.mjs web        # headless Chrome with a real GPU canvas
-bun game/app/shells.mjs game/games/beacons --test   # Rust tests
+bun game/app/shells.mjs game/games/beacons --test   # Rust tests and determinism lints
 ```
 
 The Linux proof skips 3D screenshot capture; `--paranoid` exercises continuous,
