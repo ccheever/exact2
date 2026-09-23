@@ -3,8 +3,10 @@
  * async — the async lane (rules/RULES.md §Loop shape): every first-parent
  * commit on origin/main, checked out in a dedicated worktree with its own
  * target/, gets the five checks over the whole workspace plus the tests marked
- * `#[ignore = "async lane: …"]`. A failure that the previous commit did not
- * have is filed with `issue.mjs`, naming the commit that introduced it.
+ * `#[ignore = "async lane: …"]`, then `metrics.mjs --long` (every RULES budget;
+ * a VIOLATION row or a failed run counts, an OVER time does not — it moves with
+ * the load). A failure that the previous commit did not have is filed with
+ * `issue.mjs`, naming the commit that introduced it.
  * Logs and timings (with the load average) stay in <worktree>/target/async/.
  *
  *   bun scripts/async.mjs                 watch: check new commits every 300 s
@@ -50,6 +52,7 @@ function checks() {
     ['fmt', 'cargo', ['fmt', '--all', '--', '--check']],
     ['caps', 'bun', ['scripts/caps.mjs']],
     ['boot', 'bun', ['scripts/boot.mjs']],
+    ['metrics', 'bun', ['scripts/metrics.mjs', '--long']],
   ];
 }
 
@@ -66,6 +69,7 @@ function failures(name, log, status) {
     const rerun = /^error: test failed, to rerun pass `([^`]+)`/.exec(line);
     if (rerun) for (const t of failed.splice(0)) found.add(`${name}: ${rerun[1]} ${t}`);
   }
+  for (const m of log.matchAll(/^\s+(\S.*?)\s{2,}.*\bVIOLATION\b/gm)) found.add(`${name}: ${m[1]} VIOLATION`);
   for (const m of log.matchAll(/^Diff in (\S+?):\d+:/gm)) found.add(`${name}: ${m[1].replace(WT + '/', '')} is not formatted`);
   if (status !== 0 && !found.size) found.add(`${name}: exit ${status} (see log)`);
   return [...found];
