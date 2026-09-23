@@ -17,6 +17,8 @@ struct Frame {
     texels_softness: vec4<f32>,
     shadow_near: vec4<f32>,
     logical_size: vec4<f32>,
+    // SH9 diffuse irradiance / π, premultiplied (ibl.rs, ibl.wgsl).
+    irradiance: array<vec4<f32>, 9>,
 }
 @group(0) @binding(0) var<uniform> frame: Frame;
 fn environment(y: f32) -> vec3<f32> {

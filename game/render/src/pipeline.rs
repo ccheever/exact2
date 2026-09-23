@@ -1,63 +1,60 @@
 use crate::Vertex;
 use exact_gpu::wgpu;
 
-const FRAME: &str = include_str!(concat!(env!("OUT_DIR"), "/frame.wgsl"));
-const TRANSFORM: &str = include_str!(concat!(env!("OUT_DIR"), "/transform.wgsl"));
+/// Packed shader pieces (build.rs strips comments, keeping line numbers). Each
+/// assembled module is a list of these, never an edited string.
+macro_rules! piece {
+    ($name:literal) => {
+        include_str!(concat!(env!("OUT_DIR"), "/", $name, ".wgsl"))
+    };
+}
+const FRAME: &str = piece!("frame");
+const TRANSFORM: &str = piece!("transform");
+const SHADOW_SAMPLE: &str = piece!("shadow_sample");
+const NO_SHADOW_SAMPLE: &str = piece!("no_shadow_sample");
+const IBL: &str = piece!("ibl");
+const FORWARD: &str = piece!("forward");
+const MODEL: &str = piece!("model");
+/// The environment prefilter, a standalone module (ibl.rs).
+pub(crate) const ENVIRONMENT: &str = piece!("environment");
 
 fn primitive_sources() -> [String; 5] {
     [
-        [
-            FRAME,
-            TRANSFORM,
-            include_str!(concat!(env!("OUT_DIR"), "/shadow_sample.wgsl")),
-            include_str!(concat!(env!("OUT_DIR"), "/forward.wgsl")),
-        ]
-        .concat(),
-        [
-            FRAME,
-            TRANSFORM,
-            include_str!(concat!(env!("OUT_DIR"), "/shadow.wgsl")),
-        ]
-        .concat(),
-        [FRAME, include_str!(concat!(env!("OUT_DIR"), "/sky.wgsl"))].concat(),
-        [
-            FRAME,
-            include_str!(concat!(env!("OUT_DIR"), "/tonemap.wgsl")),
-        ]
-        .concat(),
-        [FRAME, include_str!(concat!(env!("OUT_DIR"), "/bloom.wgsl"))].concat(),
+        [FRAME, TRANSFORM, SHADOW_SAMPLE, IBL, FORWARD].concat(),
+        [FRAME, TRANSFORM, piece!("shadow")].concat(),
+        [FRAME, piece!("sky")].concat(),
+        [FRAME, piece!("tonemap")].concat(),
+        [FRAME, piece!("bloom")].concat(),
     ]
 }
 
 #[cfg(test)]
-pub(crate) fn shader_sources() -> [String; 7] {
+pub(crate) fn shader_sources() -> [String; 9] {
     let [a, b, c, d, e] = primitive_sources();
-    [a, b, c, d, e, model_source(false), model_source(true)]
+    let models = [model_source(false), model_source(true)];
+    let [f, g] = models;
+    [a, b, c, d, e, f, g, cull_source(), ENVIRONMENT.into()]
+}
+
+/// Frustum culling reuses the scene's transform bindings (0-5) in compute.
+pub(crate) fn cull_source() -> String {
+    [FRAME, TRANSFORM, piece!("cull")].concat()
 }
 
 pub(crate) fn model_source(shadow: bool) -> String {
     // Separate entry points leave the primitive path free of texture bindings/samples.
-    let source = [
-        FRAME,
-        TRANSFORM,
-        include_str!(concat!(env!("OUT_DIR"), "/shadow_sample.wgsl")),
-        include_str!(concat!(env!("OUT_DIR"), "/forward.wgsl")),
-        include_str!(concat!(env!("OUT_DIR"), "/model.wgsl")),
-    ]
-    .concat();
-    if shadow {
-        // group 1 is the cascade camera in this pass, so unused shadow sampling
-        // declarations must not collide with it.
-        let sample = include_str!(concat!(env!("OUT_DIR"), "/shadow_sample.wgsl"));
-        let source = source.replace(
-            sample,
-            "fn sun_visibility(p: vec3<f32>, n: vec3<f32>) -> f32 { return 1.0; }\n",
-        );
-        source + include_str!(concat!(env!("OUT_DIR"), "/model_shadow.wgsl"))
+    // Group 1 is the cascade camera in shadow passes, so sampling is stubbed there.
+    let (sample, tail) = if shadow {
+        (NO_SHADOW_SAMPLE, piece!("model_shadow"))
     } else {
-        source
-    }
+        (SHADOW_SAMPLE, "")
+    };
+    [FRAME, TRANSFORM, sample, IBL, FORWARD, MODEL, tail].concat()
 }
+
+/// Pipelines every renderer creates at construction: eight forward, two shadow,
+/// sky, two tone, three bloom, three culling compute and the environment prefilter.
+pub(crate) const STARTUP_PIPELINES: u64 = 20;
 
 pub(crate) struct Pipelines {
     pub models: Option<ModelPipelines>,
@@ -126,8 +123,30 @@ impl Pipelines {
                 storage(1, wgpu::ShaderStages::VERTEX),
                 storage(2, wgpu::ShaderStages::VERTEX),
                 storage(3, wgpu::ShaderStages::VERTEX_FRAGMENT),
-                storage(4, wgpu::ShaderStages::VERTEX),
+                // Retained draws bind offset zero; culled draws bind their region.
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: true,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
                 storage(5, wgpu::ShaderStages::VERTEX),
+                // The environment's prefiltered radiance (ibl.wgsl).
+                wgpu::BindGroupLayoutEntry {
+                    binding: 6,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::Cube,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                sampler(7, wgpu::SamplerBindingType::Filtering),
             ],
         );
         let tone_layout = layout(

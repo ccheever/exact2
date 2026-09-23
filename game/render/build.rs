@@ -32,6 +32,10 @@ fn main() {
         "bloom",
         "model",
         "model_shadow",
+        "no_shadow_sample",
+        "cull",
+        "ibl",
+        "environment",
     ] {
         let path = format!("src/shaders/{name}.wgsl");
         println!("cargo:rerun-if-changed={path}");

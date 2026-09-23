@@ -29,6 +29,15 @@ Modes — Godot: `nodes` (a `MeshInstance3D` each), `multimesh` (one `MultiMesh`
 GDScript each frame), `shader` (the rotation in the vertex shader; no CPU work). three.js:
 `meshes` (a `Mesh` each), `instanced` (one `InstancedMesh`, set from JS each frame).
 
+**`cubes … field`** (Exact only) — the culling scene: N props on a 4 m grid (boxes and
+24-segment cylinders 1–12 m tall, and balls), the camera at eye level at the centre
+turning once per 20 s, far 300 m, a low sun with three shadow cascades, fog on, bloom
+off. Most props are outside the camera and every cascade; tall ones around the camera
+throw shadows into view. `game/render/examples/cubes.rs -- N frames field` is the same
+scene offscreen. **`cubes 1 materials`** (Exact only, build with `BENCH_BUILD_ONLY=1`,
+then screenshot through the agent) is a back-lit metallic × roughness grid of spheres:
+the environment-lighting scene.
+
 ### Feel — Beacons, live clock
 
 ```sh
@@ -1479,3 +1488,70 @@ textures"), on this Mac without `wasm-opt`: the asset-capable module 1,578,268 �
 and the state report); the primitive module 1,128,865 → 1,127,207 raw and 349,087
 → 348,992 gzip. The module carries no transcoder. Texture bytes, quality, device
 memory and load times are in the LLP section.
+
+## Culling and environment lighting — 2026-09-23
+
+Apple M5 Max, macOS; **load average 150–300 on 18 cores** (six other lanes building,
+the GPU shared: single frames stalled 17–89 ms), so medians only, from interleaved
+runs. "base" is origin/main `4eca9a09` exported with `git archive`, built with the
+same example and bench scene, and, for Chrome, the same hookless GPU timing.
+
+```sh
+cargo run --release -p exact-game-render --example cubes -- 100000 240 field
+cargo run --release -p exact-game-render --example cubes -- 500000 120 timed
+cargo run --release -p exact-game-render --example cubes -- 100000 60 cpu-cull
+BENCH_HEADLESS=1 bun game/bench/run.mjs exact-web cubes 100000 field
+```
+
+Native Metal, 2560×1440, 4× MSAA; GPU pass intervals overlap, the envelope is first
+to last timestamp; two runs each:
+
+| scene | build | draws | drawn: camera / cascades | encode p50 ms | GPU p50 ms: envelope | shadow 0 / 1 / 2 | forward | cull |
+|---|---|---:|---|---:|---:|---|---:|---:|
+| field 100k | base | 18 | 100,001 / all ×3 | 0.40–0.44 | 14.1–14.9 | 4.0–4.2 / 2.4–2.8 / 2.2–2.7 | 5.4 | — |
+| field 100k | culled | 18 | 6,034 / 54, 232, 2,336 | 0.74–0.84 | 5.4–5.9 | 0.53–0.55 / 0.75–0.76 / 1.1–1.3 | 2.5–3.4 | 0.20–0.22 |
+| field 10k | base | 18 | 10,001 / all ×3 | 0.42–0.45 | 4.8–5.5 | 0.9–1.0 / 1.0–1.1 / 1.1 | 2.0–2.6 | — |
+| field 10k | culled | 18 | 2,581 / 58, 228, 2,338 | 0.71–0.72 | 5.0–5.8 | 0.5–0.6 / 0.7–0.8 / 1.1–1.7 | 2.9–3.0 | 0.13–0.19 |
+| orbit 100k, all visible | base | 2 | 100,000 | 0.25–0.27 | 1.6–2.6 | — | 1.2–1.3 | — |
+| orbit 100k, all visible | culled | 2 | 95,450 | 0.37–0.39 | 3.0–3.1 | — | 1.4 | 0.44–0.49 |
+| orbit 500k, all visible | base | 2 | 500,000 | 0.29–0.30 | 5.8 | — | 4.9–5.2 | — |
+| orbit 500k, all visible | culled | 2 | 472,494 | 0.38–0.39 | 5.9 | — | 4.4–4.5 | 0.59–0.63 |
+
+Of the culled field's encode increase, about 0.2 ms is wgpu-core's default
+indirect-call validation at submit (0.74–0.78 → 0.54–0.58 ms with
+`InstanceFlags::empty()`, a probe not kept).
+
+Chrome WebGPU, headless (the runner labels it `sanity-only`: no foreground
+display, but real GPU work), field 100k, 8 s:
+
+| build | drawn: camera / cascades | encode p50 ms | GPU p50 ms: forward | shadow 0 / 1 / 2 | cull |
+|---|---|---:|---:|---|---:|
+| base | 100,001 / all ×3 | 0.175 | 4.42 | 3.44 / 3.11 / 3.47 | — |
+| culled | 6,030 / 56, 232, 2,338 | 0.225 | 2.40 | 0.37 / 0.61 / 1.06 | 0.16 |
+
+The rejected CPU alternative (`cpu-cull`: both tick poses per item, the same swept
+sphere, four views, stable compaction into preallocated lists, no upload) costs
+0.41 / 5.1 / 41 ms p50 per frame at 10k / 100k / 500k items.
+
+**Environment lighting's cost.** Split-sum specular and SH diffuse add no GPU time
+that stands out from the noise on native Metal. Against the culling-only commit
+`87b48b1c`, the field's forward pass measured 6.7 → 6.4–6.5 ms and the orbit's
+2.8–2.9 → 2.9–3.1 ms. In headless Chrome, interleaved, the quietest pair (load ~50)
+added 0.29 ms (5.77 → 6.06 ms); loaded pairs added 0.9–2.8 ms, where one build
+alone ranged from 4.2 to 6.0 ms. The prefilter's 36 small passes run only when the
+sky's colours change.
+
+**Module size** (`bun game/bench/size.mjs`, Beacons, binaryen 133 `wasm-opt -Oz`,
+gzip 9, one toolchain for all three rows):
+
+| build | shipped bytes | gzip bytes |
+|---|---:|---:|
+| origin/main `4eca9a09` | 691,192 | 297,560 |
+| culling `87b48b1c` | 711,298 (+20,106) | 305,187 (+7,627) |
+| culling + lighting `31168abb` | 718,477 (+7,179) | 308,115 (+2,928) |
+
+The culling row includes its shader (7.3 KB packed), the CPU quad culling, and GPU
+pass timing plus per-view counts for hookless armed canvases. Hookless games
+compiled timing out before. Projecting the lighting's SH over the cube's texels,
+instead of a θ/φ grid, kept libm's `sinf`/`cosf`/`rem_pio2_large` out of the
+module and saved 5,803 bytes. The 550–650 KB target stays unmet.

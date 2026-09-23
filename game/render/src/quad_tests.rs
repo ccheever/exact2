@@ -286,7 +286,7 @@ fn direct_sprite_residency_stays_feed_scoped_across_replacement_and_retirement()
         let frame = feed.frame(&world, 1., 1.);
         renderer
             .quads
-            .frame::<true>(&frame, &renderer.models.textures);
+            .frame::<true>(&frame, &renderer.models.textures, true);
         renderer.quads.order::<true>(&gpu.device, &gpu.queue);
     }
     assert_eq!(renderer.quads.instances(), 0);
@@ -297,7 +297,7 @@ fn direct_sprite_residency_stays_feed_scoped_across_replacement_and_retirement()
         let frame = feed.frame(&world, 1., 1.);
         renderer
             .quads
-            .frame::<true>(&frame, &renderer.models.textures);
+            .frame::<true>(&frame, &renderer.models.textures, true);
         renderer.quads.order::<true>(&gpu.device, &gpu.queue);
     }
     assert_eq!(renderer.quads.instances(), 1);
@@ -312,7 +312,7 @@ fn direct_sprite_residency_stays_feed_scoped_across_replacement_and_retirement()
         let frame = feed.frame(&world, 1., 1.);
         renderer
             .quads
-            .frame::<true>(&frame, &renderer.models.textures);
+            .frame::<true>(&frame, &renderer.models.textures, true);
         renderer.quads.order::<true>(&gpu.device, &gpu.queue);
     }
     assert_eq!(renderer.quads.instances(), 1);
@@ -325,7 +325,7 @@ fn direct_sprite_residency_stays_feed_scoped_across_replacement_and_retirement()
         let frame = feed.frame(&world, 1., 1.);
         renderer
             .quads
-            .frame::<true>(&frame, &renderer.models.textures);
+            .frame::<true>(&frame, &renderer.models.textures, true);
         renderer.quads.order::<true>(&gpu.device, &gpu.queue);
     }
     assert_eq!(renderer.quads.instances(), 0);
@@ -419,7 +419,7 @@ fn particle_storage_and_pipelines_prepare_only_with_emitters() {
         let capacity = r.quads.reserved_bytes();
         let work = r.residency_work();
         let input = feed.frame(&w, 1., 1.);
-        r.quads.frame::<true>(&input, &r.models.textures);
+        r.quads.frame::<true>(&input, &r.models.textures, true);
         r.quads.order::<true>(&gpu.device, &gpu.queue);
         assert_eq!(r.quads.reserved_bytes(), capacity);
         assert_eq!(r.residency_work().since(work).pipeline_creations, 0);
@@ -531,13 +531,17 @@ fn same_owner_sprite_then_particle_is_pinned_and_adjacent_sprites_batch() {
     let mut feed = crate::Feed::default();
     feed.feed(w, &mut r).unwrap();
     let input = feed.frame(w, 1., 1.);
-    r.quads.frame::<true>(&input, &r.models.textures);
+    // Batching is judged unculled: the sixty sprites lie beyond the camera.
+    r.quads.frame::<true>(&input, &r.models.textures, false);
     r.quads.order::<true>(&gpu.device, &gpu.queue);
     assert_eq!(
         r.quads.draws.len(),
         3,
         "sprite + particle + adjacent 60 sprites"
     );
+    r.quads.frame::<true>(&input, &r.models.textures, true);
+    r.quads.order::<true>(&gpu.device, &gpu.queue);
+    assert_eq!(r.quads.draws.len(), 2, "off-camera sprites are culled");
     assert_eq!(r.quads.reallocations(), 0);
 }
 

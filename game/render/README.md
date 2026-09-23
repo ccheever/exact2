@@ -1,9 +1,10 @@
 # exact-game-render
 
 PBR over slot-indexed floats and separate model draw instances. `WorldSurface<G>` connects a simulation to an
-Exact canvas; the simulation crate owns no GPU or host. Geometry draws once per
-mesh batch **per geometry pass**: each shadow cascade draws its casters again,
-then forward rendering draws the scene. There is no frustum rejection in those loops.
+Exact canvas; the simulation crate owns no GPU or host. Each frame a GPU pass culls
+every opaque item against the camera and each shadow cascade; each geometry pass
+then issues one indirect draw per mesh batch (and winding) over its view's survivors.
+See [Culling](#culling).
 
 ## Renderer contract
 
@@ -25,7 +26,8 @@ reverse-Z is unsupported. Capsule height is tip-to-tip.
 64-byte affine attachments. Writes and batch changes return named `RenderError`s before
 mutation on capacity refusal. Incomplete records/invalid meshes are caller errors.
 Arenas grow with GPU copies and never shrink. `Stats.instances/triangles` describe
-the forward scene; `draws` includes engine-issued draws across all passes; `texture_creations` is cumulative.
+the submitted forward scene before culling; `draws` includes engine-issued draws across
+all passes (an indirect draw counts even when the GPU keeps nothing); `texture_creations` is cumulative.
 CPU timing belongs to the caller; `draw` makes no performance clock calls.
 
 ## Game render hooks
@@ -55,7 +57,8 @@ forward/shadow pipelines and group 2 resources. `MATERIAL_WGSL` supplies the fra
 transforms and instance accessor. Group 1 is empty in forward and the light camera
 in shadow; group 3 is engine instances. Two vertex storage bindings remain under
 the default limit of eight. Custom forward shaders do not yet receive engine
-shadow maps; use conservative `ModelBounds` for GPU deformation.
+shadow maps; use conservative `ModelBounds` for GPU deformation. Batches with a
+custom material are never culled, because the game's vertex shader may move them.
 
 `app.json` declares `gpu.shaderRoots` and optional `gpu.shaderPreludes` (shader stem
 → ordered source paths), all relative to the manifest. The bake merges and reflects
@@ -65,16 +68,50 @@ No manual copy or private game dependency is needed in public engine code.
 
 Tree/state report stages. `world.renderHooks` contains CPU rings, attachment-byte
 estimates and separate engine/game creation counts before/after readiness; absent
-raw-device reporting is `null`. Raw hook draws/dispatches are not counted in the
-engine’s draw/triangle counters. Existing perf arming enables asynchronous GPU
-readback when supported; `world.gpuMs` reports enclosing passes and `null` for
-unsupported finer intervals. These GPU intervals overlap; do not sum them.
+raw-device reporting is `null`. Raw hook draws/dispatches are neither culled nor
+counted in the engine’s draw/triangle counters. `world.gpuMs` (below) names each hook
+stage; unsupported finer intervals are `null`.
+
+## Culling
+
+One compute pass after skinning (`cull.wgsl`, three dispatches) tests every opaque
+item against the camera frustum and each cascade's light box, then writes each view's
+visible slots into its own region, **in retained order** — equal-depth ties resolve
+exactly as unculled — and fills that view's `draw_indexed_indirect` arguments.
+Draws read their region through a dynamic offset on the scene group's `slots`
+binding with a zero first instance, so WebGPU's optional `indirect-first-instance`
+is not required. The CPU keeps the draw groups (batch × winding, recomputed each
+frame, uploaded only when they change) and issues the same number of draws as before.
+
+Bounds are conservative, never tight: an item's sphere covers every pose between its
+previous and current tick (the translation segment, the scaled centre's segment and
+the rotation's arc, which nlerp keeps under π) plus its mesh at the larger scale.
+Primitives take their dimensions from the material; model nodes their composed box;
+a skinned node the union of its mesh sphere under every joint of its current palette
+(skinned positions are convex combinations of joint-transformed bind positions);
+socket attachments their displayed affine. Game custom materials keep everything.
+A margin covers f32 rounding. The camera culls sprites, emitters (from a bound on
+speed, gravity and the longest lifetime; skipped emitters still charge the world
+particle budget) and unskinned blended models on the CPU before derivation/upload.
+Shadow casters are tested against their own cascade only; particles and sprites
+cast no shadows.
+
+Culling never changes pixels: `cull_tests.rs` renders moving primitive fields
+(perspective and orthographic), animated skinned Foxes, models, sockets, sprites,
+blended models and emitters culled and again keeping every item, and requires
+identical bytes. A device without indirect execution (the iOS simulator's Metal;
+probed once at construction, while WebGPU always has it) or whose storage limits
+cannot hold the per-view lists (only region padding can exceed them below
+`max_slots()`) draws every group directly and unculled, with identical pixels.
+Culling does not reduce CPU draw calls; measurements are in
+[bench/README.md](../bench/README.md#culling-and-environment-lighting--2026-09-23).
 
 ## Effects
 
-`FrameInput::default()` supplies a shadowed sun, gradient sky, hemisphere ambient
-light and bloom. Supply matching view/projection/camera position. All colours are
-linear. `Bloom` and `Fog` are re-exports of the engine's saved types.
+`FrameInput::default()` supplies a shadowed sun, gradient sky, [environment
+light](#environment-lighting) and bloom. Supply matching view/projection/camera
+position. All colours are linear. `Bloom` and `Fog` are re-exports of the engine's
+saved types.
 
 - Sun shadows default to 60 m, three 2048² Depth32Float cascades, practical splits
   (lambda 0.7), rotation-invariant fitting spheres and texel snapping. Casters up
@@ -91,11 +128,28 @@ linear. `Bloom` and `Fog` are re-exports of the engine's saved types.
 - Bloom defaults to threshold 1, intensity 0.16, radius 1.5: one-sided knee, 13-tap
   downsampling and additive tent upsampling. Up to six RGBA16F levels, stopping
   before either dimension falls below 8; tiny outputs retain one level.
-- Sky and hemisphere illumination share zenith/horizon/ground colours. A constant
+- Sky and environment lighting share zenith/horizon/ground colours. A constant
   sky without disc or differing fog colour uses the clear directly. `sun_disc` is
   angular radius in radians. Fog integrates exponential distance and Y-height
   density analytically, including a stable near-horizontal limit; sky uses 10 km.
   Fog is enabled by default. Default density is 0.012/m and height falloff 0.1/m; absent fog colour uses horizon.
+
+### Environment lighting
+
+Ambient light is image-based, from the procedural sky (`Environment.zenith`,
+`horizon`, `ground`) — the flat `background` stays independent of lighting, and the
+sun disc is left out because the sun is a direct light. When those colours change
+(and only then) the renderer projects the sky onto nine SH coefficients on the CPU
+(irradiance / π, in the frame uniform's `irradiance`, part of `FRAME_WGSL`) and
+renders a 32² RGBA16F cube whose six mips hold GGX-prefiltered radiance, roughness
+`mip / 5`, 256 samples per texel: 36 small passes before the frame's geometry.
+Primitive and model shaders share `ibl.wgsl`: split-sum specular samples the cube at
+the reflected direction and `roughness × 5` and scales it by Karis's analytic
+environment BRDF; diffuse is SH irradiance × base × (1 − metallic) × (1 − specular).
+`Environment.ambient` scales both, model occlusion multiplies both, and exposure and
+ACES apply once as before. Metals reflect the sky out of direct light; dielectrics
+reflect about 4% of it at normal incidence. An authored environment map would replace
+only the prefilter's `source()` and the SH projection's radiance function.
 
 `Material::grid(color, spacing)` uses a derivative-antialiased world-space grid,
 projected onto any face in the existing forward shader. Positive saved spacing
@@ -104,8 +158,9 @@ slot (negative spacing). Uploads stay twelve floats per instance and there is no
 extra texture or pipeline. Non-grid materials skip the grid branch. The cubes
 bench explicitly disables fog/bloom to retain its effects-off fast path.
 
-Sixteen primitive/effect variants compile at renderer startup: eight forward, two
-shadow, one sky, two tone and three bloom. This is startup work, not per-frame work. The
+Twenty primitive/effect pipelines compile at renderer startup: eight forward, two
+shadow, one sky, two tone, three bloom, three culling compute and the environment
+prefilter. This is startup work, not per-frame work. The
 model family is lazy: two shared shader modules and three shared pipeline layouts,
 with only the material/winding variants needed by arrived models. All four
 shadow/fog combinations for each used forward variant are prepared during asset
@@ -191,8 +246,6 @@ Opaque batches stay retained. Only transparent draws are sorted each displayed
 frame, back-to-front in camera depth, using retained tick poses and local centers.
 They keep depth testing, disable depth writes, and do not cast shadows. A model's
 own materials are multiplied by entity base colour and have entity emission added.
-The environment's hemisphere approximation supplies ambient metallic reflection;
-this is not image-based lighting.
 
 Camera/sun/point rotations use normalized linear interpolation histories. The first posed sun
 wins. Point-light selection is feed-only: up to sixteen with positive tick-end
@@ -213,9 +266,15 @@ Missing materials/environment use defaults.
 Performance samples appear only in `state.world.perf`: live frame stamps, tick,
 feed, encode (frame input through submit) and ticks/frame distributions. CPU sample
 rings retain 16,384 values. Seekable renders, agent advances and timed binds make
-no perf clock calls; samples do not enter hashes. The allocation-free claim covers
+no perf clock calls; samples do not enter hashes. Armed perf also reads back, a few
+frames late and asynchronously, `perf.culled` (instances each view drew: `camera`,
+`shadows[0..3]`) and, where timestamps are granted, `world.gpuMs` rings per pass
+(forward, the cascades, `cull`, hook stages). Arming allocates the query set and
+readback buffers; an unarmed canvas creates none. GPU intervals overlap; do not sum
+them. The allocation-free claim covers
 only the `steady_sim_feed_and_frame_inputs_allocate_nothing` moving-cube/camera/light
-fixture (including trace recording), after warmup,
+fixture (including trace recording) and the warm culling preparation
+(`steady_culling_preparation_allocates_nothing`), after warmup,
 without input edges, structural churn, audio or physics. wgpu owns its command and
 staging allocations; the claim does not include those. Animation output, owner-chain
 construction or hierarchy growth, physics event vectors, audio voice sorting and
@@ -303,6 +362,7 @@ cargo build -p greybox-gpu --profile web --target wasm32-unknown-unknown
 cargo run -p exact-game-render --release --example cubes -- 500000 240
 cargo run -p exact-game-render --release --example cubes -- 500000 240 one-percent
 cargo run -p exact-game-render --release --example cubes -- 500000 240 still
+cargo run -p exact-game-render --release --example cubes -- 100000 240 field
 cargo test -p exact-game-render --release --lib feed_cpu_cost -- --ignored --nocapture --test-threads=1
 cargo test -p exact-game-render --release -- --ignored --nocapture --test-threads=1
 bun games/greybox/proof.mjs web
@@ -367,8 +427,8 @@ This exercises the digest-based replacement already present at 4b40b165.
 
 ## P1 particle and sprite rendering
 
-Particles and sprites use retained CPU derivation and separate 80-byte quad
-instance vertex arenas beside the entity/model draw-instance records. A thousand
+Particles and sprites use retained CPU derivation (after [camera culling](#culling))
+and separate 80-byte quad instance vertex arenas beside the entity/model draw-instance records. A thousand
 sparks add no entities and no DrawInstance records. Feed retains emitter state
 and previous/current transforms at ticks; a frame derives local particle motion,
 transforms it, sorts the translucent entries and uploads contiguous instances.

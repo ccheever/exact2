@@ -6,6 +6,8 @@
 //   bun game/bench/run.mjs three cubes 100000 instanced [webgl|webgpu]
 //   bun game/bench/run.mjs godot-web cubes 100000 multimesh
 //   bun game/bench/run.mjs sweep godot cubes multimesh     the largest N holding the refresh rate
+//   bun game/bench/run.mjs exact-web cubes 100000 field    Exact's culling scene
+//   BENCH_BUILD_ONLY=1 bun game/bench/run.mjs exact-web cubes 1 materials   lighting
 //
 // Every run presents to the display, so the numbers are frame pacing under vsync:
 // the question a scene answers is the largest N that still holds the refresh rate.
@@ -101,10 +103,13 @@ function finish(result) {
 
 if (engine === 'exact-web' || engine === 'exact-macos') {
   if(scene !== 'cubes') throw new Error('Exact currently implements cubes only');
-  const paths=await build(engine === 'exact-web' ? 'web' : 'macos', Number(n));
+  // `field`: the culling scene, an eye-level camera inside n props with shadows;
+  // `materials`: a metallic × roughness grid (build it with BENCH_BUILD_ONLY=1).
+  const world = Math.max([undefined, 'field', 'materials'].indexOf(mode), 0);
+  const paths=await build(engine === 'exact-web' ? 'web' : 'macos', Number(n), world);
   if(process.env.BENCH_BUILD_ONLY === '1') {console.log(JSON.stringify({engine,built:true,n:Number(n)}));process.exit(0);}
   const measured=engine === 'exact-web' ? await browse(dist,'index.html',r=>r,true) : await macWorld(paths,Number(seconds));
-  finish(summarize(measured,engine,n));
+  finish(summarize(measured,engine,n,world));
 } else if (engine === 'godot') {
   if(!headless) displayReady();
   if (!existsSync(GODOT)) { console.error(`no Godot at ${GODOT} (set GODOT)`); process.exit(2); }

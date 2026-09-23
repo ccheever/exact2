@@ -115,6 +115,8 @@ pub(crate) struct Perf {
     last_live: Option<f64>,
     pub stats: Stats,
     pub pixels: (u32, u32),
+    /// Instances drawn per view (camera, cascades 0–2) in the last read frame.
+    pub culled: Option<[u64; 4]>,
 }
 impl Perf {
     pub fn armed(&self) -> bool {
@@ -174,9 +176,17 @@ impl Perf {
         }
         write!(
             out,
-            ",\"draws\":{},\"instances\":{},\"triangles\":{}}}",
+            ",\"draws\":{},\"instances\":{},\"triangles\":{}",
             self.stats.draws, self.stats.instances, self.stats.triangles
         )
+        .unwrap();
+        match self.culled {
+            Some([camera, a, b, c]) => write!(
+                out,
+                ",\"culled\":{{\"camera\":{camera},\"shadows\":[{a},{b},{c}]}}}}"
+            ),
+            None => write!(out, ",\"culled\":null}}"),
+        }
         .unwrap();
     }
 }

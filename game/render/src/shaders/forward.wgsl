@@ -58,8 +58,7 @@ fn shade(input: Varying, visibility: f32) -> vec4<f32> {
     let emissive = vec3(materials[i+6u], materials[i+7u], materials[i+8u]);
     let n = normalize(input.normal);
     let v = normalize(frame.camera_alpha.xyz - input.world);
-    let hemi = environment(n.y);
-    var color = hemi * frame.zenith_ambient.w * base * (1.0 - metallic) + emissive;
+    var color = ambient(n, v, base, metallic, roughness) + emissive;
     if frame.sun_direction_illuminance.w > 0.0 {
         let l = normalize(-frame.sun_direction_illuminance.xyz);
         color += brdf(n, v, l, base, metallic, roughness) * frame.sun_color_count.xyz * frame.sun_direction_illuminance.w * visibility;

@@ -221,15 +221,31 @@ impl Emitter {
             Err("Emitter: invalid shape, rate, lifetime, motion, keys or bounds".into())
         }
     }
-    /// Visit derived live particles at the displayed age; no allocation or mutation.
-    /// Alpha interpolates the previous/current completed ticks, as entity poses do.
-    pub fn particles(&self, hz: u32, alpha: f32, mut visit: impl FnMut(Particle)) {
-        let age = self.state.age.saturating_sub(1) as f64
+    fn displayed_age(&self, alpha: f32) -> f64 {
+        self.state.age.saturating_sub(1) as f64
             + if self.state.age == 0 {
                 0.
             } else {
                 alpha.clamp(0., 1.) as f64
-            };
+            }
+    }
+    /// How many particles [`Self::particles`] visits at this alpha, without deriving
+    /// them: presentation that skips an emitter still charges its share of a budget.
+    pub fn live(&self, hz: u32, alpha: f32) -> u32 {
+        let age = self.displayed_age(alpha);
+        let mut remaining = PARTICLE_BUDGET;
+        for birth in &self.state.births {
+            let seconds = (age - birth.tick as f64) / hz as f64;
+            if seconds >= 0. && seconds < birth.lifetime as f64 {
+                remaining -= birth.count.min(remaining);
+            }
+        }
+        PARTICLE_BUDGET - remaining
+    }
+    /// Visit derived live particles at the displayed age; no allocation or mutation.
+    /// Alpha interpolates the previous/current completed ticks, as entity poses do.
+    pub fn particles(&self, hz: u32, alpha: f32, mut visit: impl FnMut(Particle)) {
+        let age = self.displayed_age(alpha);
         let spread_cos = math::cos(self.spread);
         let mut remaining = PARTICLE_BUDGET;
         for birth in &self.state.births {
@@ -430,6 +446,7 @@ mod tests {
                 e.particles(60, alpha, |p| a.push(p));
                 restored.particles(60, alpha, |p| b.push(p));
                 assert_eq!(a, b);
+                assert_eq!(e.live(60, alpha) as usize, a.len());
                 assert!(a.iter().all(|p| p.position.is_finite()));
                 if alpha == 1. {
                     assert_eq!(a.len(), e.state.alive as usize);

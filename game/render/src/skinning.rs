@@ -151,6 +151,10 @@ impl Skinning {
         self.meta.write(queue, 0, bytes(&self.metadata));
         ids
     }
+    /// Joint count of one skin template: its palette span per skinned record.
+    pub(crate) fn joints(&self, skin: u32) -> u32 {
+        self.templates[skin as usize].joints as u32
+    }
     pub(crate) fn mark_fresh(&mut self, skins: &[u32]) {
         for &id in skins {
             self.templates[id as usize].fresh = true;

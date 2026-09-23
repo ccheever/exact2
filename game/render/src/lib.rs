@@ -14,8 +14,12 @@ extern crate self as exact_game_render;
 
 mod bloom;
 mod buffers;
+mod cull;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod cull_tests;
 mod frame;
 pub mod hooks;
+mod ibl;
 mod model_pipeline;
 mod models;
 mod perf;

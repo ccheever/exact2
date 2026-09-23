@@ -59,7 +59,7 @@ pub struct WorldSurface<
     hooks: H,
     hook_clock: crate::hooks::HookClock,
     hook_poses: crate::hooks::Poses,
-    hook_gpu_timing: Option<crate::hooks::gpu_timing::GpuTiming>,
+    gpu_timing: Option<crate::hooks::gpu_timing::GpuTiming>,
     render: Option<(crate::renderer::RendererWithAssets<ASSETS>, Feed)>,
     format: Option<wgpu::TextureFormat>,
     payloads: textures::Payloads,
@@ -93,7 +93,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> Default
             hooks: H::default(),
             hook_clock: Default::default(),
             hook_poses: Default::default(),
-            hook_gpu_timing: None,
+            gpu_timing: None,
             render: None,
             format: None,
             payloads: Default::default(),
@@ -394,7 +394,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> Surface
             return;
         }
         if self.format != Some(format) {
-            self.hook_gpu_timing = None;
+            self.gpu_timing = None;
             self.hook_clock.reset();
             self.hooks.device_lost();
             self.ready_work = None;
@@ -500,7 +500,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> Surface
     fn device_lost(&mut self) {
         self.hooks.device_lost();
         self.hook_clock.reset();
-        self.hook_gpu_timing = None;
+        self.gpu_timing = None;
         for child in &mut self.placed.children {
             child.texture = None;
         }
@@ -751,7 +751,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> Surface
             if let Ok(r) = exact_game::json::from_str::<PerfRequest>(request) {
                 if r.perf_reset {
                     self.perf.reset();
-                    if let Some(timing) = &mut self.hook_gpu_timing {
+                    if let Some(timing) = &mut self.gpu_timing {
                         timing.reset();
                     }
                 } else if r.perf {
@@ -829,13 +829,11 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> Surface
                     }
                 }
             }
-            if H::ENABLED {
-                if let Some(timing) = &mut self.hook_gpu_timing {
-                    if let Some((renderer, _)) = &self.render {
-                        timing.poll(&renderer.device, &renderer.queue);
-                    }
-                    timing.append(&mut reply);
+            if let Some(timing) = &mut self.gpu_timing {
+                if let Some((renderer, _)) = &self.render {
+                    timing.poll(&renderer.device, &renderer.queue);
                 }
+                timing.append(&mut reply);
             }
             reply.push_str("}}");
         }
@@ -876,6 +874,14 @@ fn world_state(reply: &str) -> bool {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "surface_tests.rs"]
 mod tests;
+#[cfg(test)]
+impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, P, ASSETS, H> {
+    pub(crate) fn renderer_for_test(
+        &mut self,
+    ) -> Option<&mut crate::renderer::RendererWithAssets<ASSETS>> {
+        self.render.as_mut().map(|(renderer, _)| renderer)
+    }
+}
 
 #[cfg(test)]
 mod lifecycle_tests {

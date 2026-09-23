@@ -615,7 +615,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         crate::world::assets::Work {
             texture_uploads: textures,
             mesh_uploads: self.mesh_uploads,
-            pipeline_creations: 16
+            pipeline_creations: crate::pipeline::STARTUP_PIPELINES
                 + pipelines as u64
                 + skin.map_or(0, |s| s.pipeline_creations)
                 + self.quads.work_pipelines(),
@@ -628,6 +628,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
     /// Replace additional draw records. Primitive batches retain their compact identity
     /// record: slot = transform = material, geometry in the batch, local = identity.
     pub fn set_draw_instances(&mut self, records: &[DrawInstance]) -> Result<(), RenderError> {
+        self.cull.epoch += 1;
         let Some(family) = &self.pipelines.models else {
             assert!(records.is_empty(), "model instances need prepared assets");
             return Ok(());
