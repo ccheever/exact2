@@ -693,11 +693,15 @@ function readBundle(web, app) {
 function buildFor(app, platform, sourceRoot, run) {
   const target = bakeTarget(platform);
   const env = sealedSourceEnv(sourceRoot, { CARGO_TARGET_DIR: app.target, EXACT_UPDATE_TRUST: 'production', EXACT_BAKE_OUTPUT:resolve(run,'bake') });
-  if (platform === 'ios' || platform === 'macos') {
-    const sdk = spawnSync('xcrun', ['--sdk', platform === 'ios' ? 'iphoneos' : 'macosx', '--show-sdk-path'], {encoding:'utf8'});
-    if (sdk.status !== 0) refuse(`the ${platform} SDK is unavailable: ${sdk.stderr}`);
+  // By target, not platform: on a Mac the Linux host builds for this Mac's
+  // own triple, and with another deployment target it and the macOS bake
+  // rebuilt each other's crates (objc2 records MACOSX_DEPLOYMENT_TARGET).
+  const apple = platform === 'ios' ? 'ios' : target.includes('-apple-darwin') ? 'macos' : null;
+  if (apple) {
+    const sdk = spawnSync('xcrun', ['--sdk', apple === 'ios' ? 'iphoneos' : 'macosx', '--show-sdk-path'], {encoding:'utf8'});
+    if (sdk.status !== 0) refuse(`the ${apple} SDK is unavailable: ${sdk.stderr}`);
     env.SDKROOT = sdk.stdout.trim();
-    env[platform === 'ios' ? 'IPHONEOS_DEPLOYMENT_TARGET' : 'MACOSX_DEPLOYMENT_TARGET'] = platform === 'ios' ? '17.0' : '14.0';
+    env[apple === 'ios' ? 'IPHONEOS_DEPLOYMENT_TARGET' : 'MACOSX_DEPLOYMENT_TARGET'] = apple === 'ios' ? '17.0' : '14.0';
   }
   return buildBake(app, platform, target, {env, analysis:true});
 }
