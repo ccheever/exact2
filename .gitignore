@@ -8,6 +8,8 @@ host/web/dist/
 host/apple/.build/
 # The harness's subagent worktrees: never committed.
 .claude/worktrees/
+# llp-ship run state, an output root of the captured-source diagnostics.
+.llp/ship-runs/
 
 # Messages schema bytecode is compiled at bake, never committed.
 apps/messages/snapback/backend.ts
