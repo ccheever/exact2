@@ -796,11 +796,27 @@ impl<'a> Lowerer<'a> {
                         expr: self.fixed(false, value),
                     });
                 }
+                // @ref LLP 1048.003 D4 — the page scrolls where this does.
+                let positional = match positional.as_slice() {
+                    [word] if contract_syntax::is_scroll_document(tag, word) => {
+                        bindings.push(BindingsRow {
+                            kind: BindingKind::Prop,
+                            id: exact_kernel::PropId::ScrollDocument as u16,
+                            expr: self.b.constant(&Value::Bool(true)),
+                        });
+                        &[][..]
+                    }
+                    all => all,
+                };
                 if let Some(first) = positional.first() {
                     let Some(prop) = t.positional else {
                         return err(
                             "lower-positional",
-                            format!("`{tag}` takes no positional argument"),
+                            if tag == "scroll" {
+                                "`scroll` takes one word, `document`: `scroll document`".to_owned()
+                            } else {
+                                format!("`{tag}` takes no positional argument")
+                            },
                             first.span(),
                         );
                     };

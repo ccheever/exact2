@@ -582,6 +582,13 @@ impl Node {
     }
 }
 
+/// Whether `positional` is the word `document` in `scroll document`: the
+/// view's scroll container is the page's (LLP 1048.003 D4). It is a word,
+/// never a name in scope, so checking and lowering read it by spelling.
+pub fn is_scroll_document(tag: &str, positional: &Expr) -> bool {
+    tag == "scroll" && matches!(positional, Expr::Ident(word, _) if word == "document")
+}
+
 /// `name=expr`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Attr {

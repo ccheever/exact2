@@ -349,3 +349,15 @@ component App
     .unwrap();
     assert!(!none.contains("\"op\":\"head\""), "{none}");
 }
+
+#[test]
+fn the_page_scroller_is_marked_in_the_document() {
+    let doc = document(
+        "component A\n  view\n    column height=\"100%\"\n      scroll document flex=1 min-height=0 testId=\"page\"\n        text \"a\"\n",
+    );
+    let at = doc.find("data-testid=\"page\"").unwrap();
+    let open = &doc[doc[..at].rfind('<').unwrap()..at + doc[at..].find('>').unwrap()];
+    // The shell's `:has([data-scrolldocument="true"])` rule makes the page scroll.
+    assert!(open.contains(" data-scrolldocument=\"true\""), "{open}");
+    assert!(open.contains(" data-scroll=\"true\""), "{open}");
+}

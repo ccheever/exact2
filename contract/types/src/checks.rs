@@ -814,13 +814,17 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes, sink: &
             }
             Node::Children { .. } => {}
             Node::Element {
+                tag,
                 positional,
                 attrs,
                 children,
                 ..
             } => {
                 for p in positional {
-                    sink.keep(infer(p, scope, shapes));
+                    // `scroll document` is a word, not a name (LLP 1048.003 D4).
+                    if !contract_syntax::is_scroll_document(tag, p) {
+                        sink.keep(infer(p, scope, shapes));
+                    }
                 }
                 for a in attrs {
                     sink.keep_unit(check_attr(a, scope, shapes));

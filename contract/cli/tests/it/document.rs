@@ -1,5 +1,6 @@
-//! The document's `head` (LLP 1048.003 D1): a node that takes no space, whose
-//! fields the innermost active head sets, field by field.
+//! Documents in Contract (LLP 1048.003 part A): the `head` (D1), a node that
+//! takes no space, whose fields the innermost active head sets field by field;
+//! `scroll document` (D4).
 
 use exact_kernel::{Kernel, NodeType, Offer, PropId};
 use exact_runner::{agent, DataError, DataSource, Head, Runner, Value};
@@ -28,7 +29,7 @@ impl DataSource for Posts {
 
 fn boot(launch: &str) -> Runner<Posts> {
     let src = std::fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../corpus/head.contract"),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../corpus/document.contract"),
     )
     .unwrap();
     Runner::boot(
@@ -153,6 +154,49 @@ fn head_fields_belong_to_head_and_head_takes_only_them() {
             "component A\n  view\n    title \"x\"\n",
             "lower-unknown-tag",
             "`head title=",
+        ),
+    ] {
+        let error = contract::compile(src).unwrap_err();
+        assert_eq!(error.id, id, "{src}: {error}");
+        assert!(error.message.contains(says), "{src}: {}", error.message);
+    }
+}
+
+#[test]
+fn scroll_document_marks_the_page_scroller_and_nothing_else() {
+    let r = boot("/");
+    let k = r.kernel();
+    let page = k.node_by_key(k.find_by_test_id("page")[0]).unwrap();
+    assert_eq!(page.node_type, NodeType::ScrollView);
+    assert_eq!(
+        page.props.get(PropId::ScrollDocument),
+        Some(&exact_kernel::PropValue::Bool(true))
+    );
+    let inner = k.node_by_key(k.find_by_test_id("inner")[0]).unwrap();
+    assert_eq!(inner.props.get(PropId::ScrollDocument), None);
+    // The word is read by its spelling, whatever is in scope.
+    let shadowed = "component A\n  state document = 1\n  view\n    scroll document height=10\n      text \"a\"\n";
+    let plan = contract::compile(shadowed).unwrap();
+    assert!(plan
+        .bindings
+        .iter()
+        .any(|b| b.id == PropId::ScrollDocument as u16));
+    for (src, id, says) in [
+        (
+            "component A\n  view\n    scroll \"document\" height=10\n      text \"a\"\n",
+            "lower-positional",
+            "`scroll` takes one word, `document`",
+        ),
+        // Natively the page's scroller is still bounded by its layout.
+        (
+            "component A\n  view\n    scroll document\n      text \"a\"\n",
+            "lower-scroll-unbounded",
+            "never scroll",
+        ),
+        (
+            "component A\n  view\n    column document\n      text \"a\"\n",
+            "type-unknown-name",
+            "document",
         ),
     ] {
         let error = contract::compile(src).unwrap_err();
