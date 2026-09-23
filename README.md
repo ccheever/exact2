@@ -361,9 +361,10 @@ opportunity; the 100 ms save-to-present p50 target is not demonstrated.
 ## The five checks
 
 ```sh
-cargo build --all-targets                                               # build
-cargo test --lib --bins --tests                                         # test
-cargo clippy --all-targets -- -D warnings && cargo fmt --all -- --check # lint
+cargo build --all-targets --keep-going                                  # build
+cargo test --lib --bins --tests --no-fail-fast                          # test
+cargo clippy --all-targets --keep-going -- -D warnings                  # lint, and
+cargo fmt --all -- --check                                              # lint (run both)
 bun scripts/caps.mjs                                                   # caps
 bun scripts/boot.mjs                                                   # boot graph
 ```

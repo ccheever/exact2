@@ -24,9 +24,11 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
 - `kernel/tables/schema.json` is the one declaration authority; `kernel/build.rs`
   generates from it. Edit the table, never generated code.
 - Every source file ≤ 1,500 lines. Stage (`git add -A`) and run `bun scripts/caps.mjs`.
-- The five checks: `cargo build --all-targets` · `cargo test --lib --bins --tests` ·
-  `cargo clippy --all-targets -- -D warnings && cargo fmt --all -- --check` ·
-  `bun scripts/caps.mjs` · `bun scripts/boot.mjs`. Cargo's scope is the root
+- The five checks: `cargo build --all-targets --keep-going` ·
+  `cargo test --lib --bins --tests --no-fail-fast` · `cargo clippy --all-targets
+  --keep-going -- -D warnings` and `cargo fmt --all -- --check` (run both) ·
+  `bun scripts/caps.mjs` · `bun scripts/boot.mjs`. The flags keep Cargo from
+  stopping at the first failing crate or test binary. Cargo's scope is the root
   `default-members`; the async lane runs the same with `--workspace`. Building
   `--all-targets` resolves features as `cargo test` does, so the two share artifacts.
 - An unset `EXACT_UPDATE_TRUST` bakes development trust, which checks only an

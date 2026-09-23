@@ -122,9 +122,9 @@ per host, and the smoke as a script of its operations.)
 `build` · `test` · `lint` · `caps` · `boot`
 
 ```sh
-cargo build --all-targets
-cargo test --lib --bins --tests
-cargo clippy --all-targets -- -D warnings && cargo fmt --all -- --check
+cargo build --all-targets --keep-going
+cargo test --lib --bins --tests --no-fail-fast
+cargo clippy --all-targets --keep-going -- -D warnings; cargo fmt --all -- --check
 bun scripts/caps.mjs
 bun scripts/boot.mjs   # counts the module graph before first pixel: host glue only, no app JS
 ```
