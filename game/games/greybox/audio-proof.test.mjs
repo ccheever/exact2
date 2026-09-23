@@ -93,11 +93,13 @@ import AppKit
 enum ExactEnv { static let agentMode = false }
 final class Frames { func requestCanvas() {} }
 final class Session { let frames = Frames() }
-final class Module { var lifecycle: ((UInt32, UInt32) -> Void)? }
+// One artifact (LLP 1009 D6): each canvas's entry names the module that made it.
+final class GpuModule { var lifecycle: ((UInt32, UInt32) -> Void)? }
 final class Canvases {
-    final class Entry { let id: UInt32 = 1 }
-    var module: Module? = Module()
-    var entries = [1: Entry()]
+    final class Entry { let id: UInt32 = 1; var module: GpuModule? }
+    let module = GpuModule()
+    var modules: [String: GpuModule] { ["": module] }
+    lazy var entries: [Int: Entry] = { let e = Entry(); e.module = module; return [1: e] }()
     var session: Session? = Session()
     var visible = true
 }
@@ -105,7 +107,7 @@ final class Canvases {
     const fixture = `
 let owner = Canvases()
 var calls: [(UInt32, Bool)] = []
-owner.module!.lifecycle = { _, code in calls.append((code, Thread.isMainThread)) }
+owner.module.lifecycle = { _, code in calls.append((code, Thread.isMainThread)) }
 let lifecycle = CanvasLifecycle(owner)
 func post(_ name: Notification.Name, visible: Bool) {
     owner.visible = visible
@@ -135,11 +137,11 @@ lifecycle.refresh()
 lifecycle.refresh()
 precondition(calls.map { $0.0 } == [0], "occlusion sends only its transition")
 calls.removeAll()
-lifecycle.deliver(2)
+lifecycle.deliver(2, module: owner.module)
 precondition(calls.map { $0.0 } == [0], "late surface inherits occlusion")
 calls.removeAll()
 owner.visible = true
-lifecycle.deliver(1)
+lifecycle.deliver(1, module: owner.module)
 precondition(calls.map { $0.0 } == [1], "a new surface receives the changed aggregate only once")
 // Activation failure holds Interrupted, retries Visible, and never lies about Resumed.
 owner.visible = true
@@ -234,11 +236,13 @@ final class AVAudioSession {
 }
 final class Frames { func requestCanvas() {} }
 final class Session { let frames = Frames() }
-final class Module { var lifecycle: ((UInt32, UInt32) -> Void)? }
+// One artifact (LLP 1009 D6): each canvas's entry names the module that made it.
+final class GpuModule { var lifecycle: ((UInt32, UInt32) -> Void)? }
 final class Canvases {
-    final class Entry { let id: UInt32 = 1 }
-    var module: Module? = Module()
-    var entries = [1:Entry()]
+    final class Entry { let id: UInt32 = 1; var module: GpuModule? }
+    let module = GpuModule()
+    var modules: [String: GpuModule] { ["": module] }
+    lazy var entries: [Int: Entry] = { let e = Entry(); e.module = module; return [1: e] }()
     var session: Session? = Session()
     var visible = true
 }
@@ -246,7 +250,7 @@ final class Canvases {
     const fixture = `
 let owner = Canvases()
 var calls: [UInt32] = []
-owner.module!.lifecycle = { _, code in precondition(Thread.isMainThread); calls.append(code) }
+owner.module.lifecycle = { _, code in precondition(Thread.isMainThread); calls.append(code) }
 let lifecycle = CanvasLifecycle(owner)
 func background(_ work: @escaping () -> Void) {
     let done = DispatchSemaphore(value:0)
