@@ -25,7 +25,7 @@
 
 - **A `button` set to `display: block` centers its content again on the web** (2026-09-23, buttons lane): `button` is a flex column (LLP 1006 §3), but a row may override `display`; a block `<button>` gets Chrome's anonymous-box centering back and disagrees with the kernel. No app does it; a compile refusal of a literal `block`/`inline*` display on `button` would keep it that way.
 
-- **Bun tests with deadlines that load breaks** (2026-09-23, this Mac at load 90–120): `host/web/tests/dev-scheduler.test.mjs` "declared source files report in-place edits" waits 1,500 ms for a 100 ms `watchFile` poll (1 of 4 runs failed at 1,516 ms); `scripts/install-page.test.mjs` "filesystem callers retain their helper" runs six Bun launches under the 5 s default (passes in 11 s with a longer timeout). Neither is in the gate. When that test times out, Bun's cleanup of its dangling processes can leave the file's shared resident filesystem reader failing, so a later `readStaticFileAsync` returns null (2026-09-23, web lane; the production-server test there now starts from a fresh reader). `host/web/collection.test.mjs`'s teardown hook, which waits for Chrome to exit, also exceeds the 5 s default at load 85–300 (all its tests pass; seen four times, 2026-09-23).
+- **Bun tests with deadlines that load breaks** (2026-09-23, this Mac at load 90–120): `host/web/tests/dev-scheduler.test.mjs` "declared source files report in-place edits" waits 1,500 ms for a 100 ms `watchFile` poll (1 of 4 runs failed at 1,516 ms); `scripts/install-page.test.mjs` "filesystem callers retain their helper" runs six Bun launches under the 5 s default (passes in 11 s with a longer timeout; it also failed on origin/main 9c6eb7e0 at load ~27, 2026-09-23, deploy lane). `scripts/app.test.mjs`'s game-shell and R12 capture cases (5 s default) timed out 5 of 51 at load 90–190 and all passed at 33 (2026-09-23, deploy lane). Neither is in the gate. When that test times out, Bun's cleanup of its dangling processes can leave the file's shared resident filesystem reader failing, so a later `readStaticFileAsync` returns null (2026-09-23, web lane; the production-server test there now starts from a fresh reader). `host/web/collection.test.mjs`'s teardown hook, which waits for Chrome to exit, also exceeds the 5 s default at load 85–300 (all its tests pass; seen four times, 2026-09-23).
 
 - **One list engine** (2026-09-23, runner lane; review step 13): bring `virtualized=true` (the collection) up to the windowed list (`estimated-item-height`, `runner/src/instance/window.rs`) so an app never chooses between them, then move the Markdown reader and delete the windowed list. Charlie tried the reader on both engines on macOS (605 KB LLP 1041) and kept the windowed one: on the collection, a scrollbar jump showed blank space for seconds, ⌘C beeped after a drag selection, and the scrollbar reached deep whitespace past the document's end; ordinary scrolling felt the same. Likely causes, not yet verified: the Mac collection sync allows two reports per turn and never retries until the viewport is covered (the windowed pump fills under a deadline and retries until `listShowsViewport`); a collection's extent keeps the 96-point estimate for unmeasured rows with no correction at the end; the selected paragraph loses first responder when the collection re-parents rows. Already shared: logical `list_text`/`list_index`, row identity and web selection for collections. The collection also creates its whole window per report (29–30 rows on a jump) where the windowed list creates the visible rows, then two per frame.
 
@@ -384,6 +384,14 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
   `children` slot, `pure name(params): type` implemented in the app's Rust crate, named styles,
   the `contract` block deleted for the agent script, `use` across files, the RN-word sweep.
   §8's six questions are Charlie's; if one lands first, P1.
+- **Should a deploy without an explicit `CARGO_TARGET_DIR` build incrementally?**
+  (2026-09-23, deploy lane) It bakes cold in a fresh `<run>/cargo-target` every time
+  (about 40 minutes for Caltrain on the shared Mac), so it also signs the macOS Rust
+  module afresh and republishes the macOS and Linux bundles when nothing changed.
+  Deploys into an explicit target now keep a warm cache (LLP 1030.000 as built: a
+  lock, one capture path per repository set, `deploy/cargo-<key>`). Default deploys
+  would need that capture outside the live checkout, since Cargo reads ancestor
+  config. The trade: incremental production bakes against cold, hermetic ones.
 
 ## Declared gaps, by system (each spec's "Not in v1")
 
@@ -644,3 +652,12 @@ and the Linux headless CPU renderer without claiming display frame timing.
 - macOS agent single-call `tap` can lose its queued mouse-up on Black/Xcode 27.
   Separate `tap <target> down` / `tap up` and keyboard activation work; verify
   `AgentMouseRelease` queue matching without weakening its foreign-event guard.
+
+- Every deploy recompiles its app crates (2026-09-23, deploy lane): their build
+  scripts write the run's receipts into a per-run `EXACT_BAKE_OUTPUT` they watch, so
+  an unchanged deploy still reruns them and recompiles `caltrain-web`, both
+  `caltrain-apple`s and `caltrain-linux` with LTO; nothing else rebuilds, and a warm
+  Caltrain deploy took 265–450 s at load ~25. A receipt directory per Cargo cache,
+  copied into the run after the build, would let an unchanged deploy reuse them. The
+  `exact-filesystem` helper also rebuilds inside each deploy's capture, where its tool
+  target sits.
