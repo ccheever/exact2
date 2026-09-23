@@ -501,6 +501,11 @@ wasm32-unknown-unknown` for the app's crate (the `web` profile is release with
 byte is fetch, parse, and compile), then `wasm-opt -Oz` when binaryen is on
 PATH (the build says so when it is not, and ships unoptimized), then
 `host/web/dist/` (ignored by git): `app.wasm`, `index.html`, `glue.js`.
+The production build minifies the host JavaScript with the pinned Rolldown.
+For TypeScript apps it also bundles the module loader's stateless storage
+wrapper, removing one request dependency. The filesystem and SQLite adapters
+remain shared modules, so TypeScript and Rust requests keep the same filesystem
+mutation queues. Development still serves the original modules.
 `bun host/web/smoke.mjs` — serves `dist/` and renders it in headless Chrome,
 asserting the app's landmarks and printing the boot stamp. `node
 scripts/metrics.mjs` — every number in this document in one run (~10 s;

@@ -1392,10 +1392,15 @@ grants are read at boot, runner.rs:440 and :466).
    on nothing, and the same through a compiled Contract and the runner).
    Owed from it: the pure tier from ibex2. The clock shadow was superseded
    and the ambient-input gap fixed by LLP 1027.000 on 2026-09-04.
-4. **The web** (D6): the one import, `app.js` after first paint, the
+4. **The web** (D6): the data module after first paint, the
    not-yet ticket, restart with carry. Verified: `smoke.mjs web` green
    on the twin; `boot.mjs` unchanged at one module; parity of every
    answer with the native hosts through the agent's `state`.
+   The baked browser module now reads its receipt and script from the
+   wasm's existing `exact_module_artifact` export instead of fetching those
+   same bytes again. Each read copies the bridge buffer before the next
+   export; receipt, identity, grants and script-hash admission still run.
+   A development replacement still supplies its paired payload explicitly.
 4. **Weird Castle in TypeScript** — the paved path's first real app:
    `loginV2`, `remember`, `accounts`, `switch`, `logout`, `stillLife`,
    the token book in the store (LLP 1018 D5), as `app.ts`; the Rust

@@ -35,9 +35,15 @@ async function read(url, limit) {
   return bytes;
 }
 export async function baked() {
-  const receipt = await read(new URL('./app.module.json', import.meta.url), 1024 * 1024);
-  const meta = JSON.parse(decoder.decode(receipt));
-  return { receipt, script: await read(new URL('./app.js', import.meta.url), Math.min(meta.web?.bytes ?? 0, 32 * 1024 * 1024)) };
+  // These are the exact paired bytes already downloaded in app.wasm. Copy
+  // each result before the next export reuses the bridge's output buffer.
+  // Admission below still validates the receipt, identity, grants and hash.
+  const wasm = globalThis.exact.wasm;
+  const artifact = index => {
+    const length = wasm.exact_module_artifact(index);
+    return new Uint8Array(wasm.memory.buffer, wasm.exact_out(), length).slice();
+  };
+  return { receipt: artifact(0), script: artifact(1) };
 }
 export async function prepare(payload, admitted, id = nextId++) {
   const ceiling = new Set(admitted.grants.split('\n').map(s=>s.trim()).filter(Boolean));

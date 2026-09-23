@@ -147,7 +147,7 @@ try {
   const probe = async (fixtures) => {
     await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
     globalThis.exact ??= {};
-    const {prepare,call,run} = await import('/module-glue.js');
+    const {prepare,call,run,baked} = await import('/module-glue.js');
     const checkpoint=async result=>{for(let i=0;result.continuation&&i<20;i++)result=await run(result.continuation);return result;};
     const oldDate=Date, oldNow=Date.now, oldRandom=Math.random;
     const guest=document.createElement('iframe');document.getElementById('exact-root').append(guest);
@@ -171,7 +171,21 @@ try {
       if(source==='refused')return store.set('other','secret');
       if(source==='async')return Promise.resolve('later');
       return 'ok';}};`;
-    const module = await prepare(await payload(source),identity);
+    const embedded = await payload(source), memory = new WebAssembly.Memory({initial:1});
+    const fetched = [], fetchBefore = globalThis.fetch;
+    globalThis.fetch = (...args) => { fetched.push(String(args[0])); return fetchBefore(...args); };
+    globalThis.exact.wasm = {memory, exact_out:()=>0, exact_module_artifact(index) {
+      // Real exports reuse their buffer and may grow memory. Both must leave
+      // the receipt copied by the previous call intact.
+      if(index===1)memory.grow(1);
+      const bytes=index===0?embedded.receipt:embedded.script;
+      new Uint8Array(memory.buffer).set(bytes);return bytes.length;
+    }};
+    const loaded = await baked();
+    delete globalThis.exact.wasm;globalThis.fetch = fetchBefore;
+    if(fetched.length || new TextDecoder().decode(loaded.receipt)!==new TextDecoder().decode(embedded.receipt)
+      || new TextDecoder().decode(loaded.script)!==source)throw new Error('baked module was refetched or its paired bytes changed');
+    const module = await prepare(loaded,identity);
     const privateFrames=[...document.querySelectorAll('iframe')].filter(frame=>frame!==guest);
     if(privateFrames.length!==1||privateFrames.some(frame=>frame.getClientRects().length))throw new Error('private module iframe participates in layout');
     if(document.documentElement.scrollHeight!==pageHeight)throw new Error('private module grew document scroll height');

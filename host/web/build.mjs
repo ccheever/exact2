@@ -8,6 +8,8 @@ import { spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
+import { rolldown } from 'rolldown';
+import { minifySync } from 'rolldown/experimental';
 import { writeInstallPages } from '../../scripts/install-page.mjs';
 import { rustPolicy, webHostFiles } from '../../scripts/app.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
@@ -64,7 +66,14 @@ copyStaticTreeIfPresent(deck, resolve(stage, 'deck'));
 copyShaders(app, resolve(stage, 'shaders'));
 copyFileSync(resolve(root, 'host/web/index.html'), resolve(stage, 'index.html'));
 function copyHostFiles(group) {
-  for (const [name, source] of Object.entries(webHostFiles(group))) copyFileSync(resolve(root, source), resolve(stage, name));
+  for (const [name, source] of Object.entries(webHostFiles(group))) {
+    if (!name.endsWith('.js')) { copyFileSync(resolve(root, source), resolve(stage, name)); continue; }
+    // Production ships executable code, without source comments and long
+    // local names. Keep exports and property names intact across modules.
+    const result = minifySync(name, readFileSync(resolve(root, source), 'utf8'), { module: name !== 'module-prelude.js' });
+    if (result.errors.length) throw new Error(`${name}: ${JSON.stringify(result.errors)}`);
+    writeFileSync(resolve(stage, name), result.code);
+  }
 }
 copyHostFiles('base');
 // The Markdown editor's rules (exact-markdown-editor, LLP 1045 D5) are their
@@ -106,6 +115,13 @@ if (typeof exports.exact_module_artifact === 'function') {
   }
   pairedModule = Object.fromEntries(Object.entries(moduleCards(files, app.id)).map(([key, card]) => [key, { ...card, url: './' + MODULE_FILES[key] }]));
   copyHostFiles('module');
+  // Remove the module-glue → storage → fs/sqlite request chain's middle
+  // step. Keep the stateful adapters as shared modules: Rust requests also
+  // import them, and must share the same filesystem mutation queues.
+  const bundle = await rolldown({ input: resolve(root, 'host/web/module-glue.js'), platform: 'browser',
+    external: ['./storage-fs.js', './storage-sqlite.js'] });
+  try { await bundle.write({ file: resolve(stage, 'module-glue.js'), format: 'es', minify: true }); }
+  finally { await bundle.close(); }
 }
 if (typeof exports.exact_compat !== 'function') throw new Error('the web wasm exposes no baked receipt');
 const compatLen = exports.exact_compat();
