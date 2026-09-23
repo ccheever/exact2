@@ -31,7 +31,10 @@
 //!    so a bundle that never reaches first pixel is demoted at the launch after
 //!    next (LLP 1026 D11; LLP 0421 invariant 11).
 
+mod disk;
+
 use crate::envelope::{resolve_url, safe_name, sha256_hex, Card, Envelope, FileCard};
+use disk::{read_card, regular_file, sweep, sync_dir, temporary_name, write_atomic, write_file};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -501,6 +504,17 @@ impl Store {
             // disk (their files are still reusable by digest) but none of them
             // is selectable here, so this cohort starts at entry zero.
             store.record = Record::fresh(&store.embedded);
+        }
+        // The floor is the highest seq this client has admitted. A record lost
+        // or damaged in a crash must not forget it: every entry on disk is a
+        // head this client verified before writing it, so the highest signed
+        // one is a floor as well (LLP 1026 D11).
+        if let Some((seq, digest)) = store.signed_floor() {
+            if seq > store.record.seq || (seq == store.record.seq && store.record.digest.is_none())
+            {
+                store.record.seq = seq;
+                store.record.digest = Some(digest);
+            }
         }
         if let Some(selected) = store.record.selected.clone() {
             match store.read_view(&selected) {
@@ -1067,15 +1081,27 @@ impl Store {
     /// Launch stats and reads this envelope once; the mandatory plan read
     /// verifies its card, and each asset read verifies its own lazily.
     fn read_view(&self, sha: &str) -> Result<EntryView, String> {
-        let dir = self.entry_dir(sha);
-        let plan_path = dir.join("app.plan");
+        let plan_path = self.entry_dir(sha).join("app.plan");
         if !regular_file(&plan_path) {
             return Err(format!(
                 "{} is not a regular plan file",
                 plan_path.display()
             ));
         }
-        let envelope_path = dir.join("exact.json");
+        let envelope = self.read_envelope(sha)?;
+        Ok(EntryView {
+            sha: sha.to_string(),
+            seq: envelope.stream.seq,
+            plan: envelope.plan,
+            assets: envelope.assets,
+            sunset: envelope.sunset,
+        })
+    }
+
+    /// An entry's head as stored: a regular file, this app's, cohort's and
+    /// channel's, at or above the embedded seq, and verified.
+    fn read_envelope(&self, sha: &str) -> Result<Envelope, String> {
+        let envelope_path = self.entry_dir(sha).join("exact.json");
         if !regular_file(&envelope_path) {
             return Err(format!(
                 "{} is not a regular envelope file",
@@ -1107,13 +1133,30 @@ impl Store {
             ));
         }
         self.embedded.verify(&envelope)?;
-        Ok(EntryView {
-            sha: sha.to_string(),
-            seq: envelope.stream.seq,
-            plan: envelope.plan,
-            assets: envelope.assets,
-            sunset: envelope.sunset,
-        })
+        Ok(envelope)
+    }
+
+    /// The highest seq among this stream's signed entries on disk, and its
+    /// digest (the smaller digest on a tie, so the answer is stable).
+    fn signed_floor(&self) -> Option<(u64, String)> {
+        let read = std::fs::read_dir(self.entries_dir()).ok()?;
+        let mut best: Option<(u64, String)> = None;
+        for item in read.flatten() {
+            let name = item.file_name().to_string_lossy().into_owned();
+            if name.starts_with(".tmp-") {
+                continue;
+            }
+            if let Ok(envelope) = self.read_envelope(&name) {
+                let seq = envelope.stream.seq;
+                if best
+                    .as_ref()
+                    .is_none_or(|(s, d)| seq > *s || (seq == *s && name < *d))
+                {
+                    best = Some((seq, name));
+                }
+            }
+        }
+        best
     }
 
     /// Remove a corrupt entry from every role that could select or bless it.
@@ -1184,7 +1227,8 @@ impl Store {
         std::fs::rename(&tmp, &target).map_err(|e| {
             let _ = std::fs::remove_dir_all(&tmp);
             format!("cannot put {} in place: {e}", target.display())
-        })
+        })?;
+        sync_dir(&self.entries_dir())
     }
 
     fn validate_contents(&self, view: &EntryView) -> Result<(), String> {
@@ -1206,12 +1250,25 @@ impl Store {
         std::fs::create_dir_all(tmp).map_err(|e| format!("cannot make {}: {e}", tmp.display()))?;
         let plan = self.obtain(&envelope.plan, head_url, fetch)?;
         write_file(&tmp.join("app.plan"), &plan)?;
+        let mut directories = std::collections::BTreeSet::from([tmp.to_path_buf()]);
         for asset in &envelope.assets {
             safe_name(&asset.name)?;
             let bytes = self.obtain(asset, head_url, fetch)?;
-            write_file(&tmp.join("assets").join(&asset.name), &bytes)?;
+            let path = tmp.join("assets").join(&asset.name);
+            write_file(&path, &bytes)?;
+            directories.extend(
+                path.ancestors()
+                    .skip(1)
+                    .take_while(|d| d.starts_with(tmp))
+                    .map(Path::to_path_buf),
+            );
         }
-        write_file(&tmp.join("exact.json"), &envelope.raw)
+        write_file(&tmp.join("exact.json"), &envelope.raw)?;
+        // Every name the entry holds is on disk before the rename publishes it.
+        for directory in directories {
+            sync_dir(&directory)?;
+        }
+        Ok(())
     }
 
     /// One file: reused from an entry that already has those bytes, else
@@ -1296,97 +1353,9 @@ pub fn head_url(origin: &str, channel: &str, compatibility_id: &str) -> String {
     )
 }
 
-/// Remove every `.tmp-…` left in `dir` by a write that did not finish.
-fn sweep(dir: &Path) {
-    let Ok(read) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for item in read.flatten() {
-        if !item.file_name().to_string_lossy().starts_with(".tmp-") {
-            continue;
-        }
-        let path = item.path();
-        if path.is_dir() {
-            let _ = std::fs::remove_dir_all(path);
-        } else {
-            let _ = std::fs::remove_file(path);
-        }
-    }
-}
-
-fn regular_file(path: &Path) -> bool {
-    std::fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_file())
-}
-
-fn read_card(path: &Path, card: &FileCard) -> Result<Vec<u8>, String> {
-    if !regular_file(path) {
-        return Err(format!(
-            "{} is not a regular file for {}",
-            path.display(),
-            card.name
-        ));
-    }
-    let bytes = std::fs::read(path)
-        .map_err(|e| format!("cannot read {} for {}: {e}", path.display(), card.name))?;
-    if bytes.len() as u64 != card.bytes {
-        return Err(format!(
-            "{} is {} bytes; the signed card declared {}",
-            card.name,
-            bytes.len(),
-            card.bytes
-        ));
-    }
-    let digest = sha256_hex(&bytes);
-    if digest != card.sha256 {
-        return Err(format!(
-            "{} hashes to {digest}; the signed card declared {}",
-            card.name, card.sha256
-        ));
-    }
-    Ok(bytes)
-}
-
 fn validate_card_urls(head_url: &str, envelope: &Envelope) -> Result<(), String> {
     for card in std::iter::once(&envelope.plan).chain(envelope.assets.iter()) {
         resolve_url(head_url, &card.url)?;
     }
     Ok(())
-}
-
-fn write_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("cannot make {}: {e}", parent.display()))?;
-    }
-    std::fs::write(path, bytes).map_err(|e| format!("cannot write {}: {e}", path.display()))
-}
-
-/// Write a file whole or not at all: a temporary beside it, then a rename over
-/// the old one.
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| format!("{} has no directory", path.display()))?;
-    let tmp = parent.join(temporary_name());
-    std::fs::write(&tmp, bytes).map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, path).map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
-        format!("cannot put {} in place: {e}", path.display())
-    })
-}
-
-/// A name nothing else in this directory holds: the process, the clock, and a
-/// counter, so two threads of one process cannot collide either.
-fn temporary_name() -> String {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    format!(
-        ".tmp-{}-{nanos}-{}",
-        std::process::id(),
-        COUNTER.fetch_add(1, Ordering::Relaxed)
-    )
 }

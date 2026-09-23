@@ -107,3 +107,38 @@ fn a_corrupted_selection_is_restaged_from_the_head_it_accepted() {
     let prepared = store.prepare_selected().unwrap().unwrap();
     assert_eq!(&*prepared.plan, b"plan four");
 }
+
+/// The record is the rollback floor. A crash that left it truncated — an
+/// unsynced rename can persist before its bytes — made the store start over
+/// at the embedded seq, so an older signed head, replayed by anyone serving
+/// the origin, was accepted again. The floor now comes back from the signed
+/// entries on disk, and is written back.
+#[test]
+fn a_crash_truncated_record_keeps_the_rollback_floor() {
+    let temp = Temp::new("truncated");
+    let four = Bundle::new(4, b"plan four");
+    let six = Bundle::new(6, b"plan six");
+    let mut store = open(&temp);
+    assert!(matches!(
+        Origin::of(&four).check(&mut store),
+        Ok(Check::Staged { seq: 4, .. })
+    ));
+    assert!(matches!(
+        Origin::of(&six).check(&mut store),
+        Ok(Check::Staged { seq: 6, .. })
+    ));
+    drop(store);
+    let record = temp.path().join("record.json");
+    let whole = std::fs::read(&record).unwrap();
+    let zeros = vec![0u8; whole.len()];
+    for damaged in [&whole[..whole.len() / 2], &[][..], &zeros[..]] {
+        std::fs::write(&record, damaged).unwrap();
+        let mut store = open(&temp);
+        let refusal = Origin::of(&four).check(&mut store).unwrap_err();
+        assert!(refusal.contains("below the accepted seq 6"), "{refusal}");
+        let written: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&record).unwrap()).unwrap();
+        assert_eq!(written["stream"]["seq"], 6);
+        assert!(Origin::of(&six).check(&mut store).is_ok());
+    }
+}
