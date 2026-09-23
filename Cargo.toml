@@ -79,6 +79,15 @@ opt-level = 3
 [profile.dev.package.ttf-parser]
 opt-level = 3
 
+# The tooling filesystem helper carries every dev generation's bytes as
+# base64 JSON; unoptimized, decoding a megabyte is most of an edit's latency.
+[profile.dev.package.exact-filesystem]
+opt-level = 3
+[profile.dev.package.serde_json]
+opt-level = 3
+[profile.dev.package.base64]
+opt-level = 3
+
 # Fast independent business-logic links in the resident development loop.
 [profile.logic-dev]
 inherits = "dev"
