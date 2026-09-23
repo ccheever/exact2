@@ -26,7 +26,7 @@ pub use source::Anonymous;
 use exact_kernel::Kernel;
 use exact_plan::Plan;
 use exact_runner::{DataSource, Dispatch, FailureKind, Outcome, RequestOut, Runner, RunnerError};
-use exact_web::document::{build_locations, checkpoint, project, Document, Site};
+use exact_web::document::{build_locations, checkpoint, digest, project, Document, Site};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::time::{Duration, Instant};
@@ -54,6 +54,9 @@ pub struct Rendered {
     pub head: String,
     /// The checkpoint, as the page carries it.
     pub checkpoint: String,
+    /// The document's digest (LLP 1048.000 D6), which the page carries
+    /// beside the checkpoint for the runtime to match.
+    pub digest: String,
     /// How the render ended.
     pub settled: Settled,
 }
@@ -92,10 +95,12 @@ pub fn render<D: DataSource>(
         .page_head(plan, site, location)
         .map_err(|e| e.to_string())?;
     let checkpoint = checkpoint(&runner, location);
+    let digest = digest(plan, location, &checkpoint, &document.root);
     Ok(Rendered {
         document,
         head,
         checkpoint,
+        digest,
         settled,
     })
 }
@@ -234,8 +239,8 @@ fn run(
 /// unless told), and prints one JSON line each: `location`, `notfound`,
 /// `status` (503 when the deadline passed with requests in flight),
 /// `settled`, `robots`, `root` (what `#exact-root` holds), `head` (what
-/// `<head>` holds after the shell's charset and base) and `checkpoint`, or
-/// `error`. `--build` renders every location the plan declares
+/// `<head>` holds after the shell's charset and base), `checkpoint` and
+/// `digest`, or `error`. `--build` renders every location the plan declares
 /// `render=build` (`exact_web::document::build_locations`). `baked` is the
 /// app's own plan; the web build passes the one it extracted from the
 /// shipped wasm instead.
@@ -337,6 +342,7 @@ pub fn main<D: DataSource + Default>(baked: &[u8]) -> std::process::ExitCode {
                     ("root", &rendered.document.root),
                     ("head", &rendered.head),
                     ("checkpoint", &rendered.checkpoint),
+                    ("digest", &rendered.digest),
                 ] {
                     let _ = write!(line, ",\"{field}\":{}", json(value));
                 }

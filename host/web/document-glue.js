@@ -5,18 +5,23 @@
 // The document is the page until the runtime has its own settled tree: the
 // runtime starts when the page is idle (requestIdleCallback after `load`, or
 // a short timeout) or at the first pointer or key interaction, whichever
-// comes first; its batches are held while the document stays on screen; when
-// its data is ready it replaces the document once, and the reader never sees
-// less than the server sent. A press on the document before then is recorded
-// against its view ids and replayed once, after, on the element that would
-// have taken it — only if that element is still the one the reader pressed.
-// Links are real links the whole time; nothing is disabled while it loads.
+// comes first, booting from the page's checkpoint; its batches are held while
+// the document stays on screen. When its data is ready it adopts the document
+// if its first tree is the document (the wasm matched the renderer's digest):
+// the first batch binds the elements already there by `data-view`. Otherwise
+// it replaces the document once, and journals where the two differ. Either
+// way the reader never sees less than the server sent. A press on the
+// document before then is recorded against its view ids and replayed once,
+// after, on the element that would have taken it — only if that element is
+// still the one the reader pressed. Links are real links the whole time;
+// nothing is disabled while it loads.
 
 const IDLE_FALLBACK_MS = 200;
 
 function documentBoot({ root, views, dispatch, log, early = [] }) {
-  let holding = true;
+  let holding = true, adopted, adopting = null;
   const held = [], presses = [];
+  const script = document.querySelector('script[type="application/vnd.exact.checkpoint"]');
   const record = (event) => {
     if (!holding || event.button > 0 || !(event.target instanceof Element)) return;
     // A link keeps its own default: it navigates as a document's link does.
@@ -46,20 +51,50 @@ function documentBoot({ root, views, dispatch, log, early = [] }) {
   });
   return {
     started,
+    /** What the wasm boots from: the renderer's digest, a newline, and the
+     * checkpoint as the page carries it. */
+    checkpoint: `${script?.dataset.digest ?? ""}\n${script?.textContent ?? ""}`,
     get holding() { return holding; },
-    /** Hold a batch while the document is the page; false once replaced. */
+    get adopted() { return adopted; },
+    /** While the first batch binds the document: its elements by view id. */
+    get adopting() { return adopting; },
+    /** Hold a batch while the document is the page; false once released. */
     hold(batch) { if (holding) held.push(batch); return holding; },
-    /** Replace the document with the runtime's tree, once; replay its
-     * presses a task later, after the caller's readiness. */
+    /** Adopt the document, or replace it with the runtime's tree, once;
+     * replay its presses a task later, after the caller's readiness. */
     release(apply) {
       if (!holding) return;
       holding = false;
       root.removeEventListener("click", record, true);
-      root.replaceChildren();
+      const verdict = held[0]?.ops?.find((op) => op.op === "adopt");
+      adopted = verdict?.adopted === true;
+      if (adopted) {
+        adopting = new Map();
+        for (const el of root.querySelectorAll("[data-view]")) adopting.set(Number(el.dataset.view), el);
+      } else {
+        if (verdict) log(`document: not adopted: ${difference(root, held[0])}`);
+        root.replaceChildren();
+      }
       for (const batch of held.splice(0)) apply(batch);
+      adopting = null;
       setTimeout(() => { for (const chain of presses.splice(0)) replay(chain); }, 0);
     },
   };
+}
+
+// Where the document and the runtime's first tree first differ, for the
+// journal: the views in document order against the first batch's creates.
+function difference(root, batch) {
+  const els = [...root.querySelectorAll("[data-view]")];
+  const creates = (batch.ops ?? []).filter((op) => op.op === "create");
+  for (let i = 0; i < Math.max(els.length, creates.length); i++) {
+    const el = els[i], op = creates[i];
+    const tag = op && (op.tag === "canvas" ? "div" : op.tag);
+    if (!el || !op || Number(el.dataset.view) !== op.id || el.localName !== tag) {
+      return `node ${i}: the document has ${el ? `${el.localName} ${el.dataset.view}` : "nothing"}, the runtime ${op ? `${tag} ${op.id}` : "nothing"}`;
+    }
+  }
+  return `the same ${els.length} views; a property or text differs`;
 }
 
 // The head's fields in the page's <head>, as the renderer first wrote them:

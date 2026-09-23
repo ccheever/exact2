@@ -28,6 +28,9 @@ pub struct Bridge<D: DataSource> {
     /// invocation: what the runner's `delivery` resource says about this
     /// binary's cohort, its update store, and its executors.
     compat: Option<&'static str>,
+    /// A rendered page's digest and checkpoint (LLP 1048.000 D6), handed in
+    /// through `exact_checkpoint` before boot and taken by the next boot.
+    checkpoint: Option<(String, String)>,
     input: Vec<u8>,
     output: Vec<u8>,
     textflow: crate::textflow::TextFlow,
@@ -40,6 +43,7 @@ impl<D: DataSource> Bridge<D> {
             host: None,
             snapshot: Vec::new(),
             compat: None,
+            checkpoint: None,
             input: Vec::new(),
             output: Vec::new(),
             textflow: crate::textflow::TextFlow::new(),
@@ -68,6 +72,16 @@ impl<D: DataSource> Bridge<D> {
             }
         }
         self.snapshot = snapshot;
+    }
+
+    /// A rendered page's digest, a newline, and its checkpoint as the page
+    /// carries it (LLP 1048.000 D6): the input buffer's first `len` bytes,
+    /// taken by the next `boot`.
+    pub fn checkpoint(&mut self, len: usize) {
+        let text = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]);
+        self.checkpoint = text
+            .split_once('\n')
+            .map(|(digest, page)| (digest.to_string(), page.to_string()));
     }
 
     /// UTF-8 launch location carried after optional plan bytes.
@@ -222,15 +236,21 @@ impl<D: DataSource> Bridge<D> {
     /// output is the first batch.
     pub fn boot(&mut self, plan: &[u8], data: D, width: f64, height: f64, launch: &str) -> u32 {
         let snapshot = std::mem::take(&mut self.snapshot);
-        match Host::boot_delivered(
-            plan,
-            data,
-            None,
-            snapshot,
-            self.compat,
-            exact_runner::Viewport { width, height },
-            launch,
-        ) {
+        let viewport = exact_runner::Viewport { width, height };
+        let booted = match self.checkpoint.take() {
+            Some((digest, page)) => Host::boot_checkpoint(
+                plan,
+                data,
+                &page,
+                &digest,
+                snapshot,
+                self.compat,
+                viewport,
+                launch,
+            ),
+            None => Host::boot_delivered(plan, data, None, snapshot, self.compat, viewport, launch),
+        };
+        match booted {
             Ok((host, batch)) => {
                 self.host = Some(host);
                 self.textflow = Default::default();
@@ -770,6 +790,13 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_store(len: u32) {
             EXACT_BRIDGE.with(|b| b.borrow_mut().store(len as usize))
+        }
+
+        /// A rendered page's digest and checkpoint (LLP 1048.000 D6), from
+        /// the input buffer's first `len` bytes, for the next `exact_boot`.
+        #[no_mangle]
+        pub extern "C" fn exact_checkpoint(len: u32) {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().checkpoint(len as usize))
         }
 
         /// Boot; returns the first batch's length.

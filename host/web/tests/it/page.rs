@@ -2,7 +2,7 @@
 //! checkpoint, and the locations a build renders.
 
 use exact_runner::{DataError, DataSource, Value};
-use exact_web::document::{build_locations, checkpoint, Site};
+use exact_web::document::{build_locations, checkpoint, digest, read_checkpoint, Site};
 use exact_web::Host;
 
 #[derive(Clone, Default)]
@@ -104,12 +104,89 @@ fn the_checkpoint_never_closes_its_script_or_opens_a_comment() {
     assert_eq!(
         json,
         format!(
-            "{{\"location\":\"/x{lt}/script{gt}{lt}!--]]{gt}{amp}\",\"time\":0,\"pending\":[]}}"
+            "{{\"location\":\"/x{lt}/script{gt}{lt}!--]]{gt}{amp}\",\"time\":0,\"logic\":null,\"answers\":\"BgAAAAA=\",\"pending\":[]}}"
         )
     );
     for bad in ["<", ">", "&"] {
         assert!(!json.contains(bad), "{json}");
     }
+}
+
+#[test]
+fn a_checkpoint_reads_back_as_the_runner_wrote_it() {
+    // Answers carry user text; the page carries them as base64.
+    let host = host(
+        "component A\n  resource said = say() as shape string\n  view\n    text said\n",
+        Says("</script><!-- & \u{1F4AC}"),
+        "/said?q=1",
+    );
+    let json = checkpoint(host.runner(), "/said?q=1");
+    assert!(
+        !json.contains('<') && !json.contains('>') && !json.contains('&'),
+        "{json}"
+    );
+    let read = read_checkpoint(&json).unwrap();
+    assert_eq!(read, host.runner().document_checkpoint("/said?q=1"));
+    assert_eq!(read.answers[0].3, Value::str("</script><!-- & \u{1F4AC}"));
+    for broken in [
+        "",
+        "{}x",
+        "{\"time\":\"0\"}",
+        "{\"answers\":\"!!\"}",
+        "{\"extra\":1}",
+    ] {
+        assert!(read_checkpoint(broken).is_err(), "{broken}");
+    }
+}
+
+#[test]
+fn a_runtime_adopts_the_document_it_would_have_rendered() {
+    let plan = caltrain::build().unwrap().encode();
+    let boot = |launch: &str| {
+        Host::boot(&plan, caltrain_data::Caltrain, Default::default(), launch)
+            .unwrap()
+            .0
+    };
+    // What a render at `/` writes into the page.
+    let rendered = boot("/");
+    let page = checkpoint(rendered.runner(), "/");
+    let root = rendered.document().unwrap().root;
+    let written = digest(rendered.runner().plan(), "/", &page, &root);
+    let open = |launch: &str, page: &str, digest: &str| {
+        let (host, batch) = Host::boot_checkpoint(
+            &plan,
+            caltrain_data::Caltrain,
+            page,
+            digest,
+            Vec::new(),
+            None,
+            Default::default(),
+            launch,
+        )
+        .unwrap();
+        (host, batch)
+    };
+    let adopted = |batch: &str| batch.contains("{\"op\":\"adopt\",\"adopted\":true}");
+    let (host, batch) = open("/", &page, &written);
+    assert!(adopted(&batch), "{}", &batch[..200.min(batch.len())]);
+    assert!(host
+        .runner()
+        .journal()
+        .any(|l| l.contains("checkpoint: 7 of 7 answers taken")));
+    // The same tree at another location is the same document (Caltrain's
+    // view doesn't branch on its route); another document renders fresh.
+    assert!(adopted(&open("/elsewhere?utm=x", &page, &written).1));
+    assert!(!adopted(&open("/", &page, &"0".repeat(64)).1));
+    let other = checkpoint(rendered.runner(), "/other");
+    let digest_other = digest(rendered.runner().plan(), "/other", &other, "<p>not it</p>");
+    assert!(!adopted(&open("/other", &other, &digest_other).1));
+    // A checkpoint that doesn't read boots as a page without one.
+    let (host, batch) = open("/", "{not json", &written);
+    assert!(!batch.contains("\"op\":\"adopt\""));
+    assert!(host
+        .runner()
+        .journal()
+        .any(|l| l.contains("document: the checkpoint doesn't read")));
 }
 
 #[test]

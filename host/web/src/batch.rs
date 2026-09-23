@@ -229,6 +229,14 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// `{"op":"adopt","adopted":…}`: whether the page's document is this
+    /// runtime's own first tree (LLP 1048.000 D6), so the glue binds it
+    /// rather than replacing it.
+    pub fn adopt(&mut self, adopted: bool) {
+        self.ops
+            .push(format!("{{\"op\":\"adopt\",\"adopted\":{adopted}}}"));
+    }
+
     /// `{"op":"props","id":…,"set":{…},"clear":[…]}`.
     pub fn props(&mut self, id: u32, set: &[(&str, String)], clear: &[&str]) {
         let mut s = String::new();

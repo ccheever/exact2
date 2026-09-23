@@ -61,13 +61,19 @@ const NORMALIZED = `(() => {
 })()`;
 
 /** Recorded from the page's first script: frames where `#exact-root` was
- * empty, and times its document was taken away. */
+ * empty, and times its document was taken away. The document's elements are
+ * marked, so an adopted one is known after the runtime starts. */
 const WATCH = `globalThis.__watch = { emptyFrames: 0, swaps: 0 };
   const frame = () => { const r = document.getElementById('exact-root'); if (r && document.readyState !== 'loading' && !r.childElementCount) __watch.emptyFrames++; requestAnimationFrame(frame); };
   requestAnimationFrame(frame);
-  addEventListener('DOMContentLoaded', () => new MutationObserver((records) => {
-    if (records.some((m) => [...m.removedNodes].some((n) => n.nodeType === 1 && n.dataset?.view === '1' && !n.isConnected))) __watch.swaps++;
-  }).observe(document.getElementById('exact-root'), { childList: true }));`;
+  addEventListener('DOMContentLoaded', () => {
+    for (const el of document.querySelectorAll('#exact-root [data-view]')) el.__served = true;
+    new MutationObserver((records) => {
+      if (records.some((m) => [...m.removedNodes].some((n) => n.nodeType === 1 && n.dataset?.view === '1' && !n.isConnected))) __watch.swaps++;
+    }).observe(document.getElementById('exact-root'), { childList: true });
+  });`;
+/** Of the live page's views, how many are the served document's own elements. */
+const SERVED_VIEWS = `(() => { const views = [...document.querySelectorAll('#exact-root [data-view]')]; return { views: views.length, served: views.filter((el) => el.__served).length }; })()`;
 /** Whether the wasm was fetched only after the page's `load`. */
 const WASM_AFTER_LOAD = `(() => {
   const load = performance.getEntriesByType('navigation')[0]?.loadEventStart ?? 0;
@@ -97,8 +103,8 @@ function differences(served, live, where = 'root', out = []) {
 
 /** Serve the rendered page for `location` beside dist/, launch Chrome, and
  * hand `drive` a way to open tabs on it; everything is torn down after. */
-async function withDocument(location, drive, { wasmAfter = null } = {}) {
-  const page = renderedPage(location);
+async function withDocument(location, drive, { wasmAfter = null, tamper = (page) => page } = {}) {
+  const page = tamper(renderedPage(location));
   const server = createServer(async (req, res) => {
     if (req.url === location || req.url === '/') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(page); return; }
     // A slow network, where a test needs the runtime to still be loading.
@@ -160,8 +166,9 @@ check(`Caltrain's served document is the live host's DOM${unavailable ? ` — ${
     const plain = await tab(false);
     await plain.until("document.readyState === 'complete' && !!document.getElementById('exact-root')?.firstElementChild", 'the served document');
     const served = JSON.parse(await plain(NORMALIZED));
-    // LLP 1048.000 D6 (1a): the document stays on screen until the runtime's
-    // own tree has settled, and is replaced once; the runtime starts at idle.
+    // LLP 1048.000 D6: the document stays on screen until the runtime's own
+    // tree has settled; the runtime starts at idle, from the checkpoint, and
+    // adopts the document — its first tree is the document's.
     const live = await tab(true, WATCH);
     await live.until("document.getElementById('exact-root')?.dataset.bootMs != null", 'the first frame');
     await live('exact.ready');
@@ -169,9 +176,29 @@ check(`Caltrain's served document is the live host's DOM${unavailable ? ` — ${
     expect(differences(served, JSON.parse(await live(NORMALIZED)))).toEqual([]);
     expect(served.length).toBeGreaterThan(0);
     const { emptyFrames, swaps } = JSON.parse(await live('JSON.stringify(globalThis.__watch)'));
-    expect({ emptyFrames, swaps, wasmAfterLoad: await live(WASM_AFTER_LOAD) }).toEqual({ emptyFrames: 0, swaps: 1, wasmAfterLoad: true });
-    expect((await live("exact.agent({op:'state'})")).adopted).toBe(false);
+    expect({ emptyFrames, swaps, wasmAfterLoad: await live(WASM_AFTER_LOAD) }).toEqual({ emptyFrames: 0, swaps: 0, wasmAfterLoad: true });
+    expect((await live("exact.agent({op:'state'})")).adopted).toBe(true);
+    const { views, served: kept } = await live(SERVED_VIEWS);
+    expect(views).toBeGreaterThan(200);
+    expect(kept).toBe(views);
+    // Nothing the document read was asked again at boot.
+    const logs = (await live("exact.agent({op:'logs'})")).lines.join('\n');
+    expect(logs).toContain('checkpoint: 7 of 7 answers taken');
+    expect(logs).not.toMatch(/query (station|northBoard|allStations):/);
   });
+}, 180000);
+
+check(`a document whose digest doesn't match is replaced once, and the journal says where${unavailable ? ` — ${unavailable}` : ''}`, async () => {
+  await withDocument('/?agent=1', async (tab) => {
+    const live = await tab(true, WATCH);
+    await live.until("document.getElementById('exact-root')?.dataset.moduleReady === 'true'", 'the runtime');
+    await live(settled);
+    const { emptyFrames, swaps } = JSON.parse(await live('JSON.stringify(globalThis.__watch)'));
+    expect({ emptyFrames, swaps }).toEqual({ emptyFrames: 0, swaps: 1 });
+    expect((await live("exact.agent({op:'state'})")).adopted).toBe(false);
+    expect((await live(SERVED_VIEWS)).served).toBe(0);
+    expect((await live("exact.agent({op:'logs'})")).lines.join('\n')).toContain('document: not adopted: the same');
+  }, { tamper: (page) => page.replace(/data-digest="[0-9a-f]{64}"/, `data-digest="${'0'.repeat(64)}"`) });
 }, 180000);
 
 check(`a press on the document before the runtime starts is replayed once${unavailable ? ` — ${unavailable}` : ''}`, async () => {

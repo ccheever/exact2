@@ -96,12 +96,13 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Seed each resource `checkpoint` answered (see [`Runner::boot_checkpoint`]).
-    /// Returns which rows it seeded.
-    pub(super) fn seed_checkpoint(&mut self, checkpoint: &Checkpoint) -> Vec<bool> {
+    /// Returns which rows it seeded, and the journal's line for it, which
+    /// boot writes after its own.
+    pub(super) fn seed_checkpoint(&mut self, checkpoint: &Checkpoint) -> (Vec<bool>, String) {
         let mut seeded = vec![false; self.plan.resources.len()];
         if checkpoint.logic.as_deref() != self.data.revision() {
-            self.log("checkpoint: other logic answered it; its answers are asked again");
-            return seeded;
+            let note = "checkpoint: other logic answered it; its answers are asked again";
+            return (seeded, note.into());
         }
         for (i, seed) in seeded.iter_mut().enumerate() {
             let row = &self.plan.resources[i];
@@ -127,11 +128,11 @@ impl<D: DataSource> Runner<D> {
             *seed = true;
         }
         let taken = seeded.iter().filter(|s| **s).count();
-        self.log(format!(
+        let note = format!(
             "checkpoint: {taken} of {} answers taken",
             checkpoint.answers.len()
-        ));
-        seeded
+        );
+        (seeded, note)
     }
 
     /// Whether the store holds the app's own entries, not only the

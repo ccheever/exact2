@@ -1047,6 +1047,7 @@ dependencies = [
  "exact-route",
  "exact-runner",
  "exact-textflow",
+ "sha2",
 ]
 
 [[package]]

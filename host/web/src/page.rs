@@ -12,9 +12,9 @@
 //! the manifest's origin, never a request's. Nothing preloads the glue or the
 //! wasm (D3).
 
-use super::{escape, navigable, Document, DocumentError};
-use exact_plan::{Plan, RenderPolicy};
-use exact_runner::{DataSource, Runner};
+use super::{escape, navigable, Document, DocumentError, Json};
+use exact_plan::{Plan, RenderPolicy, Value};
+use exact_runner::{Checkpoint, DataSource, Runner};
 use std::fmt::Write as _;
 
 /// What the page knows of the app beyond its plan: the manifest's name, the
@@ -198,18 +198,39 @@ fn fonts(out: &mut String, plan: &Plan) -> Result<(), DocumentError> {
 }
 
 /// The runner's checkpoint (LLP 1048.000 D6) as JSON a script element can
-/// carry: the location, the render's time and what is still pending — `<`,
-/// `>` and `&` are escapes, so user text can never close the element or
-/// open a comment. Its answers join the page with the runtime that boots
-/// from them (step 7); until then the runtime renders fresh.
+/// carry: the location, the render's time, the logic that answered, the
+/// answers — one list in the plan's value encoding, base64 — and what is
+/// still pending. `<`, `>` and `&` are escapes, so user text can never close
+/// the element or open a comment. [`read_checkpoint`] reads it back.
 pub fn checkpoint<D: DataSource>(runner: &Runner<D>, location: &str) -> String {
     let checkpoint = runner.document_checkpoint(location);
     let mut json = String::from("{\"location\":");
     crate::batch::quote(&checkpoint.location, &mut json);
     let _ = write!(
         json,
-        ",\"time\":{},\"pending\":[",
+        ",\"time\":{},\"logic\":",
         exact_runner::agent::num(checkpoint.now_ms)
+    );
+    match &checkpoint.logic {
+        Some(logic) => crate::batch::quote(logic, &mut json),
+        None => json.push_str("null"),
+    }
+    let answers = checkpoint
+        .answers
+        .iter()
+        .map(|(name, source, args, value)| {
+            Value::record(vec![
+                Value::str(name),
+                Value::str(source),
+                Value::list(args.clone()),
+                value.clone(),
+            ])
+        })
+        .collect();
+    let _ = write!(
+        json,
+        ",\"answers\":\"{}\",\"pending\":[",
+        exact_runner::agent::base64(&Value::list(answers).to_bytes())
     );
     for (i, name) in checkpoint.pending.iter().enumerate() {
         if i > 0 {
@@ -221,6 +242,178 @@ pub fn checkpoint<D: DataSource>(runner: &Runner<D>, location: &str) -> String {
     json.replace('<', "\\u003c")
         .replace('>', "\\u003e")
         .replace('&', "\\u0026")
+}
+
+/// A page's checkpoint, read back: what the web runtime boots from (LLP
+/// 1048.000 D6). Refuses anything [`checkpoint`] doesn't write.
+pub fn read_checkpoint(text: &str) -> Result<Checkpoint, String> {
+    let mut json = Json {
+        bytes: text.as_bytes(),
+        at: 0,
+    };
+    let mut checkpoint = Checkpoint::default();
+    json.expect(b'{')?;
+    loop {
+        let key = json.string()?;
+        json.expect(b':')?;
+        match key.as_str() {
+            "location" => checkpoint.location = json.string()?,
+            "time" => {
+                checkpoint.now_ms = json.number()?.parse().map_err(|e| format!("time: {e}"))?
+            }
+            "logic" if json.bytes[json.at..].starts_with(b"null") => {
+                json.at += 4;
+                checkpoint.logic = None;
+            }
+            "logic" => checkpoint.logic = Some(json.string()?),
+            "answers" => {
+                let bytes = unbase64(&json.string()?).ok_or("answers: not base64")?;
+                let list = Value::from_bytes(&bytes).map_err(|e| format!("answers: {e:?}"))?;
+                let Value::List(items) = list else {
+                    return Err("answers: not a list".into());
+                };
+                for item in items.iter() {
+                    let answer = match item {
+                        Value::Record(fields) => match fields.as_slice() {
+                            [Value::Str(name), Value::Str(source), Value::List(args), value] => (
+                                name.to_string(),
+                                source.to_string(),
+                                args.to_vec(),
+                                value.clone(),
+                            ),
+                            _ => return Err("answers: not a (name, source, args, value)".into()),
+                        },
+                        _ => return Err("answers: not a record".into()),
+                    };
+                    checkpoint.answers.push(answer);
+                }
+            }
+            "pending" => {
+                json.expect(b'[')?;
+                while json.peek() != Some(b']') {
+                    if !checkpoint.pending.is_empty() {
+                        json.expect(b',')?;
+                    }
+                    checkpoint.pending.push(json.string()?);
+                }
+                json.expect(b']')?;
+            }
+            other => return Err(format!("unknown field `{other}`")),
+        }
+        match json.next() {
+            Some(b',') => continue,
+            Some(b'}') if json.peek().is_none() => return Ok(checkpoint),
+            _ => return Err("expected `,` or the end".into()),
+        }
+    }
+}
+
+impl<D: DataSource> crate::Host<D> {
+    /// Boot from a page the build or a server rendered (LLP 1048.000 D6):
+    /// `page` is its checkpoint as the page carries it, and `page_digest`
+    /// the digest the renderer wrote beside it. The checkpoint's answers
+    /// seed the runner; the first batch opens with an `adopt` op saying
+    /// whether the page's document is this runtime's own first tree — the
+    /// digests match — so the glue binds it rather than replacing it. A
+    /// checkpoint that doesn't read boots as a page without one, journaled.
+    #[allow(clippy::too_many_arguments)] // the boot facts, and the page's two
+    pub fn boot_checkpoint(
+        plan_bytes: &[u8],
+        data: D,
+        page: &str,
+        page_digest: &str,
+        snapshot: Vec<(String, String)>,
+        compat: Option<&str>,
+        viewport: exact_runner::Viewport,
+        launch: &str,
+    ) -> Result<(crate::Host<D>, String), crate::HostError> {
+        let checkpoint = match read_checkpoint(page) {
+            Ok(checkpoint) => checkpoint,
+            Err(error) => {
+                let (mut host, batch) = crate::Host::boot_delivered(
+                    plan_bytes, data, None, snapshot, compat, viewport, launch,
+                )?;
+                host.log(&format!("document: the checkpoint doesn't read ({error})"));
+                return Ok((host, batch));
+            }
+        };
+        let plan = Plan::decode(plan_bytes).map_err(crate::HostError::Plan)?;
+        let delivery = compat.map_or_else(Default::default, |json| {
+            exact_runner::Delivery::default().with_compat(json)
+        });
+        let runner = Runner::boot_checkpoint(
+            plan,
+            data,
+            exact_kernel::Kernel::with_monospace(),
+            &checkpoint,
+            snapshot,
+            delivery,
+            viewport,
+            launch,
+        )
+        .map_err(crate::HostError::Runner)?;
+        // The renderer's location, not this launch: the runtime's only input
+        // of its own is its first tree, so a query the app doesn't read, or a
+        // 404 page served at any path, still adopts the same document.
+        let adopted = super::project(&runner).is_ok_and(|doc| {
+            digest(runner.plan(), &checkpoint.location, page, &doc.root) == page_digest
+        });
+        let mut batch = crate::batch::Batch::new();
+        batch.adopt(adopted);
+        crate::Host::open(runner, launch, batch)
+    }
+}
+
+/// Standard base64 with padding, as `exact_runner::agent::base64` writes it.
+fn unbase64(text: &str) -> Option<Vec<u8>> {
+    let digit = |c: u8| match c {
+        b'A'..=b'Z' => Some(c - b'A'),
+        b'a'..=b'z' => Some(c - b'a' + 26),
+        b'0'..=b'9' => Some(c - b'0' + 52),
+        b'+' => Some(62),
+        b'/' => Some(63),
+        _ => None,
+    };
+    let bytes = text.as_bytes();
+    if !bytes.len().is_multiple_of(4) {
+        return None;
+    }
+    let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
+    for chunk in bytes.chunks(4) {
+        let pad = chunk.iter().rev().take_while(|&&c| c == b'=').count();
+        if pad > 2 || chunk[..4 - pad].contains(&b'=') {
+            return None;
+        }
+        let mut n = 0u32;
+        for &c in &chunk[..4 - pad] {
+            n = n << 6 | digit(c)? as u32;
+        }
+        n <<= 6 * pad as u32;
+        out.extend_from_slice(&n.to_be_bytes()[1..4 - pad]);
+    }
+    Some(out)
+}
+
+/// The document's digest (LLP 1048.000 D6): SHA-256 over the plan's own
+/// digest, the location the document was rendered at, the checkpoint as
+/// the page carries it, and the document — each length-prefixed, so no two
+/// different inputs share a preimage. The renderer writes it beside the
+/// checkpoint; the runtime computes it with its own first tree for the
+/// document and adopts the page on a match.
+pub fn digest(plan: &Plan, location: &str, checkpoint: &str, document: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    hash.update(Sha256::digest(plan.encode()));
+    for part in [location, checkpoint, document] {
+        hash.update((part.len() as u64).to_be_bytes());
+        hash.update(part.as_bytes());
+    }
+    hash.finalize()
+        .iter()
+        .fold(String::with_capacity(64), |mut hex, byte| {
+            let _ = write!(hex, "{byte:02x}");
+            hex
+        })
 }
 
 /// The locations a build renders: every route declared `render=build`

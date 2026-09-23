@@ -202,9 +202,6 @@ impl<D: DataSource> Host<D> {
         launch: &str,
     ) -> Result<(Host<D>, String), HostError> {
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
-        let font_names = font_names(&plan);
-        let font_faces = font_faces(&plan);
-        let font_catalog = font_catalog(&font_faces);
         let kernel = Kernel::with_monospace();
         // @ref LLP 1039 D3 — both host facts precede the first settlement.
         let delivery = compat.map_or_else(Default::default, |json| {
@@ -214,6 +211,18 @@ impl<D: DataSource> Host<D> {
             plan, data, kernel, carried, snapshot, delivery, viewport, launch,
         )
         .map_err(HostError::Runner)?;
+        Host::open(runner, launch, Batch::new())
+    }
+
+    /// The host over a booted runner, and its first batch — `batch`'s ops,
+    /// then everything live, new to the page.
+    fn open(
+        runner: Runner<D>,
+        launch: &str,
+        mut batch: Batch,
+    ) -> Result<(Host<D>, String), HostError> {
+        let font_names = font_names(runner.plan());
+        let font_catalog = font_catalog(&font_faces(runner.plan()));
         let mut host = Host {
             runner,
             mirror: BTreeMap::new(),
@@ -235,7 +244,6 @@ impl<D: DataSource> Host<D> {
             head: Default::default(),
             head_dirty: false,
         };
-        let mut batch = Batch::new();
         // Everything live is new to the page.
         let roots = host.runner.roots();
         let mut stack: Vec<ViewId> = roots.iter().rev().copied().collect();

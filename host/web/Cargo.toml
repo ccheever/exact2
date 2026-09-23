@@ -23,6 +23,8 @@ exact-motion = { path = "../../motion" }
 exact-plan = { path = "../../plan" }
 exact-runner = { path = "../../runner" }
 exact-route = { path = "../../route" }
+# The document's digest (LLP 1048.000 D6), in the renderer and the wasm alike.
+sha2 = "0.10"
 
 # The dev driver compiles Contract natively; the wasm never does.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

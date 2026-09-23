@@ -408,7 +408,7 @@ function applyProps(el, set, clear) {
     else if (name === "scrollTop" || name === "scrollLeft") {
       const offset = Number(value);
       if (Number.isFinite(offset)) pendingScrolls.set(el, { ...pendingScrolls.get(el), [name]: offset });
-    } else if (name === "text") { if (el.childElementCount === 0) el.textContent = value;
+    } else if (name === "text") { if (el.childElementCount === 0 && el.textContent !== value) el.textContent = value;
     } else if (name === "markupPieces") { renderMarkup(el, value);
     } else if (name === "data-action") {
       el.setAttribute(name, value); el.style.touchAction = "none";
@@ -422,9 +422,9 @@ function applyProps(el, set, clear) {
     } else if (name === "disabled" || name === "readonly" || (el instanceof HTMLVideoElement && ["autoplay","controls","loop","muted","playsinline","disablepictureinpicture","disableremoteplayback"].includes(name))) {
       if (value === "true") el.setAttribute(name, ""); else el.removeAttribute(name);
     } else {
-      if (el instanceof HTMLIFrameElement && name === "src") iframeLoading.set(el, true);
-      if (navigates(el, name) && !navigableURL(value)) refuseURL(el, name, value);
-      else el.setAttribute(name, (name === "src" || name === "href" || name === "poster") ? localAssetURL(value) : value);
+      const v = (name === "src" || name === "href" || name === "poster") ? localAssetURL(value) : value, same = el.getAttribute(name) === v; // setting what is there reloads an adopted iframe or video
+      if (el instanceof HTMLIFrameElement && name === "src" && !same) iframeLoading.set(el, true);
+      if (navigates(el, name) && !navigableURL(value)) refuseURL(el, name, value); else if (!same) el.setAttribute(name, v);
     }
   }
   if (!inputReady && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLButtonElement)) {
@@ -596,8 +596,8 @@ function apply(batch) {
       case "router": navigation.apply(op); break;
       case "create": {
         // Canvas overlays use a div; data-surface is the host-owned drawing leaf.
-        const el = document.createElement(op.tag === "canvas" ? "div" : op.tag);
-        if (op.tag === "canvas") {
+        const el = page?.adopting?.get(op.id) ?? document.createElement(op.tag === "canvas" ? "div" : op.tag); // an adopted document's element (LLP 1048.000 D6)
+        if (op.tag === "canvas" && el.firstElementChild?.dataset.surface === undefined) {
           const surface = document.createElement("canvas");
           surface.dataset.surface = "";
           surface.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block;z-index:-1";
@@ -795,7 +795,7 @@ function apply(batch) {
           const el = viewFor("roots", id);
           if (el) roots.push(el);
         }
-        root.replaceChildren(...roots);
+        if (roots.length !== root.children.length || roots.some((el, i) => root.children[i] !== el)) root.replaceChildren(...roots);
         syncViewportFit();
         break;
       }
@@ -1169,7 +1169,7 @@ function agentReply(request) {
         const overlap = Math.max(0, innerHeight - (globalThis.visualViewport?.height ?? innerHeight));
         const policy = document.querySelector("[interactiveWidget]")?.getAttribute("interactiveWidget") ?? "resizes-visual";
         st.keyboard = { visible: overlap > 0, overlap: r2(overlap), policy, interactive: false };
-        st.navigation = navigation.observation(root); st.window = { title: document.title }; if (page) st.adopted = false; // 1a renders fresh (LLP 1048.000 D6)
+        st.navigation = navigation.observation(root); st.window = { title: document.title }; if (page) st.adopted = page.adopted === true; // LLP 1048.000 D6
         return st;
       }
       case "layout": {
@@ -1337,7 +1337,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
     payload.set(bytes); payload.set(launch, bytes.length);
     len = wasm.exact_boot_plan(bytes.length, innerWidth, innerHeight, launch.length);
   } else {
-    ptr = wasm.exact_in(launch.length);
+    if (page?.checkpoint) wasm.exact_checkpoint(writeIn(page.checkpoint)); ptr = wasm.exact_in(launch.length);
     new Uint8Array(memory.buffer, ptr, launch.length).set(launch);
     len = wasm.exact_boot(innerWidth, innerHeight, launch.length);
   }

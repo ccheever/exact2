@@ -585,12 +585,11 @@ impl<D: DataSource> Runner<D> {
             .collect();
         // @ref LLP 1048.000 D6 — a document's answers seed their resources.
         // The device's own store is an input its render never had.
-        let (seeded, device_state) = match seed {
-            Seed::Checkpoint(checkpoint) => {
-                (runner.seed_checkpoint(checkpoint), runner.has_app_store())
-            }
-            _ => (vec![false; runner.plan.resources.len()], false),
+        let (seeded, note) = match seed {
+            Seed::Checkpoint(checkpoint) => runner.seed_checkpoint(checkpoint),
+            _ => (vec![false; runner.plan.resources.len()], String::new()),
         };
+        let device_state = matches!(seed, Seed::Checkpoint(_)) && runner.has_app_store();
         // Store-reading resources when the data source is not ready (a
         // TypeScript module before its host loads it, LLP 1027 D4): the
         // answer kept from the last launch seeds the first frame if its
@@ -666,15 +665,14 @@ impl<D: DataSource> Runner<D> {
         runner.surfaces = surfaces;
         let line = format!(
             "boot{}: {} nodes, epoch {}",
-            match seed {
-                Seed::Fresh => "",
-                Seed::Carried(_) => " (carried)",
-                Seed::Checkpoint(_) => " (checkpoint)",
-            },
+            if carried.is_some() { " (carried)" } else { "" },
             runner.kernel.live_count(),
             receipt.epoch
         );
         runner.log(line);
+        if !note.is_empty() {
+            runner.log(note);
+        }
         Ok(runner)
     }
 
