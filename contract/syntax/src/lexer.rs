@@ -67,19 +67,41 @@ impl Lexer {
 
     /// Tokenize source starting at `origin`, retaining its file identity.
     pub fn tokenize_at(src: &str, origin: Span) -> Result<Vec<Token>, LexError> {
+        Self::tokenize_all(src, origin).map_err(|mut all| all.swap_remove(0))
+    }
+
+    /// Tokenize, reporting a refusal on every line that has one (at most
+    /// [`crate::parser::MAX_REFUSALS`]).
+    pub fn tokenize_all(src: &str, origin: Span) -> Result<Vec<Token>, Vec<LexError>> {
+        match Self::tokenize_recovering(src, origin) {
+            (tokens, errors) if errors.is_empty() => Ok(tokens),
+            (_, errors) => Err(errors),
+        }
+    }
+
+    /// Tokens and every line's refusal. A refused line ends where it failed
+    /// (brackets it opened are closed), so the lines after it lex, and parse,
+    /// as they would without it.
+    pub(crate) fn tokenize_recovering(src: &str, origin: Span) -> (Vec<Token>, Vec<LexError>) {
         let mut out = Vec::new();
         let mut indents: Vec<usize> = vec![0];
         let mut depth = 0usize; // bracket depth
-        for (i, raw) in src.lines().enumerate() {
+        let mut errors = Vec::new();
+        let line = |out: &mut Vec<Token>,
+                    indents: &mut Vec<usize>,
+                    depth: &mut usize,
+                    i: usize,
+                    raw: &str|
+         -> Result<(), LexError> {
             let line_no = origin.line + i as u32;
             let first_col = if i == 0 { origin.col } else { 1 };
             let line = raw.trim_end();
             let trimmed = line.trim_start();
             if trimmed.is_empty() || trimmed.starts_with("//") {
-                continue;
+                return Ok(());
             }
             let indent = line.len() - trimmed.len();
-            if depth == 0 {
+            if *depth == 0 {
                 if line[..indent].contains('\t') {
                     return Err(LexError {
                         id: "syntax-tab-indent",
@@ -227,8 +249,8 @@ impl Lexer {
                     span,
                 })?;
                 match p {
-                    "(" | "[" | "{" => depth += 1,
-                    ")" | "]" | "}" => depth = depth.saturating_sub(1),
+                    "(" | "[" | "{" => *depth += 1,
+                    ")" | "]" | "}" => *depth = depth.saturating_sub(1),
                     _ => {}
                 }
                 out.push(Token {
@@ -240,11 +262,28 @@ impl Lexer {
                 });
                 pos += p.len();
             }
-            if depth == 0 {
+            if *depth == 0 {
                 out.push(Token {
                     kind: TokenKind::Newline,
                     span: col_of(bytes.len()),
                 });
+            }
+            Ok(())
+        };
+        for (i, raw) in src.lines().enumerate() {
+            let before = out.len();
+            if let Err(e) = line(&mut out, &mut indents, &mut depth, i, raw) {
+                if out.len() > before {
+                    depth = 0;
+                    out.push(Token {
+                        kind: TokenKind::Newline,
+                        span: e.span,
+                    });
+                }
+                errors.push(e);
+                if errors.len() >= crate::parser::MAX_REFUSALS {
+                    break;
+                }
             }
         }
         let end = Span {
@@ -262,7 +301,7 @@ impl Lexer {
             kind: TokenKind::Eof,
             span: end,
         });
-        Ok(out)
+        (out, errors)
     }
 
     fn string(

@@ -87,15 +87,37 @@ pub struct Instance {
 /// Expand the file's root: inline every use and lift every child's own
 /// declarations into it.
 pub fn expand(file: &File) -> Result<Expanded, SyntaxError> {
-    expand_with_sites(file, false)
+    first(expand_all(file, false))
 }
 
 /// Expand with development source provenance for the mapped compiler entry.
 pub fn expand_mapped(file: &File) -> Result<Expanded, SyntaxError> {
-    expand_with_sites(file, true)
+    first(expand_all(file, true))
 }
 
-fn expand_with_sites(file: &File, capture_sites: bool) -> Result<Expanded, SyntaxError> {
+fn first((expanded, mut errors): (Expanded, Vec<SyntaxError>)) -> Result<Expanded, SyntaxError> {
+    if errors.is_empty() {
+        Ok(expanded)
+    } else {
+        Err(errors.swap_remove(0))
+    }
+}
+
+/// Expand, recording every use that cannot be expanded and going on: a use
+/// of an unknown component (or one nested too deeply) is left out, and a
+/// prop, provider, or derive it lacks reads as `?`, so what depends on it is
+/// a consequence the checker does not repeat. The expansion is complete only
+/// when no error is returned; `mapped` keeps source provenance.
+pub fn expand_all(file: &File, mapped: bool) -> (Expanded, Vec<SyntaxError>) {
+    expand_with_sites(file, mapped)
+}
+
+/// The stand-in for a value a refused use could not supply.
+fn absent(span: crate::Span) -> Expr {
+    Expr::Ident("?".into(), span)
+}
+
+fn expand_with_sites(file: &File, capture_sites: bool) -> (Expanded, Vec<SyntaxError>) {
     let source = &file.components[0];
     // Expansion replaces the view; retain only the root declarations here.
     let mut root = Component {
@@ -138,6 +160,7 @@ fn expand_with_sites(file: &File, capture_sites: bool) -> Result<Expanded, Synta
         extra_actions: Vec::new(),
         instance: 0,
         capture_sites,
+        errors: Vec::new(),
         instances: if capture_sites {
             vec![Instance {
                 component: file.components[0].name.clone(),
@@ -149,7 +172,8 @@ fn expand_with_sites(file: &File, capture_sites: bool) -> Result<Expanded, Synta
         },
     };
     let none = BTreeMap::new();
-    let view = inline_nodes(&file.components[0].view, &mut Subst::new(&none), &mut ctx)?;
+    let view = inline_nodes(&file.components[0].view, &mut Subst::new(&none), &mut ctx)
+        .unwrap_or_default();
     root.view = view;
     let mut owners = vec![None; root.states.len()];
     let mut state_instances = if capture_sites {
@@ -175,13 +199,14 @@ fn expand_with_sites(file: &File, capture_sites: bool) -> Result<Expanded, Synta
             action_instances.push(instance);
         }
     }
-    Ok(Expanded {
+    let expanded = Expanded {
         root,
         owners,
         instances: ctx.instances,
         state_instances,
         action_instances,
-    })
+    };
+    (expanded, ctx.errors)
 }
 
 /// What inlining carries down the tree besides the substitution.
@@ -209,6 +234,18 @@ struct Ctx<'a> {
     capture_sites: bool,
     /// Every instantiation so far, the root first (LLP 1035.005 D3).
     instances: Vec<Instance>,
+    /// Uses that could not be expanded, in the order met.
+    errors: Vec<SyntaxError>,
+}
+
+impl Ctx<'_> {
+    fn refuse(&mut self, id: &'static str, message: impl Into<String>, span: crate::Span) {
+        self.errors.push(SyntaxError {
+            id,
+            message: message.into(),
+            span,
+        });
+    }
 }
 
 fn inline_nodes(
@@ -226,23 +263,29 @@ fn inline_nodes(
                 span,
             } => {
                 if ctx.depth > 32 {
-                    return err(
+                    ctx.refuse(
                         "syntax-inline-depth",
                         format!("component `{name}` nests too deeply (a cycle?)"),
                         *span,
                     );
+                    continue;
                 }
                 let Some(c) = ctx.file.components.iter().find(|c| &c.name == name) else {
-                    return err(
-                        "syntax-unknown-component",
-                        ctx.file.unknown_component_message(name),
-                        *span,
-                    );
+                    let message = ctx.file.unknown_component_message(name);
+                    ctx.refuse("syntax-unknown-component", message, *span);
+                    continue;
                 };
                 let mut child_subst: BTreeMap<String, Expr> = BTreeMap::new();
+                if c.props
+                    .iter()
+                    .any(|p| !args.iter().any(|a| a.name == p.name))
+                {
+                    ctx.refuse("syntax-missing-prop", c.missing_props_message(args), *span);
+                }
                 for p in &c.props {
                     let Some(a) = args.iter().find(|a| a.name == p.name) else {
-                        return err("syntax-missing-prop", c.missing_props_message(args), *span);
+                        child_subst.insert(p.name.clone(), absent(*span));
+                        continue;
                     };
                     // The argument is an expression in the parent's scope: substitute the parent's own substitutions first.
                     child_subst.insert(p.name.clone(), subst_expr(&a.value, subst));
@@ -269,7 +312,9 @@ fn inline_nodes(
                         } else {
                             format!("`{name}` injects {names}, and nothing above this use provides them: wrap the use in nested {scopes} scopes")
                         };
-                        return err("syntax-missing-provide", message, *span);
+                        ctx.refuse("syntax-missing-provide", message, *span);
+                        child_subst.insert(p.name.clone(), absent(*span));
+                        continue;
                     };
                     child_subst.insert(p.name.clone(), e.clone());
                 }
@@ -346,7 +391,10 @@ fn inline_nodes(
                 // for the child's derive `a`.
                 // A resolved derive reads no other derive by name, so every
                 // one is substituted against the same props, states and actions.
-                let derives = resolved_derives(c)?;
+                let derives = resolved_derives(c).unwrap_or_else(|e| {
+                    ctx.errors.push(e);
+                    c.derives.iter().map(|d| (d, absent(d.span))).collect()
+                });
                 let resolved: Vec<Expr> = {
                     let mut base = Subst::new(&child_subst);
                     derives
@@ -422,7 +470,7 @@ fn inline_nodes(
                 // Release per-use resolved expressions before expanding nested children.
                 drop(derives);
                 if !children.is_empty() && !c.slot {
-                    return err(
+                    ctx.refuse(
                         "syntax-no-slot",
                         format!("`{name}` declares no `slot`, so nothing can be indented under it"),
                         children[0].span(),
@@ -455,13 +503,11 @@ fn inline_nodes(
             }
             Node::Children { span } => match &ctx.fill {
                 Some(fill) => out.extend(fill.iter().cloned()),
-                None => {
-                    return err(
-                        "syntax-children-without-slot",
-                        "`children` belongs in a component that declares `slot`",
-                        *span,
-                    )
-                }
+                None => ctx.refuse(
+                    "syntax-children-without-slot",
+                    "`children` belongs in a component that declares `slot`",
+                    *span,
+                ),
             },
             Node::Element {
                 tag,
