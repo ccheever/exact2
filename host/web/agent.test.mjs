@@ -60,7 +60,7 @@ catch(e) { console.error(e.message); process.exitCode=1; }
     expect(missing.stderr).toContain('cargo');
     expect(missing.stderr).not.toContain('TypeError');
   } finally { rmSync(dir, {recursive:true,force:true}); }
-});
+}, 60_000); // Six Bun launches of the driver: 25 s at load 110, so a hang bound, not a speed claim.
 
 test('driver deadlines release their timer on success, rejection and timeout', async () => {
   const driver = readFileSync(new URL('../../scripts/agent.mjs', import.meta.url), 'utf8');
@@ -219,7 +219,9 @@ test('retained development source maps survive later generations and refuse mism
 // Include the real public object and nodeDetail so registration and flow facts
 // are covered too. No browser geometry or scheduling is simulated as evidence.
 const source = readFileSync(new URL('./glue.js', import.meta.url), 'utf8');
-const declaration = name => source.match(new RegExp(`(?:async )?function ${name}\\([^]*?\\n\\}`))[0];
+// A one-line declaration is the whole line (with any state it declares first).
+const declaration = name => (source.match(new RegExp(`^(?:let [^;\\n]+; )?(?:async )?function ${name}\\(.*\\}$`, 'm'))
+  ?? source.match(new RegExp(`(?:async )?function ${name}\\([^]*?\\n\\}`)))[0];
 const publicObject = source.match(/globalThis.exact = \{[^]*?\n\};/)[0];
 function deferred() {
   let resolve, reject;
@@ -251,6 +253,7 @@ function fixture(agentMode = true) {
       exact_plan_fonts: () => '{}', exact_boot: () => '{"ops":[],"timers":true}',
       exact_boot_plan: () => '{"ops":[],"timers":true}', exact_advance: () => '{"ops":[],"clock":16}' },
     devAssets: null, bootAttempt: 0, encoder: new TextEncoder(), location: { pathname: '/', search: '' },
+    loadGpuIfNeeded() {}, writeIn: value => value, send() {}, messageViews: new Set(), markupModule: null,
     prepareFonts: async () => [], commitFonts() {}, releaseAssets() {}, incarnation: 0,
     // Ordinary boot tests model an already-loaded post-paint scheduler.
     timerFactory: () => ({ update() { events.push('ticker'); }, dispose() {} }),
@@ -264,7 +267,7 @@ function fixture(agentMode = true) {
     requestAnimationFrame: () => events.push('raf'), clearInterval() {},
     ready: Promise.resolve(), moduleReady: Promise.resolve(), inputReady: true, logicInfo: null, activeModule: null,
   });
-  vm.runInContext(['nodeDetail', 'agent', 'agentSettled', 'tagged', 'clock', 'startClock', 'boot'].map(declaration).join('\n') + '\n' + publicObject, context);
+  vm.runInContext(source.match(/^let gpuLoading = .*$/m)[0] + '\n' + ['nodeDetail', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
   return context;
 }
 function plain(reply) {
@@ -359,9 +362,9 @@ test('agent mode alone exposes both entry points; clock keeps its existing Promi
   expect(typeof result.then).toBe('function');
   let completed = false;
   result.then(() => { completed = true; });
-  await Promise.resolve();
-  expect(completed).toBe(true); // No added flow microtasks for ordinary apps.
-  expect(await result).toEqual({ clock: 16 });
+  await Promise.resolve(); await Promise.resolve();
+  expect(completed).toBe(true); // The clock's and the tags' only: no flow or GPU microtasks for ordinary apps.
+  expect(await result).toEqual({ clock: 16, epoch: 2, incarnation: 1 });
 });
 
 test('ordinary boot and restart do not yield between DOM commit and ticker startup', async () => {
@@ -415,7 +418,7 @@ function inputFixture() {
     views: new Map([[7, el]]), retiredViews: new WeakSet(), frames, sent, captured, el,
     root: { querySelectorAll: () => buttons },
     document: { addEventListener(kind, fn) { f.keydown = fn; }, activeElement: { closest: () => null } },
-    HTMLIFrameElement: class {}, HTMLInputElement: class {}, HTMLButtonElement: class {},
+    HTMLIFrameElement: class {}, HTMLInputElement: class {}, HTMLTextAreaElement: class {}, HTMLButtonElement: class {},
     inertAncestor: node => node.inert, getComputedStyle: () => ({ visibility: 'visible' }),
     requestAnimationFrame(fn) { frames.set(++serial, fn); return serial; },
     cancelAnimationFrame(id) { frames.delete(id); },
@@ -528,7 +531,7 @@ async function startupFixture(rustOnly = false) {
     boot: async () => events.push('boot'), loadGpuIfNeeded() {}, startClock() {},
     requestAnimationFrame: fn => frames.push(fn), console: { error: error => errors.push(String(error)) },
     motion: { commit() {} }, collections: { dataReady: () => events.push('collections') },
-    applyBatch: () => events.push('batch'), inertAncestor: () => false,
+    applyBatch: () => events.push('batch'), inertAncestor: () => false, focusAutofocus() {},
     resolveModuleReady: () => events.push('ready'),
     loadAfterPaint(file) {
       loads.push(file);
@@ -669,7 +672,7 @@ test('tree forwards its target and preserves host annotations and runner errors'
   const f = fixture(), requests = [];
   vm.runInContext(declaration('tree'), f);
   const iframe = new f.HTMLIFrameElement();
-  iframe.getAttribute = () => '/guest';
+  iframe.getAttribute = () => '/guest'; iframe.matches = () => false;
   f.views.set(7, iframe); f.iframeLoading = new Map([[iframe,false]]);
   f.guestOutline = () => [{tag:'button',depth:0,text:'guest'}];
   f.ask = request => {
@@ -678,7 +681,7 @@ test('tree forwards its target and preserves host annotations and runner errors'
   };
   const reply = f.exact.agent({op:'tree',target:'panel',shallow:true});
   expect(requests[0]).toEqual({op:'tree',target:'panel',shallow:true});
-  expect(reply.nodes[0]).toEqual({id:7,type:'WebView',url:'/guest',loading:false,guest:[{tag:'button',depth:0,text:'guest'}]});
+  expect(reply.nodes[0]).toEqual({id:7,type:'WebView',focused:false,url:'/guest',loading:false,guest:[{tag:'button',depth:0,text:'guest'}]});
   expect(f.exact.agent({op:'tree',target:'missing'})).toEqual({error:'no view matches missing'});
 });
 

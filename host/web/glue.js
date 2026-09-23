@@ -1151,7 +1151,7 @@ async function waitForInflight(deadline) {
   return helpers ? helpers.waitForInflight(inflight, deadline) : false;
 }
 async function settleGpu() { loadGpuIfNeeded(); await gpuLoading; await globalThis.exact.gpu?.settled(); }
-function agent(request) { return agentMode ? settleGpu().then(() => agentNow(request)) : agentNow(request); }
+function agent(request) { return agentMode && gpuInPlay() ? settleGpu().then(() => agentNow(request)) : agentNow(request); }
 function agentNow(request) { const r = agentReply(request), decorate = globalThis.exact.gpu?.decorate; return decorate ? decorate(request, r) : r; }
 function agentReply(request) {
   try {
@@ -1268,7 +1268,7 @@ async function clock(request) {
   const reply = (settled) => ({ clock: agentClock, ...(settled === undefined ? {} : { settled }), ...world.reply, ...(settled === false && world.pending ? { reason: "world" } : {}) });
   for (let rounds = 0; ; rounds++) {
     if (settle && !(await waitForInflight(deadline))) return reply(false);
-    await settleGpu();
+    if (gpuInPlay()) await settleGpu();
     const to = settle ? Math.max(settleCandidate(), world.settleAt ?? agentClock) : request.to;
     if (!(to >= agentClock)) return { error: `the clock cannot go backwards (${agentClock} → ${to})` };
     const { batch } = applyBatch(JSON.parse(readOut(wasm.exact_advance(to))));
@@ -1276,7 +1276,7 @@ async function clock(request) {
     if (flowLoading) await flowLoading;
     if (textflow) await textflow.settle();
     if (batch.error) return { error: `clock: ${batch.error}`, clock: agentClock };
-    await settleGpu();
+    if (gpuInPlay()) await settleGpu();
     world = globalThis.exact.gpu?.clock?.(settle) ?? {};
     if (!settle) return reply();
     if (inflight.size) { if (rounds >= 15) return reply(false); continue; }
@@ -1434,8 +1434,8 @@ globalThis.exact = { mutate,
 };
 // The GPU module, on demand: a script element after a rendering opportunity
 // (two animation-frame callbacks), never an eager import, and only when a
-// canvas is on the page.
-let gpuLoading = null;
+// canvas is on the page. Until one is, an agent reply has nothing to settle.
+let gpuLoading = null; const gpuInPlay = () => Boolean(gpuLoading || globalThis.exact.gpu || globalThis.exact.pendingSurfaces?.length);
 function loadGpuIfNeeded() {
   if (gpuLoading || !(globalThis.exact.pendingSurfaces ?? []).length) return;
   gpuLoading = loadAfterPaint('./gpu-glue.js', 'gpu').catch(error => console.error("exact gpu:", error));
