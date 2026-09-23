@@ -684,20 +684,24 @@ export function removePrivateTree(path) {
  * staged files keep the live files' mtimes (so only real edits rebuild), and
  * a lock refuses a concurrent run on the same directories. */
 export async function withAppFixture(app, use, { warm = false } = {}) {
-  const started = Date.now();
-  const { snapshotOf, materializeSnapshot, disposeSnapshot } = await import('./deploy.mjs');
   const key = createHash('sha256').update(`${realpathSync(ROOT)}\0${app.dir}`).digest('hex').slice(0, 16);
-  const run = warm ? resolve(realpathSync(tmpdir()), `exact-diagnostic-${key}`)
-    : realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-diagnostic-')));
-  const lock = resolve(run, 'lock');
-  if (warm) {
-    mkdirSync(run, { recursive: true });
-    const holder = existsSync(lock) ? Number(readFileSync(lock, 'utf8')) : 0;
-    let alive = false;
-    try { if (holder) { process.kill(holder, 0); alive = true; } } catch { alive = false; }
-    if (alive) throw new Error(`a diagnostic run (pid ${holder}) is using ${run}; wait for it`);
-    writeFileSync(lock, String(process.pid));
+  if (!warm) return fixtureRun(app, use, realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-diagnostic-'))), null);
+  const run = resolve(realpathSync(tmpdir()), `exact-diagnostic-${key}`);
+  mkdirSync(run, { recursive: true });
+  // An OS lock a helper process holds: released however this process ends,
+  // never mistaken for a reused process id.
+  const { filesystemLock } = await import('./filesystem.mjs');
+  let entered = false;
+  try {
+    return await filesystemLock(run, 'held/.lock', () => { entered = true; return fixtureRun(app, use, run, key); });
+  } catch (error) {
+    if (!entered && error.message.includes('locked by another')) throw new Error(`another diagnostic run is using ${run}; wait for it`);
+    throw error;
   }
+}
+async function fixtureRun(app, use, run, key) {
+  const started = Date.now(), warm = key !== null;
+  const { snapshotOf, materializeSnapshot, disposeSnapshot } = await import('./deploy.mjs');
   let snapshot;
   try {
     snapshot = snapshotOf(app, { dirty: true, ...(warm ? { captureRoot: resolve(realpathSync(tmpdir()), `exact-capture-${key}`) } : {}) }, ROOT);
@@ -743,10 +747,7 @@ export async function withAppFixture(app, use, { warm = false } = {}) {
     try { if (snapshot) disposeSnapshot(snapshot); }
     finally {
       if (!warm) removePrivateTree(run);
-      else {
-        for (const entry of readdirSync(run)) if (entry !== 'target' && entry !== 'lock') removePrivateTree(resolve(run, entry));
-        rmSync(lock, { force: true });
-      }
+      else for (const entry of readdirSync(run)) if (entry !== 'target' && entry !== 'held') removePrivateTree(resolve(run, entry));
     }
   }
 }
