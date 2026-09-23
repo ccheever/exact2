@@ -490,6 +490,23 @@ asserting the app's landmarks and printing the boot stamp. `node
 scripts/metrics.mjs` — every number in this document in one run (~10 s;
 diagnostic, never blocking).
 
+**Serving (2026-09-23).** `bun host/web/serve.mjs` (a build, or `--origin`)
+makes Brotli (quality 11) and gzip variants of each wasm, JS, CSS, HTML,
+JSON and WGSL body once per digest, off the request path — it warms the
+served tree at startup; a request before that gets identity bytes — and
+answers `Accept-Encoding` with `Content-Encoding` and `Vary`. Every 200
+carries a digest `ETag` (one per representation) and answers
+`If-None-Match` with 304. Content-addressed files are `immutable`; the
+update protocol's `.exact/` heads and pointers `no-store`; everything else —
+the page, install pages, a build's canonical files — `no-cache`. The dev
+server and the drivers' servers send identity bytes. `index.html` preloads
+`app.wasm` (`as=fetch crossorigin`: `fetch`'s cors/same-origin, the same
+URL) and `navigation.js` (`modulepreload`), so neither waits for glue.js to
+run. Caltrain's first load in headless Chrome at 150 ms RTT and 10 Mbps,
+five cold loads each (load 100–140): FCP 1,864 → 760 ms; bytes before FCP
+1,449 → 457 KB, all 1,888 → 611 KB; `app.wasm` requested at 617 → 173 ms,
+by the preload, once per load.
+
 **Where the bytes are (2026-08-28, 404 KiB; 172 KiB gzip).** Measured from the
 name section of an unstripped build: std/core/alloc ≈ 59% (string and slice
 helpers, `core::fmt`, float print and parse for `px` values, JSON, and spring

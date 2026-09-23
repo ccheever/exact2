@@ -565,7 +565,7 @@ for (const [name, html, files, expectCode, expect] of [
   const readGraph = async () => {
     const index = await fetch(url);
     const html = await index.text(), base = /<base href="([^"]+)"/.exec(html)?.[1];
-    if (!base || index.headers.get('cache-control') !== 'no-store') return false;
+    if (!base || index.headers.get('cache-control') !== 'no-cache') return false;
     const id = base.split('/').at(-2), expected = id === old.pointer.id ? 'old' : id === next.pointer.id ? 'new' : null;
     const payload = await Promise.all(['glue.js', 'app.wasm', 'assets/live.txt'].map(async (name) => {
       const response = await fetch(url + base + name);

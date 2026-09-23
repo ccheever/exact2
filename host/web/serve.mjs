@@ -4,6 +4,7 @@
 // EXACT_LOOPBACK=1) binds 127.0.0.1 only.
 // Usage: bun host/web/serve.mjs [port=8765] [--loopback]
 import { createServer } from 'node:http';
+import { brotliCompress, constants as zlib, gzip } from 'node:zlib';
 import { createHash, randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -575,11 +576,73 @@ export function webContentType(route) {
 }
 
 /** Cache policy is enforced by the supported origin server, not metadata
- * dropped on the floor by a directory copy. Canonical names always revalidate. */
+ * dropped on the floor by a directory copy. Content-addressed files are
+ * immutable; the update protocol's heads and pointers under `.exact/` are
+ * never stored; every other name — the page, its install pages, a local
+ * build's canonical files — is revalidated against its ETag each load. */
 export function webCacheControl(found) {
-  return found.immutable || /^\/\.exact\/blobs\/[0-9a-f]{64}$/.test(found.route)
-    || /^\/\.exact\/[^/.]+\/[^/.]+\/releases\/[^/.]+\.json$/.test(found.route)
-    ? 'public, max-age=31536000, immutable' : 'no-store';
+  if (found.immutable || /^\/\.exact\/blobs\/[0-9a-f]{64}$/.test(found.route)
+    || /^\/\.exact\/[^/.]+\/[^/.]+\/releases\/[^/.]+\.json$/.test(found.route)) return 'public, max-age=31536000, immutable';
+  return found.route.startsWith(UPDATE_TREE) && !INSTALL_FILES.includes(found.route) ? 'no-store' : 'no-cache';
+}
+
+// Compressed representations for the production server (`serve.mjs` itself;
+// the dev server and drivers send identity bytes). Brotli at quality 11 takes
+// seconds for an app's wasm, so a variant is made once per body digest, off
+// the request path — the server warms its tree at startup — and a request that
+// arrives first gets the identity bytes. A variant no smaller is not kept.
+const COMPRESSIBLE = new Set(['application/wasm', 'text/javascript', 'text/css', 'text/html', 'application/json',
+  'application/manifest+json', 'application/vnd.exact.envelope+json', 'image/svg+xml', 'text/wgsl']);
+export function compressionCache(limit = 256 * 1024 * 1024) {
+  const variants = new Map(), pending = new Map();
+  let held = 0;
+  const make = (digest, body, encoding) => {
+    const key = `${digest}:${encoding}`;
+    if (variants.has(key)) return Promise.resolve();
+    if (!pending.has(key)) pending.set(key, new Promise(done => {
+      const finish = (error, out) => {
+        pending.delete(key);
+        if (!error && out.length < body.length && held + out.length <= limit) { variants.set(key, out); held += out.length; }
+        done();
+      };
+      if (encoding === 'br') brotliCompress(body, { params: { [zlib.BROTLI_PARAM_QUALITY]: 11, [zlib.BROTLI_PARAM_SIZE_HINT]: body.length } }, finish);
+      else gzip(body, { level: 9 }, finish);
+    }));
+    return pending.get(key);
+  };
+  return {
+    get: (digest, encoding) => variants.get(`${digest}:${encoding}`) ?? null,
+    warm: (digest, body) => Promise.all(['br', 'gzip'].map(encoding => make(digest, body, encoding))),
+  };
+}
+const bodyDigest = body => createHash('sha256').update(body).digest('base64url').slice(0, 32);
+/** The encodings a request accepts, per RFC 9110 §12.5.3 (a q of 0 refuses). */
+function acceptedEncodings(header = '') {
+  const accepted = new Set();
+  for (const part of String(header).split(',')) {
+    const [name, ...params] = part.trim().toLowerCase().split(';');
+    const q = params.map(p => /^\s*q=([0-9.]+)\s*$/.exec(p)?.[1]).find(Boolean);
+    if (name && (q === undefined || Number(q) > 0)) accepted.add(name);
+  }
+  return accepted;
+}
+const matchesETag = (header, etag) => typeof header === 'string'
+  && header.split(',').some(tag => { const t = tag.trim(); return t === '*' || t.replace(/^W\//, '') === etag; });
+
+/** Warm every compressible file the server will answer for: a local build's
+ * public files, or a published root's current release. */
+export async function warmCompression(dist, compression) {
+  let names;
+  try { names = listPublicFiles(dist); } catch { names = []; }
+  if (!names.includes('app.wasm')) {
+    try { names = parseWebRoot(readFileSync(resolve(dist, webRootPath))).files.map(card => card.name); } catch { return 0; }
+  }
+  let warmed = 0;
+  await Promise.all(names.filter(name => COMPRESSIBLE.has(webContentType('/' + name))).map(async name => {
+    const found = await readStaticFileAsync(dist, '/' + name);
+    if (found) { await compression.warm(bodyDigest(found.body), found.body); warmed++; }
+  }));
+  return warmed;
 }
 
 // @ref LLP 1038 D7 — preserve file precedence and negotiate the app
@@ -636,7 +699,7 @@ export function sendStaticBody(req, res, body, headers = {}) {
   res.end(req.method === 'HEAD' ? undefined : bytes);
 }
 
-export async function serveStatic(dist, req, res, listener) {
+export async function serveStatic(dist, req, res, listener, compression = null) {
   const target = webRequestURL(req.url);
   if (!target) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405, { 'cache-control': 'no-store' }); res.end(); return; }
@@ -645,7 +708,23 @@ export async function serveStatic(dist, req, res, listener) {
   if (!found) { res.writeHead(404, { 'cache-control': 'no-store', ...(index ? { vary: 'Accept' } : {}) }); res.end(); return; }
   let body = !found.immutable && INSTALL_FILES.includes(found.route) ? found.body.toString().replace('<!-- exact-serving -->Static hosting<!-- /exact-serving -->', found.published ? 'Hosted release' : 'Development server') : found.body;
   if (!found.immutable && !found.published && INSTALL_FILES.includes(found.route)) body = installNetworkPage(body, listener ?? {host:req.socket.localAddress,port:req.socket.localPort});
-  sendStaticBody(req, res, body, { 'content-type': webContentType(found.route), 'cache-control': webCacheControl(found), ...(index ? { vary: 'Accept' } : {}) });
+  body = Buffer.isBuffer(body) ? body : Buffer.from(body);
+  const type = webContentType(found.route), digest = bodyDigest(body);
+  const compressed = compression && COMPRESSIBLE.has(type);
+  let encoding = null;
+  if (compressed) {
+    const accepted = acceptedEncodings(req.headers['accept-encoding']);
+    encoding = ['br', 'gzip'].find(name => accepted.has(name) && compression.get(digest, name)) ?? null;
+    void compression.warm(digest, body);
+  }
+  const vary = [index && 'Accept', compressed && 'Accept-Encoding'].filter(Boolean).join(', ');
+  const headers = { 'content-type': type, 'cache-control': webCacheControl(found), etag: `"${digest}${encoding ? `-${encoding}` : ''}"`,
+    ...(vary ? { vary } : {}), ...(encoding ? { 'content-encoding': encoding } : {}) };
+  if (matchesETag(req.headers['if-none-match'], headers.etag)) {
+    const { 'content-type': _, 'content-encoding': __, ...validators } = headers;
+    res.writeHead(304, validators); res.end(); return;
+  }
+  sendStaticBody(req, res, encoding ? compression.get(digest, encoding) : body, headers);
 }
 
 async function main() {
@@ -657,13 +736,16 @@ async function main() {
   const loopback = argv.includes('--loopback') || process.env.EXACT_LOOPBACK === '1';
   const port = Number(argv.find((a) => !a.startsWith('--')) ?? 8765);
   const host = loopback ? '127.0.0.1' : '0.0.0.0';
-  createServer((req, res) => serveStatic(dist, req, res, {host,port})).listen(port, host, () => {
+  const compression = compressionCache();
+  const warming = warmCompression(dist, compression);
+  createServer((req, res) => serveStatic(dist, req, res, {host,port}, compression)).listen(port, host, () => {
     const urls = [`http://127.0.0.1:${port}/`];
     if (!loopback) {
       const priv = (a) => /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a);
       urls.push(...Object.values(networkInterfaces()).flat().filter((a) => a && !a.internal && a.family === 'IPv4').map((a) => a.address).sort((a, b) => priv(b) - priv(a)).map((a) => `http://${a}:${port}/`));
     }
     console.log(urls.join('\n') + `\n  (serving ${dist}; ctrl-c to stop)`);
+    warming.then(n => console.log(`  (${n} files compressed: brotli and gzip)`));
   });
   return 0;
 }

@@ -2,13 +2,15 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, renameSync, symlinkSync, existsSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
-import { filesystemRead } from './filesystem.mjs';
+import { closeFilesystemReader, filesystemRead } from './filesystem.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
 import { developmentGate, developmentInstallPage, installPage, installProblems, writeInstallPages, installBrowserOrigins, installNetworkPage, localInstallURL } from './install-page.mjs';
 import { readManifest, rustPolicy, rebuildPolicy } from './app.mjs';
-import { developmentOpenPage, listPublicFiles, readStaticFile, serveStatic, staticWatchChanges, applyStaticTreeChange } from '../host/web/serve.mjs';
+import { compressionCache, developmentOpenPage, listPublicFiles, readStaticFile, serveStatic, staticWatchChanges, applyStaticTreeChange, warmCompression } from '../host/web/serve.mjs';
+import { request as httpRequest } from 'node:http';
+import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import { publishRoot } from './deploy.mjs';
 import { DirectoryOrigin, webReleasePath } from './origin.mjs';
 const manifest = {name:'Interview',app:{id:'com.interview.app',name:'Interview'}};
@@ -161,7 +163,7 @@ test('install HTTP routes participate in atomic publication and preserve old pag
     for (const path of ['/.exact/install','/.exact/install/','/.exact/install/ios','/.exact/install/ios/','/.exact/install/macos/','/.exact/install/web/']) {
       const response=await fetch(base+path);assert.equal(response.status,200,path);
       assert.match(await response.text(),/Hosted release/);
-      assert.match(response.headers.get('content-type'),/text\/html/);assert.equal(response.headers.get('cache-control'),'no-store');
+      assert.match(response.headers.get('content-type'),/text\/html/);assert.equal(response.headers.get('cache-control'),'no-cache');
     }
     const head=await fetch(base+'/.exact/install/ios/',{method:'HEAD'});assert.equal(head.status,200);assert.equal(await head.text(),'');
     assert.equal((await fetch(base+'/.exact/install/index.html',{headers:{accept:'application/vnd.exact.envelope+json'}})).status,200);
@@ -310,3 +312,44 @@ test('a page takes its language from the manifest, en when it names none', () =>
     }
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
+
+test('the production server sends warm bodies compressed, with validators', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-serve-'));
+  const glue = Buffer.from('export const glue = 1;\n'.repeat(2000)), page = '<!doctype html><title>x</title>' + '<p>page</p>'.repeat(200);
+  writeFileSync(join(dir, 'index.html'), page); writeFileSync(join(dir, 'glue.js'), glue);
+  writeFileSync(join(dir, 'app.wasm'), Buffer.alloc(4096, 7)); writeFileSync(join(dir, 'manifest.json'), '{}');
+  // A fresh resident reader: a timed-out test's cleanup can kill the shared one.
+  closeFilesystemReader();
+  const compression = compressionCache();
+  assert.equal(await warmCompression(dir, compression), 4);
+  const get = (server, path, headers = {}) => new Promise((done, fail) => {
+    const req = httpRequest({ host: '127.0.0.1', port: server.address().port, path, headers }, res => {
+      const chunks = []; res.on('data', c => chunks.push(c)); res.on('end', () => done({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
+    });
+    req.on('error', fail); req.end();
+  });
+  const listen = handler => new Promise(done => { const server = createServer(handler); server.listen(0, '127.0.0.1', () => done(server)); });
+  const production = await listen((req, res) => serveStatic(dir, req, res, null, compression));
+  const plain = await listen((req, res) => serveStatic(dir, req, res));
+  try {
+    const br = await get(production, '/glue.js', { 'accept-encoding': 'gzip, br' });
+    assert.equal(br.headers['content-encoding'], 'br'); assert.equal(br.headers.vary, 'Accept-Encoding');
+    assert.ok(br.body.length < glue.length / 10); assert.deepEqual(brotliDecompressSync(br.body), glue);
+    const gz = await get(production, '/glue.js', { 'accept-encoding': 'gzip, br;q=0' });
+    assert.equal(gz.headers['content-encoding'], 'gzip'); assert.deepEqual(gunzipSync(gz.body), glue);
+    const identity = await get(production, '/glue.js', { 'accept-encoding': 'identity' });
+    assert.equal(identity.headers['content-encoding'], undefined); assert.deepEqual(identity.body, glue);
+    assert.notEqual(br.headers.etag, identity.headers.etag, 'each representation has its own validator');
+    assert.equal(br.headers['cache-control'], 'no-cache');
+    const again = await get(production, '/glue.js', { 'accept-encoding': 'br', 'if-none-match': br.headers.etag });
+    assert.equal(again.status, 304); assert.equal(again.body.length, 0); assert.equal(again.headers.etag, br.headers.etag);
+    const index = await get(production, '/', { 'accept-encoding': 'br' });
+    assert.equal(index.headers['content-encoding'], 'br'); assert.equal(index.headers.vary, 'Accept, Accept-Encoding');
+    assert.equal(index.headers['cache-control'], 'no-cache'); assert.match(index.headers.etag, /^"[A-Za-z0-9_-]{32}-br"$/);
+    const drive = await get(plain, '/glue.js', { 'accept-encoding': 'br' });
+    assert.equal(drive.headers['content-encoding'], undefined, 'a driver or test server sends identity bytes');
+    assert.equal(drive.headers.etag, identity.headers.etag);
+    assert.equal((await get(plain, '/missing.js')).headers['cache-control'], 'no-store');
+  } finally { production.close(); plain.close(); rmSync(dir, { recursive: true, force: true }); }
+});
+

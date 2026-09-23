@@ -5,6 +5,10 @@
 <base href="/">
 <title>Exact</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Fetched in parallel with glue.js: its import, and the wasm it fetches
+     (`fetch` is cors/same-origin; so is `crossorigin` here, same URL). -->
+<link rel="modulepreload" href="./navigation.js">
+<link rel="preload" href="./app.wasm" as="fetch" crossorigin>
 <style>
   /* The page renders the kernel's tree; the kernel's defaults are CSS's for a
      bare <div>, so only UA styles that a bare div lacks are reset here. */
