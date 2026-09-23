@@ -841,7 +841,7 @@ pub fn state(world: &World) -> String {
                     crate::values::quote(&v.at.label(world)),
                     Float(v.gain),
                     v.began,
-                    if v.looping() {
+                    if v.ends == u64::MAX {
                         "null".to_owned()
                     } else {
                         v.ends.to_string()

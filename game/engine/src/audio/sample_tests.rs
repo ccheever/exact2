@@ -99,6 +99,8 @@ fn fade_ramps_to_silence_then_stops_and_stop_journals() {
     audio::stop(sim.world_mut(), blip);
     let voice = sim.world().resource::<Voices>().voices[0].clone();
     assert_eq!(voice.ends, now + 30);
+    let state = audio::state(sim.world());
+    assert!(state.contains(&format!(r#""ends":{}"#, now + 30)), "a faded loop reports its end: {state}");
     assert_eq!(voice.fade_at(now), 1.0);
     assert_eq!(voice.fade_at(now + 15), 0.5);
     let lines: Vec<_> = sim

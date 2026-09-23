@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // Shipped size plus pre-bindgen twiggy attribution. Diagnostic, never a gate.
-// bun game/bench/size.mjs [label] [--no-build] [--app beacons|greybox|skinned-fixture]
+// bun game/bench/size.mjs [label] [--no-build] [--app beacons|greybox|skinned-fixture|audio-fixture]
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -11,8 +11,8 @@ const root = resolve(import.meta.dir, '../..');
 const args = process.argv.slice(2);
 const appAt = args.indexOf('--app');
 const name = appAt < 0 ? 'beacons' : args.splice(appAt, 2)[1];
-if (!['beacons', 'greybox', 'skinned-fixture'].includes(name))
-  throw new Error('Use --app beacons, greybox or skinned-fixture');
+if (!['beacons', 'greybox', 'skinned-fixture', 'audio-fixture'].includes(name))
+  throw new Error('Use --app beacons, greybox, skinned-fixture or audio-fixture');
 const app = resolve(root, 'game/games', name);
 const output = resolve(app, 'target/d3-size');
 const dist = resolve(output, 'dist');

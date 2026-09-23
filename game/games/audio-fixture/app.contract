@@ -1,0 +1,22 @@
+// Sampled and synthesized sounds under one listener; the HUD reads the world.
+shape Hud
+  voices: number
+  loops: number
+
+component AudioFixture
+  state playing = false
+  resource hud = exactSurface("world") as shape Hud
+
+  action play writes playing
+    playing = true
+
+  view
+    main width="100%" height="100%" background-color="#16202b" color="#ffffff"
+      when playing
+        canvas surface=world() testId="world" width="100%" height="100%" position="relative"
+          text `Voices ${hud.voices} · loops ${hud.loops}` aria-live="polite" testId="hud" position="absolute" top=24 left=24 padding=12 border-radius=8 background-color="#16202b" font-size=18
+      else
+        column height="100%" align-items="center" justify-content="center" gap=24
+          text "Sampled sounds" font-size=40 font-weight=600
+          button press=play autofocus aria-label="Play" testId="play" padding=16 border-radius=8 background-color="#e8ad61"
+            text "Play" font-size=20 font-weight=600 color="#16202b"
