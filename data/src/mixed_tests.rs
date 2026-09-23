@@ -905,3 +905,150 @@ fn discarded_resumes_release_yielded_argument_keys() {
     assert_eq!(mixed.staged_keys(), 0);
     assert!(matches!(mixed.dispatch(resume, &store), Dispatch::Missing));
 }
+
+// Two targets that ask one source with equal arguments, through the runner:
+// each call's stages stay its own, whatever order the replies come in.
+
+use exact_runner::{RequestOut, Runner};
+
+fn twins<D: DataSource>(data: D) -> Runner<D> {
+    use exact_plan::{asm::Asm, builder::PlanBuilder, TypeKind};
+    let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    let text = b.primitive(TypeKind::String);
+    let baked = Value::str("baked");
+    let first = b.resource("first", "yield", &[], text, Some(&baked));
+    let second = b.resource("second", "yield", &[], text, Some(&baked));
+    let mut body = Asm::new();
+    body.refresh(first).refresh(second);
+    let body = b.code(body);
+    b.action("both", &[], &[], body);
+    b.node(
+        exact_kernel::NodeType::View as u8,
+        None,
+        None,
+        0,
+        &[],
+        &[],
+        None,
+    );
+    Runner::boot(
+        b.finish().unwrap(),
+        data,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap()
+}
+
+fn names(requests: &[RequestOut]) -> Vec<&str> {
+    requests.iter().map(|q| q.target.as_str()).collect()
+}
+
+fn turn_token(request: &RequestOut) -> u64 {
+    request.request.continuation.expect("a turn")
+}
+
+fn resource<D: DataSource>(r: &Runner<D>, name: &str) -> String {
+    r.resource(name)
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
+}
+
+#[test]
+fn two_targets_asking_a_placed_source_with_equal_arguments_keep_their_own_turns() {
+    let mut placed = Placed::new(
+        Threaded {
+            calls: Default::default(),
+        },
+        Placement::Worker,
+    );
+    placed.activate().unwrap();
+    let mut r = twins(placed);
+    r.act("both", vec![]).unwrap();
+    let asked = r.take_requests();
+    assert_eq!(names(&asked), ["first", "second"]);
+    let first = run(r.dispatch_work(turn_token(&asked[0])));
+    let second = run(r.dispatch_work(turn_token(&asked[1])));
+    // The first turn yields storage, and that reply comes back before the
+    // second turn's envelope: it resumes the first call.
+    r.fulfill(asked[0].ticket, first).unwrap();
+    let storage = r.take_requests();
+    assert_eq!(names(&storage), ["first"]);
+    r.fulfill(storage[0].ticket, Outcome::Storage(b"one".to_vec()))
+        .expect("the first call's storage reply resumes the first call");
+    let resumed = r.take_requests();
+    assert_eq!(names(&resumed), ["first"]);
+    let outcome = run(r.dispatch_work(turn_token(&resumed[0])));
+    r.fulfill(resumed[0].ticket, outcome).unwrap();
+    r.fulfill(asked[1].ticket, second).unwrap();
+    let storage = r.take_requests();
+    assert_eq!(names(&storage), ["second"]);
+    r.fulfill(storage[0].ticket, Outcome::Storage(b"two".to_vec()))
+        .unwrap();
+    let resumed = r.take_requests();
+    assert_eq!(names(&resumed), ["second"]);
+    let outcome = run(r.dispatch_work(turn_token(&resumed[0])));
+    r.fulfill(resumed[0].ticket, outcome).unwrap();
+    assert_eq!(resource(&r, "first"), "one");
+    assert_eq!(resource(&r, "second"), "two");
+    assert!(!r.has_pending());
+    assert_eq!(r.data().staged_keys(), 0);
+}
+
+#[test]
+fn two_targets_asking_an_ordered_member_with_equal_arguments_keep_their_own_stages() {
+    // The worker child makes a set; the Rust child shares `shared` with it,
+    // so its calls are ordered turns too.
+    let mixed = Mixed::new(
+        Proxy::new(Source::new("js")),
+        Threaded {
+            calls: Default::default(),
+        },
+        &["js"],
+        &["yield"],
+    )
+    .unwrap();
+    let mut r = twins(mixed);
+    r.act("both", vec![]).unwrap();
+    let asked = r.take_requests();
+    assert_eq!(names(&asked), ["first", "second"]);
+    let first = run(r.dispatch_work(turn_token(&asked[0])));
+    assert!(matches!(
+        r.dispatch_work(turn_token(&asked[1])),
+        Dispatch::Held
+    ));
+    r.fulfill(asked[0].ticket, first).unwrap();
+    let storage = r.take_requests();
+    assert_eq!(names(&storage), ["first"]);
+    // The first turn ended, so the second starts; the first call's storage
+    // reply comes back before the second turn's envelope.
+    let (released, dispatch) = r.release_work().pop().expect("the second turn");
+    assert_eq!(released, turn_token(&asked[1]));
+    let second = run(dispatch);
+    r.fulfill(storage[0].ticket, Outcome::Storage(b"one".to_vec()))
+        .expect("the first call's storage reply resumes the first call");
+    let resumed = r.take_requests();
+    assert_eq!(names(&resumed), ["first"]);
+    assert!(matches!(
+        r.dispatch_work(turn_token(&resumed[0])),
+        Dispatch::Held
+    ));
+    r.fulfill(asked[1].ticket, second).unwrap();
+    let storage = r.take_requests();
+    assert_eq!(names(&storage), ["second"]);
+    let (released, dispatch) = r.release_work().pop().expect("the first resumes");
+    assert_eq!(released, turn_token(&resumed[0]));
+    r.fulfill(resumed[0].ticket, run(dispatch)).unwrap();
+    r.fulfill(storage[0].ticket, Outcome::Storage(b"two".to_vec()))
+        .unwrap();
+    let resumed = r.take_requests();
+    assert_eq!(names(&resumed), ["second"]);
+    let outcome = run(r.dispatch_work(turn_token(&resumed[0])));
+    r.fulfill(resumed[0].ticket, outcome).unwrap();
+    assert_eq!(resource(&r, "first"), "one");
+    assert_eq!(resource(&r, "second"), "two");
+    assert!(!r.has_pending());
+    assert_eq!(r.data().staged_keys(), 0);
+}

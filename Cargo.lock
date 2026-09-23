@@ -693,6 +693,7 @@ dependencies = [
 name = "exact-data"
 version = "0.1.0"
 dependencies = [
+ "exact-kernel",
  "exact-plan",
  "exact-runner",
  "serde_json",

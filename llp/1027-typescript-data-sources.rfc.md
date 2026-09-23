@@ -320,6 +320,20 @@ adapter; broader encodings and `AbortSignal` remain separate gaps.
 The clock gap was closed by LLP 1027.000 on
 2026-09-04 with explicit time/seed arguments and ambient-read refusal.
 
+**As built (2026-09-23): a parked call is keyed by its target.** Source
+and arguments are not a call's identity: two targets can ask one source with
+equal arguments, and the second `answer` used to drop the first call, whose
+reply then resumed the second while the first never settled. The runner
+keeps one request in flight per target (LLP 1016 D5) and asks through
+`answer_for`/`parse_for`, which name it (`Target::Resource(i)` or
+`Target::Mutation(i)`) and default to `answer`/`parse`. `exact-js`, the web
+module and both of its realms, and `Mixed` and `Placed`'s stage queues key a
+parked call by target, then source and arguments; a source that forwards to
+another forwards the target too. A caller that names no target (a forwarder
+that overrides only `answer`/`parse`) keeps the old key and behavior. A
+replaced Rust module's byte seam carries no target; a Rust source parks
+nothing between `answer` and `parse`.
+
 ### D2 — Marshaling is shape-directed, both ways, from the plan's own tables
 
 Values cross as JSON, and the *plan* says what the JSON means: a

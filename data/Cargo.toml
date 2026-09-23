@@ -9,3 +9,7 @@ publish = false
 exact-plan = { path = "../plan" }
 exact-runner = { path = "../runner" }
 serde_json = "1.0"
+
+[dev-dependencies]
+# The runner-level tests boot a plan against a kernel.
+exact-kernel = { path = "../kernel" }

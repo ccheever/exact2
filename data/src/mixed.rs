@@ -7,7 +7,7 @@
 use crate::envelope;
 use exact_plan::{Plan, Value};
 use exact_runner::{
-    Answer, DataError, DataSource, Dispatch, Outcome, Placement, Request, Store, Work,
+    Answer, DataError, DataSource, Dispatch, Outcome, Placement, Request, Store, Target, Work,
 };
 use serde_json::Value as Json;
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
@@ -18,11 +18,13 @@ type Retain<R> = fn(&R) -> Result<R, DataError>;
 enum Recorded {
     Answer {
         rust: bool,
+        target: Option<Target>,
         source: String,
         args: Vec<Value>,
     },
     Resume {
         rust: bool,
+        target: Option<Target>,
         source: String,
         args: Vec<Value>,
         outcome: Outcome,
@@ -37,14 +39,17 @@ enum Stage {
     Yielded,
 }
 
-type Key = (bool, String, Vec<u8>);
+/// A call's stages are keyed by the runner's target when it named one,
+/// then by owner, source and arguments: two targets asking one source with
+/// equal arguments are two calls.
+type Key = (bool, Option<Target>, String, Vec<u8>);
 
-fn key(rust: bool, source: &str, args: &[Value]) -> Key {
+fn key(rust: bool, target: Option<Target>, source: &str, args: &[Value]) -> Key {
     let mut bytes = Vec::new();
     for a in args {
         bytes.extend(a.to_bytes());
     }
-    (rust, source.to_string(), bytes)
+    (rust, target, source.to_string(), bytes)
 }
 
 /// One ordered set (LLP 1027.002 D3, change 2): its members, the turn it
@@ -284,15 +289,19 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
         if self.child_placement(rust) == Placement::Worker {
             let mut scratch = Store::new(&grants, []);
             let answer = match recorded {
-                Recorded::Answer { source, args, .. } => {
-                    self.child_answer(rust, &mut scratch, &source, &args)
-                }
+                Recorded::Answer {
+                    target,
+                    source,
+                    args,
+                    ..
+                } => self.child_answer(rust, target, &mut scratch, &source, &args),
                 Recorded::Resume {
+                    target,
                     source,
                     args,
                     outcome,
                     ..
-                } => self.child_parse(rust, &mut scratch, &source, &args, outcome),
+                } => self.child_parse(rust, target, &mut scratch, &source, &args, outcome),
             };
             return match answer {
                 Ok(Answer::Later(request)) if request.continuation.is_some() => {
@@ -318,15 +327,19 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
         }
         let mut local = Store::new(&grants, envelope::snapshot(store, &grants));
         let result = match recorded {
-            Recorded::Answer { source, args, .. } => {
-                self.child_answer(rust, &mut local, &source, &args)
-            }
+            Recorded::Answer {
+                target,
+                source,
+                args,
+                ..
+            } => self.child_answer(rust, target, &mut local, &source, &args),
             Recorded::Resume {
+                target,
                 source,
                 args,
                 outcome,
                 ..
-            } => self.child_parse(rust, &mut local, &source, &args, outcome),
+            } => self.child_parse(rust, target, &mut local, &source, &args, outcome),
         };
         let outcome = envelope::encode(result, &mut local, Vec::new());
         Dispatch::Run(Work::Now(Box::new(move || outcome)))
@@ -335,30 +348,121 @@ impl<J: DataSource, R: DataSource> Mixed<J, R> {
     fn child_answer(
         &mut self,
         rust: bool,
+        target: Option<Target>,
         store: &mut Store,
         source: &str,
         args: &[Value],
     ) -> Result<Answer, DataError> {
         if rust {
-            self.rust.answer(store, source, args)
+            crate::answer(&mut self.rust, target, store, source, args)
         } else {
-            self.javascript.answer(store, source, args)
+            crate::answer(&mut self.javascript, target, store, source, args)
         }
     }
 
     fn child_parse(
         &mut self,
         rust: bool,
+        target: Option<Target>,
         store: &mut Store,
         source: &str,
         args: &[Value],
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
         if rust {
-            self.rust.parse(store, source, args, outcome)
+            crate::parse(&mut self.rust, target, store, source, args, outcome)
         } else {
-            self.javascript.parse(store, source, args, outcome)
+            crate::parse(&mut self.javascript, target, store, source, args, outcome)
         }
+    }
+
+    fn answer_with(
+        &mut self,
+        target: Option<Target>,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        let rust = self.owner(source)?;
+        if let Some(set) = self.set_of[rust as usize] {
+            return self.record(
+                set,
+                key(rust, target, source, args),
+                Recorded::Answer {
+                    rust,
+                    target,
+                    source: source.to_string(),
+                    args: args.to_vec(),
+                },
+            );
+        }
+        let grants = self.child_grants(rust);
+        let answer = store.with_grants(&grants, |store| {
+            self.child_answer(rust, target, store, source, args)
+        })?;
+        self.route_answer(rust, answer)
+    }
+
+    fn parse_with(
+        &mut self,
+        target: Option<Target>,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        let rust = self.owner(source)?;
+        let grants = self.child_grants(rust);
+        if let Some(set) = self.set_of[rust as usize] {
+            let k = key(rust, target, source, args);
+            let stage = self.stages.get_mut(&k).and_then(VecDeque::pop_front);
+            if self.stages.get(&k).is_some_and(VecDeque::is_empty) {
+                self.stages.remove(&k);
+            }
+            return match stage {
+                Some(Stage::Turn) => {
+                    // The reserved turn ended, however it ended.
+                    self.sets[set].busy = false;
+                    let answer = if self.child_placement(rust) == Placement::Worker {
+                        store.with_grants(&grants, |store| {
+                            self.child_parse(rust, target, store, source, args, outcome)
+                        })
+                    } else {
+                        let mut logs = Vec::new();
+                        let answer = store.with_grants(&grants, |store| {
+                            envelope::apply(outcome, store, &mut logs)
+                        });
+                        self.logs.extend(logs);
+                        answer
+                    };
+                    match answer {
+                        Ok(Answer::Later(request)) => {
+                            self.stages.entry(k).or_default().push_back(Stage::Yielded);
+                            self.route_answer(rust, Answer::Later(request))
+                        }
+                        other => other,
+                    }
+                }
+                Some(Stage::Yielded) => self.record(
+                    set,
+                    k,
+                    Recorded::Resume {
+                        rust,
+                        target,
+                        source: source.to_string(),
+                        args: args.to_vec(),
+                        outcome,
+                    },
+                ),
+                None => Err(unavailable(format!(
+                    "`{source}`: a reply for an answer not in flight"
+                ))),
+            };
+        }
+        let answer = store.with_grants(&grants, |store| {
+            self.child_parse(rust, target, store, source, args, outcome)
+        })?;
+        self.route_answer(rust, answer)
     }
 
     /// The turn's `console` lines a main member produced, for the host's
@@ -396,23 +500,17 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
         source: &str,
         args: &[Value],
     ) -> Result<Answer, DataError> {
-        let rust = self.owner(source)?;
-        if let Some(set) = self.set_of[rust as usize] {
-            return self.record(
-                set,
-                key(rust, source, args),
-                Recorded::Answer {
-                    rust,
-                    source: source.to_string(),
-                    args: args.to_vec(),
-                },
-            );
-        }
-        let grants = self.child_grants(rust);
-        let answer = store.with_grants(&grants, |store| {
-            self.child_answer(rust, store, source, args)
-        })?;
-        self.route_answer(rust, answer)
+        self.answer_with(None, store, source, args)
+    }
+
+    fn answer_for(
+        &mut self,
+        target: Target,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        self.answer_with(Some(target), store, source, args)
     }
 
     fn parse(
@@ -422,57 +520,18 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
         args: &[Value],
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
-        let rust = self.owner(source)?;
-        let grants = self.child_grants(rust);
-        if let Some(set) = self.set_of[rust as usize] {
-            let k = key(rust, source, args);
-            let stage = self.stages.get_mut(&k).and_then(VecDeque::pop_front);
-            if self.stages.get(&k).is_some_and(VecDeque::is_empty) {
-                self.stages.remove(&k);
-            }
-            return match stage {
-                Some(Stage::Turn) => {
-                    // The reserved turn ended, however it ended.
-                    self.sets[set].busy = false;
-                    let answer = if self.child_placement(rust) == Placement::Worker {
-                        store.with_grants(&grants, |store| {
-                            self.child_parse(rust, store, source, args, outcome)
-                        })
-                    } else {
-                        let mut logs = Vec::new();
-                        let answer = store.with_grants(&grants, |store| {
-                            envelope::apply(outcome, store, &mut logs)
-                        });
-                        self.logs.extend(logs);
-                        answer
-                    };
-                    match answer {
-                        Ok(Answer::Later(request)) => {
-                            self.stages.entry(k).or_default().push_back(Stage::Yielded);
-                            self.route_answer(rust, Answer::Later(request))
-                        }
-                        other => other,
-                    }
-                }
-                Some(Stage::Yielded) => self.record(
-                    set,
-                    k,
-                    Recorded::Resume {
-                        rust,
-                        source: source.to_string(),
-                        args: args.to_vec(),
-                        outcome,
-                    },
-                ),
-                None => Err(unavailable(format!(
-                    "`{source}`: a reply for an answer not in flight"
-                ))),
-            };
-        }
-        let answer = store.with_grants(&grants, |store| {
-            self.child_parse(rust, store, source, args, outcome)
-        })?;
-        self.route_answer(rust, answer)
+        self.parse_with(None, store, source, args, outcome)
+    }
+
+    fn parse_for(
+        &mut self,
+        target: Target,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        self.parse_with(Some(target), store, source, args, outcome)
     }
 
     fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {
@@ -537,12 +596,21 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
         match self.recorded.remove(&token) {
             Some((
                 _,
-                Recorded::Answer { rust, source, args }
+                Recorded::Answer {
+                    rust,
+                    target,
+                    source,
+                    args,
+                }
                 | Recorded::Resume {
-                    rust, source, args, ..
+                    rust,
+                    target,
+                    source,
+                    args,
+                    ..
                 },
             )) => {
-                let k = key(rust, &source, &args);
+                let k = key(rust, target, &source, &args);
                 if let Some(stages) = self.stages.get_mut(&k) {
                     stages.pop_back();
                     if stages.is_empty() {

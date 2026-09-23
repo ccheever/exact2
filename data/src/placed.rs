@@ -10,7 +10,8 @@
 use crate::envelope;
 use exact_plan::{Plan, Value};
 use exact_runner::{
-    Answer, DataError, DataSource, Dispatch, Outcome, Placement, Reply, Request, Store, Work,
+    Answer, DataError, DataSource, Dispatch, Outcome, Placement, Reply, Request, Store, Target,
+    Work,
 };
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::mpsc::{channel, Sender};
@@ -26,12 +27,14 @@ pub type Obtain<D> = Box<dyn FnOnce() -> Result<D, DataError> + Send + 'static>;
 /// `Value` is not `Send`, so arguments cross as their canonical bytes.
 enum Job {
     Answer {
+        target: Option<Target>,
         source: String,
         args: Vec<Vec<u8>>,
         snapshot: Vec<(String, String)>,
         reply: Reply,
     },
     Resume {
+        target: Option<Target>,
         source: String,
         args: Vec<Vec<u8>>,
         outcome: Outcome,
@@ -56,10 +59,12 @@ fn decode_args(args: &[Vec<u8>]) -> Result<Vec<Value>, DataError> {
 /// A call recorded at `answer` or `parse`, dispatched later.
 enum Recorded {
     Answer {
+        target: Option<Target>,
         source: String,
         args: Vec<Value>,
     },
     Resume {
+        target: Option<Target>,
         source: String,
         args: Vec<Value>,
         outcome: Outcome,
@@ -74,14 +79,17 @@ enum Stage {
     Yielded,
 }
 
-type Key = (String, Vec<u8>);
+/// A call's stages are keyed by the runner's target when it named one,
+/// then by source and arguments: two targets asking one source with equal
+/// arguments are two calls.
+type Key = (Option<Target>, String, Vec<u8>);
 
-fn key(source: &str, args: &[Value]) -> Key {
+fn key(target: Option<Target>, source: &str, args: &[Value]) -> Key {
     let mut bytes = Vec::new();
     for a in args {
         bytes.extend(a.to_bytes());
     }
-    (source.to_string(), bytes)
+    (target, source.to_string(), bytes)
 }
 
 /// How a worker instance comes to exist on its thread.
@@ -185,6 +193,66 @@ impl<D: DataSource + 'static> Placed<D> {
         Ok(Answer::Later(Request::continuation(token)))
     }
 
+    fn answer_with(
+        &mut self,
+        target: Option<Target>,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        if self.inline() {
+            return crate::answer(self.here()?, target, store, source, args);
+        }
+        self.record(
+            key(target, source, args),
+            Recorded::Answer {
+                target,
+                source: source.to_string(),
+                args: args.to_vec(),
+            },
+        )
+    }
+
+    fn parse_with(
+        &mut self,
+        target: Option<Target>,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        if self.inline() {
+            return crate::parse(self.here()?, target, store, source, args, outcome);
+        }
+        let k = key(target, source, args);
+        let stage = self.stages.get_mut(&k).and_then(VecDeque::pop_front);
+        if self.stages.get(&k).is_some_and(VecDeque::is_empty) {
+            self.stages.remove(&k);
+        }
+        match stage {
+            Some(Stage::Turn) => {
+                let mut logs = Vec::new();
+                let answer = envelope::apply(outcome, store, &mut logs);
+                if let Ok(Answer::Later(_)) = &answer {
+                    self.stages.entry(k).or_default().push_back(Stage::Yielded);
+                }
+                answer
+            }
+            Some(Stage::Yielded) => self.record(
+                k,
+                Recorded::Resume {
+                    target,
+                    source: source.to_string(),
+                    args: args.to_vec(),
+                    outcome,
+                },
+            ),
+            None => Err(unavailable(format!(
+                "`{source}`: a reply for an answer not in flight"
+            ))),
+        }
+    }
+
     /// Start the owner (LLP 1027.002 D2): it obtains its instance, then runs
     /// turns in order until this proxy drops its end of the channel.
     fn spawn_owner(&mut self, obtain: Obtain<D>) -> Result<(), DataError> {
@@ -195,26 +263,29 @@ impl<D: DataSource + 'static> Placed<D> {
             .spawn(move || {
                 let mut source = obtain();
                 for job in rx {
-                    let (name, args, outcome, snapshot, reply) = match job {
+                    let (target, name, args, outcome, snapshot, reply) = match job {
                         Job::Answer {
+                            target,
                             source,
                             args,
                             snapshot,
                             reply,
-                        } => (source, args, None, snapshot, reply),
+                        } => (target, source, args, None, snapshot, reply),
                         Job::Resume {
+                            target,
                             source,
                             args,
                             outcome,
                             snapshot,
                             reply,
-                        } => (source, args, Some(outcome), snapshot, reply),
+                        } => (target, source, args, Some(outcome), snapshot, reply),
                     };
                     let mut local = Store::new(&grants, snapshot);
                     let result = match &mut source {
                         Err(e) => Err(e.clone()),
-                        Ok(source) => decode_args(&args)
-                            .and_then(|args| turn(source, &mut local, &name, &args, outcome)),
+                        Ok(source) => decode_args(&args).and_then(|args| {
+                            turn(source, &mut local, target, &name, &args, outcome)
+                        }),
                     };
                     reply.send(envelope::encode(result, &mut local, Vec::new()));
                 }
@@ -234,13 +305,14 @@ impl<D: DataSource + 'static> Placed<D> {
 fn turn<D: DataSource>(
     source: &mut D,
     local: &mut Store,
+    target: Option<Target>,
     name: &str,
     args: &[Value],
     outcome: Option<Outcome>,
 ) -> Result<Answer, DataError> {
     let mut result = match outcome {
-        None => source.answer(local, name, args),
-        Some(outcome) => source.parse(local, name, args, outcome),
+        None => crate::answer(source, target, local, name, args),
+        Some(outcome) => crate::parse(source, target, local, name, args, outcome),
     };
     loop {
         match result {
@@ -252,7 +324,7 @@ fn turn<D: DataSource>(
                     )));
                 };
                 let outcome = work();
-                result = source.parse(local, name, args, outcome);
+                result = crate::parse(source, target, local, name, args, outcome);
             }
             other => return other,
         }
@@ -358,16 +430,17 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
         source: &str,
         args: &[Value],
     ) -> Result<Answer, DataError> {
-        if self.inline() {
-            return self.here()?.answer(store, source, args);
-        }
-        self.record(
-            key(source, args),
-            Recorded::Answer {
-                source: source.to_string(),
-                args: args.to_vec(),
-            },
-        )
+        self.answer_with(None, store, source, args)
+    }
+
+    fn answer_for(
+        &mut self,
+        target: Target,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        self.answer_with(Some(target), store, source, args)
     }
 
     fn parse(
@@ -377,35 +450,18 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
         args: &[Value],
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
-        if self.inline() {
-            return self.here()?.parse(store, source, args, outcome);
-        }
-        let k = key(source, args);
-        let stage = self.stages.get_mut(&k).and_then(VecDeque::pop_front);
-        if self.stages.get(&k).is_some_and(VecDeque::is_empty) {
-            self.stages.remove(&k);
-        }
-        match stage {
-            Some(Stage::Turn) => {
-                let mut logs = Vec::new();
-                let answer = envelope::apply(outcome, store, &mut logs);
-                if let Ok(Answer::Later(_)) = &answer {
-                    self.stages.entry(k).or_default().push_back(Stage::Yielded);
-                }
-                answer
-            }
-            Some(Stage::Yielded) => self.record(
-                k,
-                Recorded::Resume {
-                    source: source.to_string(),
-                    args: args.to_vec(),
-                    outcome,
-                },
-            ),
-            None => Err(unavailable(format!(
-                "`{source}`: a reply for an answer not in flight"
-            ))),
-        }
+        self.parse_with(None, store, source, args, outcome)
+    }
+
+    fn parse_for(
+        &mut self,
+        target: Target,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        self.parse_with(Some(target), store, source, args, outcome)
     }
 
     fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {
@@ -421,23 +477,30 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
         let snapshot = envelope::snapshot(store, &self.grants);
         // Everything the closure carries is `Send`: names, bytes, the
         // outcome, the snapshot. The reply arrives on the host's I/O worker.
-        let (source, args, outcome) = match recorded {
-            Recorded::Answer { source, args } => (source, encode_args(&args), None),
+        let (target, source, args, outcome) = match recorded {
+            Recorded::Answer {
+                target,
+                source,
+                args,
+            } => (target, source, encode_args(&args), None),
             Recorded::Resume {
+                target,
                 source,
                 args,
                 outcome,
-            } => (source, encode_args(&args), Some(outcome)),
+            } => (target, source, encode_args(&args), Some(outcome)),
         };
         Dispatch::Run(Work::Later(Box::new(move |reply| {
             let job = match outcome {
                 None => Job::Answer {
+                    target,
                     source,
                     args,
                     snapshot,
                     reply,
                 },
                 Some(outcome) => Job::Resume {
+                    target,
                     source,
                     args,
                     outcome,
@@ -459,8 +522,20 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
 
     fn discard(&mut self, token: u64) {
         match self.recorded.remove(&token) {
-            Some(Recorded::Answer { source, args } | Recorded::Resume { source, args, .. }) => {
-                let k = key(&source, &args);
+            Some(
+                Recorded::Answer {
+                    target,
+                    source,
+                    args,
+                }
+                | Recorded::Resume {
+                    target,
+                    source,
+                    args,
+                    ..
+                },
+            ) => {
+                let k = key(target, &source, &args);
                 if let Some(stages) = self.stages.get_mut(&k) {
                     stages.pop_back();
                     if stages.is_empty() {
