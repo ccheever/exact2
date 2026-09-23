@@ -284,3 +284,53 @@ fn routes_declare_their_render_and_activation_policies() {
         assert!(error.message.contains(says), "{src}: {}", error.message);
     }
 }
+
+#[test]
+fn scroll_document_binds_an_expression_too() {
+    use exact_kernel::PropValue;
+    let marked = |src: &str| {
+        let r = Runner::boot(
+            contract::compile(src).unwrap(),
+            Posts,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        let k = r.kernel();
+        let page = k.node_by_key(k.find_by_test_id("page")[0]).unwrap();
+        page.props.get(PropId::ScrollDocument).cloned()
+    };
+    let page = |attrs: &str| {
+        format!("component A\n  state signedOut = true\n  view\n    scroll {attrs} height=10 testId=\"page\"\n      text \"a\"\n")
+    };
+    // One wrapper switches by expression, where two wrappers would inline twice.
+    assert_eq!(
+        marked(&page("document=signedOut")),
+        Some(PropValue::Bool(true))
+    );
+    assert_eq!(
+        marked(&page("document=(not signedOut)")),
+        Some(PropValue::Bool(false))
+    );
+    assert_eq!(marked(&page("document")), Some(PropValue::Bool(true)));
+    let src = page("document=(not signedOut)");
+    assert_eq!(contract_syntax::fmt::format(&src).unwrap(), src);
+    for (src, id, says) in [
+        (
+            "component A\n  view\n    column document=true\n      text \"a\"\n".to_owned(),
+            "lower-attr-tag",
+            "`document` belongs to `scroll`, not `column`",
+        ),
+        (
+            page("document document=true"),
+            "lower-attr-tag",
+            "`scroll` takes `document` or `document=(…)`, not both",
+        ),
+        (page("document=\"yes\""), "lower-attr-type", "document"),
+    ] {
+        let error = contract::compile(&src).unwrap_err();
+        assert_eq!(error.id, id, "{src}: {error}");
+        assert!(error.message.contains(says), "{src}: {}", error.message);
+    }
+}

@@ -360,4 +360,9 @@ fn the_page_scroller_is_marked_in_the_document() {
     // The shell's `:has([data-scrolldocument="true"])` rule makes the page scroll.
     assert!(open.contains(" data-scrolldocument=\"true\""), "{open}");
     assert!(open.contains(" data-scroll=\"true\""), "{open}");
+    // A bound marker that doesn't hold says so, and the rule doesn't match it.
+    let doc = document(
+        "component A\n  state signedOut = false\n  view\n    column height=\"100%\"\n      scroll document=signedOut flex=1 min-height=0 testId=\"page\"\n        text \"a\"\n",
+    );
+    assert!(doc.contains(" data-scrolldocument=\"false\""), "{doc}");
 }

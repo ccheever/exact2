@@ -799,6 +799,13 @@ impl<'a> Lowerer<'a> {
                 // @ref LLP 1048.003 D4 — the page scrolls where this does.
                 let positional = match positional.as_slice() {
                     [word] if contract_syntax::is_scroll_document(tag, word) => {
+                        if let Some(bound) = attrs.iter().find(|a| a.name == "document") {
+                            return err(
+                                "lower-attr-tag",
+                                "`scroll` takes `document` or `document=(…)`, not both",
+                                bound.span,
+                            );
+                        }
                         bindings.push(BindingsRow {
                             kind: BindingKind::Prop,
                             id: exact_kernel::PropId::ScrollDocument as u16,
@@ -1187,6 +1194,13 @@ impl<'a> Lowerer<'a> {
                         a.name
                     )
                 },
+                a.span,
+            );
+        }
+        if a.name == "document" && tag != "scroll" {
+            return err(
+                "lower-attr-tag",
+                format!("`document` belongs to `scroll`, not `{tag}`"),
                 a.span,
             );
         }
