@@ -1,4 +1,4 @@
-mod support;
+use crate::support;
 use exact_textflow::{Cursor, Options, OverflowWrap, Prepared};
 use support::{advance, lines, prepare, CORPUS};
 

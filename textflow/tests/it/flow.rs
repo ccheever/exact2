@@ -1,4 +1,4 @@
-mod support;
+use crate::support;
 use exact_textflow::{flow, FlowOptions, FlowShape, Options, OverflowWrap};
 use support::{lines, prepare, CORPUS};
 fn opts(width: f32) -> FlowOptions {
