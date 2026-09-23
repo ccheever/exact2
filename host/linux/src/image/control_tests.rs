@@ -5,6 +5,10 @@ use std::sync::{
     Mutex,
 };
 
+/// A hang detector, not a speed claim: a wait returns once nothing is
+/// pending, and a 2048² decode took over 3 s on this Mac at load 170.
+const SETTLED: Duration = Duration::from_secs(60);
+
 fn encoded(w: u32, h: u32, color: [u8; 4]) -> Arc<[u8]> {
     let mut data = Vec::new();
     let mut encoder = png::Encoder::new(&mut data, w, h);
@@ -84,7 +88,7 @@ fn replacement_keeps_old_pixels_and_geometry_and_drops_cancelled_backing_once() 
     let mut k = kernel(1);
     let mut images = Images::with_assets(assets());
     images.sync(&k, &k.roots());
-    images.wait(Duration::from_secs(2));
+    images.wait(SETTLED);
     let a = images.bitmaps[&1].clone();
     let released = Arc::new(AtomicBool::new(false));
     let weak_b = Arc::new(Mutex::new(None));
@@ -113,7 +117,7 @@ fn replacement_keeps_old_pixels_and_geometry_and_drops_cancelled_backing_once() 
         "cancel cannot refund allocated B"
     );
     released.store(true, Ordering::Release);
-    images.wait(Duration::from_secs(2));
+    images.wait(SETTLED);
     assert_eq!(images.bitmaps[&1].natural(), (16, 13));
     assert_eq!(images.bitmaps[&1].as_ref().as_ref()[0], 3);
     until(|| weak_b.lock().unwrap().as_ref().unwrap().upgrade().is_none());
@@ -163,7 +167,7 @@ fn full_undrained_session_does_not_block_another_sessions_native_workers() {
     let mut a = Images::with_assets(assets());
     // Prepare metadata without occupying a decode worker. Holding one worker
     // while waiting for more metadata could deadlock another gated fixture.
-    assert!(a.prepare_metadata(&k, &k.roots(), Duration::from_secs(2)));
+    assert!(a.prepare_metadata(&k, &k.roots(), SETTLED));
     let release = Arc::new(AtomicBool::new(false));
     struct ReleaseOnDrop(Arc<AtomicBool>);
     impl Drop for ReleaseOnDrop {
@@ -196,7 +200,7 @@ fn full_undrained_session_does_not_block_another_sessions_native_workers() {
     // A receives no more UI polls during B's metadata, admission and decoding.
     let mut b = Images::with_assets(assets());
     b.sync(&k, &k.roots());
-    b.wait(Duration::from_secs(2));
+    b.wait(SETTLED);
     assert_eq!(b.bitmaps.len(), 2);
     let undrained = a.stats();
     assert_eq!(undrained.ready, 2);
@@ -217,7 +221,7 @@ fn resize_buckets_and_invalid_source_cancel_without_discarding_accepted_pixels()
     let mut k = kernel(1);
     let mut images = Images::with_assets(assets());
     images.sync(&k, &k.roots());
-    images.wait(Duration::from_secs(2));
+    images.wait(SETTLED);
     let old = images.bitmaps[&1].clone();
     source(&mut k, 1, &"x".repeat(4097));
     images.sync(&k, &k.roots());
@@ -247,7 +251,7 @@ fn pinned_old_allocation_causes_downsize_and_real_visible_progress() {
     drop(reservation.commit(20 * 1024 * 1024).unwrap());
     let k = kernel(1);
     images.sync(&k, &k.roots());
-    images.wait(Duration::from_secs(3));
+    images.wait(SETTLED);
     let image = &images.bitmaps[&1];
     assert_eq!(image.natural(), (2048, 2048));
     assert!(image.width() < 2048);
@@ -261,7 +265,7 @@ fn source_identity_survives_displayed_replacement_and_cold_unmount() {
     let mut k = kernel(1);
     let mut images = Images::with_assets(assets());
     images.sync(&k, &k.roots());
-    images.wait(Duration::from_secs(2));
+    images.wait(SETTLED);
     let first = Arc::downgrade(&images.bitmaps[&1]);
     source(&mut k, 1, "2");
     images.sync(&k, &k.roots());
@@ -284,7 +288,7 @@ fn source_identity_survives_displayed_replacement_and_cold_unmount() {
     )
     .unwrap();
     images.sync(&k, &k.roots());
-    images.wait(Duration::from_secs(2));
+    images.wait(SETTLED);
     assert!(
         Arc::ptr_eq(&first.upgrade().unwrap(), &images.bitmaps[&2]),
         "displayed A is reused during B replacement"
@@ -292,7 +296,7 @@ fn source_identity_survives_displayed_replacement_and_cold_unmount() {
     let cold = Arc::downgrade(&images.bitmaps[&2]);
     images.sync(&k, &[]);
     images.sync(&k, &[2]);
-    images.wait(Duration::from_secs(2));
+    images.wait(SETTLED);
     assert!(
         Arc::ptr_eq(&cold.upgrade().unwrap(), &images.bitmaps[&2]),
         "cold cached A keeps its source identity"
@@ -315,7 +319,7 @@ fn metadata_progresses_under_known_decode_pressure_in_shared_pool() {
     let mut sessions = Vec::new();
     for _ in 0..8 {
         let mut images = Images::with_assets(assets());
-        assert!(images.prepare_metadata(&k, &k.roots(), Duration::from_secs(2)));
+        assert!(images.prepare_metadata(&k, &k.roots(), SETTLED));
         let count = decoded.clone();
         let released = release.clone();
         *images.backend.hook.lock().unwrap() = Some(Arc::new(move |_, _| {
@@ -361,7 +365,7 @@ fn provider_identity_outlives_metadata_churn_and_generation_retirement() {
     }));
     let mut k = kernel(1);
     images.sync(&k, &[1]);
-    images.wait(Duration::from_secs(2));
+    images.wait(SETTLED);
     let a = images.bitmaps[&1].clone();
     let owner = images.views[&1].source_id.as_ref().unwrap().clone();
     let weak_owner = Arc::downgrade(&owner);
@@ -369,7 +373,7 @@ fn provider_identity_outlives_metadata_churn_and_generation_retirement() {
     drop(owner);
     source(&mut k, 1, "2");
     images.sync(&k, &[1]);
-    images.wait(Duration::from_secs(2));
+    images.wait(SETTLED);
     for n in 100..180 {
         let owner = images
             .backend
@@ -381,7 +385,7 @@ fn provider_identity_outlives_metadata_churn_and_generation_retirement() {
     let before = decoded.load(Ordering::Acquire);
     source(&mut k, 1, "1");
     images.sync(&k, &[1]);
-    images.wait(Duration::from_secs(2));
+    images.wait(SETTLED);
     assert_eq!(images.views[&1].source_id.as_ref().unwrap().id, original_id);
     assert!(Arc::ptr_eq(&a, &images.bitmaps[&1]));
     assert_eq!(decoded.load(Ordering::Acquire), before);
@@ -391,7 +395,7 @@ fn provider_identity_outlives_metadata_churn_and_generation_retirement() {
         "the actual provider owns source identity"
     );
     images.sync(&k, &[1]);
-    images.wait(Duration::from_secs(2));
+    images.wait(SETTLED);
     assert_ne!(images.views[&1].source_id.as_ref().unwrap().id, original_id);
     drop(a);
     until(|| weak_owner.upgrade().is_none());
@@ -409,11 +413,11 @@ fn sharing_a_large_live_raster_does_not_require_a_second_decode_budget() {
     let mut k = kernel(2);
     source(&mut k, 2, "1");
     images.sync(&k, &[1]);
-    images.wait(Duration::from_secs(3));
+    images.wait(SETTLED);
     let first = images.bitmaps[&1].clone();
     assert_eq!(first.width(), 2048);
     images.sync(&k, &[1, 2]);
-    images.wait(Duration::from_secs(3));
+    images.wait(SETTLED);
     assert!(
         Arc::ptr_eq(&first, &images.bitmaps[&2]),
         "reuse needs no new pixel/scratch reservation"
