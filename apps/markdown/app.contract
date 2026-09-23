@@ -148,12 +148,9 @@ component Markdown
                 column width="100%" box-sizing="border-box" padding=8 gap=1
                   each e in doc.siblings key=e.id
                     FolderRow(entry=e, open=openFile)
-            // A virtualized list's row is one flow root, and the list's
-            // top and end spacing is inside its measured first and last rows.
-            list virtualized=true estimated-item-height=96 flex=1 height="100%" overflow-x="hidden" overscroll-behavior="contain" testId="document" box-sizing="border-box"
+            list estimated-item-height=96 flex=1 height="100%" overflow-x="hidden" overscroll-behavior="contain" testId="document" padding-top=28 padding-bottom=72 box-sizing="border-box"
               each b in doc.blocks key=`${doc.path}:${b.id}`
-                column width="100%" padding-top=(b.id == "0" ? 28 : 0) padding-bottom=(b.id == `${doc.count - 1}` ? 72 : 0)
-                  Blocks(block=b)
+                Blocks(block=b)
 
 component FolderRow
   inject
@@ -177,8 +174,8 @@ component FolderRow
 // Every block's root is the reading column itself: as wide as the pane up to
 // 740, centred by its auto margins, 32 of gutter inside. A row is mounted and
 // retired as the reader scrolls, so what a row is made of is what scrolling
-// costs: a paragraph is one `text` node — its own padding, no box around it
-// but the row's one column. A `text` that flexes says
+// costs: a paragraph is one `text` node — its own padding, no box around it —
+// where it used to be a text in a box in a column. A `text` that flexes says
 // `min-width=0`, as it would on the web: its width is its share, and the
 // layout is not asked to find its longest word first.
 component Blocks
