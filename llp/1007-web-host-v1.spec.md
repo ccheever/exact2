@@ -417,7 +417,14 @@ LLP 1004 D5 taken literally: an edit yields a new plan; the page restarts
 from it. A refused save reports every independent refusal (at most 20, as
 `contract build` does) in the overlay and the server's output, whichever
 producer compiled it — the resident compiler, `js/bake` or the Rust
-producer's `exact-logic-bake` (2026-09-23). `exact_web::dev::Session` watches one `.contract` file (a stat every
+producer's `exact-logic-bake` (2026-09-23). A page the dev server serves
+names its current generation (`<meta name="exact-dev-generation">`), and its
+first boot is that generation — `dev.js` fetches and verifies it when
+`glue.js` asks (`devFirst`) — never the plan baked into `app.wasm`, which a
+fresh load of any URL, a deep link included, used to show until the dev
+client caught up (2026-09-23). A module client prepares that generation's
+module after paint; a Rust module still arrives as an update. Without a
+generation, or with none in 5 s, the page boots the baked plan. `exact_web::dev::Session` watches one `.contract` file (a stat every
 10 ms; a save with identical bytes is not an edit), compiles, bakes against
 the app's data source, and writes the plan atomically. The app's Cargo-default dev bin
 (`apps/caltrain/web/src/bin/caltrain-dev.rs`, one line) runs it as a resident process;

@@ -86,13 +86,14 @@ async function readEnvelope(url, signal) {
   const response = await readBounded(sameOrigin(url, location.href), 64 * 1024, signal);
   return { envelope: JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(response.bytes)), url: response.url };
 }
-async function fetchGeneration(message, signal) {
+async function fetchGeneration(message, signal, first = false) {
   const started = performance.now();
   const { envelope, url } = await readEnvelope(message.envelope, signal);
   const identity = envelope.dev;
   if (envelope.exact !== 1 || !validIdentity(identity) || identity.epoch !== message.epoch
       || identity.seq !== message.seq || identity.generation !== message.generation || identity.program !== message.program || !Array.isArray(envelope.assets)) throw new Error("the fetched envelope does not name the announced generation");
-  await globalThis.exact.ready;
+  // The page's first generation is fetched inside glue's boot, compat known.
+  if (!first) await globalThis.exact.ready;
   if (envelope.app?.id !== globalThis.exact.compat?.inputs?.app) throw new Error("the dev generation names another app");
   const assets = new Map(), names = new Set();
   const load = async (card, name) => {
@@ -149,6 +150,8 @@ function generationClient({ fetchGeneration, apply, applied = () => {}, failed =
   let program = null, stopped = false;
   const stop = () => { stopped = true; attempt++; controller?.abort(); inFlight = null; programChanged(); };
   return {
+    // The page booted this generation itself (its first boot): never again.
+    adopt(generation) { committed = generation; },
     receive(message) {
       if (stopped) return Promise.resolve(false);
       if (message?.rebuilt) { stop(); return Promise.resolve(false); }
@@ -169,7 +172,7 @@ function generationClient({ fetchGeneration, apply, applied = () => {}, failed =
       const pending = (async () => {
         try {
           const candidate = await fetchGeneration(message, signal);
-          if (!current()) return false;
+          if (!current() || committed === candidate.generation) return false;
           let accepted;
           try { accepted = await apply(candidate, current); }
           catch (error) { throw Object.assign(new Error(String(error)), { hostRefused: true }); }
@@ -229,6 +232,20 @@ if (es) {
       retry = setTimeout(discover, 250);
     },
   });
+  // The first boot's generation, named in the page (LLP 1007 §6): fetched
+  // when glue.js asks. Its Rust module, if any, is still applied as an update.
+  const firstMeta = document.querySelector('meta[name="exact-dev-generation"]');
+  if (firstMeta) {
+    const slot = globalThis.exactDevFirst ??= {};
+    slot.provide = async () => {
+      try {
+        const candidate = await fetchGeneration(JSON.parse(firstMeta.content), AbortSignal.timeout(15000), true);
+        if (!candidate.rust) client.adopt(candidate.generation);
+        return candidate;
+      } catch (error) { show(String(error)); console.error("exact dev:", String(error)); return null; }
+    };
+    slot.ready?.();
+  }
   es.onmessage = (event) => {
     let message;
     try { message = JSON.parse(event.data); } catch { show("the dev stream sent invalid JSON"); return; }

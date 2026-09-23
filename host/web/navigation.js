@@ -1437,6 +1437,21 @@ export function renderMarkup(el, json) {
   }
 }
 
+// @ref LLP 1007 §6 — a page the dev server serves names its current
+// generation, and its first boot is that one, not app.wasm's older baked
+// plan (a deep link booted stale on 2026-09-22). dev.js supplies it once asked
+// (glue.js asks when the wasm is up); without it, or with none in 5 s, the
+// page boots the baked plan.
+export function devFirst() {
+  if (!document.querySelector('meta[name="exact-dev-generation"]')) return null;
+  const slot = globalThis.exactDevFirst ??= {};
+  return new Promise(resolve => {
+    const timer = setTimeout(() => resolve(null), 5000);
+    const ask = () => { clearTimeout(timer); slot.provide().then(resolve, () => resolve(null)); };
+    if (slot.provide) ask(); else slot.ready = ask;
+  });
+}
+
 export function focusController({ready, elements, inert}) {
   const processed = new WeakSet();
   let pointerTarget = null, restarting = false;

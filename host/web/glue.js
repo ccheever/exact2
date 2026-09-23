@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { focusController, navigation, collectionController, applyCollectionFeedback, scrollFollowers, motionController, motionBytes, arrangeController, renderMarkup, navigableURL, navigates, refuseURL } from "./navigation.js";
+import { focusController, navigation, collectionController, applyCollectionFeedback, scrollFollowers, motionController, motionBytes, arrangeController, renderMarkup, navigableURL, navigates, refuseURL, devFirst } from "./navigation.js";
 let httpModule;
 function httpHelpers() {
   return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
@@ -1377,7 +1377,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   commitFonts(preparedFonts);
   focus.restart(kept, () => applyBatch(batch), () => ask({ op: "tree" }), id => views.get(id));
   globalThis.exact?.gpu?.finishRestart();
-  if (bytes && !module) activateData(); // This session has already painted once.
+  if (bytes && !module && (inputReady || root.dataset.error)) activateData(); // A restart after the first activation.
   if (oldAssets !== assets) releaseAssets(oldAssets);
   // @ref LLP 1043.000 §3 D7 — an optional initial flow load cannot gate paint/readiness.
   if (bytes && flowLoading) await flowLoading;
@@ -1390,7 +1390,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
 // `agent`, `agentSettled` and `now` exist only in agent mode: a normal page has no agent
 // surface and no clock but the browser's.
 let ready;
-globalThis.exact = { mutate,
+globalThis.exact = { mutate, devFirst: () => devFirst(),
   // @ref LLP 1038 D8/D11 — synchronous for the serialized popstate caller.
   navigate: (location) => {
     const nav = root.firstElementChild;
@@ -1460,7 +1460,7 @@ async function main() {
     } catch (e) { console.warn("exact: store", String(e)); }
     if (kept.length) wasm.exact_store(writeIn(kept.join("\0")));
   }
-  await boot(null);
+  const first = await globalThis.exact.devFirst?.(); await boot(first?.plan ?? null, first ? assetNamespace(first.assets) : null, () => true, null, true); // @ref LLP 1007 §6
   // Nested rAF gives the baked DOM a rendering opportunity before activation.
   root.dataset.bootMs = (performance.now() - t0).toFixed(1);
   requestAnimationFrame(() => {
@@ -1476,7 +1476,7 @@ async function main() {
       try {
         if (typeof wasm.exact_module_artifact === 'function') {
           moduleLoader = await loadAfterPaint('./module-glue.js','moduleRuntime');
-          const payload = await moduleLoader.baked();
+          const payload = first?.module ?? await moduleLoader.baked();
           const realm = await moduleLoader.prepare(payload, logicInfo, 0);
           activeModule = { ...payload, realm };
         }

@@ -53,7 +53,7 @@ test('dev edits clear only their own errors while unrelated failures stay visibl
   const context={TextEncoder,TextDecoder,URL,URLSearchParams,AbortController,setTimeout,clearTimeout,performance,
     console:{error(){}},location:{origin:'http://localhost',href:'http://localhost/',search:''},
     EventSource:class {constructor(){stream=this;}},
-    document:{body:{appendChild(el){overlay=el;return el;}},createElement(){return {remove(){overlay=null;}};}},
+    document:{body:{appendChild(el){overlay=el;return el;}},createElement(){return {remove(){overlay=null;}};},querySelector(){return null;}},
     navigator:{sendBeacon(){}},requestAnimationFrame:callback=>callback(),
     fetch:async url=>new Response(url.endsWith('app.plan')?plan:JSON.stringify(envelope)),
     exact:{ready:Promise.resolve(),compat:{inputs:{app:'fixture'}},reloadGeneration:async()=>true,

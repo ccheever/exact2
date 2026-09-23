@@ -1064,7 +1064,10 @@ const server = createServer(async (req, res) => {
   try {
     if (!found) { res.writeHead(404); res.end(); return; }
     let body = found.body;
-    if (index) body = body.toString().replace('<script type="module" src="./glue.js"></script>', '<script type="module" src="./glue.js"></script>\n<script type="module" src="./dev.js"></script>');
+    // The page's first boot is the current generation, named here for
+    // dev.js to fetch (LLP 1007 §6), never app.wasm's older baked plan.
+    const first = current ? `<meta name="exact-dev-generation" content="${JSON.stringify(announcement()).replace(/[&"<>]/g, c => `&#${c.charCodeAt(0)};`)}">\n` : '';
+    if (index) body = body.toString().replace('<script type="module" src="./glue.js"></script>', `${first}<script type="module" src="./glue.js"></script>\n<script type="module" src="./dev.js"></script>`);
     if (INSTALL_FILES.includes(found.route)) body = process.platform === 'darwin' && access.local
       ? developmentInstallPage(body.toString(), localInstallToken)
       : body.toString().replace('<!-- exact-serving -->Static hosting<!-- /exact-serving -->', 'Development server');
