@@ -1,5 +1,5 @@
 // Accept fixture: the runner's hand-built Now-screen plan, as Contract.
-// Its expected behavior is runner/tests/now_screen.rs, run here on the
+// Its expected behavior is runner/tests/it/now_screen.rs, run here on the
 // compiled plan (LLP 1004 D6: proven at both ends).
 shape Station
   id: string

@@ -121,7 +121,7 @@ fn launch_fallback_is_journaled_and_notfound_preserves_the_location() {
     let mut r = boot(fixture::plan(&table), "/absent?q=1");
     assert_eq!(r.take_router_change().unwrap().url, "/absent?q=1");
     assert!(!r.journal().any(|l| l.contains("refused")));
-    let mut table = crate::table();
+    let mut table = self::table();
     table.routes[0].pattern = "/home".into();
     assert!(matches!(
         Runner::boot(

@@ -488,7 +488,7 @@ fn empty_values_and_id_exhaustion_refuse_without_partial_changes() {
 }
 
 // @ref LLP 1038 D9 — replay the existing expected values through the real VM.
-#[path = "../../runner/tests/support/router.rs"]
+#[path = "../../runner/tests/it/support/router.rs"]
 mod runner_plan;
 
 struct NoData;
