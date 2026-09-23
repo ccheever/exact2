@@ -5,7 +5,7 @@ const defer = source.match(/function deferFulfill\(\.\.\.args\) \{[\s\S]*?\n\}/)
 const branch = source.match(/case "refuse": \{[^\n]*\}/)[0];
 test('admission refusal delivers Refused only after the enclosing batch, with its incarnation', async () => {
   const delivered = [];
-  const apply = Function('safelyFulfill', 'enc', `${defer}; return (op,incarnation)=>{switch(op.op){${branch}}};`)(
+  const apply = Function('safelyFulfill', 'encoder', `${defer}; return (op,incarnation)=>{switch(op.op){${branch}}};`)(
     (...args) => delivered.push(args), new TextEncoder());
   apply({ op: 'refuse', ticket: 17, message: 'only HTTP may opt into independent transport' }, 4);
   expect(delivered.length).toBe(0);

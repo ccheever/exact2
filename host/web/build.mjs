@@ -13,7 +13,7 @@ import { rustPolicy, webHostFiles } from '../../scripts/app.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
 import { bakeOutput, buildBake, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
 import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
-import { appManifestDigest, copyStaticTreeIfPresent, listAssets, publicFileCards, webEnvelope, moduleCards, MODULE_FILES } from './serve.mjs';
+import { appManifestDigest, copyStaticTreeIfPresent, documentPage, listAssets, publicFileCards, webEnvelope, moduleCards, MODULE_FILES } from './serve.mjs';
 
 const app = resolveApp(process.argv[2]);
 const crate = app.crate('web');
@@ -174,17 +174,7 @@ if (existsSync(resolve(app.dir, 'web/src/bin', `${renderBin}.rs`))) {
   const listed = [];
   for (const doc of pages) {
     if (doc.error) throw new Error(`${renderBin} ${doc.location}: ${doc.error}`);
-    const html = shell
-      .replace(/<title>[^<]*<\/title>\n/, () => `${doc.head}\n`)
-      .replace(/<meta name="viewport"[^>]*>\n/, '')
-      .replace(/<!-- Fetched in parallel[^]*?-->\n/, '')
-      .replace('<link rel="modulepreload" href="./navigation.js">\n', '')
-      .replace('<link rel="preload" href="./app.wasm" as="fetch" crossorigin>\n', '')
-      .replace('<div id="exact-root"></div>', () => `<div id="exact-root">${doc.root}</div>`)
-      .replace('<script type="module" src="./glue.js"></script>', () => `<script type="application/vnd.exact.checkpoint">${doc.checkpoint}</script>\n<script type="module" src="./glue.js"></script>`);
-    if (!html.includes(doc.head) || !html.includes(doc.checkpoint) || /rel="(?:module)?preload" href="\.\/(?:app\.wasm|navigation\.js|glue\.js)"/.test(html) || (html.match(/<meta name="viewport"/g) ?? []).length !== 1) {
-      throw new Error(`the shell no longer has the places a document goes (${doc.location}); update build.mjs's document step`);
-    }
+    const html = documentPage(shell, doc);
     const file = doc.notfound ? '404.html' : `${decodeURIComponent(doc.location).replace(/^\/|\/$/g, '')}/index.html`.replace(/^\//, '');
     if (!resolve(stage, file).startsWith(stage + '/')) throw new Error(`${renderBin}: location ${doc.location} leaves dist`);
     mkdirSync(resolve(stage, file, '..'), { recursive: true });

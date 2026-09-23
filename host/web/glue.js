@@ -94,7 +94,7 @@ function flowBatch(batch) {
   });
   flowLoading.catch(error => log(`textflow module: ${error}`));
 }
-let resolveModuleReady;
+let resolveModuleReady, headGlue = null, page = document.querySelector('script[type="application/vnd.exact.checkpoint"]') ? { holding: true, early: [] } : null; // a built document (LLP 1048.000 D6), held until the runtime settles
 const moduleReady = new Promise(resolve => { resolveModuleReady = resolve; });
 const focus = focusController({ready:() => inputReady, elements:() => views.values(), inert:inertAncestor});
 const focusAutofocus = focus.autofocus;
@@ -107,12 +107,11 @@ function setInputReady(ready) {
       authoredDisabled.delete(el);
     }
   }
-  if(ready)motion.commit();
-  if (ready) focusAutofocus();
+  if (ready) { motion.commit(); focusAutofocus(); }
 }
 for (const kind of ["click", "beforeinput", "submit"]) {
   root.addEventListener(kind, event => {
-    if (!inputReady) { event.preventDefault(); event.stopImmediatePropagation(); }
+    if (!inputReady && !page?.holding) { event.preventDefault(); event.stopImmediatePropagation(); } else if (event.type === "click") page?.early?.push(event);
   }, true);
 }
 function moduleCall(op, ptr, len) {
@@ -474,7 +473,7 @@ function syncViewportFit() {
   const want = "width=device-width, initial-scale=1" + (cover ? ", viewport-fit=cover" : "") + (widget ? `, interactive-widget=${widget}` : "");
   if (meta && meta.content !== want) meta.content = want;
   const vv = globalThis.visualViewport;
-  root.style.height = widget === "resizes-content" && vv && vv.scale === 1 ? `${Math.min(innerHeight, vv.height)}px` : "";
+  root.style.height = widget === "resizes-content" && vv && vv.scale === 1 && !root.querySelector('[data-scrolldocument="true"]') ? `${Math.min(innerHeight, vv.height)}px` : "";
 }
 let probe;
 function environment() {
@@ -593,6 +592,7 @@ function apply(batch) {
     try {
       switch (op.op) {
       case "textflow": break; // consumed once after the complete DOM batch
+      case "head": (headGlue ??= loadAfterPaint('./document-glue.js', 'documentHead')).then(head => head(op)); break;
       case "router": navigation.apply(op); break;
       case "create": {
         // Canvas overlays use a div; data-surface is the host-owned drawing leaf.
@@ -686,15 +686,15 @@ function apply(batch) {
           if(requestIncarnation!==incarnation)throw new Error('storage source unloaded');
           return service.run(op.payload,op.scope);
         }).then(bytes=>safelyFulfill(requestIncarnation,op.ticket,5,0,"",bytes))
-          .catch(error=>safelyFulfill(requestIncarnation,op.ticket,3,0,"",enc.encode(String(error))));
+          .catch(error=>safelyFulfill(requestIncarnation,op.ticket,3,0,"",encoder.encode(String(error))));
         inflight.add(p);p.finally(()=>inflight.delete(p));break;
       }
-      case "refuse": { deferFulfill(incarnation, op.ticket, 2, 0, "", enc.encode(op.message)); break; }
+      case "refuse": { deferFulfill(incarnation, op.ticket, 2, 0, "", encoder.encode(op.message)); break; }
       case "continue": {
         const requestIncarnation = incarnation;
         const p = Promise.resolve().then(() => moduleLoader.run(op.token))
-          .then(result => safelyFulfill(requestIncarnation, op.ticket, 0, 200, "", enc.encode(JSON.stringify(result))))
-          .catch(error => safelyFulfill(requestIncarnation, op.ticket, 3, 0, "", enc.encode(String(error))));
+          .then(result => safelyFulfill(requestIncarnation, op.ticket, 0, 200, "", encoder.encode(JSON.stringify(result))))
+          .catch(error => safelyFulfill(requestIncarnation, op.ticket, 3, 0, "", encoder.encode(String(error))));
         inflight.add(p);
         p.finally(() => inflight.delete(p));
         break;
@@ -714,7 +714,7 @@ function apply(batch) {
           }
           return exact.gpu.surfaceWork(op.name,op.mode,bytes,()=>requestIncarnation===incarnation&&wasm.exact_request_active(op.ticket)===1);
         }).then(bytes=>safelyFulfill(requestIncarnation,op.ticket,op.mode==="capture"?6:7,0,"",bytes??new Uint8Array()))
-          .catch(error=>safelyFulfill(requestIncarnation,op.ticket,error.kind??3,0,"",enc.encode(String(error.message??error))));
+          .catch(error=>safelyFulfill(requestIncarnation,op.ticket,error.kind??3,0,"",encoder.encode(String(error.message??error))));
         inflight.add(p);p.finally(()=>inflight.delete(p));break;
       }
       case "request": {
@@ -724,15 +724,15 @@ function apply(batch) {
         // Plain bundled-asset GETs use the immutable app namespace.
         const asset = method === 'GET' && !body && Object.keys(headers).length === 0 && /^\/assets\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/.test(url);
         if (!scopeValid || !asset && (!granted(url) || !granted(url,op.scope))) {
-          deferFulfill(requestIncarnation, ticket, 2, 0, "", enc.encode(`refused by grant: ${url}`));
+          deferFulfill(requestIncarnation, ticket, 2, 0, "", encoder.encode(`refused by grant: ${url}`));
           break;
         }
-        if (op.nativeHttp === "independent" && (!Number.isInteger(op.maxResponseBytes) || op.maxResponseBytes < 1 || op.maxResponseBytes > 64 * 1024 * 1024)) { deferFulfill(requestIncarnation, ticket, 2, 0, "", enc.encode("invalid independent HTTP response limit")); break; }
+        if (op.nativeHttp === "independent" && (!Number.isInteger(op.maxResponseBytes) || op.maxResponseBytes < 1 || op.maxResponseBytes > 64 * 1024 * 1024)) { deferFulfill(requestIncarnation, ticket, 2, 0, "", encoder.encode("invalid independent HTTP response limit")); break; }
         let decodedBody;
         try {
           if (body) decodedBody = Uint8Array.from(atob(body), (c) => c.charCodeAt(0));
         } catch (e) {
-          deferFulfill(requestIncarnation, ticket, 4, 0, "", enc.encode(`invalid request body: ${String(e)}`));
+          deferFulfill(requestIncarnation, ticket, 4, 0, "", encoder.encode(`invalid request body: ${String(e)}`));
           throw e;
         }
         const controller = new AbortController();
@@ -741,7 +741,7 @@ function apply(batch) {
         if (decodedBody) init.body = decodedBody;
         const p = fetch(asset ? localAssetURL(url) : url, init)
           .then(async (r) => safelyFulfill(requestIncarnation, ticket, 0, r.status, [...r.headers].map(([k, v]) => `${k}: ${v}`).join("\n"), await boundedHttpBody(r, op.maxResponseBytes)))
-          .catch((e) => safelyFulfill(requestIncarnation, ticket, controller.signal.aborted ? 4 : 1, 0, "", enc.encode(String(e?.message ?? e))));
+          .catch((e) => safelyFulfill(requestIncarnation, ticket, controller.signal.aborted ? 4 : 1, 0, "", encoder.encode(String(e?.message ?? e))));
         inflight.add(p);
         p.finally(() => { inflight.delete(p); controllers.delete(controller); });
         break;
@@ -845,7 +845,7 @@ function apply(batch) {
   return batch.timers;
 }
 function applyBatch(batch) {
-  textflow?.beforeBatch(batch);
+  if (page?.hold(batch)) return { timers: batch.timers, batch }; textflow?.beforeBatch(batch);
   globalThis.exact.applyDepth = (globalThis.exact.applyDepth ?? 0) + 1; try {
   const timers = apply(batch);
   motion.commit(); arrange.commit();
@@ -908,7 +908,6 @@ let storageRequests = null;
 const inflight = new Set();
 const controllers = new Set();
 let incarnation = 0;
-const enc = new TextEncoder();
 const HOST_WORK_BYTES=16*1024*1024, HOST_WORK_BASE64=4*Math.ceil(HOST_WORK_BYTES/3);
 function granted(url, scope = null) {
   // A `net.fetch` grant is an origin — scheme, host, port — matched whole,
@@ -931,7 +930,7 @@ function fulfill(requestIncarnation, ticket, kind, status, headersText, body) {
   // `boot` starts tickets again at one. A completion from the program that
   // owned an old ticket must never be delivered into the new incarnation.
   if (!wasm || requestIncarnation !== incarnation) return;
-  const h = enc.encode(headersText);
+  const h = encoder.encode(headersText);
   const ptr = wasm.exact_in(h.length + body.length);
   const mem = new Uint8Array(memory.buffer, ptr, h.length + body.length);
   mem.set(h);
@@ -1170,7 +1169,7 @@ function agentReply(request) {
         const overlap = Math.max(0, innerHeight - (globalThis.visualViewport?.height ?? innerHeight));
         const policy = document.querySelector("[interactiveWidget]")?.getAttribute("interactiveWidget") ?? "resizes-visual";
         st.keyboard = { visible: overlap > 0, overlap: r2(overlap), policy, interactive: false };
-        st.navigation = navigation.observation(root);
+        st.navigation = navigation.observation(root); st.window = { title: document.title }; if (page) st.adopted = false; // 1a renders fresh (LLP 1048.000 D6)
         return st;
       }
       case "layout": {
@@ -1295,7 +1294,7 @@ function startClock() {
 function activateData() {
   const batch = JSON.parse(readOut(wasm.exact_data_ready()));
   if (batch.error) throw new Error(batch.error);
-  applyBatch(batch); setInputReady(true); collections.dataReady(); root.dataset.moduleReady = 'true';
+  page?.release(applyBatch); applyBatch(batch); setInputReady(true); collections.dataReady(); root.dataset.moduleReady = 'true';
 }
 // Boot the app — from the plan baked into the wasm, or from `bytes` (the
 // dev loop's restart carrying compatible state, LLP 1007 §6).
@@ -1373,7 +1372,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   for (const controller of controllers) controller.abort();
   controllers.clear();
   inflight.clear();
-  root.replaceChildren();
+  if (!page?.holding) root.replaceChildren();
   commitFonts(preparedFonts);
   focus.restart(kept, () => applyBatch(batch), () => ask({ op: "tree" }), id => views.get(id));
   globalThis.exact?.gpu?.finishRestart();
@@ -1442,6 +1441,7 @@ function loadGpuIfNeeded() {
   gpuLoading = loadAfterPaint('./gpu-glue.js', 'gpu').catch(error => console.error("exact gpu:", error));
 }
 async function main() {
+  if (page) { page = (await loadAfterPaint('./document-glue.js', 'documentBoot'))({ root, views, log, early: page.early, dispatch: id => send(wasm.exact_dispatch(id, 0, 0, now())) }); await page.started; }
   const url = new URL("./app.wasm", import.meta.url);
   const { instance } = await WebAssembly.instantiateStreaming(fetch(url), { exact_js: { call: moduleCall }, exact_rust: rustImports });
   wasm = instance.exports;

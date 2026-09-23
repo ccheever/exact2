@@ -267,6 +267,7 @@ function fixture(agentMode = true) {
     activateData: () => events.push('activate'), setInterval: () => { events.push('ticker'); return 1; },
     requestAnimationFrame: () => events.push('raf'), clearInterval() {},
     ready: Promise.resolve(), moduleReady: Promise.resolve(), inputReady: true, logicInfo: null, activeModule: null,
+    page: null, // a built document's boot (LLP 1048.000 D6); these pages have none
   });
   vm.runInContext(source.match(/^let gpuLoading = .*$/m)[0] + '\n' + ['nodeDetail', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
   return context;
@@ -533,7 +534,7 @@ async function startupFixture(rustOnly = false) {
     requestAnimationFrame: fn => frames.push(fn), console: { error: error => errors.push(String(error)) },
     motion: { commit() {} }, collections: { dataReady: () => events.push('collections') },
     applyBatch: () => events.push('batch'), inertAncestor: () => false, focusAutofocus() {},
-    resolveModuleReady: () => events.push('ready'),
+    resolveModuleReady: () => events.push('ready'), page: null,
     loadAfterPaint(file) {
       loads.push(file);
       if (file === './input-glue.js') return input.promise;

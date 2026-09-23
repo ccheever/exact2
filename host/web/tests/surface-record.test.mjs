@@ -43,7 +43,7 @@ export async function fixture(options = {}) {
     const viewFor = (_, id) => views.get(id);
     ${operationSource}; return apply;
   `)(exact, views, {exact});
-  const applyBatch = new Function('globalThis', 'apply', `const agentMode = false, textflow = null, motion = {commit() {}}, arrange = {commit() {}}, flowBatch = () => {}; ${applySource}; return applyBatch;`)({ exact }, batch => { for (const op of batch.ops) { if (typeof op === 'function') op(); else applyOperations({ops:[op]}); } });
+  const applyBatch = new Function('globalThis', 'apply', `const agentMode = false, textflow = null, page = null, motion = {commit() {}}, arrange = {commit() {}}, flowBatch = () => {}; ${applySource}; return applyBatch;`)({ exact }, batch => { for (const op of batch.ops) { if (typeof op === 'function') op(); else applyOperations({ops:[op]}); } });
   const nextGpu = {...gpu, gpu_load() {}, gpu_unload() { order.push("next unload"); },
     gpu_create: () => { order.push("next create"); return options.createFail ? 0 : ++next; },
     gpu_bind_at: () => { order.push("next bind"); return !options.bindFail; },
