@@ -266,7 +266,7 @@ export function prepareGame(dir, game, source = gameRoot, {updateLock = false, t
   const root = resolve(dir, '.shells'), own = resolve(dir, 'Cargo.lock'), shell = resolve(root, 'Cargo.lock');
   const name = gameShells(dir, game, source), members = shellMembers(gameDefaults(dir).game, name);
   const metadata = locked => (locked ? lockedMetadata : cargoMetadata)(root, ['--offline', ...(locked ? ['--locked'] : []), ...(target ? ['--filter-platform', target] : [])], env);
-  const refused = result => new Error(`game Cargo graph: ${result.stderr || result.error?.message}\nOffline resolution requires a populated Cargo cache: cargo fetch --manifest-path ${JSON.stringify(resolve(root, 'Cargo.toml'))}\nTo capture this game's own dependencies: bun game/app/shells.mjs ${JSON.stringify(dir)} --update-lock`);
+  const refused = result => new Error(`game Cargo graph: ${result.stderr || result.error?.message || ''}${result.status === null ? ` (cargo metadata ended by ${result.signal})` : ''}\nOffline resolution requires a populated Cargo cache: cargo fetch --manifest-path ${JSON.stringify(resolve(root, 'Cargo.toml'))}\nTo capture this game's own dependencies: bun game/app/shells.mjs ${JSON.stringify(dir)} --update-lock`);
   if (updateLock || existsSync(own)) {
     const result = metadata(!updateLock);
     if (result.status !== 0) throw refused(result);

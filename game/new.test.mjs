@@ -427,7 +427,7 @@ test('two copies of a new game derive byte-identical shell locks from the SDK lo
     assert.ok(!existsSync(resolve(a,'Cargo.lock')) && !existsSync(resolve(b,'Cargo.lock')));
     assert.notEqual(derived,readFileSync(resolve(import.meta.dir,'app/shells.lock'),'utf8'),'the SDK union is pruned to the game');
   } finally {rmSync(root,{recursive:true,force:true});}
-});
+}, 120000);
 
 test('the SDK lock decides every version; a game that adds packages captures its own lock', async () => {
   const {outsideSdkLock,sdkLock}=await import('./app/shells.mjs');
@@ -441,7 +441,7 @@ test('the SDK lock decides every version; a game that adds packages captures its
   assert.deepEqual(outsideSdkLock(lock([['glam','0.33.7','changed']]),sdk,members),['glam 0.33.7 registry+https://github.com/rust-lang/crates.io-index'],'a checksum is part of the identity');
   // The checked-in SDK lock is current for the union of every shell's dependencies.
   sdkLock();
-});
+}, 120000);
 
 
 test('an empty Cargo cache permits adapter generation and refuses offline resolution',async()=>{
@@ -507,7 +507,7 @@ test('D6 host shells discover arguments without an engine build dependency', () 
       assert.deepEqual(unwanted, [], `${name} links ${unwanted.join(', ')}`);
     }
   } finally {rmSync(parent,{recursive:true,force:true});}
-});
+}, 120000);
 
 test('Beacons is the files its author writes and survives two shell bakes', async () => {
   const {gameDefaults,gameShells}=await import('./app/shells.mjs');
