@@ -370,7 +370,7 @@ test('applying autofocus props cannot trigger browser focus during a batch', asy
   const source = readFileSync(new URL('../host/web/glue.js', import.meta.url), 'utf8');
   const fn = source.slice(source.indexOf('function applyProps('), source.indexOf('function ensureMessageListener('));
   class Element {}
-  const apply = runInNewContext(fn+';applyProps', {syncMedia:()=>{}, inputReady:true, HTMLIFrameElement:Element, HTMLImageElement:Element, HTMLVideoElement:Element});
+  const apply = runInNewContext(fn+';applyProps', {syncMedia:()=>{}, syncMarkup:()=>{}, inputReady:true, HTMLIFrameElement:Element, HTMLImageElement:Element, HTMLVideoElement:Element});
   const attrs = new Map();
   const el = {setAttribute:(k,v)=>attrs.set(k,v), removeAttribute:k=>attrs.delete(k)};
   apply(el, {autofocus:'true'}, []);
@@ -529,7 +529,10 @@ test('game bakes resolve one fresh Cargo graph for the actual target and environ
   info.prepare = (...args) => graph = prepare(...args);
   const quote = value => "'" + value.replaceAll("'", "'\\''") + "'";
   const trace = resolve(root,'cargo-calls'), bin = resolve(root,'bin'), previous = process.env.PATH;
-  write('bin/cargo', `#!/bin/sh\nif [ "$1" = metadata ]; then printf '%s|%s\\n' "$*" "$CARGO_TARGET_DIR" >> ${quote(trace)}; fi\nexec ${quote(cargo)} "$@"\n`);
+  // Calling cargo's binary directly skips rustup's proxy, so name its toolchain:
+  // otherwise each rustc proxy picks one by directory and a build mixes two.
+  const toolchain = /\/toolchains\/([^/]+)\/bin\/cargo$/.exec(cargo)?.[1];
+  write('bin/cargo', `#!/bin/sh\nif [ "$1" = metadata ]; then printf '%s|%s\\n' "$*" "$CARGO_TARGET_DIR" >> ${quote(trace)}; fi\n${toolchain ? `RUSTUP_TOOLCHAIN=${quote(toolchain)} ` : ''}exec ${quote(cargo)} "$@"\n`);
   chmodSync(resolve(bin,'cargo'), 0o755);
   process.env.PATH = `${bin}:${previous}`;
   const bake = () => {
