@@ -504,6 +504,8 @@ try {
       let cyan = 0;
       for (let i = 0; i < region.data.length; i += 4) if (region.data[i] < 190 && region.data[i + 1] > 150 && region.data[i + 2] > 190) cyan++;
       check(cyan > 5, `the iframe screenshot has ${cyan} guest-blue pixels in ${region.width}×${region.height}`);
+    } catch (error) {
+      failures.push(`the iframe parity oracle stopped: ${error.message}`);
     } finally {
       rmSync(deckTmp, { recursive: true, force: true });
     }
@@ -856,6 +858,8 @@ if (caltrainFixture) {
         check(captures >= 3, `the presenter captured the canvas ${captures} time(s); expected the first, the tap's batch, and the edit`);
         console.log(`${host} fixture: the canvas captured ${captures} times`);
       }
+    } catch (error) {
+      failures.push(`the canvas fixture stopped: ${error.message}`);
     } finally {
       await f.close();
     }
@@ -957,6 +961,8 @@ if (deckFixture) {
       // seek there crosses the timer at 1000, whose transition ends at 1500.
       check(settled.settled === true && settled.clock === 1500, `settle: ${JSON.stringify(settled)} (expected a fixed point at 1500: the spring's 1295.8, then the timer's transition)`);
       check(w(l, 'spring') === 100 && w(l, 'timed') === 100, `after settle the spring box is ${w(l, 'spring')} and the timer's ${w(l, 'timed')}; both should be 100`);
+    } catch (error) {
+      failures.push(`the motion fixture stopped: ${error.message}`);
     } finally {
       await m.close();
     }
@@ -1050,6 +1056,8 @@ if (deckFixture) {
       check(st.slots.focused === false, `the dismiss button took the focus: ${JSON.stringify(st.slots)}`);
       for (let i = 0; i < 40; i++) { l = await f.layout(); if (l.env['keyboard-inset-height'] === 0) break; await sleep(50); }
       check(l.env['keyboard-inset-height'] === 0 && box(l, 'note').y === noteBefore.y, `after the keyboard went the field is back: keyboard ${l.env['keyboard-inset-height']}, the field at ${box(l, 'note').y} (was ${noteBefore.y})`);
+    } catch (error) {
+      failures.push(`the insets fixture stopped: ${error.message}`);
     } finally {
       await f.close();
     }
@@ -1106,6 +1114,8 @@ if (deckFixture) {
         for (let i = 0; i < 40; i++) { l = await f.layout(); if (l.env['keyboard-inset-height'] === 0) break; await sleep(50); }
         check(st.slots.focused === false && l.env['keyboard-inset-height'] === 0 && l.viewport.h === viewport0.h, `a tap on the title blurred the field and sent the keyboard away: ${JSON.stringify(st.slots)}, keyboard ${l.env['keyboard-inset-height']}, viewport ${JSON.stringify(l.viewport)}`);
       }
+    } catch (error) {
+      failures.push(`the keyboard-bar fixture stopped: ${error.message}`);
     } finally {
       await f.close();
     }
@@ -1148,6 +1158,8 @@ if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only'
         check(byTestId(tree, 'other')?.accessibleName === 'Other reloaded', 'development plan reloaded in the same session: ' + JSON.stringify(await f.logs()));
         check(byTestId(await f.tree(), 'first')?.focused !== true, 'reload does not steal focus for First');
       }
+    } catch (error) {
+      failures.push(`the accessibility fixture stopped: ${error.message}`);
     } finally { await f.close(); }
   }
   rmSync(tmp, {recursive:true, force:true});
