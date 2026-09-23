@@ -129,17 +129,30 @@ fn compress(body: &[u8], encoding: Encoding, best: bool) -> Option<Vec<u8>> {
     (out.len() < body.len()).then_some(out)
 }
 
-/// The dist's files, each compressed once, by one thread from bind: a
-/// variant is served while the file is the one it was made from (its length
-/// and modification time).
+/// The dist's files as the server sends them: each file's validator (a hash
+/// of its bytes), and its variants, compressed once by one thread from bind.
+/// What is known of a file holds while it is the file it was read from (its
+/// length and modification time).
 #[derive(Clone, Default)]
 pub(crate) struct Variants {
-    made: Arc<Mutex<HashMap<(PathBuf, Encoding), Variant>>>,
+    known: Arc<Mutex<HashMap<PathBuf, Known>>>,
 }
 
-struct Variant {
+#[derive(Clone)]
+struct Known {
     stamp: (u64, Option<SystemTime>),
-    body: Arc<Vec<u8>>,
+    /// The first 128 bits of the bytes' SHA-256, in hex.
+    tag: String,
+    br: Option<Arc<Vec<u8>>>,
+    gzip: Option<Arc<Vec<u8>>>,
+}
+
+/// A dist file as one request gets it.
+pub(crate) struct Served {
+    /// The ETag, quoted: the file's tag, and the encoding when there is one.
+    pub(crate) etag: String,
+    pub(crate) encoding: Option<Encoding>,
+    pub(crate) body: Arc<Vec<u8>>,
 }
 
 fn stamp(file: &Path) -> Option<(u64, Option<SystemTime>)> {
@@ -147,18 +160,42 @@ fn stamp(file: &Path) -> Option<(u64, Option<SystemTime>)> {
     Some((meta.len(), meta.modified().ok()))
 }
 
+fn tag(body: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(body)[..16]
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
 impl Variants {
-    /// Start making `files`' variants, brotli's and gzip's, off the request
-    /// path; a file whose variants would pass what the server holds is left
-    /// as it is.
+    /// Start learning `files`: every file's tag first, then its brotli and
+    /// gzip variants, off the request path. The variants stop at what the
+    /// server holds; the tags don't.
     pub(crate) fn warm(&self, files: Vec<PathBuf>) {
-        let made = self.made.clone();
+        let known = self.known.clone();
         let _ = std::thread::Builder::new()
             .name("exact-render-compress".into())
             .spawn(move || {
+                let read = |file: &PathBuf| Some((stamp(file)?, std::fs::read(file).ok()?));
+                for file in &files {
+                    let Some((stamp, body)) = read(file) else {
+                        continue;
+                    };
+                    let mut known = known.lock().unwrap();
+                    if !known.get(file).is_some_and(|k| k.stamp == stamp) {
+                        let entry = Known {
+                            stamp,
+                            tag: tag(&body),
+                            br: None,
+                            gzip: None,
+                        };
+                        known.insert(file.clone(), entry);
+                    }
+                }
                 let mut held = 0;
-                for file in files {
-                    let (Some(stamp), Ok(body)) = (stamp(&file), std::fs::read(&file)) else {
+                for file in &files {
+                    let Some((stamp, body)) = read(file) else {
                         continue;
                     };
                     for encoding in [Encoding::Br, Encoding::Gzip] {
@@ -169,34 +206,80 @@ impl Variants {
                             return;
                         }
                         held += out.len();
-                        let variant = Variant {
-                            stamp,
-                            body: Arc::new(out),
+                        let mut known = known.lock().unwrap();
+                        let Some(entry) = known.get_mut(file).filter(|k| k.stamp == stamp) else {
+                            continue;
                         };
-                        made.lock()
-                            .unwrap()
-                            .insert((file.clone(), encoding), variant);
+                        let out = Some(Arc::new(out));
+                        match encoding {
+                            Encoding::Br => entry.br = out,
+                            Encoding::Gzip => entry.gzip = out,
+                        }
                     }
                 }
             });
     }
 
-    /// `file` as the client accepts it, if its variant is made.
-    pub(crate) fn get(&self, file: &Path, accepts: Accepts) -> Option<(Encoding, Arc<Vec<u8>>)> {
+    /// `file` as the client accepts it: a variant once it is made (only for
+    /// a type worth compressing), else the file as it is; either way with
+    /// its ETag. None when the file can't be read.
+    pub(crate) fn serve(
+        &self,
+        file: &Path,
+        accepts: Accepts,
+        compressible: bool,
+    ) -> Option<Served> {
         let stamp = stamp(file)?;
-        let made = self.made.lock().unwrap();
-        [Encoding::Br, Encoding::Gzip]
-            .into_iter()
-            .filter(|encoding| match encoding {
-                Encoding::Br => accepts.br,
-                Encoding::Gzip => accepts.gzip,
-            })
-            .find_map(|encoding| {
-                made.get(&(file.to_path_buf(), encoding))
-                    .filter(|variant| variant.stamp == stamp)
-                    .map(|variant| (encoding, variant.body.clone()))
-            })
+        let entry = {
+            let known = self.known.lock().unwrap();
+            known.get(file).filter(|k| k.stamp == stamp).cloned()
+        };
+        if let Some(entry) = &entry {
+            let variants = [
+                (Encoding::Br, accepts.br, &entry.br),
+                (Encoding::Gzip, accepts.gzip, &entry.gzip),
+            ];
+            let made = variants.into_iter().find_map(|(encoding, accepted, body)| {
+                Some((encoding, body.clone().filter(|_| accepted)?))
+            });
+            if let (true, Some((encoding, body))) = (compressible, made) {
+                return Some(Served {
+                    etag: format!("\"{}-{}\"", entry.tag, encoding.name()),
+                    encoding: Some(encoding),
+                    body,
+                });
+            }
+        }
+        let body = std::fs::read(file).ok()?;
+        let tag = match entry {
+            Some(entry) => entry.tag,
+            None => {
+                let tag = tag(&body);
+                let entry = Known {
+                    stamp,
+                    tag: tag.clone(),
+                    br: None,
+                    gzip: None,
+                };
+                self.known.lock().unwrap().insert(file.to_path_buf(), entry);
+                tag
+            }
+        };
+        Some(Served {
+            etag: format!("\"{tag}\""),
+            encoding: None,
+            body: Arc::new(body),
+        })
     }
+}
+
+/// Whether an `If-None-Match` value names `etag` (RFC 9110 §13.1.2: a list,
+/// or `*`, compared weakly).
+pub(crate) fn none_match(header: Option<&str>, etag: &str) -> bool {
+    let bare = |tag: &str| tag.trim().trim_start_matches("W/").to_string();
+    header.is_some_and(|header| {
+        header.trim() == "*" || header.split(',').any(|tag| bare(tag) == bare(etag))
+    })
 }
 
 /// Every file under `dist` worth compressing, the pages aside, by the
@@ -253,6 +336,16 @@ mod tests {
         assert_eq!(Accepts::parse("BR;Q=1").pick(), Some(Encoding::Br));
         assert_eq!(Accepts::parse("identity").pick(), None);
         assert_eq!(Accepts::parse("").pick(), None);
+    }
+
+    #[test]
+    fn if_none_match_is_a_list_compared_weakly() {
+        let etag = "\"abc-br\"";
+        assert!(none_match(Some("\"abc-br\""), etag));
+        assert!(none_match(Some("\"x\", W/\"abc-br\""), etag));
+        assert!(none_match(Some("*"), etag));
+        assert!(!none_match(Some("\"abc\""), etag));
+        assert!(!none_match(None, etag));
     }
 
     #[test]

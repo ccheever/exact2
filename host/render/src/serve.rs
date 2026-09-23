@@ -258,6 +258,20 @@ impl Response {
             _ => "",
         };
         let mut out = format!("HTTP/1.1 {} {reason}\r\n", self.status);
+        // A 304 carries what updates the copy the client holds (RFC 9110
+        // §15.4.5), nothing of the representation's own: its CSP, surrogate
+        // keys and length are the stored response's already.
+        if self.status == 304 {
+            for (name, value) in &self.headers {
+                if matches!(*name, "ETag" | "Cache-Control" | "Vary" | "Expires" | "Age") {
+                    let _ = write!(out, "{name}: {value}\r\n");
+                }
+            }
+            out.push_str("Connection: close\r\n\r\n");
+            let _ = stream.write_all(out.as_bytes());
+            let _ = stream.flush();
+            return;
+        }
         for (name, value) in &self.headers {
             let _ = write!(out, "{name}: {value}\r\n");
         }
@@ -277,7 +291,7 @@ impl Response {
             self.body.len()
         );
         let _ = stream.write_all(out.as_bytes());
-        if !head && self.status != 304 {
+        if !head {
             let _ = stream.write_all(&self.body);
         }
         let _ = stream.flush();
@@ -345,7 +359,7 @@ fn finish(mut response: Response, request: &Request) -> Response {
     }
     if response.status == 200
         && response.headers.iter().any(|(name, value)| {
-            *name == "ETag" && request.if_none_match.as_deref() == Some(value.as_str())
+            *name == "ETag" && encode::none_match(request.if_none_match.as_deref(), value)
         })
     {
         response.status = 304;
@@ -449,37 +463,27 @@ fn respond<D: DataSource>(request: &Request, shared: &Shared, data: fn() -> D) -
         );
     }
     if let Some((file, kind)) = static_file(&shared.serve.dist, path) {
+        let compressible = encode::compressible(kind);
+        let Some(served) = shared.variants.serve(&file, request.accepts, compressible) else {
+            return Response::text(404, "not found\n");
+        };
         let mut headers = vec![
             ("Content-Type", kind.into()),
-            // Not content-addressed yet (D10): revalidate.
+            // Not content-addressed yet (D10): revalidated, by its ETag.
             ("Cache-Control", "no-cache".into()),
+            ("ETag", served.etag.clone()),
         ];
-        if !encode::compressible(kind) {
-            return match std::fs::read(&file) {
-                Ok(body) => Response {
-                    status: 200,
-                    headers,
-                    body,
-                },
-                Err(_) => Response::text(404, "not found\n"),
-            };
+        if compressible {
+            headers.push(("Vary", "Accept-Encoding".into()));
         }
-        headers.push(("Vary", "Accept-Encoding".into()));
-        if let Some((encoding, body)) = shared.variants.get(&file, request.accepts) {
+        if let Some(encoding) = served.encoding {
             headers.push(("Content-Encoding", encoding.name().into()));
-            return Response {
-                status: 200,
-                headers,
-                body: body.to_vec(),
-            };
         }
-        return match std::fs::read(&file) {
-            Ok(body) => Response {
-                status: 200,
-                headers,
-                body,
-            },
-            Err(_) => Response::text(404, "not found\n"),
+        let fresh = encode::none_match(request.if_none_match.as_deref(), &served.etag);
+        return Response {
+            status: if fresh { 304 } else { 200 },
+            headers,
+            body: served.body.to_vec(),
         };
     }
     // One URL per page: the router's canonical form (dot segments resolved,

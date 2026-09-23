@@ -670,3 +670,53 @@ fn a_drained_server_answers_what_it_took_and_stops() {
     running.join().unwrap().unwrap();
     assert!(TcpStream::connect(addr).is_err());
 }
+
+#[test]
+fn a_dist_file_revalidates_by_its_etag() {
+    let addr = start("validators", 1, 8, 300);
+    let conditional = |target: &str, accept: &str, etag: &str| {
+        fetch_bytes(
+            addr,
+            &format!(
+                "GET {target} HTTP/1.1\r\nAccept-Encoding: {accept}\r\nIf-None-Match: {etag}\r\n\r\n"
+            ),
+        )
+    };
+    // As it is: a validator of its bytes, and a 304 for a client that has them.
+    let (status, headers, body) = fetch_bytes(addr, "GET /glue.js HTTP/1.1\r\n\r\n");
+    assert_eq!(
+        (status, body.as_slice()),
+        (200, b"// the glue\n".as_slice())
+    );
+    assert_eq!(header(&headers, "cache-control"), Some("no-cache"));
+    let etag = header(&headers, "etag").unwrap().to_string();
+    let (status, headers, body) = conditional("/glue.js", "identity", &etag);
+    assert_eq!((status, body.len()), (304, 0));
+    assert_eq!(header(&headers, "etag"), Some(etag.as_str()));
+    // Only what updates the stored copy.
+    assert_eq!(header(&headers, "cache-control"), Some("no-cache"));
+    assert!(
+        header(&headers, "content-type").is_none() && header(&headers, "content-length").is_none()
+    );
+    // Each encoding is its own representation, with its own validator.
+    let started = std::time::Instant::now();
+    let br = loop {
+        let (_, headers, _) =
+            fetch_bytes(addr, "GET /big.js HTTP/1.1\r\nAccept-Encoding: br\r\n\r\n");
+        if header(&headers, "content-encoding") == Some("br") {
+            break header(&headers, "etag").unwrap().to_string();
+        }
+        assert!(started.elapsed() < Duration::from_secs(60), "no variant");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert!(br.ends_with("-br\""), "{br}");
+    assert_eq!(conditional("/big.js", "br", &br).0, 304);
+    let (_, headers, _) = fetch_bytes(addr, "GET /big.js HTTP/1.1\r\n\r\n");
+    let identity = header(&headers, "etag").unwrap().to_string();
+    assert_eq!(br, format!("{}-br\"", identity.trim_end_matches('"')));
+    assert_eq!(conditional("/big.js", "br", &identity).0, 200);
+    // An image too.
+    let (_, headers, _) = fetch_bytes(addr, "GET /assets/dot.png HTTP/1.1\r\n\r\n");
+    let image = header(&headers, "etag").unwrap().to_string();
+    assert_eq!(conditional("/assets/dot.png", "br", &image).0, 304);
+}
