@@ -244,8 +244,11 @@ checkpoint** (LLP 1048.000 D6). The checkpoint holds:
 - never a store.
 
 The runner takes the checkpoint's answers as an input of their own, neither the
-store nor kept answers. It doesn't ask them again until their freshness lapses,
-and a failed refresh keeps them.
+store nor kept answers. It treats them as answers it already has, so it doesn't
+ask them again at boot or when the module loads. It asks again only when their
+arguments or inputs change, as for any answer. Failure stays data (LLP 1016
+D4): a later refresh that fails reaches the source's `parse`, and the app
+decides what the page shows.
 
 The runtime then compares its canonical document with the page's; the digest
 excludes runtime incarnation ids.
@@ -283,8 +286,8 @@ The data has its own URL (LLP 1048.001 D7). It is never negotiated on the HTML
 URL, so shared caches don't split on `Accept`.
 
 **D8 — The head is part of the view.** A `head` element in the active subtree
-sets the title, description, canonical URL, image, robots and structured data
-(JSON-LD); the innermost wins. The renderer writes it into `<head>`, escaping
+sets the title, description, canonical URL, image, robots, structured data
+(JSON-LD) and, for a not-found view, the status; the innermost wins. The renderer writes it into `<head>`, escaping
 structured data like the checkpoint. The web host keeps `document.title` and the
 meta tags in sync. Native hosts map `title` to the window or scene title
 (LLP 1048.003 D1).
@@ -404,7 +407,7 @@ answers them after it takes over.
   attribute.
 - **Counterexamples**, each a test:
   - delayed replies;
-  - a failed refresh, which keeps the checkpoint answer;
+  - a network failure at boot, which changes nothing the server sent;
   - a store read after an await: an anonymous render shows the logged-out state;
   - user text containing `</script` and `<!--`, in the checkpoint and in
     structured data;
@@ -536,9 +539,10 @@ Interview's own work, in its repository — phase 1b:
 9. **Never less than the server.** A signed-in reader's page keeps the public
    content until their own view is ready. It doesn't fall back to "Opening saved
    conversations…" (`app.ts` ~132) in place of content the server sent.
-10. **Failures are failures.** A source reports a failed fetch as a failure, not
-    as an empty answer carrying an error string (`app.ts` ~186), so the page
-    keeps what it has.
+10. **Failure stays data** (LLP 1016 D4). Interview's sources already shape a
+    failed fetch as an answer (`app.ts` ~186). Since the boot no longer asks
+    checkpoint answers again, a failure can't replace what the server sent. A
+    throw is for a source that is wrong, and it leaves the request pending.
 11. **One switch.** Public reading sits behind one backend setting, off by
     default. With it off, nothing is public, whatever authors choose.
 
