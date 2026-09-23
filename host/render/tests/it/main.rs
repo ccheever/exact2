@@ -240,12 +240,16 @@ fn what_the_environment_does_not_hold_keeps_its_placeholder() {
 
 #[test]
 fn a_fetch_runs_through_the_native_executor() {
+    // The waits here are hang bounds, not deadlines: on a loaded Mac the
+    // platform transport has taken over ten seconds to open a loopback
+    // connection.
+    let bound = Duration::from_secs(60);
     warm_transport();
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let port = listener.local_addr().unwrap().port();
     let server = std::thread::spawn(move || {
-        let until = Instant::now() + Duration::from_secs(30);
+        let until = Instant::now() + bound;
         let (mut stream, _) = loop {
             match listener.accept() {
                 Ok(connection) => break connection,
@@ -257,6 +261,9 @@ fn a_fetch_runs_through_the_native_executor() {
                 Err(error) => panic!("the renderer made no request: {error}"),
             }
         };
+        // An accepted socket inherits the listener's non-blocking mode on
+        // macOS: the read below waits for the request, up to its timeout.
+        stream.set_nonblocking(false).unwrap();
         stream
             .set_read_timeout(Some(Duration::from_secs(5)))
             .unwrap();
@@ -276,7 +283,7 @@ fn a_fetch_runs_through_the_native_executor() {
         .unwrap();
         line
     });
-    let r = at(Post::Local(port), Duration::from_secs(10));
+    let r = at(Post::Local(port), bound);
     assert_eq!(server.join().unwrap(), "GET /post/7 HTTP/1.1");
     assert_eq!(r.settled, Settled::Complete);
     assert!(
@@ -288,7 +295,7 @@ fn a_fetch_runs_through_the_native_executor() {
     let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = closed.local_addr().unwrap().port();
     drop(closed);
-    let r = at(Post::Local(port), Duration::from_secs(10));
+    let r = at(Post::Local(port), bound);
     assert_eq!(r.settled, Settled::Complete);
     assert!(r.document.root.contains(">failed: "), "{}", r.document.root);
 }

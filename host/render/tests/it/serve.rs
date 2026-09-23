@@ -297,8 +297,18 @@ fn a_full_queue_answers_503_at_once() {
     // The slow render holds the only worker for a second. A probe that
     // reaches the worker first (a loaded machine) is simply served.
     let addr = start("queue", 1, 0, 1000);
-    let slow = std::thread::spawn(move || get(addr, "/post/slow"));
-    let (headers, body) = (0..40)
+    // A probe on the worker can turn the slow request away too: it asks
+    // again until it holds the worker.
+    let slow = std::thread::spawn(move || loop {
+        let answer = get(addr, "/post/slow");
+        if answer.2 != "busy\n" {
+            break answer;
+        }
+    });
+    // Probes until the slow render is over: while it holds the worker, a
+    // probe finds the queue full.
+    let (headers, body) = (0..)
+        .take_while(|_| !slow.is_finished())
         .find_map(|_| {
             std::thread::sleep(Duration::from_millis(20));
             let (status, headers, body) = get(addr, "/post/7");
