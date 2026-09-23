@@ -48,6 +48,15 @@
   [backgroundMaterial="ultra-thin"] { backdrop-filter: blur(20px) saturate(180%); background-color: light-dark(#ffffff80, #20202080); }
   [backgroundMaterial="glass"] { backdrop-filter: blur(20px) saturate(150%); background-color: light-dark(#ffffffb3, #262629b3); box-shadow: 0 8px 24px #0000000d, inset 0 0 1px light-dark(#ffffffcc, #ffffff33); }
   [data-scroll="true"] { overflow: auto; }
+  /* LLP 1048.003 D4: `scroll document` — the page scrolls, not an inner
+     scroller. Body and root grow with the content and the marked scroller is
+     a plain block, so printing, #anchors, scroll restoration and a collapsing
+     browser toolbar work, with JavaScript or without. */
+  html:has([data-scrolldocument="true"]) {
+    & body { height: auto; min-height: 100%; }
+    & #exact-root { height: auto; }
+    & [data-scrolldocument="true"] { overflow: visible !important; height: auto !important; max-height: none !important; }
+  }
   [data-itemheight], [data-estimateditemheight] { overflow-anchor: none; } /* List keys own the reading anchor. */
   /* LLP 1001 §1: the kernel has no `position: static`; every node is `relative`
      (an absolute node's inline style wins). */
