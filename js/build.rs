@@ -129,10 +129,14 @@ fn main() {
     }
     let engine_archive = static_dir.join(format!("lib{engine_lib_name}.a"));
     let hermes_target = matches!(target_os.as_str(), "macos" | "ios" | "linux");
-    if !hermes_target || !headers.is_dir() || !engine_archive.is_file() {
+    // The explicit selection wins before any engine input is inspected.
+    let stub = env::var("EXACT_JS_ENGINE").as_deref() == Ok("stub");
+    let provisioned =
+        headers.is_dir() && engine_archive.is_file() && extra_libs.iter().all(|lib| lib.is_file());
+    if !hermes_target || stub || !provisioned {
         if hermes_target {
             assert!(
-                env::var("EXACT_JS_ENGINE").as_deref() == Ok("stub"),
+                stub,
                 "exact-js: no Hermes for {target_os} at {}. Provision the pinned engine (js/build.rs header): macOS, ibex ./scripts/build-hermes.sh --vanilla (EXACT_HERMES_DIR if elsewhere); iOS, lean builds under target/hermes-ios (LLP 1027 D6; EXACT_HERMES_IOS_DIR); Linux, ibex ./scripts/build-hermes-linux.sh --vanilla --release --intl (HERMES_LIB_DIR). Or set EXACT_JS_ENGINE=stub for an executor that refuses to load.",
                 static_dir.display()
             );
