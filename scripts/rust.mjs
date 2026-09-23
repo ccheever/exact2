@@ -4,7 +4,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cargoReproducibilityFlags, developmentBuildEnv, readBuilds, resolveApp, rustPolicy } from './app.mjs';
@@ -62,12 +62,29 @@ export function prepareRustBundle(app, platform, target, env) {
   } catch(error) {rmSync(destination,{recursive:true,force:true});throw error;}
 }
 
+// `cargo metadata` answers from the manifests, the lockfile and Cargo's
+// config: the last answer stands while their bytes do (a new path dependency
+// is a manifest edit). A resident producer asks on every request.
+const metadataCache = new Map();
+function cargoMetadata(app, env) {
+  const key = JSON.stringify([app.workspace, cargoReproducibilityFlags(app)]), cached = metadataCache.get(key);
+  if (cached && rustInputDigest(cached.manifests) === cached.digest) return cached.metadata;
+  const metadata = JSON.parse(run(app, 'cargo', ['metadata', '--format-version', '1', ...cargoReproducibilityFlags(app)], env));
+  const manifests = [...new Set(['Cargo.toml', 'Cargo.lock', '.cargo/config.toml'].map(name => resolve(metadata.workspace_root, name))
+    .concat(metadata.packages.filter(p => !p.source).map(p => p.manifest_path)))].sort();
+  metadataCache.set(key, { metadata, manifests, digest: rustInputDigest(manifests) });
+  return metadata;
+}
+
 // Include the declared Cargo closure, its build scripts and included files.
 // Recheck after compilation/bake: moving inputs never become a published pair.
 export function rustInputs(app, env = developmentBuildEnv(), {reloadOnly = false} = {}) {
+  return rustClosure(app, env, reloadOnly).files;
+}
+function rustClosure(app, env, reloadOnly = false) {
   const packageName = rustPackage(app);
-  if (!packageName) return [];
-  const metadata = JSON.parse(run(app, 'cargo', ['metadata', '--format-version', '1', ...cargoReproducibilityFlags(app)], env));
+  if (!packageName) return { files: [], directories: [] };
+  const metadata = cargoMetadata(app, env);
   const packages = new Map(metadata.packages.map(p => [p.id, p]));
   const nodes = new Map(metadata.resolve.nodes.map(p => [p.id, p]));
   const root = metadata.packages.find(p => p.name === packageName);
@@ -100,14 +117,27 @@ export function rustInputs(app, env = developmentBuildEnv(), {reloadOnly = false
   // Contract's loader confines imports to the app root. Include all of them,
   // including a newly added import, in the before/after source observation.
   walk(app.dir, true);
-  return [...files].filter(path=>!reloadOnly || !/\/(Cargo\.(toml|lock)|build\.rs)$/.test(path)).sort();
+  return { files: [...files].filter(path=>!reloadOnly || !/\/(Cargo\.(toml|lock)|build\.rs)$/.test(path)).sort(), directories: [...directories] };
+}
+// A file's hash stands while its inode, size, mtime and ctime do: every write
+// moves ctime. A resident producer rereads only what changed.
+const fileHashes = new Map();
+function fileHash(path) {
+  let stat;
+  try { stat = statSync(path, { bigint: true }); }
+  catch (error) { if (error.code === 'ENOENT') return hash('<absent>'); throw error; }
+  const stamp = `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`, known = fileHashes.get(path);
+  if (known?.stamp === stamp) return known.hash;
+  const value = hash(readFileSync(path));
+  fileHashes.set(path, { stamp, hash: value });
+  return value;
 }
 export function rustInputDigest(paths, observations = null) {
   const digest = createHash('sha256');
   for (const path of paths) {
-    const bytes = existsSync(path) ? readFileSync(path) : Buffer.from('<absent>');
-    digest.update(path); digest.update('\0'); digest.update(bytes); digest.update('\0');
-    observations?.set(path, hash(bytes));
+    const value = fileHash(path);
+    digest.update(path); digest.update('\0'); digest.update(value); digest.update('\0');
+    observations?.set(path, value);
   }
   return digest.digest('hex');
 }
@@ -144,7 +174,7 @@ export function rustReceipt(app, compat, plan, module, target, executor) {
 /** One compiler/baker process per producer. Requests are private file paths;
  * only the worker performs I/O or executes a disposable Wasm candidate. */
 export class RustBaker {
-  constructor(app, env) { this.app=app; this.env=env; this.child=null; this.fingerprint=null; this.closed=false; }
+  constructor(app, env) { this.app=app; this.env=env; this.child=null; this.closed=false; }
   async bake(args) {
     if (this.closed) throw new Error('Rust baker is closed');
     if (this.busy) throw new Error('Rust baker already has an active request');
@@ -152,14 +182,14 @@ export class RustBaker {
     try { await this.request(args); } finally { this.busy=false; }
   }
   async request(args) {
-    const target=resolve(this.app.target,'rust-tools'), env={...this.env,CARGO_TARGET_DIR:target};
-    run({...this.app,workspace:ROOT},'cargo',['build',...cargoReproducibilityFlags(this.app,ROOT),'-q','-p','exact-logic-bake'],env);
-    const bin=resolve(target,'debug/exact-logic-bake');
-    const fingerprint=hash(readFileSync(bin));
-    if (!this.child || fingerprint!==this.fingerprint) {
-      this.stop();
-      const child=this.child=spawn(bin,['--serve'],{cwd:this.app.workspace,env,stdio:['pipe','pipe','pipe']});
-      this.fingerprint=fingerprint;
+    // Built optimized and started once per producer, like the resident Contract
+    // and module compilers: it interprets the candidate Wasm, which a debug
+    // build does in seconds. A compiler edit is in the web receipt's inputs, so
+    // the dev server rebuilds and starts a new producer.
+    if (!this.child) {
+      const target=resolve(this.app.target,'rust-tools'), env={...this.env,CARGO_TARGET_DIR:target};
+      run({...this.app,workspace:ROOT},'cargo',['build',...cargoReproducibilityFlags(this.app,ROOT),'-q','--release','-p','exact-logic-bake'],env);
+      const child=this.child=spawn(resolve(target,'release/exact-logic-bake'),['--serve'],{cwd:this.app.workspace,env,stdio:['pipe','pipe','pipe']});
       this.ready=new Promise((accept,reject)=>{this.startup={accept,reject};});
       const fail=error=>{
         if(this.child!==child)return;
@@ -201,15 +231,10 @@ export class RustBaker {
   close() { this.closed=true;this.stop(); }
 }
 
-/** Produce complete variants in private memory; publication is a separate act.
- * Native and Wasm artifacts share one baked plan and one stable input closure. */
-export async function buildRust(app, { compat, env = developmentBuildEnv(), nativeTarget = null, plan = null, profile = 'logic-dev', baker = null, sourceMap = false } = {}) {
-  if (!rustPackage(app)) return null;
-  if (!compat?.inputs?.grantCeiling && compat?.inputs?.grantCeiling !== '') throw new Error('Rust module build requires a completed app bake receipt');
-  rustGrants(compat);
-  const inputs = rustInputs(app, env), observed = new Map(), before = rustInputDigest(inputs, observed);
-  const wasmPath = compile(app, 'wasm32-unknown-unknown', env, profile);
-  const wasm = readFileSync(wasmPath);
+/** The last modules each app compiled in this process, with their inputs' key. */
+const compiledModules = new Map();
+function compileModules(app, env, profile, nativeTarget) {
+  const wasm = readFileSync(compile(app, 'wasm32-unknown-unknown', env, profile));
   let native = null;
   if (nativeTarget) {
     const nativePath = compile(app, nativeTarget, env, profile);
@@ -226,6 +251,23 @@ export async function buildRust(app, { compat, env = developmentBuildEnv(), nati
     }
     native ??= readFileSync(nativePath);
   }
+  return { wasm, native };
+}
+
+/** Produce complete variants in private memory; publication is a separate act.
+ * Native and Wasm artifacts share one baked plan and one stable input closure. */
+export async function buildRust(app, { compat, env = developmentBuildEnv(), nativeTarget = null, plan = null, profile = 'logic-dev', baker = null, sourceMap = false } = {}) {
+  if (!rustPackage(app)) return null;
+  if (!compat?.inputs?.grantCeiling && compat?.inputs?.grantCeiling !== '') throw new Error('Rust module build requires a completed app bake receipt');
+  rustGrants(compat);
+  const { files: inputs, directories } = rustClosure(app, env), observed = new Map(), before = rustInputDigest(inputs, observed);
+  // Contract sources outside every Cargo package feed the bake, never Cargo: a
+  // Contract-only edit reuses the modules compiled from the same Rust inputs.
+  const compiledFrom = inputs.filter(path => !path.endsWith('.contract') || directories.some(dir => path.startsWith(dir + '/')));
+  const key = JSON.stringify([profile, nativeTarget, env.EXACT_UPDATE_TRUST ?? null, env.EXACT_RUST_SIGN_IDENTITY ?? null,
+    hash(JSON.stringify(compiledFrom.map(path => [path, observed.get(path)])))]);
+  const reused = compiledModules.get(app.dir);
+  const { wasm, native } = reused?.key === key ? reused : compileModules(app, env, profile, nativeTarget);
   const scratchRoot = resolve(app.target, 'rust-bake'); mkdirSync(scratchRoot, { recursive: true });
   const scratch = mkdtempSync(resolve(scratchRoot, 'candidate-'));
   let map = null;
@@ -252,6 +294,8 @@ export async function buildRust(app, { compat, env = developmentBuildEnv(), nati
       const changed = [...new Set([...inputs, ...after])].filter(path => observed.get(path) !== latest.get(path));
       throw new Error(`Rust inputs changed during compilation (${changed.slice(0,5).join(', ')}); the previous generation remains active`);
     }
+    // Only a build whose inputs held still vouches for its modules.
+    compiledModules.set(app.dir, { key, wasm, native });
     const variants = { wasm: { receipt: rustReceipt(app, compat, plan, wasm, 'wasm32-unknown-unknown', 'wasm'), bytes: wasm } };
     if (native) {
       variants.native = { receipt: rustReceipt(app, compat, plan, native, nativeTarget, 'native'), bytes: native };
@@ -318,10 +362,12 @@ export function rustBundle(app, bundle, build, built) {
   artifacts.push(...assets.map(a=>({name:a.name,sha256:a.sha256,bytes:a.bytes.length,kind:'bundle',requires})));
   return {bundle:{...base,assets:[...bundle.assets,...assets]},build:{...build,graph:{...build.graph,artifacts}}};
 }
+let hostTriple=null;
 async function produce(app, env, baker = null) {
   if (!rustPackage(app)) throw new Error('declare rust.module.package in app.json and export the logic ABI from that cdylib crate');
   const compat=readBuilds(app,env).find(r=>r.compat.inputs.platform==='web')?.compat;
-  const host=/^host: (.+)$/m.exec(run(app,'rustc',['-vV'],env))?.[1];
+  hostTriple??=/^host: (.+)$/m.exec(run(app,'rustc',['-vV'],env))?.[1];
+  const host=hostTriple;
   const nativeTarget=['darwin','linux'].includes(process.platform) && ['native','tiered'].includes(rustPolicy(app.manifest,process.platform==='darwin'?'macos':'linux'))?host:null;
   const built=await buildRust(app,{compat,env,nativeTarget,baker,sourceMap:true});
   const directory=rustOutput(app);mkdirSync(directory,{recursive:true});
