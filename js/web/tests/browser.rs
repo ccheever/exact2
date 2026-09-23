@@ -268,6 +268,23 @@ try {
       call({op:'dispatch',id:castleWorker.id,token:started.continuation,store,grants});
       return await checkpoint(await run(started.continuation));
     });
+    // The runner let go of a call (newer arguments replaced its request):
+    // the realm drops it and keeps the one still in flight (LLP 1016 D5).
+    const forgets=async (realm,invokeCall)=>{
+      const login=who=>['Mutation(0)',[who,'pw']];
+      for(const who of ['ada','bob'])if(!(await invokeCall(...login(who))).request)throw new Error(`${realm}: ${who} did not fetch`);
+      if(call({op:'forget',id:realm==='iframe'?castle.id:castleWorker.id,inFlight:[{target:'Mutation(0)',source:'login',args:['bob','pw']}]}).ok!==true)throw new Error(`${realm}: forget refused`);
+      let dropped=false;try{await invokeCall(...login('ada'),response('{"data":{"loginV2":{"token":"t","username":"ada"}}}'));}catch(e){dropped=String(e?.message??e).includes('not in flight');}
+      if(!dropped)throw new Error(`${realm}: a call the runner let go still resumed`);
+      const kept=await invokeCall(...login('bob'),response('{"data":{"loginV2":{"token":"t","username":"bob"}}}'));
+      if(kept.value?.username!=='bob')throw new Error(`${realm}: the call in flight was lost: ${JSON.stringify(kept)}`);
+    };
+    await forgets('iframe',(target,args,outcome)=>checkpoint(call({id:castle.id,op:outcome?'resume':'answer',target,source:'login',args,store,grants,outcome})));
+    await forgets('worker',async (target,args,outcome)=>{
+      const started=call({id:castleWorker.id,op:outcome?'resume':'answer',target,source:'login',args,store,grants,outcome});
+      call({op:'dispatch',id:castleWorker.id,token:started.continuation,store,grants});
+      return await checkpoint(await run(started.continuation));
+    });
     castleWorker.dispose();
     for(const kind of ['Refused','Unsupported','Network','Aborted']){
       await ask('login',loginArgs);

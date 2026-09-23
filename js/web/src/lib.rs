@@ -7,7 +7,7 @@ pub use exact_runner::Placement;
 use exact_runner::{Answer, DataError, DataSource, Dispatch, Outcome, Request, Store, Target};
 use serde_json::{json, Value as Json};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 fn unavailable(message: impl Into<String>) -> DataError {
     DataError::Unavailable(message.into())
@@ -18,6 +18,12 @@ fn unavailable(message: impl Into<String>) -> DataError {
 /// are two calls, here and in the realm.
 fn target_json(target: Option<Target>) -> Json {
     target.map_or(Json::Null, |target| Json::String(format!("{target:?}")))
+}
+
+/// Whether a `waiting` key names a target: `[null, …]` is a caller's that
+/// named none, which only that caller can let go.
+fn targeted(key: &str) -> bool {
+    !key.starts_with("[null,")
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -318,6 +324,34 @@ impl DataSource for Module {
     fn discard(&mut self, token: u64) {
         let _ = call(json!({"op":"discard", "id":self.id, "token":token}));
     }
+    /// Calls whose requests the runner let go are dropped here, and the
+    /// realm hears what is still in flight, to drop its own (LLP 1016 D5).
+    fn forgotten(&mut self, in_flight: &[(Target, &str, &[Value])]) {
+        let mut keep = HashSet::new();
+        let mut requests = Vec::new();
+        for (target, source, args) in in_flight {
+            let Some((params, _)) = self.signatures.get(*source) else {
+                continue;
+            };
+            let Ok(args) = args
+                .iter()
+                .zip(params)
+                .map(|(value, shape)| to_json(value, shape))
+                .collect::<Result<Vec<_>, _>>()
+            else {
+                continue;
+            };
+            let target = target_json(Some(*target));
+            keep.insert(json!([target, source, args]).to_string());
+            requests.push(json!({"target": target, "source": source, "args": args}));
+        }
+        let before = self.waiting.len();
+        self.waiting
+            .retain(|key, _| !targeted(key) || keep.contains(key));
+        if self.waiting.len() != before {
+            let _ = call(json!({"op":"forget", "id":self.id, "inFlight":requests}));
+        }
+    }
     fn bind(&mut self, plan: &Plan) {
         self.signatures.clear();
         for row in &plan.sources {
@@ -427,6 +461,58 @@ mod tests {
         assert!(module
             .parse(&mut store, "source", &[], reply("stray"))
             .is_err());
+    }
+
+    #[test]
+    fn calls_the_runner_let_go_are_dropped_and_calls_without_a_target_kept() {
+        let mut module = Module::new("test", "", "revision");
+        module.ready = true;
+        module
+            .signatures
+            .insert("source".into(), (vec![Shape::String], Shape::String));
+        let mut store = Store::new("", []);
+        for (target, arg) in [
+            (Some(Target::Mutation(0)), "a"),
+            (Some(Target::Mutation(0)), "ab"),
+            (None, "a"),
+        ] {
+            let key = json!([target_json(target), "source", [arg]]).to_string();
+            assert!(module
+                .step(&mut store, "source", key, br#"{"continuation":1}"#)
+                .is_ok());
+        }
+        // Newer arguments replaced "a": only "ab" is in flight for the target.
+        module.forgotten(&[(Target::Mutation(0), "source", &[Value::str("ab")])]);
+        assert_eq!(module.waiting.len(), 2);
+        let reply = |text: &str| {
+            Outcome::Response(exact_runner::Response {
+                status: 200,
+                headers: vec![],
+                body: json!({"tag": 0, "value": text}).to_string().into_bytes(),
+            })
+        };
+        let target = Target::Mutation(0);
+        assert!(module
+            .parse_for(target, &mut store, "source", &[Value::str("a")], reply("a"))
+            .is_err());
+        assert_eq!(
+            module
+                .parse_for(
+                    target,
+                    &mut store,
+                    "source",
+                    &[Value::str("ab")],
+                    reply("ab")
+                )
+                .unwrap(),
+            Answer::Now(Value::str("ab"))
+        );
+        assert_eq!(
+            module
+                .parse(&mut store, "source", &[Value::str("a")], reply("kept"))
+                .unwrap(),
+            Answer::Now(Value::str("kept"))
+        );
     }
 
     #[test]

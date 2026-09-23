@@ -70,6 +70,16 @@ function finish(answer, request) {
   return result;
 }
 
+// The runner let go of every targeted call not in flight (LLP 1016 D5):
+// drop it, its storage owner, and its call in the prelude.
+function forget(inFlight) {
+  const keep = new Set(inFlight.map(key));
+  for (const [parkedKey, parked] of pending) {
+    if (JSON.parse(parkedKey)[0] === null || keep.has(parkedKey)) continue;
+    pending.delete(parkedKey); storage.retire(parked.owner); self.__exact_forget(String(parked.call));
+  }
+}
+
 // One turn: begin or resume; stay here through every storage wait; end at
 // an answer or at a `fetch`, which the page's host runs (LLP 1027.002 D3).
 async function turn(request) {
@@ -92,6 +102,8 @@ self.onmessage = ({ data }) => {
     catch (error) { postMessage({ token: 0, error: String(error?.message ?? error) }); }
     return;
   }
+  // After the turns before it, so a call they park is dropped too.
+  if (data.op === 'forget') { tail = tail.then(() => forget(data.inFlight)).catch(() => {}); return; }
   if (data.op !== 'turn') return;
   const run = tail.then(async () => {
     try { return await turn(data.request); }

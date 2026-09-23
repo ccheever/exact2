@@ -149,6 +149,16 @@ export async function prepare(payload, admitted, id = nextId++) {
         // The host may run continuation tokens in a different order from calls.
         return defer(request);
       },
+      // The runner let go of every targeted call not in flight (LLP 1016 D5):
+      // drop it, its storage owner, and its call in the prelude.
+      forget(inFlight) {
+        const keep = new Set(inFlight.map(key));
+        for (const [parkedKey, parked] of pending) {
+          if (JSON.parse(parkedKey)[0] === null || keep.has(parkedKey)) continue;
+          pending.delete(parkedKey); storage.retire(parked.owner); win.__exact_forget(String(parked.call));
+        }
+        forgetTurns(id, keep, key);
+      },
       dispose() {
         disposed = true; storage.dispose(); pending.clear(); realms.delete(id); frame.remove();
         for (const [token,turn] of turns) if (turn.id === id) turns.delete(token);
@@ -177,6 +187,10 @@ async function prepareWorker(payload, admitted, id, before, meta) {
     agent: new URL(location.href).searchParams.has('agent') });
   try { await ready; } catch (error) { worker.terminate(); throw error; }
   const realm = { frame: null, meta, id, placement: 'worker',
+    forget(inFlight) {
+      forgetTurns(id, new Set(inFlight.map(workerKey)), workerKey);
+      worker.postMessage({ op: 'forget', inFlight });
+    },
     invoke(request) {
       const token = nextTurn++;
       turns.set(token, {id, request, run: () => new Promise((resolve, reject) => {
@@ -192,6 +206,16 @@ async function prepareWorker(payload, admitted, id, before, meta) {
     },
   };
   realms.set(id, realm); return realm;
+}
+// The runner's target first, as each realm keys its parked calls.
+const workerKey = r => JSON.stringify([r.target ?? null, r.source, r.args]);
+// Turns not yet run for a request the runner let go: running one would only
+// produce a reply the runner drops.
+function forgetTurns(id, keep, keyOf) {
+  for (const [token, turn] of turns) {
+    if (turn.id !== id || (turn.request.target ?? null) === null) continue;
+    if (!keep.has(keyOf(turn.request))) turns.delete(token);
+  }
 }
 export function call(request) {
   const realm = realms.get(request.id);
@@ -209,6 +233,7 @@ export function call(request) {
     if (turn && turn.id === request.id) turns.delete(request.token);
     return { ok: true };
   }
+  if (request.op === 'forget') { realm.forget(request.inFlight ?? []); return { ok: true }; }
   if (request.op === 'answer' || request.op === 'resume') return realm.invoke(request);
   return { error: 'unknown browser module operation' };
 }
