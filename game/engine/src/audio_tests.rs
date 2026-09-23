@@ -205,14 +205,15 @@ fn synth_definitions_and_voices_keep_their_encoding() {
     let definition = crate::hash::of(&w.resource::<Sounds>().0["chime"]);
     let voices = crate::hash::of(&*w.resource::<Voices>());
     let save = crate::hash::of(&w.save());
-    assert_eq!(
-        (definition, voices, save, w.hash()),
-        (
-            0x9503a692d18e9156,
-            0x076debb9ab3aca01,
-            0x5c43e49cb7481ec6,
-            0x5cb7ee2283905f4e
-        ),
-        "synth encoding changed"
-    );
+    let pins: BTreeMap<String, String> =
+        crate::json::from_str(include_str!("../tests/pins.json")).unwrap();
+    for (name, got) in [
+        ("definition", definition),
+        ("voices", voices),
+        ("save", save),
+        ("world", w.hash()),
+    ] {
+        let pin = &pins[&format!("synth-only-{name}")];
+        assert_eq!(&format!("0x{got:016x}"), pin, "synth-only {name} encoding changed");
+    }
 }

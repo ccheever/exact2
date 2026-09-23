@@ -1,5 +1,9 @@
 {
   "emitter-point": "0x726f3ee0098bb673",
   "emitter-sphere": "0xf45aa92ab410079c",
-  "emitter-cone": "0x638294ccb7850105"
+  "emitter-cone": "0x638294ccb7850105",
+  "synth-only-definition": "0x9503a692d18e9156",
+  "synth-only-voices": "0x076debb9ab3aca01",
+  "synth-only-save": "0x5c43e49cb7481ec6",
+  "synth-only-world": "0x5cb7ee2283905f4e"
 }
