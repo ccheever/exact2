@@ -1,7 +1,7 @@
 //! The development map's half that only lowering knows (LLP 1035.005 D3,
 //! 1035.002 D6): which plan node each element became and, per style row a
 //! node binds, whether the binding came from the node's own attribute, from
-//! a `class=` style, or from the tag itself. [`lower_mapped`](crate::lower_mapped)
+//! a `class=` style, or from the tag itself. [`lower_all`](crate::lower_all)
 //! returns it beside the plan; the plan's bytes never carry any of it.
 
 use contract_syntax::{Expanded, Instance, Span};

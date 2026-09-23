@@ -941,11 +941,6 @@ pub fn check(file: &File) -> Result<Checked<'_>, TypeError> {
     check_with_sites(file, false).map_err(|mut all| all.swap_remove(0))
 }
 
-/// Check with development source provenance retained for mapped lowering.
-pub fn check_mapped(file: &File) -> Result<Checked<'_>, TypeError> {
-    check_with_sites(file, true).map_err(|mut all| all.swap_remove(0))
-}
-
 /// Check a file and report every independent refusal (at most
 /// [`MAX_REFUSALS`]), call sites first; `mapped` retains source provenance.
 pub fn check_all(file: &File, mapped: bool) -> Result<Checked<'_>, Vec<TypeError>> {

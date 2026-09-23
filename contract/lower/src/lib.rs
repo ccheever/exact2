@@ -273,29 +273,11 @@ pub fn lower_all(
     if mapped && checked.expanded.instances.is_empty() {
         return Err(vec![LowerError {
             id: "lower-source-sites",
-            message: "mapped lowering needs check_mapped source provenance".into(),
+            message: "mapped lowering needs source provenance from `check_all(file, true)`".into(),
             span: checked.expanded.root.span,
         }]);
     }
     lower_with_sites(checked, analysis, asset_root, mapped)
-}
-
-/// Lower with development-only source sites, separate from the plan bytes.
-pub fn lower_mapped(
-    checked: &Checked<'_>,
-    analysis: &Analysis,
-    asset_root: Option<&Path>,
-) -> Result<(Plan, Sites), LowerError> {
-    if checked.expanded.instances.is_empty() {
-        return err(
-            "lower-source-sites",
-            "mapped lowering needs check_mapped source provenance",
-            checked.expanded.root.span,
-        );
-    }
-    lower_with_sites(checked, analysis, asset_root, true)
-        .map(|(plan, sites)| (plan, sites.expect("sites requested")))
-        .map_err(|mut all| all.swap_remove(0))
 }
 
 fn lower_with_sites(
