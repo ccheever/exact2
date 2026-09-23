@@ -104,8 +104,8 @@ impl Server {
         self.listener.local_addr().expect("a bound listener")
     }
 
-    /// Serve until the process ends. `D::default()` is each render's source.
-    pub fn run<D: DataSource + Default + 'static>(self) -> std::io::Result<()> {
+    /// Serve until the process ends. `data` makes each render's source.
+    pub fn run<D: DataSource + 'static>(self, data: fn() -> D) -> std::io::Result<()> {
         let shared = Arc::new(self.shared);
         // The connections waiting, and how many workers are free to take one.
         let waiting = Arc::new((
@@ -133,7 +133,7 @@ impl Server {
                             state = ready.wait(state).unwrap();
                         }
                     };
-                    answered = Some(handle::<D>(stream, &shared));
+                    answered = Some(handle(stream, &shared, data));
                 }
             });
         }
@@ -248,7 +248,7 @@ fn close(mut stream: TcpStream) {
 }
 
 /// Answer one connection; the worker closes it.
-fn handle<D: DataSource + Default>(mut stream: TcpStream, shared: &Shared) -> TcpStream {
+fn handle<D: DataSource>(mut stream: TcpStream, shared: &Shared, data: fn() -> D) -> TcpStream {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(10)));
     let Ok(request) = read_request(&mut stream) else {
@@ -259,7 +259,7 @@ fn handle<D: DataSource + Default>(mut stream: TcpStream, shared: &Shared) -> Tc
     let response = if request.method != "GET" && !head {
         Response::text(405, "GET or HEAD\n").header("Allow", "GET, HEAD")
     } else {
-        respond::<D>(&request, shared)
+        respond(&request, shared, data)
     };
     response.write(&mut stream, head, &shared.csp);
     stream
@@ -318,7 +318,7 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, ()> {
     })
 }
 
-fn respond<D: DataSource + Default>(request: &Request, shared: &Shared) -> Response {
+fn respond<D: DataSource>(request: &Request, shared: &Shared, data: fn() -> D) -> Response {
     let (path, query) = match request.target.split_once('?') {
         Some((path, query)) => (path, Some(query)),
         None => (request.target.as_str(), None),
@@ -327,7 +327,7 @@ fn respond<D: DataSource + Default>(request: &Request, shared: &Shared) -> Respo
         return Response::text(200, "ok\n").header("Cache-Control", "no-store");
     }
     if path == "/sitemap.xml" {
-        return sitemap::<D>(shared);
+        return sitemap(shared, data);
     }
     if path == "/robots.txt" {
         // Neutral until hosting decides a crawler policy (LLP 1048 §9.9).
@@ -381,7 +381,7 @@ fn respond<D: DataSource + Default>(request: &Request, shared: &Shared) -> Respo
         };
     }
     if policy != Some(RenderPolicy::Cached) || shared.serve.lifetime.is_zero() || request.no_store {
-        return document::<D>(request, policy, notfound, shared);
+        return document(request, policy, notfound, shared, data);
     }
     {
         let mut pages = shared.pages.lock().unwrap();
@@ -410,7 +410,7 @@ fn respond<D: DataSource + Default>(request: &Request, shared: &Shared) -> Respo
         revalidate: true,
         no_store: false,
     };
-    let mut response = document::<D>(&unconditional, policy, notfound, shared);
+    let mut response = document(&unconditional, policy, notfound, shared, data);
     if response.status == 200 && response.body.len() <= MAX_CACHE_BYTES {
         let mut pages = shared.pages.lock().unwrap();
         pages.retain(|page| page.target != request.target);
@@ -441,11 +441,12 @@ fn respond<D: DataSource + Default>(request: &Request, shared: &Shared) -> Respo
     response
 }
 
-fn document<D: DataSource + Default>(
+fn document<D: DataSource>(
     request: &Request,
     policy: Option<RenderPolicy>,
     notfound: bool,
     shared: &Shared,
+    data: fn() -> D,
 ) -> Response {
     let serve = &shared.serve;
     let started = Instant::now();
@@ -457,7 +458,7 @@ fn document<D: DataSource + Default>(
     let rendered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         render(
             &shared.plan,
-            D::default,
+            data,
             serve.viewport,
             location,
             &site,
@@ -542,7 +543,7 @@ fn document<D: DataSource + Default>(
 /// parameterized one's as its `pages=` source lists them now, a route
 /// without one left out — absolute against the configured origin. Without
 /// an origin there is none.
-fn sitemap<D: DataSource + Default>(shared: &Shared) -> Response {
+fn sitemap<D: DataSource>(shared: &Shared, data: fn() -> D) -> Response {
     let Some(origin) = shared.serve.origin.as_deref() else {
         return Response::text(404, "no origin, no sitemap\n");
     };
@@ -559,7 +560,7 @@ fn sitemap<D: DataSource + Default>(shared: &Shared) -> Response {
             continue;
         }
         let listed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            crate::pages(plan, D::default(), row, shared.serve.deadline)
+            crate::pages(plan, data(), row, shared.serve.deadline)
         }))
         .unwrap_or_else(|_| Err("the pages source panicked".into()));
         match listed {

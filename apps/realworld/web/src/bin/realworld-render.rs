@@ -17,7 +17,10 @@ fn main() -> std::process::ExitCode {
             metadata::GRANTS,
         )
     ));
-    exact_render::main::<Data>(include_bytes!(concat!(env!("OUT_DIR"), "/app.plan")))
+    exact_render::main(
+        include_bytes!(concat!(env!("OUT_DIR"), "/app.plan")),
+        Data::default,
+    )
 }
 
 #[cfg(target_arch = "wasm32")]

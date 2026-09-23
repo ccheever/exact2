@@ -94,7 +94,7 @@ fn start(deadline: Duration) -> SocketAddr {
     let plan = contract::compile(super::interrupt::SRC).unwrap();
     let server = Server::bind(serve, plan, "").unwrap();
     let addr = server.addr();
-    std::thread::spawn(move || server.run::<Spin>());
+    std::thread::spawn(move || server.run(Spin::default));
     addr
 }
 

@@ -134,7 +134,7 @@ fn start(name: &str, renders: usize, queue: usize, deadline: u64) -> SocketAddr 
     let plan = contract::compile(SRC).unwrap();
     let server = Server::bind(serve, plan, Posts.grants()).unwrap();
     let addr = server.addr();
-    std::thread::spawn(move || server.run::<Posts>());
+    std::thread::spawn(move || server.run(|| Posts));
     addr
 }
 
@@ -467,7 +467,7 @@ fn a_page_whose_data_answered_later_is_adopted_with_what_is_pending() {
     let plan = contract::compile(FEED).unwrap();
     let server = Server::bind(serve, plan.clone(), Feed.grants()).unwrap();
     let addr = server.addr();
-    std::thread::spawn(move || server.run::<Feed>());
+    std::thread::spawn(move || server.run(|| Feed));
     let (status, _, body) = get(addr, "/");
     assert_eq!(status, 200);
     assert!(body.contains(">third<"), "{body}");
