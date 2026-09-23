@@ -375,6 +375,25 @@ fn every_rejection_class_leaves_the_kernel_untouched() {
                 node_type: NodeType::Image,
             },
         ),
+        (
+            // A chain of 127 views under node 4 (depth 2) would put 226 at
+            // depth 129; the op that places it there is refused.
+            (100..227)
+                .map(|id| Op::CreateView {
+                    id,
+                    node_type: NodeType::View,
+                })
+                .chain((99..226).map(|id| Op::SetChildren {
+                    id: if id == 99 { 4 } else { id },
+                    children: vec![id + 1],
+                }))
+                .collect(),
+            ApplyError::TooDeep {
+                op_index: 253,
+                id: 226,
+                depth: exact_kernel::MAX_DEPTH + 1,
+            },
+        ),
     ];
 
     for (ops, expected) in cases {

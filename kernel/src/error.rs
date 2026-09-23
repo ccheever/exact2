@@ -224,6 +224,15 @@ pub enum ApplyError {
         op_index: usize,
         error: exact_motion::TransitionError,
     },
+    /// The batch would leave node `id` `depth` levels below the top of its
+    /// tree, past [`MAX_DEPTH`](crate::MAX_DEPTH): layout recurses once per
+    /// level and the host's stack is finite. `op_index` attached the subtree
+    /// that holds it; nested inline runs count like any other level.
+    TooDeep {
+        op_index: usize,
+        id: ViewId,
+        depth: u32,
+    },
     /// No representable slot index remains.
     SlotSpaceExhausted,
     /// Validation accepted an op the apply phase could not perform. This is a

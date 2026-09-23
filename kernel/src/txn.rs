@@ -23,6 +23,15 @@ use crate::selector::SelectorIndex;
 use crate::style::taffy_style;
 use crate::wire::Op;
 
+/// The deepest a node may sit below the top of its tree (a root is 0). Layout
+/// recurses once per level: a release build uses up to ~3.5 KiB of stack a
+/// level (flex; grid 3.3, block 1.9, nested inline runs 0.7), and hosts lay
+/// out on their main thread, whose stack is 1 MiB on iOS. 128 levels take
+/// ~450 KiB of it; the deepest app tree measured is 9 (Caltrain). A deeper
+/// batch is refused with [`ApplyError::TooDeep`] instead of aborting the
+/// process on a stack overflow (20,000 levels did).
+pub const MAX_DEPTH: u32 = 128;
+
 /// What a committed batch changed. Every key is generation-checked; a
 /// `destroyed` key resolves to nothing after the commit by construction.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -49,6 +58,14 @@ enum State {
     Created(NodeType),
     Destroyed,
     Unknown,
+}
+
+/// How an ancestor walk ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Walk {
+    Ended,
+    TooDeep,
+    Cycle,
 }
 
 /// The batch's view of the tree during validation: the arena plus overrides.
@@ -143,20 +160,83 @@ impl<'a> Staged<'a> {
     }
 
     /// Every ancestor of `id`, walked once per `SetChildren` rather than once
-    /// per child. Every validated SetChildren rejects cycles, so the chain is
-    /// finite; `None` (then refused as a cycle) only turns an impossible one
-    /// into a rejection instead of a hang.
-    fn ancestors(&self, id: ViewId) -> Option<IdSet<ViewId>> {
-        let bound = self.arena.live_count() + self.created.len() + 1;
+    /// per child, and at most [`MAX_DEPTH`] steps up: with that many above
+    /// `id`, its children would already sit past the bound. Every validated
+    /// SetChildren rejects cycles, so a revisit is impossible; it is refused
+    /// as one rather than looping.
+    fn ancestors(&self, id: ViewId) -> (IdSet<ViewId>, Walk) {
         let mut out = IdSet::default();
         let mut cur = self.parent_of(id);
         while let Some(p) = cur {
-            if !out.insert(p) || out.len() > bound {
-                return None;
+            if !out.insert(p) {
+                return (out, Walk::Cycle);
+            }
+            if out.len() >= MAX_DEPTH as usize {
+                return (out, Walk::TooDeep);
             }
             cur = self.parent_of(p);
         }
-        Some(out)
+        (out, Walk::Ended)
+    }
+
+    /// Every node this batch attached somewhere, and its subtree, ends at most
+    /// [`MAX_DEPTH`] below the top of its tree. Depths are memoized upward and
+    /// a checked subtree is not entered again, so a batch walks each affected
+    /// node once.
+    fn check_depth(&self, arrivals: &[(usize, ViewId)]) -> Result<(), ApplyError> {
+        let mut depths: IdMap<ViewId, u32> = IdMap::default();
+        let mut checked: IdSet<ViewId> = IdSet::default();
+        for &(op_index, top) in arrivals {
+            if checked.contains(&top)
+                || matches!(self.state(top), State::Destroyed | State::Unknown)
+            {
+                continue;
+            }
+            let mut stack = vec![(top, self.depth(top, &mut depths))];
+            while let Some((id, depth)) = stack.pop() {
+                if depth > MAX_DEPTH {
+                    return Err(ApplyError::TooDeep {
+                        op_index,
+                        id,
+                        depth,
+                    });
+                }
+                if checked.insert(id) {
+                    stack.extend(self.children_of(id).into_iter().map(|c| (c, depth + 1)));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// How many ancestors `id` has in the staged tree, memoized along the way.
+    /// A walk past [`MAX_DEPTH`] stops there: that is already a refusal.
+    fn depth(&self, id: ViewId, memo: &mut IdMap<ViewId, u32>) -> u32 {
+        let mut path = Vec::new();
+        let mut cur = id;
+        let mut depth = loop {
+            if let Some(&known) = memo.get(&cur) {
+                break known;
+            }
+            if path.len() > MAX_DEPTH as usize {
+                return MAX_DEPTH + 1;
+            }
+            match self.parent_of(cur) {
+                Some(parent) => {
+                    path.push(cur);
+                    cur = parent;
+                }
+                None => {
+                    memo.insert(cur, 0);
+                    break 0;
+                }
+            }
+        };
+        for node in path.into_iter().rev() {
+            depth += 1;
+            memo.insert(node, depth);
+        }
+        depth
     }
 
     fn destroy(&mut self, id: ViewId) {
@@ -178,6 +258,8 @@ impl<'a> Staged<'a> {
 fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
     let mut staged = Staged::new(arena);
     let mut creates: u64 = 0;
+    // Children placed under a parent they did not have: what can deepen a tree.
+    let mut arrivals: Vec<(usize, ViewId)> = Vec::new();
     for (op_index, op) in ops.iter().enumerate() {
         match op {
             Op::CreateView { id, node_type } => match staged.state(*id) {
@@ -256,8 +338,8 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                     });
                 }
                 let mut seen = IdSet::with_capacity_and_hasher(children.len(), Default::default());
-                let ancestors = if children.is_empty() {
-                    Some(IdSet::default())
+                let (ancestors, walk) = if children.is_empty() {
+                    (IdSet::default(), Walk::Ended)
                 } else {
                     staged.ancestors(*id)
                 };
@@ -288,13 +370,20 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                             child: *child,
                         });
                     }
-                    if ancestors.as_ref().is_none_or(|a| a.contains(child)) {
+                    if walk == Walk::Cycle || ancestors.contains(child) {
                         return Err(ApplyError::Cycle {
                             op_index,
                             parent: *id,
                             child: *child,
                         });
                     }
+                }
+                if walk == Walk::TooDeep {
+                    return Err(ApplyError::TooDeep {
+                        op_index,
+                        id: children[0],
+                        depth: MAX_DEPTH + 1,
+                    });
                 }
                 for old in staged.children_of(*id) {
                     if !seen.contains(&old) {
@@ -304,6 +393,9 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                 // A child arriving from another parent leaves it by this
                 // write alone: that parent's staged list filters it out.
                 for child in children {
+                    if staged.parent_of(*child) != Some(*id) {
+                        arrivals.push((op_index, *child));
+                    }
                     staged.parents.insert(*child, Some(*id));
                 }
                 staged.children.insert(*id, children.clone());
@@ -318,6 +410,7 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
             }
         }
     }
+    staged.check_depth(&arrivals)?;
     // Conservative: ignores free-slot reuse, so it only ever refuses a batch that
     // would have fit within a few slots of the four-billion-node ceiling.
     if arena.slot_count() as u64 + creates > u32::MAX as u64 {
@@ -1091,5 +1184,113 @@ mod tests {
         assert_eq!(k.node(5).unwrap().children(), vec![7]);
         assert!(after[0].1.width < before[0].1.width || before[0].1.width == 400.0);
         assert!(engine_matches);
+    }
+
+    /// A chain of `levels` nodes below root 1 (ids 2..): each the only child
+    /// of the one before, linked top-down or bottom-up.
+    fn chain(levels: u32, node_type: NodeType, bottom_up: bool) -> Vec<Op> {
+        let mut ops = create([1], NodeType::View);
+        ops.extend(create(2..levels + 2, node_type));
+        let mut links: Vec<Op> = (1..levels + 1).map(|id| children(id, &[id + 1])).collect();
+        if bottom_up {
+            links.reverse();
+        }
+        ops.extend(links);
+        ops.push(Op::AttachRoot { id: 1 });
+        ops
+    }
+
+    fn too_deep(k: &mut Kernel, ops: &[Op]) -> bool {
+        let before = k.export(None).unwrap();
+        let refused = matches!(
+            k.apply(0, 9, ops),
+            Err(crate::KernelError::Apply(super::ApplyError::TooDeep { depth, .. }))
+                if depth == super::MAX_DEPTH + 1
+        );
+        refused && k.export(None).unwrap() == before
+    }
+
+    /// Taffy recurses once per level, so a 20,000-deep tree overflowed the
+    /// stack and aborted the process. Past `MAX_DEPTH` a batch is refused
+    /// whole, however it builds the tree; at the bound every layout mode and
+    /// nested inline runs lay out (on a debug build's larger frames, so on a
+    /// roomy thread here).
+    #[test]
+    fn trees_past_the_depth_bound_are_refused_whole() {
+        let max = super::MAX_DEPTH;
+        for node_type in [NodeType::View, NodeType::Text] {
+            for bottom_up in [false, true] {
+                let mut k = kernel(&[]);
+                assert!(too_deep(&mut k, &chain(max + 1, node_type, bottom_up)));
+                assert_eq!(k.live_count(), 0);
+                k.apply(0, 1, &chain(max, node_type, bottom_up)).unwrap();
+            }
+        }
+        // Onto an existing tree: one more level under the deepest node.
+        let mut k = kernel(&chain(max, NodeType::View, false));
+        let deeper = [
+            Op::CreateView {
+                id: 900,
+                node_type: NodeType::View,
+            },
+            children(max + 1, &[900]),
+        ];
+        assert!(too_deep(&mut k, &deeper));
+        // Moving a subtree deeper: 10 levels (ids 500..=509) under root 1.
+        let mut ops = create(500..510, NodeType::View);
+        ops.extend((500..509).map(|id| children(id, &[id + 1])));
+        ops.push(children(1, &[2, 500]));
+        k.apply(0, 2, &ops).unwrap();
+        // Under the node at depth max - 9 its last level would be max + 1;
+        // one level up it fits exactly.
+        let at = |depth: u32| depth + 1;
+        assert!(too_deep(
+            &mut k,
+            &[children(at(max - 9), &[at(max - 8), 500])]
+        ));
+        k.apply(0, 3, &[children(at(max - 10), &[at(max - 9), 500])])
+            .unwrap();
+        // Reordering under the deepest parent moves nothing deeper.
+        k.apply(0, 4, &[children(at(max - 10), &[500, at(max - 9)])])
+            .unwrap();
+
+        for display in ["block", "flex", "grid", "inline runs"] {
+            std::thread::Builder::new()
+                .stack_size(64 << 20)
+                .spawn(move || {
+                    let text = display == "inline runs";
+                    let mut ops = chain(
+                        max,
+                        if text { NodeType::Text } else { NodeType::View },
+                        false,
+                    );
+                    ops.push(prop(max + 1, PropId::Text, "leaf"));
+                    if !text {
+                        for id in 1..max + 2 {
+                            let mut patch = StyleProps::default();
+                            patch
+                                .set_dynamic(StyleId::Display, &StyleValue::Text(display.into()))
+                                .unwrap();
+                            ops.push(Op::SetStyle {
+                                id,
+                                patch: Box::new(patch),
+                            });
+                        }
+                    }
+                    if !text {
+                        ops.push(tall(max + 1, 10.0));
+                    }
+                    let mut k = kernel(&ops);
+                    k.compute_layout(1, Offer::definite(400.0, 800.0)).unwrap();
+                    let height = k.node(1).unwrap().frame.height;
+                    assert!(
+                        if text { height > 0.0 } else { height == 10.0 },
+                        "{display}: {height}"
+                    );
+                })
+                .unwrap()
+                .join()
+                .unwrap();
+        }
     }
 }
