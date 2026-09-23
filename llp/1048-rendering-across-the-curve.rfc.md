@@ -223,6 +223,15 @@ have.
 - **Later sources on the server.** A source whose stage is later than the
   render's answers with its placeholder, with `pending(x)` true. The client asks
   it after adoption.
+- **Until sources declare a stage** (nothing does yet), a render runs every
+  source in its own environment. That environment has no store, no cookies and
+  no device capabilities: the render host refuses SQLite and kept secrets. A
+  source refused there keeps its placeholder, and the client asks it after
+  adoption. So a render answers what a new anonymous device would see. Nothing
+  private can reach it, because the environment holds nothing private. Declared
+  stages come when a consumer needs a source kept off the server (1b, 2026-09-23:
+  under "undeclared is `client`", 296 of the repo's 304 resources would never
+  render).
 - **Anonymous renders.** No cookies, no store, and no request context except the
   URL. Declared public request facts, such as a locale, can join later
   (LLP 1048.002 §2); each one is then part of the cache key.
