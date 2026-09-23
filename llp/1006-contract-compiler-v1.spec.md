@@ -249,7 +249,8 @@ a line:column (`CompileError`).
 `--json` (an array) report each independent mistake, at most 20;
 `compile_path_all` returns them and the other entry points return the first.
 The lexer refuses per line and the parser per top-level declaration, resuming
-at the next line that starts in column 1. Expansion records a use it cannot
+at the next line that starts in column 1; a declaration keyword there also
+ends a bracket left open above it, since it can never continue an expression. Expansion records a use it cannot
 expand and continues, a missing value reading as `?`. Types records per state,
 derive, statement, view attribute and use, analysis per component and action,
 lowering per element and attribute. A later refusal that mentions `?` is a
