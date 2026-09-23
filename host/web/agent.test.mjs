@@ -416,7 +416,8 @@ function inputFixture() {
     addEventListener(kind, fn) { const list = listeners.get(kind) ?? []; list.push(fn); listeners.set(kind, list); },
     closest() { return this.disabled ? this : null; }, setPointerCapture(id) { captured.push(id); } };
   const buttons = [];
-  const f = vm.createContext({ inputReady: false, inputHandlers: null,
+  // `page` is a built document being adopted (LLP 1048.000 D6); this page was not built.
+  const f = vm.createContext({ inputReady: false, inputHandlers: null, page: null,
     views: new Map([[7, el]]), retiredViews: new WeakSet(), frames, sent, captured, el,
     root: { querySelectorAll: () => buttons },
     document: { addEventListener(kind, fn) { f.keydown = fn; }, activeElement: { closest: () => null } },
