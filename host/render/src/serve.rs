@@ -457,7 +457,7 @@ fn document<D: DataSource + Default>(
     let rendered = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         render(
             &shared.plan,
-            D::default(),
+            D::default,
             serve.viewport,
             location,
             &site,

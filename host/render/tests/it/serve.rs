@@ -371,3 +371,118 @@ fn the_sitemap_lists_each_rendered_route_and_its_listed_pages() {
         "User-agent: *\nAllow: /\nSitemap: https://blog.test/sitemap.xml\n"
     );
 }
+
+/// A list that answers a moment after it is asked, before a sibling: the
+/// runner that settles builds the sibling first and the cards when they
+/// land; the runtime, booting with the answer, builds them in page order.
+/// And a list the render's environment refuses (storage), still pending.
+const FEED: &str = r#"
+routes nav
+  tab home "/" render=request
+
+component Feed
+  resource cards = cards() as shape list<string>
+  resource saved = saved() as shape list<string>
+  view
+    column
+      each c in cards key = c
+        text c
+      text "the end" testId="end"
+      each s in saved key = s
+        text s
+"#;
+
+#[derive(Default)]
+struct Feed;
+
+impl DataSource for Feed {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(source.into()))
+    }
+
+    fn answer(&mut self, _: &mut Store, source: &str, _: &[Value]) -> Result<Answer, DataError> {
+        match source {
+            "cards" => Ok(Answer::Later(Request::continuation(1))),
+            "saved" => Ok(Answer::Later(Request::storage(b"get".to_vec()))),
+            other => Err(DataError::UnknownSource(other.into())),
+        }
+    }
+
+    fn continuation(&mut self, _: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
+        Some(Box::new(|| {
+            std::thread::sleep(Duration::from_millis(20));
+            Outcome::Response(Response {
+                status: 200,
+                headers: vec![],
+                body: b"first second third".to_vec(),
+            })
+        }))
+    }
+
+    fn parse(
+        &mut self,
+        _: &mut Store,
+        _: &str,
+        _: &[Value],
+        outcome: Outcome,
+    ) -> Result<Answer, DataError> {
+        let Outcome::Response(response) = outcome else {
+            return Err(DataError::Unavailable("no response".into()));
+        };
+        let body = String::from_utf8_lossy(&response.body).into_owned();
+        Ok(Answer::Now(Value::list(
+            body.split(' ').map(Value::str).collect(),
+        )))
+    }
+
+    fn grants(&self) -> &str {
+        ""
+    }
+}
+
+#[test]
+fn a_page_whose_data_answered_later_is_adopted_with_what_is_pending() {
+    super::warm_transport();
+    let serve = Serve {
+        dist: dist("feed"),
+        port: 0,
+        name: "Feed".into(),
+        origin: None,
+        deadline: Duration::from_secs(10),
+        renders: 1,
+        queue: 8,
+        viewport: Default::default(),
+        lifetime: Duration::from_secs(120),
+    };
+    let plan = contract::compile(FEED).unwrap();
+    let server = Server::bind(serve, plan.clone(), Feed.grants()).unwrap();
+    let addr = server.addr();
+    std::thread::spawn(move || server.run::<Feed>());
+    let (status, _, body) = get(addr, "/");
+    assert_eq!(status, 200);
+    assert!(body.contains(">third<"), "{body}");
+    assert!(body.contains("\"pending\":[\"saved\"]"), "{body}");
+    // The checkpoint and its digest, as the glue hands them to the runtime.
+    let open = "<script type=\"application/vnd.exact.checkpoint\" data-digest=\"";
+    let at = body.find(open).expect("a checkpoint") + open.len();
+    let digest = &body[at..at + 64];
+    let (_, rest) = body[at..].split_once('>').unwrap();
+    let (checkpoint, _) = rest.split_once("</script>").unwrap();
+    // The runtime boots from it and adopts the document: its first tree,
+    // view ids included, is the document's.
+    let (_, batch) = exact_web::Host::boot_checkpoint(
+        &plan.encode(),
+        Feed,
+        checkpoint,
+        digest,
+        Vec::new(),
+        None,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert!(
+        batch.contains("{\"op\":\"adopt\",\"adopted\":true}"),
+        "{batch}"
+    );
+}

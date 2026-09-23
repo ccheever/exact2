@@ -142,7 +142,7 @@ fn at(post: Post, deadline: Duration) -> Rendered {
     warm_transport();
     render(
         &plan(),
-        Blog::new(post),
+        || Blog::new(post),
         Default::default(),
         "/post/7",
         &SITE,
@@ -177,7 +177,7 @@ fn an_async_branch_is_adopted_from_the_same_checkpoint() {
     let plan = contract::compile(&src).unwrap();
     let rendered = render(
         &plan,
-        Blog::new(Post::Soon),
+        || Blog::new(Post::Soon),
         Default::default(),
         "/post/7",
         &SITE,

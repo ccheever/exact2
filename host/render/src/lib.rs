@@ -5,9 +5,10 @@
 //! cookies, no device capabilities ([`Anonymous`]) — and runs its requests
 //! through the native executor core the Apple and Linux hosts share
 //! ([`Executor`]) until the document settles or its deadline passes
-//! ([`settle`]). Then `exact_web::document` projects it: the document, the
-//! page's head and its checkpoint. The build runs it through [`main`]; the
-//! server (LLP 1048.000 D10) will run the same render per request.
+//! ([`settle`]). Its checkpoint is the page's state; the document is that
+//! checkpoint's projection (`exact_web::document`), from a runner booted
+//! from it as the runtime boots. The build runs it through [`main`]; the
+//! server (LLP 1048.000 D10) runs the same render per request.
 //!
 //! No action runs, no timer fires and the clock stays where boot put it:
 //! the completion rule ignores them. A source asking for what the
@@ -34,7 +35,9 @@ use exact_plan::{Plan, RenderPolicy};
 use exact_runner::{
     DataSource, Dispatch, FailureKind, Interrupt, Outcome, RequestOut, Runner, RunnerError,
 };
-use exact_web::document::{build_locations, checkpoint, digest, project, route_at, Document, Site};
+use exact_web::document::{
+    build_locations, checkpoint, digest, project, read_checkpoint, route_at, Document, Site,
+};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -98,26 +101,25 @@ pub struct Rendered {
     pub activate: exact_plan::ActivatePolicy,
 }
 
-/// Render `plan` at `location` with `data`, waiting at most `deadline` for
-/// its requests. A source whose reply it cannot shape, or a projection the
-/// HTML parser would undo, is the error.
+/// Render `plan` at `location` with a source from `data`, waiting at most
+/// `deadline` for its requests. A source whose reply it cannot shape, or a
+/// projection the HTML parser would undo, is the error.
 pub fn render<D: DataSource>(
     plan: &Plan,
-    data: D,
+    data: impl Fn() -> D,
     viewport: exact_runner::Viewport,
     location: &str,
     site: &Site,
     deadline: Duration,
 ) -> Result<Rendered, String> {
-    let data = Anonymous::new(data);
-    let initially_ready = data.ready();
+    let settling = Anonymous::new(data());
     // The deadline waits for sources, not for the transport to start.
-    let executor = Executor::start(exact_runner::DataSource::grants(&data));
+    let executor = Executor::start(exact_runner::DataSource::grants(&settling));
     let until = Instant::now() + deadline;
-    let watchdog = Watchdog::arm(data.interrupt(), until);
+    let watchdog = Watchdog::arm(settling.interrupt(), until);
     let mut runner = Runner::boot_with_delivery(
         plan.clone(),
-        data,
+        settling,
         Kernel::with_monospace(),
         None,
         Vec::new(),
@@ -139,26 +141,26 @@ pub fn render<D: DataSource>(
     // Whatever is still in flight is abandoned with the render.
     drop(executor);
     let checkpoint = checkpoint(&runner, location);
-    let state = runner.document_checkpoint(location);
-    // Async completion order allocates view ids along the way. The browser
-    // starts with these answers already present, so project that same first
-    // tree rather than the history of placeholder replacement on the server.
-    let document = if state.pending.is_empty() {
-        let canonical = Runner::boot_checkpoint(
-            plan.clone(),
-            source::Projection(runner.data(), initially_ready),
-            Kernel::with_monospace(),
-            &state,
-            Vec::new(),
-            Default::default(),
-            viewport,
-            location,
-        )
-        .map_err(|e| format!("checkpoint projection: {e:?}"))?;
-        project(&canonical).map_err(|e| e.to_string())?
-    } else {
-        project(&runner).map_err(|e| e.to_string())?
-    };
+    drop(runner);
+    // @ref LLP 1048.000 D6 — the document is the checkpoint's projection,
+    // from a runner booted from the page's checkpoint with a fresh source,
+    // as the runtime boots: its first tree is built in one pass, so its view
+    // ids are the runtime's, a pending answer's placeholder included. The
+    // runner that settled built its tree as answers arrived. What the boot
+    // asks is never run.
+    let state = read_checkpoint(&checkpoint).map_err(|e| format!("the checkpoint: {e}"))?;
+    let booted = Runner::boot_checkpoint(
+        plan.clone(),
+        Anonymous::new(data()),
+        Kernel::with_monospace(),
+        &state,
+        Vec::new(),
+        Default::default(),
+        viewport,
+        location,
+    )
+    .map_err(|e| format!("boot from the checkpoint: {e:?}"))?;
+    let document = project(&booted).map_err(|e| e.to_string())?;
     let head = document
         .page_head(plan, site, location)
         .map_err(|e| e.to_string())?;
@@ -170,7 +172,7 @@ pub fn render<D: DataSource>(
     // interaction activation only replays discrete form and press semantics.
     if activation == exact_plan::ActivatePolicy::Interaction
         && (!state.pending.is_empty()
-            || runner.handlers().values().flatten().any(|kind| {
+            || booted.handlers().values().flatten().any(|kind| {
                 !matches!(
                     kind,
                     exact_plan::EventKind::Press
@@ -554,14 +556,15 @@ pub fn main<D: DataSource + Default + 'static>(baked: &[u8]) -> std::process::Ex
         // The not-found document, or any location the router sends there.
         let notfound = *listed || route_at(&decoded, location).is_some_and(|r| r.notfound);
         let mut line = format!("{{\"location\":{}", json(location));
-        let rendered = render(&decoded, D::default(), viewport, location, &site, deadline)
-            .and_then(|rendered| {
+        let rendered = render(&decoded, D::default, viewport, location, &site, deadline).and_then(
+            |rendered| {
                 let page = shell
                     .as_deref()
                     .map(|shell| page(shell, &rendered))
                     .transpose()?;
                 Ok((rendered, page))
-            });
+            },
+        );
         match rendered {
             Ok((rendered, page)) => {
                 let settled = rendered.settled == Settled::Complete;

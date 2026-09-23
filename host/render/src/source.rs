@@ -9,33 +9,6 @@ use exact_runner::{
     Answer, DataError, DataSource, Dispatch, Interrupt, Outcome, Placement, Store, Target,
 };
 
-/// The settled source, with its original client readiness. Only pure queries
-/// may run while reconstructing the checkpoint's first tree: no second fetch.
-pub(crate) struct Projection<'a, D>(pub &'a mut D, pub bool);
-
-impl<D: DataSource> DataSource for Projection<'_, D> {
-    fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
-        self.0.query(source, args)
-    }
-    fn answer(&mut self, _: &mut Store, source: &str, _: &[Value]) -> Result<Answer, DataError> {
-        Err(DataError::Unavailable(format!(
-            "checkpoint projection would ask {source} again"
-        )))
-    }
-    fn app_id(&self) -> &str {
-        self.0.app_id()
-    }
-    fn revision(&self) -> Option<&str> {
-        self.0.revision()
-    }
-    fn grants(&self) -> &str {
-        self.0.grants()
-    }
-    fn ready(&self) -> bool {
-        self.1
-    }
-}
-
 /// The app's data source in a render's environment.
 pub struct Anonymous<D> {
     inner: D,
