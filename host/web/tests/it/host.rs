@@ -959,7 +959,10 @@ fn viewport_boot_and_resize_use_one_batch_and_emit_aria_orientation() {
         }
     }
     let plan = contract::bake(
-        contract::compile(include_str!("../../../contract/corpus/viewport.contract")).unwrap(),
+        contract::compile(include_str!(
+            "../../../../contract/corpus/viewport.contract"
+        ))
+        .unwrap(),
         NoData,
     )
     .unwrap();
@@ -1044,7 +1047,7 @@ fn router_batches_follow_launch_and_committed_actions() {
         }
     }
     let plan = contract::bake(
-        contract::compile(include_str!("../../../contract/corpus/routes.contract")).unwrap(),
+        contract::compile(include_str!("../../../../contract/corpus/routes.contract")).unwrap(),
         Questions::default(),
     )
     .unwrap();
@@ -1091,7 +1094,7 @@ fn router_batches_follow_launch_and_committed_actions() {
 #[test]
 fn live_regions_and_autofocus_use_html_attributes() {
     let plan = contract::compile(include_str!(
-        "../../../contract/corpus/accessibility.contract"
+        "../../../../contract/corpus/accessibility.contract"
     ))
     .unwrap();
     let (host, batch) = Host::boot(

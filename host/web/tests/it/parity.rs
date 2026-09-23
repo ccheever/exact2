@@ -5,7 +5,7 @@
 
 #[test]
 fn the_engine_matches_the_browser_on_every_recorded_sample() {
-    let fixture = include_str!("fixtures/browser-motion.txt");
+    let fixture = include_str!("../fixtures/browser-motion.txt");
     let samples = fixture.lines().filter(|l| l.starts_with("sample ")).count();
     assert!(samples >= 100, "the fixture is recorded: {samples} samples");
     let mismatches = exact_web::parity::check(fixture);

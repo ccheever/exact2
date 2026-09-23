@@ -29,7 +29,7 @@ fn browser_session_history_and_published_deep_locations() {
     // The history fixture retains the corpus's route value, actions and
     // projection. Its data is constant so the Caltrain carrier needs no app
     // sources; the Back counter and refusal are authored Contract state.
-    let source = include_str!("../../../contract/corpus/routes.contract")
+    let source = include_str!("../../../../contract/corpus/routes.contract")
         .replace("  notfound", "  other \"/other\"\n  notfound")
         .replace("params(nav, \"question\")", "")
         .replace("params(nav, \"post\")", "")
@@ -70,7 +70,7 @@ fn browser_session_history_and_published_deep_locations() {
     .unwrap();
     std::fs::write(dir.join("no-navigate.plan"), no_handler.encode()).unwrap();
     let accessibility = contract::compile(include_str!(
-        "../../../contract/corpus/accessibility.contract"
+        "../../../../contract/corpus/accessibility.contract"
     ))
     .unwrap();
     std::fs::write(dir.join("accessibility.plan"), accessibility.encode()).unwrap();

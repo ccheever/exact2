@@ -397,7 +397,7 @@ pub fn cases_json() -> String {
 /// [`check`] reads this.
 pub fn fixture_header(recorder: &str) -> String {
     format!(
-        "# exact motion parity fixture — the browser's samples of the cases in host/web/src/parity.rs\n# recorded by host/web/parity.mjs: {recorder}\n# `sample <case> <seconds> <x> <y>`; held by host/web/tests/parity.rs within {TOLERANCE}\n"
+        "# exact motion parity fixture — the browser's samples of the cases in host/web/src/parity.rs\n# recorded by host/web/parity.mjs: {recorder}\n# `sample <case> <seconds> <x> <y>`; held by host/web/tests/it/parity.rs within {TOLERANCE}\n"
     )
 }
 

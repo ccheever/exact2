@@ -1,6 +1,6 @@
 # exact motion parity fixture — the browser's samples of the cases in host/web/src/parity.rs
 # recorded by host/web/parity.mjs: 2026-08-29, Chrome/151.0.0.0
-# `sample <case> <seconds> <x> <y>`; held by host/web/tests/parity.rs within 0.001
+# `sample <case> <seconds> <x> <y>`; held by host/web/tests/it/parity.rs within 0.001
 sample linear 0.1 0.1 0
 sample linear 0.25 0.25 0
 sample linear 0.5 0.5 0
