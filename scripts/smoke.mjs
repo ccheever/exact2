@@ -8,7 +8,7 @@
 // not the unrelated bare-plan host fixtures. ios --device selects a phone.
 // after `bun host/web/build.mjs` / `bun host/apple/build.mjs [--ios]` /
 // `cargo build --release -p caltrain-linux`.
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { createHash, verify } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -105,10 +105,11 @@ check(!browserDiagnosticNoise('console.error: exact: failed'), 'page/runtime err
 // with the key; repeated bundle bytes stay current, and the origin follows its
 // actual public cards (identical cards rewrite nothing); an asset edit
 // is `bundle seq 2` naming the asset, with the record's `previous` the old
-// head's digest and the old blob kept; two publishers racing on one stream
-// leave one head and one refusal naming the lock; a retired cohort's stream
-// is `binary` and `--only bundle` refuses it while the others publish; a
-// wrong `--snapshot` and a dirty tree without `--dirty` refuse.
+// head's digest and the old blob kept; a publisher meeting its stream locked
+// refuses naming the lock and the head stays, and once the stream is free
+// the next publishes seq 3; a retired cohort's stream is `binary` and
+// `--only bundle` refuses it while the others publish; a wrong `--snapshot`
+// and a dirty tree without `--dirty` refuse.
 if (host === 'deploy') {
   const sourceState = treeFingerprint(app.dir);
   try { await withAppFixture(app, async (fixture) => {
@@ -258,23 +259,23 @@ if (host === 'deploy') {
       check(head2.stream.seq === 2 && record.previous === prev && record.seq === 2 && readdirSync(resolve(origin, '.exact/blobs')).length === blobs1 + 1, `seq 2: head seq ${head2.stream.seq}, previous ${record.previous === prev}, blobs ${readdirSync(resolve(origin, '.exact/blobs')).length} (was ${blobs1})`);
       writeFileSync(assetPath, asset0);
     }
-    // 5. Two publishers racing on one stream (the restored asset makes the bundle new again): one head, one refusal naming the lock.
+    // 5. A publisher meets its stream locked (the restored asset makes the
+    // bundle new again): it refuses naming the lock and the head stays; then
+    // the stream is free and the next one publishes seq 3. The smoke holds the
+    // lock itself: two whole publishers never met inside a short hold, since
+    // each recompiles its app crates to write its own receipts, and deploys
+    // into one Cargo target take turns.
     if (assetPath) {
       const platform = streams(pub1)[0].platform;
-      const race = (name) => new Promise((done) => {
-        const child = spawn(process.execPath, [deployScript, app.name, '--origin', origin, '--yes', '--dirty', '--platform', platform, '--only', 'bundle', '--slow-ms', '4000', '--release', name], { cwd: fixtureRoot, env: deployEnv });
-        let text = '';
-        child.stdout.on('data', (d) => { text += d; });
-        child.stderr.on('data', (d) => { text += d; });
-        child.on('close', (code) => done({ code, text }));
-      });
-      const [a, b] = await Promise.all([race('r-race-a'), race('r-race-b')]);
-      const winner = a.code === 0 ? a : b;
-      const loser = a.code === 0 ? b : a;
-      check(winner.code === 0 && loser.code === 1 && /locked by another publisher/.test(loser.text), `the race: exits ${a.code}/${b.code}; loser said ${loser.text.split('\n').filter((l) => /locked|failed/.test(l)).join(' | ').slice(0, 300)}`);
-      const seqNow = JSON.parse(headOf(ids[0]).toString('utf8')).stream.seq;
-      check(seqNow === 3, `after the race the head is seq ${seqNow}, not 3`);
-      check(await new DirectoryOrigin(origin).withLock({ channel, compatibilityId: ids[0] }, async () => true), 'the permanent lock was not released');
+      const stream = { channel, compatibilityId: ids[0] };
+      const publish = (name, expectExit) => deploy([app.name, '--origin', origin, '--yes', '--dirty', '--platform', platform, '--only', 'bundle', '--release', name], expectExit);
+      const seq = () => JSON.parse(headOf(ids[0]).toString('utf8')).stream.seq;
+      const held = await new DirectoryOrigin(origin).withLock(stream, async () => publish('r-held', 1));
+      const said = held.stderr + held.stdout;
+      check(/locked by another publisher/.test(said) && seq() === 2, `the held stream: head seq ${seq()}; the publisher said ${said.split('\n').filter((l) => /locked|failed/.test(l)).join(' | ').slice(0, 300)}`);
+      publish('r-free', 0);
+      check(seq() === 3, `after the lock was released the head is seq ${seq()}, not 3`);
+      check(await new DirectoryOrigin(origin).withLock(stream, async () => true), 'the permanent lock was not released');
     }
     // 6. A retired cohort's stream on the origin: binary in the table; --only bundle refuses it, the others go on.
     const dead = 'deadbeefdeadbeefdeadbeefdeadbeef';

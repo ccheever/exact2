@@ -6,7 +6,7 @@
 //
 //   bun scripts/deploy.mjs <app> [--origin <dir|url>] [--channel <name>]
 //       [--only bundle|origin] [--platform <p>]… [--snapshot <sha>] [--dirty]
-//       [--release <id>] [--keys <dir>] [--json] [--yes] [--slow-ms <n>]
+//       [--release <id>] [--keys <dir>] [--json] [--yes]
 //   bun scripts/deploy.mjs keygen <id> [--keys <dir>] [--json]
 //
 // In order, as D3 states it: **snapshot** — the app's tree must be committed
@@ -44,9 +44,6 @@
 // object-store adapter (an https origin is read-only here); the binary
 // lanes (1030.000 §6). Dev imports the same artifact comparison; a
 // platform with no completed receipt is reported as unbuilt.
-//
-// Flags: `--slow-ms <n>` holds a stream's lock for n ms between reading the
-// head and writing the next one — a test flag for racing two publishers.
 import { spawnSync } from 'node:child_process';
 import { createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign, verify } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
@@ -69,13 +66,12 @@ const USAGE = 'usage: bun scripts/deploy.mjs <app> [--origin <dir|url>] [--chann
 /** A refusal: printed as one line, exit 1. Anything else is a bug and keeps its stack. */
 class Refusal extends Error {}
 const refuse = (message) => { throw new Refusal(message); };
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ------------------------------------------------------------------ arguments
 
 function parseArgs(argv) {
   const opts = { platform: [], _: [] };
-  const valued = new Set(['--origin', '--channel', '--only', '--platform', '--snapshot', '--release', '--keys', '--slow-ms']);
+  const valued = new Set(['--origin', '--channel', '--only', '--platform', '--snapshot', '--release', '--keys']);
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--json') opts.json = true;
@@ -93,7 +89,6 @@ function parseArgs(argv) {
   for (const p of opts.platform) if (!PLATFORMS.includes(p)) refuse(`--platform ${p}: one of ${PLATFORMS.join(', ')}`);
   if (opts.only && opts.only !== 'bundle' && opts.only !== 'origin') refuse(`--only ${opts.only}: bundle or origin`);
   if (opts.release && !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(opts.release)) refuse(`--release ${opts.release}: start with a letter or digit, then use letters, digits, . _ - only (it names a directory and a file)`);
-  if (opts.slowMs !== undefined && !(Number(opts.slowMs) >= 0)) refuse(`--slow-ms ${opts.slowMs}: a number of milliseconds`);
   opts.keys = resolve(opts.keys ?? process.env.EXACT_SIGNING_KEY_DIR ?? resolve(homedir(), '.config/exact/keys'));
   return opts;
 }
@@ -1111,7 +1106,6 @@ export async function publishStream({ origin, row, bundle, compat, app, signer, 
       : current ? [{ name: 'exact.json', change: 'repair', note: admission.problem }] : changesAgainst(bundle, null);
     if (admission?.usable && !changes.length) return { ...row, action: 'current', seq: admission.seq, note: 'the head is admissible and already names this bundle (published meanwhile)' };
     const seq = await nextSeq(origin, app, stream, admission, `the locked head at ${origin.describe()}/${base}/exact.json`);
-    if (opts.slowMs) await sleep(Number(opts.slowMs));
     let written = 0;
     for (const file of files) {
       if (await origin.put(blobPath(file.sha256), file.bytes, { immutable: true }) === 'written') written++;
