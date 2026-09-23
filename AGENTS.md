@@ -42,7 +42,8 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
 - The dev loop is `bun host/web/dev.mjs`: edit `apps/caltrain/app.contract`, the page
   restarts from the new plan in ~20 ms; edit Rust under the wasm's crates, it rebuilds
   and the page reloads. `bun scripts/metrics.mjs` prints every number
-  (`--long` adds the macOS build and boot). macOS: `bun host/apple/build.mjs --run`;
+  (`--long` adds the macOS build and boot, and the loop's own budgets: the
+  warm gate, touch one line, test what you changed). macOS: `bun host/apple/build.mjs --run`;
   iOS: `bun host/apple/build.mjs --ios --run` (a simulator; `--sim` or `EXACT_SIM` picks one);
   `--device --run` on a connected iPhone (signed with a team profile on this Mac);
   `--host` also builds the sample host (LLP 1031 D10), the native app that embeds two
