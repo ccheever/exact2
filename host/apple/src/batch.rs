@@ -89,7 +89,7 @@ impl Batch {
             if i != 0 {
                 s.push(',');
             }
-            exact_runner::agent::flow_shape_json(shape, &mut s);
+            shape.write_json(&mut s);
         }
         s.push_str("]}");
         self.ops.push(s);

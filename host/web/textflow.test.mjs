@@ -148,6 +148,7 @@ function controllerFixture({ trim = false, clamp = false } = {}) {
   const context = new Element('context'), p = new Element('paragraph'), link = new Element('a'), ball = new Element('ball');
   p.append(new Text('one two ')); link.textContent = 'three four'; link.attrs.href = '/story'; link.computed.fontWeight = '700'; p.append(link);
   doc.body.append(context); context.append(p, ball); ball.box = { x: 30, y: 0, width: 20, height: 20 };
+  ball.computed.shapeOutside = 'circle()'; ball.computed.shapeMargin = '0px';
   const saved = new Map();
   for (const [key, value] of Object.entries({ document: doc, getComputedStyle: el => { events.push(['read', el.tagName, 'style']); return el.computed; },
     ResizeObserver: class { observe() {} unobserve() {} disconnect() {} }, NodeFilter: { SHOW_TEXT: 4 } })) {
@@ -166,7 +167,8 @@ function controllerFixture({ trim = false, clamp = false } = {}) {
     if (op === 3) live.delete(id);
     if (op === 0) { text = new TextDecoder().decode(bytes.subarray(8)); return { ranges: [[0, text.length, 0, text.length]], graphemes: [...text].map((_, i) => [i, i + 1, i, i + 1]) }; }
     if (op === 1) return { prepared: true };
-    if (op === 3) return {};
+    if (op === 6) live.clear();
+    if (op >= 3) return {};
     flowCount++;
     expect(new DataView(bytes.buffer).getFloat32(8, true)).toBe(16); // Rust owns MIN_FRAGMENT_EM; JS supplies only the strut size
     const x = bytes.length > 24 ? new DataView(bytes.buffer).getFloat32(36, true) + 20 + shift : 0;
@@ -217,9 +219,11 @@ test('actual controller pools spans, reads before writes, preserves inline links
     expect(f.controller.facts(2).touched_spans).toBe(1);
     expect(f.calls.filter(op => op === 1).length).toBe(1);
     expect(f.events.findIndex(e => e[0] === 'write')).toBeGreaterThan(f.events.findLastIndex(e => e[0] === 'read'));
+    expect(f.calls.filter(op => op === 4).length).toBe(1); // motion reuses parsed CSS
     // Same box, different authored shape must invalidate the layout key.
-    const count = f.flowCount; f.shift(); f.controller.afterBatch({ ops: [{ op: 'style', id: 3 }], timers: false }); await f.controller.settle();
+    const count = f.flowCount; f.shift(); f.ball.computed.shapeOutside = 'inset(2px)'; f.controller.afterBatch({ ops: [{ op: 'style', id: 3 }], timers: false }); await f.settle();
     expect(f.flowCount).toBeGreaterThan(count);
+    expect(f.calls.filter(op => op === 4).length).toBe(2);
     expect(f.p.childNodes).toEqual(spans);
     // Width/paint changes preserve Prepared when text and computed font match.
     const change = { ops: [{ op: 'style', id: 2 }], timers: false };

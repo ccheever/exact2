@@ -354,7 +354,7 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
             if i > 0 {
                 s.push(',');
             }
-            flow_shape_json(shape, &mut s);
+            shape.write_json(&mut s);
         }
         s.push(']');
     }
@@ -371,77 +371,6 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
     }
     s.push('}');
     s
-}
-
-/// @ref LLP 1043.000 §3 D4 — shapes are numbers in this leaf's border box.
-/// Shared native batch/agent geometry encoding.
-pub fn flow_shape_json(shape: &exact_kernel::FlowShape, out: &mut String) {
-    use exact_kernel::FlowShape::*;
-    let pairs = |out: &mut String, rows: &[(f32, f32)]| {
-        out.push('[');
-        for (i, (x, y)) in rows.iter().enumerate() {
-            if i > 0 {
-                out.push(',');
-            }
-            let _ = write!(out, "[{},{}]", num(*x as f64), num(*y as f64));
-        }
-        out.push(']');
-    };
-    let (kind, fields): (_, Vec<(&str, f32)>) = match shape {
-        Circle { cx, cy, r } => ("Circle", vec![("cx", *cx), ("cy", *cy), ("r", *r)]),
-        Ellipse { cx, cy, rx, ry } => (
-            "Ellipse",
-            vec![("cx", *cx), ("cy", *cy), ("rx", *rx), ("ry", *ry)],
-        ),
-        RoundRect {
-            x,
-            y,
-            width,
-            height,
-            radius,
-        } => (
-            "RoundRect",
-            vec![
-                ("x", *x),
-                ("y", *y),
-                ("width", *width),
-                ("height", *height),
-                ("radius", *radius),
-            ],
-        ),
-        Polygon(points) | EvenOddPolygon(points) => {
-            out.push_str(if matches!(shape, EvenOddPolygon(_)) {
-                "{\"kind\":\"Polygon\",\"fill_rule\":\"evenodd\",\"points\":"
-            } else {
-                "{\"kind\":\"Polygon\",\"fill_rule\":\"nonzero\",\"points\":"
-            });
-            pairs(out, points);
-            out.push('}');
-            return;
-        }
-        Spans {
-            x,
-            y,
-            row_height,
-            rows,
-        } => {
-            let _ = write!(
-                out,
-                "{{\"kind\":\"Spans\",\"x\":{},\"y\":{},\"row_height\":{},\"rows\":",
-                num(*x as f64),
-                num(*y as f64),
-                num(*row_height as f64)
-            );
-            pairs(out, rows);
-            out.push('}');
-            return;
-        }
-    };
-    let _ = write!(out, "{{\"kind\":\"{kind}\"");
-    for (name, value) in fields {
-        let _ = write!(out, ",\"{name}\":{}", num(value as f64));
-    }
-    out.push('}');
 }
 
 /// A row's value as JSON, in CSS's spellings where CSS has one: a length as

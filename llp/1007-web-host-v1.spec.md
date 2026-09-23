@@ -139,6 +139,14 @@ bare, each rendered as Times — the Markdown reader's code, now Menlo
 stops), delay — per LLP 1002 D2. A `spring()` declaration is left out of the
 CSS text and reported as skipped by name: springs are §3's.
 
+CSS Exclusions (LLP 1043.000) use an on-demand `textflow.wasm` beside
+`textflow-glue.js`. The core host emits eligible exclusion/paragraph IDs;
+the glue supplies their computed CSS shapes, boxes, and measured advances.
+The leaf artifact owns the shared Rust walker and bounded preparations.
+Each host generation gets its own instance; disposal resets its sources and
+shape catalog. Ordinary text downloads neither artifact. No core Cargo
+feature or app declaration selects this capability.
+
 ## 3. Springs (`host/web/src/motion.rs`)
 
 CSS cannot play `spring()`, so the host keeps the same `exact_motion::Engine`

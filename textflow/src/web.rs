@@ -1,16 +1,20 @@
 //! Browser measurement into the shared walker; retained by paragraph id.
 //! @ref LLP 1043.000 §3 D1, D6, D7 — shape math and breaks stay in wasm.
 //!
-//! `exact_textflow(op, id, len)` borrows the ordinary ABI input buffer and
-//! returns JSON in its output buffer. All numeric input is little endian:
+//! `textflow_request(op, id, len)` uses the optional artifact's own input
+//! and JSON output buffers. All numeric input is little endian:
 //! 0 segments: overflow-wrap u32 (0 normal, 1 break-word, 2 anywhere),
 //! white-space u32 (0 normal, 1 pre-wrap), UTF-8;
 //! 1 prepare: hyphen f32, then one f32 per returned measurement range;
 //! 2 resolve + flow: width/line-height/font-size f32, max-lines u32,
 //! paragraph-height f32, direction u32 (0 ltr, 1 rtl), then
 //! (exclusion id u32, width/height/x/y f32) records;
-//! 3 free: empty input. The caller supplies paragraph-content-local x/y.
+//! 3 free paragraph: empty input;
+//! 4 register exclusion: shape-margin f32, shape-outside UTF-8;
+//! 5 free exclusion, 6 reset: empty input. The caller supplies paragraph-content-local x/y.
 //!
+//! Eligibility comes from the core host's textflow contexts; registered shapes
+//! are the browser's computed CSS for those IDs. At most 4096 styles are retained.
 //! At most 64 live preparations, 64 KiB UTF-8 each, 64 shapes per call, and
 //! 4096 bands per flow. Up to 4096 candidate boxes resolve to 63 shapes and
 //! one conservative overflow envelope, reported as `limited`. Larger or
@@ -22,9 +26,8 @@
 //! query work and I emitted exclusion intervals per band. No history of widths
 //! or frames is retained. Serialization is linear in source/geometry output.
 
-use exact_kernel::{Kernel, PositionType, WrapFlow};
 use exact_textflow::{FlowOptions, FlowShape, Fragment, Options, OverflowWrap, Prepared};
-use std::{fmt::Write as _, ops::Range};
+use std::{collections::BTreeMap, fmt::Write as _, ops::Range};
 
 const MAX_TEXT: usize = 64 * 1024;
 const MAX_PARAGRAPHS: usize = 64;
@@ -80,6 +83,7 @@ impl std::ops::Index<&u32> for Sources {
 #[derive(Default)]
 pub struct TextFlow {
     sources: Sources,
+    shapes: BTreeMap<u32, (exact_textflow::ShapeOutside, f32)>,
 }
 
 fn number(bytes: &[u8], at: usize) -> Result<f32, &'static str> {
@@ -122,36 +126,57 @@ fn ranges_json(ranges: impl IntoIterator<Item = Range<usize>>, utf16: &[usize]) 
 }
 
 impl TextFlow {
-    /// Empty, allocation-free store for the host bridge.
+    /// Empty, allocation-free store for one optional browser instance.
     pub const fn new() -> Self {
         Self {
             sources: Sources(Vec::new()),
+            shapes: BTreeMap::new(),
         }
     }
 
     /// The native-testable implementation of the exported protocol.
-    pub fn request(&mut self, op: u32, id: u32, input: &[u8], kernel: &Kernel) -> String {
-        self.execute(op, id, input, kernel)
-            .unwrap_or_else(exact_runner::agent::error)
+    pub fn request(&mut self, op: u32, id: u32, input: &[u8]) -> String {
+        self.execute(op, id, input)
+            .unwrap_or_else(|error| format!("{{\"error\":\"{error}\"}}"))
     }
 
-    fn execute(
-        &mut self,
-        op: u32,
-        id: u32,
-        input: &[u8],
-        kernel: &Kernel,
-    ) -> Result<String, &'static str> {
+    fn execute(&mut self, op: u32, id: u32, input: &[u8]) -> Result<String, &'static str> {
         match op {
             0 => self.segments(id, input),
             1 => self.prepare(id, input),
-            2 => self.layout(id, input, kernel),
+            2 => self.layout(id, input),
             3 if input.is_empty() => {
                 self.sources.remove(&id);
                 Ok("{}".into())
             }
+            4 => self.exclusion(id, input),
+            5 if input.is_empty() => {
+                self.shapes.remove(&id);
+                Ok("{}".into())
+            }
+            6 if input.is_empty() => {
+                *self = Self::new();
+                Ok("{}".into())
+            }
             _ => Err("unknown textflow operation"),
         }
+    }
+
+    fn exclusion(&mut self, id: u32, input: &[u8]) -> Result<String, &'static str> {
+        if input.len() > 16 * 1024 {
+            return Err("textflow shape exceeds 16 KiB");
+        }
+        if self.shapes.len() >= MAX_GEOMETRY_SHAPES && !self.shapes.contains_key(&id) {
+            return Err("textflow exceeds 4096 registered exclusions");
+        }
+        let margin = number(input, 0)?;
+        if margin < 0.0 {
+            return Err("negative shape-margin");
+        }
+        let css = std::str::from_utf8(&input[4..]).map_err(|_| "invalid shape UTF-8")?;
+        let shape = exact_textflow::ShapeOutside::parse(css).ok_or("invalid shape-outside")?;
+        self.shapes.insert(id, (shape, margin));
+        Ok("{}".into())
     }
 
     fn segments(&mut self, id: u32, input: &[u8]) -> Result<String, &'static str> {
@@ -242,7 +267,7 @@ impl TextFlow {
         Ok("{\"prepared\":true}".into())
     }
 
-    fn layout(&mut self, id: u32, input: &[u8], kernel: &Kernel) -> Result<String, &'static str> {
+    fn layout(&mut self, id: u32, input: &[u8]) -> Result<String, &'static str> {
         if input.len() < 24
             || !(input.len() - 24).is_multiple_of(20)
             || (input.len() - 24) / 20 > MAX_GEOMETRY_SHAPES
@@ -270,24 +295,18 @@ impl TextFlow {
         let mut shapes: Vec<FlowShape> = Vec::new();
         let mut overflow: Option<(f32, f32, f32, f32)> = None;
         for at in (24..input.len()).step_by(20) {
-            let node = kernel
-                .node(integer(input, at)?)
+            let (shape, margin) = self
+                .shapes
+                .get(&integer(input, at)?)
                 .ok_or("textflow exclusion is stale")?;
-            if node.style.position_type != PositionType::Absolute
-                || node.style.wrap_flow != WrapFlow::Both
-            {
-                return Err("textflow node is not an absolute exclusion");
-            }
             let width = number(input, at + 4)?;
             let height = number(input, at + 8)?;
             if width < 0.0 || height < 0.0 {
                 return Err("negative exclusion size");
             }
-            let shape = node
-                .style
-                .shape_outside
+            let shape = shape
                 .resolve(width, height)
-                .grow(node.style.shape_margin)
+                .grow(*margin)
                 .translate(number(input, at + 12)?, number(input, at + 16)?);
             if exact_textflow::meets(
                 std::slice::from_ref(&shape),
@@ -367,7 +386,7 @@ impl TextFlow {
             if i > 0 {
                 out.push(',');
             }
-            exact_runner::agent::flow_shape_json(shape, &mut out);
+            shape.write_json(&mut out);
         }
         out.push_str("],\"fragments\":[");
         let mut slots = Vec::new();
@@ -403,5 +422,5 @@ impl TextFlow {
 }
 
 #[cfg(test)]
-#[path = "textflow_tests.rs"]
+#[path = "web_tests.rs"]
 mod tests;

@@ -179,7 +179,7 @@ fn list_settlement_publishes_final_mounted_flow_and_clears_disappearing_shapes()
             if i > 0 {
                 expected.push(',');
             }
-            exact_runner::agent::flow_shape_json(shape, &mut expected);
+            shape.write_json(&mut expected);
         }
         expected.push_str("]}");
         assert!(

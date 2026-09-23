@@ -486,3 +486,99 @@ pub(crate) fn polygon_bands(
         }
     }
 }
+
+impl FlowShape {
+    /// Shared native batch/agent geometry encoding.
+    pub fn write_json(&self, out: &mut String) {
+        use std::fmt::Write as _;
+        use FlowShape::*;
+        let shape = self;
+        let pairs = |out: &mut String, rows: &[(f32, f32)]| {
+            out.push('[');
+            for (i, (x, y)) in rows.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                let _ = write!(
+                    out,
+                    "[{},{}]",
+                    json_number(*x as f64),
+                    json_number(*y as f64)
+                );
+            }
+            out.push(']');
+        };
+        let (kind, fields): (_, Vec<(&str, f32)>) = match shape {
+            Circle { cx, cy, r } => ("Circle", vec![("cx", *cx), ("cy", *cy), ("r", *r)]),
+            Ellipse { cx, cy, rx, ry } => (
+                "Ellipse",
+                vec![("cx", *cx), ("cy", *cy), ("rx", *rx), ("ry", *ry)],
+            ),
+            RoundRect {
+                x,
+                y,
+                width,
+                height,
+                radius,
+            } => (
+                "RoundRect",
+                vec![
+                    ("x", *x),
+                    ("y", *y),
+                    ("width", *width),
+                    ("height", *height),
+                    ("radius", *radius),
+                ],
+            ),
+            Polygon(points) | EvenOddPolygon(points) => {
+                out.push_str(if matches!(shape, EvenOddPolygon(_)) {
+                    "{\"kind\":\"Polygon\",\"fill_rule\":\"evenodd\",\"points\":"
+                } else {
+                    "{\"kind\":\"Polygon\",\"fill_rule\":\"nonzero\",\"points\":"
+                });
+                pairs(out, points);
+                out.push('}');
+                return;
+            }
+            Spans {
+                x,
+                y,
+                row_height,
+                rows,
+            } => {
+                let _ = write!(
+                    out,
+                    "{{\"kind\":\"Spans\",\"x\":{},\"y\":{},\"row_height\":{},\"rows\":",
+                    json_number(*x as f64),
+                    json_number(*y as f64),
+                    json_number(*row_height as f64)
+                );
+                pairs(out, rows);
+                out.push('}');
+                return;
+            }
+        };
+        let _ = write!(out, "{{\"kind\":\"{kind}\"");
+        for (name, value) in fields {
+            let _ = write!(out, ",\"{name}\":{}", json_number(value as f64));
+        }
+        out.push('}');
+    }
+}
+
+fn json_number(n: f64) -> impl std::fmt::Display {
+    struct Number(f64);
+    impl std::fmt::Display for Number {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            let n = self.0;
+            if !n.is_finite() {
+                f.write_str("null")
+            } else if n == n.trunc() && n.abs() < 1e15 {
+                write!(f, "{}", n as i64)
+            } else {
+                write!(f, "{n}")
+            }
+        }
+    }
+    Number(n)
+}

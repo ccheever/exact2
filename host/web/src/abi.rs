@@ -33,7 +33,6 @@ pub struct Bridge<D: DataSource> {
     checkpoint: Option<(String, String)>,
     input: Vec<u8>,
     output: Vec<u8>,
-    textflow: crate::textflow::TextFlow,
 }
 
 impl<D: DataSource> Bridge<D> {
@@ -46,7 +45,6 @@ impl<D: DataSource> Bridge<D> {
             checkpoint: None,
             input: Vec::new(),
             output: Vec::new(),
-            textflow: crate::textflow::TextFlow::new(),
         }
     }
 
@@ -253,7 +251,6 @@ impl<D: DataSource> Bridge<D> {
         match booted {
             Ok((host, batch)) => {
                 self.host = Some(host);
-                self.textflow = Default::default();
                 self.emit(batch)
             }
             Err(e) => self.emit(format!(
@@ -281,7 +278,6 @@ impl<D: DataSource> Bridge<D> {
         ) {
             Ok((host, batch)) => {
                 self.host = Some(host);
-                self.textflow = Default::default();
                 self.emit(batch)
             }
             Err(e) => self.emit(format!(
@@ -524,18 +520,6 @@ impl<D: DataSource> Bridge<D> {
         let out = match self.host.as_mut() {
             Some(h) => h.dispatch_at(view, event, now_ms),
             None => "{\"ops\":[],\"timers\":false,\"error\":\"not booted\"}".to_string(),
-        };
-        self.emit(out)
-    }
-
-    /// Browser segment measurement, retained preparation, and resolved flow.
-    /// See [`crate::textflow`] for the little-endian protocol and work bounds.
-    pub fn textflow(&mut self, op: u32, id: u32, len: usize) -> u32 {
-        let out = match (self.host.as_ref(), self.input.get(..len)) {
-            (Some(host), Some(bytes)) => {
-                self.textflow.request(op, id, bytes, host.runner().kernel())
-            }
-            _ => exact_runner::agent::error("textflow input is absent or host is not booted"),
         };
         self.emit(out)
     }
@@ -960,12 +944,6 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_motion(len: u32) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().motion(len as usize))
-        }
-
-        /// Segment, prepare, resolve/flow or free a browser paragraph.
-        #[no_mangle]
-        pub extern "C" fn exact_textflow(op: u32, id: u32, len: u32) -> u32 {
-            EXACT_BRIDGE.with(|b| b.borrow_mut().textflow(op, id, len as usize))
         }
 
         /// Advance the runner clock.

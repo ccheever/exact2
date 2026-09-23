@@ -74,11 +74,6 @@ async function loadRust() {
 }
 // @ref LLP 1043.000 §3 D7/D8 — optional executor, absent from ordinary boots.
 let textflow = null, flowLoading = null, flowContexts = [], flowDue = null;
-function flowRequest(op, id, bytes) {
-  const ptr = wasm.exact_in(bytes.length);
-  new Uint8Array(memory.buffer, ptr, bytes.length).set(bytes);
-  return JSON.parse(readOut(wasm.exact_textflow(op, id, bytes.length)));
-}
 function flowBatch(batch) {
   const op = batch.ops?.find(op => op.op === "textflow");
   if (op) flowContexts = op.contexts;
@@ -87,12 +82,16 @@ function flowBatch(batch) {
   if (textflow) { textflow.afterBatch(batch); return; }
   if (!flowContexts.length || flowLoading) return;
   ticker?.dispose(); ticker = null;
-  flowLoading = loadAfterPaint('./textflow-glue.js', 'createTextFlow').then(create => {
-    textflow = create({ views, request: flowRequest, agentMode, log, now,
+  const generation = incarnation;
+  flowLoading = loadAfterPaint('./textflow-glue.js', 'createTextFlow').then(async create => {
+    if (generation !== incarnation) return;
+    const controller = await create({ views, agentMode, log, now,
       advance: () => send(wasm.exact_advance(now())) });
+    if (generation !== incarnation) { controller.dispose(); return; }
+    textflow = controller;
     textflow.afterBatch({ ops: [{ op: "textflow", contexts: flowContexts }], timer_due_ms: flowDue });
   });
-  flowLoading.catch(error => log(`textflow module: ${error}`));
+  flowLoading.catch(error => { if (generation === incarnation) log(`textflow module: ${error}`); });
 }
 let resolveModuleReady, headGlue = null, page = document.querySelector('script[type="application/vnd.exact.checkpoint"]') ? { holding: true, early: [] } : null; // a built document (LLP 1048.000 D6), held until the runtime settles
 const moduleReady = new Promise(resolve => { resolveModuleReady = resolve; });
@@ -1312,7 +1311,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   if (faces.error) throw new Error(faces.error);
   const preparedFonts = await prepareFonts(faces, assets);
   const shaderCommit = assets !== null && globalThis.exact.gpu ? await globalThis.exact.gpu.prepareShaders(assets) : null;
-  if (flowLoading) await flowLoading;
+  // A retiring optional instance cannot delay boot; its generation guard disposes it.
   if (!current() || request !== bootAttempt) return null;
   // A replacement must let the current executor finish its answers before
   // the synchronous swap. Initial module readiness does not drain requests.

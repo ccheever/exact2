@@ -22,6 +22,24 @@ const lower = (items, value) => {
   return lo;
 };
 
+// Cache compiled code, never mutable preparations across host generations.
+let compiled;
+export async function createFlowRequest() {
+  compiled ??= fetch(new URL('./textflow.wasm', import.meta.url)).then(response => {
+    if (!response.ok) throw Error(`textflow.wasm: HTTP ${response.status}`);
+    return WebAssembly.compileStreaming(response);
+  }).catch(error => { compiled = null; throw error; });
+  const { exports: wasm } = await WebAssembly.instantiate(await compiled);
+  const decoder = new TextDecoder();
+  return (op, id, bytes) => {
+    if (bytes.length > 1024 * 1024) return { error: 'textflow input exceeds 1 MiB' };
+    const ptr = wasm.textflow_in(bytes.length);
+    new Uint8Array(wasm.memory.buffer, ptr, bytes.length).set(bytes);
+    const len = wasm.textflow_request(op, id, bytes.length);
+    return JSON.parse(decoder.decode(new Uint8Array(wasm.memory.buffer, wasm.textflow_out(), len)));
+  };
+}
+
 // Pure diff; pool slots keep their DOM identity across all frame geometries.
 // Paint-only revision invalidates content explicitly, never on a shape move.
 export function fragmentDiff(previous, next, repaint = false) {
@@ -215,7 +233,7 @@ function paintContent(span, fragment, state, lineHeight) {
 export function createTextFlow({ views, request, advance, agentMode, log = console.error,
   now = () => globalThis.exact?.now?.() ?? performance.now(),
   raf = requestAnimationFrame, cancel = cancelAnimationFrame, delay = setTimeout, clearDelay = clearTimeout }) {
-  const states = new Map(), calibration = new Map(), autoHeightWarned = new Set();
+  const shapes = new Map(), states = new Map(), calibration = new Map(), autoHeightWarned = new Set();
   const canvas = document.createElement('canvas');
   // A connected canvas inherits the document language in WebKit too.
   canvas.hidden = true; document.body.append(canvas);
@@ -283,13 +301,37 @@ export function createTextFlow({ views, request, advance, agentMode, log = conso
     for (const el of targets) if (!observed.has(el)) { observer.observe(el); observed.add(el); }
   }
 
+  function registerShapes(exclusions) {
+    if (exclusions.length > 4096) throw Error('textflow expects at most 4096 candidate exclusions');
+    for (const box of exclusions) {
+      const key = JSON.stringify([box.shape, box.margin]);
+      const previous = shapes.get(box.id);
+      shapes.delete(box.id);
+      if (previous !== key) {
+        if (shapes.size >= 4096) {
+          const oldest = shapes.keys().next().value;
+          request(5, oldest, new Uint8Array()); shapes.delete(oldest);
+        }
+        const css = encoder.encode(box.shape), bytes = new Uint8Array(4 + css.length);
+        new DataView(bytes.buffer).setFloat32(0, box.margin, true); bytes.set(css, 4);
+        const result = request(4, box.id, bytes);
+        if (result.error) throw Error(result.error);
+      }
+      shapes.set(box.id, key);
+    }
+  }
+
   function readFrame() {
     const styles = new Map(), boxes = new Map();
     const readBox = id => {
       if (boxes.has(id)) return boxes.get(id);
       const el = views.get(id);
       const box = el?.isConnected ? layoutBox(el, styles) : null;
-      if (box) { box.id = id; box.hidden = !el.getClientRects().length; }
+      if (box) {
+        const style = styles.get(el);
+        box.id = id; box.hidden = !el.getClientRects().length;
+        box.shape = style.shapeOutside || 'none'; box.margin = Math.max(0, px(style.shapeMargin));
+      }
       boxes.set(id, box); return box;
     };
     // Emoji calibration elements were installed in the previous write phase.
@@ -310,7 +352,7 @@ export function createTextFlow({ views, request, advance, agentMode, log = conso
       // extraction/preparation. Moving exclusions reuse stable paragraph boxes.
       const exclusions = [...s.info.exclusions].map(readBox).filter(b => {
         if (!b || b.hidden) return false;
-        const margin = Math.max(0, px(styles.get(views.get(b.id))?.shapeMargin));
+        const margin = b.margin;
         return b.x - margin < box.x + box.width && b.x + b.width + margin > box.x
           && b.y - margin < box.y + box.height && b.y + b.height + margin > box.y;
       });
@@ -409,6 +451,7 @@ export function createTextFlow({ views, request, advance, agentMode, log = conso
         snapshot.direction, snapshot.x, snapshot.y, snapshot.exclusions]);
       if (s.geometry === key && s.rendered) return { s, unchanged: true };
       if (!prepare(snapshot)) return { ...snapshot, pending: true };
+      registerShapes(snapshot.exclusions);
       const facts = request(2, s.id, flowInput(snapshot, snapshot.exclusions));
       if (facts.error) throw Error(facts.error);
       if (!facts.complete && !facts.clamped) return { s, skipped: 'flow band limit reached; ordinary text retained', partial: facts };
@@ -578,6 +621,7 @@ export function createTextFlow({ views, request, advance, agentMode, log = conso
     reset() {
       clock.reset();
       for (const s of states.values()) restore(s);
+      request(6, 0, new Uint8Array()); shapes.clear();
       states.clear(); autoHeightWarned.clear(); pendingSelection = null; contexts = []; observed.clear(); observer.disconnect(); dirty = false;
       refreshFonts();
     },
@@ -590,4 +634,5 @@ export function createTextFlow({ views, request, advance, agentMode, log = conso
 }
 
 // Module scripts register with the same on-demand loader as Rust/GPU glue.
-if (globalThis.exact) globalThis.exact.createTextFlow = createTextFlow;
+if (globalThis.exact) globalThis.exact.createTextFlow = async options =>
+  createTextFlow({ ...options, request: await createFlowRequest() });
