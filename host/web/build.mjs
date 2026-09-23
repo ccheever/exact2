@@ -187,8 +187,9 @@ writeFileSync(resolve(stage, 'index.html'), readFileSync(resolve(stage, 'index.h
     `<link rel="alternate" type="application/vnd.exact.envelope+json" href="./exact.json">\n<link rel="manifest" href="./manifest.json">\n${icon ? `<link rel="icon" type="${escapeHtml(icon.type ?? 'image/png')}" href="./${escapeHtml(icon.src)}">\n` : ''}${webManifest.theme_color ? `<meta name="theme-color" content="${escapeHtml(webManifest.theme_color)}">\n` : ''}<script type="module" src="./glue.js"></script>`,
   ));
 // Documents (LLP 1048.000 D3, D7, D9): every route the plan declares
-// `render=build`, rendered by the app's native render entry (`<app>-render`
-// beside its native data source, in its Linux crate; exact_render::main)
+// `render=build`, rendered by the app's native render entry (`<app>-render`,
+// exact_render::main; looked up in its Linux crate beside its native data
+// source, then in its web crate)
 // from the plan the wasm carries, each a whole page composed over this
 // shell (exact_render::page): the renderer's <head>, the document in
 // #exact-root, its checkpoint; nothing preloads the glue or the wasm. Then
@@ -196,15 +197,16 @@ writeFileSync(resolve(stage, 'index.html'), readFileSync(resolve(stage, 'index.h
 // robots.txt, and the shell itself as shell.html — what a client route is
 // served, and what the render server composes documents over.
 const renderBin = crate.replace(/-web$/, '-render');
-const renderCrate = app.crate('linux');
+const renderAt = [['linux', app.crate('linux')], ['web', crate]]
+  .find(([dir]) => existsSync(resolve(app.dir, dir, 'src/bin', `${renderBin}.rs`)));
+const renderCrate = renderAt?.[1];
 // Pay for what you use: an app that renders nothing at build builds and runs
 // no render entry (the wasm says which locations it renders, from its plan).
 const locationsLen = typeof exports.exact_build_locations === 'function' ? exports.exact_build_locations() : null;
 const buildLocations = locationsLen === null ? [] : JSON.parse(Buffer.from(new Uint8Array(exports.memory.buffer, exports.exact_out(), locationsLen)).toString('utf8'));
 if (buildLocations.error) throw new Error(`the plan's render=build routes: ${buildLocations.error}`);
-const renderEntry = existsSync(resolve(app.dir, 'linux/src/bin', `${renderBin}.rs`));
-let documentNote = buildLocations.length ? `${buildLocations.length} declared, but no ${renderBin} entry in ${renderCrate}` : 'none declared';
-if (buildLocations.length && renderEntry) {
+let documentNote = buildLocations.length ? `${buildLocations.length} declared, but no ${renderBin} entry in ${app.crate('linux')} or ${crate}` : 'none declared';
+if (buildLocations.length && renderAt) {
   // A build-time tool, never shipped: it renders the plan it is handed, so
   // its own Linux bake takes development trust (a production bake would
   // demand a publisher receipt for an updater nothing publishes).
