@@ -326,11 +326,17 @@ impl<'a> Update<'a> {
     /// [`Update::stale`] for reads made `shift` scopes further in (a key or
     /// a row body seen from its region), counting only enclosing frames.
     fn stale_outside(&self, reads: &Reads, shift: u32) -> bool {
+        self.full || self.changed_outside(reads, shift)
+    }
+
+    /// Whether an input `reads` names actually changed, whatever
+    /// [`Update::full`] says: what decides host-visible protocol state (a
+    /// list's measurement epochs and revision) identically in both modes.
+    fn changed_outside(&self, reads: &Reads, shift: u32) -> bool {
         let Some(changed) = &self.changed else {
             return true;
         };
-        self.full
-            || reads.opaque
+        reads.opaque
             || reads.bits.intersects(changed)
             || reads.frames_outside(shift) & self.dirty_frames != 0
             || (reads.row_slots

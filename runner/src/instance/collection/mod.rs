@@ -220,8 +220,17 @@ impl Collection {
             u.work.regions_skipped += 1;
             return Ok(());
         }
-        self.end_preview(u)?;
-        let anchor = self.anchor()?;
+        // What an input actually changed, not the full evaluation's "all of
+        // it", decides the protocol: ending a reorder preview, re-measuring
+        // rows and the revision are the same in both modes.
+        let changed = fresh
+            || u.changed_outside(&deps.keys[index], 1)
+            || u.changed_outside(&deps.subjects[index], 0)
+            || u.changed_outside(&deps.bodies[index], 1);
+        if changed {
+            self.end_preview(u)?;
+        }
+        let anchor = if changed { self.anchor()? } else { None };
         if data_changed {
             let descriptor = u.env.plan.region(self.region);
             let Value::List(items) = u.eval(descriptor.subject, frames)? else {
@@ -298,14 +307,18 @@ impl Collection {
             }
             self.items = items;
         }
-        // O(1): old heights remain estimates; stale measurements cannot confirm them.
-        self.invalidate_height_estimates()?;
-        if self.index.len() == 0 {
-            self.edge_armed = [true; 2];
+        if changed {
+            // O(1): old heights remain estimates; stale measurements cannot confirm them.
+            self.invalidate_height_estimates()?;
+            if self.index.len() == 0 {
+                self.edge_armed = [true; 2];
+            }
+            self.restore(anchor)?;
         }
-        self.restore(anchor)?;
         self.realize_window(u, frames, true)?;
-        advance(&mut self.revision)?;
+        if changed {
+            advance(&mut self.revision)?;
+        }
         Ok(())
     }
     fn anchor(&self) -> Result<Option<index::Anchor>, InstanceError> {
