@@ -956,7 +956,9 @@ fn accessibility_focus_is_session_scoped_and_buttons_activate_from_keys() {
     assert_eq!(state["focus"]["logical"], other);
     p.reload(&contract::compile(source).unwrap().encode(), NoData)
         .unwrap();
-    assert_eq!(p.focus(), Some(id(&p, "first")));
+    // A carried reload is the same document: focus stays at Other's place,
+    // and First's autofocus does not take it back (LLP 1035.000 D9).
+    assert_eq!(p.focus(), Some(id(&p, "other")));
     assert!(p.host().agent(r#"{"op":"state"}"#).contains(r#""count":3"#));
     p.key(Some('\n'), false, 2000.0);
     assert!(p.host().agent(r#"{"op":"state"}"#).contains(r#""count":4"#));

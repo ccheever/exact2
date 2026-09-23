@@ -830,18 +830,30 @@ fn ordinary_node_state_is_not_routed_to_a_surface() {
 }
 
 #[test]
-fn autofocus_starts_again_in_a_reloaded_host_generation() {
+fn a_reload_keeps_focus_at_its_place_and_autofocuses_nothing() {
     pin_font();
-    let plan = contract::compile(
-        "component Test\n  view\n    button autofocus testId=\"play\"\n      text \"Play\"\n",
-    )
-    .unwrap()
-    .encode();
-    let (mut p, error) = Presenter::boot(&plan, NoData, (390., 844.), 1., assets()).unwrap();
+    let plan = |label: &str| {
+        contract::compile(&format!(
+            "component Test\n  state name = \"\"\n  action edit(v: string) writes name\n    name = v\n  view\n    column\n      button autofocus testId=\"play\"\n        text \"Play\"\n      input testId=\"name\" value=name change=edit\n      text \"{label}\"\n"
+        ))
+        .unwrap()
+        .encode()
+    };
+    let (mut p, error) = Presenter::boot(&plan("one"), NoData, (390., 844.), 1., assets()).unwrap();
     assert!(error.is_none());
     assert_eq!(p.focus(), Some(view(&p, "play")));
-    p.reload(&plan, NoData).unwrap();
+    // Autofocus's own target keeps the focus through a reload.
+    p.reload(&plan("two"), NoData).unwrap();
     assert_eq!(p.focus(), Some(view(&p, "play")));
+    // Focus the user moved stays where it went; autofocus takes nothing back.
+    p.type_text(view(&p, "name"), "Ada").unwrap();
+    assert_eq!(p.focus(), Some(view(&p, "name")));
+    p.reload(&plan("three"), NoData).unwrap();
+    assert_eq!(p.focus(), Some(view(&p, "name")));
+    // Nothing focused before a reload: nothing after it.
+    p.blur();
+    p.reload(&plan("four"), NoData).unwrap();
+    assert_eq!(p.focus(), None);
 }
 
 #[test]

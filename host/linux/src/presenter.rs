@@ -554,6 +554,7 @@ impl<D: DataSource> Presenter<D> {
         delivery.staged = false;
         let module =
             crate::delivery::Module::resolve(&candidate.assets).map_err(HostError::Asset)?;
+        let kept = self.focus_place();
         let mut carried = self.host.carry();
         let data = self.prepare_logic(
             &candidate.plan,
@@ -594,7 +595,6 @@ impl<D: DataSource> Presenter<D> {
         if self.display.new_session() {
             self.painted = false;
         }
-        self.autofocus_processed.clear();
         self.activation_failed = false;
         self.module = module;
         self.text = text.clone();
@@ -612,7 +612,7 @@ impl<D: DataSource> Presenter<D> {
         self.arrange = None;
         self.brush.arrange_lift = None;
         self.page = (0.0, 0.0);
-        self.focus = None;
+        self.restore_focus(kept);
         self.pointer = None;
         self.commands.clear();
         self.host.log("exact update: activated the staged bundle");
@@ -680,7 +680,8 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// The dev loop's restart: boot the new plan with state carried; every
-    /// picture, offset, and focus goes (LLP 1007 §6).
+    /// picture and offset goes, and focus stays at its place (`restore_focus`)
+    /// (LLP 1007 §6).
     pub fn reload(&mut self, plan: &[u8], data: D) -> Result<Option<String>, HostError> {
         self.reload_module(plan, data, self.module.clone())
     }
@@ -704,6 +705,7 @@ impl<D: DataSource> Presenter<D> {
         if let Some(reason) = self.assets.take_refusal() {
             return Err(HostError::Asset(reason));
         }
+        let kept = self.focus_place();
         let mut carried = self.host.carry();
         let data = self.prepare_logic(
             plan,
@@ -729,7 +731,6 @@ impl<D: DataSource> Presenter<D> {
         if self.display.new_session() {
             self.painted = false;
         }
-        self.autofocus_processed.clear();
         self.activation_failed = false;
         self.module = module;
         self.text = candidate_text.clone();
@@ -745,9 +746,46 @@ impl<D: DataSource> Presenter<D> {
         self.brush.arrange_lift = None;
         self.page = (0.0, 0.0);
         self.images.reset();
-        self.focus = None;
+        self.restore_focus(kept);
         let e = self.after_commit();
         Ok(e)
+    }
+
+    /// A restart with carried state (a dev reload, a delivered update)
+    /// replaces the tree. Focus follows the focused node's place in the
+    /// runner's tree — its index among its siblings at each level, and its
+    /// type — and the restarted tree autofocuses nothing; a node mounted
+    /// later still may.
+    fn focus_place(&self) -> Option<(Vec<usize>, NodeType)> {
+        let (kernel, roots) = (self.host.kernel(), self.host.runner().roots());
+        let node_type = kernel.node(self.focus?)?.node_type;
+        let (mut path, mut at) = (Vec::new(), self.focus?);
+        loop {
+            let parent = kernel.node(at)?.parent;
+            let siblings = parent.map_or(Some(roots.clone()), |p| {
+                kernel.node(p).map(|n| n.children())
+            })?;
+            path.push(siblings.iter().position(|&id| id == at)?);
+            let Some(parent) = parent else { break };
+            at = parent;
+        }
+        path.reverse();
+        Some((path, node_type))
+    }
+    fn restore_focus(&mut self, kept: Option<(Vec<usize>, NodeType)>) {
+        let kernel = self.host.kernel();
+        let rows = kernel.rows(None).unwrap_or_default();
+        self.autofocus_processed = rows.iter().map(|r| r.id).collect();
+        let target = kept.and_then(|(path, node_type)| {
+            let (mut ids, mut id) = (self.host.runner().roots(), None);
+            for index in path {
+                let at = *ids.get(index)?;
+                ids = kernel.node(at)?.children();
+                id = Some(at);
+            }
+            id.filter(|&id| kernel.node(id).is_some_and(|n| n.node_type == node_type))
+        });
+        self.focus = target.filter(|&id| self.focusable(id) && !self.host.route_visibility(id).1);
     }
 
     /// The host.
