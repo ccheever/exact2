@@ -512,10 +512,16 @@ public final class ExactSession {
     }
 
     private(set) var modulePending = false
+    /// While a carried restart applies its tree, autofocus waits; the restart
+    /// then puts focus back at its place (`Presenter.restoreFocus`).
+    var autofocusHeld = false
+    private var keptFocus: FocusPlace?
 
     func prepare(_ bytes: Data, resolver: AssetResolver, token: UInt64 = 0, module: ExactModule? = nil, size: CGSize? = nil) -> Prepared? {
         modulePending = false
         guard state != .destroyed else { return nil }
+        // The running tree's focus, read before the candidate replaces it.
+        keptFocus = booted ? presenter.focusPlace(tree: agent("{\"op\":\"tree\"}")) : nil
         let module = module ?? app.lastModule
         let candidate = TextEngine(resolve: { resolver.url($0) }, read: { resolver.bytes($0) })
         runtime.setMeasure(TextEngine.measureText, ctx: candidate.opaque)
@@ -559,11 +565,16 @@ public final class ExactSession {
 
     func presentCommitted(_ batch: Batch, label: String) {
         routerOp = nil
+        let restart = booted, kept = keptFocus
+        keptFocus = nil
         presenter.reset()
         booted = true
         app.lifecycle?.generationStarted(app, token: updateToken)
+        autofocusHeld = restart
         apply(batch)
         view?.rebooted()
+        autofocusHeld = false
+        if restart { presenter.restoreFocus(kept, tree: agent("{\"op\":\"tree\"}")) }
         state = .ready
         fputs("reloaded \(label)\n", stderr)
     }
