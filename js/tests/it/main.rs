@@ -6,4 +6,5 @@ mod castle;
 mod inputs;
 mod interrupt;
 mod pure;
+mod render;
 mod storage;

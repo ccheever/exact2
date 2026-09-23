@@ -547,7 +547,9 @@ Bake gains three steps, all build-time, all reproducible:
    own `typescript::strip` — Oxc — is the single-file fallback with no
    bundler in the loop; §10 Q1). 6 KB of JavaScript for the probe.
 2. **Compile.** `hermesc -O -emit-binary` → `app.hbc`, 11 KB for the
-   probe, with the `hermesc` that ships beside the VM it targets (the
+   probe (as built since 2026-09-23 with `-emit-async-break-check` too,
+   so a host can interrupt a running call; LLP 1048.000 D10), with the
+   `hermesc` that ships beside the VM it targets (the
    receipt, D9): bytecode is version-coupled to the engine, and a
    mismatch is refused outright (ibex2 bytecode.rs). Steps 1–2: 20 ms.
 3. **Evaluate constants.** `contract::bake(plan, exact_js::Module::new(&hbc))`

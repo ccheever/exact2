@@ -29,10 +29,15 @@ pub use source::Anonymous;
 
 use exact_kernel::Kernel;
 use exact_plan::Plan;
-use exact_runner::{DataSource, Dispatch, FailureKind, Outcome, RequestOut, Runner, RunnerError};
+use exact_runner::{
+    DataSource, Dispatch, FailureKind, Interrupt, Outcome, RequestOut, Runner, RunnerError,
+};
 use exact_web::document::{build_locations, checkpoint, digest, project, route_at, Document, Site};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// A render's deadline unless the caller names one (LLP 1048.000 D9).
@@ -80,6 +85,7 @@ pub fn render<D: DataSource>(
 ) -> Result<Rendered, String> {
     let until = Instant::now() + deadline;
     let data = Anonymous::new(data);
+    let watchdog = Watchdog::arm(data.interrupt(), until);
     let executor = Executor::start(exact_runner::DataSource::grants(&data));
     let mut runner = Runner::boot_with_delivery(
         plan.clone(),
@@ -92,8 +98,16 @@ pub fn render<D: DataSource>(
         location,
     )
     .map_err(|e| format!("boot: {e:?}"))?;
-    activate(&mut runner, until)?;
-    let settled = settle(&mut runner, &executor, until).map_err(|e| format!("{e:?}"))?;
+    let settled = match activate(&mut runner, until)
+        .and_then(|()| settle(&mut runner, &executor, until).map_err(|e| format!("{e:?}")))
+    {
+        Ok(settled) => settled,
+        // The call running at the deadline was stopped and refused, so what
+        // it answers shows its placeholder: the render ends at the deadline.
+        Err(_) if watchdog.fired() => Settled::Deadline,
+        Err(e) => return Err(e),
+    };
+    drop(watchdog);
     // Whatever is still in flight is abandoned with the render.
     drop(executor);
     let document = project(&runner).map_err(|e| e.to_string())?;
@@ -111,6 +125,58 @@ pub fn render<D: DataSource>(
         state,
         settled,
     })
+}
+
+/// The deadline, for a source call still running then (LLP 1048.000 D10):
+/// a thread that triggers the source's interrupt at `until`, unless the
+/// render finished first. A source without one runs its calls to the end.
+struct Watchdog {
+    cancel: Option<Sender<()>>,
+    fired: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Watchdog {
+    fn arm(interrupt: Option<Interrupt>, until: Instant) -> Watchdog {
+        let fired = Arc::new(AtomicBool::new(false));
+        let Some(interrupt) = interrupt else {
+            return Watchdog {
+                cancel: None,
+                fired,
+                thread: None,
+            };
+        };
+        let (cancel, cancelled) = channel::<()>();
+        let flag = fired.clone();
+        let thread = std::thread::Builder::new()
+            .name("exact-render-deadline".into())
+            .spawn(move || {
+                let wait = until.saturating_duration_since(Instant::now());
+                if cancelled.recv_timeout(wait) == Err(RecvTimeoutError::Timeout) {
+                    flag.store(true, Ordering::SeqCst);
+                    interrupt.trigger();
+                }
+            })
+            .ok();
+        Watchdog {
+            cancel: Some(cancel),
+            fired,
+            thread,
+        }
+    }
+
+    fn fired(&self) -> bool {
+        self.fired.load(Ordering::SeqCst)
+    }
+}
+
+impl Drop for Watchdog {
+    fn drop(&mut self) {
+        drop(self.cancel.take());
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
 }
 
 /// A module that loads after first pixel on a device (LLP 1027 D4) loads

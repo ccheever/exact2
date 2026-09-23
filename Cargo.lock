@@ -754,6 +754,7 @@ dependencies = [
  "exact-js-value",
  "exact-kernel",
  "exact-plan",
+ "exact-render",
  "exact-runner",
  "ibex2",
  "ibex2-sqlite",

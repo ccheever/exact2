@@ -26,3 +26,5 @@ cc = "1"
 caltrain-data = { path = "../apps/caltrain/data" }
 contract = { path = "../contract/cli" }
 exact-kernel = { path = "../kernel" }
+# The render server, for a spinning source stopped at its deadline.
+exact-render = { path = "../host/render" }
