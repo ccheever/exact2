@@ -75,6 +75,63 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertFalse(button.forwardsCanvasKey("KeyW"))
         withExtendedLifetime((p, w)) {}
     }
+    /// VoiceOver's view of the tree, through the NSAccessibility attributes
+    /// it reads: pressables are buttons or links, each a leaf named by its
+    /// content; a labelled image is an image; a heading level is a heading;
+    /// and every one of them is reachable from the window's content.
+    func testPressablesLinksImagesAndHeadingsAreAccessibilityElements() {
+        let (p, w, button, other) = fixture()
+        button.handlers = ["press"]
+        button.applyProps(set: ["accessibilityRole": "button", "accessibilitySelected": "true"], clear: [])
+        let caption = NodeView(id: 10, kind: "text", presenter: p)
+        caption.applyProps(set: ["text": "Dark"], clear: [])
+        button.addSubview(caption); p.views[caption.id] = caption
+        other.applyProps(set: ["accessibilityRole": "link", "accessibilityLabel": "Schedules"], clear: [])
+        let logo = NodeView(id: 11, kind: "image", presenter: p)
+        logo.applyProps(set: ["accessibilityLabel": "Caltrain"], clear: [])
+        let spacer = NodeView(id: 12, kind: "image", presenter: p)
+        spacer.applyProps(set: [:], clear: [])
+        let heading = NodeView(id: 13, kind: "text", presenter: p)
+        heading.applyProps(set: ["text": "Palo Alto", "accessibilityHeadingLevel": "1"], clear: [])
+        let body = NodeView(id: 14, kind: "text", presenter: p)
+        body.applyProps(set: ["text": "Northbound"], clear: [])
+        for n in [logo, spacer, heading, body] {
+            n.frame = NSRect(x: 0, y: 60, width: 100, height: 20)
+            p.root.addSubview(n); p.views[n.id] = n
+        }
+        p.syncAccessibility()
+
+        XCTAssertTrue(button.isAccessibilityElement())
+        XCTAssertEqual(button.accessibilityRole(), .button)
+        XCTAssertEqual(button.accessibilityLabel(), "Dark")
+        XCTAssertTrue(button.isAccessibilitySelected())
+        XCTAssertNil(button.accessibilityChildren(), "a control is a leaf")
+        XCTAssertTrue(button.accessibilityPerformPress())
+        XCTAssertTrue(other.isAccessibilityElement())
+        XCTAssertEqual(other.accessibilityRole(), .link)
+        XCTAssertEqual(other.accessibilityLabel(), "Schedules")
+        XCTAssertTrue(logo.isAccessibilityElement())
+        XCTAssertEqual(logo.accessibilityRole(), .image)
+        XCTAssertEqual(logo.accessibilityLabel(), "Caltrain")
+        XCTAssertFalse(spacer.isAccessibilityElement(), "an unlabelled image is decoration")
+        XCTAssertEqual(heading.accessibilityRole()?.rawValue, "AXHeading")
+        XCTAssertEqual(heading.accessibilityValue() as? Int, 1)
+        XCTAssertEqual(heading.accessibilityLabel(), "Palo Alto")
+        XCTAssertEqual(body.accessibilityRole(), .staticText)
+
+        // What VoiceOver walks: element children from the window's content.
+        var reached: [NSView] = []
+        func walk(_ view: NSView) {
+            for case let child as NSView in view.accessibilityChildren() ?? [] {
+                if child.isAccessibilityElement() { reached.append(child) }
+                walk(child)
+            }
+        }
+        walk(w.contentView!)
+        for node in [button, other, logo, heading, body] { XCTAssertTrue(reached.contains(node), "\(node.kind) \(node.id) is unreachable") }
+        XCTAssertFalse(reached.contains(caption), "a button's text is its name, not a second stop")
+        XCTAssertFalse(reached.contains(spacer))
+    }
     func testOffDoesNotTrackALiveRegion() {
         let (p, w, first, _) = fixture()
         first.props["accessibilityLive"] = "off"

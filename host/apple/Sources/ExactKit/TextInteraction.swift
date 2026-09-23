@@ -42,9 +42,16 @@ extension NodeView {
         let label = props["accessibilityLabel"] ?? paragraphText
         #if os(macOS)
         setAccessibilityElement(true)
-        setAccessibilityRole(.staticText)
+        if let level = Int(props["accessibilityHeadingLevel"] ?? ""), (1...6).contains(level) {
+            // The heading role WebKit exposes (AppKit's constant from macOS
+            // 26), its level the value, as a `<h1>`–`<h6>` has on the web.
+            setAccessibilityRole(NSAccessibility.Role(rawValue: "AXHeading"))
+            setAccessibilityValue(level)
+        } else {
+            setAccessibilityRole(.staticText)
+            setAccessibilityValue(label)
+        }
         setAccessibilityLabel(label)
-        setAccessibilityValue(label)
         #else
         // UIKit does not visit a container's children when it is itself an
         // accessibility element. Expose the paragraph plus its link targets.

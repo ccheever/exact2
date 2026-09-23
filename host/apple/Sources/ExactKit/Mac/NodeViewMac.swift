@@ -423,7 +423,25 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         presenter?.hoverInline(nil)
         if handlers.contains("hover") { presenter?.hover(self, false) }
     }
-    override func accessibilityChildren() -> [Any]? { textAccessibilityChildren() ?? super.accessibilityChildren() }
+    /// A control is a leaf, as UIKit makes one: VoiceOver reads its name.
+    override func accessibilityChildren() -> [Any]? {
+        kind == "button" ? nil : textAccessibilityChildren() ?? super.accessibilityChildren()
+    }
+    /// What VoiceOver reaches, as the web's accessibility tree and iOS's
+    /// traits have it: a pressable is a button — a link when its role says
+    /// so — and a labelled image an image. Headings are paragraphs
+    /// (`updateTextAccessibility`); names come from `syncAccessibility`.
+    func updateRoleAccessibility() {
+        if kind == "button" {
+            setAccessibilityElement(true)
+            setAccessibilityRole(props["accessibilityRole"] == "link" ? .link : .button)
+            setAccessibilitySelected(props["accessibilitySelected"] == "true")
+        } else if kind == "image" {
+            let labelled = !(props["accessibilityLabel"] ?? "").isEmpty
+            setAccessibilityElement(labelled)
+            setAccessibilityRole(labelled ? .image : nil)
+        }
+    }
     /// The editing commands of a text field's editor as key names (the
     /// characters themselves are its `change`): Enter is taken here, so it
     /// does not end the editing as AppKit would.
@@ -495,7 +513,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
     func updateSymbol() {
         guard kind == "image", let source = imageSource, source.hasPrefix("symbol:") else { return }
-        setAccessibilityElement(false)
+        updateRoleAccessibility()
         let name = props["symbolName"] ?? "", points = number("font_size", 16)
         let weights: [NSFont.Weight] = [.ultraLight, .thin, .light, .regular, .medium, .semibold, .bold, .heavy, .black]
         let index = min(8, max(0, Int((number("font_weight", 400) / 100).rounded()) - 1))
@@ -1012,6 +1030,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         setAccessibilityIdentifier(props["testId"])
         setAccessibilityLabel(props["accessibilityLabel"])
         updateTextAccessibility()
+        updateRoleAccessibility()
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
         if kind == "image", props["imageSource"] == nil, imageSource != nil { loadGeneration += 1; presenter?.session?.rasters.cancel(id); raster = nil; imageSource = nil; clearSymbol(); image = nil; presenter?.intrinsic(id, nil) }
         if kind == "iframe" { presenter?.session?.webviews.update(self) }

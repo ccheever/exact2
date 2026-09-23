@@ -569,7 +569,10 @@ display link today); toggles; pointer coordinates and moves (a drag),
 `keyup`, double-click, wheel offsets reaching the runner, and a `key` inside a
 text field beyond its editing commands (§5); scroll
 position and focus across a reload; accessibility beyond `testId` as the
-identifier and `accessibilityLabel`; justified text; per-corner radii
+identifier, `accessibilityLabel`, and the roles VoiceOver reaches on macOS (a
+pressable is a button, or a link by its role, and a leaf; a labelled image an
+image; `aria-level` a heading; 2026-09-23) — iOS gives pressables the button
+trait only; justified text; per-corner radii
 (the first set radius rounds all four); iOS text selection; scroll position
 across a reload; a generated header (§4).
 
