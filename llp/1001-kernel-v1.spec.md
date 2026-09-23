@@ -425,6 +425,12 @@ directions and independent parent/child padding; the original implementation
 fails it. Browser measurements supply the expected dimensions. This changes
 neither the app's minimum width nor its padding.
 
+Percentage padding and border widths resolve against the containing block's
+width on all four sides (2026-09-23; Taffy patch 10). Taffy's block algorithm
+sized a child with its vertical sides resolved against the parent's height:
+`height: 50px; padding-top: 5%` under a 400px-wide auto-height parent was 50px
+tall where Chrome makes it 70px (`kernel/tests/it/browser_cases.rs`).
+
 **The result-equality gate is a test, from the first commit.**
 `tests/layout_equality.rs` mutates a random tree for hundreds of rounds and asserts
 the incremental frames equal, bit for bit, both a kernel rehydrated from the

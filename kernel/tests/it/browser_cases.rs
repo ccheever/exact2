@@ -258,3 +258,137 @@ fn normal_alignment_matches_chrome_in_grid_and_flex() {
     );
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// CSS Box Model §4 (CSS 2.1 §8.4): a percentage padding or border width
+/// refers to the containing block's width on every side. Taffy's block
+/// algorithm resolved vertical sides against the parent's height when it
+/// sized a child (vendor/taffy patch 10), so `padding-top: 5%` under an
+/// auto-height parent was zero there, and the `padding-top: 56.25%` embed
+/// idiom collapsed to its `height: 0`.
+#[test]
+fn percentage_padding_resolves_against_the_containing_block_width() {
+    let pct = StyleValue::Percent;
+    let mut failures = Vec::new();
+    let mut case = |name: &str, root: Rows, nodes, want: &[_]| {
+        failures.extend(mismatches(name, &lay_out(props(&root), nodes, &[]), want));
+    };
+    let parent = |height: Option<f32>| {
+        let mut rows = vec![(Width, n(400.0))];
+        rows.extend(height.map(|h| (Height, n(h as f64))));
+        rows
+    };
+    case(
+        "padding-top: 5% under an auto height",
+        parent(None),
+        vec![(2, 1, vec![(Height, n(50.0)), (PaddingTop, pct(5.0))])],
+        &[(2, [0.0, 0.0, 400.0, 70.0])],
+    );
+    // The embed idiom: a zero-height box whose padding is the frame, and an
+    // absolutely positioned child that fills it.
+    let embed = || {
+        vec![
+            (
+                2,
+                1,
+                vec![
+                    (PositionType, t("relative")),
+                    (Height, n(0.0)),
+                    (PaddingTop, pct(56.25)),
+                ],
+            ),
+            (
+                3,
+                2,
+                vec![
+                    (PositionType, t("absolute")),
+                    (Top, n(0.0)),
+                    (Left, n(0.0)),
+                    (Width, pct(100.0)),
+                    (Height, pct(100.0)),
+                ],
+            ),
+        ]
+    };
+    let filled = [(2, [0.0, 0.0, 400.0, 225.0]), (3, [0.0, 0.0, 400.0, 225.0])];
+    case("the 56.25% embed", parent(None), embed(), &filled);
+    case(
+        "the 56.25% embed in a definite height",
+        parent(Some(300.0)),
+        embed(),
+        &filled,
+    );
+    case(
+        "an auto height holds its percentage padding before what follows",
+        parent(Some(300.0)),
+        vec![
+            (2, 1, vec![(PaddingTop, pct(10.0))]),
+            (3, 2, vec![(Height, n(20.0))]),
+            (4, 1, vec![(Height, n(10.0))]),
+        ],
+        &[
+            (2, [0.0, 0.0, 400.0, 60.0]),
+            (3, [0.0, 40.0, 400.0, 20.0]),
+            (4, [0.0, 60.0, 400.0, 10.0]),
+        ],
+    );
+    case(
+        "a definite parent height is not the basis",
+        parent(Some(300.0)),
+        vec![(
+            2,
+            1,
+            vec![
+                (Height, n(10.0)),
+                (PaddingTop, pct(5.0)),
+                (PaddingBottom, pct(10.0)),
+            ],
+        )],
+        &[(2, [0.0, 0.0, 400.0, 70.0])],
+    );
+    case(
+        "content sits inside both percentage sides",
+        parent(Some(300.0)),
+        vec![
+            (
+                2,
+                1,
+                vec![
+                    (Height, n(10.0)),
+                    (PaddingLeft, pct(10.0)),
+                    (PaddingTop, pct(10.0)),
+                ],
+            ),
+            (3, 2, vec![(Height, n(5.0))]),
+        ],
+        &[(2, [0.0, 0.0, 400.0, 50.0]), (3, [40.0, 40.0, 360.0, 5.0])],
+    );
+    case(
+        "border-box keeps its height",
+        parent(None),
+        vec![(
+            2,
+            1,
+            vec![
+                (BoxSizing, t("border-box")),
+                (Height, n(50.0)),
+                (PaddingTop, pct(5.0)),
+            ],
+        )],
+        &[(2, [0.0, 0.0, 400.0, 50.0])],
+    );
+    case(
+        "a percentage width beside a percentage padding",
+        parent(None),
+        vec![(2, 1, vec![(Width, pct(50.0)), (PaddingTop, pct(25.0))])],
+        &[(2, [0.0, 0.0, 200.0, 100.0])],
+    );
+    // The flex algorithm's stretched cross size had the same basis error in
+    // the content-box adjustment of its `max-height` clamp.
+    case(
+        "a stretched flex item's max-height clamp",
+        [parent(Some(300.0)), vec![(Display, t("flex"))]].concat(),
+        vec![(2, 1, vec![(MaxHeight, n(50.0)), (PaddingTop, pct(10.0))])],
+        &[(2, [0.0, 0.0, 0.0, 90.0])],
+    );
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

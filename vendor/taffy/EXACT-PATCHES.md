@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4 and 5 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9 and 10 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size.
@@ -333,3 +333,30 @@ and 2,000 unrelated siblings, and exercise negative dependencies, mixed dirty
 sources, changed viewports and reparenting. Apple layout tests cover silent
 settlement and inherited spelling hints on unmoved editors. Existing layout,
 reader, exclusion, region and upstream differential expectations are unchanged.
+
+## Patch 10: percentage padding and border resolve against the inline size — to upstream
+
+**Implementer:** Claude, 2026-09-23 (found by the 2026-09-22 kernel review).
+
+`src/compute/block.rs::generate_item_list` resolved each child's padding and
+border with `resolve_or_zero(node_inner_size, …)`, a `Size` basis, so the top
+and bottom sides resolved against the container's inner *height*. CSS Box
+Model 3 §4 (CSS 2.1 §8.4) resolves percentage padding, and Taffy's
+percentage border, against the containing block's inline size on every side,
+as the item's own layout (`parent_size.width`) and the flex and grid item
+paths already do. The wrong basis fed the item's `box_sizing_adjustment` and
+`padding_border_sum`: a content-box `height: 50px; padding-top: 5%` child of
+a 400px-wide auto-height block was 50px tall (Chrome 153: 70px), and under a
+300px-tall parent `height: 10px; padding: 5% 0 10%` was 60px (Chrome: 70px).
+`src/compute/flexbox.rs::determine_used_cross_size` had the same basis in the
+content-box adjustment of a stretched item's maximum cross size (a 400×300
+row, `max-height: 50px; padding-top: 10%`: 80px, Chrome: 90px). Both sites
+now pass `.width`; nothing else changes.
+
+Upstream wants the two-line fix and a gentest per site in its HTML fixture
+format; the cases above are that fixture's content. Held by
+`kernel/tests/it/browser_cases.rs::percentage_padding_resolves_against_the_containing_block_width`:
+nine literal-Chrome cases, including the `padding-top: 56.25%` embed idiom,
+which a zero `height` already kept right (only the box's own padding
+counts then). Taffy's 130 unit tests pass on the patched source (a scratch
+copy without the uncached roxmltree dev-dependency, as in M8).
