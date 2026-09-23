@@ -25,6 +25,12 @@
   #exact-root { height: 100%; font-synthesis: none; }
   body { font: 16px system-ui, sans-serif; }
   button, input, textarea { all: unset; display: block; box-sizing: content-box; cursor: default; }
+  /* A link is a bare node too: the UA's link colour, underline and pointer
+     go, as a button's control styling does. A \`link\` is block-level like any
+     node; a run with an \`href\` stays inline in its paragraph. Markdown's own
+     links (never views) keep the UA's look. */
+  #exact-root a[data-view] { color: inherit; text-decoration: none; cursor: default; display: block; }
+  #exact-root [data-exact-text] a[data-view] { display: inline; }
   /* A text node with a heading level is an <h1>–<h6> for the accessibility
      tree; its box is a bare div's, so the UA's heading margins, size and
      weight go. The node's own style rows, inline, still win. */
