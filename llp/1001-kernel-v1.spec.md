@@ -365,7 +365,11 @@ style is re-derived on `AttachRoot`).
 child under a `Text` (a text node's children are its inline runs; anything else
 would be a node the engine never lays out — `InlineRunNotText`). A child listed
 under a new parent is reparented; children dropped from a list become detached
-(live, no parent, in no root's layout) — not destroyed. Every number in a style
+(live, no parent, in no root's layout) — not destroyed. An old parent is
+pruned once per op, or once per run of consecutive `DestroyView`s, in one pass
+and one engine update: moving N children, or destroying them one op each, is
+O(N), where it was O(N²) (8,000 of either took 0.7–0.8 s; 2026-09-23,
+counted by `txn::tests`). Every number in a style
 patch must be finite on both ingress paths (`DecodeError::NonFinite`,
 `ApplyError::NonFiniteStyle`); NaN never reaches a frame.
 

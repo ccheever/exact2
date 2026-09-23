@@ -291,13 +291,20 @@ impl NodeArena {
         depth
     }
 
-    /// The subtree rooted at `slot`, preorder, `slot` first.
+    /// The subtree rooted at `slot`, preorder, `slot` first. A listed child
+    /// that no longer names its lister as parent — destroyed earlier in a
+    /// batch whose detaching is still pending — is not part of it.
     pub fn subtree(&self, slot: u32) -> Vec<u32> {
         let mut out = Vec::new();
         let mut stack = vec![slot];
         while let Some(s) = stack.pop() {
             out.push(s);
-            stack.extend(self.children[s as usize].iter().rev());
+            stack.extend(
+                self.children[s as usize]
+                    .iter()
+                    .rev()
+                    .filter(|c| self.parents[**c as usize] == Some(s)),
+            );
         }
         out
     }
@@ -581,9 +588,14 @@ impl NodeArena {
         self.children[slot as usize] = children;
     }
 
-    pub(crate) fn remove_child(&mut self, parent: u32, child: u32) {
-        self.children[parent as usize].retain(|&c| c != child);
-        for (index, &child) in self.children[parent as usize].iter().enumerate() {
+    /// Drop every listed child of `parent` that no longer names it as its
+    /// parent, in one pass: the transaction detaches moved and destroyed
+    /// children lazily and prunes each old parent once per op or run.
+    pub(crate) fn prune_children(&mut self, parent: u32) {
+        let parents = &self.parents;
+        let list = &mut self.children[parent as usize];
+        list.retain(|&c| parents[c as usize] == Some(parent));
+        for (index, &child) in list.iter().enumerate() {
             self.child_indices[child as usize] = index;
         }
     }

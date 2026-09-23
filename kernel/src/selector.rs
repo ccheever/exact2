@@ -6,6 +6,7 @@
 //! results are returned in structural tree order by the kernel, never in hash
 //! order.
 
+use crate::id::IdSet;
 use std::collections::HashMap;
 
 /// `testId` → slot indexes, maintained on set/clear/destroy/reset.
@@ -41,6 +42,17 @@ impl SelectorIndex {
         if let Some(slots) = self.by_test_id.get_mut(old) {
             slots.retain(|s| *s != slot);
             if slots.is_empty() {
+                self.by_test_id.remove(old);
+            }
+        }
+    }
+
+    /// Record that none of `slots` carries `old`: one pass over its entries
+    /// however many leave, as a run of destroys does.
+    pub fn remove_all(&mut self, old: &str, slots: &IdSet<u32>) {
+        if let Some(entries) = self.by_test_id.get_mut(old) {
+            entries.retain(|s| !slots.contains(s));
+            if entries.is_empty() {
                 self.by_test_id.remove(old);
             }
         }

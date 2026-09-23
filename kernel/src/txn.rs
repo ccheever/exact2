@@ -12,7 +12,7 @@
 //! never a silent skip and never a panic.
 
 use crate::id::{IdMap, IdSet};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::arena::NodeArena;
 use crate::error::{ApplyError, StyleDomainError};
@@ -105,17 +105,27 @@ impl<'a> Staged<'a> {
         self.arena.parent(slot).map(|p| self.arena.local_id(p))
     }
 
+    /// The staged children of `id`. A child that left in this batch still
+    /// sits in the list it left (so leaving is O(1)); its staged parent
+    /// says it is gone.
     fn children_of(&self, id: ViewId) -> Vec<ViewId> {
+        let kept = |c: &ViewId| self.parent_of(*c) == Some(id);
         if let Some(c) = self.children.get(&id) {
-            return c.clone();
+            #[cfg(test)]
+            count(c.len(), 0);
+            return c.iter().copied().filter(kept).collect();
         }
         match self.arena.slot_of(id) {
-            Some(slot) => self
-                .arena
-                .children(slot)
-                .iter()
-                .map(|c| self.arena.local_id(*c))
-                .collect(),
+            Some(slot) => {
+                #[cfg(test)]
+                count(self.arena.children(slot).len(), 0);
+                self.arena
+                    .children(slot)
+                    .iter()
+                    .map(|c| self.arena.local_id(*c))
+                    .filter(kept)
+                    .collect()
+            }
             None => Vec::new(),
         }
     }
@@ -132,36 +142,26 @@ impl<'a> Staged<'a> {
             .is_some_and(|s| self.arena.is_root(s))
     }
 
-    fn is_ancestor(&self, ancestor: ViewId, node: ViewId) -> bool {
-        // Every validated SetChildren rejects cycles, so the chain is finite; the
-        // bound only turns an impossible cycle into a rejection instead of a hang.
+    /// Every ancestor of `id`, walked once per `SetChildren` rather than once
+    /// per child. Every validated SetChildren rejects cycles, so the chain is
+    /// finite; `None` (then refused as a cycle) only turns an impossible one
+    /// into a rejection instead of a hang.
+    fn ancestors(&self, id: ViewId) -> Option<IdSet<ViewId>> {
         let bound = self.arena.live_count() + self.created.len() + 1;
-        let mut cur = self.parent_of(node);
-        let mut hops = 0usize;
+        let mut out = IdSet::default();
+        let mut cur = self.parent_of(id);
         while let Some(p) = cur {
-            if p == ancestor {
-                return true;
-            }
-            hops += 1;
-            if hops > bound {
-                return true;
+            if !out.insert(p) || out.len() > bound {
+                return None;
             }
             cur = self.parent_of(p);
         }
-        false
-    }
-
-    fn detach(&mut self, parent: ViewId, child: ViewId) {
-        let mut siblings = self.children_of(parent);
-        siblings.retain(|c| *c != child);
-        self.children.insert(parent, siblings);
-        self.parents.insert(child, None);
+        Some(out)
     }
 
     fn destroy(&mut self, id: ViewId) {
-        if let Some(parent) = self.parent_of(id) {
-            self.detach(parent, id);
-        }
+        // Its parent's staged list keeps it; `children_of` filters it out.
+        self.parents.insert(id, None);
         if self.is_root(id) {
             self.roots_added.remove(&id);
             self.roots_removed.insert(id);
@@ -256,6 +256,11 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                     });
                 }
                 let mut seen = IdSet::with_capacity_and_hasher(children.len(), Default::default());
+                let ancestors = if children.is_empty() {
+                    Some(IdSet::default())
+                } else {
+                    staged.ancestors(*id)
+                };
                 for child in children {
                     if *child == *id {
                         return Err(ApplyError::SelfChild { op_index, id: *id });
@@ -283,7 +288,7 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                             child: *child,
                         });
                     }
-                    if staged.is_ancestor(*child, *id) {
+                    if ancestors.as_ref().is_none_or(|a| a.contains(child)) {
                         return Err(ApplyError::Cycle {
                             op_index,
                             parent: *id,
@@ -296,12 +301,9 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                         staged.parents.insert(old, None);
                     }
                 }
+                // A child arriving from another parent leaves it by this
+                // write alone: that parent's staged list filters it out.
                 for child in children {
-                    if let Some(p) = staged.parent_of(*child) {
-                        if p != *id {
-                            staged.detach(p, *child);
-                        }
-                    }
                     staged.parents.insert(*child, Some(*id));
                 }
                 staged.children.insert(*id, children.clone());
@@ -364,76 +366,70 @@ pub fn apply(
     };
     let mut touched: Vec<NodeKey> = Vec::new();
     let mut created: IdSet<u32> = IdSet::default();
+    let mut detach = Detach::default();
 
-    for (op_index, op) in ops.iter().enumerate() {
-        match op {
-            Op::CreateView { id, node_type } => {
-                if arena.slot_of(*id).is_some() {
-                    continue; // live no-op
-                }
-                let slot = arena
-                    .alloc(*id, *node_type)
-                    .map_err(|_| ApplyError::Internal {
-                        op_index,
-                        what: "validated batch exhausted slot space",
-                    })?;
-                let node =
-                    layout.new_leaf(taffy_style(arena, slot), slot, node_type.is_measured_leaf());
-                arena.set_taffy(slot, Some(node));
-                created.insert(slot);
-                receipt.created.push(arena.key(slot));
-                receipt.layout_invalidated = true;
+    let applied = (|| -> Result<(), ApplyError> {
+        for (op_index, op) in ops.iter().enumerate() {
+            if !matches!(op, Op::DestroyView { .. }) {
+                detach.flush(arena, layout, selectors);
             }
-            Op::DestroyView { id } => {
-                let slot = live_slot(arena, op_index, *id)?;
-                if let Some(parent) = arena.parent(slot) {
-                    if arena.node_type(parent) == NodeType::Text {
-                        invalidate_text(arena, layout, parent);
+            match op {
+                Op::CreateView { id, node_type } => {
+                    if arena.slot_of(*id).is_some() {
+                        continue; // live no-op
                     }
-                    arena.remove_child(parent, slot);
-                    sync_children(arena, layout, parent);
-                    arena.flags_mut(parent).insert(NodeFlags::CHILDREN_DIRTY);
-                    touched.push(arena.key(parent));
-                }
-                for s in arena.subtree(slot) {
-                    if let Some(test_id) = arena.props(s).str(PropId::TestId) {
-                        selectors.remove(s, test_id);
-                    }
-                    if let Some(node) = arena.taffy(s) {
-                        layout.remove(node);
-                    }
-                    receipt.destroyed.push(arena.key(s));
-                    created.remove(&s);
-                    arena.free_slot(s);
-                }
-                receipt.layout_invalidated = true;
-            }
-            Op::SetProp { id, prop, value } => {
-                let slot = live_slot(arena, op_index, *id)?;
-                if arena.props(slot).get(*prop) == Some(value) {
-                    continue;
-                }
-                let old = arena.props_mut(slot).set(*prop, value.clone());
-                if *prop == PropId::TestId {
-                    selectors.update(slot, old.as_ref().and_then(|v| v.as_str()), value.as_str());
-                }
-                arena.flags_mut(slot).insert(NodeFlags::PROPS_DIRTY);
-                if prop.affects_measure() {
-                    invalidate_text(arena, layout, slot);
+                    let slot = arena
+                        .alloc(*id, *node_type)
+                        .map_err(|_| ApplyError::Internal {
+                            op_index,
+                            what: "validated batch exhausted slot space",
+                        })?;
+                    let node = layout.new_leaf(
+                        taffy_style(arena, slot),
+                        slot,
+                        node_type.is_measured_leaf(),
+                    );
+                    arena.set_taffy(slot, Some(node));
+                    created.insert(slot);
+                    receipt.created.push(arena.key(slot));
                     receipt.layout_invalidated = true;
-                } else {
-                    arena.revise_text(slot, false);
-                    if *prop == PropId::Href {
-                        invalidate_text_sources(arena, slot);
-                    }
                 }
-                touched.push(arena.key(slot));
-            }
-            Op::ClearProp { id, prop } => {
-                let slot = live_slot(arena, op_index, *id)?;
-                if let Some(old) = arena.props_mut(slot).remove(*prop) {
+                Op::DestroyView { id } => {
+                    let slot = live_slot(arena, op_index, *id)?;
+                    if let Some(parent) = arena.parent(slot) {
+                        if arena.node_type(parent) == NodeType::Text {
+                            invalidate_text(arena, layout, parent);
+                        }
+                        detach.parent(parent);
+                        arena.flags_mut(parent).insert(NodeFlags::CHILDREN_DIRTY);
+                        touched.push(arena.key(parent));
+                    }
+                    detach.begin();
+                    for s in arena.subtree(slot) {
+                        if let Some(test_id) = arena.props(s).str(PropId::TestId) {
+                            detach.selectors.push((test_id.to_string(), s));
+                        }
+                        if let Some(node) = arena.taffy(s) {
+                            detach.nodes.push(node);
+                        }
+                        receipt.destroyed.push(arena.key(s));
+                        created.remove(&s);
+                        arena.free_slot(s);
+                    }
+                    receipt.layout_invalidated = true;
+                }
+                Op::SetProp { id, prop, value } => {
+                    let slot = live_slot(arena, op_index, *id)?;
+                    if arena.props(slot).get(*prop) == Some(value) {
+                        continue;
+                    }
+                    let old = arena.props_mut(slot).set(*prop, value.clone());
                     if *prop == PropId::TestId {
-                        selectors.update(slot, old.as_str(), None);
+                        selectors.update(
+                            slot,
+                            old.as_ref().and_then(|v| v.as_str()),
+                            value.as_str(),
+                        );
                     }
                     arena.flags_mut(slot).insert(NodeFlags::PROPS_DIRTY);
                     if prop.affects_measure() {
@@ -447,116 +443,155 @@ pub fn apply(
                     }
                     touched.push(arena.key(slot));
                 }
-            }
-            Op::SetStyle { id, patch } => {
-                let slot = live_slot(arena, op_index, *id)?;
-                let changed = arena.style(slot).changed_mask(patch);
-                if changed.is_empty() {
-                    continue;
-                }
-                let excluded = crate::flow::is_exclusion(arena, slot);
-                arena.style_mut(slot).apply_patch(patch);
-                arena.update_exclusion_count(slot, excluded);
-                style_changed(arena, layout, slot, changed, &mut receipt);
-                touched.push(arena.key(slot));
-                propagate_inherited(arena, layout, slot, changed, &mut touched, &mut receipt);
-            }
-            Op::ClearStyle { id, mask } => {
-                let slot = live_slot(arena, op_index, *id)?;
-                let changed = arena.style(slot).cleared_mask(*mask);
-                if changed.is_empty() {
-                    continue;
-                }
-                let excluded = crate::flow::is_exclusion(arena, slot);
-                arena.style_mut(slot).clear(*mask);
-                arena.update_exclusion_count(slot, excluded);
-                style_changed(arena, layout, slot, changed, &mut receipt);
-                touched.push(arena.key(slot));
-                propagate_inherited(arena, layout, slot, changed, &mut touched, &mut receipt);
-            }
-            Op::SetChildren { id, children } => {
-                let slot = live_slot(arena, op_index, *id)?;
-                let new: Vec<u32> = children
-                    .iter()
-                    .map(|c| arena.slot_of(*c))
-                    .collect::<Option<Vec<u32>>>()
-                    .ok_or(ApplyError::Internal {
-                        op_index,
-                        what: "validated child is not live",
-                    })?;
-                if arena.children(slot) == new.as_slice() {
-                    continue;
-                }
-                let old: Vec<u32> = arena.children(slot).to_vec();
-                let retained: IdSet<u32> = new.iter().copied().collect();
-                let detached: Vec<_> = old
-                    .iter()
-                    .copied()
-                    .filter(|o| !retained.contains(o))
-                    .map(|o| (o, arena.computed_inherited(o)))
-                    .collect();
-                for o in &old {
-                    if !retained.contains(o) {
-                        arena.set_parent(*o, None);
+                Op::ClearProp { id, prop } => {
+                    let slot = live_slot(arena, op_index, *id)?;
+                    if let Some(old) = arena.props_mut(slot).remove(*prop) {
+                        if *prop == PropId::TestId {
+                            selectors.update(slot, old.as_str(), None);
+                        }
+                        arena.flags_mut(slot).insert(NodeFlags::PROPS_DIRTY);
+                        if prop.affects_measure() {
+                            invalidate_text(arena, layout, slot);
+                            receipt.layout_invalidated = true;
+                        } else {
+                            arena.revise_text(slot, false);
+                            if *prop == PropId::Href {
+                                invalidate_text_sources(arena, slot);
+                            }
+                        }
+                        touched.push(arena.key(slot));
                     }
                 }
-                // A child arriving from another parent takes its inherited
-                // rows from its new ancestors: remember what it computed
-                // under the old ones, to propagate only what differs. Orphans
-                // and fresh nodes already compute their own/default rows too.
-                let moved: Vec<(u32, InheritedStyle)> = new
-                    .iter()
-                    .copied()
-                    .filter(|n| arena.parent(*n) != Some(slot))
-                    .map(|n| {
-                        let before = arena.computed_inherited(n);
-                        (n, before)
-                    })
-                    .collect();
-                for n in &new {
-                    if let Some(p) = arena.parent(*n) {
-                        if p != slot {
-                            if arena.node_type(p) == NodeType::Text {
-                                invalidate_text(arena, layout, p);
-                            }
-                            arena.remove_child(p, *n);
-                            sync_children(arena, layout, p);
-                            arena.flags_mut(p).insert(NodeFlags::CHILDREN_DIRTY);
-                            touched.push(arena.key(p));
+                Op::SetStyle { id, patch } => {
+                    let slot = live_slot(arena, op_index, *id)?;
+                    let changed = arena.style(slot).changed_mask(patch);
+                    if changed.is_empty() {
+                        continue;
+                    }
+                    let excluded = crate::flow::is_exclusion(arena, slot);
+                    arena.style_mut(slot).apply_patch(patch);
+                    arena.update_exclusion_count(slot, excluded);
+                    style_changed(arena, layout, slot, changed, &mut receipt);
+                    touched.push(arena.key(slot));
+                    propagate_inherited(arena, layout, slot, changed, &mut touched, &mut receipt);
+                }
+                Op::ClearStyle { id, mask } => {
+                    let slot = live_slot(arena, op_index, *id)?;
+                    let changed = arena.style(slot).cleared_mask(*mask);
+                    if changed.is_empty() {
+                        continue;
+                    }
+                    let excluded = crate::flow::is_exclusion(arena, slot);
+                    arena.style_mut(slot).clear(*mask);
+                    arena.update_exclusion_count(slot, excluded);
+                    style_changed(arena, layout, slot, changed, &mut receipt);
+                    touched.push(arena.key(slot));
+                    propagate_inherited(arena, layout, slot, changed, &mut touched, &mut receipt);
+                }
+                Op::SetChildren { id, children } => {
+                    let slot = live_slot(arena, op_index, *id)?;
+                    let new: Vec<u32> = children
+                        .iter()
+                        .map(|c| arena.slot_of(*c))
+                        .collect::<Option<Vec<u32>>>()
+                        .ok_or(ApplyError::Internal {
+                            op_index,
+                            what: "validated child is not live",
+                        })?;
+                    if arena.children(slot) == new.as_slice() {
+                        continue;
+                    }
+                    let old: Vec<u32> = arena.children(slot).to_vec();
+                    let retained: IdSet<u32> = new.iter().copied().collect();
+                    let detached: Vec<_> = old
+                        .iter()
+                        .copied()
+                        .filter(|o| !retained.contains(o))
+                        .map(|o| (o, arena.computed_inherited(o)))
+                        .collect();
+                    for o in &old {
+                        if !retained.contains(o) {
+                            arena.set_parent(*o, None);
                         }
                     }
-                    arena.set_parent(*n, Some(slot));
-                }
-                arena.set_children(slot, new);
-                sync_children(arena, layout, slot);
-                arena.flags_mut(slot).insert(NodeFlags::CHILDREN_DIRTY);
-                if arena.node_type(slot) == NodeType::Text {
-                    invalidate_text(arena, layout, slot);
-                }
-                touched.push(arena.key(slot));
-                receipt.layout_invalidated = true;
-                for (orphan, before) in detached {
-                    inherited_after_move(arena, layout, orphan, before, &mut touched, &mut receipt);
-                }
-                for (m, before) in moved {
-                    inherited_after_move(arena, layout, m, before, &mut touched, &mut receipt);
-                }
-            }
-            Op::AttachRoot { id } => {
-                let slot = live_slot(arena, op_index, *id)?;
-                if !arena.is_root(slot) {
-                    arena.set_root(slot, true);
-                    // A root's engine style differs from a child's (it fills its
-                    // offered width): re-derive it now that the node is one.
-                    if let Some(node) = arena.taffy(slot) {
-                        layout.set_style(node, taffy_style(arena, slot));
+                    // A child arriving from another parent takes its inherited
+                    // rows from its new ancestors: remember what it computed
+                    // under the old ones, to propagate only what differs. Orphans
+                    // and fresh nodes already compute their own/default rows too.
+                    let moved: Vec<(u32, InheritedStyle)> = new
+                        .iter()
+                        .copied()
+                        .filter(|n| arena.parent(*n) != Some(slot))
+                        .map(|n| {
+                            let before = arena.computed_inherited(n);
+                            (n, before)
+                        })
+                        .collect();
+                    // Each arriving child leaves its previous parent, and each
+                    // such parent is pruned once — one pass and one engine update
+                    // however many of its children moved here.
+                    let mut sources: Vec<u32> = Vec::new();
+                    let mut seen: IdSet<u32> = IdSet::default();
+                    for n in &new {
+                        if let Some(p) = arena.parent(*n) {
+                            if p != slot && seen.insert(p) {
+                                sources.push(p);
+                            }
+                        }
+                        arena.set_parent(*n, Some(slot));
+                    }
+                    for p in sources {
+                        if arena.node_type(p) == NodeType::Text {
+                            invalidate_text(arena, layout, p);
+                        }
+                        #[cfg(test)]
+                        count(arena.children(p).len(), 0);
+                        arena.prune_children(p);
+                        sync_children(arena, layout, p);
+                        arena.flags_mut(p).insert(NodeFlags::CHILDREN_DIRTY);
+                        touched.push(arena.key(p));
+                    }
+                    arena.set_children(slot, new);
+                    sync_children(arena, layout, slot);
+                    arena.flags_mut(slot).insert(NodeFlags::CHILDREN_DIRTY);
+                    if arena.node_type(slot) == NodeType::Text {
+                        invalidate_text(arena, layout, slot);
                     }
                     touched.push(arena.key(slot));
                     receipt.layout_invalidated = true;
+                    for (orphan, before) in detached {
+                        inherited_after_move(
+                            arena,
+                            layout,
+                            orphan,
+                            before,
+                            &mut touched,
+                            &mut receipt,
+                        );
+                    }
+                    for (m, before) in moved {
+                        inherited_after_move(arena, layout, m, before, &mut touched, &mut receipt);
+                    }
+                }
+                Op::AttachRoot { id } => {
+                    let slot = live_slot(arena, op_index, *id)?;
+                    if !arena.is_root(slot) {
+                        arena.set_root(slot, true);
+                        // A root's engine style differs from a child's (it fills its
+                        // offered width): re-derive it now that the node is one.
+                        if let Some(node) = arena.taffy(slot) {
+                            layout.set_style(node, taffy_style(arena, slot));
+                        }
+                        touched.push(arena.key(slot));
+                        receipt.layout_invalidated = true;
+                    }
                 }
             }
         }
-    }
+        Ok(())
+    })();
+    detach.flush(arena, layout, selectors);
+    applied?;
 
     // Compare whole keys: a slot freed and reallocated in one batch carries two generations.
     receipt.created.retain(|key| {
@@ -596,7 +631,97 @@ fn sync_children(arena: &NodeArena, layout: &mut LayoutTree, parent: u32) {
         .iter()
         .filter_map(|c| arena.taffy(*c))
         .collect();
+    #[cfg(test)]
+    count(ids.len(), 0);
     layout.set_children(node, &ids);
+}
+
+/// A run of `DestroyView`s detaches lazily. Each op records its parent once
+/// and its subtree's engine nodes and `testId`s; [`Detach::flush`] — before
+/// any other op reads the tree, and when the batch ends — prunes every
+/// recorded parent in one pass and one engine update, then removes the
+/// engine nodes with no sibling scans. Destroying N children of one parent
+/// one op each costs O(N) this way, not O(N²).
+#[derive(Default)]
+struct Detach {
+    parents: Vec<u32>,
+    seen: IdSet<u32>,
+    selectors: Vec<(String, u32)>,
+    nodes: Vec<taffy::NodeId>,
+    /// Where each op's subtree starts in `nodes`: root first, then preorder.
+    runs: Vec<usize>,
+}
+
+impl Detach {
+    fn parent(&mut self, parent: u32) {
+        if self.seen.insert(parent) {
+            self.parents.push(parent);
+        }
+    }
+
+    fn begin(&mut self) {
+        self.runs.push(self.nodes.len());
+    }
+
+    fn flush(
+        &mut self,
+        arena: &mut NodeArena,
+        layout: &mut LayoutTree,
+        selectors: &mut SelectorIndex,
+    ) {
+        if self.runs.is_empty() {
+            return;
+        }
+        // A parent destroyed later in the run was freed with its list.
+        for parent in self.parents.drain(..) {
+            if arena.is_live(parent) {
+                #[cfg(test)]
+                count(arena.children(parent).len(), 0);
+                arena.prune_children(parent);
+                sync_children(arena, layout, parent);
+            }
+        }
+        self.seen.clear();
+        let mut leaving: BTreeMap<String, IdSet<u32>> = BTreeMap::new();
+        for (test_id, slot) in self.selectors.drain(..) {
+            leaving.entry(test_id).or_default().insert(slot);
+        }
+        for (test_id, slots) in leaving {
+            selectors.remove_all(&test_id, &slots);
+        }
+        // A later op can only have destroyed an ancestor of an earlier one's
+        // root (a destroyed node's descendants go with it), and each subtree
+        // lists its root first. Removing the ops' nodes in reverse therefore
+        // removes every engine parent before its children: no removal scans
+        // a sibling list.
+        let mut end = self.nodes.len();
+        for start in self.runs.drain(..).rev() {
+            for &node in &self.nodes[start..end] {
+                #[cfg(test)]
+                count(0, layout.attached(node) as usize);
+                layout.remove(node);
+            }
+            end = start;
+        }
+        self.nodes.clear();
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Child-list entries this thread's transactions scanned, pruned or
+    /// handed to the engine, and engine nodes removed while still attached
+    /// to a parent: the batching above, counted.
+    pub(crate) static CHILD_WORK: std::cell::Cell<(usize, usize)> =
+        const { std::cell::Cell::new((0, 0)) };
+}
+
+#[cfg(test)]
+fn count(entries: usize, attached: usize) {
+    CHILD_WORK.with(|w| {
+        let (e, a) = w.get();
+        w.set((e + entries, a + attached));
+    });
 }
 
 fn invalidate_text(arena: &mut NodeArena, layout: &mut LayoutTree, slot: u32) {
@@ -728,5 +853,243 @@ fn inherited_changed(
         if !rows.intersects(StyleMask::TEXT) {
             arena.revise_text(slot, false);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        Frame, Kernel, MonospaceMeasurer, NodeType, Offer, Op, PropId, StyleId, StyleProps,
+        StyleValue,
+    };
+
+    fn kernel(ops: &[Op]) -> Kernel {
+        let mut k = Kernel::new(Box::new(MonospaceMeasurer::default()));
+        k.apply(0, 1, ops).unwrap();
+        k
+    }
+
+    fn create(ids: impl IntoIterator<Item = u32>, node_type: NodeType) -> Vec<Op> {
+        ids.into_iter()
+            .map(|id| Op::CreateView { id, node_type })
+            .collect()
+    }
+
+    fn children(id: u32, children: &[u32]) -> Op {
+        Op::SetChildren {
+            id,
+            children: children.to_vec(),
+        }
+    }
+
+    fn tall(id: u32, height: f64) -> Op {
+        let mut patch = StyleProps::default();
+        patch
+            .set_dynamic(StyleId::Height, &StyleValue::Number(height))
+            .unwrap();
+        Op::SetStyle {
+            id,
+            patch: Box::new(patch),
+        }
+    }
+
+    fn prop(id: u32, prop: PropId, value: &str) -> Op {
+        Op::SetProp {
+            id,
+            prop,
+            value: value.into(),
+        }
+    }
+
+    /// Child-list work and attached engine removals during `f`.
+    fn work(f: impl FnOnce()) -> (usize, usize) {
+        super::CHILD_WORK.with(|w| w.set((0, 0)));
+        f();
+        super::CHILD_WORK.with(|w| w.get())
+    }
+
+    /// Frames of `ids` after one layout, and whether the engine holds exactly
+    /// the live nodes.
+    fn laid_out(k: &mut Kernel, ids: &[u32]) -> (Vec<(u32, Frame)>, bool) {
+        k.compute_layout(1, Offer::definite(400.0, 800.0)).unwrap();
+        let frames = ids
+            .iter()
+            .map(|&id| (id, k.node(id).unwrap().frame))
+            .collect();
+        (frames, k.engine_nodes() == k.live_count())
+    }
+
+    /// Moving N children in one op and destroying N children one op each
+    /// once cost O(N²): every moved or destroyed child cloned and filtered
+    /// its siblings in validation, then pruned and re-sent them to the
+    /// engine (8,000 moves: 685 ms; 8,000 destroys: 802 ms, release). Each
+    /// old parent is now pruned once per op or run of destroys.
+    #[test]
+    fn moving_or_destroying_many_children_is_linear_in_them() {
+        for n in [1_000u32, 8_000] {
+            let kids: Vec<u32> = (10..10 + n).collect();
+            let mut ops = create([1, 2, 3], NodeType::View);
+            ops.extend(create(kids.iter().copied(), NodeType::View));
+            for &id in &kids {
+                ops.push(tall(id, 1.0));
+                ops.push(prop(id, PropId::TestId, "row"));
+            }
+            ops.extend([
+                children(2, &kids),
+                children(1, &[2, 3]),
+                Op::AttachRoot { id: 1 },
+            ]);
+            let mut k = kernel(&ops);
+            let (entries, attached) = work(|| {
+                k.apply(0, 2, &[children(3, &kids)]).unwrap();
+            });
+            assert!(entries <= 4 * n as usize, "moving {n}: {entries} entries");
+            assert_eq!(attached, 0);
+            assert!(k.node(2).unwrap().children().is_empty());
+            assert_eq!(k.node(3).unwrap().children(), kids);
+            let (frames, engine_matches) = laid_out(&mut k, &[3]);
+            assert_eq!(frames[0].1.height, n as f32);
+            assert!(engine_matches);
+
+            let destroys: Vec<Op> = kids.iter().map(|&id| Op::DestroyView { id }).collect();
+            let (entries, attached) = work(|| {
+                let receipt = k.apply(0, 3, &destroys).unwrap();
+                assert_eq!(receipt.destroyed.len(), n as usize);
+            });
+            assert!(
+                entries <= 4 * n as usize,
+                "destroying {n}: {entries} entries"
+            );
+            assert_eq!(attached, 0);
+            assert!(k.node(3).unwrap().children().is_empty());
+            assert!(k.find_by_test_id("row").is_empty());
+            let (frames, engine_matches) = laid_out(&mut k, &[3]);
+            assert_eq!(frames[0].1.height, 0.0);
+            assert!(engine_matches);
+            assert_eq!(k.live_count(), 3);
+        }
+    }
+
+    /// The batched detach against what one op at a time built: destroys
+    /// that later ops read, a parent destroyed after its children, a slot
+    /// reused within the batch, moves from several parents, inline runs.
+    #[test]
+    fn batched_detaches_leave_the_tree_a_fresh_build_has() {
+        let base = || {
+            let mut ops = create([1, 2, 3, 4], NodeType::View);
+            ops.extend(create(10..15, NodeType::View));
+            ops.extend((10..15).map(|id| tall(id, id as f64)));
+            ops.extend([
+                prop(12, PropId::TestId, "twelve"),
+                children(2, &[10, 11, 12]),
+                children(3, &[13, 14]),
+                children(1, &[2, 3, 4]),
+                Op::AttachRoot { id: 1 },
+            ]);
+            ops
+        };
+        let ids = [1, 2, 3, 4];
+        let cases: Vec<(&str, Vec<Op>, Vec<Op>)> = vec![
+            (
+                "children then their parent",
+                vec![
+                    Op::DestroyView { id: 10 },
+                    Op::DestroyView { id: 11 },
+                    Op::DestroyView { id: 2 },
+                ],
+                vec![Op::DestroyView { id: 2 }],
+            ),
+            (
+                "a destroy then a reorder of the survivors",
+                vec![Op::DestroyView { id: 10 }, children(2, &[12, 11])],
+                vec![Op::DestroyView { id: 10 }, children(2, &[12, 11])],
+            ),
+            (
+                "a destroyed id made again in the same batch",
+                vec![
+                    Op::DestroyView { id: 10 },
+                    Op::DestroyView { id: 11 },
+                    Op::CreateView {
+                        id: 10,
+                        node_type: NodeType::View,
+                    },
+                    tall(10, 7.0),
+                    children(2, &[10, 12]),
+                ],
+                vec![
+                    Op::DestroyView { id: 11 },
+                    tall(10, 7.0),
+                    children(2, &[10, 12]),
+                ],
+            ),
+            (
+                "moves from two parents at once",
+                vec![children(4, &[11, 13])],
+                vec![
+                    children(2, &[10, 12]),
+                    children(3, &[14]),
+                    children(4, &[11, 13]),
+                ],
+            ),
+            (
+                "a destroy, a move, a destroy",
+                vec![
+                    Op::DestroyView { id: 13 },
+                    children(4, &[12]),
+                    Op::DestroyView { id: 10 },
+                ],
+                vec![
+                    Op::DestroyView { id: 10 },
+                    Op::DestroyView { id: 13 },
+                    children(4, &[12]),
+                ],
+            ),
+        ];
+        for (name, batch, one_by_one) in cases {
+            let mut batched = kernel(&base());
+            batched.apply(0, 2, &batch).unwrap();
+            let mut expected = kernel(&base());
+            for op in &one_by_one {
+                expected.apply(0, 2, std::slice::from_ref(op)).unwrap();
+            }
+            for id in ids {
+                if let (Some(a), Some(b)) = (batched.node(id), expected.node(id)) {
+                    assert_eq!(a.children(), b.children(), "{name}: children of {id}");
+                }
+            }
+            let (a, engine_matches) = laid_out(&mut batched, &[1]);
+            let (b, _) = laid_out(&mut expected, &[1]);
+            assert_eq!(a, b, "{name}");
+            assert!(engine_matches, "{name}: engine nodes");
+            assert_eq!(batched.live_count(), expected.live_count(), "{name}");
+            assert_eq!(
+                batched.find_by_test_id("twelve").len(),
+                expected.find_by_test_id("twelve").len(),
+                "{name}"
+            );
+        }
+        // Inline runs destroyed one op each re-measure their paragraph.
+        let mut ops = create([1], NodeType::View);
+        ops.extend(create(5..9, NodeType::Text));
+        ops.extend([
+            prop(6, PropId::Text, "aaaa"),
+            prop(7, PropId::Text, "bb"),
+            prop(8, PropId::Text, "c"),
+            children(5, &[6, 7, 8]),
+            children(1, &[5]),
+            Op::AttachRoot { id: 1 },
+        ]);
+        let mut k = kernel(&ops);
+        let (before, _) = laid_out(&mut k, &[5]);
+        k.apply(
+            0,
+            2,
+            &[Op::DestroyView { id: 6 }, Op::DestroyView { id: 8 }],
+        )
+        .unwrap();
+        let (after, engine_matches) = laid_out(&mut k, &[5]);
+        assert_eq!(k.node(5).unwrap().children(), vec![7]);
+        assert!(after[0].1.width < before[0].1.width || before[0].1.width == 400.0);
+        assert!(engine_matches);
     }
 }

@@ -304,6 +304,13 @@ impl LayoutTree {
         self.note("set_children", r);
     }
 
+    /// Whether an engine node still has an engine parent: removing it then
+    /// scans that parent's children (the transaction's batching avoids it).
+    #[cfg(test)]
+    pub(crate) fn attached(&self, node: NodeId) -> bool {
+        self.taffy.parent(node).is_some()
+    }
+
     /// Mark a node (and its ancestors) dirty.
     pub fn mark_dirty(&mut self, node: NodeId) {
         self.clear_measurements(node);

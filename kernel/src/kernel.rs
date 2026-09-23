@@ -192,6 +192,13 @@ pub struct Kernel {
 }
 
 impl Kernel {
+    /// Nodes the layout engine holds: the live nodes, when every removal
+    /// reached it.
+    #[cfg(test)]
+    pub(crate) fn engine_nodes(&self) -> usize {
+        self.layout.node_count()
+    }
+
     /// A kernel with the given host text measurer.
     pub fn new(measurer: Box<dyn TextMeasurer>) -> Self {
         Kernel {
