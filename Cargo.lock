@@ -1014,7 +1014,6 @@ dependencies = [
  "exact-data",
  "exact-kernel",
  "exact-plan",
- "exact-route",
  "exact-runner",
  "exact-web",
  "flate2",

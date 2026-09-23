@@ -16,8 +16,6 @@ publish = false
 exact-data = { path = "../../data" }
 exact-kernel = { path = "../../kernel" }
 exact-plan = { path = "../../plan" }
-# The router's canonical location, which the server's URLs follow (D11).
-exact-route = { path = "../../route" }
 exact-runner = { path = "../../runner" }
 exact-web = { path = "../web" }
 # The executor core's transport (LLP 1016 D2), as the Apple and Linux hosts

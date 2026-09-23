@@ -17,7 +17,7 @@ use crate::encode::{self, Accepts, Variants};
 use crate::{page, render, Rendered};
 use exact_plan::{Plan, RenderPolicy};
 use exact_runner::DataSource;
-use exact_web::document::{route_at, Site};
+use exact_web::document::{canonical_location, route_at, Site};
 use std::collections::VecDeque;
 use std::fmt::Write as _;
 use std::io::{Read, Write};
@@ -481,10 +481,10 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, ()> {
 }
 
 fn respond<D: DataSource>(request: &Request, shared: &Shared, data: fn() -> D) -> Response {
-    let (path, query) = match request.target.split_once('?') {
-        Some((path, query)) => (path, Some(query)),
-        None => (request.target.as_str(), None),
-    };
+    let path = request
+        .target
+        .split_once('?')
+        .map_or(request.target.as_str(), |(path, _)| path);
     if path == "/.exact/health" {
         return Response::text(200, "ok\n").header("Cache-Control", "no-store");
     }
@@ -530,21 +530,10 @@ fn respond<D: DataSource>(request: &Request, shared: &Shared, data: fn() -> D) -
             body: served.body.to_vec(),
         };
     }
-    // One URL per page: the router's canonical form (dot segments resolved,
-    // one percent-encoding spelling for path and query), then repeated
-    // slashes collapsed and no trailing slash but `/`'s.
-    let routed = exact_route::canonical(&request.target);
-    let (routed_path, routed_query) = match routed.split_once('?') {
-        Some((path, query)) => (path, Some(query)),
-        None => (routed.as_str(), None),
-    };
-    let canonical = canonical_path(routed_path);
-    if canonical != path || routed_query != query {
-        let location = match routed_query {
-            Some(query) => format!("{canonical}?{query}"),
-            None => canonical,
-        };
-        return Response::text(301, "moved\n").header("Location", location);
+    // One URL per page: any other spelling redirects to the canonical one.
+    let canonical = canonical_location(&request.target);
+    if canonical != request.target {
+        return Response::text(301, "moved\n").header("Location", canonical);
     }
     let route = route_at(&shared.plan, &request.target);
     let policy = route.map(|r| r.render);
@@ -816,19 +805,6 @@ fn hex(bytes: &[u8]) -> String {
             let _ = write!(out, "{b:02x}");
             out
         })
-}
-
-/// Collapse repeated slashes; no trailing slash except the root's.
-fn canonical_path(path: &str) -> String {
-    let mut out = String::with_capacity(path.len());
-    for part in path.split('/').filter(|p| !p.is_empty()) {
-        out.push('/');
-        out.push_str(part);
-    }
-    if out.is_empty() {
-        out.push('/');
-    }
-    out
 }
 
 /// A file `dist` serves as it is: anything under `/.exact/`, and any other
