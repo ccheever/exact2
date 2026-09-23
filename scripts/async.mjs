@@ -111,10 +111,13 @@ async function once(state) {
     : [tip];
   for (const sha of pending) {
     const result = check(sha);
+    // The first commit checked has no parent result: it sets the baseline,
+    // since its failures cannot be attributed to it.
+    const baseline = state.failures === undefined;
     const before = new Set(state.failures ?? []);
     const fresh = result.failures.filter(f => !before.has(f));
-    console.log(`${sha.slice(0, 8)} ${result.subject}: ${result.failures.length} failure(s), ${fresh.length} new`);
-    if (fresh.length) file(result, fresh);
+    console.log(`${sha.slice(0, 8)} ${result.subject}: ${result.failures.length} failure(s), ${baseline ? 'baseline' : `${fresh.length} new`}`);
+    if (fresh.length && !baseline) file(result, fresh);
     Object.assign(state, { last: sha, failures: result.failures });
     writeFileSync(STATE, JSON.stringify(state, null, 2));
   }
