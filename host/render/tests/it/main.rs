@@ -230,3 +230,22 @@ fn a_fetch_runs_through_the_native_executor() {
     assert_eq!(r.settled, Settled::Complete);
     assert!(r.document.root.contains(">failed: "), "{}", r.document.root);
 }
+
+#[test]
+fn a_page_is_the_shell_around_the_document() {
+    let r = at(Post::Soon, Duration::from_secs(5));
+    let shell =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../web/index.html"))
+            .unwrap();
+    let html = exact_render::page(&shell, &r).unwrap();
+    assert!(html.contains(&format!("<div id=\"exact-root\">{}</div>", r.document.root)));
+    assert!(html.contains(&format!(
+        "data-digest=\"{}\">{}</script>\n<script type=\"module\" src=\"./glue.js\"></script>",
+        r.digest, r.checkpoint
+    )));
+    assert!(html.contains(&r.head));
+    assert_eq!(html.matches("<meta name=\"viewport\"").count(), 1);
+    assert!(!html.contains("preload\" href=\"./app.wasm\""));
+    assert!(!html.contains("<title>Exact</title>"));
+    assert!(exact_render::page("<!doctype html><title>x</title>\n", &r).is_err());
+}

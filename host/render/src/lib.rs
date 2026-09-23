@@ -18,9 +18,11 @@
 #![deny(missing_docs)]
 
 mod executor;
+mod page;
 mod source;
 
 pub use executor::Executor;
+pub use page::page;
 pub use source::Anonymous;
 
 use exact_kernel::Kernel;
@@ -232,15 +234,16 @@ fn run(
 /// An app's pages as documents, for the web build and the parity check:
 ///
 /// `<app>-render [--plan <app.plan>] [--viewport <w>x<h>] [--name <name>]
-/// [--origin <url>] [--deadline <ms>] (--build | <location>…)`
+/// [--origin <url>] [--deadline <ms>] [--shell <index.html>] (--build |
+/// <location>…)`
 ///
 /// renders each location with a fresh runner and executor at the page
 /// viewport (the bake's 390 × 844 unless told) within the deadline (2 s
 /// unless told), and prints one JSON line each: `location`, `notfound`,
 /// `status` (503 when the deadline passed with requests in flight),
 /// `settled`, `robots`, `root` (what `#exact-root` holds), `head` (what
-/// `<head>` holds after the shell's charset and base), `checkpoint` and
-/// `digest`, or `error`. `--build` renders every location the plan declares
+/// `<head>` holds after the shell's charset and base), `checkpoint`,
+/// `digest`, and with `--shell` the whole `page` ([`page`]), or `error`. `--build` renders every location the plan declares
 /// `render=build` (`exact_web::document::build_locations`). `baked` is the
 /// app's own plan; the web build passes the one it extracted from the
 /// shipped wasm instead.
@@ -253,8 +256,9 @@ pub fn main<D: DataSource + Default>(baked: &[u8]) -> std::process::ExitCode {
     let mut locations: Vec<(String, bool)> = Vec::new();
     let mut build = false;
     let mut deadline = DEADLINE;
+    let mut shell = None::<String>;
     let usage = || {
-        eprintln!("usage: render [--plan <app.plan>] [--viewport <w>x<h>] [--name <name>] [--origin <url>] [--deadline <ms>] (--build | <location>…)");
+        eprintln!("usage: render [--plan <app.plan>] [--viewport <w>x<h>] [--name <name>] [--origin <url>] [--deadline <ms>] [--shell <index.html>] (--build | <location>…)");
         ExitCode::from(2)
     };
     while let Some(arg) = args.next() {
@@ -289,6 +293,14 @@ pub fn main<D: DataSource + Default>(baked: &[u8]) -> std::process::ExitCode {
                 Some(ms) => deadline = Duration::from_millis(ms),
                 None => return usage(),
             },
+            "--shell" => match args.next().map(std::fs::read_to_string) {
+                Some(Ok(text)) => shell = Some(text),
+                Some(Err(e)) => {
+                    eprintln!("render: --shell: {e}");
+                    return ExitCode::FAILURE;
+                }
+                None => return usage(),
+            },
             "--build" => build = true,
             _ if arg.starts_with('/') => locations.push((arg, false)),
             _ => return usage(),
@@ -319,8 +331,16 @@ pub fn main<D: DataSource + Default>(baked: &[u8]) -> std::process::ExitCode {
     let mut failed = false;
     for (location, notfound) in &locations {
         let mut line = format!("{{\"location\":{}", json(location));
-        match render(&decoded, D::default(), viewport, location, &site, deadline) {
-            Ok(rendered) => {
+        let rendered = render(&decoded, D::default(), viewport, location, &site, deadline)
+            .and_then(|rendered| {
+                let page = shell
+                    .as_deref()
+                    .map(|shell| page(shell, &rendered))
+                    .transpose()?;
+                Ok((rendered, page))
+            });
+        match rendered {
+            Ok((rendered, page)) => {
                 let settled = rendered.settled == Settled::Complete;
                 let status = match rendered.document.head.status {
                     _ if !settled => 503,
@@ -345,6 +365,9 @@ pub fn main<D: DataSource + Default>(baked: &[u8]) -> std::process::ExitCode {
                     ("digest", &rendered.digest),
                 ] {
                     let _ = write!(line, ",\"{field}\":{}", json(value));
+                }
+                if let Some(page) = &page {
+                    let _ = write!(line, ",\"page\":{}", json(page));
                 }
             }
             Err(error) => {

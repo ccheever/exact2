@@ -132,26 +132,6 @@ export function readDevGenerationAsync(cache, pathname) { return runReadsAsync(d
 
 /** Every regular file under a static source tree, sorted and refused when
  * the root or any entry is a symlink or another special filesystem object. */
-/** A rendered document as a page (LLP 1048.000 D3, D6): the built shell with
- * the renderer's <head> in place of its title and viewport meta, the shell's
- * wasm and navigation.js preloads removed, the document in #exact-root and its
- * checkpoint, with the document's digest, before the glue. Throws when the
- * shell lacks those places. */
-export function documentPage(shell, doc) {
-  const html = shell
-    .replace(/<title>[^<]*<\/title>\n/, () => `${doc.head}\n`)
-    .replace(/<meta name="viewport"[^>]*>\n/, '')
-    .replace(/<!-- Fetched in parallel[^]*?-->\n/, '')
-    .replace('<link rel="modulepreload" href="./navigation.js">\n', '')
-    .replace('<link rel="preload" href="./app.wasm" as="fetch" crossorigin>\n', '')
-    .replace('<div id="exact-root"></div>', () => `<div id="exact-root">${doc.root}</div>`)
-    .replace('<script type="module" src="./glue.js"></script>', () => `<script type="application/vnd.exact.checkpoint" data-digest="${/^[0-9a-f]{64}$/.test(doc.digest) ? doc.digest : ''}">${doc.checkpoint}</script>\n<script type="module" src="./glue.js"></script>`);
-  if (!html.includes(doc.head) || !html.includes(doc.checkpoint) || /rel="(?:module)?preload" href="\.\/(?:app\.wasm|navigation\.js|glue\.js)"/.test(html) || (html.match(/<meta name="viewport"/g) ?? []).length !== 1) {
-    throw new Error(`the shell no longer has the places a document goes (${doc.location})`);
-  }
-  return html;
-}
-
 export function listStaticFiles(source) {
   return Object.keys(filesystem({ op: 'names', root: resolve(source) }));
 }

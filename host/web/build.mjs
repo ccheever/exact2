@@ -13,7 +13,7 @@ import { rustPolicy, webHostFiles } from '../../scripts/app.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
 import { bakeOutput, buildBake, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
 import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
-import { appManifestDigest, copyStaticTreeIfPresent, documentPage, listAssets, publicFileCards, webEnvelope, moduleCards, MODULE_FILES } from './serve.mjs';
+import { appManifestDigest, copyStaticTreeIfPresent, listAssets, publicFileCards, webEnvelope, moduleCards, MODULE_FILES } from './serve.mjs';
 
 const app = resolveApp(process.argv[2]);
 const crate = app.crate('web');
@@ -157,10 +157,12 @@ writeFileSync(resolve(stage, 'index.html'), readFileSync(resolve(stage, 'index.h
 // Documents (LLP 1048.000 D3, D7, D9): every route the plan declares
 // `render=build`, rendered by the app's native render entry (`<app>-render`
 // beside its native data source, in its Linux crate; exact_render::main)
-// from the plan the wasm carries. Each is the shell with the renderer's
-// <head>, its document in #exact-root and its checkpoint; nothing preloads
-// the glue or the wasm. Then 404.html, sitemap.xml (absolute, against the
-// manifest's origin) and robots.txt.
+// from the plan the wasm carries, each a whole page composed over this
+// shell (exact_render::page): the renderer's <head>, the document in
+// #exact-root, its checkpoint; nothing preloads the glue or the wasm. Then
+// 404.html, sitemap.xml (absolute, against the manifest's origin),
+// robots.txt, and the shell itself as shell.html — what a client route is
+// served, and what the render server composes documents over.
 const renderBin = crate.replace(/-web$/, '-render');
 const renderCrate = app.crate('linux');
 let documentNote = 'no render entry';
@@ -168,15 +170,16 @@ if (existsSync(resolve(app.dir, 'linux/src/bin', `${renderBin}.rs`))) {
   const renderEnv = { ...buildEnv, CARGO_TARGET_DIR: app.target };
   delete renderEnv.EXACT_BAKE_OUTPUT;
   const rendered = spawnSync('cargo', ['run', '-q', '-p', renderCrate, '--bin', renderBin, '--', '--plan', planOut,
-    '--name', webManifest.name, ...(app.origin ? ['--origin', app.origin] : []), '--build'],
+    '--name', webManifest.name, ...(app.origin ? ['--origin', app.origin] : []), '--shell', resolve(stage, 'index.html'), '--build'],
   { cwd: app.dir, env: renderEnv, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
   if (rendered.status !== 0) throw new Error(`${renderBin}: ${rendered.stderr}${rendered.stdout}`);
   const shell = readFileSync(resolve(stage, 'index.html'), 'utf8');
   const pages = rendered.stdout.split('\n').filter(Boolean).map((line) => JSON.parse(line));
+  if (pages.length) writeFileSync(resolve(stage, 'shell.html'), shell);
   const listed = [];
   for (const doc of pages) {
     if (doc.error) throw new Error(`${renderBin} ${doc.location}: ${doc.error}`);
-    const html = documentPage(shell, doc);
+    const html = doc.page;
     const file = doc.notfound ? '404.html' : `${decodeURIComponent(doc.location).replace(/^\/|\/$/g, '')}/index.html`.replace(/^\//, '');
     if (!resolve(stage, file).startsWith(stage + '/')) throw new Error(`${renderBin}: location ${doc.location} leaves dist`);
     mkdirSync(resolve(stage, file, '..'), { recursive: true });

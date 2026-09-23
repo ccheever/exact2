@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp, assertWebDistApp, browserDiagnosticNoise } from '../../../scripts/agent.mjs';
 import { resolveApp } from '../../../scripts/app.mjs';
-import { documentPage, serveStatic } from '../serve.mjs';
+import { serveStatic } from '../serve.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
 const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(ROOT, 'host/web/dist'));
@@ -28,12 +28,12 @@ const [width, height] = [390, 844]; // the page viewport documents render at
  * `#exact-root` and its checkpoint, as the build writes it. */
 function renderedPage(location) {
   const render = spawnSync('cargo', ['run', '-q', '-p', 'caltrain-linux', '--bin', 'caltrain-render', '--',
-    '--plan', resolve(dist, 'app.plan'), '--viewport', `${width}x${height}`, location],
+    '--plan', resolve(dist, 'app.plan'), '--viewport', `${width}x${height}`, '--shell', resolve(ROOT, 'host/web/index.html'), location],
   { cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_UPDATE_TRUST: process.env.EXACT_UPDATE_TRUST ?? 'development' } });
   if (render.status !== 0) throw new Error(`caltrain-render: ${render.stderr}${render.stdout}`);
   const page = JSON.parse(render.stdout.trim().split('\n').at(-1));
   if (page.error) throw new Error(`caltrain-render ${location}: ${page.error}`);
-  return documentPage(readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8'), page);
+  return page.page;
 }
 
 /** `#exact-root`'s elements as comparable records, evaluated in the page. */
