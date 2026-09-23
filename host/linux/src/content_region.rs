@@ -18,6 +18,12 @@ pub(crate) fn test_service() -> std::sync::MutexGuard<'static, ()> {
     controller::test_wait_idle();
     guard
 }
+/// A dropped region's session retires in the background: a test that admits
+/// a second region under one `test_service` guard waits for it first.
+#[cfg(test)]
+pub(crate) fn test_wait_idle() {
+    controller::test_wait_idle();
+}
 use controller::Controller;
 pub(crate) use controller::NativeText;
 pub use source::TextSourceRun;

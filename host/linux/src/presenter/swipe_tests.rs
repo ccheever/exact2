@@ -790,6 +790,7 @@ component MessageBubble
 "##
     }
     fn budget_frame(lengths: Vec<usize>) -> bool {
+        crate::content_region::test_wait_idle();
         let plan = contract::compile(budget_source()).unwrap().encode();
         let (mut p, error) = Presenter::boot_with_content_region(
             &plan,
@@ -932,6 +933,7 @@ component MessageBubble
         let old = p.display_frame().unwrap();
         let pixels = old.pixels.data().to_vec();
         drop(p);
+        crate::content_region::test_wait_idle();
         let mut replacement = boot(&src, true, Rows::default());
         let before = clocks(&replacement);
         assert!(
