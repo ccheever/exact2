@@ -576,12 +576,27 @@ export function claimBuildOutput(app, path) {
   try { writeFileSync(path, JSON.stringify({ pid: process.pid, app: app.id, source: realpathSync(app.dir), started: new Date().toISOString() }) + '\n', { flag: 'wx' }); }
   catch (error) {
     if (error.code !== 'EEXIST') throw error;
-    throw new Error(`Apple build busy for ${app.id}: ${readFileSync(path, 'utf8').trim()} (${path}); remove this lock explicitly only after verifying the owner is no longer running`);
+    const held = readFileSync(path, 'utf8');
+    // A killed build never runs its exit handler: a claim whose process is
+    // gone, or whose pid now names a process started after it, is stale.
+    if (!claimLive(held) && readFileSync(path, 'utf8') === held) { rmSync(path, { force: true }); return claimBuildOutput(app, path); }
+    throw new Error(`Apple build busy for ${app.id}: ${held.trim()} (${path}); remove this lock explicitly only after verifying the owner is no longer running`);
   }
   let held = true;
   const release = () => { if (held) { held = false; rmSync(path); process.removeListener('exit', release); } };
   process.once('exit', release);
   return release;
+}
+
+function claimLive(text) {
+  let claim;
+  try { claim = JSON.parse(text); } catch { return true; } // unreadable: never guess
+  if (!Number.isSafeInteger(claim.pid) || claim.pid <= 0) return true;
+  const ps = spawnSync('ps', ['-o', 'lstart=', '-p', String(claim.pid)], { encoding: 'utf8' });
+  const started = Date.parse(ps.stdout?.trim() ?? '');
+  if (ps.status !== 0 || !Number.isFinite(started)) return false;
+  // `lstart` has whole seconds: the holder started at or before its claim.
+  return started <= Date.parse(claim.started) + 1000;
 }
 
 /** Cargo library filenames use the selected target name, with hyphens
