@@ -962,14 +962,17 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
       if (r.error) throw Object.assign(new Error(`${req.op}: ${r.error}`), {reply:r});
       return r;
     },
-    /** Every live node in preorder, or one target and its descendants; {shallow:true} reads only the target's record, retaining its real child ids. An iframe also carries url, loading, and a reachable guest outline (@ref LLP 1020 D4). */
+    /** Every live node in preorder, or one target and its descendants; {shallow:true} reads only the target's record, retaining its real child ids. An iframe also carries url, loading, and a reachable guest outline (@ref LLP 1020 D4). A canvas whose row carries a world summary answers with its world instead: `tree <canvas> [under <entity>]` is the world's outline (@ref llp/1046.001-agent-interface-to-a-game.rfc.md D2). */
     async tree(target, options = {}) {
-      if (typeof target === "string" && target.startsWith("world:")) return s.op({op:"tree", ...await s.target(target), world:true, ...(typeof options === "string" ? {under:options} : {})});
-      const {shallow = false} = options;
+      const under = typeof options === "string" ? {under:options} : {};
+      if (typeof target === "string" && target.startsWith("world:")) return s.op({op:"tree", ...await s.target(target), world:true, ...under});
+      const {shallow = false} = typeof options === "object" && options ? options : {};
       const req = { op: 'tree' };
       if (target != null) req.target = typeof target === 'number' || /^\d+$/.test(String(target)) ? Number(target) : target;
       if (shallow !== false) req.shallow = shallow;
-      return s.op(req);
+      const reply = await s.op(req);
+      const canvas = target != null && shallow === false ? reply.nodes?.find((n) => n.id === req.target || n.props?.testId === req.target) : null;
+      return canvas?.world ? s.op({op:"tree", id:canvas.id, world:true, ...under}) : reply;
     },
     world(name) { return worldView(this, name); },
     /** Every slot, derive, and resource by name, as typed JSON. */
@@ -984,6 +987,8 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
     /** Every on-screen view's box in the viewport (scroll folded in), with its testId and type from the tree. With a target, `node` explains that one node (LLP 1035.002 D1): every row it sets or inherits with where the value came from, its box in each coordinate space the host has, the scroll and clip chains above it, whether it is hidden, inert, in the viewport or clipped away, and what the host mounted for it — observations of the runner's memory and the host's view tree, never a second model. */
     async layout(target, at) {
       if (typeof target === "string" && target.startsWith("world:")) return s.op({op:"layout", ...await s.target(target), ...(at ? {world:true,x:at[0],y:at[1]} : {})});
+      // `layout <canvas> at <x> <y>` is the world's pick (@ref llp/1046.001-agent-interface-to-a-game.rfc.md D2).
+      if (target != null && at) return s.op({op:"layout", id:(await s.find(target)).id, world:true, x:at[0], y:at[1]});
       const req = { op: 'layout' };
       if (target != null) {
         req.id = (await s.find(target)).id;
