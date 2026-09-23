@@ -99,8 +99,10 @@ cast no shadows.
 Culling never changes pixels: `cull_tests.rs` renders moving primitive fields
 (perspective and orthographic), animated skinned Foxes, models, sockets, sprites,
 blended models and emitters culled and again keeping every item, and requires
-identical bytes. A device whose storage limits cannot hold the per-view lists (only
-region padding can exceed them below `max_slots()`) draws every group directly.
+identical bytes. A device without indirect execution (the iOS simulator's Metal;
+probed once at construction, while WebGPU always has it) or whose storage limits
+cannot hold the per-view lists (only region padding can exceed them below
+`max_slots()`) draws every group directly and unculled, with identical pixels.
 Culling does not reduce CPU draw calls; measurements are in
 [bench/README.md](../bench/README.md#culling-and-environment-lighting--2026-09-23).
 

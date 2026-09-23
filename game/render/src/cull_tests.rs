@@ -457,3 +457,28 @@ fn armed_perf_reports_culled_views_and_pass_times_without_hooks() {
         assert!(state.contains("\"shadow 0\":{\"p50\""), "{state}");
     }
 }
+
+#[test]
+fn devices_without_indirect_execution_draw_the_same_pixels_directly() {
+    let Some(gpu) = gpu() else { return };
+    let mut surface = WorldSurface::<Field>::default();
+    surface.bind(&[Value::Bool(false)], None).unwrap();
+    let frame = Frame {
+        width: 320.,
+        height: 180.,
+        scale: 1.,
+        now_ms: 108.4,
+        seekable: true,
+        period_ms: 0.,
+        children_generation: 0,
+        shader_generation: 0,
+    };
+    let (culled, _) = fixture::render(&gpu, &mut surface, &frame).unwrap();
+    // As on the iOS simulator: no indirect execution, so every group draws directly.
+    let r = surface.renderer_for_test().unwrap();
+    r.cull.indirect_execution = false;
+    r.cull.epoch += 1;
+    let (direct, _) = fixture::render(&gpu, &mut surface, &frame).unwrap();
+    assert!(surface.renderer_for_test().unwrap().cull.direct);
+    assert!(culled.data == direct.data, "the direct path changed pixels");
+}

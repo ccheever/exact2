@@ -65,8 +65,10 @@ pub(crate) struct Cull {
     pub window: u64,
     /// Diagnostic: keep every item, drawing exactly what an unculled frame drew.
     pub keep_all: bool,
-    /// The lists exceed this device's storage limits: draw every group directly.
+    /// The lists exceed this device's storage limits, or it has no indirect
+    /// execution (the iOS simulator's Metal): draw every group directly.
     pub direct: bool,
+    pub indirect_execution: bool,
     // Regions start on the device's dynamic storage offset alignment, in words.
     align: u32,
     limit: u64,
@@ -152,6 +154,7 @@ impl Cull {
             })
         };
         let storage = |label| Buffer::new(device, 256, wgpu::BufferUsages::STORAGE, label);
+        let indirect_execution = indirect_execution(device);
         Self {
             test: pipeline(&test_layout, "test"),
             scan: pipeline(&list_layout, "scan"),
@@ -170,7 +173,11 @@ impl Cull {
             indirect: Buffer::new(
                 device,
                 256,
-                wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::INDIRECT,
+                if indirect_execution {
+                    wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::INDIRECT
+                } else {
+                    wgpu::BufferUsages::STORAGE
+                },
                 "game culled draws",
             ),
             no_palette: device.create_buffer(&wgpu::BufferDescriptor {
@@ -193,7 +200,8 @@ impl Cull {
             views: 0,
             window: 256,
             keep_all: false,
-            direct: false,
+            direct: !indirect_execution,
+            indirect_execution,
             align: (device.limits().min_storage_buffer_offset_alignment / 4).max(1),
             limit: device
                 .limits()
@@ -349,7 +357,7 @@ impl Cull {
         ];
         // Per-slot list storage is below the 64-byte attachment arena behind
         // max_slots(); only region padding can exceed a tiny limit. Then draw directly.
-        self.direct = sizes.iter().any(|&size| size > self.limit);
+        self.direct = !self.indirect_execution || sizes.iter().any(|&size| size > self.limit);
         if self.direct {
             return;
         }
@@ -501,6 +509,26 @@ impl Cull {
         pass.set_pipeline(&self.scatter);
         pass.dispatch_workgroups(chunks.0, chunks.1, 1);
     }
+}
+
+// Only the adapter reports downlevel flags; the renderer holds a device. WebGPU
+// always executes indirect draws, so native devices are probed once.
+#[cfg(target_arch = "wasm32")]
+fn indirect_execution(_: &wgpu::Device) -> bool {
+    true
+}
+#[cfg(not(target_arch = "wasm32"))]
+fn indirect_execution(device: &wgpu::Device) -> bool {
+    let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let probe = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("game indirect probe"),
+        size: 20,
+        usage: wgpu::BufferUsages::INDIRECT,
+        mapped_at_creation: false,
+    });
+    let refused = exact_gpu::block_on(scope.pop()).is_some();
+    drop(probe);
+    !refused
 }
 
 fn counts_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
