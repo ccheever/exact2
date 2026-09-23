@@ -506,6 +506,10 @@ impl<D: DataSource> Runner<D> {
                 Target::Mutation(m) => self.pending_mut[m] = true,
             }
         }
+        // A placeholder shown until the source can answer is pending too.
+        for (i, awaiting) in self.awaiting.iter().enumerate() {
+            self.pending_res[i] |= *awaiting;
+        }
     }
 
     /// The requests the host is to run since the last take (LLP 1016 D2).

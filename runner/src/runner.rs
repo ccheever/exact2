@@ -257,6 +257,9 @@ pub struct Runner<D: DataSource> {
     /// Deferred resources shown from a placeholder — a kept answer or
     /// the compiled empty-store value — to ask again at `data_ready`.
     stale: Vec<bool>,
+    /// Resources showing their placeholder because their source can't
+    /// answer yet (LLP 1048.003 D6): `pending(x)` is true for them.
+    awaiting: Vec<bool>,
     /// Whether fresh answers of store-reading resources are kept for the
     /// next boot: only for a source that may not be ready at boot.
     keeps_answers: bool,
@@ -542,6 +545,7 @@ impl<D: DataSource> Runner<D> {
             store,
             store_readers,
             stale: Vec::new(),
+            awaiting: Vec::new(),
             keeps_answers: false,
             delivery,
             viewport,
@@ -599,6 +603,7 @@ impl<D: DataSource> Runner<D> {
         let ready = runner.data.ready();
         runner.keeps_answers = !ready || carried.is_some_and(|c| c.keeps_answers);
         runner.stale = vec![false; runner.plan.resources.len()];
+        runner.awaiting = vec![false; runner.plan.resources.len()];
         if !ready {
             for (i, &taken) in seeded.iter().enumerate() {
                 if !runner.plan.resources[i].reader {

@@ -4,7 +4,7 @@ use super::{DataError, DataSource, ResourceState, Runner, RunnerError, Target};
 use crate::request::{Answer, Request};
 use crate::vm::{self, Env, Trap};
 use exact_kernel::CommitReceipt;
-use exact_plan::{TypeKind, Value};
+use exact_plan::{ResourcesRow, TypeKind, Value};
 
 /// What the published derives were computed against: an input equal to
 /// its value here has not changed since the last successful settlement.
@@ -65,6 +65,20 @@ impl<D: DataSource> Runner<D> {
         self.conclude(checkpoint, &result, was_poisoned);
         self.log_outcome(&what, &result, was_poisoned);
         result.map(Some)
+    }
+
+    /// What a resource shows while its source hasn't answered and nothing
+    /// is kept (LLP 1048.003 D6): its declared placeholder row's value this
+    /// pass, or a list's or an option's empty value.
+    fn placeholder(&self, row: &ResourcesRow, resources: &[Option<Value>]) -> Option<Value> {
+        match row.placeholder {
+            Some(p) => resources[p.0 as usize].clone(),
+            None => match self.plan.type_(row.ty).kind {
+                TypeKind::List => Some(Value::list(Vec::new())),
+                TypeKind::Option => Some(Value::NONE),
+                _ => None,
+            },
+        }
     }
 
     /// A resource whose source answers later with nothing to show: no
@@ -181,6 +195,7 @@ impl<D: DataSource> Runner<D> {
             let mut derive_store_dependent = vec![false; self.plan.derives.len()];
             let mut resources: Vec<Option<Value>> = vec![None; self.plan.resources.len()];
             let mut pending_res = self.pending_res.clone();
+            let mut awaiting = self.awaiting.clone();
             for (i, effect) in effects.iter().enumerate() {
                 match effect {
                     RequestEffect::None => {}
@@ -375,10 +390,24 @@ impl<D: DataSource> Runner<D> {
                             if !self.data.ready() {
                                 self.stale[i] = true;
                             }
+                            awaiting[i] = false;
                             Value::from_bytes(self.plan.bytes(row.initial))
                                 .map_err(RunnerError::Plan)?
                         }
+                        // @ref LLP 1048.003 D6 — the source can't answer yet
+                        // (its module isn't loaded) and nothing is compiled:
+                        // the placeholder shows, pending; `data_ready` asks.
+                        None if !self.data.ready()
+                            && !exact_plan::runner_owned_source(self.plan.str(row.source))
+                            && self.placeholder(&row, &resources).is_some() =>
+                        {
+                            self.stale[i] = true;
+                            pending_res[i] = true;
+                            awaiting[i] = true;
+                            self.placeholder(&row, &resources).expect("checked")
+                        }
                         None => {
+                            awaiting[i] = false;
                             // A resource that consults the store is the device's,
                             // not the build's: bake gives it no compiled value
                             // (LLP 1018 D4).
@@ -427,14 +456,7 @@ impl<D: DataSource> Runner<D> {
                                         });
                                     // @ref LLP 1048.003 D6 — nothing kept for these
                                     // arguments: the placeholder shows, pending.
-                                    let kept = kept.or_else(|| match row.placeholder {
-                                        Some(p) => resources[p.0 as usize].clone(),
-                                        None => match self.plan.type_(row.ty).kind {
-                                            TypeKind::List => Some(Value::list(Vec::new())),
-                                            TypeKind::Option => Some(Value::NONE),
-                                            _ => None,
-                                        },
-                                    });
+                                    let kept = kept.or_else(|| self.placeholder(&row, &resources));
                                     let Some(kept) = kept else {
                                         return Err(self.unanswerable(i));
                                     };
@@ -508,6 +530,7 @@ impl<D: DataSource> Runner<D> {
             self.derives = derives;
             self.resource_values = resources;
             self.resources = states;
+            self.awaiting = awaiting;
             for (i, effect) in effects.iter().enumerate() {
                 if matches!(effect, RequestEffect::Answered) {
                     self.forget(Target::Resource(i));
@@ -524,6 +547,8 @@ impl<D: DataSource> Runner<D> {
                     self.enqueue(Target::Resource(i), source, args, *request, forced);
                 }
             }
+            // The flags follow the tickets and what awaits its source.
+            self.sync_pending_flags();
             return Ok(());
         }
     }

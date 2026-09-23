@@ -22,6 +22,8 @@ fn corpus() -> String {
 struct Blog {
     later_at_build: bool,
     placeholder_later: bool,
+    /// A module its host hasn't loaded yet: every answer refuses.
+    not_loaded: std::rc::Rc<std::cell::Cell<bool>>,
 }
 
 fn post(id: &str, title: &str) -> Value {
@@ -43,6 +45,9 @@ impl DataSource for Blog {
     }
 
     fn answer(&mut self, _: &mut Store, source: &str, args: &[Value]) -> Result<Answer, DataError> {
+        if self.not_loaded.get() {
+            return Err(DataError::Unavailable("the engine is not loaded".into()));
+        }
         let later = match source {
             "emptyPost" => self.placeholder_later,
             _ => self.later_at_build || !home(args),
@@ -69,6 +74,10 @@ impl DataSource for Blog {
             ("comments", _) => Value::list(vec![Value::str("first")]),
             (other, _) => return Err(DataError::UnknownSource(other.into())),
         }))
+    }
+
+    fn ready(&self) -> bool {
+        !self.not_loaded.get()
     }
 }
 
@@ -228,4 +237,32 @@ fn a_placeholder_is_a_source_call_over_values() {
         .sources
         .iter()
         .any(|s| plan.str(s.name) == "emptyPost" && s.params.len == 2));
+}
+
+#[test]
+fn a_module_not_loaded_at_boot_shows_placeholders_until_data_ready() {
+    // The build couldn't answer the post or its comments, so nothing is
+    // compiled for them; the placeholder's source answered.
+    let built = Blog {
+        later_at_build: true,
+        ..Blog::default()
+    };
+    let plan = contract::bake(contract::compile(&corpus()).unwrap(), built).unwrap();
+    let data = Blog::default();
+    data.not_loaded.set(true);
+    let loaded = data.not_loaded.clone();
+    let mut r = boot(&plan, data, "/post/7").unwrap();
+    assert_eq!(text_of(&r, "title"), "");
+    assert_eq!(text_of(&r, "state"), "loading");
+    assert_eq!(text_of(&r, "comments"), "0 comments");
+    assert!(r.take_requests().is_empty(), "nothing asks a module that isn't loaded");
+    loaded.set(false);
+    r.data_ready().unwrap();
+    let requests = r.take_requests();
+    let targets: Vec<&str> = requests.iter().map(|q| q.target.as_str()).collect();
+    assert_eq!(targets, ["post", "comments"]);
+    assert_eq!(text_of(&r, "state"), "loading");
+    r.fulfill(requests[0].ticket, ok()).unwrap();
+    assert_eq!(text_of(&r, "title"), "Hello");
+    assert_eq!(text_of(&r, "state"), "ready");
 }
