@@ -654,9 +654,10 @@
         "center",
         "space-between",
         "space-around",
-        "space-evenly"
+        "space-evenly",
+        "normal"
       ],
-      "default": "flex-start"
+      "default": "normal"
     },
     "AlignItems": {
       "values": [
@@ -664,9 +665,10 @@
         "flex-end",
         "center",
         "baseline",
-        "stretch"
+        "stretch",
+        "normal"
       ],
-      "default": "stretch"
+      "default": "normal"
     },
     "AlignSelf": {
       "values": [
@@ -687,9 +689,10 @@
         "stretch",
         "space-between",
         "space-around",
-        "space-evenly"
+        "space-evenly",
+        "normal"
       ],
-      "default": "stretch"
+      "default": "normal"
     },
     "PositionType": {
       "values": [

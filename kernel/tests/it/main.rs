@@ -1,6 +1,7 @@
 //! The kernel's integration tests: one binary, so one link and one launch.
 
 mod apply;
+mod browser_cases;
 mod canvas;
 mod content_region;
 mod env;

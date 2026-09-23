@@ -39,11 +39,20 @@ reads the same file.
 no separate profile authority yet (0486's layout profile becomes relevant when a
 second engine exists). Per `rules/RULES.md` §Scope the web is the standard: a bare
 node is `display: block`, `box-sizing: content-box`, `flex-direction: row`,
-`flex-shrink: 1`, `align-items: stretch` — what a bare `<div>` does — and rows
+`flex-shrink: 1`, `align-items: normal` — what a bare `<div>` does — and rows
 carry CSS names and vocabularies (`object_fit: fill|contain|cover|none|scale-down`,
 `text_overflow: clip|ellipsis`, `line_clamp`). Block layout brings CSS margin
 collapsing with it; flex and grid are opt-in per node. (An earlier draft chose
 React Native's defaults; Charlie reversed that on 2026-08-28.)
+
+`justify-content`, `align-content`, `align-items` and `justify-items` accept
+and default to `normal` (2026-09-23). It lowers to Taffy's unset alignment,
+which each algorithm resolves per CSS Box Alignment: `flex-start`/`stretch`
+in flex; stretched auto tracks, and items stretched unless sized, in grid;
+`start` with no new formatting context in block. The old `flex-start`
+default left grid auto columns at content width (`auto auto` in 400px: 0
+wide, Chrome 200 each). `kernel/tests/it/browser_cases.rs` holds the
+literal-Chrome cases. `align-self` keeps `auto` and has no `normal`.
 
 **Border semantics (Codex, 2026-09-11):** four `border_style_*` rows
 (bits 91–94) accept `none | hidden | solid`, initially `none`. Contract's

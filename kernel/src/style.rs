@@ -758,25 +758,36 @@ fn flex_wrap(v: FlexWrap) -> taffy::style::FlexWrap {
     }
 }
 
-fn justify_content(v: JustifyContent) -> taffy::style::JustifyContent {
-    match v {
+// CSS `normal` (the initial value of all four rows below) lowers to `None`,
+// which is Taffy's `normal`: each algorithm resolves it for its display type
+// as CSS Box Alignment §5.1/§6.1 does. Flex: `justify-content` is
+// `flex-start`, `align-content` and `align-items` are `stretch`. Grid: auto
+// tracks stretch into the free space on both axes, and an item stretches
+// unless it has a definite size or an aspect ratio on that axis (then it
+// starts). Block: `align-content` is `start` without establishing an
+// independent formatting context, which every other value does.
+
+fn justify_content(v: JustifyContent) -> Option<taffy::style::JustifyContent> {
+    Some(match v {
+        JustifyContent::Normal => return None,
         JustifyContent::FlexStart => taffy::style::JustifyContent::FLEX_START,
         JustifyContent::FlexEnd => taffy::style::JustifyContent::FLEX_END,
         JustifyContent::Center => taffy::style::JustifyContent::CENTER,
         JustifyContent::SpaceBetween => taffy::style::JustifyContent::SPACE_BETWEEN,
         JustifyContent::SpaceAround => taffy::style::JustifyContent::SPACE_AROUND,
         JustifyContent::SpaceEvenly => taffy::style::JustifyContent::SPACE_EVENLY,
-    }
+    })
 }
 
-fn align_items(v: AlignItems) -> taffy::style::AlignItems {
-    match v {
+fn align_items(v: AlignItems) -> Option<taffy::style::AlignItems> {
+    Some(match v {
+        AlignItems::Normal => return None,
         AlignItems::FlexStart => taffy::style::AlignItems::FLEX_START,
         AlignItems::FlexEnd => taffy::style::AlignItems::FLEX_END,
         AlignItems::Center => taffy::style::AlignItems::CENTER,
         AlignItems::Baseline => taffy::style::AlignItems::BASELINE,
         AlignItems::Stretch => taffy::style::AlignItems::STRETCH,
-    }
+    })
 }
 
 fn align_self(v: AlignSelf) -> Option<taffy::style::AlignSelf> {
@@ -790,8 +801,9 @@ fn align_self(v: AlignSelf) -> Option<taffy::style::AlignSelf> {
     }
 }
 
-fn align_content(v: AlignContent) -> taffy::style::AlignContent {
-    match v {
+fn align_content(v: AlignContent) -> Option<taffy::style::AlignContent> {
+    Some(match v {
+        AlignContent::Normal => return None,
         AlignContent::FlexStart => taffy::style::AlignContent::FLEX_START,
         AlignContent::FlexEnd => taffy::style::AlignContent::FLEX_END,
         AlignContent::Center => taffy::style::AlignContent::CENTER,
@@ -799,7 +811,7 @@ fn align_content(v: AlignContent) -> taffy::style::AlignContent {
         AlignContent::SpaceBetween => taffy::style::AlignContent::SPACE_BETWEEN,
         AlignContent::SpaceAround => taffy::style::AlignContent::SPACE_AROUND,
         AlignContent::SpaceEvenly => taffy::style::AlignContent::SPACE_EVENLY,
-    }
+    })
 }
 
 fn overflow(v: Overflow) -> taffy::style::Overflow {
@@ -948,14 +960,11 @@ impl StyleProps {
         s.flex_basis = self.flex_basis.to_taffy(env);
         s.flex_grow = self.flex_grow;
         s.flex_shrink = self.flex_shrink;
-        s.justify_content = Some(justify_content(self.justify_content));
-        s.align_items = Some(align_items(self.align_items));
+        s.justify_content = justify_content(self.justify_content);
+        s.align_items = align_items(self.align_items);
         s.align_self = align_self(self.align_self);
-        // CSS's initial `normal` behaves as stretch in flex/grid, but must
-        // not establish a new block formatting context (Taffy 0.14).
-        s.align_content = (self.display != Display::Block || self.mask.has(StyleId::AlignContent))
-            .then(|| align_content(self.align_content));
-        s.justify_items = Some(align_items(self.justify_items));
+        s.align_content = align_content(self.align_content);
+        s.justify_items = align_items(self.justify_items);
         s.gap = taffy::geometry::Size {
             width: length(self.column_gap),
             height: length(self.row_gap),
@@ -1106,7 +1115,11 @@ mod tests {
         assert_eq!(s.box_sizing, taffy::style::BoxSizing::ContentBox);
         assert_eq!(s.flex_direction, taffy::style::FlexDirection::Row);
         assert_eq!(s.flex_shrink, 1.0);
-        assert_eq!(s.align_items, Some(taffy::style::AlignItems::STRETCH));
+        // `normal`, which each layout mode resolves (flex: stretch).
+        assert_eq!(s.align_items, None);
+        assert_eq!(s.justify_content, None);
+        assert_eq!(s.align_content, None);
+        assert_eq!(s.justify_items, None);
         assert_eq!(s.position, taffy::style::Position::Relative);
         assert_eq!(s.overflow.y, taffy::style::Overflow::Visible);
     }

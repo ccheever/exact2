@@ -42,12 +42,13 @@ The custom MeasureOutput type and additive baseline entry points disappear.
 No vendor baseline patch is needed. Region baseline-dependency regressions
 and the 512-tree fresh-layout comparison remain consumers.
 
-The style adapter also lowers an implicit block align-content to None (CSS
-normal). 0.14's block algorithm establishes a BFC for Some(align-content),
-so blindly carrying the flex/grid stretch default into blocks would stop
-nested margins collapsing. `default_block_alignment_preserves_nested_collapsed_margins`
+The style adapter lowers CSS `normal`, the alignment rows' default, to None
+on every display (2026-09-23; before, only an implicit block align-content).
+0.14's block algorithm establishes a BFC for Some(align-content), so a
+stretch default carried into blocks would stop nested margins collapsing.
+`default_block_alignment_preserves_nested_collapsed_margins`
 pins 151px for both nested border tops, rather than the incorrect 211px
-paragraph top. Authored block alignment and flex/grid stretch are retained.
+paragraph top. Authored block alignment establishes the BFC, as CSS says.
 `measured_baselines_include_padding_and_inherited_direction_relayouts_boxes`
 checks a literal padded baseline and inherited RTL placement/replay.
 
