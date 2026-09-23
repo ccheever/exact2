@@ -95,7 +95,8 @@ structs! {
     Component { name, props, injects, slot, states, derives, resources, mutations,
         actions, tasks, view, span }
     Binding { name, expr, span }
-    ResourceDecl { name, source, args, shape, span }
+    ResourceDecl { name, source, args, shape, placeholder, span }
+    Placeholder { source, args, span }
     MutationDecl { name, shape, span }
     Param { name, ty, span }
     Action { name, params, writes, body, span }

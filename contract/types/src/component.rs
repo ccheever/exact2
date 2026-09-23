@@ -6,7 +6,7 @@ use super::{
     checks::{check_stmts, check_view, infer_owned_state_initializers},
     err, infer, record_source, ComponentTypes, Ref, Scope, Shapes, Sink, Ty, TypeError, Types,
 };
-use contract_syntax::{Component, Expr, Node};
+use contract_syntax::{Component, Expr, Node, Span, TemplatePart};
 use std::{collections::BTreeMap, sync::Arc};
 
 /// Check one component, recording each refusal in `sink` and carrying on
@@ -211,6 +211,31 @@ pub(crate) fn check_component(
                 .collect();
             let result = ct.resources[i].clone();
             sink.keep_unit(record_source(&mut ct, &r.source, params, result, r.span));
+        }
+        // @ref LLP 1048.003 D6 — a placeholder is a source call over values:
+        // the build answers it once for every launch, so its arguments read
+        // no state, and its answer is the resource's shape.
+        for (i, r) in c.resources.iter().enumerate() {
+            let Some(p) = &r.placeholder else { continue };
+            if let Some((name, span)) = p.args.iter().find_map(|a| reads_state(a, &scope)) {
+                sink.push(TypeError {
+                    id: "type-placeholder-reads",
+                    message: format!(
+                        "`{}`'s placeholder reads `{name}`: a placeholder's arguments are values, answered once at build",
+                        r.name
+                    ),
+                    span,
+                });
+                continue;
+            }
+            let values = Scope::default();
+            let params = p
+                .args
+                .iter()
+                .map(|arg| sink.keep(infer(arg, &values, shapes)))
+                .collect();
+            let result = ct.resources[i].clone();
+            sink.keep_unit(record_source(&mut ct, &p.source, params, result, p.span));
         }
     }
     // A slot or parameter left `?` by a refusal above is not news.
@@ -483,4 +508,48 @@ fn derive_order(c: &Component) -> Vec<usize> {
         visit(i, &reads, &mut seen, &mut order);
     }
     order
+}
+
+/// The first name in `e` the component declares: state a placeholder's
+/// arguments may not read (LLP 1048.003 D6).
+fn reads_state(e: &Expr, scope: &Scope) -> Option<(String, Span)> {
+    fn walk(e: &Expr, scope: &Scope, bound: &mut Vec<String>) -> Option<(String, Span)> {
+        let within = |name: &str, x: &Expr, bound: &mut Vec<String>| {
+            bound.push(name.to_string());
+            let found = walk(x, scope, bound);
+            bound.pop();
+            found
+        };
+        match e {
+            Expr::Ident(name, span) => (!bound.contains(name) && scope.lookup(name).is_some())
+                .then(|| (name.clone(), *span)),
+            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(..) => None,
+            Expr::Template(parts, _) => parts.iter().find_map(|p| match p {
+                TemplatePart::Expr(x) => walk(x, scope, bound),
+                _ => None,
+            }),
+            Expr::Some(x, _)
+            | Expr::Member(x, _, _)
+            | Expr::NamedArg(_, x, _)
+            | Expr::Unary(_, x, _) => walk(x, scope, bound),
+            Expr::Call(_, args, _) => args.iter().find_map(|a| walk(a, scope, bound)),
+            Expr::Binary(_, a, b, _) => walk(a, scope, bound).or_else(|| walk(b, scope, bound)),
+            Expr::Ternary(a, b, c, _) => walk(a, scope, bound)
+                .or_else(|| walk(b, scope, bound))
+                .or_else(|| walk(c, scope, bound)),
+            Expr::Match {
+                subject,
+                var,
+                some,
+                none,
+                ..
+            } => walk(subject, scope, bound)
+                .or_else(|| within(var, some, bound))
+                .or_else(|| walk(none, scope, bound)),
+            Expr::Let {
+                name, value, body, ..
+            } => walk(value, scope, bound).or_else(|| within(name, body, bound)),
+        }
+    }
+    walk(e, scope, &mut Vec::new())
 }

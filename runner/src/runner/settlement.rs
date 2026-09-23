@@ -4,7 +4,7 @@ use super::{DataError, DataSource, ResourceState, Runner, RunnerError, Target};
 use crate::request::{Answer, Request};
 use crate::vm::{self, Env, Trap};
 use exact_kernel::CommitReceipt;
-use exact_plan::Value;
+use exact_plan::{TypeKind, Value};
 
 /// What the published derives were computed against: an input equal to
 /// its value here has not changed since the last successful settlement.
@@ -65,6 +65,31 @@ impl<D: DataSource> Runner<D> {
         self.conclude(checkpoint, &result, was_poisoned);
         self.log_outcome(&what, &result, was_poisoned);
         result.map(Some)
+    }
+
+    /// A resource whose source answers later with nothing to show: no
+    /// answer kept for its arguments and no placeholder (LLP 1048.003 D6).
+    fn unanswerable(&self, i: usize) -> RunnerError {
+        let name = self.plan.str(self.plan.resources[i].name);
+        let owner = self
+            .plan
+            .resources
+            .iter()
+            .find(|r| r.placeholder.is_some_and(|p| p.0 as usize == i));
+        let (resource, message) = match owner {
+            Some(owner) => (
+                self.plan.str(owner.name),
+                "its placeholder answers later; a placeholder answers now".to_string(),
+            ),
+            None => (
+                name,
+                format!("answers later, with nothing kept for these arguments: declare a placeholder, `resource {name} = … else source()`"),
+            ),
+        };
+        RunnerError::Data {
+            resource: resource.to_string(),
+            error: DataError::Unavailable(message),
+        }
     }
 
     pub(super) fn check_shape(&self, i: usize, value: &Value) -> Result<(), RunnerError> {
@@ -292,6 +317,12 @@ impl<D: DataSource> Runner<D> {
                         all = false;
                         continue;
                     }
+                    // @ref LLP 1048.003 D6 — a placeholder row settles first,
+                    // so a source that answers later has something to show.
+                    if row.placeholder.is_some_and(|p| !settled_res[p.0 as usize]) {
+                        all = false;
+                        continue;
+                    }
                     if let Some(kept) = kept_args {
                         args = kept;
                     }
@@ -394,14 +425,18 @@ impl<D: DataSource> Runner<D> {
                                             })
                                             .flatten()
                                         });
+                                    // @ref LLP 1048.003 D6 — nothing kept for these
+                                    // arguments: the placeholder shows, pending.
+                                    let kept = kept.or_else(|| match row.placeholder {
+                                        Some(p) => resources[p.0 as usize].clone(),
+                                        None => match self.plan.type_(row.ty).kind {
+                                            TypeKind::List => Some(Value::list(Vec::new())),
+                                            TypeKind::Option => Some(Value::NONE),
+                                            _ => None,
+                                        },
+                                    });
                                     let Some(kept) = kept else {
-                                        return Err(RunnerError::Data {
-                                            resource: self.plan.str(row.name).to_string(),
-                                            error: DataError::Unavailable(
-                                                "answers later at boot: declare boot arguments the source answers now"
-                                                    .into(),
-                                            ),
-                                        });
+                                        return Err(self.unanswerable(i));
                                     };
                                     effects[i] = RequestEffect::Later {
                                         args: args.clone(),

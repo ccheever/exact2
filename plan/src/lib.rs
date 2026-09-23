@@ -244,6 +244,21 @@ impl Plan {
                 });
             }
         }
+        // @ref LLP 1048.003 D6 — a placeholder row is another row of the
+        // same type with no placeholder of its own.
+        for (i, resource) in self.resources.iter().enumerate() {
+            let Some(p) = resource.placeholder else {
+                continue;
+            };
+            let row = &self.resources[p.0 as usize];
+            if p.0 as usize == i || row.ty != resource.ty || row.placeholder.is_some() {
+                return Err(PlanError::BadReference {
+                    table: "resources",
+                    row: i as u32,
+                    field: "placeholder",
+                });
+            }
+        }
         // @ref LLP 1038 D5 — compiled data and its argument list form one cache entry.
         for (i, resource) in self.resources.iter().enumerate() {
             let valid = if resource.initial.len == 0 {

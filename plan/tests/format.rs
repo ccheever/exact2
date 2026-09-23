@@ -488,6 +488,38 @@ fn a_huge_announced_count_reserves_little_before_it_is_refused() {
 
 // @ref LLP 1038 D2/D3/D5 — new rows, header link, cache key, and typed roster.
 #[test]
+fn a_placeholder_is_another_row_of_the_same_type_without_its_own() {
+    // @ref LLP 1048.003 D6
+    let mut b = PlanBuilder::from_plan(sample());
+    let nearby = exact_plan::ResourcesId(0);
+    let ty = b.plan().resources[0].ty;
+    let other = b.resource("nearby#else", "no_stations", &[], ty, None);
+    b.set_resource_placeholder(nearby, other);
+    let plan = b.finish().unwrap();
+    assert_eq!(Plan::decode(&plan.encode()).unwrap(), plan);
+    assert_eq!(plan.resources[0].placeholder, Some(other));
+    let refused = |bad: &Plan| {
+        matches!(
+            bad.validate(),
+            Err(PlanError::BadReference {
+                table: "resources",
+                field: "placeholder",
+                ..
+            })
+        )
+    };
+    let mut own = plan.clone();
+    own.resources[0].placeholder = Some(nearby);
+    assert!(refused(&own));
+    let mut chained = plan.clone();
+    chained.resources[1].placeholder = Some(nearby);
+    assert!(refused(&chained));
+    let mut typed = plan.clone();
+    typed.resources[1].ty = plan.slots[0].ty;
+    assert!(refused(&typed));
+}
+
+#[test]
 fn router_format_round_trips_and_checks_semantic_links() {
     let mut b = PlanBuilder::from_plan(sample());
     let string = b.primitive(TypeKind::String);

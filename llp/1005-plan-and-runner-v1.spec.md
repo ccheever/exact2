@@ -230,8 +230,9 @@ lands in the slot inside the action's commit; a request goes out with the
 commit under one ticket per mutation, the newest `send` winning on
 acceptance — and an assignment to the slot forgets its ticket in flight.
 `pending(x)` in an expression reads the ticket flags. Boot with a `Later`
-and no value to keep is `RunnerError::Data` — bake's refusal of a resource
-that answers later at boot.
+and no value to keep shows the resource's placeholder (LLP 1048.003 D6); with
+none, it is `RunnerError::Data` — bake's refusal of a resource that answers
+later at boot.
 
 **The instance tree** realizes sites: a node → one kernel view with a
 last-emitted value per binding; `when`/`match` → the active arm and its roots;

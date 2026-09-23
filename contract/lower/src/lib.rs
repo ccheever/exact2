@@ -448,6 +448,21 @@ fn lower_with_sites(
         let range = l.b.args(&args);
         l.b.set_resource_args(l.resources[i], range);
     }
+    // @ref LLP 1048.003 D6 — a declared placeholder is a row of its own,
+    // after every authored row; its arguments read no state.
+    for (i, r) in root.resources.iter().enumerate() {
+        let Some(p) = &r.placeholder else { continue };
+        let ty = l.ty_id(&root_types.resources[i])?;
+        let mut args = Vec::new();
+        for a in &p.args {
+            args.push(l.expr_code(a, &Scope::default(), 0)?);
+        }
+        let row =
+            l.b.resource(&format!("{}#else", r.name), &p.source, &[], ty, None);
+        let range = l.b.args(&args);
+        l.b.set_resource_args(row, range);
+        l.b.set_resource_placeholder(l.resources[i], row);
+    }
     for (i, a) in root.actions.iter().enumerate() {
         let mut inner = scope.clone();
         inner.push(

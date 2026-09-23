@@ -523,6 +523,7 @@ pub fn bake<D: DataSource>(mut plan: Plan, data: D) -> Result<Plan, BakeError> {
     )?;
     lint(&mut runner)?;
     let mut b = PlanBuilder::from_plan(plan);
+    let pending: Vec<String> = runner.pending().into_iter().map(|(n, _)| n).collect();
     for i in 0..runner.plan().resources.len() {
         let name = runner
             .plan()
@@ -538,6 +539,11 @@ pub fn bake<D: DataSource>(mut plan: Plan, data: D) -> Result<Plan, BakeError> {
         // asked again at `data_ready`.
         if runner.resource_reads_store(&name) {
             b.set_resource_reader(ResourcesId(i as u32), true);
+        }
+        // @ref LLP 1048.003 D6 — a source that answers later at build shows
+        // its placeholder there; that is not its answer, so a launch asks it.
+        if pending.contains(&name) {
+            continue;
         }
         if let Some(v) = runner.resource(&name) {
             b.set_resource_initial(ResourcesId(i as u32), v);

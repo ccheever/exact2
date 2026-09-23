@@ -494,6 +494,13 @@ impl<'a> Resolver<'a> {
                 for arg in &r.args {
                     self.expr(arg);
                 }
+                if let Some(p) = &r.placeholder {
+                    self.graph
+                        .source(&p.source, self.file.names.sources[&p.span]);
+                    for arg in &p.args {
+                        self.expr(arg);
+                    }
+                }
                 self.ty(&r.shape);
             }
             for m in &c.mutations {

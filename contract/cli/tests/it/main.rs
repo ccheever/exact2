@@ -24,6 +24,7 @@ mod lint;
 mod markdown_editing;
 mod mutation;
 mod pan;
+mod placeholder;
 mod reorder_binding;
 mod reorder_collection;
 mod routes;

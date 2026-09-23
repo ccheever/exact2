@@ -762,3 +762,13 @@ routes nav
 component A
   view
     text "a"
+---
+== type-placeholder-reads
+# A placeholder's arguments are values, answered once at build (LLP 1048.003 D6).
+shape S
+  a: string
+component A
+  state id = "x"
+  resource s = s(id) as shape S else empty(id)
+  view
+    text s.a

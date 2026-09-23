@@ -169,6 +169,11 @@
         {
           "name": "reader",
           "codec": "bool"
+        },
+        {
+          "name": "placeholder",
+          "codec": "opt:resources",
+          "_comment": "@ref LLP 1048.003 D6: the row whose value shows while this one's source hasn't answered and nothing is kept for its arguments \u2014 a declared `else source(args)`, compiled as a row of its own (named `<name>#else`, arguments that read no state, the same type, no placeholder of its own). None: a list or an option shows its empty value, and anything else has none."
         }
       ]
     },

@@ -379,6 +379,7 @@ impl PlanBuilder {
             initial,
             initial_args,
             reader: false,
+            placeholder: None,
         });
         ResourcesId(self.plan.resources.len() as u32 - 1)
     }
@@ -601,6 +602,12 @@ impl PlanBuilder {
     pub fn set_resource_initial_args(&mut self, id: ResourcesId, args: &[Value]) {
         let bytes = self.data(&Value::list(args.to_vec()));
         self.plan.resources[id.0 as usize].initial_args = bytes;
+    }
+
+    /// The row whose value shows while `id`'s source hasn't answered (LLP
+    /// 1048.003 D6).
+    pub fn set_resource_placeholder(&mut self, id: ResourcesId, placeholder: ResourcesId) {
+        self.plan.resources[id.0 as usize].placeholder = Some(placeholder);
     }
 
     /// Mark a resource as one the bake found consulting the store (LLP 1027

@@ -348,7 +348,7 @@ pub struct Binding {
     pub span: Span,
 }
 
-/// `resource name = source(args) as shape T`.
+/// `resource name = source(args) as shape T [else source(args)]`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResourceDecl {
     /// Name.
@@ -359,6 +359,22 @@ pub struct ResourceDecl {
     pub args: Vec<Expr>,
     /// The declared shape.
     pub shape: TypeExpr,
+    /// `else source(args)` (LLP 1048.003 D6): what shows while the source
+    /// hasn't answered.
+    pub placeholder: Option<Placeholder>,
+    /// Where.
+    pub span: Span,
+}
+
+/// A resource's placeholder: a source call, as a resource's value is (a
+/// record comes from a source), whose arguments are values — it reads no
+/// state, so the build answers it once for every launch.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Placeholder {
+    /// The data source's name.
+    pub source: String,
+    /// Argument expressions.
+    pub args: Vec<Expr>,
     /// Where.
     pub span: Span,
 }

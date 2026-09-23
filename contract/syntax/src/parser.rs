@@ -692,12 +692,28 @@ impl Parser {
         self.expect_word("as")?;
         self.expect_word("shape")?;
         let shape = self.type_expr()?;
+        // @ref LLP 1048.003 D6 — what shows until the source answers.
+        let placeholder = if self.at_ident("else") {
+            self.next();
+            let at = self.peek().span;
+            let source = self.source_ident(at)?;
+            self.expect_punct("(")?;
+            let args = self.call_args()?;
+            Some(Placeholder {
+                source,
+                args,
+                span: at,
+            })
+        } else {
+            None
+        };
         self.newline()?;
         Ok(ResourceDecl {
             name,
             source,
             args,
             shape,
+            placeholder,
             span,
         })
     }
