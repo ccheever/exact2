@@ -5,7 +5,7 @@
 **Systems:** Kernel (node type), Contract (tag), Plan (surface row), Runner (surface arguments), GPU module (new), Apple host, Web host
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-29
-**Revised:** 2026-08-29 (r5 — round-3 fold, unreviewed: GPU code lives in the app's GPU crate, never the host-linked data crate; `bind` returns a result and surfaces register an arity; surface arguments are evaluated with the node's bindings before apply and published as a runner side-output only after a successful commit; a bare `canvas` is 300×150 by tag default — the web's size, no deviation; fixtures read back from a module-owned copyable texture; D5 narrowed to the build-declared shader set; the minimal presentation-value extension point decided; the loader is a post-paint injected script element; §5 proposes one concrete take.) 2026-08-29 (r4 — cut to the five decisions that matter, at Charlie's request: wgpu is the one API on every host; the module is on demand; shaders are validated at build and compiled at first use, off the boot path; extensible properties are a later RFC. r3 carried an exact-owned handle, a profile table, a shader catalogue, and declared properties — machinery that answered review findings by adding rather than removing; superseded by this text.) r3, r2, r1: see the review artifacts.
+**Revised:** 2026-09-23 (D6 — an app may declare GPU modules beside the primary, each loaded the first time a canvas of one of its surfaces mounts; built for Weird Castle's title sky and engine demo, recorded in LLP 1046.003.) 2026-08-29 (r5 — round-3 fold, unreviewed: GPU code lives in the app's GPU crate, never the host-linked data crate; `bind` returns a result and surfaces register an arity; surface arguments are evaluated with the node's bindings before apply and published as a runner side-output only after a successful commit; a bare `canvas` is 300×150 by tag default — the web's size, no deviation; fixtures read back from a module-owned copyable texture; D5 narrowed to the build-declared shader set; the minimal presentation-value extension point decided; the loader is a post-paint injected script element; §5 proposes one concrete take.) 2026-08-29 (r4 — cut to the five decisions that matter, at Charlie's request: wgpu is the one API on every host; the module is on demand; shaders are validated at build and compiled at first use, off the boot path; extensible properties are a later RFC. r3 carried an exact-owned handle, a profile table, a shader catalogue, and declared properties — machinery that answered review findings by adding rather than removing; superseded by this text.) r3, r2, r1: see the review artifacts.
 **Related:** `rules/NOT-DOING.md` §Runtime (the "door stays open" clause; this RFC walks through it) and §Components (`canvas`; §5 records the trade), LLP 1000 (the map), LLP 1001 (`NativeView`; layout is a host call), LLP 1002 (one representation, two executors; the browser as oracle), LLP 1004 D4 (app computation is a Rust data crate), LLP 1007/1008 (the hosts), LLP 1008 §6 (startup: nothing GPU joins the boot path)
 
 ## Summary
@@ -36,7 +36,8 @@ Not chosen: an exact-owned WebGPU-shaped handle with two implementations
 after first pixel, where the boot rule does not reach, and it would have
 been a second WebGPU surface to keep in step with the first.
 
-**D2 — The GPU is a separate module per app, loaded on demand.**
+**D2 — The GPU is a separate module per app, loaded on demand.** (Or
+several, each loaded by its own surfaces: D6.)
 `<app>-gpu` is a second artifact: wgpu plus the app's surfaces behind a
 small C ABI (`gpu_load`, `gpu_create`, `gpu_bind`, `gpu_render`,
 `gpu_destroy`, `gpu_readback`) — a `dylib` in the bundle on Apple, loaded
@@ -123,6 +124,45 @@ first frame and never on boot. `rules/NOT-DOING.md` says the built door
 wording and asks for it to be amended (§5) rather than met with a
 precompilation pipeline whose feasibility with bind groups is unproven.
 Precompilation is a later, measured trade.
+
+**D6 — More than one artifact, each loaded by the surface names it
+registers** (amended 2026-09-23, the split lane; LLP 1046.003 records it).
+D2's one module per app makes every screen pay for the heaviest surface:
+Weird Castle's title sky shipped inside its game engine. So an app may
+declare **GPU modules** beside the primary `<app>-gpu`: `app.json`'s
+`gpu.modules` maps a module name to the surface names it registers —
+`"gpu": {"modules": {"world": ["world"]}}` — and module `m` is the crate
+`<app>-gpu-m` in the app's workspace, with the primary's ABI and
+`module!` registry (an engine world is `exact_game_render::module!`
+unchanged). Every surface a module does not list is the primary's, and
+the primary is optional. A surface listed twice, a malformed name, and
+modules on a game app (whose one module is generated) are refused when
+the manifest is read. The bake binds the declaration into the
+compatibility inputs as `gpuModules` — which artifact owns which surface
+is part of the binary — and natively one signed digest per module beside
+`embedded.gpu`, as `embedded.gpuModules.<m>`, which the loader checks
+before opening it, as it checks the primary's. Each host keeps the
+artifacts apart and routes by name: the first canvas of an artifact's
+surface loads that artifact, after the frame that mounted it (D4, per
+artifact); each artifact has its own device, so its own loss and
+recovery; everything addressed to a canvas goes to the artifact that
+created it; process-wide signals (display period, lifecycle, a lost
+device's notice) reach every loaded artifact, which answers for itself,
+and agent replies that list worlds are joined. On the web a module is
+`gpu/<m>.js` and `gpu/<m>_bg.wasm`, and `gpu-modules.js` — loaded instead
+of `gpu-glue.js` only when modules are declared — is `exact.gpu` and
+imports one `gpu-glue.js?artifact=<stem>` instance per artifact (a URL is
+one module instance); natively a module is `libexact_gpu_<m>.dylib`
+beside the primary (Frameworks on iOS), and on Linux its Cargo product
+beside the binary. The dev server rebuilds and swaps only the artifacts
+an edit's files reach. An app that declares none bakes, ships and loads
+exactly as before: no key, no router, no extra file. Runtime shader
+assets (LLP 1030 D8) stay the primary's — the native ABI does not name a
+registry's shaders — so a module compiles the WGSL it carries, as the
+engine's renderer does. Not chosen: always separating the engine and
+loading it with the first world canvas. It is not smaller — every host
+needs the same per-artifact loading, routing and recovery — and it would
+teach the core what a world is, which `game/` keeps out of it.
 
 **The extension point for animatable properties** (the NOT-DOING clause
 "animatable properties are extensible"): committed state is not

@@ -28,6 +28,7 @@ pub(crate) fn emit(
         "EXACT_BAKE_ANALYSIS",
         "EXACT_RUST_BUNDLE",
         "EXACT_GPU_PRODUCT",
+        "EXACT_GPU_MODULES",
         "EXACT_GPU_DEVELOPMENT",
     ] {
         println!("cargo:rerun-if-env-changed={name}");
@@ -86,15 +87,21 @@ pub(crate) fn emit(
             compat.embedded["gpu"] = json!({"app":manifest.id,"cohort":compat.id,
                 "name":name,"trust":"development","receipt":true});
         } else if let Some(path) = std::env::var_os("EXACT_GPU_PRODUCT") {
-            let path = PathBuf::from(path);
-            println!("cargo:rerun-if-changed={}", path.display());
-            let bytes =
-                std::fs::read(&path).map_err(|e| format!("GPU product {}: {e}", path.display()))?;
-            compat.embedded["gpu"] = json!({
-                "name":path.file_name().and_then(|n| n.to_str()).ok_or("GPU product filename is not UTF-8")?,
-                "sha256":hash(&bytes), "app":manifest.id, "cohort":compat.id,
-                "trust":trust
-            });
+            compat.embedded["gpu"] = gpu_card(Path::new(&path), manifest, &compat.id, &trust)?;
+        }
+        // One card per module (LLP 1009 D6), the same shape as the primary's.
+        if let Ok(modules) = std::env::var("EXACT_GPU_MODULES") {
+            let products: serde_json::Map<String, Value> =
+                serde_json::from_str(&modules).map_err(|e| format!("EXACT_GPU_MODULES: {e}"))?;
+            let mut cards = serde_json::Map::new();
+            for (name, path) in products {
+                let path = path.as_str().ok_or("EXACT_GPU_MODULES: a product path")?;
+                cards.insert(
+                    name,
+                    gpu_card(Path::new(path), manifest, &compat.id, &trust)?,
+                );
+            }
+            compat.embedded["gpuModules"] = Value::Object(cards);
         }
     }
     // A binary without an updater has no stream or rollback floor.
@@ -548,6 +555,23 @@ fn apply_release(compat: &mut Compat, bytes: &[u8], plan: &[u8]) -> Result<(), S
     compat.embedded["entryDigest"] = json!(envelope.digest);
     compat.embedded["genesis"] = Value::Bool(false);
     Ok(())
+}
+
+/// A signed GPU product's identity: its exact bytes belong to this app and
+/// cohort, which the loader checks before opening it.
+fn gpu_card(
+    path: &Path,
+    manifest: &Manifest,
+    cohort: &str,
+    trust: &Value,
+) -> Result<Value, String> {
+    println!("cargo:rerun-if-changed={}", path.display());
+    let bytes = std::fs::read(path).map_err(|e| format!("GPU product {}: {e}", path.display()))?;
+    Ok(json!({
+        "name":path.file_name().and_then(|n| n.to_str()).ok_or("GPU product filename is not UTF-8")?,
+        "sha256":hash(&bytes), "app":manifest.id, "cohort":cohort,
+        "trust":trust
+    }))
 }
 
 fn hash(bytes: &[u8]) -> String {

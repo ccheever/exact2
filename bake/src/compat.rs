@@ -293,7 +293,7 @@ fn compatibility_with_trust(
         })
         .unwrap_or_default();
     icons.sort();
-    let inputs = json!({
+    let mut inputs = json!({
         "kernelSchema": format!("{:016x}", exact_kernel::SCHEMA_DIGEST),
         "formatVersion": exact_plan::FORMAT_VERSION,
         "formatDigest": format!("{:016x}", exact_plan::FORMAT_DIGEST),
@@ -334,6 +334,16 @@ fn compatibility_with_trust(
         "store": { "L": store, "acceptedKinds": if binary_only { vec![] } else { kinds } },
         "app": manifest.id,
     });
+    // Which GPU artifact owns which surface (LLP 1009 D6): the manifest's
+    // modules, bound into the cohort — a routing change is a new binary. An
+    // app with one artifact carries no key, so its id and bytes are as before.
+    if let Some(modules) = manifest
+        .json
+        .pointer("/gpu/modules")
+        .filter(|m| m.as_object().is_some_and(|m| !m.is_empty()))
+    {
+        inputs["gpuModules"] = modules.clone();
+    }
     let id = compatibility_digest(&inputs);
     Ok(Compat {
         id,
@@ -751,6 +761,29 @@ mod tests {
         .unwrap();
         let with_icon = id(&dir, "ios");
         assert_ne!(first, with_icon, "an added icon moves it");
+        // Which GPU artifact owns a surface is identity (LLP 1009 D6); an
+        // app with one artifact carries no key at all.
+        let manifest = std::fs::read_to_string(dir.join("app.json")).unwrap();
+        let m = Manifest::read(&dir).unwrap();
+        let inputs = |m: &Manifest| {
+            compatibility_with_trust(&dir, "ios", "aarch64-apple-ios", m, Some(""), "development")
+                .unwrap()
+                .inputs
+        };
+        assert!(inputs(&m).get("gpuModules").is_none());
+        std::fs::write(
+            dir.join("app.json"),
+            manifest.replacen('{', r#"{"gpu":{"modules":{"world":["world"]}},"#, 1),
+        )
+        .unwrap();
+        let modules = id(&dir, "ios");
+        assert_ne!(with_icon, modules, "declaring a module moves it");
+        let m = Manifest::read(&dir).unwrap();
+        assert_eq!(
+            inputs(&m)["gpuModules"],
+            serde_json::json!({"world":["world"]})
+        );
+        std::fs::write(dir.join("app.json"), &manifest).unwrap();
         // A byte in the data crate is identity.
         std::fs::write(dir.join("data/src/lib.rs"), "pub struct App; // moved\n").unwrap();
         assert_ne!(with_icon, id(&dir, "ios"), "a data crate edit moves it");

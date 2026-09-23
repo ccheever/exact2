@@ -86,6 +86,26 @@ export function copyShaders(app, target) {
   for (const [name, bytes] of files) writeFileSync(resolve(target,name), bytes);
 }
 
+// @ref LLP 1009 D6 — one artifact per module, loaded by the surfaces it owns.
+/** The GPU artifacts beside the primary `<app>-gpu`: module `m` is the crate
+ * `<app>-gpu-m` and owns exactly the surface names listed for it. */
+export function gpuModules(manifest) {
+  return Object.entries(manifest.gpu?.modules ?? {}).map(([name, surfaces]) => ({ name, surfaces }));
+}
+function gpuModuleProblems(manifest) {
+  const problems = [], owner = new Map();
+  if (manifest.game && manifest.gpu?.modules) problems.push('gpu.modules: a game generates its one GPU module; modules name crates in an app workspace');
+  for (const { name, surfaces } of gpuModules(manifest)) {
+    if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name)) problems.push(`gpu.modules.${name}: a module name is lowercase letters and digits, joined by single hyphens`);
+    if (!surfaces.length) problems.push(`gpu.modules.${name}: names no surface`);
+    for (const surface of surfaces) {
+      if (owner.has(surface)) problems.push(`gpu.modules: surface ${surface} is claimed by both ${owner.get(surface)} and ${name}`);
+      owner.set(surface, name);
+    }
+  }
+  return problems;
+}
+
 /** Existing locks are binding; the root workspace and generated game shells require theirs. */
 export const cargoReproducibilityFlags = (app, workspace = app.workspace) =>
   (resolve(workspace) === ROOT || (app.manifest.game && resolve(workspace) === resolve(app.workspace)) || (existsSync(resolve(workspace, 'Cargo.toml')) && existsSync(resolve(workspace, 'Cargo.lock')))) ? ['--locked', '--offline'] : [];
@@ -115,6 +135,7 @@ const WEB_HOST_GROUPS = {
     'storage-worker.js', 'sqlite3.mjs', 'sqlite3.wasm'],
   rust: ['rust-glue.js'],
   gpu: ['gpu-glue.js', 'pace.js', 'gpu-assets.js'],
+  gpuModules: ['gpu-modules.js'],
 };
 /** Public filename -> repo-relative source; omit groups to inventory every host file. */
 export function webHostFiles(...groups) {
@@ -227,7 +248,7 @@ export function readManifest(dir, name) {
   let parsed;
   try { parsed = game ?? JSON.parse(readFileSync(path, 'utf8')); } catch (e) { throw new Error(`${path}: ${e.message}`); }
   const problems = validate(parsed, schema(), '', schema());
-  if (!problems.length) problems.push(...installProblems(parsed));
+  if (!problems.length) problems.push(...installProblems(parsed), ...gpuModuleProblems(parsed));
   if (problems.length) throw new Error(`${path} does not conform to scripts/app.schema.json:\n  ${problems.join('\n  ')}`);
   return { host: {}, deploy: {}, ...parsed };
 }
@@ -379,7 +400,9 @@ function buildGraph(app, target, kind, env, gpu) {
   const surface = gpu && metadata.packages.find((p) => p.name === app.crate('gpu'));
   if (!root) throw new Error(`Cargo has no ${app.crate(kind)} target`);
   if (gpu && !surface) throw new Error(`Cargo has no GPU surface ${app.crate('gpu')}`);
-  const roles = new Map(), pending = [[root.id, target], ...(surface ? [[surface.id, target]] : [])];
+  const modules = gpuModules(app.manifest).map(({name}) => metadata.packages.find((p) => p.name === app.crate(`gpu-${name}`))
+    ?? (() => { throw new Error(`gpu.modules.${name}: Cargo has no ${app.crate(`gpu-${name}`)}`); })());
+  const roles = new Map(), pending = [[root.id, target], ...[surface, ...modules].filter(Boolean).map((pkg) => [pkg.id, target])];
   while (pending.length) {
     let [id, role] = pending.pop();
     const pkg = packages.get(id), node = nodes.get(id);
@@ -389,7 +412,7 @@ function buildGraph(app, target, kind, env, gpu) {
     known.add(role); roles.set(id, known);
     for (const dep of node.deps) if (dep.dep_kinds.some((k) => k.kind === null)) pending.push([dep.pkg, role]);
   }
-  return { metadata, packages, root, surface, roles };
+  return { metadata, packages, root, surface, modules, roles };
 }
 export function compilerPaths(text, workspace) {
   const first = text.replace(/\\\r?\n/g, '').split('\n')[0];
@@ -549,7 +572,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env) {
     add(resolve(packageRoot,'Package.swift'));add(resolve(packageRoot,'webarm/WebArm.swift'));add(resolve(packageRoot,'videoarm/VideoArm.swift'));add(resolve(packageRoot,'build.mjs'));
   }
   if(platform==='web') {
-    for(const path of [...Object.values(webHostFiles('base','rust','gpu')),'scripts/app.mjs','scripts/rust.mjs','host/web/index.html','host/web/build.mjs','package.json','bun.lock']) add(resolve(ROOT,path));
+    for(const path of [...Object.values(webHostFiles('base','rust','gpu',...(gpuModules(app.manifest).length?['gpuModules']:[]))),'scripts/app.mjs','scripts/rust.mjs','host/web/index.html','host/web/build.mjs','package.json','bun.lock']) add(resolve(ROOT,path));
     if (existsSync(resolve(app.dir, 'app.ts'))) {
       // The TS producer is a build dependency, outside the runtime Cargo graph.
       // Its canonical API declaration still determines the accepted app module.
@@ -609,7 +632,8 @@ export const appleCargoClaims = (app, target, units) => [...new Set(units.map(un
 export const bindGpuProduct = (profile, trust) => profile !== 'gpu-dev' || trust !== 'development';
 export function bakeSelection(graph, part) {
   if (part && !['gpu','host'].includes(part)) throw new Error(`unknown bake part: ${part}`);
-  return (part === 'gpu' ? [graph.surface] : part === 'host' ? [graph.root] : [graph.surface,graph.root]).filter(Boolean);
+  const gpu = [graph.surface, ...(graph.modules ?? [])];
+  return (part === 'gpu' ? gpu : part === 'host' ? [graph.root] : [...gpu,graph.root]).filter(Boolean);
 }
 
 /** One actual target build, including the optional GPU artifact. Consumers
@@ -622,7 +646,8 @@ export function buildBake(app, platform, target, options = {}) {
   const rustBundle=prepareRustBundle(app,platform,target,env);
   if(rustBundle)env.EXACT_RUST_BUNDLE=rustBundle;
   const graph=buildGraph(app,target,kind,env,app.hasGpu),messages=[],roots=[];
-  delete env.EXACT_GPU_PRODUCT;
+  const gpuPackage=(pkg)=>pkg.id===graph.surface?.id||graph.modules.some((m)=>m.id===pkg.id), moduleProducts={};
+  delete env.EXACT_GPU_PRODUCT; delete env.EXACT_GPU_MODULES;
   if (options.part && !bindGpuProduct(options.profile, env.EXACT_UPDATE_TRUST) && graph.surface) {
     const extension = target.includes('apple') ? 'dylib' : target.includes('windows') ? 'dll' : 'so';
     env.EXACT_GPU_DEVELOPMENT = `lib${cargoLibraryTarget(graph.surface).name.replaceAll('-','_')}.${extension}`;
@@ -642,21 +667,24 @@ export function buildBake(app, platform, target, options = {}) {
   for(const {pkg,unit} of selected) {
     // The GPU bake can create the first asset directory (for a typed level).
     env.EXACT_ASSET_ROOTS=['assets','deck',...(app.manifest.game ? [] : ['gpu/shaders'])].filter(root=>(root==='assets' && app.manifest.game && (app.manifest.game.assets === true || existsSync(resolve(app.dir,'art')))) || existsSync(resolve(app.dir,root))).join(',');
-    const args=['build',...cargoReproducibilityFlags(app),'-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(kind==='linux'&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(pkg.id===graph.surface?.id?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json-render-diagnostics'];
+    const args=['build',...cargoReproducibilityFlags(app),'-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(kind==='linux'&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(gpuPackage(pkg)?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json-render-diagnostics'];
     const result=buildCommand('cargo',args,app,env,'inherit');
     const output=result.stdout.split('\n').filter(Boolean).map((line)=>JSON.parse(line));messages.push(...output);roots.push({package:pkg.id,name:unit.name});
-    if (pkg.id === graph.surface?.id && platform !== 'web') {
+    if (gpuPackage(pkg) && platform !== 'web') {
       const product = output.filter(m => m.reason === 'compiler-artifact' && m.package_id === pkg.id)
         .flatMap(m => m.filenames).find(path => /\.(so|dylib|dll)$/.test(path));
       if (!product) throw new Error(`GPU product missing for ${pkg.name}`);
       options.prepareGpu?.(product);
-      if (!options.part || bindGpuProduct(options.profile, env.EXACT_UPDATE_TRUST)) env.EXACT_GPU_PRODUCT = product;
+      // Each module's signed digest is bound beside the primary's (LLP 1009 D6).
+      const module = gpuModules(app.manifest).find(({name}) => app.crate(`gpu-${name}`) === pkg.name);
+      if (module) { moduleProducts[module.name] = product; env.EXACT_GPU_MODULES = JSON.stringify(moduleProducts); }
+      else if (!options.part || bindGpuProduct(options.profile, env.EXACT_UPDATE_TRUST)) env.EXACT_GPU_PRODUCT = product;
     }
   }
   if (options.part === 'gpu') {
     // The proof completes the independent input/product receipt. There is no
     // host bake output to classify when only the surface graph was selected.
-    return {products:messages.filter(m=>m.reason==='compiler-artifact' && m.package_id===graph.surface.id).flatMap(m=>m.filenames)};
+    return {products:messages.filter(m=>m.reason==='compiler-artifact' && bakeSelection(graph,'gpu').some(pkg=>pkg.id===m.package_id)).flatMap(m=>m.filenames)};
   }
   const receipt=completeBuild(app,platform,target,graph,messages,roots,env);
   writeFileSync(resolve(env.EXACT_BAKE_OUTPUT,`${platform}-${target}.build.json`),JSON.stringify(receipt)+'\n');
