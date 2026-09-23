@@ -328,7 +328,7 @@ fn culling_changes_no_pixels_in_a_moving_primitive_field() {
 fn culling_changes_no_pixels_with_animated_skins_models_and_sockets() {
     let Some(gpu) = gpu() else { return };
     let mut surface = WorldSurface::<Herd, crate::ModelPresentation, true>::default();
-    surface.device_ready();
+    surface.device_ready(exact_gpu::wgpu::Features::empty());
     surface.bind(&[], None).unwrap();
     let fox = samples::sample("Fox");
     let crate_box = samples::sample("BoxTextured");
