@@ -1,4 +1,5 @@
 mod args;
+mod render;
 
 use crate::{
     perf::{Perf, Stamp},
@@ -43,12 +44,21 @@ use crate::renderer::RETIRED_BUDGET;
 
 /// One simulation and its lazily created GPU renderer, for an exact canvas.
 /// Model pipelines prepare during delivery; primitive pipelines prepare at first render.
-pub struct WorldSurface<G: Game, P: Presentation = (), const ASSETS: bool = false> {
+pub struct WorldSurface<
+    G: Game,
+    P: Presentation = (),
+    const ASSETS: bool = false,
+    H: crate::Hooks = (),
+> {
     sim: Option<Sim<G>>,
     pending_restore: Option<(Vec<u8>, Restore)>,
     placed: crate::placed::Placements,
     refusal: Option<SurfaceError>,
     presentation: P,
+    hooks: H,
+    hook_clock: crate::hooks::HookClock,
+    hook_poses: crate::hooks::Poses,
+    hook_gpu_timing: Option<crate::hooks::gpu_timing::GpuTiming>,
     render: Option<(crate::renderer::RendererWithAssets<ASSETS>, Feed)>,
     format: Option<wgpu::TextureFormat>,
     device: bool,
@@ -68,7 +78,9 @@ pub struct WorldSurface<G: Game, P: Presentation = (), const ASSETS: bool = fals
     hidden: bool,
     interrupted: bool,
 }
-impl<G: Game, P: Presentation, const ASSETS: bool> Default for WorldSurface<G, P, ASSETS> {
+impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> Default
+    for WorldSurface<G, P, ASSETS, H>
+{
     fn default() -> Self {
         Self {
             sim: None,
@@ -76,6 +88,10 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Default for WorldSurface<G, P
             placed: Default::default(),
             refusal: None,
             presentation: P::default(),
+            hooks: H::default(),
+            hook_clock: Default::default(),
+            hook_poses: Default::default(),
+            hook_gpu_timing: None,
             render: None,
             format: None,
             device: false,
@@ -97,7 +113,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Default for WorldSurface<G, P
         }
     }
 }
-impl<G: Game, P: Presentation, const ASSETS: bool> WorldSurface<G, P, ASSETS> {
+impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, P, ASSETS, H> {
     fn check_primitive_assets(&mut self) -> Result<(), SurfaceError> {
         if ASSETS {
             return Ok(());
@@ -192,13 +208,19 @@ impl<G: Game, P: Presentation, const ASSETS: bool> WorldSurface<G, P, ASSETS> {
     pub fn sim(&self) -> Option<&Sim<G>> {
         self.sim.as_ref()
     }
+    /// Read presentation diagnostics owned by this canvas's render hooks.
+    pub fn render_hooks(&self) -> &H {
+        &self.hooks
+    }
 }
+#[allow(clippy::too_many_arguments)]
 fn observer<'a, const ASSETS: bool>(
     render: &'a mut Option<(crate::renderer::RendererWithAssets<ASSETS>, Feed)>,
     placed: &'a mut crate::placed::Placements,
     perf: &'a mut Perf,
     trace: &'a mut Option<crate::trace::Trace>,
     error: &'a mut Option<SurfaceError>,
+    hook_poses: &'a mut crate::hooks::Poses,
     measure: bool,
     ticks: u32,
 ) -> impl FnMut(&World, u32) + 'a {
@@ -214,6 +236,7 @@ fn observer<'a, const ASSETS: bool>(
             }
         }
         if left < 2 && error.is_none() {
+            hook_poses.sync(world);
             if let Err(e) = if ASSETS {
                 placed.feed(world)
             } else {
@@ -241,7 +264,9 @@ fn observer<'a, const ASSETS: bool>(
         start = (measure && left > 0 && left <= 240).then(Stamp::now);
     }
 }
-impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P, ASSETS> {
+impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> Surface
+    for WorldSurface<G, P, ASSETS, H>
+{
     fn clock(&mut self, seekable: bool) {
         self.seekable = seekable;
         self.presentation.clock(seekable);
@@ -255,6 +280,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             _ => return,
         }
         self.presentation.suspend(self.hidden || self.interrupted);
+        self.hook_clock.reset();
     }
     fn arguments(&self) -> Vec<(&'static str, Value)> {
         self.surface_arguments()
@@ -353,6 +379,9 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             return;
         }
         if self.format != Some(format) {
+            self.hook_gpu_timing = None;
+            self.hook_clock.reset();
+            self.hooks.device_lost();
             self.ready_work = None;
             self.render = Some((
                 crate::renderer::RendererWithAssets::<ASSETS>::new(device, queue, format),
@@ -431,6 +460,9 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
         self.commit_restore(bytes, mode)
     }
 
+    fn preparing(&self) -> bool {
+        self.hooks.needs().contains(crate::Needs::PENDING)
+    }
     fn device_ready(&mut self) {
         if ASSETS {
             if let Some(sim) = &mut self.sim {
@@ -446,6 +478,9 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
         self.device = true;
     }
     fn device_lost(&mut self) {
+        self.hooks.device_lost();
+        self.hook_clock.reset();
+        self.hook_gpu_timing = None;
         for child in &mut self.placed.children {
             child.texture = None;
         }
@@ -481,184 +516,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
         target: &wgpu::TextureView,
         format: wgpu::TextureFormat,
     ) -> bool {
-        if !self.storage_fits(device) {
-            return false;
-        }
-        self.reported = false;
-        if self.error.is_some() {
-            return false;
-        }
-        self.device = true;
-        self.prepare_assets(device, queue, format);
-        let Some(sim) = &mut self.sim else {
-            return false;
-        };
-        if self.generation != sim.world().presentation_generation() {
-            self.generation = sim.world().presentation_generation();
-            self.dirty = true;
-        }
-        let drawable = frame.width.is_finite()
-            && frame.height.is_finite()
-            && frame.width > 0.0
-            && frame.height > 0.0
-            && frame.scale.is_finite()
-            && frame.scale > 0.0;
-        if !frame.now_ms.is_finite() {
-            return true;
-        }
-        // The host's display period: the live scheduler looks ahead by it.
-        sim.frame_period(frame.period_ms);
-        if !drawable {
-            if frame.seekable {
-                sim.advance_with(
-                    frame.now_ms,
-                    Clock::Seekable,
-                    observer(
-                        &mut self.render,
-                        &mut self.placed,
-                        &mut self.perf,
-                        &mut self.trace,
-                        &mut self.error,
-                        false,
-                        0,
-                    ),
-                );
-            }
-            self.presentation.sync(
-                sim.world(),
-                sim.generation(),
-                !G::paused(sim.args()),
-                frame.seekable,
-            );
-            self.dirty = true;
-            return self.error.is_none();
-        }
-        if sim.is_loading() {
-            sim.advance(
-                frame.now_ms,
-                if frame.seekable {
-                    Clock::Seekable
-                } else {
-                    Clock::Live
-                },
-            );
-            return sim.assets_pending();
-        }
-        if ASSETS && !sim.device_assets_ready() {
-            return sim.assets_pending();
-        }
-        sim.viewport(frame.width, frame.height);
-        if self.format != Some(format) {
-            self.ready_work = None;
-            self.render = Some((
-                crate::renderer::RendererWithAssets::<ASSETS>::new(device, queue, format),
-                {
-                    let mut feed = Feed::default();
-                    feed.share_attachment_diagnostics(self.placed.attachments.diagnostics.clone());
-                    feed
-                },
-            ));
-            self.format = Some(format);
-            self.dirty = true;
-        }
-        if ASSETS {
-            if let Some((renderer, _)) = &mut self.render {
-                for (name, model) in &mut renderer.models.loaded {
-                    let active = sim.model_prepared(name);
-                    if model.active != active {
-                        model.active = active;
-                        renderer.models.revision += 1;
-                        self.dirty = true;
-                    }
-                }
-            }
-        }
-        // Seed setup/current state before running ticks; no origin streak on frame one.
-        if self.dirty {
-            if let Some(trace) = &mut self.trace {
-                trace.feed(sim.world());
-            }
-            if let Err(e) = if ASSETS {
-                self.placed.feed(sim.world())
-            } else {
-                self.placed.feed_primitive(sim.world())
-            } {
-                self.error = Some(SurfaceError(e.to_string()));
-                return false;
-            }
-            let (renderer, feed) = self.render.as_mut().unwrap();
-            if let Err(e) = feed.feed(sim.world(), renderer) {
-                self.error = Some(SurfaceError(e.to_string()));
-                return false;
-            }
-        }
-        self.perf.pixels = frame.pixels();
-        self.perf.frame(frame.now_ms, frame.seekable);
-        let due = sim.ticks_due(frame.now_ms, Clock::Live);
-        let ticks = sim.advance_with(
-            frame.now_ms,
-            if frame.seekable {
-                Clock::Seekable
-            } else {
-                Clock::Live
-            },
-            observer(
-                &mut self.render,
-                &mut self.placed,
-                &mut self.perf,
-                &mut self.trace,
-                &mut self.error,
-                !frame.seekable,
-                due,
-            ),
-        );
-        self.presentation.sync(
-            sim.world(),
-            sim.generation(),
-            !G::paused(sim.args()),
-            frame.seekable,
-        );
-        self.perf.ticks.push(ticks as f64);
-        if self.error.is_some() {
-            return false;
-        }
-        let (renderer, feed) = self.render.as_mut().unwrap();
-        let start = (!frame.seekable).then(Stamp::now);
-        let input = feed.frame_pixels(sim.world(), sim.alpha(), (frame.width, frame.height));
-        self.placed
-            .frame(&input, exact_game::Vec2::new(frame.width, frame.height));
-        #[cfg(not(target_arch = "wasm32"))]
-        renderer
-            .quads
-            .children(&renderer.device, &renderer.queue, &self.placed);
-        self.perf.stats = renderer.draw_assets(target, frame.pixels(), &input);
-        self.ready_work
-            .get_or_insert_with(|| renderer.residency_work());
-        if let Some(start) = start {
-            let ms = start.elapsed();
-            self.perf.encode.push(ms);
-            if let Some(trace) = &mut self.trace {
-                trace.times[2] = ms;
-            }
-        }
-        if let Some(trace) = &mut self.trace {
-            trace.projection[..16]
-                .copy_from_slice(&(input.proj * input.view).to_cols_array().map(f64::from));
-            let (width, height) = frame.pixels();
-            trace.projection[16] = f64::from(width);
-            trace.projection[17] = f64::from(height);
-            trace.frame(
-                frame.now_ms,
-                sim.alpha(),
-                ticks,
-                feed.trace_camera(sim.alpha()),
-                trace.times,
-            );
-            trace.times = [0.; 3];
-        }
-        let wants = !G::paused(sim.args()) || ticks != 0;
-        self.dirty = false;
-        wants
+        self.render_frame(frame, device, queue, target, format)
     }
     fn children_mode(&self) -> exact_gpu::ChildrenMode {
         if self.sim.as_ref().is_some_and(|sim| {
@@ -819,11 +677,27 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
                 &mut self.perf,
                 &mut self.trace,
                 &mut self.error,
+                &mut self.hook_poses,
                 false,
                 0,
             ),
             P::inspect,
         );
+        if H::ENABLED {
+            #[derive(Default, exact_game::Data)]
+            struct Operation {
+                op: String,
+            }
+            if exact_game::json::from_str::<Operation>(request).is_ok_and(|q| q.op == "tree")
+                && reply.ends_with('}')
+            {
+                reply.pop();
+                reply.push_str(&format!(
+                    ",\"renderHooks\":{}}}",
+                    crate::hooks::metrics::stages(self.hooks.needs())
+                ));
+            }
+        }
         if self.render.is_none() {
             if let Err(error) = if ASSETS {
                 self.placed.feed(sim.world())
@@ -857,8 +731,20 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             if let Ok(r) = exact_game::json::from_str::<PerfRequest>(request) {
                 if r.perf_reset {
                     self.perf.reset();
+                    if let Some(timing) = &mut self.hook_gpu_timing {
+                        timing.reset();
+                    }
                 } else if r.perf {
                     self.perf.arm();
+                }
+                if r.perf || r.perf_reset {
+                    if let Some(metrics) = self
+                        .render
+                        .as_mut()
+                        .and_then(|(r, _)| r.hook_metrics.as_mut())
+                    {
+                        metrics.arm(r.perf_reset);
+                    }
                 }
             }
             reply.truncate(reply.len() - 2);
@@ -892,11 +778,32 @@ impl<G: Game, P: Presentation, const ASSETS: bool> Surface for WorldSurface<G, P
             if self.ready_work.is_none() {
                 reasons.push("first draw pending".into());
             }
+            if H::ENABLED && self.hooks.needs().contains(crate::Needs::PENDING) {
+                reasons.push(self.hooks.pending_reason().to_string());
+            }
+            if let Some(error) = self.hooks.error() {
+                reasons.push(format!("render hook: {error}"));
+            }
             let ready = reasons.is_empty();
             reply.push_str(&format!(",\"ready\":{ready},\"readyReasons\":{},\"gpu\":{{\"storageBindings\":{},\"requiredStorageBindings\":{},\"beforeReady\":{},\"afterReady\":{},\"bufferScope\":\"model instances, skin and quad buffers; excludes vertex/index, primitive pages and slots\"}}",
                 exact_game::json::to_string(&reasons).unwrap(), self.storage_limit, if ASSETS { crate::STORAGE_BINDINGS } else { crate::SCENE_STORAGE_BINDINGS },
                 self.ready_work.unwrap_or(work).json(),
                 self.ready_work.map_or_else(Default::default, |before| work.since(before)).json()));
+            if H::ENABLED {
+                if let Some((renderer, _)) = &self.render {
+                    if let Some(metrics) = &renderer.hook_metrics {
+                        metrics.append(&mut reply, self.hooks.work(), self.hooks.needs());
+                    }
+                }
+            }
+            if H::ENABLED {
+                if let Some(timing) = &mut self.hook_gpu_timing {
+                    if let Some((renderer, _)) = &self.render {
+                        timing.poll(&renderer.device, &renderer.queue);
+                    }
+                    timing.append(&mut reply);
+                }
+            }
             reply.push_str("}}");
         }
         if let Some(error) = &self.error {

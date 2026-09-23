@@ -93,6 +93,7 @@ pub(crate) struct Targets {
     pub depth: wgpu::TextureView,
     pub resolved: wgpu::TextureView,
     pub tone_bind: wgpu::BindGroup,
+    pub retained: bool,
 }
 
 impl Targets {
@@ -101,6 +102,15 @@ impl Targets {
         size: (u32, u32),
         layout: &wgpu::BindGroupLayout,
         uniform: &wgpu::Buffer,
+    ) -> Self {
+        Self::with_retention(device, size, layout, uniform, false)
+    }
+    pub fn with_retention(
+        device: &wgpu::Device,
+        size: (u32, u32),
+        layout: &wgpu::BindGroupLayout,
+        uniform: &wgpu::Buffer,
+        retained: bool,
     ) -> Self {
         let texture = |format, sample_count, usage| {
             device
@@ -123,12 +133,22 @@ impl Targets {
         let color = texture(
             wgpu::TextureFormat::Rgba16Float,
             4,
-            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TRANSIENT_ATTACHMENT,
+            wgpu::TextureUsages::RENDER_ATTACHMENT
+                | if retained {
+                    wgpu::TextureUsages::empty()
+                } else {
+                    wgpu::TextureUsages::TRANSIENT_ATTACHMENT
+                },
         );
         let depth = texture(
             wgpu::TextureFormat::Depth32Float,
             4,
-            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TRANSIENT_ATTACHMENT,
+            wgpu::TextureUsages::RENDER_ATTACHMENT
+                | if retained {
+                    wgpu::TextureUsages::TEXTURE_BINDING
+                } else {
+                    wgpu::TextureUsages::TRANSIENT_ATTACHMENT
+                },
         );
         let resolved = texture(
             wgpu::TextureFormat::Rgba16Float,
@@ -151,6 +171,7 @@ impl Targets {
         });
         Self {
             size,
+            retained,
             color,
             depth,
             resolved,

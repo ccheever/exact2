@@ -107,9 +107,8 @@ async function run(app, files) {
     : `live reload: off (${dev.why}). Start it with: bun host/web/dev.mjs --app ${app.name}`);
   const child = spawn(executableIn(bundle), documents, {
     stdio: 'inherit',
-    // Assets from the app directory, not the copy in the bundle, so editing
-    // one and relaunching shows the edit.
-    env: { ...process.env, EXACT_ASSETS: app.dir, ...(dev.path ? { EXACT_DEV_PLAN: dev.path } : {}) },
+    // Use the merged shader/asset generation captured by this bake.
+    env: { ...process.env, EXACT_ASSETS: appleArtifacts(app).capture, ...(dev.path ? { EXACT_DEV_PLAN: dev.path } : {}) },
   });
   for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => child.kill(signal));
   child.on('exit', (code, signal) => process.exit(signal ? 1 : code ?? 0));

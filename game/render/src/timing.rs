@@ -1,7 +1,7 @@
 use exact_gpu::wgpu;
 
 /// Number of optional GPU timestamp pairs reserved for a frame.
-pub const GPU_PASS_COUNT: u32 = 17;
+pub const GPU_PASS_COUNT: u32 = 24;
 /// Timestamp slots: inactive passes leave their pair untouched.
 pub const GPU_PASS_NAMES: [&str; GPU_PASS_COUNT as usize] = [
     "shadow 0",
@@ -21,6 +21,13 @@ pub const GPU_PASS_NAMES: [&str; GPU_PASS_COUNT as usize] = [
     "bloom up 4",
     "tonemap",
     "skin palettes",
+    "hook compute",
+    "hook opaque (inside forward)",
+    "hook background (inside forward)",
+    "hook surface + translucent",
+    "hook post",
+    "opaque depth resolve",
+    "final depth resolve",
 ];
 
 pub(crate) fn writes(
@@ -32,4 +39,37 @@ pub(crate) fn writes(
         beginning_of_pass_write_index: Some(pass * 2),
         end_of_pass_write_index: Some(pass * 2 + 1),
     })
+}
+
+pub(crate) fn encoder_stamp(
+    device: &wgpu::Device,
+    encoder: &mut wgpu::CommandEncoder,
+    set: Option<&wgpu::QuerySet>,
+    pair: u32,
+    end: bool,
+) {
+    if device
+        .features()
+        .contains(wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS)
+    {
+        if let Some(set) = set {
+            encoder.write_timestamp(set, pair * 2 + u32::from(end));
+        }
+    }
+}
+pub(crate) fn pass_stamp(
+    device: &wgpu::Device,
+    pass: &mut wgpu::RenderPass<'_>,
+    set: Option<&wgpu::QuerySet>,
+    pair: u32,
+    end: bool,
+) {
+    if device
+        .features()
+        .contains(wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES)
+    {
+        if let Some(set) = set {
+            pass.write_timestamp(set, pair * 2 + u32::from(end));
+        }
+    }
 }

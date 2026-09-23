@@ -54,7 +54,7 @@ import { homedir, hostname, tmpdir, userInfo } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildRust, rustBundle, rustPackage } from './rust.mjs';
-import { cargoReproducibilityFlags, readManifest, buildBake, bakeTarget, readBuilds, cohortReceipt, classifyArtifacts, resolveApp, removePrivateTree } from './app.mjs';
+import { cargoReproducibilityFlags, readManifest, buildBake, bakeTarget, readBuilds, cohortReceipt, classifyArtifacts, resolveApp, removePrivateTree, shaderWatchRoots } from './app.mjs';
 import { gameShells } from "../game/app/shells.mjs";
 import { blobPath, openOrigin, OriginUnavailable, sha256, streamPath, parseWebRoot, webRootPath, webRootStream, webReleasePath } from './origin.mjs';
 import { listPublicFiles, readStaticCandidate } from '../host/web/serve.mjs';
@@ -434,6 +434,7 @@ export function snapshotOf(app, opts, exactRoot = ROOT) {
   const sourceRoots = [
     { role: 'app', cwd: canonicalPath(app.dir) },
     { role: 'exact2', cwd: canonicalPath(exactRoot) },
+    ...shaderWatchRoots(app).filter(existsSync).map(cwd => ({role:'shaders',cwd:canonicalPath(cwd)})),
   ];
   const repos = new Map();
   const discover = (sourceRoots) => {

@@ -62,6 +62,12 @@ pub(crate) struct Ring {
     max: f64,
 }
 impl Ring {
+    pub(crate) fn arm(&mut self, reset: bool) {
+        if reset {
+            *self = Self::default();
+        }
+        self.values.resize(16384, 0.);
+    }
     pub fn push(&mut self, value: f64) {
         if !value.is_finite() || value < 0.0 {
             return;
@@ -76,7 +82,7 @@ impl Ring {
         self.next = (self.next + 1) % self.values.len();
         self.len = (self.len + 1).min(self.values.len());
     }
-    fn json(&self, out: &mut String) {
+    pub(crate) fn json(&self, out: &mut String) {
         let mut values = self.values[..self.len].to_vec();
         values[..self.len].sort_unstable_by(f64::total_cmp);
         let p = |percent: usize| {

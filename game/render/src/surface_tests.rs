@@ -220,12 +220,14 @@ fn seekable_observers_make_no_clock_calls_and_long_advances_time_only_retained_t
         CLOCK_READS.with(|n| n.set(0));
         let mut trace = None;
         let mut placed = crate::placed::Placements::default();
+        let mut hook_poses = crate::hooks::Poses::default();
         let mut after = observer::<false>(
             &mut render,
             &mut placed,
             &mut perf,
             &mut trace,
             &mut error,
+            &mut hook_poses,
             measure,
             3600,
         );

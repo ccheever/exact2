@@ -113,6 +113,12 @@ save/restore seams. Take: further standalone showcase work waits behind this
 consumer; no default engine linkage, core feature matrix or extra blocking gate.
 See LLP 1046 §5 and LLP 1046.003.
 
+**Clarified (Charlie, 2026-09-23, LLP 1046.006.000 §7):** game-owned render
+hooks and reusable shader-packaging support in shared build tools are within
+that optional add-on's scope. The same take holds; core apps gain no engine
+dependency. Weird Waters may prove the hooks privately alongside independent
+public fixtures on web, macOS and iOS.
+
 ## Surfaces
 
 **Expanded (Charlie, 2026-09-13):** replace app Rust below the data seam with

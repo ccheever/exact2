@@ -47,7 +47,7 @@ pub(crate) fn emit(
         ));
     }
     let plan_card = json!({"sha256": hash(&plan_bytes), "bytes": plan_bytes.len()});
-    let mut assets = asset_cards(app, out)?;
+    let mut assets = asset_cards(app, out, manifest)?;
     let rust_assets = if let Some(directory) = std::env::var_os("EXACT_RUST_BUNDLE") {
         stage_rust_bundle(
             Path::new(&directory),
@@ -143,7 +143,7 @@ pub(crate) fn emit(
 // The same directory-owned gate used by copying, including direct Cargo
 // bakes. This tooling process does not link Unix filesystem code into a wasm
 // consumer of `contract`; its Cargo cache is distinct from the calling build.
-fn asset_cards(app: &Path, out: &Path) -> Result<Vec<Value>, String> {
+fn asset_cards(app: &Path, out: &Path, manifest: &Manifest) -> Result<Vec<Value>, String> {
     let gate = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/filesystem.mjs");
     println!("cargo:rerun-if-changed={}", gate.display());
     let code = r#"
@@ -151,20 +151,24 @@ fn asset_cards(app: &Path, out: &Path) -> Result<Vec<Value>, String> {
         import {resolve} from 'node:path';
         import {createHash} from 'node:crypto';
         const {filesystem} = await import(pathToFileURL(process.argv[1]));
+        const {shaderFiles,shaderRoots,shaderPreludeFiles} = await import(pathToFileURL(resolve(process.argv[1],'../app.mjs')));
+        const app={dir:process.argv[2],manifest:JSON.parse(process.argv[3])};
         const cards=[];
-        for (const [source,prefix] of [['assets','assets'],['deck','deck'],['gpu/shaders','shaders']]) {
+        for (const [source,prefix] of [['assets','assets'],['deck','deck']]) {
             const tree=filesystem({op:'tree',root:resolve(process.argv[2],source),optionalRoot:true});
             for (const [name,base64] of Object.entries(tree??{})) {
                 const bytes=Buffer.from(base64,'base64');
                 cards.push({name:`${prefix}/${name}`,sha256:createHash('sha256').update(bytes).digest('hex'),bytes:bytes.length});
             }
         }
-        process.stdout.write(JSON.stringify(cards.sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0)));
+        for (const [name,bytes] of shaderFiles(app)) cards.push({name:`shaders/${name}`,sha256:createHash('sha256').update(bytes).digest('hex'),bytes:bytes.length});
+        process.stdout.write(JSON.stringify({cards:cards.sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0),roots:[...shaderRoots(app),...shaderPreludeFiles(app)]}));
     "#;
     let output = std::process::Command::new("bun")
         .args(["--input-type=module", "-e", code])
         .arg(gate)
         .arg(app)
+        .arg(manifest.json.to_string())
         .output()
         .map_err(|e| format!("bake asset gate: {e}"))?;
     if !output.status.success() {
@@ -173,8 +177,12 @@ fn asset_cards(app: &Path, out: &Path) -> Result<Vec<Value>, String> {
             String::from_utf8_lossy(&output.stderr)
         ));
     }
-    let cards =
+    let inventory: Value =
         serde_json::from_slice(&output.stdout).map_err(|e| format!("bake asset inventory: {e}"))?;
+    let cards = inventory["cards"]
+        .as_array()
+        .ok_or("missing bake cards")?
+        .clone();
     // The helper has its own target directory. Other known bake destinations
     // may also be beneath an external app: never broaden a watch over them.
     let mut outputs = vec![
@@ -190,9 +198,15 @@ fn asset_cards(app: &Path, out: &Path) -> Result<Vec<Value>, String> {
             outputs.push(PathBuf::from(path));
         }
     }
-    let paths = ["assets", "deck", "gpu/shaders"]
-        .map(|directory| watch::optional_tree(&app.join(directory), &outputs))
-        .into_iter()
+    let roots = [app.join("assets"), app.join("deck")].into_iter().chain(
+        inventory["roots"]
+            .as_array()
+            .ok_or("missing shader roots")?
+            .iter()
+            .map(|v| PathBuf::from(v.as_str().unwrap())),
+    );
+    let paths = roots
+        .map(|path| watch::optional_tree(&path, &outputs))
         .collect::<std::collections::BTreeSet<_>>();
     for path in paths {
         println!("cargo:rerun-if-changed={}", path.display());
@@ -816,7 +830,8 @@ mod tests {
         std::fs::create_dir_all(root.join("deck/nested")).unwrap();
         std::fs::write(root.join("assets/image.png"), b"image").unwrap();
         std::fs::write(root.join("deck/nested/index.html"), b"deck").unwrap();
-        let cards = asset_cards(&root, &root.join("out")).unwrap();
+        let manifest = Manifest::read(&root).unwrap();
+        let cards = asset_cards(&root, &root.join("out"), &manifest).unwrap();
         assert_eq!(
             cards,
             vec![
@@ -826,7 +841,7 @@ mod tests {
         );
         std::fs::write(root.join("outside"), b"must not be embedded").unwrap();
         std::os::unix::fs::symlink("../outside", root.join("assets/escape")).unwrap();
-        assert!(asset_cards(&root, &root.join("out"))
+        assert!(asset_cards(&root, &root.join("out"), &manifest)
             .unwrap_err()
             .contains("bake asset gate"));
         std::fs::remove_dir_all(root).unwrap();

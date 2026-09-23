@@ -25,8 +25,50 @@ reverse-Z is unsupported. Capsule height is tip-to-tip.
 64-byte affine attachments. Writes and batch changes return named `RenderError`s before
 mutation on capacity refusal. Incomplete records/invalid meshes are caller errors.
 Arenas grow with GPU copies and never shrink. `Stats.instances/triangles` describe
-the forward scene; `draws` includes all passes; `texture_creations` is cumulative.
+the forward scene; `draws` includes engine-issued draws across all passes; `texture_creations` is cumulative.
 CPU timing belongs to the caller; `draw` makes no performance clock calls.
+
+## Game render hooks
+
+`WorldSurface<G, P, ASSETS, H>` accepts `H: Hooks`; `()` preserves the standard
+frame. `module!(Game, hooks = Effects, shaders = SHADERS)` exports a hooked canvas;
+add `assets` for engine-drawn custom model materials, and `audio` for audio support.
+See LLP 1046.006.000 and `tests/hooks.rs` for the independent public fixture.
+
+Hooks borrow `RenderWorld` for immutable extraction and `FrameView` for the exact
+engine camera, interpolation, viewport/capacity and clock-reset facts. Register
+entities through `entities()` to get tick-interpolated `FrameView::pose`. Use
+`Pipelines<T>` for asynchronous candidate validation, `Needs::PENDING` until ready,
+and `error()` for a named rejected replacement. Never step or mutate the simulation.
+
+Stages are compute before shadows, opaque, background after sky, an optional
+surface continuation, and optional HDR post before bloom/tone. Geometry uses 4×
+MSAA. `SCENE_COPY` supplies resolved HDR and positive view-space depth (zero for
+sky); `FINAL_DEPTH` requests final sampled depth independently; `HDR_POST` supplies
+a distinct HDR output. Respect the active rectangle inside bucketed textures.
+The refractor writes depth. Transparent objects behind it and intersecting
+refractors are outside this first composition contract.
+
+`CustomMaterial` replaces a loaded opaque, unskinned model material. The engine
+owns geometry/draws and a compact per-instance `data` word; the game supplies paired
+forward/shadow pipelines and group 2 resources. `MATERIAL_WGSL` supplies the frame,
+transforms and instance accessor. Group 1 is empty in forward and the light camera
+in shadow; group 3 is engine instances. Two vertex storage bindings remain under
+the default limit of eight. Custom forward shaders do not yet receive engine
+shadow maps; use conservative `ModelBounds` for GPU deformation.
+
+`app.json` declares `gpu.shaderRoots` and optional `gpu.shaderPreludes` (shader stem
+→ ordered source paths), all relative to the manifest. The bake merges and reflects
+the assembled sources, rejects duplicate stems/symlinks and ships ordinary shader
+assets. Compose the corresponding reflected slices with `exact_gpu::shader_packs!`.
+No manual copy or private game dependency is needed in public engine code.
+
+Tree/state report stages. `world.renderHooks` contains CPU rings, attachment-byte
+estimates and separate engine/game creation counts before/after readiness; absent
+raw-device reporting is `null`. Raw hook draws/dispatches are not counted in the
+engine’s draw/triangle counters. Existing perf arming enables asynchronous GPU
+readback when supported; `world.gpuMs` reports enclosing passes and `null` for
+unsupported finer intervals. These GPU intervals overlap; do not sum them.
 
 ## Effects
 

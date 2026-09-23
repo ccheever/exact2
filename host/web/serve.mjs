@@ -11,7 +11,7 @@ import { networkInterfaces } from 'node:os';
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { filesystem, filesystemRead } from '../../scripts/filesystem.mjs';
-import { developmentURLScheme, webHostFiles } from '../../scripts/app.mjs';
+import { copyShaders, developmentURLScheme, webHostFiles } from '../../scripts/app.mjs';
 import { appDocumentPath, webRequestURL, parseWebRoot, sha256, webReleasePath, webRootPath } from '../../scripts/origin.mjs';
 
 import { INSTALL_FILES, INSTALL_ROOT, installRoute, installNetworkPage } from '../../scripts/install-page.mjs';
@@ -163,6 +163,17 @@ export function installStaticCandidate(source, name, target, validate = null) {
     rmSync(candidate, { force: true });
     throw error;
   }
+}
+
+/** Merge every declared shader root before committing a dev candidate. A
+ * deletion in one pack must not erase the other packs; duplicates refuse it. */
+export function applyShaderTreeChange(app, target, validate = null) {
+  const source = resolve(dirname(target), `.shader-packs-${process.pid}-${randomBytes(4).toString('hex')}`);
+  mkdirSync(source, {recursive:true});
+  try {
+    copyShaders(app, source);
+    return applyStaticTreeChange(source, target, validate);
+  } finally { rmSync(source, {recursive:true,force:true}); }
 }
 
 /** Copy one complete static source tree under the same no-symlink policy

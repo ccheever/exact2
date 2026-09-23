@@ -199,6 +199,10 @@ pub trait Surface {
         _format: wgpu::TextureFormat,
     ) {
     }
+    /// Device resources are validating asynchronously; a fixed clock still needs redraws.
+    fn preparing(&self) -> bool {
+        false
+    }
     /// State as bytes this surface can later restore: a save or a dev reload's carry.
     /// None means this surface has nothing worth carrying.
     fn carry(&mut self) -> Result<Option<Vec<u8>>, SurfaceError> {
@@ -1111,7 +1115,11 @@ impl Module {
 
     /// Whether a canvas has something to render: inputs it has not shown.
     pub fn dirty(&self, id: u32) -> bool {
-        self.has_device(id) && self.instances.get(&id).is_some_and(|i| i.dirty)
+        self.has_device(id)
+            && self
+                .instances
+                .get(&id)
+                .is_some_and(|i| i.dirty || i.surface.preparing())
     }
 
     /// Render one frame for a canvas at the given size; returns whether the
@@ -1432,45 +1440,8 @@ pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
     }
 }
 
-/// Create the device from the first adapter that can present, requesting
-/// supported capacities independently. Awaited by native and web loaders.
-pub async fn load_gpu(
-    instance: wgpu::Instance,
-    compatible: Option<&wgpu::Surface<'_>>,
-) -> Result<Gpu, String> {
-    let adapter = instance
-        .request_adapter(&wgpu::RequestAdapterOptions {
-            compatible_surface: compatible,
-            ..Default::default()
-        })
-        .await
-        .map_err(|e| format!("no adapter: {e}"))?;
-    let available = adapter.limits();
-    let required_limits = requested_limits(available);
-    let (device, queue) = adapter
-        .request_device(&wgpu::DeviceDescriptor {
-            label: Some("exact"),
-            required_limits,
-            ..Default::default()
-        })
-        .await
-        .map_err(|e| format!("no device: {e}"))?;
-    Ok(Gpu {
-        instance,
-        adapter,
-        device,
-        queue,
-    })
-}
-
-/// Request each optional capacity independently; a low inter-stage limit must
-/// not discard storage capacity offered by the same adapter.
-pub fn requested_limits(available: wgpu::Limits) -> wgpu::Limits {
-    let mut limits = wgpu::Limits::downlevel_defaults().using_resolution(available.clone());
-    limits.max_storage_buffers_per_shader_stage = available.max_storage_buffers_per_shader_stage;
-    limits.max_inter_stage_shader_variables = available.max_inter_stage_shader_variables.min(16);
-    limits
-}
+mod device;
+pub use device::{load_gpu, requested_limits};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod fixture;
