@@ -10,6 +10,8 @@ host/apple/.build/
 .claude/worktrees/
 # llp-ship run state, an output root of the captured-source diagnostics.
 .llp/ship-runs/
+# Generated game shells; game/app/shells.mjs writes their own .gitignore.
+game/.shells/
 
 # Messages schema bytecode is compiled at bake, never committed.
 apps/messages/snapback/backend.ts
