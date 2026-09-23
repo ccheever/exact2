@@ -17,7 +17,8 @@ pub(super) struct Settled {
 }
 
 /// Which derives and resources this pass has settled, and which of them
-/// took a value other than the one published last.
+/// differ from what was published last — in value or in store provenance,
+/// which travels on even when the value does not change.
 struct Progress<'a> {
     derives: &'a [Option<Value>],
     derive_changed: &'a [bool],
@@ -214,6 +215,9 @@ impl<D: DataSource> Runner<D> {
                                     derive: self.plan.str(self.plan.derives[i].name).to_string(),
                                 });
                             }
+                            // Provenance is part of what a reader inherits.
+                            derive_changed[i] =
+                                self.derive_store_dependent.get(i) != Some(&o.store_dependent);
                             derive_store_dependent[i] = o.store_dependent;
                             // An equivalent result keeps the previous object,
                             // so identity survives for every memo downstream.

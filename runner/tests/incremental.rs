@@ -467,3 +467,62 @@ fn every_app_plan_updates_incrementally_exactly_as_it_does_in_full() {
         names.len()
     );
 }
+
+/// Store provenance travels through derives and resource arguments even
+/// when no value changes (Astra, 2026-09-22): input → first → second →
+/// dependent, and input starts reading the store while answering the same.
+#[test]
+fn store_provenance_propagates_through_unchanged_values() {
+    #[derive(Default)]
+    struct Seed {
+        read: bool,
+    }
+    impl DataSource for Seed {
+        fn grants(&self) -> &str {
+            "secret.keep token\n"
+        }
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            unreachable!("answer is implemented")
+        }
+        fn answer(
+            &mut self,
+            store: &mut Store,
+            source: &str,
+            _: &[Value],
+        ) -> Result<Answer, DataError> {
+            if source == "seed" && self.read {
+                let _ = store.get("token");
+            }
+            Ok(Answer::Now(Value::Number(7.0)))
+        }
+    }
+    let plan = contract::compile(
+        "component Probe
+  state revision = 0
+  resource input = seed(revision) as shape number
+  derive first = input
+  derive second = first
+  resource dependent = consume(second) as shape number
+  action change writes revision
+    revision = revision + 1
+  view
+    text `${dependent}`
+",
+    )
+    .unwrap();
+    for full in [false, true] {
+        let mut r = Runner::boot(
+            plan.clone(),
+            Seed::default(),
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        r.set_full_evaluation(full);
+        r.data().read = true;
+        r.act("change", vec![]).unwrap();
+        assert!(r.resource_reads_store("input"), "full={full}");
+        assert!(r.resource_reads_store("dependent"), "full={full}");
+    }
+}
