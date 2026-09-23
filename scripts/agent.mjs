@@ -306,7 +306,8 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
     await evaluate('exact.ready'); // First pixel precedes deferred module readiness.
     if (plan) {
       const carry = world ? `exact.worldCarry = Uint8Array.from(atob(${JSON.stringify(worldFile(world).toString('base64'))}), c => c.charCodeAt(0));` : '';
-      await evaluate(`fetch('/__plan').then((r) => r.arrayBuffer()).then((b) => { ${carry} return exact.reload(new Uint8Array(b)); })`);
+      // Another plan is a new document: its autofocus runs (LLP 1035.000 D9).
+      await evaluate(`fetch('/__plan').then((r) => r.arrayBuffer()).then((b) => { ${carry} return exact.reload(new Uint8Array(b), true); })`);
     }
     const frame = () => waitAtMost(evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))'), 250);
     // The one contact this carrier may hold (LLP 1035.003 D1), and whether

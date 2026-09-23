@@ -46,3 +46,41 @@ test('E11 only enclosing canvases receive pointer focus; new autofocus wins',()=
     }
   } finally {Object.assign(globalThis,previous);}
 });
+
+// A carried restart: focus follows its place in the runner's tree, and the
+// restarted tree autofocuses nothing; a node mounted later still may.
+test('a carried restart keeps focus at its place and autofocuses nothing',()=>{
+  const previous={document:globalThis.document,getComputedStyle:globalThis.getComputedStyle};
+  class El {
+    constructor(autofocus=false) {this.exactAutofocus=autofocus;this.isConnected=true;}
+    getClientRects() {return [{}];}
+    matches() {return false;}
+    setAttribute() {}
+    focus() {document.activeElement=this;}
+  }
+  globalThis.document={body:{},activeElement:null};globalThis.getComputedStyle=()=>({visibility:'visible'});
+  const tree=(root,ids,types=['Button','Button'])=>({roots:[root],nodes:[{id:root,parent:null,type:'View',children:ids},...ids.map((id,i)=>({id,parent:root,type:types[i],children:[]}))]});
+  let elements=[];const focus=focusController({ready:()=>true,elements:()=>elements,inert:()=>false});
+  const run=(kept,next,t)=>{const views=new Map(next);focus.restart(kept,()=>{elements=[...views.values()];focus.autofocus();},()=>t,id=>views.get(id));};
+  try {
+    // A fresh boot (no kept place, not even null) autofocuses as it mounts.
+    const first=new El(true),other=new El();run(undefined,[[2,first],[3,other]],tree(1,[2,3]));expect(document.activeElement).toBe(first);
+    other.focus();
+    const kept=focus.keep(tree(1,[2,3]),3);expect(kept).toEqual({path:[0,1],type:'Button'});
+    // New ids and a changed label: the place and the type are what count.
+    const first2=new El(true),other2=new El();document.activeElement=document.body;
+    run(kept,[[11,first2],[12,other2]],tree(10,[11,12]));
+    expect(document.activeElement).toBe(other2);
+    // Nothing was focused: the restart autofocuses nothing.
+    const first3=new El(true);document.activeElement=document.body;
+    run(null,[[21,first3]],tree(20,[21]));
+    expect(document.activeElement).toBe(document.body);
+    // The place now holds another type: nothing is focused.
+    const field=new El();document.activeElement=document.body;
+    run(kept,[[31,new El()],[32,field]],tree(30,[31,32],['Button','TextInput']));
+    expect(document.activeElement).toBe(document.body);
+    // A node mounted after the restart still autofocuses.
+    const later=new El(true);elements.push(later);focus.autofocus();
+    expect(document.activeElement).toBe(later);
+  } finally {Object.assign(globalThis,previous);}
+});

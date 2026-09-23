@@ -1301,7 +1301,7 @@ function activateData() {
 // dev loop's restart carrying compatible state, LLP 1007 §6).
 let mutation = Promise.resolve(); function mutate(work) { const next = mutation.then(work); mutation = next.catch(() => {}); return next; }
 function boot(...args) { return mutate(() => bootNow(...args)); }
-async function bootNow(bytes, assets = devAssets, current = () => true, module = null) {
+async function bootNow(bytes, assets = devAssets, current = () => true, module = null, fresh = false) {
   const t = performance.now(), request = ++bootAttempt;
   // Decode and load private font faces while the live page keeps running.
   // Carry state only at the synchronous host acceptance point below.
@@ -1324,6 +1324,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
     if (!current() || request !== bootAttempt) return null;
   }
   const launch = encoder.encode(location.pathname + location.search); // @ref LLP 1038 D5
+  const kept = !fresh && (bytes || module) ? focus.keep(ask({ op: "tree" }), Number(document.activeElement?.closest?.("[data-view]")?.dataset.view)) : undefined;
   let len;
   if (module) {
     const id = module.rust ?? new TextEncoder().encode(JSON.stringify(module.realm.id));
@@ -1374,7 +1375,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   inflight.clear();
   root.replaceChildren();
   commitFonts(preparedFonts);
-  applyBatch(batch);
+  focus.restart(kept, () => applyBatch(batch), () => ask({ op: "tree" }), id => views.get(id));
   globalThis.exact?.gpu?.finishRestart();
   if (bytes && !module) activateData(); // This session has already painted once.
   if (oldAssets !== assets) releaseAssets(oldAssets);
@@ -1400,7 +1401,7 @@ globalThis.exact = { mutate,
   // A dev-plan event can arrive while the wasm is still fetching. Queue it
   // behind the initial boot instead of acknowledging a reload that did not
   // happen.
-  reload: async (bytes) => { await ready; await moduleReady; if (logicInfo || activeModule) throw new Error('module reload requires a paired generation'); return boot(bytes); },
+  reload: async (bytes, fresh = false) => { await ready; await moduleReady; if (logicInfo || activeModule) throw new Error('module reload requires a paired generation'); return boot(bytes, devAssets, () => true, null, fresh); },
   reloadGeneration: async (bytes, cards, current, module = null, rust = null) => {
     await ready;
     await moduleReady;

@@ -1458,9 +1458,9 @@ export function renderMarkup(el, json) {
 
 export function focusController({ready, elements, inert}) {
   const processed = new WeakSet();
-  let pointerTarget = null;
+  let pointerTarget = null, restarting = false;
   const autofocus = () => {
-    if (!ready()) return;
+    if (restarting || !ready()) return;
     for (const el of elements()) {
       if (processed.has(el) || !el.exactAutofocus || !el.getClientRects().length || inert(el) || el.matches(':disabled') || getComputedStyle(el).visibility !== 'visible') continue;
       processed.add(el); // Once per mount, including a refused autofocus.
@@ -1469,7 +1469,28 @@ export function focusController({ready, elements, inert}) {
       el.setAttribute('autofocus', ''); el.focus(); return;
     }
   };
-  return {autofocus, press(event, el, dispatch) {
+  // A restart with carried state (a dev reload, a delivered update) replaces
+  // every element. Focus follows the focused node's place in the runner's
+  // tree — its index among its siblings at each level, and its type — and the
+  // restarted tree autofocuses nothing; a node mounted later still may.
+  const keep = (tree, id) => {
+    const nodes = new Map(tree.nodes?.map(n => [n.id, n])), path = [], type = nodes.get(id)?.type;
+    for (let n = nodes.get(id); n; n = nodes.get(n.parent)) path.unshift((n.parent == null ? tree.roots : nodes.get(n.parent)?.children ?? []).indexOf(n.id));
+    return type && !path.includes(-1) ? {path, type} : null;
+  };
+  const restart = (kept, apply, tree, view) => {
+    if (kept === undefined) return apply(); // a fresh boot autofocuses
+    restarting = true;
+    try { apply(); } finally { restarting = false; }
+    for (const el of elements()) if (el.exactAutofocus) processed.add(el);
+    if (!kept) return;
+    const t = tree(), nodes = new Map(t.nodes?.map(n => [n.id, n]));
+    let id = null, ids = t.roots;
+    for (const i of kept.path) { id = ids?.[i]; ids = nodes.get(id)?.children; }
+    const el = nodes.get(id)?.type === kept.type ? view(id) : null;
+    if (el?.isConnected && el.getClientRects().length && !inert(el) && !el.matches(':disabled')) el.focus({preventScroll: true});
+  };
+  return {autofocus, keep, restart, press(event, el, dispatch) {
     event.stopPropagation();
     const canvas = el.closest('[data-gpu-input]');
     const previous = pointerTarget;

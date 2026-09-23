@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 import vm from 'node:vm';
 import { render, sourceMapReader, identifyInspectedNode } from '../../scripts/agent.mjs';
 import { retainDevGeneration, readDevGeneration, readDevGenerationAsync } from './serve.mjs';
+import { focusController } from './navigation.js';
 
 const mapAt = (digest, line = 12) => ({digest, nodes: [{file: '/app/ui/bubble.contract', line, col: 3, end_col: 9, component: 'Bubble',
   chain: [{file: '/app/app.contract', line: 45, col: 5, end_col: 11, component: 'App'}],
@@ -253,7 +254,7 @@ function fixture(agentMode = true) {
       exact_plan_fonts: () => '{}', exact_boot: () => '{"ops":[],"timers":true}',
       exact_boot_plan: () => '{"ops":[],"timers":true}', exact_advance: () => '{"ops":[],"clock":16}' },
     devAssets: null, bootAttempt: 0, encoder: new TextEncoder(), location: { pathname: '/', search: '' },
-    loadGpuIfNeeded() {}, writeIn: value => value, send() {}, messageViews: new Set(), markupModule: null,
+    focus: focusController({ ready: () => true, elements: () => [], inert: () => false }), loadGpuIfNeeded() {}, writeIn: value => value, send() {}, messageViews: new Set(), markupModule: null,
     prepareFonts: async () => [], commitFonts() {}, releaseAssets() {}, incarnation: 0,
     // Ordinary boot tests model an already-loaded post-paint scheduler.
     timerFactory: () => ({ update() { events.push('ticker'); }, dispose() {} }),

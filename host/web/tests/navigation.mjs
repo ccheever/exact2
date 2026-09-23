@@ -471,7 +471,7 @@ try {
       assert.equal((await session.state()).slots.backPresses, 1);
     } finally { await session.close(); }
   });
-  await run('autofocus preserves existing focus and starts afresh after reload', async () => {
+  await run('autofocus preserves existing focus, and a reload keeps it at its place', async () => {
     served = dist;
     const plan = [...readFileSync(dir + '/accessibility.plan')];
     const page = readFileSync(process.env.EXACT_ROUTER_DIST + '/index.html', 'utf8');
@@ -489,9 +489,11 @@ try {
     assert.equal((await state()).slots.count, 2);
     await evaluate(`(async()=>{await exact.agent({op:'clock',to:1000}); await exact.agent({op:'clock',to:2000});})()`);
     assert.equal(await first(), 'other');
+    // A carried reload is the same document (LLP 1035.000 D9): focus stays at
+    // Other's place in the tree, and First's autofocus does not take it back.
     await evaluate(`exact.reload(new Uint8Array(${JSON.stringify(plan)}))`);
-    assert.equal(await first(), 'first');
-    assert.equal(await evaluate(`document.querySelector('[data-testid="first"]').hasAttribute('autofocus')`), true);
+    assert.equal(await first(), 'other');
+    assert.equal(await evaluate(`document.querySelector('[data-testid="first"]').hasAttribute('autofocus')`), false);
   });
 
 } finally {
