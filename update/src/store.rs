@@ -864,20 +864,20 @@ impl Store {
                 envelope.stream.seq
             ));
         }
-        if envelope.stream.seq == floor {
-            let accepted = if self.record.seq == floor {
-                self.record.digest.as_ref()
-            } else {
-                None
-            }
-            .or_else(|| {
-                (self.embedded.seq == floor)
-                    .then_some(self.embedded.entry_digest.as_ref())
-                    .flatten()
-            });
-            if accepted.is_some_and(|digest| *digest != envelope.digest) {
-                return Err(format!("the head is seq {floor} but names another bundle; a used sequence cannot equivocate"));
-            }
+        // The bundle this client accepted at the floor, when it knows one.
+        let accepted = if self.record.seq == floor {
+            self.record.digest.as_ref()
+        } else {
+            None
+        }
+        .or_else(|| {
+            (self.embedded.seq == floor)
+                .then_some(self.embedded.entry_digest.as_ref())
+                .flatten()
+        });
+        if envelope.stream.seq == floor && accepted.is_some_and(|digest| *digest != envelope.digest)
+        {
+            return Err(format!("the head is seq {floor} but names another bundle; a used sequence cannot equivocate"));
         }
         let current = match &self.view {
             _ if self.record.pending.as_deref() == Some(envelope.digest.as_str()) => true,
@@ -914,7 +914,11 @@ impl Store {
                 envelope.digest
             ));
         }
-        if envelope.stream.seq == floor {
+        // At the floor only the accepted bundle stages again: after its entry
+        // was lost or corrupted (and refused to entry zero), downloading it
+        // anew is the only way back. A bundle never accepted at this seq
+        // could equivocate.
+        if envelope.stream.seq == floor && accepted != Some(&envelope.digest) {
             return Err(format!(
                 "the head is seq {floor} but names another bundle; a used sequence cannot equivocate"
             ));

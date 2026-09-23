@@ -73,3 +73,37 @@ fn colliding_or_unportable_asset_names_are_refused_before_download() {
         exact_update::check_asset_names(names.iter().copied()).unwrap();
     }
 }
+
+/// A selected entry corrupted on disk is refused at launch, and entry zero
+/// runs; the floor stays at its seq. The head the record accepted must then
+/// stage again, or the client is stranded on entry zero until a later seq
+/// exists. Another bundle at that seq is still equivocation.
+#[test]
+fn a_corrupted_selection_is_restaged_from_the_head_it_accepted() {
+    let temp = Temp::new("restage");
+    let bundle = Bundle::new(4, b"plan four").asset("mark.png", b"a mark");
+    let mut origin = Origin::of(&bundle);
+    let mut store = open(&temp);
+    let Ok(Check::Staged { entry, .. }) = origin.check(&mut store) else {
+        panic!("the first head stages");
+    };
+    drop(store);
+    let plan = temp.path().join("entries").join(&entry).join("app.plan");
+    std::fs::write(&plan, b"rotten plan").unwrap();
+    let mut store = open(&temp);
+    assert!(store.prepare_selected().is_err());
+    assert_eq!(store.select().entry, None);
+
+    let other = Bundle::new(4, b"another plan four");
+    let refusal = Origin::of(&other).check(&mut store).unwrap_err();
+    assert!(refusal.contains("equivocate"), "{refusal}");
+    assert!(matches!(
+        origin.check(&mut store),
+        Ok(Check::Staged { seq: 4, .. })
+    ));
+    drop(store);
+    let mut store = open(&temp);
+    assert_eq!(store.select().entry.as_deref(), Some(entry.as_str()));
+    let prepared = store.prepare_selected().unwrap().unwrap();
+    assert_eq!(&*prepared.plan, b"plan four");
+}
