@@ -248,6 +248,89 @@ component App
     assert_eq!(inner.props.str(exact_kernel::PropId::TestId), Some("inner"));
 }
 
+/// A `button` is a real `<button>`, a flex column, and holds only phrasing
+/// content (LLP 1007 §1): its containers, paragraphs and headings are
+/// `<span>`s with the same style — a block unless a row says otherwise — in
+/// the live host's batch and in the document alike.
+#[test]
+fn a_buttons_containers_are_spans() {
+    let src = r#"
+component App
+  state n = 0
+  action bump writes n
+    n = n + 1
+  view
+    column
+      button press=bump testId="card"
+        column testId="stack"
+          box width=10 height=10 testId="plain"
+          text "Title" aria-level=2 testId="title"
+          text "Body" testId="body"
+        image "symbol:close" width=10 height=10 testId="icon"
+      column testId="outside"
+        text "Title" aria-level=2 testId="heading"
+"#;
+    let data = Says("");
+    let plan = contract::bake(contract::compile(src).unwrap(), data.clone()).unwrap();
+    let (host, first) = Host::boot(&plan.encode(), data, Default::default(), "/").unwrap();
+    let doc = host.document().unwrap().root;
+    let opening = |test_id: &str| {
+        let at = doc.find(&format!("data-testid=\"{test_id}\"")).unwrap();
+        let start = doc[..at].rfind('<').unwrap();
+        doc[start..at + doc[at..].find('>').unwrap() + 1].to_owned()
+    };
+    let card = opening("card");
+    assert!(card.starts_with("<button "), "{card}");
+    for want in [
+        " type=\"button\"",
+        "display:flex;",
+        "flex-direction:column;",
+    ] {
+        assert!(card.contains(want), "{want}: {card}");
+    }
+    let stack = opening("stack");
+    assert!(stack.starts_with("<span "), "{stack}");
+    assert!(
+        !stack.contains("display:block"),
+        "a row's display wins: {stack}"
+    );
+    assert!(opening("plain").contains("style=\"width:10px;height:10px;display:block;\""));
+    assert!(
+        opening("title").starts_with("<span "),
+        "a heading in a button is a span"
+    );
+    assert!(opening("body").starts_with("<span data-exact-text"));
+    assert!(opening("icon").starts_with("<img "));
+    assert!(opening("outside").starts_with("<div "));
+    assert!(opening("heading").starts_with("<h2 "));
+    // The live host creates the same elements.
+    let tag = |test_id: &str| {
+        let at = first
+            .find(&format!("\"data-testid\":\"{test_id}\""))
+            .unwrap();
+        let op = &first[first[..at].rfind("{\"op\":\"create\"").unwrap()..at];
+        op.split("\"tag\":\"")
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .next()
+            .unwrap()
+            .to_owned()
+    };
+    for (test_id, want) in [
+        ("card", "button"),
+        ("stack", "span"),
+        ("plain", "span"),
+        ("title", "span"),
+        ("body", "span"),
+        ("icon", "img"),
+        ("outside", "div"),
+        ("heading", "h2"),
+    ] {
+        assert_eq!(tag(test_id), want, "{test_id}");
+    }
+}
+
 #[test]
 fn routes_other_than_the_selected_one_are_hidden_and_inert() {
     let src = r#"

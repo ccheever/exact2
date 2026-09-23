@@ -56,12 +56,15 @@ inline run, `ScrollView`→`div[data-scroll]`, `TextInput`→`input`,
 by `semanticTag` (`main`, `header`, `nav`, `section`, `footer`, `article`,
 `aside`, `dialog`). A text block with `aria-level` 1–6 and no other role is
 `h1`–`h6` (deeper: a `div` with `role="heading"`); a `Pressable` is a
-`button` (an `a` with an `href`), and a block `button` taller than its
-content centers that content vertically where the kernel's node starts it
-at the top — Chrome 153 puts a 20 px child at 40 in a 100 px button whatever
-`all: unset`, `display: flow-root` or `align-content` say; only a flex or
-grid button starts it at 0. A known deviation, not yet lowered away
-(2026-09-23, QUEUE); `index.html` resets the
+`<button type="button">` (an `a` with an `href`). Contract's `button` is a
+flex column (LLP 1006 §3; Charlie, 2026-09-23: "One native button, flex
+column"): a block `<button>` centers its content in an anonymous box whatever
+`all: unset`, `display: flow-root` or `align-content` say (Chrome 153 puts a
+20 px child at 40 in a 100 px button), and a flex one lays out as the kernel
+does (`kernel/tests/it/browser_cases.rs`). A button holds only phrasing
+content, so there a container — a box, a paragraph, a heading, a landmark —
+is a `<span>` with the same style, a block unless a row says otherwise; a
+button inside a button stays a document refusal. `index.html` resets the
 UA heading margins, size and weight, so its box is a div's — Caltrain's 277
 and the Markdown reader's 120 boxes are unchanged, and Chrome's
 accessibility tree now lists 1 and 6 headings where it listed none

@@ -120,7 +120,7 @@ struct Walk<'r, D: DataSource> {
     routes: BTreeMap<ViewId, Route>,
     out: String,
     /// Open `a` and `button` elements: the parser closes an open one when a
-    /// second starts inside it.
+    /// second starts inside it, and a button's containers are `<span>`s.
     links: u32,
     buttons: u32,
 }
@@ -138,7 +138,7 @@ impl<D: DataSource> Walk<'_, D> {
             view: id,
             reason: reason.to_owned(),
         };
-        let tag = tag_for(&node);
+        let tag = tag_for(&node, self.buttons > 0);
         match tag {
             "a" if self.links > 0 => return Err(refuse("a link inside a link")),
             "button" if self.buttons > 0 => return Err(refuse("a button inside a button")),
@@ -146,7 +146,7 @@ impl<D: DataSource> Walk<'_, D> {
         }
         let props = props_for(&node);
         let (text, _) = css::css_text(node.style, &self.fonts);
-        let mut style = host_css(&node, text);
+        let mut style = host_css(&node, text, tag);
         // `glue.js` create: a canvas is a `div` holding the surface element.
         let element = if tag == "canvas" { "div" } else { tag };
         let children = node.children();
@@ -774,7 +774,8 @@ mod tests {
 
     #[test]
     fn markup_pieces_read_back_what_the_host_wrote() {
-        let json = super::super::markup_json("# T \"q\"\n\n**b** [l](https://e.dev/a?b=1) `c`");
+        let json =
+            super::super::element::markup_json("# T \"q\"\n\n**b** [l](https://e.dev/a?b=1) `c`");
         let pieces = markup_pieces(&json).unwrap();
         assert_eq!(pieces[0].text, "T \"q\"");
         assert_eq!(pieces[0].scale, "1.6");
@@ -784,7 +785,7 @@ mod tests {
         assert_eq!(pieces.last().unwrap().scale, "0.92");
         assert!(markup_pieces("[]").unwrap().is_empty());
         assert_eq!(
-            markup_pieces(&super::super::markup_json("a\\b\tc\u{1}")).unwrap()[0].text,
+            markup_pieces(&super::super::element::markup_json("a\\b\tc\u{1}")).unwrap()[0].text,
             "a\\b\tc\u{1}"
         );
     }
