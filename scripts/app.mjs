@@ -38,6 +38,15 @@ export const runnerOwnedSource = name => ['exactDelivery', 'exactViewport', 'exa
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 
+// A Bun older than package.json's pin is refused before anything builds.
+// Node, which runs these scripts for apps outside the repo, is not checked.
+const PINNED_BUN = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).packageManager.replace(/^bun@/, '');
+if (process.versions.bun) {
+  const [have, pin] = [process.versions.bun, PINNED_BUN].map(v => v.split('.').map(Number));
+  const at = pin.findIndex((part, i) => have[i] !== part);
+  if (at >= 0 && have[at] < pin[at]) throw new Error(`Bun ${process.versions.bun} is older than ${PINNED_BUN}, the version package.json pins; run \`bun upgrade\``);
+}
+
 // @ref LLP 1043.000 §3 D7/D8 — one inventory for host builds, serving and fixtures.
 // Groups preserve capability-based shipping; none of these imports enters boot.
 const WEB_HOST_GROUPS = {
