@@ -174,7 +174,9 @@ extension Agent {
                     row["accessibilityFrame"] = [frame.minX, frame.minY, frame.width, frame.height]
                     row["accessibilityHidden"] = node.placedAncestor?.placementHidden == true
                 }
-                if node.props["accessibilityRole"] == "button" || node.props["accessibilityRole"] == "link" {
+                // The web's rule (glue.js: `button, a, [role=button]`): a button
+                // keeps its name under another role, as the Move stick's slider does.
+                if node.kind == "button" || ["button", "link"].contains(node.props["accessibilityRole"] ?? "") {
                     row["accessibleName"] = node.accessibleName
                 }
             }
