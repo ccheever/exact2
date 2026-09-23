@@ -11,11 +11,15 @@
 //!
 //! ```text
 //! record.json                              { codec, selected, lastGood, failures, stream, bad }
+//! blobs/<sha256>                            each file's bytes, once, verified before reuse
 //! entries/<canonical envelope sha256>/exact.json  the head, as it arrived
-//! entries/<envelope sha256>/app.plan        verified against the envelope
+//! entries/<envelope sha256>/app.plan        a hard link to its blob (a copy where refused)
 //! entries/<envelope sha256>/assets/<name>   likewise
 //! entries/.tmp-<something>/                 an entry being built; never selected
 //! ```
+//!
+//! Only the selected, pending, last-good and running entries and the head
+//! accepted at the floor are kept, and only the blobs they name.
 //!
 //! Three rules hold the whole thing up:
 //!
@@ -34,7 +38,9 @@
 mod disk;
 
 use crate::envelope::{resolve_url, safe_name, sha256_hex, Card, Envelope, FileCard};
-use disk::{read_card, regular_file, sweep, sync_dir, temporary_name, write_atomic, write_file};
+use disk::{
+    read_card, regular_file, sweep, sync_dir, temporary_name, write_atomic, write_file, Blobs,
+};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -496,6 +502,7 @@ impl Store {
         // that died left a temporary behind, and nothing points at it.
         sweep(dir);
         sweep(&entries);
+        sweep(store.blobs().dir());
         let before = store.record.clone();
         if store.record.compatibility_id != store.embedded.compatibility_id
             || store.record.channel != store.embedded.channel
@@ -568,6 +575,7 @@ impl Store {
         if rewrite || store.record != before {
             store.write_record()?;
         }
+        store.collect();
         Ok(store)
     }
 
@@ -792,6 +800,7 @@ impl Store {
                 self.record.digest = Some(envelope.digest.clone());
                 self.write_record()?;
             }
+            self.collect();
             return Ok(Check::Current {
                 sunset: envelope.sunset,
             });
@@ -817,6 +826,7 @@ impl Store {
         self.record.seq = envelope.stream.seq;
         self.record.digest = Some(envelope.digest.clone());
         self.write_record()?;
+        self.collect();
         Ok(Check::Staged {
             entry: envelope.digest,
             seq: envelope.stream.seq,
@@ -1248,14 +1258,15 @@ impl Store {
         fetch: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
     ) -> Result<(), String> {
         std::fs::create_dir_all(tmp).map_err(|e| format!("cannot make {}: {e}", tmp.display()))?;
-        let plan = self.obtain(&envelope.plan, head_url, fetch)?;
-        write_file(&tmp.join("app.plan"), &plan)?;
+        let blobs = self.blobs();
+        self.obtain(&envelope.plan, head_url, fetch)?;
+        blobs.place(&envelope.plan.sha256, &tmp.join("app.plan"))?;
         let mut directories = std::collections::BTreeSet::from([tmp.to_path_buf()]);
         for asset in &envelope.assets {
             safe_name(&asset.name)?;
-            let bytes = self.obtain(asset, head_url, fetch)?;
+            self.obtain(asset, head_url, fetch)?;
             let path = tmp.join("assets").join(&asset.name);
-            write_file(&path, &bytes)?;
+            blobs.place(&asset.sha256, &path)?;
             directories.extend(
                 path.ancestors()
                     .skip(1)
@@ -1271,7 +1282,7 @@ impl Store {
         Ok(())
     }
 
-    /// One file: reused from an entry that already has those bytes, else
+    /// One file into the blob store: kept already under its digest, else
     /// fetched. Either way the digest and the byte count are what the head
     /// declared, or nothing is written (LLP 1026 D11, assets by digest).
     fn obtain(
@@ -1279,10 +1290,11 @@ impl Store {
         card: &crate::envelope::FileCard,
         head_url: &str,
         fetch: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
-    ) -> Result<Vec<u8>, String> {
+    ) -> Result<(), String> {
         let url = resolve_url(head_url, &card.url)?;
-        if let Some(bytes) = self.have(&card.sha256) {
-            return Ok(bytes);
+        let blobs = self.blobs();
+        if blobs.holds(card) {
+            return Ok(());
         }
         let bytes = fetch(&url)?;
         // The closure hands back a whole body, so the declared length is
@@ -1302,44 +1314,54 @@ impl Store {
                 card.name, card.sha256
             ));
         }
-        Ok(bytes)
+        blobs.put(&card.sha256, &bytes)
     }
 
-    /// Bytes this store already holds under `digest`, from any entry that
-    /// declares them — the plan or an asset, under any name. The candidate is
-    /// hashed before it is believed, so a damaged file is refetched rather than
-    /// copied forward.
-    fn have(&self, digest: &str) -> Option<Vec<u8>> {
-        let read = std::fs::read_dir(self.entries_dir()).ok()?;
-        for entry in read.flatten() {
-            let dir = entry.path();
-            if entry.file_name().to_string_lossy().starts_with(".tmp-") {
+    fn blobs(&self) -> Blobs {
+        Blobs::at(&self.dir)
+    }
+
+    /// Remove what no role keeps: every entry but the selected, pending,
+    /// last-good and running ones and the head accepted at the floor (its
+    /// signed witness), then every blob none of them names. Best effort.
+    /// It runs where no download of this store can be in flight — at open,
+    /// and as a check finishes — and never touches a temporary.
+    fn collect(&self) {
+        if self.frozen {
+            return;
+        }
+        let keep: std::collections::BTreeSet<&String> = [
+            &self.record.selected,
+            &self.record.pending,
+            &self.record.last_good,
+            &self.running,
+            &self.record.digest,
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        let mut digests = std::collections::BTreeSet::new();
+        let Ok(read) = std::fs::read_dir(self.entries_dir()) else {
+            return;
+        };
+        for item in read.flatten() {
+            let name = item.file_name().to_string_lossy().into_owned();
+            if name.starts_with(".tmp-") {
                 continue;
             }
-            let Ok(raw) = std::fs::read(dir.join("exact.json")) else {
+            if !keep.contains(&name) {
+                let _ = std::fs::remove_dir_all(item.path());
                 continue;
-            };
-            let Ok(envelope) = Envelope::parse(&raw) else {
-                continue;
-            };
-            let mut candidates: Vec<PathBuf> = Vec::new();
-            if envelope.plan.sha256 == digest {
-                candidates.push(dir.join("app.plan"));
             }
-            for asset in &envelope.assets {
-                if asset.sha256 == digest && safe_name(&asset.name).is_ok() {
-                    candidates.push(dir.join("assets").join(&asset.name));
-                }
-            }
-            for candidate in candidates {
-                if let Ok(bytes) = std::fs::read(&candidate) {
-                    if sha256_hex(&bytes) == digest {
-                        return Some(bytes);
-                    }
-                }
+            if let Ok(envelope) = std::fs::read(item.path().join("exact.json"))
+                .map_err(|e| e.to_string())
+                .and_then(|raw| Envelope::parse(&raw))
+            {
+                digests.insert(envelope.plan.sha256);
+                digests.extend(envelope.assets.into_iter().map(|a| a.sha256));
             }
         }
-        None
+        self.blobs().collect(&digests);
     }
 }
 

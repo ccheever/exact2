@@ -142,3 +142,59 @@ fn a_crash_truncated_record_keeps_the_rollback_floor() {
         assert!(Origin::of(&six).check(&mut store).is_ok());
     }
 }
+
+/// Bytes the store directory holds, each file counted once however many
+/// names link it.
+#[cfg(unix)]
+fn stored_bytes(dir: &std::path::Path) -> u64 {
+    use std::os::unix::fs::MetadataExt;
+    let mut seen = std::collections::BTreeSet::new();
+    let mut total = 0;
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for item in std::fs::read_dir(&dir).unwrap().flatten() {
+            let meta = std::fs::symlink_metadata(item.path()).unwrap();
+            if meta.is_dir() {
+                stack.push(item.path());
+            } else if seen.insert((meta.dev(), meta.ino())) {
+                total += meta.len();
+            }
+        }
+    }
+    total
+}
+
+/// Every entry held a copy of every asset and nothing was ever removed:
+/// releases of an unchanged 1 MiB asset took 1 MiB each, and finding a
+/// digest parsed every envelope (a check took 2.2 s at 200 entries). Content
+/// is now kept once by digest and linked into entries, and only the entries
+/// a role keeps survive.
+#[test]
+#[cfg(unix)]
+fn an_unchanged_asset_is_stored_once_and_old_entries_are_collected() {
+    let temp = Temp::new("collect");
+    let big = vec![7u8; 1 << 20];
+    for seq in 4..12 {
+        let plan = format!("plan {seq}");
+        let bundle = Bundle::new(seq, plan.as_bytes()).asset("big.bin", &big);
+        let mut store = open(&temp);
+        assert!(matches!(
+            Origin::of(&bundle).check(&mut store),
+            Ok(Check::Staged { .. })
+        ));
+        // The next launch boots it to first pixel: it becomes last-good.
+        let mut store = open(&temp);
+        let generation = store.prepare_selected().unwrap().unwrap().generation;
+        store.boot_started().unwrap();
+        store.boot_succeeded(&generation).unwrap();
+    }
+    let store = open(&temp);
+    let stored = stored_bytes(temp.path());
+    assert!(stored < (1 << 20) + 64 * 1024, "{stored} bytes stored");
+    assert!(entry_names(&temp).len() <= 2, "{:?}", entry_names(&temp));
+    let prepared = { store }.prepare_selected().unwrap().unwrap();
+    assert_eq!(
+        prepared.assets.resolve("big.bin").unwrap().unwrap().len(),
+        1 << 20
+    );
+}

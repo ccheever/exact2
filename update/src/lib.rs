@@ -16,9 +16,10 @@
 //!
 //! ```text
 //! <dir>/record.json                       the selected bundle, the last good one, the failures
+//! <dir>/blobs/<sha256>                    each file's bytes, once
 //! <dir>/entries/<canonical envelope sha256>/exact.json
-//! <dir>/entries/<canonical envelope sha256>/app.plan
-//! <dir>/entries/<canonical envelope sha256>/assets/<name>
+//! <dir>/entries/<canonical envelope sha256>/app.plan          linked to its blob
+//! <dir>/entries/<canonical envelope sha256>/assets/<name>     likewise
 //! ```
 //!
 //! Every entry is whole or absent: files land in `entries/.tmp-…` and the

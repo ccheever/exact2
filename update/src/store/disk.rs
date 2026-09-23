@@ -1,11 +1,13 @@
 //! The store's files: writes that survive a crash, whole-or-absent
-//! temporaries, and reads checked against their signed cards.
+//! temporaries, reads checked against their signed cards, and content kept
+//! once by digest.
 //!
 //! @ref LLP 1026 D11 (crash recovery; assets by digest)
 
 use crate::envelope::{sha256_hex, FileCard};
+use std::collections::BTreeSet;
 use std::io::Write as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Remove every `.tmp-…` left in `dir` by a write that did not finish.
 pub(super) fn sweep(dir: &Path) {
@@ -112,4 +114,62 @@ pub(super) fn temporary_name() -> String {
         std::process::id(),
         COUNTER.fetch_add(1, Ordering::Relaxed)
     )
+}
+
+/// Content stored once by SHA-256 at `blobs/<digest>`. An entry's plan and
+/// assets are hard links to it (copies where a filesystem refuses links), so
+/// an asset unchanged across releases takes its bytes once however many
+/// entries name it, and finding what the store holds is a path, not a scan.
+pub(super) struct Blobs(PathBuf);
+
+impl Blobs {
+    pub(super) fn at(store: &Path) -> Blobs {
+        Blobs(store.join("blobs"))
+    }
+
+    pub(super) fn dir(&self) -> &Path {
+        &self.0
+    }
+
+    /// Whether the store holds `card`'s bytes whole: read and checked against
+    /// the card, so a damaged blob is fetched again, never linked forward.
+    pub(super) fn holds(&self, card: &FileCard) -> bool {
+        read_card(&self.0.join(&card.sha256), card).is_ok()
+    }
+
+    /// Keep `bytes`, already checked against `digest`, whole and durable.
+    pub(super) fn put(&self, digest: &str, bytes: &[u8]) -> Result<(), String> {
+        std::fs::create_dir_all(&self.0)
+            .map_err(|e| format!("cannot make {}: {e}", self.0.display()))?;
+        write_atomic(&self.0.join(digest), bytes)
+    }
+
+    /// Give an entry blob `digest` at `path`: a hard link, else a synced copy.
+    pub(super) fn place(&self, digest: &str, path: &Path) -> Result<(), String> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("cannot make {}: {e}", parent.display()))?;
+        }
+        let blob = self.0.join(digest);
+        if std::fs::hard_link(&blob, path).is_ok() {
+            return Ok(());
+        }
+        std::fs::copy(&blob, path)
+            .and_then(|_| std::fs::File::open(path)?.sync_all())
+            .map_err(|e| format!("cannot place {}: {e}", path.display()))
+    }
+
+    /// Remove every blob no digest in `keep` names; temporaries of a write in
+    /// flight are left alone. Best effort: a failure waits for the next pass.
+    pub(super) fn collect(&self, keep: &BTreeSet<String>) {
+        let Ok(read) = std::fs::read_dir(&self.0) else {
+            return;
+        };
+        for item in read.flatten() {
+            let name = item.file_name().to_string_lossy().into_owned();
+            if !name.starts_with(".tmp-") && !keep.contains(&name) {
+                let _ = std::fs::remove_file(item.path());
+            }
+        }
+    }
 }
