@@ -1345,14 +1345,19 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
     }
     @objc func fieldChanged() {
-        if let f = field, f.markedTextRange == nil, let held = pendingValue { writeValue(held, into: f) }
         if props["emojiPicker"] == "true", let field {
+            if field.markedTextRange == nil, let held = pendingValue { writeValue(held, into: field) }
             let value = field.text ?? ""
             field.text = ""
             if !disabled, handlers.contains("change"), EmojiSelection.accepts(value) { presenter?.change(id, value) }
             return
         }
+        // The textarea's order (`textViewDidChange`): the text the field now
+        // holds is reported first, and only then does a value held while
+        // composing apply. Writing it first reported the composing text —
+        // 你好 committed as "nihao".
         if !disabled, handlers.contains("change") { presenter?.change(id, field?.text ?? "") }
+        if let f = field, f.markedTextRange == nil, let held = pendingValue { writeValue(held, into: f) }
     }
     func textFieldDidBeginEditing(_ textField: UITextField) {
         presenter?.collections.pinsChanged()

@@ -4,6 +4,14 @@ import QuartzCore
 import XCTest
 @testable import ExactKit
 
+// Exercise the production decoder even when a fixture is written as JSON values.
+func batchFixture(ops: [[String: Any]], timers: Bool, motion: Bool, clock: Double?, error: String?, timerDueMs: Double? = nil, pending: Bool = false) -> Batch {
+    let wire: [String: Any] = ["ops": ops, "timers": timers, "motion": motion,
+        "clock": clock as Any? ?? NSNull(), "error": error as Any? ?? NSNull(),
+        "timer_due_ms": timerDueMs as Any? ?? NSNull(), "pending": pending]
+    return try! JSONDecoder().decode(Batch.self, from: JSONSerialization.data(withJSONObject: wire))
+}
+
 private final class ClockTicks: @unchecked Sendable {
     // The production timer and this oracle run only on the main run loop.
     var count = 0

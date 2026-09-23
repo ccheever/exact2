@@ -807,7 +807,10 @@ the Dynamic Island's 62 and the home indicator's 34), and the plan boots at
 the first layout pass that has a size, following every later size
 (`Exact.resize`). `NodeView.draw(_:)` paints with `UIBezierPath` and the
 same `CTLineDraw` into the UIKit context; an `input` is a `UITextField`
-reporting `.editingChanged`; a scroll container is a `UIScrollView` whose
+reporting `.editingChanged` — a value that arrives while text is marked
+waits, and is written only after the committed text has been reported, the
+textarea's order (2026-09-23: before, 你好 committed as the echoed
+"nihao"; `FieldCompositionIOSTests`, run on a simulator); a scroll container is a `UIScrollView` whose
 content size is held to the box on an axis that does not scroll (UIKit would
 pan it otherwise); presentation values go on `transform` about the center,
 the frame set untransformed first (UIKit's `frame` is undefined under a
