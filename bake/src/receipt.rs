@@ -15,6 +15,7 @@ mod watch;
 /// receipt; an unreceipted stream requires an explicit genesis bake.
 pub(crate) fn emit(
     compat: &mut Compat,
+    trust: &str,
     app: &Path,
     platform: &str,
     target: &str,
@@ -75,26 +76,24 @@ pub(crate) fn emit(
         json!({"seq":0,"plan":plan_card,"assets":assets,"entryDigest":null,"genesis":true});
     // The GPU product is built (and on Apple, signed) before the host. Its
     // exact bytes belong to this app/cohort; a sibling filename is not identity.
-    let trust = compat.inputs["trust"].clone();
     if platform != "web" {
-        if let Some(name) = std::env::var("EXACT_GPU_DEVELOPMENT")
-            .ok()
-            .filter(|_| trust == "development")
-        {
-            // gpu-dev authenticates the independently completed module receipt
-            // at load. Production always embeds the exact GPU digest below.
-            compat.embedded["gpu"] = json!({"app":manifest.id,"cohort":compat.id,
-                "name":name,"trust":"development","receipt":true});
-        } else if let Some(path) = std::env::var_os("EXACT_GPU_PRODUCT") {
-            let path = PathBuf::from(path);
-            println!("cargo:rerun-if-changed={}", path.display());
-            let bytes =
-                std::fs::read(&path).map_err(|e| format!("GPU product {}: {e}", path.display()))?;
-            compat.embedded["gpu"] = json!({
-                "name":path.file_name().and_then(|n| n.to_str()).ok_or("GPU product filename is not UTF-8")?,
-                "sha256":hash(&bytes), "app":manifest.id, "cohort":compat.id,
-                "trust":trust
-            });
+        let product = match std::env::var_os("EXACT_GPU_PRODUCT") {
+            Some(path) => {
+                let path = PathBuf::from(path);
+                println!("cargo:rerun-if-changed={}", path.display());
+                let bytes = std::fs::read(&path)
+                    .map_err(|e| format!("GPU product {}: {e}", path.display()))?;
+                let name = path.file_name().and_then(|n| n.to_str());
+                Some((
+                    name.ok_or("GPU product filename is not UTF-8")?.to_string(),
+                    hash(&bytes),
+                ))
+            }
+            None => None,
+        };
+        let development = std::env::var("EXACT_GPU_DEVELOPMENT").ok();
+        if let Some(card) = gpu_card(&manifest.id, &compat.id, trust, development, product) {
+            compat.embedded["gpu"] = card;
         }
     }
     // A binary without an updater has no stream or rollback floor.
@@ -140,6 +139,27 @@ pub(crate) fn emit(
         .map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/// The GPU module's baked identity. `trust` is the build's resolved trust
+/// (unset is development), never the cohort input: a no-delivery (store L=0)
+/// cohort omits trust, and the hosts read the explicit build trust here.
+/// gpu-dev authenticates the independently completed module receipt at load;
+/// production always embeds the exact GPU digest.
+fn gpu_card(
+    app: &str,
+    cohort: &str,
+    trust: &str,
+    development: Option<String>,
+    product: Option<(String, String)>,
+) -> Option<Value> {
+    match (development.filter(|_| trust == "development"), product) {
+        (Some(name), _) => Some(json!({"app":app,"cohort":cohort,
+            "name":name,"trust":"development","receipt":true})),
+        (None, Some((name, sha256))) => Some(json!({"name":name,"sha256":sha256,
+            "app":app,"cohort":cohort,"trust":trust})),
+        (None, None) => None,
+    }
 }
 
 // The same directory-owned gate used by copying, including direct Cargo
@@ -558,6 +578,39 @@ fn hash(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
+
+    #[test]
+    fn a_no_delivery_development_bake_names_its_gpu_dev_module() {
+        // Games are store L=0: the cohort has no trust input, yet the
+        // host-less proof's split host bake must name the gpu-dev module.
+        let card = gpu_card(
+            "com.example.game",
+            "c",
+            "development",
+            Some("libg.so".into()),
+            None,
+        );
+        assert_eq!(card.as_ref().unwrap()["name"], "libg.so");
+        assert_eq!(card.as_ref().unwrap()["receipt"], true);
+        let product = Some(("libg.so".into(), "ab".into()));
+        let release = gpu_card(
+            "com.example.game",
+            "c",
+            "production",
+            Some("libg.so".into()),
+            product,
+        );
+        assert_eq!(release.as_ref().unwrap()["sha256"], "ab");
+        assert_eq!(release.unwrap()["trust"], "production");
+        assert!(gpu_card(
+            "com.example.game",
+            "c",
+            "production",
+            Some("libg.so".into()),
+            None
+        )
+        .is_none());
+    }
 
     fn rust_fixture(plan: &[u8]) -> (PathBuf, Value, Value) {
         static NEXT: AtomicU64 = AtomicU64::new(0);

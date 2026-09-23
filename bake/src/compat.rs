@@ -139,6 +139,7 @@ pub fn compatibility_id_sources(
     if let Some(out) = std::env::var_os("OUT_DIR") {
         crate::receipt::emit(
             &mut compat,
+            &trust,
             app_dir,
             platform,
             target,
