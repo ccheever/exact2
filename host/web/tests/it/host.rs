@@ -138,8 +138,18 @@ fn the_first_batch_creates_the_tree_with_css_from_the_rows() {
     );
     assert!(batch.contains("display:flex;") && batch.contains("flex-direction:column;"));
     assert!(batch.contains("\"op\":\"roots\",\"ids\":[1]"));
+    // Every live node is created once but the head, which is the page's
+    // <head>, never an element (LLP 1048.003 D1).
     let creates = batch.matches("\"op\":\"create\"").count();
-    assert_eq!(creates, host.runner().kernel().live_count());
+    let kernel = host.runner().kernel();
+    let heads = kernel
+        .rows(None)
+        .unwrap()
+        .iter()
+        .filter(|row| row.node_type.is_metadata())
+        .count();
+    assert_eq!(heads, 1, "Caltrain declares one head");
+    assert_eq!(creates, kernel.live_count() - heads);
     assert!(!batch.contains("\"op\":\"destroy\""));
 }
 
