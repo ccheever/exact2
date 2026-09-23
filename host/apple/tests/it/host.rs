@@ -48,7 +48,7 @@ assert.ok(html.includes('cannot detect whether a client is installed'));
 #[test]
 fn swift_development_locator_refuses_malformed_links() {
     // Compile the actual Foundation-only opening code, not a parallel parser.
-    let source = include_str!("../Sources/ExactKit/PlanURL.swift")
+    let source = include_str!("../../Sources/ExactKit/PlanURL.swift")
         .split("public enum ExactDevelopmentLink")
         .nth(1)
         .unwrap()
@@ -95,7 +95,7 @@ precondition(ExactDevelopmentLink.page(URL(string: "exact2-test://open?url=https
 #[cfg(target_os = "macos")]
 #[test]
 fn local_development_plan_loads_the_pair_and_retries_partial_writes() {
-    let source = include_str!("../Sources/ExactKit/PlanURL.swift")
+    let source = include_str!("../../Sources/ExactKit/PlanURL.swift")
         .split("/// Explicit development-only opening action")
         .next()
         .unwrap();

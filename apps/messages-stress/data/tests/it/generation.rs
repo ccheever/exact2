@@ -1,6 +1,6 @@
 //! Also runs without Cargo while the lead coordinates workspace membership:
-//! rustc --edition=2021 --test apps/messages-stress/data/tests/generation.rs -o /tmp/messages-stress-tests
-#[path = "../src/model.rs"]
+//! rustc --edition=2021 --test apps/messages-stress/data/tests/it/generation.rs -o /tmp/messages-stress-tests
+#[path = "../../src/model.rs"]
 mod model;
 
 use model::{history, Controls, MAX_DRAFT_CHARS, MAX_REVISION};

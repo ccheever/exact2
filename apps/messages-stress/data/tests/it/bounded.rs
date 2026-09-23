@@ -19,7 +19,7 @@ impl DataSource for Counted {
 }
 fn boot(count: usize) -> Runner<Counted> {
     let plan = contract::bake(
-        contract::compile(include_str!("../../app.contract")).unwrap(),
+        contract::compile(include_str!("../../../app.contract")).unwrap(),
         MessagesStress,
     )
     .unwrap();

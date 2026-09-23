@@ -163,7 +163,7 @@ not measure physical presentation or prove a 120 Hz display budget.
 without Cargo while workspace builds are coordinated:
 
 ```sh
-rustc --edition=2021 --test apps/messages-stress/data/tests/generation.rs -o /tmp/messages-stress-tests
+rustc --edition=2021 --test apps/messages-stress/data/tests/it/generation.rs -o /tmp/messages-stress-tests
 /tmp/messages-stress-tests
 ```
 
@@ -194,7 +194,7 @@ activation does not establish a whole-frame or physical 120 Hz result.
 and 100,000 rows: complete feedback-only traversal in both directions, every
 shift's anchor offset, bounded supplied/keyed rows, zero-query/zero-key interior
 feedback, cursor validation, and Latest followed by a local echo. Counts are
-printed with `cargo test -p messages-stress-data --test bounded -- --nocapture`.
+printed with `cargo test -p messages-stress-data --test it bounded:: -- --nocapture`.
 
 Bounded validation, 2026-09-18: the runner traversed 100,000 records with at most 200
 supplied/keyed rows per shift, zero source queries/key evaluations for interior

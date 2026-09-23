@@ -5,7 +5,7 @@ use exact_runner::{DataSource, Event, Runner};
 use messages_stress_data::MessagesStress;
 
 fn boot() -> Runner<MessagesStress> {
-    let source = include_str!("../../app.contract");
+    let source = include_str!("../../../app.contract");
     let plan = contract::compile(source).unwrap();
     let baked = contract::bake(plan, MessagesStress).unwrap();
     Runner::boot(

@@ -1,7 +1,7 @@
-#[path = "../../factory.rs"]
-mod factory;
+#[path = "../../../factory.rs"]
+mod generator;
 
-use factory::Source;
+use generator::Source;
 use std::ffi::OsStr;
 
 #[test]

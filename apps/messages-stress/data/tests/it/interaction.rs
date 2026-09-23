@@ -9,7 +9,7 @@ use std::time::Instant;
 #[ignore = "opt-in release-mode interaction measurement; not a CI timing gate"]
 fn typing_and_streaming() {
     for count in [100, 1000, 10000] {
-        let plan = contract::compile(include_str!("../../app.contract")).unwrap();
+        let plan = contract::compile(include_str!("../../../app.contract")).unwrap();
         let mut runner = Runner::boot(
             plan,
             MessagesStress,

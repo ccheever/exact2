@@ -6,7 +6,7 @@ use messages_stress_data::MessagesStress;
 
 fn boot() -> Runner<MessagesStress> {
     Runner::boot(
-        contract::compile(include_str!("../../app.contract")).unwrap(),
+        contract::compile(include_str!("../../../app.contract")).unwrap(),
         MessagesStress,
         Kernel::with_monospace(),
         Default::default(),

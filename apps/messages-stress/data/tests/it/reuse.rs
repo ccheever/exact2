@@ -299,7 +299,7 @@ impl<D: DataSource> DataSource for Counted<D> {
 }
 
 fn runner<D: DataSource>(source: D) -> (Runner<Counted<D>>, Rc<Cell<usize>>) {
-    let plan = contract::compile(include_str!("../../app.contract")).unwrap();
+    let plan = contract::compile(include_str!("../../../app.contract")).unwrap();
     let plan = contract::bake(plan, MessagesStress).unwrap();
     let calls = Rc::new(Cell::new(0));
     let data = Counted {
@@ -534,7 +534,7 @@ mod region_admission {
     use messages_stress_data::{MessagesStress, ReusableMessagesStress};
     use std::{cell::RefCell, rc::Rc};
 
-    const APP: &str = include_str!("../../app.contract");
+    const APP: &str = include_str!("../../../app.contract");
     type Live = Runner<ReusableMessagesStress>;
 
     fn boot(source: &str) -> Live {
