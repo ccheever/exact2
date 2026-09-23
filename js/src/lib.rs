@@ -60,7 +60,7 @@ use exact_plan::{Plan, Value};
 use exact_runner::{Answer, DataError, DataSource, Interrupt, Outcome, Request, Store, Target};
 use serde_json::{json, Value as Json};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::{c_char, c_void, CStr};
 use std::sync::Arc;
 use std::time::Instant;
@@ -656,6 +656,15 @@ impl Module {
         (target, source.to_string(), bytes)
     }
 
+    /// Parked calls let go in the prelude too, with the fetches they wait on.
+    fn release(&mut self, calls: Vec<u64>) {
+        if let Some(engine) = self.engine.as_mut() {
+            for call in calls {
+                let _ = engine.call("__exact_forget", [&call.to_string(), "", ""]);
+            }
+        }
+    }
+
     /// Begin an answer: marshal, call, drain, settle.
     fn begin(
         &mut self,
@@ -741,7 +750,14 @@ impl Module {
                     })?
                 };
                 let key = Module::key(target, source, args);
+                let replaced: Vec<u64> = self
+                    .parked
+                    .iter()
+                    .filter(|(k, _)| *k == key)
+                    .map(|(_, parked)| parked.call)
+                    .collect();
                 self.parked.retain(|(k, _)| *k != key);
+                self.release(replaced);
                 self.parked.push((
                     key,
                     Parked {
@@ -917,6 +933,20 @@ impl DataSource for Module {
 
     fn revision(&self) -> Option<&str> {
         Some(&self.revision)
+    }
+
+    /// Calls whose requests the runner let go are dropped, here and in the
+    /// prelude with the fetches they wait on (LLP 1016 D5).
+    fn forgotten(&mut self, in_flight: &[(Target, &str, &[Value])]) {
+        let keep: HashSet<Key> = in_flight
+            .iter()
+            .map(|(target, source, args)| Module::key(Some(*target), source, args))
+            .collect();
+        let (gone, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.parked)
+            .into_iter()
+            .partition(|(key, _)| key.0.is_some() && !keep.contains(key));
+        self.parked = kept;
+        self.release(gone.into_iter().map(|(_, parked)| parked.call).collect());
     }
 
     /// Stops the running call, or the next one to start, from any thread:

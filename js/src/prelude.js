@@ -298,6 +298,15 @@
     var call = calls.get(Number(id));
     return call ? settle(call) : fail(new Error("no such call"));
   };
+  // The runner let this call's request go (LLP 1016 D5): drop the call and
+  // the fetches it waits on, so nothing keeps them alive.
+  global.__exact_forget = function (id) {
+    var call = calls.get(Number(id));
+    if (!call) return "";
+    calls.delete(call.id);
+    for (var i = 0; i < call.tickets.length; i++) pending.delete(call.tickets[i]);
+    return "";
+  };
   global.__exact_storage_failed = function (id, outcomeJson) {
     var call = calls.get(Number(id));
     if (call) { call.status = "failed"; call.error = storageError(JSON.parse(outcomeJson).failed.message); }

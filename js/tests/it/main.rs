@@ -3,6 +3,7 @@
 
 mod caltrain;
 mod castle;
+mod forget;
 mod inputs;
 mod interrupt;
 mod pure;
