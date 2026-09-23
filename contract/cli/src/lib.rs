@@ -262,6 +262,17 @@ pub fn compile_path_all(
     compile_path_output(path, &src, mapped)
 }
 
+/// [`compile_path_all`] over the exact observed root source snapshot, as
+/// [`compile_path_source`] is over the first refusal: a watcher reports every
+/// refusal of the bytes it saw without reading the file again.
+pub fn compile_path_source_all(
+    path: &Path,
+    src: &str,
+    mapped: bool,
+) -> Result<(Plan, Option<SourceMap>), Vec<CompileError>> {
+    compile_path_output(path, src, mapped)
+}
+
 fn first(mut all: Vec<CompileError>) -> CompileError {
     all.swap_remove(0)
 }

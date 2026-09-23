@@ -554,19 +554,20 @@ fn bake_in(
     if sources(&app)? != captured {
         return Err("app sources changed during capture; retry the build".into());
     }
-    let (plan, source_map) = match &mode {
-        BakeMode::Production => (
-            contract::compile_path(&stage.join("app.contract"))
-                .map_err(|e| contract_error(e, stage, &app))?,
-            None,
-        ),
-        BakeMode::Development { .. } => {
-            let (plan, mut map) = contract::compile_path_mapped(&stage.join("app.contract"))
-                .map_err(|e| contract_error(e, stage, &app))?;
-            map.relocate_sources(stage, &app)?;
-            (plan, Some(map))
-        }
-    };
+    // Every independent refusal, one after another as `contract build`
+    // prints them, in the bake's output and the dev overlay.
+    let development = matches!(mode, BakeMode::Development { .. });
+    let (plan, mut source_map) =
+        contract::compile_path_all(&stage.join("app.contract"), development).map_err(|errors| {
+            errors
+                .into_iter()
+                .map(|e| contract_error(e, stage, &app))
+                .collect::<Vec<_>>()
+                .join("\n")
+        })?;
+    if let Some(map) = source_map.as_mut() {
+        map.relocate_sources(stage, &app)?;
+    }
     let declarations = contract::typescript(&plan)?;
     write_changed(&stage.join("app.contract.d.ts"), declarations.as_bytes())?;
     let entry = format!("import * as app from './app';\nimport type {{ Answer }} from './app.contract.d.ts';\nexport const abi = {};\nexport const appId: string = app.appId;\nexport const grants: string = app.grants;\nexport const answer: Answer = app.answer;\n", exact_js::ABI);

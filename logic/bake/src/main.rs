@@ -33,12 +33,16 @@ fn bake(args: &[String]) -> Result<(), String> {
                 .into(),
         );
     }
-    let (mut plan, map) = if mapped {
-        contract::compile_path_mapped(Path::new(&args[0])).map(|(plan, map)| (plan, Some(map)))
-    } else {
-        contract::compile_path(Path::new(&args[0])).map(|plan| (plan, None))
-    }
-    .map_err(|e| e.to_string())?;
+    // Every independent refusal, one after another as `contract build`
+    // prints them: the Rust producer relays them to the dev overlay.
+    let (mut plan, map) =
+        contract::compile_path_all(Path::new(&args[0]), mapped).map_err(|errors| {
+            errors
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join("\n")
+        })?;
     let bytes = std::fs::read(&args[1]).map_err(|e| e.to_string())?;
     let compat: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&args[2]).map_err(|e| e.to_string())?)

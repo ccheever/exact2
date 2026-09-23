@@ -379,8 +379,11 @@ function startCompiler() {
         console.log(`edit → plan ready ${(ready - saved).toFixed(0)} ms (compile ${compile.toFixed(2)} ms, bake ${bake.toFixed(2)} ms, ${bytes} bytes) · pushed to ${clients.size} page${clients.size === 1 ? '' : 's'}\n  contract → candidate plan ready`);
         push({ ...announcement(), bytes });
       } else if (kind === 'error') {
-        console.log(`error: ${rest.join(' ')}`);
-        push({ error: rest.join(' ') });
+        // Every refusal of the save, as one JSON string (dev.rs keeps its lines).
+        let error = rest.join(' ');
+        try { error = JSON.parse(error); } catch { /* a plain message */ }
+        console.log(`error: ${error}`);
+        push({ error });
       }
     }
   });

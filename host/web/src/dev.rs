@@ -113,13 +113,16 @@ impl Session {
         // Compile exactly the snapshot `poll` compared with `last`. Reading
         // the path again here can observe the middle of the next save and
         // then suppress its final bytes as already seen.
-        let (plan, map) = if self.source_map {
-            contract::compile_path_source_mapped(&self.source, src)
-                .map(|(plan, map)| (plan, Some(map)))
-        } else {
-            contract::compile_path_source(&self.source, src).map(|plan| (plan, None))
-        }
-        .map_err(|e| e.to_string())?;
+        // Every independent refusal, one after another as `contract build`
+        // prints them: the page's overlay shows them all.
+        let (plan, map) = contract::compile_path_source_all(&self.source, src, self.source_map)
+            .map_err(|errors| {
+                errors
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })?;
         let compile_ms = t.elapsed().as_secs_f64() * 1000.0;
         let t = Instant::now();
         let baked = contract::bake(plan, D::default()).map_err(|e| {
@@ -151,6 +154,24 @@ impl Session {
     }
 }
 
+/// `text` as a JSON string: one stdout line however many lines it holds.
+fn json_string(text: &str) -> String {
+    let mut out = String::from("\"");
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
 fn write_atomic(out: &Path, bytes: &[u8]) -> Result<(), String> {
     use std::io::Write;
     let mut tmp = out.as_os_str().to_os_string();
@@ -173,7 +194,7 @@ fn write_atomic(out: &Path, bytes: &[u8]) -> Result<(), String> {
 
 /// `dev <source.contract> <out.plan>`: watch forever, one line per event on
 /// stdout — `plan <bytes> <saved_ms> <compile_ms> <bake_ms> <ready_ms>` or
-/// `error <message>` — for `dev.mjs` to relay. Polls every 10 ms; a stat
+/// `error <message as a JSON string>`, its lines kept — for `dev.mjs` to relay. Polls every 10 ms; a stat
 /// is microseconds. `--once` builds the plan a single time and exits —
 /// `build.mjs` uses it so `dist/` carries `app.plan` for a static host
 /// (LLP 1023 D2: the envelope points at a file that must exist).
@@ -217,7 +238,7 @@ pub fn main<D: DataSource + Default>() -> std::process::ExitCode {
                 );
             }
             Some(Err(e)) => {
-                let _ = writeln!(stdout, "error {}", e.replace('\n', " "));
+                let _ = writeln!(stdout, "error {}", json_string(&e));
             }
             None => {}
         }

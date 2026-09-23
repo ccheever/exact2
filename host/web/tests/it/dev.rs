@@ -95,6 +95,26 @@ fn a_broken_save_is_a_named_refusal_and_the_last_plan_stays() {
 }
 
 #[test]
+fn a_save_reports_every_independent_refusal() {
+    let dir = scratch("every-refusal");
+    let src = dir.join("app.contract");
+    let out = dir.join("app.plan");
+    std::fs::write(
+        &src,
+        "component App\n  view\n    column\n      text missing0\n      text missing1\n",
+    )
+    .unwrap();
+    let err = Session::new(&src, &out)
+        .poll::<NoData>()
+        .unwrap()
+        .unwrap_err();
+    assert!(err.contains("app.contract:4:"), "{err}");
+    assert!(err.contains("app.contract:5:"), "{err}");
+    assert_eq!(err.lines().count(), 2, "{err}");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn static_build_omits_the_map_and_dev_bake_errors_name_imported_sources() {
     let dir = scratch("static-map");
     let src = dir.join("app.contract");

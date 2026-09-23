@@ -408,7 +408,10 @@ that sorts after — and overrides — the one that replaced it.
 ## 6. The dev loop (`host/web/src/dev.rs`, `dev.mjs`, `dev.js`)
 
 LLP 1004 D5 taken literally: an edit yields a new plan; the page restarts
-from it. `exact_web::dev::Session` watches one `.contract` file (a stat every
+from it. A refused save reports every independent refusal (at most 20, as
+`contract build` does) in the overlay and the server's output, whichever
+producer compiled it — the resident compiler, `js/bake` or the Rust
+producer's `exact-logic-bake` (2026-09-23). `exact_web::dev::Session` watches one `.contract` file (a stat every
 10 ms; a save with identical bytes is not an edit), compiles, bakes against
 the app's data source, and writes the plan atomically. The app's Cargo-default dev bin
 (`apps/caltrain/web/src/bin/caltrain-dev.rs`, one line) runs it as a resident process;
