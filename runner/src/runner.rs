@@ -255,6 +255,12 @@ pub struct Runner<D: DataSource> {
     row_writes: crate::instance::RowWrites,
     /// Journal lines an update produced, written once its batch applies.
     notes: Vec<String>,
+    /// This commit's work outside the tree: rows the event's lookup
+    /// compared, derives settled by evaluation, and the store's copied
+    /// bytes when it began.
+    lookup_rows: std::cell::Cell<usize>,
+    derives_evaluated: usize,
+    copied_at_checkpoint: usize,
     /// The inputs the published derives were computed against.
     settled: Option<settlement::Settled>,
     /// Per derive: its value depends on the durable store (bake provenance).
@@ -525,6 +531,9 @@ impl<D: DataSource> Runner<D> {
             full: false,
             row_writes: Default::default(),
             notes: Vec::new(),
+            lookup_rows: Default::default(),
+            derives_evaluated: 0,
+            copied_at_checkpoint: 0,
             settled: None,
             derive_store_dependent: Vec::new(),
             journal: std::collections::VecDeque::new(),
@@ -805,9 +814,14 @@ impl<D: DataSource> Runner<D> {
     /// The site owning `view` and the frames in force there, found along
     /// the kernel's parent chain.
     fn find(&self, view: ViewId) -> Option<(NodesId, Vec<Frame>)> {
-        self.tree
-            .as_ref()?
-            .find(view, |v| self.kernel.node(v).and_then(|n| n.parent))
+        let mut scanned = 0;
+        let found = self.tree.as_ref()?.find(
+            view,
+            |v| self.kernel.node(v).and_then(|n| n.parent),
+            &mut scanned,
+        );
+        self.lookup_rows.set(scanned);
+        found
     }
 
     /// Whether the plan has timers (a host then drives `advance`).

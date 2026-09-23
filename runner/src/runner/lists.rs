@@ -156,6 +156,13 @@ impl<D: DataSource> Runner<D> {
         let (ops, surfaces) = match result {
             Ok((ops, surfaces, notes)) => {
                 self.notes = notes;
+                if settled {
+                    let tree = self.tree.as_mut().expect("booted");
+                    tree.last_work.rows_scanned += self.lookup_rows.take();
+                    tree.last_work.derives_evaluated = self.derives_evaluated;
+                    tree.last_work.store_bytes_copied =
+                        self.store.copied_bytes() - self.copied_at_checkpoint;
+                }
                 (ops, surfaces)
             }
             Err(e) => {

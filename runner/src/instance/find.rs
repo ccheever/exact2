@@ -27,8 +27,13 @@ fn has_root(children: &[Child], view: ViewId) -> bool {
 }
 
 /// The root among `children` whose view is `target`, pushing the frames
-/// of the arms and rows crossed to reach it.
-fn locate<'a>(children: &'a [Child], target: ViewId, frames: &mut Vec<Frame>) -> Option<Step<'a>> {
+/// of the arms and rows crossed to reach it; `scanned` counts rows compared.
+fn locate<'a>(
+    children: &'a [Child],
+    target: ViewId,
+    frames: &mut Vec<Frame>,
+    scanned: &mut usize,
+) -> Option<Step<'a>> {
     if let Some(n) = children.iter().find_map(|c| match c {
         Child::Node(n) if n.view == target => Some(n),
         _ => None,
@@ -47,13 +52,16 @@ fn locate<'a>(children: &'a [Child], target: ViewId, frames: &mut Vec<Frame>) ->
             Active::Arm { roots, frame, .. } => {
                 if has_root(roots, target) {
                     frames.push(frame.clone());
-                    return locate(roots, target, frames);
+                    return locate(roots, target, frames, scanned);
                 }
             }
             Active::Rows { rows } => {
-                if let Some(row) = rows.iter().find(|row| has_root(&row.roots, target)) {
+                if let Some(row) = rows.iter().find(|row| {
+                    *scanned += 1;
+                    has_root(&row.roots, target)
+                }) {
                     frames.push(row.frame.clone());
-                    return locate(&row.roots, target, frames);
+                    return locate(&row.roots, target, frames, scanned);
                 }
             }
         }
@@ -83,11 +91,13 @@ pub(super) fn contains(children: &[Child], view: ViewId) -> bool {
 
 impl Tree {
     /// The site owning `view` and the frames in force there, following
-    /// `parent` (the kernel's) from the root down.
+    /// `parent` (the kernel's) from the root down; `scanned` counts the
+    /// rows compared on the way.
     pub fn find(
         &self,
         view: ViewId,
         parent: impl Fn(ViewId) -> Option<ViewId>,
+        scanned: &mut usize,
     ) -> Option<(NodesId, Vec<Frame>)> {
         let mut chain = vec![view];
         while let Some(up) = parent(*chain.last().expect("nonempty")) {
@@ -97,7 +107,7 @@ impl Tree {
         let mut frames = Vec::new();
         let mut here: &[Child] = &self.children;
         while let Some(target) = targets.next() {
-            match locate(here, target, &mut frames)? {
+            match locate(here, target, &mut frames, scanned)? {
                 Step::Node(n) if target == view => return Some((n.node, frames)),
                 Step::Node(n) => match &n.collection {
                     Some(collection) => {
@@ -112,7 +122,10 @@ impl Tree {
                     let Active::Rows { rows } = &region.active else {
                         return None;
                     };
-                    let row = rows.iter().find(|r| r.wrapper == Some(wrapper))?;
+                    let row = rows.iter().find(|r| {
+                        *scanned += 1;
+                        r.wrapper == Some(wrapper)
+                    })?;
                     frames.push(row.frame.clone());
                     here = &row.roots;
                 }

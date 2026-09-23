@@ -439,11 +439,11 @@ fn focus_and_interaction_pins_are_disjoint_and_wrappers_have_no_sites() {
     assert!(s.rows.iter().any(|r| r.root == first.root));
     assert!(s.rows.iter().any(|r| r.root == middle.root));
     let parent = |v| h.kernel.node(v).and_then(|n| n.parent);
-    assert!(h.tree.find(first.view, parent).is_none());
+    assert!(h.tree.find(first.view, parent, &mut 0).is_none());
     assert!(h.tree.site(first.view).is_none());
     let (_, path) = h.tree.site(first.root).unwrap();
     assert!(matches!(path[0], InstanceStep::Row { .. }));
-    let (_, frames) = h.tree.find(first.root, parent).unwrap();
+    let (_, frames) = h.tree.find(first.root, parent, &mut 0).unwrap();
     let row = frames[0].row.clone().unwrap();
     row.borrow_mut().insert(4, Value::Number(7.0));
     let mut written = crate::instance::RowWrites::default();

@@ -190,6 +190,7 @@ impl<D: DataSource> Runner<D> {
                         continue;
                     }
                     let code = self.plan.derives[i].body;
+                    self.derives_evaluated += 1;
                     let result = {
                         let env = Env {
                             plan: &self.plan,

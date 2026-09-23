@@ -261,6 +261,13 @@ pub struct InstanceWork {
     pub regions_skipped: usize,
     /// Binding expressions evaluated (created or revisited nodes).
     pub bindings_evaluated: usize,
+    /// Rows examined, visited or not: an `each`'s kept rows, a list's
+    /// mounted rows, and the rows compared to find the event's view.
+    pub rows_scanned: usize,
+    /// Derive bodies settlement evaluated (the rest kept their values).
+    pub derives_evaluated: usize,
+    /// Store bytes copied so a refusal could put the store back.
+    pub store_bytes_copied: usize,
 }
 
 /// Per-commit evaluation context and deterministic work counters.
@@ -531,6 +538,7 @@ fn update_row(
     dirty: bool,
     body: &Reads,
 ) -> Result<bool, InstanceError> {
+    u.work.rows_scanned += 1;
     let saved = u.enter(dirty, Some(&row.slots));
     let result = if u.stale(body) {
         let inner = with_frame(frames, row.frame.clone());
