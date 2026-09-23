@@ -704,7 +704,7 @@ export { classifyArtifacts, cohortReceipt } from './app.mjs';
 
 // --------------------------------------------------------------- classifying
 
-/** The channel the manifest bakes in: `deploy.channel`, else the only key of `deploy.channels`, else `prod` — the same rule as `contract/cli/src/compat.rs`. */
+/** The channel the manifest bakes in: `deploy.channel`, else the only key of `deploy.channels`, else `prod` — the same rule as `bake/src/compat.rs`. */
 function channelOf(manifest) {
   const deploy = manifest.deploy ?? {};
   if (deploy.channel) return deploy.channel;

@@ -193,7 +193,7 @@ fn every_command_help_succeeds_without_reading_or_changing_files() {
     for flag in ["--help", "-h"] {
         app.write(flag, "this is not a Contract source\n");
     }
-    for command in ["", "build", "symbols", "fmt", "types", "test", "compat"] {
+    for command in ["", "build", "symbols", "fmt", "types", "test"] {
         for flag in ["--help", "-h"] {
             let mut process = Command::new(env!("CARGO_BIN_EXE_contract"));
             if !command.is_empty() {
@@ -261,80 +261,6 @@ fn test_cli_requires_one_file_and_keeps_explicit_flag_named_paths() {
         assert_eq!(std::fs::read_to_string(app.0.join(name)).unwrap(), source);
     }
     assert_eq!(std::fs::read_dir(&app.0).unwrap().count(), 3);
-}
-
-#[test]
-fn compat_cli_validates_all_options_before_reading_the_manifest() {
-    let app = App::new("compat-args");
-    let manifest = r#"{"app":{"id":"com.exact.cli-args","name":"CLI args"},"deploy":{"store":{"ios":"0","macos":"0","linux":"0","web":"0"}}}"#;
-    app.write("app.json", manifest);
-    let run = |args: &[&str]| {
-        Command::new(env!("CARGO_BIN_EXE_contract"))
-            .arg("compat")
-            .args(args)
-            .current_dir(&app.0)
-            .env("EXACT_UPDATE_TRUST", "development")
-            .env_remove("OUT_DIR")
-            .output()
-            .unwrap()
-    };
-    for (platform, target) in [
-        ("web", "wasm32-unknown-unknown"),
-        ("macos", "aarch64-apple-darwin"),
-        ("ios", "aarch64-apple-ios"),
-        ("linux", "x86_64-unknown-linux-gnu"),
-    ] {
-        let result = run(&[".", "--json", "--target", target, "--platform", platform]);
-        assert!(result.status.success(), "{result:?}");
-        assert!(result.stderr.is_empty());
-        let json: Value = serde_json::from_slice(&result.stdout).unwrap();
-        assert_eq!(json["inputs"]["platform"], platform);
-        assert_eq!(json["target"], target);
-        let plain = run(&[".", "--platform", platform, "--target", target]);
-        assert!(plain.status.success(), "{plain:?}");
-        assert_eq!(
-            String::from_utf8(plain.stdout).unwrap().trim(),
-            json["id"].as_str().unwrap()
-        );
-    }
-    let default = run(&[".", "--platform", "web", "--json"]);
-    assert!(default.status.success(), "{default:?}");
-    let json: Value = serde_json::from_slice(&default.stdout).unwrap();
-    assert_eq!(
-        json["target"],
-        format!("{}-{}", std::env::consts::ARCH, std::env::consts::OS)
-    );
-    assert_eq!(
-        std::fs::read_to_string(app.0.join("app.json")).unwrap(),
-        manifest
-    );
-
-    app.write("app.json", "invalid JSON");
-    for args in [
-        vec![],
-        vec![""],
-        vec!["."],
-        vec![".", "--platform"],
-        vec![".", "--platform", "unknown"],
-        vec![".", "--platform", "web", "--unknown"],
-        vec![".", "--platform", "web", "extra"],
-        vec![".", "--platform", "web", "--platform", "ios"],
-        vec![".", "--platform", "web", "--target"],
-        vec![".", "--platform", "web", "--target", "--json"],
-        vec![".", "--platform", "web", "--target", ""],
-        vec![".", "--platform", "web", "--target", "a", "--target", "b"],
-        vec![".", "--platform", "web", "--json", "--json"],
-    ] {
-        let result = run(&args);
-        assert_eq!(result.status.code(), Some(2), "{args:?}: {result:?}");
-        assert!(result.stdout.is_empty());
-        assert!(String::from_utf8_lossy(&result.stderr).starts_with("usage: contract compat "));
-    }
-    assert_eq!(
-        std::fs::read_to_string(app.0.join("app.json")).unwrap(),
-        "invalid JSON"
-    );
-    assert_eq!(std::fs::read_dir(&app.0).unwrap().count(), 1);
 }
 
 #[test]
