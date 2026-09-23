@@ -27,10 +27,16 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open,check,
     if(path.includes('..')) return new Response('',{status:404});
     const file = Bun.file(resolve(process.env.EXACT_WEB_DIST ?? resolve(import.meta.dir,'dist'),path==='/'?'index.html':path.slice(1)));
     const textureReply = await residency.textureResponse(path,file); if(textureReply) return textureReply;
+    // The web build minifies host modules (af5dfdf4); the probes below name
+    // gpu-glue's own functions and anchor on its text, so they instrument the
+    // source these files were built from.
+    const hostSource = name => Bun.file(resolve(import.meta.dir, '../../../host/web', name)).text();
     if(path === '/gpu-assets.js') {
       // The delivery gate follows the asset module; the renderer probe stays
       // in gpu-glue. Neither probe changes the shipped source.
-      const source = (await file.text()).replace('  const {requests: names, retired} = JSON.parse(module.gpu_assets(id));', `
+      const original = await hostSource('gpu-assets.js'), anchor = '  const {requests: names, retired} = JSON.parse(module.gpu_assets(id));';
+      if (!original.includes(anchor)) throw new Error('gpu-assets.js moved the delivery-gate anchor');
+      const source = original.replace('  const {requests: names, retired} = JSON.parse(module.gpu_assets(id));', `
         if (!entry.fixtureProbe) {
           entry.fixtureProbe = true;
           const world = JSON.parse(module.gpu_agent(id, JSON.stringify({op:'state'})))?.world;
@@ -86,7 +92,7 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open,check,
           fetch('/__loss-probe', {method:'POST',body:JSON.stringify({healthyNoCutover,lossDuringSecondRecovery,replacementLosses,errors:fixtureErrors,world:JSON.parse(gpu.gpu_agent(entry.id, JSON.stringify({op:'state'}))).world})});
         } catch(error) { fetch('/__loss-probe', {method:'POST',body:JSON.stringify({error:String(error)})}); }
       });
-` + await file.text();
+` + await hostSource('gpu-glue.js');
       return new Response(source+residency.source,{headers:{'Content-Type':'text/javascript'}});
     }
     return await file.exists() ? new Response(file) : new Response('',{status:404});

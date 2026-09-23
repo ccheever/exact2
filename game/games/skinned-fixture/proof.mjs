@@ -38,7 +38,8 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open, check
     const path = probe.assetPath(new URL(request.url).pathname);
     const file = Bun.file(resolve(process.env.EXACT_WEB_DIST ?? resolve(import.meta.dir,'dist'),path==='/'?'index.html':path.slice(1)));
     const textureReply = await probe.textureResponse(path,file); if(textureReply) return textureReply;
-    if(path==='/gpu-glue.js') return new Response(await file.text()+probe.source,{headers:{'Content-Type':'text/javascript'}});
+    // The probe names gpu-glue's own functions; the web build minifies them (af5dfdf4).
+    if(path==='/gpu-glue.js') return new Response(await Bun.file(resolve(import.meta.dir,'../../../host/web/gpu-glue.js')).text()+probe.source,{headers:{'Content-Type':'text/javascript'}});
     return new Response(file);
   }}) : null;
   try {
