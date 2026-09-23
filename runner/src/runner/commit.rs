@@ -55,6 +55,8 @@ impl<D: DataSource> Runner<D> {
             Ok(_) => self.log_store_writes(c.store.writes),
             Err(_) if self.poisoned && !was_poisoned => self.store.restore(c.store),
             Err(_) => {
+                // What the refused commit asked is let go with it.
+                self.forgot = true;
                 self.store.restore(c.store);
                 self.slots = c.slots;
                 if let Some(resources) = c.resources {
@@ -67,6 +69,15 @@ impl<D: DataSource> Runner<D> {
                 self.sync_pending_flags();
                 self.commands.truncate(c.commands);
             }
+        }
+        // After any restore: the source hears what is really in flight.
+        if std::mem::take(&mut self.forgot) {
+            let in_flight: Vec<(Target, &str, &[Value])> = self
+                .pending
+                .iter()
+                .map(|p| (p.target, p.source.as_str(), p.args.as_slice()))
+                .collect();
+            self.data.forgotten(&in_flight);
         }
     }
 
@@ -426,6 +437,7 @@ impl<D: DataSource> Runner<D> {
         self.notes.clear();
         self.commands.clear();
         self.requests.clear();
+        self.forgot |= !self.pending.is_empty();
         self.pending.clear();
         self.sync_pending_flags();
     }
@@ -452,6 +464,7 @@ impl<D: DataSource> Runner<D> {
     pub(super) fn forget(&mut self, target: Target) {
         if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
             let t = self.pending.remove(pos).ticket;
+            self.forgot = true;
             self.log(format!("forget request {t} ({})", self.target_name(target)));
         }
         self.sync_pending_flags();
@@ -469,6 +482,7 @@ impl<D: DataSource> Runner<D> {
     ) {
         if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
             let t = self.pending.remove(pos).ticket;
+            self.forgot = true;
             self.log(format!("forget request {t} ({})", self.target_name(target)));
         }
         let ticket = self.next_ticket;

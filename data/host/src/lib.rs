@@ -224,6 +224,9 @@ impl<D: DataSource> DataSource for Storage<D> {
     fn interrupt(&self) -> Option<Interrupt> {
         self.source.interrupt()
     }
+    fn forgotten(&mut self, in_flight: &[(Target, &str, &[Value])]) {
+        self.source.forgotten(in_flight)
+    }
 
     fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {
         match self.pending.get(&token) {

@@ -232,6 +232,19 @@ pub trait DataSource {
         let _ = plan;
     }
 
+    /// After a commit that let requests go, the ones still in flight: their
+    /// targets, sources and arguments. A request is let go when newer
+    /// arguments replace it (LLP 1016 D5), when its target is answered now
+    /// or assigned, when the runner is poisoned, or when a refused commit
+    /// puts back what it had and drops what it asked. Its reply is never
+    /// parsed, so a source that parks calls until replies come drops every
+    /// call it parked for a target that isn't in flight with those
+    /// arguments. A call parked without a target (`answer`) is its own to
+    /// keep. A source that forwards `answer_for` forwards this too.
+    fn forgotten(&mut self, in_flight: &[(Target, &str, &[Value])]) {
+        let _ = in_flight;
+    }
+
     /// A handle another thread may trigger to stop this source's running
     /// call (LLP 1048.000 D10), or `None` when a call always returns on its
     /// own, as a Rust source's does. A source that forwards to another

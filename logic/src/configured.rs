@@ -51,6 +51,16 @@ macro_rules! configured {
             fn interrupt(&self) -> Option<$crate::exact_runner::Interrupt> {
                 $crate::exact_runner::DataSource::interrupt(&self.0)
             }
+            fn forgotten(
+                &mut self,
+                in_flight: &[(
+                    $crate::exact_runner::Target,
+                    &str,
+                    &[$crate::exact_plan::Value],
+                )],
+            ) {
+                $crate::exact_runner::DataSource::forgotten(&mut self.0, in_flight)
+            }
             fn dispatch(
                 &mut self,
                 token: u64,

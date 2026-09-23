@@ -253,6 +253,12 @@ impl<D: DataSource> DataSource for Swappable<D> {
     fn interrupt(&self) -> Option<exact_runner::Interrupt> {
         self.embedded.as_ref().and_then(DataSource::interrupt)
     }
+    /// A replaced Rust module parks nothing.
+    fn forgotten(&mut self, in_flight: &[(Target, &str, &[Value])]) {
+        if let Some(embedded) = &mut self.embedded {
+            embedded.forgotten(in_flight);
+        }
+    }
     fn dispatch(&mut self, token: u64, store: &Store) -> exact_runner::Dispatch {
         match self.embedded.as_mut() {
             Some(embedded) => embedded.dispatch(token, store),

@@ -92,6 +92,9 @@ impl DataSource for Messages {
     fn interrupt(&self) -> Option<Interrupt> {
         self.0.interrupt()
     }
+    fn forgotten(&mut self, in_flight: &[(Target, &str, &[Value])]) {
+        self.0.forgotten(in_flight);
+    }
 }
 type ExactEmbeddedData = Messages;
 fn embedded_data() -> ExactEmbeddedData {

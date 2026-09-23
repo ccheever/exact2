@@ -231,6 +231,9 @@ pub struct Runner<D: DataSource> {
     surfaces: Vec<SurfaceUpdate>,
     /// Requests in flight (LLP 1016): at most one per resource or mutation.
     pending: Vec<PendingReq>,
+    /// This commit let a request go: `conclude` tells the source what is
+    /// still in flight.
+    forgot: bool,
     /// `pending` as flags, by resource and by mutation, for expressions.
     pending_res: Vec<bool>,
     pending_mut: Vec<bool>,
@@ -532,6 +535,7 @@ impl<D: DataSource> Runner<D> {
             pending_res: Vec::new(),
             pending_mut: Vec::new(),
             next_ticket: 1,
+            forgot: false,
             deferred_edges: Vec::new(),
             requests: Vec::new(),
             refresh_next: Vec::new(),

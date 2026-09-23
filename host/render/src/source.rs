@@ -129,6 +129,9 @@ impl<D: DataSource> DataSource for Anonymous<D> {
     fn interrupt(&self) -> Option<Interrupt> {
         self.inner.interrupt()
     }
+    fn forgotten(&mut self, in_flight: &[(Target, &str, &[Value])]) {
+        self.inner.forgotten(in_flight);
+    }
     fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {
         self.inner.dispatch(token, store)
     }
