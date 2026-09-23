@@ -22,7 +22,7 @@ fn main() {
     } else {
         "macos"
     };
-    let compat = contract::compatibility_id(
+    let compat = exact_bake::compatibility_id(
         &app,
         platform,
         &std::env::var("TARGET").unwrap(),

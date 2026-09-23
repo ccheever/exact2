@@ -85,7 +85,7 @@ fn bake_source<D: contract::DataSource>(
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     fs::write(out.join("app.plan"), baked.encode()).unwrap();
     let target = env::var("TARGET").unwrap();
-    let compat = contract::compatibility_id(&app, platform, &target, &manifest, Some(&grants))
+    let compat = exact_bake::compatibility_id(&app, platform, &target, &manifest, Some(&grants))
         .unwrap_or_else(|e| panic!("compatibility id: {e}"));
     assert_eq!(
         compat.inputs["rustMode"], "off",

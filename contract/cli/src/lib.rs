@@ -12,22 +12,20 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
-pub mod compat;
 mod logic;
+mod manifest;
 mod map;
-mod receipt;
 mod sources;
 mod surface;
 mod symbols;
 mod typescript;
 
-pub use compat::{compatibility_id, compatibility_id_sources, Compat, Manifest};
 /// The data seam, re-exported for an app's build script: the bake asks the
 /// crate its grants for the compatibility id (`Caltrain.grants()`).
 pub use exact_runner::DataSource;
 pub use logic::rust_entry;
+pub use manifest::Manifest;
 pub use map::{plan_digest, SourceMap};
-pub use receipt::write_development_artifacts;
 pub use symbols::symbols_json;
 pub use typescript::typescript;
 

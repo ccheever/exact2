@@ -24,3 +24,4 @@ exact-linux-update = { path = "../../../host/linux-update" }
 [build-dependencies]
 caltrain-data = { path = "../data" }
 contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }

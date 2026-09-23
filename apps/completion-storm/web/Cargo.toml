@@ -16,3 +16,4 @@ exact-web = { path = "../../../host/web" }
 [build-dependencies]
 completion-storm-data = { path = "../data" }
 contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }

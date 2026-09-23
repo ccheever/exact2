@@ -18,7 +18,7 @@ fn main() {
     std::fs::write(out.join("app.plan"), baked.encode()).unwrap();
     let manifest = contract::Manifest::read(&app).expect("app manifest");
     let platform = "linux";
-    let compat = contract::compatibility_id(
+    let compat = exact_bake::compatibility_id(
         &app,
         platform,
         &std::env::var("TARGET").unwrap(),

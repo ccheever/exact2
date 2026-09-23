@@ -130,7 +130,7 @@ impl Session {
         })?;
         let bake_ms = t.elapsed().as_secs_f64() * 1000.0;
         let bytes = baked.encode();
-        contract::write_development_artifacts(&baked)?;
+        exact_bake::write_development_artifacts(&baked)?;
         // Publish the map first, then its plan. Readers must check the digest
         // because the two complete files cannot be renamed as one operation.
         if let Some(map) = map {

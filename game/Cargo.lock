@@ -188,12 +188,9 @@ dependencies = [
  "contract-lower",
  "contract-syntax",
  "contract-types",
- "exact-filesystem",
- "exact-gpu-reflect",
  "exact-kernel",
  "exact-plan",
  "exact-runner",
- "exact-update",
  "serde_json",
  "sha2",
 ]
@@ -368,6 +365,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
+name = "exact-bake"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-filesystem",
+ "exact-gpu-reflect",
+ "exact-kernel",
+ "exact-plan",
+ "exact-runner",
+ "exact-update",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "exact-filesystem"
 version = "0.1.0"
 dependencies = [
@@ -394,6 +406,7 @@ name = "exact-game-app"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-bake",
  "exact-gpu",
  "exact-kernel",
  "exact-plan",

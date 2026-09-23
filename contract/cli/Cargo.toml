@@ -25,16 +25,6 @@ contract-types = { path = "../types" }
 exact-kernel = { path = "../../kernel" }
 exact-plan = { path = "../../plan" }
 exact-runner = { path = "../../runner" }
-# The compatibility id (LLP 1030 D3a): the manifest read, the inputs as
-# JSON, the digest. The runtime crates take neither.
+# The app manifest, diagnostics and source maps as JSON; plan digests.
 serde_json = "1.0"
 sha2 = "0.10"
-# The shaders' interface digests for the compatibility id (LLP 1030 D8).
-exact-gpu-reflect = { path = "../../gpu/reflect" }
-
-# The build validates publisher receipt signatures using the client parser.
-exact-update = { path = "../../update" }
-
-# The same owned-directory gate as the copy/publish helper, on build hosts only.
-[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
-exact-filesystem = { path = "../../filesystem" }

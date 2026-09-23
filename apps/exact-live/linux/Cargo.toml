@@ -23,3 +23,4 @@ exact-linux = { path = "../../../host/linux" }
 [build-dependencies]
 exact-live-data = { path = "../data" }
 contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }

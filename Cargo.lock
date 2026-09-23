@@ -200,6 +200,7 @@ dependencies = [
  "contract",
  "exact-apple",
  "exact-apple-update",
+ "exact-bake",
  "exact-logic",
 ]
 
@@ -227,6 +228,7 @@ version = "0.1.0"
 dependencies = [
  "caltrain-data",
  "contract",
+ "exact-bake",
  "exact-linux",
  "exact-linux-update",
  "exact-logic",
@@ -247,6 +249,7 @@ dependencies = [
  "caltrain",
  "caltrain-data",
  "contract",
+ "exact-bake",
  "exact-kernel",
  "exact-logic",
  "exact-plan",
@@ -300,6 +303,7 @@ dependencies = [
  "completion-storm-data",
  "contract",
  "exact-apple",
+ "exact-bake",
 ]
 
 [[package]]
@@ -319,6 +323,7 @@ version = "0.1.0"
 dependencies = [
  "completion-storm-data",
  "contract",
+ "exact-bake",
  "exact-linux",
 ]
 
@@ -328,6 +333,7 @@ version = "0.1.0"
 dependencies = [
  "completion-storm-data",
  "contract",
+ "exact-bake",
  "exact-web",
 ]
 
@@ -339,12 +345,9 @@ dependencies = [
  "contract-lower",
  "contract-syntax",
  "contract-types",
- "exact-filesystem",
- "exact-gpu-reflect",
  "exact-kernel",
  "exact-plan",
  "exact-runner",
- "exact-update",
  "serde_json",
  "sha2",
 ]
@@ -671,6 +674,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-bake"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-filesystem",
+ "exact-gpu-reflect",
+ "exact-kernel",
+ "exact-plan",
+ "exact-runner",
+ "exact-update",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "exact-data"
 version = "0.1.0"
 dependencies = [
@@ -747,6 +765,7 @@ version = "0.1.0"
 dependencies = [
  "contract",
  "exact-apple",
+ "exact-bake",
  "exact-js",
  "exact-kernel",
  "exact-plan",
@@ -841,6 +860,7 @@ version = "0.1.0"
 dependencies = [
  "contract",
  "exact-apple",
+ "exact-bake",
  "exact-live-data",
  "exact-logic",
 ]
@@ -865,6 +885,7 @@ name = "exact-live-linux"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-bake",
  "exact-linux",
  "exact-live-data",
  "exact-logic",
@@ -875,6 +896,7 @@ name = "exact-live-web"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-bake",
  "exact-live-data",
  "exact-logic",
  "exact-web",
@@ -1001,6 +1023,7 @@ dependencies = [
  "caltrain",
  "caltrain-data",
  "contract",
+ "exact-bake",
  "exact-kernel",
  "exact-markdown",
  "exact-motion",
@@ -1536,6 +1559,7 @@ version = "0.1.0"
 dependencies = [
  "contract",
  "exact-apple",
+ "exact-bake",
  "exact-logic",
  "interaction-gallery-data",
 ]
@@ -1555,6 +1579,7 @@ name = "interaction-gallery-linux"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-bake",
  "exact-linux",
  "exact-logic",
  "interaction-gallery-data",
@@ -1565,6 +1590,7 @@ name = "interaction-gallery-web"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-bake",
  "exact-logic",
  "exact-web",
  "interaction-gallery-data",
@@ -1719,6 +1745,7 @@ version = "0.1.0"
 dependencies = [
  "contract",
  "exact-apple",
+ "exact-bake",
  "exact-logic",
  "llp-data",
 ]
@@ -1737,6 +1764,7 @@ name = "llp-web"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-bake",
  "exact-logic",
  "exact-web",
  "llp-data",
@@ -1763,6 +1791,7 @@ version = "0.1.0"
 dependencies = [
  "contract",
  "exact-apple",
+ "exact-bake",
  "exact-logic",
  "markdown-data",
 ]
@@ -1789,6 +1818,7 @@ version = "0.1.0"
 dependencies = [
  "contract",
  "exact-apple",
+ "exact-bake",
  "exact-logic",
  "markdown-stress-data",
 ]
@@ -1809,6 +1839,7 @@ name = "markdown-stress-linux"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-bake",
  "exact-linux",
  "exact-logic",
  "markdown-stress-data",
@@ -1819,6 +1850,7 @@ name = "markdown-stress-web"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-bake",
  "exact-logic",
  "exact-web",
  "markdown-stress-data",
@@ -1829,6 +1861,7 @@ name = "markdown-web"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-bake",
  "exact-logic",
  "exact-web",
  "markdown-data",
@@ -1888,6 +1921,7 @@ version = "0.1.0"
 dependencies = [
  "contract",
  "exact-apple",
+ "exact-bake",
  "exact-logic",
  "messages-stress-data",
 ]
@@ -1907,6 +1941,7 @@ name = "messages-stress-linux"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-bake",
  "exact-linux",
  "exact-logic",
  "messages-stress-data",
@@ -1917,6 +1952,7 @@ name = "messages-stress-web"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-bake",
  "exact-logic",
  "exact-web",
  "messages-stress-data",
@@ -2383,6 +2419,7 @@ version = "0.1.0"
 dependencies = [
  "contract",
  "exact-apple",
+ "exact-bake",
  "exact-logic",
  "reflow-data",
 ]
@@ -2402,6 +2439,7 @@ name = "reflow-linux"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-bake",
  "exact-kernel",
  "exact-linux",
  "exact-logic",
@@ -2414,6 +2452,7 @@ name = "reflow-web"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-bake",
  "exact-logic",
  "exact-web",
  "reflow-data",
@@ -2935,6 +2974,7 @@ version = "0.1.0"
 dependencies = [
  "contract",
  "exact-apple",
+ "exact-bake",
  "exact-logic",
  "textflow-data",
 ]
@@ -2952,6 +2992,7 @@ name = "textflow-linux"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-bake",
  "exact-kernel",
  "exact-linux",
  "exact-logic",
@@ -2964,6 +3005,7 @@ name = "textflow-web"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-bake",
  "exact-logic",
  "exact-web",
  "textflow-data",
@@ -3061,6 +3103,7 @@ version = "0.1.0"
 dependencies = [
  "contract",
  "exact-apple",
+ "exact-bake",
  "exact-logic",
  "typetour-data",
 ]
@@ -3078,6 +3121,7 @@ name = "typetour-web"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-bake",
  "exact-logic",
  "exact-web",
  "typetour-data",
@@ -3291,6 +3335,7 @@ version = "0.1.0"
 dependencies = [
  "contract",
  "exact-apple",
+ "exact-bake",
  "exact-logic",
  "video-player-data",
 ]
@@ -3308,6 +3353,7 @@ name = "video-player-web"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-bake",
  "exact-logic",
  "exact-web",
  "video-player-data",

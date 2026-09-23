@@ -23,3 +23,4 @@ exact-linux = { path = "../../../host/linux" }
 [build-dependencies]
 markdown-stress-data = { path = "../data" }
 contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }

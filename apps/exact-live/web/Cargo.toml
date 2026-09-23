@@ -18,4 +18,5 @@ exact-live-data = { path = "../data" }
 
 [build-dependencies]
 contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }
 exact-live-data = { path = "../data" }

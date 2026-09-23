@@ -7,6 +7,7 @@ publish = false
 
 [dependencies]
 contract = { path = "../../contract/cli" }
+exact-bake = { path = "../../bake" }
 
 [dev-dependencies]
 exact-runner = { path = "../../runner" }

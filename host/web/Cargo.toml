@@ -26,6 +26,7 @@ exact-runner = { path = "../../runner" }
 # The dev driver compiles Contract natively; the wasm never does.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 contract = { path = "../../contract/cli" }
+exact-bake = { path = "../../bake" }
 
 [dev-dependencies]
 caltrain = { path = "../../apps/caltrain" }

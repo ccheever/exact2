@@ -61,8 +61,8 @@ pub use store::{
     SelectionRefusal, Staged, Status, Store, Trust,
 };
 
-/// The store's record codec (LLP 1030 D1, D9; `contract::compat::STORE_CODEC`):
-/// the first. A record whose `codec` major is not this one is another binary's
+/// The store's record codec (LLP 1030 D1, D9), the one declaration: the bake
+/// hashes it into the compatibility id. The first. A record whose `codec` major is not this one is another binary's
 /// and is left alone — the client selects entry zero and writes nothing.
 pub const STORE_CODEC: u64 = 2;
 

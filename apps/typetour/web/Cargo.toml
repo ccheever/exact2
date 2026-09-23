@@ -18,4 +18,5 @@ typetour-data = { path = "../data" }
 
 [build-dependencies]
 contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }
 typetour-data = { path = "../data" }

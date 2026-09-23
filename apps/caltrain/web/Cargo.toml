@@ -31,3 +31,4 @@ path = "src/bin/metrics.rs"
 [build-dependencies]
 caltrain-data = { path = "../data" }
 contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }

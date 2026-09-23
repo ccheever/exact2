@@ -23,6 +23,7 @@ exact-linux = { path = "../../../host/linux" }
 [build-dependencies]
 reflow-data = { path = "../data" }
 contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }
 
 [dev-dependencies]
 contract = { path = "../../../contract/cli" }

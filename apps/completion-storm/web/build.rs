@@ -17,7 +17,7 @@ fn main() {
     let out = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
     std::fs::write(out.join("app.plan"), baked.encode()).unwrap();
     let manifest = contract::Manifest::read(&app).expect("app manifest");
-    let compat = contract::compatibility_id(
+    let compat = exact_bake::compatibility_id(
         &app,
         "web",
         &std::env::var("TARGET").unwrap(),

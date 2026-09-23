@@ -2,7 +2,8 @@
 //! The Cargo build script knows its actual target and data-source grants;
 //! Consumers read these bytes instead of reconstructing those facts.
 
-use crate::compat::{Compat, Manifest};
+use crate::compat::Compat;
+use contract::Manifest;
 use exact_update::{Baked, Envelope};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -145,7 +146,7 @@ pub(crate) fn emit(
 // bakes. This tooling process does not link Unix filesystem code into a wasm
 // consumer of `contract`; its Cargo cache is distinct from the calling build.
 fn asset_cards(app: &Path, out: &Path) -> Result<Vec<Value>, String> {
-    let gate = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/filesystem.mjs");
+    let gate = Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/filesystem.mjs");
     println!("cargo:rerun-if-changed={}", gate.display());
     let code = r#"
         import {pathToFileURL} from 'node:url';
@@ -180,7 +181,7 @@ fn asset_cards(app: &Path, out: &Path) -> Result<Vec<Value>, String> {
     // may also be beneath an external app: never broaden a watch over them.
     let mut outputs = vec![
         out.to_path_buf(),
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target"),
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../target"),
     ];
     for name in [
         "EXACT_BAKE_OUTPUT",
@@ -834,11 +835,10 @@ mod tests {
     }
 
     fn signed_fixture() -> (Compat, Value, Vec<u8>) {
-        let raw = include_bytes!("../../../update/tests/it/fixtures/publisher/exact.json");
+        let raw = include_bytes!("../../update/tests/it/fixtures/publisher/exact.json");
         let head = Envelope::parse(raw).unwrap();
-        let plan = include_bytes!("../../../update/tests/it/fixtures/publisher/app.plan").to_vec();
-        let key =
-            include_str!("../../../update/tests/it/fixtures/publisher/caltrain-2026.pub").trim();
+        let plan = include_bytes!("../../update/tests/it/fixtures/publisher/app.plan").to_vec();
+        let key = include_str!("../../update/tests/it/fixtures/publisher/caltrain-2026.pub").trim();
         let mut assets = head
             .assets
             .iter()

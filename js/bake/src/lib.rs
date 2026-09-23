@@ -251,7 +251,7 @@ fn build_sources(
     }
     let manifest = contract::Manifest::read(app)?;
     let target = std::env::var("TARGET").map_err(|e| e.to_string())?;
-    let compat = contract::compatibility_id_sources(
+    let compat = exact_bake::compatibility_id_sources(
         app,
         platform,
         &target,
