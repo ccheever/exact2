@@ -388,7 +388,7 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
   `prefers-reduced-motion`; a spring interrupted by an easing.
 - **Apple host** (LLP 1008 §7): images; toggles; accessibility beyond `testId`,
   `accessibilityLabel` and macOS's button/link/image/heading roles (iOS calls a
-  link a button and has no image or header trait); justified text; per-corner radii; rubber-banding on inner
+  link a button and has no image or header trait); justified text; rubber-banding on inner
   scroll nodes; a generated header. **iOS** (LLP 1008 §9): the agent API on a
   phone (`build.mjs --device --run` installs over USB or Wi-Fi, but nothing drives
   the app there); a

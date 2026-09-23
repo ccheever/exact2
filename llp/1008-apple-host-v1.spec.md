@@ -572,9 +572,10 @@ position and focus across a reload; accessibility beyond `testId` as the
 identifier, `accessibilityLabel`, and the roles VoiceOver reaches on macOS (a
 pressable is a button, or a link by its role, and a leaf; a labelled image an
 image; `aria-level` a heading; 2026-09-23) — iOS gives pressables the button
-trait only; justified text; per-corner radii
-(the first set radius rounds all four); iOS text selection; scroll position
-across a reload; a generated header (§4).
+trait only; justified text; iOS text selection; scroll position
+across a reload; a generated header (§4). Per-corner radii landed on macOS
+2026-09-23: each corner its own radius, CSS's overlap reduction, as iOS
+draws them.
 
 **2026-09-05, LLP 1033:** Apple paints nested text runs with their own fonts,
 colors, and decoration, using the same CoreText paragraph as measurement.

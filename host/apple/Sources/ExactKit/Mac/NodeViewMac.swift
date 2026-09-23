@@ -319,8 +319,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
     override func drawFocusRingMask() {
         guard field == nil, handlers.contains("press") else { return }
-        let radius = number("border_radius", number("border_radius_top_left"))
-        NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
+        roundedPath(in: bounds).fill()
     }
     /// A key down at a focused node, by the web's key name. Space and Enter
     /// on a pressable fire `press`, as they do on a `<button>`.
@@ -562,8 +561,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             leaf.imageScaling = .scaleAxesIndependently
         default: leaf.imageScaling = .scaleAxesIndependently
         }
-        let radius = number("border_radius", number("border_radius_top_left"))
-        let path = NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).cgPath
+        let path = roundedPath(in: bounds).cgPath
         var transform = CGAffineTransform(translationX: -content.minX, y: -content.minY)
         let mask = CAShapeLayer(); mask.path = path.copy(using: &transform); clip.layer?.mask = mask
     }
@@ -1204,6 +1202,27 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         layoutSymbol()
     }
 
+    /// Each corner's own radius, all reduced by one factor where two would
+    /// overlap an edge (CSS), as iOS and Linux draw them; `inset` is a
+    /// centered stroke's. Tangent arcs keep the corners where the flipped
+    /// view puts them.
+    func roundedPath(in rect: NSRect, inset: CGFloat = 0) -> NSBezierPath {
+        var r = ["top_left", "top_right", "bottom_right", "bottom_left"].map { max(0, number("border_radius_" + $0) - inset) }
+        let sums = [r[0] + r[1], r[3] + r[2], r[0] + r[3], r[1] + r[2]]
+        let edges = [rect.width, rect.width, rect.height, rect.height]
+        var factor: CGFloat = 1
+        for i in 0..<4 where sums[i] > 0 { factor = min(factor, edges[i] / sums[i]) }
+        r = r.map { max(0, $0 * factor) }
+        let p = CGMutablePath()
+        p.move(to: CGPoint(x: rect.minX + r[0], y: rect.minY))
+        p.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.minY), tangent2End: CGPoint(x: rect.maxX, y: rect.maxY), radius: r[1])
+        p.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.maxY), tangent2End: CGPoint(x: rect.minX, y: rect.maxY), radius: r[2])
+        p.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.maxY), tangent2End: CGPoint(x: rect.minX, y: rect.minY), radius: r[3])
+        p.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.minY), tangent2End: CGPoint(x: rect.maxX, y: rect.minY), radius: r[0])
+        p.closeSubpath()
+        return NSBezierPath(cgPath: p)
+    }
+
     override func draw(_ rect: NSRect) {
         // Selection, capture, and decorated text return to direct painting.
         if textRasterUsesStrips {
@@ -1230,25 +1249,23 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // batch — no image, no timer, no motion — would never load it
         // (found by the readback fixture, LLP 1014).
         if presenter?.views[id] === self { firstDraw() }
-        let radius = number("border_radius", number("border_radius_top_left"))
+        let rounded = ["top_left", "top_right", "bottom_right", "bottom_left"].contains { number("border_radius_" + $0) > 0 }
+        let path = roundedPath(in: bounds)
         let bg = color("background_color", .clear)
         if bg.alphaComponent > 0 {
             bg.setFill()
-            if radius == 0 {
-                NSGraphicsContext.current?.cgContext.fill(bounds)
-            } else {
-                NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
-            }
+            if rounded { path.fill() } else { NSGraphicsContext.current?.cgContext.fill(bounds) }
         }
-        let borderColor = color("border_color", .clear)
+        // The host sends each side's colour (`style.rs`), never a uniform one.
+        let borderColor = color("border_color_top", .clear)
         let uniform = number("border_width")
         let top = number("border_width_top", uniform), right = number("border_width_right", uniform)
         let bottom = number("border_width_bottom", uniform), left = number("border_width_left", uniform)
         // A uniform border on a rounded box follows the curve (the web's
         // rule). Four edge rects would square the corners and show as nubs.
-        if radius > 0, top > 0, top == right, right == bottom, bottom == left {
+        if rounded, top > 0, top == right, right == bottom, bottom == left {
             let inset = top / 2
-            let stroke = NSBezierPath(roundedRect: bounds.insetBy(dx: inset, dy: inset), xRadius: max(0, radius - inset), yRadius: max(0, radius - inset))
+            let stroke = roundedPath(in: bounds.insetBy(dx: inset, dy: inset), inset: inset)
             stroke.lineWidth = top
             stroke.lineJoinStyle = .round
             borderColor.setStroke()
@@ -1280,7 +1297,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             guard let ctx = NSGraphicsContext.current?.cgContext else { return }
             let rect = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: fit)
             ctx.saveGState()
-            NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).addClip()
+            path.addClip()
             NSBezierPath(rect: content).addClip()
             ctx.translateBy(x: rect.minX, y: rect.maxY)
             ctx.scaleBy(x: 1, y: -1)
