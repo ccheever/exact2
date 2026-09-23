@@ -4,7 +4,7 @@ use exact_plan::Plan;
 use exact_runner::{agent, DataError, DataSource, Runner, Value};
 use serde_json::{json, Value as Json};
 
-const SOURCE: &str = include_str!("../../corpus/routes.contract");
+const SOURCE: &str = include_str!("../../../corpus/routes.contract");
 
 #[derive(Default)]
 struct Data {
@@ -113,7 +113,7 @@ fn interview_table_shapes_roundtrip_and_launch_fill() {
         assert_eq!(actual, fields);
     }
     let corpus: Json =
-        serde_json::from_str(include_str!("../../../route/tests/corpus.json")).unwrap();
+        serde_json::from_str(include_str!("../../../../route/tests/corpus.json")).unwrap();
     let actual: Vec<_> = plan.routes.iter().map(|r| json!({"name":plan.str(r.name),"pattern":plan.str(r.pattern),"parent":r.parent.map(|p|p.0),"tab":r.tab,"notfound":r.notfound})).collect();
     assert_eq!(json!(actual), corpus["tables"]["interview"]["routes"]);
     let baked = contract::bake(plan, Data::default()).unwrap();
@@ -213,7 +213,7 @@ fn actions_encode_params_and_keep_row_identity_through_push_back_and_tabs() {
 #[test]
 fn corpus_verb_sequences_run_through_compiled_actions_without_copying_expectations() {
     let corpus: Json =
-        serde_json::from_str(include_str!("../../../route/tests/corpus.json")).unwrap();
+        serde_json::from_str(include_str!("../../../../route/tests/corpus.json")).unwrap();
     let mut failures = Vec::new();
     for sequence in corpus["sequences"].as_array().unwrap() {
         let table = &corpus["tables"][sequence["table"].as_str().unwrap()]["routes"];

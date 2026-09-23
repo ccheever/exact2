@@ -34,7 +34,7 @@ impl DataSource for NoData {
 }
 fn plan() -> exact_plan::Plan {
     contract::bake(
-        contract::compile(include_str!("../../corpus/viewport.contract")).unwrap(),
+        contract::compile(include_str!("../../../corpus/viewport.contract")).unwrap(),
         NoData,
     )
     .unwrap()

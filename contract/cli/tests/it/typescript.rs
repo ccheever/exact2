@@ -239,7 +239,7 @@ fn malformed_plan_tables_are_refused_before_generating_types() {
 
 #[test]
 fn router_shapes_are_already_named_by_the_plan_type_generator() {
-    let plan = contract::compile(include_str!("../../corpus/routes.contract")).unwrap();
+    let plan = contract::compile(include_str!("../../../corpus/routes.contract")).unwrap();
     let declaration = contract::typescript(&plan).unwrap();
     for name in ["Router", "Tab", "Entry", "Params"] {
         let (id, row) = plan

@@ -9,7 +9,7 @@ impl DataSource for NoData {
         false
     }
 }
-const SOURCE: &str = include_str!("../../corpus/surface.contract");
+const SOURCE: &str = include_str!("../../../corpus/surface.contract");
 #[test]
 fn bake_defaults_are_the_first_frame_and_never_kept_or_typescript() {
     let p = contract::bake(contract::compile(SOURCE).unwrap(), NoData).unwrap();
@@ -330,9 +330,9 @@ fn file_compilation_checks_surface_arguments_at_the_source() {
 #[test]
 fn r13_surface_call_corpus_fixtures_roundtrip() {
     for source in [
-        include_str!("../../corpus/surface-named.contract"),
-        include_str!("../../corpus/surface-empty.contract"),
-        include_str!("../../corpus/surface-short.contract"),
+        include_str!("../../../corpus/surface-named.contract"),
+        include_str!("../../../corpus/surface-empty.contract"),
+        include_str!("../../../corpus/surface-short.contract"),
     ] {
         let p = contract::compile(source).unwrap();
         assert_eq!(
