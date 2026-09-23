@@ -63,7 +63,6 @@ pub(crate) struct Cull {
     views: u32,
     /// Vertex binding window of the compacted buffer, in bytes.
     pub window: u64,
-    pub dispatches: u64,
     /// Diagnostic: keep every item, drawing exactly what an unculled frame drew.
     pub keep_all: bool,
     /// The lists exceed this device's storage limits: draw every group directly.
@@ -193,7 +192,6 @@ impl Cull {
             stride: 0,
             views: 0,
             window: 256,
-            dispatches: 0,
             keep_all: false,
             direct: false,
             align: (device.limits().min_storage_buffer_offset_alignment / 4).max(1),
@@ -475,7 +473,7 @@ impl Cull {
     }
     /// Encode the three dispatches. Nothing is encoded without a group.
     pub fn encode(
-        &mut self,
+        &self,
         encoder: &mut wgpu::CommandEncoder,
         current: usize,
         timestamps: Option<&wgpu::QuerySet>,
@@ -502,7 +500,6 @@ impl Cull {
         pass.dispatch_workgroups(groups.0, groups.1, 1);
         pass.set_pipeline(&self.scatter);
         pass.dispatch_workgroups(chunks.0, chunks.1, 1);
-        self.dispatches += 3;
     }
 }
 

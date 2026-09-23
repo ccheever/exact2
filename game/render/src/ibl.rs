@@ -229,28 +229,28 @@ impl Sky {
         self.horizon.lerp(pole, d.y.abs())
     }
     /// SH9 of the radiance, convolved with the clamped cosine and divided by π:
-    /// a Lambertian surface's outgoing radiance per unit albedo. Midpoint
-    /// quadrature over the sphere; the basis constants are folded in, so the shader
-    /// evaluates `c0 + c1 y + c2 z + c3 x + c4 xy + c5 yz + c6 (3z² - 1) + c7 xz + c8 (x² - y²)`.
+    /// a Lambertian surface's outgoing radiance per unit albedo. Integrated over
+    /// the cube's own texel directions, weighted by solid angle — trig-free, and the
+    /// same projection an authored cube map would use. The basis constants are folded
+    /// in, so the shader evaluates `c0 + c1 y + c2 z + c3 x + c4 xy + c5 yz +
+    /// c6 (3z² - 1) + c7 xz + c8 (x² - y²)`.
     pub fn irradiance(&self) -> [f32; 36] {
-        const THETA: usize = 64;
-        const PHI: usize = 128;
         let mut sh = [Vec3::ZERO; 9];
-        for i in 0..THETA {
-            let theta = (i as f32 + 0.5) * std::f32::consts::PI / THETA as f32;
-            let weight = theta.sin()
-                * (std::f32::consts::PI / THETA as f32)
-                * (std::f32::consts::TAU / PHI as f32);
-            for j in 0..PHI {
-                let phi = (j as f32 + 0.5) * std::f32::consts::TAU / PHI as f32;
-                let d = Vec3::new(
-                    theta.sin() * phi.cos(),
-                    theta.cos(),
-                    theta.sin() * phi.sin(),
-                );
-                let l = self.radiance(d) * weight;
-                for (k, y) in basis(d).iter().enumerate() {
-                    sh[k] += l * *y;
+        let mut total = 0.;
+        for face in 0..6 {
+            for y in 0..SIZE {
+                for x in 0..SIZE {
+                    let [u, v] = [x, y].map(|t| (t as f32 + 0.5) / SIZE as f32 * 2. - 1.);
+                    let d = direction(face, u, v);
+                    // dω = dA / r³ for a texel of area dA on the unit cube's face.
+                    let r2 = d.length_squared();
+                    let weight = 1. / (r2 * r2.sqrt());
+                    let d = d / r2.sqrt();
+                    total += weight;
+                    let l = self.radiance(d) * weight;
+                    for (k, y) in basis(d).iter().enumerate() {
+                        sh[k] += l * *y;
+                    }
                 }
             }
         }
@@ -261,11 +261,25 @@ impl Sky {
             0.282095, 0.488603, 0.488603, 0.488603, 1.092548, 1.092548, 0.315392, 1.092548,
             0.546274,
         ];
+        let solid = 4. * std::f32::consts::PI / total;
         let mut out = [0.; 36];
         for k in 0..9 {
-            out[k * 4..k * 4 + 3].copy_from_slice(&(sh[k] * BAND[k] * CONSTANT[k]).to_array());
+            out[k * 4..k * 4 + 3]
+                .copy_from_slice(&(sh[k] * (solid * BAND[k] * CONSTANT[k])).to_array());
         }
         out
+    }
+}
+/// A cube texel's direction (unnormalized), face order +X −X +Y −Y +Z −Z and rows
+/// running down: environment.wgsl's `direction`, as WebGPU samples a texture_cube.
+fn direction(face: u32, u: f32, v: f32) -> Vec3 {
+    match face {
+        0 => Vec3::new(1., -v, -u),
+        1 => Vec3::new(-1., -v, u),
+        2 => Vec3::new(u, 1., v),
+        3 => Vec3::new(u, -1., -v),
+        4 => Vec3::new(u, -v, 1.),
+        _ => Vec3::new(-u, -v, -1.),
     }
 }
 // Real SH basis, band order: 00, 1-1 (y), 10 (z), 11 (x), 2-2 (xy), 2-1 (yz),

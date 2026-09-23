@@ -34,7 +34,9 @@ GDScript each frame), `shader` (the rotation in the vertex shader; no CPU work).
 turning once per 20 s, far 300 m, a low sun with three shadow cascades, fog on, bloom
 off. Most props are outside the camera and every cascade; tall ones around the camera
 throw shadows into view. `game/render/examples/cubes.rs -- N frames field` is the same
-scene offscreen.
+scene offscreen. **`cubes 1 materials`** (Exact only, build with `BENCH_BUILD_ONLY=1`,
+then screenshot through the agent) is a back-lit metallic × roughness grid of spheres:
+the environment-lighting scene.
 
 ### Feel — Beacons, live clock
 
