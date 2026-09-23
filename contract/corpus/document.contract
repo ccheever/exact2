@@ -3,11 +3,11 @@
 // description over the site's, the site's image where the route sets none,
 // and nothing from a route the navigation root has not selected. The
 // not-found view declares its HTTP status. A route's content scrolls as the
-// page (`scroll document`, D4).
+// page (`scroll document`, D4). Routes declare their policies (D5).
 routes nav
-  tab home "/"
-    post "/post/:post"
-  notfound
+  tab home "/" render=build
+    post "/post/:post" render=request activate=idle
+  notfound render=build
 
 shape Post
   title: string

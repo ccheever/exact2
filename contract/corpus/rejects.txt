@@ -754,3 +754,11 @@ component Row
 component App
   view
     canvas surface=world(seed: 7)
+---
+== lower-route-field
+# A route's policy is a word it knows (LLP 1048.003 D5).
+routes nav
+  tab home "/" render=static
+component A
+  view
+    text "a"

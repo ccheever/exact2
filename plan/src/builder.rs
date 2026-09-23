@@ -317,8 +317,23 @@ impl PlanBuilder {
             parent,
             tab,
             notfound,
+            render: RenderPolicy::Client,
+            activate: ActivatePolicy::Inferred,
         });
         RoutesId(self.plan.routes.len() as u32 - 1)
+    }
+
+    /// A route's declared render and activation policies (LLP 1048.003 D5);
+    /// a route declares neither is `client`, activation inferred.
+    pub fn set_route_policy(
+        &mut self,
+        id: RoutesId,
+        render: RenderPolicy,
+        activate: ActivatePolicy,
+    ) {
+        let row = &mut self.plan.routes[id.0 as usize];
+        row.render = render;
+        row.activate = activate;
     }
 
     /// The root slot filled with the launch location. @ref LLP 1038 D2/D5.

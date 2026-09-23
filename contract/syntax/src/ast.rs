@@ -88,6 +88,9 @@ pub struct RouteDecl {
     pub tab: bool,
     /// The bare fallback line.
     pub notfound: bool,
+    /// Policy fields after the pattern, `render=build activate=idle`, as
+    /// written (LLP 1048.003 D5); lowering reads them.
+    pub fields: Vec<Attr>,
     /// Where.
     pub span: Span,
 }

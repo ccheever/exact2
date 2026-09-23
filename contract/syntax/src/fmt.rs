@@ -163,6 +163,9 @@ impl<'a> Layout<'a> {
     }
 
     fn file(&mut self, file: &File) {
+        for route in file.routes.iter().flat_map(|r| &r.rows) {
+            self.attributes.extend(route.fields.iter().map(|a| a.span));
+        }
         for field in file.shapes.iter().flat_map(|s| &s.fields) {
             self.ty(&field.ty);
         }

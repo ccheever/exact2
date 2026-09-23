@@ -25,6 +25,9 @@ impl Parser {
         } else {
             self.str_lit("a route pattern")?
         };
+        // @ref LLP 1048.003 D5 — `name=value` policy fields, as attributes.
+        let mut fields = Vec::new();
+        self.attr_line(&mut Vec::new(), &mut fields, true)?;
         self.newline()?;
         let index = rows.len();
         rows.push(RouteDecl {
@@ -33,6 +36,7 @@ impl Parser {
             parent,
             tab,
             notfound,
+            fields,
             span,
         });
         self.block(|p| p.route_line(Some(index), rows))?;

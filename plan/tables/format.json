@@ -438,6 +438,16 @@
         {
           "name": "notfound",
           "codec": "bool"
+        },
+        {
+          "name": "render",
+          "codec": "enum:RenderPolicy",
+          "_comment": "@ref LLP 1048 D2, LLP 1048.003 D5: when the route's document renders; undeclared is client."
+        },
+        {
+          "name": "activate",
+          "codec": "enum:ActivatePolicy",
+          "_comment": "@ref LLP 1048.003 D5: when a rendered page's runtime loads; inferred when undeclared."
         }
       ]
     }
@@ -462,6 +472,17 @@
     "BindingKind": [
       "prop",
       "style"
+    ],
+    "RenderPolicy": [
+      "client",
+      "build",
+      "cached",
+      "request"
+    ],
+    "ActivatePolicy": [
+      "inferred",
+      "idle",
+      "never"
     ],
     "StackMemberKind": [
       "family",

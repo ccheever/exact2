@@ -83,7 +83,7 @@ structs! {
     NameSpans { names, sources }
     File { names, routes, uses, fonts, shapes, styles, fns, tests, components }
     RoutesDecl { slot, rows, span }
-    RouteDecl { name, pattern, parent, tab, notfound, span }
+    RouteDecl { name, pattern, parent, tab, notfound, fields, span }
     FontDecl { name, faces, span }
     FontFaceDecl { weight, italic, source, span }
     TestDecl { name, steps, span }

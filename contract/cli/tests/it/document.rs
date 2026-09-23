@@ -3,6 +3,7 @@
 //! `scroll document` (D4).
 
 use exact_kernel::{Kernel, NodeType, Offer, PropId};
+use exact_plan::{ActivatePolicy, RenderPolicy};
 use exact_runner::{agent, DataError, DataSource, Head, Runner, Value};
 use std::path::Path;
 
@@ -219,6 +220,67 @@ fn scroll_document_marks_the_page_scroller_and_nothing_else() {
     ] {
         let error = contract::compile(src).unwrap_err();
         assert_eq!(error.id, id, "{src}: {error}");
+        assert!(error.message.contains(says), "{src}: {}", error.message);
+    }
+}
+
+#[test]
+fn routes_declare_their_render_and_activation_policies() {
+    let r = boot("/");
+    let plan = r.plan();
+    let policy = |name: &str| {
+        let row = plan
+            .routes
+            .iter()
+            .find(|row| plan.str(row.name) == name)
+            .unwrap();
+        (row.render, row.activate)
+    };
+    assert_eq!(
+        policy("home"),
+        (RenderPolicy::Build, ActivatePolicy::Inferred)
+    );
+    assert_eq!(
+        policy("post"),
+        (RenderPolicy::Request, ActivatePolicy::Idle)
+    );
+    assert_eq!(
+        policy("notfound"),
+        (RenderPolicy::Build, ActivatePolicy::Inferred)
+    );
+    // Undeclared is `client`: nothing renders a route that didn't ask.
+    let plain =
+        contract::compile("routes nav\n  tab home \"/\"\ncomponent A\n  view\n    text \"a\"\n")
+            .unwrap();
+    assert_eq!(plain.routes[0].render, RenderPolicy::Client);
+    // The formatter keeps a field's spelling.
+    let src = "routes nav\n  tab home \"/\" render=build activate=never\ncomponent A\n  view\n    text \"a\"\n";
+    assert_eq!(contract_syntax::fmt::format(src).unwrap(), src);
+    for (src, says) in [
+        (
+            "routes nav\n  tab home \"/\" cache=build\n",
+            "a route has no field `cache`",
+        ),
+        (
+            "routes nav\n  tab home \"/\" render=static\n",
+            "`render` is a word: client, build, cached or request (route `home`)",
+        ),
+        (
+            "routes nav\n  tab home \"/\" render=\"build\"\n",
+            "`render` is a word",
+        ),
+        (
+            "routes nav\n  tab home \"/\" activate=eager\n",
+            "`activate` is a word: idle or never",
+        ),
+        (
+            "routes nav\n  tab home \"/\"\n    post \"/post/:post\" render=build\n",
+            "route `post` has parameters",
+        ),
+    ] {
+        let src = format!("{src}component A\n  view\n    text \"a\"\n");
+        let error = contract::compile(&src).unwrap_err();
+        assert_eq!(error.id, "lower-route-field", "{src}: {error}");
         assert!(error.message.contains(says), "{src}: {}", error.message);
     }
 }
