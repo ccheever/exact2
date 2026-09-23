@@ -1522,3 +1522,26 @@ display, but real GPU work), field 100k, 8 s:
 The rejected CPU alternative (`cpu-cull`: both tick poses per item, the same swept
 sphere, four views, stable compaction into preallocated lists, no upload) costs
 0.41 / 5.1 / 41 ms p50 per frame at 10k / 100k / 500k items.
+
+**Environment lighting's cost.** Split-sum specular and SH diffuse add no GPU time
+that stands out from the noise on native Metal. Against the culling-only commit
+`87b48b1c`, the field's forward pass measured 6.7 → 6.4–6.5 ms and the orbit's
+2.8–2.9 → 2.9–3.1 ms. In headless Chrome, interleaved, the quietest pair (load ~50)
+added 0.29 ms (5.77 → 6.06 ms); loaded pairs added 0.9–2.8 ms, where one build
+alone ranged from 4.2 to 6.0 ms. The prefilter's 36 small passes run only when the
+sky's colours change.
+
+**Module size** (`bun game/bench/size.mjs`, Beacons, binaryen 133 `wasm-opt -Oz`,
+gzip 9, one toolchain for all three rows):
+
+| build | shipped bytes | gzip bytes |
+|---|---:|---:|
+| origin/main `4eca9a09` | 691,192 | 297,560 |
+| culling `87b48b1c` | 711,298 (+20,106) | 305,187 (+7,627) |
+| culling + lighting `31168abb` | 718,477 (+7,179) | 308,115 (+2,928) |
+
+The culling row includes its shader (7.3 KB packed), the CPU quad culling, and GPU
+pass timing plus per-view counts for hookless armed canvases. Hookless games
+compiled timing out before. Projecting the lighting's SH over the cube's texels,
+instead of a θ/φ grid, kept libm's `sinf`/`cosf`/`rem_pio2_large` out of the
+module and saved 5,803 bytes. The 550–650 KB target stays unmet.
