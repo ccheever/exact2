@@ -2,6 +2,7 @@
 
 mod action_related;
 mod branch;
+mod checkpoint;
 mod collection;
 mod collection_bounds;
 mod collection_edge_async;

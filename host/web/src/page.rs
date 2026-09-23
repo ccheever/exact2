@@ -198,19 +198,21 @@ fn fonts(out: &mut String, plan: &Plan) -> Result<(), DocumentError> {
     Ok(())
 }
 
-/// The 1a checkpoint (LLP 1048.000 D6): the location, the render's time and
-/// the resources still pending, as JSON a script element can carry — `<`,
+/// The runner's checkpoint (LLP 1048.000 D6) as JSON a script element can
+/// carry: the location, the render's time and what is still pending — `<`,
 /// `>` and `&` are escapes, so user text can never close the element or
-/// open a comment. It has no answers yet: the runtime renders fresh.
+/// open a comment. Its answers join the page with the runtime that boots
+/// from them (step 7); until then the runtime renders fresh.
 pub fn checkpoint<D: DataSource>(runner: &Runner<D>, location: &str) -> String {
+    let checkpoint = runner.document_checkpoint(location);
     let mut json = String::from("{\"location\":");
-    crate::batch::quote(location, &mut json);
+    crate::batch::quote(&checkpoint.location, &mut json);
     let _ = write!(
         json,
         ",\"time\":{},\"pending\":[",
-        exact_runner::agent::num(runner.now_ms())
+        exact_runner::agent::num(checkpoint.now_ms)
     );
-    for (i, (name, _)) in runner.pending().iter().enumerate() {
+    for (i, name) in checkpoint.pending.iter().enumerate() {
         if i > 0 {
             json.push(',');
         }

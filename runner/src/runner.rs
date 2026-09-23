@@ -13,6 +13,7 @@ mod reorder;
 mod reorder_codec;
 pub use event::{ActionBinding, ActionBindingError, ActionBindingRefusal, Event};
 mod carry;
+mod checkpoint;
 mod collection;
 mod source;
 pub use source::{DataError, DataSource};
@@ -25,6 +26,7 @@ mod settlement;
 mod surface_record;
 mod viewport;
 pub use carry::Carried;
+pub use checkpoint::Checkpoint;
 pub use router::RouterChange;
 
 use crate::instance::{Ids, InstanceError, InstanceStep, SurfaceUpdate, Tree, Update};
@@ -178,6 +180,17 @@ struct ResourceState {
     store_revision: u64,
 }
 
+/// What a boot starts from besides the plan and the launch.
+#[derive(Clone, Copy)]
+enum Seed<'a> {
+    /// The plan's initial state.
+    Fresh,
+    /// A reload's carried state (LLP 1007 §6).
+    Carried(&'a Carried),
+    /// A rendered document's answers (LLP 1048.000 D6).
+    Checkpoint(&'a Checkpoint),
+}
+
 /// A resource or a mutation, as the target of a request in flight.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Target {
@@ -304,7 +317,7 @@ impl<D: DataSource> Runner<D> {
             plan,
             data,
             kernel,
-            None,
+            Seed::Fresh,
             Vec::new(),
             Default::default(),
             viewport,
@@ -330,7 +343,7 @@ impl<D: DataSource> Runner<D> {
             plan,
             data,
             kernel,
-            Some(carried),
+            Seed::Carried(carried),
             carried.store.clone(),
             Default::default(),
             viewport,
@@ -395,7 +408,7 @@ impl<D: DataSource> Runner<D> {
         plan: Plan,
         mut data: D,
         kernel: Kernel,
-        carried: Option<&Carried>,
+        seed: Seed<'_>,
         snapshot: Vec<(String, String)>,
         delivery: crate::delivery::Delivery,
         // @ref LLP 1039 D2 — the layout size before settlement.
@@ -403,13 +416,20 @@ impl<D: DataSource> Runner<D> {
         launch: &str,
     ) -> Result<Runner<D>, RunnerError> {
         viewport.validate()?;
-        if let Some(carried) = carried {
-            if !carried.now_ms.is_finite() {
-                return Err(RunnerError::NonFiniteClock);
-            }
-            if !(0.0..=MAX_CLOCK_MS).contains(&carried.now_ms) {
-                return Err(RunnerError::ClockOutOfRange);
-            }
+        let carried = match seed {
+            Seed::Carried(carried) => Some(carried),
+            _ => None,
+        };
+        let now_ms = match seed {
+            Seed::Fresh => 0.0,
+            Seed::Carried(carried) => carried.now_ms,
+            Seed::Checkpoint(checkpoint) => checkpoint.now_ms,
+        };
+        if !now_ms.is_finite() {
+            return Err(RunnerError::NonFiniteClock);
+        }
+        if !(0.0..=MAX_CLOCK_MS).contains(&now_ms) {
+            return Err(RunnerError::ClockOutOfRange);
         }
         plan.validate().map_err(RunnerError::Plan)?;
         if plan.kernel_schema_digest != exact_kernel::SCHEMA_DIGEST {
@@ -563,6 +583,14 @@ impl<D: DataSource> Runner<D> {
                     })
             })
             .collect();
+        // @ref LLP 1048.000 D6 — a document's answers seed their resources.
+        // The device's own store is an input its render never had.
+        let (seeded, device_state) = match seed {
+            Seed::Checkpoint(checkpoint) => {
+                (runner.seed_checkpoint(checkpoint), runner.has_app_store())
+            }
+            _ => (vec![false; runner.plan.resources.len()], false),
+        };
         // Store-reading resources when the data source is not ready (a
         // TypeScript module before its host loads it, LLP 1027 D4): the
         // answer kept from the last launch seeds the first frame if its
@@ -573,8 +601,13 @@ impl<D: DataSource> Runner<D> {
         runner.keeps_answers = !ready || carried.is_some_and(|c| c.keeps_answers);
         runner.stale = vec![false; runner.plan.resources.len()];
         if !ready {
-            for i in 0..runner.plan.resources.len() {
+            for (i, &taken) in seeded.iter().enumerate() {
                 if !runner.plan.resources[i].reader {
+                    continue;
+                }
+                // An answer the runtime already has isn't asked again when
+                // the module loads, unless the device's store may change it.
+                if taken && !device_state {
                     continue;
                 }
                 runner.stale[i] = true;
@@ -596,10 +629,17 @@ impl<D: DataSource> Runner<D> {
                 }
             }
         }
+        if ready && device_state {
+            // … and asked now when it can answer, showing the rendered
+            // answer until it does.
+            runner.refresh_next.extend(
+                (0..seeded.len()).filter(|&i| seeded[i] && runner.plan.resources[i].reader),
+            );
+        }
         runner.resource_values = vec![None; runner.plan.resources.len()];
         runner.pending_res = vec![false; runner.plan.resources.len()];
         runner.pending_mut = vec![false; runner.plan.mutations.len()];
-        runner.now_ms = carried.map_or(0.0, |c| c.now_ms);
+        runner.now_ms = now_ms;
         // A carried boot never takes compiled data: it was baked for the
         // initial state, and the carried state is not that.
         runner.settle(carried.is_none())?;
@@ -626,7 +666,11 @@ impl<D: DataSource> Runner<D> {
         runner.surfaces = surfaces;
         let line = format!(
             "boot{}: {} nodes, epoch {}",
-            if carried.is_some() { " (carried)" } else { "" },
+            match seed {
+                Seed::Fresh => "",
+                Seed::Carried(_) => " (carried)",
+                Seed::Checkpoint(_) => " (checkpoint)",
+            },
             runner.kernel.live_count(),
             receipt.epoch
         );

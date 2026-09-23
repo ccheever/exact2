@@ -11,7 +11,7 @@
 //! `deliveryActivate`) and the runner adds nothing for them: they reach the
 //! host through `take_commands` exactly as `setScheme` does.
 
-use super::{Carried, DataError, DataSource, Runner, RunnerError};
+use super::{Carried, DataError, DataSource, Runner, RunnerError, Seed};
 use crate::delivery::{Delivery, SOURCE};
 use exact_kernel::{CommitReceipt, Kernel};
 use exact_plan::{Plan, TypeKind, Value};
@@ -34,7 +34,7 @@ impl<D: DataSource> Runner<D> {
             plan,
             data,
             kernel,
-            None,
+            Seed::Fresh,
             snapshot,
             Delivery::default(),
             viewport,
@@ -56,8 +56,9 @@ impl<D: DataSource> Runner<D> {
         launch: &str,
     ) -> Result<Runner<D>, RunnerError> {
         let snapshot = carried.map_or(snapshot, |value| value.store.clone());
+        let seed = carried.map_or(Seed::Fresh, Seed::Carried);
         Self::boot_inner(
-            plan, data, kernel, carried, snapshot, delivery, viewport, launch,
+            plan, data, kernel, seed, snapshot, delivery, viewport, launch,
         )
     }
 
