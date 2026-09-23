@@ -1,0 +1,12 @@
+{
+  "app": {
+    "id": "com.exact.tennis",
+    "name": "Tennis"
+  },
+  "game": {
+    "crate": "tennis-logic",
+    "type": "Tennis",
+    "audio": true,
+    "data": { "crate": "tennis-data", "type": "Jev" }
+  }
+}
