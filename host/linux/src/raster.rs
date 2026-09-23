@@ -383,6 +383,9 @@ pub fn rounded_rect(shape: &Shape) -> Option<Path> {
     pb.finish()
 }
 
+/// The largest frame side, in device pixels, either painter draws.
+pub(crate) const MAX_FRAME_SIDE: u32 = 16384;
+
 impl Backend for Raster {
     fn name(&self) -> &'static str {
         "cpu"
@@ -390,11 +393,19 @@ impl Backend for Raster {
 
     fn begin(&mut self, width: f32, height: f32, scale: f32) {
         self.reset(width, height, scale);
-        let mut pixmap = Pixmap::new(self.width, self.height).expect("a viewport has pixels");
-        if !self.transparent {
-            pixmap.fill(Color::WHITE);
-        }
-        self.target = Some(pixmap);
+        // A frame past the largest side is never allocated (420×860 points at
+        // scale 1000 is 1.4 TB); drawing into none is a no-op and `finish`
+        // refuses the frame by name.
+        let fits = self.width <= MAX_FRAME_SIDE && self.height <= MAX_FRAME_SIDE;
+        self.target = fits
+            .then(|| Pixmap::new(self.width, self.height))
+            .flatten()
+            .map(|mut pixmap| {
+                if !self.transparent {
+                    pixmap.fill(Color::WHITE);
+                }
+                pixmap
+            });
     }
 
     fn begin_damage(
@@ -827,10 +838,32 @@ impl Backend for Raster {
         while !self.layers.is_empty() {
             self.pop_opacity();
         }
-        self.target
-            .take()
-            .ok_or_else(|| "no frame begun".to_string())
+        let (width, height) = (self.width, self.height);
+        self.target.take().ok_or_else(|| {
+            if width > MAX_FRAME_SIDE || height > MAX_FRAME_SIDE {
+                format!("a {width}×{height} frame is past {MAX_FRAME_SIDE} device pixels a side")
+            } else {
+                "no frame begun".to_string()
+            }
+        })
     }
+}
+
+#[test]
+fn a_frame_past_the_largest_side_is_refused_not_allocated() {
+    let mut raster = Raster::new();
+    // 420×860 points at scale 1000: 1.4 TB were it allocated.
+    raster.begin(420.0, 860.0, 1000.0);
+    let error = raster.finish().unwrap_err();
+    assert!(
+        error.contains("420000×860000") && error.contains("16384"),
+        "{error}"
+    );
+    raster.begin(420.0, 860.0, 2.0);
+    assert_eq!(
+        raster.finish().map(|p| (p.width(), p.height())),
+        Ok((840, 1720))
+    );
 }
 
 #[test]

@@ -366,6 +366,35 @@ pub trait Backend {
     }
 }
 
+/// Where a fully transparent subtree draws: nowhere.
+struct Unpainted;
+impl Backend for Unpainted {
+    fn name(&self) -> &'static str {
+        "none"
+    }
+    fn begin(&mut self, _: f32, _: f32, _: f32) {}
+    fn fill(&mut self, _: &Shape, _: [u8; 4], _: Transform) {}
+    fn stroke(&mut self, _: &Shape, _: f32, _: [u8; 4], _: Transform) {}
+    fn image(&mut self, _: &Arc<Bitmap>, _: Rect4, _: &[Shape], _: Transform) {}
+    fn text(
+        &mut self,
+        _: &mut TextEngine,
+        _: &Paragraph,
+        _: &[RunPaint],
+        _: (f32, f32),
+        _: Transform,
+    ) {
+    }
+    fn push_clip(&mut self, _: &Shape, _: Transform) {}
+    fn pop_clip(&mut self) {}
+    fn push_opacity(&mut self, _: f32) {}
+    fn pop_opacity(&mut self) {}
+    fn pointer(&mut self, _: f32, _: f32) {}
+    fn finish(&mut self) -> Result<Pixmap, String> {
+        Err("a transparent subtree has no frame".into())
+    }
+}
+
 /// The painter: the walk over one backend.
 pub struct Painter {
     /// The text engine, shared with the kernel's measurer.
@@ -774,10 +803,11 @@ impl Painter {
             scroll: scrolls.then(|| walk.scene.scroll.get(&id).copied().unwrap_or((0.0, 0.0))),
         });
         let opacity = p.opacity.clamp(0.0, 1.0);
-        if opacity <= 0.0 {
-            return;
-        }
-        if opacity < 1.0 {
+        // CSS opacity is paint only: a transparent subtree is still hit (the
+        // walk records its boxes) and draws through a backend that draws nothing.
+        let drawn =
+            (opacity <= 0.0).then(|| std::mem::replace(&mut self.backend, Box::new(Unpainted)));
+        if drawn.is_none() && opacity < 1.0 {
             self.backend.push_opacity(opacity);
         }
         // @ref LLP 1043.000 §3 D7 — polygon demo ink and exclusion share an outline.
@@ -789,8 +819,10 @@ impl Painter {
         if path_clip {
             self.backend.pop_clip();
         }
-        if opacity < 1.0 {
-            self.backend.pop_opacity();
+        match drawn {
+            Some(backend) => self.backend = backend,
+            None if opacity < 1.0 => self.backend.pop_opacity(),
+            None => {}
         }
     }
 
@@ -866,8 +898,14 @@ impl Painter {
             NodeType::TextInput => {
                 let value = node.props.str(PropId::Value).unwrap_or("");
                 let placeholder = value.is_empty();
+                // A password is masked, one bullet a character, as the web and
+                // Apple's secure fields draw it.
+                let masked;
                 let shown = if placeholder {
                     node.props.str(PropId::Placeholder).unwrap_or("")
+                } else if node.props.str(PropId::Type) == Some("password") {
+                    masked = "\u{2022}".repeat(value.chars().count());
+                    &masked
                 } else {
                     value
                 };

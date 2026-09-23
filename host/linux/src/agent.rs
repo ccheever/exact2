@@ -182,6 +182,7 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             };
             let r = match field_pair(line, "wheel") {
                 Some((dx, dy)) => p.wheel(id, dx as f32, dy as f32),
+                None if field_bool(line, "hover") => p.hover(id),
                 None => p.tap(id),
             };
             r.unwrap_or_else(|e| error(&e))
@@ -474,5 +475,53 @@ mod tests {
                 "invalid input mutated size: {request}"
             );
         }
+    }
+
+    #[test]
+    fn a_hover_never_presses_and_a_key_is_never_text() {
+        let plan = contract::compile("component App\n  state hot = false\n  state presses = 0\n  state text = \"kept\"\n  state lastKey = \"\"\n  action hovered(value) writes hot\n    hot = value\n  action pressed writes presses\n    presses = presses + 1\n  action edit(value) writes text\n    text = value\n  action keyed(value) writes lastKey\n    lastKey = value\n  view\n    column width=300 height=300\n      box hover=hovered press=pressed testId=\"hot\" width=200 height=60\n      box testId=\"away\" width=200 height=60\n      input value=text change=edit key=keyed testId=\"field\" height=32\n      text `${hot} ${presses} ${text} ${lastKey}` testId=\"log\" height=20\n").unwrap();
+        let (mut p, boot_error) = Presenter::boot_with(
+            &plan.encode(),
+            NoData,
+            (300.0, 300.0),
+            1.0,
+            std::path::PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(boot_error.is_none(), "{boot_error:?}");
+        let id = |p: &Presenter<NoData>, test_id: &str| {
+            let k = p.host().kernel();
+            k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
+        };
+        let log = |p: &Presenter<NoData>| {
+            let k = p.host().kernel();
+            let node = k.node_by_key(k.find_by_test_id("log")[0]).unwrap();
+            node.props
+                .str(exact_kernel::PropId::Text)
+                .unwrap()
+                .to_string()
+        };
+        let (hot, away, field) = (id(&p, "hot"), id(&p, "away"), id(&p, "field"));
+        let reply = handle(
+            &mut p,
+            &format!(r#"{{"op":"tap","id":{hot},"hover":true}}"#),
+        );
+        assert!(reply.contains("\"hover\":true"), "{reply}");
+        assert_eq!(log(&p), "true 0 kept ", "a hover enters and never presses");
+        handle(
+            &mut p,
+            &format!(r#"{{"op":"tap","id":{away},"hover":true}}"#),
+        );
+        assert_eq!(log(&p), "false 0 kept ", "the pointer left");
+        handle(
+            &mut p,
+            &format!(r#"{{"op":"type","id":{field},"key":"Escape"}}"#),
+        );
+        assert_eq!(
+            log(&p),
+            "false 0 kept Escape",
+            "a key is heard by name and types nothing"
+        );
     }
 }

@@ -36,8 +36,10 @@ impl<D: DataSource> Presenter<D> {
         if node.props.bool(PropId::EmojiPicker) == Some(true) {
             return Err("emoji selection is not supported on the Linux host".into());
         }
-        self.focus = Some(id);
         let now = self.host.now();
+        if let Some(e) = self.set_focus(Some(id), now) {
+            return Err(e);
+        }
         let error = self
             .host
             .dispatch_at(id, Event::Change(text.to_string()), now);
@@ -94,7 +96,9 @@ impl<D: DataSource> Presenter<D> {
             && matches!(code, "Space" | "Enter" | "NumpadEnter")
         {
             if !self.holds_control(id) {
-                self.focus = Some(id);
+                if let Some(e) = self.set_focus(Some(id), self.host.now()) {
+                    return Err(e);
+                }
             }
             let (x, y, _, _) = self.rect_of(id).ok_or("control has no box")?;
             return if self.control_input(
@@ -127,51 +131,87 @@ impl<D: DataSource> Presenter<D> {
         if !self.focusable(id) || self.host.route_visibility(id).1 {
             return Err(format!("view {id} cannot take focus"));
         }
-        self.focus = Some(id);
-        self.dirty = true;
+        if let Some(e) = self.set_focus(Some(id), self.host.now()) {
+            return Err(e);
+        }
         if down && !(activation && repeat) {
-            let ch = match key {
-                "Space" | " " => Some(' '),
-                "Enter" | "NumpadEnter" => Some('\n'),
-                s if s.chars().count() == 1 => s.chars().next(),
-                _ => None,
+            let name = match key {
+                "Space" => " ",
+                "NumpadEnter" => "Enter",
+                name => name,
             };
-            self.key(ch, key == "Backspace", self.host.now());
+            self.key_down(name, self.host.now());
         }
         Ok(format!("{{\"typed\":{id},\"delivery\":\"recognized\"}}"))
     }
 
-    /// A key for the focused input: a character appended, a backspace, or
-    /// nothing. The runner hears one `change` with the new value.
+    /// A key from the display's keyboard: a character, Enter, or Backspace.
     pub fn key(&mut self, ch: Option<char>, backspace: bool, now_ms: f64) {
+        let name = match (ch, backspace) {
+            (_, true) => "Backspace".to_string(),
+            (Some('\n' | '\r'), _) => "Enter".to_string(),
+            (Some(c), _) => c.to_string(),
+            (None, _) => return,
+        };
+        self.key_down(&name, now_ms);
+    }
+
+    /// A key down at the focused node, by the web's name (`e.key`). The
+    /// nearest `key` handler at or above it hears it first, as a keydown
+    /// bubbles; then its default action: Enter or Space presses a button and
+    /// Enter a link; Enter submits a single-line input (its `submit`) or
+    /// breaks a textarea's line; Backspace deletes; a character is typed —
+    /// each an edit the runner hears as one `change`.
+    pub(crate) fn key_down(&mut self, name: &str, now_ms: f64) {
         let Some(id) = self.focus else { return };
         if !self.display.allows(self.host.kernel(), id) {
+            return;
+        }
+        if self
+            .host
+            .kernel()
+            .node(id)
+            .is_none_or(|n| n.props.bool(PropId::Disabled) == Some(true))
+        {
+            return;
+        }
+        if let Some(e) = self.key_event(name, now_ms) {
+            eprintln!("exact: {e}");
+        }
+        // The handler may have moved the focus or removed the node.
+        if self.focus != Some(id) {
             return;
         }
         let Some(node) = self.host.kernel().node(id) else {
             return;
         };
-        if node.props.bool(PropId::Disabled) == Some(true) {
+        let role = node.props.str(PropId::AccessibilityRole);
+        if role == Some("button") && matches!(name, " " | "Enter")
+            || role == Some("link") && name == "Enter"
+        {
+            self.dispatch_press(id, now_ms, false);
             return;
         }
-        if node.props.str(PropId::AccessibilityRole) == Some("button") {
-            if matches!(ch, Some(' ' | '\n' | '\r')) {
-                self.dispatch_press(id, now_ms, false);
-            }
+        if node.node_type != NodeType::TextInput || node.props.bool(PropId::Editable) == Some(false)
+        {
             return;
         }
-        if node.props.bool(PropId::Editable) == Some(false) {
-            return;
-        }
-        if ch == Some('\n') && node.props.str(PropId::SemanticTag) != Some("textarea") {
-            return;
-        }
+        let textarea = node.props.str(PropId::SemanticTag) == Some("textarea");
         let mut value = node.props.str(PropId::Value).unwrap_or("").to_string();
-        match (ch, backspace) {
-            (Some(c), _) => value.push(c),
-            (None, true) => {
-                value.pop();
+        match name {
+            "Enter" if !textarea => {
+                if let Some(e) = self.submit_event(id, now_ms) {
+                    eprintln!("exact: {e}");
+                }
+                return;
             }
+            "Enter" => value.push('\n'),
+            "Backspace" => {
+                if value.pop().is_none() {
+                    return;
+                }
+            }
+            s if s.chars().count() == 1 => value.push_str(s),
             _ => return,
         }
         if let Some(e) = self.host.dispatch_at(id, Event::Change(value), now_ms) {

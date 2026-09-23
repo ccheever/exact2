@@ -259,6 +259,9 @@ impl<D: DataSource> Presenter<D> {
     /// Recognize one dominant axis. Recognition has zero displacement at catch.
     pub fn pointer_move(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
         self.retire_pointer();
+        if let Some(error) = self.hover_at(Some((x, y)), now_ms) {
+            return Err(error);
+        }
         if self.contact.is_none() {
             return Ok(false);
         }

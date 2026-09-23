@@ -1,0 +1,135 @@
+//! The events beyond press and change (LLP 1005 §3), as the web and Apple
+//! hosts dispatch them: `focus` and `blur` as the focus moves from node to
+//! node, `key` by the web's name at the focused node, `submit` for Enter in a
+//! single-line input, and `hover` in and out as the pointer crosses nodes.
+use super::*;
+
+impl<D: DataSource> Presenter<D> {
+    /// Move the focus: `blur` at the node that loses it, then `focus` at the
+    /// node that gains it — each at its own handler, since the web's focus
+    /// events do not bubble.
+    pub(crate) fn set_focus(&mut self, next: Option<ViewId>, now_ms: f64) -> Option<String> {
+        let previous = self.focus;
+        if previous == next {
+            return None;
+        }
+        self.focus = next;
+        self.dirty = true;
+        let (mut error, mut dispatched) = (None, false);
+        for (id, event, kind) in [
+            (previous, Event::Blur, EventKind::Blur),
+            (next, Event::Focus, EventKind::Focus),
+        ] {
+            if let Some(id) = id.filter(|&id| self.host.runner().handlers_of(id).contains(&kind)) {
+                error = error.or(self.host.dispatch_at(id, event, now_ms));
+                dispatched = true;
+            }
+        }
+        if dispatched {
+            error = error.or(self.after_commit());
+        }
+        error
+    }
+
+    /// A key at the focused node, by the web's name, heard by the nearest
+    /// `key` handler at or above it (a keydown bubbles).
+    pub(crate) fn key_event(&mut self, name: &str, now_ms: f64) -> Option<String> {
+        let target = self
+            .focus
+            .and_then(|id| self.handler_target(id, EventKind::Key))?;
+        self.host
+            .dispatch_at(target, Event::Key(name.to_owned()), now_ms)
+            .or(self.after_commit())
+    }
+
+    /// Enter in a single-line input: the web's implicit submission, at the
+    /// input's own `submit` handler.
+    pub(crate) fn submit_event(&mut self, input: ViewId, now_ms: f64) -> Option<String> {
+        if !self
+            .host
+            .runner()
+            .handlers_of(input)
+            .contains(&EventKind::Submit)
+        {
+            return None;
+        }
+        self.host
+            .dispatch_at(input, Event::Submit, now_ms)
+            .or(self.after_commit())
+    }
+
+    /// The pointer at a point (or gone): `hover` out of every node with a
+    /// handler it left and into every one it entered, outermost first, each
+    /// on its own — the web's `mouseleave`/`mouseenter`.
+    pub(crate) fn hover_at(&mut self, at: Option<(f32, f32)>, now_ms: f64) -> Option<String> {
+        let mut under = Vec::new();
+        let mut node = at.and_then(|(x, y)| self.hit(x, y));
+        while let Some(id) = node {
+            if self
+                .host
+                .runner()
+                .handlers_of(id)
+                .contains(&EventKind::Hover)
+            {
+                under.push(id);
+            }
+            node = self.host.kernel().node(id).and_then(|n| n.parent);
+        }
+        let left: Vec<_> = self
+            .hovered
+            .iter()
+            .copied()
+            .filter(|id| !under.contains(id))
+            .collect();
+        let entered: Vec<_> = under
+            .iter()
+            .rev()
+            .copied()
+            .filter(|id| !self.hovered.contains(id))
+            .collect();
+        if left.is_empty() && entered.is_empty() {
+            return None;
+        }
+        self.hovered = under;
+        let mut error = None;
+        for (id, over) in left
+            .into_iter()
+            .map(|id| (id, false))
+            .chain(entered.into_iter().map(|id| (id, true)))
+        {
+            if self.host.kernel().node(id).is_some() {
+                error = error.or(self.host.dispatch_at(id, Event::Hover(over), now_ms));
+            }
+        }
+        error.or(self.after_commit())
+    }
+
+    /// The agent's hover (`tap … hover`, LLP 1012): the pointer to the node's
+    /// projected center, as a mouse moved there — never a press.
+    pub fn hover(&mut self, id: ViewId) -> Result<String, String> {
+        self.boxes();
+        if self.host.route_visibility(id).1 || self.placement_hidden(id) {
+            return Err(format!("view {id} is hidden or inert"));
+        }
+        let b = self
+            .box_of(id)
+            .ok_or_else(|| format!("no view {id} on screen"))?;
+        let (x, y) = b.center();
+        let mut hit = self.hit(x, y);
+        while hit.is_some() && hit != Some(id) {
+            hit = hit.and_then(|n| self.host.kernel().node(n).and_then(|n| n.parent));
+        }
+        if hit != Some(id) {
+            return Err(format!(
+                "view {id} is covered or not hit at its projected center"
+            ));
+        }
+        self.set_pointer(Some((x, y)));
+        if let Some(error) = self.hover_at(Some((x, y)), self.host.now()) {
+            return Err(error);
+        }
+        Ok(format!(
+            "{{\"tapped\":{id},\"hover\":true,\"delivery\":\"recognized\"}}"
+        ))
+    }
+}

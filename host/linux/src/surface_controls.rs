@@ -257,8 +257,8 @@ impl<D: DataSource> Presenter<D> {
             self.surfaces
                 .input(view, serde_json::json!({"t":"blur","at":self.host.now()}));
         }
-        if self.focus.take().is_some() {
-            self.dirty = true;
+        if let Some(e) = self.set_focus(None, self.host.now()) {
+            eprintln!("exact: {e}");
         }
     }
 
@@ -448,12 +448,24 @@ impl<D: DataSource> Presenter<D> {
         None
     }
 
+    /// The web's focusable nodes: controls, inputs, buttons and links, and a
+    /// node with a `focus`, `blur` or `key` handler (the web gives it a
+    /// `tabindex`), as the Apple hosts take the first responder.
     pub(crate) fn focusable(&self, id: ViewId) -> bool {
         self.host.kernel().node(id).is_some_and(|n| {
             n.props.bool(PropId::Disabled) != Some(true)
                 && (n.props.str(PropId::Action).is_some()
                     || n.node_type == NodeType::TextInput
-                    || n.props.str(PropId::AccessibilityRole) == Some("button"))
+                    || matches!(
+                        n.props.str(PropId::AccessibilityRole),
+                        Some("button" | "link")
+                    )
+                    || self
+                        .host
+                        .runner()
+                        .handlers_of(id)
+                        .iter()
+                        .any(|k| matches!(k, EventKind::Focus | EventKind::Blur | EventKind::Key)))
         })
     }
 
@@ -488,8 +500,9 @@ impl<D: DataSource> Presenter<D> {
                 .and_then(|id| self.host.kernel().node(id))
                 .is_some_and(|node| node.node_type == NodeType::TextInput);
         if self.focus != focus && !editing {
-            self.focus = focus;
-            self.dirty = true;
+            if let Some(e) = self.set_focus(focus, now_ms) {
+                eprintln!("exact: {e}");
+            }
             self.queue_collections();
         }
         let Some(target) = self.handler_target(hit, EventKind::Press) else {

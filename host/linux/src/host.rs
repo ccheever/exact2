@@ -270,6 +270,11 @@ impl<D: DataSource> Host<D> {
     }
 
     #[cfg(test)]
+    pub(crate) fn take_store_writes_for_test(&mut self) -> Vec<exact_runner::StoreWrite> {
+        self.runner.take_store_writes()
+    }
+
+    #[cfg(test)]
     pub(crate) fn apply_test_ops(&mut self, ops: &[exact_kernel::Op]) {
         self.runner.kernel_mut().apply(0, 0, ops).unwrap();
     }
@@ -726,6 +731,10 @@ impl<D: DataSource> Host<D> {
             self.discover_height_handles();
             self.discover_transform_handles();
         }
+        // LLP 1018: a memory store here — the runner holds the values and
+        // nothing persists them until this host links a store, so the write
+        // log (secrets included) is dropped each commit, never accumulated.
+        drop(self.runner.take_store_writes());
         paint |= self.project_navigation();
         self.reconcile_height_bindings();
         self.reconcile_transform_bindings();

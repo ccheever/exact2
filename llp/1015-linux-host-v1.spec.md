@@ -458,6 +458,25 @@ covers 215 sends, a bounded 200-row transcript, earlier/later shifts and return 
 latest; it does not establish physical display cadence or fix the separate hidden
 confirmation/context-menu input gaps (2026-09-20).
 
+**The events beyond press and change (2026-09-23, the 2026-09-22 review).**
+Focus moves through one path that dispatches `blur` at the node losing it and
+`focus` at the node gaining it, each at its own handler (the web's focus events
+do not bubble); the web's focusable nodes take it — controls, inputs, buttons,
+links, and a node with a `focus`, `blur` or `key` handler. A key down, from the
+display or the agent's `type … key`, is heard first by the nearest `key` handler
+at or above the focus, by the web's name, then does its default: Enter or Space
+presses a button and Enter a link; Enter submits a single-line input (its
+`submit`) or breaks a textarea's line; Backspace deletes; a character is typed.
+Pointer moves dispatch `hover` into and out of every node with a handler (the
+web's `mouseenter`/`mouseleave`); the agent's `tap … hover` moves the pointer
+there and never presses. A `type="password"` value paints one bullet a
+character. A fully transparent subtree walks through a backend that draws
+nothing, so its boxes stay hit (CSS opacity is paint only). The store here is a
+memory store (LLP 1018): its write log is dropped with each commit rather than
+accumulating secrets. An `EXACT_SCALE` no frame can take — not a positive finite
+number, or past 16384 device pixels a side — is refused by name and the app
+draws at 1, and the CPU painter refuses such a frame rather than allocating it.
+
 **`clock`** advances the runner, seeks the engine to where it landed, and
 reports both. **Images** (`image.rs`): after every commit the presenter
 syncs every image node's `imageSource` — a relative path resolves under

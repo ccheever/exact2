@@ -36,6 +36,7 @@ mod arrange_geometry;
 mod collection;
 mod contact;
 mod display_frame;
+mod events;
 #[cfg(target_os = "linux")]
 pub(crate) use display_frame::SubmittedFrame;
 #[path = "content_region/presenter.rs"]
@@ -62,6 +63,10 @@ mod collection_tests;
 #[path = "presenter/swipe_tests.rs"]
 mod swipe_tests;
 
+#[cfg(test)]
+#[path = "presenter/events_tests.rs"]
+mod events_tests;
+
 /// The presenter: one host, its painter, and the host state.
 pub struct Presenter<D: DataSource> {
     pub(crate) host: Host<D>,
@@ -85,6 +90,8 @@ pub struct Presenter<D: DataSource> {
     pub(crate) focus: Option<ViewId>,
     autofocus_processed: std::collections::BTreeSet<ViewId>,
     pointer: Option<(f32, f32)>,
+    /// The nodes with a `hover` handler under the pointer, innermost first.
+    hovered: Vec<ViewId>,
     pub(crate) control_bindings: BTreeMap<(u32, u32), crate::surfaces::ControlBinding>,
     pub(crate) control_contact: Option<(ViewId, f32, f32)>,
     boxes: Vec<PaintedBox>,
@@ -360,6 +367,7 @@ impl<D: DataSource> Presenter<D> {
             focus: None,
             autofocus_processed: Default::default(),
             pointer: None,
+            hovered: Vec::new(),
             control_contact: None,
             control_bindings: BTreeMap::new(),
             boxes: Vec::new(),

@@ -48,6 +48,29 @@ pub fn launch_location(args: impl IntoIterator<Item = String>) -> String {
         .map_or_else(|| "/".into(), |href| exact_route::location_of(&href))
 }
 
+/// `EXACT_SCALE`: device pixels per point, 1 when unset. A scale the
+/// painters cannot draw the frame at — not a positive finite number, or one
+/// that takes it past their largest side — is refused by name, and the app
+/// draws at 1 rather than aborting in its first frame.
+fn scale(value: Option<String>, (width, height): (f32, f32)) -> f32 {
+    let Some(value) = value else { return 1.0 };
+    let largest = crate::raster::MAX_FRAME_SIDE as f32;
+    match value.parse::<f32>() {
+        Ok(s)
+            if s.is_finite()
+                && s > 0.0
+                && (width * s).round() <= largest
+                && (height * s).round() <= largest =>
+        {
+            s
+        }
+        _ => {
+            eprintln!("exact: EXACT_SCALE={value} refused: a {width}×{height} frame needs a positive scale within {largest} device pixels a side; drawing at scale 1");
+            1.0
+        }
+    }
+}
+
 fn has_explicit_locator(plan: Option<&str>, dev_plan: Option<&str>) -> bool {
     plan.is_some() || dev_plan.is_some()
 }
@@ -182,10 +205,7 @@ impl Config {
             assets: env("EXACT_ASSETS")
                 .map(PathBuf::from)
                 .unwrap_or_else(|| std::env::current_dir().unwrap_or_default()),
-            scale: env("EXACT_SCALE")
-                .and_then(|s| s.parse().ok())
-                .filter(|s: &f32| *s > 0.0)
-                .unwrap_or(1.0),
+            scale: scale(env("EXACT_SCALE"), size),
             size,
             agent: env("EXACT_AGENT").as_deref() == Some("1"),
             smoke: env("EXACT_SMOKE").as_deref() == Some("1"),
@@ -544,6 +564,21 @@ fn headless<D: DataSource + Default>(config: &mut Config, started: Instant) -> i
         println!("smoke ok");
     }
     0
+}
+
+#[cfg(test)]
+mod scale_tests {
+    use super::scale;
+
+    #[test]
+    fn a_scale_no_frame_can_take_is_refused_for_one() {
+        assert_eq!(scale(None, (420., 860.)), 1.0);
+        assert_eq!(scale(Some("2".into()), (420., 860.)), 2.0);
+        assert_eq!(scale(Some("19".into()), (420., 860.)), 19.0);
+        for refused in ["1000", "20", "0", "-1", "abc", "NaN", "inf"] {
+            assert_eq!(scale(Some(refused.into()), (420., 860.)), 1.0, "{refused}");
+        }
+    }
 }
 
 #[cfg(test)]
