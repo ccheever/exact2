@@ -637,23 +637,31 @@ try {
   // goes down on Change station, leaves it, and comes up — a press AppKit
   // cancels, so nothing navigates; down and up in place navigates. AppKit
   // has no cancel for a mouse, and the reply says so instead of faking one.
-  if (host === 'macos') {
+  // Any refusal here is recorded and the rest of the smoke still runs: one
+  // pointer error must not throw away every other finding.
+  if (host === 'macos') try {
     const down = await s.tap('change-station', { down: true });
-    check(down.delivery === 'platform' && s.contact, `a contact went down as ${down.delivery}`);
-    await s.pointer('move', { dx: 0, dy: 300, ms: 50 });
-    const cancel = await s.pointer('cancel');
-    check(cancel.delivery === 'unsupported' && s.contact, 'AppKit claimed a cancel it cannot do');
-    await s.pointer('up');
+    if (check(down.delivery === 'platform' && s.contact, `a contact went down as ${down.delivery}${down.reason ? `: ${down.reason}` : ''}`)) {
+      await s.pointer('move', { dx: 0, dy: 300, ms: 50 });
+      const cancel = await s.pointer('cancel');
+      check(cancel.delivery === 'unsupported' && s.contact, 'AppKit claimed a cancel it cannot do');
+      await s.pointer('up');
+      tree = await s.tree();
+      check(!byTestId(tree, 'stations-screen') && !s.contact, 'a press released outside its button still opened the stations screen');
+      await s.tap('change-station', { down: true });
+      await s.pointer('hold', { ms: 50 });
+      await s.pointer('up');
+      tree = await s.tree();
+      check(byTestId(tree, 'stations-screen'), 'a contact down and up in place did not press the button');
+      await s.tap('station-paloalto');
+      tree = await s.tree();
+      check(byTestId(tree, 'home-screen'), 'the contact step did not return home');
+    }
+  } catch (error) {
+    check(false, `the AppKit held contact: ${error.message}`);
+    if (s.contact) await s.pointer('up').catch(() => {});
     tree = await s.tree();
-    check(!byTestId(tree, 'stations-screen') && !s.contact, 'a press released outside its button still opened the stations screen');
-    await s.tap('change-station', { down: true });
-    await s.pointer('hold', { ms: 50 });
-    await s.pointer('up');
-    tree = await s.tree();
-    check(byTestId(tree, 'stations-screen'), 'a contact down and up in place did not press the button');
-    await s.tap('station-paloalto');
-    tree = await s.tree();
-    check(byTestId(tree, 'home-screen'), 'the contact step did not return home');
+    if (byTestId(tree, 'stations-screen')) await s.tap('station-paloalto');
   }
 
   // 5. Scrolling (LLP 1010): a wheel over the content moves it, and exactly
