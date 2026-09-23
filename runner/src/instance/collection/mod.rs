@@ -45,6 +45,8 @@ pub(crate) struct Collection {
     bootstrap_rows: usize,
     items: Rc<Vec<Value>>,
     keys: Vec<Value>,
+    /// Positions whose key repeats an earlier one, and which repeat.
+    dups: BTreeMap<usize, u32>,
     string_keys: bool,
     mounted: Vec<Mounted>,
     spacers: Vec<(ViewId, f64)>,
@@ -179,6 +181,7 @@ impl Collection {
                 .clamp(1.0, BOOTSTRAP_ROWS as f64)) as usize,
             items: Rc::new(Vec::new()),
             keys: Vec::new(),
+            dups: BTreeMap::new(),
             string_keys: true,
             mounted: Vec::new(),
             spacers: Vec::new(),
@@ -238,6 +241,7 @@ impl Collection {
                 text_keys.reserve(items.len());
             }
             let mut unique = std::collections::BTreeSet::new();
+            let mut dups = BTreeMap::new();
             let mut inner = frames.to_vec();
             inner.push(Frame::default());
             for (position, item) in items.iter().enumerate() {
@@ -265,23 +269,32 @@ impl Collection {
                         text_keys.push(text);
                         keys.push(self.keys[prefix].clone());
                     }
+                    dups.extend(self.dups.range(..position).map(|(p, d)| (*p, *d)));
                     changed = true;
                 }
                 let text = key_text(&key).ok_or(InstanceError::KeyKind {
                     region: self.region,
                 })?;
-                if !unique.insert(text.clone()) {
-                    return Err(InstanceError::DuplicateKey {
-                        region: self.region,
-                    });
+                // A repeated key is the data's error: the repeat takes the
+                // next identity in order (as an `each` does).
+                let mut dup = 0;
+                let mut ident = text.clone();
+                while unique.contains(&ident) {
+                    dup += 1;
+                    ident = super::disambiguate(text.clone(), dup);
+                }
+                unique.insert(ident.clone());
+                if dup > 0 {
+                    dups.insert(position, dup);
                 }
                 keys.push(key);
-                text_keys.push(text);
+                text_keys.push(ident);
             }
             if changed {
                 self.index.replace_keys(text_keys).map_err(index_error)?;
                 self.string_keys = keys.iter().all(|key| key.as_str().is_some());
                 self.keys = keys;
+                self.dups = dups;
             }
             self.items = items;
         }
@@ -339,7 +352,7 @@ impl Collection {
         self.mounted
             .iter()
             .find(|row| row.wrapper == view || super::find::contains(&row.row.roots, view))
-            .and_then(|row| key_text(&row.row.key))
+            .and_then(|row| super::ident(&row.row.key, row.row.dup))
     }
     /// Pins never qualify an edge. Re-arm only after the geometric window is
     /// measured: replacement estimates cannot manufacture a temporary edge exit.
@@ -390,7 +403,12 @@ impl Collection {
         };
         let mut old: BTreeMap<String, Mounted> = std::mem::take(&mut self.mounted)
             .into_iter()
-            .map(|row| (key_text(&row.row.key).expect("validated"), row))
+            .map(|row| {
+                (
+                    super::ident(&row.row.key, row.row.dup).expect("validated"),
+                    row,
+                )
+            })
             .collect();
         for position in ranges.into_iter().flatten() {
             let text = self.index.key(position).unwrap().to_owned();
@@ -468,8 +486,15 @@ impl Collection {
             }
         }
         let roots = realize(u, None, plan.region(self.region).arms.iter().next(), &inner)?;
+        let dup = self.dups.get(&position).copied().unwrap_or(0);
+        if dup > 0 {
+            let ident = self.index.key(position).unwrap_or_default();
+            u.notes
+                .push(super::repeated(self.region, &self.keys[position], ident));
+        }
         Ok(Row {
             wrapper: None,
+            dup,
             key: self.keys[position].clone(),
             frame,
             roots,

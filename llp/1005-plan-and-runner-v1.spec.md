@@ -310,8 +310,14 @@ so a value its prop or style row refuses (a colour that is not one,
 §3.1): the row is unset — `ClearProp`/`ClearStyle`, so inherited or initial
 — and one journal line names it. It is not CSSOM's `setProperty`, which
 keeps the earlier declaration: the view would then depend on history rather
-than state. With values conforming at every boundary, the remaining way
-there is a duplicate `each` key from a data source.
+than state. A repeated key in an `each` or a virtualized list is the
+data's error too (Charlie, 2026-09-22, a separate decision): the later
+rows take the identities `d1:<key>`, `d2:<key>` in order — no canonical key
+text starts with `d` — and each such row's creation writes one journal
+line. With values conforming at every boundary, what remains is a plan
+defect or a trap while the tree changes; for a type-checked plan, a string
+past `MAX_STRING` built by a binding, or a route segment a binding asks
+`encodeRouteSegment` to encode and it refuses.
 
 **The clock.** `advance(now_ms)` fires every due timer in order (earliest
 first, plan index on ties), each at its own due time, then moves the clock.

@@ -680,6 +680,7 @@ impl Row {
         }
         Ok(Self {
             wrapper: None,
+            dup: 0,
             key,
             frame,
             roots: realize(u, None, plan.region(region).arms.iter().next(), &inner)?,

@@ -885,85 +885,6 @@ fn a_region_at_the_plan_root_is_refused() {
     ));
 }
 
-/// Duplicate keys poison the runner; commands must not leak out.
-struct Duplicates;
-
-impl DataSource for Duplicates {
-    fn query(&mut self, source: &str, _args: &[Value]) -> Result<Value, DataError> {
-        match source {
-            "stations" => Ok(Value::list(vec![])),
-            "departures" => Ok(Value::list(vec![
-                departure("same", 1.0, 1.0),
-                departure("same", 2.0, 2.0),
-            ])),
-            other => Err(DataError::UnknownSource(other.into())),
-        }
-    }
-}
-
-#[test]
-fn keys_follow_one_rule_and_a_poisoned_runner_leaks_no_commands() {
-    let (plan, _) = now_screen();
-    let err = Runner::boot(
-        plan.clone(),
-        Duplicates,
-        Kernel::with_monospace(),
-        Default::default(),
-        "/",
-    )
-    .err()
-    .unwrap();
-    assert!(matches!(
-        err,
-        RunnerError::Instance(exact_runner::instance::InstanceError::DuplicateKey { .. })
-    ));
-    // A runner poisoned after commit leaks no commands, even ones queued earlier.
-    struct LateDuplicates {
-        calls: u32,
-    }
-    impl DataSource for LateDuplicates {
-        fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
-            self.calls += 1;
-            match source {
-                "stations" => Ok(Value::list(vec![])),
-                "departures" if self.calls == 1 => Ok(Value::list(vec![departure("d1", 1.0, 1.0)])),
-                "departures" => {
-                    let _ = args;
-                    Ok(Value::list(vec![
-                        departure("same", 1.0, 1.0),
-                        departure("same", 2.0, 2.0),
-                    ]))
-                }
-                other => Err(DataError::UnknownSource(other.into())),
-            }
-        }
-    }
-    let (plan, _) = now_screen();
-    let mut r = Runner::boot(
-        plan,
-        LateDuplicates { calls: 0 },
-        Kernel::with_monospace(),
-        Default::default(),
-        "/",
-    )
-    .unwrap();
-    r.act("setDark", vec![Value::str("dark")]).unwrap();
-    let err = r
-        .act("selectStation", vec![Value::str("pa")])
-        .err()
-        .unwrap();
-    assert!(matches!(
-        err,
-        RunnerError::Instance(exact_runner::instance::InstanceError::DuplicateKey { .. })
-    ));
-    assert!(r.is_poisoned());
-    assert!(r.take_commands().is_empty(), "no command survives a poison");
-    assert!(matches!(
-        r.act("setDark", vec![Value::str("x")]),
-        Err(RunnerError::Poisoned)
-    ));
-}
-
 #[test]
 fn the_journal_is_a_ring_and_logs_reports_where_its_window_starts() {
     use exact_runner::JOURNAL_RING;
@@ -1007,39 +928,14 @@ fn an_advance_stops_at_a_refusing_timer_with_the_refusal_and_the_clock() {
     // A poisoned runner refuses every action: the first timer of a seek
     // refuses, the advance stops at that timer's due time with no commits,
     // and the refusal rides along — the kernel is exactly as it was.
-    struct Dupes {
-        calls: u32,
-    }
-    impl DataSource for Dupes {
-        fn query(&mut self, source: &str, _args: &[Value]) -> Result<Value, DataError> {
-            self.calls += 1;
-            match source {
-                "stations" => Ok(Value::list(vec![])),
-                "departures" if self.calls == 1 => Ok(Value::list(vec![departure("d1", 1.0, 1.0)])),
-                "departures" => Ok(Value::list(vec![
-                    departure("same", 1.0, 1.0),
-                    departure("same", 2.0, 2.0),
-                ])),
-                other => Err(DataError::UnknownSource(other.into())),
-            }
-        }
-    }
-    let (plan, _) = now_screen();
-    let mut r = Runner::boot(
-        plan,
-        Dupes { calls: 0 },
-        Kernel::with_monospace(),
-        Default::default(),
-        "/",
-    )
-    .unwrap();
+    let mut r = bad_data::fragile();
     // One timer fires cleanly first: its commit is kept and timed.
     let ok = r.advance_timed(1_500.0);
     assert_eq!(ok.receipts.len(), 1);
     assert_eq!(ok.receipts[0].at_ms, 1_000.0);
     assert_eq!(ok.now_ms, 1_500.0);
     assert!(ok.error.is_none());
-    let _ = r.act("selectStation", vec![Value::str("pa")]);
+    let _ = r.act("poke", vec![]);
     assert!(r.is_poisoned());
     let a = r.advance_timed(5_000.0);
     assert!(a.receipts.is_empty());

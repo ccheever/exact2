@@ -117,6 +117,9 @@ enum Active {
 struct Row {
     wrapper: Option<ViewId>,
     key: Value,
+    /// Which repeat of `key` this row is: 0 for the first; the data gave the
+    /// rest the same key, and they are told apart by order (see [`ident`]).
+    dup: u32,
     frame: Frame,
     roots: Vec<Child>,
     /// The row's own slots (LLP 1017 P4c): the `state` a child component
@@ -286,8 +289,8 @@ pub struct Update<'a> {
     dirty_frames: u64,
     /// Whether the scopes walked so far enclose every written row.
     on_path: bool,
-    /// Journal lines for what the data got wrong and the tree absorbed.
-    /// Written with the commit.
+    /// Journal lines for what the data got wrong and the tree absorbed: an
+    /// invalid style or prop value, a repeated key. Written with the commit.
     pub notes: Vec<String>,
 }
 
@@ -876,9 +879,10 @@ impl RegionInst {
                     });
                 };
                 let arm = row.arms.iter().next();
-                // Key every item; refuse duplicates.
-                let mut keyed: Vec<(String, Value, Frame)> = Vec::with_capacity(items.len());
-                let mut seen: BTreeMap<String, ()> = BTreeMap::new();
+                // Key every item. A repeated key is the data's error, not the
+                // plan's: its later rows get their own identity, in order.
+                let mut keyed: Vec<(String, Value, u32, Frame)> = Vec::with_capacity(items.len());
+                let mut seen: BTreeMap<String, u32> = BTreeMap::new();
                 for item in items.iter() {
                     u.work.rows_keyed += 1;
                     let frame = Frame {
@@ -891,12 +895,10 @@ impl RegionInst {
                     let key_text = key_text(&key).ok_or(InstanceError::KeyKind {
                         region: self.region,
                     })?;
-                    if seen.insert(key_text.clone(), ()).is_some() {
-                        return Err(InstanceError::DuplicateKey {
-                            region: self.region,
-                        });
-                    }
-                    keyed.push((key_text, key, frame));
+                    let repeats = seen.entry(key_text.clone()).or_insert(0);
+                    let dup = *repeats;
+                    *repeats += 1;
+                    keyed.push((disambiguate(key_text, dup), key, dup, frame));
                 }
                 // Reuse rows by key, create the new, destroy the gone; order follows the items.
                 // A linear search per row made an unchanged 10,000-row list
@@ -908,15 +910,13 @@ impl RegionInst {
                     .iter()
                     .enumerate()
                     .map(|(i, r)| {
-                        (
-                            key_text(&r.as_ref().unwrap().key).expect("validated key"),
-                            i,
-                        )
+                        let r = r.as_ref().unwrap();
+                        (ident(&r.key, r.dup).expect("validated key"), i)
                     })
                     .collect();
                 let mut roots = keyed.len() != old.len();
                 let mut next = Vec::with_capacity(keyed.len());
-                for (position, (key_text, key, mut frame)) in keyed.into_iter().enumerate() {
+                for (position, (key_text, key, dup, mut frame)) in keyed.into_iter().enumerate() {
                     let found = by_key.get(&key_text).copied();
                     let existing = found.and_then(|i| old[i].take());
                     frame.region = Some(self.region.0);
@@ -954,9 +954,13 @@ impl RegionInst {
                                 }
                             }
                             let roots = realize(u, None, arm, &inner)?;
+                            if dup > 0 {
+                                u.notes.push(repeated(self.region, &key, &key_text));
+                            }
                             next.push(Row {
                                 wrapper: None,
                                 key,
+                                dup,
                                 frame,
                                 roots,
                                 slots,
@@ -1047,6 +1051,31 @@ fn invalid(view: ViewId, row: &str, value: &Value) -> String {
     let mut shown = String::new();
     crate::agent::untyped_json(value, &mut shown);
     format!("view {view}: invalid {row} value {shown}; unset")
+}
+
+/// A row's identity: its key's canonical text, or for the `dup`th repeat
+/// of that key, `d{dup}:` before it — never a canonical text, which starts
+/// `s:`, `n:` or `b:`.
+fn ident(key: &Value, dup: u32) -> Option<String> {
+    key_text(key).map(|text| disambiguate(text, dup))
+}
+
+fn disambiguate(text: String, dup: u32) -> String {
+    if dup == 0 {
+        text
+    } else {
+        format!("d{dup}:{text}")
+    }
+}
+
+/// The journal line for a repeated key's row.
+fn repeated(region: RegionsId, key: &Value, ident: &str) -> String {
+    let mut shown = String::new();
+    crate::agent::untyped_json(key, &mut shown);
+    format!(
+        "list {}: key {shown} repeats; this row is {ident}",
+        region.0
+    )
 }
 
 /// One canonical key text: strings, finite numbers (`-0` is `0`, matching the

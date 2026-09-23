@@ -465,7 +465,7 @@ component App
   view
     column testId="root"
       each item in items key=item.id
-        text item.id
+        text item.id + item.id
 "#;
 
 struct PoisonSource;
@@ -476,10 +476,11 @@ impl DataSource for PoisonSource {
             "items" if args[0].as_number() == Some(0.0) => {
                 Ok(Value::list(vec![Value::record(vec![Value::str("one")])]))
             }
-            "items" => Ok(Value::list(vec![
-                Value::record(vec![Value::str("duplicate")]),
-                Value::record(vec![Value::str("duplicate")]),
-            ])),
+            // Doubled by the view, past the runner's longest string: a trap
+            // while the tree changes, the way data can still poison it.
+            "items" => Ok(Value::list(vec![Value::record(vec![Value::str(
+                &"x".repeat((exact_runner::vm::MAX_STRING / 2) + 1),
+            )])])),
             other => Err(DataError::UnknownSource(other.into())),
         }
     }
@@ -523,7 +524,7 @@ fn poison_leaks_no_effects_from_the_failed_commit() {
     assert!(matches!(
         r.act("go", vec![]),
         Err(RunnerError::Instance(
-            exact_runner::instance::InstanceError::DuplicateKey { .. }
+            exact_runner::instance::InstanceError::Trap(exact_runner::Trap::StringTooLong { .. })
         ))
     ));
     assert!(r.is_poisoned());

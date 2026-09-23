@@ -216,17 +216,20 @@ fn bounded_bootstrap_twenty_traversals_release_row_slots_and_kernel_views() {
     }
 }
 #[test]
-fn offwindow_duplicate_rejected_before_mutating_existing_rows() {
+fn an_offwindow_repeated_key_takes_the_next_identity_in_order() {
     let mut h = Harness::new(25_000, false, false);
-    let before = h.snapshot();
     let mut data: Vec<_> = (0..25_000).map(|i| Value::Number(i as f64)).collect();
     data[24_999] = Value::Number(24_998.0);
     h.slots[0] = Value::list(data);
-    assert!(matches!(
-        h.update(),
-        Err(InstanceError::DuplicateKey { .. })
-    ));
-    assert_eq!(h.snapshot(), before);
+    h.update().unwrap();
+    assert_eq!(h.collection().index.len(), 25_000);
+    assert_eq!(h.collection().index.key(24_998), Some("n:24998"));
+    assert_eq!(h.collection().index.key(24_999), Some("d1:n:24998"));
+    // Scrolled to the end, both rows mount as their own rows.
+    h.send(h.feedback(25_000.0 * 32.0));
+    let s = h.snapshot();
+    assert!(s.rows.iter().any(|r| r.index == 24_998));
+    assert!(s.rows.iter().any(|r| r.index == 24_999));
 }
 #[test]
 fn body_and_key_dependencies_are_independent_and_surviving_keys_reuse_views() {
@@ -1161,7 +1164,7 @@ fn key_reuse_is_positional_not_a_cross_position_identity_cache() {
 }
 
 #[test]
-fn key_reuse_duplicate_prefix_precedes_later_vm_trap_without_publication() {
+fn a_repeated_key_is_kept_and_a_later_vm_trap_refuses_without_publication() {
     let mut h = key_reuse_harness(false);
     let before = h.snapshot();
     let keys = h.collection().keys.as_ptr();
@@ -1172,7 +1175,7 @@ fn key_reuse_duplicate_prefix_precedes_later_vm_trap_without_publication() {
     h.slots[0] = Value::list(next);
     assert!(matches!(
         h.update(),
-        Err(InstanceError::DuplicateKey { .. })
+        Err(InstanceError::Trap(Trap::UnwrapNone { .. }))
     ));
     assert_eq!(h.snapshot(), before);
     assert_eq!(h.collection().keys.as_ptr(), keys);
@@ -1180,7 +1183,7 @@ fn key_reuse_duplicate_prefix_precedes_later_vm_trap_without_publication() {
 }
 
 #[test]
-fn key_reuse_duplicate_reused_suffix_precedes_later_vm_trap() {
+fn a_key_repeating_a_reused_row_still_refuses_at_a_later_vm_trap() {
     let mut h = key_reuse_harness(false);
     let before = h.snapshot();
     let mut next = key_reuse_items(&h);
@@ -1189,9 +1192,28 @@ fn key_reuse_duplicate_reused_suffix_precedes_later_vm_trap() {
     h.slots[0] = Value::list(next);
     assert!(matches!(
         h.update(),
-        Err(InstanceError::DuplicateKey { .. })
+        Err(InstanceError::Trap(Trap::UnwrapNone { .. }))
     ));
     assert_eq!(h.snapshot(), before);
+}
+
+#[test]
+fn a_repeated_key_mounts_as_its_own_row_with_its_own_identity() {
+    let mut h = key_reuse_harness(false);
+    let mut next = key_reuse_items(&h);
+    next[0] = key_reuse_row(2., "the first row, keyed like row two");
+    h.slots[0] = Value::list(next);
+    h.update().unwrap();
+    assert_eq!(h.collection().index.key(0), Some("n:2"));
+    assert_eq!(h.collection().index.key(2), Some("d1:n:2"));
+    let s = h.snapshot();
+    let first = s.rows.iter().find(|r| r.index == 0).unwrap();
+    let third = s.rows.iter().find(|r| r.index == 2).unwrap();
+    assert_ne!(first.root, third.root);
+    assert_eq!(
+        h.kernel.node(first.root).unwrap().props.str(PropId::Text),
+        Some("the first row, keyed like row two")
+    );
 }
 
 #[test]
