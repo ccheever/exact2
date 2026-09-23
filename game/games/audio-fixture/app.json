@@ -1,0 +1,6 @@
+{
+  "name": "Audio fixture",
+  "game": {
+    "audio": true
+  }
+}

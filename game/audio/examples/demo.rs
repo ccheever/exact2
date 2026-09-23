@@ -115,7 +115,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         wav(&Path::new(dir).join(format!("{name}.wav")), &pcm, 48000)?;
         #[cfg(target_os = "macos")]
         if let Some(output) = &mut output {
-            let pcm = pcm.into();
+            let pcm = exact_game_audio::Pcm::F32(pcm.into());
             assert!(output.start(0, &pcm, 48000, name == "wind", 0, 1.0));
             output.set(0, 0.7, 0.7);
             output.flush();

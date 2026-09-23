@@ -99,11 +99,11 @@ pub(crate) fn validate_declaration<G: crate::Game>() -> Result<(), String> {
             || !(if G::LEVEL.is_some_and(|level| level.name == name) {
                 name.ends_with(".level.json")
             } else {
-                name.ends_with(".model") || name.ends_with(".tex")
+                name.ends_with(".model") || name.ends_with(".tex") || name.ends_with(".sound")
             })
         {
             return Err(format!(
-                "asset `{name}`: declaration requires a .model, .tex or declared .level.json name"
+                "asset `{name}`: declaration requires a .model, .tex, .sound or declared .level.json name"
             ));
         }
     }

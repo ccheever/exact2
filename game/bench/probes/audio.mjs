@@ -27,9 +27,10 @@ function observe() {
     contexts.push(record);
     const resume = context.resume.bind(context);
     context.resume = () => { record.resumes.push({trusted:window.event?.isTrusted === true && ['keydown', 'pointerdown'].includes(window.event.type), at:performance.now()}); return resume(); };
-    const panner = context.createStereoPanner.bind(context);
-    context.createStereoPanner = () => {
-      const node = panner(), connect = node.connect.bind(node);
+    // Each voice ends in a channel merger; route it through the analyser.
+    const merger = context.createChannelMerger.bind(context);
+    context.createChannelMerger = (...args) => {
+      const node = merger(...args), connect = node.connect.bind(node);
       node.connect = (destination, ...rest) => connect(destination === context.destination ? analyser : destination, ...rest);
       return node;
     };
@@ -42,7 +43,8 @@ function observe() {
       }
       const node = source(), start = node.start.bind(node);
       node.start = (...args) => {
-        record.sources.push({looping:node.loop, samples:node.buffer?.length ?? 0});
+        record.sources.push({looping:node.loop, samples:node.buffer?.length ?? 0,
+          channels:node.buffer?.numberOfChannels ?? 0, sampleRate:node.buffer?.sampleRate ?? 0});
         return start(...args);
       };
       return node;
@@ -64,7 +66,8 @@ function observe() {
   });
 }
 
-export async function audioProof({out, check, say, game = 'greybox', connect = child => new Cdp(child.stdio[3], child.stdio[4]), spawnBrowser = spawn}) {
+/** Returns the second context's last sample and every sample, for game-specific checks. */
+export async function audioProof({out, check, say, game = 'greybox', loop = 'wind', connect = child => new Cdp(child.stdio[3], child.stdio[4]), spawnBrowser = spawn}) {
   const dist = resolve(import.meta.dir, '../../games', game, 'dist');
   let server, profile, child, cdp, exited;
   const errors = [];
@@ -72,7 +75,7 @@ export async function audioProof({out, check, say, game = 'greybox', connect = c
   try {
     server = createServer((req, res) => serveStatic(dist, req, res));
     await new Promise((ok, fail) => { server.once('error', fail); server.listen(0, '127.0.0.1', ok); });
-    profile = mkdtempSync(resolve(tmpdir(), 'greybox-audio-'));
+    profile = mkdtempSync(resolve(tmpdir(), `${game}-audio-`));
     const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
     child = spawnBrowser(chrome, ['--remote-debugging-pipe', `--user-data-dir=${profile}`,
       '--no-first-run', '--no-default-browser-check', '--disable-background-networking',
@@ -160,8 +163,8 @@ export async function audioProof({out, check, say, game = 'greybox', connect = c
     check('a refused WebAudio start retries without trapping the module', context?.refusedStarts === 1 && context.sources.some(s => s.looping), context);
     check('audio resume was called on a trusted gesture stack', context?.resumes.some(r => r.trusted));
     check('audio context is running and its clock advances', context?.state === 'running' && context.time > first?.time + 0.1, context);
-    check('wind is active while analyser RMS is nonzero', samples.some(s =>
-      s.audio?.sources?.some(v => v.sound === 'wind' && v.playing)
+    check(`${loop} is active while analyser RMS is nonzero`, samples.some(s =>
+      s.audio?.sources?.some(v => v.sound === loop && v.playing)
       && s.contexts.some(c => c.rms > 0 && c.sources.some(v => v.looping))), last);
     const unchanged = await evaluate(`(() => {
       const id = Number(document.querySelector('[data-gpu-input]').dataset.view);
@@ -175,7 +178,8 @@ export async function audioProof({out, check, say, game = 'greybox', connect = c
     await until('audioProof().contexts[1]?.state === "running"', 3000);
     check('persisted pageshow resumes output after suspension', (await evaluate('audioProof()')).contexts[1]?.state === 'running');
     writeFileSync(resolve(out, 'audio-web.json'), JSON.stringify({beforeGesture, afterGesture, gestureFirst, samples, errors}, null, 2) + '\n');
-    say(`AUDIO gesture construction ${context.constructionMs.toFixed(3)} ms; input-to-frame ${last.gestures.filter(g => g.type === 'keydown').at(-1)?.inputToFrameMs?.toFixed(3)} ms; evidence: audio-web.json`);
+    say(`AUDIO gesture construction ${context.constructionMs.toFixed(3)} ms; input-to-frame ${last.gestures.filter(g => g.type === 'keydown').at(-1)?.inputToFrameMs?.toFixed(3)} ms; peak RMS ${Math.max(...samples.flatMap(s => s.contexts.map(c => c.rms))).toFixed(4)}; evidence: audio-web.json`);
+    return {context, samples};
   } catch (error) {
     writeFileSync(resolve(out, 'audio-web.json'), JSON.stringify({error:String(error), errors}, null, 2) + '\n');
     throw error;

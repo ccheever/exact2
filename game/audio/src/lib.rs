@@ -6,7 +6,7 @@ pub use surface::SurfacePlayer;
 pub use synth::render;
 
 use exact_game::{
-    audio::{self, At, AudioListener, AudioSource, Sounds, Voices},
+    audio::{self, At, AudioListener, AudioSource, Sound, Sounds, Voices},
     math, Quat, Vec3, World,
 };
 use std::{collections::BTreeMap, sync::Arc};
@@ -35,7 +35,62 @@ impl Default for Transport {
         }
     }
 }
-/// One device or a test recorder. PCM is mono; set applies stereo gains.
+/// Immutable PCM handed to an output: synthesized mono `f32`, or a sound asset's
+/// interleaved 16-bit frames shared with the world. Outputs key caches by address.
+/// @ref LLP 1046.003 §AU4 (outputs)
+#[derive(Clone, Debug)]
+pub enum Pcm {
+    /// Mono samples rendered by the Player.
+    F32(Arc<[f32]>),
+    /// Interleaved frames of a delivered `.sound` asset.
+    I16 { samples: Arc<[i16]>, channels: u32 },
+}
+impl From<Arc<[f32]>> for Pcm {
+    fn from(samples: Arc<[f32]>) -> Self {
+        Self::F32(samples)
+    }
+}
+impl Pcm {
+    /// One or two.
+    pub fn channels(&self) -> usize {
+        match self {
+            Self::F32(_) => 1,
+            Self::I16 { channels, .. } => *channels as usize,
+        }
+    }
+    /// Frames per channel.
+    pub fn frames(&self) -> usize {
+        match self {
+            Self::F32(s) => s.len(),
+            Self::I16 { samples, channels } => samples.len() / (*channels as usize).max(1),
+        }
+    }
+    /// Retained bytes.
+    pub fn bytes(&self) -> usize {
+        match self {
+            Self::F32(s) => s.len() * 4,
+            Self::I16 { samples, .. } => samples.len() * 2,
+        }
+    }
+    /// Allocation identity, for output caches.
+    pub fn address(&self) -> usize {
+        match self {
+            Self::F32(s) => s.as_ptr() as usize,
+            Self::I16 { samples, .. } => samples.as_ptr() as usize,
+        }
+    }
+    /// One channel at a frame as a float in -1..1 (16-bit samples divide by 32768).
+    pub fn sample(&self, frame: usize, channel: usize) -> f32 {
+        match self {
+            Self::F32(s) => s[frame],
+            Self::I16 { samples, channels } => {
+                f32::from(samples[frame * *channels as usize + channel]) / 32768.0
+            }
+        }
+    }
+}
+/// One device or a test recorder. Set applies left and right gains: mono PCM feeds
+/// both, stereo PCM's left channel feeds the left gain and its right the right.
 pub trait Output {
     /// Request device activation from an input gesture.
     fn unlock(&mut self) {}
@@ -46,16 +101,17 @@ pub trait Output {
         true
     }
     fn flush(&mut self) {}
-    fn retain_pcm(&mut self, _pcm: &[Arc<[f32]>]) {}
+    fn retain_pcm(&mut self, _pcm: &[Pcm]) {}
     /// Whether the device still owns this allocation (including unacknowledged stops).
-    fn owns_pcm(&self, _pcm: &Arc<[f32]>) -> bool {
+    fn owns_pcm(&self, _pcm: &Pcm) -> bool {
         false
     }
-    /// Accept a start, or leave it inactive so the Player retries next sync.
+    /// Accept a start at `offset` frames of PCM recorded at `rate`, or leave it
+    /// inactive so the Player retries next sync. The output resamples to its device.
     fn start(
         &mut self,
         id: u64,
-        pcm: &Arc<[f32]>,
+        pcm: &Pcm,
         rate: u32,
         looping: bool,
         offset: usize,
@@ -68,7 +124,9 @@ pub trait Output {
 pub enum Call {
     Start {
         id: u64,
+        /// Frames per channel.
         samples: usize,
+        channels: usize,
         rate: u32,
         looping: bool,
         offset: usize,
@@ -90,7 +148,7 @@ impl Output for NullOutput {
     fn capacity(&self) -> usize {
         0
     }
-    fn start(&mut self, _: u64, _: &Arc<[f32]>, _: u32, _: bool, _: usize, _: f32) -> bool {
+    fn start(&mut self, _: u64, _: &Pcm, _: u32, _: bool, _: usize, _: f32) -> bool {
         false
     }
     fn set(&mut self, _: u64, _: f32, _: f32) {}
@@ -121,7 +179,7 @@ impl Output for RecordingOutput {
     fn start(
         &mut self,
         id: u64,
-        pcm: &Arc<[f32]>,
+        pcm: &Pcm,
         rate: u32,
         looping: bool,
         offset: usize,
@@ -129,7 +187,8 @@ impl Output for RecordingOutput {
     ) -> bool {
         self.calls.push(Call::Start {
             id,
-            samples: pcm.len(),
+            samples: pcm.frames(),
+            channels: pcm.channels(),
             rate,
             looping,
             offset,
@@ -186,25 +245,35 @@ enum Key {
 struct Active {
     output_id: u64,
     signature: (u64, u64, u32),
+    pcm: Pcm,
 }
 struct Wanted {
     preferred: bool,
     key: Key,
-    synth: audio::Definition,
+    definition: audio::Definition,
     gains: (f32, f32),
     began: u64,
     looping: bool,
     pitch: f32,
+    /// Seconds into the sound at `began`.
+    start: f32,
+    /// Frames into the sound now.
     offset: usize,
+    /// The source's frames per second: the Player's for synths, the asset's for samples.
+    rate: u32,
+    frames: usize,
+    /// A sample's resident PCM; synths render into the cache.
+    sample: Option<Pcm>,
 }
-/// PCM cache and identities belong to the executor, never to the world.
+/// Synthesized PCM cache and identities belong to the executor, never to the world.
+/// Sampled PCM stays the world's allocation; outputs share it.
 pub struct Player<O: Output> {
     pub output: O,
     rate: u32,
     cache: BTreeMap<u64, Arc<[f32]>>,
     wanted: Vec<Wanted>,
     revisions: Vec<u64>,
-    pcm: Vec<Arc<[f32]>>,
+    pcm: Vec<Pcm>,
     active: BTreeMap<Key, Active>,
     refused_sources: std::collections::BTreeSet<(exact_game::Entity, String)>,
     next_id: u64,
@@ -255,18 +324,27 @@ impl<O: Output> Player<O> {
         let master = world
             .try_resource::<audio::Audio>()
             .map_or(1.0, |a| audio::gain(a.master));
-        let gains = |at: &At, position: Option<Vec3>, gain: f32| {
+        let gains = |at: &At, position: Option<Vec3>, gain: f32, pan: f32| {
             let gain = audio::gain(gain) * master;
             let point = match at {
-                At::Ui => return (audio::gain(gain), audio::gain(gain)),
-                At::Point(p) => Some(*p),
-                At::Entity(e) => world.global(*e).map(|t| t.translation.into()).or(position),
+                At::Ui => Some(None),
+                At::Point(p) => Some(Some(*p)),
+                At::Entity(e) => world
+                    .global(*e)
+                    .map(|t| t.translation.into())
+                    .or(position)
+                    .map(Some),
             };
-            let (l, r) = listener
-                .zip(point)
-                .map(|(l, p)| spatial_gains(l, p, gain))
-                .unwrap_or((0.0, 0.0));
-            (audio::gain(l), audio::gain(r))
+            let (l, r) = match point {
+                Some(None) => (gain, gain),
+                Some(Some(p)) => listener.map_or((0.0, 0.0), |l| spatial_gains(l, p, gain)),
+                None => (0.0, 0.0),
+            };
+            // Balance after spatialization: 0 leaves both channels unchanged.
+            (
+                audio::gain(l * (1.0 - pan).min(1.0)),
+                audio::gain(r * (1.0 + pan).min(1.0)),
+            )
         };
         self.refused_sources.retain(|(e, name)| {
             world
@@ -275,29 +353,41 @@ impl<O: Output> Player<O> {
         });
         let wanted = &mut self.wanted;
         wanted.clear();
+        // Synth gains are rendered into their PCM; a sample's shared PCM is scaled here.
+        let authored = |d: &audio::Definition| d.sample().map_or(1.0, |s| s.gain);
         if world.has_audio() && effective.playing {
+            let tick = world.tick();
             for v in &world.resource::<Voices>().voices {
-                if v.began <= world.tick() && world.tick() < v.ends {
+                if v.began <= tick && tick < v.ends {
                     wanted.push(Wanted {
                         preferred: false,
                         key: Key::Voice(v.id),
-                        synth: v.synth.clone(),
-                        gains: gains(&v.at, v.position, v.gain),
+                        definition: v.definition.clone(),
+                        gains: gains(
+                            &v.at,
+                            v.position,
+                            v.gain * authored(&v.definition) * v.fade_at(tick),
+                            v.pan,
+                        ),
                         began: v.began,
-                        looping: false,
+                        looping: v.looping(),
                         pitch: if v.pitch.is_finite() {
                             v.pitch.clamp(0.01, 16.0)
                         } else {
                             1.0
                         },
+                        start: v.offset,
                         offset: 0,
+                        rate: 0,
+                        frames: 0,
+                        sample: None,
                     });
                 }
             }
             for (e, source) in world.query::<&AudioSource>().iter() {
                 if source.playing {
-                    if let Some(synth) = world.resource::<Sounds>().0.get(&source.sound) {
-                        if !synth.looping {
+                    if let Some(definition) = world.resource::<Sounds>().0.get(&source.sound) {
+                        if !definition.looping() {
                             if self.refused_sources.insert((e, source.sound.clone())) {
                                 world.log(format!("refusal: AudioSource `{}` requires a looping definition; use World::play for finite sounds", source.sound));
                             }
@@ -306,34 +396,59 @@ impl<O: Output> Player<O> {
                         wanted.push(Wanted {
                             preferred: false,
                             key: Key::Source(e),
-                            synth: synth.clone(),
-                            gains: gains(&At::Entity(e), None, source.gain),
+                            definition: definition.clone(),
+                            gains: gains(
+                                &At::Entity(e),
+                                None,
+                                source.gain * authored(definition),
+                                0.0,
+                            ),
                             began: 0,
-                            looping: synth.looping,
+                            looping: true,
                             pitch: 1.0,
+                            start: 0.0,
                             offset: 0,
+                            rate: 0,
+                            frames: 0,
+                            sample: None,
                         });
                     }
                 }
             }
         }
+        let rate = self.rate;
         wanted.retain_mut(|w| {
             if w.gains.0.max(w.gains.1) <= 0.0 {
                 return false;
             }
-            let len = synth::sample_count(&w.synth, self.rate);
-            if len == 0 {
+            // Each source plays at its own rate; outputs resample to the device.
+            (w.rate, w.frames, w.sample) = match &*w.definition {
+                Sound::Synth(synth) => (rate, synth::sample_count(synth, rate), None),
+                Sound::Sample(sample) => match world.sound_asset(&sample.asset) {
+                    Some(asset) => (
+                        asset.rate,
+                        asset.frames as usize,
+                        Some(Pcm::I16 {
+                            samples: asset.samples.clone(),
+                            channels: asset.channels,
+                        }),
+                    ),
+                    None => return false,
+                },
+            };
+            if w.frames == 0 {
                 return false;
             }
-            let elapsed = ((world.tick() - w.began) as f64 * self.rate as f64 * w.pitch as f64
+            let elapsed = ((world.tick() - w.began) as f64 * w.rate as f64 * w.pitch as f64
                 / world.hz() as f64)
-                .floor();
+                .floor()
+                + (w.start as f64 * w.rate as f64).floor();
             w.offset = if w.looping {
-                (elapsed % len as f64) as usize
+                (elapsed % w.frames as f64) as usize
             } else {
                 elapsed as usize
             };
-            w.offset < len
+            w.offset < w.frames
         });
         wanted.sort_unstable_by(|a, b| {
             b.looping
@@ -348,18 +463,19 @@ impl<O: Output> Player<O> {
                 .then_with(|| b.key.cmp(&a.key))
         });
         let capacity = self.output.capacity();
-        let signature = |w: &Wanted| (w.synth.revision(), w.began, w.pitch.to_bits());
+        let signature = |w: &Wanted| (w.definition.revision(), w.began, w.pitch.to_bits());
         // Plan priority winners with the byte bound too, so a small fallback
         // retains its identity across frames. Actual allocation below also counts
         // PCM still waiting for acknowledgement, which can temporarily refuse one.
         self.revisions.clear();
         let (mut bytes, mut count) = (0usize, 0usize);
         for w in wanted.iter_mut() {
-            let revision = w.synth.revision();
-            let extra = if self.revisions.contains(&revision) {
+            let revision = w.definition.revision();
+            // Sampled PCM is already resident in the world; only synthesis allocates.
+            let extra = if self.revisions.contains(&revision) || w.sample.is_some() {
                 0
             } else {
-                synth::sample_count(&w.synth, self.rate).saturating_mul(4)
+                w.frames.saturating_mul(4)
             };
             w.preferred = count < capacity && extra <= audio::PCM_BYTE_BUDGET.saturating_sub(bytes);
             if w.preferred {
@@ -381,16 +497,16 @@ impl<O: Output> Player<O> {
             }
         });
         self.pcm.clear();
-        self.pcm.extend(
-            self.cache
-                .iter()
-                .filter(|(revision, _)| self.active.values().any(|a| a.signature.0 == **revision))
-                .map(|(_, pcm)| pcm.clone()),
-        );
+        for active in self.active.values() {
+            if !self.pcm.iter().any(|p| p.address() == active.pcm.address()) {
+                self.pcm.push(active.pcm.clone());
+            }
+        }
         self.output.retain_pcm(&self.pcm);
         self.pcm.clear();
         self.cache.retain(|revision, pcm| {
-            self.active.values().any(|a| a.signature.0 == *revision) || self.output.owns_pcm(pcm)
+            self.active.values().any(|a| a.signature.0 == *revision)
+                || self.output.owns_pcm(&Pcm::F32(pcm.clone()))
         });
         let mut reserved: usize = self.cache.values().map(|pcm| pcm.len() * 4).sum();
         let mut accepted = 0;
@@ -402,21 +518,26 @@ impl<O: Output> Player<O> {
             if accepted == capacity {
                 break;
             }
-            let revision = w.synth.revision();
-            if !self.cache.contains_key(&revision) {
-                let bytes = synth::sample_count(&w.synth, self.rate).saturating_mul(4);
-                if bytes > audio::PCM_BYTE_BUDGET.saturating_sub(reserved) {
-                    // A stopped allocation is still owned by the callback. Do not
-                    // restart losers from it while a winner waits for that release.
-                    preferred_waiting |= w.preferred;
-                    continue;
+            let revision = w.definition.revision();
+            let pcm = match (&w.sample, w.definition.synth()) {
+                (Some(sample), _) => sample.clone(),
+                (None, Some(synth)) => {
+                    if !self.cache.contains_key(&revision) {
+                        let bytes = w.frames.saturating_mul(4);
+                        if bytes > audio::PCM_BYTE_BUDGET.saturating_sub(reserved) {
+                            // A stopped allocation is still owned by the callback. Do not
+                            // restart losers from it while a winner waits for that release.
+                            preferred_waiting |= w.preferred;
+                            continue;
+                        }
+                        // Reserve before synthesis, once per shared definition allocation.
+                        reserved += bytes;
+                        self.cache.insert(revision, render(synth, self.rate).into());
+                    }
+                    Pcm::F32(self.cache[&revision].clone())
                 }
-                // Reserve before synthesis, once per shared definition allocation.
-                reserved += bytes;
-                self.cache
-                    .insert(revision, render(&w.synth, self.rate).into());
-            }
-            let pcm = &self.cache[&revision];
+                (None, None) => continue,
+            };
             let active = match self.active.entry(w.key.clone()) {
                 std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
                 std::collections::btree_map::Entry::Vacant(entry) => {
@@ -424,12 +545,13 @@ impl<O: Output> Player<O> {
                     self.next_id += 1;
                     if !self
                         .output
-                        .start(id, pcm, self.rate, w.looping, w.offset, w.pitch)
+                        .start(id, &pcm, w.rate, w.looping, w.offset, w.pitch)
                     {
-                        if !self.output.owns_pcm(pcm)
+                        if w.sample.is_none()
+                            && !self.output.owns_pcm(&pcm)
                             && !self.active.values().any(|a| a.signature.0 == revision)
                         {
-                            reserved -= pcm.len() * 4;
+                            reserved -= pcm.bytes();
                             self.cache.remove(&revision);
                         }
                         continue;
@@ -437,6 +559,7 @@ impl<O: Output> Player<O> {
                     entry.insert(Active {
                         output_id: id,
                         signature: signature(w),
+                        pcm,
                     })
                 }
             };

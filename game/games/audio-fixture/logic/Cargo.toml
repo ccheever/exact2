@@ -1,0 +1,13 @@
+[package]
+workspace = "../.shells"
+name = "audio-fixture-logic"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[dependencies]
+exact-game = { path = "../../../engine" }
+
+[dev-dependencies]
+exact-game-audio = { path = "../../../audio" }
+exact-game-bake = { path = "../../../bake" }

@@ -130,9 +130,14 @@ the saved local transform. `animation::socket(w, target, joint)` reads the curre
 world-space tick endpoint; displayed attachments use the interpolated local chain.
 
 Emitters form local clouds: moving the emitter moves particles already born.
-For sound, `w.play("chime").start()` creates a voice; dropping the play builder
-does nothing. Call `audio::step(w)` after game logic. Playback and PCM generation
-belong to the separate [audio executor](../audio/README.md).
+For sound, `w.sounds([..])` registers synthesized (`Synth`) or sampled (`Sample`)
+definitions in setup; a sample names a `.sound` asset declared in `Game::ASSETS`, and
+registration saves its frames, rate and channels. `w.play("chime").start()` creates
+a voice with optional gain, pitch, pan, start offset and fade-in; dropping the play
+builder does nothing. A looping definition plays until `audio::stop` or
+`audio::fade`. Call `audio::step(w)` after game logic. Voices and definitions are
+saved and hashed; PCM is delivery, outside both. Playback, PCM generation and the
+budgets belong to the separate [audio executor](../audio/README.md).
 
 ## Saves and assets
 
@@ -142,7 +147,9 @@ receiver intact. Restore reinstates the saved input queue, held keys and touch
 viewport; a later host resize replaces the viewport. Agent inspection does not
 consume input.
 
-`sim.load_assets(|name| std::fs::read(name))?` loads headless dependencies.
+`sim.load_assets(|name| std::fs::read(name))?` loads headless dependencies, including
+declared `.sound` assets, which the primitive module also decodes; a save records
+their content identity, as it does a level's.
 `sim.save()?` checks current mesh roots even before requests are drained and
 reports pending or failed declarations by name. Failed cosmetics do not block saves.
 

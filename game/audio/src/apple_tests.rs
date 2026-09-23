@@ -1,6 +1,10 @@
 use super::*;
+use crate::Pcm;
+fn f(samples: &Arc<[f32]>) -> Pcm {
+    Pcm::F32(samples.clone())
+}
 fn start(p: &mut Pending, id: u64, pcm: &Arc<[f32]>, rate: u32) {
-    p.start(id, pcm, rate, true, 0, 1.0);
+    p.start(id, &f(pcm), rate, true, 0, 1.0);
     p.set(id, 1.0, 1.0);
 }
 
@@ -46,7 +50,7 @@ fn mixer_is_linear_below_one_and_firewalls_nonfinite_samples() {
     let (mut p, mut m) = Pending::new();
     m.rate = 4.0; // one-sample ramp for the resampling oracle
     let pcm: Arc<[f32]> = vec![0.0, 1.0, 0.0, -1.0].into();
-    p.start(7, &pcm, 2, true, 1, 1.0);
+    p.start(7, &f(&pcm), 2, true, 1, 1.0);
     p.set(7, 1.0, 0.0);
     p.flush();
     m.commands();
@@ -251,28 +255,28 @@ fn unique_pcm_budget_refuses_without_queueing_and_releases_after_ack() {
     p.byte_budget = 32;
     let a: Arc<[f32]> = vec![0.25; 8].into();
     let b: Arc<[f32]> = vec![0.5; 8].into();
-    assert!(p.start(1, &a, 48000, true, 0, 1.0));
-    assert!(p.start(2, &a, 48000, true, 0, 1.0)); // shared allocation counts once
+    assert!(p.start(1, &f(&a), 48000, true, 0, 1.0));
+    assert!(p.start(2, &f(&a), 48000, true, 0, 1.0)); // shared allocation counts once
     let queued = p.controls.len();
-    assert!(!p.start(3, &b, 48000, true, 0, 1.0));
+    assert!(!p.start(3, &f(&b), 48000, true, 0, 1.0));
     assert_eq!(p.controls.len(), queued);
     assert!(!p.live.contains_key(&3));
-    assert!(!p.start(1, &b, 48000, true, 0, 1.0));
+    assert!(!p.start(1, &f(&b), 48000, true, 0, 1.0));
     assert_eq!(p.controls.len(), queued);
     assert_eq!(p.live[&1], a.as_ptr() as usize);
     p.flush();
     p.stop(1);
     p.stop(2);
     p.flush();
-    assert!(!p.start(3, &b, 48000, true, 0, 1.0)); // callback still owns A
+    assert!(!p.start(3, &f(&b), 48000, true, 0, 1.0)); // callback still owns A
     m.commands();
     p.flush();
-    assert!(p.start(3, &b, 48000, true, 0, 1.0));
+    assert!(p.start(3, &f(&b), 48000, true, 0, 1.0));
     assert_eq!(p.retained.len(), 1);
     p.stop(3); // unpublished start releases its bytes immediately
     assert!(p.retained.is_empty());
     let oversized: Arc<[f32]> = vec![0.0; 9].into();
-    assert!(!p.start(4, &oversized, 48000, true, 0, 1.0));
+    assert!(!p.start(4, &f(&oversized), 48000, true, 0, 1.0));
 }
 
 #[test]
@@ -282,7 +286,7 @@ fn unsupported_callback_layouts_advance_phase_and_finish_voices() {
         let (mut p, mut m) = Pending::new();
         m.rate = 4.0;
         let pcm: Arc<[f32]> = vec![0.1, 0.2, 0.3, 0.4].into();
-        p.start(1, &pcm, 4, false, 0, 1.0);
+        p.start(1, &f(&pcm), 4, false, 0, 1.0);
         p.set(1, 1.0, 1.0);
         p.flush();
         let mut samples = [9.0f32; 4];
@@ -345,10 +349,7 @@ fn full_mixer_does_not_ack_or_lose_a_start() {
             sequence: 9999,
             command: Command::Start {
                 id: 99,
-                pcm: Samples {
-                    ptr: pcm.as_ptr(),
-                    len: pcm.len(),
-                },
+                pcm: Samples::of(&f(&pcm)),
                 rate: 48000,
                 looping: true,
                 offset: 0,
@@ -374,17 +375,17 @@ fn full_producer_reports_rejection_and_stops_pass_unpublished_starts() {
     let (mut p, mut m) = Pending::new();
     let pcm: Arc<[f32]> = vec![0.25; 48000].into();
     for id in 0..32 {
-        assert!(p.start(id, &pcm, 48000, true, 0, 1.0));
+        assert!(p.start(id, &f(&pcm), 48000, true, 0, 1.0));
     }
-    assert!(!p.start(32, &pcm, 48000, true, 0, 1.0));
+    assert!(!p.start(32, &f(&pcm), 48000, true, 0, 1.0));
     p.flush();
     m.commands();
     p.flush();
     p.stop(0);
-    assert!(p.start(32, &pcm, 48000, true, 0, 1.0));
+    assert!(p.start(32, &f(&pcm), 48000, true, 0, 1.0));
     p.flush(); // Stop(0) is published; Start(32) waits for acknowledgement.
     p.stop(1); // Must pass that blocked start so it can release another slot.
-    assert!(p.start(33, &pcm, 48000, true, 0, 1.0));
+    assert!(p.start(33, &f(&pcm), 48000, true, 0, 1.0));
     p.flush();
     m.commands();
     p.flush();
@@ -403,8 +404,8 @@ fn unpublished_same_id_replacement_subtracts_released_bytes() {
     p.byte_budget = 32;
     let a: Arc<[f32]> = vec![0.25; 8].into();
     let b: Arc<[f32]> = vec![0.5; 8].into();
-    assert!(p.start(1, &a, 48000, true, 0, 1.0));
-    assert!(p.start(1, &b, 48000, true, 0, 1.0));
+    assert!(p.start(1, &f(&a), 48000, true, 0, 1.0));
+    assert!(p.start(1, &f(&b), 48000, true, 0, 1.0));
     assert_eq!(p.retained.len(), 1);
     assert_eq!(p.live[&1], b.as_ptr() as usize);
 }
@@ -424,13 +425,13 @@ fn player_reserves_pcm_before_synthesis_and_walks_past_refused_voices() {
         fn flush(&mut self) {
             self.0.flush();
         }
-        fn owns_pcm(&self, pcm: &Arc<[f32]>) -> bool {
-            self.0.retained.contains_key(&(pcm.as_ptr() as usize))
+        fn owns_pcm(&self, pcm: &Pcm) -> bool {
+            self.0.retained.contains_key(&pcm.address())
         }
         fn start(
             &mut self,
             id: u64,
-            pcm: &Arc<[f32]>,
+            pcm: &Pcm,
             rate: u32,
             looping: bool,
             offset: usize,
@@ -519,13 +520,13 @@ fn preferred_source_waits_for_stop_ack_without_restarting_the_loser() {
         fn flush(&mut self) {
             self.0.flush();
         }
-        fn owns_pcm(&self, pcm: &Arc<[f32]>) -> bool {
-            self.0.retained.contains_key(&(pcm.as_ptr() as usize))
+        fn owns_pcm(&self, pcm: &Pcm) -> bool {
+            self.0.retained.contains_key(&pcm.address())
         }
         fn start(
             &mut self,
             id: u64,
-            pcm: &Arc<[f32]>,
+            pcm: &Pcm,
             rate: u32,
             looping: bool,
             offset: usize,
@@ -564,4 +565,101 @@ fn preferred_source_waits_for_stop_ack_without_restarting_the_loser() {
     assert!(player.active.contains_key(&crate::Key::Source(entities[0])));
     assert!(player.active.contains_key(&crate::Key::Source(entities[1])));
     assert!(!player.active.contains_key(&crate::Key::Source(entities[2])));
+}
+
+fn stereo(samples: &[i16]) -> Pcm {
+    Pcm::I16 {
+        samples: samples.to_vec().into(),
+        channels: 2,
+    }
+}
+
+// AU4: 16-bit stereo frames resample per channel; each gain scales its own channel.
+#[test]
+fn stereo_sixteen_bit_frames_resample_per_channel() {
+    let (mut p, mut m) = Pending::new();
+    m.rate = 4.0; // one-sample ramp; a 2 Hz source steps half a frame per sample
+    let pcm = stereo(&[16384, -16384, 0, 8192, -16384, 0]);
+    assert!(p.start(1, &pcm, 2, true, 0, 1.0));
+    p.set(1, 1.0, 0.5);
+    p.flush();
+    m.commands();
+    let frames: Vec<_> = (0..6).map(|_| m.frame()).collect();
+    assert_eq!(
+        frames,
+        [
+            (0.5, -0.25),
+            (0.25, -0.0625),
+            (0.0, 0.125),
+            (-0.25, 0.0625),
+            (-0.5, 0.0),
+            (0.0, -0.125), // the loop interpolates back toward frame zero
+        ]
+    );
+}
+
+// AU4: a synthesized mono voice and a sampled stereo voice sum linearly, each at
+// its own rate; a 44.1 kHz source advances 44.1/48 frames per 48 kHz sample.
+#[test]
+fn synth_and_sample_voices_mix_at_their_own_rates() {
+    let (mut p, mut m) = Pending::new();
+    m.rate = 4.0;
+    let tone: Arc<[f32]> = vec![0.25; 4].into();
+    start(&mut p, 1, &tone, 4);
+    assert!(p.start(2, &stereo(&[8192, -8192, 8192, -8192]), 2, true, 0, 1.0));
+    p.set(2, 1.0, 1.0);
+    p.flush();
+    m.commands();
+    assert_eq!(m.frame(), (0.5, 0.0));
+    let steps: Vec<_> = m.voices.iter().flatten().map(|v| v.step).collect();
+    assert_eq!(steps, [1.0, 0.5]);
+    let (mut p, mut m) = Pending::new();
+    m.rate = 48_000.0;
+    assert!(p.start(3, &stereo(&[0; 8]), 44_100, true, 0, 1.0));
+    p.flush();
+    m.commands();
+    let step = m.voices.iter().flatten().next().unwrap().step;
+    assert!((step - 44_100.0 / 48_000.0).abs() < 1e-12);
+}
+
+// AU4: retained 16-bit PCM counts two bytes per sample against the byte budget.
+#[test]
+fn sixteen_bit_pcm_counts_its_own_bytes() {
+    let (mut p, _) = Pending::new();
+    p.byte_budget = 16;
+    assert!(p.start(1, &stereo(&[0; 8]), 48_000, true, 0, 1.0)); // 16 bytes
+    assert!(!p.start(2, &stereo(&[0; 2]), 48_000, true, 0, 1.0));
+}
+
+// AU4: the callback writes interleaved stereo from a 16-bit stereo voice.
+#[test]
+fn callback_renders_sixteen_bit_stereo_into_the_device_buffer() {
+    use std::ffi::c_void;
+    let (mut p, mut mixer) = Pending::new();
+    mixer.rate = 4.0;
+    assert!(p.start(1, &stereo(&[16384, -8192, -16384, 8192]), 4, true, 0, 1.0));
+    p.set(1, 1.0, 1.0);
+    p.flush();
+    let mut out = [9.0f32; 8];
+    let mut list = Buffers {
+        count: 1,
+        first: Buffer {
+            channels: 2,
+            bytes: 32,
+            data: out.as_mut_ptr().cast(),
+        },
+    };
+    // SAFETY: the list has one advertised interleaved buffer with 4 stereo frames.
+    let status = unsafe {
+        render(
+            (&mut mixer as *mut Mixer).cast::<c_void>(),
+            std::ptr::null_mut(),
+            std::ptr::null(),
+            0,
+            4,
+            &mut list,
+        )
+    };
+    assert_eq!(status, 0);
+    assert_eq!(out, [0.5, -0.25, -0.5, 0.25, 0.5, -0.25, -0.5, 0.25]);
 }

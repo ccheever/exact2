@@ -187,3 +187,37 @@ fn source_changes_preserve_order_across_holes_and_recycled_entities() {
         3
     );
 }
+
+// Synth-only worlds save and hash exactly as before sampled sounds existed.
+#[test]
+fn synth_definitions_and_voices_keep_their_encoding() {
+    let mut w = World::new(60, 3);
+    w.sounds([(
+        "chime",
+        Synth::sine(880.0)
+            .decay(0.6)
+            .seconds(0.8)
+            .layer(Synth::sine(1320.0).gain(0.4)),
+    )]);
+    let e = w.spawn_named("lantern", crate::Transform::at(1.0, 0.0, 0.0));
+    w.play("chime").at(e).pitch(1.03).gain(0.7).start();
+    w.play("chime").ui().start();
+    let definition = crate::hash::of(&w.resource::<Sounds>().0["chime"]);
+    let voices = crate::hash::of(&*w.resource::<Voices>());
+    let save = crate::hash::of(&w.save());
+    let pins: BTreeMap<String, String> =
+        crate::json::from_str(include_str!("../tests/pins.json")).unwrap();
+    for (name, got) in [
+        ("definition", definition),
+        ("voices", voices),
+        ("save", save),
+        ("world", w.hash()),
+    ] {
+        let pin = &pins[&format!("synth-only-{name}")];
+        assert_eq!(
+            &format!("0x{got:016x}"),
+            pin,
+            "synth-only {name} encoding changed"
+        );
+    }
+}

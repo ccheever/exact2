@@ -79,13 +79,61 @@ impl<T: Copy> Consumer<T> {
     }
 }
 #[derive(Clone, Copy)]
+enum Format {
+    F32(*const f32),
+    I16(*const i16),
+}
+/// Raw view of retained PCM: `frames` × `channels` interleaved samples.
+#[derive(Clone, Copy)]
 struct Samples {
-    ptr: *const f32,
-    len: usize,
+    data: Format,
+    frames: usize,
+    channels: usize,
 }
 // SAFETY: Samples points to immutable PCM retained until a callback stop
 // acknowledgement (or device disposal). Neither callback nor commands frees it.
 unsafe impl Send for Samples {}
+impl Samples {
+    fn of(pcm: &crate::Pcm) -> Self {
+        Self {
+            data: match pcm {
+                crate::Pcm::F32(s) => Format::F32(s.as_ptr()),
+                crate::Pcm::I16 { samples, .. } => Format::I16(samples.as_ptr()),
+            },
+            frames: pcm.frames(),
+            channels: pcm.channels(),
+        }
+    }
+    fn address(&self) -> usize {
+        match self.data {
+            Format::F32(p) => p as usize,
+            Format::I16(p) => p as usize,
+        }
+    }
+    /// Left and right at one frame; mono feeds both. Non-finite samples are zero.
+    ///
+    /// # Safety
+    /// `frame < self.frames`, and the allocation is still retained.
+    unsafe fn frame(&self, frame: usize) -> (f32, f32) {
+        let right = self.channels.min(2) - 1;
+        let at = |channel: usize| {
+            let i = frame * self.channels + channel;
+            // SAFETY: the caller keeps `frame` in range and the PCM retained.
+            let x = unsafe {
+                match self.data {
+                    Format::F32(p) => *p.add(i),
+                    Format::I16(p) => f32::from(*p.add(i)) / 32768.0,
+                }
+            };
+            if x.is_finite() {
+                x
+            } else {
+                0.0
+            }
+        };
+        (at(0), at(right))
+    }
+}
 #[derive(Clone, Copy)]
 enum Command {
     Start {
@@ -108,7 +156,7 @@ struct Packet {
     sequence: u64,
     command: Command,
 }
-use exact_game::audio::PCM_BYTE_BUDGET;
+use exact_game::{asset::SOUND_BYTE_BUDGET, audio::PCM_BYTE_BUDGET};
 
 /// Main-thread ownership and retry queue. The realtime side only returns a
 /// processed sequence watermark; it never touches an Arc or allocates.
@@ -118,7 +166,7 @@ struct Pending {
     acknowledgements: Consumer<u64>,
     controls: VecDeque<Packet>,
     sets: BTreeMap<u64, (f32, f32)>,
-    retained: BTreeMap<usize, (Arc<[f32]>, u64)>,
+    retained: BTreeMap<usize, (crate::Pcm, u64)>,
     live: BTreeMap<u64, usize>,
     sent: BTreeMap<u64, usize>,
     stopping: BTreeMap<u64, u64>,
@@ -131,7 +179,8 @@ impl Pending {
         let (acknowledgements, returns) = channel();
         (
             Self {
-                byte_budget: PCM_BYTE_BUDGET,
+                // Synthesized PCM and resident sounds, each under its own budget.
+                byte_budget: PCM_BYTE_BUDGET + SOUND_BYTE_BUDGET,
                 commands,
                 acknowledgements: returns,
                 controls: VecDeque::new(),
@@ -162,7 +211,7 @@ impl Pending {
     fn start(
         &mut self,
         id: u64,
-        pcm: &Arc<[f32]>,
+        pcm: &crate::Pcm,
         rate: u32,
         looping: bool,
         offset: usize,
@@ -170,12 +219,8 @@ impl Pending {
     ) -> bool {
         // Refuse before changing ownership or publishing anything. Shared PCM
         // is pointer-keyed and counted once, including stops awaiting an ack.
-        if !self.retained.contains_key(&(pcm.as_ptr() as usize)) {
-            let used: usize = self
-                .retained
-                .values()
-                .map(|(pcm, _)| std::mem::size_of_val(&**pcm))
-                .sum();
+        if !self.retained.contains_key(&pcm.address()) {
+            let used: usize = self.retained.values().map(|(pcm, _)| pcm.bytes()).sum();
             let released = self
                 .live
                 .get(&id)
@@ -185,8 +230,8 @@ impl Pending {
                         && !self.live.iter().any(|(other, p)| *other != id && p == *ptr)
                         && !self.sent.values().any(|p| p == *ptr)
                 })
-                .map_or(0, |ptr| self.retained[ptr].0.len() * 4);
-            if std::mem::size_of_val(&**pcm) > self.byte_budget.saturating_sub(used - released) {
+                .map_or(0, |ptr| self.retained[ptr].0.bytes());
+            if pcm.bytes() > self.byte_budget.saturating_sub(used - released) {
                 return false;
             }
         }
@@ -198,19 +243,16 @@ impl Pending {
         }
         self.control(Command::Start {
             id,
-            pcm: Samples {
-                ptr: pcm.as_ptr(),
-                len: pcm.len(),
-            },
+            pcm: Samples::of(pcm),
             rate,
             looping,
             offset,
             pitch,
         });
         self.retained
-            .entry(pcm.as_ptr() as usize)
+            .entry(pcm.address())
             .or_insert_with(|| (pcm.clone(), 0));
-        self.live.insert(id, pcm.as_ptr() as usize);
+        self.live.insert(id, pcm.address());
         true
     }
     fn stop(&mut self, id: u64) {
@@ -284,8 +326,8 @@ impl Pending {
             self.sequence = packet.sequence;
             match packet.command {
                 Command::Start { id, pcm, .. } => {
-                    self.sent.insert(id, pcm.ptr as usize);
-                    self.retained.get_mut(&(pcm.ptr as usize)).unwrap().1 = packet.sequence;
+                    self.sent.insert(id, pcm.address());
+                    self.retained.get_mut(&pcm.address()).unwrap().1 = packet.sequence;
                 }
                 Command::Stop(id) => {
                     if let Some(&ptr) = self.sent.get(&id) {
@@ -399,42 +441,43 @@ impl Mixer {
         let (mut left, mut right) = (0.0, 0.0);
         for slot in &mut self.voices {
             let Some(v) = slot else { continue };
-            if v.pcm.len == 0 {
+            let len = v.pcm.frames;
+            if len == 0 {
                 *slot = None;
                 continue;
             }
-            if v.position >= v.pcm.len as f64 {
+            if v.position >= len as f64 {
                 if v.looping {
-                    v.position %= v.pcm.len as f64;
+                    v.position %= len as f64;
                 } else {
                     *slot = None;
                     continue;
                 }
             }
             let i = v.position as usize;
-            let j = if i + 1 < v.pcm.len {
+            let j = if i + 1 < len {
                 i + 1
             } else if v.looping {
                 0
             } else {
                 i
             };
-            // SAFETY: both indices are below len, and AppleOutput retains the
+            // SAFETY: both frames are below len, and AppleOutput retains the
             // immutable allocation until its stop command has been acknowledged.
-            let (a, b) = unsafe { (*v.pcm.ptr.add(i), *v.pcm.ptr.add(j)) };
-            let a = if a.is_finite() { a } else { 0.0 };
-            let b = if b.is_finite() { b } else { 0.0 };
-            let sample = a + (b - a) * (v.position - i as f64) as f32;
-            let sample = if sample.is_finite() { sample } else { 0.0 };
+            let ((al, ar), (bl, br)) = unsafe { (v.pcm.frame(i), v.pcm.frame(j)) };
+            // Linear interpolation resamples the source rate to the device rate.
+            let t = (v.position - i as f64) as f32;
+            let finite = |x: f32| if x.is_finite() { x } else { 0.0 };
+            let (sl, sr) = (finite(al + (bl - al) * t), finite(ar + (br - ar) * t));
             if v.ramp > 0 {
                 v.left += (v.target_left - v.left) / v.ramp as f32;
                 v.right += (v.target_right - v.right) / v.ramp as f32;
                 v.ramp -= 1;
             }
-            left += sample * v.left;
-            right += sample * v.right;
+            left += sl * v.left;
+            right += sr * v.right;
             v.position += v.step;
-            if !v.looping && v.position >= v.pcm.len as f64 {
+            if !v.looping && v.position >= len as f64 {
                 *slot = None;
             }
         }
@@ -720,13 +763,13 @@ mod device {
         fn flush(&mut self) {
             self.pending.flush();
         }
-        fn owns_pcm(&self, pcm: &Arc<[f32]>) -> bool {
-            self.pending.retained.contains_key(&(pcm.as_ptr() as usize))
+        fn owns_pcm(&self, pcm: &crate::Pcm) -> bool {
+            self.pending.retained.contains_key(&pcm.address())
         }
         fn start(
             &mut self,
             id: u64,
-            pcm: &Arc<[f32]>,
+            pcm: &crate::Pcm,
             rate: u32,
             looping: bool,
             offset: usize,
