@@ -96,7 +96,7 @@ if ExactEnv.agentFreezes { session.clock = 0 }
 let launchURL = ExactEnv.environment["EXACT_LAUNCH_URL"].flatMap { URL(string: $0) }
 var launchDevelopmentURL: URL?
 if let url = launchURL {
-    if ExactDevelopmentLink.page(url) != nil { launchDevelopmentURL = url }
+    if ExactDevelopmentLink.claims(url) { launchDevelopmentURL = url }
     else { session.openURL(url) }
 }
 let view = ExactView(session: session)
@@ -159,7 +159,7 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// while this one runs. A document arriving now is why the app comes
     /// forward; one that opens nothing leaves the window where it was.
     func application(_ application: NSApplication, open urls: [URL]) {
-        if let url = urls.first, ExactDevelopmentLink.page(url) != nil {
+        if let url = urls.first, ExactDevelopmentLink.claims(url) {
             if !session.booted { launchDevelopmentURL = url; return }
             ExactDevelopmentLink.open(url)
             front(application)

@@ -210,7 +210,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         let incoming = connectionOptions.urlContexts.first?.url
             ?? connectionOptions.userActivities.first(where: { $0.activityType == NSUserActivityTypeBrowsingWeb })?.webpageURL
             ?? environment["EXACT_LAUNCH_URL"].flatMap { URL(string: $0) }
-        if let url = incoming, ExactDevelopmentLink.page(url) == nil { ExactIOS.session.openURL(url) }
+        if let url = incoming, !ExactDevelopmentLink.claims(url) { ExactIOS.session.openURL(url) }
         ExactEnv.stamp("before boot")
         let w = UIWindow(windowScene: ws)
         w.backgroundColor = .white
@@ -235,7 +235,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         DevMenu.install(on: w, session: ExactIOS.session, controller: c, planPath: devPlanPath ?? environment["EXACT_PLAN"])
         w.makeKeyAndVisible()
         // A cold development connection needs the mounted session and window.
-        if let url = incoming, ExactDevelopmentLink.page(url) != nil {
+        if let url = incoming, ExactDevelopmentLink.claims(url) {
             DispatchQueue.main.async { ExactDevelopmentLink.open(url) }
         }
         ExactEnv.stamp("window")
