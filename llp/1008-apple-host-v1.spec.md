@@ -580,6 +580,9 @@ across a reload; a generated header (§4).
 colors, and decoration, using the same CoreText paragraph as measurement.
 macOS supports drag selection across paragraphs, select-all and copy; inline
 link activation goes to the embedding session's `openURL` command delegate.
+A paragraph takes the first responder for that selection but is never a Tab
+stop, as plain text is not on the web; Tab from a selected paragraph goes on
+to the next stop after it (2026-09-23).
 Selection is presenter state. `ExactSession.change(testId:value:)` lets a native
 embedder deliver file data to an existing change handler without compiling UI.
 Changing an embedded `ExactApp.assetRoot` now updates its resolver; a complete

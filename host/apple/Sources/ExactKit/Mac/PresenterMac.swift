@@ -1180,9 +1180,12 @@ final class Presenter {
     /// tabbable. Hidden popover rows stay out (their container is hidden).
     func syncKeyViewLoop() {
         var listed: [NodeView] = []
+        // A paragraph selected by a click is where Tab starts from, as on the
+        // web: it points on to the next stop after it, and no stop to it.
+        var starts: [(NodeView, Int)] = []
         func walk(_ v: NodeView) {
             if v.inert || v.isHidden { return }
-            if Self.tabbable(v) { listed.append(v) }
+            if Self.tabbable(v) { listed.append(v) } else if v.isParagraph { starts.append((v, listed.count)) }
             for child in v.container.subviews.compactMap({ $0 as? NodeView }) { walk(child) }
         }
         for r in root.subviews.compactMap({ $0 as? NodeView }) { walk(r) }
@@ -1192,6 +1195,10 @@ final class Presenter {
             if pa != pb { return pa < pb }
             return a.offset < b.offset
         }.map(\.element)
+        // First, so the loop's own links below decide each stop's previous.
+        for (paragraph, next) in starts {
+            paragraph.nextKeyView = tabbable.isEmpty ? nil : keyView(of: next < listed.count ? listed[next] : tabbable[0])
+        }
         if tabbable.isEmpty {
             viewport.nextKeyView = nil
             return
@@ -1210,7 +1217,7 @@ final class Presenter {
         if index < 0 { return false }
         if v.field != nil || v.textArea != nil { return true }
         if v.kind == "button" || v.kind == "toggle" || v.handlers.contains("press") { return true }
-        if v.acceptsFirstResponder { return true }
+        if v.canBecomeKeyView { return true }
         return index > 0
     }
 

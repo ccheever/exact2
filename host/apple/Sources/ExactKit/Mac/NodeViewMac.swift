@@ -288,16 +288,20 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// A node with focus, blur, or key handlers takes the focus (an input's
     /// field does by itself): the web's rule that only a focusable element
     /// hears these. A pressable is in the tab order the way a `<button>` is.
+    /// A paragraph takes the focus too, for selection, but plain text is
+    /// never a Tab stop on the web.
     override var acceptsFirstResponder: Bool {
         if disabled || inert || isHiddenOrHasHiddenAncestor { return false }
         if field != nil || textArea != nil { return false }
-        if isParagraph { return true }
-        return kind == "button" || canvases?.wantsInput(id) == true || handlers.contains("press") || !handlers.isDisjoint(with: ["focus", "blur", "key"])
+        return isParagraph || tabbable
+    }
+    var tabbable: Bool {
+        kind == "button" || canvases?.wantsInput(id) == true || handlers.contains("press") || !handlers.isDisjoint(with: ["focus", "blur", "key"])
     }
     /// Sequential focus follows the web: a button is in the loop even when
     /// macOS "Keyboard navigation" is off (that setting would otherwise
     /// skip every non-field).
-    override var canBecomeKeyView: Bool { acceptsFirstResponder && !isHiddenOrHasHiddenAncestor }
+    override var canBecomeKeyView: Bool { acceptsFirstResponder && tabbable }
     override func becomeFirstResponder() -> Bool {
         guard !disabled else { return false }
         let ok = super.becomeFirstResponder()

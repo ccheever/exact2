@@ -132,6 +132,31 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertFalse(reached.contains(caption), "a button's text is its name, not a second stop")
         XCTAssertFalse(reached.contains(spacer))
     }
+    /// Plain text takes the focus for selection but is never a Tab stop, as
+    /// on the web: Tab walks the controls, and from a selected paragraph it
+    /// goes on to the next stop after it. A key handler makes text focusable.
+    func testParagraphsAreSelectableButNotTabStops() {
+        let (p, w, first, other) = fixture()
+        let text = NodeView(id: 20, kind: "text", presenter: p)
+        text.applyProps(set: ["text": "Northbound"], clear: [])
+        text.frame = NSRect(x: 0, y: 50, width: 100, height: 20)
+        p.root.addSubview(text, positioned: .below, relativeTo: other); p.views[text.id] = text
+        p.syncKeyViewLoop()
+        XCTAssertTrue(text.acceptsFirstResponder, "a click still focuses it for selection")
+        XCTAssertFalse(text.canBecomeKeyView)
+        XCTAssertTrue(first.nextKeyView === other)
+        XCTAssertTrue(other.nextKeyView === first)
+        XCTAssertTrue(w.makeFirstResponder(first))
+        w.selectNextKeyView(nil)
+        XCTAssertTrue(w.firstResponder === other, "Tab passes over the paragraph")
+        XCTAssertTrue(w.makeFirstResponder(text))
+        w.selectNextKeyView(nil)
+        XCTAssertTrue(w.firstResponder === other, "Tab from a selected paragraph goes on after it")
+        text.handlers = ["key"]
+        p.syncKeyViewLoop()
+        XCTAssertTrue(text.canBecomeKeyView, "a key handler makes text focusable, as tabindex=0 does")
+        XCTAssertTrue(first.nextKeyView === text)
+    }
     func testOffDoesNotTrackALiveRegion() {
         let (p, w, first, _) = fixture()
         first.props["accessibilityLive"] = "off"
