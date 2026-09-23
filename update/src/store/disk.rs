@@ -81,23 +81,32 @@ pub(super) fn sync_dir(dir: &Path) -> Result<(), String> {
         .map_err(|e| format!("cannot sync {}: {e}", dir.display()))
 }
 
-/// Write a file whole or not at all, and durably: a synced temporary beside
-/// it, a rename over the old one, then the directory synced so the rename
-/// survives a crash too. Without the syncs a power loss can leave the new
-/// name holding no bytes (LLP 1026 D11: the record is the rollback floor).
-pub(super) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
+/// Write a file whole or not at all: a temporary beside it, then a rename
+/// over the old one. `durable` syncs the temporary before the rename and the
+/// directory after it, so the rename survives a crash too; without the syncs
+/// a power loss can leave the new name holding no bytes (LLP 1026 D11: the
+/// record is the rollback floor).
+pub(super) fn write_atomic(path: &Path, bytes: &[u8], durable: bool) -> Result<(), String> {
     let parent = path
         .parent()
         .ok_or_else(|| format!("{} has no directory", path.display()))?;
     let tmp = parent.join(temporary_name());
-    write_file(&tmp, bytes).inspect_err(|_| {
+    let written = if durable {
+        write_file(&tmp, bytes)
+    } else {
+        std::fs::write(&tmp, bytes).map_err(|e| format!("cannot write {}: {e}", tmp.display()))
+    };
+    written.inspect_err(|_| {
         let _ = std::fs::remove_file(&tmp);
     })?;
     std::fs::rename(&tmp, path).map_err(|e| {
         let _ = std::fs::remove_file(&tmp);
         format!("cannot put {} in place: {e}", path.display())
     })?;
-    sync_dir(parent)
+    if durable {
+        sync_dir(parent)?;
+    }
+    Ok(())
 }
 
 /// A name nothing else in this directory holds: the process, the clock, and a
@@ -141,7 +150,7 @@ impl Blobs {
     pub(super) fn put(&self, digest: &str, bytes: &[u8]) -> Result<(), String> {
         std::fs::create_dir_all(&self.0)
             .map_err(|e| format!("cannot make {}: {e}", self.0.display()))?;
-        write_atomic(&self.0.join(digest), bytes)
+        write_atomic(&self.0.join(digest), bytes, true)
     }
 
     /// Give an entry blob `digest` at `path`: a hard link, else a synced copy.

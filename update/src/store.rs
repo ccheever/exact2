@@ -690,7 +690,7 @@ impl Store {
             return Ok(());
         }
         self.record.failures += 1;
-        self.write_record()
+        self.write_boot_mark()
     }
 
     /// First pixel: the bundle that booted is good (LLP 1026 D11). Clears the
@@ -702,7 +702,7 @@ impl Store {
         }
         self.record.failures = 0;
         self.record.last_good.clone_from(&self.running);
-        self.write_record()
+        self.write_boot_mark()
     }
 
     /// The selected entry was refused before it could run and this process
@@ -1011,7 +1011,7 @@ impl Store {
         record.pending = None;
         record.selected = Some(staged.entry.clone());
         record.failures = 0;
-        write_atomic(&self.record_path(), record.to_json().as_bytes())?;
+        write_atomic(&self.record_path(), record.to_json().as_bytes(), true)?;
         self.record = record;
         self.view = Some(view);
         self.running = Some(staged.entry);
@@ -1202,11 +1202,25 @@ impl Store {
         }
     }
 
+    /// Write the record durably: whatever moves the floor or the selection.
     fn write_record(&self) -> Result<(), String> {
         if self.frozen {
             return Ok(());
         }
-        write_atomic(&self.record_path(), self.record.to_json().as_bytes())
+        write_atomic(&self.record_path(), self.record.to_json().as_bytes(), true)
+    }
+
+    /// Write a boot mark — the failure count, the last-good bundle — whole
+    /// but unsynced. `boot_started` runs before first pixel, where two full
+    /// syncs cost 12–16 ms (2026-09-23, this Mac at load 74–122). A process
+    /// crash keeps the write (the page cache has it); a power loss that loses
+    /// the record loses only the mark, since `open` recovers the floor from
+    /// the signed entries and the accepted head stages again.
+    fn write_boot_mark(&self) -> Result<(), String> {
+        if self.frozen {
+            return Ok(());
+        }
+        write_atomic(&self.record_path(), self.record.to_json().as_bytes(), false)
     }
 
     /// Build one entry under a temporary name and rename it into place. Whole
