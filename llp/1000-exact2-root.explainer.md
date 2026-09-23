@@ -130,7 +130,8 @@ bun scripts/boot.mjs   # counts the module graph before first pixel: host glue o
 ```
 
 Cargo's three cover the root `default-members` (deterministic, in-process
-crates); the async lane runs them with `--workspace`, then `metrics.mjs --long`.
+crates); the async lane runs them with `--workspace`, the UIKit XCTests for commits
+under `host/apple`, then `metrics.mjs --long`.
 
 ## Durable constraints (from the rules, restated for orientation)
 

@@ -4,6 +4,7 @@
 // it. Usage:
 //   bun host/apple/build.mjs [crate=caltrain-apple] [--run]                 macOS
 //   bun host/apple/build.mjs [crate] --test                                  the Swift host tests
+//   bun host/apple/build.mjs [crate] --test --ios [--sim <udid|name>]        the UIKit ones (*IOSTests) on a simulator
 //   bun host/apple/build.mjs --ios [crate] [--run] [--sim <udid|name>]        iOS, on a simulator
 //   bun host/apple/build.mjs --device [crate] [--run] [--phone <udid|name>]   iOS, on a phone
 // Add --url <http(s) app URL> to connect any of these clients to the same
@@ -776,30 +777,56 @@ function main(args) {
 /** `--test`: the Swift host tests (LLP 1033 D4a). They link `ExactKit`,
  *  which links an app's archive, so cargo builds one first — Caltrain's by
  *  default, any app's by name. Not one of the five checks (`rules/RULES.md`
- *  caps those at five); run it when the host's own behaviour changes. */
+ *  caps those at five); run it when the host's own behaviour changes. With
+ *  `--ios`, the UIKit tests (`*IOSTests.swift`) through xcodebuild on a
+ *  simulator: `--sim`/EXACT_SIM, else one that is not running (another
+ *  session may be driving a booted one), shut down again only if booted here.
+ *  The async lane runs these for commits under host/apple. */
 function test(args) {
-  const app = resolveApp(args.find((a) => !a.startsWith('--')));
+  const ios = args.includes('--ios');
+  const app = resolveApp(args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--sim'));
   app.prepare?.();
   const crate = app.crate('apple');
   const release = appleBuildLock(app);
   const paths = appleArtifacts(app, { composition: 'embedded' });
   let cargoRelease;
   try {
-    const cargoEnv = { ...developmentBuildEnv(), CARGO_TARGET_DIR: app.target };
+    const cargoEnv = { ...developmentBuildEnv(), CARGO_TARGET_DIR: app.target, ...(ios ? {
+      SDKROOT: read('xcrun', ['--sdk', 'iphonesimulator', '--show-sdk-path']).stdout.trim(),
+      MACOSX_DEPLOYMENT_TARGET: '14.0', IPHONEOS_DEPLOYMENT_TARGET: '17.0',
+      // Build scripts compile Objective-C++ for the Mac; SDKROOT names the phone's.
+      HOST_CXXFLAGS: `${process.env.HOST_CXXFLAGS ?? ''} -isysroot ${read('xcrun', ['--sdk', 'macosx', '--show-sdk-path']).stdout.trim()}`,
+    } : {}) };
     const metadata = read('cargo', ['metadata', '--no-deps', '--format-version', '1'], { cwd: app.workspace, env: cargoEnv });
     if (metadata.status !== 0) throw new Error(`cargo metadata: ${metadata.stderr}`);
     const package_ = JSON.parse(metadata.stdout).packages.find(p => p.name === crate);
     const unit = package_ && cargoLibraryTarget(package_);
     if (!unit) throw new Error(`Cargo has no library target for ${crate}`);
-    cargoRelease = claimBuildOutput(app, appleCargoClaims(app, 'host', [unit])[0]);
-    run('cargo', ['build', '--release', '-p', crate, '--lib'], { cwd: app.workspace, env: cargoEnv });
-    const libDir = resolve(app.target, 'release');
-    runApple('swift', ['test', '--scratch-path', resolve(paths.namespace, 'tests')], {
-      cwd: pkg, stdio: 'inherit',
-      env: { ...process.env, MACOSX_DEPLOYMENT_TARGET: '14.0', EXACT_TESTS: '1', EXACT_LIB_DIR: libDir, EXACT_LIB: unit.name.replace(/-/g, '_'), EXACT_APP_COMPOSITION: 'embedded' },
-    });
+    cargoRelease = claimBuildOutput(app, appleCargoClaims(app, ios ? iosTarget : 'host', [unit])[0]);
+    run('cargo', ['build', '--release', '-p', crate, '--lib', ...(ios ? ['--target', iosTarget] : [])], { cwd: app.workspace, env: cargoEnv });
+    const libDir = ios ? resolve(app.target, iosTarget, 'release') : resolve(app.target, 'release');
+    const env = { ...process.env, EXACT_TESTS: '1', EXACT_LIB_DIR: libDir, EXACT_LIB: unit.name.replace(/-/g, '_'), EXACT_APP_COMPOSITION: 'embedded' };
+    if (!ios) {
+      runApple('swift', ['test', '--scratch-path', resolve(paths.namespace, 'tests')], {
+        cwd: pkg, stdio: 'inherit', env: { ...env, MACOSX_DEPLOYMENT_TARGET: '14.0' },
+      });
+      return;
+    }
+    const classes = readdirSync(resolve(pkg, 'tests/ExactKitTests')).filter(f => f.endsWith('IOSTests.swift')).map(f => f.slice(0, -'.swift'.length));
+    if (!classes.length) { console.log('host/apple: no *IOSTests to run'); return; }
+    const pick = args.includes('--sim') ? args[args.indexOf('--sim') + 1] : process.env.EXACT_SIM;
+    const before = simulators();
+    const idle = before.filter(d => /SimRuntime\.iOS/.test(d.runtime) && /^iPhone \d+ Pro$/.test(d.name) && d.state !== 'Booted');
+    const newest = (d) => Number(/iOS-(\d+)-(\d+)/.exec(d.runtime)?.slice(1).join('.') ?? 0);
+    const dev = simulator(pick ?? idle.sort((a, b) => newest(b) - newest(a))[0]?.udid);
+    const bootedHere = before.find(d => d.udid === dev.udid)?.state !== 'Booted';
+    try {
+      runApple('xcodebuild', ['test', '-scheme', 'Exact', '-destination', `platform=iOS Simulator,id=${dev.udid}`,
+        '-derivedDataPath', resolve(paths.namespace, 'ios-tests'), ...classes.map(c => `-only-testing:ExactKitTests/${c}`)], {
+        cwd: pkg, stdio: 'inherit', env: { ...env, IPHONEOS_DEPLOYMENT_TARGET: '17.0' },
+      });
+    } finally { if (bootedHere) read('xcrun', ['simctl', 'shutdown', dev.udid]); }
   } finally { cargoRelease?.(); release(); }
-
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === new URL(import.meta.url).pathname) {

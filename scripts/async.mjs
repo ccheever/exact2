@@ -3,9 +3,11 @@
  * async — the async lane (rules/RULES.md §Loop shape): every first-parent
  * commit on origin/main, checked out in a dedicated worktree with its own
  * target/, gets the five checks over the whole workspace plus the tests marked
- * `#[ignore = "async lane: …"]`, then `metrics.mjs --long` (every RULES budget;
- * a VIOLATION row or a failed run counts, an OVER time does not — it moves with
- * the load). A failure that the previous commit did not have is filed with
+ * `#[ignore = "async lane: …"]`, the UIKit XCTests on a simulator when the commit
+ * touches host/apple (`build.mjs --test --ios`; Charlie, 2026-09-23), then
+ * `metrics.mjs --long` (every RULES budget;
+ * a VIOLATION or FAILED row or a failed run counts, an OVER time does not — it
+ * moves with the load). A failure that the previous commit did not have is filed with
  * `issue.mjs`, naming the commit that introduced it.
  * Logs and timings (with the load average) stay in <worktree>/target/async/.
  *
@@ -42,8 +44,9 @@ function laneTests() {
 }
 
 const workspace = ['--workspace'];
-function checks() {
+function checks(sha) {
   const lane = laneTests();
+  const apple = git(['diff', '--name-only', `${sha}^`, sha, '--', 'host/apple'], WT) !== '';
   return [
     ['build', 'cargo', ['build', ...workspace, '--all-targets', '--keep-going']],
     ['test', 'cargo', ['test', ...workspace, '--lib', '--bins', '--tests', '--no-fail-fast']],
@@ -52,6 +55,7 @@ function checks() {
     ['fmt', 'cargo', ['fmt', '--all', '--', '--check']],
     ['caps', 'bun', ['scripts/caps.mjs']],
     ['boot', 'bun', ['scripts/boot.mjs']],
+    ...(apple ? [['ios', 'bun', ['host/apple/build.mjs', '--test', '--ios']]] : []),
     ['metrics', 'bun', ['scripts/metrics.mjs', '--long']],
   ];
 }
@@ -69,7 +73,9 @@ function failures(name, log, status) {
     const rerun = /^error: test failed, to rerun pass `([^`]+)`/.exec(line);
     if (rerun) for (const t of failed.splice(0)) found.add(`${name}: ${rerun[1]} ${t}`);
   }
-  for (const m of log.matchAll(/^\s+(\S.*?)\s{2,}.*\bVIOLATION\b/gm)) found.add(`${name}: ${m[1]} VIOLATION`);
+  // metrics rows: a VIOLATION, or a measurement whose build FAILED.
+  if (name === 'metrics') for (const m of log.matchAll(/^[ \t]+(\S[^\n]*?)[ \t]{2,}(?:FAILED\b|[^\n]*\bVIOLATION\b)/gm)) found.add(`${name}: ${m[1]} ${/\bVIOLATION\b/.test(m[0]) ? 'VIOLATION' : 'FAILED'}`);
+  for (const m of log.matchAll(/Test Case '-\[(\S+) (\S+)\]' failed/g)) found.add(`${name}: ${m[1]} ${m[2]} failed`);
   for (const m of log.matchAll(/^Diff in (\S+?):\d+:/gm)) found.add(`${name}: ${m[1].replace(WT + '/', '')} is not formatted`);
   if (status !== 0 && !found.size) found.add(`${name}: exit ${status} (see log)`);
   return [...found];
@@ -84,7 +90,7 @@ function check(sha) {
   const installed = spawnSync('bun', ['install', '--frozen-lockfile'], { cwd: WT, env, encoding: 'utf8' });
   const result = { sha, subject: git(['log', '-1', '--format=%s', sha]), checks: {}, failures: [] };
   if (installed.status !== 0) result.failures.push(`install: bun install --frozen-lockfile exit ${installed.status}`);
-  for (const [name, command, args] of checks()) {
+  for (const [name, command, args] of checks(sha)) {
     const logPath = resolve(dir, `${name}.log`), fd = openSync(logPath, 'w');
     const load = loadavg()[0], start = performance.now();
     const r = spawnSync(command, args, { cwd: WT, env, stdio: ['ignore', fd, fd] });
@@ -115,6 +121,8 @@ async function once(state) {
     : [tip];
   for (const sha of pending) {
     const result = check(sha);
+    // A commit outside host/apple runs no iOS tests: the last ones stand.
+    if (!result.checks.ios) result.failures.push(...(state.failures ?? []).filter(f => f.startsWith('ios: ')));
     // The first commit checked has no parent result: it sets the baseline,
     // since its failures cannot be attributed to it.
     const baseline = state.failures === undefined;
