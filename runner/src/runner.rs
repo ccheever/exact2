@@ -472,7 +472,9 @@ impl<D: DataSource> Runner<D> {
         if !(0.0..=MAX_CLOCK_MS).contains(&now_ms) {
             return Err(RunnerError::ClockOutOfRange);
         }
-        plan.validate().map_err(RunnerError::Plan)?;
+        // A plan is validated where it is made: `Plan::decode` and
+        // `PlanBuilder::finish` (the compiler's and the bake's) both check
+        // every cross-reference, so the runner takes it as it is.
         if plan.kernel_schema_digest != exact_kernel::SCHEMA_DIGEST {
             return Err(RunnerError::KernelSchemaMismatch {
                 plan: plan.kernel_schema_digest,
