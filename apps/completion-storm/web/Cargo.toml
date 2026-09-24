@@ -12,6 +12,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 completion-storm-data = { path = "../data" }
 exact-web = { path = "../../../host/web" }
+exact-web-capabilities = { path = "../../../host/web-capabilities" }
 
 [build-dependencies]
 completion-storm-data = { path = "../data" }

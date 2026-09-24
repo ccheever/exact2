@@ -23,6 +23,7 @@ exact-kernel = { path = "../../../kernel" }
 exact-plan = { path = "../../../plan" }
 exact-runner = { path = "../../../runner" }
 exact-web = { path = "../../../host/web" }
+exact-web-capabilities = { path = "../../../host/web-capabilities" }
 
 [[bin]]
 name = "metrics"

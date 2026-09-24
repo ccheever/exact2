@@ -24,6 +24,8 @@
 //!   answered from the runner and kernel for every host.
 //! - [`head`] — the document's head: the active `head` elements' fields,
 //!   for every host's page, window or scene title (LLP 1048.003 D1).
+//! - [`uses`] — what a plan uses beyond the core, from its bytes (LLP 1047
+//!   D2): what a host must link to run it.
 //!
 //! Time is a number the host supplies (`Runner::advance`); timers fire from it,
 //! so an agent seeks instead of waiting — the same clock discipline as
@@ -43,6 +45,7 @@ pub mod runner;
 pub mod stdlib;
 pub mod store;
 pub mod surface_record;
+pub mod uses;
 pub mod viewport;
 pub mod vm;
 
@@ -65,5 +68,6 @@ pub use runner::{
     JOURNAL_RING, MAX_CLOCK_MS, TIMER_FIRE_LIMIT,
 };
 pub use store::{Store, StoreError, StoreWrite};
+pub use uses::{uses, Capability, Uses};
 pub use viewport::Viewport;
 pub use vm::Trap;

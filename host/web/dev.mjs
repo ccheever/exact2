@@ -41,7 +41,9 @@ import { applyShaderTreeChange, sendStaticBody, applyStaticChange, applyStaticTr
 
 const argv = process.argv.slice(2);
 const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : fallback; };
-const buildEnv = {...developmentBuildEnv(),EXACT_UPDATE_TRUST:'development'};
+// The dev wasm links every capability (LLP 1047 D7): a new plan that adds
+// one restarts in place, never waiting on a wasm rebuild.
+const buildEnv = {...developmentBuildEnv(),EXACT_UPDATE_TRUST:'development',EXACT_WEB_LINK:'all'};
 let app = resolveApp(arg('--app', undefined));
 const port = Number(arg('--port', 8765));
 const lan = argv.includes('--lan');
@@ -65,7 +67,8 @@ async function currentWebBuild() {
   if (!await builtAppMatches(dist, app)) return false;
   try {
     const build = JSON.parse(readFileSync(graphPath, 'utf8'));
-    return build.version === 1 && build.trust === 'development' && pendingBuildInputs(build).length === 0;
+    return build.version === 1 && build.trust === 'development' && build.binary?.configuration?.flags?.EXACT_WEB_LINK === 'all'
+      && pendingBuildInputs(build).length === 0;
   } catch { return false; }
 }
 if (!await currentWebBuild()) {

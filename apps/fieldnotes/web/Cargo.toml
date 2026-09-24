@@ -14,6 +14,7 @@ fieldnotes-data = { path = "../data" }
 exact-data-host = { path = "../../../data/host" }
 exact-logic = { path = "../../../logic" }
 exact-web = { path = "../../../host/web" }
+exact-web-capabilities = { path = "../../../host/web-capabilities" }
 exact-js-web = { path = "../../../js/web" }
 
 [build-dependencies]

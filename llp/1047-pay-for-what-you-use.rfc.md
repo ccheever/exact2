@@ -532,3 +532,31 @@ too.
 Other sessions changing `host/web`, the build's entry or the core crates'
 size: check `git log` for these lanes and say which items you are taking.
 
+
+### As built: linking by use (the size lane)
+
+**Stage 2, 2026-09-24: the seam, with Markdown as its first user.**
+- **The use-set (D2)** is `exact_runner::uses(&Plan) -> Uses`, a pure
+  function of the plan's rows.
+  - It lives in the runner, not in `exact_plan`: a use is a kernel prop or
+    style row, and the plan crate declares no kernel vocabulary (LLP 1004 D2).
+  - A computed value counts as a use of whatever it might select.
+- **The seam (D3, D4).** `exact-web` no longer depends on `exact-markdown`.
+  - It reaches a capability only through `exact_web::Linked`, which the entry
+    registers before every boot.
+  - The adapters live above the core, in `exact-web-capabilities`.
+  - `contract::web_linked` writes the entry's
+    `EXACT_LINKED = linked!(…)` from the use-set.
+- **The refusal (D6).** A plan that uses more than the artifact links is
+  refused at boot: `boot: Unlinked("markdown")`.
+- **Development (D7).** `host/web/dev.mjs` builds with `EXACT_WEB_LINK=all`,
+  which links every capability. It reuses a dist only when that dist's
+  receipt says so. The render host links everything too.
+- **Bytes, raw and brotli-11:**
+  - Video player: 1,219,546 → 1,167,590 raw; 365,025 → 347,265 brotli.
+  - Caltrain: 1,279,484 → 1,227,534 raw; 376,195 → 359,245 brotli.
+  - RealWorld uses Markdown: 1,336,082 → 1,339,522 raw; 390,646 → 391,840
+    brotli. The increase is the admission code and inlining churn.
+- **Absence.** The video player keeps none of Markdown's 91 functions, except
+  one 11-byte closure, `|p| !p.is_empty()`. LLVM merged it with core's
+  identical `SplitWhitespace` filter and kept Markdown's name for it.

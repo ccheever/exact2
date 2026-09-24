@@ -30,6 +30,9 @@
 //!   plan ready, in one long-lived process; the page restarts from it.
 //! - [`abi`] — the wasm exports, with no `unsafe`: the glue writes into a
 //!   host-owned buffer and reads from another.
+//! - [`link`] — what the artifact links beyond the core: the capabilities
+//!   its generated entry registers, and the boot refusal of a plan that uses
+//!   more (LLP 1047 D3, D6).
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
@@ -40,9 +43,11 @@ pub mod css;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod dev;
 pub mod host;
+pub mod link;
 pub mod motion;
 pub mod parity;
 #[cfg(test)]
 mod textflow_tests;
 
 pub use host::{document, Host, HostError};
+pub use link::{link, Linked};

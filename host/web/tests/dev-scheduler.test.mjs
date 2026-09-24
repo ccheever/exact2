@@ -98,7 +98,7 @@ test('dev startup rebuilds changed Rust even when the app identity still matches
     writeFileSync(input,original);
     const build={version:1,trust:'development',binary:{
       inputs:[{name:'logic/lib.rs',path:input,sha256:createHash('sha256').update(original).digest('hex')}],
-      missing:[],directories:[],
+      missing:[],directories:[],configuration:{flags:{EXACT_WEB_LINK:'all'}},
     }};
     writeFileSync(graphPath,JSON.stringify(build));
     let identity=true;
@@ -118,6 +118,9 @@ test('dev startup rebuilds changed Rust even when the app identity still matches
     assert.equal(await current(),false);
     identity=true;
     writeFileSync(graphPath,JSON.stringify({...build,trust:'production'}));
+    assert.equal(await current(),false);
+    // A build that links only its plan's use-set is not the dev loop's (LLP 1047 D7).
+    writeFileSync(graphPath,JSON.stringify({...build,binary:{...build.binary,configuration:{flags:{}}}}));
     assert.equal(await current(),false);
     writeFileSync(graphPath,'{');
     assert.equal(await current(),false);

@@ -310,13 +310,18 @@ fn build_sources(
     }
     std::fs::write(out.join("module.rs"), metadata).map_err(|e| e.to_string())?;
     {
-        let entry = contract::rust_entry(
+        let mut entry = contract::rust_entry(
             "ExactEmbeddedData",
             "embedded_data()",
             compat.inputs["rustMode"]
                 .as_str()
                 .ok_or("missing Rust policy")?,
         )?;
+        // The web entry links what the plan uses (LLP 1047 D3).
+        if platform == "web" {
+            let plan = exact_plan::Plan::decode(&baked.plan).map_err(|e| format!("{e:?}"))?;
+            entry.push_str(&contract::web_linked(&plan));
+        }
         std::fs::write(out.join("logic.rs"), entry).map_err(|e| e.to_string())?;
     }
     println!("cargo:rerun-if-changed={}", app.display());

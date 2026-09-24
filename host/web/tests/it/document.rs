@@ -209,6 +209,9 @@ component App
     column
       text "**b** [safe](https://e.dev/) [unsafe](javascript:alert(1))\nnext" markup="markdown" testId="md"
 "#;
+    // Markdown is linked by use (LLP 1047 D3): this binary links it, as an
+    // app's generated entry does when its plan uses it.
+    exact_web::link(exact_web_capabilities::ALL);
     let doc = document(src);
     assert!(
         doc.contains("<span style=\"font-weight:700;\">b</span>"),

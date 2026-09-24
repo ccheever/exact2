@@ -18,6 +18,7 @@ exact-kernel = { path = "../../kernel" }
 exact-plan = { path = "../../plan" }
 exact-runner = { path = "../../runner" }
 exact-web = { path = "../web" }
+exact-web-capabilities = { path = "../web-capabilities" }
 # The executor core's transport (LLP 1016 D2), as the Apple and Linux hosts
 # take it: rustls off Apple.
 ibex2 = { path = "../../vendor/ibex2", default-features = false }

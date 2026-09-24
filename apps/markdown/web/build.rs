@@ -38,7 +38,10 @@ fn main() {
     .unwrap();
     std::fs::write(
         out_dir.join("entry.rs"),
-        format!("{entry}\nexact_web::host!(AppData, PLAN, COMPAT, app_data);\n"),
+        format!(
+            "{entry}\n{}exact_web::host!(AppData, PLAN, COMPAT, app_data);\n",
+            contract::web_linked(&baked)
+        ),
     )
     .unwrap();
 }

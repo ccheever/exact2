@@ -1,0 +1,19 @@
+# The web host's linked capabilities, above the core host: each one's adapter
+# over `exact-web` and the capability's crate. An app's generated entry names
+# the ones its plan uses, and the linker drops the rest.
+# @ref LLP 1047 D3 (the generated entry) / D4 (core crates stop depending on capabilities)
+[package]
+name = "exact-web-capabilities"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Web host capabilities linked by use: Markdown pieces, registered through exact-web's Linked"
+publish = false
+
+[lib]
+name = "exact_web_capabilities"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-markdown = { path = "../../markdown" }
+exact-web = { path = "../web" }

@@ -757,6 +757,10 @@ pub type Cell<D> = RefCell<Bridge<D>>;
 /// of what the app's `build.rs` wrote).
 /// A fourth argument supplies a data factory; a fifth supplies the paired
 /// module's `[receipt, browser script]` byte slices for bake extraction and loading.
+///
+/// The invoking crate defines `EXACT_LINKED`, the [`crate::Linked`] of the
+/// capabilities its plan uses, which the generated entry writes
+/// (`contract::web_linked`, LLP 1047 D3). Every boot registers it first.
 #[macro_export]
 macro_rules! host {
     ($data:ty, $plan:expr, $compat:expr, $new:expr, $module:expr) => {
@@ -826,6 +830,7 @@ macro_rules! host {
         /// Boot; returns the first batch's length.
         #[no_mangle]
         pub extern "C" fn exact_boot(width: f64, height: f64, launch_len: u32) -> u32 {
+            $crate::link(EXACT_LINKED);
             EXACT_BRIDGE.with(|b| {
                 let mut b = b.borrow_mut();
                 b.set_compat($compat);
@@ -837,6 +842,7 @@ macro_rules! host {
         /// Boot from plan bytes in the input buffer (the dev loop's restart).
         #[no_mangle]
         pub extern "C" fn exact_boot_plan(len: u32, width: f64, height: f64, launch_len: u32) -> u32 {
+            $crate::link(EXACT_LINKED);
             EXACT_BRIDGE.with(|b| {
                 let mut b = b.borrow_mut();
                 b.set_compat($compat);
@@ -858,6 +864,7 @@ macro_rules! host {
         /// Replace the paired plan and privately prepared browser module.
         #[no_mangle]
         pub extern "C" fn exact_boot_module(plan: u32, receipt: u32, module: u32) -> u32 {
+            $crate::link(EXACT_LINKED);
             EXACT_BRIDGE.with(|b| b.borrow_mut().boot_module([plan as usize, receipt as usize, module as usize], ($new)()))
         }
 

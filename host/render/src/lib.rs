@@ -113,6 +113,9 @@ pub fn render<D: DataSource>(
     site: &Site,
     deadline: Duration,
 ) -> Result<Rendered, String> {
+    // A renderer runs any plan it is handed: every capability is linked
+    // (LLP 1047 D7), so a projection never meets one it can't write.
+    exact_web::link(exact_web_capabilities::ALL);
     let settling = Anonymous::new(data());
     // The deadline waits for sources, not for the transport to start.
     let executor = Executor::start(exact_runner::DataSource::grants(&settling));

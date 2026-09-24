@@ -79,6 +79,9 @@ pub enum HostError {
     Plan(exact_plan::PlanError),
     Runner(RunnerError),
     RuntimeIdExhausted,
+    /// The plan uses these capabilities, which this artifact doesn't link
+    /// (LLP 1047 D6).
+    Unlinked(String),
 }
 
 impl std::fmt::Display for HostError {
@@ -207,6 +210,7 @@ impl<D: DataSource> Host<D> {
         launch: &str,
     ) -> Result<(Host<D>, String), HostError> {
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
+        crate::link::admit(&plan)?;
         let kernel = Kernel::with_monospace();
         // @ref LLP 1039 D3 — both host facts precede the first settlement.
         let delivery = compat.map_or_else(Default::default, |json| {

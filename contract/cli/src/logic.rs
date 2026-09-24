@@ -35,3 +35,19 @@ pub fn rust_entry(data: &str, constructor: &str, mode: &str) -> Result<String, S
         _ => Err(format!("unknown Rust executor {mode:?}")),
     }
 }
+
+/// The web entry's `EXACT_LINKED` (LLP 1047 D3): the capabilities `plan`
+/// uses, each registered from `exact-web-capabilities`, so the linker drops
+/// the rest. A development build links every capability (D7): the dev loop
+/// restarts from new plans without rebuilding the wasm, so `host/web/dev.mjs`
+/// sets `EXACT_WEB_LINK=all`.
+pub fn web_linked(plan: &exact_plan::Plan) -> String {
+    println!("cargo:rerun-if-env-changed=EXACT_WEB_LINK");
+    let linked = if std::env::var_os("EXACT_WEB_LINK").is_some_and(|v| v == "all") {
+        "::exact_web_capabilities::ALL".to_string()
+    } else {
+        let names: Vec<&str> = exact_runner::uses(plan).iter().map(|c| c.name()).collect();
+        format!("::exact_web_capabilities::linked!({})", names.join(", "))
+    };
+    format!("/// What this artifact links beyond the core (LLP 1047 D3).\nconst EXACT_LINKED: ::exact_web::Linked = {linked};\n")
+}

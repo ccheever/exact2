@@ -579,8 +579,9 @@ struct Piece {
     href: String,
 }
 
-/// Read the host's own `markup_json` back (`[[text, scale, weight, flags,
-/// href], …]`). The host wrote it; anything else is a defect.
+/// Read the host's own `markupPieces` back (`[[text, scale, weight, flags,
+/// href], …]`), as the linked Markdown capability wrote them; anything else
+/// is a defect.
 fn markup_pieces(json: &str) -> Result<Vec<Piece>, String> {
     let mut p = Json {
         bytes: json.as_bytes(),
@@ -777,9 +778,10 @@ mod tests {
 
     #[test]
     fn markup_pieces_read_back_what_the_host_wrote() {
-        let json =
-            super::super::element::markup_json("# T \"q\"\n\n**b** [l](https://e.dev/a?b=1) `c`");
-        let pieces = markup_pieces(&json).unwrap();
+        // What `exact_web_capabilities::markdown::pieces` writes for
+        // "# T \"q\"\n\n**b** [l](https://e.dev/a?b=1) `c`", as its test pins.
+        let json = r#"[["T \"q\"",1.6,700,0,""],["\n",1,0,0,""],["\n",0.5,0,0,""],["b",1,700,0,""],[" ",1,0,0,""],["l",1,0,8,"https://e.dev/a?b=1"],[" ",1,0,0,""],["c",0.92,0,2,""]]"#;
+        let pieces = markup_pieces(json).unwrap();
         assert_eq!(pieces[0].text, "T \"q\"");
         assert_eq!(pieces[0].scale, "1.6");
         assert_eq!(pieces[0].weight, "700");
@@ -788,7 +790,7 @@ mod tests {
         assert_eq!(pieces.last().unwrap().scale, "0.92");
         assert!(markup_pieces("[]").unwrap().is_empty());
         assert_eq!(
-            markup_pieces(&super::super::element::markup_json("a\\b\tc\u{1}")).unwrap()[0].text,
+            markup_pieces(r#"[["a\\b\tc\u0001",1,0,0,""]]"#).unwrap()[0].text,
             "a\\b\tc\u{1}"
         );
     }

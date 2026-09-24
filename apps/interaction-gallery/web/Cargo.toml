@@ -14,6 +14,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 exact-logic = { path = "../../../logic" }
 exact-web = { path = "../../../host/web" }
+exact-web-capabilities = { path = "../../../host/web-capabilities" }
 interaction-gallery-data = { path = "../data" }
 
 [build-dependencies]

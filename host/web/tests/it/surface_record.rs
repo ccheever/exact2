@@ -36,6 +36,7 @@ mod exported {
     use super::NoData;
     const PLAN: &[u8] = &[];
     const COMPAT: &str = "{}";
+    const EXACT_LINKED: exact_web::Linked = exact_web::Linked::CORE;
     fn app_data() -> NoData {
         NoData
     }

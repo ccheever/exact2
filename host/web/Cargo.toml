@@ -17,7 +17,6 @@ crate-type = ["rlib"]
 
 [dependencies]
 exact-kernel = { path = "../../kernel" }
-exact-markdown = { path = "../../markdown" }
 exact-textflow = { path = "../../textflow" }
 exact-motion = { path = "../../motion" }
 exact-plan = { path = "../../plan" }
@@ -33,5 +32,7 @@ exact-bake = { path = "../../bake" }
 
 [dev-dependencies]
 caltrain = { path = "../../apps/caltrain" }
+# The capabilities above this crate, for tests of plans that use them.
+exact-web-capabilities = { path = "../web-capabilities" }
 contract = { path = "../../contract/cli" }
 caltrain-data = { path = "../../apps/caltrain/data" }
