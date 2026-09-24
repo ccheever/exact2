@@ -59,8 +59,12 @@ const out = resolve(stage, 'app.wasm');
 // unlimited default shrinks raw bytes while increasing both Brotli and gzip.
 // Bound 20 and passes to convergence ship the fewest compressed bytes
 // (2026-09-24: 3 KB less Brotli per app than 50 alone, for ~0.1% more raw).
+// Functions of up to 6 instructions are inlined everywhere: V8 compiles a wasm
+// function lazily, on the main thread, at its first call, and a tiny one costs
+// about what a large one does to set up. RealWorld's boot compiles 15% fewer
+// (1,314 -> 1,123), for 511 B less Brotli (+7 KB raw); 10 or 16 add Brotli.
 // The feature flags match what rustc's wasm32 target emits.
-const opt = spawnSync('wasm-opt', ['-Oz', '--one-caller-inline-max-function-size', '20', '--converge', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', keepNames ? '-g' : '--strip-debug', '--strip-producers', '-o', out, built], { stdio: 'inherit' });
+const opt = spawnSync('wasm-opt', ['-Oz', '--one-caller-inline-max-function-size', '20', '--always-inline-max-function-size', '6', '--converge', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', keepNames ? '-g' : '--strip-debug', '--strip-producers', '-o', out, built], { stdio: 'inherit' });
 let optNote;
 if (opt.error?.code === 'ENOENT') { copyFileSync(built, out); optNote = 'wasm-opt not on PATH (brew install binaryen): shipped unoptimized'; }
 else if (opt.status !== 0) process.exit(opt.status ?? 1);
