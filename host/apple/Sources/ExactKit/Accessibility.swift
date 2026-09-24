@@ -29,6 +29,26 @@ extension NodeView {
     }
 }
 
+/// What an authored tab shows as one segment of the system's segmented
+/// control (LLP 1035.001 D10): its one image, or its words.
+enum SegmentFace: Equatable { case image(NodeView), title(String) }
+
+extension NodeView {
+    /// How this tab shows as a segment, or nil when a segment cannot show
+    /// what was authored: exactly one image child is the segment's image;
+    /// text alone, whose words are its accessible name, is its title. An
+    /// icon beside a label, a badge, or any other node keeps the authored
+    /// rendering — the web's, where a role never changes what is drawn.
+    var segmentFace: SegmentFace? {
+        let children = container.subviews.compactMap { $0 as? NodeView }
+        if children.count == 1, children[0].kind == "image" { return .image(children[0]) }
+        let text = accessibleText
+        guard !children.isEmpty, !text.isEmpty, children.allSatisfy(\.isParagraph),
+              (props["accessibilityLabel"] ?? text) == text else { return nil }
+        return .title(text)
+    }
+}
+
 extension Presenter {
     func syncAccessibility() {
         guard Thread.isMainThread else {
