@@ -1,6 +1,7 @@
 # Markdown editor copies the whole note on every keystroke
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed redundant host transfer and string keys: native DOM mutations send only changed lines through reconcile_range; view records compare numerically. Chrome 5001-line typing transferred 175 vs 650095 UTF-16 units for ten characters, preserving DOM, IME commit and undo. Whole-source styling, readback and app change wire remain; no constant-time edit claim.
 **Systems:** Markdown editor, Web host
 **Severity:** P2
 **Author:** Grok 4.7 for Charlie Cheever

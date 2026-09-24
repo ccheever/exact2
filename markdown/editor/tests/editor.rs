@@ -397,3 +397,33 @@ fn lines_hide_syntax_and_carry_paragraph_styles() {
     assert_ne!(lines[5].flags & flags::COLLAPSED, 0);
     assert_eq!(e.visible_text(), "Title\none\ntwo\ncode\n");
 }
+
+#[test]
+fn native_range_readback_matches_whole_source_including_history() {
+    for (source, from, to, replacement, caret) in [
+        ("a\n\nb", 2, 2, "x", 3),
+        ("first\n**hello**\nlast", 6, 15, "**héllo😀**", 13),
+        ("before\ntext\nafter", 7, 11, "text*", 12),
+        ("a\nb\nc", 2, 3, "b\nnew", 7),
+    ] {
+        let mut range = Editor::new();
+        let mut whole = Editor::new();
+        let original = u(source);
+        range.load(&original);
+        whole.load(&original);
+        let mut next = original.clone();
+        next.splice(from as usize..to as usize, u(replacement));
+        let selection = Some((caret, caret));
+        range.reconcile_range(from, to, &u(replacement), selection, 10.0);
+        whole.reconcile(&next, selection, 10.0);
+        assert_eq!(range.source(), whole.source());
+        assert_eq!(range.selection(), whole.selection());
+        assert_eq!(range.lines(), whole.lines());
+        for command in ["undo", "redo"] {
+            range.command(command, "", 20.0);
+            whole.command(command, "", 20.0);
+            assert_eq!(range.source(), whole.source());
+            assert_eq!(range.selection(), whole.selection());
+        }
+    }
+}

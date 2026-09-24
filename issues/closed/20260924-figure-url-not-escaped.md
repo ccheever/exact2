@@ -1,6 +1,7 @@
 # A figure URL is inserted raw, so ) and \ break the source
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed: percent-encode figure URL syntax and whitespace so both inline and borrowed block readers retain one image; regression tests cover parentheses, backslash, space and newline.
 **Systems:** Markdown editor
 **Severity:** P2
 **Author:** Grok 4.7 for Charlie Cheever

@@ -463,9 +463,21 @@ fn figure(source: &str, sel: B, src: &str) -> Draft {
     } else {
         "\n\n"
     };
+    // Figures are also consumed by the block reader, whose URL is borrowed
+    // directly from source. URL-encode syntax rather than Markdown-escaping it.
+    let mut target = String::with_capacity(src.len());
+    for c in src.chars() {
+        if matches!(c, '\\' | '(' | ')' | '<' | '>') || c.is_whitespace() || c.is_control() {
+            for b in c.encode_utf8(&mut [0; 4]).bytes() {
+                target.push_str(&format!("%{b:02X}"));
+            }
+        } else {
+            target.push(c);
+        }
+    }
     let caret = sel.start + lead.len() + 2;
     Draft {
-        reps: vec![(sel, format!("{lead}![]({src}){trail}"))],
+        reps: vec![(sel, format!("{lead}![]({target}){trail}"))],
         selection: Some(caret..caret),
     }
 }

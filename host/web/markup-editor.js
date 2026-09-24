@@ -101,26 +101,32 @@ function installMarkupEditor(textarea, host) {
   for (const attr of textarea.attributes) el.setAttribute(attr.name, attr.value);
   el.classList.add('exact-markdown-editor');
   const h = wasm.mde_new(), defaults = new Set(), ours = ['contenteditable', 'role', 'aria-multiline', 'aria-readonly', 'aria-disabled', 'aria-placeholder'];
-  let source = '', lines = [], keys = [], starts = [0], index = new WeakMap(), payload = '', placed = null;
+  let source = '', lines = [], records = [], starts = [0], index = new WeakMap(), payload = '', placed = null;
   let destroyed = false, composing = false, notifying = false, pointer = false, pendingValue, pendingSync = false;
   let tabIndex = el.getAttribute('tabindex');
   const writable = () => !el.hasAttribute('disabled') && !el.hasAttribute('readonly') && !el.closest('[inert]');
   const now = () => performance.now();
   const sel = () => [wasm.mde_sel(h, 0), wasm.mde_sel(h, 1)];
 
+  // Observe native edits, including IME and spelling; never infer their result
+  // from beforeinput data. Renderer mutations are drained after each render.
+  let mutations = [];
+  const observer = new MutationObserver(batch => mutations.push(...batch));
+  observer.observe(el, { subtree: true, childList: true, characterData: true });
   function render() {
     const n = wasm.mde_view(h), v = new Uint32Array(wasm.memory.buffer, wasm.mde_out(), n).slice();
     const next = [], found = [];
     starts = [];
     for (let i = 0, at = 1; i < v[0]; i++) {
       const line = source.slice(v[at], v[at + 1]), end = at + 10 + v[at + 9] * 3;
-      next.push(v.subarray(at + 2, end).join(',') + '\u0000' + line);
+      next.push({ line, view: v.subarray(at + 2, end) });
       found.push([at, line]); starts.push(v[at]); at = end;
     }
+    const same = (a, b) => a.line === b.line && a.view.length === b.view.length && a.view.every((value, i) => value === b.view[i]);
     let head = 0, tail = 0;
-    while (head < keys.length && head < next.length && keys[head] === next[head]) head++;
-    while (tail < keys.length - head && tail < next.length - head && keys[keys.length - 1 - tail] === next[next.length - 1 - tail]) tail++;
-    const removed = lines.splice(head, keys.length - head - tail);
+    while (head < records.length && head < next.length && same(records[head], next[head])) head++;
+    while (tail < records.length - head && tail < next.length - head && same(records[records.length - 1 - tail], next[next.length - 1 - tail])) tail++;
+    const removed = lines.splice(head, records.length - head - tail);
     const fresh = found.slice(head, next.length - tail).map(([at, line]) => describe(v, at, line));
     // A native keystroke usually leaves the DOM exactly as it would be drawn:
     // keep those nodes, so the input method's autocorrect state survives.
@@ -130,7 +136,8 @@ function installMarkupEditor(textarea, host) {
     for (const line of removed) line.remove();
     for (const line of added) if (!line.isConnected) el.insertBefore(line, before);
     lines.splice(head, 0, ...added);
-    keys = next;
+    records = next;
+    mutations = []; observer.takeRecords();
     lines.forEach((line, i) => index.set(line, i));
     el.classList.toggle('md-empty', source === '');
   }
@@ -205,8 +212,23 @@ function installMarkupEditor(textarea, host) {
   }
   function reconcile() {
     if (destroyed || composing) return;
-    const s = domSelection(), n = put(lines.map(line => line.textContent).join('\n'));
-    after(wasm.mde_reconcile(h, n, s ? s[0] : NONE, s ? s[1] : NONE, now()));
+    const s = domSelection(), changes = mutations.concat(observer.takeRecords());
+    mutations = [];
+    let first = lines.length, last = -1, structural = false;
+    for (const change of changes) {
+      const node = change.target.nodeType === 3 ? change.target.parentElement : change.target;
+      const line = node?.closest('.md-line'), i = index.get(line);
+      if (i === undefined || line.parentNode !== el) { structural = true; break; }
+      first = Math.min(first, i); last = Math.max(last, i);
+    }
+    if (structural || last < 0) {
+      const n = put(lines.map(line => line.textContent).join('\n'));
+      after(wasm.mde_reconcile(h, n, s ? s[0] : NONE, s ? s[1] : NONE, now()));
+    } else {
+      const from = starts[first], to = last + 1 < starts.length ? starts[last + 1] - 1 : source.length;
+      const n = put(lines.slice(first, last + 1).map(line => line.textContent).join('\n'));
+      after(wasm.mde_reconcile_range(h, from, to, n, s ? s[0] : NONE, s ? s[1] : NONE, now()));
+    }
   }
   function selectionChanged() {
     if (destroyed || composing || !host.live(el)) return;
@@ -282,6 +304,7 @@ function installMarkupEditor(textarea, host) {
     destroyed = true;
     document.removeEventListener('selectionchange', selectionChanged);
     window.removeEventListener('pointerup', release); window.removeEventListener('pointercancel', release);
+    observer.disconnect();
     wasm.mde_drop(h);
   }
 

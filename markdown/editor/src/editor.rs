@@ -442,9 +442,23 @@ impl Editor {
     /// The platform typed or composed text itself; `text` is the result and
     /// `sel` its selection.
     pub fn reconcile(&mut self, text: &[u16], sel: Option<(u32, u32)>, now: f64) -> Change {
+        self.reconcile_range(0, self.len(), text, sel, now)
+    }
+
+    /// Read back a changed source range after a native edit. Unchanged source
+    /// stays in the editor; composition and spelling use the same reconciliation.
+    pub fn reconcile_range(
+        &mut self,
+        from: u32,
+        to: u32,
+        text: &[u16],
+        sel: Option<(u32, u32)>,
+        now: f64,
+    ) -> Change {
         self.now = now;
+        let (from, to) = self.clamp((from, to));
         let text = clean(text);
-        if text == self.source {
+        if text == self.source[from as usize..to as usize] {
             if let Some(s) = sel {
                 self.sel = self.clamp(s);
             }
@@ -452,7 +466,7 @@ impl Editor {
         }
         self.push_undo(Kind::Typing);
         let before = std::mem::take(&mut self.proj);
-        self.source = text;
+        self.source.splice(from as usize..to as usize, text);
         self.restyle();
         self.sel = self.clamp(sel.unwrap_or(self.sel));
         let p = self.sel.0;

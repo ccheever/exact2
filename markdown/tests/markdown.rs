@@ -1133,3 +1133,30 @@ fn footnotes_in_later_content_ranges_keep_utf16_positions_and_reference_order() 
     assert_eq!(utf16(source, reference), "[^é]");
     assert_eq!(style(source, Some(reference)).footnotes, styled.footnotes);
 }
+
+#[test]
+fn figure_commands_encode_url_syntax_for_inline_and_block_readers() {
+    for (target, encoded) in [
+        ("https://example.com/a)b", "https://example.com/a%29b"),
+        ("https://example.com/a(b)", "https://example.com/a%28b%29"),
+        ("https://example.com/a\\b", "https://example.com/a%5Cb"),
+        ("https://example.com/a b", "https://example.com/a%20b"),
+        ("https://example.com/a\nb", "https://example.com/a%0Ab"),
+    ] {
+        let change = edit("", Range::caret(0), Command::Figure(target.into()));
+        let source = change.apply("");
+        assert_eq!(source, format!("![]({encoded})"));
+        assert_eq!(
+            segments(&source, 0),
+            [Segment::Image {
+                caption: "",
+                src: encoded
+            }]
+        );
+        assert_eq!(
+            style(&source, None).paragraphs[0].kind,
+            ParagraphKind::Image
+        );
+        assert_eq!(plain(&source), "");
+    }
+}

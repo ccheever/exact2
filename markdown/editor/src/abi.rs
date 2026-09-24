@@ -164,6 +164,22 @@ pub extern "C" fn mde_reconcile(h: u32, len: u32, sel_from: u32, sel_to: u32, no
     })
 }
 
+/// The platform changed only `from..to`; input carries its replacement.
+#[no_mangle]
+pub extern "C" fn mde_reconcile_range(
+    h: u32,
+    from: u32,
+    to: u32,
+    len: u32,
+    sel_from: u32,
+    sel_to: u32,
+    now: f64,
+) -> u32 {
+    with(h, len, |e, text| {
+        bits(e.reconcile_range(from, to, text, pair(sel_from, sel_to), now))
+    })
+}
+
 /// A command: the input is its name (`name_len` units) then its argument.
 #[no_mangle]
 pub extern "C" fn mde_command(h: u32, name_len: u32, argument_len: u32, now: f64) -> u32 {

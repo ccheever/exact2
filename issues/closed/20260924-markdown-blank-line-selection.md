@@ -1,6 +1,7 @@
 # A Markdown blank line shifts the selection by one
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Not a defect: Chrome Range.toString() over the blank-line BR is empty, not a newline; real editor selection across the BR copies no source unit. Verified in headless Chrome on 2026-09-24; no code change.
 **Systems:** Markdown editor, Web host
 **Severity:** P2
 **Author:** Grok 4.7 for Charlie Cheever
