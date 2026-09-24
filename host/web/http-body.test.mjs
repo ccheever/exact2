@@ -22,3 +22,16 @@ test('settlement returns after completions and refuses a never-settling request 
   pending.add(new Promise(() => {}));
   assert.equal(await waitForInflight(pending, performance.now()), false);
 });
+
+test('ordered HTTP defaults to the native ceiling and cancels oversized bodies', async () => {
+  assert.deepEqual(await readBody(new Response('four')), new TextEncoder().encode('four'));
+  let cancelled = false, pulls = 0;
+  const chunk = new Uint8Array(1024 * 1024);
+  const stream = new ReadableStream({
+    pull(controller) { pulls++; controller.enqueue(chunk); },
+    cancel() { cancelled = true; },
+  }, { highWaterMark: 0 });
+  await assert.rejects(readBody(new Response(stream)), /exceeds limit/);
+  assert.equal(cancelled, true);
+  assert.equal(pulls, 65);
+});

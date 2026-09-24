@@ -1,6 +1,7 @@
 # Web fetch follows redirects without re-checking the grant
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed: ordinary and speculative early browser fetches reject redirects before any next-hop request. Real local Fetch regression confirms ungranted POST destination sees zero requests. Same-origin redirects are also refused because browser manual responses hide Location; use the final URL (LLP 1016 D2).
 **Systems:** Web host, Data seam
 **Severity:** P1
 **Author:** Grok 4.7 for Charlie Cheever

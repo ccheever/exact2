@@ -1,6 +1,7 @@
 # Render server buffers every static file with no size cap
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed unbounded buffering: assets above 16 MiB stream uncached with bounded hashing/copy buffers; background compression reads are also capped. Socket regression verifies 16 MiB+1 wasm bytes, length, HEAD, ETag/304 and ordinary glue. Existing bounded workers still serve socket I/O until timeout; no separate executor was added.
 **Systems:** Render server
 **Severity:** P2
 **Author:** Grok 4.7 for Charlie Cheever

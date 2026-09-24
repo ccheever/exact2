@@ -1,6 +1,7 @@
 # Render server redirects and header values are not safe
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed: unsafe raw/escaped backslashes and control characters are refused before canonical redirects; every response header and CSP rejects CR/LF/NUL before any bytes are written, including 304. Render unit and socket tests pass; ordinary canonical dot/duplicate-slash handling remains same-origin.
 **Systems:** Render server
 **Severity:** P2
 **Author:** Grok 4.7 for Charlie Cheever

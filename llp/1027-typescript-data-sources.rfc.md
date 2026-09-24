@@ -693,7 +693,7 @@ press's request 60–80 ms. A source's GET now leaves when the source records it
 `module-glue.js` starts it when the origin is one of the module's own
 `net.fetch` grants and the request has no body, and the runner's `request` op
 for the same method, URL and headers, with `cache: default` and redirects
-followed, claims the response in flight instead of fetching. Admission and the
+refused (LLP 1016 D2), claims the response in flight instead of fetching. Admission and the
 answer are unchanged: a GET the turn doesn't report is aborted as the turn
 ends, and one the runner doesn't claim while the report is delivered is aborted
 a task later. The glue also loads the body reader at data readiness. RealWorld

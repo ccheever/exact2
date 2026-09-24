@@ -6,7 +6,7 @@
 //! — until its variant is made it goes out as it is.
 
 use std::collections::HashMap;
-use std::io::Write as _;
+use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
@@ -155,6 +155,20 @@ pub(crate) struct Served {
     pub(crate) body: Arc<Vec<u8>>,
 }
 
+// Bound both request reads and background compression. The extra byte catches
+// files that grow after metadata was checked without retaining their remainder.
+fn read_file(path: &Path) -> Option<Vec<u8>> {
+    let file = std::fs::File::open(path).ok()?;
+    if file.metadata().ok()?.len() > crate::serve::MAX_PAGE as u64 {
+        return None;
+    }
+    let mut body = Vec::new();
+    file.take(crate::serve::MAX_PAGE as u64 + 1)
+        .read_to_end(&mut body)
+        .ok()?;
+    (body.len() <= crate::serve::MAX_PAGE).then_some(body)
+}
+
 fn stamp(file: &Path) -> Option<(u64, Option<SystemTime>)> {
     let meta = std::fs::metadata(file).ok()?;
     Some((meta.len(), meta.modified().ok()))
@@ -177,7 +191,7 @@ impl Variants {
         let _ = std::thread::Builder::new()
             .name("exact-render-compress".into())
             .spawn(move || {
-                let read = |file: &PathBuf| Some((stamp(file)?, std::fs::read(file).ok()?));
+                let read = |file: &PathBuf| Some((stamp(file)?, read_file(file)?));
                 for file in &files {
                     let Some((stamp, body)) = read(file) else {
                         continue;
@@ -230,6 +244,9 @@ impl Variants {
         compressible: bool,
     ) -> Option<Served> {
         let stamp = stamp(file)?;
+        if stamp.0 > crate::serve::MAX_PAGE as u64 {
+            return None;
+        }
         let entry = {
             let known = self.known.lock().unwrap();
             known.get(file).filter(|k| k.stamp == stamp).cloned()
@@ -250,7 +267,7 @@ impl Variants {
                 });
             }
         }
-        let body = std::fs::read(file).ok()?;
+        let body = read_file(file)?;
         let tag = match entry {
             Some(entry) => entry.tag,
             None => {

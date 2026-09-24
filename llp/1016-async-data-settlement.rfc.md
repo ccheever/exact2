@@ -159,6 +159,14 @@ The alternative — the data source blocks on a worker thread and the runner
 waits — was rejected because it cannot exist on the web, and the web is the
 standard.
 
+**Browser redirect restriction (2026-09-24):** all app fetches, including early
+module GETs, use `redirect: "error"`. Fetch's manual mode returns an opaque
+redirect without its Location, so the browser host cannot re-admit the next
+origin before sending a request. Same-origin redirects are refused too; apps
+must request the final URL. Native executors retain per-hop grant admission.
+Ordered browser responses use the native 64 MiB streaming ceiling; independent
+requests retain their declared smaller limit.
+
 ### D3 — Pending: the resource keeps its value, and the app can ask
 
 While a request is out, the resource's value is the one it had — the compiled

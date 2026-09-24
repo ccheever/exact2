@@ -1,6 +1,7 @@
 # Ordered web HTTP reads the whole response before any limit
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Fixed: ordered browser reads default to the native 64 MiB streaming ceiling, cancel oversized streams before wasm fulfillment, and retain independent per-request limits. Bun regressions cover direct reads and cancellation on the 65th 1 MiB chunk.
 **Systems:** Web host, Data seam
 **Severity:** P1
 **Author:** Grok 4.7 for Charlie Cheever

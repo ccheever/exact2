@@ -20,7 +20,7 @@ use exact_runner::DataSource;
 use exact_web::document::{canonical_location, route_at, Site};
 use std::collections::VecDeque;
 use std::fmt::Write as _;
-use std::io::{Read, Write};
+use std::io::{Read, Seek, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -28,7 +28,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 /// The largest page the server sends (D10's bound on output bytes).
-const MAX_PAGE: usize = 16 << 20;
+pub(crate) const MAX_PAGE: usize = 16 << 20;
 const MAX_CACHED_PAGES: usize = 64;
 const MAX_CACHE_BYTES: usize = 32 << 20;
 
@@ -228,6 +228,7 @@ struct Response {
     status: u16,
     headers: Vec<(&'static str, String)>,
     body: Vec<u8>,
+    file: Option<(Arc<std::fs::File>, u64)>,
 }
 
 impl Response {
@@ -236,6 +237,7 @@ impl Response {
             status,
             headers: vec![("Content-Type", "text/plain; charset=utf-8".into())],
             body: body.as_bytes().to_vec(),
+            file: None,
         }
     }
 
@@ -245,6 +247,12 @@ impl Response {
     }
 
     fn write(&self, stream: &mut TcpStream, head: bool, csp: &str) {
+        // Header values can contain app data; refuse the entire response before
+        // writing anything, including on the 304 path.
+        if self.headers.iter().any(|(_, value)| invalid_header(value)) || invalid_header(csp) {
+            Response::text(500, "invalid response header\n").write(stream, head, "");
+            return;
+        }
         let reason = match self.status {
             200 => "OK",
             301 => "Moved Permanently",
@@ -288,14 +296,24 @@ impl Response {
         let _ = write!(
             out,
             "X-Content-Type-Options: nosniff\r\nReferrer-Policy: strict-origin-when-cross-origin\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            self.body.len()
+            self.file.as_ref().map_or(self.body.len() as u64, |(_, size)| *size)
         );
         let _ = stream.write_all(out.as_bytes());
         if !head {
-            let _ = stream.write_all(&self.body);
+            if let Some((file, size)) = &self.file {
+                let _ = std::io::copy(&mut file.as_ref().take(*size), stream);
+            } else {
+                let _ = stream.write_all(&self.body);
+            }
         }
         let _ = stream.flush();
     }
+}
+
+fn invalid_header(value: &str) -> bool {
+    value
+        .bytes()
+        .any(|byte| byte == 0 || byte == b'\r' || byte == b'\n')
 }
 
 /// Close gracefully: nothing more to send, and whatever the client still
@@ -342,7 +360,7 @@ fn finish(mut response: Response, request: &Request) -> Response {
         .find(|(name, _)| *name == "Content-Type")
         .map_or("", |(_, value)| value.as_str());
     let made = response.headers.iter().any(|(name, _)| *name == "Vary");
-    if response.status == 304 || made || !encode::compressible(kind) {
+    if response.status == 304 || response.file.is_some() || made || !encode::compressible(kind) {
         return response;
     }
     response.headers.push(("Vary", "Accept-Encoding".into()));
@@ -440,7 +458,10 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, ()> {
     else {
         return Err(());
     };
-    if !version.starts_with("HTTP/1.") || !target.starts_with('/') {
+    if !version.starts_with("HTTP/1.")
+        || !target.starts_with('/')
+        || target.chars().any(char::is_control)
+    {
         return Err(());
     }
     let headers: Vec<_> = lines
@@ -485,6 +506,13 @@ fn respond<D: DataSource>(request: &Request, shared: &Shared, data: fn() -> D) -
         .target
         .split_once('?')
         .map_or(request.target.as_str(), |(path, _)| path);
+    // Do not reflect a URL spelling that browsers can reinterpret as an origin
+    // into Location. Dot segments follow the canonicalizer; check escapes too.
+    let safe = percent_decode(path, true)
+        .is_some_and(|decoded| !decoded.contains('\\') && !decoded.chars().any(char::is_control));
+    if !safe {
+        return Response::text(400, "bad path\n");
+    }
     if path == "/.exact/health" {
         return Response::text(200, "ok\n").header("Cache-Control", "no-store");
     }
@@ -507,6 +535,10 @@ fn respond<D: DataSource>(request: &Request, shared: &Shared, data: fn() -> D) -
         );
     }
     if let Some((file, kind)) = static_file(&shared.serve.dist, path) {
+        if std::fs::metadata(&file).is_ok_and(|meta| meta.len() > MAX_PAGE as u64) {
+            return stream_file(&file, kind, request)
+                .unwrap_or_else(|| Response::text(404, "not found\n"));
+        }
         let compressible = encode::compressible(kind);
         let Some(served) = shared.variants.serve(&file, request.accepts, compressible) else {
             return Response::text(404, "not found\n");
@@ -528,6 +560,7 @@ fn respond<D: DataSource>(request: &Request, shared: &Shared, data: fn() -> D) -
             status: if fresh { 304 } else { 200 },
             headers,
             body: served.body.to_vec(),
+            file: None,
         };
     }
     // One URL per page: any other spelling redirects to the canonical one.
@@ -553,6 +586,7 @@ fn respond<D: DataSource>(request: &Request, shared: &Shared, data: fn() -> D) -
                 ("Cache-Control", "no-cache".into()),
             ],
             body: shared.shell.clone().into_bytes(),
+            file: None,
         };
     }
     if policy != Some(RenderPolicy::Cached) || shared.serve.lifetime.is_zero() || request.no_store {
@@ -617,6 +651,40 @@ fn respond<D: DataSource>(request: &Request, shared: &Shared, data: fn() -> D) -
     response
 }
 
+/// Large assets bypass compression and memory caches. Hash in a fixed buffer
+/// for a content validator, rewind, then copy to the socket in a fixed buffer.
+/// As with every response, slow clients occupy one bounded worker until timeout.
+fn stream_file(path: &Path, kind: &str, request: &Request) -> Option<Response> {
+    use sha2::{Digest, Sha256};
+    let mut file = std::fs::File::open(path).ok()?;
+    let size = file.metadata().ok()?.len();
+    let mut hash = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    let mut remaining = size;
+    while remaining > 0 {
+        let capacity = remaining.min(buffer.len() as u64) as usize;
+        let count = file.read(&mut buffer[..capacity]).ok()?;
+        if count == 0 {
+            return None;
+        }
+        hash.update(&buffer[..count]);
+        remaining -= count as u64;
+    }
+    file.rewind().ok()?;
+    let etag = format!("\"{:x}\"", hash.finalize());
+    let fresh = encode::none_match(request.if_none_match.as_deref(), &etag);
+    Some(Response {
+        status: if fresh { 304 } else { 200 },
+        headers: vec![
+            ("Content-Type", kind.into()),
+            ("Cache-Control", "no-cache".into()),
+            ("ETag", etag),
+        ],
+        body: Vec::new(),
+        file: Some((Arc::new(file), size)),
+    })
+}
+
 fn document<D: DataSource>(
     request: &Request,
     policy: Option<RenderPolicy>,
@@ -661,6 +729,7 @@ fn document<D: DataSource>(
                     ("Content-Type", "text/html; charset=utf-8".into()),
                     ("Cache-Control", "no-store".into()),
                 ],
+                file: None,
                 body: b"<!doctype html>\n<title>Unavailable</title>\n<p>This page couldn't be rendered.</p>\n".to_vec(),
             };
         }
@@ -677,6 +746,7 @@ fn document<D: DataSource>(
         status,
         headers: vec![("Content-Type", "text/html; charset=utf-8".into())],
         body: html.into_bytes(),
+        file: None,
     };
     let lifetime = serve.lifetime.as_secs();
     match status {
@@ -778,6 +848,7 @@ fn sitemap<D: DataSource>(shared: &Shared, data: fn() -> D) -> Response {
             ),
         ],
         body: body.into_bytes(),
+        file: None,
     }
 }
 
@@ -810,7 +881,7 @@ fn hex(bytes: &[u8]) -> String {
 /// A file `dist` serves as it is: anything under `/.exact/`, and any other
 /// file but a page (`.html`), which is rendered. Never outside `dist`.
 fn static_file(dist: &Path, path: &str) -> Option<(PathBuf, &'static str)> {
-    let decoded = percent_decode(path)?;
+    let decoded = percent_decode(path, false)?;
     if decoded.split('/').any(|part| part == ".." || part == ".") || decoded.contains('\\') {
         return None;
     }
@@ -831,7 +902,7 @@ fn static_file(dist: &Path, path: &str) -> Option<(PathBuf, &'static str)> {
     Some((file.clone(), content_type(extension)))
 }
 
-fn percent_decode(path: &str) -> Option<String> {
+fn percent_decode(path: &str, allow_slash: bool) -> Option<String> {
     let bytes = path.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
@@ -839,7 +910,7 @@ fn percent_decode(path: &str) -> Option<String> {
         if bytes[i] == b'%' {
             let hex = std::str::from_utf8(bytes.get(i + 1..i + 3)?).ok()?;
             let byte = u8::from_str_radix(hex, 16).ok()?;
-            if byte == b'/' || byte == 0 {
+            if (!allow_slash && byte == b'/') || byte == 0 {
                 return None;
             }
             out.push(byte);
@@ -914,4 +985,33 @@ fn csp(grants: &str, dist: &Path) -> String {
     format!(
         "default-src 'self'; script-src {scripts}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob: https:; font-src 'self' data:; connect-src {connect}; worker-src 'self' blob:; frame-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn invalid_response_headers_fail_before_any_bytes_are_written() {
+        for status in [200, 304] {
+            for value in [
+                "noindex\r\n\r\ninjected",
+                "noindex\nX-Fake: yes",
+                "noindex\0",
+            ] {
+                let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+                let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+                let (mut server, _) = listener.accept().unwrap();
+                Response::text(status, "original")
+                    .header("X-Robots-Tag", value)
+                    .write(&mut server, false, "default-src 'self'");
+                server.shutdown(std::net::Shutdown::Write).unwrap();
+                let mut received = String::new();
+                client.read_to_string(&mut received).unwrap();
+                assert!(received.starts_with("HTTP/1.1 500 "), "{received}");
+                assert!(!received.contains("X-Robots-Tag"));
+                assert!(!received.contains("injected"));
+            }
+        }
+    }
 }

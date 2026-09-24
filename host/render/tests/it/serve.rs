@@ -744,3 +744,65 @@ fn a_dist_file_revalidates_by_its_etag() {
     let image = header(&headers, "etag").unwrap().to_string();
     assert_eq!(conditional("/assets/dot.png", "br", &image).0, 304);
 }
+
+#[test]
+fn unsafe_canonical_paths_are_refused_before_redirecting() {
+    let addr = start("unsafe-paths", 1, 8, 300);
+    for target in [
+        "/\\evil.com/",
+        "//\\evil.com",
+        "/%5cevil.com/",
+        "/bad\nheader/",
+    ] {
+        let (status, headers, _) = get(addr, target);
+        assert_eq!(status, 400, "{target:?}");
+        assert_eq!(header(&headers, "location"), None);
+    }
+    let (status, headers, _) = get(addr, "//post//7/");
+    assert_eq!(status, 301);
+    assert_eq!(header(&headers, "location"), Some("/post/7"));
+    // An encoded slash in a route parameter is valid, unlike a file traversal.
+    assert_ne!(get(addr, "/post/a%2Fb").0, 400);
+}
+
+#[test]
+fn large_static_files_stream_with_lengths_validators_and_head() {
+    let addr = start("large-stream", 1, 8, 300);
+    let path = std::env::temp_dir()
+        .join(format!(
+            "exact-render-serve-large-stream-{}",
+            std::process::id()
+        ))
+        .join("large.wasm");
+    let file = std::fs::File::create(&path).unwrap();
+    let size = (16 << 20) + 1;
+    file.set_len(size).unwrap();
+    let (status, headers, body) = fetch_bytes(
+        addr,
+        "GET /large.wasm HTTP/1.1\r\nAccept-Encoding: br\r\n\r\n",
+    );
+    assert_eq!(status, 200);
+    assert_eq!(body.len() as u64, size);
+    assert!(body.iter().all(|b| *b == 0));
+    assert_eq!(
+        header(&headers, "content-length"),
+        Some(size.to_string().as_str())
+    );
+    assert_eq!(header(&headers, "content-encoding"), None);
+    let etag = header(&headers, "etag").unwrap();
+    let (status, head, body) = fetch_bytes(addr, "HEAD /large.wasm HTTP/1.1\r\n\r\n");
+    assert_eq!(status, 200);
+    assert!(body.is_empty());
+    assert_eq!(
+        header(&head, "content-length"),
+        Some(size.to_string().as_str())
+    );
+    assert_eq!(header(&head, "etag"), Some(etag));
+    let (status, _, body) = fetch_bytes(
+        addr,
+        &format!("GET /large.wasm HTTP/1.1\r\nIf-None-Match: {etag}\r\n\r\n"),
+    );
+    assert_eq!(status, 304);
+    assert!(body.is_empty());
+    assert_eq!(get(addr, "/glue.js").0, 200);
+}

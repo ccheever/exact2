@@ -718,7 +718,7 @@ function apply(batch) {
         }
         const controller = new AbortController();
         controllers.add(controller);
-        const init = { method, headers, redirect: asset || op.scope != null ? "error" : "follow", cache: cache === "reload" ? "reload" : "default", signal: controller.signal };
+        const init = { method, headers, redirect: "error", cache: cache === "reload" ? "reload" : "default", signal: controller.signal };
         if (decodedBody) init.body = decodedBody;
         const p = (!asset && moduleLoader?.claim?.(url, init) || fetch(asset ? localAssetURL(url) : url, init)) // a data source's GET may already be in flight
           .then(async (r) => safelyFulfill(requestIncarnation, ticket, 0, r.status, [...r.headers].map(([k, v]) => `${k}: ${v}`).join("\n"), await boundedHttpBody(r, op.maxResponseBytes)))

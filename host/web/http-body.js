@@ -1,6 +1,6 @@
-// Native independent HTTP carries a response ceiling; enforce it during browser reads too.
+// Native ordered HTTP defaults to 64 MiB; independent requests may lower it.
 export async function boundedHttpBody(response, limit) {
-  if (limit == null) return new Uint8Array(await response.arrayBuffer());
+  if (limit == null) limit = 64 * 1024 * 1024;
   if (!Number.isInteger(limit) || limit < 1 || limit > 64 * 1024 * 1024) throw Error("invalid HTTP response limit");
   if (!response.body) return new Uint8Array();
   const reader=response.body.getReader(), chunks=[]; let size=0;

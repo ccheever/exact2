@@ -49,7 +49,7 @@ function fetchEarly(request, grants) {
   const admits = line => { const [kind, url] = line.trim().split(/\s+/, 2); try { return kind === 'net.fetch' && new URL(url).origin === origin; } catch { return false; } };
   if (request.method !== 'GET' || request.body || !grants.split('\n').some(admits)) return null;
   const key = earlyKey(request.url, request.headers), controller = new AbortController();
-  const entry = { controller, response: fetch(request.url, { method: 'GET', headers: request.headers, redirect: 'follow', cache: 'default', signal: controller.signal }) };
+  const entry = { controller, response: fetch(request.url, { method: 'GET', headers: request.headers, redirect: 'error', cache: 'default', signal: controller.signal }) };
   entry.response.catch(() => {});
   early.set(key, [...(early.get(key) ?? []), entry]);
   return () => {
@@ -60,7 +60,7 @@ function fetchEarly(request, grants) {
   };
 }
 export function claim(url, init) {
-  if (init.method !== 'GET' || init.body || init.redirect !== 'follow' || init.cache !== 'default') return null;
+  if (init.method !== 'GET' || init.body || init.redirect !== 'error' || init.cache !== 'default') return null;
   const key = earlyKey(url, init.headers), list = early.get(key), entry = list?.shift();
   if (!entry) return null;
   if (!list.length) early.delete(key);
