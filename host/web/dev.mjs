@@ -34,7 +34,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { resolve } from 'node:path';
 import { rustPackage, rustOutput, rustInputs, rustCards } from '../../scripts/rust.mjs';
 import { shaderWatchRoots, rustPolicy, rebuildPolicy } from '../../scripts/app.mjs';
-import { appSourceKey, cargoDefaultBinary, cargoReproducibilityFlags, compilerPaths, developmentBuildEnv, developmentCandidate, pendingBuildInputs, readBuilds, resolveApp } from '../../scripts/app.mjs';
+import { appSourceKey, cargoReproducibilityFlags, compilerPaths, developmentBuildEnv, developmentCandidate, pendingBuildInputs, readBuilds, resolveApp } from '../../scripts/app.mjs';
 import { developmentLinks, phones, simulators } from '../apple/build.mjs';
 import { webRequestURL } from '../../scripts/origin.mjs';
 import { applyShaderTreeChange, sendStaticBody, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
@@ -75,10 +75,8 @@ process.once('exit', () => {
 });
 function spawnContractCompiler() {
   writeFileSync(liveGraphPath, readFileSync(graphPath));
-  const metadata = spawnSync('cargo', ['metadata',...cargoReproducibilityFlags(app),'--no-deps','--format-version','1'], {cwd:app.workspace,env:buildEnv,encoding:'utf8'});
-  if (metadata.status !== 0) throw new Error(`cargo metadata failed: ${metadata.stderr || metadata.error || metadata.status}`);
-  const bin = cargoDefaultBinary(JSON.parse(metadata.stdout).packages.find(p=>p.name===app.crate('web')));
-  const child = spawn('cargo', ['run', '-q', ...cargoReproducibilityFlags(app), '--release', '-p', bin ? app.crate('web') : 'exact-web', '--bin', bin ?? 'exact-dev', '--', source, plan], { cwd: bin ? app.workspace : root, env: buildEnv, stdio: ['ignore', 'pipe', 'inherit'], detached: true });
+  const child = spawn(process.execPath, [resolve(root, 'scripts/dev-compiler.mjs'), JSON.stringify({workspace:app.workspace, target:app.target, package:app.crate('web')}), source, plan],
+    {cwd:root, env:buildEnv, stdio:['ignore','pipe','inherit'], detached:true});
   // Keep early output buffered until the complete web package is validated.
   const result = {child, error:null};
   child.stdout.pause();

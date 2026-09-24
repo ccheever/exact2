@@ -457,6 +457,19 @@ edit while stopped is compiled by that same producer on restart, without a Wasm
 rebuild. Other changed build inputs still require the normal build. Native
 classification shares source hashes only within a synchronous scan, never across
 saves. These shortcuts preserve content validation at startup.
+
+The native Contract compiler is captured under `target/dev-compilers/` by
+`scripts/dev-compiler.mjs`. A warm launch validates source bytes from rustc dep-info,
+Cargo's declared build-script files/directories/environment, resolution manifests,
+the selected binary's source tree, toolchain versions and tool executable bytes,
+then runs a digest-named immutable executable. It still compiles a fresh live plan.
+Discovery alone never authorizes reuse: a subsequent private Cargo build must
+observe the same complete closure before and after compilation. Cache misses
+clear that private profile's fingerprints under its build claim, so edits that
+preserve timestamps cannot relabel stale Cargo output. The existing `logic-dev`
+profile is used where available, otherwise `release`. Custom Cargo configuration,
+wrappers, wildcard workspace membership, linked native build artifacts, and input
+trees containing the private output use Cargo without a reusable capture.
 `dev.js` fetches the plan and calls `exact.reload(bytes)` → `exact_boot_plan`:
 a full teardown of the page and a boot of the new plan **carrying the old
 runner's state** (`Runner::carry` / `Runner::boot_carrying`, `Host::boot_with`):
