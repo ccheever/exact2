@@ -445,6 +445,14 @@ Each in-repo adapter has an app-specific executable name so parallel workspace
 builds never overwrite another app’s `dev` output. Caltrain selects its adapter
 with `default-run` because it also has a metrics binary; single-binary packages,
 including external apps, use Cargo’s ordinary default selection.
+The dev server keeps completed web output under `target/dev-web/<source>/<app-id>`
+(`EXACT_WEB_DIST` overrides it), so another app's build cannot evict it. Each
+resident compiler writes its live plan in a private `target/dev-plans/` session;
+it never changes the completed package's plan or completion marker. A Contract
+edit while stopped is compiled by that same producer on restart, without a Wasm
+rebuild. Other changed build inputs still require the normal build. Native
+classification shares source hashes only within a synchronous scan, never across
+saves. These shortcuts preserve content validation at startup.
 `dev.js` fetches the plan and calls `exact.reload(bytes)` → `exact_boot_plan`:
 a full teardown of the page and a boot of the new plan **carrying the old
 runner's state** (`Runner::carry` / `Runner::boot_carrying`, `Host::boot_with`):
@@ -494,8 +502,9 @@ consuming exact2 by path from `../exact2`): `scripts/app.mjs` `resolveApp` is
 where every script learns what an app is — `apps/<name>` here, or the directory
 `EXACT_APP_DIR` names, with its own cargo workspace (exact2's profiles and the
 Taffy patch copied) and its own `target/`. `build.mjs`, `dev.mjs`, the Apple
-`build.mjs`, and `scripts/agent.mjs --app` resolve through it; `dist/` and the
-Swift products stay this repo's one slot per host, last build wins. The app's
+`build.mjs`, and `scripts/agent.mjs --app` resolve through it. The standalone web
+build's `dist/` remains one output slot; dev uses the app-specific cache above,
+and Swift products are app-owned. The app's
 `exact.mjs` sets `EXACT_APP_DIR` and calls these scripts unchanged. Diagnostics resolve the
 same app: `metrics --app` (including `--rebuild` and `--long`) and
 `smoke deploy --app` capture the complete working source graph through the
@@ -514,6 +523,9 @@ byte is fetch, parse, and compile), then `wasm-opt -Oz` with
 This keeps small helpers inline while avoiding large expansions that make
 the compressed download larger despite shrinking the raw wasm. The build
 says when binaryen is absent and ships unoptimized. The output is
+cached under `target/web-optimized/` by input bytes, optimizer executable and
+options, with an output digest checked before reuse. A repackaging run can reuse
+the app, editor, textflow and GPU optimization independently. The packaged output is
 `host/web/dist/` (ignored by git): `app.wasm`, `index.html`, `glue.js`.
 The production build minifies the host JavaScript with the pinned Rolldown.
 For TypeScript apps it also bundles the module loader's stateless storage

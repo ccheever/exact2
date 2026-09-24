@@ -61,11 +61,61 @@ test.skipIf(!process.env.EXACT_ASSET_BAKE_TEST)('creating optional asset roots r
 }, 300000);
 
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { resolveApp, buildBake, bakeTarget, pendingBuildInputs } from './app.mjs';
+import { resolveApp, buildBake, bakeTarget, cargoDefaultBinary, optimizeWasm, pendingBuildInputs } from './app.mjs';
 import { snapshotOf, materializeSnapshot, disposeSnapshot } from './deploy.mjs';
+
+test('resident compilers follow Cargo default-run and single-binary selection', () => {
+  const bin = name => ({name, kind:['bin']});
+  assert.equal(cargoDefaultBinary({name:'reflow-web', targets:[bin('reflow-dev')]}), 'reflow-dev');
+  assert.equal(cargoDefaultBinary({name:'caltrain-web', default_run:'caltrain-dev', targets:[bin('metrics'),bin('caltrain-dev')]}), 'caltrain-dev');
+  assert.equal(cargoDefaultBinary({name:'external-web', targets:[bin('external-compiler')]}), 'external-compiler');
+  assert.equal(cargoDefaultBinary({name:'plain-web', targets:[{name:'plain_web',kind:['cdylib']}]}), null);
+  assert.throws(() => cargoDefaultBinary({name:'ambiguous',targets:[bin('one'),bin('two')]}), /default-run/);
+});
+
+test('shared input scans compare each receipt and rehash on the next scan', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-input-scan-')), path = resolve(dir, 'source');
+  const digest = text => new Bun.CryptoHasher('sha256').update(text).digest('hex');
+  const receipt = text => ({binary:{inputs:[{path,name:'source',sha256:digest(text)}],missing:[],directories:[]}});
+  try {
+    writeFileSync(path, 'first');
+    const stamp = statSync(path), files = new Map();
+    assert.deepEqual(pendingBuildInputs(receipt('first'), files), []);
+    assert.deepEqual(pendingBuildInputs(receipt('other'), files), ['source']);
+    writeFileSync(path, 'other'); utimesSync(path, stamp.atime, stamp.mtime);
+    assert.deepEqual(pendingBuildInputs(receipt('first')), ['source']);
+    assert.deepEqual(pendingBuildInputs(receipt('other')), []);
+    rmSync(path);
+    assert.deepEqual(pendingBuildInputs(receipt('other')), ['source']);
+  } finally { rmSync(dir, {recursive:true,force:true}); }
+});
+
+test('Wasm optimization reuses only matching inputs, tool, flags and intact output', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-wasm-opt-')), oldPath = process.env.PATH;
+  const source = resolve(dir,'input'), out = resolve(dir,'output'), cache = resolve(dir,'cache');
+  const tool = resolve(dir,'wasm-opt'), calls = resolve(dir,'calls');
+  const script = `#!/bin/sh\nprintf x >> '${calls}'\nwhile [ "$#" -gt 0 ]; do\nif [ "$1" = -o ]; then shift; out="$1"; else input="$1"; fi\nshift\ndone\ncp "$input" "$out"\n`;
+  try {
+    process.env.PATH = dir + ':' + oldPath;
+    writeFileSync(tool,script,{mode:0o755}); writeFileSync(source,'first');
+    const run = flags => optimizeWasm(source,out,cache,flags ?? ['-Oz']);
+    const count = () => readFileSync(calls,'utf8').length;
+    assert.equal(run(),true);assert.equal(run(),true);assert.equal(count(),1);
+    const stamp=statSync(source);writeFileSync(source,'other');utimesSync(source,stamp.atime,stamp.mtime);
+    run();assert.equal(count(),2);assert.equal(readFileSync(out,'utf8'),'other');
+    run(['-O2']);assert.equal(count(),3);
+    writeFileSync(tool,script+'# changed tool\n');run();assert.equal(count(),4);
+    for (const name of readdirSync(cache)) writeFileSync(resolve(cache,name),'corrupt');
+    run();assert.equal(count(),5);assert.equal(readFileSync(out,'utf8'),'other');
+    writeFileSync(tool,'#!/bin/sh\nexit 42\n');
+    assert.throws(run,/wasm-opt failed/);
+    assert.equal(optimizeWasm(source,out,cache,['-Oz'],true),false);
+    assert.equal(readFileSync(out,'utf8'),'other');
+  } finally {process.env.PATH=oldPath;rmSync(dir,{recursive:true,force:true});}
+});
 
 // Real Cargo units, no engine dependencies. Opt in with the other bake diagnostics.
 test.skipIf(!process.env.EXACT_BAKE_CACHE_TEST)('native bakes stay fresh and retain unit source and environment evidence', () => {

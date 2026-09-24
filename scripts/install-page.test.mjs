@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, renameSync, symlinkSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, renameSync, symlinkSync, existsSync, statSync, utimesSync, realpathSync } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { closeFilesystemReader, filesystemRead } from './filesystem.mjs';
 import { tmpdir } from 'node:os';
@@ -252,6 +252,47 @@ chmod 755 target/exact-filesystem-tool/debug/exact-filesystem
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 
+test('filesystem tool reuse checks source bytes, environment, lock and captured executable', () => {
+  const dir=realpathSync(mkdtempSync(join(tmpdir(),'exact-helper-freshness-')));
+  try {
+    for (const path of ['scripts','bin','filesystem/src','target/exact-filesystem-tool/debug/deps','target/exact-filesystem-tool/debug/build/exact-filesystem-123abc']) mkdirSync(join(dir,path),{recursive:true});
+    writeFileSync(join(dir,'scripts/filesystem.mjs'),readFileSync(new URL('./filesystem.mjs',import.meta.url)));
+    writeFileSync(join(dir,'filesystem/Cargo.toml'),'[package]\nname="exact-filesystem"\nversion="0.1.0"\n');
+    const helper=value=>`#!/bin/sh\nprintf '%s\\n' '${JSON.stringify({value})}'\n`;
+    const source=join(dir,'filesystem/src/main.rs');
+    writeFileSync(source,helper('first'));
+    writeFileSync(join(dir,'target/exact-filesystem-tool/debug/build/exact-filesystem-123abc/output'),'cargo:rerun-if-changed=src/main.rs\ncargo:rerun-if-env-changed=HELPER_VALUE\n');
+    const artifact=JSON.stringify({reason:'compiler-artifact',package_id:'path+file://'+dir+'/filesystem#exact-filesystem@0.1.0',target:{src_path:source}});
+    writeFileSync(join(dir,'bin/rustc'),'#!/bin/sh\necho fixture-rustc\n',{mode:0o755});
+    writeFileSync(join(dir,'bin/cargo'),`#!/bin/sh
+set -e
+if [ "$1" = -Vv ]; then echo fixture-cargo; exit; fi
+printf x >> builds
+cp filesystem/src/main.rs target/exact-filesystem-tool/debug/exact-filesystem
+chmod 755 target/exact-filesystem-tool/debug/exact-filesystem
+printf '%s\n' '${artifact}'
+`,{mode:0o755});
+    const read=(extra={})=>{
+      const child=spawnSync(process.execPath,['--eval',"import {filesystem} from './scripts/filesystem.mjs';console.log(filesystem({op:'get'}))"],{cwd:dir,encoding:'utf8',env:{...process.env,PATH:join(dir,'bin')+':'+process.env.PATH,...extra}});
+      assert.equal(child.status,0,child.stderr);return child.stdout.trim();
+    };
+    const builds=()=>readFileSync(join(dir,'builds'),'utf8').length;
+    assert.equal(read(),'first'); assert.equal(read(),'first');
+    const warm=builds(); assert.equal(read(),'first'); assert.equal(builds(),warm);
+    const stamp=statSync(source);writeFileSync(source,helper('other'));utimesSync(source,stamp.atime,stamp.mtime);
+    assert.equal(read(),'other'); assert.equal(builds(),warm+1,'same-size source edits must rebuild');
+    assert.equal(read(),'other'); assert.equal(builds(),warm+1,'the rebuilt capture is warm');
+    read({HELPER_VALUE:'changed'}); assert.equal(builds(),warm+2,'build-script environment must invalidate');
+    read(); assert.equal(builds(),warm+3);
+    writeFileSync(join(dir,'Cargo.lock'),'changed lock');read(); assert.equal(builds(),warm+4);
+    const receipt=JSON.parse(readFileSync(join(dir,'target/exact-filesystem-tool/captured.json'),'utf8'));
+    writeFileSync(join(dir,'target/exact-filesystem-tool',`exact-filesystem-${receipt.digest}`),'corrupt');
+    assert.equal(read(),'other'); assert.equal(builds(),warm+5,'damaged captured bytes must be repaired');
+    mkdirSync(join(dir,'.cargo'));writeFileSync(join(dir,'.cargo/config.toml'),'[build]\njobs=1\n');
+    read();read();assert.equal(builds(),warm+7,'custom Cargo configurations use Cargo on every launch');
+  } finally {rmSync(dir,{recursive:true,force:true});}
+}, 30000);
+
 test('browser destinations respect listener binding and keep public URLs explicit', () => {
   const interfaces={lo0:[{address:'127.0.0.1',family:'IPv4',internal:true}],en0:[{address:'192.168.1.20',family:'IPv4',internal:false}],utun:[{address:'100.84.2.3',family:'IPv4',internal:false}]};
   const options={host:'0.0.0.0',port:8879,interfaces};
@@ -352,4 +393,3 @@ test('the production server sends warm bodies compressed, with validators', asyn
     assert.equal((await get(plain, '/missing.js')).headers['cache-control'], 'no-store');
   } finally { production.close(); plain.close(); rmSync(dir, { recursive: true, force: true }); }
 });
-

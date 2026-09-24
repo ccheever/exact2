@@ -34,7 +34,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { resolve } from 'node:path';
 import { rustPackage, rustOutput, rustInputs, rustCards } from '../../scripts/rust.mjs';
 import { shaderWatchRoots, rustPolicy, rebuildPolicy } from '../../scripts/app.mjs';
-import { cargoReproducibilityFlags, compilerPaths, developmentBuildEnv, developmentCandidate, pendingBuildInputs, readBuilds, resolveApp } from '../../scripts/app.mjs';
+import { appSourceKey, cargoDefaultBinary, cargoReproducibilityFlags, compilerPaths, developmentBuildEnv, developmentCandidate, pendingBuildInputs, readBuilds, resolveApp } from '../../scripts/app.mjs';
 import { developmentLinks, phones, simulators } from '../apple/build.mjs';
 import { webRequestURL } from '../../scripts/origin.mjs';
 import { applyShaderTreeChange, sendStaticBody, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
@@ -50,7 +50,10 @@ const host = lan ? '0.0.0.0' : '127.0.0.1';
 const origins = installBrowserOrigins({ host, port });
 const gate = developmentGate(origins, port);
 const root = resolve(new URL('../..', import.meta.url).pathname);
-const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(root, 'host/web/dist'));
+// Keep each app's completed web build across server restarts and other app
+// builds. Live plans belong to this process, never to the completed package.
+const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(app.target, 'dev-web', appSourceKey(app), app.id));
+buildEnv.EXACT_WEB_DIST = dist;
 const source = resolve(app.dir, 'app.contract');
 let typescript = existsSync(resolve(app.dir, 'app.ts'));
 let portableRust = Boolean(rustPackage(app)) && rustPolicy(app.manifest, 'web') !== 'off';
@@ -58,17 +61,26 @@ let rebuildOn = rebuildPolicy(app.manifest);
 let manualTypescript = null, rustChild = null, rustActive = false, rustRun = 0, rustHeartbeat = null, rustDirty = false, rustSaved = 0, rustSourceWatch = null, rustOutputWatch = null;
 let rustInputFiles = new Set();
 let changed = new Set(), timer=null, building=false, buildPending=false, rustPending=false, builds=0;
-const plan = resolve(dist, 'app.plan');
+const scratch = resolve(app.target, 'dev-plans');
+mkdirSync(scratch, {recursive:true});
+const planDirectory = mkdtempSync(resolve(scratch, 'session-'));
+const plan = resolve(planDirectory, 'app.plan');
+process.once('exit', () => rmSync(planDirectory, {recursive:true, force:true}));
 const graphPath = resolve(dist, 'bake.json');
 buildEnv.EXACT_DEV_BAKE = graphPath;
 async function currentWebBuild() {
   if (!await builtAppMatches(dist, app)) return false;
   try {
     const build = JSON.parse(readFileSync(graphPath, 'utf8'));
-    return build.version === 1 && build.trust === 'development' && pendingBuildInputs(build).length === 0;
+    // Contract is the resident producer's input. A save while the server was
+    // stopped needs a new live plan, just as a save while it was running does.
+    const contractInputs = new Set(build.binary.inputs.filter(f => f.path === source).map(f => f.name));
+    return build.version === 1 && build.trust === 'development'
+      && pendingBuildInputs(build).every(name => contractInputs.has(name));
   } catch { return false; }
 }
 if (!await currentWebBuild()) {
+  mkdirSync(resolve(dist, '..'), {recursive:true});
   const b = spawnSync(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web')], { cwd: root, env:buildEnv, stdio: 'inherit' });
   if (b.status !== 0) process.exit(b.status ?? 1);
 }
@@ -271,13 +283,13 @@ function captureGeneration(reuseCurrentAssets = false) {
   // A mixed app publishes one complete candidate. A producer may finish
   // first, but neither language may reset the other's last admitted module.
   if (typescript && portableRust && (!currentModule || !currentRust)) return;
-  const encodedPlan = currentModule ? null : filesystem({ op: 'get', root: dist, path: 'app.plan' });
-  if (!currentModule && encodedPlan === null) throw new Error('the plan is missing');
+  const encodedPlan = currentModule || currentRust ? null : filesystem({ op: 'get', root: planDirectory, path: 'app.plan' });
+  if (!currentModule && !currentRust && encodedPlan === null) throw new Error('the plan is missing');
   const planBytes = currentModule?.get('app.plan') ?? currentRust?.get('app.plan') ?? Buffer.from(encodedPlan, 'base64');
   const files = currentModule ? new Map(currentModule) : new Map([['app.plan', planBytes]]);
   // Source metadata stays beside the dev generation, never in its assets or
   // module receipt. A static/Rust bake may have replaced the plan without a map.
-  const encodedMap = currentModule || currentRust ? null : filesystem({ op: 'get', root: dist, path: 'app.plan.map.json' });
+  const encodedMap = currentModule || currentRust ? null : filesystem({ op: 'get', root: planDirectory, path: 'app.plan.map.json' });
   const mapBytes = currentModule?.get('app.plan.map.json') ?? currentRust?.get('app.plan.map.json') ?? (encodedMap == null ? null : Buffer.from(encodedMap, 'base64'));
   files.delete('app.plan.map.json');
   if (mapBytes && mapBytes.length <= 64 * 1024 * 1024) {
@@ -356,8 +368,8 @@ function startCompiler() {
   if (portableRust) return;
   const metadata = spawnSync('cargo', ['metadata',...cargoReproducibilityFlags(app),'--no-deps','--format-version','1'], {cwd:app.workspace,env:buildEnv,encoding:'utf8'});
   if (metadata.status !== 0) throw new Error(`cargo metadata failed: ${metadata.stderr || metadata.error || metadata.status}`);
-  const hasDev = JSON.parse(metadata.stdout).packages.find(p=>p.name===app.crate('web'))?.targets.some(t=>t.name==='dev'&&t.kind.includes('bin'));
-  dev = spawn('cargo', ['run', '-q', '--release', '-p', hasDev ? app.crate('web') : 'exact-web', '--bin', hasDev ? 'dev' : 'exact-dev', '--', source, plan], { cwd: hasDev ? app.workspace : root, env: buildEnv, stdio: ['ignore', 'pipe', 'inherit'], detached: true });
+  const bin = cargoDefaultBinary(JSON.parse(metadata.stdout).packages.find(p=>p.name===app.crate('web')));
+  dev = spawn('cargo', ['run', '-q', ...cargoReproducibilityFlags(app), '--release', '-p', bin ? app.crate('web') : 'exact-web', '--bin', bin ?? 'exact-dev', '--', source, plan], { cwd: bin ? app.workspace : root, env: buildEnv, stdio: ['ignore', 'pipe', 'inherit'], detached: true });
   const me = dev;
   console.log(`compiler pid ${dev.pid}`);
   let buffered = '';
@@ -770,7 +782,7 @@ function pushAssets() {
 // a guessed target or compatibility id. @ref LLP 1030 D3; 1030.000 D5.
 let builtReceipts=readBuilds(app,buildEnv);
 const nativePending=new Map();
-function refreshNativePending(){nativePending.clear();for(const r of builtReceipts)if(r.compat.inputs.platform!=='web')nativePending.set(r.compat.target+'/'+r.compat.inputs.platform,pendingBuildInputs(r));}
+function refreshNativePending(){const files=new Map();nativePending.clear();for(const r of builtReceipts)if(r.compat.inputs.platform!=='web')nativePending.set(r.compat.target+'/'+r.compat.inputs.platform,pendingBuildInputs(r, files));}
 refreshNativePending();
 let previousWeb=cohortReceipt(JSON.parse(readFileSync(graphPath,'utf8')));
 function classifyGeneration(planBytes, assets) {

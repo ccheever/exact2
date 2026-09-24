@@ -21,7 +21,7 @@
 // validator small enough to live beside the reader; an app without one gets
 // the derived defaults it had before the manifest existed.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -316,6 +316,47 @@ export const developmentURLScheme = (appId) => 'exact2-' + createHash('sha256').
 
 /** Canonical source ownership, including external apps and shared targets. */
 export const appSourceKey = (app) => createHash('sha256').update(realpathSync(app.dir)).digest('hex').slice(0, 24);
+/** Cargo's executable selection, including app-specific resident compilers. */
+export function cargoDefaultBinary(pkg) {
+  const bins = pkg?.targets.filter(t => t.kind.includes('bin')) ?? [];
+  if (!bins.length) return null;
+  if (pkg.default_run && bins.some(t => t.name === pkg.default_run)) return pkg.default_run;
+  if (bins.length === 1) return bins[0].name;
+  throw new Error(`${pkg.name}: multiple executables; select the dev adapter with package.default-run`);
+}
+/** Optimize captured Wasm bytes once per input, tool executable and options.
+ * Cache entries carry their output digest; incomplete or damaged entries miss. */
+export function optimizeWasm(input, output, cache, flags, optional = false) {
+  const tool = Bun.which('wasm-opt', {path:process.env.PATH});
+  if (!tool) { copyFileSync(input, output); return false; }
+  const source = readFileSync(input), toolBytes = readFileSync(tool);
+  const key = createHash('sha256').update(toolBytes).update(JSON.stringify(flags)).update(source).digest('hex');
+  const entry = resolve(cache, key);
+  try {
+    const bytes = readFileSync(entry), body = bytes.subarray(32);
+    if (bytes.length > 32 && createHash('sha256').update(body).digest().equals(bytes.subarray(0,32))) {
+      writeFileSync(output, body); return true;
+    }
+  } catch { /* A cache miss uses the optimizer. */ }
+  mkdirSync(cache, {recursive:true});
+  const stage = mkdtempSync(resolve(cache, 'candidate-'));
+  try {
+    const captured = resolve(stage,'input.wasm'); writeFileSync(captured, source);
+    const result = spawnSync(tool, [...flags, '-o', output, captured], {stdio:'inherit'});
+    if (result.status !== 0) {
+      if (!optional) throw new Error(`wasm-opt failed (${result.error?.message ?? result.status ?? result.signal})`);
+      writeFileSync(output, source); return false;
+    }
+    const body = readFileSync(output);
+    // A tool replacement during optimization cannot publish under the old key.
+    if (readFileSync(tool).equals(toolBytes)) {
+      const temporary = resolve(stage,'complete');
+      writeFileSync(temporary, Buffer.concat([createHash('sha256').update(body).digest(),body]));
+      renameSync(temporary, entry);
+    }
+    return true;
+  } finally { rmSync(stage, {recursive:true,force:true}); }
+}
 /** The private directory receiving documents emitted by actual app build scripts. */
 export function bakeOutput(app, env = process.env) {
   return env.EXACT_BAKE_OUTPUT ?? resolve(app.target, 'bake', appSourceKey(app), app.id, env.EXACT_UPDATE_TRUST ?? 'development');
@@ -727,11 +768,16 @@ export function developmentCandidate(build, plan, assets, surfaces) {
 
 /** Source staleness is provisional until the next actual bake. These paths
  * came from the previous compiler receipt, including absent watched inputs. */
-export function pendingBuildInputs(build) {
+export function pendingBuildInputs(build, files = new Map()) {
   const changed=[];
   for(const file of build.binary.inputs) {
-    try {if(!statSync(file.path).isFile()||buildHash(readFileSync(file.path))!==file.sha256)changed.push(file.name);}
-    catch {changed.push(file.name);}
+    // Reuse content reads only within one synchronous multi-platform scan.
+    // Every later scan hashes again, including same-size/mtime-preserving edits.
+    if (!files.has(file.path)) {
+      try {files.set(file.path, statSync(file.path).isFile() ? buildHash(readFileSync(file.path)) : null);}
+      catch {files.set(file.path, null);}
+    }
+    if(files.get(file.path)!==file.sha256)changed.push(file.name);
   }
   for(const path of build.binary.missing)if(existsSync(path))changed.push(path);
   for(const {path,names} of build.binary.directories) {

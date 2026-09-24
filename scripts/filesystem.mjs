@@ -1,13 +1,88 @@
 // Tooling-only bridge to directory-owned operations. @ref LLP 1030.002.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, resolve } from 'node:path';
+import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 let binary;
+// The helper has one local source tree and registry dependencies. Reuse its
+// captured executable only after hashing that complete source closure. Cargo
+// remains the fallback for custom configurations, wrappers or local dependencies.
+// No source freshness decision depends on mtimes or the mutable debug binary.
+function toolSignature(trees, env, names) {
+  const hash = createHash('sha256');
+  const visit = path => {
+    hash.update(JSON.stringify(path));
+    if (!existsSync(path)) { hash.update('missing'); return; }
+    const stat = lstatSync(path);
+    if (stat.isSymbolicLink()) throw new Error('linked helper input');
+    if (stat.isDirectory()) {
+      for (const name of readdirSync(path).sort()) visit(resolve(path, name));
+    } else if (stat.isFile()) hash.update(createHash('sha256').update(readFileSync(path)).digest());
+    else throw new Error('nonregular helper input');
+  };
+  // Config can select arbitrary tools and environment-dependent build behavior.
+  // Let Cargo handle that configuration rather than approximate its semantics.
+  const configs = [resolve(env.CARGO_HOME ?? resolve(homedir(), '.cargo'))];
+  for (let path = resolve(root);;) {
+    configs.push(resolve(path, '.cargo'));
+    if (dirname(path) === path) break;
+    path = dirname(path);
+  }
+  if (configs.some(path => ['config','config.toml'].some(name => existsSync(resolve(path,name))))
+    || Object.keys(env).some(name => /^(?:RUSTC|CARGO_BUILD_RUSTC).*WRAPPER$/.test(name) && env[name])
+    || env.RUSTC || env.CARGO_BUILD_RUSTC) return null;
+  for (const command of ['rustc', 'cargo']) {
+    const version = spawnSync(command, ['-Vv'], {cwd:root, env, encoding:'utf8'});
+    if (version.status !== 0) return null;
+    hash.update(version.stdout);
+  }
+  for (const name of [...new Set([...names, ...Object.keys(env).filter(name => /^(?:CARGO|RUST|CC|CXX|AR|CFLAGS|CXXFLAGS|CPPFLAGS|LDFLAGS|SDKROOT|MACOSX_DEPLOYMENT_TARGET|PATH$|HOME$)/.test(name))])].sort()) {
+    hash.update(JSON.stringify([name, env[name] ?? null]));
+  }
+  for (const path of [...new Set([...trees, resolve(root,'Cargo.toml'), resolve(root,'Cargo.lock'), resolve(root,'rust-toolchain'), resolve(root,'rust-toolchain.toml')])].sort()) visit(path);
+  return hash.digest('hex');
+}
+function toolInputs(messages, directory) {
+  const trees = new Set(), names = new Set(), packages = new Map();
+  for (const message of messages) {
+    if (message.reason !== 'compiler-artifact') continue;
+    let path = dirname(message.target.src_path);
+    while (!existsSync(resolve(path,'Cargo.toml'))) {
+      if (dirname(path) === path) return null;
+      path = dirname(path);
+    }
+    if (path !== resolve(root,'filesystem') && !message.package_id.startsWith('registry+')) return null;
+    trees.add(path);
+    packages.set(Bun.TOML.parse(readFileSync(resolve(path,'Cargo.toml'),'utf8')).package.name, path);
+  }
+  // Cargo's build-script and rustc environment dependencies are part of the
+  // identity even when a variable has no Cargo/Rust prefix (e.g. libc's flags).
+  const walk = path => {
+    for (const entry of readdirSync(path, {withFileTypes:true})) {
+      const file = resolve(path,entry.name);
+      if (entry.isDirectory()) walk(file);
+      else if (entry.name.endsWith('.d') || entry.name === 'output') {
+        const text = readFileSync(file,'utf8');
+        for (const match of text.matchAll(/(?:# env-dep:|cargo::?rerun-if-env-changed=)([^=\r\n]+)(?:=[^\r\n]*)?/g)) names.add(match[1]);
+        if (entry.name === 'output') {
+          const owner = packages.get(basename(path).replace(/-[a-f0-9]+$/, ''));
+          if (!owner) throw new Error('unknown helper build script');
+          for (const match of text.matchAll(/cargo::?rerun-if-changed=([^\r\n]+)/g)) {
+            const input = resolve(owner, match[1]);
+            if (input !== owner && !input.startsWith(owner + '/')) throw new Error('helper input outside package');
+          }
+        }
+      }
+    }
+  };
+  for (const dir of ['deps','build']) walk(resolve(directory,'debug',dir));
+  return trees.has(resolve(root,'filesystem')) ? {trees:[...trees].sort(), names:[...names].sort()} : null;
+}
 function executable() {
   if (binary) return binary;
   const directory = resolve(root, 'target/exact-filesystem-tool');
@@ -23,6 +98,17 @@ function executable() {
     if (env[name] && basename(env[name]) === 'clippy-driver') delete env[name];
   }
   delete env.CLIPPY_ARGS;
+  const receiptPath = resolve(directory, 'captured.json');
+  let previous, before;
+  try {
+    const receipt = JSON.parse(readFileSync(receiptPath,'utf8'));
+    if (receipt.version === 1) { previous = receipt; before = toolSignature(receipt.trees, env, receipt.names); }
+    if (receipt.version === 1 && /^[a-f0-9]{64}$/.test(receipt.digest)
+      && receipt.signature && before === receipt.signature) {
+      const captured = resolve(directory, `exact-filesystem-${receipt.digest}`);
+      if (createHash('sha256').update(readFileSync(captured)).digest('hex') === receipt.digest) return binary = captured;
+    }
+  } catch { /* A missing, damaged or unsupported capture goes through Cargo. */ }
   // Cargo protects compilation, but releases its lock before we can exec.
   // Another profile can replace its public binary in that gap. Hold this
   // bootstrap claim through capture, then execute immutable captured bytes.
@@ -47,12 +133,12 @@ function executable() {
   };
   process.once('exit', release);
   try {
-    const built = spawnSync('cargo', ['build', '--quiet', '--locked', '--offline', '-p', 'exact-filesystem', '--target-dir', directory], { cwd: root, env, encoding: 'utf8' });
+    const built = spawnSync('cargo', ['build', '--quiet', '--locked', '--offline', '-p', 'exact-filesystem', '--target-dir', directory, '--message-format=json'], { cwd: root, env, encoding: 'utf8', maxBuffer:64*1024*1024 });
     if (built.error) throw built.error;
     if (built.status !== 0) throw new Error(built.stderr || `could not build exact-filesystem (status ${built.status}, signal ${built.signal ?? 'none'})`);
     const bytes = readFileSync(target), digest = createHash('sha256').update(bytes).digest('hex');
     const captured = resolve(directory, `exact-filesystem-${digest}`);
-    if (!existsSync(captured)) {
+    if (!existsSync(captured) || createHash('sha256').update(readFileSync(captured)).digest('hex') !== digest) {
       const temporary = `${captured}.${owner}.tmp`;
       try {
         writeFileSync(temporary, bytes, { flag: 'wx', mode: 0o755 });
@@ -60,6 +146,21 @@ function executable() {
       } finally { rmSync(temporary, { force: true }); }
     }
     binary = captured;
+    try {
+      const inputs = toolInputs(built.stdout.trim().split('\n').filter(Boolean).map(line => JSON.parse(line)), directory);
+      if (inputs) {
+        const after = toolSignature(inputs.trees, env, inputs.names);
+        // A new closure is only a seed. Its next Cargo build must observe the
+        // same complete inputs before and after compilation before reuse begins.
+        const signature = before && before === after
+          && JSON.stringify(inputs) === JSON.stringify({trees:previous.trees,names:previous.names}) ? after : null;
+        const temporary = `${receiptPath}.${owner}.tmp`;
+        try {
+          writeFileSync(temporary, JSON.stringify({version:1,...inputs,signature,digest}));
+          renameSync(temporary, receiptPath);
+        } finally { rmSync(temporary, {force:true}); }
+      }
+    } catch { /* Capturing is an optimization; Cargo already verified this run. */ }
     return captured;
   } finally { release(); }
 }

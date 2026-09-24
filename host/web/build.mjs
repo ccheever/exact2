@@ -13,7 +13,7 @@ import { minifySync } from 'rolldown/experimental';
 import { writeInstallPages } from '../../scripts/install-page.mjs';
 import { rustPolicy, webHostFiles } from '../../scripts/app.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
-import { copyShaders, bakeOutput, buildBake, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
+import { copyShaders, bakeOutput, buildBake, readBake, verifyBakeFiles, developmentBuildEnv, optimizeWasm, resolveApp } from '../../scripts/app.mjs';
 import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
 import { appManifestDigest, copyStaticTreeIfPresent, listAssets, publicFileCards, webEnvelope, moduleCards, MODULE_FILES } from './serve.mjs';
 
@@ -49,11 +49,10 @@ const out = resolve(stage, 'app.wasm');
 // Keep small single-caller functions inline, but bound large expansions: -Oz's
 // unlimited default shrinks raw bytes while increasing both Brotli and gzip.
 // The feature flags match what rustc's wasm32 target emits.
-const opt = spawnSync('wasm-opt', ['-Oz', '--one-caller-inline-max-function-size', '50', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', '--strip-debug', '--strip-producers', '-o', out, built], { stdio: 'inherit' });
-let optNote;
-if (opt.error?.code === 'ENOENT') { copyFileSync(built, out); optNote = 'wasm-opt not on PATH (brew install binaryen): shipped unoptimized'; }
-else if (opt.status !== 0) process.exit(opt.status ?? 1);
-else optNote = 'wasm-opt -Oz';
+const optFlags = ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', '--strip-debug', '--strip-producers'];
+const optCache = resolve(app.target, 'web-optimized');
+const optNote = optimizeWasm(built, out, optCache, [...optFlags, '--one-caller-inline-max-function-size', '50'])
+  ? 'wasm-opt -Oz' : 'wasm-opt not on PATH (brew install binaryen): shipped unoptimized';
 
 // The app's static files ride beside the page: `assets/…` images and an
 // optional `deck/` iframe guest (@ref LLP 1020 M1). Replaced whole, so a
@@ -84,14 +83,14 @@ const editor = spawnSync('cargo', ['build', '--locked', '--offline', '-q', '-p',
 if (editor.status !== 0) process.exit(editor.status ?? 1);
 const editorBuilt = resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'wasm32-unknown-unknown/web/exact_markdown_editor.wasm');
 const editorWasm = resolve(stage, 'markup-editor.wasm');
-if (spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', '--strip-debug', '--strip-producers', '-o', editorWasm, editorBuilt], { stdio: 'inherit' }).status !== 0) copyFileSync(editorBuilt, editorWasm);
+optimizeWasm(editorBuilt, editorWasm, optCache, optFlags, true);
 
 // The exclusions walker is its own leaf artifact; ordinary apps fetch none of it.
 const flow = spawnSync('cargo', ['build', '--locked', '--offline', '-q', '-p', 'exact-textflow', '--bin', 'textflow-web', '--target', 'wasm32-unknown-unknown', '--profile', 'web'], { cwd: root, env: buildEnv, stdio: 'inherit' });
 if (flow.status !== 0) process.exit(flow.status ?? 1);
 const flowBuilt = resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'wasm32-unknown-unknown/web/textflow-web.wasm');
 const flowWasm = resolve(stage, 'textflow.wasm');
-if (spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', '--strip-debug', '--strip-producers', '-o', flowWasm, flowBuilt], { stdio: 'inherit' }).status !== 0) copyFileSync(flowBuilt, flowWasm);
+optimizeWasm(flowBuilt, flowWasm, optCache, optFlags, true);
 
 // The plan and its pointer card (LLP 1023 D1/D2): extract the exact bytes
 // baked into the produced, optimized wasm. Compiling app.contract a second
@@ -256,10 +255,10 @@ if (app.hasGpu) {
   else if (wb.status !== 0) process.exit(wb.status ?? 1);
   else {
     const bg = resolve(stage, 'gpu_bg.wasm');
-    const o = spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', '--strip-debug', '--strip-producers', '-o', bg, bg], { stdio: 'inherit' });
+    const optimized = optimizeWasm(bg, bg, optCache, optFlags, true);
     copyHostFiles('gpu');
     const gw = readFileSync(bg);
-    gpuNote = `gpu_bg.wasm ${kib(gw.length)} (${kib(gzipSync(gw, { level: 9 }).length)} gzip${o.status === 0 ? ', wasm-opt' : ''}), gpu.js ${kib(readFileSync(resolve(stage, 'gpu.js')).length)}, on demand`;
+    gpuNote = `gpu_bg.wasm ${kib(gw.length)} (${kib(gzipSync(gw, { level: 9 }).length)} gzip${optimized ? ', wasm-opt' : ''}), gpu.js ${kib(readFileSync(resolve(stage, 'gpu.js')).length)}, on demand`;
   }
 }
 // Written last inside the private stage. Dev startup trusts a dist only when
