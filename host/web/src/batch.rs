@@ -25,20 +25,32 @@ pub(crate) fn request_refusal(request: &exact_runner::Request) -> Option<&'stati
 }
 
 pub(crate) fn quote(s: &str, out: &mut String) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
     out.push('"');
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => {
-                let _ = write!(out, "\\u{:04x}", c as u32);
-            }
-            c => out.push(c),
+    // Every byte that needs an escape is ASCII, so the runs between them
+    // end on character boundaries and are copied whole.
+    let mut run = 0;
+    for (at, b) in s.bytes().enumerate() {
+        let escape = match b {
+            b'"' => "\\\"",
+            b'\\' => "\\\\",
+            b'\n' => "\\n",
+            b'\r' => "\\r",
+            b'\t' => "\\t",
+            0..0x20 => "",
+            _ => continue,
+        };
+        out.push_str(&s[run..at]);
+        if escape.is_empty() {
+            out.push_str("\\u00");
+            out.push(char::from(HEX[usize::from(b >> 4)]));
+            out.push(char::from(HEX[usize::from(b & 15)]));
+        } else {
+            out.push_str(escape);
         }
+        run = at + 1;
     }
+    out.push_str(&s[run..]);
     out.push('"');
 }
 
@@ -569,5 +581,15 @@ mod timer_tests {
         let empty = super::Batch::new().finish(None, 0.0, None);
         assert!(!empty.contains("timer_due_ms"), "{empty}");
         assert!(empty.contains("\"timers\":false"), "{empty}");
+    }
+}
+
+#[cfg(test)]
+mod quote_tests {
+    #[test]
+    fn strings_are_json_with_every_control_escaped() {
+        let mut out = String::new();
+        super::quote("a\"b\\c\nd\re\tf\u{1}g\u{1f}h\u{7f}é€😀", &mut out);
+        assert_eq!(out, "\"a\\\"b\\\\c\\nd\\re\\tf\\u0001g\\u001fh\u{7f}é€😀\"");
     }
 }
