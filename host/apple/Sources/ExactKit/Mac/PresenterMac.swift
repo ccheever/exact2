@@ -951,6 +951,7 @@ final class Presenter {
         applying = true
         defer {
             collections.endBatch()
+            collections.observeKnobDrags()
             if outermost {
                 applying = false
                 videoVisibility?.changed()

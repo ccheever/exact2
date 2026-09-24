@@ -200,6 +200,52 @@ final class CollectionMacTests: XCTestCase {
         XCTAssertEqual(interactions.last, 3, "a press inside a row still pins it")
     }
 
+    func testKnobReleaseKeepsTheOffsetTheReaderSaw() throws {
+        // At a knob drag's mouse-up AppKit derives the offset from the pointer
+        // once more; rows measured during the drag have changed the document's
+        // height since, so that offset jumps. The reader keeps the last one.
+        let (plain, plainList) = fixture(collection: false, estimatedItemHeight: "24")
+        defer { plain.collections.reset() }
+        XCTAssertNil(KnobDrag.of(try XCTUnwrap(plainList.scroll)), "a list that is not a collection keeps every offset")
+        let (p, list) = fixture()
+        defer { p.collections.reset() }
+        let scroll = try XCTUnwrap(list.scroll)
+        let drag = try XCTUnwrap(KnobDrag.of(scroll))
+        XCTAssertTrue(scroll.verticalScroller.map { type(of: $0) == NSScroller.self } ?? false, "AppKit's own scroller stays")
+        var tops: [Double] = []
+        p.collections.onFeedback = { bytes in
+            tops.append(Double(bitPattern: (0..<8).reduce(UInt64(0)) { $0 | UInt64(bytes[24 + $1]) << ($1 * 8) }))
+        }
+        let clip = scroll.contentView
+        drag.currentEventType = { .scrollWheel }
+        drag.began()
+        XCTAssertFalse(drag.tracking, "a gesture's live scroll is not a knob drag")
+        drag.currentEventType = { .leftMouseDown }
+        drag.began()
+        drag.currentEventType = { .leftMouseDragged }
+        clip.scroll(to: NSPoint(x: 0, y: 1000))
+        XCTAssertEqual(tops.last, 980, "a drag step is reported (content starts 20 below the clip)")
+        drag.currentEventType = { .leftMouseUp }
+        clip.scroll(to: NSPoint(x: 0, y: 1400))
+        XCTAssertEqual(tops.last, 980, "the mouse-up's own offset is never reported")
+        drag.ended()
+        XCTAssertEqual(clip.bounds.minY, 1000, "the offset the reader saw is restored")
+        XCTAssertFalse(drag.tracking)
+        clip.scroll(to: NSPoint(x: 0, y: 1200))
+        XCTAssertEqual(clip.bounds.minY, 1200, "outside a knob drag every offset stands")
+        // A knob held at the end of its track: the mouse-up's offset at the
+        // document's end stands, since that is what the knob means there.
+        drag.currentEventType = { .leftMouseDown }
+        drag.began()
+        drag.currentEventType = { .leftMouseDragged }
+        clip.scroll(to: NSPoint(x: 0, y: 2700))
+        drag.currentEventType = { .leftMouseUp }
+        let end = try XCTUnwrap(scroll.documentView).frame.height - clip.bounds.height
+        clip.scroll(to: NSPoint(x: 0, y: end))
+        drag.ended()
+        XCTAssertEqual(clip.bounds.minY, end, "a release at the end stays at the end")
+    }
+
     func testNestedCollectionsOwnOnlyNearestPinsAndReleaseBeforeTransfer() throws {
         let (p, _) = fixture()
         defer { p.collections.reset() }

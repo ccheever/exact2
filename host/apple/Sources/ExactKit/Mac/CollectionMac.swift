@@ -2,7 +2,76 @@
 #if os(macOS)
 import AppKit
 
+/// A knob drag on a collection's scroller. AppKit derives a knob drag's
+/// offsets from the pointer, and derives one more at the mouse-up. Rows
+/// measured during the drag change the document's height, so that last
+/// offset lands elsewhere and the text jumps after the release, which a
+/// browser's scrollbar never does. This keeps the offset the reader saw.
+/// AppKit's own scroller stays: one set later loses its overlay behavior.
+final class KnobDrag {
+    private static var key = 0
+    static func of(_ scroll: NSScrollView) -> KnobDrag? { objc_getAssociatedObject(scroll, &key) as? KnobDrag }
+
+    private(set) var tracking = false
+    private var shown: NSPoint?
+    private weak var scroll: NSScrollView?
+    private var observers: [NSObjectProtocol] = []
+    var currentEventType: () -> NSEvent.EventType? = { NSApp.currentEvent?.type }
+
+    init(_ scroll: NSScrollView) {
+        self.scroll = scroll
+        let center = NotificationCenter.default
+        // Delivered synchronously: the mouse-up's offset is replaced in the
+        // same event, before a frame shows it.
+        observers = [
+            center.addObserver(forName: NSScrollView.willStartLiveScrollNotification, object: scroll, queue: nil) { [weak self] _ in self?.began() },
+            center.addObserver(forName: NSScrollView.didEndLiveScrollNotification, object: scroll, queue: nil) { [weak self] _ in self?.ended() }
+        ]
+        objc_setAssociatedObject(scroll, &Self.key, self, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+    }
+    deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
+
+    /// A live scroll that starts with a press is the knob's; a gesture's
+    /// starts with a wheel event and keeps every offset.
+    func began() {
+        tracking = currentEventType() == .leftMouseDown
+        shown = nil
+    }
+    /// Whether the clip view's new offset is one the reader sees. During a
+    /// knob drag, the mouse-up's own derivation is not, unless it reaches an
+    /// end of the document: a knob held at the end of its track means the end.
+    func admits(_ clip: NSClipView) -> Bool {
+        guard tracking else { return true }
+        let maximum = max(0, (clip.documentView?.frame.height ?? 0) - clip.bounds.height)
+        let edge = clip.bounds.minY <= 0.5 || clip.bounds.minY >= maximum - 0.5
+        if currentEventType() == .leftMouseUp, !edge { return false }
+        shown = clip.bounds.origin
+        return true
+    }
+    func ended() {
+        guard tracking else { return }
+        tracking = false
+        guard let seen = shown, let scroll, let document = scroll.documentView else { return }
+        shown = nil
+        let clip = scroll.contentView
+        let maximum = max(0, document.frame.height - clip.bounds.height)
+        let target = NSPoint(x: clip.bounds.minX, y: min(maximum, max(0, seen.y)))
+        guard clip.bounds.origin != target else { return }
+        clip.scroll(to: target)
+        scroll.reflectScrolledClipView(clip)
+    }
+}
+
 extension CollectionHost {
+    /// A collection's list keeps the offset a knob drag showed (`KnobDrag`);
+    /// other lists keep AppKit's.
+    func observeKnobDrags() {
+        for id in entries.keys {
+            guard let scroll = presenter?.views[id]?.scroll, KnobDrag.of(scroll) == nil else { continue }
+            _ = KnobDrag(scroll)
+        }
+    }
+
     func orderChildren(_ children: [NodeView], in container: NSView) {
         // Spacer reuse can move a pinned row within the same parent. Detaching
         // it to reorder clears AppKit's first responder, even when its logical
