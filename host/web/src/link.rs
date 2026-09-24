@@ -27,8 +27,9 @@ pub struct Linked {
     /// Drags: the host's hooks for them, which the entry passes as
     /// [`crate::HostLinks::of`] this set.
     pub drag: bool,
-    /// GPU canvas surfaces: their exports (`surface_exports!`) are in.
-    pub surfaces: bool,
+    /// GPU canvas surfaces: the runner's answer for a surface's record, and
+    /// their exports (`surface_exports!`) are in.
+    pub surface_answer: exact_runner::SurfaceAnswer,
 }
 
 impl Linked {
@@ -38,7 +39,7 @@ impl Linked {
         motion: None,
         collections: false,
         drag: false,
-        surfaces: false,
+        surface_answer: None,
     };
 
     /// The capabilities registered here.
@@ -56,7 +57,7 @@ impl Linked {
         if self.drag {
             uses = uses.with(Capability::Drag);
         }
-        if self.surfaces {
+        if self.surface_answer.is_some() {
             uses = uses.with(Capability::Surfaces);
         }
         uses
@@ -88,9 +89,16 @@ pub(crate) fn link_for_tests() {
         motion: Some(crate::motion::springs),
         collections: true,
         drag: true,
-        surfaces: true,
+        surface_answer: exact_runner::RunnerLinks::ALL.surface_answer,
         ..linked()
     });
+}
+
+/// The runner's half of what this artifact links.
+pub(crate) fn runner_links() -> exact_runner::RunnerLinks {
+    exact_runner::RunnerLinks {
+        surface_answer: linked().surface_answer,
+    }
 }
 
 /// Admit a plan only if this artifact links everything it uses (D6).

@@ -30,8 +30,8 @@ pub enum Capability {
     /// Drags a host tracks at every commit: height, transform and reorder
     /// handles. A drag holds a value, so it uses motion too.
     Drag,
-    /// GPU canvas surfaces: a canvas with a surface, whose records and
-    /// requests the host answers (the GPU module itself is loaded).
+    /// GPU canvas surfaces: a canvas with a surface, or a resource reading a
+    /// surface's record; the host answers both (the GPU module is loaded).
     Surfaces,
 }
 
@@ -111,7 +111,12 @@ impl fmt::Display for Uses {
 /// The capabilities `plan` uses (LLP 1047 D2).
 pub fn uses(plan: &Plan) -> Uses {
     let mut uses = Uses::NONE;
-    if !plan.surfaces.is_empty() {
+    if !plan.surfaces.is_empty()
+        || plan
+            .resources
+            .iter()
+            .any(|r| plan.str(r.source) == crate::surface_record::SOURCE)
+    {
         uses = uses.with(Capability::Surfaces);
     }
     let can_be = |binding: &exact_plan::BindingsRow, used: &dyn Fn(&str) -> bool| {

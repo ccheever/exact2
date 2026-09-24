@@ -1,8 +1,7 @@
 //! Host-owned surface facts; never baked or carried device data.
 use super::{DataError, DataSource, Runner, RunnerError};
-use crate::surface_record::{decode, surface_name, MAX_BYTES, SOURCE};
+use crate::surface_record::{surface_name, MAX_BYTES, SOURCE};
 use exact_kernel::CommitReceipt;
-use exact_plan::Value;
 
 impl<D: DataSource> Runner<D> {
     /// Replace a named surface's current record, or clear it on disposal.
@@ -52,20 +51,5 @@ impl<D: DataSource> Runner<D> {
             }
         }
         result
-    }
-
-    pub(super) fn surface_answer(&self, i: usize) -> Result<Value, DataError> {
-        let row = &self.plan.resources[i];
-        let name = surface_name(&self.plan, row).ok_or_else(|| {
-            DataError::BadArguments(format!(
-                "{SOURCE} takes exactly one string-literal surface name"
-            ))
-        })?;
-        decode(
-            &self.plan,
-            row.ty,
-            self.surface_records.get(name).map(String::as_str),
-        )
-        .map_err(DataError::Unavailable)
     }
 }

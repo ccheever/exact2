@@ -285,6 +285,8 @@ pub struct Runner<D: DataSource> {
     // @ref LLP 1039 D2 — the layout size before settlement.
     viewport: crate::Viewport,
     surface_records: exact_kernel::SortedMap<String, String>,
+    /// What the host links of the runner's own answers (LLP 1047 D3).
+    links: RunnerLinks,
     router: Option<router::RouterContext>,
     /// What happened, one line each, for the agent API's `logs`: the last
     /// [`JOURNAL_RING`] lines, and how many were dropped before them.
@@ -296,6 +298,33 @@ pub struct Runner<D: DataSource> {
 /// How many journal lines the runner retains (about an hour of a one-second
 /// timer); older ones are dropped, and `logs` reports where its window starts.
 pub const JOURNAL_RING: usize = 4096;
+
+/// What a host links of the answers the runner gives itself (LLP 1047 D3):
+/// each capability's, or `None` when the artifact doesn't link it, so its
+/// code is gone. Native hosts and tests boot with [`RunnerLinks::ALL`]; the
+/// web host passes what its entry registered.
+#[derive(Clone, Copy)]
+pub struct RunnerLinks {
+    /// A GPU surface's published record, as its `exactSurface` resource.
+    pub surface_answer: SurfaceAnswer,
+}
+
+/// The runner's answer for a surface resource, when a host links surfaces:
+/// [`crate::surface_record::answer`].
+pub type SurfaceAnswer =
+    Option<fn(&Plan, &exact_kernel::SortedMap<String, String>, usize) -> Result<Value, DataError>>;
+
+impl RunnerLinks {
+    /// Every capability.
+    pub const ALL: RunnerLinks = RunnerLinks {
+        surface_answer: Some(crate::surface_record::answer),
+    };
+
+    /// The core alone.
+    pub const CORE: RunnerLinks = RunnerLinks {
+        surface_answer: None,
+    };
+}
 
 /// Largest accepted clock value: JavaScript's exact integer domain in ms.
 pub const MAX_CLOCK_MS: f64 = 9_007_199_254_740_991.0;
@@ -315,6 +344,7 @@ impl<D: DataSource> Runner<D> {
         launch: &str,
     ) -> Result<Runner<D>, RunnerError> {
         Runner::boot_inner(
+            RunnerLinks::ALL,
             plan,
             data,
             kernel,
@@ -341,6 +371,7 @@ impl<D: DataSource> Runner<D> {
         launch: &str,
     ) -> Result<Runner<D>, RunnerError> {
         Runner::boot_inner(
+            RunnerLinks::ALL,
             plan,
             data,
             kernel,
@@ -405,7 +436,9 @@ impl<D: DataSource> Runner<D> {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)] // the host boot facts
     fn boot_inner(
+        links: RunnerLinks,
         plan: Plan,
         mut data: D,
         kernel: Kernel,
@@ -549,6 +582,7 @@ impl<D: DataSource> Runner<D> {
             delivery,
             viewport,
             surface_records: Default::default(),
+            links,
             router,
             poisoned: false,
             full: false,
@@ -1034,8 +1068,11 @@ impl<D: DataSource> Runner<D> {
                 .map_err(|error| RunnerError::Data { resource, error });
         }
         if source == crate::surface_record::SOURCE {
-            return self
-                .surface_answer(i)
+            let answer = self.links.surface_answer.ok_or_else(|| RunnerError::Data {
+                resource: resource.clone(),
+                error: DataError::Unavailable("this host links no surfaces".into()),
+            })?;
+            return answer(&self.plan, &self.surface_records, i)
                 .map(Answer::Now)
                 .map_err(|error| RunnerError::Data { resource, error });
         }

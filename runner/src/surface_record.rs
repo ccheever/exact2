@@ -8,6 +8,23 @@ pub const SOURCE: &str = "exactSurface";
 pub const MAX_BYTES: usize = 64 * 1024;
 const MAX_DEPTH: usize = 32;
 
+/// Resource `i`'s value from its surface's published record: what the runner
+/// answers for [`SOURCE`] when its host links surfaces (LLP 1047 D3).
+pub fn answer(
+    plan: &Plan,
+    records: &exact_kernel::SortedMap<String, String>,
+    i: usize,
+) -> Result<Value, crate::runner::DataError> {
+    let row = &plan.resources[i];
+    let name = surface_name(plan, row).ok_or_else(|| {
+        crate::runner::DataError::BadArguments(format!(
+            "{SOURCE} takes exactly one string-literal surface name"
+        ))
+    })?;
+    decode(plan, row.ty, records.get(name).map(String::as_str))
+        .map_err(crate::runner::DataError::Unavailable)
+}
+
 /// The sole argument must be a string literal, not a computed string.
 pub fn surface_name<'a>(plan: &'a Plan, row: &ResourcesRow) -> Option<&'a str> {
     if row.args.len != 1 {

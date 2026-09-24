@@ -45,7 +45,34 @@ impl<D: DataSource> Runner<D> {
         viewport: crate::Viewport,
         launch: &str,
     ) -> Result<Runner<D>, RunnerError> {
+        Runner::boot_checkpoint_linked(
+            super::RunnerLinks::ALL,
+            plan,
+            data,
+            kernel,
+            checkpoint,
+            snapshot,
+            delivery,
+            viewport,
+            launch,
+        )
+    }
+
+    /// [`Runner::boot_checkpoint`], with what the host links (LLP 1047 D3).
+    #[allow(clippy::too_many_arguments)] // the host boot facts
+    pub fn boot_checkpoint_linked(
+        links: super::RunnerLinks,
+        plan: Plan,
+        data: D,
+        kernel: Kernel,
+        checkpoint: &Checkpoint,
+        snapshot: Vec<(String, String)>,
+        delivery: Delivery,
+        viewport: crate::Viewport,
+        launch: &str,
+    ) -> Result<Runner<D>, RunnerError> {
         Runner::boot_inner(
+            links,
             plan,
             data,
             kernel,

@@ -66,6 +66,13 @@ fn collections_are_lists_the_host_windows() {
 fn surfaces_are_a_canvas_with_one() {
     assert_eq!(used("component A\n  view\n    canvas\n"), Uses::NONE);
     assert!(used("component A\n  view\n    canvas surface=sky()\n").has(Capability::Surfaces));
+    let record = used(
+        "shape Hud\n  beacons: number\ncomponent App\n  resource hud = exactSurface(\"world\") as shape Hud\n  view\n    text `${hud.beacons}`\n",
+    );
+    assert!(
+        record.has(Capability::Surfaces),
+        "a surface's record is read without a canvas"
+    );
 }
 
 #[test]

@@ -638,6 +638,14 @@ size: check `git log` for these lanes and say which items you are taking.
   - RealWorld: 1,064,422 → 1,059,273 raw; 312,587 → 311,049 brotli.
   - Video player: 878,712 → 872,020 raw; 261,639 → 259,253 brotli.
   - Caltrain, whose line map is a surface, is unchanged.
+- **The runner's half.** The runner answers an `exactSurface` resource
+  itself. It now does so only through `RunnerLinks.surface_answer`, which
+  the web host fills from its entry's `Linked`; native hosts and tests pass
+  `RunnerLinks::ALL`. A resource that reads a surface's record also counts
+  as using surfaces. Bytes at `c798948b`:
+  - RealWorld: 966,161 → 952,597 raw; 296,536 → 293,359 brotli.
+  - Video player: 780,693 → 767,136 raw; 244,645 → 241,314 brotli.
+  - Caltrain uses surfaces: 273,128 → 273,297 brotli.
 
 ### As built: activation, boot and the press path (the activation lane)
 

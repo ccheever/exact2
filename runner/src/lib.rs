@@ -64,8 +64,8 @@ pub use request::{
 };
 pub use runner::{
     Advanced, Carried, Checkpoint, Command, DataError, DataSource, Event, InFlight, Interrupt,
-    ListStatus, ListTextPosition, ListViewport, RouterChange, Runner, RunnerError, Target, Timed,
-    JOURNAL_RING, MAX_CLOCK_MS, TIMER_FIRE_LIMIT,
+    ListStatus, ListTextPosition, ListViewport, RouterChange, Runner, RunnerError, RunnerLinks,
+    SurfaceAnswer, Target, Timed, JOURNAL_RING, MAX_CLOCK_MS, TIMER_FIRE_LIMIT,
 };
 pub use store::{Store, StoreError, StoreWrite};
 pub use uses::{uses, Capability, Uses};

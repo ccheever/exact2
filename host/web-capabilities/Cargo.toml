@@ -16,4 +16,5 @@ crate-type = ["rlib"]
 
 [dependencies]
 exact-markdown = { path = "../../markdown" }
+exact-runner = { path = "../../runner" }
 exact-web = { path = "../web" }

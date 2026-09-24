@@ -352,8 +352,16 @@ impl<D: DataSource> Host<D> {
         let delivery = compat.map_or_else(Default::default, |json| {
             exact_runner::Delivery::default().with_compat(json)
         });
-        let runner = Runner::boot_with_delivery(
-            plan, data, kernel, carried, snapshot, delivery, viewport, launch,
+        let runner = Runner::boot_with_delivery_linked(
+            crate::link::runner_links(),
+            plan,
+            data,
+            kernel,
+            carried,
+            snapshot,
+            delivery,
+            viewport,
+            launch,
         )
         .map_err(HostError::Runner)?;
         Host::open(links, runner, launch, Batch::new())

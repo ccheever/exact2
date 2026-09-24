@@ -383,7 +383,8 @@ impl<D: DataSource> crate::Host<D> {
         let delivery = compat.map_or_else(Default::default, |json| {
             exact_runner::Delivery::default().with_compat(json)
         });
-        let runner = Runner::boot_checkpoint(
+        let runner = Runner::boot_checkpoint_linked(
+            crate::link::runner_links(),
             plan,
             data,
             exact_kernel::Kernel::with_monospace(),

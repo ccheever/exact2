@@ -10,6 +10,7 @@ impl DataSource for NoData {
 fn surface_record_abi_distinguishes_an_invalid_empty_record_from_disposal() {
     let plan = contract::compile("shape Hud\n  beacons: number\ncomponent App\n  resource hud = exactSurface(\"world\") as shape Hud\n  view\n    text `${hud.beacons}`\n").unwrap();
     let mut bridge = Bridge::new();
+    exact_web::link(exact_web_capabilities::ALL);
     bridge.boot(&plan.encode(), NoData, 390., 844., "/");
     let mut publish = |text: &[u8]| {
         let n = bridge.input_write(text);
