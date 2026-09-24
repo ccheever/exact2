@@ -143,6 +143,7 @@ fn a_checkpoint_reads_back_as_the_runner_wrote_it() {
 fn a_runtime_adopts_the_document_it_would_have_rendered() {
     let plan = caltrain::build().unwrap().encode();
     let boot = |launch: &str| {
+        exact_web::link(exact_web_capabilities::ALL);
         Host::boot(&plan, caltrain_data::Caltrain, Default::default(), launch)
             .unwrap()
             .0

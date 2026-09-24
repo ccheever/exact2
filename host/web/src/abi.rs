@@ -945,24 +945,6 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow_mut().fulfill(ticket, kind, status, hlen as usize, blen as usize, now_ms))
         }
 
-        /// Whether a presenter-owned operation may still affect its surface.
-        #[no_mangle]
-        pub extern "C" fn exact_request_active(ticket: f64) -> u32 {
-            EXACT_BRIDGE.with(|b| b.borrow().request_active(ticket))
-        }
-
-        /// Publish or clear a named surface record; returns the batch length.
-        #[no_mangle]
-        pub extern "C" fn exact_surface_record(len: u32) -> u32 {
-            EXACT_BRIDGE.with(|b| {
-                let Ok(mut bridge) = b.try_borrow_mut() else {
-                    eprintln!("exact_surface_record refused: nested bridge export");
-                    return 0;
-                };
-                bridge.surface_record(len as usize)
-            })
-        }
-
         /// The viewport changed; returns the batch length.
         #[no_mangle]
         pub extern "C" fn exact_resize(width: f64, height: f64, now_ms: f64) -> u32 {
@@ -1078,6 +1060,32 @@ macro_rules! list_exports {
         #[no_mangle]
         pub extern "C" fn exact_collection_feedback(len: u32) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().collection_feedback(len as usize))
+        }
+    };
+}
+
+/// GPU surfaces' export group (LLP 1047 D3), beside [`host!`]: the generated
+/// entry invokes it when the plan has a canvas with a surface, and the glue
+/// calls it only for one.
+#[macro_export]
+macro_rules! surface_exports {
+    () => {
+        /// Whether a presenter-owned operation may still affect its surface.
+        #[no_mangle]
+        pub extern "C" fn exact_request_active(ticket: f64) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow().request_active(ticket))
+        }
+
+        /// Publish or clear a named surface record; returns the batch length.
+        #[no_mangle]
+        pub extern "C" fn exact_surface_record(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| {
+                let Ok(mut bridge) = b.try_borrow_mut() else {
+                    eprintln!("exact_surface_record refused: nested bridge export");
+                    return 0;
+                };
+                bridge.surface_record(len as usize)
+            })
         }
     };
 }

@@ -42,6 +42,7 @@ mod exported {
         NoData
     }
     exact_web::host!(NoData, PLAN, COMPAT, app_data);
+    exact_web::surface_exports!();
 
     #[test]
     fn nested_surface_export_is_refused_without_a_refcell_panic() {

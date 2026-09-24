@@ -8,6 +8,7 @@ use exact_web::Host;
 
 fn boot() -> Host<caltrain_data::Caltrain> {
     let plan = caltrain::build().unwrap();
+    exact_web::link(exact_web_capabilities::ALL);
     Host::boot(
         &plan.encode(),
         caltrain_data::Caltrain,

@@ -27,6 +27,8 @@ pub struct Linked {
     /// Drags: the host's hooks for them, which the entry passes as
     /// [`crate::HostLinks::of`] this set.
     pub drag: bool,
+    /// GPU canvas surfaces: their exports (`surface_exports!`) are in.
+    pub surfaces: bool,
 }
 
 impl Linked {
@@ -36,6 +38,7 @@ impl Linked {
         motion: None,
         collections: false,
         drag: false,
+        surfaces: false,
     };
 
     /// The capabilities registered here.
@@ -52,6 +55,9 @@ impl Linked {
         }
         if self.drag {
             uses = uses.with(Capability::Drag);
+        }
+        if self.surfaces {
+            uses = uses.with(Capability::Surfaces);
         }
         uses
     }
@@ -82,6 +88,7 @@ pub(crate) fn link_for_tests() {
         motion: Some(crate::motion::springs),
         collections: true,
         drag: true,
+        surfaces: true,
         ..linked()
     });
 }

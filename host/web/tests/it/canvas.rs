@@ -20,6 +20,7 @@ fn boot() -> (Host<NoData>, String) {
     ))
     .unwrap();
     let plan = contract::compile(&src).unwrap();
+    exact_web::link(exact_web_capabilities::ALL);
     Host::boot(&plan.encode(), NoData, Default::default(), "/").unwrap()
 }
 
@@ -93,6 +94,7 @@ fn surface_inputs_are_published_when_they_change_and_only_then() {
 #[test]
 fn the_caltrain_app_boots_with_both_surfaces() {
     let plan = caltrain::build().unwrap();
+    exact_web::link(exact_web_capabilities::ALL);
     let (_, batch) = Host::boot(
         &plan.encode(),
         caltrain_data::Caltrain,
@@ -126,6 +128,7 @@ fn r13_named_empty_and_short_contract_calls_survive_web_batch() {
             "component App\n  view\n    canvas surface={call}\n"
         ))
         .unwrap();
+        exact_web::link(exact_web_capabilities::ALL);
         let (_, batch) =
             exact_web::Host::boot(&plan.encode(), NoData, Default::default(), "/").unwrap();
         assert!(batch.contains(&format!("\"values\":{values}")), "{batch}");

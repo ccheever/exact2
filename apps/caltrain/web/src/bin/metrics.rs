@@ -91,6 +91,8 @@ fn view_of(k: &Kernel, test_id: &str) -> u32 {
 }
 
 fn main() {
+    // A native tool that boots the whole plan links every capability (LLP 1047 D7).
+    exact_web::link(exact_web_capabilities::ALL);
     if let Some(index) = std::env::args().position(|arg| arg == "--collection-memory") {
         let count: usize = std::env::args()
             .nth(index + 1)

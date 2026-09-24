@@ -30,15 +30,19 @@ pub enum Capability {
     /// Drags a host tracks at every commit: height, transform and reorder
     /// handles. A drag holds a value, so it uses motion too.
     Drag,
+    /// GPU canvas surfaces: a canvas with a surface, whose records and
+    /// requests the host answers (the GPU module itself is loaded).
+    Surfaces,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 4] = [
+    pub const ALL: [Capability; 5] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
         Capability::Drag,
+        Capability::Surfaces,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -48,6 +52,7 @@ impl Capability {
             Capability::Motion => "motion",
             Capability::Collections => "collections",
             Capability::Drag => "drag",
+            Capability::Surfaces => "surfaces",
         }
     }
 
@@ -106,6 +111,9 @@ impl fmt::Display for Uses {
 /// The capabilities `plan` uses (LLP 1047 D2).
 pub fn uses(plan: &Plan) -> Uses {
     let mut uses = Uses::NONE;
+    if !plan.surfaces.is_empty() {
+        uses = uses.with(Capability::Surfaces);
+    }
     let can_be = |binding: &exact_plan::BindingsRow, used: &dyn Fn(&str) -> bool| {
         constant_str(plan, plan.code(binding.expr)).is_none_or(used)
     };

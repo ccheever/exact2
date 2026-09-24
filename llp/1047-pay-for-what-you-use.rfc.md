@@ -628,6 +628,17 @@ size: check `git log` for these lanes and say which items you are taking.
   - Video player: 904,807 → 878,712 raw; 270,640 → 261,639 brotli.
   - Caltrain keeps Rust replacement and is unchanged.
 
+**Stage 3, 2026-09-24: GPU surfaces.**
+- **What counts.** A canvas with a surface: the plan's `surfaces` table has
+  a row.
+- **The export group.** `exact_surface_record` and `exact_request_active`
+  answer only surfaces' records and requests, so they are now
+  `surface_exports!`, invoked by the entry for such a plan.
+- **Bytes, raw and brotli-11:**
+  - RealWorld: 1,064,422 → 1,059,273 raw; 312,587 → 311,049 brotli.
+  - Video player: 878,712 → 872,020 raw; 261,639 → 259,253 brotli.
+  - Caltrain, whose line map is a surface, is unchanged.
+
 ### As built: activation, boot and the press path (the activation lane)
 
 **The bench, reproduced at `98d5f996`** (RealWorld served, mobile profile, nine

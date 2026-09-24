@@ -63,6 +63,12 @@ fn collections_are_lists_the_host_windows() {
 }
 
 #[test]
+fn surfaces_are_a_canvas_with_one() {
+    assert_eq!(used("component A\n  view\n    canvas\n"), Uses::NONE);
+    assert!(used("component A\n  view\n    canvas surface=sky()\n").has(Capability::Surfaces));
+}
+
+#[test]
 fn a_set_names_what_it_holds_beyond_another() {
     let markdown = Uses::NONE.with(Capability::Markdown);
     assert!(markdown.beyond(markdown).is_empty());

@@ -29,6 +29,7 @@ fn document(src: &str) -> String {
 
 fn caltrain() -> (Host<caltrain_data::Caltrain>, String) {
     let plan = caltrain::build().unwrap();
+    exact_web::link(exact_web_capabilities::ALL);
     Host::boot(
         &plan.encode(),
         caltrain_data::Caltrain,

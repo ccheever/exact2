@@ -15,6 +15,7 @@ pub mod collections;
 pub mod drag;
 pub mod markdown;
 pub mod motion;
+pub mod surfaces;
 
 /// The [`exact_web::Linked`] of the named capabilities, as a constant:
 /// `linked!(markdown)`. The generated entry writes one; nothing else should.
@@ -29,4 +30,4 @@ macro_rules! linked {
 
 /// Every capability: what a development build and a native renderer link
 /// (LLP 1047 D7).
-pub const ALL: exact_web::Linked = linked!(markdown, motion, collections, drag);
+pub const ALL: exact_web::Linked = linked!(markdown, motion, collections, drag, surfaces);

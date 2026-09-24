@@ -68,6 +68,7 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
         match capability {
             Capability::Motion => entry.push_str("::exact_web::motion_exports!();\n"),
             Capability::Collections => entry.push_str("::exact_web::list_exports!();\n"),
+            Capability::Surfaces => entry.push_str("::exact_web::surface_exports!();\n"),
             // Drag's input rides motion's export.
             Capability::Markdown | Capability::Drag => {}
         }
