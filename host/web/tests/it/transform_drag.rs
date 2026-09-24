@@ -592,6 +592,7 @@ fn release_action_can_destroy_both_holds_and_late_cleanup_is_inert() {
 #[test]
 fn wasm_bridge_preserves_runtime_keys_sequence_and_rejects_wrong_packet_length() {
     let mut bridge = Bridge::new();
+    bridge.set_links(exact_web::HostLinks::ALL);
     exact_web::link(exact_web_capabilities::ALL);
     let n = bridge.boot(
         &contract::compile(SOURCE).unwrap().encode(),

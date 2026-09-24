@@ -31,6 +31,9 @@ pub struct Bridge<D: DataSource> {
     /// A rendered page's digest and checkpoint (LLP 1048.000 D6), handed in
     /// through `exact_checkpoint` before boot and taken by the next boot.
     checkpoint: Option<(String, String)>,
+    /// What the artifact links that is generic over `D` (LLP 1047 D3), from
+    /// the `host!` invocation; the core alone until it says.
+    links: crate::HostLinks<D>,
     input: Vec<u8>,
     output: Vec<u8>,
 }
@@ -43,6 +46,7 @@ impl<D: DataSource> Bridge<D> {
             snapshot: Vec::new(),
             compat: None,
             checkpoint: None,
+            links: crate::HostLinks::CORE,
             input: Vec::new(),
             output: Vec::new(),
         }
@@ -54,6 +58,12 @@ impl<D: DataSource> Bridge<D> {
     /// wasm ABI for it.
     pub fn set_compat(&mut self, json: &'static str) {
         self.compat = Some(json);
+    }
+
+    /// What this artifact links that is generic over `D` (LLP 1047 D3): the
+    /// `host!` macro passes [`crate::HostLinks::of`] the entry's set.
+    pub fn set_links(&mut self, links: crate::HostLinks<D>) {
+        self.links = links;
     }
 
     /// The page's snapshot of the app's kept secrets (LLP 1018 D6): the
@@ -236,7 +246,8 @@ impl<D: DataSource> Bridge<D> {
         let snapshot = std::mem::take(&mut self.snapshot);
         let viewport = exact_runner::Viewport { width, height };
         let booted = match self.checkpoint.take() {
-            Some((digest, page)) => Host::boot_checkpoint(
+            Some((digest, page)) => Host::boot_checkpoint_linked(
+                self.links,
                 plan,
                 data,
                 &page,
@@ -246,7 +257,16 @@ impl<D: DataSource> Bridge<D> {
                 viewport,
                 launch,
             ),
-            None => Host::boot_delivered(plan, data, None, snapshot, self.compat, viewport, launch),
+            None => Host::boot_linked(
+                self.links,
+                plan,
+                data,
+                None,
+                snapshot,
+                self.compat,
+                viewport,
+                launch,
+            ),
         };
         match booted {
             Ok((host, batch)) => {
@@ -267,7 +287,8 @@ impl<D: DataSource> Bridge<D> {
     pub fn boot_plan(&mut self, len: usize, data: D, width: f64, height: f64, launch: &str) -> u32 {
         let plan = self.input[..len.min(self.input.len())].to_vec();
         let carried = self.host.as_ref().map(Host::carry);
-        match Host::boot_delivered(
+        match Host::boot_linked(
+            self.links,
             &plan,
             data,
             carried.as_ref(),
@@ -782,6 +803,8 @@ macro_rules! host {
         thread_local! {
             static EXACT_BRIDGE: $crate::abi::Cell<$data> = ::std::cell::RefCell::new($crate::abi::Bridge::new());
         }
+        /// What this artifact links that is generic over its data source.
+        const EXACT_HOST_LINKS: $crate::HostLinks<$data> = $crate::HostLinks::of(EXACT_LINKED);
 
         /// Resize the input buffer; returns its address.
         #[no_mangle]
@@ -837,6 +860,7 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| {
                 let mut b = b.borrow_mut();
                 b.set_compat($compat);
+                b.set_links(EXACT_HOST_LINKS);
                 let launch = b.launch_input(0, launch_len as usize);
                 b.boot($plan, ($new)(), width, height, &launch)
             })
@@ -849,6 +873,7 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| {
                 let mut b = b.borrow_mut();
                 b.set_compat($compat);
+                b.set_links(EXACT_HOST_LINKS);
                 let launch = b.launch_input(len as usize, launch_len as usize);
                 b.boot_plan(len as usize, ($new)(), width, height, &launch)
             })
@@ -868,7 +893,11 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_boot_module(plan: u32, receipt: u32, module: u32) -> u32 {
             $crate::link(EXACT_LINKED);
-            EXACT_BRIDGE.with(|b| b.borrow_mut().boot_module([plan as usize, receipt as usize, module as usize], ($new)()))
+            EXACT_BRIDGE.with(|b| {
+                let mut b = b.borrow_mut();
+                b.set_links(EXACT_HOST_LINKS);
+                b.boot_module([plan as usize, receipt as usize, module as usize], ($new)())
+            })
         }
 
         /// Inspect a plan's fonts without changing the live host.

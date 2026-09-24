@@ -35,10 +35,14 @@ fn motion_is_a_spring_or_a_gesture_that_holds_a_value() {
         "component A\n  state n = 0\n  action swipe writes n\n    n = n + 1\n  view\n    text \"a\" swiperight=swipe\n",
     );
     assert!(swipe.has(Capability::Motion));
+    assert!(
+        !swipe.has(Capability::Drag),
+        "a swipe holds a value but tracks no handle"
+    );
     let drag = used(
         "component A\n  view\n    column id=\"sheet\" height=100\n      column heightDragFor=\"sheet\"\n",
     );
-    assert!(drag.has(Capability::Motion));
+    assert!(drag.has(Capability::Motion) && drag.has(Capability::Drag));
     assert_eq!(
         spring.with(Capability::Markdown).to_string(),
         "markdown, motion"

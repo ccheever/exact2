@@ -479,6 +479,7 @@ fn binary_height_ops_preserve_key_bits_target_identity_and_once_only_action() {
     let view = id(&host, "handle");
     let handle = motion_node(key(&host, "handle"));
     let mut bridge = Bridge::new();
+    bridge.set_links(exact_web::HostLinks::ALL);
     exact_web::link(exact_web_capabilities::ALL);
     bridge.boot(
         &contract::compile(SOURCE).unwrap().encode(),
@@ -517,6 +518,7 @@ fn synthesized_kind15_parses_finite_pair_before_clock_and_remains_separate_from_
     let (host, _) = boot();
     let handle = id(&host, "handle");
     let mut bridge = Bridge::new();
+    bridge.set_links(exact_web::HostLinks::ALL);
     exact_web::link(exact_web_capabilities::ALL);
     bridge.boot(
         &contract::compile(SOURCE).unwrap().encode(),

@@ -49,5 +49,5 @@ pub mod parity;
 #[cfg(test)]
 mod textflow_tests;
 
-pub use host::{document, Host, HostError};
+pub use host::{document, DragHooks, Host, HostError, HostLinks};
 pub use link::{link, Linked};

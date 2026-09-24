@@ -595,6 +595,22 @@ size: check `git log` for these lanes and say which items you are taking.
   - Video player: 1,025,117 → 962,220 raw; 297,889 → 282,382 brotli.
   - Caltrain: 1,094,390 → 1,031,504 raw; 314,020 → 298,820 brotli.
 
+**Stage 3, 2026-09-24: drag.**
+- **A generic seam.** Drags' hooks are generic over the app's data source:
+  tracking a handle at create, update and destroy, reconciling it with
+  each receipt, and publishing it with each batch.
+  - The host holds them as `Option<DragHooks<D>>`.
+  - The `host!` macro builds `HostLinks::of(EXACT_LINKED)` for its own
+    data type, so the hooks exist only in an artifact that links drag.
+  - Tests and native tools boot with `HostLinks::ALL`.
+- **The use-set.** Drag is a drag prop or a height, transform or reorder
+  handler; each also uses motion, whose export carries drags' input. A swipe
+  uses motion alone.
+- **Bytes at `ef67ae40`, raw and brotli-11:**
+  - RealWorld: 1,126,921 → 1,076,789 raw; 325,880 → 315,533 brotli.
+  - Video player: 954,898 → 904,807 raw; 281,444 → 270,640 brotli.
+  - Caltrain: 1,024,188 → 974,091 raw; 297,940 → 287,305 brotli.
+
 ### As built: activation, boot and the press path (the activation lane)
 
 **The bench, reproduced at `98d5f996`** (RealWorld served, mobile profile, nine

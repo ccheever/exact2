@@ -24,6 +24,9 @@ pub struct Linked {
     pub motion: Option<fn() -> Box<dyn crate::motion::Motion>>,
     /// Lists the host windows: their exports (`list_exports!`) are in.
     pub collections: bool,
+    /// Drags: the host's hooks for them, which the entry passes as
+    /// [`crate::HostLinks::of`] this set.
+    pub drag: bool,
 }
 
 impl Linked {
@@ -32,6 +35,7 @@ impl Linked {
         markup: None,
         motion: None,
         collections: false,
+        drag: false,
     };
 
     /// The capabilities registered here.
@@ -45,6 +49,9 @@ impl Linked {
         }
         if self.collections {
             uses = uses.with(Capability::Collections);
+        }
+        if self.drag {
+            uses = uses.with(Capability::Drag);
         }
         uses
     }
@@ -67,13 +74,14 @@ pub fn linked() -> Linked {
 }
 
 /// Link, on this test's thread, what this crate can register itself: the
-/// spring engine and lists (Markdown's adapter lives above it), as an entry
-/// whose plan uses them does.
+/// spring engine, lists and drags (Markdown's adapter lives above it), as an
+/// entry whose plan uses them does.
 #[cfg(test)]
 pub(crate) fn link_for_tests() {
     link(Linked {
         motion: Some(crate::motion::springs),
         collections: true,
+        drag: true,
         ..linked()
     });
 }
@@ -106,5 +114,15 @@ mod tests {
         );
         let plain = contract::compile("component A\n  view\n    text \"b\"\n").unwrap();
         assert!(Host::boot(&plain.encode(), (), Default::default(), "/").is_ok());
+        let drag = contract::compile(
+            "component A\n  view\n    column id=\"sheet\" height=100\n      column heightDragFor=\"sheet\"\n",
+        )
+        .unwrap()
+        .encode();
+        let refused = Host::boot(&drag, (), Default::default(), "/").map(|_| ());
+        assert!(
+            matches!(&refused, Err(HostError::Unlinked(names)) if names == "motion, drag"),
+            "{refused:?}"
+        );
     }
 }

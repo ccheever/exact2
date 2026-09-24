@@ -328,11 +328,38 @@ impl<D: DataSource> crate::Host<D> {
         viewport: exact_runner::Viewport,
         launch: &str,
     ) -> Result<(crate::Host<D>, String), crate::HostError> {
+        crate::Host::boot_checkpoint_linked(
+            crate::HostLinks::ALL,
+            plan_bytes,
+            data,
+            page,
+            page_digest,
+            snapshot,
+            compat,
+            viewport,
+            launch,
+        )
+    }
+
+    /// [`crate::Host::boot_checkpoint`], with what the artifact links (LLP
+    /// 1047 D3).
+    #[allow(clippy::too_many_arguments)] // the links, the boot facts, and the page's two
+    pub fn boot_checkpoint_linked(
+        links: crate::HostLinks<D>,
+        plan_bytes: &[u8],
+        data: D,
+        page: &str,
+        page_digest: &str,
+        snapshot: Vec<(String, String)>,
+        compat: Option<&str>,
+        viewport: exact_runner::Viewport,
+        launch: &str,
+    ) -> Result<(crate::Host<D>, String), crate::HostError> {
         let checkpoint = match read_checkpoint(page) {
             Ok(checkpoint) => checkpoint,
             Err(error) => {
-                let (mut host, batch) = crate::Host::boot_delivered(
-                    plan_bytes, data, None, snapshot, compat, viewport, launch,
+                let (mut host, batch) = crate::Host::boot_linked(
+                    links, plan_bytes, data, None, snapshot, compat, viewport, launch,
                 )?;
                 host.log(&format!("document: the checkpoint doesn't read ({error})"));
                 return Ok((host, batch));
@@ -341,8 +368,8 @@ impl<D: DataSource> crate::Host<D> {
         // A page served at another path (a static host's 404.html, or its
         // fallback to `/`) isn't this location's document: render fresh.
         let Some(launch) = page_launch(launch, &checkpoint.location) else {
-            let (mut host, batch) = crate::Host::boot_delivered(
-                plan_bytes, data, None, snapshot, compat, viewport, launch,
+            let (mut host, batch) = crate::Host::boot_linked(
+                links, plan_bytes, data, None, snapshot, compat, viewport, launch,
             )?;
             host.log(&format!(
                 "document: rendered at {}, not {launch}; rendering fresh",
@@ -374,7 +401,7 @@ impl<D: DataSource> crate::Host<D> {
         });
         let mut batch = crate::batch::Batch::new();
         batch.adopt(adopted);
-        crate::Host::open(runner, launch, batch)
+        crate::Host::open(links, runner, launch, batch)
     }
 }
 

@@ -99,6 +99,114 @@ struct Mirror {
     in_button: bool,
 }
 
+/// What a host links that is generic over its data source (LLP 1047 D3):
+/// drags' hooks into every commit. An entry passes [`HostLinks::of`] its
+/// `EXACT_LINKED`, so an app without drags carries none of them; tests and
+/// native tools take [`HostLinks::ALL`] through the plain boots.
+pub struct HostLinks<D: DataSource> {
+    /// Height, transform and reorder handles, tracked and published.
+    pub drag: Option<DragHooks<D>>,
+}
+
+impl<D: DataSource> Clone for HostLinks<D> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<D: DataSource> Copy for HostLinks<D> {}
+
+impl<D: DataSource> HostLinks<D> {
+    /// Every capability.
+    pub const ALL: HostLinks<D> = HostLinks {
+        drag: Some(DragHooks::LINKED),
+    };
+
+    /// The core alone.
+    pub const CORE: HostLinks<D> = HostLinks { drag: None };
+
+    /// What `linked` names.
+    pub const fn of(linked: crate::Linked) -> HostLinks<D> {
+        HostLinks {
+            drag: if linked.drag {
+                Some(DragHooks::LINKED)
+            } else {
+                None
+            },
+        }
+    }
+}
+
+/// Drags' hooks into every commit: a handle is tracked when its node is
+/// created or updated and forgotten when destroyed; bindings are reconciled
+/// with each receipt and published with each batch.
+pub struct DragHooks<D: DataSource> {
+    open: fn(&mut Host<D>, &mut Batch),
+    receipt: fn(&mut Host<D>, &mut Batch),
+    publish: fn(&mut Host<D>, &mut Batch),
+    created: fn(&mut Host<D>, ViewId, NodeKey, &[EventKind]),
+    updated: fn(&mut Host<D>, ViewId, NodeKey),
+    destroyed: fn(&mut Host<D>, ViewId),
+    valid_event: fn(&Event) -> bool,
+}
+
+impl<D: DataSource> Clone for DragHooks<D> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<D: DataSource> Copy for DragHooks<D> {}
+
+impl<D: DataSource> DragHooks<D> {
+    const LINKED: DragHooks<D> = DragHooks {
+        open: |host, batch| {
+            host.reconcile_height_drags(batch);
+            (DragHooks::LINKED.publish)(host, batch);
+        },
+        receipt: |host, batch| {
+            host.reconcile_height_drags(batch);
+            host.reconcile_transform_drags(batch);
+        },
+        publish: |host, batch| {
+            host.emit_height_drags(batch);
+            host.emit_transform_drags(batch);
+            host.emit_reorder_drags(batch);
+        },
+        created: |host, id, key, kinds| {
+            let node = host.runner.kernel().node(id).expect("live");
+            if node.props.str(PropId::ReorderFor).is_some() {
+                host.reorder_drags.track(id, key);
+            }
+            if kinds.contains(&EventKind::Heightrelease) {
+                host.height_drags.insert(id, key);
+            }
+            if kinds.contains(&EventKind::Transformgeometry)
+                || kinds.contains(&EventKind::Transformrelease)
+            {
+                host.transform_drags.insert(
+                    id,
+                    key,
+                    kinds.contains(&EventKind::Transformgeometry),
+                    kinds.contains(&EventKind::Transformrelease),
+                );
+            }
+        },
+        updated: |host, id, key| {
+            let node = host.runner.kernel().node(id).expect("live");
+            if node.props.str(PropId::ReorderFor).is_some() {
+                host.reorder_drags.track(id, key);
+            }
+        },
+        destroyed: |host, id| {
+            host.height_drags.remove(id);
+            host.transform_drags.remove(id);
+            host.reorder_drags.remove(id);
+        },
+        valid_event: transform_drag::valid_event,
+    };
+}
+
 /// One runner, one page.
 pub struct Host<D: DataSource> {
     runner: Runner<D>,
@@ -110,6 +218,8 @@ pub struct Host<D: DataSource> {
     height_drags: height_drag::HeightDrags,
     transform_drags: transform_drag::TransformDrags,
     reorder_drags: reorder_drag::ReorderDrags,
+    /// Drags' hooks, when the artifact links them.
+    drag: Option<DragHooks<D>>,
     /// The page's clock at the last call, milliseconds from script start.
     now_ms: f64,
     /// Stack id → opaque CSS family name, scoped to this plan.
@@ -210,6 +320,30 @@ impl<D: DataSource> Host<D> {
         viewport: exact_runner::Viewport,
         launch: &str,
     ) -> Result<(Host<D>, String), HostError> {
+        Host::boot_linked(
+            HostLinks::ALL,
+            plan_bytes,
+            data,
+            carried,
+            snapshot,
+            compat,
+            viewport,
+            launch,
+        )
+    }
+
+    /// [`Host::boot_delivered`], with what the artifact links (LLP 1047 D3).
+    #[allow(clippy::too_many_arguments)]
+    pub fn boot_linked(
+        links: HostLinks<D>,
+        plan_bytes: &[u8],
+        data: D,
+        carried: Option<&Carried>,
+        snapshot: Vec<(String, String)>,
+        compat: Option<&str>,
+        viewport: exact_runner::Viewport,
+        launch: &str,
+    ) -> Result<(Host<D>, String), HostError> {
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
         crate::link::admit(&plan)?;
         let kernel = Kernel::with_monospace();
@@ -221,12 +355,13 @@ impl<D: DataSource> Host<D> {
             plan, data, kernel, carried, snapshot, delivery, viewport, launch,
         )
         .map_err(HostError::Runner)?;
-        Host::open(runner, launch, Batch::new())
+        Host::open(links, runner, launch, Batch::new())
     }
 
     /// The host over a booted runner, and its first batch — `batch`'s ops,
     /// then everything live, new to the page.
     fn open(
+        links: HostLinks<D>,
         runner: Runner<D>,
         launch: &str,
         mut batch: Batch,
@@ -245,6 +380,7 @@ impl<D: DataSource> Host<D> {
             height_drags: height_drag::HeightDrags::default(),
             transform_drags: transform_drag::TransformDrags::new()?,
             reorder_drags: reorder_drag::ReorderDrags::new()?,
+            drag: links.drag,
             now_ms: 0.0,
             font_names,
             font_catalog,
@@ -280,10 +416,9 @@ impl<D: DataSource> Host<D> {
         host.roots = roots.clone();
         batch.roots(&roots);
         host.emit_head(&mut batch);
-        host.reconcile_height_drags(&mut batch);
-        host.emit_height_drags(&mut batch);
-        host.emit_transform_drags(&mut batch);
-        host.emit_reorder_drags(&mut batch);
+        if let Some(drag) = host.drag {
+            (drag.open)(&mut host, &mut batch);
+        }
         // Surfaces after roots: the canvas is in the page when its surface is made.
         for s in host.runner.take_surface_updates() {
             batch.surface(&s);
@@ -333,7 +468,7 @@ impl<D: DataSource> Host<D> {
     /// reported in the batch's `error`, and the page is untouched (as the
     /// kernel was).
     pub fn dispatch_at(&mut self, view: ViewId, event: Event, now_ms: f64) -> String {
-        if !transform_drag::valid_event(&event) {
+        if self.drag.is_some_and(|drag| !(drag.valid_event)(&event)) {
             return Batch::new().finish(
                 self.runner.timer_due_ms(),
                 self.runner.now_ms(),
@@ -567,9 +702,9 @@ impl<D: DataSource> Host<D> {
                     }
                     self.mirror.remove(&id);
                     self.exclusions.remove(&id);
-                    self.height_drags.remove(id);
-                    self.transform_drags.remove(id);
-                    self.reorder_drags.remove(id);
+                    if let Some(drag) = self.drag {
+                        (drag.destroyed)(self, id);
+                    }
                     batch.destroy(id);
                 }
             }
@@ -602,8 +737,9 @@ impl<D: DataSource> Host<D> {
                 t.at_ms / 1000.0,
             );
             Self::emit_lowered(batch, synced);
-            self.reconcile_height_drags(batch);
-            self.reconcile_transform_drags(batch);
+            if let Some(drag) = self.drag {
+                (drag.receipt)(self, batch);
+            }
             self.emit_springs(batch, &[], t.at_ms / 1000.0);
         }
         // Earlier receipts also read the final tree, whose children can be
@@ -621,10 +757,8 @@ impl<D: DataSource> Host<D> {
             batch.roots(&roots);
         }
         self.emit_head(batch);
-        if !receipts.is_empty() {
-            self.emit_height_drags(batch);
-            self.emit_transform_drags(batch);
-            self.emit_reorder_drags(batch);
+        if let Some(drag) = self.drag.filter(|_| !receipts.is_empty()) {
+            (drag.publish)(self, batch);
         }
         if !receipts.is_empty() {
             self.emit_textflow(batch);
@@ -939,22 +1073,10 @@ impl<D: DataSource> Host<D> {
         self.track_exclusion(id);
         let node = self.runner.kernel().node(id).expect("live");
         let key = node.key;
-        if node.props.str(PropId::ReorderFor).is_some() {
-            self.reorder_drags.track(id, key);
+        if let Some(drag) = self.drag {
+            (drag.created)(self, id, key, kinds);
         }
-        if kinds.contains(&EventKind::Heightrelease) {
-            self.height_drags.insert(id, key);
-        }
-        if kinds.contains(&EventKind::Transformgeometry)
-            || kinds.contains(&EventKind::Transformrelease)
-        {
-            self.transform_drags.insert(
-                id,
-                key,
-                kinds.contains(&EventKind::Transformgeometry),
-                kinds.contains(&EventKind::Transformrelease),
-            );
-        }
+        let node = self.runner.kernel().node(id).expect("live");
         let in_button = in_button(self.runner.kernel(), &node);
         let tag = tag_for(&node, in_button);
         let props = props_for(&node);
@@ -995,10 +1117,11 @@ impl<D: DataSource> Host<D> {
             }
         }
         self.track_exclusion(id);
-        let node = self.runner.kernel().node(id).expect("live");
-        if node.props.str(PropId::ReorderFor).is_some() {
-            self.reorder_drags.track(id, node.key);
+        if let Some(drag) = self.drag {
+            let key = self.runner.kernel().node(id).expect("live").key;
+            (drag.updated)(self, id, key);
         }
+        let node = self.runner.kernel().node(id).expect("live");
         let props = props_for(&node);
         let (css, _skipped) = css::css_text(node.style, &self.font_names);
         let in_button = self.mirror.get(&id).is_some_and(|m| m.in_button);

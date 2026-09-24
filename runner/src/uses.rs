@@ -27,14 +27,18 @@ pub enum Capability {
     /// Lists the host windows: a `virtualized` list, or one with row heights,
     /// or a handler for a list's edges.
     Collections,
+    /// Drags a host tracks at every commit: height, transform and reorder
+    /// handles. A drag holds a value, so it uses motion too.
+    Drag,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 3] = [
+    pub const ALL: [Capability; 4] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
+        Capability::Drag,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -43,6 +47,7 @@ impl Capability {
             Capability::Markdown => "markdown",
             Capability::Motion => "motion",
             Capability::Collections => "collections",
+            Capability::Drag => "drag",
         }
     }
 
@@ -111,7 +116,7 @@ pub fn uses(plan: &Plan) -> Uses {
                     uses = uses.with(Capability::Markdown);
                 }
                 Some(PropId::HeightDragFor | PropId::TransformDragFor | PropId::ReorderFor) => {
-                    uses = uses.with(Capability::Motion);
+                    uses = uses.with(Capability::Motion).with(Capability::Drag);
                 }
                 Some(PropId::Virtualized)
                     if constant_bool(plan.code(binding.expr)).is_none_or(|on| on) =>
@@ -132,17 +137,17 @@ pub fn uses(plan: &Plan) -> Uses {
             }
         }
     }
-    if plan.handlers.iter().any(|h| {
-        matches!(
-            h.event,
-            EventKind::Swiperight
-                | EventKind::Heightrelease
-                | EventKind::Transformgeometry
-                | EventKind::Transformrelease
-                | EventKind::Reorderdrop
-        )
-    }) {
-        uses = uses.with(Capability::Motion);
+    for handler in &plan.handlers {
+        match handler.event {
+            EventKind::Swiperight => uses = uses.with(Capability::Motion),
+            EventKind::Heightrelease
+            | EventKind::Transformgeometry
+            | EventKind::Transformrelease
+            | EventKind::Reorderdrop => {
+                uses = uses.with(Capability::Motion).with(Capability::Drag);
+            }
+            _ => {}
+        }
     }
     if plan
         .handlers
