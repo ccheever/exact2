@@ -327,7 +327,7 @@ export function cargoDefaultBinary(pkg) {
 /** Optimize captured Wasm bytes once per input, tool executable and options.
  * Cache entries carry their output digest; incomplete or damaged entries miss. */
 export function optimizeWasm(input, output, cache, flags, optional = false) {
-  const tool = Bun.which('wasm-opt', {path:process.env.PATH});
+  const tool = Bun.which('wasm-opt', {PATH:process.env.PATH});
   if (!tool) { copyFileSync(input, output); return false; }
   const source = readFileSync(input), toolBytes = readFileSync(tool);
   const key = createHash('sha256').update(toolBytes).update(JSON.stringify(flags)).update(source).digest('hex');

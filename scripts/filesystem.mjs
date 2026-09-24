@@ -14,15 +14,15 @@ let binary;
 // remains the fallback for custom configurations, wrappers or local dependencies.
 // No source freshness decision depends on mtimes or the mutable debug binary.
 function toolSignature(trees, env, names) {
-  const hash = createHash('sha256');
+  const hash = createHash('sha256'), source = createHash('sha256');
   const visit = path => {
-    hash.update(JSON.stringify(path));
-    if (!existsSync(path)) { hash.update('missing'); return; }
+    source.update(JSON.stringify(path));
+    if (!existsSync(path)) { source.update('missing'); return; }
     const stat = lstatSync(path);
     if (stat.isSymbolicLink()) throw new Error('linked helper input');
     if (stat.isDirectory()) {
       for (const name of readdirSync(path).sort()) visit(resolve(path, name));
-    } else if (stat.isFile()) hash.update(createHash('sha256').update(readFileSync(path)).digest());
+    } else if (stat.isFile()) source.update(createHash('sha256').update(readFileSync(path)).digest());
     else throw new Error('nonregular helper input');
   };
   // Config can select arbitrary tools and environment-dependent build behavior.
@@ -45,7 +45,8 @@ function toolSignature(trees, env, names) {
     hash.update(JSON.stringify([name, env[name] ?? null]));
   }
   for (const path of [...new Set([...trees, resolve(root,'Cargo.toml'), resolve(root,'Cargo.lock'), resolve(root,'rust-toolchain'), resolve(root,'rust-toolchain.toml')])].sort()) visit(path);
-  return hash.digest('hex');
+  const bytes = source.digest('hex');
+  return {source:bytes, signature:hash.update(bytes).digest('hex')};
 }
 function toolInputs(messages, directory) {
   const trees = new Set(), names = new Set(), packages = new Map();
@@ -99,16 +100,21 @@ function executable() {
   }
   delete env.CLIPPY_ARGS;
   const receiptPath = resolve(directory, 'captured.json');
-  let previous, before;
-  try {
-    const receipt = JSON.parse(readFileSync(receiptPath,'utf8'));
-    if (receipt.version === 1) { previous = receipt; before = toolSignature(receipt.trees, env, receipt.names); }
-    if (receipt.version === 1 && /^[a-f0-9]{64}$/.test(receipt.digest)
-      && receipt.signature && before === receipt.signature) {
-      const captured = resolve(directory, `exact-filesystem-${receipt.digest}`);
-      if (createHash('sha256').update(readFileSync(captured)).digest('hex') === receipt.digest) return binary = captured;
-    }
-  } catch { /* A missing, damaged or unsupported capture goes through Cargo. */ }
+  let previous, before, damaged;
+  const reuse = () => {
+    previous = before = undefined; damaged = false;
+    try {
+      const receipt = JSON.parse(readFileSync(receiptPath,'utf8'));
+      if (receipt.version === 3) { previous = receipt; before = toolSignature(receipt.trees, env, receipt.names); }
+      if (receipt.version === 3 && /^[a-f0-9]{64}$/.test(receipt.digest)
+        && receipt.signature && before?.signature === receipt.signature) {
+        const captured = resolve(directory, `exact-filesystem-${receipt.digest}`);
+        damaged = true;
+        if (createHash('sha256').update(readFileSync(captured)).digest('hex') === receipt.digest) return binary = captured;
+      }
+    } catch { /* A missing, damaged or unsupported capture goes through Cargo. */ }
+  };
+  if (reuse()) return binary;
   // Cargo protects compilation, but releases its lock before we can exec.
   // Another profile can replace its public binary in that gap. Hold this
   // bootstrap claim through capture, then execute immutable captured bytes.
@@ -133,6 +139,15 @@ function executable() {
   };
   process.once('exit', release);
   try {
+    // Another caller can complete the same capture while this one waits.
+    if (reuse()) return binary;
+    // Cargo's own freshness uses timestamps. A byte-invalidated capture must
+    // not relabel an old executable after a same-mtime source edit. Also force
+    // the seed's verification build and recovery from damaged captured bytes.
+    // Running readers and the bootstrap claim live outside this private output.
+    if (previous && before && (previous.rebuild || previous.source !== before.source || damaged)) {
+      rmSync(resolve(directory, 'debug'), {recursive:true,force:true});
+    }
     const built = spawnSync('cargo', ['build', '--quiet', '--locked', '--offline', '-p', 'exact-filesystem', '--target-dir', directory, '--message-format=json'], { cwd: root, env, encoding: 'utf8', maxBuffer:64*1024*1024 });
     if (built.error) throw built.error;
     if (built.status !== 0) throw new Error(built.stderr || `could not build exact-filesystem (status ${built.status}, signal ${built.signal ?? 'none'})`);
@@ -152,11 +167,11 @@ function executable() {
         const after = toolSignature(inputs.trees, env, inputs.names);
         // A new closure is only a seed. Its next Cargo build must observe the
         // same complete inputs before and after compilation before reuse begins.
-        const signature = before && before === after
-          && JSON.stringify(inputs) === JSON.stringify({trees:previous.trees,names:previous.names}) ? after : null;
+        const signature = before && before.signature === after?.signature
+          && JSON.stringify(inputs) === JSON.stringify({trees:previous.trees,names:previous.names}) ? after.signature : null;
         const temporary = `${receiptPath}.${owner}.tmp`;
         try {
-          writeFileSync(temporary, JSON.stringify({version:1,...inputs,signature,digest}));
+          writeFileSync(temporary, JSON.stringify({version:3,...inputs,source:after?.source,signature,rebuild:!signature,digest}));
           renameSync(temporary, receiptPath);
         } finally { rmSync(temporary, {force:true}); }
       }

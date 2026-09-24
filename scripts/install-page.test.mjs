@@ -268,6 +268,8 @@ test('filesystem tool reuse checks source bytes, environment, lock and captured 
 set -e
 if [ "$1" = -Vv ]; then echo fixture-cargo; exit; fi
 printf x >> builds
+mkdir -p target/exact-filesystem-tool/debug/deps target/exact-filesystem-tool/debug/build/exact-filesystem-123abc
+printf 'cargo:rerun-if-changed=src/main.rs\ncargo:rerun-if-env-changed=HELPER_VALUE\n' > target/exact-filesystem-tool/debug/build/exact-filesystem-123abc/output
 cp filesystem/src/main.rs target/exact-filesystem-tool/debug/exact-filesystem
 chmod 755 target/exact-filesystem-tool/debug/exact-filesystem
 printf '%s\n' '${artifact}'
@@ -290,6 +292,30 @@ printf '%s\n' '${artifact}'
     assert.equal(read(),'other'); assert.equal(builds(),warm+5,'damaged captured bytes must be repaired');
     mkdirSync(join(dir,'.cargo'));writeFileSync(join(dir,'.cargo/config.toml'),'[build]\njobs=1\n');
     read();read();assert.equal(builds(),warm+7,'custom Cargo configurations use Cargo on every launch');
+  } finally {rmSync(dir,{recursive:true,force:true});}
+}, 60000);
+
+test('a byte-invalidated helper rebuilds with real Cargo even when source mtime is unchanged', () => {
+  const dir=realpathSync(mkdtempSync(join(tmpdir(),'exact-helper-cargo-')));
+  try {
+    mkdirSync(join(dir,'scripts'));mkdirSync(join(dir,'filesystem/src'),{recursive:true});
+    writeFileSync(join(dir,'scripts/filesystem.mjs'),readFileSync(new URL('./filesystem.mjs',import.meta.url)));
+    writeFileSync(join(dir,'Cargo.toml'),'[workspace]\nmembers=["filesystem"]\nresolver="2"\n');
+    writeFileSync(join(dir,'filesystem/Cargo.toml'),'[package]\nname="exact-filesystem"\nversion="0.1.0"\nedition="2021"\n');
+    writeFileSync(join(dir,'rust-toolchain.toml'),readFileSync(new URL('../rust-toolchain.toml',import.meta.url)));
+    const source=join(dir,'filesystem/src/main.rs'), program=value=>`fn main() { println!("{}", r#"{"value":"${value}"}"#); }`;
+    writeFileSync(source,program('first'));
+    const lock=spawnSync('cargo',['generate-lockfile','--offline'],{cwd:dir,encoding:'utf8'});
+    assert.equal(lock.status,0,lock.stderr);
+    const read=()=>{
+      const child=spawnSync(process.execPath,['--eval',"import {filesystem} from './scripts/filesystem.mjs';console.log(filesystem({op:'get'}))"],{cwd:dir,encoding:'utf8'});
+      assert.equal(child.status,0,child.stderr);return child.stdout.trim();
+    };
+    assert.equal(read(),'first');assert.equal(read(),'first');assert.equal(read(),'first');
+    const stamp=statSync(source);writeFileSync(source,program('other'));utimesSync(source,stamp.atime,stamp.mtime);
+    assert.equal(read(),'other','Cargo must not bless its timestamp-fresh old executable');
+    const debug=join(dir,'target/exact-filesystem-tool/debug');rmSync(debug,{recursive:true});
+    assert.equal(read(),'other');assert.equal(existsSync(debug),false,'warm reuse must not invoke Cargo');
   } finally {rmSync(dir,{recursive:true,force:true});}
 }, 30000);
 
