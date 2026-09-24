@@ -82,6 +82,59 @@ fn pascal(s: &str) -> String {
     }
     out
 }
+/// The body of a generated `name()`: one packed string indexed by the
+/// discriminant through u16 end offsets. A `match` compiles to a pointer
+/// table and a length table, eight bytes a name; this is two. A discriminant
+/// no row takes (a retired id) names nothing.
+fn packed_name(ty: &str, rows: &[(u64, &str)]) -> String {
+    let max = rows.iter().map(|(id, _)| *id).max().unwrap_or(0) as usize;
+    assert!(
+        max < 2 * rows.len() + 8,
+        "{ty}: discriminants too sparse to pack"
+    );
+    let mut names = vec![""; max + 1];
+    for (id, name) in rows {
+        assert!(
+            name.is_ascii() && !name.contains(['"', '\\']),
+            "{ty}: {name}"
+        );
+        assert!(
+            names[*id as usize].is_empty(),
+            "{ty}: discriminant {id} twice"
+        );
+        names[*id as usize] = name;
+    }
+    let (mut packed, mut ends) = (String::new(), Vec::new());
+    for name in names {
+        packed.push_str(name);
+        ends.push(packed.len());
+    }
+    assert!(
+        packed.len() <= usize::from(u16::MAX),
+        "{ty}: names past u16 offsets"
+    );
+    format!("packed_name({packed:?}, &{ends:?}, self as usize)")
+}
+/// `Debug` as `#[derive(Debug)]` writes a unit variant, its identifier,
+/// spelled from `name()` so no enum carries a second table of names.
+fn debug_from_name(w: &mut String, ty: &str, rows: &[(&str, &str)]) {
+    let body = if rows.iter().all(|(ident, name)| ident == name) {
+        "f.write_str(self.name())"
+    } else {
+        assert!(
+            rows.iter().all(|(ident, name)| *ident == pascal(name)),
+            "{ty}: a variant is spelled neither as its name nor as pascal(name)"
+        );
+        "debug_pascal(self.name(), f)"
+    };
+    writeln!(w, "impl ::core::fmt::Debug for {ty} {{").unwrap();
+    writeln!(
+        w,
+        "    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {{ {body} }}"
+    )
+    .unwrap();
+    writeln!(w, "}}").unwrap();
+}
 include!("build/codec.rs");
 fn validate(schema: &Schema) {
     let mut roles = BTreeSet::new();
@@ -268,6 +321,26 @@ fn generate(schema: &Schema, digest: u64) -> String {
     )
     .unwrap();
     writeln!(w, "use crate::wire::codec::{{Reader, Writer}};").unwrap();
+    w.push_str(concat!(
+        "/// Name `i` of a packed table: `names[ends[i - 1]..ends[i]]`.\n",
+        "fn packed_name(names: &'static str, ends: &'static [u16], i: usize) -> &'static str {\n",
+        "    let start = if i == 0 { 0 } else { usize::from(ends[i - 1]) };\n",
+        "    &names[start..usize::from(ends[i])]\n",
+        "}\n",
+        "/// What `#[derive(Debug)]` writes for a variant spelled `pascal(name)` by\n",
+        "/// build.rs: each word's first letter raised; `_`, `-` and spaces dropped.\n",
+        "fn debug_pascal(name: &str, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {\n",
+        "    use ::core::fmt::Write as _;\n",
+        "    for word in name.split(|c: char| c == '_' || c == '-' || c.is_ascii_whitespace()) {\n",
+        "        let mut chars = word.chars();\n",
+        "        if let Some(first) = chars.next() {\n",
+        "            f.write_char(first.to_ascii_uppercase())?;\n",
+        "            f.write_str(chars.as_str())?;\n",
+        "        }\n",
+        "    }\n",
+        "    Ok(())\n",
+        "}\n",
+    ));
     writeln!(
         w,
         "/// Domain-separated SHA-256 (first 8 bytes, little-endian) of the canonical schema."
@@ -286,7 +359,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "#[repr(u8)]").unwrap();
     writeln!(
         w,
-        "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]"
+        "#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]"
     )
     .unwrap();
     writeln!(w, "pub enum NodeType {{").unwrap();
@@ -322,13 +395,17 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "        }}").unwrap();
     writeln!(w, "    }}").unwrap();
     writeln!(w, "    /// The tag name as authored.").unwrap();
-    writeln!(w, "    pub fn name(self) -> &'static str {{").unwrap();
-    writeln!(w, "        match self {{").unwrap();
-    for row in &schema.node_types {
-        writeln!(w, "            NodeType::{} => \"{}\",", row.name, row.name).unwrap();
-    }
-    writeln!(w, "        }}").unwrap();
-    writeln!(w, "    }}").unwrap();
+    let rows: Vec<(u64, &str)> = schema
+        .node_types
+        .iter()
+        .map(|r| (u64::from(r.id), r.name.as_str()))
+        .collect();
+    writeln!(
+        w,
+        "    pub fn name(self) -> &'static str {{ {} }}",
+        packed_name("NodeType", &rows)
+    )
+    .unwrap();
     writeln!(w, "    /// Look a tag name up; unknown names are `None`.").unwrap();
     writeln!(w, "    pub fn from_name(name: &str) -> Option<Self> {{").unwrap();
     writeln!(w, "        match name {{").unwrap();
@@ -344,6 +421,12 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "        }}").unwrap();
     writeln!(w, "    }}").unwrap();
     writeln!(w, "}}").unwrap();
+    let rows: Vec<(&str, &str)> = schema
+        .node_types
+        .iter()
+        .map(|r| (r.name.as_str(), r.name.as_str()))
+        .collect();
+    debug_from_name(w, "NodeType", &rows);
     // ---- PropKind / PropId -----------------------------------------------
     writeln!(w, "/// Declared value type of a prop. The wire carries values typed; a mismatch is a decode rejection.").unwrap();
     writeln!(w, "#[repr(u8)]").unwrap();
@@ -367,7 +450,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "#[repr(u16)]").unwrap();
     writeln!(
         w,
-        "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]"
+        "#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]"
     )
     .unwrap();
     writeln!(w, "pub enum PropId {{").unwrap();
@@ -405,19 +488,17 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "        }}").unwrap();
     writeln!(w, "    }}").unwrap();
     writeln!(w, "    /// The authored prop name.").unwrap();
-    writeln!(w, "    pub fn name(self) -> &'static str {{").unwrap();
-    writeln!(w, "        match self {{").unwrap();
-    for row in &schema.props {
-        writeln!(
-            w,
-            "            PropId::{} => \"{}\",",
-            pascal(&row.name),
-            row.name
-        )
-        .unwrap();
-    }
-    writeln!(w, "        }}").unwrap();
-    writeln!(w, "    }}").unwrap();
+    let rows: Vec<(u64, &str)> = schema
+        .props
+        .iter()
+        .map(|r| (u64::from(r.id), r.name.as_str()))
+        .collect();
+    writeln!(
+        w,
+        "    pub fn name(self) -> &'static str {{ {} }}",
+        packed_name("PropId", &rows)
+    )
+    .unwrap();
     writeln!(w, "    /// Look a prop name up; unknown names are `None`.").unwrap();
     writeln!(w, "    pub fn from_name(name: &str) -> Option<Self> {{").unwrap();
     writeln!(w, "        match name {{").unwrap();
@@ -472,6 +553,13 @@ fn generate(schema: &Schema, digest: u64) -> String {
     }
     writeln!(w, "    }}").unwrap();
     writeln!(w, "}}").unwrap();
+    let idents: Vec<String> = schema.props.iter().map(|r| pascal(&r.name)).collect();
+    let rows: Vec<(&str, &str)> = idents
+        .iter()
+        .zip(&schema.props)
+        .map(|(i, r)| (i.as_str(), r.name.as_str()))
+        .collect();
+    debug_from_name(w, "PropId", &rows);
     // ---- Enums -----------------------------------------------------------
     for (name, def) in &schema.enums {
         writeln!(
@@ -480,11 +568,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
         )
         .unwrap();
         writeln!(w, "#[repr(u8)]").unwrap();
-        writeln!(
-            w,
-            "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]"
-        )
-        .unwrap();
+        writeln!(w, "#[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]").unwrap();
         writeln!(w, "pub enum {name} {{").unwrap();
         for (i, v) in def.values.iter().enumerate() {
             if *v == def.default {
@@ -516,13 +600,18 @@ fn generate(schema: &Schema, digest: u64) -> String {
         writeln!(w, "        }}").unwrap();
         writeln!(w, "    }}").unwrap();
         writeln!(w, "    /// The authored spelling.").unwrap();
-        writeln!(w, "    pub fn name(self) -> &'static str {{").unwrap();
-        writeln!(w, "        match self {{").unwrap();
-        for v in &def.values {
-            writeln!(w, "            {name}::{} => \"{v}\",", pascal(v)).unwrap();
-        }
-        writeln!(w, "        }}").unwrap();
-        writeln!(w, "    }}").unwrap();
+        let rows: Vec<(u64, &str)> = def
+            .values
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (i as u64, v.as_str()))
+            .collect();
+        writeln!(
+            w,
+            "    pub fn name(self) -> &'static str {{ {} }}",
+            packed_name(name, &rows)
+        )
+        .unwrap();
         writeln!(
             w,
             "    /// Look an authored spelling up; unknown spellings are `None`, never a fallback."
@@ -537,6 +626,13 @@ fn generate(schema: &Schema, digest: u64) -> String {
         writeln!(w, "        }}").unwrap();
         writeln!(w, "    }}").unwrap();
         writeln!(w, "}}").unwrap();
+        let idents: Vec<String> = def.values.iter().map(|v| pascal(v)).collect();
+        let rows: Vec<(&str, &str)> = idents
+            .iter()
+            .zip(&def.values)
+            .map(|(i, v)| (i.as_str(), v.as_str()))
+            .collect();
+        debug_from_name(w, name, &rows);
     }
     // ---- StyleId / StyleCodec --------------------------------------------
     writeln!(w, "/// Wire codec of a style row.").unwrap();
@@ -546,7 +642,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "#[repr(u8)]").unwrap();
     writeln!(
         w,
-        "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]"
+        "#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]"
     )
     .unwrap();
     writeln!(w, "pub enum StyleId {{").unwrap();
@@ -581,19 +677,17 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "        if (bit as usize) < Self::COUNT {{ Some(Self::ALL[bit as usize]) }} else {{ None }}").unwrap();
     writeln!(w, "    }}").unwrap();
     writeln!(w, "    /// The field name.").unwrap();
-    writeln!(w, "    pub fn name(self) -> &'static str {{").unwrap();
-    writeln!(w, "        match self {{").unwrap();
-    for row in &schema.styles {
-        writeln!(
-            w,
-            "            StyleId::{} => \"{}\",",
-            pascal(&row.field),
-            row.field
-        )
-        .unwrap();
-    }
-    writeln!(w, "        }}").unwrap();
-    writeln!(w, "    }}").unwrap();
+    let rows: Vec<(u64, &str)> = schema
+        .styles
+        .iter()
+        .map(|r| (u64::from(r.bit), r.field.as_str()))
+        .collect();
+    writeln!(
+        w,
+        "    pub fn name(self) -> &'static str {{ {} }}",
+        packed_name("StyleId", &rows)
+    )
+    .unwrap();
     writeln!(w, "    /// Look a field name up.").unwrap();
     writeln!(w, "    pub fn from_name(name: &str) -> Option<Self> {{").unwrap();
     writeln!(w, "        match name {{").unwrap();
@@ -704,6 +798,13 @@ fn generate(schema: &Schema, digest: u64) -> String {
         writeln!(w, "    }}").unwrap();
     }
     writeln!(w, "}}").unwrap();
+    let idents: Vec<String> = schema.styles.iter().map(|r| pascal(&r.field)).collect();
+    let rows: Vec<(&str, &str)> = idents
+        .iter()
+        .zip(&schema.styles)
+        .map(|(i, r)| (i.as_str(), r.field.as_str()))
+        .collect();
+    debug_from_name(w, "StyleId", &rows);
     // ---- StyleMask -------------------------------------------------------
     writeln!(w, "/// Number of 64-bit words in the style mask.").unwrap();
     writeln!(w, "pub const STYLE_MASK_WORDS: usize = {mask_words};").unwrap();
@@ -1265,7 +1366,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     )
     .unwrap();
     writeln!(w, "#[repr(u16)]").unwrap();
-    writeln!(w, "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]").unwrap();
+    writeln!(w, "#[derive(Clone, Copy, PartialEq, Eq, Hash)]").unwrap();
     writeln!(w, "pub enum OpCode {{").unwrap();
     for row in &schema.opcodes {
         writeln!(w, "    {} = {},", row.name, row.id).unwrap();
@@ -1299,14 +1400,24 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "        }}").unwrap();
     writeln!(w, "    }}").unwrap();
     writeln!(w, "    /// The opcode name.").unwrap();
-    writeln!(w, "    pub fn name(self) -> &'static str {{").unwrap();
-    writeln!(w, "        match self {{").unwrap();
-    for row in &schema.opcodes {
-        writeln!(w, "            OpCode::{} => \"{}\",", row.name, row.name).unwrap();
-    }
-    writeln!(w, "        }}").unwrap();
-    writeln!(w, "    }}").unwrap();
+    let rows: Vec<(u64, &str)> = schema
+        .opcodes
+        .iter()
+        .map(|r| (u64::from(r.id), r.name.as_str()))
+        .collect();
+    writeln!(
+        w,
+        "    pub fn name(self) -> &'static str {{ {} }}",
+        packed_name("OpCode", &rows)
+    )
+    .unwrap();
     writeln!(w, "}}").unwrap();
+    let rows: Vec<(&str, &str)> = schema
+        .opcodes
+        .iter()
+        .map(|r| (r.name.as_str(), r.name.as_str()))
+        .collect();
+    debug_from_name(w, "OpCode", &rows);
     o
 }
 /// Drop every object key that starts with `_`, recursively.
