@@ -441,12 +441,12 @@ fn unbase64(text: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// The document's digest (LLP 1048.000 D6): SHA-256 over the plan's own
-/// digest, the location the document was rendered at, the checkpoint as
-/// the page carries it, and the document — each length-prefixed, so no two
-/// different inputs share a preimage. The renderer writes it beside the
-/// checkpoint; the runtime computes it with its own first tree for the
-/// document and adopts the page on a match.
+/// The document's digest (LLP 1048.000 D6): MurmurHash3's x64 128-bit hash
+/// over the plan's bytes, the location the document was rendered at, the
+/// checkpoint as the page carries it, and the document — each
+/// length-prefixed, so no two different inputs are hashed as the same bytes.
+/// The renderer writes it beside the checkpoint; the runtime computes it
+/// with its own first tree for the document and adopts the page on a match.
 pub fn digest(plan: &[u8], location: &str, checkpoint: &str, document: &str) -> String {
     let mut hash = Murmur128::new(0);
     for part in [

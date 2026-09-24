@@ -37,15 +37,14 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
     let mut shadow: Option<(f32, f32, f32, Color, f32)> = None;
     for id in style.mask.iter() {
         let value = style.get(id);
-        let name = id.name();
-        match (name, &value) {
+        match (id, &value) {
             // Rows that compose into one CSS property.
-            ("shadow_offset", RowValue::Vec2(v)) => {
+            (StyleId::ShadowOffset, RowValue::Vec2(v)) => {
                 let s = shadow.get_or_insert((0.0, 0.0, 0.0, Color::TRANSPARENT, 0.0));
                 s.0 = v.x;
                 s.1 = v.y;
             }
-            ("shadow_radius", RowValue::Number(n)) => {
+            (StyleId::ShadowRadius, RowValue::Number(n)) => {
                 shadow
                     .get_or_insert((0.0, 0.0, 0.0, Color::TRANSPARENT, 0.0))
                     .2 = *n as f32
@@ -55,22 +54,22 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
             // rather than handed over: CSS has no way to say "this shadow's
             // colour is scheme-aware" inside a composed value. A pair on a
             // shadow takes its light half (LLP 1034 §5).
-            ("shadow_color", RowValue::Color(c)) => {
+            (StyleId::ShadowColor, RowValue::Color(c)) => {
                 shadow
                     .get_or_insert((0.0, 0.0, 0.0, Color::TRANSPARENT, 0.0))
                     .3 = *c
             }
-            ("shadow_color", RowValue::ColorValue(v)) => {
+            (StyleId::ShadowColor, RowValue::ColorValue(v)) => {
                 shadow
                     .get_or_insert((0.0, 0.0, 0.0, Color::TRANSPARENT, 0.0))
                     .3 = v.resolve(false)
             }
-            ("shadow_opacity", RowValue::Number(n)) => {
+            (StyleId::ShadowOpacity, RowValue::Number(n)) => {
                 shadow
                     .get_or_insert((0.0, 0.0, 0.0, Color::TRANSPARENT, 0.0))
                     .4 = *n as f32
             }
-            ("transition", RowValue::Transitions(t)) => {
+            (StyleId::Transition, RowValue::Transitions(t)) => {
                 let (text, spring_skipped) = transition_css(t);
                 if !text.is_empty() {
                     let _ = write!(out, "transition:{text};");
@@ -82,7 +81,7 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                     });
                 }
             }
-            ("font_family", RowValue::Number(index)) => {
+            (StyleId::FontFamily, RowValue::Number(index)) => {
                 if let Some(family) = font_names.get(*index as usize) {
                     let value = if is_generic_family(family) {
                         generic_stack(family).to_string()
@@ -97,7 +96,7 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                     });
                 }
             }
-            ("line_clamp", RowValue::Number(n)) => {
+            (StyleId::LineClamp, RowValue::Number(n)) => {
                 if *n > 0.0 {
                     // The legacy clamp requires an old flex box and clipping. It
                     // cannot replace a modern flex/grid/hidden box or a scroller.
@@ -116,28 +115,29 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                     }
                 }
             }
-            ("font_variant_numeric", _) => skipped.push(Skipped {
+            (StyleId::FontVariantNumeric, _) => skipped.push(Skipped {
                 row: id,
                 reason: "not lowered in v1",
             }),
-            ("grid_template_columns", _)
-            | ("grid_template_rows", _)
-            | ("grid_column", _)
-            | ("grid_row", _)
-            | ("grid_auto_flow", _)
-            | ("justify_items", _) => skipped.push(Skipped {
+            (StyleId::GridTemplateColumns, _)
+            | (StyleId::GridTemplateRows, _)
+            | (StyleId::GridColumn, _)
+            | (StyleId::GridRow, _)
+            | (StyleId::GridAutoFlow, _)
+            | (StyleId::JustifyItems, _) => skipped.push(Skipped {
                 row: id,
                 reason: "grid rows are not lowered in v1",
             }),
-            _ => match declaration(name, &value) {
-                Some((prop, val)) => {
-                    let _ = write!(out, "{prop}:{val};");
-                }
-                None => skipped.push(Skipped {
-                    row: id,
-                    reason: "no CSS lowering for this row's codec",
-                }),
-            },
+            _ if lowered(id, &value) => {
+                property(&mut out, id);
+                out.push(':');
+                declared(&mut out, id, &value);
+                out.push(';');
+            }
+            _ => skipped.push(Skipped {
+                row: id,
+                reason: "no CSS lowering for this row's codec",
+            }),
         }
     }
     if let Some((x, y, radius, color, opacity)) = shadow {
@@ -207,59 +207,107 @@ fn css_string(value: &str) -> String {
 }
 
 /// One row → one declaration, by the CSS rule for its name and codec.
-fn declaration(name: &str, value: &RowValue<'_>) -> Option<(String, String)> {
-    let prop = match name {
-        "text_color" => "color".to_string(),
-        "tint_color" => "--exact-tint".to_string(),
-        "position_type" => "position".to_string(),
-        n if n.starts_with("border_radius_") => format!(
-            "border-{}-radius",
-            n.trim_start_matches("border_radius_").replace('_', "-")
-        ),
-        n if n.starts_with("border_width_") => {
-            format!("border-{}-width", n.trim_start_matches("border_width_"))
-        }
-        n if n.starts_with("border_style_") => {
-            format!("border-{}-style", n.trim_start_matches("border_style_"))
-        }
-        n if n.starts_with("border_color_") => {
-            format!("border-{}-color", n.trim_start_matches("border_color_"))
-        }
-        "backdrop_blur" => "backdrop-filter".to_string(),
-        n => n.replace('_', "-"),
+/// Whether a row's value is one CSS declaration here.
+fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
+    match value {
+        RowValue::Vec2(_) => id == StyleId::Translate,
+        RowValue::Color2(_)
+        | RowValue::Tracks(_)
+        | RowValue::Placement(_)
+        | RowValue::Transitions(_) => false,
+        _ => true,
+    }
+}
+
+/// The row's CSS property, appended: its name with `-` for `_`, but for the
+/// few spelled here.
+fn property(out: &mut String, id: StyleId) {
+    let name = match id {
+        StyleId::TextColor => return out.push_str("color"),
+        StyleId::TintColor => return out.push_str("--exact-tint"),
+        StyleId::PositionType => return out.push_str("position"),
+        StyleId::BackdropBlur => return out.push_str("backdrop-filter"),
+        id => id.name(),
     };
-    let val = match value {
-        RowValue::Dimension(d) => dimension(*d),
-        RowValue::Color(c) => rgba(*c),
+    for (prefix, suffix) in [
+        ("border_radius_", "-radius"),
+        ("border_width_", "-width"),
+        ("border_style_", "-style"),
+        ("border_color_", "-color"),
+    ] {
+        if let Some(side) = name.strip_prefix(prefix) {
+            out.push_str("border-");
+            dashed(out, side);
+            return out.push_str(suffix);
+        }
+    }
+    dashed(out, name);
+}
+
+fn dashed(out: &mut String, name: &str) {
+    for (i, word) in name.split('_').enumerate() {
+        if i > 0 {
+            out.push('-');
+        }
+        out.push_str(word);
+    }
+}
+
+/// A [`lowered`] row's CSS value, appended.
+fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
+    match value {
+        RowValue::Dimension(d) => dimension(out, *d),
+        RowValue::Color(c) => rgba_into(out, *c),
         // The browser resolves this one (LLP 1034 D2): handed the function
         // it does so per element against the inherited `color-scheme`, with
         // no work of ours and no repaint pass. This is the whole reason the
         // kernel keeps the pair instead of flattening it.
-        RowValue::ColorValue(ColorValue::Fixed(c)) => rgba(*c),
+        RowValue::ColorValue(ColorValue::Fixed(c)) => rgba_into(out, *c),
         RowValue::ColorValue(ColorValue::LightDark(l, d)) => {
-            format!("light-dark({}, {})", rgba(*l), rgba(*d))
+            out.push_str("light-dark(");
+            rgba_into(out, *l);
+            out.push_str(", ");
+            rgba_into(out, *d);
+            out.push(')');
         }
-        RowValue::LineHeight(v) => v.css(),
-        RowValue::Enum(e) => e.to_string(),
-        RowValue::ClipPath(p) => p.css(),
-        RowValue::ShapeOutside(p) => p.css(),
-        RowValue::Vec2(v) => match name {
-            "translate" => format!("{}px {}px", num(v.x), num(v.y)),
-            _ => return None,
-        },
-        RowValue::Number(n) => match name {
-            "flex_grow" | "flex_shrink" | "opacity" | "z_index" | "aspect_ratio"
-            | "font_weight" | "scale" | "shadow_opacity" => num(*n as f32),
-            "rotate" => format!("{}deg", num(*n as f32)),
-            "backdrop_blur" => format!("blur({}px)", num(*n as f32)),
-            _ => format!("{}px", num(*n as f32)),
+        RowValue::LineHeight(v) => out.push_str(&v.css()),
+        RowValue::Enum(e) => out.push_str(e),
+        RowValue::ClipPath(p) => out.push_str(&p.css()),
+        RowValue::ShapeOutside(p) => out.push_str(&p.css()),
+        RowValue::Vec2(v) => {
+            num_into(out, v.x);
+            out.push_str("px ");
+            num_into(out, v.y);
+            out.push_str("px");
+        }
+        RowValue::Number(n) => match id {
+            StyleId::FlexGrow
+            | StyleId::FlexShrink
+            | StyleId::Opacity
+            | StyleId::ZIndex
+            | StyleId::AspectRatio
+            | StyleId::FontWeight
+            | StyleId::Scale
+            | StyleId::ShadowOpacity => num_into(out, *n as f32),
+            StyleId::Rotate => {
+                num_into(out, *n as f32);
+                out.push_str("deg");
+            }
+            StyleId::BackdropBlur => {
+                out.push_str("blur(");
+                num_into(out, *n as f32);
+                out.push_str("px)");
+            }
+            _ => {
+                num_into(out, *n as f32);
+                out.push_str("px");
+            }
         },
         RowValue::Color2(_)
         | RowValue::Tracks(_)
         | RowValue::Placement(_)
-        | RowValue::Transitions(_) => return None,
-    };
-    Some((prop, val))
+        | RowValue::Transitions(_) => {}
+    }
 }
 
 /// A `transition` row as CSS; `true` when a spring was left out.
@@ -327,23 +375,29 @@ pub fn easing_css(e: &Easing) -> String {
     }
 }
 
-fn dimension(d: Dimension) -> String {
+fn dimension(out: &mut String, d: Dimension) {
     match d {
-        Dimension::Auto => "auto".into(),
-        Dimension::Points(p) => format!("{}px", num(p)),
-        Dimension::Percent(p) => format!("{}%", num(p)),
+        Dimension::Auto => out.push_str("auto"),
+        Dimension::Points(p) => {
+            num_into(out, p);
+            out.push_str("px");
+        }
+        Dimension::Percent(p) => {
+            num_into(out, p);
+            out.push('%');
+        }
         // The browser resolves the inset itself (under `viewport-fit=cover`,
         // which the glue sets from the root's prop; zero otherwise).
         Dimension::Env(edge, plus) => {
-            if plus == 0.0 {
-                format!("env(safe-area-inset-{})", edge.name())
-            } else {
-                format!(
-                    "calc(env(safe-area-inset-{}) {} {}px)",
-                    edge.name(),
-                    if plus < 0.0 { "-" } else { "+" },
-                    num(plus.abs())
-                )
+            let inset = if plus == 0.0 { "env(" } else { "calc(env(" };
+            out.push_str(inset);
+            out.push_str("safe-area-inset-");
+            out.push_str(edge.name());
+            out.push(')');
+            if plus != 0.0 {
+                out.push_str(if plus < 0.0 { " - " } else { " + " });
+                num_into(out, plus.abs());
+                out.push_str("px)");
             }
         }
     }
@@ -351,21 +405,50 @@ fn dimension(d: Dimension) -> String {
 
 /// `rgba(r,g,b,a)` with the alpha as a fraction.
 pub fn rgba(c: Color) -> String {
-    format!(
-        "rgba({},{},{},{})",
-        c.r(),
-        c.g(),
-        c.b(),
-        num(c.a() as f32 / 255.0)
-    )
+    let mut out = String::new();
+    rgba_into(&mut out, c);
+    out
+}
+
+fn rgba_into(out: &mut String, c: Color) {
+    out.push_str("rgba(");
+    for channel in [c.r(), c.g(), c.b()] {
+        num_into(out, f32::from(channel));
+        out.push(',');
+    }
+    num_into(out, c.a() as f32 / 255.0);
+    out.push(')');
 }
 
 /// Shortest exact decimal for a number: `24`, not `24.0`; `0.5`; `1.2`.
 pub fn num(n: f32) -> String {
+    let mut out = String::new();
+    num_into(&mut out, n);
+    out
+}
+
+/// [`num`], appended. A whole number is written digit by digit: the
+/// formatter is the slow part of a page's first styles.
+fn num_into(out: &mut String, n: f32) {
     if n.fract() == 0.0 && n.abs() < 1e9 {
-        format!("{}", n as i64)
+        let whole = n as i64;
+        if whole < 0 {
+            out.push('-');
+        }
+        let (mut rest, mut digits, mut at) = (whole.unsigned_abs(), [b'0'; 10], 10);
+        loop {
+            at -= 1;
+            digits[at] = b'0' + (rest % 10) as u8;
+            rest /= 10;
+            if rest == 0 {
+                break;
+            }
+        }
+        for &digit in &digits[at..] {
+            out.push(char::from(digit));
+        }
     } else {
-        Shortest32(n).to_string()
+        let _ = write!(out, "{}", Shortest32(n));
     }
 }
 
