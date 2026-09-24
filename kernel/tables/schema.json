@@ -1717,6 +1717,16 @@
       "settings",
       "gearshape",
       "M9 3h6v3l3 2 3-1 1 5-3 2v3l-4 3-3-2-3 2-4-3v-3l-3-2 1-5 3 1 3-2V3Zm6 9a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+    ],
+    [
+      "repeat",
+      "repeat",
+      "m17 2 4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4m14-1v2a3 3 0 0 1-3 3H3"
+    ],
+    [
+      "activity",
+      "waveform.path.ecg",
+      "M2 12h4l3-8 6 16 3-8h4"
     ]
   ],
   "_symbols": "[role, Apple system symbol name, browser SVG path in a 24-unit box]. Generated once; hosts never admit platform names directly."
