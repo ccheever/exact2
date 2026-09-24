@@ -100,6 +100,58 @@ The table covers about 1,100 KiB of code. There are also about 130 KiB of
 data segments (strings, tables, the baked plan) that have not been
 attributed yet.
 
+### As built, 2026-09-24: three apps at `98d5f996` (stage 1)
+
+- **The shipped bytes** come from `host/web/build.mjs`'s own steps: its
+  bake, then `wasm-opt` with its flags. The result is byte-identical to
+  `build.mjs`'s `app.wasm`.
+- **The names build** is the same with rustc's `strip = "debuginfo"` and
+  `wasm-opt -g`. That keeps the name section and drops DWARF. With std's
+  DWARF present, binaryen skips duplicate-function elimination, and the code
+  is 12% larger than shipped. Without it, the names build's code is within
+  0.1% of the shipped code (4,559 functions against 4,553).
+- **Attribution** follows §1's rule: a function goes to the first exact2
+  module its demangled name mentions.
+
+| `app.wasm` | Raw | Gzip | Brotli-11 |
+|---|---|---|---|
+| RealWorld | 1,336,082 B | 517,725 B | 390,646 B |
+| Video player | 1,219,546 B | 482,282 B | 365,025 B |
+| Caltrain | 1,279,484 B | 500,382 B | 376,195 B |
+
+| KiB of code | RealWorld | Video | Caltrain | Used by these three |
+|---|---|---|---|---|
+| Core: runner, kernel, plan decoder, web host | 529 | 519 | 535 | all |
+| Rust std and other crates | 282 | 251 | 258 | all; RealWorld's includes 32 of `serde_json` for its TypeScript values |
+| Collections (`list virtualized`) | 80 | 80 | 80 | none |
+| Motion | 71 | 71 | 71 | none |
+| Drag: height, transform, reorder | 44 | 44 | 44 | none |
+| Markdown | 35 | 36 | 36 | RealWorld (article bodies) |
+| Documents: a rendered page's adoption | 23 | 23 | 23 | RealWorld, Caltrain |
+| TypeScript modules | 20 | – | – | RealWorld |
+| Router | 15 | 15 | 15 | RealWorld, Caltrain |
+| Inspection | 14 | 14 | 14 | linked in production (§10) |
+| Rust modules: `exact_logic_abi` | – | 10 | 10 | Caltrain. The video player has no Rust module, but its `auto` policy links the browser executor |
+| Text flow's wasm half | 8 | 8 | 8 | none |
+| Fonts | 2 | 2 | 2 | none |
+| Media | <1 | <1 | <1 | the video player |
+
+| KiB of data | RealWorld | Video | Caltrain |
+|---|---|---|---|
+| The baked plan | 52.5 | 3.5 | 37.0 |
+| The embedded module: receipt and `app.js` (af5dfdf4) | 9.4 | – | – |
+| The compat receipt | 1.2 | 1.3 | 2.1 |
+| Strings: `Debug` variant names, the kernel's vocabulary, error text, JSON and CSS fragments | 53.0 | 51.5 | 51.8 |
+| Tables and other constants: std's float-parsing powers (about 10), Unicode and float-formatting tables, vtables, panic locations | 59.9 | 58.2 | 59.3 |
+| Total | 175.9 | 114.5 | 150.1 |
+
+**RealWorld uses** the router, Markdown, documents, TypeScript modules and
+images. It uses no motion, virtualized collections, drag, declared fonts,
+text flow, video or Rust modules; the last have been off since e36fb75f.
+By this attribution, linking by use can take about 205 KiB of code out of
+RealWorld: collections, motion, drag, text flow and fonts. Std code that only
+they reach comes out too.
+
 ## 2. Why the linker keeps it
 
 There are three causes, and each has a place in the code.
