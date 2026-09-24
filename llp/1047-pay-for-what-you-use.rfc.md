@@ -560,3 +560,34 @@ size: check `git log` for these lanes and say which items you are taking.
 - **Absence.** The video player keeps none of Markdown's 91 functions, except
   one 11-byte closure, `|p| !p.is_empty()`. LLVM merged it with core's
   identical `SplitWhitespace` filter and kept Markdown's name for it.
+
+### As built: activation, boot and the press path (the activation lane)
+
+**The bench, reproduced at `98d5f996`** (RealWorld served, mobile profile, nine
+runs, load 21–27): a tap at `load` reaches the feed in 2,474 ms, shown at
+3,401, against React's 212 and 1,417; after a 3-second read, 285 ms against 202.
+
+**2026-09-24, three landings**, nine runs each, alternating, load 33–40, ms:
+
+| | Tap at load → feed | Feed shown | `load` | 3 s read → feed |
+|---|---|---|---|---|
+| Before (`98d5f996`) | 2,618 | 3,589 | 969 | 322 |
+| The download at paint | 1,991 | 3,116 | 1,120 | — |
+| Activation at boot | 1,977 | 3,118 | 1,127 | 313 |
+| The early GET | 1,900 | 3,046 | 1,134 | 252 |
+| React | 277 | 1,632 | 934 | 211 |
+
+- **The download at paint** (LLP 1048.000 D6, as built): the capture script
+  starts `app.wasm` at the page's first paint entry. `load` comes later only
+  because the glue's modules now share the link with it.
+- **Activation at boot** (the same): a served document activates without the
+  two animation frames, its data module's realm prepared beside the boot; its
+  styles are adopted, not re-set; an early press replays in a microtask.
+- **The early GET** (LLP 1027, as built): a data source's GET leaves when the
+  source asks for it, and the runner's `request` claims it.
+
+What remains at load: the wasm holds the link for about 2.1 s and lands at about
+2.7 s. From instantiation, the boot to the replayed press takes about 350 ms at
+4× CPU, `exact_boot` about 220 of it (booting the runner from the checkpoint
+about 60%, projecting and hashing the document about 20%); the press then takes
+about 250 ms, 160 of them the API.
