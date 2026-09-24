@@ -358,7 +358,10 @@ impl<D: DataSource> Bridge<D> {
             .lines()
             .map(|line| {
                 let (id, height) = line.split_once(',').ok_or(())?;
-                Ok((id.parse().map_err(|_| ())?, height.parse().map_err(|_| ())?))
+                Ok((
+                    id.parse().map_err(|_| ())?,
+                    exact_num::parse_f64(height).map_err(|_| ())?,
+                ))
             })
             .collect();
         let Ok(rows) = rows else {

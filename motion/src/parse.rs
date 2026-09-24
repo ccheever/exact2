@@ -105,7 +105,7 @@ fn time(s: &str) -> Result<f64, ParseError> {
     } else {
         return Err(ParseError::BadTime(s.to_string()));
     };
-    num.parse::<f64>()
+    exact_num::parse_f64(num)
         .map(|n| n * scale)
         .map_err(|_| ParseError::BadTime(s.to_string()))
 }
@@ -182,7 +182,7 @@ fn linear_stops(args: &[String], whole: &str) -> Result<Vec<LinearStop>, ParseEr
         if fields.is_empty() || fields.len() > 3 {
             return Err(bad());
         }
-        let output = fields[0].parse::<f64>().map_err(|_| bad())?;
+        let output = exact_num::parse_f64(fields[0]).map_err(|_| bad())?;
         if fields.len() == 1 {
             stops.push((None, output));
             continue;
@@ -190,7 +190,7 @@ fn linear_stops(args: &[String], whole: &str) -> Result<Vec<LinearStop>, ParseEr
         for field in &fields[1..] {
             let input = field
                 .strip_suffix('%')
-                .and_then(|value| value.parse::<f64>().ok())
+                .and_then(|value| exact_num::parse_f64(value).ok())
                 .map(|value| value / 100.0)
                 .ok_or_else(&bad)?;
             stops.push((Some(input), output));
@@ -268,9 +268,7 @@ fn call(s: &str) -> Option<(&str, Vec<String>)> {
 fn numbers(args: &[String], whole: &str) -> Result<Vec<f64>, ParseError> {
     args.iter()
         .map(|a| {
-            a.trim()
-                .parse::<f64>()
-                .map_err(|_| ParseError::BadEasing(whole.to_string()))
+            exact_num::parse_f64(a.trim()).map_err(|_| ParseError::BadEasing(whole.to_string()))
         })
         .collect()
 }

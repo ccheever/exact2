@@ -656,7 +656,7 @@ impl Json<'_> {
         let text = std::str::from_utf8(&self.bytes[start..self.at]).map_err(|e| e.to_string())?;
         // The glue's `${scale}` and `fontWeight = weight` spell the number
         // as JavaScript does; the host's `css::num` already writes it so.
-        text.parse::<f64>()
+        exact_num::parse_f64(text)
             .map(|_| text.to_owned())
             .map_err(|e| format!("markup pieces: number {text:?}: {e}"))
     }

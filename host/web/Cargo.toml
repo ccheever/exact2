@@ -19,6 +19,7 @@ crate-type = ["rlib"]
 exact-kernel = { path = "../../kernel" }
 exact-textflow = { path = "../../textflow" }
 exact-motion = { path = "../../motion" }
+exact-num = { path = "../../num" }
 exact-plan = { path = "../../plan" }
 exact-runner = { path = "../../runner" }
 exact-route = { path = "../../route" }

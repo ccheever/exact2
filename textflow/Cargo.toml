@@ -1,6 +1,6 @@
 # Shapes, exclusion bands, and a line walker over caller-owned shaping.
 # @ref LLP 1043.000 §3 D1, D5, D6 — a leaf below the kernel and hosts.
-# No exact2 dependency; builds for wasm32-unknown-unknown.
+# Its one exact2 dependency is the leaf `exact-num`; builds for wasm32-unknown-unknown.
 [package]
 name = "exact-textflow"
 version.workspace = true
@@ -14,4 +14,5 @@ name = "exact_textflow"
 crate-type = ["rlib"]
 
 [dependencies]
+exact-num = { path = "../num" }
 unicode-linebreak = "0.1.5"

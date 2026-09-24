@@ -17,6 +17,7 @@ crate-type = ["rlib"]
 
 [dependencies]
 exact-kernel = { path = "../kernel" }
+exact-num = { path = "../num" }
 exact-plan = { path = "../plan" }
 exact-route = { path = "../route" }
 sha2 = "0.10"

@@ -1,0 +1,16 @@
+# Number text as std reads and writes it, without std's tables.
+# @ref LLP 1047 §6 — a leaf below motion, text flow, the kernel, the runner
+# and the web host. No dependency; builds for wasm32-unknown-unknown.
+[package]
+name = "exact-num"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Decimal text to f32/f64, correctly rounded as std, in a few hundred bytes of wasm"
+publish = false
+
+[lib]
+name = "exact_num"
+crate-type = ["rlib"]
+
+[dependencies]

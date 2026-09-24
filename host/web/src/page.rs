@@ -259,7 +259,8 @@ pub fn read_checkpoint(text: &str) -> Result<Checkpoint, String> {
         match key.as_str() {
             "location" => checkpoint.location = json.string()?,
             "time" => {
-                checkpoint.now_ms = json.number()?.parse().map_err(|e| format!("time: {e}"))?
+                checkpoint.now_ms =
+                    exact_num::parse_f64(&json.number()?).map_err(|e| format!("time: {e}"))?
             }
             "logic" if json.bytes[json.at..].starts_with(b"null") => {
                 json.at += 4;

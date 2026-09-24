@@ -3,9 +3,9 @@
 #
 # @ref LLP 1002 (motion v1 decision) / LLP 1003 (motion v1 spec).
 #
-# The dependency closure is `libm` and nothing else: no host crate, no kernel.
-# The kernel depends on this crate for the `transition` style row's type; this
-# crate depends on nothing. It builds for wasm32-unknown-unknown.
+# The dependency closure is `libm` and `exact-num` (number text) and nothing
+# else: no host crate, no kernel. The kernel depends on this crate for the
+# `transition` style row's type. It builds for wasm32-unknown-unknown.
 [package]
 name = "exact-motion"
 version.workspace = true
@@ -19,4 +19,5 @@ name = "exact_motion"
 crate-type = ["rlib"]
 
 [dependencies]
+exact-num = { path = "../num" }
 libm = "0.2"

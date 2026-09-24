@@ -247,7 +247,7 @@ impl Event {
             return None;
         }
         if matches!(kind, EventKind::Timeupdate | EventKind::Durationchange)
-            && !value.parse::<f64>().ok()?.is_finite()
+            && !exact_num::parse_f64(value).ok()?.is_finite()
         {
             return None;
         }
@@ -330,14 +330,20 @@ impl Event {
     /// binding generations and a live Height token before clock or action.
     pub fn height_release_payload(payload: &str) -> Option<Self> {
         let (height, velocity) = payload.split_once(',')?;
-        let (height, velocity) = (height.parse().ok()?, velocity.parse().ok()?);
+        let (height, velocity) = (
+            exact_num::parse_f64(height).ok()?,
+            exact_num::parse_f64(velocity).ok()?,
+        );
         valid_height_release(height, velocity).then_some(Self::HeightRelease { height, velocity })
     }
 
     /// Decode the scroll event's two finite CSS-pixel coordinates.
     pub fn scroll_payload(payload: &str) -> Option<Self> {
         let (left, top) = payload.split_once(',')?;
-        let (left, top) = (left.parse::<f64>().ok()?, top.parse::<f64>().ok()?);
+        let (left, top) = (
+            exact_num::parse_f64(left).ok()?,
+            exact_num::parse_f64(top).ok()?,
+        );
         (left.is_finite() && top.is_finite()).then_some(Self::Scroll(left, top))
     }
 }
@@ -346,7 +352,7 @@ fn tuple<const N: usize>(payload: &str) -> Option<[f64; N]> {
     let mut parts = payload.split(',');
     let mut values = [0.0; N];
     for value in &mut values {
-        *value = parts.next()?.parse().ok()?;
+        *value = exact_num::parse_f64(parts.next()?).ok()?;
     }
     parts.next().is_none().then_some(values)
 }
@@ -741,7 +747,7 @@ impl<D: DataSource> Runner<D> {
                 *kind,
                 match kind {
                     EventKind::Timeupdate | EventKind::Durationchange => {
-                        value.parse().ok().map(Value::Number)
+                        exact_num::parse_f64(value).ok().map(Value::Number)
                     }
                     EventKind::Error => Some(Value::str(value)),
                     _ => None,

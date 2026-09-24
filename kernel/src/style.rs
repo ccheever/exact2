@@ -160,7 +160,7 @@ impl Dimension {
             _ => return None,
         };
         let number = number.trim().strip_suffix("px")?.trim();
-        let plus: f32 = number.parse().ok()?;
+        let plus = exact_num::parse_f32(number).ok()?;
         plus.is_finite()
             .then_some(Dimension::Env(edge, sign * plus))
     }
@@ -318,7 +318,7 @@ impl StyleValue {
             Self::Text(t) => t
                 .trim()
                 .strip_suffix("px")
-                .and_then(|n| n.parse::<f64>().ok())
+                .and_then(|n| exact_num::parse_f64(n).ok())
                 .filter(|n| *n >= 0.0)
                 .map(|n| LineHeight::Length(n as f32)),
             _ => None,
@@ -337,7 +337,10 @@ impl StyleValue {
         if style == StyleId::ShapeMargin {
             let value = match self {
                 StyleValue::Number(n) => Some(*n as f32),
-                StyleValue::Text(s) => s.trim().strip_suffix("px").and_then(|s| s.parse().ok()),
+                StyleValue::Text(s) => s
+                    .trim()
+                    .strip_suffix("px")
+                    .and_then(|s| exact_num::parse_f32(s).ok()),
                 _ => None,
             };
             return value.filter(|n| n.is_finite() && *n >= 0.0).ok_or(StyleValueError::WrongKind {
@@ -489,7 +492,7 @@ fn parse_pixel_length(token: &str) -> Option<f32> {
     {
         return None;
     }
-    let value: f64 = number.parse().ok()?;
+    let value = exact_num::parse_f64(number).ok()?;
     if !value.is_finite()
         || value.abs() > f32::MAX as f64
         || (!pixels && mantissa.bytes().any(|b| b.is_ascii_digit() && b != b'0'))

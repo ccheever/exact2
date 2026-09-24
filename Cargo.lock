@@ -842,6 +842,7 @@ name = "exact-kernel"
 version = "0.1.0"
 dependencies = [
  "exact-motion",
+ "exact-num",
  "exact-textflow",
  "serde",
  "serde_json",
@@ -992,8 +993,13 @@ dependencies = [
 name = "exact-motion"
 version = "0.1.0"
 dependencies = [
+ "exact-num",
  "libm",
 ]
+
+[[package]]
+name = "exact-num"
+version = "0.1.0"
 
 [[package]]
 name = "exact-plan"
@@ -1044,6 +1050,7 @@ version = "0.1.0"
 dependencies = [
  "contract",
  "exact-kernel",
+ "exact-num",
  "exact-plan",
  "exact-route",
  "sha2",
@@ -1066,6 +1073,7 @@ dependencies = [
 name = "exact-textflow"
 version = "0.1.0"
 dependencies = [
+ "exact-num",
  "unicode-linebreak",
 ]
 
@@ -1088,6 +1096,7 @@ dependencies = [
  "exact-bake",
  "exact-kernel",
  "exact-motion",
+ "exact-num",
  "exact-plan",
  "exact-route",
  "exact-runner",

@@ -49,7 +49,7 @@ impl ClipPath {
             }
             let mut values = Vec::with_capacity(count);
             for _ in 0..count {
-                let number = tokens.next()?.parse::<f32>().ok()?;
+                let number = exact_num::parse_f32(tokens.next()?).ok()?;
                 if !number.is_finite() {
                     return None;
                 }

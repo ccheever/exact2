@@ -234,8 +234,7 @@ impl Reader<'_> {
             }
             self.digits()?;
         }
-        let n: f64 = self.text[start..self.at]
-            .parse()
+        let n = exact_num::parse_f64(&self.text[start..self.at])
             .map_err(|_| self.error("invalid number"))?;
         if !n.is_finite() {
             return Err(self.error("number is not finite"));

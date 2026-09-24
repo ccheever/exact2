@@ -24,7 +24,7 @@ impl Length {
         {
             return None;
         }
-        let n: f32 = s.parse().ok()?;
+        let n = exact_num::parse_f32(s).ok()?;
         n.is_finite().then_some(if percent {
             Self::Percent(n)
         } else {

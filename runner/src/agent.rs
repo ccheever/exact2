@@ -842,7 +842,7 @@ pub fn field_num(json: &str, key: &str) -> Option<f64> {
     let end = rest
         .find(|c: char| !(c.is_ascii_digit() || matches!(c, '-' | '+' | '.' | 'e' | 'E')))
         .unwrap_or(rest.len());
-    rest[..end].parse().ok()
+    exact_num::parse_f64(&rest[..end]).ok()
 }
 
 /// Whether a top-level `"key":true` field is set.

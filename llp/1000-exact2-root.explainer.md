@@ -47,8 +47,11 @@ and this one does not. Read them first.
 - `motion/` — `exact-motion`, the motion evaluator: CSS `transition` semantics
   over `translate`/`scale`/`rotate`/`opacity`, one spring, a seekable clock.
   Decided by LLP 1002, specified by LLP 1003. The kernel depends on it for the
-  `transition` row's type; it depends on nothing. Rebuilt from scratch
+  `transition` row's type; it depends only on `exact-num`. Rebuilt from scratch
   2026-08-28 (the ported RFC 0492 crate is gone; 0492 is research).
+- `num/` — `exact-num`, number text as std reads it without std's tables
+  (a correctly rounded decimal-to-float parse); a leaf under motion, text flow,
+  the kernel, the runner and the web host. LLP 1047 §6.
 - `plan/` — `exact-plan`, the plan format: tables, bytecode, and the validating
   decoder, generated from `plan/tables/format.json`. Depends on nothing. LLP 1005.
 - `runner/` — `exact-runner`, the plan runner: the VM, keyed instances, kernel
