@@ -310,3 +310,40 @@ fn errors_display_and_debug_as_std() {
         format!("{:?}", "x".parse::<f32>().unwrap_err())
     );
 }
+
+#[test]
+fn the_u128_path_matches_std_at_its_edges() {
+    let mut rng = Rng(0x0bad_cafe_1234_5678);
+    for _ in 0..40_000 {
+        // Up to 19 significant digits, exponents across and just past ±27.
+        let digits = 1 + rng.below(19) as u32;
+        let d = rng.next() % 10u64.pow(digits).max(1);
+        let e = rng.below(60) as i64 - 30;
+        check(&format!("{d}e{e}"));
+        check(&format!("{}e{e}", u64::MAX / (1 + rng.below(9))));
+        // Exact f64 ties with at most 19 digits: (2m + 1) × 5^j × 10^-j.
+        let m = (1u64 << 52) | (rng.next() >> 12);
+        for j in 0..=2u32 {
+            let odd = u128::from(2 * m + 1) * 5u128.pow(j);
+            check(&format!("{odd}e-{j}"));
+            check(&format!("{odd}e-{}", j + rng.below(8) as u32));
+        }
+        // Exact f32 ties: (2m + 1) × 5^j, up to 19 digits.
+        let m = (1u64 << 23) | (rng.next() >> 41);
+        let j = rng.below(12) as u32;
+        let odd = u128::from(2 * m + 1) * 5u128.pow(j);
+        check(&format!("{odd}e-{j}"));
+        check(&format!("{odd}e{}", rng.below(10)));
+    }
+    for e in [-28, -27, -26, 26, 27, 28] {
+        for d in [
+            1u64,
+            9,
+            12_345_678_901_234_567,
+            9_999_999_999_999_999_999,
+            u64::MAX,
+        ] {
+            check(&format!("{d}e{e}"));
+        }
+    }
+}

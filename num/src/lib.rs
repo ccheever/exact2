@@ -5,7 +5,9 @@
 //! `str::parse::<f64>()` links `core`'s decimal-to-float machinery, whose
 //! Eisel–Lemire table alone is 10 KB of incompressible wasm data. A correctly
 //! rounded parse has exactly one answer, so this one — Clinger's exact fast
-//! path, then exact integer arithmetic — returns std's bits for every input.
+//! path, an exact `u128` path for up to 19 digits and exponents to ±27 (what
+//! `JSON.stringify` writes), then exact big-integer arithmetic — returns
+//! std's bits for every input.
 //! The grammar, the exponent's saturation and the error messages are std's
 //! too. The tests hold it to std, bit for bit.
 
@@ -215,6 +217,9 @@ fn value(int: &[u8], frac: &[u8], exp: i64, f: &Format) -> u64 {
         if d <= f.fast_mantissa && e10.abs() <= f.fast_exp {
             return fast(d, e10, f);
         }
+        if e10.abs() <= 27 {
+            return medium(d, e10, f);
+        }
     }
     let kept = n.min(MAX_DIGITS);
     let mut num = Big(vec![0]);
@@ -239,6 +244,34 @@ fn fast(d: u64, e10: i64, f: &Format) -> u64 {
         }
         let x = d as f64;
         if e10 < 0 { x / p } else { x * p }.to_bits()
+    }
+}
+
+/// `d × 10^e10` for `|e10| <= 27`, exactly: `10^e10 = 5^e10 × 2^e10`, and
+/// `5^27` fits a `u64`. A product `d × 5^e10` is an exact `u128`; a quotient
+/// `d / 5^-e10`, taken with the dividend at the top of a `u128`, keeps at
+/// least 65 bits and folds its remainder into the last bit, a sticky bit that
+/// breaks exact ties the way the dropped digits would. One `as` conversion
+/// (correctly rounded) makes the float; scaling by a power of two is exact,
+/// because every result here is a normal float of either width.
+fn medium(d: u64, e10: i64, f: &Format) -> u64 {
+    let p5 = u128::from(5u64.pow(e10.unsigned_abs() as u32));
+    let (n, e2) = if e10 >= 0 {
+        (u128::from(d) * p5, e10 as i32)
+    } else {
+        let s = d.leading_zeros() + 64;
+        let n = u128::from(d) << s;
+        let q = n / p5;
+        (q | u128::from(q * p5 != n), e10 as i32 - s as i32)
+    };
+    // Halves of a power of two, each normal: two exact multiplications.
+    let (a, b) = (e2 / 2, e2 - e2 / 2);
+    if f.p == F32.p {
+        let two = |e: i32| f32::from_bits(((127 + e) as u32) << 23);
+        u64::from((n as f32 * two(a) * two(b)).to_bits())
+    } else {
+        let two = |e: i32| f64::from_bits(((1023 + e) as u64) << 52);
+        (n as f64 * two(a) * two(b)).to_bits()
     }
 }
 
