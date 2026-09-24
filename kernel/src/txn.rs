@@ -693,16 +693,16 @@ pub fn apply(
             .is_some_and(|slot| created.contains(&slot))
     });
     // Publication needs sorted unique live keys, not a tree update for every op.
-    // Generations discard touches from a node destroyed earlier in this batch.
-    // Consecutive props commonly touch the same node; collapse those before sorting.
-    touched.dedup();
-    touched.sort_unstable();
-    touched.dedup();
-    touched.retain(|key| {
-        arena
-            .resolve(*key)
-            .is_some_and(|slot| !created.contains(&slot))
-    });
+    // Generations discard touches from a node destroyed earlier in this batch:
+    // only a slot's live key resolves, so a set of slots, read back in order,
+    // is the sorted unique live keys, with no sort.
+    let mut live = crate::sorted::SlotSet::default();
+    for key in touched {
+        if let Some(slot) = arena.resolve(key).filter(|slot| !created.contains(slot)) {
+            live.insert(slot);
+        }
+    }
+    let mut touched: Vec<NodeKey> = live.iter().map(|slot| arena.key(slot)).collect();
     // Receipts outlive this batch; do not retain scratch for duplicates or dead nodes.
     touched.shrink_to_fit();
     receipt.touched = touched;

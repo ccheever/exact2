@@ -786,13 +786,11 @@ impl Kernel {
             .collect();
         // Detached nodes (no root above them) come last, by slot.
         let ordered: std::collections::HashSet<u32> = order.iter().copied().collect();
-        let mut detached: Vec<u32> = hits
-            .iter()
-            .copied()
-            .filter(|s| !ordered.contains(s))
-            .collect();
-        detached.sort_unstable();
-        out.extend(detached.into_iter().map(|s| self.arena.key(s)));
+        let mut detached = crate::sorted::SlotSet::default();
+        for &slot in hits.iter().filter(|s| !ordered.contains(s)) {
+            detached.insert(slot);
+        }
+        out.extend(detached.iter().map(|s| self.arena.key(s)));
         out
     }
 
