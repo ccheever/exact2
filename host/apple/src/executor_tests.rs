@@ -680,3 +680,98 @@ fn an_ordered_job_waits_for_retained_bytes_instead_of_refusing() {
     );
     assert!(settled(&core));
 }
+
+/// The platform transport, a loopback server and a body over its 64 KiB
+/// handoff, behind and beside handed-off module turns as worker placement
+/// queues them (the Crew port's F4/F6, not reproduced on macOS).
+#[test]
+fn a_large_body_on_the_platform_transport_drains_behind_handed_off_turns() {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let mut stream = stream.unwrap();
+            std::thread::spawn(move || {
+                let mut buf = [0u8; 4096];
+                let n = stream.read(&mut buf).unwrap_or(0);
+                let head = String::from_utf8_lossy(&buf[..n]).to_string();
+                let size = if head.contains("/big") { 190_785 } else { 24 };
+                let body = format!("\"{}\"", "x".repeat(size - 2));
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+            });
+        }
+    });
+    let grants = format!("net.fetch http://127.0.0.1:{port}");
+    let owners = (0..WORKERS)
+        .map(|_| {
+            Some(ibex2::host::Host::new().endow(ibex2::grant::GrantSet::parse(&grants).unwrap()))
+        })
+        .collect();
+    let (wake, woke) = channel();
+    let core = Core::with_owners(
+        owners,
+        &grants,
+        Box::new(move || {
+            let _ = wake.send(());
+        }),
+    );
+    // A handed-off turn that completes a little later, like the owner's.
+    let turn = |ticket: u64| {
+        let mut request = Request::continuation(ticket);
+        request.http = HttpScheduling::Ordered;
+        let work: OwnedWork = OwnedWork::Later(Box::new(|reply: Reply| {
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(50));
+                reply.send(Outcome::Response(Response {
+                    status: 200,
+                    headers: vec![],
+                    body: b"turn".to_vec(),
+                }));
+            });
+        }));
+        (job(ticket, request), work)
+    };
+    let (r, w) = turn(1);
+    core.run_owned(r, Some(w)).unwrap();
+    core.run_owned(
+        job(2, Request::get(&format!("http://127.0.0.1:{port}/big"))),
+        None,
+    )
+    .unwrap();
+    let (r, w) = turn(3);
+    core.run_owned(r, Some(w)).unwrap();
+    core.run_owned(
+        job(4, Request::get(&format!("http://127.0.0.1:{port}/small"))),
+        None,
+    )
+    .unwrap();
+    core.run_owned(
+        job(5, Request::get(&format!("http://127.0.0.1:{port}/big"))),
+        None,
+    )
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut outcomes = vec![];
+    while outcomes.len() < 5 {
+        core.begin_pump();
+        outcomes.extend(core.drain());
+        if outcomes.len() < 5 {
+            woke.recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .unwrap_or_else(|_| panic!("stalled after {outcomes:?}"));
+        }
+    }
+    let sizes: Vec<(u64, usize)> = outcomes
+        .iter()
+        .map(|(t, o)| match o {
+            Outcome::Response(r) => (*t, r.body.len()),
+            other => panic!("{t}: {other:?}"),
+        })
+        .collect();
+    assert_eq!(sizes, [(1, 4), (2, 190_785), (3, 4), (4, 24), (5, 190_785)]);
+}
