@@ -150,7 +150,9 @@ function documentBoot(options) {
       }
       for (const batch of held.splice(0)) apply(batch);
       adopting = null;
-      setTimeout(() => {
+      // After the caller's readiness, which it finishes synchronously; a task
+      // would wait behind the next frame.
+      queueMicrotask(() => {
         for (const edit of edits) {
           const el = views.get(edit.at.id);
           if (matches(el, edit.at) && events.some(event => event.kind === "change" && event.at.id === edit.at.id)) el.value = edit.value;
@@ -166,7 +168,7 @@ function documentBoot(options) {
           // A handler can intentionally replace the value; never undo that result.
           if (el.value === edit.value && edit.start !== null) el.setSelectionRange(edit.start, edit.end, edit.direction);
         }
-      }, 0);
+      });
     },
   };
   return page;

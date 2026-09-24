@@ -603,7 +603,7 @@ function apply(batch) {
           el.append(surface);
         }
         applyProps(el, op.props, []);
-        el.style.cssText = op.css + (el.hasAttribute("data-action") ? ";touch-action:none" : "");
+        const css = op.css + (el.hasAttribute("data-action") ? ";touch-action:none" : ""); if ((el.getAttribute("style") ?? "") !== css) el.style.cssText = css; // an adopted element's is already there
         attach(el, op.id, op.handlers);
         views.set(op.id, el);
         // Shared collections own geometry feedback, including authored estimates.
@@ -630,7 +630,7 @@ function apply(batch) {
         }
         // Reorder in place: keyed rows keep their elements (and their state).
         // A canvas's surface element is skipped: not a child, never removed.
-        const skip = (n) => { while (n && n.dataset.surface !== undefined) n = n.nextElementSibling; return n; };
+        const skip = (n) => { while (n?.hasAttribute("data-surface")) n = n.nextElementSibling; return n; };
         let cursor = skip(el.firstElementChild);
         for (const child of want) {
           if (child === cursor) { cursor = skip(cursor.nextElementSibling); continue; }
@@ -1459,36 +1459,35 @@ async function main() {
     } catch (e) { console.warn("exact: store", String(e)); }
     if (kept.length) wasm.exact_store(writeIn(kept.join("\0")));
   }
-  const first = await globalThis.exact.devFirst?.(); await boot(first?.plan ?? null, first ? assetNamespace(first.assets) : null, () => true, null, true); // @ref LLP 1007 §6
-  // Nested rAF gives the baked DOM a rendering opportunity before activation.
+  const first = await globalThis.exact.devFirst?.();
+  // A data module's realm: beside the boot on a served document, whose first
+  // pixel is painted (LLP 1048.000 D6); a client page's after its baked frame.
+  const realm = () => typeof wasm.exact_module_artifact !== 'function' ? null : loadAfterPaint('./module-glue.js','moduleRuntime')
+    .then(async loader => { moduleLoader = loader; const payload = first?.module ?? await loader.baked(); return { ...payload, realm: await loader.prepare(payload, logicInfo, 0) }; });
+  const prepared = page ? realm() : null; prepared?.catch(() => {}); // awaited, and reported, at activation
+  await boot(first?.plan ?? null, first ? assetNamespace(first.assets) : null, () => true, null, true); // @ref LLP 1007 §6
   root.dataset.bootMs = (performance.now() - t0).toFixed(1);
-  requestAnimationFrame(() => {
-    root.dataset.frameCallbackMs = (performance.now() - t0).toFixed(1);
-    requestAnimationFrame(async () => {
-      loadGpuIfNeeded();
-      if (!agentMode) loadAfterPaint('./timer-glue.js', 'createTimerScheduler').then(create => { timerFactory = create; startClock(); }).catch(console.error);
-      // @ref LLP 1043.000 §3 D8 — one optional load, no activation wait or retry queue.
-      loadAfterPaint('./input-glue.js', 'createInputHandlers').then(create => {
-        inputHandlers = create({ root, views, retiredViews, ready: () => inputReady, inertAncestor,
-          dispatch: (id, payload) => send(wasm.exact_dispatch(id, 20, writeIn(payload), now())) });
-      }).catch(console.error);
-      try {
-        if (typeof wasm.exact_module_artifact === 'function') {
-          moduleLoader = await loadAfterPaint('./module-glue.js','moduleRuntime');
-          const payload = first?.module ?? await moduleLoader.baked();
-          const realm = await moduleLoader.prepare(payload, logicInfo, 0);
-          activeModule = { ...payload, realm };
-        }
-        activateData();
-      } catch (error) { root.dataset.error = String(error); console.error(error); }
-      finally {
-        resolveModuleReady();
-        if (globalThis.exact.compat.inputs.rustModule && globalThis.exact.compat.inputs.rustMode === 'browser') {
-          loadRust().then(() => globalThis.exact.followRustUpdates(globalThis.exact, import.meta.url)).catch(error => console.error('Rust update discovery:',error));
-        }
+  const activate = async () => {
+    loadGpuIfNeeded();
+    if (!agentMode) loadAfterPaint('./timer-glue.js', 'createTimerScheduler').then(create => { timerFactory = create; startClock(); }).catch(console.error);
+    // @ref LLP 1043.000 §3 D8 — one optional load, no activation wait or retry queue.
+    loadAfterPaint('./input-glue.js', 'createInputHandlers').then(create => {
+      inputHandlers = create({ root, views, retiredViews, ready: () => inputReady, inertAncestor,
+        dispatch: (id, payload) => send(wasm.exact_dispatch(id, 20, writeIn(payload), now())) });
+    }).catch(console.error);
+    try { activeModule = await (prepared ?? realm()) ?? activeModule; activateData(); }
+    catch (error) { root.dataset.error = String(error); console.error(error); }
+    finally {
+      resolveModuleReady();
+      if (globalThis.exact.compat.inputs.rustModule && globalThis.exact.compat.inputs.rustMode === 'browser') {
+        loadRust().then(() => globalThis.exact.followRustUpdates(globalThis.exact, import.meta.url)).catch(error => console.error('Rust update discovery:',error));
       }
-    });
-  });
+    }
+  };
+  // Nested rAF gives a client page's baked DOM a rendering opportunity before
+  // activation; a served document has painted already.
+  if (page) activate();
+  else requestAnimationFrame(() => { root.dataset.frameCallbackMs = (performance.now() - t0).toFixed(1); requestAnimationFrame(activate); });
 }
 ready = main();
 ready.catch((e) => { console.error(e); root.dataset.error = String(e); });

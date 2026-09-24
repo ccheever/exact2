@@ -697,7 +697,9 @@ second call copying JSON output into owned wasm memory, without re-entering the
 borrowed host bridge. `exact-js-value` shares typed marshaling with native;
 no JavaScript engine is linked into wasm. Compatibility receipts name `browser`,
 not Hermes. `glue.js` waits for a rendering opportunity before loading
-`module-glue.js`, its prelude and `app.js`; `boot.mjs` still counts one module.
+`module-glue.js`, its prelude and `app.js` (a served document, painted before
+its glue runs, loads them beside the boot: LLP 1048.000 D6); `boot.mjs` still
+counts one module.
 
 Before loading, `DataSource::ready` is false and baked values paint the first
 frame. The loader prepares a private realm, then `exact_data_ready` activates
