@@ -589,15 +589,21 @@ impl<D: DataSource> Runner<D> {
         ticket: u64,
         outcome: Outcome,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
+        let summary = outcome.summary();
         let Some(pos) = self.pending.iter().position(|p| p.ticket == ticket) else {
-            self.log(format!("reply {ticket} dropped: no such request in flight"));
+            self.log(format!(
+                "reply {ticket} dropped: no such request in flight [{summary}]"
+            ));
             return Ok(None);
         };
         let was_poisoned = self.poisoned;
         let checkpoint = self.checkpoint(true);
         let p = self.pending.remove(pos);
         self.sync_pending_flags();
-        let what = format!("fulfil {ticket} ({})", self.target_name(p.target));
+        let what = format!(
+            "fulfil {ticket} ({}) [{summary}]",
+            self.target_name(p.target)
+        );
         let result = self.fulfill_inner(p, outcome);
         self.conclude(checkpoint, &result, was_poisoned);
         self.log_outcome(&what, &result, was_poisoned);

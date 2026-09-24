@@ -272,6 +272,31 @@ pub enum Outcome {
     },
 }
 
+impl Outcome {
+    /// What came back, for the journal: a status and a size, or why nothing
+    /// did, cut to 200 characters — never a body. A failure the app catches
+    /// is still on the record (LLP 1016 D4).
+    pub fn summary(&self) -> String {
+        match self {
+            Outcome::Response(r) => format!("HTTP {}, {} bytes", r.status, r.body.len()),
+            Outcome::Failed { kind, message } => {
+                let cut = message
+                    .char_indices()
+                    .nth(200)
+                    .map_or(message.len(), |(i, _)| i);
+                let more = if cut < message.len() { "…" } else { "" };
+                let kind = format!("{kind:?}").to_lowercase();
+                format!("{kind}: {}{more}", &message[..cut])
+            }
+            Outcome::Storage(bytes) => format!("storage, {} bytes", bytes.len()),
+            Outcome::Surface(SurfaceOutcome::Captured(bytes)) => {
+                format!("surface captured, {} bytes", bytes.len())
+            }
+            Outcome::Surface(SurfaceOutcome::Restored) => "surface restored".into(),
+        }
+    }
+}
+
 /// Why a request produced no response.
 #[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

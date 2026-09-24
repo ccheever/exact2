@@ -4,7 +4,8 @@
 
 use exact_kernel::{Kernel, PropId};
 use exact_runner::{
-    Answer, DataError, DataSource, Event, Outcome, Request, Response, Runner, RunnerError, Value,
+    Answer, DataError, DataSource, Event, FailureKind, Outcome, Request, Response, Runner,
+    RunnerError, Value,
 };
 
 const SRC: &str = r#"
@@ -333,6 +334,29 @@ fn the_newest_send_wins_and_an_assignment_forgets() {
     assert!(r.pending().is_empty(), "the assignment forgot the ticket");
     assert_eq!(r.fulfill(reqs[0].ticket, ok(200)).unwrap(), None);
     assert!(r.journal().any(|l| l.contains("forget request")));
+}
+
+#[test]
+fn every_reply_is_journaled_with_what_came_back() {
+    let mut r = boot();
+    r.dispatch(view_of(&r, "who"), Event::Change("ada".into()))
+        .unwrap();
+    r.dispatch(view_of(&r, "login"), Event::Press).unwrap();
+    let first = r.take_requests()[0].ticket;
+    r.dispatch(view_of(&r, "login"), Event::Press).unwrap();
+    let second = r.take_requests()[0].ticket;
+    assert_eq!(r.fulfill(first, ok(200)).unwrap(), None);
+    // A failure the app shapes into a value is still on the record.
+    let refused = Outcome::Failed {
+        kind: FailureKind::Refused,
+        message: "the app declares no grants".into(),
+    };
+    let _ = r.fulfill(second, refused);
+    let journal: Vec<_> = r.journal().collect();
+    let dropped = format!("reply {first} dropped: no such request in flight [HTTP 200, 2 bytes]");
+    let failed = format!("fulfil {second} (session) [refused: the app declares no grants]");
+    assert!(journal.iter().any(|l| l.contains(&dropped)), "{journal:#?}");
+    assert!(journal.iter().any(|l| l.contains(&failed)), "{journal:#?}");
 }
 
 #[test]
