@@ -168,7 +168,7 @@ pub fn render<D: DataSource>(
     let head = document
         .page_head(plan, site, location)
         .map_err(|e| e.to_string())?;
-    let digest = digest(plan, location, &checkpoint, &document.root);
+    let digest = digest(&plan.encode(), location, &checkpoint, &document.root);
     let mut activation = route_at(plan, location)
         .map_or(exact_plan::ActivatePolicy::Inferred, |route| route.activate);
     // A partial document needs to finish without waiting for an action. Gesture,

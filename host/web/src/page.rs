@@ -397,12 +397,17 @@ impl<D: DataSource> crate::Host<D> {
         .map_err(crate::HostError::Runner)?;
         // The renderer's location: the runtime's only input of its own is its
         // first tree, so a query the app doesn't read adopts the same document.
-        let adopted = super::project(&runner).is_ok_and(|doc| {
-            digest(runner.plan(), &checkpoint.location, page, &doc.root) == page_digest
-        });
+        // The projection's per-view results serve the first batch too.
+        let (adopted, computed) = match super::project_keeping(&runner) {
+            Ok((doc, computed)) => (
+                digest(plan_bytes, &checkpoint.location, page, &doc.root) == page_digest,
+                computed,
+            ),
+            Err(_) => (false, Default::default()),
+        };
         let mut batch = crate::batch::Batch::new();
         batch.adopt(adopted);
-        crate::Host::open(links, runner, launch, batch)
+        crate::Host::open(links, runner, launch, batch, computed)
     }
 }
 
@@ -442,20 +447,115 @@ fn unbase64(text: &str) -> Option<Vec<u8>> {
 /// different inputs share a preimage. The renderer writes it beside the
 /// checkpoint; the runtime computes it with its own first tree for the
 /// document and adopts the page on a match.
-pub fn digest(plan: &Plan, location: &str, checkpoint: &str, document: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let mut hash = Sha256::new();
-    hash.update(Sha256::digest(plan.encode()));
-    for part in [location, checkpoint, document] {
-        hash.update((part.len() as u64).to_be_bytes());
-        hash.update(part.as_bytes());
+pub fn digest(plan: &[u8], location: &str, checkpoint: &str, document: &str) -> String {
+    let mut hash = Murmur128::new(0);
+    for part in [
+        plan,
+        location.as_bytes(),
+        checkpoint.as_bytes(),
+        document.as_bytes(),
+    ] {
+        hash.update(&(part.len() as u64).to_be_bytes());
+        hash.update(part);
     }
-    hash.finalize()
-        .iter()
-        .fold(String::with_capacity(64), |mut hex, byte| {
-            let _ = write!(hex, "{byte:02x}");
-            hex
-        })
+    format!("{:032x}", hash.finish())
+}
+
+/// MurmurHash3's x64 128-bit function (Austin Appleby's, public domain),
+/// streamed. The document digest is an equality check between the server's
+/// document and the runtime's own, not a security boundary: whoever serves the
+/// page's HTML already controls the page. So it needs speed and a negligible
+/// chance of an accidental match, not collision resistance.
+struct Murmur128 {
+    h: [u64; 2],
+    tail: [u8; 16],
+    fill: usize,
+    len: u64,
+}
+
+const C1: u64 = 0x87c3_7b91_1142_53d5;
+const C2: u64 = 0x4cf5_ad43_2745_937f;
+
+impl Murmur128 {
+    fn new(seed: u32) -> Self {
+        Murmur128 {
+            h: [u64::from(seed); 2],
+            tail: [0; 16],
+            fill: 0,
+            len: 0,
+        }
+    }
+
+    fn block(&mut self, block: &[u8]) {
+        let k1 = u64::from_le_bytes(block[..8].try_into().expect("16 bytes"));
+        let k2 = u64::from_le_bytes(block[8..16].try_into().expect("16 bytes"));
+        let [h1, h2] = &mut self.h;
+        *h1 ^= k1.wrapping_mul(C1).rotate_left(31).wrapping_mul(C2);
+        *h1 = h1
+            .rotate_left(27)
+            .wrapping_add(*h2)
+            .wrapping_mul(5)
+            .wrapping_add(0x52dc_e729);
+        *h2 ^= k2.wrapping_mul(C2).rotate_left(33).wrapping_mul(C1);
+        *h2 = h2
+            .rotate_left(31)
+            .wrapping_add(*h1)
+            .wrapping_mul(5)
+            .wrapping_add(0x3849_5ab5);
+    }
+
+    fn update(&mut self, mut bytes: &[u8]) {
+        self.len += bytes.len() as u64;
+        if self.fill > 0 {
+            let take = (16 - self.fill).min(bytes.len());
+            self.tail[self.fill..self.fill + take].copy_from_slice(&bytes[..take]);
+            self.fill += take;
+            bytes = &bytes[take..];
+            if self.fill < 16 {
+                return;
+            }
+            let tail = self.tail;
+            self.block(&tail);
+            self.fill = 0;
+        }
+        let mut blocks = bytes.chunks_exact(16);
+        for block in &mut blocks {
+            self.block(block);
+        }
+        let rest = blocks.remainder();
+        self.tail[..rest.len()].copy_from_slice(rest);
+        self.fill = rest.len();
+    }
+
+    fn finish(mut self) -> u128 {
+        let mut k = [0u64; 2];
+        for (i, byte) in self.tail[..self.fill].iter().enumerate() {
+            k[i / 8] |= u64::from(*byte) << (8 * (i % 8));
+        }
+        let [h1, h2] = &mut self.h;
+        if self.fill > 8 {
+            *h2 ^= k[1].wrapping_mul(C2).rotate_left(33).wrapping_mul(C1);
+        }
+        if self.fill > 0 {
+            *h1 ^= k[0].wrapping_mul(C1).rotate_left(31).wrapping_mul(C2);
+        }
+        *h1 ^= self.len;
+        *h2 ^= self.len;
+        *h1 = h1.wrapping_add(*h2);
+        *h2 = h2.wrapping_add(*h1);
+        let fmix = |mut k: u64| {
+            k ^= k >> 33;
+            k = k.wrapping_mul(0xff51_afd7_ed55_8ccd);
+            k ^= k >> 33;
+            k = k.wrapping_mul(0xc4ce_b9fe_1a85_ec53);
+            k ^ (k >> 33)
+        };
+        *h1 = fmix(*h1);
+        *h2 = fmix(*h2);
+        *h1 = h1.wrapping_add(*h2);
+        *h2 = h2.wrapping_add(*h1);
+        (u128::from(*h2) << 64) | u128::from(*h1)
+    }
 }
 
 /// One URL per page (LLP 1048.000 D11): the router's canonical location
@@ -555,4 +655,44 @@ pub fn build_locations(plan: &Plan) -> Result<Vec<(String, bool)>, String> {
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod murmur_tests {
+    use super::Murmur128;
+
+    fn hash(bytes: &[u8], seed: u32) -> [u8; 16] {
+        let mut h = Murmur128::new(seed);
+        h.update(bytes);
+        h.finish().to_le_bytes()
+    }
+
+    /// SMHasher's verification for MurmurHash3_x64_128: hash the keys
+    /// {}, {0}, {0,1}, … {0..254} with seed 256 - n, then hash the
+    /// concatenated results with seed 0; its first four bytes, read little-
+    /// endian, are 0x6384BA69.
+    #[test]
+    fn it_is_murmurhash3_x64_128() {
+        let key: Vec<u8> = (0..=255u8).collect();
+        let mut all = Vec::new();
+        for n in 0..256usize {
+            all.extend_from_slice(&hash(&key[..n], 256 - n as u32));
+        }
+        let last = hash(&all, 0);
+        assert_eq!(
+            u32::from_le_bytes(last[..4].try_into().unwrap()),
+            0x6384_BA69
+        );
+    }
+
+    #[test]
+    fn streaming_in_pieces_is_hashing_whole() {
+        let bytes: Vec<u8> = (0..1000u32).map(|i| (i * 7 + 3) as u8).collect();
+        for cut in [0, 1, 7, 15, 16, 17, 33, 500, 999, 1000] {
+            let mut h = Murmur128::new(0);
+            h.update(&bytes[..cut]);
+            h.update(&bytes[cut..]);
+            assert_eq!(h.finish().to_le_bytes(), hash(&bytes, 0), "cut at {cut}");
+        }
+    }
 }

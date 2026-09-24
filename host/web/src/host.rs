@@ -252,6 +252,9 @@ pub struct Host<D: DataSource> {
     /// The head the page was last told, and whether a commit may move it.
     head: exact_runner::Head,
     head_dirty: bool,
+    /// While the first batch is made: what a page's projection computed for
+    /// each view (LLP 1048.000 D6), taken instead of computing it again.
+    computed: document::Computed,
 }
 
 impl<D: DataSource> Host<D> {
@@ -365,7 +368,7 @@ impl<D: DataSource> Host<D> {
             launch,
         )
         .map_err(HostError::Runner)?;
-        Host::open(links, runner, launch, Batch::new())
+        Host::open(links, runner, launch, Batch::new(), Default::default())
     }
 
     /// The host over a booted runner, and its first batch — `batch`'s ops,
@@ -375,6 +378,7 @@ impl<D: DataSource> Host<D> {
         runner: Runner<D>,
         launch: &str,
         mut batch: Batch,
+        computed: document::Computed,
     ) -> Result<(Host<D>, String), HostError> {
         let font_names = font_names(runner.plan());
         let font_catalog = font_catalog(&font_faces(runner.plan()));
@@ -403,6 +407,7 @@ impl<D: DataSource> Host<D> {
             heads: Default::default(),
             head: Default::default(),
             head_dirty: false,
+            computed,
         };
         // Everything live is new to the page.
         let roots = host.runner.roots();
@@ -419,6 +424,7 @@ impl<D: DataSource> Host<D> {
         for id in &order {
             host.create(*id, &mut batch, handlers.get(id).map_or(&[], Vec::as_slice));
         }
+        host.computed = Default::default();
         for id in &order {
             host.emit_children(*id, &mut batch);
         }
@@ -1093,9 +1099,18 @@ impl<D: DataSource> Host<D> {
         let node = self.runner.kernel().node(id).expect("live");
         let in_button = in_button(self.runner.kernel(), &node);
         let tag = tag_for(&node, in_button);
-        let props = props_for(&node);
-        let (css, _skipped) = css::css_text(node.style, &self.font_names);
-        let css = host_css(&node, css, tag);
+        let kept = match self.computed.last() {
+            Some((view, ..)) if *view == id => self.computed.pop(),
+            _ => None,
+        };
+        let (props, css) = match kept {
+            // The projection's, for this view of this tree: the same values.
+            Some((_, kept, props, css)) if kept == tag => (props, css),
+            _ => {
+                let (css, _skipped) = css::css_text(node.style, &self.font_names);
+                (props_for(&node), host_css(&node, css, tag))
+            }
+        };
         let handlers: Vec<&str> = kinds
             .iter()
             .filter(|e| !matches!(e, EventKind::Reachstart | EventKind::Reachend))

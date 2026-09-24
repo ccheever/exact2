@@ -80,9 +80,28 @@ impl<D: DataSource> Host<D> {
 
 /// The document of `runner`'s current tree.
 pub fn project<D: DataSource>(runner: &Runner<D>) -> Result<Document, DocumentError> {
+    walk(runner, None).map(|(document, _)| document)
+}
+
+/// [`project`], and what it computed for each view, for the first batch.
+pub(crate) fn project_keeping<D: DataSource>(
+    runner: &Runner<D>,
+) -> Result<(Document, Computed), DocumentError> {
+    walk(runner, Some(Computed::new())).map(|(document, computed)| {
+        let mut computed = computed.unwrap_or_default();
+        computed.reverse();
+        (document, computed)
+    })
+}
+
+fn walk<D: DataSource>(
+    runner: &Runner<D>,
+    computed: Option<Computed>,
+) -> Result<(Document, Option<Computed>), DocumentError> {
     let kernel = runner.kernel();
     let mut walk = Walk {
         runner,
+        computed,
         fonts: font_names(runner.plan()),
         handlers: runner.handlers(),
         routes: SortedMap::new(),
@@ -101,12 +120,13 @@ pub fn project<D: DataSource>(runner: &Runner<D>) -> Result<Document, DocumentEr
             .and_then(|n| n.props.str(id))
             .map(str::to_owned)
     };
-    Ok(Document {
+    let document = Document {
         root: walk.out,
         viewport_fit: prop(PropId::ViewportFit),
         interactive_widget: prop(PropId::InteractiveWidget),
         head: runner.head(),
-    })
+    };
+    Ok((document, walk.computed))
 }
 
 /// What the router's projection (`navigation.project`) sets on a route.
@@ -116,8 +136,16 @@ struct Route {
     inert: bool,
 }
 
+/// What the projection computed for each view's element: its tag, props and
+/// CSS (before the document's own additions), which the host's first batch
+/// would compute again for the same views of the same tree (`Host::create`).
+/// Last visited first: the first batch creates views in the order the
+/// projection visits them, and takes each from the end.
+pub(crate) type Computed = Vec<(ViewId, &'static str, SortedMap<String, String>, String)>;
+
 struct Walk<'r, D: DataSource> {
     runner: &'r Runner<D>,
+    computed: Option<Computed>,
     fonts: Vec<String>,
     handlers: SortedMap<ViewId, Vec<EventKind>>,
     routes: SortedMap<ViewId, Route>,
@@ -150,6 +178,7 @@ impl<D: DataSource> Walk<'_, D> {
         let props = props_for(&node);
         let (text, _) = css::css_text(node.style, &self.fonts);
         let mut style = host_css(&node, text, tag);
+        let kept = self.computed.is_some().then(|| style.clone());
         // `glue.js` create: a canvas is a `div` holding the surface element.
         let element = if tag == "canvas" { "div" } else { tag };
         let children = node.children();
@@ -209,6 +238,9 @@ impl<D: DataSource> Walk<'_, D> {
                 }
                 _ => attrs.push((name.clone(), Some(value.clone()))),
             }
+        }
+        if let (Some(computed), Some(css)) = (self.computed.as_mut(), kept) {
+            computed.push((id, tag, props, css));
         }
         // `navigation.project`: routes other than the selected one (and the
         // one under a selected modal) are hidden; every route but the

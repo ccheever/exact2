@@ -525,7 +525,7 @@ fn a_page_whose_data_answered_later_is_adopted_with_what_is_pending() {
     // The checkpoint and its digest, as the glue hands them to the runtime.
     let open = "<script type=\"application/vnd.exact.checkpoint\" data-digest=\"";
     let at = body.find(open).expect("a checkpoint") + open.len();
-    let digest = &body[at..at + 64];
+    let digest = body[at..].split('"').next().unwrap();
     let (_, rest) = body[at..].split_once('>').unwrap();
     let (checkpoint, _) = rest.split_once("</script>").unwrap();
     // The runtime boots from it and adopts the document: its first tree,

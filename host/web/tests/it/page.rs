@@ -152,7 +152,7 @@ fn a_runtime_adopts_the_document_it_would_have_rendered() {
     let rendered = boot("/");
     let page = checkpoint(rendered.runner(), "/");
     let root = rendered.document().unwrap().root;
-    let written = digest(rendered.runner().plan(), "/", &page, &root);
+    let written = digest(&rendered.runner().plan().encode(), "/", &page, &root);
     let open = |launch: &str, page: &str, digest: &str| {
         let (host, batch) = Host::boot_checkpoint(
             &plan,
@@ -191,7 +191,12 @@ fn a_runtime_adopts_the_document_it_would_have_rendered() {
         .any(|l| l.contains("document: rendered at /, not /elsewhere?utm=x; rendering fresh")));
     assert!(!adopted(&open("/", &page, &"0".repeat(64)).1));
     let other = checkpoint(rendered.runner(), "/other");
-    let digest_other = digest(rendered.runner().plan(), "/other", &other, "<p>not it</p>");
+    let digest_other = digest(
+        &rendered.runner().plan().encode(),
+        "/other",
+        &other,
+        "<p>not it</p>",
+    );
     assert!(!adopted(&open("/other", &other, &digest_other).1));
     // A checkpoint that doesn't read boots as a page without one.
     let (host, batch) = open("/", "{not json", &written);

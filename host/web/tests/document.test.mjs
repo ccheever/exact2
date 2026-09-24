@@ -204,7 +204,7 @@ check(`a document whose digest doesn't match is replaced once, and the journal s
     expect((await live("exact.agent({op:'state'})")).adopted).toBe(false);
     expect((await live(SERVED_VIEWS)).served).toBe(0);
     expect((await live("exact.agent({op:'logs'})")).lines.join('\n')).toContain('document: not adopted: the same');
-  }, { tamper: (page) => page.replace(/data-digest="[0-9a-f]{64}"/, `data-digest="${'0'.repeat(64)}"`) });
+  }, { tamper: (page) => page.replace(/data-digest="[0-9a-f]{32}"/, `data-digest="${'0'.repeat(32)}"`) });
 }, 180000);
 
 check(`a press on the document before the runtime starts is replayed once${unavailable ? ` — ${unavailable}` : ''}`, async () => {
