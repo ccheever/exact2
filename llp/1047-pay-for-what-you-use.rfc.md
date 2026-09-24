@@ -659,3 +659,22 @@ stands in:
 
 RealWorld's boot-path JavaScript falls from 29,342 to 18,596 bytes brotli
 (`navigation.js` 14,363 → 3,664), and it never fetches the pieces (12.4 KB).
+On the bench at main's `e2ee550a` (nine runs, load 38 → 21), a tap at `load`
+sees the feed 39 ms sooner, 2,593 → 2,554 ms, and `load` comes 79 ms sooner.
+
+**The runtime with the document, 2026-09-24.** An idle page's document keeps
+the shell's wasm and `navigation.js` preloads in its head, standing in for a
+CDN's 103 Early Hints (LLP 1048.000 D3, as built). At `53f954fc` (app.wasm
+315,820 bytes brotli; nine runs, load 24 → 16) the feed shows at 2,350 ms, not
+2,430, with first paint 239 → 241 ms and content 225 → 222 (15 runs). A fetch
+priority for the wasm changed nothing: this bench's throttling shares
+bandwidth evenly whatever the priority.
+
+| At `53f954fc`, ms | Tap at load → feed | Feed shown | `load` | 3 s read → feed |
+|---|---|---|---|---|
+| exact2, as is | 1,461 | 2,430 | 958 | 231 |
+| exact2, head preloads | 1,584 | 2,350 | 756 | 230 |
+| React | 214 | 1,390 | 884 | 198 |
+
+A tap at `load` reads longer as `load` comes sooner: the feed shown is the
+number that moves with the user.
