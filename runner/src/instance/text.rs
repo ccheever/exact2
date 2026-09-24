@@ -34,7 +34,12 @@ impl Engine<'_> {
                     unreachable!()
                 };
                 rows.iter()
-                    .map(|row| (window.index(&key_text(&row.key).unwrap()).unwrap(), row))
+                    .map(|row| {
+                        (
+                            window.index(&ident(&row.key, row.dup).unwrap()).unwrap(),
+                            row,
+                        )
+                    })
                     .collect()
             }
             Engine::Collection(c) => c.mounted_rows().collect(),
@@ -142,9 +147,9 @@ fn collect(
                 Active::Rows { rows } => {
                     if let Some(window) = &r.window {
                         for i in 0..window.len() {
-                            let current = rows
-                                .iter()
-                                .find(|row| window.index(&key_text(&row.key).unwrap()) == Some(i));
+                            let current = rows.iter().find(|row| {
+                                window.index(&ident(&row.key, row.dup).unwrap()) == Some(i)
+                            });
                             let temporary;
                             let row = if let Some(row) = current {
                                 row

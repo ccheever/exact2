@@ -361,3 +361,77 @@ fn row_height_hints_select_exactly_one_window_owner() {
         }
     }
 }
+
+#[test]
+fn window_feedback_and_duplicate_updates_leave_the_session_usable() {
+    use exact_kernel::Kernel;
+    use exact_plan::Value;
+    use exact_runner::{DataError, DataSource, ListViewport, Runner};
+    struct Data;
+    impl DataSource for Data {
+        fn query(&mut self, _: &str, args: &[Value]) -> Result<Value, DataError> {
+            let values = match args {
+                [Value::Number(1.0)] => [1.0, 1.0],
+                [Value::Number(2.0)] => [2.0, 3.0],
+                _ => [1.0, 2.0],
+            };
+            Ok(Value::list(values.into_iter().map(Value::Number).collect()))
+        }
+    }
+    let source = "component App\n  state version = 0\n  resource rows = rows(version) as shape list<number>\n  action change(next: number) writes version\n    version = next\n  view\n    list estimated-item-height=20 height=100 testId=\"list\"\n      each x in rows key=x\n        text `${x}`\n";
+    let boot = |source: &str| {
+        Runner::boot(
+            contract::compile(source).unwrap(),
+            Data,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+    };
+    assert!(boot(&source.replace("version = 0", "version = 1")).is_err());
+    let mut runner = boot(source).unwrap();
+    let view = runner
+        .kernel()
+        .node_by_key(runner.kernel().find_by_test_id("list")[0])
+        .unwrap()
+        .id;
+    let geometry = ListViewport {
+        height: 100.0,
+        width: 200.0,
+        ..Default::default()
+    };
+    runner.list_viewport(view, geometry).unwrap();
+    let wrappers: Vec<_> = runner
+        .kernel()
+        .node(runner.kernel().node(view).unwrap().children()[0])
+        .unwrap()
+        .children()
+        .into_iter()
+        .map(|id| (id, f32::MAX as f64))
+        .collect();
+    assert_eq!(wrappers.len(), 2);
+    let before = exact_runner::agent::tree(&runner);
+    let status = runner.list_status(view);
+    assert!(runner
+        .list_viewport(
+            view,
+            ListViewport {
+                top: 10.0,
+                origin: 2.0,
+                rows: &wrappers,
+                ..geometry
+            }
+        )
+        .is_err());
+    assert_eq!(before, exact_runner::agent::tree(&runner));
+    assert_eq!(status, runner.list_status(view));
+    runner.list_viewport(view, geometry).unwrap();
+    runner.act("change", vec![Value::Number(1.0)]).unwrap();
+    assert_eq!(runner.list_index(view, "n:1"), Some(0));
+    assert_eq!(runner.list_index(view, "d1:n:1"), Some(1));
+    assert_eq!(
+        runner.list_text(view, None).unwrap().matches('1').count(),
+        2
+    );
+    runner.act("change", vec![Value::Number(2.0)]).unwrap();
+}

@@ -1,6 +1,7 @@
 # A legal windowed-list measurement is applied, then the runner is poisoned
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Preflight final measured extent before changing window geometry or heights, returning InvalidCollectionFeedback without poisoning. Regression rejects two f32::MAX measurements, preserves tree and status, and accepts later geometry and action updates.
 **Systems:** Runner, Lists
 **Severity:** P2
 **Author:** Grok 4.7 for Charlie Cheever

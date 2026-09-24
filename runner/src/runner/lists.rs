@@ -166,7 +166,9 @@ impl<D: DataSource> Runner<D> {
                 (ops, surfaces)
             }
             Err(e) => {
-                self.poison();
+                if settled || e != crate::instance::InstanceError::InvalidCollectionFeedback {
+                    self.poison();
+                }
                 return Err(e.into());
             }
         };

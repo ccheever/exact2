@@ -18,6 +18,7 @@ pub(super) struct ListWindow {
     origin: f64,
     items: Rc<Vec<Value>>,
     keys: Vec<Value>,
+    duplicates: Vec<u32>,
     positions: BTreeMap<String, usize>,
     pins: Vec<String>,
     rendered: Vec<usize>,
@@ -158,6 +159,7 @@ impl NodeInst {
                 origin: 0.0,
                 items: Rc::new(Vec::new()),
                 keys: Vec::new(),
+                duplicates: Vec::new(),
                 positions: BTreeMap::new(),
                 pins: Vec::new(),
                 rendered: Vec::new(),
@@ -194,14 +196,58 @@ impl ListWindow {
         index: usize,
         frames: &[Frame],
     ) -> Result<Row, InstanceError> {
-        Row::create(
+        let mut row = Row::create(
             u,
             region,
             self.keys[index].clone(),
             self.items[index].clone(),
             frames,
-        )
+        )?;
+        row.dup = self.duplicates[index];
+        Ok(row)
     }
+    fn validate_measurement(
+        &self,
+        active: &Active,
+        geometry: ListViewport<'_>,
+    ) -> Result<(), InstanceError> {
+        if !self.measured {
+            return Ok(());
+        }
+        let reset = self.width != Some(geometry.width);
+        let mut extent = if reset {
+            self.height * self.items.len() as f64
+        } else {
+            self.heights.offset(self.items.len())
+        };
+        let mut measured = BTreeMap::new();
+        if let Active::Rows { rows } = active {
+            let indices: exact_kernel::id::IdMap<_, _> = rows
+                .iter()
+                .zip(&self.placed)
+                .filter(|(_, (index, ..))| *index != usize::MAX)
+                .filter_map(|(row, (index, ..))| Some((row.wrapper?, *index)))
+                .collect();
+            for (wrapper, height) in geometry.rows {
+                if let Some(index) = indices.get(wrapper) {
+                    measured.insert(*index, *height);
+                }
+            }
+        }
+        for (index, height) in measured {
+            extent += height
+                - if reset {
+                    self.height
+                } else {
+                    self.heights.value(index)
+                };
+        }
+        if !extent.is_finite() || extent > f32::MAX as f64 {
+            return Err(InstanceError::InvalidCollectionFeedback);
+        }
+        Ok(())
+    }
+
     fn measure(
         &mut self,
         u: &mut Update<'_>,
@@ -274,6 +320,8 @@ impl ListWindow {
     ) -> Result<(), InstanceError> {
         let mut keys = Vec::with_capacity(items.len());
         let mut positions = BTreeMap::new();
+        let mut seen = BTreeMap::<String, u32>::new();
+        let mut duplicates = Vec::with_capacity(items.len());
         for (index, item) in items.iter().enumerate() {
             let inner = with_frame(
                 frames,
@@ -284,9 +332,18 @@ impl ListWindow {
             );
             let key = u.eval(u.env.plan.region(region).key, &inner)?;
             let text = key_text(&key).ok_or(InstanceError::KeyKind { region })?;
-            if positions.insert(text, index).is_some() {
+            let count = seen.entry(text.clone()).or_default();
+            let dup = *count;
+            *count += 1;
+            if dup > 0 && self.extent < 0.0 {
                 return Err(InstanceError::DuplicateKey { region });
             }
+            let identity = disambiguate(text, dup);
+            if dup > 0 {
+                u.notes.push(repeated(region, &key, &identity));
+            }
+            positions.insert(identity, index);
+            duplicates.push(dup);
             keys.push(key);
         }
         // Keep the reading key at its pixel offset. Deleted anchors fall
@@ -299,7 +356,7 @@ impl ListWindow {
                 .enumerate()
                 .map(|(i, key)| {
                     self.positions
-                        .get(&key_text(key).unwrap())
+                        .get(&ident(key, duplicates[i]).unwrap())
                         .filter(|old| crate::compare::equivalent(&self.items[**old], &items[i]))
                         .map_or(self.height, |old| self.heights.value(*old))
                 })
@@ -319,7 +376,7 @@ impl ListWindow {
                 .chain((0..anchor.min(self.keys.len())).rev())
                 .find_map(|i| {
                     positions
-                        .get(&key_text(&self.keys[i]).unwrap())
+                        .get(&ident(&self.keys[i], self.duplicates[i]).unwrap())
                         .map(|j| (*j, i))
                 });
             self.top = next.map_or(0.0, |(j, i)| {
@@ -335,6 +392,7 @@ impl ListWindow {
         self.heights = heights;
         self.items = items;
         self.keys = keys;
+        self.duplicates = duplicates;
         self.positions = positions;
         self.pins.retain(|key| self.positions.contains_key(key));
         if self.top != old_top {
@@ -352,7 +410,7 @@ impl ListWindow {
         // row whose key is gone has no number and `render` retires it.
         if let Active::Rows { rows } = &*active {
             for (row, placed) in rows.iter().zip(self.placed.iter_mut()) {
-                placed.0 = key_text(&row.key)
+                placed.0 = ident(&row.key, row.dup)
                     .and_then(|key| self.positions.get(&key).copied())
                     .unwrap_or(usize::MAX);
             }
@@ -481,13 +539,7 @@ impl ListWindow {
                 row
             } else {
                 self.created += 1;
-                Row::create(
-                    u,
-                    region,
-                    self.keys[*index].clone(),
-                    self.items[*index].clone(),
-                    frames,
-                )?
+                self.row(u, region, *index, frames)?
             };
             let wrapper = match row.wrapper {
                 Some(id) => id,
@@ -546,7 +598,7 @@ impl ListWindow {
             u.ops.push(Op::SetProp {
                 id: wrapper,
                 prop: PropId::ListItemKey,
-                value: PropValue::Str(key_text(&row.key).unwrap()),
+                value: PropValue::Str(ident(&row.key, row.dup).unwrap()),
             });
             u.ops.push(Op::SetProp {
                 id: wrapper,
@@ -723,6 +775,7 @@ impl Tree {
                             && window.port == geometry.height
                             && window.origin == geometry.origin
                             && (!window.measured || window.width == Some(geometry.width));
+                        window.validate_measurement(&region.active, geometry)?;
                         let old_pins = window.pins.clone();
                         window.top = (geometry.top - geometry.origin).max(0.0);
                         window.velocity = geometry.velocity;
@@ -738,7 +791,7 @@ impl Tree {
                                             || super::find::contains(&row.roots, pin))
                                 };
                                 if geometry.pins.iter().copied().any(contains) {
-                                    window.pins.push(key_text(&row.key).unwrap());
+                                    window.pins.push(ident(&row.key, row.dup).unwrap());
                                 }
                             }
                         }

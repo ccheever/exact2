@@ -1,6 +1,7 @@
 # A duplicate key in a live windowed list poisons the session
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Live windowed lists disambiguate and journal duplicate keys using eager-list identities across row reuse, anchors, pins and logical text; duplicate-key bootstrap still returns a typed error. Regression confirms a subsequent update remains usable.
 **Systems:** Runner, Lists
 **Severity:** P1
 **Author:** Grok 4.7 for Charlie Cheever
