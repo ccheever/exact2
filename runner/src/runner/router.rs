@@ -6,7 +6,8 @@
 //! Entry { id: number, name: string, url: string, tab: string, params: Params },
 //! Params { one string field per distinct :name, in first-declaration order }.
 //! The header slot's type leads to every shape; global type-row order is immaterial.
-//! Types and the route table are checked once at boot. No host interprets slots.
+//! The compiler checks the route table; its types are checked once at boot.
+//! No host interprets slots.
 
 use super::{Carried, DataSource, Runner, RunnerError};
 use exact_kernel::SortedSet;
@@ -106,7 +107,8 @@ impl RouterContext {
                 })
                 .collect(),
         };
-        table.check().map_err(|e| invalid(e.to_string()))?;
+        // The compiler checked this table (`exact_route::Table::check`, in
+        // `contract/types`) before it wrote the plan, as it checked the rest.
         let router_ty = plan.slot(slot).ty;
         let fields = shape(plan, router_ty, "Router", &["tab", "tabs", "next"])?;
         primitive(plan, fields[0], TypeKind::String)?;
@@ -425,7 +427,7 @@ impl Routing for RouterContext {
     }
 
     fn initial(&self, carried: Option<&Router>, launch: &str) -> Result<Value, RunnerError> {
-        let r =
+        let (r, was_carried) =
             match carried {
                 Some(old)
                     if old
@@ -442,14 +444,31 @@ impl Routing for RouterContext {
                     for e in kept.tabs.iter_mut().flat_map(|t| &mut t.stack) {
                         e.params = self.table.matches(&e.url).expect("checked").params;
                     }
-                    kept
+                    (kept, true)
                 }
-                Some(old) => self.launch(exact_route::top(old).map_or(launch, |e| &e.url))?,
-                None => self.launch(launch)?,
+                Some(old) => (
+                    self.launch(exact_route::top(old).map_or(launch, |e| &e.url))?,
+                    false,
+                ),
+                None => (self.launch(launch)?, false),
             };
         let value = self.value(&r);
-        self.router(&value)
-            .ok_or_else(|| invalid("invalid router value at boot"))?;
+        // Launched from the table, it is valid by construction; carried across
+        // a reload, it is checked against the table it meets.
+        let router = if was_carried {
+            self.router(&value)
+                .ok_or_else(|| invalid("invalid router value at boot"))?
+        } else {
+            r
+        };
+        // The view reads it at once, and the first commit publishes it: both
+        // are served from what was just built.
+        *self.reads.borrow_mut() = Some(Reads {
+            value: value.clone(),
+            router,
+            stack: None,
+            top: None,
+        });
         Ok(value)
     }
 
@@ -467,9 +486,19 @@ impl Routing for RouterContext {
         {
             return Ok(None);
         }
-        let r = self
-            .router(value)
-            .ok_or_else(|| invalid("invalid router value"))?;
+        // A value the reads hold was validated (or built valid) when read.
+        let read = self
+            .reads
+            .borrow()
+            .as_ref()
+            .filter(|reads| crate::compare::same(&reads.value, value))
+            .map(|reads| reads.router.clone());
+        let r = match read {
+            Some(r) => r,
+            None => self
+                .router(value)
+                .ok_or_else(|| invalid("invalid router value"))?,
+        };
         let top = exact_route::top(&r).ok_or_else(|| invalid("router has no top"))?;
         let ids: SortedSet<_> = r.tabs.iter().flat_map(|t| &t.stack).map(|e| e.id).collect();
         let removed = self
