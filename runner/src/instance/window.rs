@@ -286,13 +286,16 @@ impl ListWindow {
                 "list extent exceeds layout coordinates",
             ));
         }
-        let top = (self.heights.offset(anchor)
-            + if anchor < self.items.len() {
-                inset.min(self.heights.value(anchor))
-            } else {
-                0.0
-            })
-        .clamp(0.0, (extent - self.port).max(0.0));
+        let top = clamp(
+            self.heights.offset(anchor)
+                + if anchor < self.items.len() {
+                    inset.min(self.heights.value(anchor))
+                } else {
+                    0.0
+                },
+            0.0,
+            (extent - self.port).max(0.0),
+        );
         if top != self.top {
             self.top = top;
             u.ops.push(Op::SetProp {
@@ -388,7 +391,7 @@ impl ListWindow {
                     }
             });
         }
-        self.top = self.top.clamp(0.0, (extent - self.port).max(0.0));
+        self.top = clamp(self.top, 0.0, (extent - self.port).max(0.0));
         self.heights = heights;
         self.items = items;
         self.keys = keys;
@@ -435,9 +438,11 @@ impl ListWindow {
         if let Some(top) = self.requested_top.take() {
             let extent = self.heights.offset(self.items.len());
             let old_top = self.top;
-            self.top = (top - self.origin)
-                .max(0.0)
-                .clamp(0.0, (extent - self.port).max(0.0));
+            self.top = clamp(
+                (top - self.origin).max(0.0),
+                0.0,
+                (extent - self.port).max(0.0),
+            );
             if self.top != old_top {
                 u.ops.push(Op::SetProp {
                     id: self.owner,
@@ -464,7 +469,7 @@ impl ListWindow {
         let count = self.items.len();
         // Spend the same two viewports of overscan, shifted toward travel.
         // Keep a quarter viewport behind for a reversal; predict 100 ms ahead.
-        let bias = (self.velocity * 0.1).clamp(-0.75 * self.port, 0.75 * self.port);
+        let bias = clamp(self.velocity * 0.1, -0.75 * self.port, 0.75 * self.port);
         let start = self.heights.locate((self.top - self.port + bias).max(0.0));
         let bottom = (self.top + 2.0 * self.port + bias).max(0.0);
         let last = self.heights.locate(bottom);
@@ -843,4 +848,20 @@ impl Tree {
         u.ops = live;
         Ok(())
     }
+}
+
+/// `x.clamp(lo, hi)`: the same value for every `x`, NaN included. std's
+/// assertion message prints both bounds with `{:?}`, which links core's
+/// float printer into every app (LLP 1047 §6); here the assertion is a
+/// debug one, so bounds out of order (or NaN) panic in tests and give `hi`
+/// (or `x`) in a release build, where std would panic.
+fn clamp(mut x: f64, lo: f64, hi: f64) -> f64 {
+    debug_assert!(lo <= hi);
+    if x < lo {
+        x = lo;
+    }
+    if x > hi {
+        x = hi;
+    }
+    x
 }

@@ -254,8 +254,8 @@ impl LineHeight {
     pub fn css(self) -> String {
         match self {
             Self::Normal => "normal".into(),
-            Self::Number(n) => n.to_string(),
-            Self::Length(n) => format!("{n}px"),
+            Self::Number(n) => exact_num::Shortest32(n).to_string(),
+            Self::Length(n) => format!("{}px", exact_num::Shortest32(n)),
         }
     }
 }

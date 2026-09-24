@@ -212,7 +212,7 @@ impl SurfaceUpdate {
             use std::fmt::Write;
             match value {
                 Value::Number(n) if n.is_finite() => {
-                    let _ = write!(out, "{n}");
+                    let _ = write!(out, "{}", exact_num::Shortest(*n));
                 }
                 Value::Number(_) | Value::Unit | Value::Option(None) => out.push_str("null"),
                 Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
@@ -1097,9 +1097,10 @@ fn repeated(region: RegionsId, key: &Value, ident: &str) -> String {
 fn key_text(v: &Value) -> Option<String> {
     match v {
         Value::Str(s) => Some(format!("s:{s}")),
-        Value::Number(n) if n.is_finite() => {
-            Some(format!("n:{}", if *n == 0.0 { 0.0 } else { *n }))
-        }
+        Value::Number(n) if n.is_finite() => Some(format!(
+            "n:{}",
+            exact_num::Shortest(if *n == 0.0 { 0.0 } else { *n })
+        )),
         Value::Bool(b) => Some(format!("b:{b}")),
         _ => None,
     }

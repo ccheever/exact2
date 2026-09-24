@@ -1,4 +1,4 @@
-//! Number text as std reads it, without std's tables.
+//! Number text as std reads and writes it, without std's tables.
 //!
 //! @ref LLP 1047 §6 (the core diet)
 //!
@@ -10,6 +10,11 @@
 //! std's bits for every input.
 //! The grammar, the exponent's saturation and the error messages are std's
 //! too. The tests hold it to std, bit for bit.
+//!
+//! Writing is the same trade: core's float printer (Grisu with Dragon
+//! behind it, about 23 KB of wasm) prints one text per value and format, so
+//! [`Shortest`], [`Shortest32`], [`ShortestDebug`], [`Exponent`] and
+//! [`Fixed`] print exactly core's `{}`, `{:?}`, `{:e}` and `{:.N}`.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
@@ -17,8 +22,13 @@
 use std::cmp::Ordering;
 use std::fmt;
 
+mod text;
+pub use text::{Exponent, Fixed, Shortest, Shortest32, ShortestDebug};
+
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod text_tests;
 
 /// Why text is not a float: std's `core::num::ParseFloatError`, with the same
 /// `Display` and `Debug` text.
@@ -328,6 +338,75 @@ fn exact(mut num: Big, e10: i64, truncated: bool, f: &Format) -> u64 {
 struct Big(Vec<u32>);
 
 impl Big {
+    fn from_u64(n: u64) -> Big {
+        let mut big = Big(vec![n as u32, (n >> 32) as u32]);
+        big.trim();
+        big
+    }
+
+    fn add(&mut self, other: &Big) {
+        let mut carry = 0u64;
+        for i in 0..self.0.len().max(other.0.len()) {
+            if i == self.0.len() {
+                self.0.push(0);
+            }
+            let t = u64::from(self.0[i]) + u64::from(other.0.get(i).copied().unwrap_or(0)) + carry;
+            self.0[i] = t as u32;
+            carry = t >> 32;
+        }
+        if carry != 0 {
+            self.0.push(carry as u32);
+        }
+    }
+
+    fn shr(&mut self, n: u32) {
+        let (limbs, bits) = ((n / 32) as usize, n % 32);
+        if limbs >= self.0.len() {
+            *self = Big(vec![0]);
+            return;
+        }
+        self.0.drain(..limbs);
+        if bits != 0 {
+            let mut carry = 0;
+            for x in self.0.iter_mut().rev() {
+                let next = *x << (32 - bits);
+                *x = (*x >> bits) | carry;
+                carry = next;
+            }
+        }
+        self.trim();
+    }
+
+    /// Decimal digits, most significant first.
+    fn to_decimal(&self) -> String {
+        let mut limbs = self.0.clone();
+        let mut chunks = Vec::new();
+        while limbs.len() > 1 || limbs[0] != 0 {
+            let mut rem = 0u64;
+            for x in limbs.iter_mut().rev() {
+                let t = (rem << 32) | u64::from(*x);
+                *x = (t / 1_000_000_000) as u32;
+                rem = t % 1_000_000_000;
+            }
+            chunks.push(rem as u32);
+            while limbs.len() > 1 && limbs[limbs.len() - 1] == 0 {
+                limbs.pop();
+            }
+        }
+        let mut out = String::new();
+        for (i, chunk) in chunks.iter().rev().enumerate() {
+            let text = chunk.to_string();
+            if i > 0 {
+                out.extend(std::iter::repeat_n('0', 9 - text.len()));
+            }
+            out.push_str(&text);
+        }
+        if out.is_empty() {
+            out.push('0');
+        }
+        out
+    }
+
     fn mul_add(&mut self, m: u32, a: u32) {
         let mut carry = u64::from(a);
         for x in &mut self.0 {

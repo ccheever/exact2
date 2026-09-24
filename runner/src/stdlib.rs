@@ -58,7 +58,7 @@ pub fn call(
             Value::str(&if miles < 0.1 {
                 "nearby".to_string()
             } else {
-                format!("{:.1} mi", (miles * 10.0).round() / 10.0)
+                format!("{} mi", exact_num::Fixed((miles * 10.0).round() / 10.0, 1))
             })
         }
         Stdlib::FormatWalk => {
@@ -93,12 +93,12 @@ pub fn format_number(n: f64) -> String {
     if n == 0.0 {
         "0".into()
     } else if n.is_finite() && (n.abs() >= 1e21 || n.abs() < 1e-6) {
-        let scientific = format!("{n:e}");
+        let scientific = exact_num::Exponent(n).to_string();
         let (mantissa, exponent) = scientific.split_once('e').expect("scientific notation");
         let exponent: i32 = exponent.parse().expect("decimal exponent");
         format!("{mantissa}e{exponent:+}")
     } else {
-        format!("{n}")
+        exact_num::Shortest(n).to_string()
     }
 }
 

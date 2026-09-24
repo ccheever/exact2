@@ -17,6 +17,7 @@ use exact_kernel::{Color, Dimension, Display, Overflow, RowValue, StyleId, Style
 use exact_motion::{
     Easing, StepPosition, TimingFunction, Transition, TransitionProperty, Transitions,
 };
+use exact_num::Shortest32;
 use std::fmt::Write as _;
 
 /// Rows this host knows it does not lower (and why), so an author sees a
@@ -110,6 +111,7 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                             reason: "legacy line-clamp requires a non-scrolling block",
                         });
                     } else {
+                        let n = exact_num::Shortest(*n);
                         let _ = write!(out, "display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:{n};overflow:hidden;");
                     }
                 }
@@ -363,8 +365,7 @@ pub fn num(n: f32) -> String {
     if n.fract() == 0.0 && n.abs() < 1e9 {
         format!("{}", n as i64)
     } else {
-        let s = format!("{n}");
-        s
+        Shortest32(n).to_string()
     }
 }
 

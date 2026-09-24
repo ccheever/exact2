@@ -265,7 +265,10 @@ impl Collection {
                 u,
                 row.wrapper,
                 &[
-                    ("translate", Value::str(&format!("0px {offset}px"))),
+                    (
+                        "translate",
+                        Value::str(&format!("0px {}px", exact_num::Shortest(offset))),
+                    ),
                     ("transition", Value::str("translate spring(300,30,1)")),
                 ],
             )?;

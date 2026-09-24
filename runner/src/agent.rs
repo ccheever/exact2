@@ -734,7 +734,7 @@ pub fn num(n: f64) -> impl std::fmt::Display {
                 if n == n.trunc() && n.abs() < 1e15 {
                     write!(f, "{}", n as i64)
                 } else {
-                    write!(f, "{n}")
+                    write!(f, "{}", exact_num::Shortest(n))
                 }
             } else {
                 f.write_str("null")

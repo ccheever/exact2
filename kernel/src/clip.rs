@@ -80,7 +80,7 @@ impl ClipPath {
                 let mut text = command.to_string();
                 for value in values {
                     text.push(' ');
-                    text.push_str(&value.to_string());
+                    text.push_str(&exact_num::Shortest32(*value).to_string());
                 }
                 text
             })

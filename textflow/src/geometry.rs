@@ -576,7 +576,7 @@ fn json_number(n: f64) -> impl std::fmt::Display {
             } else if n == n.trunc() && n.abs() < 1e15 {
                 write!(f, "{}", n as i64)
             } else {
-                write!(f, "{n}")
+                write!(f, "{}", exact_num::Shortest(n))
             }
         }
     }

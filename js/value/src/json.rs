@@ -310,7 +310,7 @@ impl Number {
             Number::Float(n) => {
                 use std::fmt::Write as _;
                 let start = out.len();
-                let _ = write!(out, "{n}");
+                let _ = write!(out, "{}", exact_num::Shortest(n));
                 // A float stays a float read back, as serde_json writes one.
                 if !out[start..].contains(['.', 'e']) {
                     out.push_str(".0");

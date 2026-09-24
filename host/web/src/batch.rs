@@ -1,6 +1,7 @@
 //! The batch: what the glue applies, as JSON built by hand (no serde in the
 //! wasm; the shape is six op kinds and a handful of strings).
 
+use exact_num::Shortest;
 use std::fmt::Write as _;
 
 /// A JSON writer for one batch.
@@ -286,6 +287,7 @@ impl Batch {
         let mut s = String::new();
         let _ = write!(s, "{{\"op\":\"animate\",\"id\":{id},\"property\":");
         quote(property, &mut s);
+        let (delay_ms, duration_ms) = (Shortest(delay_ms), Shortest(duration_ms));
         let _ = write!(
             s,
             ",\"delay\":{delay_ms},\"duration\":{duration_ms},\"values\":["
@@ -294,6 +296,7 @@ impl Batch {
             if i > 0 {
                 s.push(',');
             }
+            let (x, y) = (Shortest(*x), Shortest(*y));
             if pair {
                 let _ = write!(s, "[{x},{y}]");
             } else {
@@ -488,7 +491,8 @@ impl Batch {
     /// owns time can attribute the transitions they start to that instant
     /// (LLP 1012: one seek and sixty give the same bits).
     pub fn at(&mut self, ms: f64) {
-        self.ops.push(format!("{{\"op\":\"at\",\"ms\":{ms}}}"));
+        self.ops
+            .push(format!("{{\"op\":\"at\",\"ms\":{}}}", Shortest(ms)));
     }
 
     /// `{"op":"roots","ids":[…]}`.
@@ -515,11 +519,12 @@ impl Batch {
         s.push(']');
         let timers = timer_due_ms.is_some();
         if let Some(due) = timer_due_ms {
-            let _ = write!(s, ",\"timer_due_ms\":{due}");
+            let _ = write!(s, ",\"timer_due_ms\":{}", Shortest(due));
         }
         if self.collection_accepted {
             s.push_str(",\"accepted\":true");
         }
+        let clock_ms = Shortest(clock_ms);
         let _ = write!(s, ",\"timers\":{timers},\"clock\":{clock_ms},\"error\":");
         match error {
             Some(e) => quote(e, &mut s),
@@ -535,7 +540,7 @@ pub fn value_json(v: &exact_plan::Value, out: &mut String) {
     use exact_plan::Value;
     match v {
         Value::Number(n) if n.is_finite() => {
-            let _ = write!(out, "{n}");
+            let _ = write!(out, "{}", Shortest(*n));
         }
         Value::Number(_) | Value::Unit | Value::Option(None) => out.push_str("null"),
         Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),

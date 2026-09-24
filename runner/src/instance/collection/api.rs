@@ -202,19 +202,20 @@ pub fn snapshots_json(snapshots: &[CollectionSnapshot]) -> String {
         if i > 0 {
             out.push(',');
         }
-        write!(out, "{{\"view\":{},\"revision\":\"{}\",\"scrollSequence\":\"{}\",\"count\":{},\"totalExtent\":{},\"rows\":[", c.view, c.revision, c.scroll_sequence, c.count, c.total_extent).unwrap();
+        write!(out, "{{\"view\":{},\"revision\":\"{}\",\"scrollSequence\":\"{}\",\"count\":{},\"totalExtent\":{},\"rows\":[", c.view, c.revision, c.scroll_sequence, c.count, exact_num::Shortest(c.total_extent)).unwrap();
         for (i, row) in c.rows.iter().enumerate() {
             if i > 0 {
                 out.push(',');
             }
-            write!(out, "{{\"view\":{},\"root\":{},\"index\":{},\"top\":{},\"height\":{},\"epoch\":\"{}\",\"measured\":{}}}", row.view, row.root, row.index, row.top, row.height, row.epoch, row.measured).unwrap();
+            write!(out, "{{\"view\":{},\"root\":{},\"index\":{},\"top\":{},\"height\":{},\"epoch\":\"{}\",\"measured\":{}}}", row.view, row.root, row.index, exact_num::Shortest(row.top), exact_num::Shortest(row.height), row.epoch, row.measured).unwrap();
         }
         out.push_str("],\"correction\":");
         if let Some(correction) = c.correction {
             write!(
                 out,
                 "{{\"scrollSequence\":\"{}\",\"scrollTop\":{}}}",
-                correction.scroll_sequence, correction.scroll_top
+                correction.scroll_sequence,
+                exact_num::Shortest(correction.scroll_top)
             )
             .unwrap();
         } else {

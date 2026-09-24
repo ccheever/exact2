@@ -44,8 +44,8 @@ impl Length {
     }
     fn css(self) -> String {
         match self {
-            Self::Px(n) => format!("{n}px"),
-            Self::Percent(n) => format!("{n}%"),
+            Self::Px(n) => format!("{}px", exact_num::Shortest32(n)),
+            Self::Percent(n) => format!("{}%", exact_num::Shortest32(n)),
         }
     }
 }
