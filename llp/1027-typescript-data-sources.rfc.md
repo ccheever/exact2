@@ -493,6 +493,17 @@ shows the kept answer for one frame and is corrected. No JavaScript before
 first pixel, no bend in the rule, and the shape every native app already
 uses for cached login state. `js/tests/castle.rs` drives all three.
 
+**Where Apple keeps them (2026-09-24).** "Beside the app's secrets" was
+literal on Apple: the host's store held only the names the app granted, so
+every kept write was refused (`store exact.kept.<resource> failed: denied:
+secret.keep`) and a returning user never saw the kept frame there. The
+Crew port found it (report D14). Apple now routes `exact.kept.*` to
+`ibex2`'s kv store under the scope `exact.kept`, a file per answer read in
+one listing at launch, and the app's own secrets stay in the Keychain
+(`host/apple/src/store.rs`, `Platform`). The host adds that one kv grant
+itself; the app still cannot read a kept answer. The web keeps them in
+page storage as before; Linux keeps nothing.
+
 **Storage readers (2026-09-07):** the same `resources.reader` marker covers
 filesystem and SQLite access. A storage call records an external read even when
 bake refuses it; it does not invent a secret read or key. Storage-backed resources
