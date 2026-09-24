@@ -8,7 +8,8 @@
  * `metrics.mjs --long` (every RULES budget;
  * a VIOLATION or FAILED row or a failed run counts, an OVER time does not — it
  * moves with the load). A failure that the previous commit did not have is filed with
- * `issue.mjs`, naming the commit that introduced it.
+ * `issue.mjs`, naming the commit that introduced it. A check past 2 h is
+ * killed and filed as hung; the worktree's debug target is kept under 80 GiB.
  * Logs and timings (with the load average) stay in <worktree>/target/async/.
  *
  *   bun scripts/async.mjs                 watch: check new commits every 300 s
@@ -19,7 +20,7 @@
  * --branch (default origin/main) checks another line of history; the
  * worktree is the script's own and is checked out with --force.
  */
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, openSync, closeSync, readFileSync, writeFileSync } from 'node:fs';
 import { loadavg } from 'node:os';
 import { basename, resolve } from 'node:path';
@@ -81,9 +82,37 @@ function failures(name, log, status) {
   return [...found];
 }
 
-function check(sha) {
+// A check still running past this is hung (libtest has no per-test timeout;
+// a test waiting on accept() held the lane for 15 hours): its process group
+// is killed and the tests libtest saw running over 60 s are filed by name.
+const HANG_MS = 2 * 60 * 60 * 1000;
+function run(command, args, env, fd) {
+  return new Promise((done) => {
+    const child = spawn(command, args, { cwd: WT, env, stdio: ['ignore', fd, fd], detached: true });
+    let hung = false;
+    const timer = setTimeout(() => { hung = true; try { process.kill(-child.pid, 'SIGKILL'); } catch {} }, HANG_MS);
+    child.on('error', () => { clearTimeout(timer); done({ status: 127, hung }); });
+    child.on('exit', (status) => { clearTimeout(timer); done({ status: status ?? 128, hung }); });
+  });
+}
+
+// The worktree's debug target grows with every commit (a full workspace
+// build with debuginfo). Keep it bounded before each check: the incremental
+// caches first, the whole debug profile if that is not enough.
+const KIB = (path) => Number(spawnSync('du', ['-sk', path], { encoding: 'utf8' }).stdout?.split('\t')[0] || 0);
+function prune() {
+  const debug = resolve(WT, 'target/debug');
+  if (!existsSync(debug) || KIB(debug) < 80 * 1024 * 1024) return;
+  spawnSync('rm', ['-rf', resolve(debug, 'incremental')]);
+  const left = KIB(debug);
+  if (left >= 110 * 1024 * 1024) spawnSync('rm', ['-rf', debug]);
+  console.log(`pruned ${WT}/target/debug to ${(KIB(debug) / 1024 / 1024).toFixed(0)} GiB (was over 80 GiB)`);
+}
+
+async function check(sha) {
   const dir = resolve(STATE_DIR, sha.slice(0, 12));
   mkdirSync(dir, { recursive: true });
+  prune();
   git(['checkout', '--detach', '--force', sha], WT);
   const env = { ...process.env };
   delete env.EXACT_UPDATE_TRUST; delete env.CARGO_TARGET_DIR;
@@ -93,11 +122,15 @@ function check(sha) {
   for (const [name, command, args] of checks(sha)) {
     const logPath = resolve(dir, `${name}.log`), fd = openSync(logPath, 'w');
     const load = loadavg()[0], start = performance.now();
-    const r = spawnSync(command, args, { cwd: WT, env, stdio: ['ignore', fd, fd] });
+    const r = await run(command, args, env, fd);
     closeSync(fd);
-    const seconds = (performance.now() - start) / 1000;
-    result.checks[name] = { command: [command, ...args].join(' '), status: r.status, seconds, load };
-    result.failures.push(...failures(name, readFileSync(logPath, 'utf8'), r.status));
+    const seconds = (performance.now() - start) / 1000, log = readFileSync(logPath, 'utf8');
+    result.checks[name] = { command: [command, ...args].join(' '), status: r.status, seconds, load, ...(r.hung ? { hung: true } : {}) };
+    result.failures.push(...failures(name, log, r.status));
+    if (r.hung) {
+      const slow = [...new Set([...log.matchAll(/^test (\S+) has been running for over 60 seconds/gm)].map(m => m[1]))];
+      result.failures.push(...(slow.length ? slow.map(t => `${name}: ${t} hung`) : [`${name}: hung past ${HANG_MS / 60000} min`]));
+    }
   }
   writeFileSync(resolve(dir, 'result.json'), JSON.stringify(result, null, 2));
   return result;
@@ -120,7 +153,7 @@ async function once(state) {
     ? git(['rev-list', '--first-parent', '--reverse', `${state.last}..${tip}`]).split('\n').filter(Boolean)
     : [tip];
   for (const sha of pending) {
-    const result = check(sha);
+    const result = await check(sha);
     // A commit outside host/apple runs no iOS tests: the last ones stand.
     if (!result.checks.ios) result.failures.push(...(state.failures ?? []).filter(f => f.startsWith('ios: ')));
     // The first commit checked has no parent result: it sets the baseline,
