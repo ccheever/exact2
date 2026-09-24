@@ -530,3 +530,34 @@ fn asynchronous_module_reply_keeps_io_available_and_ordered_results_in_order() {
     );
     assert!(core.ordered_idle());
 }
+
+#[test]
+fn grants_that_do_not_parse_are_named_in_every_refusal() {
+    let (wake, woke) = channel();
+    let core = Core::start(
+        None,
+        "net.fetch https://example.test\nsecret.keep jwtToken",
+        Box::new(move || {
+            let _ = wake.send(());
+        }),
+    );
+    for (ticket, request) in [
+        (1, Request::get("https://example.test/a")),
+        (
+            2,
+            Request::get("https://example.test/b").independent_http(4096),
+        ),
+    ] {
+        core.run(job(ticket, request), None).unwrap();
+    }
+    for (_, outcome) in collect(&core, &woke, 2) {
+        let Outcome::Failed { kind, message } = outcome else {
+            panic!("an unbound owner answered: {outcome:?}");
+        };
+        assert_eq!(kind, FailureKind::Refused);
+        assert!(
+            message.contains("did not parse") && message.contains("jwtToken"),
+            "{message}"
+        );
+    }
+}

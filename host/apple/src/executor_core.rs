@@ -347,12 +347,17 @@ fn worker(
     bindings: Option<ibex2::host::Bindings>,
     grants: String,
 ) {
+    let parsed = || ibex2::grant::GrantSet::parse(&exact_runner::io_grants(&grants));
     let bindings = if lane == 1 && bindings.is_none() {
-        ibex2::grant::GrantSet::parse(&exact_runner::io_grants(&grants))
-            .ok()
-            .map(|g| ibex2::host::Host::new().endow(g))
+        parsed().ok().map(|g| ibex2::host::Host::new().endow(g))
     } else {
         bindings
+    };
+    // Why a request is refused when this owner holds no bindings: grants
+    // that do not parse are named, never reported as absent.
+    let unbound = match (&bindings, parsed()) {
+        (None, Err(e)) => format!("the app's grants did not parse: {e}"),
+        _ => "the app declares no grants".to_string(),
     };
     loop {
         let job = {
@@ -403,8 +408,14 @@ fn worker(
             });
             match scoped {
                 Some(Err(message)) => failed(FailureKind::Refused, message),
-                Some(Ok(ref scoped)) => execute(Some(scoped), request, forced, work, &shared.abort),
-                None => execute(bindings.as_ref(), request, forced, work, &shared.abort),
+                Some(Ok(ref scoped)) => execute(Ok(scoped), request, forced, work, &shared.abort),
+                None => execute(
+                    bindings.as_ref().ok_or(unbound.as_str()),
+                    request,
+                    forced,
+                    work,
+                    &shared.abort,
+                ),
             }
         }))
         .unwrap_or_else(|_| failed(FailureKind::Aborted, "native work panicked"));
@@ -444,7 +455,7 @@ fn bounded_outcome(outcome: Outcome, limit: usize) -> Outcome {
 }
 
 fn execute(
-    bindings: Option<&ibex2::host::Bindings>,
+    bindings: Result<&ibex2::host::Bindings, &str>,
     request: Request,
     forced: bool,
     work: Option<Work>,
@@ -470,8 +481,9 @@ fn execute(
             |work| work(),
         );
     }
-    let Some(b) = bindings else {
-        return failed(FailureKind::Refused, "the app declares no grants");
+    let b = match bindings {
+        Ok(b) => b,
+        Err(unbound) => return failed(FailureKind::Refused, unbound),
     };
     let mut req = ibex2::stdlib::fetch::Request::get(&request.url);
     req.method = request.method;

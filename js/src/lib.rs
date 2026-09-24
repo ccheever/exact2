@@ -480,6 +480,10 @@ impl Module {
         if module.app_id.is_empty() {
             return Err("exact-js: the module exports no appId".into());
         }
+        // A grant a device would refuse refuses the build instead: a native
+        // host that cannot parse the grants holds none of them.
+        ibex2::grant::GrantSet::parse(&exact_runner::io_grants(&module.grants))
+            .map_err(|e| format!("exact-js: app.ts `grants`: {e}"))?;
         module.engine = Some(engine);
         Ok(module)
     }

@@ -46,8 +46,8 @@ mod layout;
 mod transform_drag;
 #[path = "transform_drag_wire.rs"]
 mod transform_drag_wire;
+use crate::store::Platform;
 use exact_kernel::id::{IdMap, IdSet};
-use ibex2::host::Secrets;
 use std::collections::{BTreeMap, BTreeSet};
 use transform_drag::TransformDrags;
 
@@ -122,9 +122,10 @@ pub struct Host<D: DataSource> {
     layout_calls: usize,
     viewport: (f32, f32),
     now_ms: f64,
-    /// Where the app's kept secrets go after a commit (LLP 1018 D6); `None`
-    /// keeps them in the runner only (a test, or no grants).
-    secrets: Option<Secrets>,
+    /// Where the app's kept secrets, and the runner's kept answers, go after
+    /// a commit (LLP 1018 D6); `None` keeps them in the runner only (a test,
+    /// or grants that do not parse).
+    secrets: Option<Platform>,
     data_activated: bool,
     /// The update store's last line this host journaled, so a sync after
     /// a check writes it once.
@@ -191,7 +192,7 @@ impl<D: DataSource> Host<D> {
         height: f32,
         carried: Option<&Carried>,
         snapshot: Vec<(String, String)>,
-        secrets: Option<Secrets>,
+        secrets: Option<Platform>,
     ) -> Result<(Host<D>, String), HostError> {
         let (mut host, batch) = Host::boot_stored_after_decode(
             plan_bytes,
@@ -225,7 +226,7 @@ impl<D: DataSource> Host<D> {
         height: f32,
         carried: Option<&Carried>,
         snapshot: Vec<(String, String)>,
-        secrets: Option<Secrets>,
+        secrets: Option<Platform>,
         compat: Option<&str>,
         delivery: Option<&'static crate::delivery::Hooks>,
         candidate_delivery: Option<exact_runner::Delivery>,
@@ -261,7 +262,7 @@ impl<D: DataSource> Host<D> {
         height: f32,
         carried: Option<&Carried>,
         snapshot: Vec<(String, String)>,
-        secrets: Option<Secrets>,
+        secrets: Option<Platform>,
         compat: Option<&str>,
         delivery: Option<&'static crate::delivery::Hooks>,
         candidate_delivery: Option<exact_runner::Delivery>,
@@ -559,11 +560,7 @@ impl<D: DataSource> Host<D> {
             let Some(secrets) = &self.secrets else {
                 continue;
             };
-            let result = match &w.value {
-                Some(v) => secrets.set(&w.name, v),
-                None => secrets.forget(&w.name),
-            };
-            if let Err(e) = result {
+            if let Err(e) = secrets.write(&w) {
                 self.runner.log(format!("store {} failed: {e}", w.name));
             }
         }
