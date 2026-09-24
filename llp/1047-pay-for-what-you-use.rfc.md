@@ -666,6 +666,16 @@ size: check `git log` for these lanes and say which items you are taking.
   - RealWorld and Caltrain use the router and pay its dynamic dispatch:
     +953 and +982 raw; +608 and +793 brotli.
 
+**D9, 2026-09-24: the byte row.** `bun scripts/metrics.mjs --long`, which
+the async lane runs per commit, builds RealWorld, the video player and
+Caltrain twice:
+- as shipped, for `app.wasm`'s raw, gzip and brotli-11 bytes;
+- with `EXACT_WEB_NAMES=1`, which makes `build.mjs` keep the name section
+  with the same flags otherwise, for their code by capability.
+
+It reports and never blocks. The first run is about 7 minutes with a cold
+names target.
+
 **Deferred: the collections seam.** It waits for the
 `llp-ship/20260923-review-followups` run to publish. That run retires the
 windowed list (`window.rs`, `heights.rs`) and rewrites

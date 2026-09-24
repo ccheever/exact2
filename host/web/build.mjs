@@ -2,6 +2,9 @@
 // Build the web app: the wasm under the `web` profile (size-tuned), `wasm-opt -Oz`
 // when binaryen is on PATH, then `dist/` = index.html + glue.js + app.wasm.
 // Usage: bun host/web/build.mjs [crate=caltrain-web]
+// EXACT_WEB_NAMES=1 keeps the wasm's function names, for metrics' byte
+// attribution (LLP 1047 D9); EXACT_WEB_LINK=all links every capability, as
+// the dev loop does (LLP 1047 D7).
 // Developer builds bake development trust; EXACT_UPDATE_TRUST=production
 // requires signing keys, and the deploy verb always selects production.
 import { spawnSync } from 'node:child_process';
@@ -32,6 +35,12 @@ if (!existsSync(dist) && existsSync(previous)) renameSync(previous, dist);
 else if (existsSync(dist) && existsSync(previous)) rmSync(previous, { recursive: true, force: true });
 const buildEnv = developmentBuildEnv();
 buildEnv.EXACT_BAKE_OUTPUT = bakeOutput(app, buildEnv);
+// `EXACT_WEB_NAMES=1` keeps the wasm's name section for attribution (LLP 1047
+// D9, metrics.mjs --long): rustc strips only DWARF, which would stop binaryen's
+// duplicate-function elimination, and wasm-opt keeps names. The code is the
+// shipped code's; the file is not for shipping.
+const keepNames = process.env.EXACT_WEB_NAMES === '1';
+if (keepNames) buildEnv.CARGO_PROFILE_WEB_STRIP = 'debuginfo';
 const buildReceipt = buildBake(app, 'web', 'wasm32-unknown-unknown', {env:buildEnv});
 const built = resolve(app.target, 'wasm32-unknown-unknown/web', crate.replace(/-/g, '_') + '.wasm');
 // Build one app into its own staging directory. Only a complete build replaces
@@ -51,7 +60,7 @@ const out = resolve(stage, 'app.wasm');
 // Bound 20 and passes to convergence ship the fewest compressed bytes
 // (2026-09-24: 3 KB less Brotli per app than 50 alone, for ~0.1% more raw).
 // The feature flags match what rustc's wasm32 target emits.
-const opt = spawnSync('wasm-opt', ['-Oz', '--one-caller-inline-max-function-size', '20', '--converge', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', '--strip-debug', '--strip-producers', '-o', out, built], { stdio: 'inherit' });
+const opt = spawnSync('wasm-opt', ['-Oz', '--one-caller-inline-max-function-size', '20', '--converge', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', keepNames ? '-g' : '--strip-debug', '--strip-producers', '-o', out, built], { stdio: 'inherit' });
 let optNote;
 if (opt.error?.code === 'ENOENT') { copyFileSync(built, out); optNote = 'wasm-opt not on PATH (brew install binaryen): shipped unoptimized'; }
 else if (opt.status !== 0) process.exit(opt.status ?? 1);
