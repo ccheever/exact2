@@ -23,7 +23,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 
 import { createHash } from 'node:crypto';
 import { prepareRustBundle } from './rust.mjs';
@@ -113,6 +113,27 @@ export const cargoReproducibilityFlags = (app, workspace = app.workspace) =>
 export const runnerOwnedSource = name => ['exactDelivery', 'exactViewport', 'exactSurface'].includes(name);
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
+
+/** Source paths inside the wasm (panic locations) name no machine: the
+ * toolchain's sources as std's own rlibs do (`/rustc/<commit>`), Cargo's
+ * home as `cargo`, and the checkout, the app and the target relatively, so
+ * the bytes that hashes and signatures cover are the same on every machine
+ * and in every checkout. Every web-profile wasm build passes the same flags,
+ * so they share one set of artifacts. Later prefixes win (rustc's rule). */
+const rustcFacts = new Map();
+export function wasmRemapFlags(app) {
+  const cwd = app?.workspace ?? ROOT;
+  const rustc = (...args) => spawnSync('rustc', args, { cwd, encoding: 'utf8' }).stdout ?? '';
+  if (!rustcFacts.has(cwd)) rustcFacts.set(cwd, { commit: /^commit-hash: (\S+)$/m.exec(rustc('-vV'))?.[1], sysroot: rustc('--print', 'sysroot').trim() });
+  const { commit, sysroot } = rustcFacts.get(cwd);
+  const pairs = [[resolve(process.env.CARGO_HOME ?? resolve(homedir(), '.cargo')), 'cargo']];
+  if (sysroot && commit) pairs.push([resolve(sysroot, 'lib/rustlib/src/rust'), `/rustc/${commit}`]);
+  pairs.push([ROOT, '']);
+  if (app && resolve(app.workspace) !== ROOT) pairs.push([resolve(app.workspace), '']);
+  if (app) pairs.push([resolve(app.target), 'target']);
+  const flags = pairs.map(([from, to]) => JSON.stringify(`--remap-path-prefix=${from}=${to}`));
+  return ['--config', `target.wasm32-unknown-unknown.rustflags=[${flags.join(',')}]`];
+}
 
 // A Bun older than package.json's pin is refused before anything builds.
 // Node, which runs these scripts for apps outside the repo, is not checked.
@@ -670,7 +691,7 @@ export function buildBake(app, platform, target, options = {}) {
   for(const {pkg,unit} of selected) {
     // The GPU bake can create the first asset directory (for a typed level).
     env.EXACT_ASSET_ROOTS=['assets','deck',...(app.manifest.game ? [] : ['gpu/shaders'])].filter(root=>(root==='assets' && app.manifest.game && (app.manifest.game.assets === true || existsSync(resolve(app.dir,'art')))) || existsSync(resolve(app.dir,root))).join(',');
-    const args=['build',...cargoReproducibilityFlags(app),'-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(kind==='linux'&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(gpuPackage(pkg)?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json-render-diagnostics'];
+    const args=['build',...cargoReproducibilityFlags(app),...(target==='wasm32-unknown-unknown'?wasmRemapFlags(app):[]),'-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(kind==='linux'&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(gpuPackage(pkg)?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json-render-diagnostics'];
     const result=buildCommand('cargo',args,app,env,'inherit');
     const output=result.stdout.split('\n').filter(Boolean).map((line)=>JSON.parse(line));messages.push(...output);roots.push({package:pkg.id,name:unit.name});
     if (gpuPackage(pkg) && platform !== 'web') {
