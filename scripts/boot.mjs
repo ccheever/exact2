@@ -13,10 +13,11 @@ import { fileURLToPath } from 'node:url';
 const ALLOWED = new Set(['host/web/glue.js', 'host/web/navigation.js']);
 // A served document may run exactly one inline script before its glue: the
 // host's capture script (LLP 1048.000 D6, 1048.001 D5; Charlie, 2026-09-23),
-// which records taps and holds no app logic. Pinned by hash and byte-capped;
+// which records taps and, once the page has painted, starts an idle page's
+// wasm download; it holds no app logic. Pinned by hash and byte-capped;
 // changing it means changing this hash, in review.
 const CAPTURE = { path: 'host/web/capture.js', maxBytes: 1024,
-  sha256: 'd707cf49a9152b8997197b6789586905c63be3fe2bac785fb06623d77c008321' };
+  sha256: '0c7a43ce7398d0361a44d2ffb0314a77471d37bf6cbdd56ed77dc95ed7b56b9e' };
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 
 // The page is deliberately small, so a fail-closed tokenizer is preferable

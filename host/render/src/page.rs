@@ -6,8 +6,11 @@ use crate::Rendered;
 /// every document's head, that records presses — a click, or Enter or Space
 /// on an element that hears `press` and isn't a native control — against
 /// their elements from first parse, until the boot glue takes them over and
-/// replays them once after adoption. It holds no app logic. The server's CSP
-/// admits it by hash; `scripts/boot.mjs` pins that hash and its size.
+/// replays them once after adoption. Once the page has painted (its first
+/// paint entry), a page that doesn't activate on interaction starts its
+/// wasm's download for the glue (`exact.runtime`). It holds no app logic. The
+/// server's CSP admits it by hash; `scripts/boot.mjs` pins that hash and its
+/// size.
 pub fn capture() -> &'static str {
     include_str!("../../web/capture.js").trim_end()
 }

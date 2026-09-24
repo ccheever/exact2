@@ -1441,8 +1441,8 @@ function loadGpuIfNeeded() {
 }
 async function main() {
   if (page) { const options = { root, views, log, early: page.early, dispatch: (id, kind = 0, value = "") => send(wasm.exact_dispatch(id, kind, value ? writeIn(value) : 0, now())) }; page = globalThis.exact.documentPage?.connect(options) ?? (await loadAfterPaint('./document-glue.js', 'documentBoot'))(options); await page.started; }
-  const url = new URL("./app.wasm", import.meta.url);
-  const { instance } = await WebAssembly.instantiateStreaming(fetch(url), { exact_js: { call: moduleCall }, exact_rust: rustImports });
+  const url = new URL("./app.wasm", import.meta.url), response = (globalThis.exact.runtime ??= fetch(url)).then(r => r.url === url.href ? r : fetch(url), () => fetch(url)); // a served document's download began at its first paint (LLP 1048.000 D6)
+  const { instance } = await WebAssembly.instantiateStreaming(response, { exact_js: { call: moduleCall }, exact_rust: rustImports });
   wasm = instance.exports;
   memory = wasm.memory;
   globalThis.exact.compat = JSON.parse(readOut(wasm.exact_compat()));

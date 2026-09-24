@@ -3,18 +3,20 @@
 // a checkpoint or a runtime that sends a `head` op.
 //
 // The document remains visible while its runtime loads and adopts it. Idle
-// pages start after load or on input; interaction pages start on a handler's
-// intent or when a device has kept sign-in state. Real links work immediately.
+// pages download their wasm from first paint (the capture script) and start
+// after load or on input; interaction pages start on a handler's intent or
+// when a device has kept sign-in state. Real links work immediately.
 // Discrete edits and actions replay once, in order, on matching controls. An
 // active IME composition keeps the document in place through compositionend.
 
 const IDLE_FALLBACK_MS = 200;
 
-// The runtime's first loads after it boots, fetched as it starts, beside its
-// wasm: each would otherwise wait for the one before it, a round trip apiece
-// (0.45 s of RealWorld's first press on a slow phone). A checkpoint whose
-// logic answered names a data module: its realm's glue and prelude, and the
-// reader of its fetches' bodies. Nothing loads before activation.
+// The runtime's first loads after it boots, fetched beside its wasm: each
+// would otherwise wait for the one before it, a round trip apiece (0.45 s of
+// RealWorld's first press on a slow phone). A checkpoint whose logic answered
+// names a data module: its realm's glue and prelude, and the reader of its
+// fetches' bodies. On an idle page they start when this evaluates, the wasm
+// being in flight from the first paint; on an interaction page, at intent.
 function preloadRuntime(checkpoint) {
   const logic = /"logic":(null|"(?:[^"\\]|\\.)*")/.exec(checkpoint?.textContent ?? "")?.[1];
   const files = ["./input-glue.js"];
@@ -98,8 +100,9 @@ function documentBoot(options) {
   for (const kind of ["pointerdown", "keydown", "focusin"]) root.addEventListener(kind, intent, true);
   for (const event of options.early?.splice(0) ?? []) record(event);
   if (!interaction) {
-    // After the glue's own wasm fetch, which it makes as this resolves.
-    started.then(() => setTimeout(() => preloadRuntime(script), 0));
+    // Beside the wasm: now, when its download began at the first paint;
+    // otherwise after the glue's own fetch, which it makes as this resolves.
+    if (globalThis.exact.runtime) preloadRuntime(script); else started.then(() => setTimeout(() => preloadRuntime(script), 0));
     const go = () => { removeEventListener("pointerdown", go, true); removeEventListener("keydown", go, true); start(); };
     addEventListener("pointerdown", go, true); addEventListener("keydown", go, true);
     const idle = () => (globalThis.requestIdleCallback ?? (f => setTimeout(f, IDLE_FALLBACK_MS)))(go);
