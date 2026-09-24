@@ -16,7 +16,7 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
     let mut paths: IdMap<u32, BTreeSet<(usize, u32)>> = IdMap::default();
     let mut has_sources = false;
     let mut detached = Vec::new();
-    for &slot in &arena.layout_dirty {
+    for slot in arena.layout_dirty.iter() {
         let mut at = slot;
         let mut path = Vec::new();
         while at != root {
@@ -43,7 +43,7 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
     // Detached nodes keep their flags, but need no repeated search. Attaching
     // them dirties the parent's topology and publishes the entire moved subtree.
     for slot in detached {
-        arena.layout_dirty.remove(&slot);
+        arena.layout_dirty.remove(slot);
     }
     // Exclusions can affect a different subtree, and old exclusions must clear.
     // Keep their existing full publication/resolution semantics.

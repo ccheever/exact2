@@ -284,7 +284,7 @@ pub struct Runner<D: DataSource> {
     delivery: crate::delivery::Delivery,
     // @ref LLP 1039 D2 — the layout size before settlement.
     viewport: crate::Viewport,
-    surface_records: std::collections::BTreeMap<String, String>,
+    surface_records: exact_kernel::SortedMap<String, String>,
     router: Option<router::RouterContext>,
     /// What happened, one line each, for the agent API's `logs`: the last
     /// [`JOURNAL_RING`] lines, and how many were dropped before them.
@@ -838,7 +838,7 @@ impl<D: DataSource> Runner<D> {
 
     /// All live listener declarations (bulk host creation), from the views
     /// the runner created — no tree walk.
-    pub fn handlers(&self) -> std::collections::BTreeMap<ViewId, Vec<EventKind>> {
+    pub fn handlers(&self) -> exact_kernel::SortedMap<ViewId, Vec<EventKind>> {
         self.ids
             .sites()
             .filter(|(view, node)| {

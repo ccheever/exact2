@@ -41,6 +41,7 @@ pub mod node;
 pub mod props;
 pub mod region;
 pub mod selector;
+pub mod sorted;
 pub mod style;
 pub mod text;
 pub mod transform;
@@ -56,6 +57,7 @@ pub use kernel::{Kernel, NodeRef, PresentedHeight};
 pub use layout::LayoutReceipt;
 pub use motion::{motion_node, MotionSync};
 pub use props::{PropList, PropValue};
+pub use sorted::{SortedMap, SortedSet};
 pub use style::{
     uses_env, Color, ColorValue, Dimension, Edge, Env, GridLine, GridPlacement, GridTrack,
     GridTracks, LineHeight, RowValue, StyleValue, Transitions, Vec2,

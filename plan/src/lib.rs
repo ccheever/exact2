@@ -301,12 +301,17 @@ impl Plan {
                     field: "mode",
                 });
             }
-            let mut names = std::collections::BTreeSet::new();
+            // A surface's argument names are few: a scan, not a tree's code.
+            let mut names: Vec<&str> = Vec::new();
             let mut positional = false;
             for id in surface.args.iter() {
                 let name = self.str(self.surface_arg(id).name);
                 positional |= name.is_empty();
-                if (!name.is_empty() && !names.insert(name)) || (positional && !names.is_empty()) {
+                let repeated = !name.is_empty() && names.contains(&name);
+                if !name.is_empty() && !repeated {
+                    names.push(name);
+                }
+                if repeated || (positional && !names.is_empty()) {
                     return Err(PlanError::BadReference {
                         table: "surfaces",
                         row: i as u32,

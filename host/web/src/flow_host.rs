@@ -21,11 +21,11 @@ impl<D: DataSource> Host<D> {
             return;
         }
         let kernel = self.runner.kernel();
-        let mut contexts: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+        let mut contexts: exact_kernel::SortedMap<u32, Vec<u32>> = Default::default();
         for id in &self.exclusions {
             let node = kernel.node(*id).expect("tracked live exclusion");
             if let Some(parent) = node.parent {
-                contexts.entry(parent).or_default().push(*id);
+                contexts.get_or_insert_with(parent, Vec::new).push(*id);
             }
         }
         let mut json = String::from("[");

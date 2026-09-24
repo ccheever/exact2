@@ -9,7 +9,7 @@
 //! columns: rehydration is columns-plus-rebuild, never serialized engine state.
 
 use crate::id::IdMap;
-use std::collections::BTreeSet;
+use crate::sorted::SlotSet;
 
 use taffy::NodeId;
 
@@ -35,7 +35,7 @@ pub struct NodeArena {
     child_indices: Vec<usize>,
     // Sources whose pass flags need consuming. Geometry flags expire by pass,
     // so a small edit after a large layout never clears N prior changed nodes.
-    pub(crate) layout_dirty: BTreeSet<u32>,
+    pub(crate) layout_dirty: SlotSet,
     styles: Vec<StyleProps>,
     props: Vec<PropList>,
     flags: Vec<NodeFlags>,
@@ -44,7 +44,7 @@ pub struct NodeArena {
     frames: Vec<Frame>,
     // @ref LLP 1043.000 §3 D4 — no per-node vector or allocation.
     pub(crate) flow: IdMap<u32, crate::flow::FlowState>,
-    pub(crate) exclusion_slots: BTreeSet<u32>,
+    pub(crate) exclusion_slots: SlotSet,
     /// Scrollable overflow from the last layout: the content's extent in the
     /// node's own space (width, height), Taffy's `content_size`.
     contents: Vec<(f32, f32)>,
@@ -552,8 +552,8 @@ impl NodeArena {
     }
 
     pub(crate) fn free_slot(&mut self, slot: u32) {
-        self.exclusion_slots.remove(&slot);
-        self.layout_dirty.remove(&slot);
+        self.exclusion_slots.remove(slot);
+        self.layout_dirty.remove(slot);
         self.flow.remove(&slot);
         let s = slot as usize;
         debug_assert!(self.live[s], "free of a dead slot");
@@ -614,7 +614,7 @@ impl NodeArena {
     }
 
     pub(crate) fn consume_layout_flags(&mut self, slot: u32) {
-        self.layout_dirty.remove(&slot);
+        self.layout_dirty.remove(slot);
         for clear in [
             NodeFlags::CREATED,
             NodeFlags::STYLE_DIRTY,
@@ -630,7 +630,7 @@ impl NodeArena {
         if crate::flow::is_exclusion(self, slot) {
             self.exclusion_slots.insert(slot);
         } else {
-            self.exclusion_slots.remove(&slot);
+            self.exclusion_slots.remove(slot);
         }
     }
 

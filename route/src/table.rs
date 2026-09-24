@@ -11,7 +11,6 @@ use crate::location::decode;
 use crate::{
     canonical, encode_uri_component, CheckError, Destination, Match, Params, PathError, Table,
 };
-use std::collections::BTreeSet;
 
 impl Table {
     /// Parameter names in first-declaration order, each exactly once.
@@ -46,11 +45,11 @@ impl Table {
                 "a route table needs a root".into(),
             ));
         }
-        let mut names = BTreeSet::new();
+        let mut names = Vec::new();
         let mut patterns: Vec<Vec<String>> = Vec::new();
         let mut notfound = false;
         for (i, route) in self.routes.iter().enumerate() {
-            if !names.insert(&route.name) {
+            if !first(&mut names, &route.name) {
                 return Err(reject(
                     "route-duplicate",
                     i,
@@ -95,10 +94,10 @@ impl Table {
                 patterns.push(segments);
             }
             let own = names_in(&route.pattern);
-            let mut seen = BTreeSet::from([i]);
+            let mut seen = vec![i];
             let mut parent = route.parent;
             while let Some(p) = parent {
-                let Some(ancestor) = self.routes.get(p).filter(|_| seen.insert(p)) else {
+                let Some(ancestor) = self.routes.get(p).filter(|_| first(&mut seen, p)) else {
                     return Err(reject(
                         "route-parent-param",
                         i,
@@ -394,11 +393,21 @@ fn segments(path: &str) -> Vec<&str> {
     }
 }
 
+/// Whether `item` is new to `seen`, adding it. A table's names, a pattern's
+/// parameters and a route's ancestors are few: a scan, not a tree's code.
+fn first<T: PartialEq>(seen: &mut Vec<T>, item: T) -> bool {
+    let new = !seen.contains(&item);
+    if new {
+        seen.push(item);
+    }
+    new
+}
+
 fn valid_pattern(pattern: &str) -> bool {
     if !pattern.starts_with('/') || pattern.starts_with("//") {
         return false;
     }
-    let mut names = BTreeSet::new();
+    let mut names = Vec::new();
     segments(pattern).into_iter().all(|segment| {
         if let Some(name) = segment.strip_prefix(':') {
             let mut chars = name.chars();
@@ -407,7 +416,7 @@ fn valid_pattern(pattern: &str) -> bool {
                 .next()
                 .is_some_and(|c| c.is_ascii_alphabetic() || matches!(c, '_' | '$'))
                 && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '$'))
-                && names.insert(name)
+                && first(&mut names, name)
         } else {
             !segment.is_empty()
                 && !segment.chars().any(|c| {

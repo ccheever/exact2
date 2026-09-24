@@ -4,8 +4,8 @@
 //!
 //! @ref LLP 1007 §1 (a bare node is a bare `<div>`) / LLP 1048 D1
 
+use exact_kernel::SortedMap;
 use exact_kernel::{Kernel, NodeRef, NodeType, PropId, PropValue};
-use std::collections::BTreeMap;
 
 /// A canvas's element hosts its surface element under its children
 /// (`glue.js`, LLP 1014 D2): a containing block for it, unless the author
@@ -148,8 +148,8 @@ fn heading_level(node: &NodeRef<'_>) -> Option<i64> {
 }
 
 /// Props as DOM attributes/properties. Names are the DOM's.
-pub(super) fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
-    let mut out = BTreeMap::new();
+pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
+    let mut out = SortedMap::new();
     if node.style.wrap_flow == exact_kernel::WrapFlow::Both {
         out.insert("data-wrap-flow".into(), "both".into());
     }
@@ -295,18 +295,17 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
         out.insert(name.to_string(), text);
     }
     if heading_level(node).is_some_and(|level| level > 6) {
-        out.entry("role".into()).or_insert_with(|| "heading".into());
+        out.get_or_insert_with("role".into(), || "heading".into());
     }
     if node.node_type.scrolls_by_default() {
         out.insert("data-scroll".into(), "true".into());
     }
     if node.node_type == NodeType::Toggle {
-        out.entry("type".into())
-            .or_insert_with(|| "checkbox".into());
+        out.get_or_insert_with("type".into(), || "checkbox".into());
     }
     // A `<button>` submits a form unless it says otherwise; a `button` never does.
     if element(node) == "button" {
-        out.entry("type".into()).or_insert_with(|| "button".into());
+        out.get_or_insert_with("type".into(), || "button".into());
     }
     if node.node_type == NodeType::Image {
         if let Some(role) = node

@@ -69,7 +69,8 @@ pub fn outcome_from(kind: u32, status: u32, headers: &str, body: Vec<u8>) -> Out
         },
     }
 }
-use std::collections::BTreeMap;
+use exact_kernel::id::IdMap;
+use exact_kernel::{SortedMap, SortedSet};
 use std::fmt::Write as _;
 
 /// Why the host refused.
@@ -92,7 +93,7 @@ impl std::fmt::Display for HostError {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 struct Mirror {
-    props: BTreeMap<String, String>,
+    props: SortedMap<String, String>,
     css: String,
     children: Vec<ViewId>,
     /// Created inside a `<button>`, where a container is a `<span>`.
@@ -210,8 +211,8 @@ impl<D: DataSource> DragHooks<D> {
 /// One runner, one page.
 pub struct Host<D: DataSource> {
     runner: Runner<D>,
-    mirror: BTreeMap<ViewId, Mirror>,
-    keys: BTreeMap<NodeKey, ViewId>,
+    mirror: IdMap<ViewId, Mirror>,
+    keys: IdMap<NodeKey, ViewId>,
     roots: Vec<ViewId>,
     /// Springs and holds, or [`Still`] when the artifact doesn't link motion.
     springs: Box<dyn Motion>,
@@ -226,15 +227,15 @@ pub struct Host<D: DataSource> {
     font_names: Vec<String>,
     /// The plan-owned face catalog, queried separately from op batches.
     font_catalog: String,
-    exclusions: std::collections::BTreeSet<ViewId>,
+    exclusions: SortedSet<ViewId>,
     textflow: String,
     /// Requests whose continuation a source held at dispatch (LLP 1027.002
     /// D3): released after a later commit, by token.
-    parked: BTreeMap<u64, RequestOut>,
+    parked: SortedMap<u64, RequestOut>,
     location: String,
     collections: String,
     /// Head nodes (LLP 1048.003 D1): the page's `<head>`, never an element.
-    heads: std::collections::BTreeSet<ViewId>,
+    heads: SortedSet<ViewId>,
     /// The head the page was last told, and whether a commit may move it.
     head: exact_runner::Head,
     head_dirty: bool,
@@ -370,8 +371,8 @@ impl<D: DataSource> Host<D> {
         let font_catalog = font_catalog(&font_faces(runner.plan()));
         let mut host = Host {
             runner,
-            mirror: BTreeMap::new(),
-            keys: BTreeMap::new(),
+            mirror: Default::default(),
+            keys: Default::default(),
             roots: Vec::new(),
             springs: crate::link::linked().motion.map_or_else(
                 || Box::new(Still::default()) as Box<dyn Motion>,
@@ -384,7 +385,7 @@ impl<D: DataSource> Host<D> {
             now_ms: 0.0,
             font_names,
             font_catalog,
-            parked: BTreeMap::new(),
+            parked: SortedMap::new(),
             location: launch.into(),
             collections: String::new(),
             exclusions: Default::default(),
@@ -709,7 +710,7 @@ impl<D: DataSource> Host<D> {
                 }
             }
             let handlers = if r.created.is_empty() {
-                BTreeMap::new()
+                SortedMap::new()
             } else {
                 self.runner.handlers()
             };

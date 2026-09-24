@@ -28,6 +28,7 @@ use super::{font_names, host_css, props_for, tag_for, Host};
 #[path = "page.rs"]
 mod page;
 use crate::css;
+use exact_kernel::SortedMap;
 use exact_kernel::{NodeRef, PropId, ViewId};
 use exact_plan::EventKind;
 use exact_runner::{DataSource, Runner};
@@ -35,7 +36,6 @@ pub use page::{
     build_locations, canonical_location, checkpoint, digest, read_checkpoint, route_at,
     route_location, Site,
 };
-use std::collections::BTreeMap;
 use std::fmt;
 
 /// A projected document.
@@ -85,7 +85,7 @@ pub fn project<D: DataSource>(runner: &Runner<D>) -> Result<Document, DocumentEr
         runner,
         fonts: font_names(runner.plan()),
         handlers: runner.handlers(),
-        routes: BTreeMap::new(),
+        routes: SortedMap::new(),
         out: String::new(),
         links: 0,
         buttons: 0,
@@ -119,8 +119,8 @@ struct Route {
 struct Walk<'r, D: DataSource> {
     runner: &'r Runner<D>,
     fonts: Vec<String>,
-    handlers: BTreeMap<ViewId, Vec<EventKind>>,
-    routes: BTreeMap<ViewId, Route>,
+    handlers: SortedMap<ViewId, Vec<EventKind>>,
+    routes: SortedMap<ViewId, Route>,
     out: String,
     /// Open `a` and `button` elements: the parser closes an open one when a
     /// second starts inside it, and a button's containers are `<span>`s.

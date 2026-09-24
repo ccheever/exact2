@@ -474,8 +474,8 @@ impl LayoutTree {
         // proof matters to live wrapping contexts. Clean roots retain their
         // cached proof; hidden, detached and other-root exclusions do no work.
         if self.is_dirty(root) && !arena.exclusion_slots.is_empty() {
-            let mut contexts = std::collections::BTreeSet::new();
-            for &slot in &arena.exclusion_slots {
+            let mut contexts = crate::sorted::SlotSet::default();
+            for slot in arena.exclusion_slots.iter() {
                 let mut at = Some(slot);
                 while let Some(s) = at {
                     if arena.style(s).display == crate::Display::None {
@@ -495,8 +495,8 @@ impl LayoutTree {
                         .filter(|&p| node_for(p) == self.taffy.parent(node));
                 }
             }
-            let mut stack: Vec<_> = contexts.into_iter().collect();
-            let mut seen = std::collections::BTreeSet::new();
+            let mut stack: Vec<_> = contexts.iter().collect();
+            let mut seen = crate::sorted::SlotSet::default();
             while let Some(slot) = stack.pop() {
                 if !seen.insert(slot)
                     || arena.style(slot).display == crate::Display::None

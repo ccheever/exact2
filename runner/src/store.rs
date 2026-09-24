@@ -23,7 +23,7 @@ pub struct Store {
     granted: Vec<String>,
     /// A child executor may see only the intersection with its own grants.
     restricted: bool,
-    values: std::collections::BTreeMap<String, String>,
+    values: exact_kernel::SortedMap<String, String>,
     writes: Vec<StoreWrite>,
     /// Monotonic within a transaction; restored with a refused transaction.
     revision: u64,

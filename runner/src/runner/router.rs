@@ -9,10 +9,10 @@
 //! Types and the route table are checked once at boot. No host interprets slots.
 
 use super::{Carried, DataSource, Runner, RunnerError};
+use exact_kernel::SortedSet;
 use exact_plan::{Plan, SlotsId, Stdlib, TypeKind, TypesId, Value};
 use exact_route::{Entry, Router, Tab, Table};
 use std::cell::RefCell;
-use std::collections::BTreeSet;
 
 /// The selected visit and all visit ids removed from any retained tab.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -161,8 +161,8 @@ impl RouterContext {
         };
         // A shape-correct forged value must preserve identities, a total top,
         // and the canonical URL/name/params round trip for every retained entry.
-        let mut ids = BTreeSet::new();
-        let mut tabs = BTreeSet::new();
+        let mut ids = SortedSet::new();
+        let mut tabs = SortedSet::new();
         if exact_route::top(&r).is_none()
             || r.tabs.iter().any(|t| {
                 !tabs.insert(&t.name)
@@ -470,7 +470,7 @@ impl<D: DataSource> Runner<D> {
             .router(value)
             .ok_or_else(|| invalid("invalid router value"))?;
         let top = exact_route::top(&r).ok_or_else(|| invalid("router has no top"))?;
-        let ids: BTreeSet<_> = r.tabs.iter().flat_map(|t| &t.stack).map(|e| e.id).collect();
+        let ids: SortedSet<_> = r.tabs.iter().flat_map(|t| &t.stack).map(|e| e.id).collect();
         let removed = context
             .committed
             .as_ref()

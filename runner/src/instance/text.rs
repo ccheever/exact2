@@ -26,7 +26,7 @@ impl Engine<'_> {
         }
     }
     /// Mounted rows by position.
-    fn mounted(&self) -> BTreeMap<usize, &Row> {
+    fn mounted(&self) -> exact_kernel::SortedMap<usize, &Row> {
         match self {
             Engine::Window(r) => {
                 let window = r.window.as_ref().unwrap();

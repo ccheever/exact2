@@ -12,7 +12,7 @@
 //! never a silent skip and never a panic.
 
 use crate::id::{IdMap, IdSet};
-use std::collections::{BTreeMap, BTreeSet};
+use crate::sorted::{SortedMap, SortedSet};
 
 use crate::arena::NodeArena;
 use crate::error::{ApplyError, StyleDomainError};
@@ -775,9 +775,11 @@ impl Detach {
             }
         }
         self.seen.clear();
-        let mut leaving: BTreeMap<String, IdSet<u32>> = BTreeMap::new();
+        let mut leaving: SortedMap<String, IdSet<u32>> = SortedMap::new();
         for (test_id, slot) in self.selectors.drain(..) {
-            leaving.entry(test_id).or_default().insert(slot);
+            leaving
+                .get_or_insert_with(test_id, IdSet::default)
+                .insert(slot);
         }
         for (test_id, slots) in leaving {
             selectors.remove_all(&test_id, &slots);
@@ -829,7 +831,7 @@ fn invalidate_text(arena: &mut NodeArena, layout: &mut LayoutTree, slot: u32) {
 /// A changed logical ancestry can change run-origin navigation/paint metadata
 /// without changing metrics. Scratch is bounded by this subtree's live owners.
 fn invalidate_text_sources(arena: &mut NodeArena, slot: u32) {
-    let owners: BTreeSet<_> = arena
+    let owners: SortedSet<u32> = arena
         .subtree(slot)
         .into_iter()
         .filter(|s| matches!(arena.node_type(*s), NodeType::Text | NodeType::TextInput))
