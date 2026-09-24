@@ -351,7 +351,7 @@ impl<D: DataSource> Host<D> {
         crate::link::admit(&plan)?;
         // The browser lays out: the kernel builds its layout engine's tree
         // only if a layout is ever asked for (LLP 1047 §6).
-        let kernel = Kernel::with_monospace().layout_on_demand();
+        let kernel = Kernel::with_monospace_on_demand();
         // @ref LLP 1039 D3 — both host facts precede the first settlement.
         let delivery = compat.map_or_else(Default::default, |json| {
             exact_runner::Delivery::default().with_compat(json)

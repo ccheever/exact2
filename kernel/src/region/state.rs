@@ -754,24 +754,7 @@ fn validate(arena: &NodeArena, b: ContentRegion) -> Result<(), LayoutError> {
             }
         }
     }
-    let style = crate::style::taffy_style(arena, b.owner.index);
-    let zero = |x: taffy::style::LengthPercentage| {
-        x == taffy::style::LengthPercentage::length(0.)
-            || x == taffy::style::LengthPercentage::percent(0.)
-    };
-    if ![
-        style.border.left,
-        style.border.right,
-        style.border.top,
-        style.border.bottom,
-        style.padding.left,
-        style.padding.right,
-        style.padding.top,
-        style.padding.bottom,
-    ]
-    .into_iter()
-    .all(zero)
-    {
+    if !s.unpadded(arena.env()) {
         return Err(bad());
     }
     members(arena, b.content)?;

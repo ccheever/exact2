@@ -14,10 +14,10 @@ use crate::error::{KernelError, LayoutError};
 use crate::export::{self, NodeRow};
 use crate::generated::{BoxSizing, Display, NodeType, PropId, StyleId, StyleMask, StyleProps};
 use crate::id::{Frame, NodeFlags, NodeKey, Offer, ViewId};
-use crate::layout::{self, LayoutReceipt, LayoutTree};
+use crate::layout::{self, LayoutMirror, LayoutReceipt, LayoutTree, Unmirrored};
 use crate::props::PropList;
 use crate::selector::SelectorIndex;
-use crate::style::{taffy_style, uses_env, ColorValue, Dimension, Env, RowValue};
+use crate::style::{uses_env, ColorValue, Dimension, Env, RowValue};
 use crate::text::{MonospaceMeasurer, TextMeasurer, TextRun, TextStyle};
 
 /// The initial value of every row: what a computed read returns when neither
@@ -181,7 +181,9 @@ impl<'a> NodeRef<'a> {
 /// The kernel.
 pub struct Kernel {
     arena: NodeArena,
-    layout: LayoutTree,
+    /// The layout engine, when it mirrors the arena (LLP 1047 D4). Boxed only
+    /// on the layout path, so a kernel that never lays out links no engine.
+    layout: Option<Box<dyn LayoutMirror>>,
     measurer: Box<dyn TextMeasurer>,
     selectors: SelectorIndex,
     epoch: u64,
@@ -189,10 +191,17 @@ pub struct Kernel {
     receipts: VecDeque<CommitReceipt>,
     region: Option<crate::region::RegionState>,
     region_leases: crate::region::RegionLeases,
-    /// Whether the engine mirrors every live node. A kernel with layout on
-    /// demand builds the mirror only when a layout is first asked for.
-    mirrored: bool,
+    /// A kernel with layout on demand builds the engine only when a layout
+    /// is first asked for, and again only then after a reset.
     on_demand: bool,
+}
+
+/// The engine tree, which a layout path has made sure of with `mirror`.
+fn engine(layout: &mut Option<Box<dyn LayoutMirror>>) -> &mut LayoutTree {
+    layout
+        .as_deref_mut()
+        .and_then(LayoutMirror::tree)
+        .expect("the layout path mirrors the arena")
 }
 
 impl Kernel {
@@ -200,14 +209,44 @@ impl Kernel {
     /// reached it.
     #[cfg(test)]
     pub(crate) fn engine_nodes(&self) -> usize {
-        self.layout.node_count()
+        self.layout
+            .as_deref()
+            .and_then(LayoutMirror::tree_ref)
+            .map_or(0, LayoutTree::node_count)
+    }
+
+    /// The engine tree (tests read its counters and presentation).
+    #[cfg(test)]
+    pub(crate) fn tree(&self) -> &LayoutTree {
+        self.layout
+            .as_deref()
+            .and_then(LayoutMirror::tree_ref)
+            .expect("a mirrored kernel")
+    }
+
+    /// The engine tree, mutably.
+    #[cfg(test)]
+    pub(crate) fn tree_mut(&mut self) -> &mut LayoutTree {
+        engine(&mut self.layout)
     }
 
     /// A kernel with the given host text measurer.
     pub fn new(measurer: Box<dyn TextMeasurer>) -> Self {
+        let mut kernel = Self::on_demand(measurer);
+        kernel.layout = Some(Box::new(LayoutTree::new()));
+        kernel.on_demand = false;
+        kernel
+    }
+
+    /// A kernel keeping no layout engine tree until a layout is first asked
+    /// for, when it builds one from the arena. For a host whose platform lays
+    /// out (the browser): commits then create no engine nodes and derive no
+    /// engine styles, and a kernel that never lays out links no engine code.
+    /// Layout, when asked for, is the same.
+    pub fn on_demand(measurer: Box<dyn TextMeasurer>) -> Self {
         Kernel {
             arena: NodeArena::new(),
-            layout: LayoutTree::new(),
+            layout: None,
             measurer,
             selectors: SelectorIndex::new(),
             epoch: 0,
@@ -215,8 +254,7 @@ impl Kernel {
             receipts: VecDeque::new(),
             region: None,
             region_leases: Default::default(),
-            mirrored: true,
-            on_demand: false,
+            on_demand: true,
         }
     }
 
@@ -225,21 +263,15 @@ impl Kernel {
         Self::new(Box::new(MonospaceMeasurer::default()))
     }
 
-    /// This kernel, keeping no layout engine tree until a layout is first
-    /// asked for, when it builds one from the arena. For a host whose
-    /// platform lays out (the browser): commits then create no engine nodes
-    /// and derive no engine styles. Layout, when asked for, is the same.
-    pub fn layout_on_demand(mut self) -> Self {
-        self.on_demand = true;
-        self.mirrored = self.arena.live_count() > 0;
-        self
+    /// [`Kernel::on_demand`] with the deterministic reference measurer.
+    pub fn with_monospace_on_demand() -> Self {
+        Self::on_demand(Box::new(MonospaceMeasurer::default()))
     }
 
     /// Build the engine's tree when it doesn't yet mirror the arena.
     fn mirror(&mut self) {
-        if !self.mirrored {
-            self.layout = LayoutTree::rebuild(&mut self.arena);
-            self.mirrored = true;
+        if self.layout.is_none() {
+            self.layout = Some(Box::new(LayoutTree::rebuild(&mut self.arena)));
         }
     }
 
@@ -288,10 +320,13 @@ impl Kernel {
         ops: &[Op],
     ) -> Result<CommitReceipt, KernelError> {
         let next_epoch = self.epoch + 1;
+        let mut unmirrored = Unmirrored;
         let target = Target {
             arena: &mut self.arena,
-            layout: &mut self.layout,
-            mirrored: self.mirrored,
+            layout: match self.layout.as_deref_mut() {
+                Some(layout) => layout,
+                None => &mut unmirrored,
+            },
             selectors: &mut self.selectors,
         };
         let receipt = txn::apply(target, ops, batch, root_id, next_epoch)?;
@@ -336,7 +371,7 @@ impl Kernel {
         profile: crate::region::RegionProfile,
     ) -> Result<bool, KernelError> {
         self.mirror();
-        if binding.is_some() && self.layout.has_presented_height() {
+        if binding.is_some() && engine(&mut self.layout).has_presented_height() {
             return Err(LayoutError::ContentRegion(
                 "clear the presented height before region registration",
             )
@@ -364,7 +399,7 @@ impl Kernel {
         // current authored topology when replacing or removing it, only AFTER
         // the new binding passed preflight. Invalid replacement leaves it intact.
         if replacing || binding.is_none() {
-            self.layout = LayoutTree::rebuild(&mut self.arena);
+            self.layout = Some(Box::new(LayoutTree::rebuild(&mut self.arena)));
         }
         Ok(true)
     }
@@ -394,7 +429,7 @@ impl Kernel {
             .ok_or(LayoutError::ContentRegion("no registered region"))?;
         let result = region.compute(
             &mut self.arena,
-            &mut self.layout,
+            engine(&mut self.layout),
             self.measurer.as_mut(),
             (slot, offer),
             inputs,
@@ -403,7 +438,7 @@ impl Kernel {
         if result.is_err() {
             // A numeric callback error can have cached its containment zero in
             // the shell too. No failed derived cache is reused on recovery.
-            self.layout = LayoutTree::rebuild(&mut self.arena);
+            self.layout = Some(Box::new(LayoutTree::rebuild(&mut self.arena)));
         }
         Ok(result?)
     }
@@ -478,10 +513,10 @@ impl Kernel {
                 return Err(LayoutError::DuplicatePresentedHeight(sample.node).into());
             }
         }
-        self.layout.present_heights(&self.arena, presented);
+        engine(&mut self.layout).present_heights(&self.arena, presented);
         let result = match layout::compute(
             &mut self.arena,
-            &mut self.layout,
+            engine(&mut self.layout),
             self.measurer.as_mut(),
             slot,
             offer,
@@ -489,11 +524,11 @@ impl Kernel {
             ok @ Ok(_) => ok,
             Err(LayoutError::Engine(_)) => {
                 // The engine tree is derived state: rebuild it from the columns and retry once.
-                self.layout = LayoutTree::rebuild(&mut self.arena);
-                self.layout.present_heights(&self.arena, presented);
+                self.layout = Some(Box::new(LayoutTree::rebuild(&mut self.arena)));
+                engine(&mut self.layout).present_heights(&self.arena, presented);
                 layout::compute(
                     &mut self.arena,
-                    &mut self.layout,
+                    engine(&mut self.layout),
                     self.measurer.as_mut(),
                     slot,
                     offer,
@@ -507,7 +542,7 @@ impl Kernel {
                 // Taffy may have cached the safe zero used to contain the bad
                 // callback result. Rebuild derived state so the next valid
                 // measurement retries instead of publishing that cache.
-                self.layout = LayoutTree::rebuild(&mut self.arena);
+                self.layout = Some(Box::new(LayoutTree::rebuild(&mut self.arena)));
                 return Err(e.into());
             }
         };
@@ -551,23 +586,26 @@ impl Kernel {
         if owners.is_empty() {
             return Ok(Vec::new());
         }
-        let previous = self.layout.height_samples(self.epoch);
-        self.layout.present_heights(&self.arena, &[]);
+        let previous = engine(&mut self.layout).height_samples(self.epoch);
+        engine(&mut self.layout).present_heights(&self.arena, &[]);
         let measure = |kernel: &mut Self| {
             let root = kernel
                 .arena
                 .taffy(slot)
                 .ok_or_else(|| LayoutError::Engine("root has no engine node".into()))?;
-            kernel
-                .layout
-                .compute(root, offer, &kernel.arena, kernel.measurer.as_mut())?;
+            engine(&mut kernel.layout).compute(
+                root,
+                offer,
+                &kernel.arena,
+                kernel.measurer.as_mut(),
+            )?;
             owners
                 .iter()
                 .map(|node| {
                     let engine_node = kernel.arena.taffy(node.index).ok_or_else(|| {
                         LayoutError::Engine("height target has no engine node".into())
                     })?;
-                    let px = kernel.layout.layout(engine_node).size.height;
+                    let px = engine(&mut kernel.layout).layout(engine_node).size.height;
                     if !px.is_finite() || px < 0.0 {
                         return Err(LayoutError::InvalidPresentedHeight);
                     }
@@ -581,7 +619,7 @@ impl Kernel {
         };
         let result = match measure(self) {
             Err(LayoutError::Engine(_)) => {
-                self.layout = LayoutTree::rebuild(&mut self.arena);
+                self.layout = Some(Box::new(LayoutTree::rebuild(&mut self.arena)));
                 measure(self)
             }
             result => result,
@@ -589,9 +627,9 @@ impl Kernel {
         if result.is_err() {
             // A contained invalid metric may have populated Taffy's cache with
             // zero. Rebuild so the next measurement actually invokes the host.
-            self.layout = LayoutTree::rebuild(&mut self.arena);
+            self.layout = Some(Box::new(LayoutTree::rebuild(&mut self.arena)));
         }
-        self.layout.present_heights(&self.arena, &previous);
+        engine(&mut self.layout).present_heights(&self.arena, &previous);
         result.map_err(KernelError::from)
     }
 
@@ -680,9 +718,9 @@ impl Kernel {
         if let Some(r) = &mut self.region {
             r.intrinsic(slot);
         }
-        if let Some(node) = self.arena.taffy(slot) {
-            self.layout.set_style(node, taffy_style(&self.arena, slot));
-            self.layout.mark_dirty(node);
+        if let (Some(node), Some(layout)) = (self.arena.taffy(slot), self.layout.as_deref_mut()) {
+            layout.restyle(&self.arena, slot, node);
+            layout.mark_dirty(node);
         }
         Ok(())
     }
@@ -699,8 +737,10 @@ impl Kernel {
         {
             return false;
         }
-        if let Some(node) = self.arena.taffy(key.index) {
-            self.layout.mark_dirty(node);
+        if let (Some(node), Some(layout)) =
+            (self.arena.taffy(key.index), self.layout.as_deref_mut())
+        {
+            layout.mark_dirty(node);
         }
         true
     }
@@ -733,9 +773,11 @@ impl Kernel {
             .filter(|s| uses_env(self.arena.style(*s)))
             .collect();
         for slot in &users {
-            if let Some(node) = self.arena.taffy(*slot) {
-                self.layout.set_style(node, taffy_style(&self.arena, *slot));
-                self.layout.mark_dirty(node);
+            if let (Some(node), Some(layout)) =
+                (self.arena.taffy(*slot), self.layout.as_deref_mut())
+            {
+                layout.restyle(&self.arena, *slot, node);
+                layout.mark_dirty(node);
             }
             self.arena.flags_mut(*slot).insert(NodeFlags::STYLE_DIRTY);
         }
@@ -854,8 +896,8 @@ impl Kernel {
     pub fn reset(&mut self) {
         self.region = None;
         self.arena.reset();
-        self.layout = LayoutTree::new();
-        self.mirrored = !self.on_demand;
+        self.layout =
+            (!self.on_demand).then(|| Box::new(LayoutTree::new()) as Box<dyn LayoutMirror>);
         self.selectors.clear();
         self.receipts.clear();
         self.incarnation += 1;
@@ -869,7 +911,7 @@ impl Kernel {
         // Public arena cloning itself creates a fresh paragraph namespace;
         // rehydration is not the only way callers can fork authored state.
         let mut arena = self.arena.clone();
-        let layout = LayoutTree::rebuild(&mut arena);
+        let layout: Option<Box<dyn LayoutMirror>> = Some(Box::new(LayoutTree::rebuild(&mut arena)));
         let mut selectors = SelectorIndex::new();
         for slot in arena.iter_live() {
             if let Some(test_id) = arena.props(slot).str(crate::generated::PropId::TestId) {
@@ -886,8 +928,6 @@ impl Kernel {
             receipts: VecDeque::new(),
             region: None,
             region_leases: Default::default(),
-            // The rebuild above mirrors every node.
-            mirrored: true,
             on_demand: self.on_demand,
         }
     }
@@ -964,14 +1004,15 @@ mod presented_height_tests {
         // without changing the authored columns or a production test hook.
         k.arena.set_taffy(p.node.index, None);
         k.compute_layout_presented(1, offer, &samples).unwrap();
-        assert!(!k.layout.faulted());
+        assert!(!k.tree().faulted());
         assert_eq!(k.node(1).unwrap().frame.height, 320.0);
         assert_eq!(k.node(2).unwrap().frame.height, 90.0);
         let node = k.arena.taffy(p.node.index).unwrap();
-        assert!(!k.layout.is_dirty(node));
-        k.layout.present_heights(&k.arena, &samples);
+        assert!(!k.tree().is_dirty(node));
+        let arena = k.arena.clone();
+        k.tree_mut().present_heights(&arena, &samples);
         assert!(
-            !k.layout.is_dirty(node),
+            !k.tree().is_dirty(node),
             "equal projection must not call Taffy set_style"
         );
         // Target measurement recovers the derived tree without publishing the
@@ -985,14 +1026,14 @@ mod presented_height_tests {
             vec![180.0, 180.0]
         );
         assert_eq!(k.export(None).unwrap(), before);
-        assert_eq!(k.layout.height_samples(k.epoch()), samples);
+        assert_eq!(k.tree().height_samples(k.epoch()), samples);
         k.arena.set_taffy(samples[1].node.index, None);
         assert_eq!(
             k.measure_height_targets(1, offer, &owners).unwrap(),
             targets
         );
         assert_eq!(k.export(None).unwrap(), before);
-        assert_eq!(k.layout.height_samples(k.epoch()), samples);
+        assert_eq!(k.tree().height_samples(k.epoch()), samples);
         assert!(k
             .compute_layout_presented(1, offer, &samples)
             .unwrap()
@@ -1011,7 +1052,7 @@ mod presented_height_tests {
         )
         .unwrap();
         assert!(
-            !k.layout.is_dirty(node),
+            !k.tree().is_dirty(node),
             "central authored write preserves identical derived height"
         );
         k.compute_layout(1, offer).unwrap();
@@ -1181,8 +1222,8 @@ mod locality_tests {
                 calls.set(0);
                 k.apply(0, i as u64 + 2, &[text(3, words)]).unwrap();
                 let r = k.compute_layout(1, offer).unwrap();
-                assert_eq!(k.layout.boundary_replays, 1);
-                assert_eq!(k.layout.publication_visits, 3, "unrelated nodes: {n}");
+                assert_eq!(k.tree().boundary_replays, 1);
+                assert_eq!(k.tree().publication_visits, 3, "unrelated nodes: {n}");
                 assert_eq!(calls.get(), 1);
                 assert!(r
                     .changed
@@ -1202,7 +1243,7 @@ mod locality_tests {
                     .has(crate::NodeFlags::GEOMETRY_CHANGED));
             }
             assert!(k.compute_layout(1, offer).unwrap().updated.is_empty());
-            assert_eq!(k.layout.publication_visits, 0);
+            assert_eq!(k.tree().publication_visits, 0);
         }
     }
     #[test]
@@ -1248,7 +1289,7 @@ mod locality_tests {
                 .unwrap();
             let offer = Offer::definite(900.0, 700.0);
             k.compute_layout(1, offer).unwrap();
-            assert_eq!(k.layout.boundary_replays, 0);
+            assert_eq!(k.tree().boundary_replays, 0);
             equal_fresh(&k, offer);
         }
         let (mut k, _) = fixture(8, vec![]);
@@ -1265,7 +1306,7 @@ mod locality_tests {
             k.apply(0, i as u64 + 2, &[text(3, &"wider ".repeat(20 + i))])
                 .unwrap();
             k.compute_layout(1, offer).unwrap();
-            assert_eq!(k.layout.boundary_replays, 0);
+            assert_eq!(k.tree().boundary_replays, 0);
             equal_fresh(&k, offer);
         }
     }
@@ -1283,7 +1324,7 @@ mod locality_tests {
         )
         .unwrap();
         let r = k.compute_layout(1, offer).unwrap();
-        assert_eq!(k.layout.boundary_replays, 0);
+        assert_eq!(k.tree().boundary_replays, 0);
         assert!(r.changed.contains(&k.node(5).unwrap().key));
         equal_fresh(&k, offer);
         // Style and topology edits after deferred text invalidation must flush it.
@@ -1399,7 +1440,7 @@ mod layout_on_demand_tests {
         ];
         let offer = Offer::definite(300.0, 600.0);
         let mut mirrored = Kernel::with_monospace();
-        let mut on_demand = Kernel::with_monospace().layout_on_demand();
+        let mut on_demand = Kernel::with_monospace_on_demand();
         for k in [&mut mirrored, &mut on_demand] {
             k.apply(0, 1, &first).unwrap();
             k.apply(0, 2, &second).unwrap();

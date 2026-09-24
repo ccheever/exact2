@@ -122,6 +122,116 @@ impl Default for LayoutTree {
     }
 }
 
+/// The engine's side of a commit: what the kernel's transaction and its
+/// restyles call (LLP 1047 D4). [`LayoutTree`] mirrors the arena; a kernel
+/// whose platform lays out (the browser's) holds none until a layout is first
+/// asked for and commits through [`Unmirrored`]. The engine is boxed only on
+/// the layout path, so an artifact that never lays out links none of it.
+pub trait LayoutMirror {
+    /// A leaf for `slot` from its current style; `None` without an engine.
+    fn new_leaf(&mut self, arena: &NodeArena, slot: u32, measured: bool) -> Option<NodeId>;
+    /// Re-derive `node`'s engine style from `slot`'s current style.
+    fn restyle(&mut self, arena: &NodeArena, slot: u32, node: NodeId);
+    /// Give `node`, `parent`'s engine node, the engine nodes of `parent`'s
+    /// children in order (none under a text node: its runs are measured, not
+    /// laid out); returns how many.
+    fn sync_children(&mut self, arena: &NodeArena, parent: u32, node: NodeId) -> usize;
+    /// Remove a node.
+    fn remove(&mut self, node: NodeId);
+    /// Mark a node (and its ancestors) dirty.
+    fn mark_dirty(&mut self, node: NodeId);
+    /// Whether an engine node still has an engine parent.
+    #[cfg(test)]
+    fn attached(&self, node: NodeId) -> bool;
+    /// The engine tree, for a layout.
+    fn tree(&mut self) -> Option<&mut LayoutTree>;
+    /// The engine tree, read.
+    fn tree_ref(&self) -> Option<&LayoutTree>;
+}
+
+impl LayoutMirror for LayoutTree {
+    fn new_leaf(&mut self, arena: &NodeArena, slot: u32, measured: bool) -> Option<NodeId> {
+        Some(LayoutTree::new_leaf(
+            self,
+            taffy_style(arena, slot),
+            slot,
+            measured,
+        ))
+    }
+
+    fn restyle(&mut self, arena: &NodeArena, slot: u32, node: NodeId) {
+        self.set_style(node, taffy_style(arena, slot));
+    }
+
+    fn sync_children(&mut self, arena: &NodeArena, parent: u32, node: NodeId) -> usize {
+        if arena.node_type(parent) == NodeType::Text {
+            LayoutTree::set_children(self, node, &[]);
+            return 0;
+        }
+        let ids: Vec<_> = arena
+            .children(parent)
+            .iter()
+            .filter_map(|c| arena.taffy(*c))
+            .collect();
+        LayoutTree::set_children(self, node, &ids);
+        ids.len()
+    }
+
+    fn remove(&mut self, node: NodeId) {
+        LayoutTree::remove(self, node);
+    }
+
+    fn mark_dirty(&mut self, node: NodeId) {
+        LayoutTree::mark_dirty(self, node);
+    }
+
+    #[cfg(test)]
+    fn attached(&self, node: NodeId) -> bool {
+        LayoutTree::attached(self, node)
+    }
+
+    fn tree(&mut self) -> Option<&mut LayoutTree> {
+        Some(self)
+    }
+
+    fn tree_ref(&self) -> Option<&LayoutTree> {
+        Some(self)
+    }
+}
+
+/// A commit's engine when the kernel mirrors none: new nodes get no engine
+/// node, so no other call reaches it.
+pub struct Unmirrored;
+
+impl LayoutMirror for Unmirrored {
+    fn new_leaf(&mut self, _: &NodeArena, _: u32, _: bool) -> Option<NodeId> {
+        None
+    }
+
+    fn restyle(&mut self, _: &NodeArena, _: u32, _: NodeId) {}
+
+    fn sync_children(&mut self, _: &NodeArena, _: u32, _: NodeId) -> usize {
+        0
+    }
+
+    fn remove(&mut self, _: NodeId) {}
+
+    fn mark_dirty(&mut self, _: NodeId) {}
+
+    #[cfg(test)]
+    fn attached(&self, _: NodeId) -> bool {
+        false
+    }
+
+    fn tree(&mut self) -> Option<&mut LayoutTree> {
+        None
+    }
+
+    fn tree_ref(&self) -> Option<&LayoutTree> {
+        None
+    }
+}
+
 impl LayoutTree {
     /// An empty tree.
     pub fn new() -> Self {

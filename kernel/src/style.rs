@@ -202,6 +202,17 @@ impl Dimension {
             Dimension::Env(..) => unreachable!("resolved above"),
         }
     }
+
+    /// Whether [`Self::to_lp`] gives zero as the engine compares lengths, by
+    /// bits: `auto`, or `+0` points or percent — never `-0`.
+    fn lp_is_zero(self, env: &Env) -> bool {
+        match self.resolve(env) {
+            Dimension::Auto => true,
+            Dimension::Points(v) => v.to_bits() == 0,
+            Dimension::Percent(v) => (v / 100.0).to_bits() == 0,
+            Dimension::Env(..) => unreachable!("resolved above"),
+        }
+    }
 }
 
 /// CSS line-height, preserved through inheritance and resolved per receiving font.
@@ -852,6 +863,21 @@ impl StyleProps {
         })
     }
 
+    /// Whether every padding and border width reaches layout as zero, read
+    /// without building the engine's style: a kernel that mirrors no engine
+    /// tree checks content regions too (LLP 1047 §10).
+    pub(crate) fn unpadded(&self, env: &Env) -> bool {
+        [
+            self.padding_top,
+            self.padding_right,
+            self.padding_bottom,
+            self.padding_left,
+        ]
+        .into_iter()
+        .all(|p| p.lp_is_zero(env))
+            && self.border_widths().into_iter().all(|w| w.to_bits() == 0)
+    }
+
     /// Border colours after resolving currentColor against this node's computed colour.
     pub fn border_colors(&self, current: ColorValue) -> [ColorValue; 4] {
         [
@@ -1255,5 +1281,49 @@ mod tests {
         assert_eq!(s.grid_template_columns.len(), 3);
         assert_eq!(s.grid_row.start, line(1));
         assert_eq!(s.grid_row.end, span(2));
+    }
+
+    /// Content regions check padding and border without the engine's style;
+    /// the answer is the one the engine's style gives.
+    #[test]
+    fn unpadded_reads_what_the_engine_style_would() {
+        let env = Env::new(62.0, 0.0, 0.0, 0.0);
+        let zero = |x: taffy::style::LengthPercentage| x == length(0.) || x == percent(0.);
+        let engine = |p: &StyleProps| {
+            let s = p.to_taffy(NodeType::View, &env);
+            [s.padding, s.border]
+                .iter()
+                .all(|r| [r.left, r.right, r.top, r.bottom].into_iter().all(zero))
+        };
+        for d in [
+            Dimension::Auto,
+            Dimension::Points(0.0),
+            Dimension::Points(-0.0),
+            Dimension::Points(1.0),
+            Dimension::Percent(0.0),
+            Dimension::Percent(-0.0),
+            Dimension::Percent(1e-45),
+            Dimension::Percent(3.0),
+            Dimension::Env(Edge::Right, 0.0),
+            Dimension::Env(Edge::Right, -0.0),
+            Dimension::Env(Edge::Top, 0.0),
+            Dimension::Env(Edge::Top, -62.0),
+        ] {
+            let mut p = StyleProps::default();
+            p.padding_bottom = d;
+            assert_eq!(p.unpadded(&env), engine(&p), "{d:?}");
+        }
+        for (style, width) in [
+            (BorderStyle::Solid, 0.0),
+            (BorderStyle::Solid, -0.0),
+            (BorderStyle::Solid, -2.0),
+            (BorderStyle::Solid, 1.0),
+            (BorderStyle::None, 3.0),
+        ] {
+            let mut p = StyleProps::default();
+            p.border_style_left = style;
+            p.border_width_left = width;
+            assert_eq!(p.unpadded(&env), engine(&p), "{style:?} {width}");
+        }
     }
 }

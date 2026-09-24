@@ -687,6 +687,28 @@ Caltrain twice:
 It reports and never blocks. The first run is about 7 minutes with a cold
 names target.
 
+**D4, 2026-09-24: the layout engine.** The browser lays out, so the web's
+kernel builds no engine tree until a layout is asked for (`3e69aa79`). The
+engine's code stayed linked all the same, because every commit named it.
+- **The seam.** A commit and a restyle reach Taffy only through
+  `exact_kernel::layout::LayoutMirror`: a leaf for a new node, a restyle, a
+  child sync, a removal and a dirty mark.
+  - `Kernel::new` boxes a `LayoutTree`, as before.
+  - `Kernel::on_demand`, the web's, holds none. Until a layout is asked for,
+    it commits through `Unmirrored`.
+  - Only the layout path boxes a `LayoutTree`.
+- **Content regions** check the owner's padding and border with
+  `StyleProps::unpadded`, which reads what `to_taffy` would give without
+  building the engine's style. A unit test compares the two, `-0` included.
+- **Native kernels** make the same engine calls, in the same order.
+- **Bytes at `c35f78f7`, raw and brotli-11:**
+  - RealWorld: 914,280 → 891,346 raw; 281,900 → 275,418 brotli.
+  - Video player: 701,688 → 678,757 raw; 222,573 → 216,368 brotli.
+  - Caltrain: 881,207 → 858,277 raw; 273,451 → 267,131 brotli.
+- **Absence.** None of the three keeps a function of `taffy` or `slotmap`.
+  What remains is the arena's engine-id column: `NodeArena::taffy`, and
+  three `Vec` instantiations over `taffy::NodeId`, 140 bytes in all.
+
 **Deferred: the collections seam.** It waits for the
 `llp-ship/20260923-review-followups` run to publish. That run retires the
 windowed list (`window.rs`, `heights.rs`) and rewrites
