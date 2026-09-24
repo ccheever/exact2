@@ -50,7 +50,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpath
 import { homedir, hostname, tmpdir, userInfo } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildRust, rustBundle, rustPackage } from './rust.mjs';
+import { buildRust, publishedSignature, rustBundle, rustPackage, tieredNative } from './rust.mjs';
 import { cargoReproducibilityFlags, readManifest, buildBake, bakeTarget, readBuilds, cohortReceipt, classifyArtifacts, resolveApp, removePrivateTree, shaderWatchRoots } from './app.mjs';
 import { gameShells } from "../game/app/shells.mjs";
 import { blobPath, openOrigin, OriginUnavailable, sha256, streamPath, parseWebRoot, webRootPath, webRootStream, webReleasePath } from './origin.mjs';
@@ -817,6 +817,18 @@ export function portableAssetNames(names) {
 /** Parse and authenticate one origin head by the same pre-download rules as
  * exact-update. An unusable head contributes no sequence: even a syntactically
  * valid number is attacker-controlled until its signature has verified. */
+/** The signed native Rust module of the stream's last published release: its
+ * head authenticated, its blob the one the head names. Else null. */
+async function publishedModule(origin, app, stream) {
+  try {
+    const admission = inspectHead(await origin.head(stream), app, stream);
+    const card = admission.usable && admission.authenticated ? admission.head.assets?.find((a) => /^rust\/app\.module\.(dylib|bin)$/.test(a.name)) : null;
+    const bytes = card ? await origin.get(blobPath(card.sha256)) : null;
+    if (!bytes || sha256(bytes) !== card.sha256) return null;
+    return card.name.endsWith('.bin') ? tieredNative(bytes) : bytes;
+  } catch { return null; }
+}
+
 export function inspectHead(found, app, stream) {
   try {
     if (!Buffer.isBuffer(found?.bytes)) throw new Error('the origin returned no head bytes');
@@ -1305,7 +1317,12 @@ async function deployCaptured(opts, capsule) {
     for (const target of nativeTargets.length ? nativeTargets : [null]) variants.set(target, await buildRust(app,{compat:builds.web.compat,env,nativeTarget:target,plan:bundle.plan.bytes,profile:'release'}));
     for (const platform of platforms) {
       const build=builds[platform];
-      const produced=variants.get(build.compat.target) ?? variants.values().next().value;
+      let produced=variants.get(build.compat.target) ?? variants.values().next().value;
+      // The signed module of the stream's last published release stands for
+      // identical code signed with the same certificate (rust.mjs).
+      const signed=['native','tiered'].includes(build.compat.inputs.rustMode) && build.compat.target.includes('apple');
+      const reused=signed && publishedSignature(produced?.variants.native?.bytes, await publishedModule(origin, app, {channel, compatibilityId:build.compat.id}));
+      if (reused) { produced={...produced,variants:{...produced.variants,native:{...produced.variants.native,bytes:reused}}}; log(`  ${platform}: the published Rust module's signature stands (same code, same certificate)`); }
       const result=rustBundle(app,bundle,build,produced);
       builds[platform]=result.build; bundle.platforms[platform]=result.bundle;
     }

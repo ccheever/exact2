@@ -5,6 +5,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cargoReproducibilityFlags, developmentBuildEnv, readBuilds, resolveApp, rustPolicy } from './app.mjs';
@@ -231,14 +232,27 @@ export class RustBaker {
   close() { this.closed=true;this.stop(); }
 }
 
-/** The SHA-1 of the one valid certificate codesign would pick for `identity`
- * (forty hex digits, else a name it contains), or null: then just sign. */
-function signingCertificate(identity, env) {
-  if (identity === '-') return null;
-  const listed = spawnSync('security', ['find-identity', '-v', '-p', 'codesigning'], { env, encoding: 'utf8' });
-  const found = [...(listed.stdout ?? '').matchAll(/^\s*\d+\) ([0-9A-F]{40}) "(.*)"$/gm)]
-    .filter(([, sha, name]) => /^[0-9a-f]{40}$/i.test(identity) ? sha === identity.toUpperCase() : name.includes(identity));
-  return new Set(found.map(([, sha]) => sha)).size === 1 ? found[0][1] : null;
+/** A signature carries its signing time, so signing unchanged code again makes
+ * new bytes. `published`, the stream's last published module, stands for
+ * `fresh`, just signed, only when its signature verifies, was made with the
+ * same certificate (the leaf's SHA-1) and covers the same code (CDHash).
+ * Returns its bytes, else null: then the fresh signature ships. */
+export function publishedSignature(fresh, published, env = process.env) {
+  if (!fresh || !published) return null;
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-rust-signature-'));
+  try {
+    const signed = (name, bytes) => {
+      const path = resolve(dir, name, 'module.dylib');
+      mkdirSync(dirname(path)); writeFileSync(path, bytes);
+      const shown = spawnSync('codesign', ['-d', '-vvv', `--extract-certificates=${resolve(dir, name, 'cert')}`, path], { env, encoding: 'utf8' });
+      const leaf = resolve(dir, name, 'cert0');
+      return { path, cdhash: shown.status === 0 ? /^CDHash=([0-9a-f]+)$/m.exec(shown.stderr)?.[1] : null,
+        leaf: existsSync(leaf) ? createHash('sha1').update(readFileSync(leaf)).digest('hex') : null };
+    };
+    const now = signed('fresh', fresh), then = signed('published', published);
+    if (!now.cdhash || !now.leaf || now.cdhash !== then.cdhash || now.leaf !== then.leaf) return null;
+    return spawnSync('codesign', ['--verify', '--strict', then.path], { env }).status === 0 ? Buffer.from(published) : null;
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
 /** The last modules each app compiled in this process, with their inputs' key. */
@@ -252,24 +266,12 @@ function compileModules(app, env, profile, nativeTarget) {
       const identity = env.EXACT_RUST_SIGN_IDENTITY ?? (env.EXACT_UPDATE_TRUST === 'production' ? null : '-');
       if (!identity) throw new Error('macOS production Rust modules require EXACT_RUST_SIGN_IDENTITY matching the host team; select rust.prod="wasm" to use interpreted updates');
       const directory=resolve(app.target,'rust-sign');mkdirSync(directory,{recursive:true});
-      // A signature carries its signing time: signing unchanged code again
-      // made new bytes, and so a new bundle, on every deploy. Keep the last
-      // signature per valid certificate and reuse it for identical code.
-      const unsigned=readFileSync(nativePath), certificate=signingCertificate(identity, env);
-      const kept=certificate && resolve(directory,`${certificate}-${hash(unsigned)}.dylib`);
-      if (kept && existsSync(kept)) native=readFileSync(kept);
-      else {
-        const stage=mkdtempSync(resolve(directory,'candidate-')),copy=resolve(stage,'module.dylib');
-        try {
-          writeFileSync(copy,unsigned);
-          run(app, 'codesign', ['--force', '--sign', identity, ...(identity === '-' ? [] : ['--timestamp', '--options', 'runtime']), copy], env);
-          native=readFileSync(copy);
-          if (kept) {
-            for (const name of readdirSync(directory)) if (name.startsWith(`${certificate}-`)) rmSync(resolve(directory,name),{force:true});
-            renameSync(copy,kept);
-          }
-        } finally {rmSync(stage,{recursive:true,force:true});}
-      }
+      const stage=mkdtempSync(resolve(directory,'candidate-')),copy=resolve(stage,'module.dylib');
+      try {
+        writeFileSync(copy,readFileSync(nativePath));
+        run(app, 'codesign', ['--force', '--sign', identity, ...(identity === '-' ? [] : ['--timestamp', '--options', 'runtime']), copy], env);
+        native=readFileSync(copy);
+      } finally {rmSync(stage,{recursive:true,force:true});}
     }
     native ??= readFileSync(nativePath);
   }
@@ -336,6 +338,12 @@ export function tieredBytes(wasm,native) {
   if (!wasm.subarray(0,8).equals(Buffer.from([0,97,115,109,1,0,0,0])) || !native.length || wasm.length+native.length+12>32*1024*1024) throw new Error('invalid or oversized tiered Rust modules');
   const header=Buffer.from([69,88,76,84,1,0,0,0,0,0,0,0]);header.writeUInt32LE(wasm.length,8);
   return Buffer.concat([header,wasm,native]);
+}
+/** The native half of a tiered container, or null. */
+export function tieredNative(bytes) {
+  if (bytes.length < 12 || !bytes.subarray(0,8).equals(Buffer.from([69,88,76,84,1,0,0,0]))) return null;
+  const start=12+bytes.readUInt32LE(8);
+  return start<bytes.length ? bytes.subarray(start) : null;
 }
 
 export function rustFiles(built) {

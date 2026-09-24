@@ -1,9 +1,10 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { prepareRustBundle, rustBundle, rustCard, rustCards, rustFiles, rustReceipt } from './rust.mjs';
+import { prepareRustBundle, publishedSignature, rustBundle, rustCard, rustCards, rustFiles, rustReceipt, tieredBytes, tieredNative } from './rust.mjs';
 import { rustRuntime } from '../host/web/rust-glue.js';
 
 test('trapping module cleanup cannot throw through the resident Wasm import', () => {
@@ -116,3 +117,46 @@ test('tiered mode inherits ordinary environment and platform overrides', async (
   assert.equal(rustPolicy(manifest,'web'),'browser');
   for(const platform of ['web','ios'])assert.throws(()=>rustPolicy({rust:'tiered'},platform),/unavailable/);
 });
+
+// Two throwaway self-signed identities in a private keychain, never the
+// machine's own. One explicit designated requirement makes the CDHash the same
+// under both certificates, so only the leaf decides that case.
+test.skipIf(process.platform !== 'darwin')('a published module signature stands only for the same code and certificate', () => {
+  const dir=mkdtempSync(resolve(tmpdir(),'exact-signature-test-')), keychain=resolve(dir,'test.keychain-db');
+  const sh=(cmd,args)=>{const r=spawnSync(cmd,args,{cwd:dir,encoding:'utf8'});assert.equal(r.status,0,`${cmd} ${args[0]}: ${r.stderr}`);return r.stdout;};
+  try {
+    sh('security',['create-keychain','-p','exact',keychain]);
+    sh('security',['unlock-keychain','-p','exact',keychain]);
+    for (const name of ['A','B']) {
+      sh('openssl',['req','-x509','-newkey','rsa:2048','-nodes','-days','1','-keyout',`${name}.key`,'-out',`${name}.crt`,'-subj',`/CN=Exact Test Signing ${name}`,
+        '-addext','extendedKeyUsage=critical,codeSigning','-addext','keyUsage=critical,digitalSignature','-addext','basicConstraints=critical,CA:false']);
+      sh('openssl',['pkcs12','-export','-out',`${name}.p12`,'-inkey',`${name}.key`,'-in',`${name}.crt`,'-passout','pass:exact']);
+      sh('security',['import',`${name}.p12`,'-k',keychain,'-P','exact','-T','/usr/bin/codesign']);
+    }
+    sh('security',['set-key-partition-list','-S','apple-tool:,apple:,codesign:','-s','-k','exact',keychain]);
+    const dylib=(value)=>{writeFileSync(resolve(dir,'probe.c'),`int exact_probe(void){return ${value};}\n`);sh('clang',['-dynamiclib','-o','probe.dylib','probe.c']);return readFileSync(resolve(dir,'probe.dylib'));};
+    let n=0;
+    const sign=(bytes,identity)=>{
+      const path=resolve(dir,`s${n++}`,'module.dylib');mkdirSync(resolve(path,'..'));writeFileSync(path,bytes);
+      sh('codesign',['--force','--timestamp=none','--options','runtime','-r=designated => identifier "module"',...(identity?['--keychain',keychain,'--sign',`Exact Test Signing ${identity}`]:['--sign','-']),path]);
+      return readFileSync(path);
+    };
+    const code=dylib(7), changed=dylib(8);
+    const published=sign(code,'A'), again=sign(code,'A');
+    assert.deepEqual(publishedSignature(again,published),published,'the same code and certificate reuse the published signature');
+    assert.equal(publishedSignature(sign(changed,'A'),published),null,'changed code signs afresh');
+    assert.equal(publishedSignature(sign(code,'B'),published),null,'another certificate signs afresh, though the CDHash matches');
+    assert.equal(publishedSignature(sign(code,null),published),null,'an ad-hoc signature has no certificate to match');
+    const tampered=Buffer.from(published), at=tampered.indexOf(Buffer.from([0xe0,0x00,0x80,0x52]));
+    assert.ok(at>0,'the fixture returns 7 with mov w0, #7');
+    Buffer.from([0x20,0x01,0x80,0x52]).copy(tampered,at);
+    assert.equal(publishedSignature(again,tampered),null,'code changed under an intact CodeDirectory does not verify');
+    for (const missing of [null,Buffer.from('not a module'),published.subarray(0,4096)]) assert.equal(publishedSignature(again,missing),null,'a missing or unreadable release signs afresh');
+    const wasm=Buffer.concat([Buffer.from([0,97,115,109,1,0,0,0]),Buffer.from('module')]);
+    assert.deepEqual(tieredNative(tieredBytes(wasm,published)),published);
+    assert.equal(tieredNative(Buffer.from('EXLT')),null);
+  } finally {
+    spawnSync('security',['delete-keychain',keychain]);
+    rmSync(dir,{recursive:true,force:true});
+  }
+}, 120000);
