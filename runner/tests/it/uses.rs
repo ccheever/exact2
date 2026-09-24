@@ -46,6 +46,19 @@ fn motion_is_a_spring_or_a_gesture_that_holds_a_value() {
 }
 
 #[test]
+fn collections_are_lists_the_host_windows() {
+    let list = |attrs: &str| {
+        used(&format!(
+            "component A\n  resource rows = rows() as shape list<string>\n  view\n    list {attrs}\n      each x in rows key=x\n        column\n          text x\n"
+        ))
+    };
+    assert_eq!(list("height=100"), Uses::NONE, "a plain list is the core's");
+    assert!(list("virtualized=true height=100").has(Capability::Collections));
+    assert_eq!(list("virtualized=false height=100"), Uses::NONE);
+    assert!(list("item-height=20 height=100").has(Capability::Collections));
+}
+
+#[test]
 fn a_set_names_what_it_holds_beyond_another() {
     let markdown = Uses::NONE.with(Capability::Markdown);
     assert!(markdown.beyond(markdown).is_empty());

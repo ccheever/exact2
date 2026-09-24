@@ -265,7 +265,7 @@ mod tests {
       column testId="handle" heightDragFor="sheet" heightrelease=snap
       text `${count}` testId="other" transition="scale spring(180, 12, 1)"
 "#;
-        crate::link::link_motion();
+        crate::link::link_for_tests();
         let (mut host, _) = Host::boot(
             &contract::compile(source).unwrap().encode(),
             NoData,

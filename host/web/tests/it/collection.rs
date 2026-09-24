@@ -81,6 +81,7 @@ fn facts(snapshot: &CollectionSnapshot) -> CollectionFeedback {
 }
 #[test]
 fn geometry_commits_bounded_rows_and_metadata_after_extent_then_clears_on_unmount() {
+    exact_web::link(exact_web_capabilities::ALL);
     let (mut host, first) = Host::boot(&plan(), NoData, Default::default(), "/").unwrap();
     let before = host.runner().collections().remove(0);
     assert_eq!(before.count, 1_000);
@@ -110,6 +111,7 @@ fn geometry_commits_bounded_rows_and_metadata_after_extent_then_clears_on_unmoun
 }
 #[test]
 fn stale_and_malformed_feedback_do_not_emit_mutations_or_advance_the_clock() {
+    exact_web::link(exact_web_capabilities::ALL);
     let (mut host, _) = Host::boot(&plan(), NoData, Default::default(), "/").unwrap();
     let bytes = facts(&host.runner().collections()[0]).encode().unwrap();
     host.collection_feedback(&bytes);
@@ -126,8 +128,10 @@ fn stale_and_malformed_feedback_do_not_emit_mutations_or_advance_the_clock() {
 #[test]
 fn bridge_rejects_oversized_input_and_uses_the_common_le_decoder() {
     let plan = plan();
+    exact_web::link(exact_web_capabilities::ALL);
     let (host, _) = Host::boot(&plan, NoData, Default::default(), "/").unwrap();
     let mut bridge = Bridge::new();
+    exact_web::link(exact_web_capabilities::ALL);
     bridge.boot(&plan, NoData, 390.0, 844.0, "/");
     let bytes = facts(&host.runner().collections()[0]).encode().unwrap();
     bridge.advance(25.0);
@@ -176,6 +180,7 @@ component App
           text `${{x.index}}` height=32
 "#
         );
+        exact_web::link(exact_web_capabilities::ALL);
         let (mut host, boot) = Host::boot(
             &contract::compile(&source).unwrap().encode(),
             RefusingData,

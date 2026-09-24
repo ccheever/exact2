@@ -11,6 +11,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod collections;
 pub mod markdown;
 pub mod motion;
 
@@ -27,4 +28,4 @@ macro_rules! linked {
 
 /// Every capability: what a development build and a native renderer link
 /// (LLP 1047 D7).
-pub const ALL: exact_web::Linked = linked!(markdown, motion);
+pub const ALL: exact_web::Linked = linked!(markdown, motion, collections);

@@ -629,7 +629,7 @@ mod tests {
 
     #[test]
     fn hold_moves_do_not_recompile_unchanged_springs() {
-        crate::link::link_motion();
+        crate::link::link_for_tests();
         let mut source = String::from("component App\n  state big = false\n  action toggle writes big\n    big = not big\n  view\n    column\n      button press=toggle testId=\"toggle\"\n        text \"Toggle\"\n      text \"Held\" testId=\"held\" transition=\"translate spring(180, 12, 1)\"\n");
         for _ in 0..32 {
             source.push_str("      text \"Moving\" scale=(big ? 1.5 : 1) opacity=(big ? 0.5 : 1) transition=\"scale spring(180, 12, 1), opacity spring(180, 12, 1)\"\n");

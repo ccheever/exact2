@@ -359,6 +359,7 @@ fn resize_scroll_commands_and_refused_geometry_are_coherent() {
 
 #[test]
 fn web_batches_retire_rows_and_report_logical_accessibility_positions() {
+    exact_web::link(exact_web_capabilities::ALL);
     let (mut host, first) = Host::boot(
         &contract::compile(SOURCE).unwrap().encode(),
         data(25000),
@@ -662,6 +663,7 @@ fn web_abi_budgets_overscan_and_reports_pending_until_the_window_is_complete() {
     use exact_web::abi::Bridge;
     let plan = contract::compile(SOURCE).unwrap().encode();
     let mut bridge = Bridge::new();
+    exact_web::link(exact_web_capabilities::ALL);
     let len = bridge.boot(&plan, data(1000), 390.0, 240.0, "/");
     let boot = String::from_utf8_lossy(bridge.output_bytes(len as usize));
     assert!(boot.contains("\"data-testid\":\"list\""));

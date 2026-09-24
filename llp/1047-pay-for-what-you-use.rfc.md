@@ -583,6 +583,18 @@ size: check `git log` for these lanes and say which items you are taking.
   - Video player: 1,167,590 → 1,048,333 raw; 347,265 → 315,748 brotli.
   - Caltrain: 1,227,534 → 1,108,290 raw; 359,245 → 327,940 brotli.
 
+**Stage 3, 2026-09-24: lists.**
+- **What counts.** A list the host windows: a `virtualized` one, one with
+  `item-height` or `estimated-item-height`, or a handler for a list's edges.
+- **Only the entry and the exports changed.** The five list exports are now
+  `list_exports!`, which the entry invokes only for such a plan, and
+  `Linked.collections` records the group for admission. No code in the list
+  engine changed: its host sync is reached only through those exports.
+- **Bytes at `b1555c61`, raw and brotli-11:**
+  - RealWorld: 1,197,067 → 1,134,237 raw; 342,370 → 326,826 brotli.
+  - Video player: 1,025,117 → 962,220 raw; 297,889 → 282,382 brotli.
+  - Caltrain: 1,094,390 → 1,031,504 raw; 314,020 → 298,820 brotli.
+
 ### As built: activation, boot and the press path (the activation lane)
 
 **The bench, reproduced at `98d5f996`** (RealWorld served, mobile profile, nine

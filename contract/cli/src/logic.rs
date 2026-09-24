@@ -53,8 +53,10 @@ pub fn web_linked(plan: &exact_plan::Plan) -> String {
     let mut entry = format!("/// What this artifact links beyond the core (LLP 1047 D3).\nconst EXACT_LINKED: ::exact_web::Linked = ::exact_web_capabilities::linked!({});\n", names.join(", "));
     // A capability's export group, where it has one.
     for capability in uses.iter() {
-        if capability == Capability::Motion {
-            entry.push_str("::exact_web::motion_exports!();\n");
+        match capability {
+            Capability::Motion => entry.push_str("::exact_web::motion_exports!();\n"),
+            Capability::Collections => entry.push_str("::exact_web::list_exports!();\n"),
+            Capability::Markdown => {}
         }
     }
     entry

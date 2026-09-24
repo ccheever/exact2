@@ -27,7 +27,7 @@ const SOURCE: &str = r#"component App
             text x
 "#;
 fn fixture() -> (Host<Rows>, ReorderBinding) {
-    crate::link::link_motion();
+    crate::link::link_for_tests();
     let (mut h, _) = Host::boot(
         &contract::compile(SOURCE).unwrap().encode(),
         Rows,
@@ -328,7 +328,7 @@ fn disabled_handle_receipt_enters_no_action_terminal_and_can_cleanup() {
 #[test]
 fn abi_kind18_uses_common_binary_codec_and_refuses_before_clock() {
     let mut bridge = crate::abi::Bridge::new();
-    crate::link::link_motion();
+    crate::link::link_for_tests();
     let n = bridge.boot(
         &contract::compile(SOURCE).unwrap().encode(),
         Rows,

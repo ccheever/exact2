@@ -890,33 +890,10 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow_mut().dispatch(view, kind, len as usize, now_ms))
         }
 
-        /// Report a list scrollport and up to two pinned descendants.
-        #[no_mangle]
-        pub extern "C" fn exact_list(view: u32, top: f64, height: f64, width: f64, origin: f64, focus: u32, interaction: u32, len: u32, limit: u32) -> u32 {
-            EXACT_BRIDGE.with(|b| b.borrow_mut().list_viewport(view, top, height, width, origin, focus, interaction, len as usize, limit as usize))
-        }
-
         /// Whether a location (the input buffer) names a declared route.
         #[no_mangle]
         pub extern "C" fn exact_route_match(len: u32) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow().route_matches(len as usize))
-        }
-
-        /// Continue a budgeted window on the next animation frame.
-        #[no_mangle]
-        pub extern "C" fn exact_list_pending(view: u32) -> u32 {
-            EXACT_BRIDGE.with(|b| u32::from(b.borrow().list_pending(view)))
-        }
-
-        /// Resolve an opaque list key without mounting its row.
-        #[no_mangle]
-        pub extern "C" fn exact_list_index(view: u32, len: u32) -> u32 {
-            EXACT_BRIDGE.with(|b| b.borrow().list_index(view, len as usize))
-        }
-        /// Copy logical text, including rows outside the mounted window.
-        #[no_mangle]
-        pub extern "C" fn exact_list_text(view: u32, first_len: u32, len: u32, first_paragraph: u32, first_offset: u32, last_paragraph: u32, last_offset: u32) -> u32 {
-            EXACT_BRIDGE.with(|b| b.borrow_mut().list_text(view, first_len as usize, len as usize, first_paragraph as usize, first_offset as usize, last_paragraph as usize, last_offset as usize))
         }
 
         /// A request's outcome (LLP 1016 D2): `kind` 0 response / 1 network /
@@ -953,12 +930,6 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow_mut().resize(width, height, now_ms))
         }
 
-        /// Report actual collection geometry through the shared binary decoder.
-        #[no_mangle]
-        pub extern "C" fn exact_collection_feedback(len: u32) -> u32 {
-            EXACT_BRIDGE.with(|b| b.borrow_mut().collection_feedback(len as usize))
-        }
-
         /// Advance the runner clock.
         #[no_mangle]
         pub extern "C" fn exact_advance(now_ms: f64) -> u32 {
@@ -990,6 +961,84 @@ macro_rules! motion_exports {
         #[no_mangle]
         pub extern "C" fn exact_motion(len: u32) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().motion(len as usize))
+        }
+    };
+}
+
+/// Lists' export group (LLP 1047 D3), beside [`host!`]: the generated entry
+/// invokes it when the plan has a list the host windows, and the glue calls
+/// it only for one.
+#[macro_export]
+macro_rules! list_exports {
+    () => {
+        /// Report a list scrollport and up to two pinned descendants.
+        #[no_mangle]
+        pub extern "C" fn exact_list(
+            view: u32,
+            top: f64,
+            height: f64,
+            width: f64,
+            origin: f64,
+            focus: u32,
+            interaction: u32,
+            len: u32,
+            limit: u32,
+        ) -> u32 {
+            EXACT_BRIDGE.with(|b| {
+                b.borrow_mut().list_viewport(
+                    view,
+                    top,
+                    height,
+                    width,
+                    origin,
+                    focus,
+                    interaction,
+                    len as usize,
+                    limit as usize,
+                )
+            })
+        }
+
+        /// Continue a budgeted window on the next animation frame.
+        #[no_mangle]
+        pub extern "C" fn exact_list_pending(view: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| u32::from(b.borrow().list_pending(view)))
+        }
+
+        /// Resolve an opaque list key without mounting its row.
+        #[no_mangle]
+        pub extern "C" fn exact_list_index(view: u32, len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow().list_index(view, len as usize))
+        }
+
+        /// Copy logical text, including rows outside the mounted window.
+        #[no_mangle]
+        pub extern "C" fn exact_list_text(
+            view: u32,
+            first_len: u32,
+            len: u32,
+            first_paragraph: u32,
+            first_offset: u32,
+            last_paragraph: u32,
+            last_offset: u32,
+        ) -> u32 {
+            EXACT_BRIDGE.with(|b| {
+                b.borrow_mut().list_text(
+                    view,
+                    first_len as usize,
+                    len as usize,
+                    first_paragraph as usize,
+                    first_offset as usize,
+                    last_paragraph as usize,
+                    last_offset as usize,
+                )
+            })
+        }
+
+        /// Report actual collection geometry through the shared binary decoder.
+        #[no_mangle]
+        pub extern "C" fn exact_collection_feedback(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().collection_feedback(len as usize))
         }
     };
 }

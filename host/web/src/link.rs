@@ -22,6 +22,8 @@ pub struct Linked {
     /// Motion: the spring engine a host holds instead of
     /// [`crate::motion::Still`].
     pub motion: Option<fn() -> Box<dyn crate::motion::Motion>>,
+    /// Lists the host windows: their exports (`list_exports!`) are in.
+    pub collections: bool,
 }
 
 impl Linked {
@@ -29,6 +31,7 @@ impl Linked {
     pub const CORE: Linked = Linked {
         markup: None,
         motion: None,
+        collections: false,
     };
 
     /// The capabilities registered here.
@@ -39,6 +42,9 @@ impl Linked {
         }
         if self.motion.is_some() {
             uses = uses.with(Capability::Motion);
+        }
+        if self.collections {
+            uses = uses.with(Capability::Collections);
         }
         uses
     }
@@ -60,12 +66,14 @@ pub fn linked() -> Linked {
     LINKED.with(Cell::get)
 }
 
-/// Link the spring engine on this test's thread, as an entry whose plan
-/// uses motion does.
+/// Link, on this test's thread, what this crate can register itself: the
+/// spring engine and lists (Markdown's adapter lives above it), as an entry
+/// whose plan uses them does.
 #[cfg(test)]
-pub(crate) fn link_motion() {
+pub(crate) fn link_for_tests() {
     link(Linked {
         motion: Some(crate::motion::springs),
+        collections: true,
         ..linked()
     });
 }

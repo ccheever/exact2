@@ -621,7 +621,7 @@ mod tests {
       column id="photo" width="100%" height="100%" box-sizing="border-box" border-width=0 padding=0
         column testId="handle" transformDragFor="photo" transformgeometry=geometry transformrelease=finish
 "#;
-        crate::link::link_motion();
+        crate::link::link_for_tests();
         let (mut host, _) = Host::boot(
             &contract::compile(source).unwrap().encode(),
             NoData,

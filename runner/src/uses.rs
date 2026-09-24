@@ -24,17 +24,25 @@ pub enum Capability {
     /// gestures that hold a value (a swipe, a height, transform or reorder
     /// drag). CSS plays every other transition.
     Motion,
+    /// Lists the host windows: a `virtualized` list, or one with row heights,
+    /// or a handler for a list's edges.
+    Collections,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 2] = [Capability::Markdown, Capability::Motion];
+    pub const ALL: [Capability; 3] = [
+        Capability::Markdown,
+        Capability::Motion,
+        Capability::Collections,
+    ];
 
     /// The name an entry, a refusal and a report use.
     pub const fn name(self) -> &'static str {
         match self {
             Capability::Markdown => "markdown",
             Capability::Motion => "motion",
+            Capability::Collections => "collections",
         }
     }
 
@@ -105,6 +113,14 @@ pub fn uses(plan: &Plan) -> Uses {
                 Some(PropId::HeightDragFor | PropId::TransformDragFor | PropId::ReorderFor) => {
                     uses = uses.with(Capability::Motion);
                 }
+                Some(PropId::Virtualized)
+                    if constant_bool(plan.code(binding.expr)).is_none_or(|on| on) =>
+                {
+                    uses = uses.with(Capability::Collections);
+                }
+                Some(PropId::ItemHeight | PropId::EstimatedItemHeight) => {
+                    uses = uses.with(Capability::Collections);
+                }
                 _ => {}
             },
             BindingKind::Style => {
@@ -128,7 +144,25 @@ pub fn uses(plan: &Plan) -> Uses {
     }) {
         uses = uses.with(Capability::Motion);
     }
+    if plan
+        .handlers
+        .iter()
+        .any(|h| matches!(h.event, EventKind::Reachstart | EventKind::Reachend))
+    {
+        uses = uses.with(Capability::Collections);
+    }
     uses
+}
+
+/// The boolean a binding always evaluates to, when its code is one constant:
+/// `Bool`, then `Return`.
+fn constant_bool(code: &[u8]) -> Option<bool> {
+    match code {
+        [op, value, ret] if *op == Opcode::Bool as u8 && *ret == Opcode::Return as u8 => {
+            Some(*value != 0)
+        }
+        _ => None,
+    }
 }
 
 /// The string a binding always evaluates to, when its code is one constant:
