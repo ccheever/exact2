@@ -10,7 +10,7 @@
 // The agent carrier is not here and never binds the LAN.
 //
 // One Rust process (the app's `dev` bin, exact_web::dev) watches the source
-// and writes each baked plan to dist/app.plan; this script serves dist/
+// and writes each baked plan to a private session; this script serves dist/
 // (index.html with dev.js added), pushes each ready plan to the page over
 // server-sent events, and prints edit → present against the budget row
 // "Dev restart, request to present: 100ms p50" (rules/RULES.md).
@@ -30,7 +30,7 @@ import { createServer } from 'node:http';
 import { canonicalBytes, classifyArtifacts, cohortReceipt } from '../../scripts/deploy.mjs';
 import { filesystem } from '../../scripts/filesystem.mjs';
 import { developmentGate, developmentInstallPage, installBrowserOrigins, installNetworkPage, localInstallURL, INSTALL_FILES, LOCAL_IOS_INSTALL_ENDPOINT } from '../../scripts/install-page.mjs';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, unwatchFile, watch, watchFile } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, unwatchFile, watch, watchFile, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { rustPackage, rustOutput, rustInputs, rustCards } from '../../scripts/rust.mjs';
 import { shaderWatchRoots, rustPolicy, rebuildPolicy } from '../../scripts/app.mjs';
@@ -65,9 +65,31 @@ const scratch = resolve(app.target, 'dev-plans');
 mkdirSync(scratch, {recursive:true});
 const planDirectory = mkdtempSync(resolve(scratch, 'session-'));
 const plan = resolve(planDirectory, 'app.plan');
-process.once('exit', () => rmSync(planDirectory, {recursive:true, force:true}));
 const graphPath = resolve(dist, 'bake.json');
-buildEnv.EXACT_DEV_BAKE = graphPath;
+const liveGraphPath = resolve(planDirectory, 'bake.json');
+buildEnv.EXACT_DEV_BAKE = liveGraphPath;
+let earlyCompiler = null;
+process.once('exit', () => {
+  if (earlyCompiler) { try { process.kill(-earlyCompiler.child.pid, 'SIGKILL'); } catch {} }
+  rmSync(planDirectory, {recursive:true, force:true});
+});
+function spawnContractCompiler() {
+  writeFileSync(liveGraphPath, readFileSync(graphPath));
+  const metadata = spawnSync('cargo', ['metadata',...cargoReproducibilityFlags(app),'--no-deps','--format-version','1'], {cwd:app.workspace,env:buildEnv,encoding:'utf8'});
+  if (metadata.status !== 0) throw new Error(`cargo metadata failed: ${metadata.stderr || metadata.error || metadata.status}`);
+  const bin = cargoDefaultBinary(JSON.parse(metadata.stdout).packages.find(p=>p.name===app.crate('web')));
+  const child = spawn('cargo', ['run', '-q', ...cargoReproducibilityFlags(app), '--release', '-p', bin ? app.crate('web') : 'exact-web', '--bin', bin ?? 'exact-dev', '--', source, plan], { cwd: bin ? app.workspace : root, env: buildEnv, stdio: ['ignore', 'pipe', 'inherit'], detached: true });
+  // Keep early output buffered until the complete web package is validated.
+  const result = {child, error:null};
+  child.stdout.pause();
+  child.on('error', error => { result.error = error; });
+  return result;
+}
+if (!typescript && !portableRust && existsSync(graphPath)) {
+  // Speculation only writes this session's files. A stale web package discards
+  // the process before rebuilding; no speculative generation reaches a client.
+  earlyCompiler = spawnContractCompiler();
+}
 async function currentWebBuild() {
   if (!await builtAppMatches(dist, app)) return false;
   try {
@@ -80,6 +102,14 @@ async function currentWebBuild() {
   } catch { return false; }
 }
 if (!await currentWebBuild()) {
+  if (earlyCompiler) {
+    const child = earlyCompiler.child; earlyCompiler = null;
+    if (child.pid && child.exitCode === null && child.signalCode === null) {
+      const exited = new Promise(ok => child.once('exit', ok));
+      try { process.kill(-child.pid, 'SIGKILL'); } catch {}
+      await exited;
+    }
+  }
   mkdirSync(resolve(dist, '..'), {recursive:true});
   const b = spawnSync(process.execPath, [resolve(root, 'host/web/build.mjs'), app.crate('web')], { cwd: root, env:buildEnv, stdio: 'inherit' });
   if (b.status !== 0) process.exit(b.status ?? 1);
@@ -366,10 +396,9 @@ function startCompiler() {
   if (portableRust) startRustCompiler();
   if (typescript) { startModuleCompiler(); return; }
   if (portableRust) return;
-  const metadata = spawnSync('cargo', ['metadata',...cargoReproducibilityFlags(app),'--no-deps','--format-version','1'], {cwd:app.workspace,env:buildEnv,encoding:'utf8'});
-  if (metadata.status !== 0) throw new Error(`cargo metadata failed: ${metadata.stderr || metadata.error || metadata.status}`);
-  const bin = cargoDefaultBinary(JSON.parse(metadata.stdout).packages.find(p=>p.name===app.crate('web')));
-  dev = spawn('cargo', ['run', '-q', ...cargoReproducibilityFlags(app), '--release', '-p', bin ? app.crate('web') : 'exact-web', '--bin', bin ?? 'exact-dev', '--', source, plan], { cwd: bin ? app.workspace : root, env: buildEnv, stdio: ['ignore', 'pipe', 'inherit'], detached: true });
+  const started = earlyCompiler ?? spawnContractCompiler(); earlyCompiler = null;
+  if (started.error) throw started.error;
+  dev = started.child;
   const me = dev;
   console.log(`compiler pid ${dev.pid}`);
   let buffered = '';
@@ -402,6 +431,9 @@ function startCompiler() {
     }
   });
   dev.on('exit', (code) => { if (dev === me) { console.error(`dev compiler exited ${code}`); killCompiler(); process.exit(code ?? 1); } });
+  dev.on('error', error => { if (dev === me) { console.error(error.message); killCompiler(); process.exit(1); } });
+  if (dev.exitCode !== null || dev.signalCode !== null) throw new Error(`dev compiler exited before web validation (${dev.exitCode ?? dev.signalCode})`);
+  dev.stdout.resume();
 }
 // Direct file watchers avoid recursive-directory event coalescing on macOS.
 // The directory watcher discovers new paths; file metadata suppresses its
@@ -787,7 +819,7 @@ refreshNativePending();
 let previousWeb=cohortReceipt(JSON.parse(readFileSync(graphPath,'utf8')));
 function classifyGeneration(planBytes, assets) {
   if (currentModule || currentRust) return ['plan/module/assets: development candidate; each client verifies its admitted module identity and grants (not signed deployment classification)'];
-  const web=JSON.parse(readFileSync(graphPath,'utf8'));
+  const web=JSON.parse(readFileSync(liveGraphPath,'utf8'));
   const candidate=developmentCandidate(web,{sha256:createHash('sha256').update(planBytes).digest('hex'),bytes:planBytes.length},assets,shaderDigests);
   const lines=[];
   for(const platform of ['web','macos','ios','linux']) {

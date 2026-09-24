@@ -106,11 +106,12 @@ function executable() {
     try {
       const receipt = JSON.parse(readFileSync(receiptPath,'utf8'));
       if (receipt.version === 3) { previous = receipt; before = toolSignature(receipt.trees, env, receipt.names); }
-      if (receipt.version === 3 && /^[a-f0-9]{64}$/.test(receipt.digest)
-        && receipt.signature && before?.signature === receipt.signature) {
-        const captured = resolve(directory, `exact-filesystem-${receipt.digest}`);
+      const capture = receipt.version === 3 && before && [receipt, ...(receipt.captures ?? [])]
+        .find(capture => capture.signature && capture.signature === before.signature && /^[a-f0-9]{64}$/.test(capture.digest));
+      if (capture) {
+        const captured = resolve(directory, `exact-filesystem-${capture.digest}`);
         damaged = true;
-        if (createHash('sha256').update(readFileSync(captured)).digest('hex') === receipt.digest) return binary = captured;
+        if (createHash('sha256').update(readFileSync(captured)).digest('hex') === capture.digest) return binary = captured;
       }
     } catch { /* A missing, damaged or unsupported capture goes through Cargo. */ }
   };
@@ -165,13 +166,23 @@ function executable() {
       const inputs = toolInputs(built.stdout.trim().split('\n').filter(Boolean).map(line => JSON.parse(line)), directory);
       if (inputs) {
         const after = toolSignature(inputs.trees, env, inputs.names);
+        // Unsupported custom configurations must use Cargo, but need not evict
+        // captures whose complete source/configuration identity we can verify.
+        if (!after) return captured;
         // A new closure is only a seed. Its next Cargo build must observe the
         // same complete inputs before and after compilation before reuse begins.
         const signature = before && before.signature === after?.signature
           && JSON.stringify(inputs) === JSON.stringify({trees:previous.trees,names:previous.names}) ? after.signature : null;
+        // Build scripts and interactive tools have different Cargo environments.
+        // Keep a bounded set for this exact source closure, so alternating
+        // callers do not turn every launch into another Cargo invocation.
+        const captures = previous?.source === after.source
+          && JSON.stringify(inputs) === JSON.stringify({trees:previous.trees,names:previous.names})
+          ? [previous, ...(previous.captures ?? [])].filter(c => c.signature && c.signature !== signature)
+            .slice(0, 7).map(({signature,digest}) => ({signature,digest})) : [];
         const temporary = `${receiptPath}.${owner}.tmp`;
         try {
-          writeFileSync(temporary, JSON.stringify({version:3,...inputs,source:after?.source,signature,rebuild:!signature,digest}));
+          writeFileSync(temporary, JSON.stringify({version:3,...inputs,source:after.source,signature,rebuild:!signature,digest,captures}));
           renameSync(temporary, receiptPath);
         } finally { rmSync(temporary, {force:true}); }
       }

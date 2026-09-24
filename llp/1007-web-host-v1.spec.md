@@ -447,8 +447,12 @@ with `default-run` because it also has a metrics binary; single-binary packages,
 including external apps, use Cargo’s ordinary default selection.
 The dev server keeps completed web output under `target/dev-web/<source>/<app-id>`
 (`EXACT_WEB_DIST` overrides it), so another app's build cannot evict it. Each
-resident compiler writes its live plan in a private `target/dev-plans/` session;
-it never changes the completed package's plan or completion marker. A Contract
+resident compiler writes its live plan and candidate bake receipt in a private
+`target/dev-plans/` session; it never changes the completed package's plan,
+bake receipt or completion marker. With an existing package, Cargo validates
+and starts the Contract compiler alongside web-package validation. Output stays
+buffered until validation completes. A stale package discards that speculative
+process before rebuilding; no speculative generation is published. A Contract
 edit while stopped is compiled by that same producer on restart, without a Wasm
 rebuild. Other changed build inputs still require the normal build. Native
 classification shares source hashes only within a synchronous scan, never across

@@ -285,13 +285,16 @@ printf '%s\n' '${artifact}'
     assert.equal(read(),'other'); assert.equal(builds(),warm+1,'same-size source edits must rebuild');
     assert.equal(read(),'other'); assert.equal(builds(),warm+1,'the rebuilt capture is warm');
     read({HELPER_VALUE:'changed'}); assert.equal(builds(),warm+2,'build-script environment must invalidate');
-    read(); assert.equal(builds(),warm+3);
-    writeFileSync(join(dir,'Cargo.lock'),'changed lock');read(); assert.equal(builds(),warm+4);
+    read(); read({HELPER_VALUE:'changed'}); read();
+    assert.equal(builds(),warm+2,'alternating verified environments retain both captures');
+    writeFileSync(join(dir,'Cargo.lock'),'changed lock');read(); assert.equal(builds(),warm+3);
     const receipt=JSON.parse(readFileSync(join(dir,'target/exact-filesystem-tool/captured.json'),'utf8'));
     writeFileSync(join(dir,'target/exact-filesystem-tool',`exact-filesystem-${receipt.digest}`),'corrupt');
-    assert.equal(read(),'other'); assert.equal(builds(),warm+5,'damaged captured bytes must be repaired');
+    assert.equal(read(),'other'); assert.equal(builds(),warm+4,'damaged captured bytes must be repaired');
     mkdirSync(join(dir,'.cargo'));writeFileSync(join(dir,'.cargo/config.toml'),'[build]\njobs=1\n');
-    read();read();assert.equal(builds(),warm+7,'custom Cargo configurations use Cargo on every launch');
+    read();read();assert.equal(builds(),warm+6,'custom Cargo configurations use Cargo on every launch');
+    rmSync(join(dir,'.cargo'),{recursive:true});read();
+    assert.equal(builds(),warm+6,'an unsupported configuration does not evict a verified capture');
   } finally {rmSync(dir,{recursive:true,force:true});}
 }, 60000);
 
