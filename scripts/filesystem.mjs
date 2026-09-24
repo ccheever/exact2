@@ -1,7 +1,8 @@
 // Tooling-only bridge to directory-owned operations. @ref LLP 1030.002.
 import { spawn, spawnSync } from 'node:child_process';
+import { dlopen, FFIType } from 'bun:ffi';
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -119,24 +120,27 @@ function executable() {
   // Cargo protects compilation, but releases its lock before we can exec.
   // Another profile can replace its public binary in that gap. Hold this
   // bootstrap claim through capture, then execute immutable captured bytes.
-  // This is not the helper's stream lock; stale build claims are never stolen.
+  // Bootstrap cannot depend on the helper it builds. The OS releases this
+  // descriptor lock even on SIGKILL; keep the inode instead of unlinking it.
   mkdirSync(directory, { recursive: true });
-  const claim = resolve(directory, '.bootstrap.lock'), owner = `${process.pid}:${randomBytes(12).toString('hex')}`;
+  const owner = `${process.pid}:${randomBytes(12).toString('hex')}`;
+  const library = dlopen(process.platform === 'darwin' ? '/usr/lib/libSystem.B.dylib' : 'libc.so.6',
+    {flock:{args:[FFIType.i32,FFIType.i32],returns:FFIType.i32}});
+  const descriptor = openSync(resolve(directory, '.bootstrap.flock'), 'a+', 0o600);
   const started = Date.now(), wait = new Int32Array(new SharedArrayBuffer(4));
-  for (;;) {
-    try { writeFileSync(claim, owner, { flag: 'wx' }); break; }
-    catch (error) {
-      if (error.code !== 'EEXIST') throw error;
-      if (Date.now() - started >= 60000) throw new Error(`filesystem helper build busy (${claim}); remove a stale claim only after verifying its owner has exited`);
+  try {
+    while (library.symbols.flock(descriptor, 2 | 4) !== 0) {
+      if (Date.now() - started >= 60000) throw new Error(`filesystem helper build busy (${directory})`);
       Atomics.wait(wait, 0, 0, 25);
     }
-  }
+  } catch (error) { closeSync(descriptor); library.close(); throw error; }
   let held = true;
   const release = () => {
     if (!held) return;
     held = false;
     process.removeListener('exit', release);
-    if (existsSync(claim) && readFileSync(claim, 'utf8') === owner) rmSync(claim);
+    closeSync(descriptor);
+    library.close();
   };
   process.once('exit', release);
   try {

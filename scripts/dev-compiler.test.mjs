@@ -30,7 +30,7 @@ test('native compiler captures validate real Cargo sources, declared inputs, env
       std::fs::write(std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("values.rs"),text).unwrap();
     }`);
     const cargo = Bun.which('cargo'); assert.ok(cargo);
-    writeFileSync(resolve(bin, 'cargo'), `#!/bin/sh\nif [ "$1" = build ]; then\n  printf x >> ${quote(count)}\n  if [ -n "$COMPILER_TEST_STALL" ]; then printf ready > "$COMPILER_TEST_STALL"; sleep 30; fi\nfi\nexec ${quote(cargo)} "$@"\n`, {mode:0o755});
+    writeFileSync(resolve(bin, 'cargo'), `#!/bin/sh\nif [ "$1" = build ]; then\n  printf x >> ${quote(count)}\n  case "$*" in\n    *"--bin fixture-web"*) kind=native ;;\n    *) kind=bootstrap ;;\n  esac\n  if [ -n "$COMPILER_TEST_STALL" ] && [ "$COMPILER_TEST_STALL_KIND" = "$kind" ]; then printf ready > "$COMPILER_TEST_STALL"; sleep 30; fi\nfi\nexec ${quote(cargo)} "$@"\n`, {mode:0o755});
     const env = {...process.env, PATH:bin + ':' + process.env.PATH, COMPILER_FIXTURE_VALUE:'one'};
     const request = {workspace, target, package:'fixture-web'};
     const builds = () => readFileSync(count, 'utf8').length;
@@ -58,15 +58,17 @@ test('native compiler captures validate real Cargo sources, declared inputs, env
     assert.equal(fallback.command, 'cargo'); assert.ok(fallback.args.includes('run'), 'custom configurations remain Cargo-owned');
     rmSync(resolve(workspace, '.cargo'), {recursive:true});
     writeFileSync(support, 'pub fn value() -> &\'static str { "again!" }');
-    const marker = resolve(dir, 'building');
-    const child = spawn(process.execPath, [new URL('./dev-compiler.mjs', import.meta.url).pathname, JSON.stringify(request)],
-      {cwd:workspace, env:{...env, COMPILER_TEST_STALL:marker}, detached:true, stdio:'ignore'});
-    const closed = new Promise((ok, fail) => { child.once('error', fail); child.once('close', ok); });
-    try {
-      const deadline = Date.now() + 20000;
-      while (!existsSync(marker) && Date.now() < deadline && child.exitCode === null) await new Promise(ok => setTimeout(ok, 20));
-      assert.ok(existsSync(marker), 'the compiler acquired its build lock before cancellation');
-    } finally { try { process.kill(-child.pid, 'SIGKILL'); } catch {} await closed; }
+    for (const kind of ['bootstrap', 'native']) {
+      const marker = resolve(dir, 'building-' + kind);
+      const child = spawn(process.execPath, [new URL('./dev-compiler.mjs', import.meta.url).pathname, JSON.stringify(request)],
+        {cwd:workspace, env:{...env, COMPILER_TEST_STALL:marker, COMPILER_TEST_STALL_KIND:kind}, detached:true, stdio:'ignore'});
+      const closed = new Promise((ok, fail) => { child.once('error', fail); child.once('close', ok); });
+      try {
+        const deadline = Date.now() + 20000;
+        while (!existsSync(marker) && Date.now() < deadline && child.exitCode === null) await new Promise(ok => setTimeout(ok, 20));
+        assert.ok(existsSync(marker), `${kind} acquired its build lock before cancellation`);
+      } finally { try { process.kill(-child.pid, 'SIGKILL'); } catch {} await closed; }
+    }
     assert.equal((await run({COMPILER_FIXTURE_VALUE:'two'})).text, 'again!-other-two-added', 'SIGKILL releases build ownership for the next launch');
   } finally { rmSync(dir, {recursive:true, force:true}); }
 }, 120000);
