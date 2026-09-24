@@ -222,7 +222,7 @@ component App
 }
 
 #[test]
-#[ignore = "build a pure Rust web dist; set EXACT_COLLECTION_DIST and CHROME"]
+#[ignore = "build a pure Rust web dist with EXACT_WEB_LINK=all; set EXACT_COLLECTION_DIST and CHROME"]
 fn real_browser_collection_feedback_and_navigation() {
     use std::{path::Path, process::Command};
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -249,7 +249,7 @@ fn real_browser_collection_feedback_and_navigation() {
 }
 
 #[test]
-#[ignore = "build a pure Rust web dist; set EXACT_COLLECTION_DIST and CHROME"]
+#[ignore = "build a pure Rust web dist with EXACT_WEB_LINK=all; set EXACT_COLLECTION_DIST and CHROME"]
 fn real_browser_bidirectional_edges_and_state_only_deferral_become_idle() {
     use std::{path::Path, process::Command};
     let source = r#"shape Row

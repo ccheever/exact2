@@ -959,12 +959,6 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow_mut().collection_feedback(len as usize))
         }
 
-        /// Input-driven presentation ownership, with exact u64 token bytes.
-        #[no_mangle]
-        pub extern "C" fn exact_motion(len: u32) -> u32 {
-            EXACT_BRIDGE.with(|b| b.borrow_mut().motion(len as usize))
-        }
-
         /// Advance the runner clock.
         #[no_mangle]
         pub extern "C" fn exact_advance(now_ms: f64) -> u32 {
@@ -982,6 +976,20 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_log(len: u32) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().log(len as usize))
+        }
+    };
+}
+
+/// Motion's export group (LLP 1047 D3), beside [`host!`]: the generated entry
+/// invokes it when the plan uses motion, and the glue calls it only for a
+/// hold the plan's gestures begin.
+#[macro_export]
+macro_rules! motion_exports {
+    () => {
+        /// Input-driven presentation ownership, with exact u64 token bytes.
+        #[no_mangle]
+        pub extern "C" fn exact_motion(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().motion(len as usize))
         }
     };
 }

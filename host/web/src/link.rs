@@ -19,17 +19,26 @@ use std::cell::Cell;
 pub struct Linked {
     /// Markdown: a source as the batch's `markupPieces` JSON.
     pub markup: Option<fn(&str) -> String>,
+    /// Motion: the spring engine a host holds instead of
+    /// [`crate::motion::Still`].
+    pub motion: Option<fn() -> Box<dyn crate::motion::Motion>>,
 }
 
 impl Linked {
     /// The core alone.
-    pub const CORE: Linked = Linked { markup: None };
+    pub const CORE: Linked = Linked {
+        markup: None,
+        motion: None,
+    };
 
     /// The capabilities registered here.
     pub fn uses(&self) -> Uses {
         let mut uses = Uses::NONE;
         if self.markup.is_some() {
             uses = uses.with(Capability::Markdown);
+        }
+        if self.motion.is_some() {
+            uses = uses.with(Capability::Motion);
         }
         uses
     }
@@ -49,6 +58,16 @@ pub fn link(linked: Linked) {
 /// What this artifact links; the core alone until an entry registers.
 pub fn linked() -> Linked {
     LINKED.with(Cell::get)
+}
+
+/// Link the spring engine on this test's thread, as an entry whose plan
+/// uses motion does.
+#[cfg(test)]
+pub(crate) fn link_motion() {
+    link(Linked {
+        motion: Some(crate::motion::springs),
+        ..linked()
+    });
 }
 
 /// Admit a plan only if this artifact links everything it uses (D6).

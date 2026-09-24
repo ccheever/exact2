@@ -7,7 +7,7 @@ import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { serveStatic } from '../serve.mjs';
 const dir=process.env.EXACT_MOTION_TEST,dist=resolve(dir,'dist');
-assert(process.env.EXACT_MOTION_DIST,'set EXACT_MOTION_DIST to a current pure Rust web dist');
+assert(process.env.EXACT_MOTION_DIST,'set EXACT_MOTION_DIST to a current pure Rust web dist built with EXACT_WEB_LINK=all');
 cpSync(process.env.EXACT_MOTION_DIST,dist,{recursive:true});
 for(const name of ['glue.js','navigation.js'])cpSync('host/web/'+name,dist+'/'+name);
 function fixture(plan) {

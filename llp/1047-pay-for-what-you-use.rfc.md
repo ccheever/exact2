@@ -561,6 +561,28 @@ size: check `git log` for these lanes and say which items you are taking.
   one 11-byte closure, `|p| !p.is_empty()`. LLVM merged it with core's
   identical `SplitWhitespace` filter and kept Markdown's name for it.
 
+**Stage 3, 2026-09-24: motion.**
+- **The seam.** The host holds a `dyn Motion`, which is `Still` (no springs,
+  no holds) unless the entry registers `exact_web::motion::springs`.
+  - The engine's code stays in `exact-web`, where its unit tests drive
+    holds. Only the registration in `exact-web-capabilities` names it.
+- **The use-set.** Motion is:
+  - a `transition` that can be a `spring()`;
+  - a `swiperight`, height, transform or reorder drag handler;
+  - a drag prop.
+
+  CSS plays every other transition.
+- **The export group.** `exact_motion` is now `motion_exports!`, which the
+  entry invokes only when the plan uses motion.
+- **The smoke.** `smoke.mjs web` runs its bare-plan host fixtures, which
+  exercise every capability, on a second build with `EXACT_WEB_LINK=all`.
+  The app and its tests stay on its production build.
+- **Bytes, raw and brotli-11.** Linking motion by use drops about 116 KiB of
+  code: the engine, plus the drag code that only the export reached.
+  - RealWorld: 1,339,522 → 1,220,278 raw; 391,840 → 359,781 brotli.
+  - Video player: 1,167,590 → 1,048,333 raw; 347,265 → 315,748 brotli.
+  - Caltrain: 1,227,534 → 1,108,290 raw; 359,245 → 327,940 brotli.
+
 ### As built: activation, boot and the press path (the activation lane)
 
 **The bench, reproduced at `98d5f996`** (RealWorld served, mobile profile, nine

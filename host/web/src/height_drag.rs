@@ -167,7 +167,7 @@ impl<D: DataSource> Host<D> {
                 let _ = self.springs.end_hold(
                     active.token.serial(),
                     HoldEnd::Cancel,
-                    self.springs.engine().now(),
+                    self.springs.now(),
                 );
                 self.height_drags.active = None;
             }
@@ -265,6 +265,7 @@ mod tests {
       column testId="handle" heightDragFor="sheet" heightrelease=snap
       text `${count}` testId="other" transition="scale spring(180, 12, 1)"
 "#;
+        crate::link::link_motion();
         let (mut host, _) = Host::boot(
             &contract::compile(source).unwrap().encode(),
             NoData,

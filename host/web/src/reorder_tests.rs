@@ -27,6 +27,7 @@ const SOURCE: &str = r#"component App
             text x
 "#;
 fn fixture() -> (Host<Rows>, ReorderBinding) {
+    crate::link::link_motion();
     let (mut h, _) = Host::boot(
         &contract::compile(SOURCE).unwrap().encode(),
         Rows,
@@ -136,7 +137,7 @@ fn wire_stale_runtime_precedes_bad_clock_and_replacement_cannot_finish() {
     let mut old = packet(&h, b, 16, f64::NAN, f64::NAN);
     old[8..16].copy_from_slice(&0u64.to_le_bytes());
     assert_eq!(h.reorder_motion(&old), stale());
-    assert_eq!(h.springs.engine().now(), 0.1);
+    assert_eq!(h.springs.now(), 0.1);
     let p = packet(&h, b, 18, 110., 0.);
     accepted(&h.reorder_motion(&p));
     let p = packet(&h, b, 19, 110., 0.);
@@ -172,12 +173,12 @@ fn needs_measurement_final_sample_never_drops_previous_certified_gap() {
 fn malformed_last_wrapper_cannot_update_first_hold_or_dispatch() {
     let (mut h, b) = fixture();
     begin(&mut h, b);
-    let before = h.springs.engine().now();
+    let before = h.springs.now();
     let mut p = packet(&h, b, 17, 200., 50.);
     let len = p.len();
     p[len - 8..].copy_from_slice(&f64::NAN.to_le_bytes());
     assert!(h.reorder_motion(&p).contains("error"));
-    assert_eq!(h.springs.engine().now(), before);
+    assert_eq!(h.springs.now(), before);
     assert_eq!(h.runner.slot("count"), Some(&DataValue::Number(0.)));
     assert!(h
         .runner
@@ -235,10 +236,10 @@ fn refused_missing_source_pin_does_not_advance_clock_or_take_property() {
     };
     h.collection_feedback(&f.encode().unwrap());
     assert_eq!(h.runner.reorder_binding(b.handle), Some(b));
-    let clock = h.springs.engine().now();
+    let clock = h.springs.now();
     let p = packet(&h, b, 15, 200., 25.);
     assert!(h.reorder_motion(&p).contains("\"accepted\":false"));
-    assert_eq!(h.springs.engine().now(), clock);
+    assert_eq!(h.springs.now(), clock);
     assert!(h.reorder_drags.active.is_none());
 }
 #[test]
@@ -327,6 +328,7 @@ fn disabled_handle_receipt_enters_no_action_terminal_and_can_cleanup() {
 #[test]
 fn abi_kind18_uses_common_binary_codec_and_refuses_before_clock() {
     let mut bridge = crate::abi::Bridge::new();
+    crate::link::link_motion();
     let n = bridge.boot(
         &contract::compile(SOURCE).unwrap().encode(),
         Rows,

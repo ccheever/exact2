@@ -46,6 +46,7 @@ const SOURCE: &str = r#"component App
         text "Automatic"
 "#;
 fn boot() -> Host<NoData> {
+    exact_web::link(exact_web_capabilities::ALL);
     Host::boot(
         &contract::compile(SOURCE).unwrap().encode(),
         NoData,
@@ -251,6 +252,7 @@ fn registration_and_height_hold_use_the_existing_lossless_binary_bridge() {
     let host = boot();
     let panel = id(&host, "panel");
     let mut bridge = Bridge::new();
+    exact_web::link(exact_web_capabilities::ALL);
     bridge.boot(&plan, NoData, 400.0, 800.0, "/");
     let request = |bridge: &mut Bridge<NoData>, op: u32, view: u32, prop: u32, serial: u64| {
         let mut bytes = Vec::new();
@@ -353,6 +355,7 @@ fn closing_spring_retains_negative_lobe_rebound_and_all_sample_times_for_dom_cla
     let source = SOURCE
         .replace("extent = 180", "extent = 20")
         .replace("extent = 240", "extent = 0");
+    exact_web::link(exact_web_capabilities::ALL);
     let mut host = Host::boot(
         &contract::compile(&source).unwrap().encode(),
         NoData,

@@ -23,6 +23,29 @@ fn markdown_is_a_markup_prop_that_can_be_markdown() {
 }
 
 #[test]
+fn motion_is_a_spring_or_a_gesture_that_holds_a_value() {
+    let css =
+        used("component A\n  view\n    text \"a\" opacity=0.5 transition=\"opacity 200ms ease\"\n");
+    assert_eq!(css, Uses::NONE, "CSS plays an easing transition");
+    let spring = used(
+        "component A\n  view\n    text \"a\" scale=1.5 transition=\"scale spring(180, 12, 1)\"\n",
+    );
+    assert!(spring.has(Capability::Motion));
+    let swipe = used(
+        "component A\n  state n = 0\n  action swipe writes n\n    n = n + 1\n  view\n    text \"a\" swiperight=swipe\n",
+    );
+    assert!(swipe.has(Capability::Motion));
+    let drag = used(
+        "component A\n  view\n    column id=\"sheet\" height=100\n      column heightDragFor=\"sheet\"\n",
+    );
+    assert!(drag.has(Capability::Motion));
+    assert_eq!(
+        spring.with(Capability::Markdown).to_string(),
+        "markdown, motion"
+    );
+}
+
+#[test]
 fn a_set_names_what_it_holds_beyond_another() {
     let markdown = Uses::NONE.with(Capability::Markdown);
     assert!(markdown.beyond(markdown).is_empty());

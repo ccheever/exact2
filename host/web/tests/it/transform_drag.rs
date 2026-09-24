@@ -128,6 +128,7 @@ fn boot_trapping(source: &str) -> (Host<NoData>, Packet, String) {
     boot_plan(&plan.encode())
 }
 fn boot_plan(plan: &[u8]) -> (Host<NoData>, Packet, String) {
+    exact_web::link(exact_web_capabilities::ALL);
     let (host, batch) = Host::boot(plan, NoData, Default::default(), "/").unwrap();
     let binding = batch
         .split("\"op\":\"transform-drag\"")
@@ -591,6 +592,7 @@ fn release_action_can_destroy_both_holds_and_late_cleanup_is_inert() {
 #[test]
 fn wasm_bridge_preserves_runtime_keys_sequence_and_rejects_wrong_packet_length() {
     let mut bridge = Bridge::new();
+    exact_web::link(exact_web_capabilities::ALL);
     let n = bridge.boot(
         &contract::compile(SOURCE).unwrap().encode(),
         NoData,
@@ -641,6 +643,7 @@ fn wasm_bridge_preserves_runtime_keys_sequence_and_rejects_wrong_packet_length()
 fn each_missing_handler_refuses_publication_geometry_and_pair_admission() {
     for missing in [" transformgeometry=geometry", " transformrelease=finish"] {
         let source = SOURCE.replace(missing, "");
+        exact_web::link(exact_web_capabilities::ALL);
         let (mut host, batch) = Host::boot(
             &contract::compile(&source).unwrap().encode(),
             NoData,

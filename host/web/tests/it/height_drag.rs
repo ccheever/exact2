@@ -62,6 +62,7 @@ const SOURCE: &str = r#"component App
 "#;
 
 fn boot_source(source: &str) -> (Host<NoData>, String) {
+    exact_web::link(exact_web_capabilities::ALL);
     Host::boot(
         &contract::compile(source).unwrap().encode(),
         NoData,
@@ -478,6 +479,7 @@ fn binary_height_ops_preserve_key_bits_target_identity_and_once_only_action() {
     let view = id(&host, "handle");
     let handle = motion_node(key(&host, "handle"));
     let mut bridge = Bridge::new();
+    exact_web::link(exact_web_capabilities::ALL);
     bridge.boot(
         &contract::compile(SOURCE).unwrap().encode(),
         NoData,
@@ -515,6 +517,7 @@ fn synthesized_kind15_parses_finite_pair_before_clock_and_remains_separate_from_
     let (host, _) = boot();
     let handle = id(&host, "handle");
     let mut bridge = Bridge::new();
+    exact_web::link(exact_web_capabilities::ALL);
     bridge.boot(
         &contract::compile(SOURCE).unwrap().encode(),
         NoData,

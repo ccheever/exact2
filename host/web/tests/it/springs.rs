@@ -21,6 +21,7 @@ fn boot() -> (Host<NoData>, String) {
     ))
     .unwrap();
     let plan = contract::compile(&src).unwrap();
+    exact_web::link(exact_web_capabilities::ALL);
     Host::boot(&plan.encode(), NoData, Default::default(), "/").unwrap()
 }
 
@@ -208,6 +209,7 @@ fn destroying_animated_virtual_rows_releases_bookkeeping_before_remount_or_reset
               text `${x}` scale=(big ? 1.5 : 1) opacity=(big ? 0.5 : 1) transition="scale spring(180, 12, 1), opacity spring(180, 12, 1)"
 "#;
     let plan = contract::compile(source).unwrap().encode();
+    exact_web::link(exact_web_capabilities::ALL);
     let (mut host, _) = Host::boot(&plan, Rows, Default::default(), "/").unwrap();
     let id = |host: &Host<Rows>, name| {
         let k = host.runner().kernel();
@@ -252,6 +254,7 @@ fn destroying_animated_virtual_rows_releases_bookkeeping_before_remount_or_reset
         previous = Some(key);
     }
     // Reload replaces the Host, including its engine and ownership map.
+    exact_web::link(exact_web_capabilities::ALL);
     let (replacement, first) = Host::boot(&plan, Rows, Default::default(), "/").unwrap();
     assert_eq!(replacement.springs().playing_count(), 0);
     assert!(!first.contains("\"op\":\"animate\""));

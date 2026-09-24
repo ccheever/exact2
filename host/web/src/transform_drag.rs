@@ -274,7 +274,7 @@ impl<D: DataSource> Host<D> {
         } else {
             None
         };
-        input.validate(self.springs.engine().now())?;
+        input.validate(self.springs.now())?;
         if input.op == 10 || input.op == 14 {
             return self.transform_geometry(view, &input, geometry);
         }
@@ -528,11 +528,9 @@ impl<D: DataSource> Host<D> {
         for start in [a.held.translate(), a.held.scale()] {
             // Independent original-token cleanup: a replacement is never
             // ended, and stale packet time cannot be used for cancellation.
-            let _ = self.springs.end_hold(
-                start.token.serial(),
-                HoldEnd::Cancel,
-                self.springs.engine().now(),
-            );
+            let _ =
+                self.springs
+                    .end_hold(start.token.serial(), HoldEnd::Cancel, self.springs.now());
             batch.retire_transform_token(a.target_view, self.transform_drags.runtime, start.token);
         }
     }
@@ -623,6 +621,7 @@ mod tests {
       column id="photo" width="100%" height="100%" box-sizing="border-box" border-width=0 padding=0
         column testId="handle" transformDragFor="photo" transformgeometry=geometry transformrelease=finish
 "#;
+        crate::link::link_motion();
         let (mut host, _) = Host::boot(
             &contract::compile(source).unwrap().encode(),
             NoData,

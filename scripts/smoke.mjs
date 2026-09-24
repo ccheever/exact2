@@ -5,7 +5,9 @@
 // and deck run when its fixture root is present. Not a blocking check (it needs Chrome or
 // a window server): `bun scripts/smoke.mjs <web|macos|ios|linux> [--shot <png>]`
 // --app-only runs the complete selected app drive and its Contract tests,
-// not the unrelated bare-plan host fixtures. ios --device selects a phone.
+// not the unrelated bare-plan host fixtures. On the web those fixtures run on
+// a second build that links every capability (LLP 1047 D7); --app-only skips
+// it too. ios --device selects a phone.
 // after `bun host/web/build.mjs` / `bun host/apple/build.mjs [--ios]` /
 // `cargo build --release -p caltrain-linux`.
 import { spawnSync } from 'node:child_process';
@@ -26,9 +28,13 @@ const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const appName = argv.includes('--app') ? argv[argv.indexOf('--app') + 1] : undefined;
 const app = resolveApp(appName);
 let selectedWebDist = null;
+// Bare-plan host fixtures exercise every capability the host has, so on the
+// web they run on a build that links all of them (LLP 1047 D7); the app and
+// its tests run on its own build, which links only what its plan uses.
+let fixtureWebDist = null;
 const device = argv.includes('--device');
 const phone = argv.includes('--phone') ? argv[argv.indexOf('--phone') + 1] : undefined;
-const open = (options) => openAgent({ device, phone, ...options, app: options.app ?? app.name, webDist: options.webDist ?? selectedWebDist });
+const open = (options) => openAgent({ device, phone, ...options, app: options.app ?? app.name, webDist: options.webDist ?? (options.plan ? fixtureWebDist : null) ?? selectedWebDist });
 const runTests = (options) => runAgentTests({ device, phone, ...options, app: options.app ?? app.name, webDist: options.webDist ?? selectedWebDist });
 
 // 0. The transcript form (LLP 1012 §7): the one text rendering of the
@@ -419,6 +425,11 @@ if (host === 'web') {
   process.on('exit', () => rmSync(webBuild, { recursive: true, force: true }));
   const built = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), app.crate('web')], { cwd: ROOT, stdio: 'inherit', env: { ...process.env, EXACT_WEB_DIST: selectedWebDist } });
   if (built.status !== 0) process.exit(built.status ?? 1);
+  if (!argv.includes('--app-only')) {
+    fixtureWebDist = resolve(webBuild, 'fixtures');
+    const fixtures = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), app.crate('web')], { cwd: ROOT, stdio: 'inherit', env: { ...process.env, EXACT_WEB_DIST: fixtureWebDist, EXACT_WEB_LINK: 'all' } });
+    if (fixtures.status !== 0) process.exit(fixtures.status ?? 1);
+  }
 }
 
 const s = await open({ host });

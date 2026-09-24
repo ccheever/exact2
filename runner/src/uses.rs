@@ -10,8 +10,8 @@
 //! A binding whose value the plan computes counts as a use of whatever it
 //! might select, so the set is never smaller than what a run can reach.
 
-use exact_kernel::PropId;
-use exact_plan::{BindingKind, Opcode, Plan, StrId};
+use exact_kernel::{PropId, StyleId};
+use exact_plan::{BindingKind, EventKind, Opcode, Plan, StrId};
 use std::fmt;
 
 /// A capability beyond the core, linked into an artifact only when its plan
@@ -20,16 +20,21 @@ use std::fmt;
 pub enum Capability {
     /// `markup="markdown"` text: its source styled as pieces.
     Markdown,
+    /// Springs and holds: a `transition` that can be a `spring()`, and the
+    /// gestures that hold a value (a swipe, a height, transform or reorder
+    /// drag). CSS plays every other transition.
+    Motion,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 1] = [Capability::Markdown];
+    pub const ALL: [Capability; 2] = [Capability::Markdown, Capability::Motion];
 
     /// The name an entry, a refusal and a report use.
     pub const fn name(self) -> &'static str {
         match self {
             Capability::Markdown => "markdown",
+            Capability::Motion => "motion",
         }
     }
 
@@ -88,13 +93,40 @@ impl fmt::Display for Uses {
 /// The capabilities `plan` uses (LLP 1047 D2).
 pub fn uses(plan: &Plan) -> Uses {
     let mut uses = Uses::NONE;
+    let can_be = |binding: &exact_plan::BindingsRow, used: &dyn Fn(&str) -> bool| {
+        constant_str(plan, plan.code(binding.expr)).is_none_or(used)
+    };
     for binding in &plan.bindings {
-        if binding.kind == BindingKind::Prop
-            && binding.id == PropId::Markup as u16
-            && constant_str(plan, plan.code(binding.expr)).is_none_or(|v| v == "markdown")
-        {
-            uses = uses.with(Capability::Markdown);
+        match binding.kind {
+            BindingKind::Prop => match PropId::from_wire(binding.id) {
+                Some(PropId::Markup) if can_be(binding, &|v| v == "markdown") => {
+                    uses = uses.with(Capability::Markdown);
+                }
+                Some(PropId::HeightDragFor | PropId::TransformDragFor | PropId::ReorderFor) => {
+                    uses = uses.with(Capability::Motion);
+                }
+                _ => {}
+            },
+            BindingKind::Style => {
+                if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::Transition)
+                    && can_be(binding, &|v| v.contains("spring"))
+                {
+                    uses = uses.with(Capability::Motion);
+                }
+            }
         }
+    }
+    if plan.handlers.iter().any(|h| {
+        matches!(
+            h.event,
+            EventKind::Swiperight
+                | EventKind::Heightrelease
+                | EventKind::Transformgeometry
+                | EventKind::Transformrelease
+                | EventKind::Reorderdrop
+        )
+    }) {
+        uses = uses.with(Capability::Motion);
     }
     uses
 }

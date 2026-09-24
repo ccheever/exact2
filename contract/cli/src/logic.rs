@@ -42,12 +42,20 @@ pub fn rust_entry(data: &str, constructor: &str, mode: &str) -> Result<String, S
 /// restarts from new plans without rebuilding the wasm, so `host/web/dev.mjs`
 /// sets `EXACT_WEB_LINK=all`.
 pub fn web_linked(plan: &exact_plan::Plan) -> String {
+    use exact_runner::{Capability, Uses};
     println!("cargo:rerun-if-env-changed=EXACT_WEB_LINK");
-    let linked = if std::env::var_os("EXACT_WEB_LINK").is_some_and(|v| v == "all") {
-        "::exact_web_capabilities::ALL".to_string()
+    let uses = if std::env::var_os("EXACT_WEB_LINK").is_some_and(|v| v == "all") {
+        Capability::ALL.into_iter().fold(Uses::NONE, Uses::with)
     } else {
-        let names: Vec<&str> = exact_runner::uses(plan).iter().map(|c| c.name()).collect();
-        format!("::exact_web_capabilities::linked!({})", names.join(", "))
+        exact_runner::uses(plan)
     };
-    format!("/// What this artifact links beyond the core (LLP 1047 D3).\nconst EXACT_LINKED: ::exact_web::Linked = {linked};\n")
+    let names: Vec<&str> = uses.iter().map(|c| c.name()).collect();
+    let mut entry = format!("/// What this artifact links beyond the core (LLP 1047 D3).\nconst EXACT_LINKED: ::exact_web::Linked = ::exact_web_capabilities::linked!({});\n", names.join(", "));
+    // A capability's export group, where it has one.
+    for capability in uses.iter() {
+        if capability == Capability::Motion {
+            entry.push_str("::exact_web::motion_exports!();\n");
+        }
+    }
+    entry
 }

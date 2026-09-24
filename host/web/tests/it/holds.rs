@@ -29,6 +29,7 @@ const SOURCE: &str = r##"component App
           text "row"
 "##;
 fn boot() -> Host<NoData> {
+    exact_web::link(exact_web_capabilities::ALL);
     Host::boot(
         &contract::compile(SOURCE).unwrap().encode(),
         NoData,
@@ -170,6 +171,7 @@ fn overdue_timer_retargets_live_hold_without_rewinding_its_clock() {
         "  view\n",
         "  task clock mount\n    every(100, retarget)\n  view\n",
     );
+    exact_web::link(exact_web_capabilities::ALL);
     let (mut host, _) = Host::boot(
         &contract::compile(&source).unwrap().encode(),
         NoData,
@@ -207,7 +209,7 @@ fn overdue_timer_retargets_live_hold_without_rewinding_its_clock() {
 }
 
 #[test]
-#[ignore = "build pure Rust web dist; set EXACT_MOTION_DIST and CHROME"]
+#[ignore = "build a pure Rust web dist with EXACT_WEB_LINK=all; set EXACT_MOTION_DIST and CHROME"]
 fn real_wasm_swipe_takeover_style_commits_and_deletion() {
     let source = r##"component App
   state draft = ""
@@ -292,6 +294,7 @@ fn hold_input_drains_other_advanced_properties_without_animating_the_hold() {
             "scale spring(180, 12, 1)\"",
             "scale spring(180, 12, 1), opacity spring(180, 12, 1)\"",
         );
+    exact_web::link(exact_web_capabilities::ALL);
     let mut host = Host::boot(
         &contract::compile(&source).unwrap().encode(),
         NoData,

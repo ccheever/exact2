@@ -11,7 +11,7 @@
 
 use crate::batch::Batch;
 use crate::css;
-use crate::motion::{Lowered, Springs};
+use crate::motion::{Lowered, Motion, Still};
 use exact_kernel::{CommitReceipt, Kernel, NodeKey, NodeType, PropId, ViewId};
 use exact_motion::{EngineError, HoldEnd, HoldStart, Property, Value as MotionValue};
 use exact_plan::{EventKind, Plan, StackMemberKind, StacksId};
@@ -105,7 +105,8 @@ pub struct Host<D: DataSource> {
     mirror: BTreeMap<ViewId, Mirror>,
     keys: BTreeMap<NodeKey, ViewId>,
     roots: Vec<ViewId>,
-    springs: Springs,
+    /// Springs and holds, or [`Still`] when the artifact doesn't link motion.
+    springs: Box<dyn Motion>,
     height_drags: height_drag::HeightDrags,
     transform_drags: transform_drag::TransformDrags,
     reorder_drags: reorder_drag::ReorderDrags,
@@ -237,7 +238,10 @@ impl<D: DataSource> Host<D> {
             mirror: BTreeMap::new(),
             keys: BTreeMap::new(),
             roots: Vec::new(),
-            springs: Springs::new(),
+            springs: crate::link::linked().motion.map_or_else(
+                || Box::new(Still::default()) as Box<dyn Motion>,
+                |springs| springs(),
+            ),
             height_drags: height_drag::HeightDrags::default(),
             transform_drags: transform_drag::TransformDrags::new()?,
             reorder_drags: reorder_drag::ReorderDrags::new()?,
@@ -399,9 +403,9 @@ impl<D: DataSource> Host<D> {
         self.runner.carry()
     }
 
-    /// The springs' engine: presentation values as the page shows them.
-    pub fn springs(&self) -> &Springs {
-        &self.springs
+    /// Springs and holds: presentation values as the page shows them.
+    pub fn springs(&self) -> &dyn Motion {
+        self.springs.as_ref()
     }
 
     /// Register the one numeric-height trial owner (or clear it). Registration
@@ -442,7 +446,7 @@ impl<D: DataSource> Host<D> {
     /// CSS transitions are the browser's; the glue folds their end times in.
     pub fn agent(&self, request: &str) -> String {
         if exact_runner::agent::field_str(request, "op").as_deref() == Some("settle") {
-            return match self.springs.engine().settle_time() {
+            return match self.springs.settle_time() {
                 Some(t) => format!("{{\"settle\":{}}}", exact_runner::agent::num(t * 1000.0)),
                 None => "{\"settle\":null}".to_string(),
             };
@@ -844,10 +848,7 @@ impl<D: DataSource> Host<D> {
     /// Complete the authored swipe while its translate hold still owns the
     /// live node. An action may destroy that node; its later end is then stale.
     pub fn dispatch_held(&mut self, serial: u64, now_ms: f64) -> Option<String> {
-        if !self.has_hold(serial)
-            || !now_ms.is_finite()
-            || now_ms / 1000.0 < self.springs.engine().now()
-        {
+        if !self.has_hold(serial) || !now_ms.is_finite() || now_ms / 1000.0 < self.springs.now() {
             return None;
         }
         let token = self.springs.token(serial)?;

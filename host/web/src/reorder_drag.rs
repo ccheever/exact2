@@ -213,7 +213,7 @@ impl<D: DataSource> Host<D> {
                 return Ok(stale());
             }
         }
-        i.validate(self.springs.engine().now())?;
+        i.validate(self.springs.now())?;
         if i.op == 15 {
             return self.reorder_begin(&i);
         }
@@ -304,7 +304,7 @@ impl<D: DataSource> Host<D> {
                 {
                     receipts.push(receipt);
                 }
-                let at_ms = self.springs.engine().now() * 1000.;
+                let at_ms = self.springs.now() * 1000.;
                 let receipts: Vec<_> = receipts
                     .into_iter()
                     .map(|receipt| Timed { at_ms, receipt })

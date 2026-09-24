@@ -383,6 +383,7 @@ fn a_transition_authored_in_contract_reaches_the_page_as_css() {
     ))
     .unwrap();
     let plan = contract::compile(&src).unwrap();
+    exact_web::link(exact_web_capabilities::ALL);
     let (mut host, batch) = Host::boot(&plan.encode(), NoData, Default::default(), "/").unwrap();
     assert!(batch.contains("opacity:1;"), "{batch}");
     assert!(

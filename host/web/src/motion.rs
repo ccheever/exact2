@@ -11,6 +11,10 @@
 //! engine takes from the curve it was on (CSS Transitions §3, the same rule
 //! natively). Nothing here runs per frame: the engine is sampled once per
 //! commit and the browser interpolates the frames.
+//!
+//! Motion is a linked capability (LLP 1047 D3): the host holds a
+//! [`Motion`], which is [`Still`] unless the app's entry registered
+//! [`springs`], so an app that uses no spring or hold carries no engine.
 
 use exact_kernel::motion::{motion_node, targets, MotionSync};
 use exact_kernel::{CommitReceipt, Kernel, NodeKey, ViewId};
@@ -55,6 +59,197 @@ pub enum Lowered {
     },
 }
 
+/// Springs and holds: the motion capability's seam (LLP 1047 D3). The host
+/// calls it at every commit and for every hold; [`Still`] answers when the
+/// artifact doesn't link motion, and [`springs`] is the engine an entry
+/// registers when its plan uses it.
+pub trait Motion {
+    /// The engine's clock, seconds.
+    fn now(&self) -> f64;
+    /// When the last spring in flight ends, seconds; `None` when none is.
+    fn settle_time(&self) -> Option<f64>;
+    /// The spring engine, when the artifact links one.
+    fn linked_engine(&self) -> Option<&Engine>;
+    /// Keyframe compilations so far.
+    #[cfg(test)]
+    fn frame_compilations(&self) -> usize;
+    /// Number of property springs retained for the current mounted tree.
+    fn playing_count(&self) -> usize;
+    /// The registered numeric-height owner.
+    fn height_owner(&self) -> Option<(NodeKey, ViewId)>;
+    /// Register the numeric-height owner, or clear it.
+    fn set_height_owner(
+        &mut self,
+        kernel: &Kernel,
+        view: Option<ViewId>,
+    ) -> Result<Vec<Lowered>, &'static str>;
+    /// A live hold's token.
+    fn token(&self, serial: u64) -> Option<HoldToken>;
+    /// Capture a presented value.
+    fn begin_hold(
+        &mut self,
+        kernel: &Kernel,
+        view: ViewId,
+        property: Property,
+        presented: Value,
+        now: f64,
+    ) -> Result<Option<HoldStart>, EngineError>;
+    /// Move a hold.
+    fn update_hold(&mut self, serial: u64, value: Value, now: f64) -> Result<bool, EngineError>;
+    /// Capture a translate and scale pair.
+    fn begin_transform_hold(
+        &mut self,
+        node: u64,
+        values: [Value; 2],
+        now: f64,
+    ) -> Result<Option<TransformHold>, EngineError>;
+    /// Move a translate and scale pair.
+    fn update_transform_hold(
+        &mut self,
+        pair: TransformHold,
+        values: [Value; 2],
+        now: f64,
+    ) -> Result<bool, EngineError>;
+    /// Synchronize, then take a transform target's newest authored values.
+    fn synchronize_transform(&mut self, kernel: &Kernel, target: NodeKey, now: f64)
+        -> Vec<Lowered>;
+    /// Release or cancel a hold.
+    fn end_hold(&mut self, serial: u64, end: HoldEnd, now: f64) -> Result<bool, EngineError>;
+    /// Take the tree at boot as it is.
+    fn adopt(&mut self, kernel: &Kernel, views: &[ViewId]);
+    /// Synchronize accepted receipts while holds still own presentation.
+    fn synchronize(
+        &mut self,
+        kernel: &Kernel,
+        receipts: &[CommitReceipt],
+        now: f64,
+    ) -> Vec<Lowered>;
+    /// Synchronize and lower changed properties once.
+    fn commit(&mut self, kernel: &Kernel, receipts: &[CommitReceipt], now: f64) -> Vec<Lowered>;
+    /// Lower what changed at the current clock.
+    fn lower_current(&mut self, kernel: &Kernel) -> Vec<Lowered>;
+}
+
+impl dyn Motion + '_ {
+    /// The spring engine, for inspection: presentation values as the page
+    /// shows them. Only an artifact that links motion has one.
+    pub fn engine(&self) -> &Engine {
+        self.linked_engine().expect("this artifact links motion")
+    }
+}
+
+/// Motion in an artifact that doesn't link it: no springs and no holds.
+/// Admission (LLP 1047 D6) keeps a plan that needs them off such an artifact;
+/// the clock still follows the commits.
+#[derive(Debug, Default)]
+pub struct Still {
+    now: f64,
+}
+
+impl Motion for Still {
+    fn now(&self) -> f64 {
+        self.now
+    }
+
+    fn settle_time(&self) -> Option<f64> {
+        None
+    }
+
+    fn linked_engine(&self) -> Option<&Engine> {
+        None
+    }
+
+    #[cfg(test)]
+    fn frame_compilations(&self) -> usize {
+        0
+    }
+
+    fn playing_count(&self) -> usize {
+        0
+    }
+
+    fn height_owner(&self) -> Option<(NodeKey, ViewId)> {
+        None
+    }
+
+    fn set_height_owner(
+        &mut self,
+        _: &Kernel,
+        view: Option<ViewId>,
+    ) -> Result<Vec<Lowered>, &'static str> {
+        view.map_or(Ok(Vec::new()), |_| Err("motion is not linked"))
+    }
+
+    fn token(&self, _: u64) -> Option<HoldToken> {
+        None
+    }
+
+    fn begin_hold(
+        &mut self,
+        _: &Kernel,
+        _: ViewId,
+        _: Property,
+        _: Value,
+        _: f64,
+    ) -> Result<Option<HoldStart>, EngineError> {
+        Ok(None)
+    }
+
+    fn update_hold(&mut self, _: u64, _: Value, _: f64) -> Result<bool, EngineError> {
+        Ok(false)
+    }
+
+    fn begin_transform_hold(
+        &mut self,
+        _: u64,
+        _: [Value; 2],
+        _: f64,
+    ) -> Result<Option<TransformHold>, EngineError> {
+        Ok(None)
+    }
+
+    fn update_transform_hold(
+        &mut self,
+        _: TransformHold,
+        _: [Value; 2],
+        _: f64,
+    ) -> Result<bool, EngineError> {
+        Ok(false)
+    }
+
+    fn synchronize_transform(&mut self, _: &Kernel, _: NodeKey, now: f64) -> Vec<Lowered> {
+        self.now = self.now.max(now);
+        Vec::new()
+    }
+
+    fn end_hold(&mut self, _: u64, _: HoldEnd, _: f64) -> Result<bool, EngineError> {
+        Ok(false)
+    }
+
+    fn adopt(&mut self, _: &Kernel, _: &[ViewId]) {}
+
+    fn synchronize(&mut self, _: &Kernel, _: &[CommitReceipt], now: f64) -> Vec<Lowered> {
+        self.now = self.now.max(now);
+        Vec::new()
+    }
+
+    fn commit(&mut self, _: &Kernel, _: &[CommitReceipt], now: f64) -> Vec<Lowered> {
+        self.now = self.now.max(now);
+        Vec::new()
+    }
+
+    fn lower_current(&mut self, _: &Kernel) -> Vec<Lowered> {
+        Vec::new()
+    }
+}
+
+/// The spring engine, for an entry that links motion (`exact-web-capabilities`
+/// registers it). Nothing else names it, so an artifact without motion
+/// carries none of it.
+pub fn springs() -> Box<dyn Motion> {
+    Box::new(Springs::new())
+}
+
 /// The web host's spring evaluator: one engine, sampled at commits.
 #[derive(Debug, Default)]
 pub struct Springs {
@@ -75,21 +270,70 @@ impl Springs {
         Springs::default()
     }
 
-    /// The engine (for tests and hosts that want to read presentation values).
-    pub fn engine(&self) -> &Engine {
-        &self.engine
+    fn retire_height(&mut self, key: NodeKey, view: ViewId, out: &mut Vec<Lowered>) {
+        let node = motion_node(key);
+        let removed = self.engine.remove_property(node, Property::Height);
+        self.playing.remove(&(node, Property::Height));
+        if removed {
+            out.push(Lowered::Retire {
+                view,
+                property: Property::Height,
+            });
+        }
+    }
+
+    fn reconcile_height(&mut self, kernel: &Kernel, out: &mut Vec<Lowered>) {
+        let Some((key, view)) = self.height_owner else {
+            return;
+        };
+        let sync = kernel.height_motion_sync(key);
+        if !sync.retired.is_empty() {
+            self.retire_height(key, view, out);
+        }
+        let applied = sync.apply(&mut self.engine);
+        debug_assert!(applied.is_ok(), "height target is validated kernel input");
+        if kernel.node_by_key(key).is_none() {
+            self.height_owner = None;
+        }
+    }
+
+    fn view_of(&self, kernel: &Kernel, node: u64) -> Option<ViewId> {
+        let key = NodeKey {
+            index: node as u32,
+            generation: (node >> 32) as u32,
+        };
+        kernel.node_by_key(key).map(|n| n.id)
+    }
+}
+
+impl Motion for Springs {
+    fn now(&self) -> f64 {
+        self.engine.now()
+    }
+
+    fn settle_time(&self) -> Option<f64> {
+        self.engine.settle_time()
+    }
+
+    fn linked_engine(&self) -> Option<&Engine> {
+        Some(&self.engine)
+    }
+
+    #[cfg(test)]
+    fn frame_compilations(&self) -> usize {
+        self.frame_compilations
     }
 
     /// Number of property springs retained for the current mounted tree.
-    pub fn playing_count(&self) -> usize {
+    fn playing_count(&self) -> usize {
         self.playing.len()
     }
 
-    pub(crate) fn height_owner(&self) -> Option<(NodeKey, ViewId)> {
+    fn height_owner(&self) -> Option<(NodeKey, ViewId)> {
         self.height_owner
     }
 
-    pub(crate) fn set_height_owner(
+    fn set_height_owner(
         &mut self,
         kernel: &Kernel,
         view: Option<ViewId>,
@@ -122,41 +366,14 @@ impl Springs {
         Ok(out)
     }
 
-    fn retire_height(&mut self, key: NodeKey, view: ViewId, out: &mut Vec<Lowered>) {
-        let node = motion_node(key);
-        let removed = self.engine.remove_property(node, Property::Height);
-        self.playing.remove(&(node, Property::Height));
-        if removed {
-            out.push(Lowered::Retire {
-                view,
-                property: Property::Height,
-            });
-        }
-    }
-
-    fn reconcile_height(&mut self, kernel: &Kernel, out: &mut Vec<Lowered>) {
-        let Some((key, view)) = self.height_owner else {
-            return;
-        };
-        let sync = kernel.height_motion_sync(key);
-        if !sync.retired.is_empty() {
-            self.retire_height(key, view, out);
-        }
-        let applied = sync.apply(&mut self.engine);
-        debug_assert!(applied.is_ok(), "height target is validated kernel input");
-        if kernel.node_by_key(key).is_none() {
-            self.height_owner = None;
-        }
-    }
-
-    pub(crate) fn token(&self, serial: u64) -> Option<HoldToken> {
+    fn token(&self, serial: u64) -> Option<HoldToken> {
         self.holds
             .get(&serial)
             .copied()
             .filter(|t| self.engine.has_hold(*t))
     }
 
-    pub(crate) fn begin_hold(
+    fn begin_hold(
         &mut self,
         kernel: &Kernel,
         view: ViewId,
@@ -185,12 +402,7 @@ impl Springs {
         Ok(Some(start))
     }
 
-    pub(crate) fn update_hold(
-        &mut self,
-        serial: u64,
-        value: Value,
-        now: f64,
-    ) -> Result<bool, EngineError> {
+    fn update_hold(&mut self, serial: u64, value: Value, now: f64) -> Result<bool, EngineError> {
         let Some(token) = self.token(serial) else {
             return Ok(false);
         };
@@ -198,7 +410,7 @@ impl Springs {
         self.engine.update_hold(token, now, value)
     }
 
-    pub(crate) fn begin_transform_hold(
+    fn begin_transform_hold(
         &mut self,
         node: u64,
         values: [Value; 2],
@@ -215,7 +427,7 @@ impl Springs {
         Ok(Some(pair))
     }
 
-    pub(crate) fn update_transform_hold(
+    fn update_transform_hold(
         &mut self,
         pair: TransformHold,
         values: [Value; 2],
@@ -224,7 +436,7 @@ impl Springs {
         self.engine.update_transform_hold(pair, now, values)
     }
 
-    pub(crate) fn synchronize_transform(
+    fn synchronize_transform(
         &mut self,
         kernel: &Kernel,
         target: NodeKey,
@@ -255,12 +467,7 @@ impl Springs {
         out
     }
 
-    pub(crate) fn end_hold(
-        &mut self,
-        serial: u64,
-        end: HoldEnd,
-        now: f64,
-    ) -> Result<bool, EngineError> {
+    fn end_hold(&mut self, serial: u64, end: HoldEnd, now: f64) -> Result<bool, EngineError> {
         let Some(token) = self.token(serial) else {
             return Ok(false);
         };
@@ -274,7 +481,7 @@ impl Springs {
     /// Tell the engine about nodes that exist before any commit it saw —
     /// the tree at boot. Their values are taken as-is (there is no
     /// before-change style, so nothing transitions).
-    pub fn adopt(&mut self, kernel: &Kernel, views: &[ViewId]) {
+    fn adopt(&mut self, kernel: &Kernel, views: &[ViewId]) {
         let mut sync = MotionSync::default();
         for id in views {
             let Some(node) = kernel.node(*id) else {
@@ -298,7 +505,7 @@ impl Springs {
 
     /// Synchronize an accepted receipt while existing holds still own presentation.
     /// Retirement ops are returned, but dirty frames remain for one common lowering.
-    pub(crate) fn synchronize(
+    fn synchronize(
         &mut self,
         kernel: &Kernel,
         receipts: &[CommitReceipt],
@@ -329,12 +536,7 @@ impl Springs {
     }
 
     /// Synchronize and lower changed properties once at a commit/input boundary.
-    pub fn commit(
-        &mut self,
-        kernel: &Kernel,
-        receipts: &[CommitReceipt],
-        now: f64,
-    ) -> Vec<Lowered> {
+    fn commit(&mut self, kernel: &Kernel, receipts: &[CommitReceipt], now: f64) -> Vec<Lowered> {
         let now = now.max(self.engine.now());
         let mut out = self.synchronize(kernel, receipts, now);
         out.extend(self.lower_current(kernel));
@@ -343,7 +545,7 @@ impl Springs {
 
     // Stale photo cleanup may lower surviving old tokens at the existing clock,
     // but must neither seek time nor import unrelated targets/owner changes.
-    pub(crate) fn lower_current(&mut self, kernel: &Kernel) -> Vec<Lowered> {
+    fn lower_current(&mut self, kernel: &Kernel) -> Vec<Lowered> {
         let now = self.engine.now();
         let mut out = Vec::new();
         for p in self.engine.frame() {
@@ -395,14 +597,6 @@ impl Springs {
         }
         out
     }
-
-    fn view_of(&self, kernel: &Kernel, node: u64) -> Option<ViewId> {
-        let key = NodeKey {
-            index: node as u32,
-            generation: (node >> 32) as u32,
-        };
-        kernel.node_by_key(key).map(|n| n.id)
-    }
 }
 
 // Native projection uses f32 CSS lengths. Reject malformed external positions
@@ -435,6 +629,7 @@ mod tests {
 
     #[test]
     fn hold_moves_do_not_recompile_unchanged_springs() {
+        crate::link::link_motion();
         let mut source = String::from("component App\n  state big = false\n  action toggle writes big\n    big = not big\n  view\n    column\n      button press=toggle testId=\"toggle\"\n        text \"Toggle\"\n      text \"Held\" testId=\"held\" transition=\"translate spring(180, 12, 1)\"\n");
         for _ in 0..32 {
             source.push_str("      text \"Moving\" scale=(big ? 1.5 : 1) opacity=(big ? 0.5 : 1) transition=\"scale spring(180, 12, 1), opacity spring(180, 12, 1)\"\n");
@@ -456,7 +651,7 @@ mod tests {
         let toggle = id(&host, "toggle");
         let row = id(&host, "held");
         host.dispatch_at(toggle, Event::Press, 0.0);
-        assert_eq!(host.springs().frame_compilations, 64);
+        assert_eq!(host.springs().frame_compilations(), 64);
         let (hold, _) = host
             .begin_hold(row, Property::Translate, Value::new(80.0, 0.0), 1.0)
             .unwrap()
@@ -473,7 +668,7 @@ mod tests {
             assert!(!batch.contains("\"op\":\"animate\""));
         }
         assert_eq!(
-            host.springs().frame_compilations,
+            host.springs().frame_compilations(),
             64,
             "100 input samples must not rebuild the 64 unrelated curves"
         );
@@ -486,7 +681,7 @@ mod tests {
         )
         .unwrap()
         .unwrap();
-        assert_eq!(host.springs().frame_compilations, 65);
+        assert_eq!(host.springs().frame_compilations(), 65);
         let (caught, _) = host
             .begin_hold(row, Property::Translate, Value::new(181.0, 0.0), 101.0)
             .unwrap()
@@ -501,7 +696,7 @@ mod tests {
         .unwrap()
         .unwrap();
         assert_eq!(
-            host.springs().frame_compilations,
+            host.springs().frame_compilations(),
             66,
             "same-clock rebegin/release with a new velocity compiles once"
         );
