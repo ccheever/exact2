@@ -466,7 +466,8 @@ test('flowed links keep press ownership through document capture', async () => {
   }});
   let child;
   try {
-    child = spawn(process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    child = spawn(process.env.CHROME ?? (process.platform === 'darwin'
+      ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : '/usr/bin/chromium'),
       ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--disable-background-networking', `--user-data-dir=${dir}`, 'about:blank'],
       { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
     const cdp = new Cdp(child.stdio[3], child.stdio[4]);
