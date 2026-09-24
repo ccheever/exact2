@@ -53,6 +53,16 @@ impl<D: DataSource> Runner<D> {
         if which.is_empty() {
             return Ok(None);
         }
+        self.commit_again(which, what).map(Some)
+    }
+
+    /// [`Runner::recommit`]'s one commit, even when it asks nothing again:
+    /// a pending set that changed outside a commit still reaches the view.
+    pub(super) fn commit_again(
+        &mut self,
+        which: Vec<usize>,
+        what: &str,
+    ) -> Result<CommitReceipt, RunnerError> {
         let what = format!("{what} ({} asked again)", which.len());
         let was_poisoned = self.poisoned;
         let checkpoint = self.checkpoint(false);
@@ -64,7 +74,7 @@ impl<D: DataSource> Runner<D> {
         };
         self.conclude(checkpoint, &result, was_poisoned);
         self.log_outcome(&what, &result, was_poisoned);
-        result.map(Some)
+        result
     }
 
     /// What a resource shows while its source hasn't answered and nothing
@@ -386,8 +396,17 @@ impl<D: DataSource> Runner<D> {
                             // Keep deferred placeholders until activation, even
                             // when timers or a deep launch change arguments after
                             // boot (LLP 1038 D5, LLP 1027 D4). data_ready asks the
-                            // current arguments once the executor can answer.
-                            if !self.data.ready() {
+                            // current arguments once the executor can answer —
+                            // unless they are the ones the bake answered, from
+                            // no store: that answer stands (LLP 1048.003 D6), as
+                            // it does when the source is ready at boot.
+                            if !self.data.ready()
+                                && (forced
+                                    || self.store_readers[i]
+                                    || Value::from_bytes(self.plan.bytes(row.initial_args))
+                                        .map_err(RunnerError::Plan)?
+                                        != Value::list(args.clone()))
+                            {
                                 self.stale[i] = true;
                             }
                             awaiting[i] = false;

@@ -897,6 +897,8 @@ impl<D: DataSource> Presenter<D> {
         // A continuation is dispatched here, on this thread, after the
         // commit that handed it out (LLP 1027.002 D3); one a source holds
         // is parked and released after a later commit.
+        self.executor
+            .forget(|ticket| self.host.runner().holds(ticket));
         if !self.host.has_ordered_request_refusals() {
             self.executor.resume_ordered();
         }

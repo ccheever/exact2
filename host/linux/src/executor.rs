@@ -59,6 +59,10 @@ impl Executor {
     pub fn resume_ordered(&self) {
         self.core.resume_ordered();
     }
+    /// Let go of the work for tickets the runner no longer holds.
+    pub fn forget(&self, held: impl Fn(u64) -> bool) {
+        self.core.forget(held);
+    }
     /// Admit work, or return a refusal without an overflow queue.
     pub fn run(&self, request: RequestOut, work: Option<Work>) -> Result<(), &'static str> {
         self.core.run_owned(request, work)

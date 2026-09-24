@@ -16,7 +16,6 @@ assert.ok(['web','macos','linux'].includes(host),'host: web, macos, linux');
 assert.ok([6,32,128].includes(lanes),'lanes: 6, 32, 128');
 mkdirSync(output,{recursive:true});
 const acknowledgements=[];
-let retiredDropLines=0;
 const app = await open({host,app:'completion-storm',...(host==='web'?{url:process.env.EXACT_STORM_WEB_URL ?? 'http://127.0.0.1:4320'}:{}),size:[1000,2000]});
 const release = async (wave=0) => {
   const response=await fetch(`http://127.0.0.1:4320/api/release?wave=${wave}`,{method:'POST'});
@@ -52,22 +51,19 @@ try {
   await app.tap('navigate-away');
   assert.equal((await app.state()).derives.pendingCount,0);
   assert.equal((await app.tree()).nodes.filter(n=>n.props.testId==='lane-0').length,0);
-  // Old work retains admission until its result is consumed. Release it from
-  // the app's ordered control lane, then observe retirement before remounting
-  // a full-capacity cohort. No external releaser participates in this proof.
+  // Navigation forgot the old tickets, and a native host lets go of their
+  // work: the held reads are aborted and the queued ones never sent, so a
+  // full-capacity cohort is admitted again with nothing released.
   let oldRelease=null;
   if(host!=='web') {
-    oldRelease=await (await fetch('http://127.0.0.1:4320/api/stats')).json();
-    assert.equal(oldRelease.held,2,'both independent native transports should be held');
-    await app.tap('release-all');
     const deadline=Date.now()+20000;
     for (;;) {
-      await app.state();
-      retiredDropLines+=(await app.logs()).lines.filter(line=>String(line).includes('dropped: no such request')).length;
-      if(retiredDropLines>=lanes) break;
-      if(Date.now()>deadline) throw Error('old replies did not retire after in-app release');
+      oldRelease=await (await fetch('http://127.0.0.1:4320/api/stats')).json();
+      if(oldRelease.held===0) break;
+      if(Date.now()>deadline) throw Error('forgotten native reads were not aborted: '+JSON.stringify(oldRelease));
       await Bun.sleep(10);
     }
+    assert.ok(oldRelease.abandoned>=2,'both held native reads should be aborted');
   }
   await app.tap('start-wave');
   const second=await until(s=>s.derives.pendingCount===lanes,'remounted pending');
@@ -84,8 +80,9 @@ try {
     assert.equal(complete.resources['r'+lane].ok,true);
   }
   const logs=await app.logs();
-  const dropped=retiredDropLines+logs.lines.filter(line=>String(line).includes('dropped: no such request')).length;
-  assert.ok(dropped>0,'old replies should be logged as dropped');
+  const dropped=logs.lines.filter(line=>String(line).includes('dropped: no such request')).length;
+  // A native host drops forgotten work before it replies; the browser doesn't.
+  if(host==='web') assert.ok(dropped>0,'old replies should be logged as dropped');
   await app.tap('errors-50');
   await app.tap('start-wave');
   await until(s=>s.derives.pendingCount===lanes,'mixed pending');
@@ -94,7 +91,7 @@ try {
   const failed=Array.from({length:lanes},(_,lane)=>lane).filter(lane=>(lane*37)%100<50).length;
   assert.equal(mixed.derives.failedCount,failed);
   assert.equal(mixed.derives.validCount,lanes-failed);
-  const report={passed:true,host,os:platform(),lanes,execution:host==='linux'&&platform()!=='linux'?'Linux host executed on '+platform()+'; not actual Linux':host,acknowledgements,measurement:'agent command to echoed Contract state acknowledgement; not hardware key latency, display presentation, or FPS',fixtureRelease:{method:'in-app control request',heldBeforeOld:oldRelease,heldBeforeFresh:freshRelease},firstWave:firstId,remountedWave:second.derives.waveId,validAfterRemount:complete.derives.validCount,mixedValid:mixed.derives.validCount,mixedFailed:mixed.derives.failedCount,staleDropLinesInBoundedJournal:dropped,echo:complete.slots.note,hostErrors:logs.host.filter(x=>x.includes('exception:'))};
+  const report={passed:true,host,os:platform(),lanes,execution:host==='linux'&&platform()!=='linux'?'Linux host executed on '+platform()+'; not actual Linux':host,acknowledgements,measurement:'agent command to echoed Contract state acknowledgement; not hardware key latency, display presentation, or FPS',fixtureRelease:{method:'in-app control request',afterForget:oldRelease,heldBeforeFresh:freshRelease},firstWave:firstId,remountedWave:second.derives.waveId,validAfterRemount:complete.derives.validCount,mixedValid:mixed.derives.validCount,mixedFailed:mixed.derives.failedCount,staleDropLinesInBoundedJournal:dropped,echo:complete.slots.note,hostErrors:logs.host.filter(x=>x.includes('exception:'))};
   await app.screenshot(resolve(output,`${host}-check.png`));
   writeFileSync(resolve(output,`${host}-check.json`),JSON.stringify(report,null,2)+'\n');
   console.log(JSON.stringify(report,null,2));

@@ -27,7 +27,23 @@ struct Job {
     request: Request,
     forced: bool,
     work: Option<OwnedWork>,
-    bytes: usize,
+    /// Charged now: the request's own buffers while an ordered job waits,
+    /// the whole ceiling once it runs or while independent work is admitted.
+    charge: usize,
+    /// The ceiling: request buffers plus the response allowance.
+    limit: usize,
+    /// The runner no longer wants its reply (`Core::forget`).
+    forgotten: bool,
+}
+/// A job a worker took, until its outcome is complete.
+struct Running {
+    ticket: u64,
+    lane: usize,
+    charge: usize,
+    limit: usize,
+    /// A safe read's own abort, which forgetting fires; other work has none.
+    abort: Option<AbortController>,
+    forgotten: bool,
 }
 struct Completed {
     ticket: u64,
@@ -37,6 +53,7 @@ struct Completed {
 #[derive(Default)]
 struct State {
     jobs: [VecDeque<Job>; 2],
+    running: Vec<Running>,
     completed: [VecDeque<Completed>; 2],
     counts: [usize; 2],
     bytes: [usize; 2],
@@ -58,6 +75,9 @@ struct Shared {
 /// is no unbounded queue of overload failures. Byte reservations cover owned
 /// request/result buffers, NOT arbitrary closure captures or allocations during
 /// native work. Those trusted-source costs are count/worker bounded only.
+/// The ordered lane has one worker, so a waiting job is charged its request
+/// buffers, the running one its response ceiling, and a completed one what
+/// it retains; the worker waits for bytes rather than refusing (LLP 1041 §8.4).
 pub(super) struct Core {
     shared: Arc<Shared>,
     disabled: bool,
@@ -123,7 +143,7 @@ impl Core {
         let ordered = r.request.is_ordered();
         let mut state = self.shared.state.lock().unwrap();
         let admitted = (|| {
-            let (lane, bytes) = reservation(&r.request)?;
+            let (lane, charge, limit) = reservation(&r.request)?;
             if self.disabled {
                 return Err("native executor worker limit reached");
             }
@@ -134,13 +154,13 @@ impl Core {
                 return Err("earlier ordered admission refusal must settle first");
             }
             if state.counts[lane] >= COUNTS[lane]
-                || bytes > BYTES[lane].saturating_sub(state.bytes[lane])
+                || charge > BYTES[lane].saturating_sub(state.bytes[lane])
             {
                 return Err("native executor admission limit reached");
             }
-            Ok((lane, bytes))
+            Ok((lane, charge, limit))
         })();
-        let (lane, bytes) = match admitted {
+        let (lane, charge, limit) = match admitted {
             Ok(value) => value,
             Err(reason) => {
                 // Failure parsing can mutate Store too. Refusals live on
@@ -156,13 +176,15 @@ impl Core {
             state.ordered.push_back(r.ticket);
         }
         state.counts[lane] += 1;
-        state.bytes[lane] += bytes;
+        state.bytes[lane] += charge;
         state.jobs[lane].push_back(Job {
             ticket: r.ticket,
             request: r.request,
             forced: r.forced,
             work,
-            bytes,
+            charge,
+            limit,
+            forgotten: false,
         });
         self.shared.ready.notify_all();
         Ok(())
@@ -200,10 +222,65 @@ impl Core {
         state.next = 1 - lane;
         state.counts[lane] -= 1;
         state.bytes[lane] -= done.bytes;
+        // An ordered job may be waiting for these bytes.
+        self.shared.ready.notify_all();
         if has_ready(&state) {
             wake(&mut state);
         }
         vec![(done.ticket, done.outcome)]
+    }
+
+    /// Let go of the work for every ticket the runner no longer `held`
+    /// (LLP 1016 D5): its reply would only be dropped there. A completed
+    /// outcome is dropped undrained and a queued safe HTTP read unrun; a
+    /// running one is aborted. Other work (a write, a module turn) still runs,
+    /// since a write that was sent, or a turn that has begun, is not undone.
+    /// None of it holds a later ordered completion back, and each releases
+    /// its count and bytes when it ends.
+    pub(super) fn forget(&self, held: impl Fn(u64) -> bool) {
+        let mut aborts = Vec::new();
+        {
+            let mut guard = self.shared.state.lock().unwrap();
+            let state = &mut *guard;
+            for lane in 0..2 {
+                let (counts, bytes) = (&mut state.counts[lane], &mut state.bytes[lane]);
+                state.jobs[lane].retain_mut(|job| {
+                    if held(job.ticket) {
+                        return true;
+                    }
+                    if job.work.is_none() && safe(&job.request) {
+                        *counts -= 1;
+                        *bytes -= job.charge;
+                        return false;
+                    }
+                    job.forgotten = true;
+                    true
+                });
+                state.completed[lane].retain(|done| {
+                    if held(done.ticket) {
+                        return true;
+                    }
+                    *counts -= 1;
+                    *bytes -= done.bytes;
+                    false
+                });
+            }
+            for run in &mut state.running {
+                if !run.forgotten && !held(run.ticket) {
+                    run.forgotten = true;
+                    aborts.extend(run.abort.clone());
+                }
+            }
+            state.ordered.retain(|ticket| held(*ticket));
+            self.shared.ready.notify_all();
+            if has_ready(state) {
+                wake(state);
+            }
+        }
+        // Transport callbacks run outside the lock, as retirement's do.
+        for abort in aborts {
+            abort.abort();
+        }
     }
 
     pub(super) fn ordered_idle(&self) -> bool {
@@ -266,19 +343,85 @@ fn has_ready(state: &State) -> bool {
             .is_some_and(|ticket| state.completed[0].iter().any(|done| done.ticket == *ticket))
 }
 
-fn complete(shared: &Shared, lane: usize, ticket: u64, bytes: usize, outcome: Outcome) {
+/// The next job `lane`'s worker may start, with its abort, charging an
+/// ordered one its response ceiling — or `None` until those bytes are free.
+fn next_job(state: &mut State, lane: usize) -> Option<(Job, AbortController)> {
+    let job = state.jobs[lane].front()?;
+    // A module handoff's outcome is the owner's to make; it is charged
+    // what it retains when it completes.
+    let more = if handed_off(job) {
+        0
+    } else {
+        job.limit - job.charge
+    };
+    if more > BYTES[lane].saturating_sub(state.bytes[lane]) {
+        return None;
+    }
+    let mut job = state.jobs[lane].pop_front()?;
+    job.charge += more;
+    state.bytes[lane] += more;
+    let abort = AbortController::new();
+    state.running.push(Running {
+        ticket: job.ticket,
+        lane,
+        charge: job.charge,
+        limit: job.limit,
+        abort: safe(&job.request).then(|| abort.clone()),
+        forgotten: job.forgotten,
+    });
+    Some((job, abort))
+}
+
+fn complete(shared: &Shared, ticket: u64, outcome: Outcome) {
     let mut state = shared.state.lock().unwrap();
     if state.retired {
         return;
     }
+    let Some(at) = state.running.iter().position(|run| run.ticket == ticket) else {
+        return;
+    };
+    let run = state.running.swap_remove(at);
+    let outcome = bounded_outcome(outcome, run.limit);
+    let lane = run.lane;
+    // A completion frees ordered bytes a waiting job may need.
+    shared.ready.notify_all();
+    if run.forgotten {
+        state.counts[lane] -= 1;
+        state.bytes[lane] -= run.charge;
+        return;
+    }
+    let bytes = if lane == 0 {
+        retained(&outcome) + std::mem::size_of::<Completed>()
+    } else {
+        run.charge
+    };
+    state.bytes[lane] = state.bytes[lane] - run.charge + bytes;
     state.completed[lane].push_back(Completed {
         ticket,
-        outcome: bounded_outcome(outcome, bytes),
+        outcome,
         bytes,
     });
     if has_ready(&state) {
         wake(&mut state);
     }
+}
+
+/// A continuation a worker hands to the module's owner instead of running.
+fn handoff(request: &Request) -> bool {
+    request.continuation.is_some() && request.storage.is_none()
+}
+
+fn handed_off(job: &Job) -> bool {
+    handoff(&job.request) && matches!(job.work, Some(OwnedWork::Later(_)))
+}
+
+/// An HTTP read with no effect to lose if it is never sent (RFC 9110 §9.2.1).
+fn safe(request: &Request) -> bool {
+    request.continuation.is_none()
+        && request.storage.is_none()
+        && ["GET", "HEAD"]
+            .iter()
+            .any(|m| request.method.eq_ignore_ascii_case(m))
 }
 
 fn wake(state: &mut State) {
@@ -290,7 +433,8 @@ fn wake(state: &mut State) {
     }
 }
 
-fn reservation(request: &Request) -> Result<(usize, usize), &'static str> {
+/// The lane, the charge at admission and the ceiling a job may retain.
+fn reservation(request: &Request) -> Result<(usize, usize, usize), &'static str> {
     let (lane, body) = match request.http {
         HttpScheduling::Ordered => (0, MAX_BODY),
         HttpScheduling::Independent { max_response_bytes } => {
@@ -329,10 +473,8 @@ fn reservation(request: &Request) -> Result<(usize, usize), &'static str> {
     }
     // Vec growth while collecting can reserve up to twice the body ceiling;
     // headers, error text and queue bookkeeping have a separate allowance.
-    Ok((
-        lane,
-        bytes + body.saturating_mul(2).max(32 << 10) + MAX_HEADERS * 2,
-    ))
+    let limit = bytes + body.saturating_mul(2).max(32 << 10) + MAX_HEADERS * 2;
+    Ok((lane, if lane == 0 { bytes } else { limit }, limit))
 }
 
 fn failed(kind: FailureKind, message: impl Into<String>) -> Outcome {
@@ -355,7 +497,7 @@ fn worker(
         bindings
     };
     loop {
-        let job = {
+        let (job, abort) = {
             let mut state = shared.state.lock().unwrap();
             loop {
                 if state.retired {
@@ -364,8 +506,8 @@ fn worker(
                     drop(abandoned);
                     return;
                 }
-                if let Some(job) = state.jobs[lane].pop_front() {
-                    break job;
+                if let Some(next) = next_job(&mut state, lane) {
+                    break next;
                 }
                 state = shared.ready.wait(state).unwrap();
             }
@@ -375,15 +517,12 @@ fn worker(
             request,
             forced,
             work,
-            bytes,
+            ..
         } = job;
         let work = match work {
-            Some(OwnedWork::Later(hand))
-                if request.continuation.is_some() && request.storage.is_none() =>
-            {
+            Some(OwnedWork::Later(hand)) if handoff(&request) => {
                 let owner = shared.clone();
-                let reply =
-                    Reply::new(move |outcome| complete(&owner, lane, ticket, bytes, outcome));
+                let reply = Reply::new(move |outcome| complete(&owner, ticket, outcome));
                 // The module owner completes asynchronously; the I/O owner stays free.
                 // Reply's drop path publishes an aborted outcome if the handoff panics.
                 let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| hand(reply)));
@@ -391,6 +530,11 @@ fn worker(
             }
             Some(OwnedWork::Now(work)) => Some(work),
             _ => None,
+        };
+        // Retirement aborts every job; forgetting aborts a safe read.
+        let _retiring = {
+            let abort = abort.clone();
+            shared.abort.signal().register(move || abort.abort())
         };
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let scoped = request.grants.as_deref().map(|scope| {
@@ -403,17 +547,29 @@ fn worker(
             });
             match scoped {
                 Some(Err(message)) => failed(FailureKind::Refused, message),
-                Some(Ok(ref scoped)) => execute(Some(scoped), request, forced, work, &shared.abort),
-                None => execute(bindings.as_ref(), request, forced, work, &shared.abort),
+                Some(Ok(ref scoped)) => execute(Some(scoped), request, forced, work, &abort),
+                None => execute(bindings.as_ref(), request, forced, work, &abort),
             }
         }))
         .unwrap_or_else(|_| failed(FailureKind::Aborted, "native work panicked"));
-        complete(&shared, lane, ticket, bytes, outcome);
+        complete(&shared, ticket, outcome);
     }
 }
 
 fn bounded_outcome(outcome: Outcome, limit: usize) -> Outcome {
-    let retained = match &outcome {
+    if retained(&outcome) > limit {
+        failed(
+            FailureKind::Refused,
+            "native outcome exceeds retention limit",
+        )
+    } else {
+        outcome
+    }
+}
+
+/// The bytes an outcome keeps until the UI takes it.
+fn retained(outcome: &Outcome) -> usize {
+    match outcome {
         Outcome::Response(r) => r
             .body
             .capacity()
@@ -432,14 +588,6 @@ fn bounded_outcome(outcome: Outcome, limit: usize) -> Outcome {
         Outcome::Surface(exact_runner::SurfaceOutcome::Captured(b)) => b.capacity(),
         Outcome::Surface(exact_runner::SurfaceOutcome::Restored) => 0,
         Outcome::Failed { message, .. } => message.capacity(),
-    };
-    if retained > limit {
-        failed(
-            FailureKind::Refused,
-            "native outcome exceeds retention limit",
-        )
-    } else {
-        outcome
     }
 }
 
@@ -451,7 +599,7 @@ fn execute(
     abort: &AbortController,
 ) -> Outcome {
     if abort.signal().aborted() {
-        return failed(FailureKind::Aborted, "native executor retired");
+        return failed(FailureKind::Aborted, "native request aborted");
     }
     if request.storage.is_some() {
         return failed(
@@ -507,7 +655,7 @@ fn execute(
             body: r.body,
         }),
         Err(_) if abort.signal().aborted() => {
-            failed(FailureKind::Aborted, "native executor retired")
+            failed(FailureKind::Aborted, "native request aborted")
         }
         Err(ibex2::boundary::HostError::Denied { capability }) => failed(
             FailureKind::Refused,
