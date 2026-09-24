@@ -387,7 +387,7 @@ impl<D: DataSource> crate::Host<D> {
             crate::link::runner_links(),
             plan,
             data,
-            exact_kernel::Kernel::with_monospace_on_demand(),
+            crate::host::browser_kernel(),
             &checkpoint,
             snapshot,
             delivery,

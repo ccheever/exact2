@@ -219,6 +219,22 @@ impl<D: DataSource> DragHooks<D> {
     };
 }
 
+/// The browser measures and lays out text, so the kernel never asks this.
+struct BrowserMeasures;
+
+impl exact_kernel::TextMeasurer for BrowserMeasures {
+    fn measure(&mut self, _: &exact_kernel::TextMeasureRequest<'_>) -> exact_kernel::TextMetrics {
+        exact_kernel::TextMetrics::default()
+    }
+}
+
+/// The browser's kernel. The browser lays out: the kernel builds its layout
+/// engine's tree only if a layout is ever asked for, and links no text
+/// measurer of its own (LLP 1047 §6).
+pub(crate) fn browser_kernel() -> Kernel {
+    Kernel::on_demand(Box::new(BrowserMeasures))
+}
+
 /// One runner, one page.
 pub struct Host<D: DataSource> {
     runner: Runner<D>,
@@ -349,9 +365,7 @@ impl<D: DataSource> Host<D> {
     ) -> Result<(Host<D>, String), HostError> {
         let plan = decode_plan(plan_bytes).map_err(HostError::Plan)?;
         crate::link::admit(&plan)?;
-        // The browser lays out: the kernel builds its layout engine's tree
-        // only if a layout is ever asked for (LLP 1047 §6).
-        let kernel = Kernel::with_monospace_on_demand();
+        let kernel = browser_kernel();
         // @ref LLP 1039 D3 — both host facts precede the first settlement.
         let delivery = compat.map_or_else(Default::default, |json| {
             exact_runner::Delivery::default().with_compat(json)
