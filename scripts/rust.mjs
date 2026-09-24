@@ -144,7 +144,14 @@ export function rustInputDigest(paths, observations = null) {
 }
 function compile(app, target, env, profile) {
   const packageName = rustPackage(app);
-  const moduleEnv = {...env,CARGO_TARGET_DIR:resolve(app.target,'rust-modules')};
+  // A module's bytes must not depend on where it was built: a cold deploy's
+  // cache is a new directory each time. Code generated under OUT_DIR records
+  // its path, and a Mach-O library names itself by its output path.
+  const modules = resolve(app.target,'rust-modules');
+  const flags = (env.CARGO_ENCODED_RUSTFLAGS?.split('\x1f') ?? env.RUSTFLAGS?.trim().split(/\s+/) ?? []).filter(Boolean);
+  flags.push(`--remap-path-prefix=${modules}=/rust-modules`, ...(target.includes('apple') ? ['-Clink-arg=-Wl,-install_name,@rpath/app.module.dylib'] : []));
+  const moduleEnv = {...env,CARGO_TARGET_DIR:modules,CARGO_ENCODED_RUSTFLAGS:flags.join('\x1f')};
+  delete moduleEnv.RUSTFLAGS;
   // Out-of-tree apps need no custom Cargo profile just to opt in. Keep their
   // ordinary host builds untouched: these defaults apply only to this module.
   if (profile === 'logic-dev' && !/^\s*\[\s*profile\s*\.\s*["']?logic-dev["']?\s*\]/m.test(readFileSync(resolve(app.workspace,'Cargo.toml'),'utf8'))) {
