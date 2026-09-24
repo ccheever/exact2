@@ -837,3 +837,29 @@ Where a tap at `load` goes (five traces): 1,027 ms waiting for the wasm's
 bytes; 9 ms finishing its compilation; 251 ms from instantiation to the
 replayed press, `exact_boot` about 143 of it; 210 ms for the press, 150 of them
 the API.
+
+### As built: the core diet (the diet lane)
+
+Each change reads what std read and prints what core printed, bit for bit
+and byte for byte, and its differential tests hold it to std. RealWorld's
+app.wasm, brotli-11, at each landing (each commit's message has all three
+apps and the raw bytes):
+
+| Landing | What left | RealWorld br |
+|---|---|---|
+| `7033b993` | wasm-opt inlines single callers up to 20, to convergence | −3,019 |
+| `e39e1541` | Unicode case tables (`data-` names lowered as ASCII) | −3,763 |
+| `113abeaa` | machine paths (source paths remapped) | +40 |
+| `02ec4dce` | std's float reader and its 10 KB table (`exact-num`) | −10,873 |
+| `7b3759b3` | per-name strings (generated names are one packed string) | −1,063 |
+| `6d60a438` | the engine's small `BTreeMap`s and sets (sorted vectors, bitsets) | −9,566 |
+| `918da815` | two sorts (touched keys, detached slots) | −580 |
+| `c798948b` | `route::Params`' `BTreeMap` | −2,872 |
+| `d3b77fa8` | serde_json from the JS bridge (`exact_js_value::json`) | −11,676 |
+| `c35f78f7` | six small hash tables | −1,321 |
+| web: the browser's kernel links no text measurer | the monospace measurer | −462 |
+| num: one float printer everywhere | core's Grisu, Dragon and bignum | −6,365 |
+
+The last one needed list-engine lines, approved for exactly those:
+`window.rs`'s four `f64::clamp` calls (std's assertion message prints the
+bounds as floats) and two printers in `collection/`.
