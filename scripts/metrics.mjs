@@ -19,7 +19,9 @@
  *       targeted layout reply size and first/repeated digest latency (build the host first)
  *   bun scripts/metrics.mjs --rebuild  also time an app edit → wasm rebuild (the cold path)
  *   bun scripts/metrics.mjs --long     also the macOS host: an initial build, a touch-one-line
- *                                       rebuild, and the app's boot phases (minutes, not seconds)
+ *                                       rebuild, and the app's boot phases (minutes, not seconds);
+ *                                       and the web bytes of RealWorld, the video player and
+ *                                       Caltrain, code by capability (LLP 1047 D9)
  *
  * Budgets are read from rules/RULES.md so they cannot drift from the prose.
  */
@@ -723,6 +725,79 @@ if (long) {
   });
 }
 
+// 8. Long: web bytes by capability (LLP 1047 D9), for the three apps the
+// size work tracks. Each app's app.wasm as shipped (raw, gzip, brotli-11),
+// then the same build with names kept (EXACT_WEB_NAMES: rustc keeps its name
+// section, wasm-opt runs with -g) and its code attributed: a function goes to
+// the first exact2 module its demangled name mentions, then to a capability.
+// Reported, never blocking; the names build has its own target directory.
+if (long) {
+  await step('bytes', async () => {
+    const { brotliCompressSync, constants } = await import('node:zlib');
+    const CAPS = [
+      ['markdown', /^exact_markdown::|^exact_web_capabilities::markdown/],
+      ['motion', /^(exact_motion::|exact_web::motion$)/],
+      ['drag', /^exact_web::host::(height_drag|transform_drag|reorder_drag)$/],
+      ['collections', /^exact_runner::(instance::(collection|window|heights)|runner::(collection|lists|reorder))/],
+      ['router', /^(exact_route::|exact_runner::runner::router$)/],
+      ['surfaces', /^exact_runner::(surface_record|runner::surface_record)$/],
+      ['inspection', /^(exact_runner::(agent|compare)$|sha2::)/],
+      ['documents', /^exact_web::host::(document|page)$/],
+      ['text flow', /^(exact_textflow::|exact_web::host::flow_host$|exact_kernel::flow$)/],
+      ['modules', /^(exact_js_web|exact_js_value|exact_logic|serde_json::|serde::|serde_core::)/],
+    ];
+    const sections = (b) => {
+      const leb = (at) => { let r = 0, s = 0, x; do { x = b[at++]; r += (x & 0x7f) * 2 ** s; s += 7; } while (x & 0x80); return [r, at]; };
+      const all = []; for (let at = 8; at < b.length;) { const id = b[at++]; let size; [size, at] = leb(at); let name = null; if (id === 0) { let n, p; [n, p] = leb(at); name = b.subarray(p, p + n).toString(); } all.push({ id, name, start: at, size }); at += size; }
+      return { all, leb };
+    };
+    const attribute = (b) => {
+      const { all, leb } = sections(b);
+      const names = new Map(), ns = all.find((s) => s.id === 0 && s.name === 'name');
+      if (!ns) return null;
+      { let at = ns.start; let n; [n, at] = leb(at); at += n; const end = ns.start + ns.size; while (at < end) { const sub = b[at++]; let len; [len, at] = leb(at); const e = at + len; if (sub === 1) { let c; [c, at] = leb(at); for (let i = 0; i < c; i++) { let idx, l; [idx, at] = leb(at); [l, at] = leb(at); names.set(idx, b.subarray(at, at + l).toString()); at += l; } } at = e; } }
+      let imported = 0; const imp = all.find((s) => s.id === 2);
+      if (imp) { let at = imp.start, c; [c, at] = leb(at); for (let i = 0; i < c; i++) { let l; [l, at] = leb(at); at += l; [l, at] = leb(at); at += l; const k = b[at++]; if (k === 0) { imported++; [, at] = leb(at); } else if (k === 2) { let f; [f, at] = leb(at); [, at] = leb(at); if (f & 1) [, at] = leb(at); } else if (k === 1) { at++; let f; [f, at] = leb(at); [, at] = leb(at); if (f & 1) [, at] = leb(at); } else if (k === 3) at += 2; } }
+      const code = all.find((s) => s.id === 10), funcs = [];
+      { let at = code.start, c; [c, at] = leb(at); for (let i = 0; i < c; i++) { const st = at; let size; [size, at] = leb(at); at += size; funcs.push([names.get(imported + i) ?? '', at - st]); } }
+      // Rust's v0 names; c++filt demangles them (LLVM's on macOS, binutils elsewhere).
+      const plain = spawnSync('c++filt', [], { input: funcs.map(([n]) => n).join('\n'), encoding: 'utf8', maxBuffer: 1 << 28 });
+      if (plain.status !== 0) return null;
+      const lines = plain.stdout.split('\n');
+      const owner = (name) => {
+        const m = /\b(exact_[a-z_]+)::([a-z_0-9]+)(?:::([a-z_0-9]+))?/.exec(name);
+        if (!m) return null;
+        return ['host', 'runner', 'instance'].includes(m[2]) && m[3] ? `${m[1]}::${m[2]}::${m[3]}` : `${m[1]}::${m[2]}`;
+      };
+      const code_bytes = { core: 0, std: 0 };
+      funcs.forEach(([, size], i) => {
+        const mod = owner(lines[i] ?? '');
+        const cap = mod === null ? 'std' : CAPS.find(([, re]) => re.test(mod))?.[0] ?? 'core';
+        code_bytes[cap] = (code_bytes[cap] ?? 0) + size;
+      });
+      code_bytes.data = all.filter((s) => s.id === 11).reduce((n, s) => n + s.size, 0);
+      return code_bytes;
+    };
+    out.web_bytes = {};
+    mkdirSync(resolve(ROOT, 'target/metrics-bytes'), { recursive: true });
+    for (const name of ['realworld', 'video-player', 'caltrain']) {
+      const target = resolveApp(name);
+      const measured = {};
+      for (const names of [false, true]) {
+        const dist = resolve(ROOT, 'target/metrics-bytes', `${name}${names ? '-names' : ''}`);
+        const env = { ...process.env, EXACT_WEB_DIST: dist, ...(names ? { EXACT_WEB_NAMES: '1', CARGO_TARGET_DIR: resolve(ROOT, 'target/metrics-names') } : {}) };
+        const b = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), target.crate('web')], { cwd: ROOT, env, stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' });
+        if (b.status !== 0) { measured.failed = failure(b); break; }
+        const wasm = readFileSync(resolve(dist, 'app.wasm'));
+        if (names) measured.code = attribute(wasm);
+        else Object.assign(measured, { raw: wasm.length, gzip: gzipSync(wasm, { level: 9 }).length,
+          brotli: brotliCompressSync(wasm, { params: { [constants.BROTLI_PARAM_QUALITY]: 11, [constants.BROTLI_PARAM_SIZE_HINT]: wasm.length } }).length });
+      }
+      out.web_bytes[name] = measured;
+    }
+  });
+}
+
 // Keep the wall-clock observation whole: it is what a user sees. AppKit's
 // empty-window floor is a separate experiment, not a subtraction that can
 // make a slow launch look fast. The portion Exact can trade against its cold
@@ -789,6 +864,11 @@ if (long) {
     ['  optional: web arm (dlopen)', mib(out.web_module_bytes), Number.isFinite(out.web_module_bytes) ? `${mib(out.web_module_gzip_bytes)} gzip; paid at the first iframe` : 'n/a'],
   );
   rows.push(['macOS: touch one line, rebuild', out.macos_touch_failed ? 'FAILED' : s(out.macos_touch_s), out.macos_touch_failed ?? `host/apple/src/host.rs; budget ${budget('Touch one line')}`]);
+  // LLP 1047 D9: each app's wasm, and its code by capability (KiB of code).
+  for (const [name, m] of Object.entries(out.web_bytes ?? {})) {
+    const parts = m.code ? Object.entries(m.code).filter(([, b]) => b >= 1024).sort((a, b) => b[1] - a[1]).map(([k, b]) => `${k} ${kib(b)}`).join(' · ') : 'names unavailable';
+    rows.push([`web bytes: ${name}`, m.failed ? 'FAILED' : kib(m.raw), m.failed ?? `${kib(m.brotli)} brotli-11, ${kib(m.gzip)} gzip; ${parts}`]);
+  }
 }
 console.log(`web artifact sha256 ${out.web_artifact_id}; hardware ${out.identity.cpu}; commit ${out.identity.commit}`);
 console.log(`exact2 metrics (${app.id}, captured source) — ${new Date().toISOString().slice(0, 19)}Z, private build cache, p50 where repeated`);
