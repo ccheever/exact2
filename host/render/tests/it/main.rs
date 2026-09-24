@@ -327,7 +327,9 @@ fn a_page_is_the_shell_around_the_document() {
     assert!(scripts[2].starts_with("<script type=\"module\" src=\"./glue.js\">"));
     assert!(exact_render::capture().len() <= 1024);
     assert_eq!(html.matches("<meta name=\"viewport\"").count(), 1);
-    assert!(!html.contains("preload\" href=\"./app.wasm\""));
+    // An idle page's runtime downloads with the document (LLP 1048.000 D3).
+    assert!(html.contains("<link rel=\"preload\" href=\"./app.wasm\" as=\"fetch\" crossorigin>"));
+    assert!(html.contains("<link rel=\"modulepreload\" href=\"./navigation.js\">"));
     assert!(!html.contains("<title>Exact</title>"));
     assert!(exact_render::page("<!doctype html><title>x</title>\n", &r).is_err());
     let mut interaction = r;
@@ -336,7 +338,10 @@ fn a_page_is_the_shell_around_the_document() {
     assert!(html.contains("data-activate=\"interaction\""));
     assert!(html.contains("src=\"./document-glue.js\""));
     assert!(!html.contains("src=\"./glue.js\""));
-    assert!(!html.contains("app.wasm"));
+    // Only the capture script's own code names the wasm, for an idle page.
+    let rest = html.replace(exact_render::capture(), "");
+    assert!(!rest.contains("app.wasm"));
+    assert!(!rest.contains("navigation.js"));
 }
 
 #[test]

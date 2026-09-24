@@ -74,14 +74,11 @@ const WATCH = `globalThis.__watch = { emptyFrames: 0, swaps: 0 };
   });`;
 /** Of the live page's views, how many are the served document's own elements. */
 const SERVED_VIEWS = `(() => { const views = [...document.querySelectorAll('#exact-root [data-view]')]; return { views: views.length, served: views.filter((el) => el.__served).length }; })()`;
-/** Whether the wasm was fetched once, and not before the page's first paint
- * or its `load`, whichever came first: a fast page can load before it paints,
- * and then the glue's idle start fetches it. */
-const WASM_AFTER_PAINT = `(() => {
-  const paint = performance.getEntriesByType('paint')[0]?.startTime ?? Infinity;
-  const load = performance.getEntriesByType('navigation')[0]?.loadEventStart || Infinity;
+/** Whether the wasm was fetched once, by the document's head preload: the
+ * capture script's and the glue's fetches take that response. */
+const WASM_ONCE = `(() => {
   const wasm = performance.getEntriesByType('resource').filter((e) => e.name.endsWith('/app.wasm'));
-  return wasm.length === 1 && wasm[0].startTime >= Math.min(paint, load);
+  return wasm.length === 1 && wasm[0].initiatorType === 'link';
 })()`;
 
 /** Every difference between two normalized trees, each naming a view. */
@@ -175,7 +172,7 @@ check(`Caltrain's served document is the live host's DOM${unavailable ? ` — ${
     await plain.until("document.readyState === 'complete' && !!document.getElementById('exact-root')?.firstElementChild", 'the served document');
     const served = JSON.parse(await plain(NORMALIZED));
     // LLP 1048.000 D6: the document stays on screen until the runtime's own
-    // tree has settled; its wasm downloads from the first paint, the runtime
+    // tree has settled; its wasm downloads with the document, the runtime
     // starts at idle, from the checkpoint, and adopts the document — its
     // first tree is the document's.
     const live = await tab(true, WATCH);
@@ -185,7 +182,7 @@ check(`Caltrain's served document is the live host's DOM${unavailable ? ` — ${
     expect(differences(served, JSON.parse(await live(NORMALIZED)))).toEqual([]);
     expect(served.length).toBeGreaterThan(0);
     const { emptyFrames, swaps } = JSON.parse(await live('JSON.stringify(globalThis.__watch)'));
-    expect({ emptyFrames, swaps, wasmAfterPaint: await live(WASM_AFTER_PAINT) }).toEqual({ emptyFrames: 0, swaps: 0, wasmAfterPaint: true });
+    expect({ emptyFrames, swaps, wasmOnce: await live(WASM_ONCE) }).toEqual({ emptyFrames: 0, swaps: 0, wasmOnce: true });
     expect((await live("exact.agent({op:'state'})")).adopted).toBe(true);
     const { views, served: kept } = await live(SERVED_VIEWS);
     expect(views).toBeGreaterThan(200);

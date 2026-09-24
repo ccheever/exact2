@@ -194,7 +194,8 @@ writeFileSync(resolve(stage, 'index.html'), readFileSync(resolve(stage, 'index.h
 // source, then in its web crate)
 // from the plan the wasm carries, each a whole page composed over this
 // shell (exact_render::page): the renderer's <head>, the document in
-// #exact-root, its checkpoint; nothing preloads the glue or the wasm. Then
+// #exact-root, its checkpoint; an idle page preloads its wasm and
+// navigation.js with the document, an interaction page nothing. Then
 // 404.html, sitemap.xml (absolute, against the manifest's origin),
 // robots.txt, and the shell itself as shell.html — what a client route is
 // served, and what the render server composes documents over.

@@ -7,8 +7,9 @@ use crate::Rendered;
 /// on an element that hears `press` and isn't a native control — against
 /// their elements from first parse, until the boot glue takes them over and
 /// replays them once after adoption. Once the page has painted (its first
-/// paint entry), a page that doesn't activate on interaction starts its
-/// wasm's download for the glue (`exact.runtime`). It holds no app logic. The
+/// paint entry), a page that doesn't activate on interaction hands its wasm's
+/// download, which the head's preload began, to the glue (`exact.runtime`).
+/// It holds no app logic. The
 /// server's CSP admits it by hash; `scripts/boot.mjs` pins that hash and its
 /// size.
 pub fn capture() -> &'static str {
@@ -16,11 +17,12 @@ pub fn capture() -> &'static str {
 }
 
 /// The built shell with the renderer's `<head>` and the capture script in
-/// place of its title and viewport meta, the shell's wasm and
-/// `navigation.js` preloads removed (a document's page preloads nothing,
-/// D3), the document in `#exact-root`, and its checkpoint, with the
-/// document's digest, before the glue.
-/// Refuses a shell that no longer has those places.
+/// place of its title and viewport meta, the document in `#exact-root`, and
+/// its checkpoint, with the document's digest, before the glue. An idle
+/// page keeps the shell's wasm and `navigation.js` preloads, so its runtime
+/// downloads with the document, where a CDN would send them as a 103 (D3, as
+/// built); an interaction page's are removed: it fetches nothing before a
+/// handler's intent. Refuses a shell that no longer has those places.
 pub fn page(shell: &str, rendered: &Rendered) -> Result<String, String> {
     let mut html = shell.to_string();
     // From `start` through the first `end` after it.
@@ -40,15 +42,19 @@ pub fn page(shell: &str, rendered: &Rendered) -> Result<String, String> {
         &format!("{}\n<script>{}</script>\n", rendered.head, capture()),
     )?;
     cut(&mut html, "<!-- Fetched in parallel", "-->\n", "")?;
+    let interaction = rendered.activate == exact_plan::ActivatePolicy::Interaction;
     let navigation = "<link rel=\"modulepreload\" href=\"./navigation.js\">\n";
-    cut(&mut html, navigation, navigation, "")?;
     let wasm = "<link rel=\"preload\" href=\"./app.wasm\" as=\"fetch\" crossorigin>\n";
-    cut(&mut html, wasm, wasm, "")?;
+    for preload in [navigation, wasm] {
+        if interaction {
+            cut(&mut html, preload, preload, "")?;
+        }
+    }
     let root = "<div id=\"exact-root\"></div>";
     let document = format!("<div id=\"exact-root\">{}</div>", rendered.document.root);
     cut(&mut html, root, root, &document)?;
     let glue = "<script type=\"module\" src=\"./glue.js\"></script>";
-    let entry = if rendered.activate == exact_plan::ActivatePolicy::Interaction {
+    let entry = if interaction {
         "<script type=\"module\" src=\"./document-glue.js\"></script>"
     } else {
         glue
@@ -59,10 +65,12 @@ pub fn page(shell: &str, rendered: &Rendered) -> Result<String, String> {
     );
     cut(&mut html, glue, glue, &checkpoint)?;
     let viewports = html.matches("<meta name=\"viewport\"").count();
-    let preloaded = ["app.wasm", "navigation.js", "glue.js"]
+    let preloads = ["app.wasm", "navigation.js", "glue.js"]
         .iter()
-        .any(|file| html.contains(&format!("preload\" href=\"./{file}\"")));
-    if viewports != 1 || preloaded || !html.contains(&rendered.head) {
+        .filter(|file| html.contains(&format!("preload\" href=\"./{file}\"")))
+        .count();
+    let expected = if interaction { 0 } else { 2 };
+    if viewports != 1 || preloads != expected || !html.contains(&rendered.head) {
         return Err("the shell no longer has the places a document goes".into());
     }
     Ok(html)
