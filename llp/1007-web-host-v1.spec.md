@@ -510,9 +510,11 @@ as the fixed Caltrain runner workload, independent of app selection.
 wasm32-unknown-unknown` for the app's crate (the `web` profile is release with
 `opt-level = "z"` and fat LTO: the runner's work is sub-millisecond, so every
 byte is fetch, parse, and compile), then `wasm-opt -Oz` with
-`--one-caller-inline-max-function-size 50` when binaryen is on PATH.
+`--one-caller-inline-max-function-size 20 --converge` when binaryen is on PATH.
 This keeps small helpers inline while avoiding large expansions that make
-the compressed download larger despite shrinking the raw wasm. The build
+the compressed download larger despite shrinking the raw wasm (2026-09-24:
+bound 20 with convergence ships about 3 KB less Brotli per app than bound 50
+alone, for about 0.1% more raw bytes and about 2.5 s more wasm-opt). The build
 says when binaryen is absent and ships unoptimized. The output is
 `host/web/dist/` (ignored by git): `app.wasm`, `index.html`, `glue.js`.
 The production build minifies the host JavaScript with the pinned Rolldown.
