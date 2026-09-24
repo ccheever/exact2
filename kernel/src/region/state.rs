@@ -2,10 +2,10 @@ use super::{tree::Derived, *};
 use crate::{
     arena::NodeArena,
     generated::{Display, NodeType, Overflow, StyleMask, StyleProps},
+    id::IdSet,
     style::Dimension,
     CommitReceipt, LayoutError, NodeFlags, TextMeasurer,
 };
-use std::collections::HashSet;
 
 struct Provisional {
     geometry: Rc<RegionGeometry>,
@@ -17,7 +17,7 @@ pub(crate) struct RegionState {
     pub profile: RegionProfile,
     leases: RegionLeases,
     lease: Option<Arc<()>>,
-    members: HashSet<NodeKey>,
+    members: IdSet<NodeKey>,
     inherited: StyleProps,
     ticket: Option<RegionTicket>,
     inputs: Option<RegionInputs>,
@@ -56,7 +56,7 @@ impl RegionState {
         })
     }
     pub fn retention(&self) -> RegionRetention {
-        let mut accepted = HashSet::new();
+        let mut accepted = IdSet::default();
         let accepted_source_bytes = self.accepted.as_ref().map_or(0, |p| {
             p.facts
                 .sources
@@ -657,8 +657,8 @@ impl TextMeasurer for Candidate<'_> {
         TextMetrics::default()
     }
 }
-fn members(arena: &NodeArena, key: NodeKey) -> Result<HashSet<NodeKey>, LayoutError> {
-    let mut result = HashSet::new();
+fn members(arena: &NodeArena, key: NodeKey) -> Result<IdSet<NodeKey>, LayoutError> {
+    let mut result = IdSet::default();
     let mut stack = vec![key.index];
     while let Some(s) = stack.pop() {
         if result.len() == REGION_NODES {

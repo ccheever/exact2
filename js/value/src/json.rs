@@ -135,6 +135,14 @@ impl Object {
         }
     }
 
+    /// [`Object::insert`] without its answer, out of line: each iterator an
+    /// object is collected from would otherwise carry its own copy of the
+    /// search and the insert.
+    #[inline(never)]
+    fn put(&mut self, key: String, value: Json) {
+        self.insert(key, value);
+    }
+
     /// Remove `key`; its value, if it had one.
     pub fn remove(&mut self, key: &str) -> Option<Json> {
         self.find(key).ok().map(|i| self.0.remove(i).1)
@@ -166,20 +174,25 @@ impl FromIterator<(String, Json)> for Object {
     fn from_iter<I: IntoIterator<Item = (String, Json)>>(iter: I) -> Self {
         let mut object = Object::new();
         for (key, value) in iter {
-            object.insert(key, value);
+            object.put(key, value);
         }
         object
     }
 }
 
 /// An object from `(key, value)` pairs, in any order.
-pub fn object<'k>(members: impl IntoIterator<Item = (&'k str, Json)>) -> Json {
-    Json::Object(
-        members
-            .into_iter()
-            .map(|(k, v)| (k.to_owned(), v))
-            .collect(),
-    )
+pub fn object<const N: usize>(mut members: [(&str, Json); N]) -> Json {
+    object_of(&mut members)
+}
+
+/// [`object`]'s one body: its callers pass arrays of many lengths, and a
+/// body per length would be a copy each.
+fn object_of(members: &mut [(&str, Json)]) -> Json {
+    let mut object = Object::new();
+    for (key, value) in members {
+        object.put((*key).to_owned(), std::mem::take(value));
+    }
+    Json::Object(object)
 }
 
 impl Json {

@@ -27,7 +27,6 @@ struct Progress<'a> {
     pending_res: &'a [bool],
 }
 
-#[derive(Clone)]
 enum RequestEffect {
     None,
     Answered,
@@ -184,7 +183,8 @@ impl<D: DataSource> Runner<D> {
         // Work on a copy of the committed resource states; publish only when
         // the whole pass succeeds, so a failure leaves every cache as it was.
         let mut states: Vec<Option<ResourceState>> = self.resources.clone();
-        *effects = vec![RequestEffect::None; states.len()];
+        effects.clear();
+        effects.resize_with(states.len(), || RequestEffect::None);
         let mut passes = 0usize;
         loop {
             passes += 1;
