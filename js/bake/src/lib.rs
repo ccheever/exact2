@@ -320,7 +320,7 @@ fn build_sources(
         // The web entry links what the plan uses (LLP 1047 D3).
         if platform == "web" {
             let plan = exact_plan::Plan::decode(&baked.plan).map_err(|e| format!("{e:?}"))?;
-            entry.push_str(&contract::web_linked(&plan));
+            entry.push_str(&contract::web_linked(&plan, &compat.inputs));
         }
         std::fs::write(out.join("logic.rs"), entry).map_err(|e| e.to_string())?;
     }

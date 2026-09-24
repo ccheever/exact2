@@ -611,6 +611,23 @@ size: check `git log` for these lanes and say which items you are taking.
   - Video player: 954,898 → 904,807 raw; 281,444 → 270,640 brotli.
   - Caltrain: 1,024,188 → 974,091 raw; 297,940 → 287,305 brotli.
 
+**Stage 3, 2026-09-24: module replacement.**
+- **When a page can take a new data module.** `exact_boot_module` swaps the
+  data module of a running page. Two things use it:
+  - the dev loop;
+  - Rust live replacement in a shipped client whose compat receipt names a
+    browser Rust module (LLP 1029.000).
+
+  Web delivery otherwise ships a new dist. The entry writes
+  `EXACT_REPLACEMENT` for exactly those two cases. Every other build
+  refuses by name, and its replacement path is gone.
+- **The Fieldnotes Chrome drive** swaps the module generation, so it runs on
+  an `EXACT_WEB_LINK=all` build and skips a shipped one.
+- **Bytes at `53f954fc`, raw and brotli-11:**
+  - RealWorld: 1,076,789 → 1,064,422 raw; 315,533 → 312,587 brotli.
+  - Video player: 904,807 → 878,712 raw; 270,640 → 261,639 brotli.
+  - Caltrain keeps Rust replacement and is unchanged.
+
 ### As built: activation, boot and the press path (the activation lane)
 
 **The bench, reproduced at `98d5f996`** (RealWorld served, mobile profile, nine

@@ -37,6 +37,7 @@ mod exported {
     const PLAN: &[u8] = &[];
     const COMPAT: &str = "{}";
     const EXACT_LINKED: exact_web::Linked = exact_web::Linked::CORE;
+    const EXACT_REPLACEMENT: bool = false;
     fn app_data() -> NoData {
         NoData
     }

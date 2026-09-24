@@ -37,7 +37,7 @@ fn main() {
         out_dir.join("entry.rs"),
         format!(
             "{entry}\n{}exact_web::host!(AppData, PLAN, COMPAT, app_data);\n",
-            contract::web_linked(&baked)
+            contract::web_linked(&baked, &compat.inputs)
         ),
     )
     .unwrap();

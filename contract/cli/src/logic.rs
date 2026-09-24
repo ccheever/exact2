@@ -41,16 +41,28 @@ pub fn rust_entry(data: &str, constructor: &str, mode: &str) -> Result<String, S
 /// the rest. A development build links every capability (D7): the dev loop
 /// restarts from new plans without rebuilding the wasm, so `host/web/dev.mjs`
 /// sets `EXACT_WEB_LINK=all`.
-pub fn web_linked(plan: &exact_plan::Plan) -> String {
+///
+/// Beside it, `EXACT_REPLACEMENT`: whether a running page can take a new data
+/// module. The dev loop's can, and so can a production client whose
+/// compatibility `inputs` name a Rust module replaced in the browser (LLP
+/// 1029.000); every other build refuses `exact_boot_module` by name.
+pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String {
     use exact_runner::{Capability, Uses};
     println!("cargo:rerun-if-env-changed=EXACT_WEB_LINK");
-    let uses = if std::env::var_os("EXACT_WEB_LINK").is_some_and(|v| v == "all") {
+    let all = std::env::var_os("EXACT_WEB_LINK").is_some_and(|v| v == "all");
+    let uses = if all {
         Capability::ALL.into_iter().fold(Uses::NONE, Uses::with)
     } else {
         exact_runner::uses(plan)
     };
+    let replacement = all
+        || (inputs["rustMode"] == "browser"
+            && inputs["rustModule"]
+                .as_str()
+                .is_some_and(|module| !module.is_empty()));
     let names: Vec<&str> = uses.iter().map(|c| c.name()).collect();
     let mut entry = format!("/// What this artifact links beyond the core (LLP 1047 D3).\nconst EXACT_LINKED: ::exact_web::Linked = ::exact_web_capabilities::linked!({});\n", names.join(", "));
+    entry.push_str(&format!("/// Whether a running page can take a new data module (LLP 1029.000).\nconst EXACT_REPLACEMENT: bool = {replacement};\n"));
     // A capability's export group, where it has one.
     for capability in uses.iter() {
         match capability {

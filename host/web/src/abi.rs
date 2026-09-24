@@ -125,6 +125,11 @@ impl<D: DataSource> Bridge<D> {
         &self.output[..len.min(self.output.len())]
     }
 
+    /// A named refusal (LLP 1047 D6) as the export's reply.
+    pub fn refuse(&mut self, message: &str) -> u32 {
+        self.emit(exact_runner::agent::error(message))
+    }
+
     fn emit(&mut self, s: String) -> u32 {
         self.output = s.into_bytes();
         self.output.len() as u32
@@ -783,8 +788,9 @@ pub type Cell<D> = RefCell<Bridge<D>>;
 /// module's `[receipt, browser script]` byte slices for bake extraction and loading.
 ///
 /// The invoking crate defines `EXACT_LINKED`, the [`crate::Linked`] of the
-/// capabilities its plan uses, which the generated entry writes
-/// (`contract::web_linked`, LLP 1047 D3). Every boot registers it first.
+/// capabilities its plan uses, and `EXACT_REPLACEMENT`, whether a running
+/// page may take a new data module; the generated entry writes both
+/// (`contract::web_linked`, LLP 1047 D3). Every boot registers the first.
 #[macro_export]
 macro_rules! host {
     ($data:ty, $plan:expr, $compat:expr, $new:expr, $module:expr) => {
@@ -889,12 +895,16 @@ macro_rules! host {
         pub extern "C" fn exact_data_ready() -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().data_ready())
         }
-        /// Replace the paired plan and privately prepared browser module.
+        /// Replace the paired plan and privately prepared browser module:
+        /// only a build whose entry says `EXACT_REPLACEMENT` links it.
         #[no_mangle]
         pub extern "C" fn exact_boot_module(plan: u32, receipt: u32, module: u32) -> u32 {
             $crate::link(EXACT_LINKED);
             EXACT_BRIDGE.with(|b| {
                 let mut b = b.borrow_mut();
+                if !EXACT_REPLACEMENT {
+                    return b.refuse("this build takes no module replacement (LLP 1047 D6)");
+                }
                 b.set_links(EXACT_HOST_LINKS);
                 b.boot_module([plan as usize, receipt as usize, module as usize], ($new)())
             })

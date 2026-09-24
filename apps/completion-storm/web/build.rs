@@ -16,7 +16,6 @@ fn main() {
         contract::bake(plan, completion_storm_data::Storm::default()).expect("offline bake");
     let out = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
     std::fs::write(out.join("app.plan"), baked.encode()).unwrap();
-    std::fs::write(out.join("linked.rs"), contract::web_linked(&baked)).unwrap();
     let manifest = contract::Manifest::read(&app).expect("app manifest");
     let compat = exact_bake::compatibility_id(
         &app,
@@ -27,4 +26,9 @@ fn main() {
     )
     .expect("compatibility receipt");
     std::fs::write(out.join("compat.json"), compat.to_json()).unwrap();
+    std::fs::write(
+        out.join("linked.rs"),
+        contract::web_linked(&baked, &compat.inputs),
+    )
+    .unwrap();
 }

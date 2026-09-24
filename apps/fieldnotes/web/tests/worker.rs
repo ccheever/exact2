@@ -3,9 +3,12 @@
 //! the page's main thread shows while a backup of 1,000 notes runs beside
 //! wheel scrolling, judged against the display's own frame interval, at 1×
 //! and 4× CPU throttling. Needs `CHROME` and a Fieldnotes `host/web/dist`
-//! (`bun host/web/build.mjs fieldnotes`; `EXACT_WEB_DIST` names another);
-//! skips otherwise. The numbers are reported, not asserted: the bar is the
-//! RFC's to judge, on a named device.
+//! built as the dev loop builds it (`EXACT_WEB_LINK=all bun
+//! host/web/build.mjs fieldnotes`; `EXACT_WEB_DIST` names another); skips
+//! otherwise. The drive swaps the module generation, the dev loop's module
+//! swap: a shipped TypeScript client takes no module replacement (LLP 1047
+//! D6, D7). The numbers are reported, not asserted: the bar is the RFC's to
+//! judge, on a named device.
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -22,9 +25,12 @@ fn fieldnotes_web_drives_on_its_placement_and_reports_frame_gaps_under_a_backup(
         .map(PathBuf::from)
         .unwrap_or_else(|| root.join("host/web/dist"));
     let receipt = std::fs::read_to_string(dist.join("app.module.json")).unwrap_or_default();
-    if !receipt.contains("\"com.exact.fieldnotes\"") {
+    let build = std::fs::read_to_string(dist.join("bake.json")).unwrap_or_default();
+    if !receipt.contains("\"com.exact.fieldnotes\"")
+        || !build.contains("\"EXACT_WEB_LINK\":\"all\"")
+    {
         eprintln!(
-            "Fieldnotes web drive unavailable: {} is not a Fieldnotes build (bun host/web/build.mjs fieldnotes)",
+            "Fieldnotes web drive unavailable: {} is not a development Fieldnotes build (EXACT_WEB_LINK=all bun host/web/build.mjs fieldnotes)",
             dist.display()
         );
         return;
