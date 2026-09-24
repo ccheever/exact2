@@ -444,7 +444,17 @@ extension Agent {
         let vp = presenter.viewport
         let p = vp.convert(CGPoint(x: b.midX + vp.contentOffset.x, y: b.midY + vp.contentOffset.y), to: nil)
         let at = [Agent.r2(b.midX), Agent.r2(b.midY)]
-        let hit = win.hitTest(p, with: nil) ?? v
+        let seen = win.hitTest(p, with: nil)
+        // A finger lands only where the target is seen (LLP 1035.003: action
+        // dispatch is never substituted for a contact), so a press, a menu or
+        // a double click is refused, having changed nothing, when the software
+        // keyboard or another view is over it. A target off the viewport is
+        // activated as before, and the reply says a finger could not reach it.
+        let away = offscreen(v, box: b, hit: seen)
+        let hit = away == nil ? seen ?? v : v
+        if req["wheel"] == nil, req["hover"] == nil, let why = obscured(v, at: p, hit: hit) {
+            return ["error": "tap #\(v.id) at (\(at[0]), \(at[1])): \(why)"]
+        }
         if req["contextmenu"] as? Bool == true || req["dblclick"] as? Bool == true {
             let event = req["contextmenu"] as? Bool == true ? "contextmenu" : "dblclick"
             var next: UIView? = hit
@@ -498,8 +508,35 @@ extension Agent {
         // Nothing took the focus: the field being edited loses it (a page
         // blurs its input on a click anywhere else), and the keyboard goes.
         if !took && !presenter.contextRetainsFocus(n ?? v) { presenter.viewport.endEditing(true) }
-        if let action, presenter.views[action.id] === action { presenter.press(action.id); action.finishPointerPress() }
-        return ["tapped": Int(v.id), "at": at]
+        var pressed: Any = NSNull()
+        if let action, presenter.views[action.id] === action { presenter.press(action.id); action.finishPointerPress(); pressed = Int(action.id) }
+        var reply: [String: Any] = ["tapped": Int(v.id), "at": at, "pressed": pressed]
+        if let away { reply["offscreen"] = away }
+        return reply
+    }
+
+    /// Why `v`'s middle is not on screen for a finger, or nil: off the
+    /// viewport it scrolls in, or off the window.
+    func offscreen(_ v: NodeView, box b: CGRect, hit: UIView?) -> String? {
+        let vp = presenter.viewport
+        if v.isDescendant(of: vp), !CGRect(origin: .zero, size: vp.bounds.size).contains(CGPoint(x: b.midX, y: b.midY)) {
+            return "its middle is outside the \(Agent.r2(vp.bounds.width))×\(Agent.r2(vp.bounds.height)) viewport; a finger would scroll it into view first"
+        }
+        return hit == nil ? "its middle is off the window" : nil
+    }
+
+    /// Why a finger at the middle of `v` (`p`, in the window) would land on
+    /// something else, or nil: the software keyboard is a window of its own,
+    /// which the app's hit test never sees; any other view is named. A node
+    /// ancestor taking the touch is how a finger reaches a node that takes
+    /// none itself.
+    func obscured(_ v: NodeView, at p: CGPoint, hit: UIView) -> String? {
+        if let container = presenter.modals.coordinateView ?? presenter.session?.view,
+           let top = presenter.keyboardGuideTop(in: container), p.y >= container.convert(CGPoint(x: 0, y: top), to: nil).y {
+            return "its middle is under the software keyboard; dismiss it or scroll the target above it first (state shows keyboard.top)"
+        }
+        if hit === v || hit.isDescendant(of: v) || (hit is NodeView && v.isDescendant(of: hit)) { return nil }
+        return "\((hit as? NodeView).map { "node #\($0.id)" } ?? String(describing: Swift.type(of: hit))) covers its middle"
     }
 
     /// The web's chaining rule (`overscroll-behavior: auto`, LLP 1010): from
