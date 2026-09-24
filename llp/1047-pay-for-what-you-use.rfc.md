@@ -647,6 +647,28 @@ size: check `git log` for these lanes and say which items you are taking.
   - Video player: 780,693 → 767,136 raw; 244,645 → 241,314 brotli.
   - Caltrain uses surfaces: 273,128 → 273,297 brotli.
 
+**Deferred: the collections seam.** It waits for the
+`llp-ship/20260923-review-followups` run to publish. That run retires the
+windowed list (`window.rs`, `heights.rs`) and rewrites
+`runner/src/runner/{lists,collection}.rs`, which leaves one list engine to
+wrap.
+- **The payoff.** In RealWorld, 46.7 KiB of list-engine code never runs,
+  about 14 KB brotli. The seam also unblocks about 4.8 KB brotli of the
+  kernel's transition and shape-outside parsers. The list engine's own
+  `style()` rows, reorder's spring `transition` among them, reach those
+  parsers through the shared `bridge::set_style`.
+- **The design, with no list-engine file touched:**
+  1. `NodeInst.collection` and the region's `ListWindow` become
+     `Option<Box<dyn …>>`, over a small trait that `instance.rs` defines and
+     implements. Their drop glue then leaves with the engine.
+  2. `instance.rs`'s entry points go through a table in `Update`:
+     `realize`, `update_all`, `Tree::collections`, `Tree::find`,
+     `Tree::wake_collection_edge` and the windowed region's update.
+  3. The runner's own `Update` constructions pass `Update::linked(…,
+     links)`. `Update::new` keeps every capability, so the list-engine tests
+     are unchanged.
+  4. `collections_json` and the reorder APIs are guarded by the same table.
+
 ### As built: activation, boot and the press path (the activation lane)
 
 **The bench, reproduced at `98d5f996`** (RealWorld served, mobile profile, nine
