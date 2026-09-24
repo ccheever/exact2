@@ -7,12 +7,12 @@
 //! order.
 
 use crate::id::IdSet;
-use std::collections::HashMap;
+use crate::sorted::SortedMap;
 
 /// `testId` → slot indexes, maintained on set/clear/destroy/reset.
 #[derive(Debug, Default, Clone)]
 pub struct SelectorIndex {
-    by_test_id: HashMap<String, Vec<u32>>,
+    by_test_id: SortedMap<String, Vec<u32>>,
 }
 
 impl SelectorIndex {
@@ -31,8 +31,7 @@ impl SelectorIndex {
         }
         if let Some(new) = new {
             self.by_test_id
-                .entry(new.to_string())
-                .or_default()
+                .get_or_insert_with(new.to_string(), Vec::new)
                 .push(slot);
         }
     }

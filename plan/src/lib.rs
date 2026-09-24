@@ -361,10 +361,12 @@ impl Plan {
             if family.faces.len == 0 {
                 return Err(PlanError::EmptyFamily { family: i as u32 });
             }
-            let mut coordinates = std::collections::HashSet::new();
+            // A family's faces are few: a scan, not a hash table's code.
+            let mut coordinates = Vec::new();
             for face_id in family.faces.iter() {
                 let face = self.face(face_id);
-                if !coordinates.insert((face.weight, face.italic)) {
+                let coordinate = (face.weight, face.italic);
+                if coordinates.contains(&coordinate) {
                     return Err(PlanError::DuplicateFace {
                         family: i as u32,
                         face: face_id.0,
@@ -372,6 +374,7 @@ impl Plan {
                         italic: face.italic,
                     });
                 }
+                coordinates.push(coordinate);
             }
         }
         if self.stacks.len() > u16::MAX as usize + 1 {

@@ -9,7 +9,6 @@ use exact_runner::{
     Answer, DataError, DataSource, Dispatch, InFlight, Outcome, Request, Store, Target,
 };
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, HashSet};
 
 fn unavailable(message: impl Into<String>) -> DataError {
     DataError::Unavailable(message.into())
@@ -30,6 +29,42 @@ fn call_key(target: &Json, source: &str, args: &[Json]) -> String {
         Json::Array(args.to_vec()),
     ])
     .text()
+}
+
+/// A few named entries: a module's sources, its calls in flight. A scan of
+/// a vector costs less code than a hash table per value type.
+struct Table<V>(Vec<(String, V)>);
+
+impl<V> Table<V> {
+    fn new() -> Self {
+        Table(Vec::new())
+    }
+    fn get(&self, name: &str) -> Option<&V> {
+        self.0.iter().find(|(n, _)| n == name).map(|(_, v)| v)
+    }
+    fn insert(&mut self, name: String, value: V) {
+        match self.0.iter_mut().find(|(n, _)| *n == name) {
+            Some(entry) => entry.1 = value,
+            None => self.0.push((name, value)),
+        }
+    }
+    fn remove(&mut self, name: &str) -> Option<V> {
+        let at = self.0.iter().position(|(n, _)| n == name)?;
+        Some(self.0.swap_remove(at).1)
+    }
+    fn retain(&mut self, keep: impl Fn(&str) -> bool) {
+        self.0.retain(|(n, _)| keep(n));
+    }
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+    #[cfg(test)]
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+    fn clear(&mut self) {
+        self.0.clear();
+    }
 }
 
 /// Store pairs and header pairs as the realm reads them: `[[k, v], …]`.
@@ -90,8 +125,8 @@ pub struct Module {
     revision: String,
     id: u64,
     ready: bool,
-    signatures: HashMap<String, (Vec<Shape>, Shape)>,
-    waiting: HashMap<String, bool>, // true: a browser checkpoint; false: HTTP
+    signatures: Table<(Vec<Shape>, Shape)>,
+    waiting: Table<bool>, // true: a browser checkpoint; false: HTTP
     /// Where the loader runs this module's turns (LLP 1027.002 D1): the
     /// page's private iframe realm, or a dedicated Worker.
     placement: Placement,
@@ -106,8 +141,8 @@ impl Module {
             revision: revision.into(),
             id: 0,
             ready: false,
-            signatures: HashMap::new(),
-            waiting: HashMap::new(),
+            signatures: Table::new(),
+            waiting: Table::new(),
             placement: Placement::Main,
         }
     }
@@ -228,7 +263,9 @@ impl Module {
         key: String,
         bytes: &[u8],
     ) -> Result<Answer, DataError> {
-        let (_, result) = &self.signatures[source];
+        let Some((_, result)) = self.signatures.get(source) else {
+            return Err(DataError::UnknownSource(source.into()));
+        };
         let reply = json::reply(bytes, result).map_err(|e| unavailable(e.to_string()))?;
         let response = reply.fields;
         if let Some(token) = response["continuation"].as_u64() {
@@ -399,7 +436,7 @@ impl DataSource for Module {
     /// Calls whose requests the runner let go are dropped here, and the
     /// realm hears what is still in flight, to drop its own (LLP 1016 D5).
     fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
-        let mut keep = HashSet::new();
+        let mut keep = Vec::new();
         let mut requests = Vec::new();
         for InFlight {
             target,
@@ -420,7 +457,7 @@ impl DataSource for Module {
                 continue;
             };
             let target = target_json(Some(*target));
-            keep.insert(call_key(&target, source, &args));
+            keep.push(call_key(&target, source, &args));
             requests.push(object([
                 ("target", target),
                 ("source", (*source).into()),
@@ -429,7 +466,7 @@ impl DataSource for Module {
         }
         let before = self.waiting.len();
         self.waiting
-            .retain(|key, _| !targeted(key) || keep.contains(key));
+            .retain(|key| !targeted(key) || keep.iter().any(|k| k == key));
         if self.waiting.len() != before {
             let _ = call(object([
                 ("op", "forget".into()),

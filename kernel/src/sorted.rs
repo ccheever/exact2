@@ -334,6 +334,13 @@ impl SlotSet {
         self.len == 0
     }
 
+    /// Whether `slot` is in the set.
+    pub(crate) fn contains(&self, slot: u32) -> bool {
+        self.words
+            .get((slot / 64) as usize)
+            .is_some_and(|w| w & (1u64 << (slot % 64)) != 0)
+    }
+
     /// Remove everything.
     pub(crate) fn clear(&mut self) {
         self.words.clear();

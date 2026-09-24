@@ -799,8 +799,10 @@ impl Kernel {
 
     /// Every node carrying `test_id`, in structural tree order.
     pub fn find_by_test_id(&self, test_id: &str) -> Vec<NodeKey> {
-        let hits: std::collections::HashSet<u32> =
-            self.selectors.lookup(test_id).iter().copied().collect();
+        let mut hits = crate::sorted::SlotSet::default();
+        for &slot in self.selectors.lookup(test_id) {
+            hits.insert(slot);
+        }
         if hits.is_empty() {
             return Vec::new();
         }
@@ -810,16 +812,19 @@ impl Kernel {
             .collect();
         let mut out: Vec<NodeKey> = order
             .iter()
-            .filter(|s| hits.contains(*s))
+            .filter(|s| hits.contains(**s))
             .map(|s| self.arena.key(*s))
             .collect();
         // Detached nodes (no root above them) come last, by slot.
-        let ordered: std::collections::HashSet<u32> = order.iter().copied().collect();
-        let mut detached = crate::sorted::SlotSet::default();
-        for &slot in hits.iter().filter(|s| !ordered.contains(s)) {
-            detached.insert(slot);
+        let mut ordered = crate::sorted::SlotSet::default();
+        for &slot in &order {
+            ordered.insert(slot);
         }
-        out.extend(detached.iter().map(|s| self.arena.key(s)));
+        out.extend(
+            hits.iter()
+                .filter(|s| !ordered.contains(*s))
+                .map(|s| self.arena.key(s)),
+        );
         out
     }
 

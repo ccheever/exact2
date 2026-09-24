@@ -292,7 +292,7 @@ pub struct Runner<D: DataSource> {
     /// [`JOURNAL_RING`] lines, and how many were dropped before them.
     journal: std::collections::VecDeque<String>,
     journal_start: usize,
-    flow_warned: std::collections::HashSet<exact_kernel::NodeKey>,
+    flow_warned: exact_kernel::SortedSet<exact_kernel::NodeKey>,
 }
 
 /// How many journal lines the runner retains (about an hour of a one-second
