@@ -242,6 +242,7 @@ pub struct PaintedBox {
     /// The scroll offset for a scroll container.
     pub scroll: Option<(f32, f32)>,
     projective: Option<ProjectiveHit>,
+    affine: Option<(Transform, Rect4)>,
 }
 
 impl PaintedBox {
@@ -261,7 +262,21 @@ impl PaintedBox {
     /// Whether a point (viewport points) is inside the box and its clip.
     pub fn contains(&self, x: f32, y: f32) -> bool {
         let inside = |r: Rect4| x >= r.0 && x < r.0 + r.2 && y >= r.1 && y < r.1 + r.3;
-        inside(self.rect)
+        let (local_x, local_y) = self
+            .projective
+            .map_or((x, y), |(inv, ..)| crate::placement::map(&inv, x, y));
+        let affine_hit = self.affine.is_none_or(|(ts, rect)| {
+            ts.invert().is_some_and(|inverse| {
+                let mut point = tiny_skia::Point::from_xy(local_x, local_y);
+                inverse.map_point(&mut point);
+                point.x >= rect.0
+                    && point.x < rect.0 + rect.2
+                    && point.y >= rect.1
+                    && point.y < rect.1 + rect.3
+            })
+        });
+        affine_hit
+            && inside(self.rect)
             && self.clip.is_none_or(inside)
             && self.projective.is_none_or(|(inv, rect, clip, planes)| {
                 let (x, y) = crate::placement::map(&inv, x, y);
@@ -798,6 +813,7 @@ impl Painter {
         walk.boxes.push(PaintedBox {
             id,
             projective: None,
+            affine: Some((ts, (x, y, w, h))),
             rect: bbox(ts, (x, y, w, h)),
             clip: clip_rect,
             scroll: scrolls.then(|| walk.scene.scroll.get(&id).copied().unwrap_or((0.0, 0.0))),

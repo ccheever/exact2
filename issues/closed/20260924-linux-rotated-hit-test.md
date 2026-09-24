@@ -1,6 +1,7 @@
 # Linux hit-testing of a rotated node uses the bounding box
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Linux hit testing inverse-maps affine transforms into the original rectangle, retaining projective and clip checks; regression checks rotated AABB corners miss and unrotated boxes hit.
 **Systems:** Linux host
 **Severity:** P2
 **Author:** Grok 4.7 for Charlie Cheever

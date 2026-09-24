@@ -255,6 +255,7 @@ impl Parser {
                 pos: 0,
                 names: NameSpans::default(),
                 depth: self.depth,
+                view_depth: self.view_depth,
                 last: 0,
             };
             let e = sub.expr()?;

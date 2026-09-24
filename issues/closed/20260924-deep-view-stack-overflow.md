@@ -1,6 +1,7 @@
 # A deep view aborts the compiler before SiteTooDeep
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Parser refuses more than 256 nested view sites with syntax-view-depth before recursive compiler passes; CLI regression covers 256 accepted and 400/800 refused without abort.
 **Systems:** Contract compiler
 **Severity:** P2
 **Author:** Grok 4.7 for Charlie Cheever

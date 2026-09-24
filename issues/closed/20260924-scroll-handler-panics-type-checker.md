@@ -1,6 +1,7 @@
 # A one-parameter scroll handler panics the type checker
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Payload type inference bounds parameter indexing; one-parameter scroll handlers reach the normal analyze-handler-arity refusal while valid two-parameter handlers compile.
 **Systems:** Contract compiler
 **Severity:** P1
 **Author:** Grok 4.7 for Charlie Cheever

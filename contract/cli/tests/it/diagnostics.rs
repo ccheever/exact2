@@ -1322,3 +1322,35 @@ fn function_calls_report_ordered_types_and_argument_positions_at_imported_sites(
         assert!(diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 0).is_empty());
     }
 }
+
+#[test]
+fn deep_views_are_refused_without_aborting_the_compiler() {
+    let app = App::new("view-depth");
+    for depth in [256, 400, 800] {
+        let mut source = String::from("component App\n  view\n");
+        for level in 0..depth {
+            source.push_str(&format!("{}column\n", " ".repeat(4 + level * 2)));
+        }
+        let path = app.write("app.contract", &source);
+        let output = app.run(&[path.to_str().unwrap(), "--json", "-o", "out.plan"]);
+        if depth == 256 {
+            assert!(output.status.success(), "{output:?}");
+        } else {
+            let errors = diagnostics(&output, 1);
+            assert_eq!(errors[0]["id"], "syntax-view-depth");
+        }
+    }
+}
+
+#[test]
+fn scroll_payload_arity_is_a_diagnostic() {
+    for params in ["x: number", "x: number, y: number"] {
+        let source = format!("component App\n  state n = 0\n  action onScroll({params}) writes n\n    n = x\n  view\n    scroll scroll=onScroll height=100\n      text \"hi\"\n");
+        let result = contract::compile(&source);
+        if params.contains(',') {
+            result.unwrap();
+        } else {
+            assert_eq!(result.unwrap_err().id, "analyze-handler-arity");
+        }
+    }
+}

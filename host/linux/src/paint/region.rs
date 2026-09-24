@@ -684,6 +684,7 @@ impl<'a> Replay<'a> {
                     if r.live_hit {
                         walk.boxes.push(PaintedBox {
                             projective: None,
+                            affine: Some((parent, g.outer.rect)),
                             id: n.id,
                             rect: bbox(parent, g.outer.rect),
                             clip,
@@ -752,6 +753,29 @@ impl<'a> Replay<'a> {
                     }
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod hit_tests {
+    use super::*;
+    #[test]
+    fn affine_hit_uses_the_transformed_rectangle() {
+        for degrees in [0.0, 45.0] {
+            let ts = Transform::from_rotate_at(degrees, 50.0, 50.0);
+            let rect = (0.0, 0.0, 100.0, 100.0);
+            let b = PaintedBox {
+                id: 1,
+                rect: bbox(ts, rect),
+                clip: None,
+                scroll: None,
+                projective: None,
+                affine: Some((ts, rect)),
+            };
+            assert!(b.contains(50.0, 50.0));
+            assert!(!b.contains(200.0, 200.0));
+            assert_eq!(b.contains(b.rect.0 + 1.0, b.rect.1 + 1.0), degrees == 0.0);
         }
     }
 }

@@ -372,7 +372,8 @@ fn refine_params_from_view(
                             let start = ct.actions[ai].len().saturating_sub(payload.len());
                             for (offset, ty) in payload.into_iter().enumerate() {
                                 let last = start + offset;
-                                if args.len() < ct.actions[ai].len() {
+                                if args.len() < ct.actions[ai].len() && last < ct.actions[ai].len()
+                                {
                                     let declared = ct.actions[ai][last].clone();
                                     let Some(unified) = declared.unify(&ty) else {
                                         return err(

@@ -70,6 +70,7 @@ pub fn parse_source_all(src: &str, source_id: u32) -> Result<File, Vec<SyntaxErr
         pos: 0,
         names: NameSpans::default(),
         depth: 0,
+        view_depth: 0,
         last: 0,
     };
     let parsed = p.file_all();
@@ -98,6 +99,7 @@ pub(crate) fn parse_tokens(tokens: Vec<Token>) -> Result<(File, Vec<Token>), Syn
         pos: 0,
         names: NameSpans::default(),
         depth: 0,
+        view_depth: 0,
         last: 0,
     };
     let file = p.file()?;
@@ -110,6 +112,7 @@ struct Parser {
     names: NameSpans,
     /// Expressions (and prefix operators) open around the current token.
     depth: u32,
+    view_depth: usize,
     /// The tree depth of the expression last parsed.
     last: usize,
 }
@@ -918,6 +921,18 @@ impl Parser {
     // ---- view -------------------------------------------------------------
 
     fn node(&mut self) -> R<Node> {
+        // The plan accepts at most 256 nested sites. Refuse before constructing
+        // a deeper AST: all later compiler passes recursively walk this tree.
+        if self.view_depth >= 256 {
+            return self.err("syntax-view-depth", "views nest more than 256 sites deep");
+        }
+        self.view_depth += 1;
+        let result = self.node_inner();
+        self.view_depth -= 1;
+        result
+    }
+
+    fn node_inner(&mut self) -> R<Node> {
         let (word, span) = match self.peek_kind().clone() {
             TokenKind::Ident(w) => (w, self.peek().span),
             other => {
