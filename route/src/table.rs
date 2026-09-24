@@ -310,7 +310,7 @@ impl Table {
                 } else {
                     let values: Vec<&str> = names_in(&route.pattern)
                         .iter()
-                        .map(|name| params.get(*name).map(String::as_str).unwrap_or(""))
+                        .map(|name| params.get(name).map(String::as_str).unwrap_or(""))
                         .collect();
                     canonical(&self.path(&route.name, &values).unwrap_or_default())
                 };

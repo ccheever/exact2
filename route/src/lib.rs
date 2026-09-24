@@ -20,7 +20,7 @@ mod router;
 mod table;
 
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::fmt;
 
 pub use location::{canonical, encode_uri_component, location_of, search_param};
 pub use router::{back, depth, go, open, params, push, replace, select, stack, top};
@@ -28,7 +28,113 @@ pub use table::encode_route_segment;
 
 /// Every table parameter, including unbound names as `""`. JSON keys are sorted;
 /// [`Table::param_names`] supplies the first-declaration order for plan records.
-pub type Params = BTreeMap<String, String>;
+///
+/// A map from name to value in name order, as one sorted vector: a table has
+/// a handful of names, and a tree map compiles its code per type (LLP 1047
+/// §6). Equality, iteration, `Debug`, `FromIterator` (the last of equal names
+/// wins) and the JSON object are a `BTreeMap<String, String>`'s.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct Params(Vec<(String, String)>);
+
+impl Params {
+    /// No names.
+    pub const fn new() -> Self {
+        Params(Vec::new())
+    }
+
+    fn find(&self, name: &str) -> Result<usize, usize> {
+        self.0.binary_search_by(|(k, _)| k.as_str().cmp(name))
+    }
+
+    /// The value of `name`.
+    pub fn get(&self, name: &str) -> Option<&String> {
+        self.find(name).ok().map(|i| &self.0[i].1)
+    }
+
+    /// Set `name` to `value`; the value it replaced, if any.
+    pub fn insert(&mut self, name: String, value: String) -> Option<String> {
+        match self.find(&name) {
+            Ok(i) => Some(std::mem::replace(&mut self.0[i].1, value)),
+            Err(i) => {
+                self.0.insert(i, (name, value));
+                None
+            }
+        }
+    }
+
+    /// How many names.
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Whether there are no names.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// Names and values in name order.
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = (&String, &String)> + ExactSizeIterator {
+        self.0.iter().map(|(k, v)| (k, v))
+    }
+}
+
+impl FromIterator<(String, String)> for Params {
+    fn from_iter<I: IntoIterator<Item = (String, String)>>(iter: I) -> Self {
+        let mut params = Params::new();
+        for (name, value) in iter {
+            params.insert(name, value);
+        }
+        params
+    }
+}
+
+impl<const N: usize> From<[(String, String); N]> for Params {
+    fn from(pairs: [(String, String); N]) -> Self {
+        pairs.into_iter().collect()
+    }
+}
+
+impl std::ops::Index<&str> for Params {
+    type Output = String;
+    fn index(&self, name: &str) -> &String {
+        self.get(name).expect("no entry found for key")
+    }
+}
+
+impl fmt::Debug for Params {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_map().entries(self.iter()).finish()
+    }
+}
+
+impl Serialize for Params {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_map(self.iter())
+    }
+}
+
+impl<'de> Deserialize<'de> for Params {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visitor;
+        impl<'de> serde::de::Visitor<'de> for Visitor {
+            type Value = Params;
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a map")
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<Params, A::Error> {
+                let mut params = Params::new();
+                while let Some((name, value)) = map.next_entry::<String, String>()? {
+                    params.insert(name, value);
+                }
+                Ok(params)
+            }
+        }
+        deserializer.deserialize_map(Visitor)
+    }
+}
 
 /// One declaration. A notfound row uses an empty pattern.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
