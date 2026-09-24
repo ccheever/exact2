@@ -13,7 +13,7 @@
 //! [`Skipped`], never guessed.
 
 use exact_kernel::style::ColorValue;
-use exact_kernel::{Color, Dimension, RowValue, StyleId, StyleProps};
+use exact_kernel::{Color, Dimension, Display, Overflow, RowValue, StyleId, StyleProps};
 use exact_motion::{
     Easing, StepPosition, TimingFunction, Transition, TransitionProperty, Transitions,
 };
@@ -98,7 +98,20 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
             }
             ("line_clamp", RowValue::Number(n)) => {
                 if *n > 0.0 {
-                    let _ = write!(out, "display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:{n};overflow:hidden;");
+                    // The legacy clamp requires an old flex box and clipping. It
+                    // cannot replace a modern flex/grid/hidden box or a scroller.
+                    // Keep those authored semantics; unsupported clamp is named.
+                    if style.display != Display::Block
+                        || style.overflow_x == Overflow::Scroll
+                        || style.overflow_y == Overflow::Scroll
+                    {
+                        skipped.push(Skipped {
+                            row: id,
+                            reason: "legacy line-clamp requires a non-scrolling block",
+                        });
+                    } else {
+                        let _ = write!(out, "display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:{n};overflow:hidden;");
+                    }
                 }
             }
             ("font_variant_numeric", _) => skipped.push(Skipped {
@@ -358,6 +371,36 @@ pub fn num(n: f32) -> String {
 #[cfg(test)]
 mod flow_tests {
     use super::*;
+    #[test]
+    fn clamp_does_not_replace_layout_visibility_or_scrolling() {
+        for (row, value) in [
+            (StyleId::Display, "flex"),
+            (StyleId::Display, "grid"),
+            (StyleId::Display, "none"),
+            (StyleId::OverflowX, "scroll"),
+            (StyleId::OverflowY, "scroll"),
+        ] {
+            let mut style = StyleProps::default();
+            style
+                .set_dynamic(row, &exact_kernel::StyleValue::Text(value.into()))
+                .unwrap();
+            let (before, _) = css_text(&style, &[]);
+            style
+                .set_dynamic(StyleId::LineClamp, &exact_kernel::StyleValue::Number(2.0))
+                .unwrap();
+            let (after, skipped) = css_text(&style, &[]);
+            assert_eq!(before, after, "{row:?}: {value}");
+            assert_eq!(
+                skipped.iter().map(|s| s.row).collect::<Vec<_>>(),
+                [StyleId::LineClamp]
+            );
+            style
+                .set_dynamic(StyleId::LineClamp, &exact_kernel::StyleValue::Number(0.0))
+                .unwrap();
+            assert!(css_text(&style, &[]).1.is_empty());
+        }
+    }
+
     #[test]
     fn exclusion_rows_keep_authored_css_visible() {
         let mut s = StyleProps::default();

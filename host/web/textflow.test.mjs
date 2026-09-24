@@ -448,3 +448,82 @@ test('one scheduler catches up once before paint, replaces wakes, and cancels on
   clock.dispose(); expect(frames.size + timers.size).toBe(0);
   clock.update(501); clock.requestFrame(); expect(frames.size + timers.size).toBe(0);
 });
+
+// A real DOM is needed here: document capture runs before the clone forwards
+// its event to the detached original. A mock dispatch misses the double route.
+test('flowed links keep press ownership through document capture', async () => {
+  const { spawn } = await import('node:child_process');
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { Cdp } = await import('../../scripts/agent.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'exact-flow-input-'));
+  const modules = new Set(['/textflow-glue.js', '/timer-glue.js', '/input-glue.js']);
+  const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(req) {
+    const path = new URL(req.url).pathname;
+    return modules.has(path) ? new Response(Bun.file(new URL('.' + path, import.meta.url)))
+      : new Response('<!doctype html><body><main id="root"></main>', { headers: { 'content-type': 'text/html' } });
+  }});
+  let child;
+  try {
+    child = spawn(process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--disable-background-networking', `--user-data-dir=${dir}`, 'about:blank'],
+      { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+    const cdp = new Cdp(child.stdio[3], child.stdio[4]);
+    child.on('exit', () => cdp.fail('Chrome closed'));
+    const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
+    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+    await cdp.send('Page.navigate', { url: `http://127.0.0.1:${server.port}` }, sessionId);
+    const result = await cdp.send('Runtime.evaluate', {
+      expression: `(${flowInputFixture})()`, awaitPromise: true, returnByValue: true,
+    }, sessionId);
+    if (result.exceptionDetails) throw Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text);
+    expect(result.result.value).toEqual([
+      { press: 1, navigate: 0, prevented: true },
+      { press: 1, navigate: 0, prevented: true },
+      { press: 0, navigate: 1, prevented: true },
+      { press: 0, navigate: 0, prevented: false },
+    ]);
+  } finally {
+    if (child && child.exitCode === null) { const exit = new Promise(r => child.once('exit', r)); child.kill(); await exit; }
+    server.stop(true); rmSync(dir, { recursive: true, force: true });
+  }
+}, 20000);
+
+async function flowInputFixture() {
+  const { createTextFlow } = await import('/textflow-glue.js');
+  const { createInputHandlers } = await import('/input-glue.js');
+  const root = document.getElementById('root'), views = new Map(), results = [];
+  let presses = 0, navigates = 0;
+  globalThis.exact = { wasm: { exact_route_match: () => 1, exact_log() {} }, writeIn: s => s,
+    navigate() { navigates++; return { ops: [{ op: 'router' }] }; } };
+  createInputHandlers({ root, views, retiredViews: new WeakSet(), ready: () => true, inertAncestor: () => false, dispatch() {} });
+  for (const [press, navigate, modified] of [[true, true, false], [true, false, false], [false, true, false], [true, true, true]]) {
+    presses = navigates = 0;
+    root.innerHTML = '<div navigationBack="/" style="position:relative"><div id="paragraph" style="width:200px;height:100px;font:16px/24px serif"><a href="/story">flowed link</a></div><div id="ball" style="position:absolute;left:80px;top:0;width:20px;height:20px"></div></div>';
+    const parent = root.firstElementChild, paragraph = parent.firstElementChild, ball = parent.lastElementChild;
+    parent.exactHandlers = navigate ? ['navigate'] : [];
+    const original = paragraph.firstElementChild;
+    original.exactHandlers = press ? ['press'] : [];
+    original.exactFlowEvents = press ? ['click'] : [];
+    if (press) original.addEventListener('click', e => { presses++; e.preventDefault(); });
+    views.clear(); views.set(1, parent); views.set(2, paragraph); views.set(3, ball);
+    const request = (op, id, bytes) => {
+      if (op === 0) return { ranges: [[0, 11, 0, 11]], graphemes: Array.from({ length: 11 }, (_, i) => [i, i + 1, i, i + 1]) };
+      if (op === 1) return { prepared: true };
+      if (op !== 2) return {};
+      return { shapes: [{ kind: 'Circle', cx: 90, cy: 10, r: 10 }], complete: true, height: 24, line_height: 24,
+        fragments: [{ start: 0, end: 11, utf16_start: 0, utf16_end: 11, paint_start: 0, paint_end: 11, x: 0, y: 0, width: 70, available: 80, line: 0 }] };
+    };
+    const flow = createTextFlow({ views, request, agentMode: true, advance() {} });
+    flow.afterBatch({ ops: [{ op: 'textflow', contexts: [{ id: 1, exclusions: [3], paragraphs: [{ id: 2, definite: true }] }] }], timers: false });
+    await flow.settle();
+    const clone = paragraph.querySelector('a');
+    if (!clone || clone === original) throw Error('fixture must click a flowed clone');
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: modified });
+    clone.dispatchEvent(event);
+    results.push({ press: presses, navigate: navigates, prevented: event.defaultPrevented });
+    flow.dispose();
+  }
+  return results;
+}

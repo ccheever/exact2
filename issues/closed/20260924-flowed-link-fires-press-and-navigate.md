@@ -1,6 +1,7 @@
 # A flowed link runs both navigate and press
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Flow clones retain their original press ownership. Real Chrome regression reproduced double navigation and modified-click press before the fix; press-only, plain navigation, absent root navigation and modified clicks now pass.
 **Systems:** Web host, Text flow
 **Severity:** P1
 **Author:** Grok 4.7 for Charlie Cheever

@@ -1,6 +1,7 @@
 # line-clamp overrides display and overflow on the web
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Legacy clamping is skipped for flex/grid/hidden display or scrolling overflow; it no longer replaces authored layout, visibility or scrolling. CSS regression covers each case and clearing the clamp; ordinary block text keeps legacy clamping. Limitation documented in LLP 1007.
 **Systems:** Web host, Kernel style
 **Severity:** P2
 **Author:** Grok 4.7 for Charlie Cheever

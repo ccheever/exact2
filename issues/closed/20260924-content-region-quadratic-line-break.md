@@ -1,6 +1,7 @@
 # Content-region layout still uses the quadratic line breaker
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Positive finite-width normal-wrap region layouts use the same indexed Unicode breaks regardless of compact glyph retention. Zero-width offers retain CoreText newline behavior; emergency wrapping is unchanged. All 383 Swift host tests pass, including dense/compact Unicode range and geometry comparisons and raster parity.
 **Systems:** Apple host, Text
 **Severity:** P2
 **Author:** Grok 4.7 for Charlie Cheever

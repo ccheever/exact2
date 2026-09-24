@@ -126,8 +126,12 @@ values are already CSS spellings), with the exceptions a table names
 lengths in `px`, percentages, `auto`; unitless where CSS is (`flex-grow`,
 `opacity`, `z-index`, `font-weight`, `scale`); `rotate` in `deg`;
 `translate` as two lengths. Rows the host does not lower are returned as
-`Skipped { row, reason }`, never silently dropped: gradients, `font_family`,
-`line_clamp` and grid rows in v1. `tint_color` now lowers to `--exact-tint`
+`Skipped { row, reason }`: gradients and grid rows in v1. `line_clamp`
+uses the browser's legacy box only for
+non-scrolling blocks. On flex, grid, `display:none`, or either scrolling axis,
+it is skipped with a reason instead of replacing the authored layout,
+visibility, or scrolling. Apply the clamp to a text block inside the container.
+`tint_color` now lowers to `--exact-tint`
 for symbol images; raster-image tint remains unsupported. An `env()` length (LLP 1001
 §2) lowers to its CSS text — `env(safe-area-inset-top)`,
 `calc(env(safe-area-inset-bottom) + 12px)` — and the browser resolves it

@@ -127,7 +127,9 @@ final class RegionWorkerLayout {
             if lineCount % 128 == 0 { try beforeMetadata() }
             if spec.lineClamp > 0 && lineCount == spec.lineClamp { break }
             var count: Int
-            if compact && width.isFinite && spec.overflowWrap == 0 {
+            // Line breaking depends on source/wrap, not compact glyph retention.
+            // Zero-width offers retain CoreText's degenerate newline handling.
+            if width.isFinite && width > 0 && spec.overflowWrap == 0 {
                 count = preparation.suggestBreak(at: start, width: limit, cursor: &boundaryIndex)
             } else {
                 count = CTTypesetterSuggestLineBreak(typesetter, start, limit)

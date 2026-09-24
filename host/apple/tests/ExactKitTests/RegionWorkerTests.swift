@@ -49,7 +49,7 @@ import CoreText
         print("index-work lines=\(evidence.actual.count) ink=\(evidence.inkCalls) metrics=\(evidence.metricCalls)")
     }
     #endif
-    func testCompactBreakingMatchesCoreTextForWhitespaceUnicodeAndOverflow() {
+    func testRegionBreakingMatchesCoreTextForWhitespaceUnicodeAndOverflow() {
         let engine = TextEngine(resolve: { _ in nil })
         let texts = ["alpha     beta\n\nnext\n", "    alpha\tbeta  ", "one\u{00a0}two three",
                      "漢字の段落、句読点。次の行。", "ffi e\u{301} العربية אבג 👨‍👩‍👧‍👦 end",
@@ -61,20 +61,22 @@ import CoreText
                 let spec = Spec(runs: [run], align: 0, lineClamp: 0, color: [0,0,0,255],
                                 overflowWrap: wrap, whiteSpace: 1, strut: run)
                 let source = RegionTextSource.capture(spec, engine: engine)
-                for width: CGFloat in [0, 1, 15, 61.25, 125, 300] {
-                    let ordinary = engine.paragraph(spec, width: width)
-                    let box = RegionTestBox(), done = DispatchSemaphore(value: 0)
-                    DispatchQueue.global().async {
-                        box.value = RegionWorkerLayout.shape(source, width: width, compact: true).metadata
-                        done.signal()
+                for compact in [false, true] {
+                    for width: CGFloat in [0, 1, 15, 61.25, 125, 300] {
+                        let ordinary = engine.paragraph(spec, width: width)
+                        let box = RegionTestBox(), done = DispatchSemaphore(value: 0)
+                        DispatchQueue.global().async {
+                            box.value = RegionWorkerLayout.shape(source, width: width, compact: compact).metadata
+                            done.signal()
+                        }
+                        done.wait()
+                        let ranges = ordinary.lines.map { CTLineGetStringRange($0) }.map {
+                            NSRange(location: $0.location, length: $0.length)
+                        }
+                        XCTAssertEqual(box.value!.lines.map(\.range), ranges, "\(text.debugDescription), wrap \(wrap), width \(width)")
+                        XCTAssertEqual(box.value!.height, ordinary.height)
+                        XCTAssertEqual(box.value!.width, ordinary.width)
                     }
-                    done.wait()
-                    let ranges = ordinary.lines.map { CTLineGetStringRange($0) }.map {
-                        NSRange(location: $0.location, length: $0.length)
-                    }
-                    XCTAssertEqual(box.value!.lines.map(\.range), ranges, "\(text.debugDescription), wrap \(wrap), width \(width)")
-                    XCTAssertEqual(box.value!.height, ordinary.height)
-                    XCTAssertEqual(box.value!.width, ordinary.width)
                 }
             }
         }
