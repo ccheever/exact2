@@ -1054,6 +1054,14 @@ if (deckFixture) {
         check(kb === 0 && note.y === noteBefore.y, `no software keyboard here: keyboard-inset-height ${kb}, the field at ${note.y} (was ${noteBefore.y})`);
         console.log(`${host} insets: env ${JSON.stringify(env)}; the viewport ${l.viewport.w}×${l.viewport.h}; no keyboard`);
       }
+      // A finger lands only where the target is seen: the strip at the
+      // page's bottom is under the software keyboard, so the tap is refused,
+      // having pressed nothing and kept the editor and its keyboard.
+      if (host === 'ios') {
+        const under = await f.tap('under').then(() => null, (e) => e.message);
+        st = await f.state();
+        check(/under the software keyboard/.test(under ?? '') && st.slots.under === 0 && st.slots.focused === true && st.keyboard?.visible === true, `a tap under the keyboard is refused and changes nothing: ${under}, ${JSON.stringify(st.slots)}, keyboard ${JSON.stringify(st.keyboard)}`);
+      }
       // A press stops at its button, before the enclosing key handler can
       // steal focus. This is the reaction-strip shape used by Messages.
       if (host === 'ios' || host === 'web') {

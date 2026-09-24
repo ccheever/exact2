@@ -329,6 +329,18 @@ test('rendered tree includes focus and the computed accessible name', async () =
 });
 
 
+test('a native hangup names how the app ended, its crash reports, and only its last 20 lines', async () => {
+  const { hangup } = await import('./agent.mjs');
+  const hostLines = Array.from({ length: 30 }, (_, i) => `app: line ${i}`);
+  const hung = hangup({ what: 'the app hung up', pid: 999999, exit: { code: null, signal: 'SIGKILL' }, reports: ['/r/ExactIOS-1.ips'], hostLines });
+  assert.match(hung, /^the app hung up \(killed by SIGKILL\)\ncrash report: \/r\/ExactIOS-1\.ips\napp: line 10\n/);
+  assert.doesNotMatch(hung, /line 9\n/);
+  assert.match(hangup({ what: 'clock did not answer', pid: process.pid }), /^clock did not answer \(pid \d+ still running\)$/);
+  assert.match(hangup({ what: 'the app hung up', pid: 999999 }), /\(pid 999999 gone\)$/);
+  assert.match(hangup({ what: 'the app exited', exit: { code: 3, signal: null } }), /\(exit code 3\)$/);
+});
+
+
 test('autofocus is deferred and consumed per mounted control, preserving other UI focus', async () => {
   const { readFileSync } = await import('node:fs');
   const { runInNewContext } = await import('node:vm');

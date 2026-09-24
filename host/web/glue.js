@@ -1245,9 +1245,9 @@ async function clock(request) {
   const settle = !!request.settle;
   const deadline = settle ? performance.now() + SETTLE_DEADLINE_MS : 0;
   let world = {};
-  const reply = (settled) => ({ clock: agentClock, ...(settled === undefined ? {} : { settled }), ...world.reply, ...(settled === false && world.pending ? { reason: "world" } : {}) });
+  const reply = (settled, requests) => ({ clock: agentClock, ...(settled === undefined ? {} : { settled }), ...world.reply, ...(settled === false && world.pending ? { reason: "world" } : settled === false && requests ? { reason: "requests" } : {}) });
   for (let rounds = 0; ; rounds++) {
-    if (settle && !(await waitForInflight(deadline))) return reply(false); const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad;
+    if (settle && !(await waitForInflight(deadline))) return reply(false, true); const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad;
     if (gpuInPlay()) await settleGpu();
     const to = settle ? Math.max(settleCandidate(), world.settleAt ?? agentClock) : request.to;
     if (!(to >= agentClock)) return { error: `the clock cannot go backwards (${agentClock} → ${to})` };
@@ -1259,7 +1259,7 @@ async function clock(request) {
     if (gpuInPlay()) await settleGpu();
     world = globalThis.exact.gpu?.clock?.(settle) ?? {};
     if (!settle) return reply();
-    if (inflight.size) { if (rounds >= 15) return reply(false); continue; }
+    if (inflight.size) { if (rounds >= 15) return reply(false, true); continue; }
     const next = Math.max(settleCandidate(), world.settleAt ?? agentClock);
     if (next <= agentClock && !world.pending) return reply(true);
     if (rounds >= 15) return reply(false);
