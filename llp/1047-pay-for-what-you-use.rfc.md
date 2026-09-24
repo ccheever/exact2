@@ -859,7 +859,12 @@ apps and the raw bytes):
 | `c35f78f7` | six small hash tables | −1,321 |
 | web: the browser's kernel links no text measurer | the monospace measurer | −462 |
 | num: one float printer everywhere | core's Grisu, Dragon and bignum | −6,365 |
+| plan: a decoded plan's rows read through a sticky reader | `Plan::decode`'s per-field error copies (18.2 → 8.7 KB raw) | −535 |
+| kernel: generated style code converts once per codec, names by one table | two masked copies, per-row conversions, 26 string matches | −1,101 |
 
-The last one needed list-engine lines, approved for exactly those:
+The float printer needed list-engine lines, approved for exactly those:
 `window.rs`'s four `f64::clamp` calls (std's assertion message prints the
-bounds as floats) and two printers in `collection/`.
+bounds as floats) and two printers in `collection/`. `Plan::encode` (3 KB)
+is reached only from inspection's plan digest (`Runner::inspection_digest`
+through `agent::handle`), so it is already linked by use: an artifact
+without inspection drops it.
