@@ -729,6 +729,15 @@ engine's code stayed linked all the same, because every commit named it.
   addresses, so it defended nothing there.
 - **`json::object`** was one copy per array length; it now has one body.
 - **The settlement pass** no longer clones its effect enum per row.
+- **A compact id map was tried and dropped.** It kept dense entries and one
+  index over their ids, code shared by every key and value type. It would
+  have saved about 2.5–2.9 KB brotli per app (RealWorld 266,870 → 264,020),
+  and it matched std in a differential test of 3M random operations. But
+  the transaction's per-commit sets start empty and grow on every commit,
+  and that growth rewrote the index. On a native churn bench (500 commits,
+  each creating 20 rows, moving 220 and destroying 20) it cost 55–70% more
+  cycles for 1% more instructions. hashbrown stays; presizing those sets is
+  in `QUEUE.md`.
 - **Bytes at `e9a38626`, raw and brotli-11:**
   - RealWorld: 898,973 → 890,987 raw; 275,704 → 273,574 brotli.
   - Video player: 685,217 → 682,458 raw; 216,724 → 215,435 brotli.
