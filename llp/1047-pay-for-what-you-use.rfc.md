@@ -1,0 +1,482 @@
+# LLP 1047: Pay for what you use — a small core, and everything else linked by the plan
+
+**Type:** RFC
+**Status:** Draft, being carried out.
+- Charlie set the goal on 2026-09-24: "shrink the runtime size (LLP 1047) until a tap right after load takes the same amount of time in exact2 and react, or is faster in exact2".
+- §10 records the target, the lanes and the answers to §9.
+**Systems:** Build (the generated app entry, `contract::rust_entry`, the hosts' export macros); Plan (a use-set derived from plan bytes, no format change); Runner (the router and inspection behind seams); Web host (`exact-web`'s exports and dependencies, `glue.js`, `navigation.js`); Apple and Linux hosts (the same rule for their archives); Delivery (the linked set as a compatibility input); Metrics (a core byte budget, reported per commit)
+**Author:** Claude (Opus 5.5) for Charlie Cheever
+**Date:** 2026-09-22
+**Related:** LLP 1000 (the crate graph: "an embedder links the crate it wants and the linker drops the rest"); LLP 1007 §7 ("Where the bytes are"); LLP 1009 D2 (the GPU module, loaded on demand); LLP 1020 (the Apple web arm, `dlopen`ed at the first `iframe`); LLP 1024 (the module roster; an unknown tag is a bake error); LLP 1030 (the delivery adapter chosen by the generated entry, its absence established by artifact inspection; D3a, the compatibility id); LLP 1043.000 §3 D7/D8 (text flow's JavaScript executor, absent from ordinary boots); `rules/RULES.md` §Time budgets and §Agents
+
+## Summary
+
+Charlie, 2026-09-22: *"could we split out the markdown stuff so that only
+things that use it get it? in general, can we come up with a system where
+there is a very small core that is required by everything, and then
+everything else is only added when necessary?"*
+
+Today every web app ships about the same 1.1 MB of wasm, whatever it uses.
+The 35-line video player carries Markdown, text flow, the router, springs
+and the agent's inspection code, and Caltrain is only 64 KiB bigger. The
+linker already drops code that nothing references (that is why Taffy's
+layout algorithms are not on the web), but the hosts reference everything.
+Every export is emitted for every app, and the core calls optional crates
+behind runtime branches on prop values.
+
+The proposal is three tiers and one rule:
+
+- **The core** is what every plan needs to show a first frame and answer a tap.
+- **A linked capability** is everything else. It is in the app's artifact if
+  and only if the app's plan uses it. The compiler derives a use-set from the
+  plan bytes, and the generated entry names only those capabilities, so the
+  linker drops the rest.
+- **A loaded capability** is large and not needed for the first frame. It is
+  a separate artifact fetched on first use, as the GPU module already is.
+
+There are no cargo features and no build matrix. The per-app entry is already
+generated, and LLP 1030's delivery adapter already works this way.
+
+In JavaScript terms, a bundler can tree-shake because it sees the import
+graph. An exact2 app is a plan: data that a runtime interprets. So the linker
+sees one interpreter with every branch reachable. The compiler is the only
+thing that sees what the app uses, so **the compiler has to be the tree
+shaker**. Unlike npm, nobody installs anything. Contract is a closed
+vocabulary, so the use-set is exact.
+
+Linking by use is necessary but not sufficient. The capabilities an app might
+not use are about 18% of the video player's wasm code; the rest is the core
+itself. §6 is the core diet that has to follow.
+
+## 1. Measured
+
+2026-09-22, at `11c8274b`, on an Apple-silicon Mac:
+
+- **exact2 build:** `cargo build --profile web --target
+  wasm32-unknown-unknown`, then `wasm-opt -Oz` with the flags
+  `host/web/build.mjs` passes.
+- **Compression:** gzip -9 and brotli quality 11, both through Bun's zlib.
+- **React:** Vite 7.3.6 and React 19.3.0, a `useState` counter built with
+  `vite build` defaults.
+
+These are bytes only; nothing below is a timing.
+
+| | Raw | Gzip | Brotli |
+|---|---|---|---|
+| React + Vite, a counter | 217 KiB | 68 KiB | 58 KiB |
+| exact2 video-player (35 lines of Contract), wasm | 1,121 KiB | 474 KiB | 368 KiB |
+| exact2 Caltrain, wasm | 1,185 KiB | 496 KiB | 382 KiB |
+| `glue.js` + `navigation.js`, every exact2 app | 159 KiB | 47 KiB | 41 KiB |
+
+Caltrain's wasm was 404 KiB raw (172 KiB gzip) on 2026-08-28 (LLP 1007 §7).
+That is 2.9× growth in 25 days, and no budget tracked it.
+
+### Where the video player's code goes
+
+This comes from a build that kept its symbol names (`-g` through `wasm-opt`).
+Each symbol is attributed to the first exact2 module its name mentions, so
+standard-library generics instantiated for a module count toward that module.
+The figures are approximate.
+
+The "used by" column counts which of the 16 apps under `apps/` use the
+capability, by a text search of their Contract, so it is also approximate.
+The video player uses none of these capabilities.
+
+| Part | ~KiB of code | Used by |
+|---|---|---|
+| Runner: `instance` 149, `runner` 80, `vm` 16, `request` 10, `store` 9, … | 275 | every app |
+| Kernel: `id` 40, `generated` 39, `txn` 16, … | 125 | every app |
+| Web host: `host` 90, `abi` 13, `batch` 7, `css` 5 | 115 | every app |
+| Plan decoder and values | 86 | every app |
+| Rust std not tied to an exact2 type (allocator, `fmt`, sort, `BTreeMap`, …) | 232 | every app |
+| **Motion:** `property`, `transition`, `engine`, `exact_web::motion` | 72 | 5 of 16 |
+| **Markdown markup:** `style`, `inline`, `segment`, `pieces` | 32 | 1 of 16 |
+| **Text flow:** `geometry`, `shape`, `walker`, `exact_web::textflow` | 31 | 2 of 16 |
+| **Router:** `exact_route` | 24 | 3 of 16 |
+| **Inspection:** `runner::agent`, `sha2` | 19 | tooling |
+| **Rust data modules:** `serde_json` via `exact-logic` | 17+ | apps with a `rust.module` |
+
+The table covers about 1,100 KiB of code. There are also about 130 KiB of
+data segments (strings, tables, the baked plan) that have not been
+attributed yet.
+
+## 2. Why the linker keeps it
+
+There are three causes, and each has a place in the code.
+
+1. **Every export is a root.** `exact_web::host!` (`host/web/src/abi.rs:678`)
+   emits all of its roughly 25 `#[no_mangle]` exports for every app:
+   `exact_textflow`, `exact_motion`, the five `exact_list*` exports,
+   `exact_agent`, `exact_logic` and the font exports. `wasm-ld` keeps
+   everything reachable from an export.
+
+   The Apple host already groups its exports into macros (`raster_exports!`,
+   `markup_exports!`), but it invokes every group unconditionally
+   (`host/apple/src/abi/exports.rs:19-21`).
+
+2. **The core branches on the plan at runtime.**
+   - The web batch emitter calls `exact_markdown::pieces` whenever a text
+     node carries `markup` (`host/web/src/host.rs:1158`, the function at
+     `:1097`).
+   - The runner's stdlib reaches `exact_route` (`runner/src/stdlib.rs:38`,
+     `runner/src/runner/router.rs:249-267`).
+   - Inspection hashes the plan with `sha2` (`runner/src/runner.rs:685`).
+
+   The linker cannot know that no plan will ever set that prop or call those
+   functions.
+
+3. **Core crates depend on optional ones.**
+   - `exact-web` depends on `exact-markdown` and `exact-textflow`.
+   - `exact-runner` depends on `exact-route` and `sha2`.
+   - `exact-kernel` depends on `exact-motion` and `exact-textflow`.
+   - Every app's web crate depends on `exact-logic`.
+
+   A type costs nothing: the kernel needs `exact-motion` for the `transition`
+   row's type. What matters is which code a core path calls.
+
+The JavaScript side already has the third tier. `loadAfterPaint`
+(`host/web/glue.js:63`) fetches nine optional pieces on first use, among
+them:
+
+- text flow's executor (LLP 1043.000 D7)
+- media
+- list selection
+- the Markdown editor
+- storage requests
+- GPU
+
+Two inconsistencies remain:
+
+- `navigation.js` is a static import of `glue.js` (`glue.js:5`). It sends
+  motion (37 KiB), collections (17 KiB), arrange and drag (11 KiB), history
+  (10 KiB) and Markdown rendering (3 KiB) to every page.
+- Text flow's JavaScript half is loaded on demand, but its wasm half is
+  always linked.
+
+## 3. Decisions
+
+### D1: Three tiers, and every capability is in exactly one
+
+**Core.** This is what every plan needs to decode, boot, put up a first
+frame and dispatch an event:
+
+- the plan decoder
+- the runner's VM: state, derives, actions, keyed instances, events, timers
+  and the data seam
+- the kernel's tree and style rows
+- the host's batch emitter and CSS
+- the minimal glue
+
+A thing is not core because it is common. It is core because a plan with one
+`text` and one `button` needs it.
+
+**Linked capability.** It is statically linked into the app's artifact if and
+only if the plan uses it. It costs zero bytes otherwise.
+
+**Loaded capability.** It is a separate artifact, fetched on the web or
+`dlopen`ed on native, at first use and after first pixel. Current examples:
+the GPU module (LLP 1009 D2), the Apple web arm (LLP 1020), native modules
+(LLP 1024), SQLite, and text flow's JavaScript executor.
+
+A capability belongs in this tier when it is large and not needed for the
+first frame. Its first use costs a request, so the tier is wrong for anything
+the first frame needs.
+
+### D2: The plan's use-set decides, and it is derived from plan bytes
+
+`exact_plan::uses(&Plan) -> Uses` is a pure function of the plan. It finds
+which tags, rows, events and stdlib functions the plan contains and maps them
+to capability names.
+
+- **Derived, not declared.** No author writes a dependency list, and the plan
+  format does not change.
+- **Checkable against any artifact.** Because it is a function of the bytes,
+  any plan can be checked against any artifact that says what it links: a
+  delivered bundle, a development reload, or an agent's `--plan`.
+
+### D3: The generated entry links what the plan uses
+
+The build already generates each app's entry: `OUT_DIR/entry.rs` through
+`contract::rust_entry`, then `exact_web::host!`. Under this RFC the entry
+names the core, plus, for each capability in the use-set, that capability's
+export group and its registration.
+
+The core reaches a capability only through a seam the entry fills, such as a
+function table. It never names the capability's crate. This is the shape
+Apple C ABI 4 already has for delivery: the table is null in an `L=0` app
+(LLP 1030).
+
+An app crate may declare every capability crate as a dependency. Cargo
+compiles it and the linker drops it. Absence is established by inspecting the
+artifact, which LLP 1030 already requires for the delivery adapter.
+
+This is not a cargo feature and not a build matrix. Each core crate builds one
+way; what differs per app is which symbols the generated entry names.
+
+### D4: Core crates stop depending on capabilities
+
+Each capability's host adapter moves into a crate above the core host:
+
+- **Markdown.** `exact-web` loses `exact-markdown`. The code that turns pieces
+  into the batch's `markupPieces` moves to a crate that depends on both
+  `exact-web` and `exact-markdown`.
+- **Router.** The runner's router functions become a table the entry supplies.
+- **Inspection.** The inspection digest does the same.
+
+This keeps LLP 1000's rule that each crate depends on strictly less than the
+one above it. It also makes "the core names no capability" readable from
+`Cargo.toml`: a core crate that cannot name Markdown cannot call it by
+accident.
+
+### D5: The JavaScript follows the same set
+
+`navigation.js`'s sections become capability pieces. The build writes the
+boot glue as the core plus the pieces the use-set names, into the one boot
+module. The `boot` check's module count does not grow, and its bytes fall.
+
+A piece not needed for the first frame loads through the existing
+`loadAfterPaint`. Glue never assumes an export exists.
+
+### D6: Using an unlinked capability is a named refusal, never a silent gap
+
+- **At bake:** the use-set is a subset of the linked set by construction.
+- **At boot:** the host compares a plan's use-set with its own linked set.
+  It refuses a plan that exceeds the set and names the missing capabilities.
+  This covers a development reload, a delivered bundle and an agent's
+  `--plan`.
+
+A missing export is never discovered at runtime.
+
+### D7: Development links everything; production links the use-set
+
+The dev loop restarts from a new plan in about 20 ms without rebuilding the
+wasm. If the development wasm linked only what the plan used when it was
+built, adding `markup="markdown"` would stall the loop on a wasm rebuild.
+
+So the development entry links the full roster, and the production bake links
+the use-set. That is two generated entries, as LLP 1030 already has (the core
+entry and the adapter entry), not a feature matrix.
+
+The smokes run on the production artifact, so a missing link is refused there
+(D6) and never reaches a user's browser.
+
+### D8: On native, the linked set is a compatibility input
+
+On the web, the wasm and the plan ship together, so linking exactly is always
+safe. A native binary outlives its plans, because bundles update it (LLP 1030).
+
+- **A new compatibility input.** The linked set joins the compatibility id's
+  inputs (`contract/cli/src/compat.rs`, next to `executors` and
+  `nativeModules`). A bundle whose plan uses a capability the binary lacks is
+  then a binary change, and `deploy.mjs` classifies it as one.
+- **Linking ahead of use.** The manifest may name capabilities to link before
+  any plan uses them, for example `"link": ["markdown"]`, so a later bundle
+  can use them without a new binary. This is the lesson of native modules and
+  runtime versions in Expo.
+
+Bytes cost less on native than on the web, because there is no network on the
+boot path. A native app may reasonably link more than it uses; a web app
+should not.
+
+### D9: A core budget, measured per commit, never blocking
+
+- **The carrier.** A hello app (one counter) carries the budget: its artifact
+  is the core.
+- **The report.** `bun scripts/metrics.mjs` reports the core's bytes (raw,
+  gzip and brotli) and each capability's marginal bytes, from a build that
+  keeps names. It runs per commit on fleet hardware.
+- **A new budget row.** The time-budget table in `rules/RULES.md` gains a row,
+  "Core web payload, hello app: ≤ N KiB brotli". It is tracked the same way as
+  the existing rows: a regression is a P0 with a name on it.
+- **Not a blocking check.** A wasm build does not fit in 60 seconds, so this
+  is not a sixth blocking check.
+- **Proving absence.** Artifact inspection shows that an app which does not
+  use Markdown contains no `exact_markdown` symbol.
+
+## 4. The first roster
+
+| Capability | Tier | What in the plan selects it | Today, KiB of code |
+|---|---|---|---|
+| Motion (springs, transitions) | linked | a `transition` row or spring | ~72 wasm, 37 JS |
+| Markdown markup | linked | `markup="markdown"` | ~32 wasm, 3 JS |
+| Markdown editor | loaded (JavaScript already is) | `textarea markup="markdown"` | not yet measured |
+| Text flow | linked wasm; JavaScript already loaded | `wrap-flow`, `shape-outside` | ~31 wasm |
+| Router | linked | `routes`, router verbs | ~24 wasm, 10 JS |
+| Virtualized collections | linked | `list virtualized=true` | wasm not yet measured, 17 JS |
+| Drag and arrange | linked | reorder, height or transform drag | wasm not yet measured, 11 JS |
+| Rust data modules | linked | the manifest's `rust.module` | 17+ wasm |
+| Fonts | linked | a declared font | not yet measured |
+| Media (video, image) | linked; JavaScript already loaded | `video`, `image` | not yet measured |
+| Inspection (the agent API) | see §9 Q3 | none | ~19 wasm |
+| GPU canvas | loaded (already) | `canvas` with a surface | separate artifact |
+| Storage (SQLite, files) | loaded (already) | storage grants | separate artifact |
+
+Stage 1 measures the cells marked "not yet measured".
+
+## 5. What this does not change
+
+- There are no cargo features on core crates and no per-app forks of a host.
+- Contract does not change, and authors write nothing new.
+- The plan format does not change.
+- Data crates are unaffected. Cargo already links only what an app's data
+  crate names.
+
+## 6. The core diet: the larger half
+
+Suppose every capability is unlinked. By §1's attribution, the video player
+would still carry about 900 KiB of raw wasm, against 217 KiB raw for React's
+counter. Linking by use cannot close that gap alone.
+
+These are leads. Each is measured before it is changed.
+
+- **`exact_runner::instance`, about 149 KiB.** It is the largest single
+  module. Much of it is generic code instantiated over the app's data type
+  (`Runner<AppData>`, `Host<AppData>`). A `dyn` data seam would compile it
+  once.
+- **`exact_kernel::id`, about 40 KiB.** That is a lot for an id module;
+  probably map instantiations.
+- **`BTreeMap` and `BTreeSet` instantiations, 64 KiB.** LLP 1007 §7 already
+  said the engine's maps could be vectors.
+- **Text formatting on every path.** The web host emits JSON batches, so
+  `core::fmt` and float printing run on every update. A binary batch would
+  drop most of that.
+- **About 130 KiB of data segments.** Not attributed yet; find out what they
+  are.
+- **The toolchain.** `build-std` with `panic_immediate_abort` removes
+  panic-formatting code but needs nightly Rust. This is Charlie's call (Q4).
+
+## 7. Order of work
+
+1. **Measure; no behavior change.**
+   - the hello app
+   - a web build that keeps names
+   - per-crate and per-capability bytes in `metrics.mjs`
+   - a symbol-absence report
+
+   This fills §4's "not yet measured" cells.
+2. **Markdown end to end: the seam's first user.**
+   - `exact-web` drops `exact-markdown`.
+   - The markup adapter registers through the entry.
+   - `renderMarkup` becomes a JavaScript piece.
+   - The Apple `markup_exports!` is invoked by the generated entry, not by the
+     host's macro.
+   - `exact_plan::uses` and the boot refusal (D2, D6) land here, because
+     Markdown needs them.
+
+   It is done when the video player's artifact has no `exact_markdown` symbol
+   and `markdown-stress` passes its smoke unchanged on web and Apple.
+3. **The other web export groups:** text flow, motion, collections, drag,
+   fonts, Rust modules and inspection.
+4. **The runner:** the router and inspection move behind tables (D4).
+5. **The JavaScript pieces** from `navigation.js` (D5).
+6. **Native:** the compatibility input and the manifest's `link` (D8).
+7. **The core diet** (§6), against the D9 budget.
+
+Stages 1 and 2 answer the question Charlie asked. Stage 1's numbers decide
+whether stages 3–7 are worth their cost, and in what order.
+
+## 8. Alternatives considered
+
+- **Cargo features.** These are ruled out (`CLAUDE.md`; LLP 1024's table). A
+  feature is a build matrix. A feature on a core crate brings back the
+  predecessor's failure, where several default layers disagreed.
+- **A separate wasm for every optional thing, loaded at runtime.** Rust
+  modules in wasm have no mature dynamic linking. Each module would carry its
+  own copy of the shared code (allocator, std) and cost a request. That is
+  right for large, late capabilities (D1's third tier) and wrong as the
+  general mechanism.
+- **Compile the plan to Rust instead of interpreting it.** This is Svelte's
+  answer to React: no runtime, only the code the app needs. It is the far end
+  of this spectrum and the smallest possible output. It would cost the 20 ms
+  plan restart, delivering plans without a new binary, and the one runner
+  shared by every host. It is out of scope, and it marks the limit of what
+  linking alone can reach.
+- **Accept the size, because wasm compiles fast.** Streaming compilation
+  makes wasm cheaper than JavaScript per byte on the CPU. On a slow link,
+  though, the network is the constraint. At Lighthouse's slow-4G profile
+  (1.6 Mbps), 382 KiB brotli is about 1.9 s of transfer, against about 0.3 s
+  for React's counter. This is arithmetic, not a measurement.
+
+## 9. Questions for Charlie
+
+1. **The budget number in D9.** React's counter is 58 KiB brotli. A core at
+   or under that is the claim worth making, and it probably needs §6 as well
+   as linking. The alternative is a staged budget: no regression first, then
+   a number once stage 1 has measured.
+2. **D7.** Should development link everything while production links the
+   use-set? Or should development link exactly and pay for a wasm rebuild
+   when an edit adds a capability?
+3. **Inspection in production.** Should the LLP 1012 agent operations ship in
+   production web builds? Today the web glue calls `exact_agent`
+   (`glue.js:960`), and the smokes drive the built artifact through it. The
+   alternative is linking inspection only into the builds the smokes and
+   agents use, which would make the smoked artifact differ from the shipped
+   one.
+4. **Nightly Rust.** Should §6 use `build-std`, which requires nightly?
+5. **The manifest's `link` field (D8).** Accept it, or classify every new
+   capability as a binary change with no headroom?
+6. **The working set.** It is at 15 of 15, so this document is not linked
+   into `llp/current/`. Which document should leave?
+7. **New apparatus.** Stage 1 adds a hello app and extends `metrics.mjs`.
+   Under `rules/RULES.md` §Agents, both need a human's yes. Is it given with
+   this RFC?
+
+## 10. Being carried out (2026-09-24)
+
+**The target is an outcome, not a byte count.** It uses the RealWorld bench
+(`~/projects/realworld-react/bench`, outside this repo per NOT-DOING's take):
+exact2 served against React 19.3 + Vite, on the Lighthouse mobile profile
+(150 ms RTT, 1.6 Mbps, 4× CPU), pressing the `python` tag at the `load` event.
+
+Where it starts, at 0f0541f0:
+
+| Tap at load | exact2, idle | React |
+|---|---|---|
+| Tap to feed | 2.51 s | 0.21 s |
+| Feed shown | 3.45 s | 1.43 s |
+
+After a 3-second read, exact2 takes 0.30 s against React's 0.21 s.
+
+The goal holds when exact2's tap to feed is at most React's. Both rows are
+reported, with the load averages, and the tap to feed after a 3-second read
+too.
+
+**Where the time goes.** The press waits for about 391 KB of brotli'd wasm
+(about 2.2 s at 1.6 Mbps), then compile and boot, then the press path, which is
+0.09 s slower than React's even once the runtime is loaded. Three fronts:
+
+1. **Start at paint.** Charlie's activation ruling (LLP 1048, 2026-09-23) was
+   that "the runtime downloads as soon as the page has painted". As built, idle
+   waits for `load`, about 650 ms later. The download starts at first paint.
+2. **Shrink the artifact.**
+   - Link by use: §3 D1–D7, stages 2–5.
+   - The core diet: §6, stage 7.
+3. **Boot and the press path.**
+   - Streaming compile and a boot from the checkpoint with nothing serial.
+   - The press path from dispatch through the module realm, the fetch, the
+     commit and the batch.
+
+**Answers to §9**, settled by the coordinator under Charlie's goal:
+1. **D9's budget** is the outcome above. The per-commit byte row is reported,
+   never blocking.
+2. **D7:** development links everything; production links the use-set.
+3. **Inspection** stays linked in production for now (about 19 KiB), so the
+   smoked artifact is the shipped one. Revisit it if the target needs it.
+4. **Nightly `build-std`:** not yet. If stable options can't reach the target,
+   ask Charlie.
+5. **D8** (native): after the web target.
+6. **The working set** is at 13, so this document joins it.
+7. **Apparatus:** the goal authorizes stage 1's measurement, and D9's
+   per-commit byte row is part of this RFC. A hello app is added only if the
+   RealWorld and video-player builds can't show the core.
+
+**Who is doing what.**
+- **The size lane:** stages 1–3 and D4, linking by use.
+- **The diet lane:** §6, toolchain flags, data segments, `fmt`, maps and
+  generic seams.
+- **The activation lane:** start at paint, boot, the press path, the JS pieces
+  (D5) and the bench loop.
+
+Other sessions changing `host/web`, the build's entry or the core crates'
+size: check `git log` for these lanes and say which items you are taking.
+
