@@ -168,6 +168,38 @@ final class CollectionMacTests: XCTestCase {
         XCTAssertEqual(p.collections.interaction, 3, "bubbling must keep the original descendant")
     }
 
+    func testPressOutsideEveryRowPinsNothing() throws {
+        // A press on the list's scroller reaches the pin as the list itself;
+        // one on the blank ground above the mounted rows, as a spacer. The
+        // runner drops a report whose pin is outside its rows, so either pin
+        // froze the window where it was (the web's liveView reports none).
+        let (p, _) = fixture()
+        defer { p.collections.reset() }
+        p.apply(batch([
+            ["op": "create", "id": 9, "kind": "view"],
+            ["op": "children", "id": 1, "ids": [9, 2]]
+        ]))
+        var interactions: [UInt32] = []
+        p.collections.onFeedback = { bytes in
+            interactions.append((0..<4).reduce(0) { $0 | UInt32(bytes[60 + $1]) << ($1 * 8) })
+        }
+        func drain() {
+            let done = expectation(description: "pin feedback continuation")
+            DispatchQueue.main.async { DispatchQueue.main.async { done.fulfill() } }
+            wait(for: [done], timeout: 1)
+        }
+        XCTAssertNil(p.collections.owningCollection(1), "the list itself is in no row")
+        XCTAssertNil(p.collections.owningCollection(9), "a spacer is in no row")
+        XCTAssertEqual(p.collections.owningCollection(2), 1, "a row wrapper pins its own row")
+        XCTAssertEqual(p.collections.owningCollection(3), 1)
+        for pressed: UInt32 in [1, 9] {
+            p.collections.pointer(pressed); drain()
+            XCTAssertEqual(interactions.last, 0, "a press outside every row reports no pin")
+        }
+        p.collections.pointer(3); drain()
+        XCTAssertEqual(interactions.last, 3, "a press inside a row still pins it")
+    }
+
     func testNestedCollectionsOwnOnlyNearestPinsAndReleaseBeforeTransfer() throws {
         let (p, _) = fixture()
         defer { p.collections.reset() }
