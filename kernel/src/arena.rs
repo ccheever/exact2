@@ -861,6 +861,7 @@ mod paragraph_stamp_tests {
         let commit = |a: &mut NodeArena, l: &mut LayoutTree, s: &mut SelectorIndex, ops: &[Op]| {
             txn::apply(
                 txn::Target {
+                    mirrored: true,
                     arena: a,
                     layout: l,
                     selectors: s,

@@ -425,6 +425,11 @@ pub struct Target<'a> {
     pub arena: &'a mut NodeArena,
     /// The layout engine.
     pub layout: &'a mut LayoutTree,
+    /// Whether the engine mirrors the arena's nodes. A kernel that builds its
+    /// tree only when a layout is first asked for (a browser host, whose
+    /// browser lays out) gives new nodes no engine node; every other engine
+    /// call follows a node's engine handle, so none reaches the tree.
+    pub mirrored: bool,
     /// The selector index.
     pub selectors: &'a mut SelectorIndex,
 }
@@ -449,6 +454,7 @@ pub fn apply(
     let Target {
         arena,
         layout,
+        mirrored,
         selectors,
     } = target;
     let mut receipt = CommitReceipt {
@@ -477,12 +483,14 @@ pub fn apply(
                             op_index,
                             what: "validated batch exhausted slot space",
                         })?;
-                    let node = layout.new_leaf(
-                        taffy_style(arena, slot),
-                        slot,
-                        node_type.is_measured_leaf(),
-                    );
-                    arena.set_taffy(slot, Some(node));
+                    if mirrored {
+                        let node = layout.new_leaf(
+                            taffy_style(arena, slot),
+                            slot,
+                            node_type.is_measured_leaf(),
+                        );
+                        arena.set_taffy(slot, Some(node));
+                    }
                     created.insert(slot);
                     receipt.created.push(arena.key(slot));
                     receipt.layout_invalidated = true;
