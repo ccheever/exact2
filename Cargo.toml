@@ -88,6 +88,19 @@ opt-level = 3
 [profile.dev.package.base64]
 opt-level = 3
 
+# Development Apple builds (`host/apple/build.mjs` unless the trust is
+# production): release's optimizations without whole-graph LTO, so touching
+# one line of the host rebuilds in seconds (20 s through build.mjs at load
+# 650, against 57–228 s). Startup is ~5% slower and the binary ~1 MB larger
+# than release (Charlie, 2026-09-24); a production bake keeps `release`.
+[profile.apple-dev]
+inherits = "release"
+lto = false
+codegen-units = 16
+incremental = true
+[profile.apple-dev.build-override]
+strip = false
+
 # Fast independent business-logic links in the resident development loop.
 [profile.logic-dev]
 inherits = "dev"

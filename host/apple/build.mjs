@@ -478,7 +478,6 @@ function main(args) {
   const webBuilt = resolve(webBuildDir, webLoadName);
   const t0 = Date.now();
   const target = ios ? (device ? 'aarch64-apple-ios' : iosTarget) : bakeTarget('macos');
-  const cargoLibDir = resolve(app.target, target, 'release');
   const sdkName = ios ? (device ? 'iphoneos' : 'iphonesimulator') : 'macosx';
   const sdk = read('xcrun', ['--sdk', sdkName, '--show-sdk-path']).stdout.trim();
   const cargoEnv = {
@@ -492,12 +491,16 @@ function main(args) {
       HOST_CXXFLAGS: `${process.env.HOST_CXXFLAGS ?? ''} -isysroot ${read('xcrun', ['--sdk', 'macosx', '--show-sdk-path']).stdout.trim()}`,
     } : {}),
   };
+  // A production bake is `release`; any other builds `apple-dev` (Cargo.toml),
+  // the same optimizations without whole-graph LTO, for the touch-one-line budget.
+  const cargoProfile = cargoEnv.EXACT_UPDATE_TRUST === 'production' ? 'release' : 'apple-dev';
+  const cargoLibDir = resolve(app.target, target, cargoProfile);
   // Named Cargo products can alias in external workspaces or two checkouts
   // sharing a target. Claim those names through bake-and-capture only.
   let bakedPlan, paths;
   const development = cargoEnv.EXACT_UPDATE_TRUST === 'development' && args.includes('--url') ? developmentAdmission(app, launchEnv.EXACT_DEV_PLAN) : null;
   cargoEnv.EXACT_BAKE_OUTPUT = bakeOutput(app, cargoEnv);
-  const buildReceipt = buildBake(app, ios ? 'ios' : 'macos', target, { env: cargoEnv, prepareGpu(product) {
+  const buildReceipt = buildBake(app, ios ? 'ios' : 'macos', target, { env: cargoEnv, profile: cargoProfile, prepareGpu(product) {
     // Cargo puts its own unsigned file back on every build, and a signature
     // carries its signing time: signing in place made the app's bake (which
     // names this product's digest) run on every build. Sign a copy beside it,
