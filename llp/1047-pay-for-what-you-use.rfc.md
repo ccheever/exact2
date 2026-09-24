@@ -776,3 +776,42 @@ bandwidth evenly whatever the priority.
 
 A tap at `load` reads longer as `load` comes sooner: the feed shown is the
 number that moves with the user.
+
+**The boot, 2026-09-24.** At 4× CPU RealWorld's `exact_boot` took about 230 ms.
+Five changes cut what it repeated, each measured by a sampled profile of five
+traces:
+- **A plan is validated once**, where it is made (`Plan::decode`,
+  `PlanBuilder::finish`), not again by the runner: about 4 ms.
+- **The browser's kernel builds its layout tree on demand**
+  (`Kernel::layout_on_demand`): the web never lays out, and commits no longer
+  create Taffy nodes and styles. 21 → 3 ms.
+- **The adoption digest** is MurmurHash3's x64 128-bit function over the
+  plan's bytes, not SHA-256 of their re-encoding (LLP 1048.000 D6, as built):
+  8.1 → 0.7 ms. The projection that decides adoption keeps each view's tag,
+  props and CSS for the first batch: about 5 ms.
+- **The router's boot** skips a third table check and re-validating the value
+  it just launched: about 4 ms.
+- **Tiny functions are inlined** (`wasm-opt --always-inline-max-function-size
+  6`): V8 compiles each wasm function lazily, on the main thread, at its first
+  call, and a function of a few bytes costs about 58 µs to compile at 4×.
+  The boot compiles 1,123 functions, not 1,314, and app.wasm is 511 bytes
+  smaller in brotli. On the bench the feed shows 22 ms sooner.
+
+Lazy compilation is now most of what the boot costs: about 80 ms of
+`exact_boot`'s ~143 at `a3de37e0`. With V8's lazy compilation off (a Chrome
+flag, measured only), the feed shows 75–100 ms sooner, because streaming
+compilation does the work while the bytes download. A page can't choose that.
+Wasm compile hints (`metadata.code.compilation_priority`) would let it: in
+Chrome 153 they compile hinted functions before their first call, but only
+with `--js-flags=--experimental-wasm-compilation-hints`. Without the flag the
+section is ignored.
+
+| At `a3de37e0`, ms | Tap at load → feed | Feed shown | `load` | 3 s read → feed |
+|---|---|---|---|---|
+| exact2 (app.wasm 282,321 B brotli) | 1,411 | 2,219 | 803 | 233 |
+| React | 209 | 1,480 | 908 | 203 |
+
+Where a tap at `load` goes (five traces): 1,027 ms waiting for the wasm's
+bytes; 9 ms finishing its compilation; 251 ms from instantiation to the
+replayed press, `exact_boot` about 143 of it; 210 ms for the press, 150 of them
+the API.
