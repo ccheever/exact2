@@ -15,7 +15,7 @@ Seth's Crew port (report of 2026-09-24, D3) spent about 30 minutes before its fi
 
 The refusal in `js/build.rs` names the pieces, but there is no command that does them. Two further costs:
 
-- The lean archives default to `<checkout>/target/hermes-ios`, so every new exact2 worktree provisions again unless `EXACT_HERMES_IOS_DIR` is set.
+- The lean archives default to `<checkout>/target/hermes-ios`, so every new exact2 worktree provisions again. `EXACT_HERMES_IOS_DIR` does not rescue it: pointed at another checkout's `target/hermes-ios`, the build refuses with "compiler input has no captured source identity" (seen 2026-09-24 reproducing the port's F4/F6), so the archives were copied into the new worktree's `target/` by hand.
 - The pin disagrees with itself. The `js/build.rs` header pins facebook/hermes `6badada7…`, as does the local ibex receipt (`ios/Frameworks-vanilla/hermes-input-receipt.json`, ibex `639de62d`); LLP 1027's recipe says `e3371863…` "(updated 2026-09-19), matching the sibling ibex vanilla headers/compiler receipt". Following the RFC by hand can mix headers, compiler and VM from two commits.
 
 Fix, without a new script: when `host/apple/build.mjs --ios` builds an app with an `app.ts` and the target platform's three archives are missing, build only that platform's three lean targets (`hermesvmlean_a jsi boost_context`) from ibex's pristine source cache (`~/.cache/exact/hermes/hermes-src`) with ibex's `ImportHostCompilers.cmake`, into a location shared across worktrees (a per-user cache keyed by the Hermes commit, not `target/`), and say so on one line. Reconcile the pin first: one commit, named in `js/build.rs` and LLP 1027, checked against the ibex receipt at build time with a refusal naming both when they differ.
