@@ -196,6 +196,8 @@ enum Seed<'a> {
 #[derive(Clone)]
 struct PendingReq {
     refusal: Option<(&'static str, bool)>,
+    /// The host refused it at admission: it never ran (LLP 1041 §8.4).
+    refused: bool,
     ticket: u64,
     target: Target,
     source: String,
@@ -236,6 +238,9 @@ pub struct Runner<D: DataSource> {
     /// This commit let a request go: `conclude` tells the source what is
     /// still in flight.
     forgot: bool,
+    /// Resources refused ordered admission, asked again once the last
+    /// ordered refusal has settled (`release_refused`).
+    refused_asks: Vec<usize>,
     /// `pending` as flags, by resource and by mutation, for expressions.
     pending_res: Vec<bool>,
     pending_mut: Vec<bool>,
@@ -583,6 +588,7 @@ impl<D: DataSource> Runner<D> {
             pending_mut: Vec::new(),
             next_ticket: 1,
             forgot: false,
+            refused_asks: Vec::new(),
             deferred_edges: Vec::new(),
             requests: Vec::new(),
             refresh_next: Vec::new(),

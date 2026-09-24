@@ -278,6 +278,25 @@ fn a_failed_fulfill_keeps_the_ticket_for_retry() {
 }
 
 #[test]
+fn a_mutation_refused_admission_ends_unsent_and_is_never_retried() {
+    let mut r = boot();
+    r.dispatch(view_of(&r, "login"), Event::Press).unwrap();
+    let ticket = r.take_requests()[0].ticket;
+    assert!(has(&r, "busy"));
+    r.data().fail_parse = true;
+    r.refuse_request(ticket, "native executor admission limit reached", true);
+    let (refused, outcome) = r.take_request_refusal(true).unwrap();
+    assert_eq!(refused, ticket);
+    assert!(r.fulfill(ticket, outcome).unwrap().is_some());
+    assert!(r.pending().is_empty());
+    assert!(!has(&r, "busy"), "the view shows it no longer pending");
+    assert!(r.take_requests().is_empty(), "a write is never retried");
+    assert!(r
+        .journal()
+        .any(|l| l.contains("was refused admission: it ends unsent")));
+}
+
+#[test]
 fn a_refused_mutation_assignment_keeps_the_previous_ticket() {
     let mut r = boot();
     r.dispatch(view_of(&r, "who"), Event::Change("ada".into()))

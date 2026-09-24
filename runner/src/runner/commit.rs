@@ -503,6 +503,7 @@ impl<D: DataSource> Runner<D> {
         });
         self.pending.push(PendingReq {
             refusal: None,
+            refused: false,
             ticket,
             target,
             source,
@@ -579,6 +580,13 @@ impl<D: DataSource> Runner<D> {
         !self.pending.is_empty()
     }
 
+    /// Whether request `ticket` is still wanted. A host asks after each
+    /// commit and lets go of the work for any it holds that isn't (LLP 1016
+    /// D5): a superseded or forgotten reply would only be dropped here.
+    pub fn holds(&self, ticket: u64) -> bool {
+        self.pending.iter().any(|p| p.ticket == ticket)
+    }
+
     /// The host brought back the outcome of request `ticket`: the source
     /// parses it, the resource takes its value or the mutation's slot its
     /// `some`, and everything downstream settles as after an action — one
@@ -604,9 +612,13 @@ impl<D: DataSource> Runner<D> {
             "fulfil {ticket} ({}) [{summary}]",
             self.target_name(p.target)
         );
+        let (refused, target) = (p.refused, p.target);
         let result = self.fulfill_inner(p, outcome);
         self.conclude(checkpoint, &result, was_poisoned);
         self.log_outcome(&what, &result, was_poisoned);
+        if refused && result.is_err() && self.holds(ticket) {
+            return self.release_refused(ticket, target);
+        }
         result.map(Some)
     }
 

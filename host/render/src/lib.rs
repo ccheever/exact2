@@ -343,6 +343,7 @@ struct Held {
 
 fn hand_out<D: DataSource>(runner: &mut Runner<D>, executor: &Executor, held: &mut Held) {
     // The runner holds no refusals in a render, so nothing fences the lane.
+    executor.forget(|ticket| runner.holds(ticket));
     executor.resume_ordered();
     for r in runner.take_requests() {
         // Device capabilities: the environment has none.
