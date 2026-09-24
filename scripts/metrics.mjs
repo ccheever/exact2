@@ -781,11 +781,21 @@ if (long) {
     out.web_bytes = {};
     mkdirSync(resolve(ROOT, 'target/metrics-bytes'), { recursive: true });
     for (const name of ['realworld', 'video-player', 'caltrain']) {
-      const target = resolveApp(name);
+      // The captured run selects its original app through EXACT_APP_DIR.
+      // Each fixed comparison app must resolve and build from its own directory.
+      const selectedDir = process.env.EXACT_APP_DIR;
+      let target;
+      try {
+        process.env.EXACT_APP_DIR = resolve(ROOT, 'apps', name);
+        target = resolveApp(name);
+      } finally {
+        if (selectedDir === undefined) delete process.env.EXACT_APP_DIR;
+        else process.env.EXACT_APP_DIR = selectedDir;
+      }
       const measured = {};
       for (const names of [false, true]) {
         const dist = resolve(ROOT, 'target/metrics-bytes', `${name}${names ? '-names' : ''}`);
-        const env = { ...process.env, EXACT_WEB_DIST: dist, ...(names ? { EXACT_WEB_NAMES: '1', CARGO_TARGET_DIR: resolve(ROOT, 'target/metrics-names') } : {}) };
+        const env = { ...process.env, EXACT_APP_DIR: target.dir, EXACT_WEB_DIST: dist, EXACT_WEB_NAMES: names ? '1' : '0', ...(names ? { CARGO_TARGET_DIR: resolve(ROOT, 'target/metrics-names') } : {}) };
         const b = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), target.crate('web')], { cwd: ROOT, env, stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' });
         if (b.status !== 0) { measured.failed = failure(b); break; }
         const wasm = readFileSync(resolve(dist, 'app.wasm'));
