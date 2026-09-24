@@ -345,7 +345,7 @@ impl<D: DataSource> Host<D> {
         viewport: exact_runner::Viewport,
         launch: &str,
     ) -> Result<(Host<D>, String), HostError> {
-        let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
+        let plan = decode_plan(plan_bytes).map_err(HostError::Plan)?;
         crate::link::admit(&plan)?;
         let kernel = Kernel::with_monospace();
         // @ref LLP 1039 D3 — both host facts precede the first settlement.
@@ -1207,9 +1207,28 @@ fn font_names(plan: &Plan) -> Vec<String> {
         .collect()
 }
 
+thread_local! {
+    // The plan a font query last decoded, beside its bytes: the glue asks for
+    // a plan's faces right before it boots that plan, and decoding validates
+    // the whole plan, so the boot takes this one instead of doing it again.
+    static DECODED: std::cell::RefCell<Option<(Vec<u8>, Plan)>> = const { std::cell::RefCell::new(None) };
+}
+
 /// Decode a candidate's font catalog without replacing or starting a host.
 pub(crate) fn plan_font_catalog(bytes: &[u8]) -> Result<String, exact_plan::PlanError> {
-    Ok(font_catalog(&font_faces(&Plan::decode(bytes)?)))
+    let plan = Plan::decode(bytes)?;
+    let catalog = font_catalog(&font_faces(&plan));
+    DECODED.with(|decoded| *decoded.borrow_mut() = Some((bytes.to_vec(), plan)));
+    Ok(catalog)
+}
+
+/// `bytes` as a decoded, validated plan: the one a font query just decoded
+/// when the bytes are the same, else decoded now.
+pub(crate) fn decode_plan(bytes: &[u8]) -> Result<Plan, exact_plan::PlanError> {
+    match DECODED.with(|decoded| decoded.borrow_mut().take()) {
+        Some((same, plan)) if same == bytes => Ok(plan),
+        _ => Plan::decode(bytes),
+    }
 }
 
 fn font_faces(plan: &Plan) -> Vec<FontFace> {

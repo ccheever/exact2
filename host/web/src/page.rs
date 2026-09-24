@@ -378,7 +378,7 @@ impl<D: DataSource> crate::Host<D> {
             return Ok((host, batch));
         };
         let launch = launch.as_str();
-        let plan = Plan::decode(plan_bytes).map_err(crate::HostError::Plan)?;
+        let plan = crate::host::decode_plan(plan_bytes).map_err(crate::HostError::Plan)?;
         crate::link::admit(&plan)?;
         let delivery = compat.map_or_else(Default::default, |json| {
             exact_runner::Delivery::default().with_compat(json)
