@@ -375,6 +375,16 @@ their JSON message, after Fieldnotes demonstrated a multi-megabyte escaping and
 parsing cost. The built-in serializer and existing shape validation retain their
 semantics; app exports, the module ABI and the browser path do not change.
 
+As built (2026-09-24, LLP 1047 §6): the JSON on both paths is
+`exact_js_value::json`, one reader and writer without serde. It keeps serde_json
+1.0's grammar, errors and their positions, sorted object keys and last duplicate
+wins, except that a number with a fraction or an exponent is read correctly
+rounded (`exact-num`), so a value JavaScript wrote arrives as exactly its value.
+serde_json's reader misread 23.7% of shortest round-trip double texts (17.9% in
+`JSON.stringify`'s decimal range) by an ulp or two, and overflowed
+`1.7976931348623158e308`, which is `f64::MAX`. The web wasm links neither serde
+nor serde_json.
+
 Why JSON and not a walk over the engine's objects through JSI: the
 walk would be faster (the probe's per-call cost is mostly the two
 JSON passes, §5), and it is an optimization the executor can make

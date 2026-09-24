@@ -9,9 +9,9 @@ publish = false
 exact-js-value = { path = "../value" }
 exact-plan = { path = "../../plan" }
 exact-runner = { path = "../../runner" }
-serde_json = "1.0"
 sha2 = "0.10"
 
 [dev-dependencies]
 caltrain-data = { path = "../../apps/caltrain/data" }
 contract = { path = "../../contract/cli" }
+serde_json = "1.0"

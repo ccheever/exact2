@@ -1,55 +1,61 @@
 //! Decode the answer directly into runner values. Shape errors are values here,
-//! not serde errors: parsing must finish before reporting them, and a later
+//! not parse errors: parsing must finish before reporting them, and a later
 //! duplicate object key can replace an earlier wrong-shaped value.
-use crate::{describe, from_json, Shape};
+use crate::json::{self, Json, Object};
+use crate::parse::{Error, Items, Members, Parser, Tree, Visit};
+use crate::{describe, from_lean, Shape};
 use exact_plan::Value;
-use serde::de::{DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
-use serde::Deserialize;
-use serde_json::{Map, Value as Json};
-use std::{fmt, rc::Rc};
+use std::rc::Rc;
 
 type Answer = Result<Value, String>;
 
 /// Decode JSON text without constructing an intermediate JSON value tree.
-/// JSON syntax, number parsing and recursion limits are serde_json's own.
+/// JSON syntax and recursion limits are serde_json's (`crate::parse`).
 pub fn from_json_text(text: &str, shape: &Shape) -> Result<Value, String> {
-    let mut de = serde_json::Deserializer::from_str(text);
+    let mut parser = Parser::new(text.as_bytes());
     let value = Node(Some(shape), unique_records(shape, text.len()))
-        .deserialize(&mut de)
+        .decode(&mut parser)
         .map_err(|e| e.to_string())?;
-    de.end().map_err(|e| e.to_string())?;
+    parser.end().map_err(|e| e.to_string())?;
     value
 }
 
 /// An executor's envelope, with its `value` decoded separately. Metadata keeps
-/// its existing JSON representation; shape errors do not hide errors or effects
+/// its JSON representation; shape errors do not hide errors or effects
 /// carried by the envelope. The metadata object omits `value`.
 pub struct Reply {
     /// The envelope's fields other than the answer value.
-    pub fields: Json,
+    pub fields: serde_json::Value,
     /// The shape-checked answer, or its shape error (used only for tag 0).
     pub value: Answer,
 }
 
-/// Decode a native executor reply while retaining serde_json syntax errors.
-pub fn reply_from_json_text(text: &str, shape: &Shape) -> Result<Reply, serde_json::Error> {
-    let mut de = serde_json::Deserializer::from_str(text);
-    let reply = Envelope(shape, unique_records(shape, text.len())).deserialize(&mut de)?;
-    de.end()?;
-    Ok(reply)
+/// Decode a native executor reply; syntax errors are serde_json's.
+pub fn reply_from_json_text(text: &str, shape: &Shape) -> Result<Reply, Error> {
+    reply_from_json_slice(text.as_bytes(), shape)
 }
 
-/// Decode a browser executor reply directly from its UTF-8 output buffer.
-pub fn reply_from_json_slice(bytes: &[u8], shape: &Shape) -> Result<Reply, serde_json::Error> {
-    let mut de = serde_json::Deserializer::from_slice(bytes);
-    let reply = Envelope(shape, unique_records(shape, bytes.len())).deserialize(&mut de)?;
-    de.end()?;
-    Ok(reply)
+/// Decode an executor reply from UTF-8 bytes.
+pub fn reply_from_json_slice(bytes: &[u8], shape: &Shape) -> Result<Reply, Error> {
+    let json::Reply { fields, value } = json::reply(bytes, shape)?;
+    Ok(Reply {
+        fields: fields.into(),
+        value,
+    })
+}
+
+impl json::Reply {
+    pub(crate) fn decode(bytes: &[u8], shape: &Shape) -> Result<json::Reply, Error> {
+        let mut parser = Parser::new(bytes);
+        let reply = parser.value(Envelope(shape, unique_records(shape, bytes.len())))?;
+        parser.end()?;
+        Ok(reply)
+    }
 }
 
 // A shape is shared by every row in an answer. This optional preflight uses
 // at most one node/name comparison per input byte, capped at 4,096. Tiny answers
-// must not scan huge unused shapes. Exhaustion retains the original decoder.
+// must not scan huge unused shapes. Exhaustion retains the tree decoder.
 fn unique_records(shape: &Shape, bytes: usize) -> bool {
     fn visit(shape: &Shape, depth: usize, work: &mut usize) -> bool {
         if depth > crate::MAX_DEPTH || *work == 0 {
@@ -72,34 +78,33 @@ fn unique_records(shape: &Shape, bytes: usize) -> bool {
 }
 
 // None validates and discards a subtree, including numeric overflow and depth.
-// IgnoredAny skips those checks, so it cannot preserve the old JSON parser here.
+#[derive(Clone, Copy)]
 struct Node<'a>(Option<&'a Shape>, bool);
 
-impl<'de> DeserializeSeed<'de> for Node<'_> {
-    type Value = Answer;
-
-    fn deserialize<D: Deserializer<'de>>(self, de: D) -> Result<Answer, D::Error> {
-        let mut shape = self.0;
-        while let Some(Shape::Option(inner)) = shape {
-            shape = Some(inner);
-        }
-        // Hand-built shapes may repeat a field name. Preserve the old decoder's
-        // behavior for those unusual shapes; plan record fields are distinct.
-        if let Some(Shape::Record(fields)) = shape {
-            if !self.1
-                && fields
-                    .iter()
-                    .enumerate()
-                    .any(|(i, (name, _))| fields[..i].iter().any(|(other, _)| name == other))
-            {
-                return Json::deserialize(de).map(|j| from_json(&j, self.0.unwrap()));
-            }
-        }
-        de.deserialize_any(self)
-    }
-}
-
 impl Node<'_> {
+    /// Hand-built shapes may repeat a field name: those decode through the
+    /// value tree, as they always have; plan record fields are distinct.
+    fn needs_tree(&self) -> bool {
+        match self.inner() {
+            Some(Shape::Record(fields)) => {
+                !self.1
+                    && fields
+                        .iter()
+                        .enumerate()
+                        .any(|(i, (name, _))| fields[..i].iter().any(|(other, _)| name == other))
+            }
+            _ => false,
+        }
+    }
+
+    fn decode(self, parser: &mut Parser<'_>) -> Result<Answer, Error> {
+        if self.needs_tree() {
+            let tree = parser.value(Tree)?;
+            return Ok(from_lean(&tree, self.0.unwrap_or(&Shape::Unit)));
+        }
+        parser.value(self)
+    }
+
     fn nonnull(self, f: impl FnOnce(Node<'_>) -> Answer) -> Answer {
         let mut shape = self.0;
         let mut options = 0;
@@ -121,94 +126,100 @@ impl Node<'_> {
         }
     }
 
-    fn number(self, n: f64) -> Answer {
+    fn inner(&self) -> Option<&Shape> {
+        let mut shape = self.0;
+        while let Some(Shape::Option(inner)) = shape {
+            shape = Some(inner);
+        }
+        shape
+    }
+}
+
+impl Visit for Node<'_> {
+    type Out = Answer;
+
+    fn null(self) -> Answer {
+        match self.0 {
+            Some(Shape::Unit) | None => Ok(Value::Unit),
+            Some(Shape::Option(_)) => Ok(Value::Option(None)),
+            _ => self.mismatch("null"),
+        }
+    }
+    fn bool(self, value: bool) -> Answer {
+        self.nonnull(|node| match node.0 {
+            Some(Shape::Bool) => Ok(Value::Bool(value)),
+            _ => node.mismatch("a bool"),
+        })
+    }
+    fn number(self, value: json::Number) -> Answer {
+        let n = match value {
+            json::Number::PosInt(n) => n as f64,
+            json::Number::NegInt(n) => n as f64,
+            json::Number::Float(n) => n,
+        };
         self.nonnull(|node| match node.0 {
             Some(Shape::Number) => Ok(Value::Number(n)),
             _ => node.mismatch("a number"),
         })
     }
-}
-
-impl<'de> Visitor<'de> for Node<'_> {
-    type Value = Answer;
-
-    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str("a JSON value")
-    }
-    fn visit_unit<E>(self) -> Result<Answer, E> {
-        Ok(match self.0 {
-            Some(Shape::Unit) | None => Ok(Value::Unit),
-            Some(Shape::Option(_)) => Ok(Value::Option(None)),
-            _ => self.mismatch("null"),
-        })
-    }
-    fn visit_bool<E>(self, value: bool) -> Result<Answer, E> {
-        Ok(self.nonnull(|node| match node.0 {
-            Some(Shape::Bool) => Ok(Value::Bool(value)),
-            _ => node.mismatch("a bool"),
-        }))
-    }
-    fn visit_i64<E>(self, value: i64) -> Result<Answer, E> {
-        Ok(self.number(value as f64))
-    }
-    fn visit_u64<E>(self, value: u64) -> Result<Answer, E> {
-        Ok(self.number(value as f64))
-    }
-    fn visit_f64<E>(self, value: f64) -> Result<Answer, E> {
-        Ok(self.number(value))
-    }
-    fn visit_str<E>(self, value: &str) -> Result<Answer, E> {
-        Ok(self.nonnull(|node| match node.0 {
+    fn string(self, value: &str) -> Answer {
+        self.nonnull(|node| match node.0 {
             Some(Shape::String) => Ok(Value::str(value)),
             _ => node.mismatch("a string"),
-        }))
+        })
     }
-    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Answer, A::Error> {
+    fn array(self, items: &mut Items<'_, '_>) -> Result<Answer, Error> {
         // Keep syntax errors outside the shape-result layer.
-        let mut shape = self.0;
-        while let Some(Shape::Option(inner)) = shape {
-            shape = Some(inner);
-        }
-        let inner = match shape {
+        let inner = match self.inner() {
             Some(Shape::List(inner)) => Some(&**inner),
             _ => None,
         };
-        let mut items = Vec::new();
+        let mut values = Vec::new();
         let mut error = None;
-        while let Some(item) = seq.next_element_seed(Node(inner, self.1))? {
+        let node = Node(inner, self.1);
+        loop {
+            let item = if node.needs_tree() {
+                match items.next(Tree)? {
+                    Some(tree) => from_lean(&tree, node.0.unwrap_or(&Shape::Unit)),
+                    None => break,
+                }
+            } else {
+                match items.next(node)? {
+                    Some(item) => item,
+                    None => break,
+                }
+            };
             if inner.is_some() && error.is_none() {
                 match item {
-                    Ok(value) => items.push(value),
+                    Ok(value) => values.push(value),
                     Err(e) => {
-                        items.clear();
+                        values.clear();
                         error = Some(e);
                     }
                 }
             }
         }
         Ok(self.nonnull(|node| match node.0 {
-            Some(Shape::List(_)) => error.map_or_else(|| Ok(Value::list(items)), Err),
+            Some(Shape::List(_)) => error.map_or_else(|| Ok(Value::list(values)), Err),
             _ => node.mismatch("an array"),
         }))
     }
-    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Answer, A::Error> {
-        let mut shape = self.0;
-        while let Some(Shape::Option(inner)) = shape {
-            shape = Some(inner);
-        }
-        let fields = match shape {
+    fn object(self, members: &mut Members<'_, '_>) -> Result<Answer, Error> {
+        let fields = match self.inner() {
             Some(Shape::Record(fields)) => &fields[..],
             _ => &[],
         };
         let mut slots: Vec<Option<Answer>> = (0..fields.len()).map(|_| None).collect();
         let mut extra: Option<String> = None;
-        while let Some(key) = map.next_key_seed(Key(fields))? {
-            match key {
-                Field::Known(i) => {
-                    slots[i] = Some(map.next_value_seed(Node(Some(&fields[i].1), self.1))?);
+        while let Some(key) = members.key()? {
+            match fields.iter().position(|(name, _)| name == key) {
+                Some(i) => {
+                    let node = Node(Some(&fields[i].1), self.1);
+                    slots[i] = Some(node_value(members, node)?);
                 }
-                Field::Extra(name) => {
-                    let _ = map.next_value_seed(Node(None, self.1))?;
+                None => {
+                    let name = key.to_owned();
+                    let _ = node_value(members, Node(None, self.1))?;
                     if extra.as_ref().is_none_or(|old| name < *old) {
                         extra = Some(name);
                     }
@@ -232,87 +243,61 @@ impl<'de> Visitor<'de> for Node<'_> {
     }
 }
 
-enum Field {
-    Known(usize),
-    Extra(String),
-}
-struct Key<'a>(&'a [(String, Shape)]);
-impl<'de> DeserializeSeed<'de> for Key<'_> {
-    type Value = Field;
-    fn deserialize<D: Deserializer<'de>>(self, de: D) -> Result<Field, D::Error> {
-        de.deserialize_str(self)
+/// A member's value through `Node::decode`'s rules (the tree fallback for
+/// repeated field names applies to members as it does at the top).
+fn node_value(members: &mut Members<'_, '_>, node: Node<'_>) -> Result<Answer, Error> {
+    if node.needs_tree() {
+        let tree = members.value(Tree)?;
+        return Ok(from_lean(&tree, node.0.unwrap_or(&Shape::Unit)));
     }
-}
-impl<'de> Visitor<'de> for Key<'_> {
-    type Value = Field;
-    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str("an object key")
-    }
-    fn visit_str<E>(self, key: &str) -> Result<Field, E> {
-        Ok(self
-            .0
-            .iter()
-            .position(|(name, _)| name == key)
-            .map_or_else(|| Field::Extra(key.into()), Field::Known))
-    }
+    members.value(node)
 }
 
 struct Envelope<'a>(&'a Shape, bool);
-impl<'de> DeserializeSeed<'de> for Envelope<'_> {
-    type Value = Reply;
-    fn deserialize<D: Deserializer<'de>>(self, de: D) -> Result<Reply, D::Error> {
-        de.deserialize_any(self)
-    }
-}
+
 impl Envelope<'_> {
-    fn other(self, fields: Json) -> Reply {
-        Reply {
+    fn other(self, fields: Json) -> json::Reply {
+        json::Reply {
             fields,
-            value: from_json(&Json::Null, self.0),
+            value: from_lean(&Json::Null, self.0),
         }
     }
 }
-impl<'de> Visitor<'de> for Envelope<'_> {
-    type Value = Reply;
-    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str("a JSON reply")
+
+impl Visit for Envelope<'_> {
+    type Out = json::Reply;
+    fn null(self) -> json::Reply {
+        self.other(Json::Null)
     }
-    fn visit_unit<E>(self) -> Result<Reply, E> {
-        Ok(self.other(Json::Null))
+    fn bool(self, value: bool) -> json::Reply {
+        self.other(Json::Bool(value))
     }
-    fn visit_bool<E>(self, v: bool) -> Result<Reply, E> {
-        Ok(self.other(v.into()))
+    fn number(self, value: json::Number) -> json::Reply {
+        self.other(Json::Number(value))
     }
-    fn visit_i64<E>(self, v: i64) -> Result<Reply, E> {
-        Ok(self.other(v.into()))
+    fn string(self, value: &str) -> json::Reply {
+        self.other(Json::String(value.to_owned()))
     }
-    fn visit_u64<E>(self, v: u64) -> Result<Reply, E> {
-        Ok(self.other(v.into()))
-    }
-    fn visit_f64<E>(self, v: f64) -> Result<Reply, E> {
-        Ok(self.other(v.into()))
-    }
-    fn visit_str<E>(self, v: &str) -> Result<Reply, E> {
-        Ok(self.other(v.into()))
-    }
-    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Reply, A::Error> {
-        let mut items = Vec::new();
-        while let Some(value) = seq.next_element()? {
-            items.push(value);
+    fn array(self, items: &mut Items<'_, '_>) -> Result<json::Reply, Error> {
+        let mut values = Vec::new();
+        while let Some(value) = items.next(Tree)? {
+            values.push(value);
         }
-        Ok(self.other(Json::Array(items)))
+        Ok(self.other(Json::Array(values)))
     }
-    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Reply, A::Error> {
-        let mut fields = Map::new();
-        let mut value = from_json(&Json::Null, self.0);
-        while let Some(key) = map.next_key::<String>()? {
+    fn object(self, members: &mut Members<'_, '_>) -> Result<json::Reply, Error> {
+        let mut fields = Object::new();
+        let mut value = from_lean(&Json::Null, self.0);
+        while let Some(key) = members.key()? {
             if key == "value" {
-                value = map.next_value_seed(Node(Some(self.0), self.1))?;
+                value = node_value(members, Node(Some(self.0), self.1))?;
             } else {
-                fields.insert(key, map.next_value()?);
+                let key = key.to_owned();
+                let member = members.value(Tree)?;
+                fields.insert(key, member);
             }
         }
-        Ok(Reply {
+        Ok(json::Reply {
             fields: Json::Object(fields),
             value,
         })

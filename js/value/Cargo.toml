@@ -6,6 +6,8 @@ license.workspace = true
 publish = false
 
 [dependencies]
+exact-num = { path = "../../num" }
 exact-plan = { path = "../../plan" }
-serde = "1.0"
+# The native adapters (to_json, from_json, Reply) hold serde_json's values;
+# the web's path (json::*) reaches none of it.
 serde_json = "1.0"

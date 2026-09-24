@@ -1,13 +1,13 @@
 //! Browser-owned data module, without a JavaScript engine in wasm.
 //! @ref LLP 1027 D6 / LLP 1027.000 D3. Browser microtask checkpoints and
 //! HTTP requests both travel through the runner's stale-safe ticket path.
-use exact_js_value::{reply_from_json_slice, to_json, Shape};
+use exact_js_value::json::{self, object, Json};
+use exact_js_value::Shape;
 use exact_plan::{Plan, Value};
 pub use exact_runner::Placement;
 use exact_runner::{
     Answer, DataError, DataSource, Dispatch, InFlight, Outcome, Request, Store, Target,
 };
-use serde_json::{json, Value as Json};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 
@@ -22,10 +22,41 @@ fn target_json(target: Option<Target>) -> Json {
     target.map_or(Json::Null, |target| Json::String(format!("{target:?}")))
 }
 
+/// The key a call waits under: `[target, source, args]` as compact JSON.
+fn call_key(target: &Json, source: &str, args: &[Json]) -> String {
+    Json::Array(vec![
+        target.clone(),
+        source.into(),
+        Json::Array(args.to_vec()),
+    ])
+    .text()
+}
+
+/// Store pairs and header pairs as the realm reads them: `[[k, v], …]`.
+fn pairs(pairs: &[(String, String)]) -> Json {
+    Json::Array(
+        pairs
+            .iter()
+            .map(|(k, v)| Json::Array(vec![k.as_str().into(), v.as_str().into()]))
+            .collect(),
+    )
+}
+
 /// Whether a `waiting` key names a target: `[null, …]` is a caller's that
 /// named none, which only that caller can let go.
 fn targeted(key: &str) -> bool {
     !key.starts_with("[null,")
+}
+
+/// `[[name, value], …]` of strings, as serde read `Vec<(String, String)>`.
+fn string_pairs(json: &Json) -> Option<Vec<(String, String)>> {
+    json.as_array()?
+        .iter()
+        .map(|pair| match pair.as_array()?.as_slice() {
+            [name, value] => Some((name.as_str()?.to_owned(), value.as_str()?.to_owned())),
+            _ => None,
+        })
+        .collect()
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -34,7 +65,7 @@ fn call(input: Json) -> Result<Vec<u8>, DataError> {
     extern "C" {
         fn call(op: u32, ptr: *mut u8, len: usize) -> usize;
     }
-    let mut bytes = serde_json::to_vec(&input).map_err(|e| unavailable(e.to_string()))?;
+    let mut bytes = input.text().into_bytes();
     // The import reads only this owned buffer; the second call fills a new
     // owned buffer. It never re-enters the host's borrowed input/output cell.
     let count = unsafe { call(0, bytes.as_mut_ptr(), bytes.len()) };
@@ -114,7 +145,8 @@ impl Module {
             .zip(params)
             .enumerate()
             .map(|(i, (value, shape))| {
-                to_json(value, shape).map_err(|_| DataError::BadArguments(format!("argument {i}")))
+                json::encode(value, shape)
+                    .map_err(|_| DataError::BadArguments(format!("argument {i}")))
             })
             .collect::<Result<Vec<_>, _>>()?;
         let snapshot: Vec<_> = store
@@ -123,8 +155,17 @@ impl Module {
             .filter(|(name, _)| !name.starts_with(Store::KEPT))
             .collect();
         let target = target_json(target);
-        let key = json!([target, source, args]).to_string();
-        let mut input = json!({"op":"answer", "id":self.id, "target":target, "source":source, "args":args, "store":snapshot, "grants":store.granted()});
+        let key = call_key(&target, source, &args);
+        let grants = Json::Array(store.granted().iter().map(|g| g.as_str().into()).collect());
+        let mut input = object([
+            ("op", "answer".into()),
+            ("id", self.id.into()),
+            ("target", target),
+            ("source", source.into()),
+            ("args", Json::Array(args)),
+            ("store", pairs(&snapshot)),
+            ("grants", grants),
+        ]);
         let response = match outcome {
             None => call(input)?,
             Some(outcome) => {
@@ -156,12 +197,22 @@ impl Module {
                         Outcome::Surface(_) => {
                             return Err(unavailable("surface result supplied to fetch"))
                         }
-                        Outcome::Response(r) => {
-                            json!({"response":{"status":r.status,"headers":r.headers,"body":String::from_utf8_lossy(&r.body),"bodyBase64":exact_runner::agent::base64(&r.body)}})
-                        }
-                        Outcome::Failed { kind, message } => {
-                            json!({"failed":{"kind":format!("{kind:?}"),"message":message}})
-                        }
+                        Outcome::Response(r) => object([(
+                            "response",
+                            object([
+                                ("status", r.status.into()),
+                                ("headers", pairs(&r.headers)),
+                                ("body", String::from_utf8_lossy(&r.body).as_ref().into()),
+                                ("bodyBase64", exact_runner::agent::base64(&r.body).into()),
+                            ]),
+                        )]),
+                        Outcome::Failed { kind, message } => object([(
+                            "failed",
+                            object([
+                                ("kind", format!("{kind:?}").into()),
+                                ("message", message.into()),
+                            ]),
+                        )]),
                     };
                     call(input)?
                 }
@@ -178,7 +229,7 @@ impl Module {
         bytes: &[u8],
     ) -> Result<Answer, DataError> {
         let (_, result) = &self.signatures[source];
-        let reply = reply_from_json_slice(bytes, result).map_err(|e| unavailable(e.to_string()))?;
+        let reply = json::reply(bytes, result).map_err(|e| unavailable(e.to_string()))?;
         let response = reply.fields;
         if let Some(token) = response["continuation"].as_u64() {
             self.waiting.insert(key, true);
@@ -233,8 +284,9 @@ impl Module {
                     .as_str()
                     .ok_or_else(|| unavailable("fetch has no method"))?
                     .into();
-                request.headers = serde_json::from_value(r["headers"].clone())
-                    .map_err(|e| unavailable(e.to_string()))?;
+                request.headers = string_pairs(&r["headers"]).ok_or_else(|| {
+                    unavailable("fetch headers are not an array of [name, value] strings")
+                })?;
                 request.body = r["body"].as_str().unwrap_or("").as_bytes().to_vec();
                 self.waiting.insert(key, false);
                 Answer::Later(request)
@@ -263,11 +315,15 @@ impl DataSource for Module {
         self.ready
     }
     fn activate(&mut self) -> Result<(), DataError> {
-        let response = call(
-            json!({"op":"activate", "id":self.id, "appId":self.app, "grants":self.grants, "revision":self.revision, "placement":self.placement.name()}),
-        )?;
-        let response: Json =
-            serde_json::from_slice(&response).map_err(|e| unavailable(e.to_string()))?;
+        let response = call(object([
+            ("op", "activate".into()),
+            ("id", self.id.into()),
+            ("appId", self.app.as_str().into()),
+            ("grants", self.grants.as_str().into()),
+            ("revision", self.revision.as_str().into()),
+            ("placement", self.placement.name().into()),
+        ]))?;
+        let response = json::parse(&response).map_err(|e| unavailable(e.to_string()))?;
         if response["ok"] != true {
             return Err(unavailable(
                 response["error"]
@@ -279,8 +335,11 @@ impl DataSource for Module {
         Ok(())
     }
     fn replacement(&self, plan: &[u8], receipt: &str, module: Vec<u8>) -> Result<Self, DataError> {
-        let meta: Json = serde_json::from_str(receipt).map_err(|e| unavailable(e.to_string()))?;
-        let id: u64 = serde_json::from_slice(&module).map_err(|e| unavailable(e.to_string()))?;
+        let meta = json::parse(receipt.as_bytes()).map_err(|e| unavailable(e.to_string()))?;
+        let id = json::parse(&module)
+            .map_err(|e| unavailable(e.to_string()))?
+            .as_u64()
+            .ok_or_else(|| unavailable("the module id is not a u64"))?;
         if meta["version"] != 1
             || meta["abi"] != 1
             || meta["appId"] != self.app
@@ -315,16 +374,27 @@ impl DataSource for Module {
             .into_iter()
             .filter(|(name, _)| !name.starts_with(Store::KEPT) && granted.iter().any(|g| g == name))
             .collect();
-        match call(
-            json!({"op":"dispatch", "id":self.id, "token":token, "store":snapshot, "grants":granted}),
-        ).and_then(|bytes| serde_json::from_slice::<Json>(&bytes).map_err(|e| unavailable(e.to_string()))) {
+        let grants = Json::Array(granted.iter().map(|g| g.as_str().into()).collect());
+        match call(object([
+            ("op", "dispatch".into()),
+            ("id", self.id.into()),
+            ("token", token.into()),
+            ("store", pairs(&snapshot)),
+            ("grants", grants),
+        ]))
+        .and_then(|bytes| json::parse(&bytes).map_err(|e| unavailable(e.to_string())))
+        {
             Ok(response) if response["ok"] == true => Dispatch::Host(token),
             _ => Dispatch::Missing,
         }
     }
 
     fn discard(&mut self, token: u64) {
-        let _ = call(json!({"op":"discard", "id":self.id, "token":token}));
+        let _ = call(object([
+            ("op", "discard".into()),
+            ("id", self.id.into()),
+            ("token", token.into()),
+        ]));
     }
     /// Calls whose requests the runner let go are dropped here, and the
     /// realm hears what is still in flight, to drop its own (LLP 1016 D5).
@@ -344,20 +414,28 @@ impl DataSource for Module {
             let Ok(args) = args
                 .iter()
                 .zip(params)
-                .map(|(value, shape)| to_json(value, shape))
+                .map(|(value, shape)| json::encode(value, shape))
                 .collect::<Result<Vec<_>, _>>()
             else {
                 continue;
             };
             let target = target_json(Some(*target));
-            keep.insert(json!([target, source, args]).to_string());
-            requests.push(json!({"target": target, "source": source, "args": args}));
+            keep.insert(call_key(&target, source, &args));
+            requests.push(object([
+                ("target", target),
+                ("source", (*source).into()),
+                ("args", Json::Array(args)),
+            ]));
         }
         let before = self.waiting.len();
         self.waiting
             .retain(|key, _| !targeted(key) || keep.contains(key));
         if self.waiting.len() != before {
-            let _ = call(json!({"op":"forget", "id":self.id, "inFlight":requests}));
+            let _ = call(object([
+                ("op", "forget".into()),
+                ("id", self.id.into()),
+                ("inFlight", Json::Array(requests)),
+            ]));
         }
     }
     fn bind(&mut self, plan: &Plan) {
@@ -438,7 +516,7 @@ mod tests {
         let mut store = Store::new("", []);
         // Each call is a browser turn, parked under its own target.
         for (token, target) in [(1, Target::Mutation(0)), (2, Target::Mutation(1))] {
-            let key = json!([target_json(Some(target)), "source", []]).to_string();
+            let key = call_key(&target_json(Some(target)), "source", &[]);
             let turn = format!(r#"{{"continuation":{token}}}"#);
             assert!(matches!(
                 module.step(&mut store, "source", key, turn.as_bytes()),
@@ -449,7 +527,9 @@ mod tests {
             Outcome::Response(exact_runner::Response {
                 status: 200,
                 headers: vec![],
-                body: json!({"tag": 0, "value": text}).to_string().into_bytes(),
+                body: object([("tag", 0u64.into()), ("value", text.into())])
+                    .text()
+                    .into_bytes(),
             })
         };
         // The replies, the other way round: each settles its own call.
@@ -484,7 +564,7 @@ mod tests {
             (Some(Target::Mutation(0)), "ab"),
             (None, "a"),
         ] {
-            let key = json!([target_json(target), "source", [arg]]).to_string();
+            let key = call_key(&target_json(target), "source", &[arg.into()]);
             assert!(module
                 .step(&mut store, "source", key, br#"{"continuation":1}"#)
                 .is_ok());
@@ -501,7 +581,9 @@ mod tests {
             Outcome::Response(exact_runner::Response {
                 status: 200,
                 headers: vec![],
-                body: json!({"tag": 0, "value": text}).to_string().into_bytes(),
+                body: object([("tag", 0u64.into()), ("value", text.into())])
+                    .text()
+                    .into_bytes(),
             })
         };
         let target = Target::Mutation(0);
@@ -549,18 +631,22 @@ mod tests {
             .signatures
             .insert("source".into(), (vec![], Shape::Unit));
         for error in [
-            json!({"tag":2,"kind":"Unavailable","message":"failed"}),
-            json!({"error":"serialization failed"}),
+            object([
+                ("tag", 2u64.into()),
+                ("kind", "Unavailable".into()),
+                ("message", "failed".into()),
+            ]),
+            object([("error", "serialization failed".into())]),
         ] {
             let mut store = Store::new("secret.keep token", []);
             let mut response = error;
-            response["writes"] = json!([["token", "changed"]]);
+            response["writes"] = pairs(&[("token".into(), "changed".into())]);
             assert!(module
                 .step(
                     &mut store,
                     "source",
                     "key".into(),
-                    &serde_json::to_vec(&response).unwrap()
+                    response.text().as_bytes()
                 )
                 .is_err());
             assert_eq!(store.get("token"), Some("changed"));
