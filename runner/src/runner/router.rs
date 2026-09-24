@@ -25,6 +25,40 @@ pub struct RouterChange {
     pub removed: Vec<u64>,
 }
 
+/// The router seam (LLP 1047 D4): what the runner and its VM ask of a plan's
+/// router. [`RouterContext`] is the one implementation, built by
+/// [`routing`]; a host that links no router passes none, and a plan that
+/// declares routes is refused before it boots (LLP 1047 D6).
+pub trait Routing {
+    /// The root slot the router value lives in.
+    fn slot(&self) -> SlotsId;
+    /// A router verb or read the VM calls; `None` on a type mismatch.
+    fn call(&self, plan: &Plan, f: Stdlib, args: &[Value]) -> Option<Value>;
+    /// Journal a refused intent once per commit.
+    fn refuse(&self, intent: &str, message: &str);
+    /// The router value a boot starts from: the carried router when the
+    /// table still fits it, else a launch at `launch`.
+    fn initial(&self, carried: Option<&Router>, launch: &str) -> Result<Value, RunnerError>;
+    /// `value` as a router, when it is a valid one.
+    fn read(&self, value: &Value) -> Option<Router>;
+    /// What changed since the last commit, for the host (LLP 1038 D7).
+    fn change(&self, value: &Value) -> Result<Option<RouterChange>, RunnerError>;
+    /// Remember `value` as committed, and keep `change` for the host.
+    fn commit(&mut self, value: Value, change: Option<RouterChange>);
+    /// Refusals journaled since the last take.
+    fn take_refusals(&self) -> Vec<String>;
+    /// The pending change, once.
+    fn take_change(&mut self) -> Option<RouterChange>;
+    /// Whether `location` names a declared route pattern (LLP 1038 §7).
+    fn matches_pattern(&self, location: &str) -> bool;
+}
+
+/// The plan's router, if it declares one (LLP 1038 D2): what a host that
+/// links the router passes as `RunnerLinks.router`.
+pub fn routing(plan: &Plan) -> Result<Option<Box<dyn Routing>>, RunnerError> {
+    Ok(RouterContext::from_plan(plan)?.map(|r| Box::new(r) as Box<dyn Routing>))
+}
+
 /// The checked table and shape metadata shared by the runner's VM evaluations.
 /// Constructed by boot from the plan; no additional declaration authority.
 pub struct RouterContext {
@@ -217,7 +251,7 @@ impl RouterContext {
         ])
     }
 
-    pub(crate) fn refuse(&self, intent: &str, message: &str) {
+    fn refuse_once(&self, intent: &str, message: &str) {
         // @ref LLP 1035.001 D6 / LLP 1038 D4 — settlement may retry a read;
         // each distinct refused intent is journaled once in this commit.
         let line = format!("router {intent} refused: {message}");
@@ -232,7 +266,7 @@ impl RouterContext {
         match refusal {
             None => Ok(r),
             Some(reason) => {
-                self.refuse("launch", &reason.message);
+                self.refuse_once("launch", &reason.message);
                 let (r, refusal) = Router::launch(&self.table, "/");
                 if let Some(reason) = refusal {
                     return Err(invalid(reason.message));
@@ -242,7 +276,7 @@ impl RouterContext {
         }
     }
 
-    pub(crate) fn call(&self, plan: &Plan, f: Stdlib, args: &[Value]) -> Option<Value> {
+    fn call_verb(&self, plan: &Plan, f: Stdlib, args: &[Value]) -> Option<Value> {
         let first = args.first()?;
         if f == Stdlib::SearchParam {
             if !first.conforms(plan, self.entry_ty) {
@@ -313,7 +347,7 @@ impl RouterContext {
             _ => return None,
         };
         if let Some(reason) = refusal {
-            self.refuse(f.name(), &reason.message);
+            self.refuse_once(f.name(), &reason.message);
             return Some(first.clone());
         }
         Some(self.value(&after))
@@ -377,6 +411,115 @@ fn integer(v: &Value) -> Option<u64> {
     (n.fract() == 0.0 && (0.0..=9_007_199_254_740_991.0).contains(&n)).then_some(n as u64)
 }
 
+impl Routing for RouterContext {
+    fn slot(&self) -> SlotsId {
+        self.slot
+    }
+
+    fn call(&self, plan: &Plan, f: Stdlib, args: &[Value]) -> Option<Value> {
+        self.call_verb(plan, f, args)
+    }
+
+    fn refuse(&self, intent: &str, message: &str) {
+        self.refuse_once(intent, message);
+    }
+
+    fn initial(&self, carried: Option<&Router>, launch: &str) -> Result<Value, RunnerError> {
+        let r =
+            match carried {
+                Some(old)
+                    if old
+                        .tabs
+                        .iter()
+                        .map(|t| t.name.as_str())
+                        .eq(self.table.tab_names())
+                        && old.tabs.iter().flat_map(|t| &t.stack).all(|e| {
+                            self.table.matches(&e.url).is_some_and(|m| m.name == e.name)
+                        }) =>
+                {
+                    // Params may have been reordered/renamed by a table edit.
+                    let mut kept = old.clone();
+                    for e in kept.tabs.iter_mut().flat_map(|t| &mut t.stack) {
+                        e.params = self.table.matches(&e.url).expect("checked").params;
+                    }
+                    kept
+                }
+                Some(old) => self.launch(exact_route::top(old).map_or(launch, |e| &e.url))?,
+                None => self.launch(launch)?,
+            };
+        let value = self.value(&r);
+        self.router(&value)
+            .ok_or_else(|| invalid("invalid router value at boot"))?;
+        Ok(value)
+    }
+
+    fn read(&self, value: &Value) -> Option<Router> {
+        self.router(value)
+    }
+
+    fn change(&self, value: &Value) -> Result<Option<RouterChange>, RunnerError> {
+        // A committed value was validated, so it holds no NaN: the same
+        // object is an equal one.
+        if self
+            .committed
+            .as_ref()
+            .is_some_and(|c| crate::compare::same(c, value) || c == value)
+        {
+            return Ok(None);
+        }
+        let r = self
+            .router(value)
+            .ok_or_else(|| invalid("invalid router value"))?;
+        let top = exact_route::top(&r).ok_or_else(|| invalid("router has no top"))?;
+        let ids: SortedSet<_> = r.tabs.iter().flat_map(|t| &t.stack).map(|e| e.id).collect();
+        let removed = self
+            .committed
+            .as_ref()
+            .and_then(|v| self.router(v))
+            .into_iter()
+            .flat_map(|r| r.tabs)
+            .flat_map(|t| t.stack)
+            .filter(|e| !ids.contains(&e.id))
+            .map(|e| e.id)
+            .collect();
+        Ok(Some(RouterChange {
+            top: top.id,
+            url: top.url.clone(),
+            removed,
+        }))
+    }
+
+    fn commit(&mut self, value: Value, change: Option<RouterChange>) {
+        self.committed = Some(value);
+        if let Some(mut change) = change {
+            if let Some(pending) = self.pending.take() {
+                // A clock seek may commit more than once before a host drains
+                // effects. Keep every removed id and the latest selected top.
+                let mut removed = pending.removed;
+                for id in change.removed {
+                    if !removed.contains(&id) {
+                        removed.push(id);
+                    }
+                }
+                change.removed = removed;
+            }
+            self.pending = Some(change);
+        }
+    }
+
+    fn take_refusals(&self) -> Vec<String> {
+        std::mem::take(&mut *self.refusals.borrow_mut())
+    }
+
+    fn take_change(&mut self) -> Option<RouterChange> {
+        self.pending.take()
+    }
+
+    fn matches_pattern(&self, location: &str) -> bool {
+        self.table.matches_pattern(location).is_some()
+    }
+}
+
 impl<D: DataSource> Runner<D> {
     pub(super) fn init_slots(
         &mut self,
@@ -386,41 +529,13 @@ impl<D: DataSource> Runner<D> {
         self.slots = vec![Value::Unit; self.plan.slots.len()];
         // The router may be a later slot: fill it before *any* initializer.
         if let Some(context) = &self.router {
-            let name = self.plan.str(self.plan.slot(context.slot).name);
+            let slot = context.slot();
+            let name = self.plan.str(self.plan.slot(slot).name);
             let old = carried
                 .and_then(|c| c.router.as_ref())
-                .filter(|(n, _)| n == name);
-            let r = match old {
-                Some((_, old))
-                    if old
-                        .tabs
-                        .iter()
-                        .map(|t| t.name.as_str())
-                        .eq(context.table.tab_names())
-                        && old.tabs.iter().flat_map(|t| &t.stack).all(|e| {
-                            context
-                                .table
-                                .matches(&e.url)
-                                .is_some_and(|m| m.name == e.name)
-                        }) =>
-                {
-                    // Params may have been reordered/renamed by a table edit.
-                    let mut kept = old.clone();
-                    for e in kept.tabs.iter_mut().flat_map(|t| &mut t.stack) {
-                        e.params = context.table.matches(&e.url).expect("checked").params;
-                    }
-                    kept
-                }
-                Some((_, old)) => {
-                    context.launch(exact_route::top(old).map_or(launch, |e| &e.url))?
-                }
-                None => context.launch(launch)?,
-            };
-            let value = context.value(&r);
-            context
-                .router(&value)
-                .ok_or_else(|| invalid("invalid router value at boot"))?;
-            self.slots[context.slot.0 as usize] = value;
+                .filter(|(n, _)| n == name)
+                .map(|(_, old)| old);
+            self.slots[slot.0 as usize] = context.initial(old, launch)?;
         }
         for i in 0..self.plan.slots.len() {
             let row = &self.plan.slots[i];
@@ -446,9 +561,10 @@ impl<D: DataSource> Runner<D> {
 
     pub(super) fn carry_router(&self) -> Option<(String, Router)> {
         let context = self.router.as_ref()?;
+        let slot = context.slot();
         Some((
-            self.plan.str(self.plan.slot(context.slot).name).into(),
-            context.router(&self.slots[context.slot.0 as usize])?,
+            self.plan.str(self.plan.slot(slot).name).into(),
+            context.read(&self.slots[slot.0 as usize])?,
         ))
     }
 
@@ -456,55 +572,13 @@ impl<D: DataSource> Runner<D> {
         let Some(context) = &self.router else {
             return Ok(None);
         };
-        let value = &self.slots[context.slot.0 as usize];
-        // A committed value was validated, so it holds no NaN: the same
-        // object is an equal one.
-        if context
-            .committed
-            .as_ref()
-            .is_some_and(|c| crate::compare::same(c, value) || c == value)
-        {
-            return Ok(None);
-        }
-        let r = context
-            .router(value)
-            .ok_or_else(|| invalid("invalid router value"))?;
-        let top = exact_route::top(&r).ok_or_else(|| invalid("router has no top"))?;
-        let ids: SortedSet<_> = r.tabs.iter().flat_map(|t| &t.stack).map(|e| e.id).collect();
-        let removed = context
-            .committed
-            .as_ref()
-            .and_then(|v| context.router(v))
-            .into_iter()
-            .flat_map(|r| r.tabs)
-            .flat_map(|t| t.stack)
-            .filter(|e| !ids.contains(&e.id))
-            .map(|e| e.id)
-            .collect();
-        Ok(Some(RouterChange {
-            top: top.id,
-            url: top.url.clone(),
-            removed,
-        }))
+        context.change(&self.slots[context.slot().0 as usize])
     }
 
     pub(super) fn commit_router(&mut self, change: Option<RouterChange>) {
         if let Some(context) = &mut self.router {
-            context.committed = Some(self.slots[context.slot.0 as usize].clone());
-            if let Some(mut change) = change {
-                if let Some(pending) = context.pending.take() {
-                    // A clock seek may commit more than once before a host drains
-                    // effects. Keep every removed id and the latest selected top.
-                    let mut removed = pending.removed;
-                    for id in change.removed {
-                        if !removed.contains(&id) {
-                            removed.push(id);
-                        }
-                    }
-                    change.removed = removed;
-                }
-                context.pending = Some(change);
-            }
+            let value = self.slots[context.slot().0 as usize].clone();
+            context.commit(value, change);
         }
         self.log_router_refusals();
     }
@@ -513,7 +587,7 @@ impl<D: DataSource> Runner<D> {
         let lines = self
             .router
             .as_ref()
-            .map(|r| std::mem::take(&mut *r.refusals.borrow_mut()))
+            .map(|r| r.take_refusals())
             .unwrap_or_default();
         for line in lines {
             self.log(line);
@@ -526,7 +600,15 @@ impl<D: DataSource> Runner<D> {
     /// id in first-removal order. Unchanged or refused commits leave it alone.
     /// Returns `None` after a take until navigation changes again, or without a router.
     pub fn take_router_change(&mut self) -> Option<RouterChange> {
-        self.router.as_mut()?.pending.take()
+        self.router.as_mut()?.take_change()
+    }
+
+    /// Whether `location` names a pattern the plan's route table declares —
+    /// never only its notfound fallback (LLP 1038 §7). `false` without a router.
+    pub fn route_matches(&self, location: &str) -> bool {
+        self.router
+            .as_ref()
+            .is_some_and(|r| r.matches_pattern(location))
     }
 
     /// The evaluated arguments of a settled resource (the bake's cache key).

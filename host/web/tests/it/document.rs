@@ -18,6 +18,7 @@ impl DataSource for Says {
 
 fn host<D: DataSource + Clone>(src: &str, data: D, launch: &str) -> Host<D> {
     let plan = contract::bake(contract::compile(src).unwrap(), data.clone()).unwrap();
+    exact_web::link(exact_web_capabilities::ALL);
     Host::boot(&plan.encode(), data, Default::default(), launch)
         .unwrap()
         .0

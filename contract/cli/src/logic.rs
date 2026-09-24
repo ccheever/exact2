@@ -60,7 +60,13 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
             && inputs["rustModule"]
                 .as_str()
                 .is_some_and(|module| !module.is_empty()));
-    let names: Vec<&str> = uses.iter().map(|c| c.name()).collect();
+    // Inspection is linked by policy, not by use: in production too, so the
+    // smoked artifact is the shipped one (LLP 1047 §10, Q3).
+    let names: Vec<&str> = uses
+        .iter()
+        .map(|c| c.name())
+        .chain(["inspection"])
+        .collect();
     let mut entry = format!("/// What this artifact links beyond the core (LLP 1047 D3).\nconst EXACT_LINKED: ::exact_web::Linked = ::exact_web_capabilities::linked!({});\n", names.join(", "));
     entry.push_str(&format!("/// Whether a running page can take a new data module (LLP 1029.000).\nconst EXACT_REPLACEMENT: bool = {replacement};\n"));
     // A capability's export group, where it has one.
@@ -69,8 +75,8 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
             Capability::Motion => entry.push_str("::exact_web::motion_exports!();\n"),
             Capability::Collections => entry.push_str("::exact_web::list_exports!();\n"),
             Capability::Surfaces => entry.push_str("::exact_web::surface_exports!();\n"),
-            // Drag's input rides motion's export.
-            Capability::Markdown | Capability::Drag => {}
+            // Drag's input rides motion's export; the others have none.
+            Capability::Markdown | Capability::Drag | Capability::Router => {}
         }
     }
     entry

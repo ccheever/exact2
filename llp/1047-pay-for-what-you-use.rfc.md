@@ -647,6 +647,25 @@ size: check `git log` for these lanes and say which items you are taking.
   - Video player: 780,693 → 767,136 raw; 244,645 → 241,314 brotli.
   - Caltrain uses surfaces: 273,128 → 273,297 brotli.
 
+**D4, 2026-09-24: the router and inspection behind tables.**
+- **The router.** The runner holds its router as `Option<Box<dyn Routing>>`,
+  built only through `RunnerLinks.router` (`exact_runner::routing`):
+  - the VM's verbs and reads;
+  - the boot's router slot;
+  - reload carry and change publication;
+  - the web host's in-place link matching.
+
+  A plan with `routes` uses the router. Native hosts and tests boot with
+  `RunnerLinks::ALL`.
+- **Inspection.** The agent API's reads go through `HostLinks.inspect`
+  (`agent::handle`, and with it the plan digest's `sha2`). The entry links
+  inspection by policy in every build, production too (§10, Q3). Unlinking
+  it later is a change to the entry alone.
+- **Bytes at `e10cbc71`, raw and brotli-11:**
+  - Video player: 767,136 → 728,469 raw; 241,314 → 229,994 brotli.
+  - RealWorld and Caltrain use the router and pay its dynamic dispatch:
+    +953 and +982 raw; +608 and +793 brotli.
+
 **Deferred: the collections seam.** It waits for the
 `llp-ship/20260923-review-followups` run to publish. That run retires the
 windowed list (`window.rs`, `heights.rs`) and rewrites

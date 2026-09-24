@@ -56,6 +56,7 @@ component App
         Deferred(true),
     )
     .unwrap();
+    exact_web::link(exact_web_capabilities::ALL);
     let (mut host, first) = Host::boot(
         &plan.encode(),
         Deferred(false),
@@ -1075,6 +1076,7 @@ fn router_batches_follow_launch_and_committed_actions() {
         Questions::default(),
     )
     .unwrap();
+    exact_web::link(exact_web_capabilities::ALL);
     let (mut host, batch) = Host::boot(
         &plan.encode(),
         Questions::default(),
@@ -1203,6 +1205,7 @@ component App
 "#,
     )
     .unwrap();
+    exact_web::link(exact_web_capabilities::ALL);
     let (host, _) = Host::boot(
         &plan.encode(),
         caltrain_data::Caltrain,

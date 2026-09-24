@@ -33,16 +33,19 @@ pub enum Capability {
     /// GPU canvas surfaces: a canvas with a surface, or a resource reading a
     /// surface's record; the host answers both (the GPU module is loaded).
     Surfaces,
+    /// The router (LLP 1038): a plan that declares `routes`.
+    Router,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 5] = [
+    pub const ALL: [Capability; 6] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
         Capability::Drag,
         Capability::Surfaces,
+        Capability::Router,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -53,6 +56,7 @@ impl Capability {
             Capability::Collections => "collections",
             Capability::Drag => "drag",
             Capability::Surfaces => "surfaces",
+            Capability::Router => "router",
         }
     }
 
@@ -111,6 +115,9 @@ impl fmt::Display for Uses {
 /// The capabilities `plan` uses (LLP 1047 D2).
 pub fn uses(plan: &Plan) -> Uses {
     let mut uses = Uses::NONE;
+    if plan.router.is_some() {
+        uses = uses.with(Capability::Router);
+    }
     if !plan.surfaces.is_empty()
         || plan
             .resources

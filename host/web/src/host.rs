@@ -107,6 +107,8 @@ struct Mirror {
 pub struct HostLinks<D: DataSource> {
     /// Height, transform and reorder handles, tracked and published.
     pub drag: Option<DragHooks<D>>,
+    /// The agent API's reads (LLP 1012): `exact_runner::agent::handle`.
+    pub inspect: Option<fn(&Runner<D>, &str) -> String>,
 }
 
 impl<D: DataSource> Clone for HostLinks<D> {
@@ -121,16 +123,25 @@ impl<D: DataSource> HostLinks<D> {
     /// Every capability.
     pub const ALL: HostLinks<D> = HostLinks {
         drag: Some(DragHooks::LINKED),
+        inspect: Some(exact_runner::agent::handle::<D>),
     };
 
     /// The core alone.
-    pub const CORE: HostLinks<D> = HostLinks { drag: None };
+    pub const CORE: HostLinks<D> = HostLinks {
+        drag: None,
+        inspect: None,
+    };
 
     /// What `linked` names.
     pub const fn of(linked: crate::Linked) -> HostLinks<D> {
         HostLinks {
             drag: if linked.drag {
                 Some(DragHooks::LINKED)
+            } else {
+                None
+            },
+            inspect: if linked.inspection {
+                Some(exact_runner::agent::handle::<D>)
             } else {
                 None
             },
@@ -221,6 +232,8 @@ pub struct Host<D: DataSource> {
     reorder_drags: reorder_drag::ReorderDrags,
     /// Drags' hooks, when the artifact links them.
     drag: Option<DragHooks<D>>,
+    /// The agent API's reads, when the artifact links inspection.
+    inspect: Option<fn(&Runner<D>, &str) -> String>,
     /// The page's clock at the last call, milliseconds from script start.
     now_ms: f64,
     /// Stack id → opaque CSS family name, scoped to this plan.
@@ -257,21 +270,7 @@ impl<D: DataSource> Host<D> {
     /// never only its notfound fallback. The page follows a same-origin link
     /// to one in place (LLP 1038 §7) instead of loading a document.
     pub fn route_matches(&self, location: &str) -> bool {
-        let plan = self.runner.plan();
-        let table = exact_route::Table {
-            routes: plan
-                .routes
-                .iter()
-                .map(|r| exact_route::Route {
-                    name: plan.str(r.name).into(),
-                    pattern: plan.str(r.pattern).into(),
-                    parent: r.parent.map(|p| p.0 as usize),
-                    tab: r.tab,
-                    notfound: r.notfound,
-                })
-                .collect(),
-        };
-        plan.router.is_some() && table.matches_pattern(location).is_some()
+        self.runner.route_matches(location)
     }
 
     /// Boot with the page's snapshot of the app's kept secrets (LLP 1018
@@ -390,6 +389,7 @@ impl<D: DataSource> Host<D> {
             transform_drags: transform_drag::TransformDrags::new()?,
             reorder_drags: reorder_drag::ReorderDrags::new()?,
             drag: links.drag,
+            inspect: links.inspect,
             now_ms: 0.0,
             font_names,
             font_catalog,
@@ -595,7 +595,10 @@ impl<D: DataSource> Host<D> {
                 None => "{\"settle\":null}".to_string(),
             };
         }
-        exact_runner::agent::handle(&self.runner, request)
+        match self.inspect {
+            Some(inspect) => inspect(&self.runner, request),
+            None => exact_runner::agent::error("this build links no inspection (LLP 1047 D6)"),
+        }
     }
 
     /// Move the clock; every timer due fires at its own time; one batch for

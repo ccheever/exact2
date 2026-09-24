@@ -27,7 +27,7 @@ mod surface_record;
 mod viewport;
 pub use carry::Carried;
 pub use checkpoint::Checkpoint;
-pub use router::RouterChange;
+pub use router::{routing, RouterChange, Routing};
 
 use crate::instance::{Ids, InstanceError, InstanceStep, SurfaceUpdate, Tree, Update};
 use crate::request::{Answer, Dispatch, Outcome, Request, RequestOut};
@@ -287,7 +287,7 @@ pub struct Runner<D: DataSource> {
     surface_records: exact_kernel::SortedMap<String, String>,
     /// What the host links of the runner's own answers (LLP 1047 D3).
     links: RunnerLinks,
-    router: Option<router::RouterContext>,
+    router: Option<Box<dyn router::Routing>>,
     /// What happened, one line each, for the agent API's `logs`: the last
     /// [`JOURNAL_RING`] lines, and how many were dropped before them.
     journal: std::collections::VecDeque<String>,
@@ -307,7 +307,12 @@ pub const JOURNAL_RING: usize = 4096;
 pub struct RunnerLinks {
     /// A GPU surface's published record, as its `exactSurface` resource.
     pub surface_answer: SurfaceAnswer,
+    /// The plan's router (LLP 1038), from its route table and shapes.
+    pub router: RouterLink,
 }
+
+/// How a host builds a plan's router: [`router::routing`], when linked.
+pub type RouterLink = Option<fn(&Plan) -> Result<Option<Box<dyn router::Routing>>, RunnerError>>;
 
 /// The runner's answer for a surface resource, when a host links surfaces:
 /// [`crate::surface_record::answer`].
@@ -318,11 +323,13 @@ impl RunnerLinks {
     /// Every capability.
     pub const ALL: RunnerLinks = RunnerLinks {
         surface_answer: Some(crate::surface_record::answer),
+        router: Some(router::routing),
     };
 
     /// The core alone.
     pub const CORE: RunnerLinks = RunnerLinks {
         surface_answer: None,
+        router: None,
     };
 }
 
@@ -544,7 +551,10 @@ impl<D: DataSource> Runner<D> {
                         }))
             })
             .collect();
-        let router = router::RouterContext::from_plan(&plan)?;
+        let router = match links.router {
+            Some(routing) => routing(&plan)?,
+            None => None,
+        };
         let mut runner = Runner {
             sites: crate::instance::SiteIndex::new(&plan),
             strings: vm::intern(&plan),
@@ -1029,7 +1039,7 @@ impl<D: DataSource> Runner<D> {
         Env {
             plan: &self.plan,
             strings: &self.strings,
-            router: self.router.as_ref(),
+            router: self.router.as_deref(),
             slots: &self.slots,
             derives: &self.derives,
             resources: &self.resource_values,

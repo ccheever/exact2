@@ -16,7 +16,7 @@ pub fn call(
     args: &[Value],
     now_ms: f64,
     plan: &Plan,
-    router: Option<&crate::runner::router::RouterContext>,
+    router: Option<&dyn crate::runner::Routing>,
 ) -> Option<Value> {
     let num = |i: usize| args.get(i).and_then(Value::as_number);
     Some(match f {

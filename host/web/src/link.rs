@@ -30,6 +30,11 @@ pub struct Linked {
     /// GPU canvas surfaces: the runner's answer for a surface's record, and
     /// their exports (`surface_exports!`) are in.
     pub surface_answer: exact_runner::SurfaceAnswer,
+    /// The router (LLP 1038): the runner's routing for a plan with routes.
+    pub router: exact_runner::RouterLink,
+    /// Inspection (LLP 1012): the agent API's reads. Not a plan's use: the
+    /// entry links it by policy, in production too (LLP 1047 §10, Q3).
+    pub inspection: bool,
 }
 
 impl Linked {
@@ -40,6 +45,8 @@ impl Linked {
         collections: false,
         drag: false,
         surface_answer: None,
+        router: None,
+        inspection: false,
     };
 
     /// The capabilities registered here.
@@ -59,6 +66,9 @@ impl Linked {
         }
         if self.surface_answer.is_some() {
             uses = uses.with(Capability::Surfaces);
+        }
+        if self.router.is_some() {
+            uses = uses.with(Capability::Router);
         }
         uses
     }
@@ -90,6 +100,8 @@ pub(crate) fn link_for_tests() {
         collections: true,
         drag: true,
         surface_answer: exact_runner::RunnerLinks::ALL.surface_answer,
+        router: exact_runner::RunnerLinks::ALL.router,
+        inspection: true,
         ..linked()
     });
 }
@@ -98,6 +110,7 @@ pub(crate) fn link_for_tests() {
 pub(crate) fn runner_links() -> exact_runner::RunnerLinks {
     exact_runner::RunnerLinks {
         surface_answer: linked().surface_answer,
+        router: linked().router,
     }
 }
 

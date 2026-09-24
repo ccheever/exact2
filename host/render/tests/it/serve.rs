@@ -530,6 +530,7 @@ fn a_page_whose_data_answered_later_is_adopted_with_what_is_pending() {
     let (checkpoint, _) = rest.split_once("</script>").unwrap();
     // The runtime boots from it and adopts the document: its first tree,
     // view ids included, is the document's.
+    exact_web::link(exact_web_capabilities::ALL);
     let (_, batch) = exact_web::Host::boot_checkpoint(
         &plan.encode(),
         Feed,

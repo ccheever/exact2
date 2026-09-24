@@ -80,7 +80,7 @@ pub struct Env<'a> {
     pub strings: &'a [Rc<str>],
     /// Checked route table and shapes; present only for a plan with a router.
     /// @ref LLP 1038 D3/D9 — the same table across all calls in this runner.
-    pub router: Option<&'a crate::runner::router::RouterContext>,
+    pub router: Option<&'a dyn crate::runner::Routing>,
     /// State slots by index.
     pub slots: &'a [Value],
     /// Derives by index; `None` while not yet settled this update.

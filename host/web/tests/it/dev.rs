@@ -395,6 +395,7 @@ if (readStaticFile(dist, '/gpu.js') !== null) throw new Error('current build bor
 fn a_refused_bridge_reload_keeps_the_running_host() {
     let plan = contract::compile(COUNTER).unwrap().encode();
     let mut bridge: exact_web::abi::Bridge<NoData> = exact_web::abi::Bridge::new();
+    bridge.set_links(exact_web::HostLinks::ALL);
     let n = bridge.input_write(&plan);
     let len = bridge.boot_plan(n, NoData, 390.0, 844.0, "/");
     let inc: u32 = {

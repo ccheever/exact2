@@ -76,6 +76,13 @@ fn surfaces_are_a_canvas_with_one() {
 }
 
 #[test]
+fn the_router_is_a_plan_with_routes() {
+    assert!(!used("component A\n  view\n    text \"a\"\n").has(Capability::Router));
+    let routed = used("routes nav\n  tab home \"/\"\ncomponent App\n  view\n    text \"a\"\n");
+    assert!(routed.has(Capability::Router));
+}
+
+#[test]
 fn a_set_names_what_it_holds_beyond_another() {
     let markdown = Uses::NONE.with(Capability::Markdown);
     assert!(markdown.beyond(markdown).is_empty());
