@@ -460,7 +460,13 @@ function watchModuleSources(directory, ignore, changed) {
   scan(false);
   const directoryWatch = watch(directory,{recursive:true},(_event,name)=>{ if(!name || !ignore(String(name))) rescan(); });
   directoryWatch.on('error',error=>{refusal=error;changed(error);});
-  return { get error(){return refusal;}, close(){closed=true;directoryWatch.close();for(const file of files.values())file.watch.close();files.clear();} };
+  // FSEvents delivery is not guaranteed: Bun 1.4.2's fs.watch on macOS can
+  // report a save minutes late or never (oven-sh/bun#43870). A stat poll of
+  // the same identity bounds edit → plan at the compiler-input watcher's
+  // 100 ms, whatever the watchers deliver; a no-change scan is a few lstats.
+  const poll = setInterval(() => scan(true), 100);
+  poll.unref?.();
+  return { get error(){return refusal;}, close(){closed=true;clearInterval(poll);directoryWatch.close();for(const file of files.values())file.watch.close();files.clear();} };
 }
 let moduleWatch = null, moduleTimer = null, moduleRun = 0, moduleStage = null, moduleSaved = 0;
 function startModuleCompiler() {
