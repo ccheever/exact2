@@ -143,7 +143,11 @@ const PINNED_BUN = existsSync(resolve(ROOT, 'package.json'))
 if (process.versions.bun && PINNED_BUN) {
   const [have, pin] = [process.versions.bun, PINNED_BUN].map(v => v.split('.').map(Number));
   const at = pin.findIndex((part, i) => have[i] !== part);
-  if (at >= 0 && have[at] < pin[at]) throw new Error(`Bun ${process.versions.bun} is older than ${PINNED_BUN}, the version package.json pins; run \`bun upgrade\``);
+  if (at >= 0 && have[at] < pin[at]) throw new Error(`Bun ${process.versions.bun} is older than ${PINNED_BUN}, the version package.json pins. Upgrade it (\`bun upgrade\`), or install ${PINNED_BUN} beside it and run the scripts with that one: \`curl -fsSL https://bun.sh/install | BUN_INSTALL=~/.bun-${PINNED_BUN} bash -s bun-v${PINNED_BUN}\`, then \`~/.bun-${PINNED_BUN}/bin/bun scripts/…\``);
+  // Build steps start `bun` by name (the bake's compatibility inputs, the
+  // TypeScript compiler); they get the Bun that passed, not whatever is first on PATH.
+  const found = Bun.which('bun');
+  if (!found || realpathSync(found) !== realpathSync(process.execPath)) process.env.PATH = `${dirname(process.execPath)}:${process.env.PATH ?? ''}`;
 }
 
 // @ref LLP 1043.000 §3 D7/D8 — one inventory for host builds, serving and fixtures.
