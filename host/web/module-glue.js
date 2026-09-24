@@ -34,6 +34,39 @@ async function read(url, limit) {
   for (const chunk of chunks) { bytes.set(chunk, at); at += chunk.length; }
   return bytes;
 }
+// A source's GET leaves when the source asks for it. Its answer still
+// settles after the turn's microtask drain, which is a task, and a frame can
+// render before that task runs; the runner's `request` op for the same GET
+// then claims the response in flight (`claim`) instead of fetching. Only a
+// module's own `net.fetch` origins, and nothing with a body. A GET its turn
+// didn't report is aborted as the turn ends; one the runner didn't claim while
+// the report was delivered is aborted a task later.
+const early = new Map(); // `GET url headers` -> [{ response, controller }]
+const earlyKey = (url, headers) => `GET ${url} ${JSON.stringify(headers ?? [])}`;
+function fetchEarly(request, grants) {
+  let origin;
+  try { origin = new URL(request.url).origin; } catch { return null; } // a relative (asset) URL is the host's own
+  const admits = line => { const [kind, url] = line.trim().split(/\s+/, 2); try { return kind === 'net.fetch' && new URL(url).origin === origin; } catch { return false; } };
+  if (request.method !== 'GET' || request.body || !grants.split('\n').some(admits)) return null;
+  const key = earlyKey(request.url, request.headers), controller = new AbortController();
+  const entry = { controller, response: fetch(request.url, { method: 'GET', headers: request.headers, redirect: 'follow', cache: 'default', signal: controller.signal }) };
+  entry.response.catch(() => {});
+  early.set(key, [...(early.get(key) ?? []), entry]);
+  return () => {
+    const list = early.get(key), at = list?.indexOf(entry) ?? -1;
+    if (at < 0) return;
+    list.splice(at, 1); if (!list.length) early.delete(key);
+    controller.abort();
+  };
+}
+export function claim(url, init) {
+  if (init.method !== 'GET' || init.body || init.redirect !== 'follow' || init.cache !== 'default') return null;
+  const key = earlyKey(url, init.headers), list = early.get(key), entry = list?.shift();
+  if (!entry) return null;
+  if (!list.length) early.delete(key);
+  init.signal?.addEventListener('abort', () => entry.controller.abort());
+  return entry.response;
+}
 export async function baked() {
   // These are the exact paired bytes already downloaded in app.wasm. Copy
   // each result before the next export reuses the bridge's output buffer.
@@ -64,7 +97,10 @@ export async function prepare(payload, admitted, id = nextId++) {
   win.__exact_host = (op, name, value) => {
     if (!context) throw new Error('host call outside an answer');
     if (op === 6) { if (name === 'available') return 'web'; throw new Error('native modules are unavailable in the browser'); }
-    if (op === 1) { context.requests.set(Number(name), JSON.parse(value)); return; }
+    if (op === 1) {
+      const request = JSON.parse(value), drop = fetchEarly(request, admitted.grants);
+      context.requests.set(Number(name), request); if (drop) context.early.set(Number(name), drop); return;
+    }
     if (op === 2) { context.reads.push(name); return context.store.get(name); }
     if (op === 5) { context.externalRead = true; return; }
     if (!context.grants.has(name) || name.startsWith('exact.kept.')) return `secret ${name} is not granted`;
@@ -92,6 +128,9 @@ export async function prepare(payload, admitted, id = nextId++) {
     const key = r => JSON.stringify([r.target ?? null,r.source,r.args]);
     const finish = (answer, request) => {
       const result = {...answer, reads:context.reads, writes:context.writes, externalRead:context.externalRead};
+      const reported = answer.tag === 1 ? context.early.get(answer.ticket) : null;
+      for (const drop of context.early.values()) if (drop !== reported) drop();
+      if (reported) setTimeout(reported, 0);
       if (answer.tag === 1) {
         result.request = context.requests.get(answer.ticket);
         if (!result.request) throw new Error('module awaits a fetch it never made');
@@ -104,7 +143,7 @@ export async function prepare(payload, admitted, id = nextId++) {
     };
     const begin = request => {
       if (disposed) throw new Error('module environment disposed');
-      context = {owner:{},store:new Map(request.store),grants:new Set(request.grants),reads:[],writes:[],externalRead:false,requests:new Map()};
+      context = {owner:{},store:new Map(request.store),grants:new Set(request.grants),reads:[],writes:[],externalRead:false,requests:new Map(),early:new Map()};
       if (request.op === 'answer') return JSON.parse(win.__exact_call(request.source,JSON.stringify(request.args)));
       const parked = pending.get(key(request));
       if (!parked) throw new Error('reply for an answer not in flight');
@@ -137,7 +176,7 @@ export async function prepare(payload, admitted, id = nextId++) {
               answer = JSON.parse(win.__exact_settle(String(answer.call)));
             }
             return finish(answer,request);
-          } catch (error) { storage.retire(context?.owner); context = null; throw error; }
+          } catch (error) { for (const drop of context?.early.values() ?? []) drop(); storage.retire(context?.owner); context = null; throw error; }
         });
         tail = run.catch(() => {}); return run;
       }});
@@ -242,4 +281,4 @@ export function run(token) {
   if (!turn) return Promise.reject(new Error('browser continuation is no longer live'));
   return turn.run();
 }
-globalThis.exact.moduleRuntime = { prepare, baked, call, run };
+globalThis.exact.moduleRuntime = { prepare, baked, call, run, claim };

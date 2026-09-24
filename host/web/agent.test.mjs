@@ -531,7 +531,7 @@ async function startupFixture(rustOnly = false) {
     performance: { now: () => 1 }, t0: 0, URL, localStorage: { length: 0 },
     fetch: async () => ({}), WebAssembly: { instantiateStreaming: async () => ({ instance: { exports } }) },
     moduleCall() {}, rustImports: {}, readOut: value => value,
-    boot: async () => events.push('boot'), loadGpuIfNeeded() {}, startClock() {},
+    boot: async () => events.push('boot'), loadGpuIfNeeded() {}, startClock() {}, httpHelpers() {},
     requestAnimationFrame: fn => frames.push(fn), console: { error: error => errors.push(String(error)) },
     motion: { commit() {} }, collections: { dataReady: () => events.push('collections') },
     applyBatch: () => events.push('batch'), inertAncestor: () => false, focusAutofocus() {},

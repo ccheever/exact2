@@ -687,6 +687,19 @@ fulfillment. Browser trusted-code execution does not implement Hermes's heap
 or interruption budgets; parity below is a tested data/guard surface, not a
 claim that an iframe is a VM security boundary.
 
+*As built (the activation lane, 2026-09-24): the early GET.* The drain's task
+lets a frame render first; on the bench's mobile profile that frame held a
+press's request 60–80 ms. A source's GET now leaves when the source records it:
+`module-glue.js` starts it when the origin is one of the module's own
+`net.fetch` grants and the request has no body, and the runner's `request` op
+for the same method, URL and headers, with `cache: default` and redirects
+followed, claims the response in flight instead of fetching. Admission and the
+answer are unchanged: a GET the turn doesn't report is aborted as the turn
+ends, and one the runner doesn't claim while the report is delivered is aborted
+a task later. The glue also loads the body reader at data readiness. RealWorld
+(nine runs, load 33): a press after a 3-second read, 313 → 252 ms (React 211);
+at load, tap to feed 1,977 → 1,900 ms. The worker realm doesn't start early.
+
 The 2026-08-29 note asked for this design first: "on the web the
 browser is the executor, so one module runs under two loaders."
 

@@ -738,7 +738,7 @@ function apply(batch) {
         controllers.add(controller);
         const init = { method, headers, redirect: asset || op.scope != null ? "error" : "follow", cache: cache === "reload" ? "reload" : "default", signal: controller.signal };
         if (decodedBody) init.body = decodedBody;
-        const p = fetch(asset ? localAssetURL(url) : url, init)
+        const p = (!asset && moduleLoader?.claim?.(url, init) || fetch(asset ? localAssetURL(url) : url, init)) // a data source's GET may already be in flight
           .then(async (r) => safelyFulfill(requestIncarnation, ticket, 0, r.status, [...r.headers].map(([k, v]) => `${k}: ${v}`).join("\n"), await boundedHttpBody(r, op.maxResponseBytes)))
           .catch((e) => safelyFulfill(requestIncarnation, ticket, controller.signal.aborted ? 4 : 1, 0, "", encoder.encode(String(e?.message ?? e))));
         inflight.add(p);
@@ -1478,7 +1478,7 @@ async function main() {
     try { activeModule = await (prepared ?? realm()) ?? activeModule; activateData(); }
     catch (error) { root.dataset.error = String(error); console.error(error); }
     finally {
-      resolveModuleReady();
+      resolveModuleReady(); if (logicInfo) httpHelpers(); // a data module's first response is read without a load
       if (globalThis.exact.compat.inputs.rustModule && globalThis.exact.compat.inputs.rustMode === 'browser') {
         loadRust().then(() => globalThis.exact.followRustUpdates(globalThis.exact, import.meta.url)).catch(error => console.error('Rust update discovery:',error));
       }
