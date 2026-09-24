@@ -156,12 +156,24 @@ fn fetch(addr: SocketAddr, request: &str) -> (u16, Vec<(String, String)>, String
     (status, headers, String::from_utf8_lossy(&body).into_owned())
 }
 
+/// How long a test waits on the server before it fails, naming the wait: a
+/// hang bound, not a deadline (a loaded Mac is slow, never this slow).
+const BOUND: Duration = Duration::from_secs(60);
+
 /// The same, the body as bytes.
 fn fetch_bytes(addr: SocketAddr, request: &str) -> (u16, Vec<(String, String)>, Vec<u8>) {
-    let mut stream = TcpStream::connect(addr).unwrap();
-    stream.write_all(request.as_bytes()).unwrap();
+    let what = request.lines().next().unwrap_or("");
+    let mut stream = TcpStream::connect_timeout(&addr, BOUND)
+        .unwrap_or_else(|e| panic!("no connection for {what:?}: {e}"));
+    stream.set_read_timeout(Some(BOUND)).unwrap();
+    stream.set_write_timeout(Some(BOUND)).unwrap();
+    stream
+        .write_all(request.as_bytes())
+        .unwrap_or_else(|e| panic!("the server took no request {what:?}: {e}"));
     let mut bytes = Vec::new();
-    stream.read_to_end(&mut bytes).unwrap();
+    stream
+        .read_to_end(&mut bytes)
+        .unwrap_or_else(|e| panic!("no whole answer to {what:?} within {BOUND:?}: {e}"));
     let at = bytes.windows(4).position(|w| w == b"\r\n\r\n").unwrap();
     let head = String::from_utf8_lossy(&bytes[..at]).into_owned();
     let body = bytes[at + 4..].to_vec();
@@ -346,10 +358,17 @@ fn a_full_queue_answers_503_at_once() {
     let addr = start("queue", 1, 0, 1000);
     // A probe on the worker can turn the slow request away too: it asks
     // again until it holds the worker.
-    let slow = std::thread::spawn(move || loop {
-        let answer = get(addr, "/post/slow");
-        if answer.2 != "busy\n" {
-            break answer;
+    let slow = std::thread::spawn(move || {
+        let until = std::time::Instant::now() + BOUND;
+        loop {
+            let answer = get(addr, "/post/slow");
+            if answer.2 != "busy\n" {
+                break answer;
+            }
+            assert!(
+                std::time::Instant::now() < until,
+                "the slow request never got the worker in {BOUND:?}"
+            );
         }
     });
     // Probes until the slow render is over: while it holds the worker, a
@@ -667,14 +686,26 @@ fn a_drained_server_answers_what_it_took_and_stops() {
     let (addr, stopper) = (server.addr(), server.stopper());
     let running = std::thread::spawn(move || server.run(|| Posts));
     // The worker is up (before it is, every request finds the queue full)…
+    let until = std::time::Instant::now() + BOUND;
     while get(addr, "/.exact/health").0 != 200 {
+        assert!(
+            std::time::Instant::now() < until,
+            "the server's worker never came up in {BOUND:?}"
+        );
         std::thread::sleep(Duration::from_millis(10));
     }
     // …then the slow render holds it, and a probe finds it busy.
-    let slow = std::thread::spawn(move || loop {
-        let answer = get(addr, "/post/slow");
-        if answer.2 != "busy\n" {
-            break answer;
+    let slow = std::thread::spawn(move || {
+        let until = std::time::Instant::now() + BOUND;
+        loop {
+            let answer = get(addr, "/post/slow");
+            if answer.2 != "busy\n" {
+                break answer;
+            }
+            assert!(
+                std::time::Instant::now() < until,
+                "the slow request never got the worker in {BOUND:?}"
+            );
         }
     });
     while !slow.is_finished() && get(addr, "/.exact/health").0 != 503 {
