@@ -613,3 +613,21 @@ What remains at load: the wasm holds the link for about 2.1 s and lands at about
 4× CPU, `exact_boot` about 220 of it (booting the runner from the checkpoint
 about 60%, projecting and hashing the document about 20%); the press then takes
 about 250 ms, 160 of them the API.
+
+**The JavaScript pieces (D5), 2026-09-24.** `navigation.js` keeps history,
+scroll-follow, links, Markdown rendering, focus and the dev hook. Springs,
+holds and drags (`motion-glue.js`: the motion and arrange controllers) and
+virtualized collections (`collection-glue.js`: the list engine's browser half,
+moved unchanged) are after-paint pieces. Until they arrive, `navigation.js`
+stands in:
+- A call that needs a piece queues, in order, and starts the load. The queue
+  replays when the pieces arrive.
+- Before any use, a call that only reconciles (`commit`, `reset`, `destroy`,
+  an empty collection commit) is dropped, and a style is set at once, as the
+  controller sets one with nothing held.
+- A plan that uses motion exports `exact_motion` (stage 3), so its pieces
+  start loading at activation. Input readiness waits for any pieces the first
+  tree asked for, so no gesture lands before its handler.
+
+RealWorld's boot-path JavaScript falls from 29,342 to 18,596 bytes brotli
+(`navigation.js` 14,363 → 3,664), and it never fetches the pieces (12.4 KB).

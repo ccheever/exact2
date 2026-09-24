@@ -5,7 +5,8 @@ import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Cdp } from '../../scripts/agent.mjs';
-import { collectionBytes, motionBytes } from './navigation.js';
+import { collectionBytes } from './collection-glue.js';
+import { motionBytes } from './motion-glue.js';
 
 let server, child, cdp, evaluate, protocol, dir;
 beforeAll(async () => {
@@ -13,7 +14,8 @@ beforeAll(async () => {
   if (!existsSync(chrome)) throw Error('Set CHROME to a Chromium executable');
   dir = mkdtempSync(join(tmpdir(), 'exact-collection-'));
   server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(req) {
-    return new Response(new URL(req.url).pathname === '/navigation.js' ? readFileSync(new URL('./navigation.js', import.meta.url)) : '<!doctype html><body><main id="root"></main>', {
+    const path = new URL(req.url).pathname;
+    return new Response(['/collection-glue.js', '/motion-glue.js'].includes(path) ? readFileSync(new URL('.' + path, import.meta.url)) : '<!doctype html><body><main id="root"></main>', {
       headers: { 'content-type': new URL(req.url).pathname.endsWith('.js') ? 'text/javascript' : 'text/html' },
     });
   }});
@@ -30,7 +32,7 @@ beforeAll(async () => {
     return result.result.value;
   };
   await call('Page.navigate', { url: `http://127.0.0.1:${server.port}` });
-  await evaluate(`import('/navigation.js').then(module => { globalThis.createController = module.collectionController; globalThis.applyCollectionFeedback = module.applyCollectionFeedback; globalThis.createMotion = module.motionController; globalThis.createArrange = module.arrangeController; })`);
+  await evaluate(`Promise.all([import('/collection-glue.js'), import('/motion-glue.js')]).then(([c, m]) => { globalThis.createController = c.collectionController; globalThis.applyCollectionFeedback = c.applyCollectionFeedback; globalThis.createMotion = m.motionController; globalThis.createArrange = m.arrangeController; })`);
   await evaluate(`(${setup})()`);
 });
 afterAll(async () => {

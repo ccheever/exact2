@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { focusController, navigation, collectionController, applyCollectionFeedback, scrollFollowers, motionController, motionBytes, arrangeController, renderMarkup, navigableURL, navigates, refuseURL, devFirst } from "./navigation.js";
+import { focusController, navigation, afterPaintPieces, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst } from "./navigation.js";
 let httpModule;
 function httpHelpers() {
   return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
@@ -12,29 +12,11 @@ async function boundedHttpBody(response, limit) {
 }
 const root = document.getElementById("exact-root");
 const views = new Map(); // view id -> element
-const collections = collectionController({ root, views, settled:()=>arrange.commit(), report(bytes) {
-  if (!wasm) return false;
-  const ptr = wasm.exact_in(bytes.length);
-  new Uint8Array(memory.buffer, ptr, bytes.length).set(bytes);
-  const batch = JSON.parse(readOut(wasm.exact_collection_feedback(bytes.length)));
-  return applyCollectionFeedback(batch, applyBatch);
-} });
-const retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
-const motion = motionController({views, now:()=>now(), generation:()=>incarnation, inert:inertAncestor, applyBatch,
-  ready:()=>inputReady,
-  releaseInteraction:pointer=>collections.releaseInteraction(pointer),
-  request(facts) {
-    if (!wasm) return {accepted:false};
-    const bytes=motionBytes(facts), ptr=wasm.exact_in(bytes.length);
-    new Uint8Array(memory.buffer,ptr,bytes.length).set(bytes);
-    return JSON.parse(readOut(wasm.exact_motion(bytes.length)));
-  }
-});
-const arrange = arrangeController({views, collections, motion, now:()=>now(), generation:()=>incarnation,
-  inert:inertAncestor, applyBatch, ready:()=>inputReady, request(facts) {
-    if(!wasm)return {accepted:false};const bytes=motionBytes(facts),ptr=wasm.exact_in(bytes.length);
-    new Uint8Array(memory.buffer,ptr,bytes.length).set(bytes);return JSON.parse(readOut(wasm.exact_motion(bytes.length)));
-  }});
+// Springs, holds, drags and virtualized collections: after-paint pieces, fetched on first use (LLP 1047 D5).
+const pieces = afterPaintPieces(loadAfterPaint, { root, views, applyBatch, inert: inertAncestor, now: () => now(), generation: () => incarnation, ready: () => inputReady,
+  replayed() { motion.commit(); arrange.commit(); if (agentMode) { register(agentClock); seek(agentClock); } },
+  wasm(name, bytes) { if (!wasm) return null; new Uint8Array(memory.buffer, wasm.exact_in(bytes.length), bytes.length).set(bytes); return JSON.parse(readOut(wasm[name](bytes.length))); } });
+const { collections, motion, arrange } = pieces, retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
 let mediaModule;
 function syncMedia(el, set = {}, clear = []) {
   if (!(el instanceof HTMLVideoElement)) return;
@@ -1236,7 +1218,7 @@ function agentReply(request) {
 // @ref LLP 1043.000 §3 D7/D8 — reads keep the last settled facts (LLP 1012).
 // Await flow only when requested; ordinary agent calls retain their return types.
 async function agentSettled(request) {
-  if (markupModule) await markupModule;
+  const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad; if (markupModule) await markupModule;
   if (flowLoading) await flowLoading;
   if (textflow) await textflow.settle();
   return agent(request);
@@ -1265,7 +1247,7 @@ async function clock(request) {
   let world = {};
   const reply = (settled) => ({ clock: agentClock, ...(settled === undefined ? {} : { settled }), ...world.reply, ...(settled === false && world.pending ? { reason: "world" } : {}) });
   for (let rounds = 0; ; rounds++) {
-    if (settle && !(await waitForInflight(deadline))) return reply(false);
+    if (settle && !(await waitForInflight(deadline))) return reply(false); const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad;
     if (gpuInPlay()) await settleGpu();
     const to = settle ? Math.max(settleCandidate(), world.settleAt ?? agentClock) : request.to;
     if (!(to >= agentClock)) return { error: `the clock cannot go backwards (${agentClock} → ${to})` };
@@ -1293,7 +1275,10 @@ function startClock() {
 function activateData() {
   const batch = JSON.parse(readOut(wasm.exact_data_ready()));
   if (batch.error) throw new Error(batch.error);
-  page?.release(applyBatch); applyBatch(batch); setInputReady(true); collections.dataReady(); root.dataset.moduleReady = 'true';
+  page?.release(applyBatch); applyBatch(batch);
+  const ready = () => { setInputReady(true); collections.dataReady(); root.dataset.moduleReady = 'true'; };
+  const pending = pieces.pending(); // pieces this tree first uses: input waits for their handlers (LLP 1047 D5)
+  return pending ? pending.then(ready) : ready();
 }
 // Boot the app — from the plan baked into the wasm, or from `bytes` (the
 // dev loop's restart carrying compatible state, LLP 1007 §6).
@@ -1468,14 +1453,14 @@ async function main() {
   await boot(first?.plan ?? null, first ? assetNamespace(first.assets) : null, () => true, null, true); // @ref LLP 1007 §6
   root.dataset.bootMs = (performance.now() - t0).toFixed(1);
   const activate = async () => {
-    loadGpuIfNeeded();
+    loadGpuIfNeeded(); if (wasm.exact_motion) pieces.preload(); // a plan that uses motion links its export (LLP 1047 D3)
     if (!agentMode) loadAfterPaint('./timer-glue.js', 'createTimerScheduler').then(create => { timerFactory = create; startClock(); }).catch(console.error);
     // @ref LLP 1043.000 §3 D8 — one optional load, no activation wait or retry queue.
     loadAfterPaint('./input-glue.js', 'createInputHandlers').then(create => {
       inputHandlers = create({ root, views, retiredViews, ready: () => inputReady, inertAncestor,
         dispatch: (id, payload) => send(wasm.exact_dispatch(id, 20, writeIn(payload), now())) });
     }).catch(console.error);
-    try { activeModule = await (prepared ?? realm()) ?? activeModule; activateData(); }
+    try { activeModule = await (prepared ?? realm()) ?? activeModule; await activateData(); }
     catch (error) { root.dataset.error = String(error); console.error(error); }
     finally {
       resolveModuleReady(); if (logicInfo) httpHelpers(); // a data module's first response is read without a load

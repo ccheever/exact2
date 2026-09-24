@@ -10,7 +10,7 @@ import { publishRoot } from '../../../scripts/deploy.mjs';
 import { DirectoryOrigin, appDocumentPath } from '../../../scripts/origin.mjs';
 const dir = process.env.EXACT_ROUTER_TEST, dist = resolve(dir, 'dist');
 cpSync(process.env.EXACT_ROUTER_DIST, dist, { recursive: true });
-for (const name of ['glue.js', 'navigation.js']) cpSync('host/web/' + name, dist + '/' + name);
+for (const name of ['glue.js', 'navigation.js', 'motion-glue.js', 'collection-glue.js']) cpSync('host/web/' + name, dist + '/' + name);
 const bytes = [...readFileSync(dir + '/app.plan')];
 const noNavigate = [...readFileSync(dir + '/no-navigate.plan')];
 // Only substitute the baked plan at the actual wasm's boot ABI. All

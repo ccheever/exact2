@@ -9,7 +9,7 @@ import { serveStatic } from '../serve.mjs';
 const dir=process.env.EXACT_MOTION_TEST,dist=resolve(dir,'dist');
 assert(process.env.EXACT_MOTION_DIST,'set EXACT_MOTION_DIST to a current pure Rust web dist built with EXACT_WEB_LINK=all');
 cpSync(process.env.EXACT_MOTION_DIST,dist,{recursive:true});
-for(const name of ['glue.js','navigation.js'])cpSync('host/web/'+name,dist+'/'+name);
+for(const name of ['glue.js','navigation.js','motion-glue.js','collection-glue.js'])cpSync('host/web/'+name,dist+'/'+name);
 function fixture(plan) {
   const instantiate=WebAssembly.instantiateStreaming;
   globalThis.motionSmoke={requests:[],plan};
@@ -69,8 +69,8 @@ try {
     const tokens=await evaluate(`motionSmoke.requests.filter(r=>r.op===0).slice(-3).map(r=>r.reply.token)`);
     assert.equal(tokens.length,3);
     await evaluate(`document.querySelector('[data-testid="${action}"]').click()`);
-    for(const token of tokens) assert.equal(await evaluate(`import('/navigation.js').then(({motionBytes})=>motionSmoke.raw(motionBytes({op:'live',token:${JSON.stringify(token)}})).accepted)`),false,action+' consumes hold before pointerup');
-    assert.equal(await evaluate(`import('/navigation.js').then(({motionBytes})=>motionSmoke.raw(motionBytes({op:'action',token:${JSON.stringify(tokens[0])},now:NaN})).accepted)`),false,'retired token cannot dispatch directly through Host');
+    for(const token of tokens) assert.equal(await evaluate(`import('/motion-glue.js').then(({motionBytes})=>motionSmoke.raw(motionBytes({op:'live',token:${JSON.stringify(token)}})).accepted)`),false,action+' consumes hold before pointerup');
+    assert.equal(await evaluate(`import('/motion-glue.js').then(({motionBytes})=>motionSmoke.raw(motionBytes({op:'action',token:${JSON.stringify(tokens[0])},now:NaN})).accepted)`),false,'retired token cannot dispatch directly through Host');
     assert.equal(await evaluate(`document.querySelector('[data-testid="row"]')!==null`),true,'retained row remains mounted');
     if(action==='deactivate')assert.equal(await evaluate(`document.querySelector('[data-testid="held-route"]').inert`),true);
     await evaluate(`document.querySelector('[data-testid="enable"]').click()`);
@@ -83,7 +83,7 @@ try {
   assert.equal(await evaluate(`document.querySelector('[data-testid="row"]')===null`),true);
   assert.equal(await evaluate(`document.querySelector('[data-testid="count"]').textContent`),'2');
   const stale=await evaluate(`motionSmoke.requests.findLast(r=>r.op===0&&r.property===0).reply.token`);
-  const reject=()=>evaluate(`import('/navigation.js').then(({motionBytes})=>motionSmoke.raw(motionBytes({op:'action',token:${JSON.stringify(stale)},now:NaN})))`);
+  const reject=()=>evaluate(`import('/motion-glue.js').then(({motionBytes})=>motionSmoke.raw(motionBytes({op:'action',token:${JSON.stringify(stale)},now:NaN})))`);
   assert.equal((await reject()).accepted,false,'deleted token cannot dispatch');
   await evaluate(`exact.reload(new Uint8Array(motionSmoke.plan))`);await until('exact.root.dataset.moduleReady==="true"');
   assert.equal((await reject()).accepted,false,'reloaded Host cannot accept old token');

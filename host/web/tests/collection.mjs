@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { cpSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { inflateSync } from 'node:zlib';
 import { resolve } from 'node:path';
@@ -15,10 +15,12 @@ const gallery = process.env.EXACT_COLLECTION_GALLERY === '1';
 const javascript = resolve(process.env.EXACT_COLLECTION_JS ?? 'host/web');
 assert(process.env.EXACT_COLLECTION_DIST, 'set EXACT_COLLECTION_DIST to a built pure Rust web dist');
 cpSync(process.env.EXACT_COLLECTION_DIST, dist, { recursive: true });
-for (const name of ['glue.js', 'navigation.js']) cpSync(resolve(javascript,name), dist + '/' + name);
+// A frozen baseline from before the after-paint pieces has none to copy.
+const pieces = ['glue.js', 'navigation.js', ...['collection-glue.js', 'motion-glue.js'].filter(name => existsSync(resolve(javascript, name)))];
+for (const name of pieces) cpSync(resolve(javascript,name), dist + '/' + name);
 const hash = path => createHash('sha256').update(readFileSync(path)).digest('hex');
 writeFileSync(dir + '/identity.json', JSON.stringify({carrier: resolve(process.env.EXACT_COLLECTION_DIST), javascript,
-  files: Object.fromEntries(['app.wasm','app.plan','glue.js','navigation.js'].map(name => [name, {carrier: hash(resolve(process.env.EXACT_COLLECTION_DIST,name)), tested: hash(dist+'/'+name)}]))}, null, 2));
+  files: Object.fromEntries(['app.wasm','app.plan',...pieces].map(name => [name, {carrier: existsSync(resolve(process.env.EXACT_COLLECTION_DIST,name)) ? hash(resolve(process.env.EXACT_COLLECTION_DIST,name)) : null, tested: hash(dist+'/'+name)}]))}, null, 2));
 function fixture(plan, trackFrames) {
   const instantiate = WebAssembly.instantiateStreaming, RO = ResizeObserver;
   globalThis.ResizeObserver = class extends RO {

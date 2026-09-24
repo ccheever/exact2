@@ -258,7 +258,7 @@ function fixture(agentMode = true) {
     prepareFonts: async () => [], commitFonts() {}, releaseAssets() {}, incarnation: 0,
     // Ordinary boot tests model an already-loaded post-paint scheduler.
     timerFactory: () => ({ update() { events.push('ticker'); }, dispose() {} }),
-    ticker: null, motion: { reset() {} }, arrange: { reset() {} }, retiredViews: new WeakSet(), followedScrolls: new Map(),
+    ticker: null, motion: { reset() {} }, arrange: { reset() {} }, pieces: { pending: () => null }, retiredViews: new WeakSet(), followedScrolls: new Map(),
     pendingScrolls: new Set(), collections: { reset() {} }, messageFrames: new Map(),
     storageRequests: null, controllers: new Set(), grants: [],
     commitTurns: [],
@@ -531,7 +531,7 @@ async function startupFixture(rustOnly = false) {
     performance: { now: () => 1 }, t0: 0, URL, localStorage: { length: 0 },
     fetch: async () => ({}), WebAssembly: { instantiateStreaming: async () => ({ instance: { exports } }) },
     moduleCall() {}, rustImports: {}, readOut: value => value,
-    boot: async () => events.push('boot'), loadGpuIfNeeded() {}, startClock() {}, httpHelpers() {},
+    boot: async () => events.push('boot'), loadGpuIfNeeded() {}, startClock() {}, httpHelpers() {}, pieces: { pending: () => null },
     requestAnimationFrame: fn => frames.push(fn), console: { error: error => errors.push(String(error)) },
     motion: { commit() {} }, collections: { dataReady: () => events.push('collections') },
     applyBatch: () => events.push('batch'), inertAncestor: () => false, focusAutofocus() {},
