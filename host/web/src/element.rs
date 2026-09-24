@@ -286,7 +286,9 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
             PropId::AccessibilitySelected => "aria-selected",
             other => {
                 // Every other prop rides as `data-<name>` so nothing is lost.
-                out.insert(format!("data-{}", other.name().to_lowercase()), text);
+                // Schema names are ASCII (`prop_names_are_ascii`), so ASCII
+                // lowering is the whole lowering and links no Unicode tables.
+                out.insert(format!("data-{}", other.name().to_ascii_lowercase()), text);
                 continue;
             }
         };
@@ -323,4 +325,14 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod name_tests {
+    #[test]
+    fn prop_names_are_ascii() {
+        for prop in exact_kernel::PropId::ALL {
+            assert!(prop.name().is_ascii(), "{}", prop.name());
+        }
+    }
 }
