@@ -29,7 +29,7 @@ fn main() {
     let entry = contract::rust_entry(
         "video_player_data::Player",
         "video_player_data::Player",
-        compat.inputs["rustMode"].as_str().unwrap(),
+        contract::web_rust_mode(&compat.inputs),
     )
     .unwrap();
     std::fs::write(

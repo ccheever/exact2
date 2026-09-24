@@ -31,7 +31,7 @@ fn main() {
     let entry = contract::rust_entry(
         "caltrain_data::Caltrain",
         "caltrain_data::Caltrain",
-        compat.inputs["rustMode"].as_str().unwrap(),
+        contract::web_rust_mode(&compat.inputs),
     )
     .unwrap();
     std::fs::write(

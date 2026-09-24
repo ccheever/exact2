@@ -30,7 +30,7 @@ fn main() {
     let entry = contract::rust_entry(
         "exact_live_data::Live",
         "exact_live_data::Live::default()",
-        compat.inputs["rustMode"].as_str().unwrap(),
+        contract::web_rust_mode(&compat.inputs),
     )
     .unwrap();
     std::fs::write(

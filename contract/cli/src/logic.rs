@@ -36,6 +36,20 @@ pub fn rust_entry(data: &str, constructor: &str, mode: &str) -> Result<String, S
     }
 }
 
+/// The Rust executor a web entry links (LLP 1047 D3): the compatibility
+/// inputs' `rustMode`, or `off` when the manifest names no `rust.module`. A
+/// browser then has no Rust module to swap in (the dev loop builds one only
+/// for a declared module), so it links no executor.
+pub fn web_rust_mode(inputs: &serde_json::Value) -> &str {
+    let module = inputs["rustModule"]
+        .as_str()
+        .is_some_and(|module| !module.is_empty());
+    match inputs["rustMode"].as_str() {
+        Some(mode) if module => mode,
+        _ => "off",
+    }
+}
+
 /// The web entry's `EXACT_LINKED` (LLP 1047 D3): the capabilities `plan`
 /// uses, each registered from `exact-web-capabilities`, so the linker drops
 /// the rest. A development build links every capability (D7): the dev loop
@@ -80,4 +94,19 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
         }
     }
     entry
+}
+
+#[cfg(test)]
+mod tests {
+    use super::web_rust_mode;
+
+    #[test]
+    fn a_web_entry_links_a_rust_executor_only_for_a_declared_module() {
+        let module = serde_json::json!({"rustMode": "browser", "rustModule": "app-logic"});
+        assert_eq!(web_rust_mode(&module), "browser");
+        let none = serde_json::json!({"rustMode": "browser", "rustModule": null});
+        assert_eq!(web_rust_mode(&none), "off");
+        let off = serde_json::json!({"rustMode": "off", "rustModule": "app-logic"});
+        assert_eq!(web_rust_mode(&off), "off");
+    }
 }

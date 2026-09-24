@@ -33,7 +33,7 @@ fn main() {
     let entry = contract::rust_entry(
         "markdown_data::Markdown",
         "markdown_data::Markdown::new()",
-        compat.inputs["rustMode"].as_str().unwrap(),
+        contract::web_rust_mode(&compat.inputs),
     )
     .unwrap();
     std::fs::write(

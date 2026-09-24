@@ -666,6 +666,17 @@ size: check `git log` for these lanes and say which items you are taking.
   - RealWorld and Caltrain use the router and pay its dynamic dispatch:
     +953 and +982 raw; +608 and +793 brotli.
 
+**Stage 3, 2026-09-24: Rust modules.** A web entry links the Rust
+executor only when the manifest names a `rust.module`
+(`contract::web_rust_mode`). An `auto` policy with no module used to link
+the browser executor, with nothing to swap in. The compatibility receipt is
+unchanged.
+- Fieldnotes, LLP, Markdown, Messages, Typetour, the video player and
+  Weatherlight drop it.
+- Bytes: the video player goes from 728,469 → 704,866 raw and 230,182 →
+  223,014 brotli. RealWorld (already `off`) and Caltrain (which has a
+  module) are unchanged.
+
 **D9, 2026-09-24: the byte row.** `bun scripts/metrics.mjs --long`, which
 the async lane runs per commit, builds RealWorld, the video player and
 Caltrain twice:

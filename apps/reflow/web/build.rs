@@ -30,7 +30,7 @@ fn main() {
     let entry = contract::rust_entry(
         "reflow_data::Reflow",
         "reflow_data::Reflow::default()",
-        compat.inputs["rustMode"].as_str().unwrap(),
+        contract::web_rust_mode(&compat.inputs),
     )
     .unwrap();
     std::fs::write(

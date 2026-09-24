@@ -31,7 +31,7 @@ fn main() {
     let entry = contract::rust_entry(
         "markdown_stress_data::MarkdownStress",
         "markdown_stress_data::MarkdownStress::default()",
-        compat.inputs["rustMode"].as_str().unwrap(),
+        contract::web_rust_mode(&compat.inputs),
     )
     .unwrap();
     std::fs::write(

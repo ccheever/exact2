@@ -33,7 +33,7 @@ fn main() {
     let entry = contract::rust_entry(
         "llp_data::Llp",
         "llp_data::Llp::new()",
-        compat.inputs["rustMode"].as_str().unwrap(),
+        contract::web_rust_mode(&compat.inputs),
     )
     .unwrap();
     std::fs::write(

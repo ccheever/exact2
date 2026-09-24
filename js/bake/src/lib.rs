@@ -310,13 +310,16 @@ fn build_sources(
     }
     std::fs::write(out.join("module.rs"), metadata).map_err(|e| e.to_string())?;
     {
-        let mut entry = contract::rust_entry(
-            "ExactEmbeddedData",
-            "embedded_data()",
-            compat.inputs["rustMode"]
-                .as_str()
-                .ok_or("missing Rust policy")?,
-        )?;
+        let mode = compat.inputs["rustMode"]
+            .as_str()
+            .ok_or("missing Rust policy")?;
+        // The web links no Rust executor without a module to swap in (LLP 1047 D3).
+        let mode = if platform == "web" {
+            contract::web_rust_mode(&compat.inputs)
+        } else {
+            mode
+        };
+        let mut entry = contract::rust_entry("ExactEmbeddedData", "embedded_data()", mode)?;
         // The web entry links what the plan uses (LLP 1047 D3).
         if platform == "web" {
             let plan = exact_plan::Plan::decode(&baked.plan).map_err(|e| format!("{e:?}"))?;
