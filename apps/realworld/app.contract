@@ -224,25 +224,29 @@ component RealWorld
       background-color="#ffffff"
       head title="Conduit" description="A place to share your knowledge."
       Header(me=me, current=current, go=go)
+      // `/` and `/tag/:tag` are one page, outside the stack's rows, as React
+      // keeps one <Home> mounted: going to a tag changes the feed and the
+      // tabs, not the page.
+      when current.name == "home" or current.name == "tag"
+        column navigationKey=`${current.id}` flex=1 testId=`page-${current.name}`
+          head title="Home — Conduit"
+          HomePage(
+            me=me,
+            feed=feed,
+            loading=pending(feed),
+            tags=tags,
+            tagsLoading=pending(tags),
+            homeFeed=homeFeed,
+            tag=current.params.tag,
+            page=page,
+            go=go,
+            showFeed=showFeed,
+            showPage=showPage,
+            favorite=favorite
+          )
       each e in stack(nav) key = e.id
-        when e.id == current.id
+        when e.id == current.id and e.name != "home" and e.name != "tag"
           column navigationKey=`${e.id}` flex=1 testId=`page-${e.name}`
-            when e.name == "home" or e.name == "tag"
-              head title="Home — Conduit"
-              HomePage(
-                me=me,
-                feed=feed,
-                loading=pending(feed),
-                tags=tags,
-                tagsLoading=pending(tags),
-                homeFeed=homeFeed,
-                tag=e.params.tag,
-                page=page,
-                go=go,
-                showFeed=showFeed,
-                showPage=showPage,
-                favorite=favorite
-              )
             when e.name == "login"
               head title="Sign in — Conduit"
               AuthPage(signup=false, auth=auth, go=go, login=login, register=register)
