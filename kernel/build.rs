@@ -1206,6 +1206,21 @@ fn generate(schema: &Schema, digest: u64) -> String {
         "    pub fn check_finite(&self) -> Result<(), StyleId> {{"
     )
     .unwrap();
+    // Rows in bit order, which is schema order: the first failing row is
+    // the one a row-by-row check would name.
+    writeln!(
+        w,
+        "        match self.mask.iter().find(|&id| !self.get(id).is_finite()) {{ Some(id) => Err(id), None => Ok(()) }}"
+    )
+    .unwrap();
+    writeln!(w, "    }}").unwrap();
+    // The row-by-row form it replaced, for the test that holds them equal.
+    writeln!(w, "    #[cfg(test)]").unwrap();
+    writeln!(
+        w,
+        "    pub(crate) fn check_finite_rows(&self) -> Result<(), StyleId> {{"
+    )
+    .unwrap();
     for row in &schema.styles {
         let id = pascal(&row.field);
         let test = match parse_codec(&row.codec) {
