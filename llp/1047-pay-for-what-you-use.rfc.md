@@ -880,6 +880,17 @@ up a tap loads that page. At `6b686d1b` (nine runs, load 13–14) a tap at
 3-second read the tap takes 267 ms, not 227: the new route rebuilds the
 page's ~150 views.
 
+Two follow-ups, on the same bench (nine runs, loads 13–20):
+- **One page.** `/` and `/tag/:tag` are one page (`479b1475`), so a tag
+  changes 2 views, not ~150. After a read, the tap takes 249 ms against the
+  tag buttons' 251 in the same batch.
+- **The download stops.** A link that leaves the page stops the runtime's
+  download (LLP 1048.000 D6, `f23f1c6d`). A tap at `load` shows the feed
+  261 ms later, not 362, at 1,116 ms; React takes 236, at 1,628.
+
+What's left at load is a document's round trip and its transfer, against
+React's API answer.
+
 ### As built: the core diet (the diet lane)
 
 Each change reads what std read and prints what core printed, bit for bit
