@@ -1,7 +1,8 @@
 //! Compression (LLP 1048.000 D11): brotli, else gzip, as `Accept-Encoding`
 //! allows, for text, scripts, the wasm and SVG, with `Vary:
 //! Accept-Encoding` and the encoding in the ETag. A page is compressed as it
-//! is sent (brotli at quality 5: a 57 KB document in about a millisecond); a
+//! is sent (brotli at quality 5: a 57 KB document in about a millisecond),
+//! and a page the origin keeps once more at the best, off the request path; a
 //! file of the dist once, at bind and off the request path, at brotli's best
 //! — until its variant is made it goes out as it is.
 
@@ -127,6 +128,41 @@ fn compress(body: &[u8], encoding: Encoding, best: bool) -> Option<Vec<u8>> {
         }
     };
     (out.len() < body.len()).then_some(out)
+}
+
+/// A cached page's bodies at brotli's and gzip's best, each only when it's
+/// smaller, made once off the request path (D11).
+#[derive(Default)]
+pub(crate) struct Best {
+    br: Option<Vec<u8>>,
+    gzip: Option<Vec<u8>>,
+}
+
+impl Best {
+    pub(crate) fn of(body: &[u8]) -> Best {
+        if body.len() < MIN {
+            return Best::default();
+        }
+        Best {
+            br: compress(body, Encoding::Br, true),
+            gzip: compress(body, Encoding::Gzip, true),
+        }
+    }
+
+    /// The variant `accepts` picks, when it was made.
+    pub(crate) fn pick(&self, accepts: Accepts) -> Option<(Encoding, &[u8])> {
+        let encoding = accepts.pick()?;
+        let body = match encoding {
+            Encoding::Br => self.br.as_deref(),
+            Encoding::Gzip => self.gzip.as_deref(),
+        }?;
+        Some((encoding, body))
+    }
+
+    /// The bytes it holds.
+    pub(crate) fn bytes(&self) -> usize {
+        self.br.as_ref().map_or(0, Vec::len) + self.gzip.as_ref().map_or(0, Vec::len)
+    }
 }
 
 /// The dist's files as the server sends them: each file's validator (a hash

@@ -24,7 +24,7 @@ use std::io::{Read, Seek, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 /// The largest page the server sends (D10's bound on output bytes).
@@ -88,6 +88,9 @@ struct CachedPage {
     target: String,
     created: Instant,
     response: Response,
+    /// Its bodies at the best compression, made by a thread of their own;
+    /// until then a hit is compressed as it is sent, as a render is.
+    best: Arc<OnceLock<encode::Best>>,
 }
 
 impl Server {
@@ -375,15 +378,7 @@ fn finish(mut response: Response, request: &Request) -> Response {
     }
     response.headers.push(("Vary", "Accept-Encoding".into()));
     if let Some((encoding, body)) = encode::now(&response.body, request.accepts) {
-        response.body = body;
-        response
-            .headers
-            .push(("Content-Encoding", encoding.name().into()));
-        for (name, value) in &mut response.headers {
-            if *name == "ETag" {
-                *value = format!("{}-{}\"", value.trim_end_matches('"'), encoding.name());
-            }
-        }
+        encoded(&mut response, encoding, body);
     }
     if response.status == 200
         && response.headers.iter().any(|(name, value)| {
@@ -393,6 +388,21 @@ fn finish(mut response: Response, request: &Request) -> Response {
         response.status = 304;
     }
     response
+}
+
+/// `body` as `response`'s content in `encoding`, which its ETag names. A page
+/// compressed as it was sent and one made at the best share their tag: they
+/// decode to the same bytes, and the server sends no ranges.
+fn encoded(response: &mut Response, encoding: encode::Encoding, body: Vec<u8>) {
+    response.body = body;
+    response
+        .headers
+        .push(("Content-Encoding", encoding.name().into()));
+    for (name, value) in &mut response.headers {
+        if *name == "ETag" {
+            *value = format!("{}-{}\"", value.trim_end_matches('"'), encoding.name());
+        }
+    }
 }
 
 /// Of `locations`, the ones a crawler may index, as the build's sitemap
@@ -616,6 +626,21 @@ fn respond<D: DataSource>(request: &Request, shared: &Shared, data: fn() -> D) -
                     .response
                     .clone()
                     .header("Age", page.created.elapsed().as_secs().to_string());
+                if let Some((encoding, body)) =
+                    page.best.get().and_then(|best| best.pick(request.accepts))
+                {
+                    // Made: `finish` leaves a response with its `Vary` as it is,
+                    // so its 304 is decided here.
+                    response.headers.push(("Vary", "Accept-Encoding".into()));
+                    encoded(&mut response, encoding, body.to_vec());
+                    if response.headers.iter().any(|(name, value)| {
+                        *name == "ETag"
+                            && encode::none_match(request.if_none_match.as_deref(), value)
+                    }) {
+                        response.status = 304;
+                    }
+                    return response;
+                }
                 if response.headers.iter().any(|(name, value)| {
                     *name == "ETag" && request.if_none_match.as_ref() == Some(value)
                 }) {
@@ -643,17 +668,27 @@ fn respond<D: DataSource>(request: &Request, shared: &Shared, data: fn() -> D) -
         while pages.len() >= MAX_CACHED_PAGES
             || pages
                 .iter()
-                .map(|page| page.response.body.len())
+                .map(|page| {
+                    page.response.body.len() + page.best.get().map_or(0, encode::Best::bytes)
+                })
                 .sum::<usize>()
                 + response.body.len()
                 > MAX_CACHE_BYTES
         {
             pages.pop_front();
         }
+        // This response goes out compressed as it is sent; later hits get the
+        // best, made here once, off every request's path.
+        let best = Arc::new(OnceLock::new());
+        let (made, body) = (Arc::clone(&best), response.body.clone());
+        let _ = std::thread::Builder::new()
+            .name("exact-render-best".into())
+            .spawn(move || made.set(encode::Best::of(&body)));
         pages.push_back(CachedPage {
             target: request.target.clone(),
             created: Instant::now(),
             response: response.clone(),
+            best,
         });
     }
     if response.status == 200

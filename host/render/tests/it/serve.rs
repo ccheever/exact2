@@ -667,6 +667,48 @@ fn pages_and_files_go_compressed_as_the_client_accepts() {
 }
 
 #[test]
+fn a_cached_page_goes_at_the_best_compression_once_it_is_made() {
+    let addr = start("best", 1, 8, 300);
+    let request = "GET /post/7 HTTP/1.1\r\nAccept-Encoding: br\r\n\r\n";
+    // The render's own response is compressed as it is sent.
+    let (status, first_headers, first) = fetch_bytes(addr, request);
+    assert_eq!(status, 200);
+    assert_eq!(header(&first_headers, "content-encoding"), Some("br"));
+    // A later hit gets the page made at the best, off the request path.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let (headers, best) = loop {
+        let (_, headers, body) = fetch_bytes(addr, request);
+        if body.len() < first.len() || std::time::Instant::now() > deadline {
+            break (headers, body);
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert!(
+        best.len() < first.len(),
+        "{} !< {}",
+        best.len(),
+        first.len()
+    );
+    assert_eq!(decoded(&headers, &best), decoded(&first_headers, &first));
+    assert_eq!(header(&headers, "content-encoding"), Some("br"));
+    assert_eq!(header(&headers, "vary"), Some("Accept-Encoding"));
+    // One representation, one tag: a client holding either gets a 304.
+    let etag = header(&headers, "etag").unwrap();
+    assert_eq!(Some(etag), header(&first_headers, "etag"));
+    let (status, _, body) = fetch_bytes(
+        addr,
+        &format!("GET /post/7 HTTP/1.1\r\nAccept-Encoding: br\r\nIf-None-Match: {etag}\r\n\r\n"),
+    );
+    assert_eq!((status, body.len()), (304, 0));
+    // A render that isn't kept goes as it is sent.
+    let (_, _, fresh) = fetch_bytes(
+        addr,
+        "GET /post/7 HTTP/1.1\r\nAccept-Encoding: br\r\nCache-Control: no-store\r\n\r\n",
+    );
+    assert_eq!(fresh.len(), first.len());
+}
+
+#[test]
 fn a_file_the_dist_lacks_is_a_plain_404() {
     let addr = start("favicon", 1, 8, 300);
     // A browser's icon request doesn't render the not-found document…
