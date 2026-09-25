@@ -842,7 +842,10 @@ impl Parser {
                 span,
             });
         }
-        if self.at_ident("send") {
+        // `send` is a keyword only where the send statement starts: `send`
+        // then a name. Elsewhere (`send = x`, `send(x)`, a prop or state
+        // named `send`) it is an ordinary name.
+        if self.at_ident("send") && matches!(self.peek2(), TokenKind::Ident(_)) {
             let span = self.expect_word("send")?;
             let target = self.named_ident(span)?;
             self.expect_punct("=")?;
@@ -1255,7 +1258,6 @@ fn is_keyword(w: &str) -> bool {
             | "derive"
             | "resource"
             | "mutation"
-            | "send"
             | "refresh"
             | "action"
             | "task"
