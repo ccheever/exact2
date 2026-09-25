@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9 and 10 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10 and 11 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size.
@@ -355,8 +355,7 @@ restyled) at the root; `layout_equality`'s random trees gain clipping boxes and
 a list-shaped differential of clipping panes, each round compared with a
 rehydrated and a replayed kernel, frames and scroll extents. Over 1,500 seeds
 of both (about 14,000 contained replays) this patch adds no divergence: the
-four seeds that differ also differ on the prior tip (the one examined: a
-cache key that omits `vertical_margins_are_collapsible`, QUEUE.md). Apple layout tests cover silent
+four seeds that differ also differ on the prior tip; patch 11 fixes all four. Apple layout tests cover silent
 settlement and inherited spelling hints on unmoved editors. Existing layout,
 reader, exclusion, region and upstream differential expectations are unchanged.
 
@@ -386,3 +385,51 @@ nine literal-Chrome cases, including the `padding-top: 56.25%` embed idiom,
 which a zero `height` already kept right (only the box's own padding
 counts then). Taffy's 130 unit tests pass on the patched source (a scratch
 copy without the uncached roxmltree dev-dependency, as in M8).
+
+## Patch 11: the layout cache is keyed on every layout input — to upstream
+
+**Implementer:** Claude, 2026-09-25 (found by `layout_equality`'s seeds).
+
+`src/tree/cache.rs::CacheKey` left three inputs out of the key under which it
+reuses a result, so an entry computed under one input answered another:
+
+- `vertical_margins_are_collapsible`. Whether the node sits in its parent's
+  block formatting context decides whether a first or last child's margin
+  collapses through it (CSS 2.1 §8.3.1), and so its size, its children's
+  positions and the margins it reports. A block parent that turns flex or grid
+  reused its child's final layout with the inner margin still collapsed through
+  it (`run(2423214, 14)`: a 4.5-point margin in the wrong place).
+- `sizing_mode`. `InherentSize` applies the node's own size, min and max
+  styles; `ContentSize` ignores them. Flex asks `ContentSize` (flex basis,
+  final layout); block and grid ask `InherentSize`, with the same known
+  dimensions (`run_panes(1412, 40)`: a 58-point styled width answered a
+  110-point basis probe).
+- The parent's height, for measurements. `ComputeSize` lookups compared only
+  the parent's width, but a node resolves its own percentage height against the
+  parent's height (CSS 2.1 §10.5): `height: 86%` measured under a 62-point
+  parent answered once the parent's height was auto (`run_panes(503, 40)`;
+  `run_panes(405, 40)` is the same through `sizing_mode` too).
+  Final-layout entries already compared the whole parent size.
+
+The key now carries the two fields, and a measurement matches on everything but
+the requested axis. The alternative, clearing a child's cache when its parent's
+display changes, is not correct in general: the cache memoizes a function of the
+node's subtree, which its own dirty flag covers, and of its `LayoutInput`, which
+only the key covers. One unchanged block parent asks the same child under both
+flag values (it measures every child's width with collapsible margins, then lays
+a flex, grid or scrolling child out without), and a parent's height or sizing
+mode changes without its display changing. Keying costs only hits between
+genuinely different inputs.
+
+**Upstream fixture** (`cache.rs` tests): three key tests, one per omitted input,
+and three trees laid out, restyled and laid out again against a fresh tree:
+block to flex and block to grid (margin collapse; grid differs from the block
+only in the flag), and a block losing its height under a percentage-height flex
+child. All six fail on the unpatched source and pass patched; Taffy's 135 unit
+tests and 5 doctests pass (scratch copy without roxmltree, as in M8).
+
+**Held by** `kernel/tests/it/layout_equality.rs`: `seed_2423214_…`,
+`pane_seed_405_…`, `pane_seed_503_…` and `pane_seed_1412_…`, each failing before.
+Seeds 1–10,000 of `run` and of `run_panes` (40 rounds) differed from a fresh
+layout 21 and 16 times before and 0 times after; the 512-tree differential
+passes before and after.
