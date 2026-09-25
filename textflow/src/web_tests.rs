@@ -3,7 +3,7 @@ use super::*;
 
 fn segments(flow: &mut TextFlow, id: u32, text: &str, mode: u32) -> String {
     let mut input = mode.to_le_bytes().to_vec();
-    input.extend(0u32.to_le_bytes());
+    input.extend([0u32, 0].map(u32::to_le_bytes).concat());
     input.extend(text.as_bytes());
     flow.segments(id, &input).unwrap()
 }
@@ -157,7 +157,7 @@ fn worst_admitted_long_word_under_full_obstruction_stops_and_reports_incomplete(
     assert!(reply.contains("\"complete\":false"));
     assert!(f.sources[&1].fragments.is_empty());
     assert!(reply.contains("\"height\":81920"));
-    let mut input = vec![0; 8];
+    let mut input = vec![0; 12];
     input.extend(vec![b'x'; MAX_TEXT + 1]);
     assert_eq!(
         f.segments(1, &input).unwrap_err(),
@@ -181,7 +181,7 @@ fn invalid_advances_and_store_bounds_refuse_without_replacing_preparation() {
     for id in 2..=MAX_PARAGRAPHS as u32 {
         segments(&mut f, id, "a", 0);
     }
-    let mut input = vec![0; 8];
+    let mut input = vec![0; 12];
     input.push(b'a');
     assert_eq!(
         f.segments(999, &input).unwrap_err(),
@@ -214,7 +214,7 @@ fn giant_and_multibyte_sources_refuse_without_replacing_accepted_geometry() {
         "x".repeat(1024 * 1024),
         "x".repeat(4 * 1024 * 1024),
     ] {
-        let mut input = vec![0; 8];
+        let mut input = vec![0; 12];
         input.extend(text.as_bytes());
         for id in [1, 2] {
             assert_eq!(
@@ -246,7 +246,7 @@ fn white_space_protocol_preserves_spaces_and_segment_breaks() {
     for (mode, bands, first_width) in [(0u32, 1, 25.0), (1, 2, 30.0)] {
         let mut f = TextFlow::new();
         let mut input = 0u32.to_le_bytes().to_vec();
-        input.extend(mode.to_le_bytes());
+        input.extend([mode, 0].map(u32::to_le_bytes).concat());
         input.extend(text.as_bytes());
         f.segments(1, &input).unwrap();
         let mut advances = 5f32.to_le_bytes().to_vec();
@@ -339,8 +339,26 @@ fn polygon_fill_rule_survives_registered_web_geometry() {
 }
 
 #[test]
+fn thai_word_boundaries_from_the_glue_are_the_walker_opportunities() {
+    // กิน|ข้าว|แล้ว: UTF-16 boundaries 3 and 7. A repeat, a step back and one
+    // past the end are dropped.
+    let text = "กินข้าวแล้ว";
+    let words = [3u32, 3, 1, 7, 99];
+    let mut input = [0u32, 0, words.len() as u32].map(u32::to_le_bytes).concat();
+    input.extend(words.map(u32::to_le_bytes).concat());
+    input.extend(text.as_bytes());
+    let mut f = TextFlow::default();
+    f.segments(1, &input).unwrap();
+    assert_eq!(f.sources[&1].words, [9, 21]);
+    assert_eq!(f.sources[&1].ranges, [0..9, 9..21, 21..33]);
+    let mut short = [0u32, 0, 2, 3].map(u32::to_le_bytes).concat();
+    short.extend(text.as_bytes().get(..2).unwrap());
+    assert!(f.segments(2, &short).is_err());
+}
+
+#[test]
 fn short_source_headers_return_errors_instead_of_panicking() {
-    for n in 0..8 {
+    for n in 0..12 {
         let mut f = TextFlow::default();
         let answer =
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f.segments(1, &vec![0; n])));

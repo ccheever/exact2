@@ -1,4 +1,4 @@
-// The Swift face of the C ABI (host/apple/include/exact.h, v8): one
+// The Swift face of the C ABI (host/apple/include/exact.h, v9): one
 // `Runtime` per handle — created by `exact_create`, freed by
 // `exact_destroy` — and one typed batch per call. Runtime exports take the
 // handle (LLP 1031 D2), so a session that owns a runtime owns everything

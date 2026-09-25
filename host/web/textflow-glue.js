@@ -113,11 +113,24 @@ function floats(values) {
   values.forEach((value, i) => view.setFloat32(i * 4, value, true));
   return bytes;
 }
+// The walker has no dictionary; between two Thai, Lao, Khmer or Myanmar letters
+// the browser's word boundaries are its only opportunities (textflow/src/web.rs).
+const complex = /[\p{sc=Thai}\p{sc=Lao}\p{sc=Khmer}\p{sc=Myanmar}\p{sc=Tai_Tham}\p{sc=Tai_Viet}\p{sc=New_Tai_Lue}]/u;
+let wordSegmenter = null;
+function complexWords(text) {
+  if (!complex.test(text)) return [];
+  wordSegmenter ??= new Intl.Segmenter(undefined, { granularity: 'word' });
+  return [...wordSegmenter.segment(text)].map(s => s.index)
+    .filter(i => i > 0 && complex.test(text[i - 1]) && complex.test(text[i]));
+}
 function sourceInput(text, overflow, whiteSpace) {
-  const source = encoder.encode(text), bytes = new Uint8Array(source.length + 8);
-  new DataView(bytes.buffer).setUint32(0, overflow === 'anywhere' ? 2 : overflow === 'break-word' ? 1 : 0, true);
-  new DataView(bytes.buffer).setUint32(4, whiteSpace === 'pre-wrap' ? 1 : 0, true);
-  bytes.set(source, 8); return bytes;
+  const source = encoder.encode(text), words = complexWords(text);
+  const bytes = new Uint8Array(12 + words.length * 4 + source.length), view = new DataView(bytes.buffer);
+  view.setUint32(0, overflow === 'anywhere' ? 2 : overflow === 'break-word' ? 1 : 0, true);
+  view.setUint32(4, whiteSpace === 'pre-wrap' ? 1 : 0, true);
+  view.setUint32(8, words.length, true);
+  words.forEach((w, i) => view.setUint32(12 + i * 4, w, true));
+  bytes.set(source, 12 + words.length * 4); return bytes;
 }
 function flowInput(snapshot, exclusions) {
   // @ref LLP 1043.000 §3 D5 — wasm owns the fragment floor; send the strut font size.

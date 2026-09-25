@@ -1,4 +1,4 @@
-/* exact.h — the Apple host's C ABI, v8 (LLP 1008 §4; LLP 1031 D2).
+/* exact.h — the Apple host's C ABI, v9 (LLP 1008 §4; LLP 1031 D2).
  *
  * Every call takes a runtime handle: exact_create() hands one out (a u32,
  * never 0, never reused) and exact_destroy() frees everything attributable
@@ -30,7 +30,7 @@
 #include <stdint.h>
 
 /* The ABI's version: part of the compatibility id (LLP 1030 D3a). */
-#define EXACT_ABI_VERSION 8
+#define EXACT_ABI_VERSION 9
 
 #ifdef __cplusplus
 extern "C" {
@@ -106,9 +106,12 @@ typedef struct ExactFlowFragment {
     uint32_t line;
 } ExactFlowFragment;
 typedef struct ExactFlowResult { size_t count; float height; size_t bytes; uint8_t complete, clamped; } ExactFlowResult;
-/* Advances: one per UTF-16 unit; cluster advance at its lowest string index. */
+/* Advances: one per UTF-16 unit; cluster advance at its lowest string index.
+ * Words: ascending UTF-16 line-break boundaries between Thai, Lao, Khmer or
+ * Myanmar letters, the walker's only breaks inside such a run (it has no dictionary). */
 uint64_t exact_textflow_prepare(const uint8_t *utf8, size_t len,
-    const float *advances, size_t count, uint32_t overflow_wrap, uint32_t white_space, float hyphen_advance);
+    const float *advances, size_t count, const uint32_t *words, size_t word_count,
+    uint32_t overflow_wrap, uint32_t white_space, float hyphen_advance);
 /* Returns required count, height, and completion. Writes min(count,cap); null output
  * is a query. max_lines counts bands (0 = no line clamp). Reject incomplete output
  * unless clamped is set; guard exhaustion requires ordinary paragraph fallback. */

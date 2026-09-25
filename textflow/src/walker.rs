@@ -592,6 +592,25 @@ fn collapsed_advance(text: &str, range: Range<usize>, measure: &mut dyn Measure)
     }
     finite(total)
 }
+/// UTF-16 word boundaries, as `Intl.Segmenter` and `CFStringTokenizer` give
+/// them, to the UTF-8 byte offsets [`Prepared::with_words`] takes. A boundary
+/// inside a surrogate pair, out of order, or past the end is dropped.
+pub fn utf16_words(text: &str, words: impl IntoIterator<Item = usize>) -> Vec<usize> {
+    let mut result = Vec::new();
+    let (mut byte, mut units, mut chars) = (0, 0, text.chars());
+    for word in words {
+        while units < word {
+            let Some(ch) = chars.next() else { break };
+            byte += ch.len_utf8();
+            units += ch.len_utf16();
+        }
+        if units == word && result.last() < Some(&byte) {
+            result.push(byte);
+        }
+    }
+    result
+}
+
 fn complex(ch: char) -> bool {
     break_property(ch as u32) == BreakClass::ComplexContext
 }
