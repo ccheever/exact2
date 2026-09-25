@@ -907,6 +907,13 @@ Results:
 With React's API over the throttled network (supplementary), its tag at
 `load` took 219 ms.
 
+Round 4 (nine runs, loads 8–15): with the surrogate keys sent only to a CDN
+(`030fd1d0`), the tag at `load` takes 239 and 233 ms in two batches, against
+React's 208 and 214 (before: 256 and 248), with the feed at 1,006 and 993 ms
+against 1,410 and 1,385; after a read, 218 against 197. A signed-out ♥ is a
+link to `/register` (`43d54245`), now a rendered page (`493bf1b0`): at `load`
+it shows the sign-up page 233 ms after the tap, not 1,129 (React 58).
+
 ### As built: the core diet (the diet lane)
 
 Each change reads what std read and prints what core printed, bit for bit
