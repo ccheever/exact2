@@ -731,6 +731,15 @@ when a new row starts editing; a size change or inactive route closes its
 native surface.
 Invalid or ambiguous references, missing accessible names and nonmatching row
 dimensions retain the authored fallback with a diagnostic.
+A swipe owner's scroll container keeps no `UIScrollView` until something needs
+it (2026-09-25): the swipe cell takes the row's touches, and a closed row sits
+at its scroll start, as at rest on the web, so its children live in the owner,
+clipped as the scroll clips them. The scroll view is made when the row is
+refused (the authored fallback is then the swipe), for an authored
+`scrollLeft`/`scrollTop` or `scroll` handler, for the agent's wheel and for a
+keyboard reveal; the agent reports the waiting scroll at offset zero. A list
+builds its rows without one scroll view, its recognizers and its window
+registration each.
 
 Agent inspection observes the native action's public UIKit button and descendant
 image, never a private class name or a guessed offset. A revealed action reports

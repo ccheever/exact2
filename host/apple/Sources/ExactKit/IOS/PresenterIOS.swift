@@ -225,7 +225,9 @@ final class Presenter {
         guard let node, node.window != nil else { return }
         var v: UIView? = node.superview
         while let cur = v {
-            if let sv = cur as? ScrollView {
+            var target = cur as? ScrollView
+            if let waiting = cur as? NodeView, waiting.scrollDormant { waiting.needScroll(); target = waiting.scroll }
+            if let sv = target {
                 // The node's box in the container's content space, with a
                 // little air; the visible part of that space.
                 let r = node.convert(node.bounds, to: sv).insetBy(dx: 0, dy: -8)
@@ -585,6 +587,8 @@ final class Presenter {
             case .create:
                 let v = NodeView(id: id, kind: op.kind, presenter: self)
                 v.handlers = op.handlers
+                // Before the style makes it a scroll container: a swipe row's waits.
+                v.swipeOwner = op.props["swipeContent"] != nil
                 v.applyStyle(op.style)
                 v.applyProps(set: op.props, clear: [])
                 views[id] = v

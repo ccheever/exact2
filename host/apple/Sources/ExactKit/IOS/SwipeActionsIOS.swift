@@ -74,7 +74,7 @@ final class SwipeActionsHost {
                 return node !== owner && node.isDescendant(of: owner) ? node : nil
             }
             let controls = names.compactMap(resolve)
-            guard owner.scroll != nil, let body = resolve(content),
+            guard owner.scroll != nil || owner.scrollDormant, let body = resolve(content),
                   !names.isEmpty, Set(names).count == names.count, controls.count == names.count,
                   controls.allSatisfy({ $0.handlers.contains("press") && !$0.isDescendant(of: body) && $0 !== body && !label($0).isEmpty }),
                   abs(body.bounds.width - owner.bounds.width) < 0.5,
@@ -82,6 +82,8 @@ final class SwipeActionsHost {
                   claimed.insert(body.id).inserted else {
                 let message = "swipeContent on #\(owner.id) requires one full-size descendant and uniquely named descendant press controls with accessible names"
                 if refusals[owner.id] != message { fputs("exact: \(message)\n", stderr); refusals[owner.id] = message }
+                // A refused row swipes as the web does: by its scroll.
+                owner.needScroll()
                 continue
             }
             refusals.removeValue(forKey: owner.id)
@@ -225,7 +227,9 @@ final class SwipeActionsHost {
             remove()
         }
         func mount() {
-            guard let scroll = owner.scroll else { return }
+            // A waiting scroll's children are the owner's own (`scrollDormant`).
+            guard owner.scroll != nil || owner.scrollDormant else { return }
+            let scroll: UIView = owner.scroll ?? owner
             var content: UIView = body
             while let parent = content.superview, parent !== scroll { content = parent }
             guard content.superview === scroll else { return }
@@ -241,6 +245,10 @@ final class SwipeActionsHost {
             let (table, cell) = project()
             if table.superview !== owner { owner.addSubview(table) }
             owner.scroll?.isHidden = true
+            // What the hidden scroll would hide: the content's siblings.
+            if owner.scroll == nil {
+                for case let sibling as NodeView in owner.subviews where sibling !== content { hide(sibling) }
+            }
             if priorSize != owner.bounds.size || host.presenter.navigation.isInactiveRoute(containing: owner) {
                 table.setEditing(false, animated: false)
             }
@@ -252,7 +260,7 @@ final class SwipeActionsHost {
             // Keep the original ancestors between content and the row. Their
             // opacity, clips, inherited semantics and input restrictions apply.
             content.frame = CGRect(origin: CGPoint(x: -origin.x, y: -origin.y), size: logicalFrame.size)
-            for control in leading + trailing { hiddenControls.append((control, control.isHidden)); control.isHidden = true }
+            for control in leading + trailing { hide(control) }
             // UIKit derives its cell label from native text controls; an
             // authored button paints its own text. Preserve that button's
             // explicit name and activation at the native presentation boundary.
@@ -270,6 +278,11 @@ final class SwipeActionsHost {
                 cell.accessibilityTraits = []
             }
             table.layoutIfNeeded()
+        }
+        /// Hidden while projected; `restore` gives back what it was, once.
+        private func hide(_ view: NodeView) {
+            if !hiddenControls.contains(where: { $0.0 === view }) { hiddenControls.append((view, view.isHidden)) }
+            view.isHidden = true
         }
         func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { 1 }
         func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell { cell ?? UITableViewCell() }

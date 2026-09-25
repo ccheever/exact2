@@ -222,6 +222,8 @@ extension Agent {
             let r = nativeAction ? actionView.map { box($0) } ?? .zero : box(v)
             var n: [String: Any] = ["id": Int(id), "x": Agent.r2(r.origin.x), "y": Agent.r2(r.origin.y), "w": Agent.r2(r.width), "h": Agent.r2(r.height)]
             if nativeAction { n["presentation"] = "native-swipe-action"; n["visible"] = actionView != nil }
+            // A waiting scroll (a closed swipe row's) is at its start.
+            if v.scrollDormant { n["sx"] = 0.0; n["sy"] = 0.0 }
             if let sv = v.scroll {
                 n["sx"] = Agent.r2(sv.contentOffset.x)
                 n["sy"] = Agent.r2(sv.contentOffset.y)
@@ -347,6 +349,7 @@ extension Agent {
             if inertBy == nil, !s.isUserInteractionEnabled { inertBy = describe(s) }
             if let n = s as? NodeView {
                 if let sv = n.scroll { chain.append(["id": Int(n.id), "sx": Agent.r2(sv.contentOffset.x), "sy": Agent.r2(sv.contentOffset.y)]) }
+                else if n.scrollDormant { chain.append(["id": Int(n.id), "sx": 0.0, "sy": 0.0]) }
                 if n.clipsToBounds { clippers.append((n, "overflow")) }
                 if n.clipPath != nil { clippers.append((n, "clip-path")) }
             }
@@ -547,7 +550,10 @@ extension Agent {
         let dx = min(max(dx.rounded(), -1_000_000), 1_000_000), dy = min(max(dy.rounded(), -1_000_000), 1_000_000)
         var v: UIView? = hit
         while let cur = v {
-            if let sv = cur as? ScrollView {
+            // A waiting scroll (a closed swipe row's) scrolls as the wheel asks.
+            var target = cur as? ScrollView
+            if let waiting = cur as? NodeView, waiting.scrollDormant { waiting.needScroll(); target = waiting.scroll }
+            if let sv = target {
                 // Native bars and keyboard avoidance can make the resting
                 // start negative. Their insets are part of the usable range.
                 let i = sv.adjustedContentInset

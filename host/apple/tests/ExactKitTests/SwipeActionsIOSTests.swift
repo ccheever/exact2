@@ -3,10 +3,12 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// A native swipe row (LLP 1008 §9) costs no table at rest: batches leave its
-/// content in the authored scroll; a touch landing on it projects the content
-/// into a clear UIKit cell that follows the row's height, and the projection
-/// goes again once nothing is swiping. UIKit, so a simulator runs it:
+/// A native swipe row (LLP 1008 §9) costs no table and no scroll view at rest:
+/// batches leave its content in the owner, clipped, where the authored scroll
+/// would hold it at its start; a touch landing on it projects the content into
+/// a clear UIKit cell that follows the row's height, and the projection goes
+/// again once nothing is swiping. A refused row gets its scroll: then the
+/// scroll is the swipe, as on the web. UIKit, so a simulator runs it:
 ///   bun host/apple/build.mjs --test --ios
 final class SwipeActionsIOSTests: XCTestCase {
     private var window: UIWindow!
@@ -57,18 +59,23 @@ final class SwipeActionsIOSTests: XCTestCase {
 
     func testARowAtRestHasNoTableAndATouchProjectsIt() throws {
         let p = fixture()
-        let owner = try XCTUnwrap(p.views[1]), body = try XCTUnwrap(p.views[3]), delete = try XCTUnwrap(p.views[4])
-        let scroll = try XCTUnwrap(owner.scroll)
+        let owner = try XCTUnwrap(p.views[1]), row = try XCTUnwrap(p.views[2])
+        let body = try XCTUnwrap(p.views[3]), delete = try XCTUnwrap(p.views[4])
+        XCTAssertNil(owner.scroll, "no scroll view at rest")
+        XCTAssertTrue(owner.scrollDormant); XCTAssertTrue(owner.clipsToBounds, "clipped as the scroll would clip")
+        XCTAssertTrue(owner.gestureRecognizers?.isEmpty ?? true)
         XCTAssertNil(p.swipeActions.cell(of: owner), "no cell before a touch")
         XCTAssertFalse(owner.subviews.contains { $0 is UITableView })
-        XCTAssertTrue(body.isDescendant(of: scroll))
+        XCTAssertTrue(row.superview === owner)
         apply(p, geometry(80))
-        XCTAssertTrue(body.isDescendant(of: scroll), "a batch projects nothing")
+        XCTAssertTrue(row.superview === owner, "a batch projects nothing")
+        XCTAssertNil(owner.scroll)
 
         p.swipeActions.touch(owner)
         let cell = try XCTUnwrap(p.swipeActions.cell(of: owner))
         XCTAssertTrue(body.isDescendant(of: cell.contentView))
-        XCTAssertTrue(scroll.isHidden); XCTAssertTrue(delete.isHidden)
+        XCTAssertTrue(delete.isHidden)
+        XCTAssertNil(owner.scroll, "the cell swipes, not a scroll")
         XCTAssertEqual(cell.backgroundConfiguration?.backgroundColor, .clear, "the row paints itself")
         body.layer.displayIfNeeded()
         XCTAssertEqual(body.layer.backgroundColor?.alpha, 1)
@@ -79,10 +86,22 @@ final class SwipeActionsIOSTests: XCTestCase {
         turn()
         XCTAssertNil(p.swipeActions.cell(of: owner))
         XCTAssertFalse(owner.subviews.contains { $0 is UITableView })
-        XCTAssertTrue(body.isDescendant(of: scroll))
-        XCTAssertFalse(scroll.isHidden); XCTAssertFalse(delete.isHidden)
+        XCTAssertTrue(row.superview === owner)
+        XCTAssertFalse(row.isHidden); XCTAssertFalse(delete.isHidden)
         XCTAssertEqual(body.convert(CGPoint.zero, to: owner), .zero)
         XCTAssertTrue(p.swipeActions.ownsAction(4), "an unprojected row's controls are still its actions")
+    }
+
+    func testARefusedRowSwipesByItsScroll() throws {
+        let p = fixture()
+        let owner = try XCTUnwrap(p.views[1]), row = try XCTUnwrap(p.views[2])
+        // The trailing control loses its name: the native swipe is refused.
+        var rename = BatchOp(op: .props, nodeID: 4); rename.clear = ["id"]
+        apply(p, [rename])
+        let scroll = try XCTUnwrap(owner.scroll, "the web's swipe: the scroll itself")
+        XCTAssertTrue(row.superview === scroll)
+        XCTAssertEqual(scroll.contentSize.width, 390)
+        XCTAssertFalse(p.swipeActions.ownsAction(4))
     }
 
     func testAProjectedCellFollowsTheRowsHeight() throws {

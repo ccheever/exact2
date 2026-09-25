@@ -119,6 +119,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             updateSwipeGesture()
             updateLayoutPan()
             updateMaterial()
+            if handlers.contains("scroll") { needScroll() }
             if handlers.contains("hover"), hoverRecognizer == nil {
                 let g = UIHoverGestureRecognizer(target: self, action: #selector(hovering(_:)))
                 // Hover observes pointer movement; it must never hold or cancel
@@ -700,7 +701,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
                     positions.append(min(end, max(start, targetContentOffset.pointee.x)))
                 }
                 // A nested scroll container captures its own snap areas.
-                if node.scroll == nil && (node.style["scroll_snap_type"]?.string ?? "none") == "none" { visit(node.container) }
+                if node.scroll == nil && !node.scrollDormant && (node.style["scroll_snap_type"]?.string ?? "none") == "none" { visit(node.container) }
             }
         }
         visit(scrollView)
@@ -1043,6 +1044,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if let raw = set["scrollTop"], let top = Double(raw), top.isFinite { pendingScrollTop = top }
         for k in clear { props.removeValue(forKey: k) }
         for (k, v) in set { props[k] = v }
+        swipeOwner = props["swipeContent"] != nil
+        if (pendingScrollLeft ?? 0) != 0 || (pendingScrollTop ?? 0) != 0 { needScroll() }
         if set["inert"] != nil || clear.contains("inert") {
             let ownInert = props["inert"] == "true"
             if ownInert { endEditing(true) }
@@ -1109,37 +1112,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         clipPath = ClipPath.path(s["clip_path"])
         layer.mask = ClipPath.mask(clipPath)
         updateMaterial()
-        // Scrolling and clipping come from the effective overflow the host
-        // wrote in (never from the node's kind): `scroll` on an axis makes a
-        // scroll container that scrolls that axis; `hidden` clips.
-        let ox = s["overflow_x"]?.string ?? "visible", oy = s["overflow_y"]?.string ?? "visible"
-        if (ox == "scroll" || oy == "scroll") && scroll == nil {
-            let sv = ScrollView(frame: bounds)
-            sv.backgroundColor = .clear
-            sv.contentInsetAdjustmentBehavior = .never
-            sv.delegate = self
-            sv.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-            for child in subviews where child is NodeView { child.removeFromSuperview(); sv.addSubview(child) }
-            addSubview(sv)
-            scroll = sv
-        }
-        if ox != "scroll" && oy != "scroll", let sv = scroll {
-            // Neither axis scrolls any more: the children come back out.
-            for child in sv.subviews where child is NodeView { child.removeFromSuperview(); addSubview(child) }
-            sv.removeFromSuperview()
-            scroll = nil
-        }
-        scroll?.decelerationRate = (s["scroll_snap_type"]?.string) == "x mandatory" ? .fast : .normal
-        scroll?.scrollsX = ox == "scroll"
-        scroll?.scrollsY = oy == "scroll"
-        // UIKit's default indicator is already thin. CSS permits `thin`
-        // to match `auto` on such platforms; `none` only hides the track.
-        let indicators = (s["scrollbar_width"]?.string ?? "auto") != "none"
-        scroll?.showsHorizontalScrollIndicator = ox == "scroll" && indicators
-        scroll?.showsVerticalScrollIndicator = oy == "scroll" && indicators
-        updateKeyboardDismissal()
-        fitScroll()
-        clipsToBounds = ox == "hidden" || oy == "hidden"
+        syncScroll()
         styleTextArea()
         if let f = field, let t = text {
             f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic")
@@ -1149,6 +1122,65 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
         layer.zPosition = number("z_index")
         setNeedsDisplay()
+    }
+
+    /// Scrolling and clipping come from the effective overflow the host
+    /// wrote in (never from the node's kind): `scroll` on an axis makes a
+    /// scroll container that scrolls that axis; `hidden` clips.
+    func syncScroll() {
+        let ox = style["overflow_x"]?.string ?? "visible", oy = style["overflow_y"]?.string ?? "visible"
+        let scrolls = ox == "scroll" || oy == "scroll"
+        if scrolls && scroll == nil && !scrollWaits {
+            let sv = ScrollView(frame: bounds)
+            sv.backgroundColor = .clear
+            sv.contentInsetAdjustmentBehavior = .never
+            sv.delegate = self
+            sv.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            for child in subviews where child is NodeView { child.removeFromSuperview(); sv.addSubview(child) }
+            addSubview(sv)
+            scroll = sv
+        }
+        if !scrolls, let sv = scroll {
+            // Neither axis scrolls any more: the children come back out.
+            for child in sv.subviews where child is NodeView { child.removeFromSuperview(); addSubview(child) }
+            sv.removeFromSuperview()
+            scroll = nil
+        }
+        scroll?.decelerationRate = (style["scroll_snap_type"]?.string) == "x mandatory" ? .fast : .normal
+        scroll?.scrollsX = ox == "scroll"
+        scroll?.scrollsY = oy == "scroll"
+        // UIKit's default indicator is already thin. CSS permits `thin`
+        // to match `auto` on such platforms; `none` only hides the track.
+        let indicators = (style["scrollbar_width"]?.string ?? "auto") != "none"
+        scroll?.showsHorizontalScrollIndicator = ox == "scroll" && indicators
+        scroll?.showsVerticalScrollIndicator = oy == "scroll" && indicators
+        updateKeyboardDismissal()
+        fitScroll()
+        // A waiting scroll clips as its scroll view would.
+        clipsToBounds = ox == "hidden" || oy == "hidden" || scrollDormant
+    }
+
+    /// A native swipe row's scroll container (`swipeContent`, LLP 1008 §9)
+    /// waits for its UIScrollView. UIKit's swipe cell, not the scroll, takes
+    /// the row's touches (`SwipeActionsHost`), and a closed row's content
+    /// sits at the scroll's start, as it does at rest on the web: the
+    /// children live in the node itself, clipped as the scroll would clip
+    /// them. The scroll view comes when something needs it (`needScroll`):
+    /// the swipe host refusing the row (the scroll is then the swipe), an
+    /// authored scroll position or `scroll` handler, the agent's wheel, a
+    /// reveal. A list builds each row without a scroll view, its
+    /// recognizers, and its registration with the window.
+    var swipeOwner = false { didSet { if oldValue && !swipeOwner { syncScroll() } } }
+    private(set) var scrollNeeded = false
+    var scrollWaits: Bool { swipeOwner && !scrollNeeded && !handlers.contains("scroll") }
+    /// The node's overflow scrolls, and its scroll view is still waiting.
+    var scrollDormant: Bool {
+        scroll == nil && ((style["overflow_x"]?.string) == "scroll" || (style["overflow_y"]?.string) == "scroll")
+    }
+    func needScroll() {
+        guard scrollDormant else { return }
+        scrollNeeded = true
+        syncScroll()
     }
 
     /// The scroll container's content size: the kernel's extent on an axis
