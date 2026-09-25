@@ -11,7 +11,8 @@ use crate::geometry::Size;
 use crate::style::{AvailableSpace, Display, Style};
 use crate::sys::DefaultCheapStr;
 use crate::tree::{
-    Cache, ClearState, Layout, LayoutInput, LayoutOutput, LayoutPartialTree, NodeId, PrintTree, RoundTree, RunMode,
+    Cache, ClearState, Layout, LayoutInput, LayoutOutput, LayoutPartialTree, NodeId, PrintTree, RequestedAxis, RoundTree,
+    RunMode,
     TraversePartialTree, TraverseTree,
 };
 use crate::util::debug::{debug_log, debug_log_node};
@@ -164,10 +165,39 @@ pub struct TaffyTree<NodeContext = ()> {
     // EXACT PATCH 9: sparse publication and opt-in replay at proven boundaries.
     changed_layouts: Vec<NodeId>,
     changed_layout_indices: SecondaryMap<DefaultKey, usize>,
-    layout_inputs: SecondaryMap<DefaultKey, Option<(LayoutInput, LayoutOutput)>>,
+    layout_inputs: SecondaryMap<DefaultKey, Replay>,
 
     /// Layout mode configuration
     config: TaffyConfig,
+}
+
+/// EXACT PATCH 9: a containment candidate's record since its ancestors were
+/// last invalidated through it. `probed` notes an answer its ancestors could
+/// have consumed that depended on its content and is not the saved final one.
+#[derive(Debug, Clone, Copy, Default)]
+struct Replay {
+    saved: Option<(LayoutInput, LayoutOutput)>,
+    probed: bool,
+}
+
+impl Replay {
+    fn record(&mut self, input: &LayoutInput, output: LayoutOutput) {
+        match input.run_mode {
+            RunMode::PerformLayout => {
+                // An earlier final layout under other inputs was an answer too.
+                self.probed |= self.saved.is_some_and(|(saved, _)| saved != *input);
+                self.saved = Some((*input, output));
+            }
+            // A size fixed by the query itself answers without the content
+            // (every algorithm's ComputeSize short-circuit).
+            RunMode::ComputeSize => {
+                let known = input.known_dimensions;
+                self.probed |= !(known.width.is_some()
+                    && (known.height.is_some() || input.axis == RequestedAxis::Horizontal));
+            }
+            RunMode::PerformHiddenLayout => {}
+        }
+    }
 }
 
 impl Default for TaffyTree {
@@ -220,15 +250,17 @@ impl<NodeContext> CacheTree for TaffyTree<NodeContext> {
     }
 
     fn cache_store(&mut self, node_id: NodeId, input: &LayoutInput, layout_output: LayoutOutput) {
-        if input.run_mode == RunMode::PerformLayout {
-            if let Some(saved) = self.layout_inputs.get_mut(node_id.into()) {
-                *saved = Some((*input, layout_output));
-            }
+        if let Some(replay) = self.layout_inputs.get_mut(node_id.into()) {
+            replay.record(input, layout_output);
         }
         self.nodes[node_id.into()].cache.store(input, layout_output)
     }
 
     fn cache_clear(&mut self, node_id: NodeId) {
+        // A hidden subtree's saved inputs describe a layout it no longer has.
+        if let Some(replay) = self.layout_inputs.get_mut(node_id.into()) {
+            replay.saved = None;
+        }
         self.nodes[node_id.into()].cache.clear();
     }
 }
@@ -860,6 +892,32 @@ impl<NodeContext> TaffyTree<NodeContext> {
         Ok(())
     }
 
+    /// EXACT PATCH 9: [`Self::set_style`] without invalidation. The caller
+    /// marks `node` dirty (`mark_dirty` or `mark_dirty_to`) before any layout.
+    pub fn set_style_unmarked(&mut self, node: NodeId, style: Style) {
+        self.nodes[node.into()].style = style;
+    }
+
+    /// EXACT PATCH 9: [`Self::set_children`] without invalidation, for children
+    /// that are detached or already `parent`'s; false (and nothing changed)
+    /// otherwise. The caller marks `parent` dirty before any layout.
+    pub fn set_children_unmarked(&mut self, parent: NodeId, children: &[NodeId]) -> bool {
+        if children.iter().any(|c| self.parents[(*c).into()].is_some_and(|p| p != parent)) {
+            return false;
+        }
+        let parent_key = parent.into();
+        for child in &self.children[parent_key] {
+            self.parents[(*child).into()] = None;
+        }
+        for &child in children {
+            self.parents[child.into()] = Some(parent);
+        }
+        let parent_children = &mut self.children[parent_key];
+        parent_children.clear();
+        parent_children.extend(children.iter().copied());
+        true
+    }
+
     /// Gets the [`Style`] of the provided `node`
     #[inline]
     pub fn style(&self, node: NodeId) -> TaffyResult<&Style> {
@@ -897,6 +955,7 @@ impl<NodeContext> TaffyTree<NodeContext> {
         fn mark_dirty_recursive(
             nodes: &mut SlotMap<DefaultKey, NodeData>,
             parents: &SlotMap<DefaultKey, Option<NodeId>>,
+            replays: &mut SecondaryMap<DefaultKey, Replay>,
             node_key: DefaultKey,
         ) {
             match nodes[node_key].mark_dirty() {
@@ -906,14 +965,19 @@ impl<NodeContext> TaffyTree<NodeContext> {
                     // as they should be marked as dirty already.
                 }
                 ClearState::Cleared => {
+                    // EXACT PATCH 9: every ancestor that asked this node
+                    // anything is invalidated with it and will ask again.
+                    if let Some(replay) = replays.get_mut(node_key) {
+                        *replay = Replay::default();
+                    }
                     if let Some(Some(node)) = parents.get(node_key) {
-                        mark_dirty_recursive(nodes, parents, (*node).into());
+                        mark_dirty_recursive(nodes, parents, replays, (*node).into());
                     }
                 }
             }
         }
 
-        mark_dirty_recursive(&mut self.nodes, &self.parents, node.into());
+        mark_dirty_recursive(&mut self.nodes, &self.parents, &mut self.layout_inputs, node.into());
 
         Ok(())
     }
@@ -934,16 +998,18 @@ impl<NodeContext> TaffyTree<NodeContext> {
         let key = node.into();
         if track {
             if !self.layout_inputs.contains_key(key) {
-                self.layout_inputs.insert(key, None);
+                self.layout_inputs.insert(key, Replay::default());
             }
         } else {
             self.layout_inputs.remove(key);
         }
     }
 
-    /// The exact prior final inputs and output, including definiteness/baselines.
+    /// The exact prior final inputs and output, including definiteness/baselines,
+    /// while no ancestor has consumed a content-dependent answer of this node's
+    /// other than that output since they were last invalidated through it.
     pub fn last_layout_input(&self, node: NodeId) -> Option<(LayoutInput, LayoutOutput)> {
-        self.layout_inputs.get(node.into()).copied().flatten()
+        self.layout_inputs.get(node.into()).filter(|r| !r.probed).and_then(|r| r.saved)
     }
 
     /// Clear caches through `boundary`, inclusive. The caller must either replay

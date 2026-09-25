@@ -302,23 +302,42 @@ journal plus sparse positions makes both draining and removal proportional to
 changed entries, without scanning a prior large hash-table capacity. No layout
 algorithm, cache key, root sizing rule or rounding behavior changes.
 
-A sparse opt-in map retains the exact final `LayoutInput` and `LayoutOutput`
-for candidate boundaries only. `mark_dirty_to` clears the dirty path through
-that boundary; `compute_boundary_with_measure` replays the same input through
-Taffy's ordinary child-layout algorithm, retaining the parent-assigned location
-and updating the box's own overflow. This is one serial Taffy owner, without a
+A sparse opt-in map retains, for candidate boundaries only, the exact final
+`LayoutInput` and `LayoutOutput` and whether an ancestor could have consumed
+any other content-dependent answer since it was last invalidated through the
+node: a `ComputeSize` without both known dimensions (or a known width on the
+horizontal axis: every algorithm's short-circuit answers those from the query
+alone), or a `PerformLayout` under other inputs. Recording is at the
+`cache_store` seam, which every miss passes, and a hit returns an entry stored
+under the same known dimensions, so the record is complete. A full
+`mark_dirty` through the node starts a new record, since every ancestor that
+asked it anything is invalidated with it; a hidden layout's `cache_clear`
+drops the saved inputs. `last_layout_input` answers only while nothing else
+was consumed. `mark_dirty_to` clears the dirty path through that boundary;
+`compute_boundary_with_measure` replays the same input through Taffy's
+ordinary child-layout algorithm, retaining the parent-assigned location and
+updating the box's own overflow. `set_style_unmarked` and
+`set_children_unmarked` (children detached or already the parent's) change
+the tree without invalidating it, for a caller that marks the node dirty,
+either way, before any layout. This is one serial Taffy owner, without a
 second engine or a continuation/pending-layout API. Callers must establish an
 independent formatting context and invalidate ancestors when its output changes.
 
-The kernel currently admits text invalidation inside an ordinary block with
-point width/height and hidden/scroll overflow on both axes, under block,
-nonabsolute, nonintrinsic/nonpercentage ancestors and an unchanged definite
-viewport. The root's viewport percentage lowering is retained. Descendant
-percentages use the saved input's original parent size and definiteness. A
-changed size, baseline or collapsed-margin output propagates normally; clipped
-internal overflow publishes on the boundary. Flex/grid ancestors, auto/percent
-boundary sizes, visible overflow, changed offers, exclusions, concurrent style
-or topology changes, and nested dirty boundaries take the normal root path.
+The kernel defers style, child-list and text invalidation to the next layout
+and then admits, as a boundary for each change, the nearest box at or above it
+(strictly above a restyled one) that clips both axes, is in flow, is not
+restyled or dirty, and has a replayable record, under no hidden ancestor and
+an unchanged definite viewport. Flex, grid, percentage and auto sizing need no
+rule of their own: the record says whether the ancestors asked. Every
+ordinary invalidation walks before any local one, so none stops at a box a
+local walk cleared. A changed size, collapsed-margin or baseline output
+propagates normally, except that a flex column's non-startmost item's
+baselines are unread (CSS Flexbox §8.5 and §9.4: the column aligns no item by
+baseline and takes its own from its startmost item). Clipped internal overflow
+publishes on the boundary. Exclusions, changed offers, a dirty root and
+nested boundaries take the normal root path. A virtualized list (`flex: 1`,
+`min-height: 0`, `width: 100%` under a column) is such a boundary for its
+window changes, row measurement, inserts and removes.
 
 Kernel publication follows sparse ancestor paths in document order and descends
 where absolute origins move. Per-root publication generations expire old geometry
@@ -330,7 +349,14 @@ conservative traversal.
 Regressions in `kernel::locality_tests` compare all frames and overflow bitwise
 with a fresh engine, assert one measure and three publication visits among 100
 and 2,000 unrelated siblings, and exercise negative dependencies, mixed dirty
-sources, changed viewports and reparenting. Apple layout tests cover silent
+sources, changed viewports and reparenting. `layout::containment_tests` holds
+the list shape local and its coupled cases (first item, content-sized, header,
+restyled) at the root; `layout_equality`'s random trees gain clipping boxes and
+a list-shaped differential of clipping panes, each round compared with a
+rehydrated and a replayed kernel, frames and scroll extents. Over 1,500 seeds
+of both (about 14,000 contained replays) this patch adds no divergence: the
+four seeds that differ also differ on the prior tip (the one examined: a
+cache key that omits `vertical_margins_are_collapsible`, QUEUE.md). Apple layout tests cover silent
 settlement and inherited spelling hints on unmoved editors. Existing layout,
 reader, exclusion, region and upstream differential expectations are unchanged.
 
