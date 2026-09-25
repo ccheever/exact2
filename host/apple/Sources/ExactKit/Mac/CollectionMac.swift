@@ -14,6 +14,9 @@ final class KnobDrag {
 
     private(set) var tracking = false
     private var shown: NSPoint?
+    /// The reader saw the document's end: rows measured since can lengthen
+    /// the document, and the end is still what they were reading.
+    private var shownAtEnd = false
     private weak var scroll: NSScrollView?
     private var observers: [NSObjectProtocol] = []
     var currentEventType: () -> NSEvent.EventType? = { NSApp.currentEvent?.type }
@@ -40,12 +43,15 @@ final class KnobDrag {
     /// Whether the clip view's new offset is one the reader sees. During a
     /// knob drag, the mouse-up's own derivation is not, unless it reaches an
     /// end of the document: a knob held at the end of its track means the end.
-    func admits(_ clip: NSClipView) -> Bool {
+    /// A collection's anchor correction moves what is shown but not where the
+    /// reader is: after one, a reader at the end is still at the end.
+    func admits(_ clip: NSClipView, correcting: Bool = false) -> Bool {
         guard tracking else { return true }
         let maximum = max(0, (clip.documentView?.frame.height ?? 0) - clip.bounds.height)
         let edge = clip.bounds.minY <= 0.5 || clip.bounds.minY >= maximum - 0.5
         if currentEventType() == .leftMouseUp, !edge { return false }
         shown = clip.bounds.origin
+        if !correcting { shownAtEnd = maximum > 0 && clip.bounds.minY >= maximum - 0.5 }
         return true
     }
     func ended() {
@@ -55,7 +61,7 @@ final class KnobDrag {
         shown = nil
         let clip = scroll.contentView
         let maximum = max(0, document.frame.height - clip.bounds.height)
-        let target = NSPoint(x: clip.bounds.minX, y: min(maximum, max(0, seen.y)))
+        let target = NSPoint(x: clip.bounds.minX, y: shownAtEnd ? maximum : min(maximum, max(0, seen.y)))
         guard clip.bounds.origin != target else { return }
         clip.scroll(to: target)
         scroll.reflectScrolledClipView(clip)

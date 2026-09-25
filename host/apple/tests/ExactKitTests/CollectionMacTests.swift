@@ -244,6 +244,22 @@ final class CollectionMacTests: XCTestCase {
         clip.scroll(to: NSPoint(x: 0, y: end))
         drag.ended()
         XCTAssertEqual(clip.bounds.minY, end, "a release at the end stays at the end")
+        // The reader reached the end during the drag; rows measured before the
+        // release lengthen the document. The release goes to the new end.
+        drag.currentEventType = { .leftMouseDown }
+        drag.began()
+        drag.currentEventType = { .leftMouseDragged }
+        clip.scroll(to: NSPoint(x: 0, y: end))
+        let document = try XCTUnwrap(scroll.documentView)
+        document.setFrameSize(NSSize(width: document.frame.width, height: document.frame.height + 600))
+        // The collection's anchor correction keeps the rows in place meanwhile.
+        p.collections.correcting = true
+        clip.scroll(to: NSPoint(x: 0, y: end + 40))
+        p.collections.correcting = false
+        drag.currentEventType = { .leftMouseUp }
+        clip.scroll(to: NSPoint(x: 0, y: end + 300))
+        drag.ended()
+        XCTAssertEqual(clip.bounds.minY, document.frame.height - clip.bounds.height, "the end the reader saw stays the end")
     }
 
     func testNestedCollectionsOwnOnlyNearestPinsAndReleaseBeforeTransfer() throws {
