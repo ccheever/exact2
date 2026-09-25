@@ -975,7 +975,11 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         let y = pendingScrollTop.map { CGFloat($0) == sv.contentOffset.y ? sv.contentOffset.y : min(max(CGFloat($0), -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height)) } ?? sv.contentOffset.y
         let x = pendingScrollLeft.map { CGFloat($0) == sv.contentOffset.x ? sv.contentOffset.x : min(max(CGFloat($0), -i.left), max(-i.left, sv.contentSize.width + i.right - sv.bounds.width)) } ?? sv.contentOffset.x
         let target = CGPoint(x: x, y: y)
-        if sv.contentOffset != target { sv.setContentOffset(target, animated: false) }
+        // `scroll-behavior: smooth` (CSS) animates a prop write, never a
+        // reader's own scroll. Under the agent's frozen clock it lands at once
+        // (as a modal presents, LLP 1035.003 D5), so `layout` reads the target.
+        let smooth = style["scroll_behavior"]?.string == "smooth" && !ExactEnv.agentFreezes
+        if sv.contentOffset != target { sv.setContentOffset(target, animated: smooth) }
     }
     var materialView: UIVisualEffectView? {
         didSet {

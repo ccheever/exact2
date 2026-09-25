@@ -801,7 +801,12 @@ function apply(batch) {
   for (const s of followedScrolls.values()) settleFollow(s);
   for (const [el, offsets] of pendingScrolls) if (el.isConnected) {
     // Mirroring the current offset must not restart snapping or cancel a pan.
-    for (const [name, offset] of Object.entries(offsets)) if (el[name] !== offset) el[name] = offset;
+    // `scroll-behavior: smooth` (the row's CSS) animates the assignment itself (CSSOM View §7),
+    // once; the agent's clock cannot seek that animation, so under it the scroll lands at once.
+    for (const [name, offset] of Object.entries(offsets)) if (el[name] !== offset) {
+      if (agentMode && el.style.scrollBehavior === "smooth") el.scrollTo({ [name === "scrollTop" ? "top" : "left"]: offset, behavior: "instant" });
+      else el[name] = offset;
+    }
     const s = followedScrolls.get(el); if (s) rememberScroll(s);
   }
   pendingScrolls.clear();

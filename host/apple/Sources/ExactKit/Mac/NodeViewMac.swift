@@ -982,7 +982,14 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let y = pendingScrollTop.map { CGFloat($0) == sv.contentView.bounds.minY ? sv.contentView.bounds.minY : min(max(CGFloat($0), 0), max(0, doc.bounds.height - sv.contentView.bounds.height)) } ?? sv.contentView.bounds.minY
         let x = pendingScrollLeft.map { CGFloat($0) == sv.contentView.bounds.minX ? sv.contentView.bounds.minX : min(max(CGFloat($0), 0), max(0, doc.bounds.width - sv.contentView.bounds.width)) } ?? sv.contentView.bounds.minX
         let target = NSPoint(x: x, y: y)
-        if sv.contentView.bounds.origin != target {
+        guard sv.contentView.bounds.origin != target else { return }
+        // `scroll-behavior: smooth` (CSS) animates a prop write, never a
+        // reader's own scroll. Under the agent's frozen clock it lands at once,
+        // so `layout` reads the target.
+        if style["scroll_behavior"]?.string == "smooth" && !ExactEnv.agentFreezes {
+            NSAnimationContext.runAnimationGroup({ _ in sv.contentView.animator().setBoundsOrigin(target) },
+                                                 completionHandler: { sv.reflectScrolledClipView(sv.contentView) })
+        } else {
             sv.contentView.scroll(to: target)
             sv.reflectScrolledClipView(sv.contentView)
         }
