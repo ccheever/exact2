@@ -774,29 +774,47 @@ fn as_dictionary(response: &mut Response, request: &Request) {
     }
 }
 
-/// Whether the request's `If-None-Match` names the response's ETag.
-fn held(response: &Response, request: &Request) -> bool {
-    response.headers.iter().any(|(name, value)| {
-        *name == "ETag" && encode::none_match(request.if_none_match.as_deref(), value)
-    })
-}
-
 /// A kept page as `finish` sends it, or as its best variant once that is
 /// made, whose 304 is decided here: `finish` leaves a response with its
 /// `Vary` as it is.
 fn plain(mut response: Response, best: Option<&encode::Best>, request: &Request) -> Response {
+    if let Some(tag) = held_tag(&response, request) {
+        return not_modified(response, tag);
+    }
     as_dictionary(&mut response, request);
     if let Some((encoding, body)) = best.and_then(|best| best.pick(request.accepts)) {
         response.headers.push(("Vary", "Accept-Encoding".into()));
         encoded(&mut response, encoding.name(), body.to_vec());
-        if held(&response, request) {
-            response.status = 304;
+    }
+    response
+}
+
+/// Of a kept page's encodings' tags, the one the request holds. They all
+/// decode to the same bytes, so a client holding any has the page: a
+/// browser back with a dictionary still gets its 304.
+fn held_tag(response: &Response, request: &Request) -> Option<String> {
+    let (_, tag) = response.headers.iter().find(|(name, _)| *name == "ETag")?;
+    let tag = tag.trim_end_matches('"');
+    ["", "-br", "-gzip", "-dcb"]
+        .into_iter()
+        .map(|coding| format!("{tag}{coding}\""))
+        .find(|held| encode::none_match(request.if_none_match.as_deref(), held))
+}
+
+/// A 304 for a kept page the client holds as `tag`, which it keeps.
+fn not_modified(mut response: Response, tag: String) -> Response {
+    let vary = if tag.ends_with("-dcb\"") {
+        "Accept-Encoding, Available-Dictionary"
+    } else {
+        "Accept-Encoding"
+    };
+    for (name, value) in &mut response.headers {
+        if *name == "ETag" {
+            value.clone_from(&tag);
         }
-        return response;
     }
-    if identity(&response, request) {
-        response.status = 304;
-    }
+    response.headers.push(("Vary", vary.into()));
+    response.status = 304;
     response
 }
 
@@ -812,14 +830,14 @@ fn identity(response: &Response, request: &Request) -> bool {
 /// A kept page as `dcb` against the dictionary its request named, with its
 /// own ETag and a `Vary` that names the dictionary.
 fn dictionary_compressed(mut response: Response, body: Vec<u8>, request: &Request) -> Response {
+    if let Some(tag) = held_tag(&response, request) {
+        return not_modified(response, tag);
+    }
     response
         .headers
         .push(("Vary", "Accept-Encoding, Available-Dictionary".into()));
     encoded(&mut response, "dcb", body);
     as_dictionary(&mut response, request);
-    if held(&response, request) {
-        response.status = 304;
-    }
     response
 }
 

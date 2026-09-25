@@ -756,6 +756,14 @@ fn a_kept_page_goes_against_a_dictionary_the_browser_holds() {
     let etag = header(&ask("").1, "etag").unwrap().to_string();
     let (status, _, body) = ask(&format!("If-None-Match: {etag}\r\n"));
     assert_eq!((status, body.len()), (304, 0));
+    // So does the tag of the page as brotli, which a browser coming back holds
+    // when it now asks with a dictionary: every encoding decodes to the page.
+    let (_, headers, _) = fetch_bytes(addr, "GET /post/8 HTTP/1.1\r\nAccept-Encoding: br\r\n\r\n");
+    let br = header(&headers, "etag").unwrap().to_string();
+    assert!(br.ends_with("-br\""), "{br}");
+    let (status, headers, body) = ask(&format!("If-None-Match: {br}\r\n"));
+    assert_eq!((status, body.len()), (304, 0));
+    assert_eq!(header(&headers, "etag"), Some(br.as_str()));
     // A hash this server doesn't keep falls back to brotli.
     let unknown = exact_data::envelope::base64(&[0u8; 32]);
     let (_, headers, _) = fetch_bytes(
