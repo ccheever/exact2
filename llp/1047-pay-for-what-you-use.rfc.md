@@ -872,6 +872,14 @@ bytes; 9 ms finishing its compilation; 251 ms from instantiation to the
 replayed press, `exact_boot` about 143 of it; 210 ms for the press, 150 of them
 the API.
 
+**Tags are links, 2026-09-24.** RealWorld's tag is a link to its own rendered
+route (`/tag/:tag`, `render=cached`), as React's is, so before the runtime is
+up a tap loads that page. At `6b686d1b` (nine runs, load 13–14) a tap at
+`load` shows the python feed 356 ms later, at 1,176 ms; the button took
+1,334, with the feed at 2,142, and React takes 220, with it at 1,480. After a
+3-second read the tap takes 267 ms, not 227: the new route rebuilds the
+page's ~150 views.
+
 ### As built: the core diet (the diet lane)
 
 Each change reads what std read and prints what core printed, bit for bit

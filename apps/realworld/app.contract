@@ -10,6 +10,7 @@ routes nav
     settings "/settings"
     editor "/editor"
     edit "/editor/:slug"
+    tag "/tag/:tag" render=cached
     article "/article/:slug" render=cached
     profile "/profile/:username" render=cached
     favorites "/profile/:username/favorites" render=cached
@@ -104,9 +105,8 @@ component RealWorld
   derive current = top(nav)
   derive slug = ((current.name == "article" or current.name == "edit") ? current.params.slug: "")
   derive listName = ((current.name == "profile" or current.name == "favorites") ? current.params.username: "")
-  derive listKind = (current.name == "home" ? homeFeed: current.name == "profile" ? "author": current.name == "favorites" ? "favorited": "")
+  derive listKind = (current.name == "home" ? homeFeed: current.name == "tag" ? "tag": current.name == "profile" ? "author": current.name == "favorites" ? "favorited": "")
   state homeFeed = "global"
-  state homeTag = ""
   state page = 1
   state seenAuth = 0
   state seenChange = 0
@@ -124,8 +124,8 @@ component RealWorld
   derive changeSlug = match change { case some(c) => c.slug, case none => "" }
   derive editorTags = match tagEdit { case some(t) => (t.session == editorSession ? t.items: post.tags), case none => post.tags }
   resource me = currentUser(authStamp) as shape User else anonymous()
-  resource tags = popularTags(current.name == "home") as shape list<string>
-  resource feed = articles(listKind, homeTag, listName, page, me.username, changeStamp) as shape Feed else emptyFeed()
+  resource tags = popularTags(current.name == "home" or current.name == "tag") as shape list<string>
+  resource feed = articles(listKind, current.params.tag, listName, page, me.username, changeStamp) as shape Feed else emptyFeed()
   resource post = article(slug, me.username, changeStamp) as shape Article else emptyArticle()
   resource thread = comments(slug, me.username, changeStamp) as shape list<Comment>
   resource person = profile(listName, me.username, changeStamp) as shape Profile else emptyProfile()
@@ -142,12 +142,10 @@ component RealWorld
   action followLink(url: string) writes nav, page
     page = 1
     nav = go(nav, url)
-  action showFeed(kind: string) writes homeFeed, page
+  // A tag's feed is its own route (`/tag/:tag`), so a tag is a link; the
+  // feed tabs choose the home page's feed and leave a tag's page for it.
+  action showFeed(kind: string) writes homeFeed, page, nav
     homeFeed = kind
-    page = 1
-  action showTag(t: string) writes homeFeed, homeTag, page, nav
-    homeFeed = "tag"
-    homeTag = t
     page = 1
     if current.name != "home"
       nav = push(nav, "/")
@@ -229,7 +227,7 @@ component RealWorld
       each e in stack(nav) key = e.id
         when e.id == current.id
           column navigationKey=`${e.id}` flex=1 testId=`page-${e.name}`
-            when e.name == "home"
+            when e.name == "home" or e.name == "tag"
               head title="Home — Conduit"
               HomePage(
                 me=me,
@@ -238,11 +236,10 @@ component RealWorld
                 tags=tags,
                 tagsLoading=pending(tags),
                 homeFeed=homeFeed,
-                homeTag=homeTag,
+                tag=e.params.tag,
                 page=page,
                 go=go,
                 showFeed=showFeed,
-                showTag=showTag,
                 showPage=showPage,
                 favorite=favorite
               )
@@ -276,7 +273,6 @@ component RealWorld
                 loading=pending(post),
                 thread=thread,
                 go=go,
-                showTag=showTag,
                 favorite=favorite,
                 follow=follow,
                 remove=deleteArticle,
@@ -295,7 +291,6 @@ component RealWorld
                 favorites=(e.name == "favorites"),
                 page=page,
                 go=go,
-                showTag=showTag,
                 showPage=showPage,
                 favorite=favorite,
                 follow=follow
@@ -398,7 +393,6 @@ component Previews
     loading: bool
     page: number
     go: action
-    showTag: action
     showPage: action
     favorite: action
   view
@@ -448,7 +442,7 @@ component Previews
               text "Read more..."
             row flex-wrap="wrap" justify-content="flex-end" max-width="50%"
               each t in a.tags key = t
-                button press=showTag(t)
+                link href=`/tag/${encodeURIComponent(t)}` press=go(`/tag/${encodeURIComponent(t)}`)
                   class=Tag
                   color="#aaaaaa"
                   font-weight=300
@@ -479,11 +473,10 @@ component HomePage
     tags: list<string>
     tagsLoading: bool
     homeFeed: string
-    homeTag: string
+    tag: string
     page: number
     go: action
     showFeed: action
-    showTag: action
     showPage: action
     favorite: action
   view
@@ -507,8 +500,8 @@ component HomePage
                 padding-right=16
                 border-bottom-style="solid"
                 border-bottom-width=2
-                border-color=(homeFeed == "feed" ? "#33aa44": "#ffffff")
-                color=(homeFeed == "feed" ? "#33aa44": "#aaaaaa")
+                border-color=((tag == "" and homeFeed == "feed") ? "#33aa44": "#ffffff")
+                color=((tag == "" and homeFeed == "feed") ? "#33aa44": "#aaaaaa")
                 background-color="#ffffff"
                 testId="tab-feed"
                 text "Your Feed"
@@ -519,12 +512,12 @@ component HomePage
               padding-right=16
               border-bottom-style="solid"
               border-bottom-width=2
-              border-color=(homeFeed == "global" ? "#33aa44": "#ffffff")
-              color=(homeFeed == "global" ? "#33aa44": "#aaaaaa")
+              border-color=((tag == "" and homeFeed == "global") ? "#33aa44": "#ffffff")
+              color=((tag == "" and homeFeed == "global") ? "#33aa44": "#aaaaaa")
               background-color="#ffffff"
               testId="tab-global"
               text "Global Feed"
-            when homeFeed == "tag"
+            when tag != ""
               button padding-top=8
                 padding-bottom=8
                 padding-left=16
@@ -535,13 +528,12 @@ component HomePage
                 color="#33aa44"
                 background-color="#ffffff"
                 testId="tab-tag"
-                text `# ${homeTag}`
+                text `# ${tag}`
           Previews(
             feed=feed,
             loading=loading,
             page=page,
             go=go,
-            showTag=showTag,
             showPage=showPage,
             favorite=favorite
           )
@@ -556,7 +548,7 @@ component HomePage
               text "Loading tags..." color="#999999"
             row flex-wrap="wrap"
               each t in tags key = t
-                button press=showTag(t)
+                link href=`/tag/${encodeURIComponent(t)}` press=go(`/tag/${encodeURIComponent(t)}`)
                   class=Tag
                   color="#222222"
                   background-color="#ffffff"
@@ -867,7 +859,6 @@ component ArticlePage
     loading: bool
     thread: list<Comment>
     go: action
-    showTag: action
     favorite: action
     follow: action
     remove: action
@@ -907,7 +898,7 @@ component ArticlePage
               testId="article-body"
             row flex-wrap="wrap" margin-top=16
               each t in post.tags key = t
-                button press=showTag(t)
+                link href=`/tag/${encodeURIComponent(t)}` press=go(`/tag/${encodeURIComponent(t)}`)
                   class=Tag
                   color="#aaaaaa"
                   font-weight=300
@@ -1024,7 +1015,6 @@ component ProfilePage
     favorites: bool
     page: number
     go: action
-    showTag: action
     showPage: action
     favorite: action
     follow: action
@@ -1104,7 +1094,6 @@ component ProfilePage
           loading=loading,
           page=page,
           go=go,
-          showTag=showTag,
           showPage=showPage,
           favorite=favorite
         )
