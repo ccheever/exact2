@@ -1,6 +1,6 @@
 # iOS node views all draw, so every view carries a bitmap and a collection's spacers ask for gigabytes
 
-**Status:** Open
+**Status:** Fixed in 0e047888
 **Systems:** Apple host (iOS `NodeView`), Scrolling (the collection's spacers, LLP 1010 §6.5)
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -44,3 +44,23 @@ One way is for `NodeView` to implement `display(_ layer:)`. UIKit then does not 
 - A row box with a background and radius has no bitmap.
 - CoreAnimation memory at the same scroll position falls to within a few MB of the row count's real paint.
 - Agent screenshots, the web parity corpus and the iOS XCTests are unchanged.
+
+## Fixed
+
+0e047888 makes `NodeLayer.display` decide (`host/apple/Sources/ExactKit/IOS/BoxLayerIOS.swift`). A box whose paint Core Animation can express goes on the layer: `backgroundColor`, one `cornerRadius` over `maskedCorners` (after CSS's radius reduction), and a uniform border. The border is a sublayer under the children, or the layer's own when they are clipped, scrolled or painted through a surface. Everything else still runs `draw(_:)` unchanged: borders or colours that differ by side, radii that differ by corner, images, paragraphs without a raster, and capture pictures. A node with nothing to draw has `contents == nil`.
+
+Measured with the listbench copy and the probe on this Mac's iPhone 17 simulator, at a third of the list, before and after on the same build otherwise:
+
+| | before | after |
+|---|---|---|
+| CoreAnimation (`footprint`) | 24 MB | 9.8 MB |
+| Total footprint | 81 MB | 67 MB |
+| Node views under the list with `contents` | 181 of 219 | 0 of 219 |
+| Layers with `contents` | 214 | 33 (the text rasters) |
+| `Ignoring bogus layer size` logs | 3 | 0 |
+| Whole-window `renderInContext` | 22.1 ms | 1.0 ms |
+
+Both spacers (402 × 432,880 pt and 402 × 865,678 pt) and every row box now have no bitmap.
+
+The iOS XCTests (8, including `BoxLayerIOSTests`), the macOS Swift tests (386), the five checks and `smoke.mjs ios` pass. Agent screenshots of Caltrain, Interaction Gallery, Messages and Messages stress match except for antialiasing on curved edges. One difference is deliberate: an `overflow: hidden` rounded box now clips its children round, as the web does (Interaction Gallery's photo cards). Before, it clipped them square.
+
