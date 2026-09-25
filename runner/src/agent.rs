@@ -78,7 +78,8 @@ pub fn error(message: &str) -> String {
 }
 
 /// The tree: every live node in preorder — id, parent, depth, type, props by
-/// their schema names, the events it handles, its children — plus the
+/// their schema names, the events it handles, `inactive` when it is under a
+/// route its navigation root has not selected, its children — plus the
 /// kernel's epoch and incarnation (the consistency token: nothing moves
 /// between two calls unless the agent moved it).
 fn tree_request<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
@@ -119,9 +120,18 @@ fn tree_request<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     let found = if let Some(id) = id {
         locate(id as u32)
     } else {
-        kernel
-            .find_first_by_test_id(name.as_deref().unwrap())
-            .and_then(|key| locate(kernel.node_by_key(key)?.id))
+        // The first match in preorder on a selected route; a covered
+        // screen's copy only when no active one carries the testId.
+        let located: Vec<_> = kernel
+            .find_by_test_id(name.as_deref().unwrap())
+            .into_iter()
+            .filter_map(|key| locate(kernel.node_by_key(key)?.id))
+            .collect();
+        located
+            .iter()
+            .copied()
+            .find(|(id, _)| !runner.inactive(*id))
+            .or_else(|| located.first().copied())
     };
     let Some((root, depth)) = found else {
         return error(&format!(
@@ -198,7 +208,11 @@ fn tree_rows<D: DataSource>(
             }
             quote(e.name(), &mut s);
         }
-        s.push_str("],\"children\":");
+        s.push(']');
+        if runner.inactive(node.id) {
+            s.push_str(",\"inactive\":true");
+        }
+        s.push_str(",\"children\":");
         ids(&node.children(), &mut s);
         s.push('}');
     }

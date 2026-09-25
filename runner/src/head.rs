@@ -8,10 +8,12 @@
 //! has not selected is inactive — the selection the web host's projection
 //! hides and makes inert (`navigation.project`), so a covered route's title
 //! is never the page's. Every host asks the runner, so the page's `<head>`,
-//! a window's title and the agent's `state` agree.
+//! a window's title and the agent's `state` agree. The agent's `tree` reads
+//! the same selection ([`Runner::inactive`]): a testId on a covered screen
+//! is flagged, and resolves only when no active screen carries it.
 
 use crate::{DataSource, Runner};
-use exact_kernel::{NodeType, PropId, PropValue, ViewId};
+use exact_kernel::{Kernel, NodeRef, NodeType, PropId, PropValue, ViewId};
 
 /// The active head's fields; `None` where no active head sets one.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -86,30 +88,11 @@ impl<D: DataSource> Runner<D> {
                 }
                 continue;
             }
-            let children = node.children();
-            // A navigation root's selected route, when its key names one; a
-            // key that names none leaves every route as it is.
-            let selected = node
-                .props
-                .str(PropId::NavigationBack)
-                .and(node.props.str(PropId::NavigationKey))
-                .filter(|key| {
-                    children.iter().any(|c| {
-                        kernel
-                            .node(*c)
-                            .is_some_and(|c| c.props.str(PropId::NavigationKey) == Some(key))
-                    })
-                });
-            for child in children.into_iter().rev() {
-                if let Some(key) = selected {
-                    let route = kernel
-                        .node(child)
-                        .and_then(|c| c.props.str(PropId::NavigationKey));
-                    if route.is_some_and(|route| route != key) {
-                        continue;
-                    }
+            let selected = selected_route(kernel, &node);
+            for child in node.children().into_iter().rev() {
+                if !covered(kernel, selected, child) {
+                    stack.push((child, depth + 1));
                 }
-                stack.push((child, depth + 1));
             }
         }
         let [title, description, image, canonical, robots] =
@@ -123,4 +106,50 @@ impl<D: DataSource> Runner<D> {
             status: status.map(|(_, code)| code),
         }
     }
+
+    /// Whether `id` lies under a route its navigation root has not selected:
+    /// a screen a stack keeps mounted under its top, which every host hides
+    /// and makes inert, so nothing there is pressed or read.
+    pub fn inactive(&self, id: ViewId) -> bool {
+        let kernel = self.kernel();
+        let mut child = id;
+        let mut parent = kernel.node(id).and_then(|node| node.parent);
+        while let Some(node) = parent.and_then(|id| kernel.node(id)) {
+            if covered(kernel, selected_route(kernel, &node), child) {
+                return true;
+            }
+            child = node.id;
+            parent = node.parent;
+        }
+        false
+    }
+}
+
+/// A navigation root's selected route, when its key names one of its
+/// routes; `None` for any other node — a key that names none leaves every
+/// route as it is.
+fn selected_route<'a>(kernel: &'a Kernel, node: &NodeRef<'a>) -> Option<&'a str> {
+    let key = node
+        .props
+        .str(PropId::NavigationBack)
+        .and(node.props.str(PropId::NavigationKey))?;
+    node.children()
+        .into_iter()
+        .any(|c| {
+            kernel
+                .node(c)
+                .is_some_and(|c| c.props.str(PropId::NavigationKey) == Some(key))
+        })
+        .then_some(key)
+}
+
+/// Whether `child`, under a root that selected `selected`, is a route that
+/// root has not selected.
+fn covered(kernel: &Kernel, selected: Option<&str>, child: ViewId) -> bool {
+    selected.is_some_and(|key| {
+        kernel
+            .node(child)
+            .and_then(|c| c.props.str(PropId::NavigationKey))
+            .is_some_and(|route| route != key)
+    })
 }
