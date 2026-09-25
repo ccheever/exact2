@@ -2,14 +2,28 @@
 // (LLP 1017 P6) — the web's class list without the cascade. A node's own
 // attribute replaces the style's for the same name; two bindings for one
 // row resolve to the last, so `padding=4` beats the style's `padding=16`.
+// `class=(cond ? A : B)` chooses between two styles by state: a row either
+// sets follows the choice, and one only Active sets (`padding`) is the
+// kernel's default while Idle is chosen.
 style Card
   border-radius=16 padding=16 gap=10
   background-color="#ffffffd9"
 
+style Active
+  background-color="#0000ff" padding=12 opacity=1
+
+style Idle
+  background-color="#cccccc" opacity=0.5
+
 component Styles
+  state selected = false
+  action toggle writes selected
+    selected = not selected
   view
     column testId="root" gap=8
       column class=Card testId="card"
         text "in a card"
       column class=Card padding=4 background-color="#000000" testId="tight"
         text "overridden"
+      button class=(selected ? Active : Idle) press=toggle testId="chip"
+        text "chip"

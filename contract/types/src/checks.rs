@@ -927,15 +927,29 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes, sink: &
 /// One element attribute's value.
 fn check_attr(a: &Attr, scope: &Scope, shapes: &Shapes) -> Result<(), TypeError> {
     if a.name == "class" {
-        // `class=Name` names a `style`, resolved at lowering.
-        if !matches!(a.value, Expr::Ident(..)) {
-            return err(
+        // `class=Name` names a `style`, resolved at lowering; `class=(cond ?
+        // A : B)` chooses between two, and only its condition is typed here.
+        return match &a.value {
+            Expr::Ident(..) => Ok(()),
+            Expr::Ternary(cond, yes, no, _)
+                if matches!((&**yes, &**no), (Expr::Ident(..), Expr::Ident(..))) =>
+            {
+                let tc = infer(cond, scope, shapes)?;
+                if tc != Ty::Bool {
+                    return err(
+                        "type-condition",
+                        format!("a condition must be a bool, given `{tc}`"),
+                        cond.span(),
+                    );
+                }
+                Ok(())
+            }
+            _ => err(
                 "type-class-name",
-                "`class=` names a style declared with `style Name`",
+                "`class=` names a style declared with `style Name`, or chooses between two: `class=(cond ? A : B)`",
                 a.span,
-            );
-        }
-        return Ok(());
+            ),
+        };
     }
     if a.name == "surface" {
         // `surface=name(args)`: the name is the GPU module's,

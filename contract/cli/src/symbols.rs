@@ -694,6 +694,14 @@ impl<'a> Resolver<'a> {
             ("id" | "testId", Expr::Str(..)) => {}
             ("font-family", Expr::Str(name, span)) => self.refer("font", name, *span, None, None),
             ("class", Expr::Ident(name, span)) => self.refer("style", name, *span, None, None),
+            ("class", Expr::Ternary(cond, yes, no, _)) => {
+                self.expr(cond);
+                for side in [yes, no] {
+                    if let Expr::Ident(name, span) = &**side {
+                        self.refer("style", name, *span, None, None);
+                    }
+                }
+            }
             ("navigationBack" | "contextTarget" | "popovertarget", Expr::Str(id, span)) => {
                 self.graph.id(id, *span)
             }

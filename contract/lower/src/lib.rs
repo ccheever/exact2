@@ -19,6 +19,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+mod class;
 mod collection;
 pub mod expr;
 mod fonts;
@@ -690,39 +691,16 @@ impl<'a> Lowerer<'a> {
                 // Two layout refusals the compiler can make without measuring
                 // (LLP 1017 P1c; the measured ones are bake's). Conservative:
                 // only the case nothing on the path can bound is refused.
-                // `class=Name` expands its style's rows first; the node's own
+                // `class=` expands its style's rows first; the node's own
                 // attribute of the same name replaces the style's (LLP 1017 P6).
-                let mut expanded: Vec<Attr> = Vec::new();
-                let mut class_name = None;
-                if let Some(c) = attrs.iter().find(|a| a.name == "class") {
-                    let Expr::Ident(name, _) = &c.value else {
-                        return err(
-                            "lower-class-name",
-                            "`class=` names a style declared with `style Name`",
-                            c.span,
-                        );
-                    };
-                    let Some(style) = self.styles.get(name) else {
-                        return err(
-                            "lower-unknown-class",
-                            format!("`class={name}`: no `style {name}` in this file"),
-                            c.span,
-                        );
-                    };
-                    class_name = Some(name);
-                    expanded.extend(
-                        style
-                            .iter()
-                            .filter(|s| !attrs.iter().any(|a| a.name == s.name))
-                            .cloned(),
-                    );
-                }
-                let class_len = expanded.len();
-                let expanded = if class_name.is_some() {
-                    expanded.extend(attrs.iter().filter(|a| a.name != "class").cloned());
-                    expanded.as_slice()
-                } else {
-                    attrs.as_slice()
+                let (class_label, mut expanded) = self.class_rows(attrs)?.unzip();
+                let class_len = expanded.as_ref().map_or(0, Vec::len);
+                let expanded = match &mut expanded {
+                    Some(rows) => {
+                        rows.extend(attrs.iter().filter(|a| a.name != "class").cloned());
+                        rows.as_slice()
+                    }
+                    None => attrs.as_slice(),
                 };
                 // @ref LLP 1043.000 §3 D1 — dynamic positioning is checked by layout.
                 if let Some(wrap) = expanded.iter().find(|a| a.name == "wrap-flow") {
@@ -877,7 +855,7 @@ impl<'a> Lowerer<'a> {
                     }
                     if let Some(origins) = &mut origins {
                         let origin = if index < class_len {
-                            Origin::Class(class_name.expect("class attribute").clone())
+                            Origin::Class(class_label.clone().expect("class attribute"))
                         } else {
                             Origin::Own
                         };
