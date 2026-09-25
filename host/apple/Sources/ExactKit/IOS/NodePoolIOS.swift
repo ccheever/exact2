@@ -33,6 +33,8 @@
 // ring, editing, a pending focus; inline runs, flow shapes, a context
 // transform, a pending scroll; a view kept by a modal's retiring root; a
 // subtree node the batch does not destroy (it may be moving elsewhere).
+// While VoiceOver or Switch Control runs nothing parks: its cursor stays on
+// the element it was on, never on a view that is now another row.
 #if os(iOS)
 import UIKit
 
@@ -126,7 +128,8 @@ final class NodePool {
     /// `root` is being destroyed: park its views and answer true, or answer
     /// false and leave the destroy to the caller.
     func retire(_ root: NodeView) -> Bool {
-        guard depth == 1, count < Self.capacity, presenter.reorder == nil, list(holding: root) != nil,
+        guard depth == 1, count < Self.capacity, presenter.reorder == nil, !presenter.swipeActions.assistive,
+              list(holding: root) != nil,
               root.canvasAbove == nil, !presenter.modals.retainsRemovedView(root) else { return false }
         var views: [NodeView] = []
         guard let shape = shape(root, &views), (parked[shape]?.count ?? 0) < Self.perShape else { return false }
