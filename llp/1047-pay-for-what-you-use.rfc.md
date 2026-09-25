@@ -891,6 +891,22 @@ Two follow-ups, on the same bench (nine runs, loads 13–20):
 What's left at load is a document's round trip and its transfer, against
 React's API answer.
 
+Round 3, on the same bench (nine runs, loads 8–12):
+- **The shell's style is minified** (`2a341b98`). The feed text now needs
+  ~2.8 KB of the document, not ~4.0.
+- **The feed tabs are links** (`c241d954`).
+
+Results:
+- **Tag at `load`:** 249 ms against React's 232, with the feed at 1,083 ms
+  against 1,657.
+- **After a read:** 223 against 204.
+- **Global Feed at `load`, now a link:** 1,313 → 244 ms (React 215).
+- **A press that's still a button** (♥, signed out) takes 1,126 ms against
+  React's 54.
+
+With React's API over the throttled network (supplementary), its tag at
+`load` took 219 ms.
+
 ### As built: the core diet (the diet lane)
 
 Each change reads what std read and prints what core printed, bit for bit
