@@ -312,21 +312,27 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
 
 /// A `transition` row as CSS; `true` when a spring was left out.
 pub fn transition_css(t: &Transitions) -> (String, bool) {
-    let mut parts = Vec::new();
+    let mut text = String::new();
     let mut spring = false;
     for tr in &t.0 {
         match &tr.timing {
             TimingFunction::Spring(_) => spring = true,
-            TimingFunction::Easing(e) => parts.push(format!(
-                "{} {}s {} {}s",
-                transition_property(tr),
-                num(tr.duration as f32),
-                easing_css(e),
-                num(tr.delay as f32)
-            )),
+            TimingFunction::Easing(e) => {
+                if !text.is_empty() {
+                    text.push(',');
+                }
+                let _ = write!(
+                    text,
+                    "{} {}s {} {}s",
+                    transition_property(tr),
+                    num(tr.duration as f32),
+                    easing_css(e),
+                    num(tr.delay as f32)
+                );
+            }
         }
     }
-    (parts.join(","), spring)
+    (text, spring)
 }
 
 fn transition_property(tr: &Transition) -> &'static str {
@@ -360,18 +366,22 @@ pub fn easing_css(e: &Easing) -> String {
                 StepPosition::JumpBoth => "jump-both",
             }
         ),
-        Easing::PiecewiseLinear(stops) => format!(
-            "linear({})",
-            stops
-                .iter()
-                .map(|s| format!(
+        Easing::PiecewiseLinear(stops) => {
+            let mut text = String::from("linear(");
+            for (i, s) in stops.iter().enumerate() {
+                if i > 0 {
+                    text.push(',');
+                }
+                let _ = write!(
+                    text,
                     "{} {}%",
                     num(s.output as f32),
                     num((s.input * 100.0) as f32)
-                ))
-                .collect::<Vec<_>>()
-                .join(",")
-        ),
+                );
+            }
+            text.push(')');
+            text
+        }
     }
 }
 
@@ -501,5 +511,43 @@ mod flow_tests {
         assert!(css.contains("shape-margin:8px;"));
         assert!(css.contains("wrap-flow:both;"));
         assert!(skipped.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod writer_tests {
+    use super::*;
+
+    /// The writers before they wrote in place: joined parts.
+    fn transition_joined(t: &Transitions) -> (String, bool) {
+        let mut parts = Vec::new();
+        let mut spring = false;
+        for tr in &t.0 {
+            match &tr.timing {
+                TimingFunction::Spring(_) => spring = true,
+                TimingFunction::Easing(e) => parts.push(format!(
+                    "{} {}s {} {}s",
+                    transition_property(tr),
+                    num(tr.duration as f32),
+                    easing_css(e),
+                    num(tr.delay as f32)
+                )),
+            }
+        }
+        (parts.join(","), spring)
+    }
+
+    #[test]
+    fn transitions_and_linear_easings_write_what_joining_wrote() {
+        for text in [
+            "opacity 1s",
+            "opacity 250ms ease-in-out, all 0.5s cubic-bezier(0.4, 0, 0.2, 1) 100ms, translate spring(180, 12, 1)",
+            "opacity 1s steps(4, jump-both), height 200ms linear 50ms",
+            "opacity 1s linear(0, 0.2, 0.6 60%, 0.8, 1), translate 1s linear(0 0% 20%, 1 80% 100%)",
+            "translate spring(180, 12, 1)",
+        ] {
+            let t = Transitions::parse(text).unwrap();
+            assert_eq!(transition_css(&t), transition_joined(&t), "{text}");
+        }
     }
 }

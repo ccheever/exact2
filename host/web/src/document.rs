@@ -259,13 +259,16 @@ impl<D: DataSource> Walk<'_, D> {
         if let Some(kinds) = self.handlers.get(&id).filter(|kinds| !kinds.is_empty()) {
             attrs.push((
                 "data-exact-on".into(),
-                Some(
-                    kinds
-                        .iter()
-                        .map(|kind| kind.name())
-                        .collect::<Vec<_>>()
-                        .join(" "),
-                ),
+                Some({
+                    let mut names = String::new();
+                    for (i, kind) in kinds.iter().enumerate() {
+                        if i > 0 {
+                            names.push(' ');
+                        }
+                        names.push_str(kind.name());
+                    }
+                    names
+                }),
             ));
         }
         let hears = self.handlers.get(&id).is_some_and(|kinds| {

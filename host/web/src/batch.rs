@@ -527,7 +527,12 @@ impl Batch {
     /// that timer's due time).
     pub fn finish(self, timer_due_ms: Option<f64>, clock_ms: f64, error: Option<&str>) -> String {
         let mut s = String::from("{\"ops\":[");
-        s.push_str(&self.ops.join(","));
+        for (i, op) in self.ops.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            s.push_str(op);
+        }
         s.push(']');
         let timers = timer_due_ms.is_some();
         if let Some(due) = timer_due_ms {
