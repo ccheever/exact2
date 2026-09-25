@@ -658,6 +658,22 @@ fn check_inject_nodes(
     Ok(())
 }
 
+/// The commands a host answers (LLP 1005 §3): every name an action body may
+/// call. The web host's `command` op, the Apple session's queue, and the Linux
+/// presenter's `run_commands` match these by name; any other name would reach
+/// them and be refused there, silently to the author, so it is refused here.
+pub(super) const HOST_COMMANDS: &[&str] = &[
+    "blur",
+    "copyText",
+    "deliveryActivate",
+    "deliveryCheck",
+    "focus",
+    "format",
+    "openURL",
+    "selectText",
+    "setScheme",
+];
+
 /// Check an action body's statements through every branch (LLP 1017 P2).
 /// Check each statement, recording a refusal and moving on to the next.
 pub(super) fn check_stmts(
@@ -718,7 +734,22 @@ fn check_stmt(
                     }
                 }
             }
-            Stmt::Command { args, .. } => {
+            Stmt::Command { name, args, span } => {
+                if !HOST_COMMANDS.contains(&name.as_str()) {
+                    let message = match scope.lookup(name) {
+                        Some((Ref::Action(_), Ty::Action(_))) => format!(
+                            "`{name}` is an action, not a host command: an action is not callable from an action; put its statements here, or bind it to an element (`press={name}`)"
+                        ),
+                        Some((Ref::Prop(_), Ty::Action(_))) => format!(
+                            "`{name}` is an action prop, not a host command: an action is not callable from an action; bind it to an element (`press={name}`)"
+                        ),
+                        _ => format!(
+                            "`{name}` is not a host command; the hosts answer {}",
+                            HOST_COMMANDS.join(", ")
+                        ),
+                    };
+                    return err("type-unknown-command", message, *span);
+                }
                 for arg in args {
                     infer(arg, scope, shapes)?;
                 }
