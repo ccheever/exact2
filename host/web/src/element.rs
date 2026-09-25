@@ -284,6 +284,8 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
             PropId::Command => "command",
             PropId::AccessibilityChecked => "aria-checked",
             PropId::AccessibilitySelected => "aria-selected",
+            PropId::AccessibilityExpanded => "aria-expanded",
+            PropId::AccessibilityElementsHidden => "aria-hidden",
             other => {
                 // Every other prop rides as `data-<name>` so nothing is lost.
                 // Schema names are ASCII (`prop_names_are_ascii`), so ASCII

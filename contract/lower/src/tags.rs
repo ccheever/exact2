@@ -364,6 +364,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // @ref LLP 1039 D6 — vertical tablists retain authored layout.
         "aria-orientation" => AttrTarget::Prop(p("accessibilityOrientation")),
         "aria-selected" => AttrTarget::Prop(p("accessibilitySelected")),
+        "aria-expanded" => AttrTarget::Prop(p("accessibilityExpanded")),
+        "aria-hidden" => AttrTarget::Prop(p("accessibilityElementsHidden")),
         // style rows, by their CSS property names
         "white-space" => styles(&[StyleId::WhiteSpace]),
         "overflow-wrap" => styles(&[StyleId::OverflowWrap]),

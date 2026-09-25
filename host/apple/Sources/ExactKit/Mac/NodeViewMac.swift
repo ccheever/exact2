@@ -277,6 +277,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
         return false
     }
+    /// `aria-hidden` on this node or an ancestor: off the accessibility tree.
+    var accessibilityHiddenByProp: Bool {
+        sequence(first: self as NSView, next: { $0.superview }).contains { ($0 as? NodeView)?.props["accessibilityElementsHidden"] == "true" }
+    }
     var disabled: Bool { props["disabled"] == "true" }
     /// The pointer's tracking, for a `hover` handler (LLP 1005 §3).
     var tracking: NSTrackingArea?
@@ -439,6 +443,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             setAccessibilityElement(true)
             setAccessibilityRole(props["accessibilityRole"] == "link" ? .link : .button)
             setAccessibilitySelected(props["accessibilitySelected"] == "true")
+            if let expanded = props["accessibilityExpanded"] { setAccessibilityExpanded(expanded == "true") }
         } else if kind == "image" {
             let labelled = !(props["accessibilityLabel"] ?? "").isEmpty
             setAccessibilityElement(labelled)

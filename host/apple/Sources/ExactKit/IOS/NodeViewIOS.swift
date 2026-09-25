@@ -298,8 +298,12 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             if placementHidden && !oldValue { hiddenBeforePlacement = isHidden }
             if placementHidden { isHidden = true }
             else if oldValue { isHidden = hiddenBeforePlacement }
-            accessibilityElementsHidden = placementHidden || props["inert"] == "true"
+            accessibilityElementsHidden = hidesAccessibility
         }
+    }
+    /// Off the accessibility tree: projected away, inert, or `aria-hidden`.
+    private var hidesAccessibility: Bool {
+        placementHidden || props["inert"] == "true" || props["accessibilityElementsHidden"] == "true"
     }
     /// An image node's picture, once loaded (decoded off the main thread),
     /// the source it came from, and which load is current: a completion
@@ -1040,8 +1044,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             let ownInert = props["inert"] == "true"
             if ownInert { endEditing(true) }
             isUserInteractionEnabled = !ownInert
-            accessibilityElementsHidden = ownInert
         }
+        accessibilityElementsHidden = hidesAccessibility
         updateKeyboardDismissal()
         updateMaterial()
         applyTextArea()
@@ -1080,6 +1084,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             accessibilityTraits.insert(.button)
             if props["accessibilitySelected"] == "true" { accessibilityTraits.insert(.selected) }
             else { accessibilityTraits.remove(.selected) }
+            if #available(iOS 18, *) {
+                accessibilityExpandedStatus = props["accessibilityExpanded"].map { $0 == "true" ? .expanded : .collapsed } ?? .unsupported
+            }
         }
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
         if kind == "image", props["imageSource"] == nil, imageSource != nil { loadGeneration += 1; presenter?.session?.rasters.cancel(id); raster = nil; imageSource = nil; clearSymbol(); image = nil; presenter?.intrinsic(id, nil) }
