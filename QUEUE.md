@@ -1,5 +1,7 @@
 # Queue
 
+- **A served page's inline styles are most of its bytes** (2026-09-25, the links lane, LLP 1048.000, LLP 1047 §10). At 43d54245 RealWorld's `/tag/python` spends 4,445 raw bytes of inline `style` attributes before the feed text, and in all they are 60% of the page's raw bytes (18,803). Repeated declarations as shell classes would shorten what a link's next document sends before its content. It's a renderer change, and not for now (the coordinator, 2026-09-25).
+
 - **The render server closes every connection** (2026-09-25, the links lane, LLP 1048.000 D10). `serve.rs` answers each request with `Connection: close`. Under the bench's emulation that costs nothing (RealWorld's document replayed keep-alive took 242 ms from tap to feed, against 243 closed), but on a real network each request pays a TCP and TLS handshake when no CDN fronts the server. Keep-alive is worth doing before hosting without one.
 
 - **A link to the current location should replace, not push** (2026-09-25, the links lane, LLP 1038). The HTML standard replaces the entry for a same-URL navigation, and React Router's `Link` does too. RealWorld's feed tabs and Home add duplicate history entries today. The fix is the router's, not the app's.
