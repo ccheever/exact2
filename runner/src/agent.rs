@@ -725,23 +725,35 @@ pub fn untyped_json(v: &Value, out: &mut String) {
 }
 
 /// Format a finite number as JSON, or `null`, without a temporary string.
-pub fn num(n: f64) -> impl std::fmt::Display {
-    struct Number(f64);
-    impl std::fmt::Display for Number {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            let n = self.0;
-            if n.is_finite() {
-                if n == n.trunc() && n.abs() < 1e15 {
-                    write!(f, "{}", n as i64)
-                } else {
-                    write!(f, "{}", exact_num::Shortest(n))
-                }
-            } else {
-                f.write_str("null")
-            }
+pub fn num(n: f64) -> Num {
+    Num(n)
+}
+
+/// [`num`]'s number: a piece of `exact_num::text!` for the journal's lines,
+/// which skip `core::fmt`, and `Display` (the same text) for the agent's
+/// replies.
+pub struct Num(f64);
+
+impl std::fmt::Display for Num {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use exact_num::Piece;
+        let mut text = String::new();
+        self.push_to(&mut text);
+        f.write_str(&text)
+    }
+}
+
+impl exact_num::Piece for Num {
+    fn push_to(&self, out: &mut String) {
+        let n = self.0;
+        if !n.is_finite() {
+            out.push_str("null");
+        } else if n == n.trunc() && n.abs() < 1e15 {
+            (n as i64).push_to(out);
+        } else {
+            exact_num::Shortest(n).push_to(out);
         }
     }
-    Number(n)
 }
 
 /// A JSON string.

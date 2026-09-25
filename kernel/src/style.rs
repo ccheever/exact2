@@ -254,8 +254,8 @@ impl LineHeight {
     pub fn css(self) -> String {
         match self {
             Self::Normal => "normal".into(),
-            Self::Number(n) => exact_num::Shortest32(n).to_string(),
-            Self::Length(n) => format!("{}px", exact_num::Shortest32(n)),
+            Self::Number(n) => exact_num::text!("{}", exact_num::Shortest32(n)),
+            Self::Length(n) => exact_num::text!("{}px", exact_num::Shortest32(n)),
         }
     }
 }
@@ -1395,5 +1395,19 @@ mod finite_tests {
             refused += usize::from(s.check_finite().is_err());
         }
         assert!(refused > 500, "{refused} states with a non-finite row");
+    }
+
+    #[test]
+    fn line_height_css_is_the_text_format_wrote() {
+        let mut state = 0x2545_f491_4f6c_dd1du64;
+        let mut values = vec![0.0f32, 1.0, 1.5, 24.0, 0.1, 1e-7, 1e21, f32::MAX];
+        values.extend((0..5000).map(|_| (next(&mut state) % 100_000) as f32 / 100.0));
+        values.extend((0..5000).map(|_| f32::from_bits(next(&mut state) as u32 & 0x7fff_ffff)));
+        for n in values.into_iter().filter(|n| n.is_finite()) {
+            let shown = exact_num::Shortest32(n);
+            assert_eq!(LineHeight::Number(n).css(), shown.to_string());
+            assert_eq!(LineHeight::Length(n).css(), format!("{shown}px"));
+        }
+        assert_eq!(LineHeight::Normal.css(), "normal");
     }
 }

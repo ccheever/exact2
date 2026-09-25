@@ -19,6 +19,7 @@ mod source;
 pub use source::{DataError, DataSource, InFlight, Interrupt, Target};
 mod delivery;
 mod kept;
+mod lines;
 mod lists;
 pub mod router;
 pub use lists::{ListStatus, ListTextPosition, ListViewport};
@@ -719,12 +720,7 @@ impl<D: DataSource> Runner<D> {
         runner.tree = Some(tree);
         let receipt = runner.apply(ops)?;
         runner.surfaces = surfaces;
-        let line = format!(
-            "boot{}: {} nodes, epoch {}",
-            if carried.is_some() { " (carried)" } else { "" },
-            runner.kernel.live_count(),
-            receipt.epoch
-        );
+        let line = lines::boot(carried.is_some(), runner.kernel.live_count(), receipt.epoch);
         runner.log(line);
         if !note.is_empty() {
             runner.log(note);
@@ -737,8 +733,7 @@ impl<D: DataSource> Runner<D> {
     /// layout refusal) so one read sees everything in order.
     pub fn log(&mut self, line: impl Into<String>) {
         let line = line.into();
-        self.journal
-            .push_back(format!("t={} {line}", crate::agent::num(self.now_ms)));
+        self.journal.push_back(lines::stamped(self.now_ms, &line));
         if self.journal.len() > JOURNAL_RING {
             self.journal.pop_front();
             self.journal_start += 1;
@@ -777,12 +772,12 @@ impl<D: DataSource> Runner<D> {
         was_poisoned: bool,
     ) {
         let line = match result {
-            Ok(r) => format!(
-                "{what} → epoch {} (+{} −{} ~{})",
+            Ok(r) => lines::committed(
+                what,
                 r.epoch,
                 r.created.len(),
                 r.destroyed.len(),
-                r.touched.len()
+                r.touched.len(),
             ),
             Err(e) if self.poisoned && !was_poisoned => {
                 format!("{what} poisoned the runner: {e:?}")
@@ -1095,7 +1090,7 @@ impl<D: DataSource> Runner<D> {
                 .map_err(|error| RunnerError::Data { resource, error });
         }
         // @ref LLP 1038 D5 / §8 — distinguish asked sources from compiled boot values.
-        self.log(format!("query {resource}: {source}"));
+        self.log(lines::query(&resource, &source));
         self.data
             .answer_for(Target::Resource(i), &mut self.store, &source, args)
             .map_err(|error| RunnerError::Data { resource, error })

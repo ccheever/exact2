@@ -98,7 +98,8 @@ pub fn format_number(n: f64) -> String {
         let exponent: i32 = exponent.parse().expect("decimal exponent");
         format!("{mantissa}e{exponent:+}")
     } else {
-        exact_num::Shortest(n).to_string()
+        // Written without the formatter: an app's numbers are shown on boot.
+        exact_num::text!("{}", exact_num::Shortest(n))
     }
 }
 
@@ -144,6 +145,25 @@ mod tests {
                 Some(Value::str(expected)),
                 "{value}"
             );
+        }
+    }
+
+    #[test]
+    fn a_number_in_the_decimal_range_is_shortest_text() {
+        let mut state = 0x9e37_79b9_7f4a_7c15u64;
+        let mut next = || {
+            state ^= state >> 12;
+            state ^= state << 25;
+            state ^= state >> 27;
+            state.wrapping_mul(0x2545_f491_4f6c_dd1d)
+        };
+        let mut values = vec![1.0, -1.5, 0.1 + 0.2, 1e-6, 123_456.789, 9.999e20];
+        values.extend((0..10_000).map(|_| (next() % 10_000_000) as f64 / 1000.0));
+        values.extend((0..10_000).map(|_| f64::from_bits(next())));
+        for n in values {
+            if n != 0.0 && n.is_finite() && (1e-6..1e21).contains(&n.abs()) {
+                assert_eq!(format_number(n), exact_num::Shortest(n).to_string());
+            }
         }
     }
 

@@ -209,10 +209,9 @@ impl SurfaceUpdate {
     /// Host reserialization may reorder keys: transport bytes are never hash inputs.
     pub fn arguments_json(&self) -> String {
         fn value_json(value: &Value, out: &mut String) {
-            use std::fmt::Write;
             match value {
                 Value::Number(n) if n.is_finite() => {
-                    let _ = write!(out, "{}", exact_num::Shortest(*n));
+                    exact_num::push_text!(out, "{}", exact_num::Shortest(*n))
                 }
                 Value::Number(_) | Value::Unit | Value::Option(None) => out.push_str("null"),
                 Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
@@ -1150,12 +1149,12 @@ fn repeated(region: RegionsId, key: &Value, ident: &str) -> String {
 /// VM's equality), bools. NaN is not a key.
 fn key_text(v: &Value) -> Option<String> {
     match v {
-        Value::Str(s) => Some(format!("s:{s}")),
-        Value::Number(n) if n.is_finite() => Some(format!(
+        Value::Str(s) => Some(exact_num::text!("s:{}", s)),
+        Value::Number(n) if n.is_finite() => Some(exact_num::text!(
             "n:{}",
             exact_num::Shortest(if *n == 0.0 { 0.0 } else { *n })
         )),
-        Value::Bool(b) => Some(format!("b:{b}")),
+        Value::Bool(b) => Some(exact_num::text!("b:{}", b)),
         _ => None,
     }
 }

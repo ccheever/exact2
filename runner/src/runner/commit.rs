@@ -201,11 +201,9 @@ impl<D: DataSource> Runner<D> {
         }
         self.now_ms = now_ms;
         if !receipts.is_empty() {
-            let line = format!(
-                "advance → {} timer{} fired, epoch {}",
+            let line = super::lines::advanced(
                 receipts.len(),
-                if receipts.len() == 1 { "" } else { "s" },
-                receipts.last().map_or(0, |t| t.receipt.epoch)
+                receipts.last().map_or(0, |t| t.receipt.epoch),
             );
             self.log(line);
         }
@@ -239,10 +237,7 @@ impl<D: DataSource> Runner<D> {
         let writes = self.store.writes();
         let lines: Vec<String> = writes[since.min(writes.len())..]
             .iter()
-            .map(|w| match &w.value {
-                Some(_) => format!("store {}", w.name),
-                None => format!("forget {}", w.name),
-            })
+            .map(|w| super::lines::store_write(&w.name, w.value.is_some()))
             .collect();
         for line in lines {
             self.log(line);
@@ -470,7 +465,7 @@ impl<D: DataSource> Runner<D> {
         if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
             let t = self.pending.remove(pos).ticket;
             self.forgot = true;
-            self.log(format!("forget request {t} ({})", self.target_name(target)));
+            self.log(super::lines::forgot(t, &self.target_name(target)));
         }
         self.sync_pending_flags();
     }
@@ -488,19 +483,12 @@ impl<D: DataSource> Runner<D> {
         if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
             let t = self.pending.remove(pos).ticket;
             self.forgot = true;
-            self.log(format!("forget request {t} ({})", self.target_name(target)));
+            self.log(super::lines::forgot(t, &self.target_name(target)));
         }
         let ticket = self.next_ticket;
         self.next_ticket += 1;
         let name = self.target_name(target);
-        self.log(match request.continuation {
-            Some(token) => format!("continuation {ticket} ({name}): executor token {token}"),
-            None if request.storage.is_some() => format!("storage {ticket} ({name})"),
-            None => format!(
-                "request {ticket} ({name}): {} {}",
-                request.method, request.url
-            ),
-        });
+        self.log(super::lines::enqueued(ticket, &name, &request));
         self.pending.push(PendingReq {
             refusal: None,
             refused: false,
@@ -599,19 +587,14 @@ impl<D: DataSource> Runner<D> {
     ) -> Result<Option<CommitReceipt>, RunnerError> {
         let summary = outcome.summary();
         let Some(pos) = self.pending.iter().position(|p| p.ticket == ticket) else {
-            self.log(format!(
-                "reply {ticket} dropped: no such request in flight [{summary}]"
-            ));
+            self.log(super::lines::dropped(ticket, &summary));
             return Ok(None);
         };
         let was_poisoned = self.poisoned;
         let checkpoint = self.checkpoint(true);
         let p = self.pending.remove(pos);
         self.sync_pending_flags();
-        let what = format!(
-            "fulfil {ticket} ({}) [{summary}]",
-            self.target_name(p.target)
-        );
+        let what = super::lines::fulfilling(ticket, &self.target_name(p.target), &summary);
         let (refused, target) = (p.refused, p.target);
         let result = self.fulfill_inner(p, outcome);
         self.conclude(checkpoint, &result, was_poisoned);
@@ -647,7 +630,7 @@ impl<D: DataSource> Runner<D> {
                 // One more round (LLP 1027 D1a): the target keeps its value,
                 // a new ticket goes out for the same arguments, and this
                 // commit changes nothing but the pending set.
-                self.log(format!("{name}: the reply asks for one more request"));
+                self.log(super::lines::one_more(&name));
                 self.enqueue(p.target, p.source, p.args, request, false);
                 return self.update();
             }

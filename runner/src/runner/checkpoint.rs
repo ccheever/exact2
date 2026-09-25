@@ -155,10 +155,7 @@ impl<D: DataSource> Runner<D> {
             *seed = true;
         }
         let taken = seeded.iter().filter(|s| **s).count();
-        let note = format!(
-            "checkpoint: {taken} of {} answers taken",
-            checkpoint.answers.len()
-        );
+        let note = super::lines::seeded(taken, checkpoint.answers.len());
         (seeded, note)
     }
 

@@ -905,6 +905,7 @@ apps and the raw bytes):
 | kernel: generated style code converts once per codec, names by one table | two masked copies, per-row conversions, 26 string matches | −1,101 |
 | `bde196a1`–`6aa8cc15` | per-row finiteness copies, two sort instantiations, the store's generic constructor, joined boot-path text | −2,614 |
 | `629bb030` | Unicode case tables again (a merge lowered a failure's kind with `to_lowercase`; ASCII now) | −3,455 |
+| num: `text!` fills `{}` holes without `core::fmt` | `core::fmt` from boot, adoption and the press: the batch, CSS, the journal's lines, keys, the realm's call key, JSON numbers, the digests; a reply's missing value is made only when read | +447 (the split's primary −1,964) |
 
 The float printer needed list-engine lines, approved for exactly those:
 `window.rs`'s four `f64::clamp` calls (std's assertion message prints the
@@ -926,7 +927,7 @@ data stays in the primary: wasm-split moves functions only):
 | plan validation at load | 4.3 | 4.0 | Charlie's |
 | derived `Debug` (code, names, escape tables) | 8.9 | 3.8, nearly all data | left: 14 of its 42 sites put `{e:?}` in a batch's error text; its data leaves with the data split |
 | hash maps, `BTreeMap<u32, Value>` | 12.2 | 3.9 | declined (below) |
-| `core::fmt` on the boot path | — | 1.6 | direct writers; 0.8 of it is pinned by the list engine's `snapshots_json` |
+| `core::fmt` on the boot path | — | 1.6 | landed (above): 2.0 KB left the primary. `snapshots_json` never pinned it: its writes run only for a collection, and RealWorld's boot has none |
 | dlmalloc | 2.1 | 2.1 | left: another allocator changes memory behaviour |
 | JSON trees on the reply path | 1.4 | 1.6 (about 1 net) | left: under the 2 KB bar |
 | Unicode tables (markdown punctuation, `Debug` escapes) | — | 3.2 | leave with the data split |
@@ -940,4 +941,7 @@ move the goal. Feed shown by the activation lane's rule (1,700 ms at
 173.6 KB, 5 ms per KB, 6 ms without validation): the stable split 170.0 KB,
 1,682 ms; nightly flags 162.0 KB, 1,642 ms; and no validation 158.0 KB,
 1,616 ms; the data split on top 149.5 KB, 1,573 ms. Parity (~1,470 ms)
-needs 129–133 KB, which nothing sized here reaches.
+needs 129–133 KB, which nothing sized here reaches. With `core::fmt` off
+the boot path the stable split's primary is 168.0 KB (1,672 ms). The rule
+models a runtime press at load; since tags became links (`98958c9e`), a
+tag tapped at load loads its rendered page instead.

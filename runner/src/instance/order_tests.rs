@@ -1,6 +1,24 @@
-//! The region's ordering: the merge sort holds to core's stable sort.
+//! The region's keys and ordering: a key's text is what `format!` wrote,
+//! and the merge sort holds to core's stable sort.
 
-use super::stable_order;
+use super::{key_text, stable_order};
+use exact_plan::Value;
+
+#[test]
+fn a_key_is_the_text_format_wrote() {
+    for s in ["", "a", "é💬", "s:x"] {
+        assert_eq!(key_text(&Value::str(s)), Some(format!("s:{s}")));
+    }
+    for n in [0.0, -0.0, 1.0, -1.5, 0.1 + 0.2, 1e21, 1e-7, 123_456_789.0] {
+        let shown = if n == 0.0 { 0.0 } else { n };
+        assert_eq!(key_text(&Value::Number(n)), Some(format!("n:{shown}")));
+    }
+    for b in [false, true] {
+        assert_eq!(key_text(&Value::Bool(b)), Some(format!("b:{b}")));
+    }
+    assert_eq!(key_text(&Value::Number(f64::NAN)), None);
+    assert_eq!(key_text(&Value::Unit), None);
+}
 
 /// xorshift64*, deterministic.
 fn next(state: &mut u64) -> u64 {

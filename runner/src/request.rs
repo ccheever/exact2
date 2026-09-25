@@ -8,6 +8,7 @@
 //! does not decide — because the runner builds for wasm and depends on
 //! nothing; a host converts, one line each way.
 
+use exact_num::text;
 use exact_plan::Value;
 
 /// Maximum bytes in one portable host-work request or outcome.
@@ -278,7 +279,7 @@ impl Outcome {
     /// is still on the record (LLP 1016 D4).
     pub fn summary(&self) -> String {
         match self {
-            Outcome::Response(r) => format!("HTTP {}, {} bytes", r.status, r.body.len()),
+            Outcome::Response(r) => text!("HTTP {}, {} bytes", r.status, r.body.len()),
             Outcome::Failed { kind, message } => {
                 let cut = message
                     .char_indices()
@@ -290,9 +291,9 @@ impl Outcome {
                 let kind = format!("{kind:?}").to_ascii_lowercase();
                 format!("{kind}: {}{more}", &message[..cut])
             }
-            Outcome::Storage(bytes) => format!("storage, {} bytes", bytes.len()),
+            Outcome::Storage(bytes) => text!("storage, {} bytes", bytes.len()),
             Outcome::Surface(SurfaceOutcome::Captured(bytes)) => {
-                format!("surface captured, {} bytes", bytes.len())
+                text!("surface captured, {} bytes", bytes.len())
             }
             Outcome::Surface(SurfaceOutcome::Restored) => "surface restored".into(),
         }
@@ -421,6 +422,22 @@ pub struct RequestOut {
 #[cfg(test)]
 mod summary_tests {
     use super::*;
+
+    #[test]
+    fn a_summary_is_the_text_format_wrote() {
+        for (status, len) in [(200, 0), (404, 5), (u16::MAX, 70_000)] {
+            let outcome = Outcome::Response(Response {
+                status,
+                headers: vec![],
+                body: vec![0; len],
+            });
+            assert_eq!(outcome.summary(), format!("HTTP {status}, {len} bytes"));
+            let storage = Outcome::Storage(vec![1; len]);
+            assert_eq!(storage.summary(), format!("storage, {len} bytes"));
+            let captured = Outcome::Surface(SurfaceOutcome::Captured(vec![2; len]));
+            assert_eq!(captured.summary(), format!("surface captured, {len} bytes"));
+        }
+    }
 
     #[test]
     fn a_failure_summary_lowers_its_kind_as_unicode_would() {
