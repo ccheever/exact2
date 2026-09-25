@@ -30,15 +30,28 @@ final class KnobDrag {
             center.addObserver(forName: NSScrollView.willStartLiveScrollNotification, object: scroll, queue: nil) { [weak self] _ in self?.began() },
             center.addObserver(forName: NSScrollView.didEndLiveScrollNotification, object: scroll, queue: nil) { [weak self] _ in self?.ended() }
         ]
+        if let document = scroll.documentView {
+            document.postsFrameChangedNotifications = true
+            observers.append(center.addObserver(forName: NSView.frameDidChangeNotification, object: document, queue: nil) { [weak self] _ in self?.followEnd() })
+        }
         objc_setAssociatedObject(scroll, &Self.key, self, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
     }
     deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
 
+    /// The knob is held where the reader sees the document's end.
+    var holdsEnd: Bool { tracking && shownAtEnd }
+
     /// A live scroll that starts with a press is the knob's; a gesture's
-    /// starts with a wheel event and keeps every offset.
+    /// starts with a wheel event and keeps every offset. A press where the
+    /// document ends already shows the end.
     func began() {
         tracking = currentEventType() == .leftMouseDown
         shown = nil
+        shownAtEnd = tracking && (scroll.map { Self.atEnd($0.contentView) } ?? false)
+    }
+    private static func atEnd(_ clip: NSClipView) -> Bool {
+        let maximum = max(0, (clip.documentView?.frame.height ?? 0) - clip.bounds.height)
+        return maximum > 0 && clip.bounds.minY >= maximum - 0.5
     }
     /// Whether the clip view's new offset is one the reader sees. During a
     /// knob drag, the mouse-up's own derivation is not, unless it reaches an
@@ -51,7 +64,7 @@ final class KnobDrag {
         let edge = clip.bounds.minY <= 0.5 || clip.bounds.minY >= maximum - 0.5
         if currentEventType() == .leftMouseUp, !edge { return false }
         shown = clip.bounds.origin
-        if !correcting { shownAtEnd = maximum > 0 && clip.bounds.minY >= maximum - 0.5 }
+        if !correcting { shownAtEnd = Self.atEnd(clip) }
         return true
     }
     func ended() {
@@ -64,6 +77,17 @@ final class KnobDrag {
         let target = NSPoint(x: clip.bounds.minX, y: shownAtEnd ? maximum : min(maximum, max(0, seen.y)))
         guard clip.bounds.origin != target else { return }
         clip.scroll(to: target)
+        scroll.reflectScrolledClipView(clip)
+    }
+    /// Rows measured while the knob is held at the end lengthen the document.
+    /// The knob under the pointer still means the end, so the reader sees the
+    /// new end while holding it, and the release has nothing left to move.
+    func followEnd() {
+        guard holdsEnd, let scroll, let document = scroll.documentView else { return }
+        let clip = scroll.contentView
+        let maximum = max(0, document.frame.height - clip.bounds.height)
+        guard clip.bounds.minY != maximum else { return }
+        clip.scroll(to: NSPoint(x: clip.bounds.minX, y: maximum))
         scroll.reflectScrolledClipView(clip)
     }
 }
@@ -131,8 +155,9 @@ extension CollectionHost {
         let size = NSSize(width: document.frame.width, height: max(height, node.content.height))
         if document.frame.size != size { document.setFrameSize(size) }
         let maximum = max(0, document.frame.height - scroll.contentView.bounds.height)
-        let target = NSPoint(x: scroll.contentView.bounds.minX,
-            y: min(maximum, max(0, CGFloat(top) + content.minY)))
+        // The anchor stays put, except under a knob held at the end (`KnobDrag`).
+        let y = KnobDrag.of(scroll)?.holdsEnd == true ? maximum : min(maximum, max(0, CGFloat(top) + content.minY))
+        let target = NSPoint(x: scroll.contentView.bounds.minX, y: y)
         if scroll.contentView.bounds.origin != target {
             scroll.contentView.scroll(to: target)
             scroll.reflectScrolledClipView(scroll.contentView)

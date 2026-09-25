@@ -244,22 +244,39 @@ final class CollectionMacTests: XCTestCase {
         clip.scroll(to: NSPoint(x: 0, y: end))
         drag.ended()
         XCTAssertEqual(clip.bounds.minY, end, "a release at the end stays at the end")
-        // The reader reached the end during the drag; rows measured before the
-        // release lengthen the document. The release goes to the new end.
+        // The reader reached the end during the drag; rows measured while the
+        // knob is held there lengthen the document. The knob still means the
+        // end: the reader sees the new end while holding, not after letting go.
         drag.currentEventType = { .leftMouseDown }
         drag.began()
         drag.currentEventType = { .leftMouseDragged }
         clip.scroll(to: NSPoint(x: 0, y: end))
+        XCTAssertTrue(drag.holdsEnd)
         let document = try XCTUnwrap(scroll.documentView)
         document.setFrameSize(NSSize(width: document.frame.width, height: document.frame.height + 600))
-        // The collection's anchor correction keeps the rows in place meanwhile.
+        XCTAssertEqual(clip.bounds.minY, document.frame.height - clip.bounds.height, "a longer document keeps the held end in view")
+        // An anchor correction keeps the rows in place, except at a held end.
         p.collections.correcting = true
-        clip.scroll(to: NSPoint(x: 0, y: end + 40))
+        p.collections.correct(1, top: Double(end) + 40, extent: Double(document.frame.height) + 400)
         p.collections.correcting = false
+        let held = document.frame.height - clip.bounds.height
+        XCTAssertEqual(clip.bounds.minY, held, "a correction keeps the held end in view")
         drag.currentEventType = { .leftMouseUp }
-        clip.scroll(to: NSPoint(x: 0, y: end + 300))
+        clip.scroll(to: NSPoint(x: 0, y: held - 300))
         drag.ended()
-        XCTAssertEqual(clip.bounds.minY, document.frame.height - clip.bounds.height, "the end the reader saw stays the end")
+        XCTAssertEqual(clip.bounds.minY, held, "the release leaves the end where the reader saw it")
+        // A press short of the end does not hold it, and its correction keeps the anchor.
+        clip.scroll(to: NSPoint(x: 0, y: 1000))
+        drag.currentEventType = { .leftMouseDown }
+        drag.began()
+        XCTAssertFalse(drag.holdsEnd, "a press short of the end does not hold it")
+        p.collections.correcting = true
+        p.collections.correct(1, top: 1200, extent: Double(document.frame.height) - 20)
+        p.collections.correcting = false
+        XCTAssertEqual(clip.bounds.minY, 1220, "away from the end the correction's anchor stands (content starts 20 below the clip)")
+        drag.currentEventType = { .leftMouseUp }
+        drag.ended()
+        XCTAssertEqual(clip.bounds.minY, 1220)
     }
 
     func testNestedCollectionsOwnOnlyNearestPinsAndReleaseBeforeTransfer() throws {
