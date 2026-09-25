@@ -5,7 +5,7 @@
 // the page is idle. Client routes show placeholders while loading.
 routes nav
   tab home "/" render=cached
-    login "/login"
+    login "/login" render=cached
     register "/register" render=cached
     settings "/settings"
     editor "/editor"
@@ -865,14 +865,16 @@ component ArticleActions
           testId="delete-article"
           text "🗑 Delete Article"
       else
-        button press=follow(post.author.username, not post.author.following)
-          class=BtnSm
-          border-color="#cccccc"
-          color=(post.author.following ? "#ffffff": "#cccccc")
-          background-color=(post.author.following ? "#cccccc": "#ffffff")
-          testId="follow"
-          text(post.author.following ? `+ Unfollow ${post.author.username}`: `+ Follow ${post.author.username}`)
+        // Signed out, both go to sign up: links, so they work before the
+        // runtime loads.
         when me.signedIn
+          button press=follow(post.author.username, not post.author.following)
+            class=BtnSm
+            border-color="#cccccc"
+            color=(post.author.following ? "#ffffff": "#cccccc")
+            background-color=(post.author.following ? "#cccccc": "#ffffff")
+            testId="follow"
+            text(post.author.following ? `+ Unfollow ${post.author.username}`: `+ Follow ${post.author.username}`)
           button press=favorite(post.slug, not post.favorited)
             class=BtnSm
             border-color="#33aa44"
@@ -881,6 +883,13 @@ component ArticleActions
             testId="favorite"
             text `♥ ${post.favorited ? "Unfavorite" : "Favorite"} Article (${post.favoritesCount})`
         else
+          link href="/register" press=go("/register")
+            class=BtnSm
+            border-color="#cccccc"
+            color="#cccccc"
+            background-color="#ffffff"
+            testId="follow"
+            text `+ Follow ${post.author.username}`
           link href="/register" press=go("/register")
             class=BtnSm
             border-color="#33aa44"
@@ -1092,14 +1101,24 @@ component ProfilePage
                 testId="edit-settings"
                 text "⚙ Edit Profile Settings"
             else
-              button press=follow(person.username, not person.following)
-                class=BtnSm
-                align-self="flex-end"
-                border-color="#999999"
-                color=(person.following ? "#ffffff": "#999999")
-                background-color=(person.following ? "#999999": "#ffffff")
-                testId="follow-profile"
-                text(person.following ? `+ Unfollow ${person.username}`: `+ Follow ${person.username}`)
+              when me.signedIn
+                button press=follow(person.username, not person.following)
+                  class=BtnSm
+                  align-self="flex-end"
+                  border-color="#999999"
+                  color=(person.following ? "#ffffff": "#999999")
+                  background-color=(person.following ? "#999999": "#ffffff")
+                  testId="follow-profile"
+                  text(person.following ? `+ Unfollow ${person.username}`: `+ Follow ${person.username}`)
+              else
+                link href="/register" press=go("/register")
+                  class=BtnSm
+                  align-self="flex-end"
+                  border-color="#999999"
+                  color="#999999"
+                  background-color="#ffffff"
+                  testId="follow-profile"
+                  text `+ Follow ${person.username}`
       column class=Container max-width=950
         row class=Tabs margin-top=24
           button press=go(`/profile/${encodeURIComponent(person.username)}`)
