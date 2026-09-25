@@ -142,11 +142,71 @@ extension NodeView {
     }
 }
 
+/// One refresh's clip geometry: each ancestor's accumulated clips (at no
+/// reach and at the lead's) and its offset in the viewport's space, found
+/// once per ancestor rather than once per paragraph beneath it. Valid only
+/// while no frame or offset changes.
+final class TextClips {
+    private struct Entry {
+        /// Local-to-viewport translation; nil under a transform (convert).
+        var shift: CGPoint?
+        /// Clips at or above this view, in viewport space; `.null` if hidden.
+        var near: CGRect, far: CGRect
+    }
+    private var memo: [ObjectIdentifier: Entry] = [:]
+    unowned let viewport: UIView
+    let reach: CGFloat
+    init(_ viewport: UIView, reach: CGFloat) { self.viewport = viewport; self.reach = reach }
+
+    private func entry(_ view: UIView?) -> Entry {
+        guard let view else { return Entry(shift: nil, near: .infinite, far: .infinite) }
+        if let known = memo[ObjectIdentifier(view)] { return known }
+        var result = entry(view.superview)
+        result.shift = view === viewport ? .zero : shift(view, above: result.shift)
+        if view.isHidden || view.alpha == 0 {
+            result.near = .null; result.far = .null
+        } else if !result.near.isNull && (view.clipsToBounds || view is UIWindow) {
+            let box = rect(view.bounds, of: view, shift: result.shift)
+            result.near = result.near.intersection(box)
+            result.far = result.far.intersection(box.insetBy(dx: -reach, dy: -reach))
+        }
+        memo[ObjectIdentifier(view)] = result
+        return result
+    }
+    private func rect(_ r: CGRect, of view: UIView, shift: CGPoint?) -> CGRect {
+        shift.map { r.offsetBy(dx: $0.x, dy: $0.y) } ?? view.convert(r, to: viewport)
+    }
+    private func shift(_ view: UIView, above: CGPoint?) -> CGPoint? {
+        guard let s = above, view.transform.isIdentity, CATransform3DIsIdentity(view.layer.transform) else { return nil }
+        return CGPoint(x: s.x + view.frame.minX - view.bounds.minX, y: s.y + view.frame.minY - view.bounds.minY)
+    }
+    /// `node`'s bounds in viewport space.
+    func frame(_ node: NodeView) -> CGRect {
+        rect(node.bounds, of: node, shift: shift(node, above: entry(node.superview).shift))
+    }
+    /// What `Presenter.textBand` finds by walking, for this reach or none;
+    /// nil for any other reach.
+    func band(_ node: NodeView, reach: CGFloat) -> CGRect? {
+        guard reach == 0 || reach == self.reach else { return nil }
+        if node.isHidden || node.alpha == 0 { return .zero }
+        let above = entry(node.superview)
+        let clip = reach == 0 ? above.near : above.far
+        guard !clip.isNull else { return .zero }
+        if clip.isInfinite { return node.bounds }
+        let own = shift(node, above: above.shift)
+        let band = rect(node.bounds, of: node, shift: own).intersection(clip)
+        guard !band.isNull else { return .zero }
+        let local = own.map { band.offsetBy(dx: -$0.x, dy: -$0.y) } ?? node.convert(band, from: viewport)
+        return local.intersection(node.bounds)
+    }
+}
+
 extension Presenter {
     /// Every clipping ancestor participates; an inner scroller can itself sit
     /// outside an outer viewport. All geometry stays in the paragraph's space.
     private func textBand(_ node: NodeView, reach: CGFloat) -> CGRect {
         guard node.window != nil else { return .zero }
+        if let band = textClips?.band(node, reach: reach) { return band }
         var result = node.bounds
         var ancestor: UIView? = node
         while let view = ancestor {
@@ -167,18 +227,24 @@ extension Presenter {
 
     /// Called after layout/scroll returns, never by the scroll callback. Lead
     /// rows receive workers before display; only uncovered visible pixels are urgent.
+    /// Each ancestor's clip is found once (`TextClips`), each paragraph's
+    /// distance from the viewport once, then sorted by that number.
     @discardableResult
     func refreshVisibleText(deadline: TimeInterval? = nil) -> Bool {
         guard !applying else { return true }
-        let reach = viewport.bounds.height
-        let candidates = textViews.values.filter { !$0.bounds.isEmpty && !textBand($0, reach: reach).isEmpty }
-            .sorted { a, b in
-                let ar = a.convert(a.bounds, to: viewport), br = b.convert(b.bounds, to: viewport)
-                func distance(_ r: CGRect) -> CGFloat { max(0, viewport.bounds.minY - r.maxY, r.minY - viewport.bounds.maxY) }
-                return distance(ar) == distance(br) ? a.id < b.id : distance(ar) < distance(br)
-            }
+        let reach = viewport.bounds.height, port = viewport.bounds
+        let clips = TextClips(viewport, reach: reach)
+        textClips = clips
+        defer { textClips = nil }
+        var ranked: [(distance: CGFloat, node: NodeView)] = []
+        ranked.reserveCapacity(textViews.count)
+        for node in textViews.values where !node.bounds.isEmpty && !textBand(node, reach: reach).isEmpty {
+            let r = clips.frame(node)
+            ranked.append((max(0, port.minY - r.maxY, r.minY - port.maxY), node))
+        }
+        ranked.sort { $0.distance == $1.distance ? $0.node.id < $1.node.id : $0.distance < $1.distance }
         var deferred = false, admitted = 0
-        for node in candidates where node.canRasterText {
+        for (_, node) in ranked where node.canRasterText {
             let visible = textScrollportRect(node)
             let urgent = !visible.isEmpty && (node.textRaster == nil || !node.textRasterFrame.contains(visible))
             if urgent {

@@ -421,6 +421,8 @@ final class Presenter {
     var textViews: [UInt32: NodeView] = [:]
     lazy var scrollPump = ScrollPump(self)
     let textRasters = TextRasterizer()
+    /// Clip geometry memoized for one text refresh (`TextClips`), else nil.
+    var textClips: TextClips?
     func listVelocity(_ id: UInt32) -> Double { scrollPump.velocity(id) }
     func settlePump() {
         scrollPump.settle()
