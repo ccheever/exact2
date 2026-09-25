@@ -2,6 +2,36 @@
 #if os(macOS)
 import AppKit
 
+/// A scroll container's document view. A collection's is also where
+/// AppKit's responsive scrolling asks for overdraw (`prepareContent(in:)`):
+/// it may carry only the rows the collection has built, so a concurrent
+/// scroll pauses at their edge until the main thread builds more, rather
+/// than carrying the background into view (LLP 1050.000 D5).
+final class FlippedView: NSView {
+    override var isFlipped: Bool { true }
+    /// What the mounted rows cover, in this view's coordinates; nil: anything.
+    var preparedLimit: (() -> NSRect?)?
+    /// AppKit's last request, kept so rows built later can widen the answer.
+    private(set) var requestedPrepared: NSRect?
+    override func prepareContent(in rect: NSRect) {
+        requestedPrepared = rect
+        super.prepareContent(in: clampPrepared(rect))
+    }
+    /// `rect` within the rows' cover. What shows stays prepared, gap or not:
+    /// the scroll callback's rescue builds it.
+    func clampPrepared(_ rect: NSRect) -> NSRect {
+        guard let limit = preparedLimit?() else { return rect }
+        let clamped = rect.intersection(limit)
+        return clamped.isNull || clamped.isEmpty ? visibleRect : clamped.union(visibleRect)
+    }
+    /// The rows changed: offer AppKit what they now cover of its request.
+    func refreshPrepared() {
+        guard preparedLimit != nil else { return }
+        let target = clampPrepared(requestedPrepared ?? preparedContentRect)
+        if preparedContentRect != target { preparedContentRect = target }
+    }
+}
+
 /// A knob drag on a collection's scroller. AppKit derives a knob drag's
 /// offsets from the pointer, and derives one more at the mouse-up. Rows
 /// measured during the drag change the document's height, so that last
@@ -93,8 +123,71 @@ final class KnobDrag {
 }
 
 extension CollectionHost {
-    /// AppKit reports have no fill pump (`motion` is nil): never consulted.
-    func covers(_ id: UInt32) -> Bool { false }
+    /// The contiguous run of mounted rows that reaches into the port, in the
+    /// document's coordinates and full width. Padding before the first item
+    /// or after the last counts as covered. Nil when no run reaches the
+    /// port's top: a gap shows there.
+    func preparedCover(_ id: UInt32) -> NSRect? {
+        guard let entry = entries[id], let node = presenter?.views[id], let scroll = node.scroll,
+              let document = scroll.documentView else { return nil }
+        let port = scroll.contentView.bounds
+        let frames = entry.snapshot.rows.compactMap { row -> (index: Int, frame: NSRect)? in
+            guard let view = presenter?.views[row.view], view.isDescendant(of: document) else { return nil }
+            return (row.index, view.superview === document ? view.frame : view.convert(view.bounds, to: document))
+        }.sorted { $0.frame.minY < $1.frame.minY }
+        var start = 0
+        while start < frames.count {
+            var end = start
+            var reached = frames[start].frame.maxY
+            while end + 1 < frames.count, frames[end + 1].frame.minY <= reached + 0.5 {
+                end += 1
+                reached = max(reached, frames[end].frame.maxY)
+            }
+            let top = frames[start].index == 0 ? document.bounds.minY : frames[start].frame.minY
+            let bottom = frames[end].index == entry.snapshot.count - 1 ? document.bounds.maxY : reached
+            if top <= port.minY + 0.5 && bottom > port.minY {
+                return NSRect(x: document.bounds.minX, y: top, width: document.bounds.width, height: bottom - top)
+            }
+            start = end + 1
+        }
+        return nil
+    }
+    /// Whether the mounted rows cover the scrollport: no spacer shows.
+    func covers(_ id: UInt32) -> Bool {
+        guard let cover = preparedCover(id), let scroll = presenter?.views[id]?.scroll else { return false }
+        let port = scroll.contentView.bounds
+        return cover.maxY >= min(port.maxY, scroll.documentView?.bounds.maxY ?? port.maxY) - 0.5
+    }
+    /// Rows past the cover the port will need once it has travelled `ahead`
+    /// points (negative: toward the start), at the mounted rows' mean height.
+    func rowsToCover(_ id: UInt32, ahead: CGFloat) -> UInt32 {
+        guard ahead != 0, let entry = entries[id], let scroll = presenter?.views[id]?.scroll,
+              let document = scroll.documentView, let cover = preparedCover(id) else { return 0 }
+        let heights = entry.snapshot.rows.compactMap { presenter?.views[$0.view]?.frame.height }
+        guard !heights.isEmpty else { return 0 }
+        let mean = heights.reduce(0, +) / CGFloat(heights.count)
+        guard mean > 0 else { return 0 }
+        // Travel ends at the document's edges; the cover reaches them at the ends.
+        let port = scroll.contentView.bounds, extent = document.bounds
+        let shortfall = ahead > 0 ? min(extent.maxY, port.maxY + ahead) - cover.maxY
+            : cover.minY - max(extent.minY, port.minY + ahead)
+        return shortfall > 0 ? UInt32(min(64, (shortfall / mean).rounded(.up))) : 0
+    }
+    /// After a batch: each collection's document offers responsive scrolling
+    /// only what its rows cover (D5).
+    func limitPrepared() {
+        for id in entries.keys {
+            guard let document = presenter?.views[id]?.scroll?.documentView as? FlippedView else { continue }
+            if document.preparedLimit == nil {
+                // No run reaching the port's top: nothing past what shows.
+                document.preparedLimit = { [weak self] in
+                    guard let self, entries[id] != nil else { return nil }
+                    return preparedCover(id) ?? .zero
+                }
+            }
+            document.refreshPrepared()
+        }
+    }
     /// A collection's list keeps the offset a knob drag showed (`KnobDrag`);
     /// other lists keep AppKit's.
     func observeKnobDrags() {

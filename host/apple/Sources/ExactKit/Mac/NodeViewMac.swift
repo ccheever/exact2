@@ -13,10 +13,6 @@ private final class SymbolClip: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
-final class FlippedView: NSView {
-    override var isFlipped: Bool { true }
-}
-
 /// A material paints, but never supplies a new hit target or focus owner.
 private final class MaterialContent: NSView {
     override var isFlipped: Bool { true }
@@ -711,7 +707,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     @objc func clipScrolled() {
         // A collection's knob keeps the offset the reader saw (CollectionMac.swift).
         if let sv = scroll, let drag = KnobDrag.of(sv), !drag.admits(sv.contentView, correcting: presenter?.collections.correcting == true) { return }
-        presenter?.collections.changed(id, user: true)
+        presenter?.collectionScrolled(id)
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
         // The list window and the text bands follow the scroll; they are not
