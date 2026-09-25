@@ -929,6 +929,32 @@ text in its first 252. The tag at `load` takes 208, 225 and 215 ms against
 React's 213, 205 and 220 (without dictionaries: 220, 226 and 224). That is
 React's time within the spread: under it in two batches, over it in one.
 
+**Where the goal stands, 2026-09-25 (the coordinator).**
+- **The goal's measure** (the python tag at `load`, tap to feed) is React's
+  time within the spread. Over round 8's three batches: exact2 208, 225
+  and 215 ms against React's 213, 205 and 220, a mean of 216 against 213,
+  inside the ±15–20 ms that batches move. The feed shows about 400 ms before
+  React's: 952–982 ms against 1,350–1,407.
+- **It got there through the document, not the artifact.**
+  - A tap before the runtime is up is a link to a rendered page, as React's
+    tag is a link to a route (LLP 1048.000 D6, D8).
+  - The server trims what precedes the feed text: surrogate keys only to a
+    CDN, the minified shell style, brotli's best, and a dictionary.
+  - Linking by use and the diet took `app.wasm` from 390,646 to about
+    263,500 bytes brotli-11 (−33%), which moves the rows below, not this
+    one.
+- **What it doesn't cover:**
+  - **A press that needs the runtime** (a signed-in ♥ or Follow, a form
+    submit) still waits for it: about 1.1 s at `load` against React's
+    ~0.2 s. The split plus nightly `build-std` would take it to about
+    1,610 ms feed-shown against React's ~1,470. That trade, and the
+    split's build-time profile, are Charlie's.
+  - **A client-only page** (`/register` and `/login` from a signed-out ♥
+    or Follow) is a round trip in exact2, about 220 ms, where React draws
+    it from memory in about 50.
+- **After a 3-second read** (the runtime up): 218 against 197 ms, the
+  in-place press path.
+
 ### As built: the core diet (the diet lane)
 
 Each change reads what std read and prints what core printed, bit for bit
