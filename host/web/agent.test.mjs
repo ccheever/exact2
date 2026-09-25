@@ -249,6 +249,8 @@ function fixture(agentMode = true) {
       : req.op === 'tags' ? { epoch: 2, incarnation: 1, clock: 0 } : { error: 'unknown op' },
     tree: () => outline, now: () => 0, environment: () => ({}),
     agentClock: 0, SETTLE_DEADLINE_MS: 20000, inflight: new Set(),
+    // The page's own wait (http-body.js) races the deadline; here a request marked `stuck` is what a passed deadline finds.
+    waitForInflight: async () => { const all = [...context.inflight]; if (all.some(p => p.stuck)) return false; await Promise.all(all); return true; },
     memory: { buffer: new ArrayBuffer(1024) }, readOut: value => value,
     wasm: { exact_in: () => 0, exact_plan: () => 1, exact_out: () => 0,
       exact_plan_fonts: () => '{}', exact_boot: () => '{"ops":[],"timers":true}',
@@ -367,6 +369,44 @@ test('agent mode alone exposes both entry points; clock keeps its existing Promi
   await Promise.resolve(); await Promise.resolve();
   expect(completed).toBe(true); // The clock's and the tags' only: no flow or GPU microtasks for ordinary apps.
   expect(await result).toEqual({ clock: 16, epoch: 2, incarnation: 1 });
+});
+
+// A timer every 300 ms whose action sends a request: the runner keeps one
+// request per target, so a jump that fired every due tick at once would
+// drop each reply but the last (runner/src/runner/commit.rs `enqueue`).
+function timedRequests(f, { stuck = false } = {}) {
+  let due = 300;
+  f.flowDue = due; // the boot batch's `timer_due_ms`
+  f.wasm.exact_advance = to => {
+    f.events.push(`advance ${to}`);
+    if (due <= to) {
+      const at = due, p = stuck ? new Promise(() => {}) : new Promise(resolve => setTimeout(() => { f.events.push(`reply ${at}`); resolve(); }, 0));
+      p.stuck = stuck; f.inflight.add(p); p.finally(() => f.inflight.delete(p));
+    }
+    while (due <= to) due += 300;
+    return JSON.stringify({ ops: [], clock: to, timers: true, timer_due_ms: due });
+  };
+  f.applyBatch = batch => { f.agentClock = batch.clock; f.flowDue = batch.timer_due_ms; return { timers: true, batch }; };
+}
+test('a clock jump lands what is in flight before each timer fires', async () => {
+  const f = fixture();
+  timedRequests(f);
+  const boot = new Promise(resolve => setTimeout(() => { f.events.push('reply boot'); resolve(); }, 0));
+  f.inflight.add(boot); boot.finally(() => f.inflight.delete(boot));
+  expect(await f.exact.agent({ op: 'clock', to: 700 })).toEqual({ clock: 700, epoch: 2, incarnation: 1 });
+  // The last step fires no timer, so the request it left in flight is not waited for.
+  expect(f.events).toEqual(['reply boot', 'advance 300', 'reply 300', 'advance 600', 'advance 700']);
+  expect(f.inflight.size).toBe(1);
+  // A due time at the target itself is the last step: what is in flight lands first, nothing follows.
+  f.events.length = 0;
+  expect(await f.exact.agent({ op: 'clock', to: 900 })).toEqual({ clock: 900, epoch: 2, incarnation: 1 });
+  expect(f.events).toEqual(['reply 600', 'advance 900']);
+});
+test('a timer whose request never lands cannot hold the clock: past the deadline the rest is one advance', async () => {
+  const f = fixture();
+  timedRequests(f, { stuck: true });
+  expect(await f.exact.agent({ op: 'clock', to: 1000 })).toEqual({ clock: 1000, epoch: 2, incarnation: 1 });
+  expect(f.events).toEqual(['advance 300', 'advance 1000']);
 });
 
 test('ordinary boot and restart do not yield between DOM commit and ticker startup', async () => {

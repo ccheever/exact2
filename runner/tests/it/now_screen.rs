@@ -162,6 +162,102 @@ fn carried_resources_keep_their_store_dependency_across_reload() {
     assert_eq!(reloaded.resource("remembered"), Some(&Value::str("new")));
 }
 
+/// Answers `write` with a request; the reply's bytes are the value.
+struct LaterWrites;
+
+impl DataSource for LaterWrites {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(source.into()))
+    }
+
+    fn answer(
+        &mut self,
+        _: &mut exact_runner::Store,
+        _: &str,
+        _: &[Value],
+    ) -> Result<exact_runner::Answer, DataError> {
+        Ok(exact_runner::Answer::Later(exact_runner::Request::get(
+            "https://fixture.invalid/",
+        )))
+    }
+
+    fn parse(
+        &mut self,
+        _: &mut exact_runner::Store,
+        _: &str,
+        _: &[Value],
+        outcome: exact_runner::Outcome,
+    ) -> Result<exact_runner::Answer, DataError> {
+        let exact_runner::Outcome::Storage(bytes) = outcome else {
+            panic!("storage outcome")
+        };
+        Ok(exact_runner::Answer::Now(Value::str(
+            std::str::from_utf8(&bytes).unwrap(),
+        )))
+    }
+}
+
+/// What a host's stepped `clock` relies on (LLP 1016 D5): a timer's send
+/// replied to before the next tick commits; one the next tick fired over
+/// is superseded, and its reply has nowhere to land.
+#[test]
+fn a_timers_send_lands_only_if_its_reply_beats_the_next_tick() {
+    let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    let string = b.primitive(TypeKind::String);
+    let option_string = b.option(string);
+    let none = b.constant(&Value::NONE);
+    let result = b.slot("result", option_string, none);
+    let mutation = b.mutation("result", result, string);
+    let source = b.str("write");
+    let mut body = Asm::new();
+    body.send(mutation, source, 0);
+    let body = b.code(body);
+    let tick = b.action("tick", &[], &[result], body);
+    b.timer(300, tick);
+    b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+    let mut r = Runner::boot(
+        b.finish().unwrap(),
+        LaterWrites,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    // Due time by due time: each tick's reply lands before the next fires.
+    for (at, reply) in [(300.0, "one"), (600.0, "two")] {
+        r.advance(at).unwrap();
+        let ticket = r.take_requests().remove(0).ticket;
+        let landed = r
+            .fulfill(ticket, exact_runner::Outcome::Storage(reply.into()))
+            .unwrap();
+        assert!(landed.is_some(), "the reply at {at} commits");
+        assert_eq!(r.slot("result"), Some(&Value::some(Value::str(reply))));
+    }
+    // One jump over two ticks: the host is handed both sends, but the runner
+    // keeps one request per target, so the second supersedes the first,
+    // whose reply is then dropped.
+    r.advance(1200.0).unwrap();
+    let requests = r.take_requests();
+    assert_eq!(requests.len(), 2);
+    let (first, last) = (requests[0].ticket, requests[1].ticket);
+    let dropped = r
+        .fulfill(first, exact_runner::Outcome::Storage(b"three".to_vec()))
+        .unwrap();
+    assert!(dropped.is_none());
+    let line = format!("reply {first} dropped: no such request in flight");
+    assert!(
+        r.journal().any(|l| l.ends_with(&line)),
+        "{:?}",
+        r.journal().collect::<Vec<_>>()
+    );
+    assert_eq!(r.slot("result"), Some(&Value::some(Value::str("two"))));
+    assert!(r
+        .fulfill(last, exact_runner::Outcome::Storage(b"four".to_vec()))
+        .unwrap()
+        .is_some());
+    assert_eq!(r.slot("result"), Some(&Value::some(Value::str("four"))));
+}
+
 fn style_id(name: &str) -> u16 {
     StyleId::from_name(name).unwrap() as u16
 }

@@ -229,7 +229,8 @@ public final class Agent {
         // commits — and may start motion or ask for more — before the fixed
         // point is measured. The wake lands on the main queue, which the
         // run loop drains here.
-        if settle { waitForReplies() }
+        let deadline = Date(timeIntervalSinceNow: 20)
+        if settle { waitForReplies(until: deadline) }
         var target = req["to"] as? Double
         if settle { target = max(from, self.settle() ?? from) }
         guard var to = target, to.isFinite else { return ["error": "clock needs \"to\" (ms) or \"settle\": true"] }
@@ -244,8 +245,7 @@ public final class Agent {
             return out
         }
         while true {
-            let batch = session.runtime.advance(now: to)
-            session.apply(batch)
+            let batch = advanceStepped(to: to, deadline: deadline)
             let landed = batch.clock ?? to
             session.clock = landed
             session.apply(session.runtime.tick(now: landed))
@@ -257,7 +257,7 @@ public final class Agent {
             if pendingCount() > 0 {
                 rounds += 1
                 if rounds >= 16 { return reply(landed, false) }
-                waitForReplies()
+                waitForReplies(until: deadline)
                 continue
             }
             let next = max(landed, self.settle() ?? landed, world.settleAt ?? landed)
@@ -285,6 +285,25 @@ public final class Agent {
         }
     }
 
+    /// To `to`, due time by due time, and what is in flight lands before a
+    /// timer fires — the runner keeps one request per target (LLP 1016 D5),
+    /// so a tick's send would drop the reply of the one before it. Past the
+    /// deadline, or 4096 steps, the rest is one advance. Each step's batch
+    /// is applied; the last one is returned.
+    func advanceStepped(to: Double, deadline: Date) -> Batch {
+        var steps = 0
+        while true {
+            var step = to
+            if steps < 4096, let due = session.timerDue, due > (session.clock ?? 0), due < to { step = due }
+            if let due = session.timerDue, due <= step, !waitForReplies(until: deadline) { step = to }
+            let batch = session.runtime.advance(now: step)
+            session.apply(batch)
+            session.clock = batch.clock ?? step
+            if batch.error != nil || step == to { return batch }
+            steps += 1
+        }
+    }
+
     /// How many requests the runner has in flight (`state.pending`).
     func pendingCount() -> Int {
         guard let d = session.agent("{\"op\":\"state\"}").data(using: .utf8),
@@ -292,17 +311,20 @@ public final class Agent {
         return (o["pending"] as? [Any])?.count ?? 0
     }
 
-    /// Pump the executor's queue until no request is in flight, or for at
-    /// most twenty seconds (a network's worth; `settled: false` past it).
-    /// The wake's own pump is a main-queue block, and this runs inside one
-    /// — so the queue is drained here directly, the run loop turning in
-    /// between for the executor's thread to make progress.
-    func waitForReplies() {
-        let deadline = Date(timeIntervalSinceNow: 20)
-        while pendingCount() > 0 && Date() < deadline {
+    /// Pump the executor's queue until no request is in flight, or until
+    /// the deadline (twenty seconds from the op: a network's worth;
+    /// `settled: false` past it), false then. The wake's own pump is a
+    /// main-queue block, and this runs inside one — so the queue is drained
+    /// here directly, the run loop turning in between for the executor's
+    /// thread to make progress.
+    @discardableResult
+    func waitForReplies(until deadline: Date) -> Bool {
+        while pendingCount() > 0 {
+            if Date() >= deadline { return false }
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
             session.apply(session.runtime.pump(now: session.now()))
         }
+        return true
     }
 }
 

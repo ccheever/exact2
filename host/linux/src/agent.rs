@@ -325,10 +325,11 @@ fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     let from = p.host().now();
     let settle_to_end = field_bool(line, "settle");
     let mut to = field_num(line, "to");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     if settle_to_end {
         // A request in flight is waited for first (LLP 1016): its reply
         // commits, and may start motion, before the fixed point is measured.
-        wait_for_replies(p);
+        wait_for_replies(p, deadline);
         to = Some(from.max(settle(p).unwrap_or(from)));
     }
     let Some(mut to) = to.filter(|t| t.is_finite()) else {
@@ -339,7 +340,7 @@ fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     }
     let mut rounds = 0;
     loop {
-        let (landed, e) = p.clock(to);
+        let (landed, e) = clock_stepped(p, to, deadline);
         if let Some(e) = e {
             let mut s = String::from("{\"error\":");
             exact_runner::agent::quote(&format!("clock: {e}"), &mut s);
@@ -370,7 +371,7 @@ fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             if rounds >= 16 {
                 return response(Some(false));
             }
-            wait_for_replies(p);
+            wait_for_replies(p, deadline);
             continue;
         }
         let next = world
@@ -389,19 +390,51 @@ fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     }
 }
 
-/// `"key":[a,b]` in a flat request.
-/// Pump the executor until no request is in flight, or for at most twenty
-/// seconds (a network's worth; `settled: false` past it).
-fn wait_for_replies<D: DataSource>(p: &mut Presenter<D>) {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-    while p.pending() && std::time::Instant::now() < deadline {
+/// To `to`, due time by due time, and what is in flight lands before a
+/// timer fires — the runner keeps one request per target (LLP 1016 D5), so
+/// a tick's send would drop the reply of the one before it. Past the
+/// deadline, or 4096 steps, the rest is one advance.
+fn clock_stepped<D: DataSource>(
+    p: &mut Presenter<D>,
+    to: f64,
+    deadline: std::time::Instant,
+) -> (f64, Option<String>) {
+    for _ in 0..4096 {
+        let now = p.host().now();
+        let Some(due) = p.host().timer_due_ms().filter(|d| *d > now && *d < to) else {
+            break;
+        };
+        if !wait_for_replies(p, deadline) {
+            break;
+        }
+        let (landed, e) = p.clock(due);
+        if e.is_some() {
+            return (landed, e);
+        }
+    }
+    if p.host().timer_due_ms().is_some_and(|d| d <= to) {
+        wait_for_replies(p, deadline);
+    }
+    p.clock(to)
+}
+
+/// Pump the executor until no request is in flight, or until the deadline
+/// (twenty seconds from the op: a network's worth; `settled: false` past
+/// it), false then.
+fn wait_for_replies<D: DataSource>(p: &mut Presenter<D>, deadline: std::time::Instant) -> bool {
+    while p.pending() {
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
         std::thread::sleep(std::time::Duration::from_millis(20));
         if let Some(e) = p.pump(p.host().now()) {
             eprintln!("exact: {e}");
         }
     }
+    true
 }
 
+/// `"key":[a,b]` in a flat request.
 fn field_pair(json: &str, key: &str) -> Option<(f64, f64)> {
     let needle = format!("\"{key}\"");
     let at = json.find(&needle)?;

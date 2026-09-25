@@ -1239,11 +1239,15 @@ function tagged(reply) {
 // in flight ends, and if the timers crossed on the way started more, again
 // (bounded; `settled: false` at the bound). A request in flight (LLP 1016)
 // is waited for first: its reply commits, and may start motion or ask for
-// more, before the fixed point is measured. The clock lands where the
-// runner says; a timer's refusal is the error. A promise: the driver awaits it.
+// more, before the fixed point is measured. A jump that crosses timers is
+// taken due time by due time, and what is in flight lands before a timer
+// fires — the runner keeps one request per target (LLP 1016 D5), so a tick's
+// send would drop the reply of the one before it; past the deadline, or 4096
+// steps, the rest is one advance. The clock lands where the runner says; a
+// timer's refusal is the error. A promise: the driver awaits it.
 async function clock(request) {
   const settle = !!request.settle;
-  const deadline = settle ? performance.now() + SETTLE_DEADLINE_MS : 0;
+  const deadline = performance.now() + SETTLE_DEADLINE_MS;
   let world = {};
   const reply = (settled) => ({ clock: agentClock, ...(settled === undefined ? {} : { settled }), ...world.reply, ...(settled === false && world.pending ? { reason: "world" } : {}) });
   for (let rounds = 0; ; rounds++) {
@@ -1251,7 +1255,13 @@ async function clock(request) {
     if (gpuInPlay()) await settleGpu();
     const to = settle ? Math.max(settleCandidate(), world.settleAt ?? agentClock) : request.to;
     if (!(to >= agentClock)) return { error: `the clock cannot go backwards (${agentClock} → ${to})` };
-    const { batch } = applyBatch(JSON.parse(readOut(wasm.exact_advance(to))));
+    let batch;
+    for (let steps = 0; ; steps++) {
+      let step = steps < 4096 && flowDue != null && flowDue > agentClock && flowDue < to ? flowDue : to;
+      if (flowDue != null && flowDue <= step && !(await waitForInflight(deadline))) step = to;
+      ({ batch } = applyBatch(JSON.parse(readOut(wasm.exact_advance(step)))));
+      if (batch.error || step === to) break;
+    }
     globalThis.exact.gpu?.schedule?.();
     if (flowLoading) await flowLoading;
     if (textflow) await textflow.settle();
