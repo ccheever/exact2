@@ -42,7 +42,7 @@ final class TextRasterizer {
     func ensure(_ node: NodeView, urgent: Bool) -> Bool {
         guard node.canRasterText else { return true }
         let key = key(node)
-        let visible = node.presenter?.textScrollportRect(node) ?? .zero
+        let visible = node.presenter?.textUrgentRect(node) ?? .zero
         let missingPixels = node.textRaster == nil || !node.textRasterFrame.contains(visible)
         if node.textRasterKey == key && (node.textRasterReady || !urgent || !missingPixels) { return true }
         let firstPixels = urgent && missingPixels
@@ -143,32 +143,35 @@ extension NodeView {
 }
 
 /// One refresh's clip geometry: each ancestor's accumulated clips (at no
-/// reach and at the lead's) and its offset in the viewport's space, found
-/// once per ancestor rather than once per paragraph beneath it. Valid only
-/// while no frame or offset changes.
+/// reach, at the next frames' travel, and at the lead's) and its offset in
+/// the viewport's space, found once per ancestor rather than once per
+/// paragraph beneath it. Valid only while no frame or offset changes.
 final class TextClips {
     private struct Entry {
         /// Local-to-viewport translation; nil under a transform (convert).
         var shift: CGPoint?
-        /// Clips at or above this view, in viewport space; `.null` if hidden.
-        var near: CGRect, far: CGRect
+        /// Clips at or above this view per reach, in viewport space; `.null` if hidden.
+        var clips: [CGRect]
     }
     private var memo: [ObjectIdentifier: Entry] = [:]
     unowned let viewport: UIView
-    let reach: CGFloat
-    init(_ viewport: UIView, reach: CGFloat) { self.viewport = viewport; self.reach = reach }
+    /// No reach, the travel the next frames will show, and the lead's.
+    let reaches: [CGFloat]
+    var soon: CGFloat { reaches[1] }
+    init(_ viewport: UIView, soon: CGFloat, reach: CGFloat) {
+        self.viewport = viewport; reaches = [0, soon, reach]
+    }
 
     private func entry(_ view: UIView?) -> Entry {
-        guard let view else { return Entry(shift: nil, near: .infinite, far: .infinite) }
+        guard let view else { return Entry(shift: nil, clips: reaches.map { _ in .infinite }) }
         if let known = memo[ObjectIdentifier(view)] { return known }
         var result = entry(view.superview)
         result.shift = view === viewport ? .zero : shift(view, above: result.shift)
         if view.isHidden || view.alpha == 0 {
-            result.near = .null; result.far = .null
-        } else if !result.near.isNull && (view.clipsToBounds || view is UIWindow) {
+            result.clips = reaches.map { _ in .null }
+        } else if !result.clips[0].isNull && (view.clipsToBounds || view is UIWindow) {
             let box = rect(view.bounds, of: view, shift: result.shift)
-            result.near = result.near.intersection(box)
-            result.far = result.far.intersection(box.insetBy(dx: -reach, dy: -reach))
+            result.clips = zip(result.clips, reaches).map { $0.intersection(box.insetBy(dx: -$1, dy: -$1)) }
         }
         memo[ObjectIdentifier(view)] = result
         return result
@@ -187,10 +190,10 @@ final class TextClips {
     /// What `Presenter.textBand` finds by walking, for this reach or none;
     /// nil for any other reach.
     func band(_ node: NodeView, reach: CGFloat) -> CGRect? {
-        guard reach == 0 || reach == self.reach else { return nil }
+        guard let index = reaches.firstIndex(of: reach) else { return nil }
         if node.isHidden || node.alpha == 0 { return .zero }
         let above = entry(node.superview)
-        let clip = reach == 0 ? above.near : above.far
+        let clip = above.clips[index]
         guard !clip.isNull else { return .zero }
         if clip.isInfinite { return node.bounds }
         let own = shift(node, above: above.shift)
@@ -219,6 +222,9 @@ extension Presenter {
         return result.isNull ? .zero : result
     }
     func textScrollportRect(_ node: NodeView) -> CGRect { textBand(node, reach: 0) }
+    /// What a refresh paints now rather than on a worker: what shows, and
+    /// during a refresh what the next frames' travel will show.
+    func textUrgentRect(_ node: NodeView) -> CGRect { textBand(node, reach: textClips?.soon ?? 0) }
     func textIsVisible(_ node: NodeView) -> Bool { !textScrollportRect(node).isEmpty }
     func textPreparationRect(_ node: NodeView) -> CGRect {
         let visible = textScrollportRect(node)
@@ -226,14 +232,15 @@ extension Presenter {
     }
 
     /// Called after layout/scroll returns, never by the scroll callback. Lead
-    /// rows receive workers before display; only uncovered visible pixels are urgent.
+    /// rows receive workers before display; uncovered pixels that show, or
+    /// that the next frames' `travel` (points) will show, are urgent.
     /// Each ancestor's clip is found once (`TextClips`), each paragraph's
     /// distance from the viewport once, then sorted by that number.
     @discardableResult
-    func refreshVisibleText(deadline: TimeInterval? = nil) -> Bool {
+    func refreshVisibleText(deadline: TimeInterval? = nil, travel: CGFloat = 0) -> Bool {
         guard !applying else { return true }
         let reach = viewport.bounds.height, port = viewport.bounds
-        let clips = TextClips(viewport, reach: reach)
+        let clips = TextClips(viewport, soon: min(max(0, travel), reach), reach: reach)
         textClips = clips
         defer { textClips = nil }
         var ranked: [(distance: CGFloat, node: NodeView)] = []
@@ -245,7 +252,7 @@ extension Presenter {
         ranked.sort { $0.distance == $1.distance ? $0.node.id < $1.node.id : $0.distance < $1.distance }
         var deferred = false, admitted = 0
         for (_, node) in ranked where node.canRasterText {
-            let visible = textScrollportRect(node)
+            let visible = textUrgentRect(node)
             let urgent = !visible.isEmpty && (node.textRaster == nil || !node.textRasterFrame.contains(visible))
             if urgent {
                 textRasters.ensure(node, urgent: true)

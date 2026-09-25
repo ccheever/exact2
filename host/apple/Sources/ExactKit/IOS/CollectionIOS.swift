@@ -95,6 +95,29 @@ extension CollectionHost {
         }
         return false
     }
+    /// Rows past the mounted ones the port will need once it has travelled
+    /// `ahead` points (negative: toward the start), at their mean height.
+    func rowsToCover(_ id: UInt32, ahead: CGFloat) -> UInt32 {
+        guard ahead != 0, let entry = entries[id], let node = presenter?.views[id], let scroll = node.scroll else { return 0 }
+        let frames = entry.snapshot.rows.compactMap { row in presenter?.views[row.view].map { ($0.superview === scroll ? $0.frame : $0.convert($0.bounds, to: scroll)) } }
+        guard !frames.isEmpty else { return 0 }
+        let mean = frames.map(\.height).reduce(0, +) / CGFloat(frames.count)
+        guard mean > 0 else { return 0 }
+        let port = scroll.bounds
+        var shortfall: CGFloat = 0
+        if ahead > 0 {
+            if entry.snapshot.rows.last?.index == entry.snapshot.count - 1 { return 0 }
+            var reached = port.minY
+            for frame in frames where frame.minY <= reached + 0.5 { reached = max(reached, frame.maxY) }
+            shortfall = port.maxY + ahead - reached
+        } else {
+            if entry.snapshot.rows.first?.index == 0 { return 0 }
+            var reached = port.maxY
+            for frame in frames.reversed() where frame.maxY >= reached - 0.5 { reached = min(reached, frame.minY) }
+            shortfall = reached - (port.minY + ahead)
+        }
+        return shortfall > 0 ? UInt32(min(64, (shortfall / mean).rounded(.up))) : 0
+    }
     func focusedView() -> UInt32? {
         presenter?.views.values.first(where: {
             $0.isFirstResponder || $0.field?.isFirstResponder == true || $0.textArea?.isFirstResponder == true

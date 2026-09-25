@@ -124,14 +124,17 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     func requestText() { textPending = true; start() }
     /// A collection owes a report (LLP 1050.000): the next slice builds it.
     func requestFill() { scheduleAfterScroll(); start() }
-    /// Build each owed collection's rows for this slice, as many as its
-    /// measured per-row cost fits, and at least one.
+    /// Build each owed collection's rows for this slice: as many as its
+    /// measured per-row cost fits, at least one, and at least what the next
+    /// two frames of travel uncover — so the scroll callback that follows
+    /// finds its rows built instead of building them itself.
     private func fillCollections(deadline: TimeInterval) {
         guard let p = presenter else { return }
         for id in p.collections.fillPending.sorted() {
             let started = CACurrentMediaTime()
             let fits = (costs[id] ?? FillCost()).rows(in: deadline - started)
-            let created = p.collections.fillSlice(id, limit: max(1, fits))
+            let needed = p.collections.rowsToCover(id, ahead: CGFloat(velocity(id) * refreshInterval * 2))
+            let created = p.collections.fillSlice(id, limit: max(1, fits, needed))
             costs[id, default: FillCost()].record(CACurrentMediaTime() - started, rows: created)
         }
     }
@@ -180,7 +183,9 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         }
         if textPending {
             let post = Presenter.signposts.beginInterval("pump-text")
-            textPending = p.refreshVisibleText(deadline: deadline)
+            // Paint now what the fastest list's next two frames will show.
+            let travel = p.listViews.keys.map { abs(velocity($0)) }.max() ?? 0
+            textPending = p.refreshVisibleText(deadline: deadline, travel: CGFloat(travel * refreshInterval * 2))
             Presenter.signposts.endInterval("pump-text", post)
         }
         if pending.isEmpty && !textPending && p.collections.fillPending.isEmpty { stop() }
@@ -228,6 +233,8 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
             ?? p.listViews.values.sorted { $0.id < $1.id }
         var admitted = false
         for list in lists {
+            // A collection's travel and fill cost are its own; keep them.
+            if p.collections.owns(list.id) { continue }
             guard isLegacy(list), p.views[list.id] === list, let scroll = list.scroll,
                   let content = list.container.subviews.first as? NodeView else { forget(list.id); continue }
             let focus = p.editing?.isDescendant(of: list) == true ? p.editing!.id : 0
