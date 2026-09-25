@@ -194,7 +194,30 @@ const sourceChanges = spawnSync('git', ['status', '--porcelain'], {cwd:app.dir,e
 writeInstallPages(stage, app.manifest, {id:buildReceipt.binary.sha256, source:sourceRevision.status === 0 ? sourceRevision.stdout.trim() : null, dirty:sourceChanges.status === 0 && !!sourceChanges.stdout.trim(), builtAt:new Date().toISOString(), mode:buildEnv.EXACT_UPDATE_TRUST === 'production' ? 'Release build' : 'Development build'});
 const icon = webManifest.icons?.[0];
 const escapeHtml = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+// The shell's <style> ships without its comments and indentation: they are
+// for readers of host/web/index.html, and every served document's first bytes
+// carry the shell's head (LLP 1048.000 D3). Strings stay whole; whitespace
+// goes only where CSS never reads it (never before a `:`, which in a selector
+// is a descendant's pseudo-class).
+function minifyCss(css) {
+  let out = '', space = false;
+  const put = (text) => {
+    if (space && out && !'{};,:'.includes(out.at(-1)) && !'{};,!'.includes(text[0])) out += ' ';
+    space = false;
+    if (text === '}' && out.endsWith(';')) out = out.slice(0, -1);
+    out += text;
+  };
+  for (let i = 0; i < css.length;) {
+    if (css.startsWith('/*', i)) { const end = css.indexOf('*/', i + 2); i = end < 0 ? css.length : end + 2; space = true; continue; }
+    const c = css[i];
+    if (/\s/.test(c)) { space = true; i++; continue; }
+    if (c === '"' || c === "'") { let j = i + 1; while (j < css.length && css[j] !== c) j += css[j] === '\\' ? 2 : 1; put(css.slice(i, j + 1)); i = j + 1; continue; }
+    put(c); i++;
+  }
+  return out;
+}
 writeFileSync(resolve(stage, 'index.html'), readFileSync(resolve(stage, 'index.html'), 'utf8')
+  .replace(/<style>([\s\S]*?)<\/style>/, (_, css) => `<style>${minifyCss(css)}</style>`)
   .replace('<html lang="en">', `<html lang="${escapeHtml(webManifest.lang)}">`)
   .replace('<title>Exact</title>', `<title>${escapeHtml(webManifest.name)}</title>`)
   .replace(
