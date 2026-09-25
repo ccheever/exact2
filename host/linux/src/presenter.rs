@@ -672,6 +672,20 @@ impl<D: DataSource> Presenter<D> {
                     }
                 }
                 "copyText" => eprintln!("exact: copyText unsupported on the headless/DRM host"),
+                // `blur()` drops the focus; `blur(id)` only when that node holds it.
+                "blur" => {
+                    let holds = |name: &str| {
+                        self.focus
+                            .and_then(|id| self.host.kernel().node(id))
+                            .is_some_and(|n| n.props.str(PropId::Id) == Some(name))
+                    };
+                    if match c.args.first() {
+                        Some(exact_plan::Value::Str(s)) => holds(s),
+                        _ => true,
+                    } {
+                        self.blur();
+                    }
+                }
                 "selectText" => eprintln!("exact: selectText unsupported on the headless/DRM host"),
                 other => eprintln!("exact: unknown command {other}"),
             }

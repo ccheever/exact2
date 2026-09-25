@@ -658,6 +658,10 @@ public final class ExactSession {
                     app.deliver { [weak self] in self?.presenter.focusElement(args, selectText: name == "selectText") }
                     continue
                 }
+                if name == "blur" {
+                    app.deliver { [weak self] in self?.presenter.blurElement(args) }
+                    continue
+                }
                 if name == "format" {
                     app.deliver { [weak self] in self?.presenter.formatElement(args) }
                     continue

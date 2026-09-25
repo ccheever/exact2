@@ -1342,3 +1342,31 @@ fn a_block_root_is_a_formatting_context_of_its_own() {
         "{root}"
     );
 }
+
+/// `blur()` reaches the page as a command op in the batch that carries the
+/// press, for the glue to drop `document.activeElement` after the commit —
+/// the same staging as `focus`.
+#[test]
+fn a_blur_command_reaches_the_batch_by_name() {
+    struct NoData;
+    impl exact_runner::DataSource for NoData {
+        fn query(
+            &mut self,
+            source: &str,
+            _: &[exact_plan::Value],
+        ) -> Result<exact_plan::Value, exact_runner::DataError> {
+            Err(exact_runner::DataError::UnknownSource(source.into()))
+        }
+    }
+    let plan = contract::compile(include_str!(
+        "../../../../contract/corpus/keyboard-bar.contract"
+    ))
+    .unwrap();
+    let (mut host, _) = Host::boot(&plan.encode(), NoData, Default::default(), "/").unwrap();
+    let dismiss = view_with_test_id_any(&host, "dismiss");
+    let batch = host.dispatch(dismiss, Event::Press);
+    assert!(
+        batch.contains("{\"op\":\"command\",\"name\":\"blur\",\"args\":[]}"),
+        "{batch}"
+    );
+}

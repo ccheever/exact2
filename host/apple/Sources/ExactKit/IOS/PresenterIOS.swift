@@ -401,6 +401,20 @@ final class Presenter {
         }
     }
 
+    /// The action's blur(): drop focus and the keyboard, and any focus still
+    /// waiting to be delivered; blur(html-id) only when that node holds it.
+    func blurElement(_ args: [Any]) {
+        pendingFocus = nil
+        if let name = args.first as? String {
+            guard let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }) else { return }
+            let responder: UIView = target.textArea ?? target.field ?? target
+            if responder.isFirstResponder { _ = responder.resignFirstResponder() }
+            return
+        }
+        // `endEditing` resigns text editors only; a focused control resigns itself.
+        if !viewport.endEditing(true), let held = views.values.first(where: { $0.isFirstResponder }) { _ = held.resignFirstResponder() }
+    }
+
     /// The events beyond press and change (LLP 1005 §3).
     var onHover: ((UInt32, Bool) -> Void)?
     var onFocus: ((UInt32) -> Void)?

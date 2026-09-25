@@ -99,3 +99,28 @@ fn resizes_content_reaches_the_kernel_and_a_bottom_bar_follows_the_viewport() {
     assert_eq!(f.y + f.height, 539.0);
     assert_eq!(k.node(root).unwrap().frame.height, 539.0);
 }
+
+/// `blur()` is an ordinary command: the dismiss button's press reaches the
+/// host by name with no argument, and focuses nothing else on the way.
+#[test]
+fn dismiss_reaches_the_host_as_a_blur_command() {
+    let plan = contract::compile(&corpus("keyboard-bar.contract")).unwrap();
+    let plan = contract::bake(plan, NoData).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let dismiss = r.kernel().find_by_test_id("dismiss")[0];
+    let dismiss = r.kernel().node_by_key(dismiss).unwrap().id;
+    r.dispatch(dismiss, exact_runner::Event::Press).unwrap();
+    let commands: Vec<(String, usize)> = r
+        .take_commands()
+        .into_iter()
+        .map(|c| (c.name, c.args.len()))
+        .collect();
+    assert_eq!(commands, [("blur".to_string(), 0)]);
+}

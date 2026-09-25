@@ -544,7 +544,9 @@ impl<'a> Resolver<'a> {
                     self.expr(expr);
                 }
                 Stmt::Command { name, args, .. } => {
-                    if let ("focus", [Expr::Str(id, span)]) = (name.as_str(), args.as_slice()) {
+                    if let ("focus" | "blur", [Expr::Str(id, span)]) =
+                        (name.as_str(), args.as_slice())
+                    {
                         self.graph.id(id, *span);
                     }
                     for arg in args {
