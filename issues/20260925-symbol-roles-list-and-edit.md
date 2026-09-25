@@ -1,6 +1,6 @@
 # Symbol roles lack a list's common glyphs: bookmark, document, check circle, reorder handle, sort, filters
 
-**Status:** Open
+**Status:** Fixed in a96e8094
 **Systems:** Kernel (`kernel/tables/schema.json` `symbols`), every host's symbol rendering (SF Symbols on Apple, the SVG path elsewhere), Contract (`symbol:<role>`)
 **Severity:** P3
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -26,3 +26,5 @@ The table has 19 roles, each `[role, SF Symbol, SVG path]`.
 - On iOS and macOS they render the SF Symbol.
 - On the web and Linux they render the path.
 - A parity case covers at least one new role.
+
+**Fixed (a96e8094):** roles `bookmark`, `bookmark-fill`, `document`, `select`, `select-fill` (`checkmark.circle`, `.fill`), `reorder`, `sort`, `filter`. The fill convention: a filled state is its own role, `<role>-fill` exactly for Apple's `<name>.fill` and beside `<role>` (build.rs refuses either half alone); its browser path is a filled even-odd silhouette, marked `data-symbol-fill` on the web. Apple renders the SF Symbol, the web the path (`~/bench/listbench/symbols-web-gallery*.png`); listbench on iOS matches the Expo capture's glyph ink to the pixel (`~/bench/listbench/symbols-ios-{top,saved,edit}.png`). Still open: Linux paints no symbol for any role (LLP 1015 §7), and Done's `checkmark` has no role.
