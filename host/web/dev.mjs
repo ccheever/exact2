@@ -60,6 +60,9 @@ let rebuildOn = rebuildPolicy(app.manifest);
 let manualTypescript = null, rustChild = null, rustActive = false, rustRun = 0, rustHeartbeat = null, rustDirty = false, rustSaved = 0, rustSourceWatch = null, rustOutputWatch = null;
 let rustInputFiles = new Set();
 let changed = new Set(), timer=null, building=false, buildPending=false, rustPending=false, builds=0;
+// A failed wasm build: its files ride with the next build, and the files its
+// diagnostics named are watched (the receipt names only a built wasm's inputs).
+let lastFailed = new Set(), failedInputs = new Set();
 const plan = resolve(dist, 'app.plan');
 const graphPath = resolve(dist, 'bake.json');
 buildEnv.EXACT_DEV_BAKE = graphPath;
@@ -574,7 +577,8 @@ function drainBuilds() {
   if (building || rustActive) return;
   if (buildPending || changed.size) {
     buildPending = false;
-    const files = [...changed]; changed = new Set();
+    // A GPU-only save after a failed app build still rebuilds the wasm.
+    const files = [...new Set([...lastFailed, ...changed])]; lastFailed = new Set(); changed = new Set();
     if (gpuOnly(files)) void produceGpu(files); else rebuildNow(files);
   } else if (rustPending) { rustPending = false; produceRustNow(); }
 }
@@ -824,7 +828,7 @@ let compilerInputFiles = new Set(), compilerInputTrees = [], compilerMissingInpu
 function watchCompilerInputs() {
   // Poll declared file metadata: saves and replacement survive directory-event
   // coalescing. Only open-ended source discovery needs a directory watch.
-  const files=new Set([...builtReceipts.flatMap(r=>r.binary.inputs.map(f=>f.path)),...rustInputFiles,...gpuInputs,...appInputs].filter(p=>!skipped.test(p)&&!p.includes('/.cargo/')));
+  const files=new Set([...builtReceipts.flatMap(r=>r.binary.inputs.map(f=>f.path)),...rustInputFiles,...gpuInputs,...appInputs,...failedInputs].filter(p=>!skipped.test(p)&&!p.includes('/.cargo/')));
   for(const receipt of builtReceipts)for(const missing of receipt.binary.missing)files.add(missing);
   files.add(resolve(app.dir,'app.json'));
   compilerInputFiles = files;
@@ -879,7 +883,7 @@ process.stdin.on('data', input => {
   for (const command of input.trim().split(/\s+/)) {
     if (command === 'f') push({fresh:true});
     if (command === 't') manualTypescript?.();
-    if (command === 'r') { if (portableRust && !changed.size) produceRust(); else rebuild(); }
+    if (command === 'r') { if (portableRust && !changed.size && !lastFailed.size) produceRust(); else rebuild(); }
   }
 });
 console.log(`rebuild: Rust ${rebuildOn.rust}, TypeScript ${rebuildOn.typescript}; r + Enter builds Rust, t + Enter builds TypeScript, f + Enter starts a fresh page`);
@@ -908,7 +912,7 @@ function rebuildNow(files) {
       rebuildOn = rebuildPolicy(app.manifest);
       current = null; currentModule = null; currentRust = null; currentRustId = null; assetsNeedRebuild = false;
       for (const directory of gpuVersions.values()) rmSync(directory, {recursive:true,force:true});
-      gpuVersions.clear(); gpuSides.clear(); readGpuInputs(); watchCompilerInputs();
+      gpuVersions.clear(); gpuSides.clear(); failedInputs.clear(); readGpuInputs(); watchCompilerInputs();
       program = programIdentity();
       // The restarted producer consumes module edits; queued core edits start
       // their rebuild there. Do not re-arm a third build below on that success.
@@ -918,8 +922,20 @@ function rebuildNow(files) {
       push({ rebuilt: builds });
     } else {
       const errors = out.split('\n').filter((l) => /^(error|warning: unused|\s+-->)/.test(l)).join('\n') || out.trim().split('\n').slice(-12).join('\n');
-      console.log(`rust: build failed in ${(ms / 1000).toFixed(1)} s\n${errors}`);
+      console.log(`rust: build failed in ${(ms / 1000).toFixed(1)} s; the next save, or r + Enter, builds again\n${errors}`);
       push({ error: `the wasm did not build:\n${errors}` });
+      lastFailed = new Set(files);
+      // A file only this failure names — added by the failing edit — is not in
+      // any receipt; watch it until a build succeeds. Diagnostics are remapped
+      // relative to the repo or the app's workspace.
+      for (const [, named] of out.matchAll(/^\s*--> (.+?):\d+:\d+\s*$/gm)) {
+        const path = [root, app.workspace].map(base => resolve(base, named)).find(existsSync);
+        if (path) failedInputs.add(path);
+      }
+      watchCompilerInputs();
+      // A Rust generation the producer replied with while this build was
+      // pending was skipped; the old wasm stays, so it is admitted now.
+      if (portableRust && existsSync(resolve(rustOutput(app), 'current'))) try { readRustGeneration(); } catch (error) { console.error(error.message); push({ error: error.message }); }
     }
     drainBuilds();
   });
