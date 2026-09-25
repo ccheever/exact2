@@ -26,11 +26,29 @@ fn symbols_admit_roles_and_refuse_platform_names_or_misspellings() {
         "messages",
         "notifications",
         "settings",
+        "repeat",
+        "activity",
+        "bookmark",
+        "bookmark-fill",
+        "document",
+        "select",
+        "select-fill",
+        "reorder",
+        "sort",
+        "filter",
     ] {
         contract::compile(&format!("component App\n  view\n    image \"symbol:{role}\" tint-color=\"light-dark(#123456,#abcdef)\"\n")).unwrap();
     }
     contract::compile("component App\n  state selected = true\n  view\n    button role=\"tab\" aria-selected=selected\n      text \"Questions\"\n").unwrap();
-    for role in ["", "chevron.backward", "sf/plus", "Search", "serach"] {
+    for role in [
+        "",
+        "chevron.backward",
+        "sf/plus",
+        "Search",
+        "serach",
+        "bookmark.fill",
+        "checkmark-circle",
+    ] {
         let error = contract::compile(&format!(
             "component App\n  view\n    image \"symbol:{role}\"\n"
         ))

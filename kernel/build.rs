@@ -159,6 +159,13 @@ fn validate(schema: &Schema) {
                 .all(|c| c.is_ascii_alphanumeric() || b" .,-".contains(&c)),
             "schema: invalid symbol path {role}"
         );
+        // A filled state is its own role, named as Apple names it, beside its outline.
+        let base = role.strip_suffix("-fill");
+        assert!(
+            base.is_some() == apple.ends_with(".fill")
+                && base.is_none_or(|base| schema.symbols.iter().any(|row| row[0] == base)),
+            "schema: symbol {role}: `-fill` is exactly Apple's `.fill`, beside its role"
+        );
     }
     assert_eq!(
         schema.schema_version, 1,
@@ -303,16 +310,17 @@ fn generate(schema: &Schema, digest: u64) -> String {
     .unwrap();
     writeln!(
         w,
-        "/// Resolve a role to its Apple name and browser path; never accepts a platform name."
+        "/// Resolve a role to its Apple name, browser path, and whether that path is\n/// filled (even-odd) rather than stroked; never accepts a platform name."
     )
     .unwrap();
     writeln!(
         w,
-        "pub fn symbol(role: &str) -> Option<(&'static str, &'static str)> {{ match role {{"
+        "pub fn symbol(role: &str) -> Option<(&'static str, &'static str, bool)> {{ match role {{"
     )
     .unwrap();
     for [role, apple, path] in &schema.symbols {
-        writeln!(w, "{role:?} => Some(({apple:?}, {path:?})),").unwrap();
+        let filled = role.ends_with("-fill");
+        writeln!(w, "{role:?} => Some(({apple:?}, {path:?}, {filled})),").unwrap();
     }
     writeln!(w, "_ => None, }} }}").unwrap();
     writeln!(

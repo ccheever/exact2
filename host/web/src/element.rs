@@ -313,13 +313,15 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
             .str(PropId::ImageSource)
             .and_then(|s| s.strip_prefix("symbol:"))
         {
+            let symbol = exact_kernel::generated::symbol(role);
             out.insert(
                 "data-symbol-path".into(),
-                exact_kernel::generated::symbol(role)
-                    .map(|s| s.1)
-                    .unwrap_or("")
-                    .into(),
+                symbol.map(|s| s.1).unwrap_or("").into(),
             );
+            // A filled role's path is a silhouette, drawn filled, not stroked.
+            if symbol.is_some_and(|s| s.2) {
+                out.insert("data-symbol-fill".into(), String::new());
+            }
             out.insert("alt".into(), String::new());
         }
     }

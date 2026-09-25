@@ -108,6 +108,49 @@ fn symbol_roles_carry_host_paths_and_decorative_images() {
     assert!(changed.contains("\"data-symbol-path\":\"\""), "{changed}");
 }
 
+#[test]
+fn a_filled_role_is_a_filled_silhouette_and_its_outline_is_stroked() {
+    let plan = contract::compile(
+        r##"component App
+  state saved = false
+  action toggle writes saved
+    saved = not saved
+  view
+    button press=toggle testId="toggle" aria-label="Save"
+      image (saved ? "symbol:bookmark-fill" : "symbol:bookmark") tint-color="#ff8d28"
+"##,
+    )
+    .unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let outline = exact_kernel::generated::symbol("bookmark").unwrap();
+    let filled = exact_kernel::generated::symbol("bookmark-fill").unwrap();
+    assert_eq!((outline.0, outline.2), ("bookmark", false));
+    assert_eq!((filled.0, filled.2), ("bookmark.fill", true));
+    assert!(
+        first.contains(&format!("\"data-symbol-path\":\"{}\"", outline.1)),
+        "{first}"
+    );
+    assert!(!first.contains("data-symbol-fill"), "{first}");
+    let saved = host.dispatch(view_with_test_id(&host, "toggle"), Event::Press);
+    assert!(
+        saved.contains(&format!("\"data-symbol-path\":\"{}\"", filled.1)),
+        "{saved}"
+    );
+    assert!(saved.contains("\"data-symbol-fill\":\"\""), "{saved}");
+    let unsaved = host.dispatch(view_with_test_id(&host, "toggle"), Event::Press);
+    assert!(
+        unsaved.contains("\"data-symbol-fill\""),
+        "cleared: {unsaved}"
+    );
+    assert!(!unsaved.contains("\"data-symbol-fill\":\"\""), "{unsaved}");
+}
+
 fn view_with_test_id(host: &Host<caltrain_data::Caltrain>, test_id: &str) -> u32 {
     let k = host.runner().kernel();
     let key = k.find_by_test_id(test_id)[0];
