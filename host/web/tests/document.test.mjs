@@ -103,13 +103,16 @@ function differences(served, live, where = 'root', out = []) {
 
 /** Serve the rendered page for `location` beside dist/, launch Chrome, and
  * hand `drive` a way to open tabs on it; everything is torn down after. */
-async function withDocument(location, drive, { wasmAfter = null, glueAfter = null, tamper = (page) => page, origin = null, html = null, files = {} } = {}) {
+async function withDocument(location, drive, { wasmAfter = null, glueAfter = null, tamper = (page) => page, origin = null, html = null, files = {}, answers = {}, requested = () => {} } = {}) {
   let server = null, url = `${origin}${location}`;
   if (!origin) {
     const page = tamper(html ?? renderedPage(location));
     server = createServer(async (req, res) => {
+      requested(req.url);
       if (req.url === location || req.url === '/') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); res.end(page); return; }
       if (files[req.url]) { res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(files[req.url]); return; }
+      // Another page, or a response that doesn't navigate (a 204).
+      if (answers[req.url]) { const [status, body] = answers[req.url]; res.writeHead(status, { 'content-type': 'text/html; charset=utf-8' }); res.end(body); return; }
       // A slow network, where a test needs the runtime to still be loading.
       if (wasmAfter && req.url.startsWith('/app.wasm')) await wasmAfter;
       if (glueAfter && req.url.startsWith('/glue.js')) await glueAfter;
@@ -255,6 +258,47 @@ check(`a press before the glue runs is captured, replays once, and a later one i
     await live(settled);
     expect(await presses()).toBe(2);
   }, { glueAfter });
+}, 180000);
+
+// LLP 1048.000 D6: a link that leaves the page stops its runtime's download,
+// which would share the link with the next document; a page that stays gets
+// its runtime all the same. Here the wasm is held back, so it is still
+// downloading when the link is followed.
+const away = (href) => `(() => { const a = document.createElement('a'); a.href = '${href}'; document.body.append(a); a.click(); })()`;
+const downloading = "!!globalThis.exact?.runtime && performance.getEntriesByType('resource').some((e) => e.name.endsWith('/document-glue.js'))";
+
+check(`a link that doesn't leave (a 204) stops the runtime's download, and the page downloads it again${unavailable ? ` — ${unavailable}` : ''}`, async () => {
+  let release;
+  const wasmAfter = new Promise((resolve) => { release = resolve; });
+  const wasm = [];
+  await withDocument('/?agent=1', async (tab) => {
+    const live = await tab(true);
+    await live.until(downloading, 'the download');
+    await live(away('/no-content'));
+    expect(await live("exact.runtime.then(() => 'downloaded', (e) => e.name)")).toBe('AbortError');
+    expect(await live(`!!document.querySelector('link[href="./app.wasm"]')`)).toBe(false);
+    release();
+    await live.until("document.getElementById('exact-root')?.dataset.moduleReady === 'true'", 'the runtime');
+    expect(await live('location.pathname')).toBe('/');
+    expect((await live("exact.agent({op:'state'})")).adopted).toBe(true);
+    expect(wasm.length).toBe(2);
+  }, { wasmAfter, answers: { '/no-content': [204, ''] }, requested: (url) => { if (url.startsWith('/app.wasm')) wasm.push(url); } });
+}, 180000);
+
+check(`Back from the bfcache downloads the runtime a link stopped${unavailable ? ` — ${unavailable}` : ''}`, async () => {
+  let release;
+  const wasmAfter = new Promise((resolve) => { release = resolve; });
+  await withDocument('/?agent=1', async (tab) => {
+    const live = await tab(true, "addEventListener('pageshow', (e) => { if (e.persisted) globalThis.__restored = true; });");
+    await live.until(downloading, 'the download');
+    await live(away('/elsewhere'));
+    await live.until("location.pathname === '/elsewhere'", 'the next page');
+    await live('history.back()');
+    await live.until('globalThis.__restored === true', 'the page from the bfcache');
+    release();
+    await live.until("document.getElementById('exact-root')?.dataset.moduleReady === 'true'", 'the runtime');
+    expect((await live("exact.agent({op:'state'})")).adopted).toBe(true);
+  }, { wasmAfter, answers: { '/elsewhere': [200, '<!doctype html><p>elsewhere</p>'] } });
 }, 180000);
 
 /** An app's render server (LLP 1048.000 D10) over its dist, on loopback —

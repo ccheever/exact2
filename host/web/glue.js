@@ -1426,8 +1426,16 @@ function loadGpuIfNeeded() {
 }
 async function main() {
   if (page) { const options = { root, views, log, early: page.early, dispatch: (id, kind = 0, value = "") => send(wasm.exact_dispatch(id, kind, value ? writeIn(value) : 0, now())) }; page = globalThis.exact.documentPage?.connect(options) ?? (await loadAfterPaint('./document-glue.js', 'documentBoot'))(options); await page.started; }
-  const url = new URL("./app.wasm", import.meta.url), response = (globalThis.exact.runtime ??= fetch(url)).then(r => r.url === url.href ? r : fetch(url), () => fetch(url)); // a served document's download began at its first paint (LLP 1048.000 D6)
-  const { instance } = await WebAssembly.instantiateStreaming(response, { exact_js: { call: moduleCall }, exact_rust: rustImports });
+  // A served document's download began at its first paint (LLP 1048.000 D6).
+  // A navigation that leaves the page stops it, or the glue's own, and their
+  // preload, so the next document has the link. A page that stays downloads it
+  // again: a task after Stop (`navigateerror`, fired mid-stop) or Back from the
+  // bfcache (`pageshow`); a 204 or a download says nothing, so after a second.
+  const url = new URL("./app.wasm", import.meta.url), imports = { exact_js: { call: moduleCall }, exact_rust: rustImports }, aborted = e => e?.name === "AbortError";
+  const download = () => { const stop = new AbortController(); globalThis.navigation?.addEventListener("navigate", e => e.destination.sameDocument || e.downloadRequest != null || (stop.abort(), document.querySelector('link[href="./app.wasm"]')?.remove()), { signal: stop.signal }); return fetch(url, { signal: stop.signal }); };
+  const stayed = () => new Promise(done => { const later = () => setTimeout(done); globalThis.navigation?.addEventListener("navigateerror", later, { once: true }); addEventListener("pageshow", later, { once: true }); setTimeout(done, 1000); });
+  let response = (globalThis.exact.runtime ??= download()).then(r => r.url === url.href ? r : download(), e => aborted(e) ? Promise.reject(e) : download()), instance;
+  for (;;) try { ({ instance } = await WebAssembly.instantiateStreaming(response, imports)); break; } catch (e) { if (!aborted(e)) throw e; await stayed(); response = download(); }
   wasm = instance.exports;
   memory = wasm.memory;
   globalThis.exact.compat = JSON.parse(readOut(wasm.exact_compat()));
