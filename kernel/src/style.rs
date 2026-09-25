@@ -311,7 +311,7 @@ pub enum StyleValue {
     /// A number: points for dimensions, the raw value for numeric rows, a
     /// packed `0xRRGGBBAA` for colors.
     Number(f64),
-    /// Text: an enum value by name, or a color as `#rrggbb[aa]`.
+    /// Text: an enum value by name, or a color as `#rrggbb[aa]` or `rgb()`.
     Text(String),
     /// A percentage, authored 0–100.
     Percent(f64),
@@ -453,7 +453,7 @@ impl StyleValue {
             {
                 Ok(Color(*n as u32))
             }
-            StyleValue::Text(t) => Color::parse_hex(t).ok_or(StyleValueError::BadColor { style }),
+            StyleValue::Text(t) => Color::parse(t).ok_or(StyleValueError::BadColor { style }),
             _ => Err(StyleValueError::WrongKind {
                 style,
                 expected: "color",
@@ -583,10 +583,20 @@ impl ColorValue {
     /// this function, and falls through to the plain colour parse.
     pub fn parse_light_dark(text: &str) -> Option<ColorValue> {
         let inner = text.trim().strip_prefix("light-dark(")?.strip_suffix(')')?;
-        let (light, night) = inner.split_once(',')?;
+        // The comma between the two colours, not one inside an `rgb()`.
+        let mut depth = 0;
+        let comma = inner.find(|c| {
+            match c {
+                '(' => depth += 1,
+                ')' => depth -= 1,
+                ',' if depth == 0 => return true,
+                _ => {}
+            }
+            false
+        })?;
         Some(ColorValue::LightDark(
-            Color::parse_hex(light.trim())?,
-            Color::parse_hex(night.trim())?,
+            Color::parse(&inner[..comma])?,
+            Color::parse(&inner[comma + 1..])?,
         ))
     }
 }
@@ -598,6 +608,52 @@ impl From<Color> for ColorValue {
 }
 
 impl Color {
+    /// A CSS colour: hex or `rgb()` notation, whitespace around it free.
+    pub fn parse(text: &str) -> Option<Color> {
+        let text = text.trim();
+        Color::parse_hex(text).or_else(|| Color::parse_rgb(text))
+    }
+
+    /// CSS `rgb()` / `rgba()` (one function under two names, as in CSS
+    /// Color 4): `rgb(255, 0, 0)`, `rgba(255, 0, 0, 0.5)`, `rgb(255 0 0 / 50%)`.
+    /// A channel is a number 0–255 or a percentage; alpha is a number 0–1 or
+    /// a percentage; out-of-range values clamp, as on the web.
+    fn parse_rgb(text: &str) -> Option<Color> {
+        let inner = text
+            .strip_prefix("rgba(")
+            .or_else(|| text.strip_prefix("rgb("))?
+            .strip_suffix(')')?;
+        let parts: Vec<&str> = if inner.contains(',') {
+            inner.split(',').map(str::trim).collect()
+        } else {
+            let (rgb, alpha) = match inner.split_once('/') {
+                Some((rgb, alpha)) => (rgb, Some(alpha.trim())),
+                None => (inner, None),
+            };
+            rgb.split_whitespace().chain(alpha).collect()
+        };
+        let ([r, g, b], alpha) = match parts[..] {
+            [r, g, b] => ([r, g, b], None),
+            [r, g, b, a] => ([r, g, b], Some(a)),
+            _ => return None,
+        };
+        // A value as a byte: a percentage of 255, or a number in `unit`s of
+        // a byte (1 for a channel, 255 for alpha).
+        let byte = |s: &str, unit: f32| -> Option<u8> {
+            let v = match s.strip_suffix('%') {
+                Some(p) => p.parse::<f32>().ok()? / 100.0 * 255.0,
+                None => s.parse::<f32>().ok()? * unit,
+            };
+            v.is_finite().then(|| v.round().clamp(0.0, 255.0) as u8)
+        };
+        Some(Color::rgba(
+            byte(r, 1.0)?,
+            byte(g, 1.0)?,
+            byte(b, 1.0)?,
+            alpha.map_or(Some(255), |a| byte(a, 255.0))?,
+        ))
+    }
+
     /// Parse CSS hex notation: `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`.
     pub fn parse_hex(text: &str) -> Option<Color> {
         let hex = text.strip_prefix('#')?;
@@ -1189,6 +1245,41 @@ mod tests {
     }
 
     #[test]
+    fn a_colour_parses_as_hex_or_as_css_rgb_notation() {
+        let red = Some(Color::rgba(255, 0, 0, 255));
+        assert_eq!(Color::parse(" #f00 "), red);
+        assert_eq!(Color::parse("rgb(255, 0, 0)"), red);
+        assert_eq!(Color::parse("rgba(255,0,0)"), red);
+        assert_eq!(Color::parse("rgb(100%, 0%, 0%)"), red);
+        assert_eq!(Color::parse("rgb(255 0 0)"), red);
+        let half = Some(Color::rgba(255, 0, 0, 128));
+        assert_eq!(Color::parse("rgba(255, 0, 0, 0.5)"), half);
+        assert_eq!(Color::parse("rgba(255, 0, 0, 50%)"), half);
+        assert_eq!(Color::parse("rgb(255 0 0 / 0.5)"), half);
+        assert_eq!(Color::parse("rgb(255 0 0 / 50%)"), half);
+        assert_eq!(Color::parse("rgb( 100% 0 0 / 50% )"), half);
+        // Out-of-range values clamp, as on the web; fractions round.
+        assert_eq!(
+            Color::parse("rgb(300, -1, 127.5, 2)"),
+            Some(Color::rgba(255, 0, 128, 255))
+        );
+        for text in [
+            "rgb(255, 0)",
+            "rgb(255, 0, 0, 1, 1)",
+            "rgb(255 0 0 /)",
+            "rgb(255, 0, 0 / 1)",
+            "rgb(255, 0, 0,)",
+            "rgb(a, b, c)",
+            "rgb(nan, 0, 0)",
+            "rgb(255, 0, 0",
+            "hsl(0, 100%, 50%)",
+            "red",
+        ] {
+            assert_eq!(Color::parse(text), None, "{text}");
+        }
+    }
+
+    #[test]
     fn a_colour_row_holds_a_light_dark_pair_and_the_host_resolves_it() {
         // CSS's spelling, and only it (LLP 1034 D1).
         let pair = ColorValue::parse_light_dark("light-dark(#ffffff, #000000)").unwrap();
@@ -1210,6 +1301,14 @@ mod tests {
                 Color::parse_hex("#000").unwrap()
             ))
         );
+        // Either colour may be `rgb()`; its commas are its own.
+        assert_eq!(
+            ColorValue::parse_light_dark("light-dark(rgb(255, 0, 0), rgba(0 0 255 / 50%))"),
+            Some(ColorValue::LightDark(
+                Color::rgba(255, 0, 0, 255),
+                Color::rgba(0, 0, 255, 128)
+            ))
+        );
         // Anything that is not two colours is not this function.
         for text in [
             "#ffffff",
@@ -1217,6 +1316,7 @@ mod tests {
             "light-dark(#fff, nope)",
             "dark-light(#fff, #000)",
             "light-dark(#fff, #000",
+            "light-dark(rgb(1, 2, 3, 4, 5), #000)",
         ] {
             assert_eq!(ColorValue::parse_light_dark(text), None, "{text}");
         }

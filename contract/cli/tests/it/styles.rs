@@ -45,7 +45,8 @@ fn a_class_applies_its_style_and_the_nodes_own_attribute_wins() {
     assert_eq!(card.row_gap, 10.0);
     assert_eq!(
         card.background_color,
-        Color::parse_hex("#ffffffd9").unwrap().into()
+        Color::parse_hex("#ffffffd9").unwrap().into(),
+        "`rgba(255, 255, 255, 0.85)` is `#ffffffd9`"
     );
     let tight = style_of("tight");
     assert_eq!(tight.padding_top, Dimension::Points(4.0));
