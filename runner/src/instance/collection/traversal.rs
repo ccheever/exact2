@@ -169,6 +169,7 @@ impl Tree {
                 total_extent: c.index.total_height(),
                 rows,
                 correction: c.correction,
+                pending: c.pending,
             });
             Ok(())
         })?;
@@ -213,6 +214,7 @@ impl Tree {
         &mut self,
         u: &mut Update<'_>,
         feedback: CollectionFeedback,
+        fill: CollectionFill,
     ) -> Result<(bool, Option<CollectionEdges>), InstanceError> {
         if !self.has_collections {
             self.last_work = u.work;
@@ -238,7 +240,7 @@ impl Tree {
         } else {
             false
         };
-        let (changed, edge) = feedback_walk(&mut self.children, u, &[], &feedback, &by_view)?
+        let (changed, edge) = feedback_walk(&mut self.children, u, &[], &feedback, &by_view, fill)?
             .unwrap_or((false, None));
         let (mut live, gone): (Vec<_>, Vec<_>) = std::mem::take(&mut u.ops)
             .into_iter()
@@ -293,6 +295,7 @@ fn feedback_walk(
     frames: &[Frame],
     feedback: &CollectionFeedback,
     by_view: &BTreeMap<ViewId, usize>,
+    fill: CollectionFill,
 ) -> Result<Option<(bool, Option<CollectionEdges>)>, InstanceError> {
     for child in children {
         let found = match child {
@@ -300,33 +303,33 @@ fn feedback_walk(
                 if let Some(collection) = &mut node.collection {
                     if collection.view == feedback.view {
                         return collection
-                            .feedback(u, frames, feedback.clone(), by_view)
+                            .feedback(u, frames, feedback.clone(), by_view, fill)
                             .map(Some);
                     }
                     for row in &mut collection.mounted {
                         let mut inner = frames.to_vec();
                         inner.push(row.row.frame.clone());
                         if let Some(result) =
-                            feedback_walk(&mut row.row.roots, u, &inner, feedback, by_view)?
+                            feedback_walk(&mut row.row.roots, u, &inner, feedback, by_view, fill)?
                         {
                             return Ok(Some(result));
                         }
                     }
                 }
-                feedback_walk(&mut node.children, u, frames, feedback, by_view)?
+                feedback_walk(&mut node.children, u, frames, feedback, by_view, fill)?
             }
             Child::Region(region) => match &mut region.active {
                 Active::Arm { roots, frame, .. } => {
                     let mut inner = frames.to_vec();
                     inner.push(frame.clone());
-                    feedback_walk(roots, u, &inner, feedback, by_view)?
+                    feedback_walk(roots, u, &inner, feedback, by_view, fill)?
                 }
                 Active::Rows { rows } => {
                     for row in rows {
                         let mut inner = frames.to_vec();
                         inner.push(row.frame.clone());
                         if let Some(result) =
-                            feedback_walk(&mut row.roots, u, &inner, feedback, by_view)?
+                            feedback_walk(&mut row.roots, u, &inner, feedback, by_view, fill)?
                         {
                             return Ok(Some(result));
                         }

@@ -17,15 +17,19 @@ struct CollectionFacts: Equatable {
     var focus: UInt32?
     var interaction: UInt32?
 
-    func encode(view: UInt32, revision: UInt64, sequence: UInt64) -> Data {
+    /// Wire version 2: `velocity` (points/s, positive toward the end) and
+    /// `limit`, the rows past what it owes this report may build (nil: any).
+    func encode(view: UInt32, revision: UInt64, sequence: UInt64, velocity: Double = 0, limit: UInt32? = nil) -> Data {
         var bytes = Data()
         func integer<T: FixedWidthInteger>(_ value: T) {
             var le = value.littleEndian
             withUnsafeBytes(of: &le) { bytes.append(contentsOf: $0) }
         }
-        integer(UInt32(1)); integer(view); integer(revision); integer(sequence)
+        integer(UInt32(2)); integer(view); integer(revision); integer(sequence)
         for value in [top, portWidth, portHeight, rowWidth] { integer(value.bitPattern) }
-        integer(focus ?? 0); integer(interaction ?? 0); integer(UInt32(measurements.count))
+        integer(focus ?? 0); integer(interaction ?? 0)
+        integer((velocity.isFinite ? velocity : 0).bitPattern); integer(limit.map { Swift.min($0, UInt32.max - 1) } ?? UInt32.max)
+        integer(UInt32(measurements.count))
         for row in measurements { integer(row.view); integer(row.epoch); integer(row.height.bitPattern) }
         return bytes
     }
@@ -59,6 +63,8 @@ struct CollectionSnapshot {
         let view: UInt32
         let root: UInt32
         let epoch: UInt64
+        /// Logical position; -1 when a snapshot omits it.
+        let index: Int
     }
     struct Correction {
         let sequence: UInt64
@@ -70,6 +76,10 @@ struct CollectionSnapshot {
     let extent: Double
     let rows: [Row]
     let correction: Correction?
+    /// Logical item count, mounted or not.
+    let count: Int
+    /// A limited report left window rows unbuilt: another report is owed.
+    let pending: Bool
 
     init?(_ value: [String: Any]) {
         guard let view = Self.viewID(value["view"]), let revision = Self.uint(value["revision"]),
@@ -80,7 +90,7 @@ struct CollectionSnapshot {
         for item in rawRows {
             guard let id = Self.viewID(item["view"]), let root = Self.viewID(item["root"]),
                   let epoch = Self.uint(item["epoch"]), seen.insert(id).inserted else { return nil }
-            rows.append(Row(view: id, root: root, epoch: epoch))
+            rows.append(Row(view: id, root: root, epoch: epoch, index: Self.uint(item["index"]).map { Int(clamping: $0) } ?? -1))
         }
         var correction: Correction?
         if let raw = value["correction"], !(raw is NSNull) {
@@ -90,8 +100,14 @@ struct CollectionSnapshot {
         }
         self.view = view; self.revision = revision; self.sequence = sequence
         self.extent = extent; self.rows = rows; self.correction = correction
+        self.count = Self.uint(value["count"]).map { Int(clamping: $0) } ?? rows.count
+        self.pending = (value["pending"] as? NSNumber)?.boolValue ?? false
     }
     private static func uint(_ value: Any?) -> UInt64? {
+        // Integral JSON numbers read directly; a fraction or sign refuses.
+        if let n = value as? NSNumber, CFNumberIsFloatType(n) == false {
+            return n.int64Value >= 0 ? n.uint64Value : nil
+        }
         if let n = value as? NSNumber { return UInt64(n.stringValue) }
         if let s = value as? String { return UInt64(s) }
         return nil
@@ -133,6 +149,13 @@ final class CollectionHost {
     private var gestureContact: UInt64?
     private var lastVisited: UInt32 = 0
     private var refreshPins = false
+    /// LLP 1050.000's fill. A platform with a pump reports each moving
+    /// collection's velocity (nil at rest) and builds `fillPending` in slices;
+    /// one without leaves `motion` nil, and every report is unlimited.
+    var motion: ((UInt32) -> Double?)?
+    var requestFill: (() -> Void)?
+    private(set) var fillPending = Set<UInt32>()
+    private var sliceLimits: [UInt32: UInt32] = [:]
     // Platform hooks remove event monitors/recognizers when the adapter resets.
     var stopTracking: (() -> Void)?
     init(_ presenter: Presenter) { self.presenter = presenter }
@@ -143,6 +166,7 @@ final class CollectionHost {
         generation += 1; queued = false; batchDepth = 0; correcting = false
         stopTracking?(); stopTracking = nil
         entries.removeAll(); dirty.removeAll(); interaction = nil; contactEvent = nil
+        fillPending.removeAll(); sliceLimits.removeAll()
         budget = CollectionTurnBudget()
         refreshPins = false; lastVisited = 0
     }
@@ -156,12 +180,15 @@ final class CollectionHost {
             guard live.count == snapshots.count else { continue }
             entries = entries.filter { live.contains($0.key) }
             dirty.formIntersection(live)
+            fillPending.formIntersection(live)
             for snapshot in snapshots {
                 if let entry = entries[snapshot.view] {
                     if snapshot.revision >= entry.snapshot.revision { entry.snapshot = snapshot }
                 } else { entries[snapshot.view] = Entry(snapshot) }
                 dirty.insert(snapshot.view)
+                if entries[snapshot.view]!.snapshot.pending { fillPending.insert(snapshot.view) }
             }
+            if !fillPending.isEmpty { requestFill?() }
         }
         if !entries.isEmpty, stopTracking == nil { startTracking() }
         if entries.isEmpty { stopTracking?(); stopTracking = nil; interaction = nil }
@@ -216,7 +243,30 @@ final class CollectionHost {
         guard let entry = entries[view], !correcting else { return }
         if user && batchDepth == 0 { entry.cursor.advance() }
         dirty.insert(view)
-        if batchDepth == 0 { if user { flush() } else { schedule() } }
+        guard batchDepth == 0 else { return }
+        if !user { schedule(); return }
+        // While mounted rows cover the port, the pump reports after the
+        // scroll callback returns, building ahead in its slice; otherwise
+        // the rows the reader sees are built now (LLP 1050.000 D1).
+        if motion != nil, covers(view) {
+            fillPending.insert(view)
+            requestFill?()
+        } else { flush() }
+    }
+    /// One slice of fill for `view`: a report that may build `limit` rows
+    /// past what it owes, and its measurement pass. The slice is its own
+    /// main-queue turn. Returns the rows it created.
+    @discardableResult
+    func fillSlice(_ view: UInt32, limit: UInt32) -> Int {
+        fillPending.remove(view)
+        guard let entry = entries[view], batchDepth == 0 else { return 0 }
+        let before = Set(entry.snapshot.rows.map(\.view))
+        budget.nextTurn()
+        dirty.insert(view)
+        sliceLimits[view] = limit
+        flush()
+        sliceLimits[view] = nil
+        return (entries[view]?.snapshot.rows ?? []).filter { !before.contains($0.view) }.count
     }
     func dataReady() {
         // Retry armed edges once after deferred activation without forgetting
@@ -297,10 +347,18 @@ final class CollectionHost {
                           rowWidth(row.view) == facts.rowWidth else { return nil }
                     return CollectionMeasurement(view: row.view, epoch: row.epoch, height: height)
                 }
-                if entry.lastFacts != facts || entry.lastSequence != entry.cursor.sequence {
+                // A slice builds its limit once; later passes and every
+                // report while moving or owed a continuation only measure
+                // and rescue what shows. At rest a report is unlimited.
+                let velocity = motion?(id)
+                let limit: UInt32? = sliceLimits.removeValue(forKey: id)
+                    ?? (motion != nil && (velocity != nil || entry.snapshot.pending) ? 0 : nil)
+                if entry.lastFacts != facts || entry.lastSequence != entry.cursor.sequence
+                    || (entry.snapshot.pending && limit != 0) {
                     entry.lastFacts = facts
                     entry.lastSequence = entry.cursor.sequence
-                    onFeedback(facts.encode(view: id, revision: entry.snapshot.revision, sequence: entry.cursor.sequence))
+                    onFeedback(facts.encode(view: id, revision: entry.snapshot.revision, sequence: entry.cursor.sequence,
+                        velocity: velocity ?? 0, limit: limit))
                 }
             }
             budget.end()

@@ -12,15 +12,17 @@ export function collectionBytes(facts) {
     if (!id(row.view) || seen.has(row.view) || !valid(row.height)) throw Error('invalid collection row');
     seen.add(row.view);
   }
-  const bytes = new Uint8Array(68 + rows.length * 20), d = new DataView(bytes.buffer);
-  d.setUint32(0, 1, true); d.setUint32(4, facts.view, true);
+  // Wire version 2 (LLP 1050.000 §6): velocity 0 and no limit, a whole window per report.
+  const bytes = new Uint8Array(80 + rows.length * 20), d = new DataView(bytes.buffer);
+  d.setUint32(0, 2, true); d.setUint32(4, facts.view, true);
   d.setBigUint64(8, u64(facts.revision), true); d.setBigUint64(16, u64(facts.scroll_sequence), true);
   [facts.scroll_top, facts.port_width, facts.port_height, facts.row_width].forEach((n, i) => d.setFloat64(24 + i * 8, n, true));
   d.setUint32(56, facts.focus_view ?? 0, true); d.setUint32(60, facts.interaction_view ?? 0, true);
-  d.setUint32(64, rows.length, true);
+  d.setFloat64(64, 0, true); d.setUint32(72, 0xffffffff, true);
+  d.setUint32(76, rows.length, true);
   rows.forEach((row, i) => {
-    d.setUint32(68 + i * 20, row.view, true); d.setBigUint64(72 + i * 20, u64(row.epoch), true);
-    d.setFloat64(80 + i * 20, row.height, true);
+    d.setUint32(80 + i * 20, row.view, true); d.setBigUint64(84 + i * 20, u64(row.epoch), true);
+    d.setFloat64(92 + i * 20, row.height, true);
   });
   return bytes;
 }

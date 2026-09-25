@@ -97,6 +97,11 @@ final class Presenter {
     init() {
         viewport.addSubview(root)
         viewport.delegate = scrollPump
+        collections.motion = { [unowned self] id in
+            let velocity = scrollPump.velocity(id)
+            return velocity == 0 ? nil : velocity
+        }
+        collections.requestFill = { [unowned self] in scrollPump.requestFill() }
         viewport.contentInsetAdjustmentBehavior = .never
         viewport.backgroundColor = .white
         if ExactEnv.agentMode {

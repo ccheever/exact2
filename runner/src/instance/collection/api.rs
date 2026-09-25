@@ -37,6 +37,17 @@ pub struct CollectionFeedback {
     /// Active interaction descendant; pins at most one additional row.
     pub interaction_view: Option<ViewId>,
 }
+/// What one report may build beyond the rows it owes (LLP 1050.000 §6).
+/// The host owns time: it turns its slice into `limit` from measured cost.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct CollectionFill {
+    /// The scrollport's velocity, logical px/s, positive toward the end.
+    /// Leads the window in the direction of travel.
+    pub velocity: f64,
+    /// Rows this report may create beyond the owed set (visible and pinned
+    /// rows), and a bound on the rows it retires. `None` is unlimited.
+    pub limit: Option<u32>,
+}
 /// A mounted row; unmounted keys and records never cross the host seam.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CollectionRow {
@@ -80,20 +91,31 @@ pub struct CollectionSnapshot {
     pub rows: Vec<CollectionRow>,
     /// Optional anchor correction; consume at most once per revision.
     pub correction: Option<AnchorCorrection>,
+    /// A limited report left window rows unbuilt or rows past the window
+    /// mounted: the host owes another report, even with unchanged facts.
+    pub pending: bool,
 }
 /// Malformed or nonfinite host feedback. Stale valid feedback is ignored instead.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FeedbackError;
 
 impl CollectionFeedback {
-    /// Portable LE wire version 1: u32 version, u32 view, u64 revision,
-    /// u64 sequence, f64 top/port_width/port_height/row_width, u32 focus and
-    /// interaction (zero means none), u32 count, then count ×
-    /// (u32 wrapper, u64 epoch, f64 height). No keys, strings, or JSON parsing.
+    /// [`CollectionFeedback::encode_with`] an unlimited, motionless fill.
     pub fn encode(&self) -> Result<Vec<u8>, FeedbackError> {
+        self.encode_with(CollectionFill::default())
+    }
+    /// Portable LE wire version 2: u32 version, u32 view, u64 revision,
+    /// u64 sequence, f64 top/port_width/port_height/row_width, u32 focus and
+    /// interaction (zero means none), f64 velocity, u32 limit (`u32::MAX`
+    /// means none), u32 count, then count × (u32 wrapper, u64 epoch, f64
+    /// height). No keys, strings, or JSON parsing.
+    pub fn encode_with(&self, fill: CollectionFill) -> Result<Vec<u8>, FeedbackError> {
         self.validate()?;
+        if !fill.velocity.is_finite() || fill.limit == Some(u32::MAX) {
+            return Err(FeedbackError);
+        }
         let mut w = Writer::default();
-        w.u32(1);
+        w.u32(2);
         w.u32(self.view);
         w.u64(self.revision);
         w.u64(self.scroll_sequence);
@@ -107,6 +129,8 @@ impl CollectionFeedback {
         }
         w.u32(self.focus_view.unwrap_or(0));
         w.u32(self.interaction_view.unwrap_or(0));
+        w.f64(fill.velocity);
+        w.u32(fill.limit.unwrap_or(u32::MAX));
         w.u32(
             self.measurements
                 .len()
@@ -120,12 +144,16 @@ impl CollectionFeedback {
         }
         Ok(w.into_vec())
     }
+    /// The facts of [`CollectionFeedback::decode_with_fill`].
+    pub fn decode(bytes: &[u8]) -> Result<Self, FeedbackError> {
+        Self::decode_with_fill(bytes).map(|(facts, _)| facts)
+    }
     /// Decode once in the common runner layer. Reject trailing/truncated bytes,
     /// duplicate wrappers, zero identities, and invalid numbers before mutation.
-    pub fn decode(bytes: &[u8]) -> Result<Self, FeedbackError> {
+    pub fn decode_with_fill(bytes: &[u8]) -> Result<(Self, CollectionFill), FeedbackError> {
         let mut r = Reader::new(bytes);
-        let out = (|| -> Result<Self, exact_plan::PlanError> {
-            if r.u32()? != 1 {
+        let out = (|| -> Result<(Self, CollectionFill), exact_plan::PlanError> {
+            if r.u32()? != 2 {
                 return Err(exact_plan::PlanError::BadCount(0));
             }
             let view = r.u32()?;
@@ -137,6 +165,12 @@ impl CollectionFeedback {
             let row_width = r.f64()?;
             let focus = r.u32()?;
             let interaction = r.u32()?;
+            let velocity = r.f64()?;
+            let limit = r.u32()?;
+            let fill = CollectionFill {
+                velocity,
+                limit: (limit != u32::MAX).then_some(limit),
+            };
             let count = r.u32()? as usize;
             if count.checked_mul(20) != Some(r.remaining()) {
                 return Err(exact_plan::PlanError::BadCount(count as u32));
@@ -149,7 +183,7 @@ impl CollectionFeedback {
                     height: r.f64()?,
                 });
             }
-            Ok(Self {
+            let facts = Self {
                 view,
                 revision,
                 scroll_sequence,
@@ -160,10 +194,14 @@ impl CollectionFeedback {
                 measurements,
                 focus_view: (focus != 0).then_some(focus),
                 interaction_view: (interaction != 0).then_some(interaction),
-            })
+            };
+            Ok((facts, fill))
         })()
         .map_err(|_| FeedbackError)?;
-        out.validate()?;
+        out.0.validate()?;
+        if !out.1.velocity.is_finite() {
+            return Err(FeedbackError);
+        }
         Ok(out)
     }
     pub(crate) fn validate(&self) -> Result<(), FeedbackError> {
@@ -209,7 +247,7 @@ pub fn snapshots_json(snapshots: &[CollectionSnapshot]) -> String {
             }
             write!(out, "{{\"view\":{},\"root\":{},\"index\":{},\"top\":{},\"height\":{},\"epoch\":\"{}\",\"measured\":{}}}", row.view, row.root, row.index, exact_num::Shortest(row.top), exact_num::Shortest(row.height), row.epoch, row.measured).unwrap();
         }
-        out.push_str("],\"correction\":");
+        write!(out, "],\"pending\":{},\"correction\":", c.pending).unwrap();
         if let Some(correction) = c.correction {
             write!(
                 out,

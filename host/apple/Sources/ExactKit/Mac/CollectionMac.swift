@@ -93,6 +93,8 @@ final class KnobDrag {
 }
 
 extension CollectionHost {
+    /// AppKit reports have no fill pump (`motion` is nil): never consulted.
+    func covers(_ id: UInt32) -> Bool { false }
     /// A collection's list keeps the offset a knob drag showed (`KnobDrag`);
     /// other lists keep AppKit's.
     func observeKnobDrags() {

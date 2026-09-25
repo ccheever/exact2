@@ -75,6 +75,7 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         inScroll = true
         defer { inScroll = false }
         lastScroll = CACurrentMediaTime()
+        if let node, p.collections.owns(node.id) { sample(node, now: lastScroll) }
         if let node, isLegacy(node), let scroll = node.scroll {
             sample(node, now: lastScroll)
             let port = scroll.bounds
@@ -121,6 +122,19 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         start()
     }
     func requestText() { textPending = true; start() }
+    /// A collection owes a report (LLP 1050.000): the next slice builds it.
+    func requestFill() { scheduleAfterScroll(); start() }
+    /// Build each owed collection's rows for this slice, as many as its
+    /// measured per-row cost fits, and at least one.
+    private func fillCollections(deadline: TimeInterval) {
+        guard let p = presenter else { return }
+        for id in p.collections.fillPending.sorted() {
+            let started = CACurrentMediaTime()
+            let fits = (costs[id] ?? FillCost()).rows(in: deadline - started)
+            let created = p.collections.fillSlice(id, limit: max(1, fits))
+            costs[id, default: FillCost()].record(CACurrentMediaTime() - started, rows: created)
+        }
+    }
     private func start() {
         guard link == nil else { return }
         let value = CADisplayLink(target: target, selector: #selector(ScrollPumpTarget.tick(_:)))
@@ -154,6 +168,11 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         guard now - lastSlice >= refreshInterval * 0.8 else { return }
         lastSlice = now
         let deadline = now + sliceBudget
+        if !p.collections.fillPending.isEmpty {
+            let post = Presenter.signposts.beginInterval("pump-collection")
+            fillCollections(deadline: deadline)
+            Presenter.signposts.endInterval("pump-collection", post)
+        }
         if !pending.isEmpty {
             let post = Presenter.signposts.beginInterval("pump-list")
             syncLists(limit: 2, deadline: deadline)
@@ -164,13 +183,16 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
             textPending = p.refreshVisibleText(deadline: deadline)
             Presenter.signposts.endInterval("pump-text", post)
         }
-        if pending.isEmpty && !textPending { stop() }
+        if pending.isEmpty && !textPending && p.collections.fillPending.isEmpty { stop() }
     }
     /// Agent reads keep their settled contract, outside the scroll callback.
     func settle() {
         for _ in 0..<8 {
             syncLists()
-            if pending.isEmpty { break }
+            if let collections = presenter?.collections {
+                for id in collections.fillPending.sorted() { collections.fillSlice(id, limit: UInt32.max - 1) }
+            }
+            if pending.isEmpty && presenter?.collections.fillPending.isEmpty != false { break }
         }
         textPending = presenter?.refreshVisibleText() ?? false
         if pending.isEmpty && !textPending { stop() }

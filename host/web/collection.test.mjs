@@ -52,7 +52,7 @@ function setup() {
     const controller = createController({ root, views, report(bytes) {
       const d = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
       const read = { view: d.getUint32(4, true), revision: String(d.getBigUint64(8, true)), sequence: String(d.getBigUint64(16, true)), top: d.getFloat64(24, true), width: d.getFloat64(32, true), height: d.getFloat64(40, true), rowWidth: d.getFloat64(48, true), focus: d.getUint32(56, true), interaction: d.getUint32(60, true), rows: [] };
-      for (let n = 0; n < d.getUint32(64, true); n++) read.rows.push({ view: d.getUint32(68 + n * 20, true), epoch: String(d.getBigUint64(72 + n * 20, true)), height: d.getFloat64(80 + n * 20, true) });
+      for (let n = 0; n < d.getUint32(76, true); n++) read.rows.push({ view: d.getUint32(80 + n * 20, true), epoch: String(d.getBigUint64(84 + n * 20, true)), height: d.getFloat64(92 + n * 20, true) });
       wires.push(Array.from(bytes)); reports.push(read); return globalThis.f.onReport?.(read);
     }, requestFrame(fn) { frames.set(++serial, fn); return serial; }, cancelFrame(id) { frames.delete(id); }, ...options });
     const snapshot = (revision = '1', extra = {}) => ({ view: 1, revision, scrollSequence: '0', totalExtent: 1900, count: 100, rows: [{ view: 2, root: 3, index: 0, top: 0, height: 40, epoch: '9007199254740993' }, { view: 4, root: 5, index: 99, top: 1840, height: 60, epoch: '2' }], correction: null, ...extra });
@@ -65,10 +65,12 @@ function setup() {
 test('LE feedback preserves u64 identity and rejects invalid geometry before admission', () => {
   const feedback = { view: 1, revision: '18446744073709551615', scroll_sequence: '9007199254740993', scroll_top: 25, port_width: 320, port_height: 180, row_width: 296, focus_view: null, interaction_view: 9, measurements: [{ view: 2, epoch: '9007199254740995', height: 40.5 }] };
   const bytes = collectionBytes(feedback), view = new DataView(bytes.buffer);
-  expect(bytes.length).toBe(88);
+  expect(bytes.length).toBe(100);
+  expect(view.getUint32(0, true)).toBe(2);
   expect(view.getBigUint64(8, true)).toBe(18446744073709551615n);
-  expect(view.getBigUint64(72, true)).toBe(9007199254740995n);
-  expect(view.getFloat64(80, true)).toBe(40.5);
+  expect(view.getUint32(72, true)).toBe(0xffffffff);
+  expect(view.getBigUint64(84, true)).toBe(9007199254740995n);
+  expect(view.getFloat64(92, true)).toBe(40.5);
   expect(() => collectionBytes({ ...feedback, port_width: NaN })).toThrow();
   expect(() => collectionBytes({ ...feedback, revision: Number.MAX_SAFE_INTEGER + 1 })).toThrow();
   expect(() => collectionBytes({ ...feedback, measurements: [feedback.measurements[0], feedback.measurements[0]] })).toThrow();

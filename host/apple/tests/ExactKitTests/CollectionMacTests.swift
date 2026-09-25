@@ -59,7 +59,7 @@ final class CollectionMacTests: XCTestCase {
         p.collections.onFeedback = { feedback.append($0) }
         p.collections.flush()
         XCTAssertEqual(feedback.count, 1)
-        XCTAssertEqual(feedback[0].count, 88)
+        XCTAssertEqual(feedback[0].count, 100)
         p.collections.changed(1)
         p.collections.flush()
         XCTAssertEqual(feedback.count, 1, "identical layout must not reenter Rust")
