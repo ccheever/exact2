@@ -219,11 +219,23 @@ fn each_route_answers_by_its_policy() {
         header(&headers, "cache-control"),
         Some("public, max-age=0, s-maxage=120, stale-while-revalidate=120")
     );
-    let keys = header(&headers, "surrogate-key").unwrap();
+    // Its surrogate keys go only to a CDN (RFC 8586's `CDN-Loop`), with the
+    // same page, validator and lifetime a browser gets.
+    assert_eq!(header(&headers, "surrogate-key"), None);
+    assert_eq!(header(&headers, "cache-tag"), None);
+    let (status, cdn, cdn_body) =
+        fetch(addr, "GET /post/7 HTTP/1.1\r\nCDN-Loop: cloudflare\r\n\r\n");
+    assert_eq!((status, cdn_body.as_str()), (200, body.as_str()));
+    assert_eq!(header(&cdn, "etag"), header(&headers, "etag"));
+    assert_eq!(
+        header(&cdn, "cache-control"),
+        header(&headers, "cache-control")
+    );
+    let keys = header(&cdn, "surrogate-key").unwrap();
     assert!(keys.split(' ').any(|k| k == "post"), "{keys}");
     assert!(keys.split(' ').any(|k| k.starts_with("post:")), "{keys}");
     assert_eq!(
-        header(&headers, "cache-tag"),
+        header(&cdn, "cache-tag"),
         Some(keys.replace(' ', ",").as_str())
     );
     let csp = header(&headers, "content-security-policy").unwrap();
@@ -254,13 +266,18 @@ fn each_route_answers_by_its_policy() {
     assert_eq!(header(&headers, "vary"), Some("Accept-Encoding"));
     // Canonical URLs come from the configured origin, not the request's Host.
     assert!(!body.contains("evil.test"));
-    // An unchanged page is a 304 to a cache that has it.
+    // An unchanged page is a 304 to a cache that has it, a browser's or a
+    // CDN's, and carries no keys: the stored response has them.
     let etag = header(&headers, "etag").unwrap().to_string();
-    let (status, _, body) = fetch(
-        addr,
-        &format!("GET /post/7 HTTP/1.1\r\nIf-None-Match: {etag}\r\n\r\n"),
-    );
-    assert_eq!((status, body.as_str()), (304, ""));
+    for via in ["", "CDN-Loop: cloudflare\r\n"] {
+        let (status, fresh, body) = fetch(
+            addr,
+            &format!("GET /post/7 HTTP/1.1\r\n{via}If-None-Match: {etag}\r\n\r\n"),
+        );
+        assert_eq!((status, body.as_str()), (304, ""));
+        assert_eq!(header(&fresh, "etag"), Some(etag.as_str()));
+        assert_eq!(header(&fresh, "surrogate-key"), None);
+    }
     // HEAD: the same headers, no body.
     let (status, headers, body) = fetch(addr, "HEAD /post/7 HTTP/1.1\r\n\r\n");
     assert_eq!((status, body.as_str()), (200, ""));

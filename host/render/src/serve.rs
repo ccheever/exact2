@@ -221,6 +221,9 @@ struct Request {
     revalidate: bool,
     no_store: bool,
     accepts: Accepts,
+    /// A CDN forwarded it (RFC 8586's `CDN-Loop`): its response carries the
+    /// surrogate keys.
+    cdn: bool,
 }
 
 #[derive(Clone)]
@@ -353,7 +356,14 @@ fn handle<D: DataSource>(mut stream: TcpStream, shared: &Shared, data: fn() -> D
 /// other body made for this request, compressed now — brotli, else gzip —
 /// with the encoding in its ETag, and a 304 when the client holds that
 /// representation. A dist file carries its own `Vary` and made variant.
+/// The surrogate keys go only to a CDN, which purges by them; a browser
+/// never reads them.
 fn finish(mut response: Response, request: &Request) -> Response {
+    if !request.cdn {
+        response
+            .headers
+            .retain(|(name, _)| !matches!(*name, "Surrogate-Key" | "Cache-Tag"));
+    }
     let kind = response
         .headers
         .iter()
@@ -399,6 +409,7 @@ fn indexed<D: DataSource>(shared: &Shared, data: fn() -> D, locations: Vec<Strin
             revalidate: false,
             no_store: false,
             accepts: Accepts::default(),
+            cdn: false,
         };
         let response = respond(&request, shared, data);
         let noindex = response.headers.iter().any(|(name, value)| {
@@ -491,6 +502,9 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, ()> {
         .iter()
         .find(|(name, _)| name.trim().eq_ignore_ascii_case("accept-encoding"))
         .map_or_else(Accepts::default, |(_, value)| Accepts::parse(value));
+    let cdn = headers
+        .iter()
+        .any(|(name, _)| name.trim().eq_ignore_ascii_case("cdn-loop"));
     Ok(Request {
         method: method.to_string(),
         target: target.to_string(),
@@ -498,6 +512,7 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, ()> {
         revalidate,
         no_store,
         accepts,
+        cdn,
     })
 }
 
@@ -619,6 +634,7 @@ fn respond<D: DataSource>(request: &Request, shared: &Shared, data: fn() -> D) -
         revalidate: true,
         no_store: false,
         accepts: request.accepts,
+        cdn: request.cdn,
     };
     let mut response = document(&unconditional, policy, notfound, shared, data);
     if response.status == 200 && response.body.len() <= MAX_CACHE_BYTES {
