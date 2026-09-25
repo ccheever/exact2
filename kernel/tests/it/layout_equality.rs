@@ -572,6 +572,41 @@ fn long_run_single_seed() {
     run(0x5eed_c0de, 200);
 }
 
+// Seeds that once differed from a fresh layout, each through an input Taffy's
+// layout cache key left out (vendor/taffy/EXACT-PATCHES.md, patch 11).
+
+/// Round 13: a parent turns from block to flex, and its block child's final
+/// layout, with its first child's 4.5-point margin collapsed through it, was
+/// reused as a flex item's (`vertical_margins_are_collapsible`, `sizing_mode`).
+#[test]
+fn seed_2423214_block_child_of_a_new_flex_parent() {
+    run(2423214, 14);
+}
+
+/// Round 7: an item's own percentage height, resolved against a 144-point
+/// parent under `InherentSize`, answered a `ContentSize` probe with no parent
+/// height (`sizing_mode`, the parent's height).
+#[test]
+fn pane_seed_405_percentage_height_probe() {
+    run_panes(405, 40);
+}
+
+/// Round 13: a measurement whose `height: 86%` resolved against a 62-point
+/// parent answered the same probe once the parent's height was auto (the
+/// parent's height: the measurement key compared only its width).
+#[test]
+fn pane_seed_503_percentage_height_after_the_parent_loses_its_height() {
+    run_panes(503, 40);
+}
+
+/// Round 27: a block parent's `InherentSize` width probe, which applies the
+/// child's own size styles, answered a flex base-size probe, which ignores
+/// them: 58 points for 110 (`sizing_mode`, `vertical_margins_are_collapsible`).
+#[test]
+fn pane_seed_1412_styled_width_probe_as_a_flex_basis() {
+    run_panes(1412, 40);
+}
+
 #[test]
 fn block_intrinsic_probes_cannot_leave_cached_final_children_wrapped() {
     // Fieldnotes: a padded block button in a wrapping row within a column.
