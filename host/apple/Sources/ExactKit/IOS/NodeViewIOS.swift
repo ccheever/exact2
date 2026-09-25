@@ -508,12 +508,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             let leaf = symbolView ?? UIImageView()
             if symbolView == nil { symbolView = leaf; addSubview(leaf) }
             leaf.image = image; leaf.isAccessibilityElement = false; leaf.isUserInteractionEnabled = false
-            let size = image?.size
-            DispatchQueue.main.async { [weak self] in
-                guard let self, self.loadGeneration == generation, let presenter = self.presenter,
-                      presenter.views[self.id] === self else { return }
-                presenter.intrinsic(self.id, size)
-            }
+            presenter?.queueSymbolSize(self, generation: generation, image?.size)
         }
         symbolView?.tintColor = color("tint_color", .black)
         layoutSymbol()

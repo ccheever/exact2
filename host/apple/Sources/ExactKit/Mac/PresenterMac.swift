@@ -718,7 +718,8 @@ final class Presenter {
     }
     var onPress: ((UInt32) -> Void)?
     var onChange: ((UInt32, String) -> Void)?
-    var onIntrinsic: ((UInt32, CGSize?) -> Void)?
+    /// Images' intrinsic sizes, several at once under one layout.
+    var onIntrinsic: (([(UInt32, CGSize?)]) -> Void)?
     /// A capability an action called (LLP 1005 §3), after its commit.
     var onCommand: ((String, [Any]) -> Void)?
 
@@ -943,7 +944,7 @@ final class Presenter {
             onMessage?(id, value)
         }
     }
-    func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?(id, size) }
+    func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?([(id, size)]) }
 
     func apply(_ batch: Batch) {
         let post = Self.signposts.beginInterval("apply", "\(batch.ops.count) ops")

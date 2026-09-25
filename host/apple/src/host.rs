@@ -715,6 +715,24 @@ impl<D: DataSource> Host<D> {
         self.finish(batch, error)
     }
 
+    /// Several images' intrinsic sizes at once — the symbols a batch just
+    /// created — under one layout. A refusal for one view (it is gone, or
+    /// not an image) leaves the others set and is the batch's error.
+    pub fn set_intrinsics(&mut self, sizes: &[(ViewId, Option<(f32, f32)>)]) -> String {
+        self.height_targets_dirty = true;
+        let mut batch = Batch::new();
+        let mut error = None;
+        for &(view, size) in sizes {
+            if let Err(e) = self.runner.kernel_mut().set_intrinsic_size(view, size) {
+                error.get_or_insert(format!("intrinsic: {e:?}"));
+            }
+        }
+        if let Err(e) = self.layout(&mut batch) {
+            error.get_or_insert(e);
+        }
+        self.finish(batch, error)
+    }
+
     /// Publish newly prepared native paragraph metrics through ordinary layout.
     pub fn text_ready(&mut self, key: exact_kernel::NodeKey, revision: u64) -> String {
         let mut batch = Batch::new();

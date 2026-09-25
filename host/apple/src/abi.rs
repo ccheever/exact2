@@ -1035,6 +1035,29 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// `intrinsic` for several views from the input buffer's first `len`
+    /// bytes: LE records of (u32 view, f32 width, f32 height), one layout.
+    pub fn intrinsics(&mut self, len: usize) -> u32 {
+        let bytes = self.input.get(..len).unwrap_or(&[]);
+        let out = if bytes.len() % 12 != 0 {
+            "{\"ops\":[],\"timers\":false,\"motion\":false,\"error\":\"intrinsics: truncated record\"}".to_string()
+        } else {
+            let sizes: Vec<_> = bytes
+                .chunks_exact(12)
+                .map(|r| {
+                    let word = |i: usize| [r[i], r[i + 1], r[i + 2], r[i + 3]];
+                    let (w, h) = (f32::from_le_bytes(word(4)), f32::from_le_bytes(word(8)));
+                    let clears = w.is_finite() && h.is_finite() && (w <= 0.0 || h <= 0.0);
+                    (u32::from_le_bytes(word(0)), (!clears).then_some((w, h)))
+                })
+                .collect();
+            self.host
+                .as_mut()
+                .map_or_else(not_booted, |h| h.set_intrinsics(&sizes))
+        };
+        self.emit(out)
+    }
+
     /// A motion frame.
     pub fn tick(&mut self, now_ms: f64) -> u32 {
         let out = self

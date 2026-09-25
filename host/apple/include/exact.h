@@ -319,6 +319,9 @@ uint32_t exact_tick(ExactRuntime rt, double now_ms);      /* a motion frame, onl
  * failed, or the source was removed). Lays out again; the batch carries
  * every frame that moved. */
 uint32_t exact_intrinsic(ExactRuntime rt, uint32_t view, float width, float height);
+/* exact_intrinsic for several views under one layout: the input buffer's
+ * first len bytes are LE records of (uint32 view, float width, float height). */
+uint32_t exact_intrinsics(ExactRuntime rt, size_t len);
 
 /* The agent API (LLP 1012): a request in the input buffer's first len bytes
  * ({"op":"tree"} / "state" / "logs" / "settle"), the reply in the output

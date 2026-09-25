@@ -236,7 +236,16 @@ final class Runtime {
     }
     func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) -> Batch { read(exact_insets(rt, Float(top), Float(right), Float(bottom), Float(left))) }
     func tick(now: Double) -> Batch { read(exact_tick(rt, now)) }
-    func intrinsic(_ view: UInt32, width: CGFloat, height: CGFloat) -> Batch { read(exact_intrinsic(rt, view, Float(width), Float(height))) }
+    /// Images' intrinsic sizes (nil clears one), under one layout.
+    func intrinsics(_ sizes: [(UInt32, CGSize?)]) -> Batch {
+        var bytes = Data(capacity: sizes.count * 12)
+        for (view, size) in sizes {
+            for word in [view, Float(size?.width ?? 0).bitPattern, Float(size?.height ?? 0).bitPattern] {
+                withUnsafeBytes(of: word.littleEndian) { bytes.append(contentsOf: $0) }
+            }
+        }
+        return read(exact_intrinsics(rt, write(bytes)))
+    }
     /// Refresh the runner's delivery facts after an app-level event (LLP 1030 D7).
     func deliverySync() -> Batch { read(exact_delivery_sync(rt)) }
     /// The returned JSON is copied before the runtime output buffer is reused.

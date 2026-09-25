@@ -290,7 +290,8 @@ final class Presenter {
     }
     var onPress: ((UInt32) -> Void)?
     var onChange: ((UInt32, String) -> Void)?
-    var onIntrinsic: ((UInt32, CGSize?) -> Void)?
+    /// Images' intrinsic sizes, several at once under one layout.
+    var onIntrinsic: (([(UInt32, CGSize?)]) -> Void)?
     /// A capability an action called (LLP 1005 §3), after its commit.
     var onCommand: ((String, [Any]) -> Void)?
 
@@ -479,7 +480,30 @@ final class Presenter {
             onMessage?(id, value)
         }
     }
-    func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?(id, size) }
+    func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?([(id, size)]) }
+    /// A symbol's size, known as its view is created but not reportable
+    /// while the batch that created it applies. Every symbol a turn creates
+    /// goes to the runner together, after that turn: one layout for a row's
+    /// symbols, not one each.
+    private struct QueuedSymbol { weak var view: NodeView?; let generation: Int; let size: CGSize? }
+    private var symbolSizes: [QueuedSymbol] = []
+    func queueSymbolSize(_ view: NodeView, generation: Int, _ size: CGSize?) {
+        if symbolSizes.isEmpty {
+            DispatchQueue.main.async { [weak self] in self?.flushSymbolSizes() }
+        }
+        symbolSizes.append(QueuedSymbol(view: view, generation: generation, size: size))
+    }
+    private func flushSymbolSizes() {
+        let queued = symbolSizes
+        symbolSizes = []
+        var latest: [UInt32: CGSize?] = [:], order: [UInt32] = []
+        for entry in queued {
+            guard let view = entry.view, view.loadGeneration == entry.generation,
+                  views[view.id] === view else { continue }
+            if latest.updateValue(entry.size, forKey: view.id) == nil { order.append(view.id) }
+        }
+        if !order.isEmpty { onIntrinsic?(order.map { ($0, latest[$0]!) }) }
+    }
 
     func apply(_ batch: Batch) {
         let post = Self.signposts.beginInterval("apply")

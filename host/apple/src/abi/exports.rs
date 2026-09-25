@@ -351,6 +351,13 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.intrinsic(view, width, height), |n| n)
         }
 
+        /// Several images' intrinsic sizes from the input buffer, one layout;
+        /// returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_intrinsics(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.intrinsics(len), |n| n)
+        }
+
         /// Common LE collection feedback from the input buffer; returns batch length.
         #[no_mangle]
         pub extern "C" fn exact_collection_feedback(rt: u32, len: usize, now_ms: f64) -> u32 {
