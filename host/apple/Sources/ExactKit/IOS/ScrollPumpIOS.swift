@@ -133,15 +133,19 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     /// measured per-row cost fits, at least one, and at least what the next
     /// two frames of travel uncover — so the scroll callback that follows
     /// finds its rows built instead of building them itself.
-    private func fillCollections(deadline: TimeInterval) {
-        guard let p = presenter else { return }
+    @discardableResult
+    private func fillCollections(deadline: TimeInterval) -> Int {
+        guard let p = presenter else { return 0 }
+        var rows = 0
         for id in p.collections.fillPending.sorted() {
             let started = CACurrentMediaTime()
             let fits = (costs[id] ?? FillCost()).rows(in: deadline - started)
             let needed = p.collections.rowsToCover(id, ahead: CGFloat(velocity(id) * refreshInterval * 2))
             let created = p.collections.fillSlice(id, limit: max(1, fits, needed))
             costs[id, default: FillCost()].record(CACurrentMediaTime() - started, rows: created)
+            rows += created
         }
+        return rows
     }
     private func start() {
         guard link == nil else { return }
@@ -178,8 +182,8 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         let deadline = now + sliceBudget
         if !p.collections.fillPending.isEmpty {
             let post = Presenter.signposts.beginInterval("pump-collection")
-            fillCollections(deadline: deadline)
-            Presenter.signposts.endInterval("pump-collection", post)
+            let rows = fillCollections(deadline: deadline)
+            Presenter.signposts.endInterval("pump-collection", post, "rows=\(rows)")
         }
         if !pending.isEmpty {
             let post = Presenter.signposts.beginInterval("pump-list")

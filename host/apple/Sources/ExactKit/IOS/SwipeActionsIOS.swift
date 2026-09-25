@@ -55,18 +55,20 @@ final class SwipeActionsHost {
         var claimed = Set<UInt32>()
         for owner in presenter.carrying("swipeContent") {
             guard let content = owner.props["swipeContent"] else { continue }
-            let leadingNames = (owner.props["swipeLeading"] ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
-            let trailingNames = (owner.props["swipeTrailing"] ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
-            let names = leadingNames + trailingNames
             // A refused owner is retried every batch, as the names its
             // controls read from their subtrees can arrive a batch later.
+            // An owner outside `changed` has the props its row was built
+            // from, so the row's names are still the owner's.
             if let changed, !changed.contains(owner.id), !renamed.contains(content),
-               !names.contains(where: renamed.contains), let row = rows[owner.id], row.owner === owner {
+               let row = rows[owner.id], row.owner === owner, !row.names.contains(where: renamed.contains) {
                 claimed.insert(row.body.id)
                 if row.projected || assistive { row.mount() }
                 wanted.insert(owner.id)
                 continue
             }
+            let leadingNames = (owner.props["swipeLeading"] ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
+            let trailingNames = (owner.props["swipeTrailing"] ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
+            let names = leadingNames + trailingNames
             func resolve(_ name: String) -> NodeView? {
                 guard let matches = named[name], matches.count == 1, let node = presenter.views[matches.first!] else { return nil }
                 return node !== owner && node.isDescendant(of: owner) ? node : nil
@@ -86,6 +88,7 @@ final class SwipeActionsHost {
             if let old = rows[owner.id], old.body !== body { old.remove(); rows.removeValue(forKey: owner.id) }
             let row = rows[owner.id] ?? Row(owner: owner, body: body, host: self)
             rows[owner.id] = row
+            row.names = names
             row.leading = Array(controls.prefix(leadingNames.count))
             row.trailing = Array(controls.dropFirst(leadingNames.count))
             if row.projected || assistive { row.mount() }
@@ -143,6 +146,9 @@ final class SwipeActionsHost {
         let body: NodeView
         var leading: [NodeView] = []
         var trailing: [NodeView] = []
+        /// The owner's leading and trailing names, as its props said when
+        /// this row was last built.
+        var names: [String] = []
         private weak var logicalParent: UIView?
         private var carrier: UIView?
         private var hiddenControls: [(NodeView, Bool)] = []
