@@ -401,6 +401,7 @@ component Meta
 
 component Previews
   props
+    me: User
     feed: Feed
     loading: bool
     page: number
@@ -433,14 +434,26 @@ component Previews
           testId=`preview-${a.slug}`
           row align-items="center" margin-bottom=16
             Meta(author=a.author, date=a.date, go=go)
-            button press=favorite(a.slug, not a.favorited)
-              class=BtnSm
-              margin-left="auto"
-              border-color="#33aa44"
-              color=(a.favorited ? "#ffffff": "#33aa44")
-              background-color=(a.favorited ? "#33aa44": "#ffffff")
-              testId=`favorite-${a.slug}`
-              text `♥ ${a.favoritesCount}`
+            // Signed out, the ♥ goes to sign up: a link, so it works
+            // before the runtime loads.
+            when me.signedIn
+              button press=favorite(a.slug, not a.favorited)
+                class=BtnSm
+                margin-left="auto"
+                border-color="#33aa44"
+                color=(a.favorited ? "#ffffff": "#33aa44")
+                background-color=(a.favorited ? "#33aa44": "#ffffff")
+                testId=`favorite-${a.slug}`
+                text `♥ ${a.favoritesCount}`
+            else
+              link href="/register" press=go("/register")
+                class=BtnSm
+                margin-left="auto"
+                border-color="#33aa44"
+                color="#33aa44"
+                background-color="#ffffff"
+                testId=`favorite-${a.slug}`
+                text `♥ ${a.favoritesCount}`
           link href=`/article/${encodeURIComponent(a.slug)}` press=go(`/article/${encodeURIComponent(a.slug)}`)
             color="#373a3c"
             testId=`open-${a.slug}`
@@ -544,6 +557,7 @@ component HomePage
                 testId="tab-tag"
                 text `# ${tag}`
           Previews(
+            me=me,
             feed=feed,
             loading=loading,
             page=page,
@@ -858,13 +872,22 @@ component ArticleActions
           background-color=(post.author.following ? "#cccccc": "#ffffff")
           testId="follow"
           text(post.author.following ? `+ Unfollow ${post.author.username}`: `+ Follow ${post.author.username}`)
-        button press=favorite(post.slug, not post.favorited)
-          class=BtnSm
-          border-color="#33aa44"
-          color=(post.favorited ? "#ffffff": "#33aa44")
-          background-color=(post.favorited ? "#33aa44": "#ffffff")
-          testId="favorite"
-          text `♥ ${post.favorited ? "Unfavorite" : "Favorite"} Article (${post.favoritesCount})`
+        when me.signedIn
+          button press=favorite(post.slug, not post.favorited)
+            class=BtnSm
+            border-color="#33aa44"
+            color=(post.favorited ? "#ffffff": "#33aa44")
+            background-color=(post.favorited ? "#33aa44": "#ffffff")
+            testId="favorite"
+            text `♥ ${post.favorited ? "Unfavorite" : "Favorite"} Article (${post.favoritesCount})`
+        else
+          link href="/register" press=go("/register")
+            class=BtnSm
+            border-color="#33aa44"
+            color="#33aa44"
+            background-color="#ffffff"
+            testId="favorite"
+            text `♥ Favorite Article (${post.favoritesCount})`
 
 component ArticlePage
   props
@@ -1104,6 +1127,7 @@ component ProfilePage
             testId="tab-favorites"
             text "Favorited Articles"
         Previews(
+          me=me,
           feed=feed,
           loading=loading,
           page=page,
