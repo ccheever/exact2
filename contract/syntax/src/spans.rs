@@ -67,7 +67,7 @@ macro_rules! leaves {
         }
     )* };
 }
-leaves!(String, bool, f64, u16, u32, usize, BinOp, UnOp);
+leaves!(String, bool, f64, u16, u32, usize, BinOp, UnOp, TaskKind);
 
 macro_rules! structs {
     ($($ty:ident { $($field:ident),* $(,)? })*) => { $(
@@ -100,7 +100,7 @@ structs! {
     MutationDecl { name, shape, span }
     Param { name, ty, span }
     Action { name, params, writes, body, span }
-    Task { name, every, span }
+    Task { name, kind, timer, span }
     Attr { name, value, span }
 }
 

@@ -499,7 +499,7 @@ fn several_commits_before_a_take_keep_the_latest_top_and_all_removals() {
         .iter()
         .position(|a| b.plan().str(a.name) == "back")
         .unwrap();
-    b.timer(1000, exact_plan::ActionsId(back as u32));
+    b.timer(1000, exact_plan::ActionsId(back as u32), false);
     let mut r = boot(b.finish().unwrap(), "/t/1/details");
     let before = nav(&r);
     r.take_router_change();

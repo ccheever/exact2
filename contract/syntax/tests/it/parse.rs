@@ -1,6 +1,6 @@
 //! The parser on the constructs the v1 app uses, and its rejections by id.
 
-use contract_syntax::{parse, BinOp, Expr, Node, Stmt, TemplatePart, TypeExpr};
+use contract_syntax::{parse, BinOp, Expr, Node, Stmt, TaskKind, TemplatePart, TypeExpr};
 
 const APP: &str = r#"
 // A slice of the Caltrain app.
@@ -72,7 +72,8 @@ fn the_app_slice_parses_to_the_expected_tree() {
     assert!(
         matches!(app.actions[1].body[0], Stmt::Command { ref name, .. } if name == "setScheme")
     );
-    assert_eq!(app.tasks[0].every.1, "tick");
+    assert_eq!(app.tasks[0].kind, TaskKind::Every);
+    assert_eq!(app.tasks[0].timer.1, "tick");
     assert!(matches!(app.derives[0].expr, Expr::Match { .. }));
 
     let Node::Element {
@@ -136,6 +137,25 @@ fn the_app_slice_parses_to_the_expected_tree() {
     assert!(
         matches!(&attrs[0].value, Expr::Binary(BinOp::Mul, l, _, _) if matches!(**l, Expr::Binary(BinOp::Add, ..)))
     );
+}
+
+#[test]
+fn a_task_fires_once_with_after() {
+    let file = parse(
+        "component A\n  state launching = true\n  action arrived writes launching\n    launching = false\n  task launch mount\n    after(60, arrived)\n  view\n    text \"a\"\n",
+    )
+    .unwrap();
+    let task = &file.components[0].tasks[0];
+    assert_eq!(task.name, "launch");
+    assert_eq!(task.kind, TaskKind::After);
+    assert!(matches!(task.timer.0, Expr::Number(ms, _) if ms == 60.0));
+    assert_eq!(task.timer.1, "arrived");
+    // One entry per task, whichever word.
+    let e = parse(
+        "component A\n  task t mount\n    after(60, a)\n    every(1000, b)\n  view\n    text \"a\"\n",
+    )
+    .unwrap_err();
+    assert_eq!(e.id, "syntax-duplicate-declaration");
 }
 
 #[test]

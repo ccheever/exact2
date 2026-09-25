@@ -529,8 +529,8 @@ impl<'a> Resolver<'a> {
                 self.owner = None;
             }
             for t in &c.tasks {
-                self.expr(&t.every.0);
-                self.name(&t.every.1, self.file.names.name(t.every.2));
+                self.expr(&t.timer.0);
+                self.name(&t.timer.1, self.file.names.name(t.timer.2));
             }
             self.nodes(&c.view);
         }
@@ -1061,11 +1061,11 @@ pub(crate) fn authored_action_hint(file: &File, mut error: CompileError) -> Comp
         let found = if error.id == "analyze-unknown-action" {
             c.tasks
                 .iter()
-                .find(|task| task.every.2 == error.span)
+                .find(|task| task.timer.2 == error.span)
                 .map(|task| {
                     (
-                        task.every.1.clone(),
-                        suggestion(file, c, &task.every.1, &[], true, false).map(str::to_owned),
+                        task.timer.1.clone(),
+                        suggestion(file, c, &task.timer.1, &[], true, false).map(str::to_owned),
                     )
                 })
         } else {

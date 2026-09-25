@@ -238,6 +238,26 @@ component A
   view
     text "a"
 ---
+== lower-timer-interval
+component A
+  state n = 1
+  action tick writes n
+    n = n + 1
+  task t mount
+    after(0, tick)
+  view
+    text "a"
+---
+== contract-task-body
+component A
+  state n = 1
+  action tick writes n
+    n = n + 1
+  task t mount
+    later(60, tick)
+  view
+    text "a"
+---
 == lower-leaf-children
 component A
   state q = ""

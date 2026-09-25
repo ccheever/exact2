@@ -205,6 +205,7 @@ struct PendingReq {
 }
 
 struct Timer {
+    /// The next due time; infinite once a one-shot timer has fired.
     next_ms: f64,
 }
 
@@ -927,6 +928,7 @@ impl<D: DataSource> Runner<D> {
         self.timers
             .iter()
             .map(|timer| timer.next_ms)
+            .filter(|ms| ms.is_finite())
             .reduce(f64::min)
     }
 

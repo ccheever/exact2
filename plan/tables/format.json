@@ -282,6 +282,10 @@
         {
           "name": "action",
           "codec": "idx:actions"
+        },
+        {
+          "name": "once",
+          "codec": "bool"
         }
       ]
     },
