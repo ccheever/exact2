@@ -10,6 +10,7 @@
 #![deny(missing_docs)]
 
 mod bands;
+mod chrome;
 mod flow;
 mod geometry;
 mod shape;

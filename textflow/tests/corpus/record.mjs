@@ -2,6 +2,8 @@
 // in a box of width 0. With nothing fitting, the browser breaks at every
 // opportunity it has, so its line starts are its break-opportunity set, and
 // fonts decide nothing. `tests/it/corpus.rs` compares the walker against it.
+// Beside them: the word boundaries `Intl.Segmenter` finds between two letters
+// of Thai, Lao, Khmer or Myanmar, which the web host hands the walker.
 //
 //   bun textflow/tests/corpus/record.mjs <pretext checkout>   # re-excerpt and record
 //   bun textflow/tests/corpus/record.mjs                      # record the kept excerpts
@@ -47,17 +49,22 @@ function kept() {
       corpora.push({ id, lang, dir, font: font.join(' '), paragraphs: [] });
     } else if (lines[i] && !lines[i].startsWith('#')) {
       corpora.at(-1).paragraphs.push(lines[i]);
-      i++; // the recorded starts
+      i += 2; // the recorded starts and words
     }
   }
   return corpora;
 }
 
 // Runs in the page: the UTF-8 byte offset of the first non-collapsible
-// character of every line after the first.
+// character of every line after the first, and the paragraph's SA word boundaries.
 function measure(corpora) {
   const collapsible = /[ \t\n\r\f]/;
+  const complex = /[\p{sc=Thai}\p{sc=Lao}\p{sc=Khmer}\p{sc=Myanmar}\p{sc=Tai_Tham}\p{sc=Tai_Viet}\p{sc=New_Tai_Lue}]/u;
+  const segmenter = new Intl.Segmenter(undefined, { granularity: 'word' });
+  const utf8 = (text, i) => new TextEncoder().encode(text.slice(0, i)).length;
   return corpora.map(c => c.paragraphs.map(text => {
+    const words = [...segmenter.segment(text)].map(s => s.index)
+      .filter(i => i > 0 && complex.test(text[i - 1]) && complex.test(text[i])).map(i => utf8(text, i));
     const div = document.createElement('div');
     div.lang = c.lang;
     div.dir = c.dir;
@@ -76,7 +83,9 @@ function measure(corpora) {
       if (!collapsible.test(text[i])) {
         range.setStart(node, i);
         range.setEnd(node, i + n);
-        const rect = range.getClientRects()[0];
+        // After a taken soft hyphen, the first rect is the generated hyphen's.
+        const rects = range.getClientRects();
+        const rect = rects[rects.length - 1];
         if (rect && rect.top > top + half) {
           if (top !== -Infinity) starts.push(bytes);
           top = rect.top;
@@ -86,7 +95,7 @@ function measure(corpora) {
       i += n;
     }
     div.remove();
-    return starts;
+    return { starts, words };
   }));
 }
 
@@ -128,13 +137,13 @@ document.body.append(result);
   const version = execFileSync(chrome, ['--version'], { encoding: 'utf8' }).trim();
   let text = `# Chrome's line starts at width 0 (UTF-8 byte offsets), recorded by record.mjs in ${version}.\n`
     + `# Excerpts of Pretext's corpora (github.com/chenglou/pretext, MIT, © Pretext contributors).\n`
-    + `# Each corpus: "@ id lang dir font", then per paragraph its text and its starts.\n`;
+    + `# Each corpus: "@ id lang dir font", then per paragraph its text, its starts and its words.\n`;
   corpora.forEach((c, i) => {
     text += `@ ${c.id} ${c.lang} ${c.dir} ${c.font}\n`;
-    c.paragraphs.forEach((p, j) => { text += `${p}\n${starts[i][j].join(' ')}\n`; });
+    c.paragraphs.forEach((p, j) => { text += `${p}\n${starts[i][j].starts.join(' ')}\n${starts[i][j].words.join(' ')}\n`; });
   });
   writeFileSync(out, text);
-  console.log(`${version}: ${corpora.length} corpora, ${corpora.reduce((n, c) => n + c.paragraphs.length, 0)} paragraphs, ${starts.flat(2).length} line starts -> ${out}`);
+  console.log(`${version}: ${corpora.length} corpora, ${corpora.reduce((n, c) => n + c.paragraphs.length, 0)} paragraphs, ${starts.flat().reduce((n, p) => n + p.starts.length, 0)} line starts, ${starts.flat().reduce((n, p) => n + p.words.length, 0)} SA word boundaries -> ${out}`);
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }
