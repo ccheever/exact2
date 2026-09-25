@@ -895,6 +895,8 @@ apps and the raw bytes):
 | num: one float printer everywhere | core's Grisu, Dragon and bignum | −6,365 |
 | plan: a decoded plan's rows read through a sticky reader | `Plan::decode`'s per-field error copies (18.2 → 8.7 KB raw) | −535 |
 | kernel: generated style code converts once per codec, names by one table | two masked copies, per-row conversions, 26 string matches | −1,101 |
+| `bde196a1`–`6aa8cc15` | per-row finiteness copies, two sort instantiations, the store's generic constructor, joined boot-path text | −2,614 |
+| `629bb030` | Unicode case tables again (a merge lowered a failure's kind with `to_lowercase`; ASCII now) | −3,455 |
 
 The float printer needed list-engine lines, approved for exactly those:
 `window.rs`'s four `f64::clamp` calls (std's assertion message prints the
@@ -902,3 +904,32 @@ bounds as floats) and two printers in `collection/`. `Plan::encode` (3 KB)
 is reached only from inspection's plan digest (`Runner::inspection_digest`
 through `agent::handle`), so it is already linked by use: an artifact
 without inspection drops it.
+
+Sized at `629bb030` against a fresh profile (boot, adoption, the tag press
+as a runtime press; 1,355 of 2,926 functions run), the split's primary is
+169,996 B (the carried profile had 170,973) and the whole module 263,090 B.
+What is left, in brotli-11 KB, each family's code or bytes removed (all
+data stays in the primary: wasm-split moves functions only):
+
+| Family | Whole | Primary | What removing it takes |
+|---|---|---|---|
+| data only deferred code reads (30.8 KB raw) | — | 11.1 | the split moves data too: exact symbol bounds from the linker, a post-split pass (Charlie's, with the split) |
+| panic locations and paths | 10.2 | 8.0 (locations 4.0) | nightly `-Cpanic=immediate-abort -Zlocation-detail=none`; the web prints neither (`panic_output()` is `None` on wasm32-unknown-unknown) (Charlie's) |
+| plan validation at load | 4.3 | 4.0 | Charlie's |
+| derived `Debug` (code, names, escape tables) | 8.9 | 3.8, nearly all data | left: 14 of its 42 sites put `{e:?}` in a batch's error text; its data leaves with the data split |
+| hash maps, `BTreeMap<u32, Value>` | 12.2 | 3.9 | declined (below) |
+| `core::fmt` on the boot path | — | 1.6 | direct writers; 0.8 of it is pinned by the list engine's `snapshots_json` |
+| dlmalloc | 2.1 | 2.1 | left: another allocator changes memory behaviour |
+| JSON trees on the reply path | 1.4 | 1.6 (about 1 net) | left: under the 2 KB bar |
+| Unicode tables (markdown punctuation, `Debug` escapes) | — | 3.2 | leave with the data split |
+| the app's plan and JS module | — | 7.3 | the app's own bytes, needed before the press |
+| the split's import and export tables | — | 2.8 | the split's design |
+
+Maps were sized and declined: one non-generic map would touch about 40
+sites across kernel, runner and web for 2–3 KB net, carries the
+commit-path risk that sank the compact id map (+55–70% cycles), and cannot
+move the goal. Feed shown by the activation lane's rule (1,700 ms at
+173.6 KB, 5 ms per KB, 6 ms without validation): the stable split 170.0 KB,
+1,682 ms; nightly flags 162.0 KB, 1,642 ms; and no validation 158.0 KB,
+1,616 ms; the data split on top 149.5 KB, 1,573 ms. Parity (~1,470 ms)
+needs 129–133 KB, which nothing sized here reaches.
