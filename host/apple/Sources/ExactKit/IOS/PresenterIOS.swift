@@ -606,14 +606,20 @@ final class Presenter {
                 guard let parent = views[id] else { continue }
                 let want = op.ids.compactMap { views[UInt32($0)] }
                 let container = parent.container
-                for case let child as NodeView in container.subviews where !(want as [UIView]).contains(child) {
+                let wanted = Set(want.map(ObjectIdentifier.init))
+                var current = container.subviews
+                for case let child as NodeView in current where !wanted.contains(ObjectIdentifier(child)) {
                     if !modals.retainsRemovedView(child) { child.removeFromSuperview() }
                 }
                 // In order, below anything else in the container (a scroll
                 // view's indicators): inserting a subview at an index moves
-                // it when it is already there.
+                // it when it is already there. One already there stays.
                 let contained = want.filter { !navigation.ownsContainment(of: $0, under: parent) }
-                for (i, child) in contained.enumerated() { container.insertSubview(child, at: i) }
+                current = container.subviews
+                for (i, child) in contained.enumerated() where !(i < current.count && current[i] === child) {
+                    container.insertSubview(child, at: i)
+                    current = container.subviews
+                }
             case .surface:
                 if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] ?? []) }
             case .command:

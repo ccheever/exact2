@@ -528,6 +528,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             leaf.contentMode = size.width <= content.width && size.height <= content.height ? .center : .scaleAspectFit
         default: leaf.contentMode = .scaleToFill
         }
+        // A square box clips nothing the content box does not.
+        if cornerRadii(in: bounds).allSatisfy({ $0 == 0 }) { if leaf.layer.mask != nil { leaf.layer.mask = nil }; return }
         let path = roundedPath(in: bounds).cgPath
         var transform = CGAffineTransform(translationX: -content.minX, y: -content.minY)
         let mask = CAShapeLayer(); mask.path = path.copy(using: &transform); leaf.layer.mask = mask
@@ -1042,8 +1044,11 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if let raw = set["scrollLeft"], let left = Double(raw), left.isFinite { pendingScrollLeft = left }
         if clear.contains("scrollTop") { pendingScrollTop = nil }
         if let raw = set["scrollTop"], let top = Double(raw), top.isFinite { pendingScrollTop = top }
-        for k in clear { props.removeValue(forKey: k) }
-        for (k, v) in set { props[k] = v }
+        // One assignment: `props` tells the presenter of each.
+        var next = props
+        for k in clear { next.removeValue(forKey: k) }
+        for (k, v) in set { next[k] = v }
+        props = next
         swipeOwner = props["swipeContent"] != nil
         if (pendingScrollLeft ?? 0) != 0 || (pendingScrollTop ?? 0) != 0 { needScroll() }
         if set["inert"] != nil || clear.contains("inert") {
