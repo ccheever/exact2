@@ -918,6 +918,39 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// Arrange (LLP 1041 §8.5): catch a `reorderFor` handle's row.
+    pub fn reorder_begin(&mut self, handle: u32, scroll_top: f64, now_ms: f64) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.reorder_begin(handle, scroll_top, now_ms));
+        self.emit(out)
+    }
+    /// A pointer sample for the live contact `token`.
+    pub fn reorder_move(&mut self, token: u64, dy: f64, top: f64, inside: u32, now: f64) -> u32 {
+        let out = self.host.as_mut().map_or_else(not_booted, |h| {
+            h.reorder_move(token, dy, top, inside != 0, now)
+        });
+        self.emit(out)
+    }
+    /// The contact ended: drop (nonzero) or cancel.
+    #[allow(clippy::too_many_arguments)]
+    pub fn reorder_end(
+        &mut self,
+        token: u64,
+        drop: u32,
+        dy: f64,
+        top: f64,
+        inside: u32,
+        velocity: f64,
+        now: f64,
+    ) -> u32 {
+        let out = self.host.as_mut().map_or_else(not_booted, |h| {
+            h.reorder_end(token, drop != 0, dy, top, inside != 0, velocity, now)
+        });
+        self.emit(out)
+    }
+
     /// Liveness before an authored completion; never advances a clock.
     pub fn has_hold(&self, token: u64) -> bool {
         self.host.as_ref().is_some_and(|h| h.has_hold(token))

@@ -270,6 +270,17 @@ uint32_t exact_height_drag_begin(ExactRuntime rt, uint64_t handle_key, uint64_t 
 uint32_t exact_height_drag_update(ExactRuntime rt, uint64_t token, double height, double now_ms);
 uint32_t exact_height_drag_release(ExactRuntime rt, uint64_t token, double height, double velocity, double now_ms);
 uint32_t exact_transform_motion(uint32_t rt, uint32_t len);
+/* Arrange (reorderFor / reorderdrop, LLP 1041 §8.5): the platform recognizes
+ * the contact on the handle view. scroll_top is the List's actual offset as
+ * its collection feedback reports it; dy the pointer's downward travel since
+ * recognition, points; inside whether the pointer is in the List's port.
+ * Every reply carries {"op":"reorder","token":decimal-string,"list","wrapper",
+ * "phase":"active"|"settling"|"finished"|"refused","dispatched"}; a later
+ * batch may carry "settling" (a receipt ended the contact) or "finished"
+ * (the source settled: release the handle's interaction pin). */
+uint32_t exact_reorder_begin(ExactRuntime rt, uint32_t handle, double scroll_top, double now_ms);
+uint32_t exact_reorder_move(ExactRuntime rt, uint64_t token, double dy, double scroll_top, uint32_t inside, double now_ms);
+uint32_t exact_reorder_end(ExactRuntime rt, uint64_t token, uint32_t drop, double dy, double scroll_top, uint32_t inside, double velocity, double now_ms);
 uint32_t exact_hold_begin(ExactRuntime rt, uint32_t view, uint32_t property, double now_ms);
 uint32_t exact_has_hold(ExactRuntime rt, uint64_t token);
 uint32_t exact_hold_update(ExactRuntime rt, uint64_t token, double x, double y, double now_ms);

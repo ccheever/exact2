@@ -138,6 +138,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var swipeHold: SwipeHold?
     var heightRecognizer: UIPanGestureRecognizer?
     var heightHold: HeightDragHold?
+    var reorderPan: UIPanGestureRecognizer?, reorderPress: UILongPressGestureRecognizer?
+    var reorderHold: ReorderHold?, reorderOrigin = CGPoint.zero
     var transformRecognizer: UIPanGestureRecognizer?
     var transformHold: TransformDragHold?
     var transformOrigin = CGPoint.zero
@@ -168,6 +170,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
     override func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
         if gesture === layoutPanRecognizer { return SwipeInput.allows(self) }
+        if let reorder = reorderShouldBegin(gesture) { return reorder }
         if gesture === transformRecognizer {
             return SwipeInput.allows(self) && presenter?.transformBindings[id]?.target != nil
         }

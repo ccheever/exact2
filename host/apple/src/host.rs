@@ -20,6 +20,11 @@ use exact_kernel::{
 };
 use exact_motion::{Change, Engine, HoldToken, Property};
 
+#[path = "arrange.rs"]
+mod arrange;
+#[cfg(test)]
+#[path = "arrange_tests.rs"]
+mod arrange_tests;
 #[path = "content_region/host.rs"]
 mod content_region_host;
 #[path = "height.rs"]
@@ -105,6 +110,8 @@ pub struct Host<D: DataSource> {
     height_auto_owned: bool,
     height_drag: Option<HeightDrag>,
     transform_drags: TransformDrags,
+    /// The one Arrange contact, from its catch until its source settles.
+    arrange: Option<arrange::Arrange>,
     content_region: Option<crate::content_region::RegionState>,
     /// Lists whose last report stopped before their rows' heights were read back
     /// (a registered content region publishes as it lays out, so a report is
@@ -346,6 +353,7 @@ impl<D: DataSource> Host<D> {
             height_auto_owned: false,
             height_drag: None,
             transform_drags: TransformDrags::new()?,
+            arrange: None,
             content_region,
             list_unsettled: BTreeSet::new(),
             height_projection: Vec::new(),
@@ -908,6 +916,9 @@ impl<D: DataSource> Host<D> {
         let mut batch = Batch::new();
         let seek = self.engine.advance(self.now_ms / 1000.0);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
+        if self.arrange_settled() {
+            return self.arrange_settle();
+        }
         let error = self.height_layout_if_needed(&mut batch).err();
         // Only suspended ancestor mappings need a settle recheck. Normal
         // photo Translate/Scale frames keep the existing cheap tick path.
@@ -944,12 +955,20 @@ impl<D: DataSource> Host<D> {
         self.commit_into(receipts, error, Batch::new())
     }
 
-    fn commit_into(
+    fn commit_into(&mut self, receipts: &[Timed], error: Option<String>, batch: Batch) -> String {
+        let (mut batch, error) = self.commit_tree(receipts, error, batch);
+        // A receipt can end an Arrange contact; its terminal runs at receipt time.
+        let arrange = self.arrange_after_commit(&mut batch);
+        self.commit_finish(batch, error.or(arrange))
+    }
+
+    /// The receipts into the mirror, the engine and layout; not yet presented.
+    fn commit_tree(
         &mut self,
         receipts: &[Timed],
         error: Option<String>,
         mut batch: Batch,
-    ) -> String {
+    ) -> (Batch, Option<String>) {
         self.list_unsettled
             .retain(|view| self.runner.kernel().node(*view).is_some());
         self.native_retire_removed_owner(&mut batch);
@@ -1056,10 +1075,15 @@ impl<D: DataSource> Host<D> {
         for c in self.runner.take_commands() {
             batch.command(&c.name, &c.args);
         }
+        (batch, error.or(layout_error))
+    }
+
+    /// Persist, then the presentation after every commit in the batch.
+    fn commit_finish(&mut self, mut batch: Batch, error: Option<String>) -> String {
         self.persist();
         self.emit_transform_drags(&mut batch);
         self.present(&mut batch, false);
-        self.finish(batch, error.or(layout_error))
+        self.finish(batch, error)
     }
 
     /// Every presentation value the engine changed, as `present` ops. At

@@ -212,6 +212,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var clipPath: CGPath?
     var handlers: Set<String> = []
     var translate = CGPoint.zero
+    var arrangeShift = CGPoint.zero
     var scale: CGFloat = 1
     var rotate: CGFloat = 0
     weak var presenter: Presenter?
@@ -1174,8 +1175,15 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     func applyTransform() {
+        // A lifted Arrange row moves by its frame: AppKit paints and culls a
+        // view where its frame is, never where its layer was moved.
+        let shift = presenter?.reorder?.lifts(id) == true ? translate : .zero
+        if shift != arrangeShift {
+            setFrameOrigin(NSPoint(x: frame.minX - arrangeShift.x + shift.x, y: frame.minY - arrangeShift.y + shift.y))
+            arrangeShift = shift
+        }
         let b = bounds
-        var t = CGAffineTransform(translationX: translate.x, y: translate.y)
+        var t = CGAffineTransform(translationX: translate.x - shift.x, y: translate.y - shift.y)
         t = t.translatedBy(x: b.midX, y: b.midY).rotated(by: rotate * .pi / 180).scaledBy(x: scale, y: scale).translatedBy(x: -b.midX, y: -b.midY)
         layer?.setAffineTransform(t)
     }
@@ -1348,6 +1356,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         presenter?.collections.pointerDown(id, event: event)
         if presenter?.mouseLayoutPan.down(self, event: event) == true { return }
         presenter?.mouseHeightDrag.down(self, event: event)
+        presenter?.mouseReorder.down(self, event: event)
         presenter?.mouseTransformDrag.down(self, event: event)
         presenter?.mouseSwipe.down(self, event: event)
         guard !disabled else { pressed = false; return }
@@ -1390,6 +1399,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         inlinePressed = nil
         if presenter?.mouseLayoutPan.drag(event) == true { return }
         if presenter?.mouseTransformDrag.drag(event) == true { return }
+        if presenter?.mouseReorder.drag(event) == true { return }
         if presenter?.mouseHeightDrag.drag(event) == true { return }
         if presenter?.mouseSwipe.drag(event) == true { return }
         if isParagraph && !hasPressableAncestor { presenter?.selection.drag(event) }
@@ -1409,6 +1419,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
         if presenter?.mouseLayoutPan.up(event) == true { return }
         if presenter?.mouseTransformDrag.up(event) == true { return }
+        if presenter?.mouseReorder.up(event) == true { return }
         if presenter?.mouseHeightDrag.up(event) == true { return }
         if presenter?.mouseSwipe.up(event) == true { return }
         presenter?.collections.releaseInteractionLater()

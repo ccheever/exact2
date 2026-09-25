@@ -159,6 +159,10 @@ final class Presenter {
     lazy var mouseLayoutPan = MouseLayoutPan(self)
     lazy var mouseHeightDrag = MouseHeightDrag(self)
     lazy var mouseTransformDrag = MouseTransformDrag(self)
+    lazy var mouseReorder = MouseReorder(self)
+    /// The one Arrange contact, until its source settles; a test's calls.
+    var reorder: ReorderHold?
+    var reorderCalls: ReorderCalls?
     private var scrollObserver: NSObjectProtocol?
     private var visibleText: [UInt32: NSRect] = [:]
     private var textViewportIndex: TextViewportIndex?
@@ -658,6 +662,8 @@ final class Presenter {
         mouseLayoutPan.cancel()
         mouseHeightDrag.cancel()
         mouseTransformDrag.cancel()
+        mouseReorder.cancel()
+        reorder?.abandon()
         collections.reset()
         autofocusProcessed.removeAll()
         resetting = true
@@ -1047,6 +1053,7 @@ final class Presenter {
                 mouseLayoutPan.retire(id)
                 mouseHeightDrag.retire(id)
                 mouseTransformDrag.retire(id)
+                mouseReorder.retire(id)
                 session?.canvases.destroy(view: id)
                 views[id]?.forget()
                 // Out of the map before out of the window: the editing-ended
@@ -1073,6 +1080,7 @@ final class Presenter {
             case .frame:
                 guard let v = views[id] else { continue }
                 v.frame = NSRect(x: op.x, y: op.y, width: op.w, height: op.h)
+                v.arrangeShift = .zero
                 v.textRasterGeometryChanged()
                 v.scroll?.frame = v.bounds
                 v.field?.frame = v.contentBox()

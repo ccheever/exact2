@@ -262,6 +262,21 @@ macro_rules! host {
         pub extern "C" fn exact_height_drag_release(rt: u32, token: u64, height: f64, velocity: f64, now_ms: f64) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.height_drag_release(token, height, velocity, now_ms), |n| n)
         }
+        /// Arrange: catch a handle's row at the List's actual scrollTop.
+        #[no_mangle]
+        pub extern "C" fn exact_reorder_begin(rt: u32, handle: u32, scroll_top: f64, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.reorder_begin(handle, scroll_top, now_ms), |n| n)
+        }
+        /// Arrange: one pointer sample for the live contact.
+        #[no_mangle]
+        pub extern "C" fn exact_reorder_move(rt: u32, token: u64, dy: f64, scroll_top: f64, inside: u32, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.reorder_move(token, dy, scroll_top, inside, now_ms), |n| n)
+        }
+        /// Arrange: the contact ended; drop (nonzero) or cancel.
+        #[no_mangle]
+        pub extern "C" fn exact_reorder_end(rt: u32, token: u64, drop: u32, dy: f64, scroll_top: f64, inside: u32, velocity: f64, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.reorder_end(token, drop, dy, scroll_top, inside, velocity, now_ms), |n| n)
+        }
         /// Check before dispatching an authored completion.
         #[no_mangle]
         pub extern "C" fn exact_has_hold(rt: u32, token: u64) -> u32 {

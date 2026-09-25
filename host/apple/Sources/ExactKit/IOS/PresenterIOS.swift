@@ -21,7 +21,7 @@ final class Presenter {
     let viewport = ScrollView(frame: .zero)
     var views: [UInt32: NodeView] = [:]
     private(set) var chrome = ChromeIndex()
-    func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props) }
+    func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props); view.updateReorderGesture() }
     func carrying(_ key: String) -> [NodeView] { chrome.ids(key).sorted().compactMap { views[$0] } }
     var scrollers: Set<UInt32> = []
     var pendingScrolls: Set<UInt32> = []
@@ -30,6 +30,9 @@ final class Presenter {
     var inlineOwners: [UInt32: (owner: UInt32, index: Int)] = [:]
     var heightBindings: [UInt32: HeightDragBinding] = [:]
     var transformBindings: [UInt32: TransformDragBinding] = [:]
+    /// The one Arrange contact, until its source settles; a test's calls.
+    var reorder: ReorderHold?
+    var reorderCalls: ReorderCalls?
     lazy var transformGeometry = TransformGeometryHost(self)
     var videoVisibility: VideoVisibilityHost?
     lazy var collections = CollectionHost(self)
@@ -249,6 +252,7 @@ final class Presenter {
     /// A restart: every view goes.
     func reset() {
         session?.transformInputHold?.cancel()
+        reorder?.abandon()
         session?.rasters.reset()
         collections.reset()
         autofocusProcessed.removeAll()
