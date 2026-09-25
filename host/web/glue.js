@@ -800,13 +800,16 @@ function apply(batch) {
   refreshSymbols();
   for (const snapshot of collectionOp?.items ?? []) followScroll(views.get(snapshot.view), false);
   for (const s of followedScrolls.values()) settleFollow(s);
+  const jumps = []; // a collection builds a jump's rows, then moves (LLP 1050.000 §6)
   for (const [el, offsets] of pendingScrolls) if (el.isConnected) {
     // Mirroring the current offset must not restart snapping or cancel a pan.
-    for (const [name, offset] of Object.entries(offsets)) if (el[name] !== offset) el[name] = offset;
+    for (const [name, offset] of Object.entries(offsets)) if (el[name] !== offset) {
+      if (name === "scrollTop" && lists.get(el)?.window === false) jumps.push([Number(el.dataset.view), offset]); else el[name] = offset; }
     const s = followedScrolls.get(el); if (s) rememberScroll(s);
   }
   pendingScrolls.clear();
   if (collectionOp) collections.commit(collectionOp.items);
+  for (const [view, top] of jumps) collections.jump(view, top);
   listSelection?.after();
   syncLists();
   // Focusing can dispatch an action; every node/value in this batch must be

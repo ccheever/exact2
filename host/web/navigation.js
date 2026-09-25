@@ -242,6 +242,7 @@ export function afterPaintPieces(load, o) {
   const commit = call('collections', 'commit'), reconcile = call('collections', 'commit', false);
   const collections = { commit: items => (items.length ? commit : reconcile)(items) };
   for (const name of ['reset', 'dataReady', 'releaseInteraction']) collections[name] = call('collections', name, false);
+  collections.jump = call('collections', 'jump');
   // `preload`: a plan that uses motion (its wasm exports `exact_motion`) needs
   // them before its first spring. `pending`: the load in flight, else null.
   return { collections, motion, arrange, preload: start, pending: () => live || !loading ? null : loading };

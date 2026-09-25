@@ -115,7 +115,7 @@ test('observer baseline: commit to feedback to real observer reads each row once
   })()`);
   expect(result.wire).toEqual([...collectionBytes({view:1,revision:'7',scroll_sequence:'1',scroll_top:50,
     port_width:result.width,port_height:180,row_width:result.width-24,focus_view:3,interaction_view:5,
-    measurements:[{view:2,epoch:'9007199254740993',height:40.5},{view:4,epoch:'2',height:60.25}]})]);
+    measurements:[{view:2,epoch:'9007199254740993',height:40.5},{view:4,epoch:'2',height:60.25}]},{limit:1})]);
   expect(result.deliveries.flat().filter(v=>v==='2')).toHaveLength(1);
   expect(result.deliveries.flat().filter(v=>v==='4')).toHaveLength(1);
   expect([result.reports,result.queued,result.pending]).toEqual([1,0,0]);
@@ -187,7 +187,7 @@ test('observer baseline: external growth coalesced after final own commit surviv
   expect(result.last.rows[0]).toEqual({view:2,epoch:'9007199254740993',height:97.25});
   expect(result.wire).toEqual([...collectionBytes({view:1,revision:'3',scroll_sequence:result.last.sequence,
     scroll_top:result.last.top,port_width:result.last.width,port_height:180,row_width:result.last.rowWidth,
-    focus_view:null,interaction_view:null,measurements:[{view:2,epoch:'9007199254740993',height:97.25},{view:4,epoch:'2',height:60}]})]);
+    focus_view:null,interaction_view:null,measurements:[{view:2,epoch:'9007199254740993',height:97.25},{view:4,epoch:'2',height:60}]},{limit:1})]);
   expect([result.reports,result.idle,result.pending]).toEqual([3,true,0]);
   console.log('observer baseline coalesced external growth',JSON.stringify(result));
 });
@@ -226,7 +226,7 @@ test('collection read reuse: correction-free commit reads only list and port bas
     return {commit,wire:f.wires.at(-1),width:f.port.clientWidth};})()`);
   expect(result.wire).toEqual([...collectionBytes({view:1,revision:'1',scroll_sequence:'0',scroll_top:0,
     port_width:result.width,port_height:180,row_width:result.width-24,focus_view:null,interaction_view:null,
-    measurements:[{view:2,epoch:'9007199254740993',height:40},{view:4,epoch:'2',height:60}]})]);
+    measurements:[{view:2,epoch:'9007199254740993',height:40},{view:4,epoch:'2',height:60}]},{limit:1})]);
   expect(result.commit).toEqual([1,1,0,0]);
 });
 test('collection read reuse: one row sample preserves fractional wire, epochs and both pins', async () => {
@@ -238,7 +238,7 @@ test('collection read reuse: one row sample preserves fractional wire, epochs an
     return {beforeReport,wire:f.wires.at(-1),width:f.port.clientWidth,pending:f.frames.size};})()`);
   expect(result.wire).toEqual([...collectionBytes({view:1,revision:'7',scroll_sequence:'1',scroll_top:50,
     port_width:result.width,port_height:180,row_width:result.width-24,focus_view:3,interaction_view:5,
-    measurements:[{view:2,epoch:'9007199254740993',height:40.5},{view:4,epoch:'2',height:60.25}]})]);
+    measurements:[{view:2,epoch:'9007199254740993',height:40.5},{view:4,epoch:'2',height:60.25}]},{limit:1})]);
   expect(result.pending).toBe(0);
   expect(result.beforeReport.slice(2)).toEqual([1,1]);
 });
@@ -269,7 +269,7 @@ test('collection read reuse: synchronous report replacement samples new nodes an
   ]);
   for(const [i,r] of result.reports.entries())expect(result.wires[i]).toEqual([...collectionBytes({view:1,
     revision:r.revision,scroll_sequence:r.sequence,scroll_top:0,port_width:r.width,port_height:180,
-    row_width:r.rowWidth,focus_view:null,interaction_view:null,measurements:r.rows})]);
+    row_width:r.rowWidth,focus_view:null,interaction_view:null,measurements:r.rows},{limit:1})]);
 });
 test('collection read reuse: width wrapping keeps actual fractional heights and fresh later-pass dimensions', async () => {
   const result=await evaluate(`(() => {const f=fixture(),row=f.views.get(2);row.style.cssText='font:16px monospace;line-height:20.25px';row.textContent='word '.repeat(41);
@@ -319,6 +319,66 @@ test('integer DOM end retains fractional measured extent in actual collection fe
   expect(result.measured).toBe(335377.078125);
   expect(result.fractionalRemaining).toBe(0.078125);
   console.log('DOM integer-end facts', JSON.stringify(result));
+});
+// LLP 1050.000 stage 1: a limited fill, travel, and authored jumps that wait.
+const fillWire = wire => { const d = new DataView(new Uint8Array(wire).buffer); return { velocity: d.getFloat64(64, true), limit: d.getUint32(72, true) }; };
+test('fill wire carries velocity and a clamped limit; none means u32::MAX', () => {
+  const facts = { view: 1, revision: '1', scroll_sequence: '0', scroll_top: 0, port_width: 1, port_height: 1, row_width: 1, focus_view: null, interaction_view: null, measurements: [] };
+  expect(fillWire([...collectionBytes(facts, { velocity: -2400.5, limit: 3 })])).toEqual({ velocity: -2400.5, limit: 3 });
+  expect(fillWire([...collectionBytes(facts, { limit: 0 })])).toEqual({ velocity: 0, limit: 0 });
+  expect(fillWire([...collectionBytes(facts, { limit: 0xffffffff })]).limit).toBe(0xfffffffe);
+  expect(fillWire([...collectionBytes(facts, { velocity: NaN })])).toEqual({ velocity: 0, limit: 0xffffffff });
+});
+test('scroll samples give a report its travel; a jump longer than the port is not travel', async () => {
+  const result = await evaluate(`(() => { globalThis.clock=1000; const f=fixture({now:()=>globalThis.clock}); f.controller.commit([f.snapshot()]); f.flush();
+    const step=top=>{ globalThis.clock+=16; f.port.scrollTop=top; f.port.dispatchEvent(new Event('scroll')); f.flush(); return f.wires.at(-1); };
+    step(20); const moving=step(40); const jumped=step(1500); return {moving,jumped}; })()`);
+  expect(fillWire(result.moving).velocity).toBe(1250);
+  expect(fillWire(result.moving).limit).toBeGreaterThanOrEqual(1);
+  expect(fillWire(result.jumped).velocity).toBe(0);
+});
+test('a reply that leaves rows pending continues one report a frame, then goes idle', async () => {
+  const result = await evaluate(`(() => { const f=fixture(); let revision=1, peak=0;
+    f.onReport=()=>{ revision++; f.controller.commit([f.snapshot(String(revision),{pending:revision<5})]); };
+    f.controller.commit([f.snapshot('1',{pending:true})]);
+    for(let n=0;n<12;n++){ const before=f.reports.length; f.flush(); peak=Math.max(peak,f.reports.length-before); }
+    return {reports:f.reports.length,peak,pending:f.frames.size}; })()`);
+  expect(result).toEqual({ reports: 4, peak: 1, pending: 0 });
+});
+function jumpFixture() {
+  const root = document.getElementById('root');
+  root.innerHTML = `<div data-view="1" style="height:180px;width:320px;overflow:auto"><div data-view="2" style="height:40px"></div><div data-view="4" style="height:60px"></div><div style="height:5000px"></div></div>`;
+  const views = new Map([...root.querySelectorAll('[data-view]')].map(el => [+el.dataset.view, el]));
+  const list = views.get(1), frames = [], seen = [];
+  const controller = createController({ root, views, requestFrame(fn) { frames.push(fn); return frames.length; }, cancelFrame() {},
+    report(bytes) {
+      const d = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+      seen.push({ reported: d.getFloat64(24, true), sequence: String(d.getBigUint64(16, true)), limit: d.getUint32(72, true), velocity: d.getFloat64(64, true), shown: list.scrollTop });
+      return globalThis.jf.onReport?.(seen.at(-1));
+    } });
+  const snapshot = (revision, extra = {}) => ({ view: 1, revision, scrollSequence: '0', totalExtent: 5100, count: 100,
+    rows: [{ view: 2, root: 2, index: 0, top: 0, height: 40, epoch: '1' }, { view: 4, root: 4, index: 1, top: 40, height: 60, epoch: '1' }], correction: null, ...extra });
+  controller.commit([snapshot('1')]);
+  globalThis.jf = { controller, list, frames, seen, snapshot };
+  return jf;
+}
+test('an authored jump reports its target before the port moves, in the same task', async () => {
+  const result = await evaluate(`(() => { const f=(${jumpFixture})(); f.controller.jump(1, 1000);
+    return {seen:f.seen,top:f.list.scrollTop}; })()`);
+  expect(result.seen).toHaveLength(1);
+  expect(result.seen[0]).toEqual({ reported: 1000, sequence: '1', limit: 2, velocity: 0, shown: 0 });
+  expect(result.top).toBe(1000);
+});
+test('a jump whose reply corrects its anchor keeps the correction; one inside a reply waits for it', async () => {
+  const result = await evaluate(`(() => { const f=(${jumpFixture})();
+    f.onReport=r=>{ f.onReport=null; f.controller.commit([f.snapshot('2',{scrollSequence:r.sequence,correction:{scrollSequence:r.sequence,scrollTop:960}})]); };
+    f.controller.jump(1, 1000); const corrected=f.list.scrollTop;
+    f.onReport=()=>{ f.onReport=null; f.controller.jump(1, 2000); return true; };
+    f.list.scrollTop=1200; f.list.dispatchEvent(new Event('scroll')); f.frames.splice(0).forEach(fn=>fn());
+    return {corrected,nested:f.seen.slice(1).map(s=>[s.reported,s.shown]),top:f.list.scrollTop}; })()`);
+  expect(result.corrected).toBe(960);
+  expect(result.nested).toEqual([[1200, 1200], [2000, 1200]]);
+  expect(result.top).toBe(2000);
 });
 test('correction consumes once, never overwrites a newer DOM scroll even before its event', async () => {
   const result = await evaluate(`(() => { const f=fixture(); f.controller.commit([f.snapshot()]); f.port.scrollTop=160; f.port.dispatchEvent(new Event('scroll')); f.flush(); const seq=f.reports.at(-1).sequence; f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,scrollTop:140}})]); const corrected=f.port.scrollTop; f.port.scrollTop=260; f.controller.commit([f.snapshot('3',{correction:{scrollSequence:seq,scrollTop:180}})]); const newer=f.port.scrollTop; f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,scrollTop:0}})]); return {corrected,newer,old:f.port.scrollTop}; })()`);
