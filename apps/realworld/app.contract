@@ -6,7 +6,7 @@
 routes nav
   tab home "/" render=cached
     login "/login"
-    register "/register"
+    register "/register" render=cached
     settings "/settings"
     editor "/editor"
     edit "/editor/:slug"
