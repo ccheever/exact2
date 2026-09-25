@@ -922,6 +922,13 @@ and 223 ms against React's 210 and 212 (before: 235 and 242). A signed-out
 Follow is a link, and `/login` is a rendered page (`afe1ca16`): Follow at
 `load` takes 220 ms, not 1,123, and ♥ 224 (React 48 and 46).
 
+Round 8 (nine runs, three batches, loads 9–13). A kept page goes at brotli's
+best (`a673c6d8`), and against a dictionary the browser holds (`5432a03b`,
+`e1bc99d1`): `/tag/python` after `/` is 1,110 bytes, not 4,372, with the feed
+text in its first 252. The tag at `load` takes 208, 225 and 215 ms against
+React's 213, 205 and 220 (without dictionaries: 220, 226 and 224). That is
+React's time within the spread: under it in two batches, over it in one.
+
 ### As built: the core diet (the diet lane)
 
 Each change reads what std read and prints what core printed, bit for bit
