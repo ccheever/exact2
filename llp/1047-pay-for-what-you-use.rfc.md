@@ -914,6 +914,14 @@ against 1,410 and 1,385; after a read, 218 against 197. A signed-out ♥ is a
 link to `/register` (`43d54245`), now a rendered page (`493bf1b0`): at `load`
 it shows the sign-up page 233 ms after the tap, not 1,129 (React 58).
 
+Round 5 (nine runs, loads 9–19). The runtime's wasm and five module preloads
+were six requests, every connection an HTTP/1.1 origin gets, so a link tapped
+at `load` waited for the wasm's abort to free one. The runtime now leaves a
+connection for the next page (`7195a0e4`), and the tag at `load` takes 221
+and 223 ms against React's 210 and 212 (before: 235 and 242). A signed-out
+Follow is a link, and `/login` is a rendered page (`afe1ca16`): Follow at
+`load` takes 220 ms, not 1,123, and ♥ 224 (React 48 and 46).
+
 ### As built: the core diet (the diet lane)
 
 Each change reads what std read and prints what core printed, bit for bit
