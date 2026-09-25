@@ -116,7 +116,7 @@ function floats(values) {
 function sourceInput(text, overflow, whiteSpace) {
   const source = encoder.encode(text), bytes = new Uint8Array(source.length + 8);
   new DataView(bytes.buffer).setUint32(0, overflow === 'anywhere' ? 2 : overflow === 'break-word' ? 1 : 0, true);
-  new DataView(bytes.buffer).setUint32(4, whiteSpace === 'pre-wrap' ? 1 : 0, true);
+  new DataView(bytes.buffer).setUint32(4, whiteSpace === 'pre-wrap' ? 1 : whiteSpace === 'nowrap' ? 2 : 0, true);
   bytes.set(source, 8); return bytes;
 }
 function flowInput(snapshot, exclusions) {

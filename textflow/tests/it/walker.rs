@@ -448,6 +448,29 @@ fn pre_wrap_preserves_spaces_tabs_and_hangs_trailing_space() {
 }
 
 #[test]
+fn nowrap_collapses_whitespace_and_never_soft_wraps() {
+    let text = "one   two\nthree four";
+    let p = prepare(
+        text,
+        Options {
+            white_space: exact_textflow::WhiteSpace::Nowrap,
+            overflow_wrap: OverflowWrap::Anywhere,
+            hyphen_advance: 8.0,
+        },
+    );
+    let got = lines(&p, 24.0);
+    assert_eq!(got.len(), 1);
+    assert_eq!(got[0].end.byte, text.len());
+    assert!(!got[0].hard_break);
+    // "one two three four": whitespace runs collapse to one space each.
+    assert_eq!(got[0].width, 144.0);
+    assert_eq!(p.line_stats(24.0), (1, 144.0));
+    assert_eq!(p.min_content_width(), 144.0);
+    assert_eq!(p.natural_width(), 144.0);
+    assert_eq!(p.paint_range(text, 0..text.len()), 0..text.len());
+}
+
+#[test]
 fn sub_pixel_fit_tolerance_matches_engine_rounding() {
     // Advances summing to within 0.005 past the offer still fit, as with
     // Pretext's lineFitEpsilon; anything further past still breaks.
@@ -525,6 +548,7 @@ fn fast_path_agrees_with_streaming_walker_on_fuzz() {
         for ws in [
             exact_textflow::WhiteSpace::Normal,
             exact_textflow::WhiteSpace::PreWrap,
+            exact_textflow::WhiteSpace::Nowrap,
         ] {
             for mode in [
                 OverflowWrap::Normal,

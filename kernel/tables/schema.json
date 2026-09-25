@@ -819,7 +819,8 @@
     "WhiteSpace": {
       "values": [
         "normal",
-        "pre-wrap"
+        "pre-wrap",
+        "nowrap"
       ],
       "default": "normal"
     },

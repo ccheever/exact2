@@ -11,5 +11,5 @@ component Styles
     column testId="root" gap=8
       column class=Card testId="card"
         text "in a card"
-      column class=Card padding=4 background-color="#000000" testId="tight"
+      column class=Card padding=4 background-color="#000000" white-space="nowrap" testId="tight"
         text "overridden"

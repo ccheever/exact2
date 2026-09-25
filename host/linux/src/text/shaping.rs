@@ -227,13 +227,17 @@ impl ShapedSource {
     }
     pub(super) fn layout(self: &Rc<Self>, width: Option<f32>, wrap: Option<Wrap>) -> Paragraph {
         let spec = &self.spec;
-        let wrap = wrap.unwrap_or(
-            if spec.overflow_wrap == exact_kernel::OverflowWrap::Normal {
-                Wrap::Word
-            } else {
-                Wrap::WordOrGlyph
-            },
-        );
+        let wrap = if spec.white_space == exact_kernel::WhiteSpace::Nowrap {
+            Wrap::None
+        } else {
+            wrap.unwrap_or(
+                if spec.overflow_wrap == exact_kernel::OverflowWrap::Normal {
+                    Wrap::Word
+                } else {
+                    Wrap::WordOrGlyph
+                },
+            )
+        };
         let ellipsize = if spec.line_clamp > 0 {
             Ellipsize::End(EllipsizeHeightLimit::Lines(spec.line_clamp as usize))
         } else {
@@ -361,13 +365,17 @@ impl ShapedSource {
         wrap: Option<Wrap>,
     ) -> Paragraph {
         let spec = &self.spec;
-        let wrap = wrap.unwrap_or(
-            if spec.overflow_wrap == exact_kernel::OverflowWrap::Normal {
-                Wrap::Word
-            } else {
-                Wrap::WordOrGlyph
-            },
-        );
+        let wrap = if spec.white_space == exact_kernel::WhiteSpace::Nowrap {
+            Wrap::None
+        } else {
+            wrap.unwrap_or(
+                if spec.overflow_wrap == exact_kernel::OverflowWrap::Normal {
+                    Wrap::Word
+                } else {
+                    Wrap::WordOrGlyph
+                },
+            )
+        };
         let ellipsize = if spec.line_clamp > 0 {
             Ellipsize::End(EllipsizeHeightLimit::Lines(spec.line_clamp as usize))
         } else {

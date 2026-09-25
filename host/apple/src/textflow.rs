@@ -145,10 +145,10 @@ pub fn prepare(
     let prepared = Prepared::new(
         text,
         Options {
-            white_space: if white_space == 1 {
-                exact_textflow::WhiteSpace::PreWrap
-            } else {
-                exact_textflow::WhiteSpace::Normal
+            white_space: match white_space {
+                1 => exact_textflow::WhiteSpace::PreWrap,
+                2 => exact_textflow::WhiteSpace::Nowrap,
+                _ => exact_textflow::WhiteSpace::Normal,
             },
             overflow_wrap: match overflow_wrap {
                 1 => OverflowWrap::BreakWord,

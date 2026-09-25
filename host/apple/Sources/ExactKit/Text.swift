@@ -75,7 +75,7 @@ struct Spec: Hashable {
     var color: [Double] // r g b a, 0–255
     var overflowWrap: Int = 0 // CSS: normal, break-word, anywhere
     var direction: Int = 0 // CSS: ltr, rtl
-    var whiteSpace: Int = 0 // CSS: normal, pre-wrap
+    var whiteSpace: Int = 0 // CSS: normal, pre-wrap, nowrap
     var strut: Run? = nil // paragraph minimum line box, including smaller inline runs
 }
 
@@ -602,6 +602,9 @@ final class TextEngine {
                 count = CTLineGetStringRange(breaks.lines[lines.count]).length
             } else if let ranges, lines.count < ranges.count {
                 count = ranges[lines.count].length
+            } else if spec.whiteSpace == 2 {
+                // CSS nowrap: no soft wrap opportunity, so the whole source is one line.
+                count = length - start
             } else {
                 count = CTTypesetterSuggestLineBreak(typesetter, start, limit)
                 while boundaryIndex < boundaries.count && boundaries[boundaryIndex] < start + count {
@@ -748,6 +751,12 @@ final class TextEngine {
         residency.retireWidths(TextParagraphKey(shape: TextShapeKey(identity: identity, paint: TextPaint(spec)), width: .infinity))
         residency.prepare(estimatedBytes: identity.utf16Count * 32)
         var widest: CGFloat = 0
+        if spec.whiteSpace == 2 {
+            // CSS nowrap has no break opportunity: min-content is max-content.
+            widest = paragraph(spec, width: .infinity).width
+            residency.putMinimum(identity, width: widest)
+            return widest
+        }
         if spec.overflowWrap == 2 {
             let source = attributed(spec), value = source.string as NSString
             var start = 0

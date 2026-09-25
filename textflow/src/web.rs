@@ -4,7 +4,7 @@
 //! `textflow_request(op, id, len)` uses the optional artifact's own input
 //! and JSON output buffers. All numeric input is little endian:
 //! 0 segments: overflow-wrap u32 (0 normal, 1 break-word, 2 anywhere),
-//! white-space u32 (0 normal, 1 pre-wrap), UTF-8;
+//! white-space u32 (0 normal, 1 pre-wrap, 2 nowrap), UTF-8;
 //! 1 prepare: hyphen f32, then one f32 per returned measurement range;
 //! 2 resolve + flow: width/line-height/font-size f32, max-lines u32,
 //! paragraph-height f32, direction u32 (0 ltr, 1 rtl), then
@@ -198,6 +198,7 @@ impl TextFlow {
             white_space: match integer(input, 4)? {
                 0 => exact_textflow::WhiteSpace::Normal,
                 1 => exact_textflow::WhiteSpace::PreWrap,
+                2 => exact_textflow::WhiteSpace::Nowrap,
                 _ => return Err("invalid white-space"),
             },
             overflow_wrap,

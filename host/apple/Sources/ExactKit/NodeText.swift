@@ -95,7 +95,7 @@ extension NodeView {
         }
         let spec = Spec(runs: runs, align: align, lineClamp: Int(number("line_clamp")),
                         color: channels("text_color", dark: night) ?? [0, 0, 0, 255],
-                        overflowWrap: style["overflow_wrap"]?.string == "anywhere" ? 2 : style["overflow_wrap"]?.string == "break-word" ? 1 : 0, direction: style["direction"]?.string == "rtl" ? 1 : 0, whiteSpace: style["white_space"]?.string == "pre-wrap" ? 1 : 0, strut: textRun(""))
+                        overflowWrap: style["overflow_wrap"]?.string == "anywhere" ? 2 : style["overflow_wrap"]?.string == "break-word" ? 1 : 0, direction: style["direction"]?.string == "rtl" ? 1 : 0, whiteSpace: style["white_space"]?.string == "pre-wrap" ? 1 : style["white_space"]?.string == "nowrap" ? 2 : 0, strut: textRun(""))
         cachedTextSpec = spec
         return spec
     }

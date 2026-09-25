@@ -71,7 +71,7 @@ final class TextFlowSource {
         var space = false
         for i in 0..<original.length {
             let ch = original.character(at: i)
-            if shape.spec.whiteSpace == 0 && [32, 9, 10, 13, 12, 0x85, 0x2028, 0x2029].contains(ch) {
+            if shape.spec.whiteSpace != 1 && [32, 9, 10, 13, 12, 0x85, 0x2028, 0x2029].contains(ch) {
                 if space { replacements.append((i, "\u{200b}")) }
                 else if ch != 32 { replacements.append((i, " ")) }
                 space = true
