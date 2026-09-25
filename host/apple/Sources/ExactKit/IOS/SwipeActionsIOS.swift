@@ -45,22 +45,32 @@ final class SwipeActionsHost {
         rows.removeAll(); refusals.removeAll()
     }
 
-    func sync() {
-        let named = Dictionary(grouping: presenter.carrying("id").compactMap { node in
-            node.props["id"].map { ($0, node) }
-        }, by: { $0.0 })
+    /// `changed`: the views the batch touched and their ancestors. An owner
+    /// with a row, outside it and none of whose names changed carriers,
+    /// keeps its row as it was; nil revisits every owner.
+    func sync(changed: Set<UInt32>? = nil) {
+        let named = presenter.chrome.named
+        let renamed = presenter.takeChangedNames()
         var wanted = Set<UInt32>()
         var claimed = Set<UInt32>()
         for owner in presenter.carrying("swipeContent") {
             guard let content = owner.props["swipeContent"] else { continue }
-            func resolve(_ name: String) -> NodeView? {
-                guard let matches = named[name], matches.count == 1 else { return nil }
-                let node = matches[0].1
-                return node !== owner && node.isDescendant(of: owner) ? node : nil
-            }
             let leadingNames = (owner.props["swipeLeading"] ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
             let trailingNames = (owner.props["swipeTrailing"] ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
             let names = leadingNames + trailingNames
+            // A refused owner is retried every batch, as the names its
+            // controls read from their subtrees can arrive a batch later.
+            if let changed, !changed.contains(owner.id), !renamed.contains(content),
+               !names.contains(where: renamed.contains), let row = rows[owner.id], row.owner === owner {
+                claimed.insert(row.body.id)
+                if row.projected || assistive { row.mount() }
+                wanted.insert(owner.id)
+                continue
+            }
+            func resolve(_ name: String) -> NodeView? {
+                guard let matches = named[name], matches.count == 1, let node = presenter.views[matches.first!] else { return nil }
+                return node !== owner && node.isDescendant(of: owner) ? node : nil
+            }
             let controls = names.compactMap(resolve)
             guard owner.scroll != nil, let body = resolve(content),
                   !names.isEmpty, Set(names).count == names.count, controls.count == names.count,

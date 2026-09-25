@@ -1139,6 +1139,7 @@ final class Presenter {
         }
         refreshVisibleText()
         syncAccessibility()
+        _ = chrome.takeChangedNames()
     }
 
     /// Align an enclosing context panel's preview with its source, while

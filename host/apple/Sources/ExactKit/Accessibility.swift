@@ -50,13 +50,24 @@ extension NodeView {
 }
 
 extension Presenter {
-    func syncAccessibility() {
+    /// Names, live regions and autofocus. `changed` limits the pass to the
+    /// views a batch touched and their ancestors — a button's name reads its
+    /// subtree — plus every live region and pending autofocus; nil reads
+    /// every view.
+    func syncAccessibility(changed: Set<UInt32>? = nil) {
         guard Thread.isMainThread else {
             DispatchQueue.main.async { [weak self] in self?.syncAccessibility() }
             return
         }
-        autofocusProcessed.formIntersection(Set(views.values.map { ObjectIdentifier($0) }))
-        for node in views.values.sorted(by: { $0.id < $1.id }) {
+        let nodes: [NodeView]
+        if let changed {
+            let indexed = chrome.ids("accessibilityLive").union(chrome.ids("autofocus"))
+            nodes = changed.union(indexed).compactMap { views[$0] }.sorted { $0.id < $1.id }
+        } else {
+            autofocusProcessed.formIntersection(Set(views.values.map { ObjectIdentifier($0) }))
+            nodes = views.values.sorted(by: { $0.id < $1.id })
+        }
+        for node in nodes {
             if node.kind == "button" || node.props["accessibilityRole"] == "button" {
                 #if os(macOS)
                 node.setAccessibilityLabel(node.accessibleName)

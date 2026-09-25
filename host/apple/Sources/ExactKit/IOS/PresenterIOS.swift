@@ -23,6 +23,7 @@ final class Presenter {
     private(set) var chrome = ChromeIndex()
     func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props); view.updateReorderGesture() }
     func carrying(_ key: String) -> [NodeView] { chrome.ids(key).sorted().compactMap { views[$0] } }
+    func takeChangedNames() -> Set<String> { chrome.takeChangedNames() }
     var scrollers: Set<UInt32> = []
     var pendingScrolls: Set<UInt32> = []
     var materialNodes: Set<UInt32> = []
@@ -530,8 +531,13 @@ final class Presenter {
             }
         }
         var beganGeometry = false
+        var touchedIDs: [UInt32] = []
         for op in batch.ops {
             let kind = op.op
+            switch kind {
+            case .create, .props, .style, .children, .paragraph, .flow, .frame: touchedIDs.append(op.id)
+            default: break
+            }
             if !beganGeometry && (kind == .frame || kind == .content) {
                 beganGeometry = true
                 // Mount the native owner under the root's available box before
@@ -605,6 +611,7 @@ final class Presenter {
                 onCommand?(op.payload["name"] as? String ?? "", op.payload["args"] as? [Any] ?? [])
             case .destroy:
                 session?.canvases.destroy(view: id)
+                if let view = views[id] { autofocusProcessed.remove(ObjectIdentifier(view)) }
                 views[id]?.forget()
                 // Out of the map before out of the window: the editing-ended
                 // notification removal fires finds no view to send for.
@@ -660,9 +667,24 @@ final class Presenter {
         navigation.sync(batch)
         segments.sync()
         menus.sync()
-        swipeActions.sync()
+        let changed = touchedAndAbove(touchedIDs)
+        swipeActions.sync(changed: changed)
         positionContexts()
-        syncAccessibility()
+        syncAccessibility(changed: changed)
+    }
+
+    /// The views a batch touched and every view above them, as the batch
+    /// left the hierarchy: what a pass reading a subtree must revisit.
+    private func touchedAndAbove(_ ids: [UInt32]) -> Set<UInt32> {
+        var seen = Set<UInt32>()
+        for id in ids {
+            var view: UIView? = views[id]
+            while let current = view {
+                if let node = current as? NodeView, !seen.insert(node.id).inserted { break }
+                view = current.superview
+            }
+        }
+        return seen
     }
 
     /// Geometry can be deferred for the source route while a modal owns the
