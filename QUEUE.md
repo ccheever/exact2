@@ -1,5 +1,9 @@
 # Queue
 
+- **The render server closes every connection** (2026-09-25, the links lane, LLP 1048.000 D10). `serve.rs` answers each request with `Connection: close`. Under the bench's emulation that costs nothing (RealWorld's document replayed keep-alive took 242 ms from tap to feed, against 243 closed), but on a real network each request pays a TCP and TLS handshake when no CDN fronts the server. Keep-alive is worth doing before hosting without one.
+
+- **A link to the current location should replace, not push** (2026-09-25, the links lane, LLP 1038). The HTML standard replaces the entry for a same-URL navigation, and React Router's `Link` does too. RealWorld's feed tabs and Home add duplicate history entries today. The fix is the router's, not the app's.
+
 - **An iOS agent screenshot doesn't wait for image decodes** (2026-09-25, the backing-store fix). `settlePump` settles the scroll pump and visible text rasters, but not `rasters.load`. A screenshot taken right after launch can come before an image lands: Interaction Gallery's first photo was its background tone in 3 of 6 cold launches, and Caltrain's logo (with its layout shift) was missing once. The same launches showed the image a few operations later. A pixel comparison that follows `clock settle` can therefore flake. Settle could count in-flight image loads, as it already counts text rasters.
 
 - **One line can silently undo the size diet** (2026-09-25, the diet lane, LLP 1047). 72faa0d9's `format!("{kind:?}").to_lowercase()` on every reply linked core's Unicode case tables back into every web wasm: RealWorld +4.5 KB brotli, 3.5 KB of it that one call. Its `to_ascii_lowercase` fix is landing. D9's `metrics.mjs --long` row shows each commit's bytes but never blocks. Charlie's call, since it would be new apparatus: a symbol-absence check on the web wasm (e.g. no `core::unicode::conversions`, no `dec2flt` table, no Grisu or Dragon) for apps that don't need them.
