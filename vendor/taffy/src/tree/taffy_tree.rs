@@ -108,6 +108,10 @@ struct NodeData {
     /// Whether the node has context data associated with it or not
     pub(crate) has_context: bool,
 
+    /// EXACT PATCH 9: whether `layout_inputs` holds a record for this node,
+    /// so the layout and invalidation paths skip the map for every other.
+    pub(crate) replay_tracked: bool,
+
     /// The cached results of the layout computation
     pub(crate) cache: Cache,
 
@@ -126,6 +130,7 @@ impl NodeData {
             unrounded_layout: Layout::new(),
             final_layout: Layout::new(),
             has_context: false,
+            replay_tracked: false,
             #[cfg(feature = "detailed_layout_info")]
             detailed_layout_info: DetailedLayoutInfo::None,
         }
@@ -250,16 +255,20 @@ impl<NodeContext> CacheTree for TaffyTree<NodeContext> {
     }
 
     fn cache_store(&mut self, node_id: NodeId, input: &LayoutInput, layout_output: LayoutOutput) {
-        if let Some(replay) = self.layout_inputs.get_mut(node_id.into()) {
-            replay.record(input, layout_output);
+        if self.nodes[node_id.into()].replay_tracked {
+            if let Some(replay) = self.layout_inputs.get_mut(node_id.into()) {
+                replay.record(input, layout_output);
+            }
         }
         self.nodes[node_id.into()].cache.store(input, layout_output)
     }
 
     fn cache_clear(&mut self, node_id: NodeId) {
         // A hidden subtree's saved inputs describe a layout it no longer has.
-        if let Some(replay) = self.layout_inputs.get_mut(node_id.into()) {
-            replay.saved = None;
+        if self.nodes[node_id.into()].replay_tracked {
+            if let Some(replay) = self.layout_inputs.get_mut(node_id.into()) {
+                replay.saved = None;
+            }
         }
         self.nodes[node_id.into()].cache.clear();
     }
@@ -967,8 +976,10 @@ impl<NodeContext> TaffyTree<NodeContext> {
                 ClearState::Cleared => {
                     // EXACT PATCH 9: every ancestor that asked this node
                     // anything is invalidated with it and will ask again.
-                    if let Some(replay) = replays.get_mut(node_key) {
-                        *replay = Replay::default();
+                    if nodes[node_key].replay_tracked {
+                        if let Some(replay) = replays.get_mut(node_key) {
+                            *replay = Replay::default();
+                        }
                     }
                     if let Some(Some(node)) = parents.get(node_key) {
                         mark_dirty_recursive(nodes, parents, replays, (*node).into());
@@ -996,6 +1007,7 @@ impl<NodeContext> TaffyTree<NodeContext> {
     /// Retain final layout inputs only for a caller-proven containment candidate.
     pub fn track_layout_input(&mut self, node: NodeId, track: bool) {
         let key = node.into();
+        self.nodes[key].replay_tracked = track;
         if track {
             if !self.layout_inputs.contains_key(key) {
                 self.layout_inputs.insert(key, Replay::default());

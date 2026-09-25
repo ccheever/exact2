@@ -93,6 +93,9 @@ pub struct LayoutTree {
     // Invalidation sources since the last layout: true where the node's own
     // style changed (its parent's questions change), false for content only.
     deferred: IdMap<NodeId, bool>,
+    // Each walked box's boundary during one layout's choice (outer None:
+    // hidden or not under the root); empty between layouts.
+    walks: IdMap<NodeId, Option<Option<NodeId>>>,
     offers: IdMap<NodeId, Offer>,
     #[cfg(test)]
     pub(crate) publication_visits: usize,
@@ -249,6 +252,7 @@ impl LayoutTree {
             fault: None,
             slots: IdMap::default(),
             deferred: IdMap::default(),
+            walks: IdMap::default(),
             offers: IdMap::default(),
             #[cfg(test)]
             publication_visits: 0,
@@ -441,33 +445,55 @@ impl LayoutTree {
     // Taffy's record, EXACT PATCH 9). Flex, grid, percentage and intrinsic
     // sizing questions are in that record; the replayed output is compared.
     // A restyled box is never one: its parent asks it something new.
-    fn boundary_for(&self, node: NodeId, root: NodeId, restyled: &IdSet<NodeId>) -> Option<NodeId> {
-        let mut at = if restyled.contains(&node) {
+    // `walks` remembers each box's answer (outer None: hidden or not under
+    // `root`), so sources that share ancestors walk them once per layout.
+    fn boundary_for(
+        &self,
+        node: NodeId,
+        root: NodeId,
+        deferred: &IdMap<NodeId, bool>,
+        walks: &mut IdMap<NodeId, Option<Option<NodeId>>>,
+    ) -> Option<NodeId> {
+        let restyled = |n| deferred.get(&n) == Some(&true);
+        let start = if restyled(node) {
             self.taffy.parent(node)
         } else {
             Some(node)
         };
-        let mut boundary = None;
-        while let Some(n) = at {
-            let s = self.taffy.style(n).ok()?;
+        let mut path = Vec::new();
+        let mut at = start;
+        let mut above = loop {
+            let Some(n) = at else { break None };
+            if let Some(&known) = walks.get(&n) {
+                break known;
+            }
+            let Ok(s) = self.taffy.style(n) else {
+                break None;
+            };
             // A hidden box lays nothing out: saved inputs below it are stale.
             if s.display == taffy::Display::None {
-                return None;
+                walks.insert(n, None);
+                break None;
             }
             if n == root {
-                return boundary;
+                walks.insert(n, Some(None));
+                break Some(None);
             }
-            if boundary.is_none()
-                && boundary_style(s)
-                && !restyled.contains(&n)
+            path.push(n);
+            at = self.taffy.parent(n);
+        };
+        for n in path.into_iter().rev() {
+            if above.is_some()
+                && boundary_style(self.taffy.style(n).expect("walked"))
+                && !restyled(n)
                 && !self.taffy.dirty(n).unwrap_or(true)
                 && self.taffy.last_layout_input(n).is_some()
             {
-                boundary = Some(n);
+                above = Some(Some(n));
             }
-            at = self.taffy.parent(n);
+            walks.insert(n, above);
         }
-        None
+        above.flatten()
     }
 
     // A flex column aligns no item by its baseline and takes its own first
@@ -511,11 +537,9 @@ impl LayoutTree {
             && !self.taffy.dirty(root).unwrap_or(true)
             && arena.exclusion_slots.is_empty()
             && arena.flow.is_empty();
-        let deferred = std::mem::take(&mut self.deferred);
-        let restyled: IdSet<NodeId> = deferred
-            .iter()
-            .filter_map(|(&node, &restyled)| restyled.then_some(node))
-            .collect();
+        // Both scratch maps keep their capacity from layout to layout.
+        let mut deferred = std::mem::take(&mut self.deferred);
+        let mut walks = std::mem::take(&mut self.walks);
         // Decide every source before marking any. Ordinary invalidation walks
         // first: one stopping at a box a local walk had already cleared would
         // leave that box's ancestors clean.
@@ -523,7 +547,7 @@ impl LayoutTree {
         let mut contained = Vec::new();
         for &node in deferred.keys() {
             match local
-                .then(|| self.boundary_for(node, root, &restyled))
+                .then(|| self.boundary_for(node, root, &deferred, &mut walks))
                 .flatten()
             {
                 Some(boundary) => {
@@ -539,6 +563,10 @@ impl LayoutTree {
         for (node, boundary) in contained {
             self.taffy.mark_dirty_to(node, boundary);
         }
+        deferred.clear();
+        walks.clear();
+        self.deferred = deferred;
+        self.walks = walks;
         // One unrelated dirty source may invalidate the root after the first
         // boundary was chosen. A regular root pass then handles all sources.
         if self.taffy.dirty(root).unwrap_or(true) {
