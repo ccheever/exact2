@@ -168,7 +168,7 @@ final class TextMetricsTests: XCTestCase {
         let node = NodeView(id: 1, kind: "text", presenter: presenter)
         node.applyStyle(["font_size": 16.0, "line_height": "24px"])
         node.applyProps(set: ["text": String(repeating: "x", count: 65_536)], clear: [])
-        node.frame = NSRect(x: 0, y: 0, width: 400, height: 24)
+        node.frame = NSRect(x: 0, y: 0, width: 400, height: 42) // repays a surface at 1x
         node.prepareToMount()
         presenter.root.addSubview(node)
         let paragraph = try XCTUnwrap(node.paragraphLayout())
@@ -202,7 +202,7 @@ final class TextMetricsTests: XCTestCase {
         let node = NodeView(id: 1, kind: "text", presenter: presenter)
         node.applyStyle(["font_size": 16.0])
         node.applyProps(set: ["text": "Fallback ink"], clear: [])
-        node.frame = NSRect(x: 0, y: 0, width: 400, height: 30)
+        node.frame = NSRect(x: 0, y: 0, width: 400, height: 42) // repays a surface at 1x
         node.prepareToMount()
         presenter.root.addSubview(node)
         XCTAssertTrue(presenter.textRasters.ensure(node, urgent: true))
@@ -602,7 +602,7 @@ final class TextMetricsTests: XCTestCase {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "text-ink-overflow")
         let presenter = session.presenter
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 300),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 300),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = presenter.viewport
@@ -611,7 +611,7 @@ final class TextMetricsTests: XCTestCase {
             ["op": "create", "id": 1, "kind": "text", "props": ["text": "The Measured Page"],
              "style": ["font_size": 52.0, "font_weight": 700, "line_height": 0.6]],
             ["op": "roots", "ids": [1]],
-            ["op": "frame", "id": 1, "x": 20.0, "y": 30.0, "w": 460.0, "h": 31.2],
+            ["op": "frame", "id": 1, "x": 20.0, "y": 30.0, "w": 530.0, "h": 31.2], // repays a surface at 1x
         ], timers: false, motion: false, clock: nil, error: nil))
         let node = try XCTUnwrap(presenter.views[1])
         let paragraph = try XCTUnwrap(node.paragraphLayout())
@@ -687,9 +687,9 @@ final class TextMetricsTests: XCTestCase {
             ["op": "children", "id": 1, "ids": [2, 3, 4]],
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 500.0, "h": 2000.0],
-            ["op": "frame", "id": 2, "x": 0.0, "y": 20.0, "w": 400.0, "h": 30.0],
-            ["op": "frame", "id": 3, "x": 0.0, "y": 800.0, "w": 400.0, "h": 30.0],
-            ["op": "frame", "id": 4, "x": 0.0, "y": 900.0, "w": 400.0, "h": 30.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 20.0, "w": 400.0, "h": 42.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 800.0, "w": 400.0, "h": 42.0],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 900.0, "w": 400.0, "h": 42.0],
         ], timers: false, motion: false, clock: nil, error: nil))
         let visible = try XCTUnwrap(presenter.views[2]), offscreen = try XCTUnwrap(presenter.views[3])
         XCTAssertTrue(visible.rastersText)
@@ -793,13 +793,13 @@ final class TextMetricsTests: XCTestCase {
             ["op": "children", "id": 1, "ids": [2]],
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 500.0, "h": 2000.0],
-            ["op": "frame", "id": 2, "x": 0.0, "y": 900.0, "w": 400.0, "h": 30.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 900.0, "w": 400.0, "h": 42.0],
         ])
         let node = try XCTUnwrap(presenter.views[2])
         XCTAssertTrue(node.rastersText)
         XCTAssertFalse(presenter.textIsVisible(node))
         // The pixels a worker painted for this width, published by the pump.
-        let pixels = try XCTUnwrap(IOSurface(properties: [.width: 800, .height: 60, .bytesPerElement: 4]))
+        let pixels = try XCTUnwrap(IOSurface(properties: [.width: Int(400 * window.backingScaleFactor), .height: Int(42 * window.backingScaleFactor), .bytesPerElement: 4]))
         let key = TextRasterKey(spec: node.paragraphSpec(), size: node.bounds.size,
                                 box: node.contentBox(), scale: window.backingScaleFactor)
         node.textRasterKey = key
@@ -809,13 +809,13 @@ final class TextMetricsTests: XCTestCase {
         XCTAssertTrue(node.layer?.contents as? IOSurface === pixels)
 
         // Moving the paragraph is not resizing it: those pixels still fit.
-        batch([["op": "frame", "id": 2, "x": 0.0, "y": 880.0, "w": 400.0, "h": 30.0]])
+        batch([["op": "frame", "id": 2, "x": 0.0, "y": 880.0, "w": 400.0, "h": 42.0]])
         XCTAssertEqual(node.textRasterKey, key)
         XCTAssertFalse(node.needsTextRaster)
 
         // The window widens while the paragraph is off screen. Its layer
         // would stretch the old surface across the new width.
-        batch([["op": "frame", "id": 2, "x": 0.0, "y": 880.0, "w": 460.0, "h": 30.0]])
+        batch([["op": "frame", "id": 2, "x": 0.0, "y": 880.0, "w": 460.0, "h": 42.0]])
         XCTAssertNotEqual(node.textRasterKey, key)
         XCTAssertTrue(node.needsTextRaster, "a resized paragraph still owes the pump pixels")
         XCTAssertTrue(node.textRasterOverflowLayer?.contents as? IOSurface === pixels, "the accepted pixels stay at their original size")
@@ -823,7 +823,7 @@ final class TextMetricsTests: XCTestCase {
         XCTAssertNil(node.layer?.contents, "the resized backing layer cannot stretch the accepted raster")
 
         // Scrolled back to it: painted at the width it has now, not stretched.
-        batch([["op": "frame", "id": 2, "x": 0.0, "y": 40.0, "w": 460.0, "h": 30.0]])
+        batch([["op": "frame", "id": 2, "x": 0.0, "y": 40.0, "w": 460.0, "h": 42.0]])
         XCTAssertTrue(presenter.textIsVisible(node))
         presenter.refreshVisibleText()
         if node.needsTextRaster {
@@ -852,13 +852,13 @@ final class TextMetricsTests: XCTestCase {
             ["op": "children", "id": 1, "ids": [2, 3, 4]],
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 500.0, "h": 2000.0],
-            ["op": "frame", "id": 2, "x": 0.0, "y": 20.0, "w": 400.0, "h": 30.0],
-            ["op": "frame", "id": 3, "x": 0.0, "y": 800.0, "w": 400.0, "h": 30.0],
-            ["op": "frame", "id": 4, "x": 0.0, "y": 900.0, "w": 400.0, "h": 30.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 20.0, "w": 400.0, "h": 42.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 800.0, "w": 400.0, "h": 42.0],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 900.0, "w": 400.0, "h": 42.0],
         ], timers: false, motion: false, clock: nil, error: nil))
         let visible = try XCTUnwrap(presenter.views[2]), offscreen = try XCTUnwrap(presenter.views[3])
-        let pixels = try XCTUnwrap(IOSurface(properties: [.width: 800, .height: 60, .bytesPerElement: 4]))
-        let late = try XCTUnwrap(IOSurface(properties: [.width: 800, .height: 60, .bytesPerElement: 4]))
+        let pixels = try XCTUnwrap(IOSurface(properties: [.width: Int(400 * window.backingScaleFactor), .height: Int(42 * window.backingScaleFactor), .bytesPerElement: 4]))
+        let late = try XCTUnwrap(IOSurface(properties: [.width: Int(400 * window.backingScaleFactor), .height: Int(42 * window.backingScaleFactor), .bytesPerElement: 4]))
         func prepare(_ node: NodeView) -> TextRasterKey {
             node.dropTextRaster()
             let key = TextRasterKey(spec: node.paragraphSpec(), size: node.bounds.size,

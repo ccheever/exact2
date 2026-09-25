@@ -168,6 +168,84 @@ final class CollectionMacTests: XCTestCase {
         XCTAssertEqual(p.collections.interaction, 3, "bubbling must keep the original descendant")
     }
 
+    func testPressOutsideEveryRowPinsNothing() throws {
+        // A press on the list's scroller reaches the pin as the list itself;
+        // one on the blank ground above the mounted rows, as a spacer. The
+        // runner drops a report whose pin is outside its rows, so either pin
+        // froze the window where it was (the web's liveView reports none).
+        let (p, _) = fixture()
+        defer { p.collections.reset() }
+        p.apply(batch([
+            ["op": "create", "id": 9, "kind": "view"],
+            ["op": "children", "id": 1, "ids": [9, 2]]
+        ]))
+        var interactions: [UInt32] = []
+        p.collections.onFeedback = { bytes in
+            interactions.append((0..<4).reduce(0) { $0 | UInt32(bytes[60 + $1]) << ($1 * 8) })
+        }
+        func drain() {
+            let done = expectation(description: "pin feedback continuation")
+            DispatchQueue.main.async { DispatchQueue.main.async { done.fulfill() } }
+            wait(for: [done], timeout: 1)
+        }
+        XCTAssertNil(p.collections.owningCollection(1), "the list itself is in no row")
+        XCTAssertNil(p.collections.owningCollection(9), "a spacer is in no row")
+        XCTAssertEqual(p.collections.owningCollection(2), 1, "a row wrapper pins its own row")
+        XCTAssertEqual(p.collections.owningCollection(3), 1)
+        for pressed: UInt32 in [1, 9] {
+            p.collections.pointer(pressed); drain()
+            XCTAssertEqual(interactions.last, 0, "a press outside every row reports no pin")
+        }
+        p.collections.pointer(3); drain()
+        XCTAssertEqual(interactions.last, 3, "a press inside a row still pins it")
+    }
+
+    func testKnobReleaseKeepsTheOffsetTheReaderSaw() throws {
+        // At a knob drag's mouse-up AppKit derives the offset from the pointer
+        // once more; rows measured during the drag have changed the document's
+        // height since, so that offset jumps. The reader keeps the last one.
+        let (plain, plainList) = fixture(collection: false, estimatedItemHeight: "24")
+        defer { plain.collections.reset() }
+        XCTAssertNil(KnobDrag.of(try XCTUnwrap(plainList.scroll)), "a list that is not a collection keeps every offset")
+        let (p, list) = fixture()
+        defer { p.collections.reset() }
+        let scroll = try XCTUnwrap(list.scroll)
+        let drag = try XCTUnwrap(KnobDrag.of(scroll))
+        XCTAssertTrue(scroll.verticalScroller.map { type(of: $0) == NSScroller.self } ?? false, "AppKit's own scroller stays")
+        var tops: [Double] = []
+        p.collections.onFeedback = { bytes in
+            tops.append(Double(bitPattern: (0..<8).reduce(UInt64(0)) { $0 | UInt64(bytes[24 + $1]) << ($1 * 8) }))
+        }
+        let clip = scroll.contentView
+        drag.currentEventType = { .scrollWheel }
+        drag.began()
+        XCTAssertFalse(drag.tracking, "a gesture's live scroll is not a knob drag")
+        drag.currentEventType = { .leftMouseDown }
+        drag.began()
+        drag.currentEventType = { .leftMouseDragged }
+        clip.scroll(to: NSPoint(x: 0, y: 1000))
+        XCTAssertEqual(tops.last, 980, "a drag step is reported (content starts 20 below the clip)")
+        drag.currentEventType = { .leftMouseUp }
+        clip.scroll(to: NSPoint(x: 0, y: 1400))
+        XCTAssertEqual(tops.last, 980, "the mouse-up's own offset is never reported")
+        drag.ended()
+        XCTAssertEqual(clip.bounds.minY, 1000, "the offset the reader saw is restored")
+        XCTAssertFalse(drag.tracking)
+        clip.scroll(to: NSPoint(x: 0, y: 1200))
+        XCTAssertEqual(clip.bounds.minY, 1200, "outside a knob drag every offset stands")
+        // A knob held at the end of its track: the mouse-up's offset at the
+        // document's end stands, since that is what the knob means there.
+        drag.currentEventType = { .leftMouseDown }
+        drag.began()
+        drag.currentEventType = { .leftMouseDragged }
+        clip.scroll(to: NSPoint(x: 0, y: 2700))
+        drag.currentEventType = { .leftMouseUp }
+        let end = try XCTUnwrap(scroll.documentView).frame.height - clip.bounds.height
+        clip.scroll(to: NSPoint(x: 0, y: end))
+        drag.ended()
+        XCTAssertEqual(clip.bounds.minY, end, "a release at the end stays at the end")
+    }
+
     func testNestedCollectionsOwnOnlyNearestPinsAndReleaseBeforeTransfer() throws {
         let (p, _) = fixture()
         defer { p.collections.reset() }
@@ -534,6 +612,50 @@ final class CollectionMacTests: XCTestCase {
             p.syncLists(limit: 2)
             XCTAssertEqual(reports, 2, "returning legacy ownership must report even unchanged geometry")
         }
+    }
+
+    func testCollectionSpacerReorderPreservesParagraphFocusAndSelection() throws {
+        let (p, list) = fixture()
+        defer { p.reset() }
+        let container = MountObservedView()
+        try XCTUnwrap(list.scroll).documentView = container
+        p.apply(batch([
+            ["op": "create", "id": 4, "kind": "text", "props": ["text": "A retained selection"]],
+            ["op": "create", "id": 5, "kind": "view"],
+            ["op": "create", "id": 6, "kind": "view"],
+            ["op": "props", "id": 2, "set": ["listItemKey": "s:row", "accessibilityPosInSet": "1"]],
+            ["op": "children", "id": 3, "ids": [4]],
+            ["op": "children", "id": 1, "ids": [2, 5]],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 0.0, "w": 280.0, "h": 20.0]
+        ]))
+        let paragraph = try XCTUnwrap(p.views[4])
+        let window = NSWindow(contentRect: p.viewport.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = p.viewport
+        defer { window.makeFirstResponder(nil); window.close() }
+        XCTAssertTrue(window.makeFirstResponder(paragraph))
+        p.onListIndex = { _, key in key == "s:row" ? 0 : nil }
+        p.onListText = { _, _, _ in "A retained selection" }
+        let down = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown,
+            location: paragraph.convert(.zero, to: nil), modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        p.selection.begin(paragraph, event: down)
+        p.selection.selectAll()
+        container.added.removeAll(); container.removed.removeAll()
+        // The same spacer moves from after the pinned row to before it as
+        // scrolling changes the window. The paragraph remains a live pin.
+        for ids in [[5, 2, 6], [2, 5, 6], [5, 6, 2]] {
+            p.apply(batch([["op": "children", "id": 1, "ids": ids]]))
+            XCTAssertEqual(container.subviews.compactMap { ($0 as? NodeView)?.id }, ids.map(UInt32.init))
+            XCTAssertTrue(window.firstResponder === paragraph)
+            XCTAssertEqual(p.collections.focusedView(), paragraph.id)
+            XCTAssertEqual(p.selection.selectedText(), "A retained selection")
+        }
+        XCTAssertEqual(container.added, [6], "only the new row mounts")
+        XCTAssertEqual(container.removed, [], "reordering retained rows cannot detach their responders")
+        p.apply(batch([["op": "children", "id": 1, "ids": [5, 6]]]))
+        XCTAssertEqual(container.removed, [2], "a retired row must still detach")
+        XCTAssertFalse(window.firstResponder === paragraph)
     }
 
     func testPrependingANewNativeChildKeepsRetainedSiblingsMounted() throws {

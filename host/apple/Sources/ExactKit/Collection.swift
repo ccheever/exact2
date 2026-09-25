@@ -184,15 +184,24 @@ final class CollectionHost {
         }
         batchDepth = max(0, batchDepth - 1)
     }
-    /// A nested collection owns its descendants' pins; ancestors must not
-    /// pin the outer row as well. Native container views may sit between nodes.
+    /// The collection whose mounted row holds `descendant`: the nearest row
+    /// wrapper at or above it names the owner, as the web host's `liveView`
+    /// does, so a nested collection owns its descendants' pins and ancestors
+    /// never pin the outer row as well. A view in no mounted row (a list
+    /// itself, a spacer, the scroller a press landed on) pins nothing; the
+    /// runner discards a report whose pin is outside its rows, and the window
+    /// would stop following the scroll. Native container views may sit
+    /// between nodes.
     func owningCollection(_ descendant: UInt32?) -> UInt32? {
         guard let descendant, let node = presenter?.views[descendant] else { return nil }
-        if entries[descendant] != nil { return descendant }
+        func owner(_ node: NodeView) -> UInt32? {
+            guard presenter?.views[node.id] === node else { return nil }
+            return entries.first { $0.value.snapshot.rows.contains { $0.view == node.id } }?.key
+        }
+        if let id = owner(node) { return id }
         var parent = node.superview
         while let current = parent {
-            if let node = current as? NodeView, entries[node.id] != nil,
-               presenter?.views[node.id] === node { return node.id }
+            if let node = current as? NodeView, let id = owner(node) { return id }
             parent = current.superview
         }
         return nil
