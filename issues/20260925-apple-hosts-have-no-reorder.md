@@ -1,6 +1,6 @@
 # Apple hosts do not implement reorder, so `reorderFor`/`reorderdrop` does nothing on iOS or macOS
 
-**Status:** Open
+**Status:** Fixed in b58430d2. iOS picks a row up by its grip (pan or long press) and macOS by the mouse; the lifted row follows, siblings make room, a virtualized list autoscrolls at its edges and pins the lifted row, and the drop sends the same `reorderdrop` as the web and Linux hosts. Driven on Interaction Gallery (iOS and macOS) and the listbench copy (iOS, including an autoscrolled move); XCTests on both hosts.
 **Systems:** Apple host (iOS and macOS), Runner (`runner/src/runner/event.rs` reorder events), Contract (`reorderFor`, `reorderdrop`; `contract/lower/src/tags.rs`), Scrolling (reorder inside `list virtualized=true`)
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
