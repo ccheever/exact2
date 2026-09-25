@@ -285,7 +285,9 @@ impl Outcome {
                     .nth(200)
                     .map_or(message.len(), |(i, _)| i);
                 let more = if cut < message.len() { "…" } else { "" };
-                let kind = format!("{kind:?}").to_lowercase();
+                // Variant names are ASCII: ASCII lowering is the whole
+                // lowering, and links no Unicode case tables.
+                let kind = format!("{kind:?}").to_ascii_lowercase();
                 format!("{kind}: {}{more}", &message[..cut])
             }
             Outcome::Storage(bytes) => format!("storage, {} bytes", bytes.len()),
@@ -414,6 +416,36 @@ pub struct RequestOut {
     pub request: Request,
     /// The app forced it (`refresh`): the executor bypasses its cache.
     pub forced: bool,
+}
+
+#[cfg(test)]
+mod summary_tests {
+    use super::*;
+
+    #[test]
+    fn a_failure_summary_lowers_its_kind_as_unicode_would() {
+        for kind in [
+            FailureKind::Network,
+            FailureKind::Refused,
+            FailureKind::Unsupported,
+            FailureKind::Aborted,
+        ] {
+            // Every variant is listed: adding one breaks this match.
+            match kind {
+                FailureKind::Network
+                | FailureKind::Refused
+                | FailureKind::Unsupported
+                | FailureKind::Aborted => {}
+            }
+            let name = format!("{kind:?}");
+            assert!(name.is_ascii(), "{name}");
+            let outcome = Outcome::Failed {
+                kind,
+                message: "no".into(),
+            };
+            assert_eq!(outcome.summary(), format!("{}: no", name.to_lowercase()));
+        }
+    }
 }
 
 #[cfg(test)]
