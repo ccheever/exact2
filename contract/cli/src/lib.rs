@@ -491,8 +491,8 @@ fn compile_file_output(
         all
     };
     contract_analyze::check_routes_root(file, true).map_err(CompileError::from)?;
-    let checked =
-        contract_types::check_all(file, mapped).map_err(|all| with_lint(each(all, hint)))?;
+    let checked = contract_types::check_all(file, mapped, contract_lower::tags::style)
+        .map_err(|all| with_lint(each(all, hint)))?;
     let analysis =
         contract_analyze::check_all(&checked).map_err(|all| with_lint(each(all, hint)))?;
     contract_lower::lower_all(&checked, &analysis, asset_root, mapped)

@@ -90,6 +90,43 @@ fn dynamic_auto_keeps_the_meaning_of_its_style_row() {
     }
 }
 
+#[test]
+fn a_style_attributes_branches_may_mix_a_length_and_a_keyword() {
+    let plan = contract::compile(&corpus("style-branches.contract")).unwrap();
+    let mut r = Runner::boot(
+        Plan::decode(&plan.encode()).unwrap(),
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let key = r.kernel().find_by_test_id("sheet")[0];
+    let style = |r: &Runner<Schedule>| r.kernel().node_by_key(key).unwrap().style.clone();
+    let closed = style(&r);
+    assert_eq!(closed.margin_top, Dimension::Auto);
+    assert_eq!(closed.width, Dimension::Percent(50.0));
+    assert_eq!(closed.height, Dimension::Auto);
+    r.act("set", vec![Value::Bool(true)]).unwrap();
+    let open = style(&r);
+    assert_eq!(open.margin_top, Dimension::Points(-14.5));
+    assert_eq!(open.width, Dimension::Points(100.0));
+    assert_eq!(open.height, Dimension::Points(200.0));
+    // Only a style row is one value space: a prop, a state, or a derive
+    // still needs one type.
+    for (declarations, attr) in [
+        ("", "testId=(open ? 1 : \"a\")"),
+        ("  derive top = open ? -14.5 : \"auto\"\n", "margin-top=top"),
+        ("", "margin-top=(open ? 1 : true)"),
+    ] {
+        let source = format!(
+            "component App\n  state open = false\n{declarations}  view\n    text \"a\" {attr}\n"
+        );
+        let error = contract::compile(&source).unwrap_err();
+        assert_eq!(error.id, "type-branches", "{source}");
+    }
+}
+
 fn corpus(name: &str) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../corpus")
