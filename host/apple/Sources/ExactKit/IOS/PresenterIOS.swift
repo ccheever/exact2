@@ -37,6 +37,7 @@ final class Presenter {
     lazy var transformGeometry = TransformGeometryHost(self)
     var videoVisibility: VideoVisibilityHost?
     lazy var collections = CollectionHost(self)
+    lazy var pool = NodePool(self)
     /// The native menu arm (LLP 1021 D3).
     lazy var swipeActions = SwipeActionsHost(self)
     lazy var menus = MenuHost(presenter: self)
@@ -267,6 +268,7 @@ final class Presenter {
         segments.reset()
         menus.reset()
         swipeActions.reset()
+        pool.reset()
         modals.reset()
         navigation.reset()
         session?.canvases.reset()
@@ -313,6 +315,7 @@ final class Presenter {
     }
 
     func cancelPendingFocus() { pendingFocus = nil }
+    var pendingFocusNode: NodeView? { pendingFocus?.node }
 
     func flushPendingFocus() {
         guard let pending = pendingFocus, !applying, !navigation.defersFocus, !modals.defersFocus else { return }
@@ -517,6 +520,7 @@ final class Presenter {
         let post = Self.signposts.beginInterval("apply")
         defer { Self.signposts.endInterval("apply", post) }
         collections.beginBatch(batch)
+        pool.begin(batch)
         swipeActions.prepare()
         prepareContexts(batch)
         modals.prepare(batch)
@@ -527,6 +531,7 @@ final class Presenter {
         applying = true
         defer {
             collections.endBatch()
+            pool.end()
             if outermost {
                 applying = false
                 videoVisibility?.changed()
@@ -585,12 +590,14 @@ final class Presenter {
                     views[binding.id]?.updateHeightDragGesture()
                 }
             case .create:
-                let v = NodeView(id: id, kind: op.kind, presenter: self)
+                let reused = pool.take(id)
+                let v = reused ?? NodeView(id: id, kind: op.kind, presenter: self)
                 v.handlers = op.handlers
                 // Before the style makes it a scroll container: a swipe row's waits.
                 v.swipeOwner = op.props["swipeContent"] != nil
                 v.applyStyle(op.style)
                 v.applyProps(set: op.props, clear: [])
+                if reused != nil { v.finishReuse() }
                 views[id] = v
                 if v.kind == "list" { listViews[id] = v }
                 if v.isParagraph { textViews[id] = v }
@@ -608,7 +615,7 @@ final class Presenter {
                 let container = parent.container
                 let wanted = Set(want.map(ObjectIdentifier.init))
                 var current = container.subviews
-                for case let child as NodeView in current where !wanted.contains(ObjectIdentifier(child)) {
+                for case let child as NodeView in current where !wanted.contains(ObjectIdentifier(child)) && !pool.isParked(child) {
                     if !modals.retainsRemovedView(child) { child.removeFromSuperview() }
                 }
                 // In order, below anything else in the container (a scroll
@@ -625,25 +632,17 @@ final class Presenter {
             case .command:
                 onCommand?(op.payload["name"] as? String ?? "", op.payload["args"] as? [Any] ?? [])
             case .destroy:
-                session?.canvases.destroy(view: id)
-                if let view = views[id] { autofocusProcessed.remove(ObjectIdentifier(view)) }
-                views[id]?.forget()
+                // A collection's retired row parks for the next of its shape.
+                if let view = views[id], pool.retire(view) { continue }
                 // Out of the map before out of the window: the editing-ended
                 // notification removal fires finds no view to send for.
-                listViews.removeValue(forKey: id)
-                textViews.removeValue(forKey: id)
-                scrollPump.forget(id)
-                heightBindings.removeValue(forKey: id)
-                transformBindings.removeValue(forKey: id)
-                transformGeometry.retire(id)
-                chrome.forget(id)
-                scrollers.remove(id); pendingScrolls.remove(id); materialNodes.remove(id); contextNodes.remove(id)
-                let gone = views.removeValue(forKey: id)
+                let gone = release(id) { $0.forget() }
                 if let gone, !modals.retainsRemovedView(gone) { gone.removeFromSuperview() }
             case .roots:
                 root.subviews.forEach { $0.removeFromSuperview() }
                 for r in op.ids.compactMap({ views[UInt32($0)] }) { root.addSubview(r) }
             case .frame, .content:
+                if kind == .frame { pool.framed(id) }
                 if let node = views[id], !modals.deferGeometry(op, for: node) { applyGeometry(op) }
             case .present:
                 guard let v = views[id] else { continue }
@@ -686,6 +685,24 @@ final class Presenter {
         swipeActions.sync(changed: changed)
         positionContexts()
         syncAccessibility(changed: changed)
+    }
+
+    /// Everything kept for `id` goes, the view out of the map (not out of
+    /// the window): `leaving` forgets it (a destroy) or recycles it (a
+    /// parked row, `NodePool`).
+    @discardableResult
+    func release(_ id: UInt32, _ leaving: (NodeView) -> Void) -> NodeView? {
+        session?.canvases.destroy(view: id)
+        if let view = views[id] { autofocusProcessed.remove(ObjectIdentifier(view)); leaving(view) }
+        listViews.removeValue(forKey: id)
+        textViews.removeValue(forKey: id)
+        scrollPump.forget(id)
+        heightBindings.removeValue(forKey: id)
+        transformBindings.removeValue(forKey: id)
+        transformGeometry.retire(id)
+        chrome.forget(id)
+        scrollers.remove(id); pendingScrolls.remove(id); materialNodes.remove(id); contextNodes.remove(id)
+        return views.removeValue(forKey: id)
     }
 
     /// The views a batch touched and every view above them, as the batch

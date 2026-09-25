@@ -87,7 +87,8 @@ final class ScrollView: UIScrollView {
 }
 
 final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollViewDelegate, UIGestureRecognizerDelegate {
-    let id: UInt32
+    /// The kernel's id; a parked view takes a new row's (`NodePool`).
+    var id: UInt32
     let firstDraw: () -> Void
     let kind: String
     var inlineText: [InlineText] = []
