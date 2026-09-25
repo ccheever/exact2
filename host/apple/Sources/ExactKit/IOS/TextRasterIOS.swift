@@ -5,20 +5,6 @@
 import UIKit
 import CoreText
 
-/// Avoid allocating a UIView-sized backing store for undecorated text. The
-/// positioned ink layer can also show a band of a paragraph taller than a bitmap.
-final class TextNodeLayer: CALayer {
-    override func display() {
-        guard let node = delegate as? NodeView, node.canRasterText, !node.hasTextBoxPaint else {
-            super.display(); return
-        }
-        contents = nil
-        node.presenter?.textRasters.ensure(node, urgent: node.presenter?.textIsVisible(node) == true)
-        if node.textRasterFailed { super.display() }
-        if node.presenter?.views[node.id] === node { node.firstDraw() }
-    }
-}
-
 final class TextRasterizer {
     private final class Work {
         weak var node: NodeView?
@@ -117,12 +103,6 @@ final class TextRasterizer {
 }
 
 extension NodeView {
-    var hasTextBoxPaint: Bool {
-        let uniform = number("border_width")
-        return style["background_color"] != nil || ["top", "right", "bottom", "left"].contains {
-            number("border_width_" + $0, uniform) > 0
-        }
-    }
     var canRasterText: Bool {
         if textRasterFailed && textRasterKey != nil { return false }
         return isParagraph && flowShapes.isEmpty && !Capture.capturing && window != nil
@@ -146,7 +126,10 @@ extension NodeView {
         textRasterReady = true; textRasterFailed = false
         let ink = textRasterLayer ?? CALayer()
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        if ink.superlayer == nil { layer.insertSublayer(ink, at: 0) }
+        // Above the box's border (`applyBoxLayer`), under everything else.
+        if ink.superlayer == nil {
+            if let border = boxBorder { layer.insertSublayer(ink, above: border) } else { layer.insertSublayer(ink, at: 0) }
+        }
         ink.frame = result.frame
         ink.contentsScale = key.scale
         ink.contents = result.image

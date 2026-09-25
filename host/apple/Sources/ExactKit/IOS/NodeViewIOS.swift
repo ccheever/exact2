@@ -92,7 +92,12 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     let kind: String
     var inlineText: [InlineText] = []
     var inlinePressed: UInt32?
-    override class var layerClass: AnyClass { TextNodeLayer.self }
+    override class var layerClass: AnyClass { NodeLayer.self }
+    /// The box is `draw(_:)`'s to paint: Core Animation cannot say it
+    /// (`applyBoxLayer`).
+    var boxDrawn = false
+    /// A uniform border under the children, where they can reach it.
+    var boxBorder: CALayer?
     var textRasterKey: TextRasterKey?
     var textRaster: CGImage?
     var textRasterLayer: CALayer?
@@ -312,7 +317,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var imageSource: String?
     var loadGeneration = 0
     /// The native swipe cell supplies the row surface while this view is mounted in it.
-    var nativeSwipeBody = false
+    var nativeSwipeBody = false { didSet { if nativeSwipeBody != oldValue { setNeedsDisplay() } } }
     var pressed = false
     var disabled: Bool { props["disabled"] == "true" }
     /// HTML inertness covers the subtree, including direct agent activation.
@@ -569,8 +574,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             node.presenter?.requestTextPublication()
             if let presenter = node.presenter, node.superview === presenter.root { presenter.paintCanvas() }
         }
+        // The box's background is the layer's (`applyBoxLayer`), never
+        // UIView's: UIKit would reapply its own on a trait change.
         isOpaque = false
-        backgroundColor = .clear
         // A frame change repaints at the new width instead of stretching
         // stale pixels.
         contentMode = .redraw
@@ -1178,15 +1184,19 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         layoutSymbol()
     }
 
-    /// CSS reduces overlapping corner radii by one common factor.
-    func roundedPath(in rect: CGRect, inset: CGFloat = 0) -> UIBezierPath {
+    /// CSS reduces overlapping corner radii by one common factor: top left,
+    /// top right, bottom right, bottom left.
+    func cornerRadii(in rect: CGRect, inset: CGFloat = 0) -> [CGFloat] {
         let names = ["top_left", "top_right", "bottom_right", "bottom_left"]
-        var r = names.map { max(0, number("border_radius_" + $0) - inset) }
+        let r = names.map { max(0, number("border_radius_" + $0) - inset) }
         let sums = [r[0] + r[1], r[3] + r[2], r[0] + r[3], r[1] + r[2]]
         let edges = [rect.width, rect.width, rect.height, rect.height]
         var factor: CGFloat = 1
         for i in 0..<4 where sums[i] > 0 { factor = min(factor, edges[i] / sums[i]) }
-        r = r.map { $0 * factor }
+        return r.map { $0 * factor }
+    }
+    func roundedPath(in rect: CGRect, inset: CGFloat = 0) -> UIBezierPath {
+        let r = cornerRadii(in: rect, inset: inset)
         let p = UIBezierPath()
         p.move(to: CGPoint(x: rect.minX + r[0], y: rect.minY))
         p.addLine(to: CGPoint(x: rect.maxX - r[1], y: rect.minY))
@@ -1216,34 +1226,37 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if presenter?.views[id] === self { firstDraw() }
         let radius = number("border_radius", number("border_radius_top_left"))
         let path = roundedPath(in: bounds)
-        let bg = nativeSwipeBody ? UIColor.clear : color("background_color", .clear)
-        if bg.cgColor.alpha > 0 {
-            bg.setFill()
-            path.fill()
-        }
-        let borderColor = color("border_color_top", .clear)
         let uniform = number("border_width")
-        let top = number("border_width_top", uniform), right = number("border_width_right", uniform)
-        let bottom = number("border_width_bottom", uniform), left = number("border_width_left", uniform)
-        // A uniform border on a rounded box follows the curve (the web's
-        // rule). Four edge rects would square the corners and show as nubs.
-        if radius > 0, top > 0, top == right, right == bottom, bottom == left {
-            let inset = top / 2
-            let stroke = roundedPath(in: bounds.insetBy(dx: inset, dy: inset), inset: inset)
-            stroke.lineWidth = top
-            stroke.lineJoinStyle = .round
-            borderColor.setStroke()
-            stroke.stroke()
-        } else {
-            let sides: [(String, CGRect)] = [
-                ("border_width_top", CGRect(x: 0, y: 0, width: bounds.width, height: top)),
-                ("border_width_bottom", CGRect(x: 0, y: bounds.height - bottom, width: bounds.width, height: bottom)),
-                ("border_width_left", CGRect(x: 0, y: 0, width: left, height: bounds.height)),
-                ("border_width_right", CGRect(x: bounds.width - right, y: 0, width: right, height: bounds.height)),
-            ]
-            for (key, r) in sides where number(key, uniform) > 0 {
-                ctx.setFillColor(color(key.replacingOccurrences(of: "width", with: "color"), borderColor).cgColor)
-                ctx.fill(r)
+        // A box Core Animation can say is the layer's (`applyBoxLayer`).
+        if boxDrawn {
+            let bg = nativeSwipeBody ? UIColor.clear : color("background_color", .clear)
+            if bg.cgColor.alpha > 0 {
+                bg.setFill()
+                path.fill()
+            }
+            let borderColor = color("border_color_top", .clear)
+            let top = number("border_width_top", uniform), right = number("border_width_right", uniform)
+            let bottom = number("border_width_bottom", uniform), left = number("border_width_left", uniform)
+            // A uniform border on a rounded box follows the curve (the web's
+            // rule). Four edge rects would square the corners and show as nubs.
+            if radius > 0, top > 0, top == right, right == bottom, bottom == left {
+                let inset = top / 2
+                let stroke = roundedPath(in: bounds.insetBy(dx: inset, dy: inset), inset: inset)
+                stroke.lineWidth = top
+                stroke.lineJoinStyle = .round
+                borderColor.setStroke()
+                stroke.stroke()
+            } else {
+                let sides: [(String, CGRect)] = [
+                    ("border_width_top", CGRect(x: 0, y: 0, width: bounds.width, height: top)),
+                    ("border_width_bottom", CGRect(x: 0, y: bounds.height - bottom, width: bounds.width, height: bottom)),
+                    ("border_width_left", CGRect(x: 0, y: 0, width: left, height: bounds.height)),
+                    ("border_width_right", CGRect(x: bounds.width - right, y: 0, width: right, height: bounds.height)),
+                ]
+                for (key, r) in sides where number(key, uniform) > 0 {
+                    ctx.setFillColor(color(key.replacingOccurrences(of: "width", with: "color"), borderColor).cgColor)
+                    ctx.fill(r)
+                }
             }
         }
         if kind == "image", symbolView == nil, let bitmap = raster?.image {
