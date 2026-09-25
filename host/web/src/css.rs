@@ -386,6 +386,13 @@ fn dimension(out: &mut String, d: Dimension) {
             num_into(out, p);
             out.push('%');
         }
+        Dimension::Calc(p, plus) => {
+            out.push_str("calc(");
+            num_into(out, p);
+            out.push_str(if plus < 0.0 { "% - " } else { "% + " });
+            num_into(out, plus.abs());
+            out.push_str("px)");
+        }
         // The browser resolves the inset itself (under `viewport-fit=cover`,
         // which the glue sets from the root's prop; zero otherwise).
         Dimension::Env(edge, plus) => {

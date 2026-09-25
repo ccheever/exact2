@@ -166,6 +166,9 @@ pub struct TaffyTree<NodeContext = ()> {
     changed_layout_indices: SecondaryMap<DefaultKey, usize>,
     layout_inputs: SecondaryMap<DefaultKey, Option<(LayoutInput, LayoutOutput)>>,
 
+    // EXACT PATCH 11: `calc()` handles resolve through a caller-supplied function.
+    calc_resolver: fn(*const (), f32) -> f32,
+
     /// Layout mode configuration
     config: TaffyConfig,
 }
@@ -402,8 +405,8 @@ where
     }
 
     #[inline(always)]
-    fn resolve_calc_value(&self, _val: *const (), _basis: f32) -> f32 {
-        0.0
+    fn resolve_calc_value(&self, val: *const (), basis: f32) -> f32 {
+        (self.taffy.calc_resolver)(val, basis)
     }
 
     #[inline(always)]
@@ -565,7 +568,14 @@ impl<NodeContext> TaffyTree<NodeContext> {
             changed_layouts: Vec::new(),
             changed_layout_indices: SecondaryMap::new(),
             layout_inputs: SecondaryMap::new(),
+            calc_resolver: |_, _| 0.0,
         }
+    }
+
+    /// EXACT PATCH 11: resolve every `calc()` handle (see [`crate::style::Dimension::calc`])
+    /// with `resolver`, given the handle and the percentage basis. Unset, a calc is zero.
+    pub fn set_calc_resolver(&mut self, resolver: fn(*const (), f32) -> f32) {
+        self.calc_resolver = resolver;
     }
 
     /// Enable rounding of layout values. Rounding is enabled by default.

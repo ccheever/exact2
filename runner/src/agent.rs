@@ -393,6 +393,15 @@ fn row_json(v: RowValue<'_>, out: &mut String) {
             let _ = write!(out, "{}", num(p as f64));
         }
         RowValue::Dimension(Dimension::Percent(p)) => quote(&format!("{}%", num(p as f64)), out),
+        RowValue::Dimension(Dimension::Calc(p, plus)) => quote(
+            &format!(
+                "calc({}% {} {}px)",
+                num(p as f64),
+                if plus < 0.0 { "-" } else { "+" },
+                num(plus.abs() as f64)
+            ),
+            out,
+        ),
         RowValue::Dimension(Dimension::Env(edge, offset)) => {
             let edge = match edge {
                 Edge::Top => "top",

@@ -157,6 +157,7 @@ impl BoxPaint {
         let pad = |d: Dimension| match d.resolve(&env) {
             Dimension::Points(p) => p,
             Dimension::Percent(p) => w * p / 100.0,
+            Dimension::Calc(p, x) => w * p / 100.0 + x,
             Dimension::Auto | Dimension::Env(..) => 0.0,
         };
         Self {
@@ -1130,6 +1131,7 @@ pub fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
     let pad = |d: Dimension, against: f32| match d.resolve(&env) {
         Dimension::Points(p) => p,
         Dimension::Percent(p) => against * p / 100.0,
+        Dimension::Calc(p, x) => against * p / 100.0 + x,
         Dimension::Auto | Dimension::Env(..) => 0.0,
     };
     let pad_right = pad(node.style.padding_right, node.frame.width);

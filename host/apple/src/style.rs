@@ -6,7 +6,8 @@
 //! generated `StyleProps::get`: dimensions as numbers in points (an `env()`
 //! length resolved against the kernel's environment — the presenter sees
 //! points, and a change of the insets re-sends the dictionary), `"auto"`, or
-//! `{"pct": n}`; colors as `[r,g,b,a]` bytes; enums as their CSS spelling;
+//! `{"pct": n}` (`{"pct": n, "px": m}` for a `calc()` of both); colors as
+//! `[r,g,b,a]` bytes; enums as their CSS spelling;
 //! `vec2` as `[x,y]`; numbers as numbers. The four motion targets
 //! (`translate`, `scale`, `rotate`, `opacity`) are left out: a presenter
 //! applies their *presentation* values from `present` ops, never the style.
@@ -46,6 +47,9 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
                 Dimension::Auto => "\"auto\"".to_string(),
                 Dimension::Points(p) => num(p),
                 Dimension::Percent(p) => format!("{{\"pct\":{}}}", num(p)),
+                Dimension::Calc(p, x) => {
+                    format!("{{\"pct\":{},\"px\":{}}}", num(p), num(x))
+                }
                 Dimension::Env(..) => unreachable!("resolved"),
             },
             RowValue::Color(c) => format!("[{},{},{},{}]", c.r(), c.g(), c.b(), c.a()),

@@ -55,6 +55,8 @@ fn a_class_applies_its_style_and_the_nodes_own_attribute_wins() {
         tight.background_color,
         Color::parse_hex("#000000").unwrap().into()
     );
+    // A `calc()` of a percentage and a length is one row, not text.
+    assert_eq!(style_of("calc").width, Dimension::Calc(100.0, -89.0));
 }
 
 #[test]

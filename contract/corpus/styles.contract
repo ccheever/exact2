@@ -13,3 +13,4 @@ component Styles
         text "in a card"
       column class=Card padding=4 background-color="#000000" testId="tight"
         text "overridden"
+      column width="calc(100% - 89px)" height=20 testId="calc"

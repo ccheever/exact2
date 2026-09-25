@@ -3,13 +3,13 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9 and 10 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10 and 11 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
-- **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size.
+- **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
   `BlockContext` belongs to block_layout; float_layout is unnecessary and
   disabled. No float row is exposed. Upstream's other newly default features
-  (flexbox_balance, calc, detailed_layout_info) are unnecessary here too.
+  (flexbox_balance, detailed_layout_info) are unnecessary here too.
 - **Replacement plan:** upstream the remaining fixes; remove each divergence
   when a published version provides it. The numbered inventory retains the
   history so a refresh cannot silently lose an Exact correction.
@@ -360,3 +360,27 @@ nine literal-Chrome cases, including the `padding-top: 56.25%` embed idiom,
 which a zero `height` already kept right (only the box's own padding
 counts then). Taffy's 130 unit tests pass on the patched source (a scratch
 copy without the uncached roxmltree dev-dependency, as in M8).
+
+## Patch 11: `TaffyTree` resolves `calc()` through a caller's function
+
+**Implementer:** Claude, 2026-09-24 (the iOS Messages port's
+`calc(100% - 89px)`).
+
+Upstream's `calc` feature stores a `calc()` length as an opaque pointer and
+asks the tree for its value through `LayoutPartialTree::resolve_calc_value`,
+but `TaffyTree`'s own implementation (`src/tree/taffy_tree.rs`, on
+`TaffyView`) is a stub returning `0.0`: only a custom tree can resolve one.
+`TaffyTree` gains a `calc_resolver: fn(*const (), f32) -> f32` field,
+`|_, _| 0.0` by default, a `set_calc_resolver` setter, and `TaffyView`
+forwards to it. Nothing else changes; the `calc` feature is now enabled.
+
+The kernel interns each `(percent, points)` pair (`kernel/src/style.rs`,
+`calc_handle`) and names it by index shifted past the three tag bits, so a
+handle is never null or misaligned, equal pairs compare equal as styles, and
+resolution (`resolve_calc`: `basis × percent / 100 + points`) needs no
+unsafe code. Held by
+`kernel/tests/it/browser_cases.rs::calc_of_a_percentage_and_a_length_resolves_against_the_containing_block`
+(a `calc(100% - 89px)` child of a 400px block is 311px; a calc height, margin
+and padding resolve against their own bases) and the codec's round trip of
+wire kind 7. Upstream would want the same hook or a `TaffyTree` generic over
+a resolver; either removes this patch.

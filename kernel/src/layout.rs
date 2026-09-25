@@ -239,6 +239,7 @@ impl LayoutTree {
         // here loses subpixel edits and snaps Retina views to whole points.
         let mut taffy = TaffyTree::new();
         taffy.disable_rounding();
+        taffy.set_calc_resolver(crate::style::resolve_calc);
         LayoutTree {
             taffy,
             pass: 0,
