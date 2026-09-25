@@ -2,15 +2,44 @@
 // UIKit swipe cells. The kernel owns dimensions; UIKit owns the gesture.
 #if os(iOS)
 import UIKit
+import UIKit.UIGestureRecognizerSubclass
 
+/// A row pays for its UIKit cell only while a swipe can start. At rest the
+/// authored scroll holds the content, as on the web, and a batch walks no
+/// hierarchy. A touch landing on the row projects it into a one-row table
+/// (`touch`, from the row's hit test: before UIKit gathers the touch's
+/// recognizers, so the table's own swipe sees the first pan). Once the touch
+/// has ended, the row is closed and UIKit's animation has settled, the
+/// content goes back and the table goes. VoiceOver and Switch Control read a
+/// row's actions from its cell, so while either runs every row stays projected.
 final class SwipeActionsHost {
     unowned let presenter: Presenter
     private var rows: [UInt32: Row] = [:]
     private var refusals: [UInt32: String] = [:]
-    init(_ presenter: Presenter) { self.presenter = presenter }
+    private var observers: [NSObjectProtocol] = []
+    init(_ presenter: Presenter) {
+        self.presenter = presenter
+        for name in [UIAccessibility.voiceOverStatusDidChangeNotification, UIAccessibility.switchControlStatusDidChangeNotification] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                guard let self else { return }
+                for row in rows.values { if assistive { row.mount() } else { row.settle() } }
+            })
+        }
+    }
+    deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
+    var assistive: Bool { UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning }
 
     // Ordinary batches always see the original hierarchy and local frames.
-    func prepare() { for row in rows.values { row.restore() } }
+    func prepare() { for row in rows.values where row.projected { row.restore() } }
+    /// A touch is landing on `owner`: project its row now, and release it
+    /// again if the touch never reaches the table.
+    func touch(_ owner: NodeView) {
+        guard let row = rows[owner.id], row.owner === owner, !row.projected else { return }
+        row.mount()
+        DispatchQueue.main.async { [weak row] in row?.settle() }
+    }
+    /// The row projected for `owner`, if any (tests and diagnostics).
+    func cell(of owner: NodeView) -> UITableViewCell? { rows[owner.id]?.projection }
     func reset() {
         for row in rows.values { row.remove() }
         rows.removeAll(); refusals.removeAll()
@@ -49,7 +78,7 @@ final class SwipeActionsHost {
             rows[owner.id] = row
             row.leading = Array(controls.prefix(leadingNames.count))
             row.trailing = Array(controls.dropFirst(leadingNames.count))
-            row.mount()
+            if row.projected || assistive { row.mount() }
             wanted.insert(owner.id)
         }
         for id in Array(rows.keys) where !wanted.contains(id) { rows.removeValue(forKey: id)?.remove() }
@@ -77,6 +106,27 @@ final class SwipeActionsHost {
         }
     }
 
+    /// Recognizes nothing and prevents nothing: sees a projected row's
+    /// touches begin, and the sequence end (UIKit resets it then).
+    private final class TouchWatch: UIGestureRecognizer, UIGestureRecognizerDelegate {
+        var began: () -> Void = {}
+        var ended: () -> Void = {}
+        init() {
+            super.init(target: nil, action: nil)
+            cancelsTouchesInView = false; delaysTouchesEnded = false; delegate = self
+        }
+        override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) { began() }
+        override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) { finish(event) }
+        override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) { finish(event) }
+        private func finish(_ event: UIEvent) {
+            if event.allTouches?.allSatisfy({ $0.phase == .ended || $0.phase == .cancelled }) ?? true { state = .failed }
+        }
+        override func reset() { super.reset(); ended() }
+        override func canPrevent(_ other: UIGestureRecognizer) -> Bool { false }
+        override func canBePrevented(by other: UIGestureRecognizer) -> Bool { false }
+        func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+    }
+
     private final class Row: NSObject, UITableViewDataSource, UITableViewDelegate {
         unowned let host: SwipeActionsHost
         let owner: NodeView
@@ -92,13 +142,24 @@ final class SwipeActionsHost {
         private var scrollWasHidden = false
         private var logicalFrame = CGRect.zero
         private var priorSize = CGSize.zero
-        private let table = UITableView(frame: .zero, style: .plain)
-        private let cell = Cell(style: .default, reuseIdentifier: nil)
+        /// The projection, only while a swipe can start or is shown.
+        private var table: UITableView?
+        private var cell: Cell?
+        private var touching = false
+        /// UIKit is presenting this row's actions (between its begin and end editing).
+        private var open = false
         private var images: [UInt32: UIImage] = [:]
+        var projected: Bool { table != nil }
+        var projection: UITableViewCell? { cell }
 
         init(owner: NodeView, body: NodeView, host: SwipeActionsHost) {
             self.owner = owner; self.body = body; self.host = host
             super.init()
+        }
+        private func project() -> (UITableView, Cell) {
+            if let table, let cell { return (table, cell) }
+            let table = UITableView(frame: owner.bounds, style: .plain)
+            let cell = Cell(style: .default, reuseIdentifier: nil)
             table.dataSource = self; table.delegate = self
             // Only the outer authored scroll container scrolls vertically.
             table.isScrollEnabled = false
@@ -106,17 +167,46 @@ final class SwipeActionsHost {
             table.separatorStyle = .none; table.backgroundColor = .clear
             table.estimatedRowHeight = 0; table.sectionHeaderTopPadding = 0
             table.allowsSelection = false
-            cell.backgroundConfiguration = .listPlainCell()
+            // The row paints itself (its own background, its corners); the
+            // cell is only where UIKit's swipe happens.
+            cell.backgroundConfiguration = .clear()
+            let watch = TouchWatch()
+            watch.began = { [weak self] in self?.touching = true }
+            watch.ended = { [weak self] in
+                guard let self, touching else { return }
+                touching = false
+                DispatchQueue.main.async { [weak self] in self?.settle() }
+            }
+            table.addGestureRecognizer(watch)
+            self.table = table; self.cell = cell
+            return (table, cell)
         }
         func restore() {
             if let parent = logicalParent, let carrier { parent.addSubview(carrier); carrier.frame = logicalFrame }
             for (control, hidden) in hiddenControls { control.isHidden = hidden }
             hiddenControls.removeAll()
             owner.scroll?.isHidden = scrollWasHidden
-            body.nativeSwipeBody = false
         }
         func remove() {
-            restore(); table.setEditing(false, animated: false); table.removeFromSuperview()
+            guard let table else { return }
+            restore(); carrier = nil; logicalParent = nil
+            table.setEditing(false, animated: false); table.removeFromSuperview()
+            self.table = nil; cell = nil; images.removeAll(); touching = false; open = false
+        }
+        /// Release the projection once nothing can be swiping: no touch, the
+        /// row closed, and UIKit's close animation finished.
+        func settle() {
+            guard let table, !touching, !open, !host.assistive else { return }
+            func moving(_ layer: CALayer) -> Bool {
+                // Authored content may animate for ever; only UIKit's own layers count.
+                if layer === carrier?.layer { return false }
+                return !(layer.animationKeys() ?? []).isEmpty || (layer.sublayers ?? []).contains(where: moving)
+            }
+            if moving(table.layer) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in self?.settle() }
+                return
+            }
+            remove()
         }
         func mount() {
             guard let scroll = owner.scroll else { return }
@@ -132,19 +222,21 @@ final class SwipeActionsHost {
             scrollWasHidden = scroll.isHidden
             carrier = content; logicalParent = scroll; logicalFrame = content.frame
             let origin = body.convert(CGPoint.zero, to: content)
+            let (table, cell) = project()
             if table.superview !== owner { owner.addSubview(table) }
             owner.scroll?.isHidden = true
             if priorSize != owner.bounds.size || host.presenter.navigation.isInactiveRoute(containing: owner) {
                 table.setEditing(false, animated: false)
             }
             priorSize = owner.bounds.size
-            table.frame = owner.bounds; table.rowHeight = body.bounds.height
+            table.frame = owner.bounds
+            // The cell follows the row: UIKit keeps a row's height until it reloads.
+            if table.rowHeight != body.bounds.height { table.rowHeight = body.bounds.height; table.reloadData() }
             if content.superview !== cell.contentView { cell.contentView.addSubview(content) }
             // Keep the original ancestors between content and the row. Their
             // opacity, clips, inherited semantics and input restrictions apply.
             content.frame = CGRect(origin: CGPoint(x: -origin.x, y: -origin.y), size: logicalFrame.size)
             for control in leading + trailing { hiddenControls.append((control, control.isHidden)); control.isHidden = true }
-            body.nativeSwipeBody = true; body.setNeedsDisplay()
             // UIKit derives its cell label from native text controls; an
             // authored button paints its own text. Preserve that button's
             // explicit name and activation at the native presentation boundary.
@@ -164,11 +256,16 @@ final class SwipeActionsHost {
             table.layoutIfNeeded()
         }
         func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { 1 }
-        func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell { cell }
+        func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell { cell ?? UITableViewCell() }
         func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat { body.bounds.height }
         func tableView(_ tableView: UITableView, willBeginEditingRowAt indexPath: IndexPath) {
-            for other in host.rows.values where other !== self { other.table.setEditing(false, animated: true) }
+            open = true
+            for other in host.rows.values where other !== self { other.table?.setEditing(false, animated: true) }
             DispatchQueue.main.async { [weak self] in self?.nameActions() }
+        }
+        func tableView(_ tableView: UITableView, didEndEditingRowAt indexPath: IndexPath?) {
+            open = false
+            DispatchQueue.main.async { [weak self] in self?.settle() }
         }
         func tableView(_ tableView: UITableView, leadingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? { configuration(leading) }
         func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? { configuration(trailing) }
@@ -231,7 +328,7 @@ final class SwipeActionsHost {
             }
         }
         func actionView(_ id: UInt32, visibleOnly: Bool = true) -> UIButton? {
-            guard let target = (leading + trailing).first(where: { $0.id == id }) else { return nil }
+            guard let table, let target = (leading + trailing).first(where: { $0.id == id }) else { return nil }
             var matches: [UIButton] = []
             func hasImage(_ view: UIView) -> Bool {
                 if let actual = (view as? UIImageView)?.image, let expected = images[id], actual === expected || actual.isEqual(expected) { return true }

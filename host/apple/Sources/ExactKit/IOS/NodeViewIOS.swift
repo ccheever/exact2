@@ -316,8 +316,6 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var raster: NativeRasterLease?
     var imageSource: String?
     var loadGeneration = 0
-    /// The native swipe cell supplies the row surface while this view is mounted in it.
-    var nativeSwipeBody = false { didSet { if nativeSwipeBody != oldValue { setNeedsDisplay() } } }
     var pressed = false
     var disabled: Bool { props["disabled"] == "true" }
     /// HTML inertness covers the subtree, including direct agent activation.
@@ -776,6 +774,11 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if let clipPath, !clipPath.contains(point) { return nil }
         if props["swipeIndicator"] == "true" { return nil }
         if isSurfaceControl, !inert, !isHidden, isUserInteractionEnabled, bounds.contains(point) { return self }
+        // A touch landing on a native swipe row: its cell mounts now, before
+        // UIKit gathers the touch's recognizers, so the cell's swipe sees it.
+        if event?.type == .touches, props["swipeContent"] != nil, !isHidden, isUserInteractionEnabled, bounds.contains(point) {
+            presenter?.swipeActions.touch(self)
+        }
         // UIKit's default rejects a view when alpha is near zero. CSS opacity
         // changes painting, not hit participation, so walk the ordinary
         // subtree ourselves without consulting alpha.
@@ -1229,7 +1232,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         let uniform = number("border_width")
         // A box Core Animation can say is the layer's (`applyBoxLayer`).
         if boxDrawn {
-            let bg = nativeSwipeBody ? UIColor.clear : color("background_color", .clear)
+            let bg = color("background_color", .clear)
             if bg.cgColor.alpha > 0 {
                 bg.setFill()
                 path.fill()

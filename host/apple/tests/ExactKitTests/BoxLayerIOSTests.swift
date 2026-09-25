@@ -62,15 +62,5 @@ final class BoxLayerIOSTests: XCTestCase {
         XCTAssertNotNil(corners.layer.contents, "two radii draw")
         XCTAssertEqual(corners.layer.cornerRadius, 0)
     }
-
-    func testTheSwipeBodyLetsTheCellPaint() {
-        let row = node(["background_color": white, "border_radius_top_left": 24, "border_radius_top_right": 24])
-        row.nativeSwipeBody = true
-        row.layer.displayIfNeeded()
-        XCTAssertNil(row.layer.backgroundColor)
-        row.nativeSwipeBody = false
-        row.layer.displayIfNeeded()
-        XCTAssertEqual(row.layer.backgroundColor?.alpha, 1)
-    }
 }
 #endif
