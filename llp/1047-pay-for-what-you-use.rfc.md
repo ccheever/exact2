@@ -709,6 +709,40 @@ engine's code stayed linked all the same, because every commit named it.
   What remains is the arena's engine-id column: `NodeArena::taffy`, and
   three `Vec` instantiations over `taffy::NodeId`, 140 bytes in all.
 
+**§6, 2026-09-24: generic code.** Generic families in RealWorld at
+`e9a38626`, and what removing each whole would save:
+
+| Family | Raw | Brotli-11 |
+|---|---|---|
+| Hash tables | 20.3 KB | 5.1 KB |
+| Drop glue | 20.1 KB | 5.1 KB |
+| Collect scaffolding (`from_iter`, `extend`, `fold`) | 36.9 KB | 7.3 KB |
+| B-trees (mostly the list engine's) | 54.9 KB | 12.1 KB |
+
+- **Outlined generic code compresses well.** With `-Zshare-generics=no`
+  (measured only; it is nightly), LLVM inlines the collect scaffolding:
+  RealWorld is 45.9 KB smaller raw but 3.6 KB larger in brotli. So
+  iterator chains are not rewritten as loops.
+- **SipHash is gone.** Four maps keyed by internal identities
+  hash with the kernel's `IdHasher`, and Markdown's code-span index is a
+  vector by run length. On the web, `RandomState`'s keys come from fixed
+  addresses, so it defended nothing there.
+- **`json::object`** was one copy per array length; it now has one body.
+- **The settlement pass** no longer clones its effect enum per row.
+- **A compact id map was tried and dropped.** It kept dense entries and one
+  index over their ids, code shared by every key and value type. It would
+  have saved about 2.5–2.9 KB brotli per app (RealWorld 266,870 → 264,020),
+  and it matched std in a differential test of 3M random operations. But
+  the transaction's per-commit sets start empty and grow on every commit,
+  and that growth rewrote the index. On a native churn bench (500 commits,
+  each creating 20 rows, moving 220 and destroying 20) it cost 55–70% more
+  cycles for 1% more instructions. hashbrown stays; presizing those sets is
+  in `QUEUE.md`.
+- **Bytes at `e9a38626`, raw and brotli-11:**
+  - RealWorld: 898,973 → 890,987 raw; 275,704 → 273,574 brotli.
+  - Video player: 685,217 → 682,458 raw; 216,724 → 215,435 brotli.
+  - Caltrain: 866,208 → 863,431 raw; 267,479 → 266,532 brotli.
+
 **Deferred: the collections seam.** It waits for the
 `llp-ship/20260923-review-followups` run to publish. That run retires the
 windowed list (`window.rs`, `heights.rs`) and rewrites
@@ -859,7 +893,12 @@ apps and the raw bytes):
 | `c35f78f7` | six small hash tables | −1,321 |
 | web: the browser's kernel links no text measurer | the monospace measurer | −462 |
 | num: one float printer everywhere | core's Grisu, Dragon and bignum | −6,365 |
+| plan: a decoded plan's rows read through a sticky reader | `Plan::decode`'s per-field error copies (18.2 → 8.7 KB raw) | −535 |
+| kernel: generated style code converts once per codec, names by one table | two masked copies, per-row conversions, 26 string matches | −1,101 |
 
-The last one needed list-engine lines, approved for exactly those:
+The float printer needed list-engine lines, approved for exactly those:
 `window.rs`'s four `f64::clamp` calls (std's assertion message prints the
-bounds as floats) and two printers in `collection/`.
+bounds as floats) and two printers in `collection/`. `Plan::encode` (3 KB)
+is reached only from inspection's plan digest (`Runner::inspection_digest`
+through `agent::handle`), so it is already linked by use: an artifact
+without inspection drops it.

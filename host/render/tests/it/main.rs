@@ -248,27 +248,40 @@ fn a_fetch_runs_through_the_native_executor() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let port = listener.local_addr().unwrap().port();
-    let server = std::thread::spawn(move || {
+    // The test's server: every wait bounded, and a failure says what it
+    // waited for (a blocking accept once held a test run for hours).
+    let server = std::thread::spawn(move || -> Result<String, String> {
         let until = Instant::now() + bound;
         let (mut stream, _) = loop {
             match listener.accept() {
                 Ok(connection) => break connection,
-                Err(error)
-                    if error.kind() == std::io::ErrorKind::WouldBlock && Instant::now() < until =>
-                {
-                    std::thread::sleep(Duration::from_millis(1))
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    if Instant::now() >= until {
+                        return Err(format!(
+                            "the render never connected to the test server in {bound:?}"
+                        ));
+                    }
+                    std::thread::sleep(Duration::from_millis(1));
                 }
-                Err(error) => panic!("the renderer made no request: {error}"),
+                Err(error) => return Err(format!("the test server's accept failed: {error}")),
             }
         };
         // An accepted socket inherits the listener's non-blocking mode on
-        // macOS: the read below waits for the request, up to its timeout.
-        stream.set_nonblocking(false).unwrap();
+        // macOS: the read below waits for the request, up to its bound.
+        let failed = |what: &'static str| move |error: std::io::Error| format!("{what}: {error}");
         stream
-            .set_read_timeout(Some(Duration::from_secs(5)))
-            .unwrap();
+            .set_nonblocking(false)
+            .map_err(failed("blocking mode"))?;
+        stream
+            .set_read_timeout(Some(bound))
+            .map_err(failed("read timeout"))?;
+        stream
+            .set_write_timeout(Some(bound))
+            .map_err(failed("write timeout"))?;
         let mut request = [0u8; 4096];
-        let n = stream.read(&mut request).unwrap();
+        let n = stream
+            .read(&mut request)
+            .map_err(failed("the render's request never arrived"))?;
         let line = String::from_utf8_lossy(&request[..n])
             .lines()
             .next()
@@ -280,11 +293,12 @@ fn a_fetch_runs_through_the_native_executor() {
             "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
             body.len()
         )
-        .unwrap();
-        line
+        .map_err(failed("the answer couldn't be sent"))?;
+        Ok(line)
     });
     let r = at(Post::Local(port), bound);
-    assert_eq!(server.join().unwrap(), "GET /post/7 HTTP/1.1");
+    let request = server.join().expect("the test server panicked");
+    assert_eq!(request.as_deref(), Ok("GET /post/7 HTTP/1.1"));
     assert_eq!(r.settled, Settled::Complete);
     assert!(
         r.document.root.contains(">From the server<"),

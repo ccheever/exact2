@@ -157,7 +157,7 @@ pub struct Ids {
     next: ViewId,
     /// Every instance node's view and site, destroyed ones included until
     /// [`Ids::retain`] drops them.
-    sites: std::collections::HashMap<ViewId, NodesId>,
+    sites: exact_kernel::id::IdMap<ViewId, NodesId>,
 }
 
 impl Ids {

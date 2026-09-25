@@ -624,35 +624,39 @@ fn main() {
         w,
         "        let n = r.count()?; let data = r.bytes(n)?.to_vec();"
     );
+    // The rows read through a sticky reader: no branch per field, and the
+    // first failing read's error, as an early return would give it.
+    let _ = writeln!(w, "        let mut s = crate::bytes::Sticky::new(r);");
     for t in &schema.tables {
         let p = pascal(&t.name);
         let _ = writeln!(
             w,
-            "        let n = r.count()?; let mut {} = Vec::with_capacity(n.min(crate::bytes::RESERVE)); for _ in 0..n {{",
+            "        let n = s.count(); let mut {} = Vec::with_capacity(n.min(crate::bytes::RESERVE)); for _ in 0..n {{ if s.failed() {{ break; }}",
             t.name
         );
         let _ = writeln!(w, "            {} .push({p}Row {{", t.name);
         for f in &t.fields {
             let expr = match parse_codec(&f.codec) {
-                Codec::U8 => "r.u8()?".to_string(),
-                Codec::U16 => "r.u16()?".to_string(),
-                Codec::U32 => "r.u32()?".to_string(),
-                Codec::I32 => "r.i32()?".to_string(),
-                Codec::F64 => "r.f64()?".to_string(),
-                Codec::Bool => "r.u8()? != 0".to_string(),
-                Codec::Str => "StrId(r.u32()?)".to_string(),
-                Codec::Enum(e) => format!("{{ let v = r.u8()?; {e}::from_wire(v).ok_or(PlanError::UnknownEnum {{ table: \"{}\", field: \"{}\", value: v }})? }}", t.name, f.name),
-                Codec::Idx(tt) => format!("{}Id(r.u32()?)", pascal(&tt)),
-                Codec::Opt(tt) => format!("{{ let v = r.u32()?; if v == u32::MAX {{ None }} else {{ Some({}Id(v)) }} }}", pascal(&tt)),
-                Codec::Range(tt) => format!("{}Range {{ start: r.u32()?, len: r.u32()? }}", pascal(&tt)),
-                Codec::Code => "Code { offset: r.u32()?, len: r.u32()? }".to_string(),
-                Codec::Bytes => "Bytes { offset: r.u32()?, len: r.u32()? }".to_string(),
+                Codec::U8 => "s.u8()".to_string(),
+                Codec::U16 => "s.u16()".to_string(),
+                Codec::U32 => "s.u32()".to_string(),
+                Codec::I32 => "s.i32()".to_string(),
+                Codec::F64 => "s.f64()".to_string(),
+                Codec::Bool => "s.u8() != 0".to_string(),
+                Codec::Str => "StrId(s.u32())".to_string(),
+                Codec::Enum(e) => format!("{{ let v = s.u8(); match {e}::from_wire(v) {{ Some(e) => e, None => s.fail(PlanError::UnknownEnum {{ table: \"{}\", field: \"{}\", value: v }}, {e}::ALL[0]) }} }}", t.name, f.name),
+                Codec::Idx(tt) => format!("{}Id(s.u32())", pascal(&tt)),
+                Codec::Opt(tt) => format!("{{ let v = s.u32(); if v == u32::MAX {{ None }} else {{ Some({}Id(v)) }} }}", pascal(&tt)),
+                Codec::Range(tt) => format!("{}Range {{ start: s.u32(), len: s.u32() }}", pascal(&tt)),
+                Codec::Code => "Code { offset: s.u32(), len: s.u32() }".to_string(),
+                Codec::Bytes => "Bytes { offset: s.u32(), len: s.u32() }".to_string(),
             };
             let _ = writeln!(w, "                {}: {expr},", f.name);
         }
         let _ = writeln!(w, "            }});");
         let _ = writeln!(w, "        }}");
     }
+    let _ = writeln!(w, "        let r = s.finish()?;");
     let _ = writeln!(
         w,
         "        if !r.is_empty() {{ return Err(PlanError::TrailingBytes(r.remaining())); }}"

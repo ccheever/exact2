@@ -336,7 +336,7 @@ impl<D: DataSource> Host<D> {
         let a = self.reorder_drags.active.as_ref().unwrap();
         let frame = self.runner.reorder_frame(a.token);
         let wrappers = frame.as_ref().map_or(&[][..], |f| f.wrappers.as_slice());
-        let sampled: std::collections::HashSet<_> = i.rows.iter().map(|s| s.key).collect();
+        let sampled: exact_kernel::id::IdSet<_> = i.rows.iter().map(|s| s.key).collect();
         if i.rows.len() != wrappers.len() || wrappers.iter().any(|w| !sampled.contains(&w.wrapper))
         {
             return Err("incomplete reorder capture");
@@ -451,7 +451,7 @@ impl<D: DataSource> Host<D> {
             })
             .map(|(k, t)| (*k, *t))
             .collect();
-        let sampled: std::collections::HashMap<_, _> =
+        let sampled: exact_kernel::id::IdMap<_, _> =
             i.rows.iter().map(|s| (s.key, s.serial)).collect();
         if i.rows.len() != survivors.len()
             || survivors

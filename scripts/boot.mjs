@@ -190,7 +190,7 @@ function run() {
   // The capture script: its bytes as pages carry them, pinned by hash, capped,
   // a classic script that imports nothing. A built document, when this
   // checkout has one, may run it and nothing else inline.
-  const capture = { bytes: 0, sha256: '', checked: null, found: 0 };
+  const capture = { bytes: 0, sha256: '', checked: null, found: 0, stale: false };
   try {
     const text = readFileSync(resolve(root, CAPTURE.path), 'utf8').trimEnd();
     capture.bytes = Buffer.byteLength(text);
@@ -206,10 +206,13 @@ function run() {
     const tags = scriptTags(page, problems);
     if (tags.some((attrs) => attrs.get('type') === 'application/vnd.exact.checkpoint')) {
       capture.checked = 'host/web/dist/index.html';
+      // The composer writes one inline script, the capture script; a build
+      // from before its current bytes carries an older one, which only a
+      // rebuild updates. More than one is never the composer's.
       const run = tags.filter((attrs) => !attrs.has('src') && attrs.get('type') !== 'application/vnd.exact.checkpoint');
-      const pinned = run.filter((attrs) => createHash('sha256').update(attrs.text).digest('hex') === CAPTURE.sha256);
-      capture.found = pinned.length;
-      if (run.length !== pinned.length || pinned.length > 1) problems.push(`${capture.checked}: ${run.length - pinned.length} inline <script> block(s) besides the capture script`);
+      capture.found = run.filter((attrs) => createHash('sha256').update(attrs.text).digest('hex') === CAPTURE.sha256).length;
+      capture.stale = run.length === 1 && !capture.found;
+      if (run.length > 1) problems.push(`${capture.checked}: ${run.length - 1} inline <script> block(s) besides the capture script`);
     }
   }
   const wasm = (html.match(/\.wasm/g) ?? []).length + [...sources.values()].reduce((n, source) => n + (source.match(/\.wasm/g) ?? []).length, 0);
@@ -220,13 +223,15 @@ function run() {
   const report = { modules: seen.size, javascript_bytes: modules.reduce((n, m) => n + m.bytes, 0),
     html_bytes: Buffer.byteLength(html), files: modules, wasm_references: wasm,
     document_entry: { modules: 1, javascript_bytes: documentBytes },
-    capture_script: { inline: 1, bytes: capture.bytes, max_bytes: CAPTURE.maxBytes, sha256: capture.sha256, checked: capture.checked, found: capture.found }, problems };
+    capture_script: { inline: 1, bytes: capture.bytes, max_bytes: CAPTURE.maxBytes, sha256: capture.sha256, checked: capture.checked, found: capture.found, stale: capture.stale }, problems };
   if (process.argv.includes('--json')) console.log(JSON.stringify(report));
   else {
     console.log(`boot — modules reachable before first pixel: ${seen.size} (${[...seen].map((file) => file.slice(root.length + 1)).join(', ') || 'none'}); wasm references: ${wasm}`);
     console.log(`  reachable JavaScript: ${report.javascript_bytes} B; page: ${report.html_bytes} B (diagnostic sizes, no byte budget)`);
     console.log(`  interaction document: 1 host module (${documentBytes} B), no imports`);
-    console.log(`  served documents: 1 inline host script, ${CAPTURE.path} (${capture.bytes} B of ${CAPTURE.maxBytes}; sha256 ${capture.sha256}, pinned)${capture.checked ? `; ${capture.checked} runs ${capture.found ? 'it and no other' : 'no'} inline script` : ''}`);
+    const built = !capture.checked ? '' : capture.found ? `; ${capture.checked} runs it and no other`
+      : capture.stale ? `; ${capture.checked} was built before its current bytes (rebuild to check it)` : `; ${capture.checked} runs no inline script`;
+    console.log(`  served documents: 1 inline host script, ${CAPTURE.path} (${capture.bytes} B of ${CAPTURE.maxBytes}; sha256 ${capture.sha256}, pinned)${built}`);
     for (const m of modules) console.log(`  ${m.path}: ${m.bytes} B; sha256 ${m.sha256}`);
     for (const problem of problems) console.log('  ' + problem);
     console.log(problems.length ? `${problems.length} violation(s).` : 'Allowed import paths only. This does not prove generic content, constant startup work, or absence of runtime-loaded code; metrics measures built artifacts and browser work.');

@@ -103,6 +103,88 @@ impl<'a> Reader<'a> {
     }
 }
 
+/// A reader that keeps its first error. Every read after it gives zero and
+/// reads nothing, so a decoder reads whole rows with no branch per field,
+/// then [`Sticky::finish`] returns the error the first failing read (or
+/// [`Sticky::fail`]) would have returned at once.
+#[derive(Debug)]
+pub struct Sticky<'a> {
+    r: Reader<'a>,
+    error: Option<PlanError>,
+}
+
+impl<'a> Sticky<'a> {
+    /// Continue from `r`.
+    pub fn new(r: Reader<'a>) -> Self {
+        Sticky { r, error: None }
+    }
+
+    /// Whether a read has failed.
+    pub fn failed(&self) -> bool {
+        self.error.is_some()
+    }
+
+    /// Record `error` unless one came first, and go on with `placeholder`.
+    pub fn fail<T>(&mut self, error: PlanError, placeholder: T) -> T {
+        self.error.get_or_insert(error);
+        placeholder
+    }
+
+    fn read<T: Default>(
+        &mut self,
+        read: impl FnOnce(&mut Reader<'a>) -> Result<T, PlanError>,
+    ) -> T {
+        if self.error.is_some() {
+            return T::default();
+        }
+        read(&mut self.r).unwrap_or_else(|error| self.fail(error, T::default()))
+    }
+
+    /// [`Reader::count`]; zero after a failure.
+    #[inline(never)]
+    pub fn count(&mut self) -> usize {
+        self.read(Reader::count)
+    }
+
+    /// [`Reader::u8`].
+    #[inline(never)]
+    pub fn u8(&mut self) -> u8 {
+        self.read(Reader::u8)
+    }
+
+    /// [`Reader::u16`].
+    #[inline(never)]
+    pub fn u16(&mut self) -> u16 {
+        self.read(Reader::u16)
+    }
+
+    /// [`Reader::u32`].
+    #[inline(never)]
+    pub fn u32(&mut self) -> u32 {
+        self.read(Reader::u32)
+    }
+
+    /// [`Reader::i32`].
+    #[inline(never)]
+    pub fn i32(&mut self) -> i32 {
+        self.read(Reader::i32)
+    }
+
+    /// [`Reader::f64`].
+    #[inline(never)]
+    pub fn f64(&mut self) -> f64 {
+        self.read(Reader::f64)
+    }
+
+    /// The reader, or the first error.
+    pub fn finish(self) -> Result<Reader<'a>, PlanError> {
+        match self.error {
+            Some(error) => Err(error),
+            None => Ok(self.r),
+        }
+    }
+}
+
 /// A growable little-endian byte buffer.
 #[derive(Debug, Default, Clone)]
 pub struct Writer {
