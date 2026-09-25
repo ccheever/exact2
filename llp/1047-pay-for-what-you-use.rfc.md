@@ -932,9 +932,10 @@ React's time within the spread: under it in two batches, over it in one.
 **Where the goal stands, 2026-09-25 (the coordinator).**
 - **The goal's measure** (the python tag at `load`, tap to feed) is React's
   time within the spread. Over round 8's three batches: exact2 208, 225
-  and 215 ms against React's 213, 205 and 220, a mean of 216 against 213,
-  inside the ±15–20 ms that batches move. The feed shows about 400 ms before
-  React's: 952–982 ms against 1,350–1,407.
+  and 215 ms against React's 213, 205 and 220. Pooled, 27 runs each: a
+  median of 215 against 214 (means 216.3 and 212.8); Mann–Whitney p = 0.17,
+  and a bootstrapped median difference of +1 ms (95% CI −4 to +12). The
+  feed shows about 400 ms before React's: 952–982 ms against 1,350–1,407.
 - **It got there through the document, not the artifact.**
   - A tap before the runtime is up is a link to a rendered page, as React's
     tag is a link to a route (LLP 1048.000 D6, D8).
