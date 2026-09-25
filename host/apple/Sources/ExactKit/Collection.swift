@@ -251,7 +251,13 @@ final class CollectionHost {
         if motion != nil, covers(view) {
             fillPending.insert(view)
             requestFill?()
-        } else { flush() }
+        } else {
+            // What shows is owed by estimated heights; two more rows cover
+            // a port the estimates overstate (a jump into unmeasured rows).
+            if motion != nil { sliceLimits[view] = 2 }
+            flush()
+            sliceLimits[view] = nil
+        }
     }
     /// One slice of fill for `view`: a report that may build `limit` rows
     /// past what it owes, and its measurement pass. The slice is its own

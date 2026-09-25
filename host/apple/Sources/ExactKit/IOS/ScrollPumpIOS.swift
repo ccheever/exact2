@@ -56,6 +56,11 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         let top = scroll.contentOffset.y
         var t = travel[node.id] ?? Travel(top: top, time: now)
         let delta = top - t.top, elapsed = now - t.time
+        // A step longer than the port is a jump, not travel: nothing to lead.
+        if abs(delta) > scroll.bounds.height {
+            travel[node.id] = Travel(top: top, time: now)
+            return
+        }
         if delta != 0, elapsed > 0 {
             let speed = Double(delta) / max(elapsed, refreshInterval / 2)
             t.velocity = elapsed > 0.15 || speed * t.velocity <= 0 ? speed : t.velocity * 0.5 + speed * 0.5
