@@ -22,7 +22,7 @@
 // the derived defaults it had before the manifest existed.
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
+import { basename, delimiter, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 
 import { createHash } from 'node:crypto';
@@ -318,9 +318,25 @@ export function validate(value, node, at, root) {
   return problems;
 }
 
-/** Developer entrypoints explicitly bake unsigned-update permission. Direct Cargo/contract bakes default to production; release callers can select it here too. */
+// rust-toolchain.toml pins the toolchain; an ambient RUSTUP_TOOLCHAIN (`mise exec`
+// exports `stable`) would override it with one that lacks the wasm target, and
+// Cargo's error names neither. Partial fixture copies carry no toolchain file.
+const PINNED_RUST = existsSync(resolve(ROOT, 'rust-toolchain.toml'))
+  ? /^channel\s*=\s*"([^"]+)"/m.exec(readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8'))?.[1] : null;
+let ignoredToolchain = null;
+
+/** Developer entrypoints explicitly bake unsigned-update permission. Direct Cargo/contract bakes default to production; release callers can select it here too.
+ * The Rust build scripts spawn `bun`: the one that ran this script's version check leads the child's PATH. */
 export function developmentBuildEnv() {
-  return { ...process.env, EXACT_UPDATE_TRUST: process.env.EXACT_UPDATE_TRUST ?? 'development' };
+  const env = { ...process.env, EXACT_UPDATE_TRUST: process.env.EXACT_UPDATE_TRUST ?? 'development' };
+  const toolchain = env.RUSTUP_TOOLCHAIN;
+  if (toolchain && PINNED_RUST && toolchain !== PINNED_RUST && !toolchain.startsWith(`${PINNED_RUST}-`)) {
+    if (ignoredToolchain !== toolchain) process.stderr.write(`ignoring RUSTUP_TOOLCHAIN=${toolchain}: rust-toolchain.toml pins ${PINNED_RUST}\n`);
+    ignoredToolchain = toolchain;
+    delete env.RUSTUP_TOOLCHAIN;
+  }
+  if (process.versions.bun) env.PATH = [dirname(process.execPath), ...(env.PATH ?? '').split(delimiter).filter(Boolean)].join(delimiter);
+  return env;
 }
 
 /** Rust replacement capability baked into this platform/environment, independent
