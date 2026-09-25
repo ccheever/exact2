@@ -18,7 +18,7 @@ use crate::{page, render, Rendered};
 use exact_plan::{Plan, RenderPolicy};
 use exact_runner::DataSource;
 use exact_web::document::{canonical_location, route_at, Site};
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::fmt::Write as _;
 use std::io::{Read, Seek, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -91,6 +91,33 @@ struct CachedPage {
     /// Its bodies at the best compression, made by a thread of their own;
     /// until then a hit is compressed as it is sent, as a render is.
     best: Arc<OnceLock<encode::Best>>,
+    /// The SHA-256 of its body, in base64: the name a browser gives it when
+    /// it holds the page as a dictionary.
+    hash: String,
+    /// Its body against each dictionary a browser named, by that dictionary's
+    /// hash: made once, when first asked for (none when it didn't shrink).
+    pairs: HashMap<String, Option<Vec<u8>>>,
+}
+
+impl CachedPage {
+    #[cfg(test)]
+    fn with_body(mut self, len: usize) -> CachedPage {
+        self.response.body = vec![0; len];
+        self
+    }
+
+    /// What it holds, as the cache's budget counts it: its body and every
+    /// variant made of it.
+    fn bytes(&self) -> usize {
+        self.response.body.len()
+            + self.best.get().map_or(0, encode::Best::bytes)
+            + self.pairs.values().flatten().map(Vec::len).sum::<usize>()
+    }
+}
+
+/// Whether `incoming` more bytes would take the pages past the budget.
+fn over(pages: &VecDeque<CachedPage>, incoming: usize) -> bool {
+    pages.iter().map(CachedPage::bytes).sum::<usize>() + incoming > MAX_CACHE_BYTES
 }
 
 impl Server {
@@ -227,6 +254,9 @@ struct Request {
     /// A CDN forwarded it (RFC 8586's `CDN-Loop`): its response carries the
     /// surrogate keys.
     cdn: bool,
+    /// The SHA-256 (base64) of the dictionary the browser holds for this URL
+    /// (`Available-Dictionary`), which a kept page may be compressed against.
+    dictionary: Option<String>,
 }
 
 #[derive(Clone)]
@@ -378,7 +408,7 @@ fn finish(mut response: Response, request: &Request) -> Response {
     }
     response.headers.push(("Vary", "Accept-Encoding".into()));
     if let Some((encoding, body)) = encode::now(&response.body, request.accepts) {
-        encoded(&mut response, encoding, body);
+        encoded(&mut response, encoding.name(), body);
     }
     if response.status == 200
         && response.headers.iter().any(|(name, value)| {
@@ -393,14 +423,12 @@ fn finish(mut response: Response, request: &Request) -> Response {
 /// `body` as `response`'s content in `encoding`, which its ETag names. A page
 /// compressed as it was sent and one made at the best share their tag: they
 /// decode to the same bytes, and the server sends no ranges.
-fn encoded(response: &mut Response, encoding: encode::Encoding, body: Vec<u8>) {
+fn encoded(response: &mut Response, encoding: &'static str, body: Vec<u8>) {
     response.body = body;
-    response
-        .headers
-        .push(("Content-Encoding", encoding.name().into()));
+    response.headers.push(("Content-Encoding", encoding.into()));
     for (name, value) in &mut response.headers {
         if *name == "ETag" {
-            *value = format!("{}-{}\"", value.trim_end_matches('"'), encoding.name());
+            *value = format!("{}-{encoding}\"", value.trim_end_matches('"'));
         }
     }
 }
@@ -420,6 +448,7 @@ fn indexed<D: DataSource>(shared: &Shared, data: fn() -> D, locations: Vec<Strin
             no_store: false,
             accepts: Accepts::default(),
             cdn: false,
+            dictionary: None,
         };
         let response = respond(&request, shared, data);
         let noindex = response.headers.iter().any(|(name, value)| {
@@ -515,6 +544,12 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, ()> {
     let cdn = headers
         .iter()
         .any(|(name, _)| name.trim().eq_ignore_ascii_case("cdn-loop"));
+    // A structured field's byte sequence: `:<base64>:`.
+    let dictionary = headers
+        .iter()
+        .find(|(name, _)| name.trim().eq_ignore_ascii_case("available-dictionary"))
+        .and_then(|(_, value)| value.trim().strip_prefix(':')?.strip_suffix(':'))
+        .map(str::to_string);
     Ok(Request {
         method: method.to_string(),
         target: target.to_string(),
@@ -523,6 +558,7 @@ fn read_request(stream: &mut TcpStream) -> Result<Request, ()> {
         no_store,
         accepts,
         cdn,
+        dictionary,
     })
 }
 
@@ -617,39 +653,56 @@ fn respond<D: DataSource>(request: &Request, shared: &Shared, data: fn() -> D) -
     if policy != Some(RenderPolicy::Cached) || shared.serve.lifetime.is_zero() || request.no_store {
         return document(request, policy, notfound, shared, data);
     }
+    // A dictionary the browser holds and names itself (D11). A CDN's request
+    // never gets one: the CDN would keep the body for browsers without it.
+    let wanted = request
+        .dictionary
+        .as_deref()
+        .filter(|_| !request.cdn && request.accepts.dcb());
+    let against;
     {
         let mut pages = shared.pages.lock().unwrap();
         pages.retain(|page| page.created.elapsed() < shared.serve.lifetime);
-        if !request.revalidate {
-            if let Some(page) = pages.iter().find(|page| page.target == request.target) {
-                let mut response = page
-                    .response
-                    .clone()
-                    .header("Age", page.created.elapsed().as_secs().to_string());
-                if let Some((encoding, body)) =
-                    page.best.get().and_then(|best| best.pick(request.accepts))
-                {
-                    // Made: `finish` leaves a response with its `Vary` as it is,
-                    // so its 304 is decided here.
-                    response.headers.push(("Vary", "Accept-Encoding".into()));
-                    encoded(&mut response, encoding, body.to_vec());
-                    if response.headers.iter().any(|(name, value)| {
-                        *name == "ETag"
-                            && encode::none_match(request.if_none_match.as_deref(), value)
-                    }) {
-                        response.status = 304;
-                    }
-                    return response;
-                }
-                if response.headers.iter().any(|(name, value)| {
-                    *name == "ETag" && request.if_none_match.as_ref() == Some(value)
-                }) {
-                    response.status = 304;
-                }
-                return response;
-            }
+        let page = if request.revalidate {
+            None
+        } else {
+            pages.iter().find(|page| page.target == request.target)
+        };
+        let Some(page) = page else {
+            drop(pages);
+            return render_kept(request, policy, notfound, wanted, shared, data);
+        };
+        let response = page
+            .response
+            .clone()
+            .header("Age", page.created.elapsed().as_secs().to_string());
+        let dictionary = wanted.and_then(|hash| match page.pairs.get(hash) {
+            Some(made) => Some(Err(made.clone())),
+            None => pages
+                .iter()
+                .find(|kept| kept.hash == hash)
+                .map(|kept| Ok(kept.response.body.clone())),
+        });
+        match dictionary {
+            Some(Err(Some(body))) => return dictionary_compressed(response, body, request),
+            Some(Ok(dictionary)) => against = (response, page.hash.clone(), dictionary),
+            _ => return plain(response, page.best.get(), request),
         }
     }
+    let (response, hash, dictionary) = against;
+    pair(response, &hash, &dictionary, request, shared)
+}
+
+/// A miss on a kept route: render, keep the page, and send it as the other
+/// kept pages go.
+fn render_kept<D: DataSource>(
+    request: &Request,
+    policy: Option<RenderPolicy>,
+    notfound: bool,
+    wanted: Option<&str>,
+    shared: &Shared,
+    data: fn() -> D,
+) -> Response {
     // Render without holding the cache lock. A concurrent miss may render too;
     // it never delays an unrelated route or holds a module realm in the cache.
     let unconditional = Request {
@@ -660,21 +713,23 @@ fn respond<D: DataSource>(request: &Request, shared: &Shared, data: fn() -> D) -
         no_store: false,
         accepts: request.accepts,
         cdn: request.cdn,
+        dictionary: None,
     };
     let mut response = document(&unconditional, policy, notfound, shared, data);
-    if response.status == 200 && response.body.len() <= MAX_CACHE_BYTES {
+    if response.status != 200 || response.body.len() > MAX_CACHE_BYTES {
+        if response.status == 200 && identity(&response, request) {
+            response.status = 304;
+        }
+        return response;
+    }
+    let hash = {
+        use sha2::{Digest, Sha256};
+        exact_data::envelope::base64(&Sha256::digest(&response.body))
+    };
+    let dictionary = {
         let mut pages = shared.pages.lock().unwrap();
         pages.retain(|page| page.target != request.target);
-        while pages.len() >= MAX_CACHED_PAGES
-            || pages
-                .iter()
-                .map(|page| {
-                    page.response.body.len() + page.best.get().map_or(0, encode::Best::bytes)
-                })
-                .sum::<usize>()
-                + response.body.len()
-                > MAX_CACHE_BYTES
-        {
+        while pages.len() >= MAX_CACHED_PAGES || over(&pages, response.body.len()) {
             pages.pop_front();
         }
         // This response goes out compressed as it is sent; later hits get the
@@ -684,22 +739,123 @@ fn respond<D: DataSource>(request: &Request, shared: &Shared, data: fn() -> D) -
         let _ = std::thread::Builder::new()
             .name("exact-render-best".into())
             .spawn(move || made.set(encode::Best::of(&body)));
+        let dictionary = wanted.and_then(|wanted| {
+            (wanted == hash).then(|| response.body.clone()).or_else(|| {
+                pages
+                    .iter()
+                    .find(|kept| kept.hash == wanted)
+                    .map(|kept| kept.response.body.clone())
+            })
+        });
         pages.push_back(CachedPage {
             target: request.target.clone(),
             created: Instant::now(),
             response: response.clone(),
             best,
+            hash: hash.clone(),
+            pairs: HashMap::new(),
         });
+        dictionary
+    };
+    match dictionary {
+        Some(dictionary) => pair(response, &hash, &dictionary, request, shared),
+        None => plain(response, None, request),
     }
-    if response.status == 200
-        && response
-            .headers
-            .iter()
-            .any(|(name, value)| *name == "ETag" && request.if_none_match.as_ref() == Some(value))
-    {
+}
+
+/// Say that a kept page may be a dictionary for the site's next documents
+/// (Compression Dictionary Transport). A CDN's request doesn't hear it.
+fn as_dictionary(response: &mut Response, request: &Request) {
+    if !request.cdn {
+        response.headers.push((
+            "Use-As-Dictionary",
+            "match=\"/*\", match-dest=(\"document\")".into(),
+        ));
+    }
+}
+
+/// Whether the request's `If-None-Match` names the response's ETag.
+fn held(response: &Response, request: &Request) -> bool {
+    response.headers.iter().any(|(name, value)| {
+        *name == "ETag" && encode::none_match(request.if_none_match.as_deref(), value)
+    })
+}
+
+/// A kept page as `finish` sends it, or as its best variant once that is
+/// made, whose 304 is decided here: `finish` leaves a response with its
+/// `Vary` as it is.
+fn plain(mut response: Response, best: Option<&encode::Best>, request: &Request) -> Response {
+    as_dictionary(&mut response, request);
+    if let Some((encoding, body)) = best.and_then(|best| best.pick(request.accepts)) {
+        response.headers.push(("Vary", "Accept-Encoding".into()));
+        encoded(&mut response, encoding.name(), body.to_vec());
+        if held(&response, request) {
+            response.status = 304;
+        }
+        return response;
+    }
+    if identity(&response, request) {
         response.status = 304;
     }
     response
+}
+
+/// Whether the request's `If-None-Match` is the page's own ETag, as a client
+/// that took it uncompressed holds it.
+fn identity(response: &Response, request: &Request) -> bool {
+    response
+        .headers
+        .iter()
+        .any(|(name, value)| *name == "ETag" && request.if_none_match.as_ref() == Some(value))
+}
+
+/// A kept page as `dcb` against the dictionary its request named, with its
+/// own ETag and a `Vary` that names the dictionary.
+fn dictionary_compressed(mut response: Response, body: Vec<u8>, request: &Request) -> Response {
+    response
+        .headers
+        .push(("Vary", "Accept-Encoding, Available-Dictionary".into()));
+    encoded(&mut response, "dcb", body);
+    as_dictionary(&mut response, request);
+    if held(&response, request) {
+        response.status = 304;
+    }
+    response
+}
+
+/// `response`, a kept page whose hash is `page`, against `dictionary`, which
+/// the request named: compressed now, as a page is as it is sent, and kept
+/// beside the page's other variants, inside the cache's budget.
+fn pair(
+    response: Response,
+    page: &str,
+    dictionary: &[u8],
+    request: &Request,
+    shared: &Shared,
+) -> Response {
+    use sha2::{Digest, Sha256};
+    let made = encode::against(
+        &response.body,
+        dictionary,
+        &Sha256::digest(dictionary).into(),
+    );
+    {
+        let mut pages = shared.pages.lock().unwrap();
+        let named = request.dictionary.clone().unwrap_or_default();
+        if let Some(kept) = pages
+            .iter_mut()
+            .find(|kept| kept.target == request.target && kept.hash == page)
+        {
+            kept.pairs.insert(named, made.clone());
+        }
+        while over(&pages, 0) {
+            pages.pop_front();
+        }
+    }
+    match made {
+        Some(body) => dictionary_compressed(response, body, request),
+        None => plain(response, None, request),
+    }
 }
 
 /// Large assets bypass compression and memory caches. Hash in a fixed buffer
@@ -1041,6 +1197,38 @@ fn csp(grants: &str, dist: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_cache_budget_counts_each_page_s_variants() {
+        let page = |body: usize| {
+            CachedPage {
+                target: "/p".into(),
+                created: Instant::now(),
+                response: Response::text(200, "").header("ETag", "\"t\""),
+                best: Arc::new(OnceLock::new()),
+                hash: String::new(),
+                pairs: HashMap::new(),
+            }
+            .with_body(body)
+        };
+        let mut pages = VecDeque::from([page(MAX_CACHE_BYTES - 100)]);
+        assert!(!over(&pages, 0));
+        // A pair against a dictionary counts, and a pair that didn't shrink doesn't.
+        pages[0].pairs.insert("d".into(), Some(vec![0; 101]));
+        pages[0].pairs.insert("e".into(), None);
+        assert_eq!(pages[0].bytes(), MAX_CACHE_BYTES + 1);
+        assert!(over(&pages, 0));
+        // So do the best variants, once made.
+        pages[0].pairs.clear();
+        let body: Vec<u8> = (0..4096u32)
+            .flat_map(|i| (i * 7919 % 251).to_le_bytes())
+            .collect();
+        let _ = pages[0].best.set(encode::Best::of(&body));
+        let best = pages[0].best.get().unwrap().bytes();
+        assert!(best > 0);
+        assert_eq!(pages[0].bytes(), MAX_CACHE_BYTES - 100 + best);
+        assert!(over(&pages, 0));
+    }
 
     #[test]
     fn invalid_response_headers_fail_before_any_bytes_are_written() {

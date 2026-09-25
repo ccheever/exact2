@@ -709,6 +709,83 @@ fn a_cached_page_goes_at_the_best_compression_once_it_is_made() {
 }
 
 #[test]
+fn a_kept_page_goes_against_a_dictionary_the_browser_holds() {
+    use sha2::{Digest, Sha256};
+    const USE: &str = "match=\"/*\", match-dest=(\"document\")";
+    let addr = start("dictionary", 1, 8, 300);
+    // A kept page says a browser may keep it as a dictionary; its hash names it.
+    let (status, headers, dictionary) = fetch_bytes(addr, "GET /post/7 HTTP/1.1\r\n\r\n");
+    assert_eq!(
+        (status, header(&headers, "use-as-dictionary")),
+        (200, Some(USE))
+    );
+    let hash = exact_data::envelope::base64(&Sha256::digest(&dictionary));
+    let ask = |extra: &str| {
+        fetch_bytes(
+            addr,
+            &format!("GET /post/8 HTTP/1.1\r\nAccept-Encoding: gzip, deflate, br, zstd, dcb, dcz\r\nAvailable-Dictionary: :{hash}:\r\n{extra}\r\n"),
+        )
+    };
+    // A browser that holds it gets the next page against it: the render that
+    // keeps the page, then a hit.
+    for _ in 0..2 {
+        let (status, headers, body) = ask("");
+        assert_eq!(status, 200);
+        assert_eq!(header(&headers, "content-encoding"), Some("dcb"));
+        assert_eq!(
+            header(&headers, "vary"),
+            Some("Accept-Encoding, Available-Dictionary")
+        );
+        assert_eq!(header(&headers, "use-as-dictionary"), Some(USE));
+        assert!(header(&headers, "etag").unwrap().ends_with("-dcb\""));
+        assert_eq!(body[..4], [0xff, 0x44, 0x43, 0x42]);
+        assert_eq!(body[4..36], Sha256::digest(&dictionary)[..]);
+        let mut decoded = Vec::new();
+        brotli::Decompressor::new_with_custom_dict(&body[36..], 4096, dictionary.clone().into())
+            .read_to_end(&mut decoded)
+            .unwrap();
+        assert_eq!(decoded, fetch_bytes(addr, "GET /post/8 HTTP/1.1\r\n\r\n").2);
+        assert!(
+            body.len() * 2 < decoded.len() / 4,
+            "{} of {}",
+            body.len(),
+            decoded.len()
+        );
+    }
+    // Its own ETag gets a 304.
+    let etag = header(&ask("").1, "etag").unwrap().to_string();
+    let (status, _, body) = ask(&format!("If-None-Match: {etag}\r\n"));
+    assert_eq!((status, body.len()), (304, 0));
+    // A hash this server doesn't keep falls back to brotli.
+    let unknown = exact_data::envelope::base64(&[0u8; 32]);
+    let (_, headers, _) = fetch_bytes(
+        addr,
+        &format!("GET /post/8 HTTP/1.1\r\nAccept-Encoding: br, dcb\r\nAvailable-Dictionary: :{unknown}:\r\n\r\n"),
+    );
+    assert_eq!(header(&headers, "content-encoding"), Some("br"));
+    assert_eq!(header(&headers, "vary"), Some("Accept-Encoding"));
+    // A CDN's request hears of no dictionary and gets none.
+    let (_, headers, _) = ask("CDN-Loop: cloudflare\r\n");
+    assert_eq!(header(&headers, "content-encoding"), Some("br"));
+    assert_eq!(header(&headers, "use-as-dictionary"), None);
+    // Nor do pages that aren't kept: one per request, or one asked not to be stored.
+    for target in [
+        "/live/7 HTTP/1.1\r\n",
+        "/post/8 HTTP/1.1\r\nCache-Control: no-store\r\n",
+    ] {
+        let (status, headers, _) = fetch_bytes(
+            addr,
+            &format!(
+                "GET {target}Accept-Encoding: br, dcb\r\nAvailable-Dictionary: :{hash}:\r\n\r\n"
+            ),
+        );
+        assert_eq!(status, 200);
+        assert_eq!(header(&headers, "use-as-dictionary"), None);
+        assert_eq!(header(&headers, "content-encoding"), Some("br"));
+    }
+}
+
+#[test]
 fn a_file_the_dist_lacks_is_a_plain_404() {
     let addr = start("favicon", 1, 8, 300);
     // A browser's icon request doesn't render the not-found document…
