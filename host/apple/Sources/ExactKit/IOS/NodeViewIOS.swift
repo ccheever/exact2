@@ -1323,7 +1323,10 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             if canRasterText {
                 presenter?.textRasters.ensure(self, urgent: presenter?.textIsVisible(self) == true)
             } else if !textRasterFailed { dropTextRaster() }
-            if textRaster == nil && (Capture.capturing || presenter?.textIsVisible(self) == true) {
+            // Without a raster this bitmap is the paragraph's only paint, and
+            // nothing redisplays a row the lead drew off-screen when it
+            // scrolls in: draw it now, visible or not.
+            if textRaster == nil && (!canRasterText || Capture.capturing || presenter?.textIsVisible(self) == true) {
                 let post = Presenter.signposts.beginInterval("text-draw")
                 defer { Presenter.signposts.endInterval("text-draw", post) }
                 let spec = paragraphSpec()
