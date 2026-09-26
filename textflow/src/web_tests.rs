@@ -273,7 +273,7 @@ fn white_space_nowrap_protocol_keeps_one_band_wider_than_the_flow() {
     let text = "one two three four five six seven eight";
     let mut f = TextFlow::new();
     let mut input = 0u32.to_le_bytes().to_vec();
-    input.extend(2u32.to_le_bytes());
+    input.extend([2u32, 0].map(u32::to_le_bytes).concat());
     input.extend(text.as_bytes());
     f.segments(1, &input).unwrap();
     let mut advances = 5f32.to_le_bytes().to_vec();
