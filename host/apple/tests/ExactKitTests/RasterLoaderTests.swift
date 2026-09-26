@@ -253,6 +253,39 @@ final class RasterLoaderTests: XCTestCase {
         XCTAssertTrue(flood.admitted > 32)
         XCTAssertEqual(loader.diagnostics["metadataReads"] as? Int, 1)
     }
+    /// `cover` scales the image until both axes fill the box, so the decode
+    /// is as long as the overflowing axis needs (a browser decodes for the
+    /// size it paints), not the box's longest side.
+    func testACoverImageDecodesForTheAxisThatOverflows() throws {
+        let (root, resolver, presenter, node, loader, window) = try fixture()
+        defer { loader.shutdown(); node.raster = nil; window.close(); try? FileManager.default.removeItem(at: root); withExtendedLifetime(presenter) {} }
+        try png(root, "wide.png", width: 800, height: 100, identity: 11)
+        node.frame = NSRect(x: 0, y: 0, width: 100, height: 50)
+        node.style = ["object_fit": .string("cover")]
+        node.loadGeneration = 1
+        loader.load(node, source: "wide.png", resolver: resolver)
+        settle { node.raster != nil }
+        let scale = window.backingScaleFactor
+        // Height fills at half the source's scale: 800 × 0.5, at the screen's scale.
+        XCTAssertEqual(node.raster?.image.image.width, min(800, Int(400 * scale)))
+    }
+    /// Cold pixels are evicted before a decode waits, so pixels no view
+    /// holds never lower the resolution a visible image decodes at.
+    func testColdPixelsDoNotLowerAResolution() throws {
+        let (root, resolver, presenter, node, loader, window) = try fixture()
+        defer { loader.shutdown(); node.raster = nil; window.close(); try? FileManager.default.removeItem(at: root); withExtendedLifetime(presenter) {} }
+        let scale = window.backingScaleFactor
+        node.frame = NSRect(x: 0, y: 0, width: 1000 / scale, height: 1000 / scale)
+        for i in 0..<6 {
+            try autoreleasepool { try png(root, "cold-\(i).png", width: 1000, height: 1000, identity: 20 + i) }
+            let before = node.raster
+            node.loadGeneration += 1
+            loader.load(node, source: "cold-\(i).png", resolver: resolver)
+            settle { node.raster != nil && node.raster !== before }
+            XCTAssertEqual(node.raster?.image.image.width, 1000, "image \(i)")
+        }
+        XCTAssertTrue((loader.diagnostics["coldBytes"] as? UInt64 ?? 0) > 0)
+    }
 }
 
 /// Continuously replenished metadata-ready demands compete at the real worker

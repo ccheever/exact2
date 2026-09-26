@@ -311,17 +311,34 @@ final class RasterLoader {
     func invalidate(_ source: String) { backend.invalidate(source) }
     func resized(_ view: NodeView) {
         guard let interest = interests[view.id], interest.offeredPixel > 0 else { return }
-        let pixel = requestedPixel(view)
+        let pixel = requestedPixel(view, backend.metadata(interest.source).0)
         // Avoid re-decoding for every one-pixel live resize or small rounding.
         if pixel > interest.offeredPixel * 5 / 4 || pixel * 5 / 4 < interest.offeredPixel { retry(view.id) }
     }
-    private func requestedPixel(_ view: NodeView) -> Int {
+    /// The decoded image's longest side: enough device pixels for the box
+    /// at its object-fit (`cover` and `fill` scale the image until both axes
+    /// fill the box, so the longer one overflows it), as a browser decodes
+    /// for the size it paints. Before the metadata, the box's longest side.
+    private func requestedPixel(_ view: NodeView, _ metadata: RasterMetadata?) -> Int {
         #if os(macOS)
         let scale = view.window?.backingScaleFactor ?? 1
         #else
         let scale = view.window?.screen.scale ?? 1
         #endif
-        return max(64, min(4096, Int(ceil(max(view.bounds.width, view.bounds.height) * scale))))
+        let box = view.bounds.size
+        var longest = max(box.width, box.height)
+        if let natural = metadata?.naturalSize, natural.width > 0, natural.height > 0, box.width > 0, box.height > 0 {
+            let x = box.width / natural.width, y = box.height / natural.height
+            let factor: CGFloat
+            switch view.style["object_fit"]?.string ?? "fill" {
+            case "contain": factor = min(x, y)
+            case "scale-down": factor = min(1, min(x, y))
+            case "none": factor = 1
+            default: factor = max(x, y)
+            }
+            longest = max(natural.width, natural.height) * factor
+        }
+        return max(64, min(4096, Int(ceil(longest * scale))))
     }
     private func retry(_ view: UInt32) {
         guard var item = interests[view] else { return }
@@ -331,6 +348,10 @@ final class RasterLoader {
     }
     func reconcile() {
         guard !destroyed, !paused else { return }
+        // Every image this turn lands reports its natural size together,
+        // after the loop: one layout for them all, not one each.
+        var landed: [(view: NodeView, generation: Int, size: CGSize)] = []
+        defer { report(landed) }
         for viewID in Array(interests.keys) {
             guard var item = interests[viewID], let view = item.view,
                   view.loadGeneration == item.generation, view.presenter?.views[viewID] === view else { cancel(viewID); continue }
@@ -339,7 +360,7 @@ final class RasterLoader {
                 let state = exact_raster_status(id, item.request)
                 if state == 4, let lease = NativeRasterLease(exact_raster_take_ready(id, item.request)) {
                     item.delivered = true; interests[viewID] = item
-                    view.acceptRaster(lease, generation: item.generation)
+                    if let size = view.acceptRaster(lease, generation: item.generation) { landed.append((view, item.generation, size)) }
                 } else if state >= 100 {
                     item.failure = Self.refusal(UInt64(state - 100)); interests[viewID] = item
                     view.presenter?.session?.log("image deferred: \(item.failure!)")
@@ -347,7 +368,12 @@ final class RasterLoader {
                 if state != 2 || item.requestedPixel <= 1 { continue }
                 // Admission can become capacity-blocked after initially free
                 // metadata was queued. A worker's changed-budget notice, never
-                // a layout callback, reduces this pending demand in place.
+                // a layout callback, reduces this pending demand in place,
+                // unless it fits once the decodes holding reservations land:
+                // then it waits for them, at the size it asked for.
+                if let metadata = backend.metadata(item.source).0,
+                   let plan = try? RasterDecodePlan(metadata: metadata, maxPixel: item.requestedPixel),
+                   plan.peakBytes <= available() { continue }
                 exact_raster_cancel(id, item.request); item.request = 0
                 item.requestedPixel = max(1, item.requestedPixel / 2)
                 interests[viewID] = item
@@ -358,10 +384,9 @@ final class RasterLoader {
                 view.presenter?.session?.log("image deferred: \(failure)"); continue
             }
             guard let metadata else { continue }
-            let offered = requestedPixel(view)
+            let offered = requestedPixel(view, metadata)
             var pixel = item.requestedPixel > 0 ? min(offered, item.requestedPixel) : offered
-            let used = exact_raster_stats(id)
-            let available = Int(32 * 1024 * 1024 - min(32 * 1024 * 1024, used.resident_bytes + used.reserved_bytes))
+            let available = available()
             var plan = try? RasterDecodePlan(metadata: metadata, maxPixel: pixel)
             while pixel > 1 && (plan == nil || plan!.peakBytes > available) {
                 pixel = max(1, pixel / 2); plan = try? RasterDecodePlan(metadata: metadata, maxPixel: pixel)
@@ -389,6 +414,24 @@ final class RasterLoader {
             // coalesced UI turn, keeping intrinsic publication outside a batch.
             if item.request != 0 && exact_raster_status(id, item.request) >= 4 { backend.wake() }
         }
+    }
+    /// What a decode can have without lowering its resolution: the budget
+    /// less the pixels views hold (pinned, retiring). Cold pixels are
+    /// evicted before a decode waits (LLP 1010 §6.3), and a reservation is a
+    /// decode in flight, released as it lands; the core queues a request
+    /// until they make room.
+    private func available() -> Int {
+        let budget: UInt64 = 32 * 1024 * 1024
+        let used = exact_raster_stats(id)
+        let held = used.resident_bytes - min(used.resident_bytes, used.cold_bytes)
+        return Int(budget - min(budget, held))
+    }
+    private func report(_ landed: [(view: NodeView, generation: Int, size: CGSize)]) {
+        guard let presenter = landed.first?.view.presenter else { return }
+        let sizes = landed.compactMap { item -> (UInt32, CGSize?)? in
+            item.view.loadGeneration == item.generation && presenter.views[item.view.id] === item.view ? (item.view.id, item.size) : nil
+        }
+        if !sizes.isEmpty { presenter.onIntrinsic?(sizes) }
     }
     func setPaused(_ paused: Bool) {
         guard self.paused != paused, !destroyed else { return }

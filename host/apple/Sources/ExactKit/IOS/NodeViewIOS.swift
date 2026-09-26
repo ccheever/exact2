@@ -486,12 +486,14 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
     }
 
-    func acceptRaster(_ lease: NativeRasterLease, generation: Int) {
-        guard loadGeneration == generation, let presenter, presenter.views[id] === self else { return }
+    /// The lease is this load's: shown, its natural size answered for the
+    /// loader to report (`RasterLoader.reconcile`, one report per turn).
+    func acceptRaster(_ lease: NativeRasterLease, generation: Int) -> CGSize? {
+        guard loadGeneration == generation, let presenter, presenter.views[id] === self else { return nil }
         raster = lease
-        presenter.intrinsic(id, lease.image.naturalSize)
         self.setNeedsDisplay()
         if let c = canvasAbove { c.needsCapture = true; canvases?.scheduleCapture() }
+        return lease.image.naturalSize
     }
 
     // A symbol's box is Exact's; UIKit renders its glyph, including pixel alignment.

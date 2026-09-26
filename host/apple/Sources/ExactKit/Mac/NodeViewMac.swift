@@ -504,12 +504,14 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
     }
 
-    func acceptRaster(_ lease: NativeRasterLease, generation: Int) {
-        guard loadGeneration == generation, let presenter, presenter.views[id] === self else { return }
+    /// The lease is this load's: shown, its natural size answered for the
+    /// loader to report (`RasterLoader.reconcile`, one report per turn).
+    func acceptRaster(_ lease: NativeRasterLease, generation: Int) -> CGSize? {
+        guard loadGeneration == generation, let presenter, presenter.views[id] === self else { return nil }
         raster = lease
-        presenter.intrinsic(id, lease.image.naturalSize)
         self.needsDisplay = true
         if let c = canvasAbove { c.needsCapture = true; canvases?.scheduleCapture() }
+        return lease.image.naturalSize
     }
 
     // A symbol remains an image leaf; AppKit owns glyph rendering and tint.
