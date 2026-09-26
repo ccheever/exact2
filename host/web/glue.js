@@ -735,7 +735,7 @@ function apply(batch) {
         // user's preference decides, which is what "follow the system" is on
         // the web. `light`/`dark` are the property's own values.
         if (op.name === "setScheme") { const s = String(op.args[0] ?? ""); document.documentElement.style.colorScheme = s === "system" ? "light dark" : s; }
-        else if (op.name === "focus" || op.name === "selectText") focusCommands.push({ args: op.args, selectText: op.name === "selectText" });
+        else if (op.name === "focus" || op.name === "selectText" || op.name === "blur") focusCommands.push({ name: op.name, args: op.args });
         else if (op.name === "format") { const owner = incarnation, run = () => { const el = [...views.values()].find(el => el.id === op.args?.[0]); if (inputReady && incarnation === owner) el?.exactMarkup?.format(op.args[1], op.args[2] ?? ''); }; if (markupModule) markupModule.then(run); else run(); }
         else if (op.name === "openURL") {
           if (op.args?.length !== 1 || typeof op.args[0] !== "string") {
@@ -814,7 +814,13 @@ function apply(batch) {
   syncLists();
   // Focusing can dispatch an action; every node/value in this batch must be
   // committed before its focus handler runs.
-  for (const { args, selectText } of focusCommands) {
+  for (const { name, args } of focusCommands) {
+    if (name === "blur") { // `blur()` drops whatever holds focus; `blur(id)` only when that node holds it.
+      const active = document.activeElement;
+      if (inputReady && active && active !== document.body && (!args?.length || active.id === args[0])) active.blur();
+      continue;
+    }
+    const selectText = name === "selectText";
     if (args?.length !== 1 || typeof args[0] !== "string" || !inputReady) continue;
     const el = [...root.querySelectorAll("[id]")].find(node => node.id === args[0]);
     const reason = !el ? "no live node with that id" : !el.isConnected ? "not mounted" : el.matches(":disabled,[disabled]") ? "disabled"
