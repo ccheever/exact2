@@ -160,6 +160,9 @@ final class CollectionHost {
     /// one without leaves `motion` nil, and every report is unlimited.
     var motion: ((UInt32) -> Double?)?
     var requestFill: (() -> Void)?
+    /// After a report that built what shows inside the scroll callback: the
+    /// platform paints what those rows show before the frame commits.
+    var rescued: (() -> Void)?
     private(set) var fillPending = Set<UInt32>()
     private var sliceLimits: [UInt32: UInt32] = [:]
     // Platform hooks remove event monitors/recognizers when the adapter resets.
@@ -263,6 +266,7 @@ final class CollectionHost {
             if motion != nil { sliceLimits[view] = 2 }
             flush()
             sliceLimits[view] = nil
+            if motion != nil { rescued?() }
         }
     }
     /// One slice of fill for `view`: a report that may build `limit` rows

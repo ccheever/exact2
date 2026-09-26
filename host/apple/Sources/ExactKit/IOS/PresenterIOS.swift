@@ -103,6 +103,10 @@ final class Presenter {
             return velocity == 0 ? nil : velocity
         }
         collections.requestFill = { [unowned self] in scrollPump.requestFill() }
+        // Rows a rescue built show this frame: their text paints now, not
+        // after the commit, or they show without it (LLP 1050.000 D1). The
+        // deadline admits no worker job; only uncovered pixels paint.
+        collections.rescued = { [unowned self] in refreshVisibleText(deadline: CACurrentMediaTime()) }
         viewport.contentInsetAdjustmentBehavior = .never
         viewport.backgroundColor = .white
         if ExactEnv.agentMode {
