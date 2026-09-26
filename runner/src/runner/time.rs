@@ -1,7 +1,7 @@
 //! Host-owned date answers; never baked or carried.
 //! @ref LLP 1027.000.000
 use super::{DataError, DataSource, Runner, RunnerError};
-use crate::time::{WallTime, SOURCE};
+use crate::time::{Place, WallTime, SOURCE};
 use exact_kernel::CommitReceipt;
 use exact_plan::{TypeKind, Value};
 
@@ -44,6 +44,35 @@ impl<D: DataSource> Runner<D> {
         result
     }
 
+    /// Re-answer every `exactTime` resource with the viewer's locale and
+    /// zone, in one commit; the same fact again commits nothing.
+    pub fn set_place(
+        &mut self,
+        locale: &str,
+        time_zone: &str,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        let place = Place {
+            locale: locale.into(),
+            time_zone: time_zone.into(),
+        };
+        if let Err(error) = place.validate() {
+            self.log(format!("place refused: {error:?}"));
+            return Err(error);
+        }
+        if place == self.place {
+            return Ok(None);
+        }
+        let previous = std::mem::replace(&mut self.place, place);
+        let which = (0..self.plan.resources.len())
+            .filter(|i| self.plan.str(self.plan.resources[*i].source) == SOURCE)
+            .collect();
+        let result = self.recommit(which, "place");
+        if result.is_err() {
+            self.place = previous;
+        }
+        result
+    }
+
     pub(super) fn time_answer(&self, i: usize) -> Result<Value, DataError> {
         let row = &self.plan.resources[i];
         if row.args.len > 0 {
@@ -61,7 +90,7 @@ impl<D: DataSource> Runner<D> {
         let mut fields = Vec::with_capacity(ty.fields.len as usize);
         for f in ty.fields.iter() {
             let name = self.plan.str(self.plan.field(f).name);
-            match self.time.field(name) {
+            match self.time.field(name).or_else(|| self.place.field(name)) {
                 Some(v) => fields.push(v),
                 None => {
                     return Err(DataError::Unavailable(format!(

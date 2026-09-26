@@ -313,6 +313,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_time(epoch_at_zero, utc_offset), |n| n)
         }
 
+        /// The locale and time zone: `locale NUL timeZone` in the input buffer.
+        #[no_mangle]
+        pub extern "C" fn exact_set_place(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_place(len), |n| n)
+        }
+
         /// The viewport changed; returns the batch length.
         #[no_mangle]
         pub extern "C" fn exact_resize(rt: u32, width: f32, height: f32) -> u32 {

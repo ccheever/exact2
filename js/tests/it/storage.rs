@@ -154,7 +154,10 @@ fn native_modules_are_deferred_retired_and_unavailable_to_validation() {
     );
     m.activate_for_validation().unwrap();
     // Validation links no module, so the app is told so plainly: `native` is null.
-    assert_eq!(call(&mut m, &mut s, "native", "validation"), "no native module");
+    assert_eq!(
+        call(&mut m, &mut s, "native", "validation"),
+        "no native module"
+    );
     assert_eq!(
         std::fs::read_to_string(root.0.join("data/native.txt")).unwrap(),
         "after fetch"

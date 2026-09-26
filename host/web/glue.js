@@ -1354,6 +1354,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   focus.restart(kept, () => applyBatch(batch), () => ask({ op: "tree" }), id => views.get(id));
   // @ref LLP 1027.000.000 — the date, as the clock the runner already reads.
   if (wasm.exact_set_time) applyBatch(JSON.parse(readOut(wasm.exact_set_time(Date.now() - now(), -new Date().getTimezoneOffset()))));
+  if (wasm.exact_set_place) applyBatch(JSON.parse(readOut(wasm.exact_set_place(writeIn(`${navigator.language}\0${Intl.DateTimeFormat().resolvedOptions().timeZone}`)))));
   globalThis.exact?.gpu?.finishRestart();
   if (bytes && !module && (inputReady || root.dataset.error)) activateData(); // A restart after the first activation.
   if (oldAssets !== assets) releaseAssets(oldAssets);

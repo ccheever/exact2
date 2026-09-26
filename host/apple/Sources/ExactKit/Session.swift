@@ -771,6 +771,9 @@ public final class ExactSession {
     func tellTime() {
         let offset = Double(TimeZone.current.secondsFromGMT()) / 60
         apply(runtime.setTime(epochAtZero: Date().timeIntervalSince1970 * 1000 - now(), utcOffset: offset))
+        // The first preferred language, as the device formats dates and numbers.
+        let locale = Locale.preferredLanguages.first ?? Locale.current.identifier(.bcp47)
+        apply(runtime.setPlace(locale: locale, timeZone: TimeZone.current.identifier))
     }
     public func resize(_ size: CGSize) { guard booted, state != .destroyed else { return }; apply(runtime.resize(width: size.width, height: size.height)) }
     public func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) { guard booted, state != .destroyed else { return }; apply(runtime.insets(top: top, right: right, bottom: bottom, left: left)) }

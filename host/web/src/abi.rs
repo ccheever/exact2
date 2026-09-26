@@ -619,6 +619,23 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// The locale and time zone, as `locale NUL timeZone` in the input buffer.
+    pub fn set_place(&mut self, len: usize) -> u32 {
+        let Some((locale, zone)) = std::str::from_utf8(&self.input[..len.min(self.input.len())])
+            .ok()
+            .and_then(|text| text.split_once('\0'))
+        else {
+            return self.emit(exact_runner::agent::error(
+                "place: expected locale NUL timeZone",
+            ));
+        };
+        let out = self.host.as_mut().map_or_else(
+            || exact_runner::agent::error("not booted"),
+            |h| h.set_place(locale, zone),
+        );
+        self.emit(out)
+    }
+
     /// Apply the common LE collection feedback in the first `len` input bytes.
     /// Unlike events this reports layout facts and never advances the clock.
     pub fn collection_feedback(&mut self, len: usize) -> u32 {
@@ -965,6 +982,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_set_time(epoch_at_zero: f64, utc_offset: f64) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().set_time(epoch_at_zero, utc_offset))
+        }
+
+        /// The locale and time zone: `locale NUL timeZone` in the input buffer.
+        #[no_mangle]
+        pub extern "C" fn exact_set_place(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().set_place(len as usize))
         }
 
         /// Advance the runner clock; nonzero `until_request` stops after a

@@ -122,6 +122,8 @@ pub enum RunnerError {
     InvalidViewport,
     /// A date fact is non-finite, negative, or its offset past ±18 hours.
     InvalidTime,
+    /// A locale or time zone is empty, over-long, or not in its form.
+    InvalidPlace,
     /// The declared router shapes, table, launch fallback or value is invalid.
     Router(String),
     /// A clock value exceeds the exact integer-millisecond domain.
@@ -297,6 +299,7 @@ pub struct Runner<D: DataSource> {
     viewport: crate::Viewport,
     // @ref LLP 1027.000.000 — the date, once the host says it.
     time: crate::time::WallTime,
+    place: crate::time::Place,
     surface_records: exact_kernel::SortedMap<String, String>,
     /// What the host links of the runner's own answers (LLP 1047 D3).
     links: RunnerLinks,
@@ -616,6 +619,7 @@ impl<D: DataSource> Runner<D> {
             delivery,
             viewport,
             time: Default::default(),
+            place: Default::default(),
             surface_records: Default::default(),
             links,
             router,

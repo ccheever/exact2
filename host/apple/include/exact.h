@@ -310,6 +310,8 @@ uint32_t exact_advance(ExactRuntime rt, double now_ms, uint32_t until_request);
 uint32_t exact_surface_record(ExactRuntime rt, size_t len);
 /* @ref LLP 1027.000.000: the date — Unix ms at clock zero, minutes east of UTC. */
 uint32_t exact_set_time(ExactRuntime rt, double epoch_at_zero, double utc_offset);
+/* Beside the date: the locale and IANA time zone, as locale NUL timeZone input. */
+uint32_t exact_set_place(ExactRuntime rt, size_t len);
 /* @ref LLP 1039: re-answer viewport facts and relayout in the same batch. */
 uint32_t exact_resize(ExactRuntime rt, float width, float height);
 /* Actual list scrollport and focused/interacting descendants (zero if absent).

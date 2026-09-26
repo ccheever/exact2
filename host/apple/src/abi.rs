@@ -1027,6 +1027,23 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// The locale and time zone, as `locale NUL timeZone` in the input buffer.
+    pub fn set_place(&mut self, len: usize) -> u32 {
+        let Some((locale, zone)) = std::str::from_utf8(&self.input[..len.min(self.input.len())])
+            .ok()
+            .and_then(|text| text.split_once('\0'))
+        else {
+            return self.emit(exact_runner::agent::error(
+                "place: expected locale NUL timeZone",
+            ));
+        };
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_place(locale, zone));
+        self.emit(out)
+    }
+
     /// The safe-area insets changed.
     pub fn insets(&mut self, top: f32, right: f32, bottom: f32, left: f32) -> u32 {
         let out = self

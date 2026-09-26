@@ -703,6 +703,22 @@ impl<D: DataSource> Host<D> {
         self.batch_for(&receipts, error.as_deref())
     }
 
+    /// The viewer's locale and zone, beside the date.
+    pub fn set_place(&mut self, locale: &str, time_zone: &str) -> String {
+        let (receipts, error) = match self.runner.set_place(locale, time_zone) {
+            Ok(Some(receipt)) => (
+                vec![Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => (vec![], None),
+            Err(e) => (vec![], Some(format!("place: {e:?}"))),
+        };
+        self.batch_for(&receipts, error.as_deref())
+    }
+
     /// Actual nested scrollport and mounted row geometry, in the shared LE wire
     /// format. Edge actions may settle resources; geometry never advances timers.
     pub fn collection_feedback(&mut self, bytes: &[u8]) -> String {
