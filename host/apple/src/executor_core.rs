@@ -75,9 +75,10 @@ struct Shared {
 /// is no unbounded queue of overload failures. Byte reservations cover owned
 /// request/result buffers, NOT arbitrary closure captures or allocations during
 /// native work. Those trusted-source costs are count/worker bounded only.
-/// The ordered lane has one worker, so a waiting job is charged its request
-/// buffers, the running one its response ceiling, and a completed one what
-/// it retains; the worker waits for bytes rather than refusing (LLP 1041 §8.4).
+/// On both lanes a waiting job is charged its request buffers, a running one
+/// its response ceiling, and a completed one what it retains; a worker waits
+/// for bytes rather than refusing (LLP 1041 §8.4, LLP 1054.000 R3). Only the
+/// count bounds the queue of waiting jobs.
 pub(super) struct Core {
     shared: Arc<Shared>,
     disabled: bool,
@@ -474,7 +475,13 @@ fn reservation(request: &Request) -> Result<(usize, usize, usize), &'static str>
     // Vec growth while collecting can reserve up to twice the body ceiling;
     // headers, error text and queue bookkeeping have a separate allowance.
     let limit = bytes + body.saturating_mul(2).max(32 << 10) + MAX_HEADERS * 2;
-    Ok((lane, if lane == 0 { bytes } else { limit }, limit))
+    // Admission charges the request buffers; the worker charges the
+    // ceiling when it starts the job, waiting for bytes (LLP 1054.000 R3).
+    // A ceiling the lane can never hold is refused here, not left waiting.
+    if limit > BYTES[lane] {
+        return Err("native response ceiling exceeds the lane's byte budget");
+    }
+    Ok((lane, bytes, limit))
 }
 
 fn failed(kind: FailureKind, message: impl Into<String>) -> Outcome {

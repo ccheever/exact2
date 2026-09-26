@@ -285,20 +285,13 @@ fn byte_budget_and_illegal_opt_ins_refuse_before_transport() {
     )
     .unwrap();
     fixture.wait_held(1);
-    assert!(core
-        .run(
-            job(
-                2,
-                Request::get("https://example.test/read").independent_http(8 << 20)
-            ),
-            None
-        )
-        .is_err());
     for request in [
         Request::continuation(1).independent_http(1),
         Request::storage(vec![]).independent_http(1),
         Request::get("https://example.test/read").independent_http(0),
         Request::get("https://example.test/read").independent_http((64 << 20) + 1),
+        // A ceiling the 32 MiB lane can never hold (twice the body, plus).
+        Request::get("https://example.test/read").independent_http(16 << 20),
     ] {
         assert!(core.run(job(3, request), None).is_err());
     }
@@ -306,6 +299,40 @@ fn byte_budget_and_illegal_opt_ins_refuse_before_transport() {
     large.body = Vec::with_capacity(MAX_REQUEST + 1);
     assert!(core.run(job(4, large), None).is_err());
     fixture.release();
+}
+
+/// The Bluesky port's D5: a second 8 MiB read beside a held one was refused
+/// because admission charged the whole ceiling. It now waits for the bytes.
+#[test]
+fn an_independent_read_over_the_budget_waits_instead_of_refusing() {
+    let (core, fixture, woke) = setup();
+    core.run(
+        job(
+            1,
+            Request::get("https://example.test/hold").independent_http(8 << 20),
+        ),
+        None,
+    )
+    .unwrap();
+    fixture.wait_held(1);
+    core.run(
+        job(
+            2,
+            Request::get("https://example.test/read").independent_http(8 << 20),
+        ),
+        None,
+    )
+    .unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(
+        fixture.state.lock().unwrap().2,
+        ["https://example.test/hold"]
+    );
+    fixture.release();
+    let mut done: Vec<u64> = collect(&core, &woke, 2).into_iter().map(|v| v.0).collect();
+    done.sort();
+    assert_eq!(done, [1, 2]);
+    assert!(settled(&core));
 }
 
 #[test]
