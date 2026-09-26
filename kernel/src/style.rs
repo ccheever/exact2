@@ -697,9 +697,14 @@ impl From<Color> for ColorValue {
 }
 
 impl Color {
-    /// A CSS colour: hex or `rgb()` notation, whitespace around it free.
+    /// A CSS colour: hex or `rgb()` notation, or the keyword `transparent`
+    /// (any ASCII case, as CSS keywords are: transparent black), whitespace
+    /// around it free.
     pub fn parse(text: &str) -> Option<Color> {
         let text = text.trim();
+        if text.eq_ignore_ascii_case("transparent") {
+            return Some(Color::rgba(0, 0, 0, 0));
+        }
         Color::parse_hex(text).or_else(|| Color::parse_rgb(text))
     }
 

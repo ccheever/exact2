@@ -407,3 +407,45 @@ fn direction_is_css_direction() {
     let e = refused("flexDirection=\"row\"");
     assert!(e.message.contains("`flex-direction`"), "{e}");
 }
+
+/// CSS's `transparent` is a colour wherever a colour is: a literal, a
+/// computed value, a `light-dark()` arm and a border side.
+#[test]
+fn transparent_is_a_colour() {
+    let src = "component A\n  state on = false\n  action flip writes on\n    on = not on\n  view\n    column\n      button testId=\"flip\" press=flip width=10 height=10\n      box testId=\"box\" background-color=\"transparent\" color=(on ? \"#ff0000\" : \"TRANSPARENT\") border-color=\"transparent currentcolor\"\n      text \"a\" testId=\"text\" background-color=\"light-dark(transparent, #000000)\"\n";
+    let plan = contract::compile(src).unwrap_or_else(|e| panic!("{e}"));
+    let plan = contract::bake(plan, NoData).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let clear = Color::rgba(0, 0, 0, 0);
+    fn style(r: &Runner<NoData>, id: &str) -> exact_kernel::StyleProps {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id(id)[0])
+            .unwrap()
+            .style
+            .clone()
+    }
+    let b = style(&r, "box");
+    assert_eq!(b.background_color, clear.into());
+    assert_eq!(b.text_color, clear.into());
+    assert_eq!(b.border_colors(clear.into())[0], clear.into());
+    assert_eq!(
+        style(&r, "text").background_color,
+        exact_kernel::ColorValue::LightDark(clear, Color::parse_hex("#000000").unwrap())
+    );
+    let flip = {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id("flip")[0]).unwrap().id
+    };
+    r.dispatch(flip, exact_runner::Event::Press).unwrap();
+    assert_eq!(
+        style(&r, "box").text_color,
+        Color::parse_hex("#ff0000").unwrap().into()
+    );
+}

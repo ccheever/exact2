@@ -122,6 +122,10 @@ fn a_colour_parses_as_hex_or_as_css_rgb_notation() {
     assert_eq!(Color::parse("rgba(255,0,0)"), red);
     assert_eq!(Color::parse("rgb(100%, 0%, 0%)"), red);
     assert_eq!(Color::parse("rgb(255 0 0)"), red);
+    let clear = Some(Color::rgba(0, 0, 0, 0));
+    assert_eq!(Color::parse("transparent"), clear);
+    assert_eq!(Color::parse(" Transparent "), clear);
+    assert_eq!(Color::parse("transparentt"), None);
     let half = Some(Color::rgba(255, 0, 0, 128));
     assert_eq!(Color::parse("rgba(255, 0, 0, 0.5)"), half);
     assert_eq!(Color::parse("rgba(255, 0, 0, 50%)"), half);
