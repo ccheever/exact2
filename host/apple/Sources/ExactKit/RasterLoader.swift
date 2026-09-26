@@ -223,15 +223,26 @@ private final class WeakRasterBackend {
 
 /// Exactly two process workers do both bounded metadata inspection and pixel
 /// decode. The gate's wait does not demand UI frames or retain Runtime objects.
-private final class RasterWorkers: @unchecked Sendable {
+/// While any list travels fast (`travelling`), only the first decodes: a
+/// second decode in flight doubles ImageIO's buffers at the peak, and at
+/// that speed most rows pass before either lands.
+final class RasterWorkers: @unchecked Sendable {
     static let shared = RasterWorkers()
     private let lock = NSLock()
     private var backends: [UInt64: WeakRasterBackend] = [:]
     private var cursor: UInt64 = 0
-    private init() {
-        for _ in 0..<2 { Thread.detachNewThread { [self] in run() } }
+    private var fast = Set<ObjectIdentifier>()
+    /// Whether `owner` (a scroll pump) has a list travelling fast.
+    func travelling(_ owner: AnyObject, _ value: Bool) {
+        lock.lock()
+        if value { fast.insert(ObjectIdentifier(owner)) } else { fast.remove(ObjectIdentifier(owner)) }
+        lock.unlock()
     }
-    func add(_ backend: RasterBackend) { lock.lock(); backends[backend.id] = WeakRasterBackend(backend); lock.unlock() }
+    var single: Bool { lock.lock(); defer { lock.unlock() }; return !fast.isEmpty }
+    private init() {
+        for i in 0..<2 { Thread.detachNewThread { [self] in run(i) } }
+    }
+    fileprivate func add(_ backend: RasterBackend) { lock.lock(); backends[backend.id] = WeakRasterBackend(backend); lock.unlock() }
     private func backend(_ id: UInt64) -> RasterBackend? {
         lock.lock(); defer { lock.unlock() }; return backends[id]?.value
     }
@@ -249,10 +260,15 @@ private final class RasterWorkers: @unchecked Sendable {
         }
         return false
     }
-    private func run() {
+    private func run(_ index: Int) {
         var metadataFirst = false
         while true {
             autoreleasepool {
+                // The second worker only reads metadata while one decodes.
+                if index > 0 && single {
+                    if !metadataTurn() { Thread.sleep(forTimeInterval: 0.005) }
+                    return
+                }
                 // Each decode earns a metadata turn, even under continuous
                 // ready-metadata traffic from another session.
                 if metadataFirst { metadataFirst = false; if metadataTurn() { return } }

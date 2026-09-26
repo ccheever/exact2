@@ -41,9 +41,12 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     }
     deinit {
         link?.invalidate()
+        RasterWorkers.shared.travelling(self, false)
         if let turnObserver { CFRunLoopRemoveObserver(CFRunLoopGetMain(), turnObserver, .commonModes) }
     }
     var sliceBudget: TimeInterval { min(0.004, max(0.001, refreshInterval * 0.24)) }
+    /// Travel (points/s) past which images decode one at a time.
+    static let fastTravel = 20_000.0
 
     private struct Travel { var top: CGFloat, time: TimeInterval, velocity = 0.0 }
     private struct Cover {
@@ -183,7 +186,7 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         value.add(to: .main, forMode: .common)
         link = value
     }
-    private func stop() { link?.invalidate(); link = nil }
+    private func stop() { link?.invalidate(); link = nil; RasterWorkers.shared.travelling(self, false) }
     private func scheduleAfterScroll() {
         guard !queued else { return }
         queued = true
@@ -225,6 +228,8 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
             textPending = p.refreshVisibleText(deadline: deadline, velocity: CGFloat(fastest), interval: refreshInterval)
             Presenter.signposts.endInterval("pump-text", post)
         }
+        // One image decode at a time while a list travels fast.
+        RasterWorkers.shared.travelling(self, p.listViews.keys.contains { abs(velocity($0)) > Self.fastTravel })
         if pending.isEmpty && !textPending && p.collections.fillPending.isEmpty { stop() }
     }
     /// Agent reads keep their settled contract, outside the scroll callback.
