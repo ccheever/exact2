@@ -1993,6 +1993,11 @@
       "pencil",
       "pencil.line",
       "M4 20h16M5 16 16 5l3 3L8 19H5Z"
+    ],
+    [
+      "waveform",
+      "waveform",
+      "M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4"
     ]
   ],
   "_symbols": "[role, Apple system symbol name, browser SVG path in a 24-unit box]. The path is stroked; a filled state is its own role, `<role>-fill` for Apple's `<name>.fill`, whose path is a filled silhouette (even-odd, so a cutout is a subpath). Generated once; hosts never admit platform names directly."
