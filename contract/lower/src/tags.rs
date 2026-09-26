@@ -194,6 +194,11 @@ pub fn prop_ty(prop: PropId) -> PropTy {
     }
 }
 
+/// Whether an attribute sets style rows.
+pub fn style(name: &str) -> bool {
+    matches!(attr(name), Some(AttrTarget::Styles(_)))
+}
+
 /// Look up an attribute.
 pub fn attr(name: &str) -> Option<AttrTarget> {
     let styles = |rows: &'static [StyleId]| AttrTarget::Styles(rows);

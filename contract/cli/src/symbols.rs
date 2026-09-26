@@ -224,7 +224,8 @@ pub fn symbols_json(path: &Path, name: Option<&str>) -> Result<String, CompileEr
             None,
         )
     } else {
-        let checked = contract_types::check(&file).map_err(|e| sources.resolve(e.into()))?;
+        let checked = contract_types::check(&file, contract_lower::tags::style)
+            .map_err(|e| sources.resolve(e.into()))?;
         (checked.types, Some(checked.expanded))
     };
     let mut r = Resolver {
