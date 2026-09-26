@@ -343,8 +343,7 @@ impl<D: DataSource> Presenter<D> {
         // Initial selected layout and asset metadata/integrity accepted.
         // Decoded pixels and their natural dimensions arrive together later.
         // Only now may the app's queued requests reach its executor.
-        let executor = crate::executor::Executor::start(&host.grants());
-        host.listen(executor.waker());
+        let executor = host.executor();
         if let Some(note) = executor.note() {
             host.log(note.to_string());
         }
@@ -612,8 +611,7 @@ impl<D: DataSource> Presenter<D> {
         self.assets = assets;
         images.enable_decode();
         self.images = images;
-        self.executor = crate::executor::Executor::start(&self.host.grants());
-        self.host.listen(self.executor.waker());
+        self.executor = self.host.executor();
         self.parked.clear();
         self.scroll.clear();
         self.collection = collection::State::default();
@@ -760,8 +758,7 @@ impl<D: DataSource> Presenter<D> {
         self.module = module;
         self.text = candidate_text.clone();
         self.brush.text = candidate_text;
-        self.executor = crate::executor::Executor::start(&self.host.grants());
-        self.host.listen(self.executor.waker());
+        self.executor = self.host.executor();
         self.parked.clear();
         self.scroll.clear();
         self.collection = collection::State::default();

@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { focusController, runFocusCommands, environment, inertAncestor, navigation, afterPaintPieces, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst } from "./navigation.js";
+import { focusController, runFocusCommands, environment, inertAncestor, navigation, afterPaintPieces, scrollFollowers, renderMarkup, keyframes, navigableURL, navigates, refuseURL, devFirst } from "./navigation.js";
 let httpModule;
 function httpHelpers() {
   return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
@@ -37,16 +37,8 @@ let inputReady = false;
 let inputHandlers;
 const authoredDisabled = new WeakMap();
 let logicInfo = null, moduleLoader = null, activeModule = null, moduleResponse = new Uint8Array();
-// The app's page module (`host.web.native`): it answers `native.later` here,
-// on the page, where the browser's own capabilities are. Loaded at first use.
-const pageNative = document.querySelector('meta[name="exact-native"]')?.content;
-let pageNativeModule = null;
-// The page module, loaded once; its `connect({ changed })` receives the one
-// way it announces a device topic (LLP 1016.002).
-const loadPageNative = () => pageNativeModule ??= import(new URL(pageNative, document.baseURI).href).then((module) => {
-  module.connect?.({ changed: (topic) => { if (inputReady && wasm.exact_changed) applyBatch(JSON.parse(readOut(wasm.exact_changed(writeIn(String(topic)))))); } });
-  return module;
-});
+const pageNative = document.querySelector('meta[name="exact-native"]')?.content; let pageNativeModule = null; // the app's page module (`host.web.native`) answers `native.later`, loaded after paint at first use (native-glue.js)
+const loadPageNative = () => pageNativeModule ??= loadAfterPaint('./native-glue.js', 'pageNative').then((load) => load(pageNative && new URL(pageNative, document.baseURI).href, (topic) => { if (inputReady && wasm.exact_changed) applyBatch(JSON.parse(readOut(wasm.exact_changed(writeIn(String(topic)))))); }));
 let rustLoader = null, rustLoading = null;
 const rustImports = Object.fromEntries(['load', 'call', 'read', 'drop'].map(name => [name, (...args) => {
   if (!rustLoader) throw new Error('Rust module loader is not ready');
@@ -317,8 +309,6 @@ addEventListener("resize", () => {
   requestAnimationFrame(positionContexts);
 });
 visualViewport?.addEventListener("resize", () => requestAnimationFrame(positionContexts));
-const keyframesSheet = document.head.appendChild(document.createElement("style")), keyframeNames = new Set(); // `@keyframes` named by content, each inserted once, kept across a restart (LLP 1057 D5)
-function keyframes(op) { if (!keyframeNames.has(op.name)) { keyframeNames.add(op.name); keyframesSheet.sheet.insertRule(op.css, keyframesSheet.sheet.cssRules.length); } }
 const symbolStyle = document.createElement("style");
 symbolStyle.textContent = 'img[data-symbol-path]{background-color:var(--exact-symbol-tint,#000)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,100% 100%);mask-origin:content-box;mask-clip:content-box}';
 document.head.append(symbolStyle);
@@ -692,20 +682,8 @@ function apply(batch) {
       case "request": {
         // Host and source scopes both admit the request (LLP 1027.001 D2).
         const { ticket, method, url, headers, body, cache } = op, requestIncarnation = incarnation;
-        // A long native call is the app's own page module's, not the network's.
-        if (url === "exact-native:") {
-          const p = Promise.resolve().then(async () => {
-            if (!pageNative) throw new Error("this app has no page module (host.web.native)");
-            const module = await loadPageNative();
-            if (typeof module.later !== "function") throw new Error("the page module exports no later(request)");
-            const request = JSON.parse(decoder.decode(Uint8Array.from(atob(body ?? ""), (c) => c.charCodeAt(0))));
-            return JSON.stringify(await module.later(request) ?? null);
-          }).then((reply) => safelyFulfill(requestIncarnation, ticket, 0, 200, "", encoder.encode(reply)),
-            (e) => safelyFulfill(requestIncarnation, ticket, 0, 500, "", encoder.encode(String(e?.message ?? e))));
-          inflight.add(p);
-          p.finally(() => inflight.delete(p));
-          break;
-        }
+        if (url === "exact-native:") { // a long native call is the app's own page module's, not the network's
+          const p = loadPageNative().then((native) => native.later(body)).then((reply) => safelyFulfill(requestIncarnation, ticket, 0, 200, "", encoder.encode(reply)), (e) => safelyFulfill(requestIncarnation, ticket, 0, 500, "", encoder.encode(String(e?.message ?? e)))); inflight.add(p); p.finally(() => inflight.delete(p)); break; }
         const scopeValid = op.scope == null || typeof op.scope === 'string' && op.scope.split('\n').map(s=>s.trim()).filter(Boolean).every(s=>grants.map(g=>g.trim()).includes(s));
         // Plain bundled-asset GETs use the immutable app namespace.
         const asset = method === 'GET' && !body && Object.keys(headers).length === 0 && /^\/assets\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/.test(url);
@@ -1293,7 +1271,6 @@ function startClock() {
   }
 }
 function activateData() {
-  if (pageNative) loadPageNative().catch((e) => console.error("exact: the page module did not load", e));
   const batch = JSON.parse(readOut(wasm.exact_data_ready()));
   if (batch.error) throw new Error(batch.error);
   page?.release(applyBatch); applyBatch(batch);
@@ -1382,7 +1359,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   focus.restart(kept, () => applyBatch(batch), () => ask({ op: "tree" }), id => views.get(id));
   // @ref LLP 1027.000.000 — the date, as the clock the runner already reads.
   if (wasm.exact_set_time) applyBatch(JSON.parse(readOut(wasm.exact_set_time(Date.now() - now(), -new Date().getTimezoneOffset()))));
-  // The launch's seed: explicit entropy for ids, from the platform's secure source.
+  // The place, and the launch's seed: explicit entropy for ids, from the platform's secure source.
   if (wasm.exact_set_place) { const seed = crypto.getRandomValues(new Uint32Array(2)); applyBatch(JSON.parse(readOut(wasm.exact_set_place(writeIn(`${navigator.language}\0${Intl.DateTimeFormat().resolvedOptions().timeZone}\0${(seed[0] & 0x1fffff) * 4294967296 + seed[1]}`))))); }
   globalThis.exact?.gpu?.finishRestart();
   if (bytes && !module && (inputReady || root.dataset.error)) activateData(); // A restart after the first activation.

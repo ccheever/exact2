@@ -312,6 +312,10 @@ export function refuseURL(el, name, value) {
   console.warn(`exact: refused ${name} ${JSON.stringify(String(value).slice(0, 80))}: only http, https, mailto and tel navigate`);
   if (name === "src") el.setAttribute(name, "about:blank"); else el.removeAttribute(name);
 }
+// `@keyframes` named by content, each inserted once, kept across a restart (LLP 1057 D5).
+const keyframesSheet = document.head.appendChild(document.createElement("style")), keyframeNames = new Set();
+export function keyframes(op) { if (!keyframeNames.has(op.name)) { keyframeNames.add(op.name); keyframesSheet.sheet.insertRule(op.css, keyframesSheet.sheet.cssRules.length); } }
+
 export function renderMarkup(el, json) {
   let pieces;
   try { pieces = JSON.parse(json); } catch { pieces = []; }

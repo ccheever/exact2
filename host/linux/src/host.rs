@@ -479,9 +479,12 @@ impl<D: DataSource> Host<D> {
         self.runner.has_announced()
     }
 
-    /// Take the source's announced topics, waking the host (LLP 1016.002).
-    pub fn listen(&mut self, wake: std::sync::Arc<dyn Fn() + Send + Sync>) {
-        self.runner.listen(wake);
+    /// An executor for the app's grants, which the source's announced topics
+    /// also wake (LLP 1016.002).
+    pub fn executor(&mut self) -> crate::executor::Executor {
+        let executor = crate::executor::Executor::start(&self.grants());
+        self.runner.listen(executor.waker());
+        executor
     }
 
     /// A long native call's work: the source's native handler, off this thread.
