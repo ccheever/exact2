@@ -53,10 +53,7 @@ final class TextMetricsTests: XCTestCase {
                 .font: engine.font(size: run.size, weight: run.weight, family: run.family, italic: run.italic),
                 .foregroundColor: TextEngine.color(run.color ?? spec.color)]
             if run.letterSpacing != 0 { attrs[.kern] = run.letterSpacing }
-            if run.decoration.isEmpty {
-                attrs[.exactUnderline] = InlineUnderline(font: attrs[.font] as! PlatformFont as CTFont,
-                                                         color: (attrs[.foregroundColor] as! PlatformColor).cgColor)
-            }
+            if run.decoration.isEmpty { attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue }
             else { attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             appended.append(NSAttributedString(string: run.text, attributes: attrs))
         }

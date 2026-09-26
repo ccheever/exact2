@@ -137,40 +137,51 @@ struct SourceMap: Hashable {
     }
 }
 
-/// A face's CSS line box as WebKit sets it on this platform — the parity
-/// oracle (the web is the standard). WebKit keeps a face's ascent, descent
-/// and line gap as whole pixels: iOS rounds each up, macOS to the nearest.
-/// `line-height: normal` is that content area plus the gap, split around it;
-/// a set line height centres the whole-pixel content area in it, fractions
-/// kept. Measured in Safari on the iOS 27 simulator and in WKWebView on
-/// macOS 27 for SF, SF Mono and the fallback faces (Arabic, Thai, CJK,
-/// emoji), 10–40 px; TextParityTests pins them. (macOS WebKit also floors a
-/// set height to a whole pixel; that is not followed: Chrome keeps it.)
+/// A face's CSS line box. macOS follows Chrome, the parity oracle (the web
+/// host's smoke and `browser_cases.rs` run in it), on the same faces: Blink
+/// keeps ascent, descent and line gap as whole pixels, rounded to the
+/// nearest; `line-height: normal` puts the gap's floor half above and the
+/// rest below, and a set height centres the content area with the baseline
+/// floored. Chrome 154 on macOS 26.6 at device scale 1 (the web smoke's),
+/// captured with getBoundingClientRect for SF 10-40 px and the fallback
+/// faces; TextParityMacTests pins it.
+///
+/// iOS keeps CoreText's unrounded metrics, the paragraph's height rounded up
+/// once. Chrome's rule cannot be applied there: iOS's SF has other vertical
+/// metrics (15.23 + 3.86 at 16 px against the Mac's 15.47 + 3.38), so
+/// rounding each gives 16 at 14 px where Chrome has 17, and the scroll
+/// fixture's cross-host 652 (smoke.mjs) would move. See QUEUE.
 enum CSSLineBox {
-    #if os(iOS)
-    static func pixels(_ value: CGFloat) -> CGFloat { ceil(value) }
-    #else
-    static func pixels(_ value: CGFloat) -> CGFloat { value.rounded() }
-    #endif
-
     /// A text advance as the browser's layout holds it: rounded up to its
     /// 1/64 px layout unit, never to a whole point (a chip's width).
     static func layoutWidth(_ width: CGFloat) -> CGFloat { ceil(width * 64) / 64 }
 
+    /// The content area (an inline background's extent) above and below the baseline.
+    static func content(_ font: CTFont) -> (CGFloat, CGFloat) {
+        #if os(macOS)
+        (CTFontGetAscent(font).rounded(), CTFontGetDescent(font).rounded())
+        #else
+        (CTFontGetAscent(font), CTFontGetDescent(font))
+        #endif
+    }
+
     /// Above and below the baseline: `line-height: normal` when `height` is
     /// nil, else the authored line height.
     static func extents(_ font: CTFont, height: CGFloat?) -> (CGFloat, CGFloat) {
-        let ascent = pixels(CTFontGetAscent(font)), descent = pixels(CTFontGetDescent(font))
+        #if os(macOS)
+        let (ascent, descent) = content(font)
         guard let height else {
-            let gap = pixels(CTFontGetLeading(font))
-            #if os(iOS)
-            return (ascent + gap / 2, descent + gap / 2)
-            #else
+            let gap = CTFontGetLeading(font).rounded()
             return (ascent + floor(gap / 2), descent + ceil(gap / 2))
-            #endif
         }
-        let half = (height - ascent - descent) / 2
-        return (ascent + half, height - ascent - half)
+        guard height.isFinite else { return (ascent, descent) }
+        let above = ascent + floor((height - ascent - descent) / 2)
+        return (above, height - above)
+        #else
+        let ascent = CTFontGetAscent(font), below = CTFontGetDescent(font) + CTFontGetLeading(font)
+        let half = ((height ?? ascent + below) - ascent - below) / 2
+        return (ascent + half, below + half)
+        #endif
     }
 }
 
@@ -565,8 +576,9 @@ final class TextEngine {
     }
 
     /// CSS `font-weight` on a variable system face is its `wght` axis at
-    /// that number, as WebKit sets it: UIKit's semibold is `wght` 590 and its
-    /// medium 510, so `600` text measured 0.2% narrower than Safari's.
+    /// that number, as Chrome and WebKit set it: UIKit's semibold is `wght`
+    /// 590 and its medium 510, so `600` text measured 0.2% narrower than
+    /// Chrome's ("Heavy list" at 17 px: 77.67 against 77.87).
     static func cssWeight(_ font: PlatformFont, weight: Int, size: CGFloat) -> PlatformFont {
         let tag = 0x77676874 as NSNumber // 'wght'
         guard let axes = CTFontCopyVariation(font as CTFont) as? [NSNumber: NSNumber], let current = axes[tag],
@@ -594,14 +606,12 @@ final class TextEngine {
         for r in spec.runs {
             var a: [NSAttributedString.Key: Any] = [.font: font(r), .foregroundColor: r.color.map(TextEngine.color) ?? color]
             if r.letterSpacing != 0 { a[.kern] = r.letterSpacing }
-            if r.decoration.contains("underline") || (r.decoration.isEmpty && !r.href.isEmpty) {
-                a[.exactUnderline] = InlineUnderline(font: a[.font] as! PlatformFont as CTFont, color: (a[.foregroundColor] as! PlatformColor).cgColor)
-            }
+            if r.decoration.contains("underline") || (r.decoration.isEmpty && !r.href.isEmpty) { a[.underlineStyle] = NSUnderlineStyle.single.rawValue }
             if r.decoration.contains("line-through") { a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             if let fill = r.background.map(TextEngine.color), fill.cgColor.alpha > 0 {
                 let f = a[.font] as! PlatformFont
-                a[.exactBackground] = InlineBackground(color: fill.cgColor, ascent: CSSLineBox.pixels(f.ascender),
-                                                       descent: CSSLineBox.pixels(-f.descender))
+                let (ascent, descent) = CSSLineBox.content(f as CTFont)
+                a[.exactBackground] = InlineBackground(color: fill.cgColor, ascent: ascent, descent: descent)
             }
             let length = r.text.utf16.count
             if length > 0 { s.setAttributes(a, range: NSRange(location: offset, length: length)) }
@@ -716,6 +726,7 @@ final class TextEngine {
         let strut = spec.strut ?? spec.runs.first
         func extents(_ run: Run) -> (CGFloat, CGFloat) { CSSLineBox.extents(font(run) as CTFont, height: run.lineHeight) }
         let minimum = strut.map(extents) ?? (0, 0)
+        var explicit = false
         func authoredExtents(_ run: Run) -> (CGFloat, CGFloat) {
             // Reuse only this layout's exact strut metrics. Font keys preserve
             // signed zero; nonfinite inputs keep their original computation.
@@ -788,7 +799,13 @@ final class TextEngine {
             // CSS inline boxes share a baseline. Include the paragraph strut
             // and only the runs on this line, preserving each font's half-leading.
             var above = minimum.0, below = minimum.1
-            func include(_ a: CGFloat, _ b: CGFloat) { above = max(above, a); below = max(below, b) }
+            var aboveExplicit = strut?.lineHeight != nil, belowExplicit = aboveExplicit
+            func include(_ a: CGFloat, _ b: CGFloat, explicit: Bool) {
+                if a > above { above = a; aboveExplicit = explicit }
+                else if a == above { aboveExplicit = aboveExplicit && explicit }
+                if b > below { below = b; belowExplicit = explicit }
+                else if b == below { belowExplicit = belowExplicit && explicit }
+            }
             for glyphRun in CTLineGetGlyphRuns(line) as! [CTRun] {
                 let range = CTRunGetStringRange(glyphRun)
                 var first = 0, last = runEnds.count
@@ -809,14 +826,14 @@ final class TextEngine {
                         // Explicit boxes use authored metrics; fallback ink
                         // can overflow without enlarging the inline box.
                         let (a, b) = authoredExtents(authored)
-                        include(a, b)
+                        include(a, b, explicit: true)
                     } else {
                         includesNormal = true
                     }
                 }
                 if !matched, let strut, strut.lineHeight != nil {
                     let (a, b) = extents(strut)
-                    include(a, b)
+                    include(a, b, explicit: true)
                     continue
                 }
                 if matched && !includesNormal { continue }
@@ -825,8 +842,9 @@ final class TextEngine {
                 // Normal line height includes the actual emoji/fallback face's
                 // line box, as the browser's does.
                 let (a, d) = CSSLineBox.extents(shapedFont, height: nil)
-                include(a, d)
+                include(a, d, explicit: false)
             }
+            explicit = explicit || aboveExplicit || belowExplicit
             baselines.append(y + above)
             y += above + below
             lineBottoms.append(y)
@@ -839,13 +857,15 @@ final class TextEngine {
             // Empty editors retain the paragraph's own line box.
             baselines.append(minimum.0)
             y = minimum.0 + minimum.1
+            explicit = strut?.lineHeight != nil
         }
-        // The line boxes are already the browser's (CSSLineBox), fractions of
-        // an authored height or a half gap included: the height is their sum.
-        // A width rounds up to the browser's 1/64 layout unit, so text laid
-        // out again at its own measured width still fits on its lines.
+        // An authored CSS line height fixes the line box, including fractions;
+        // a `normal` one is whole pixels on macOS and CoreText's sum, rounded
+        // up once, on iOS (CSSLineBox). A width rounds up to the browser's
+        // 1/64 layout unit, so text laid out again at its own measured width
+        // still fits on its lines.
         return Paragraph(lines: lines, baselines: baselines, width: CSSLineBox.layoutWidth(maxWidth),
-                         height: y, lineBottoms: lineBottoms,
+                         height: explicit ? y : ceil(y), lineBottoms: lineBottoms,
                          shape: shape, offeredWidth: width, glyphCount: glyphCount)
     }
 
@@ -1081,31 +1101,8 @@ final class InlineBackground: NSObject {
     override var hash: Int { color.hashValue ^ ascent.hashValue ^ descent.hashValue }
 }
 
-/// `text-decoration-line: underline` as WebKit paints it (the parity
-/// oracle), not CoreText's: the line's top edge sits `max(1, ceil(size / 32))`
-/// below the baseline, and it is `size / 16` thick (`text-decoration-thickness:
-/// auto`), rounded up to whole device pixels. Measured in Safari on the iOS 27
-/// simulator at 12–34 px; the font's own underline position is not used.
-final class InlineUnderline: NSObject {
-    let color: CGColor
-    let offset: CGFloat
-    let thickness: CGFloat
-    init(font: CTFont, color: CGColor) {
-        let size = CTFontGetSize(font)
-        self.color = color
-        offset = max(1, ceil(size / 32))
-        thickness = size / 16
-    }
-    override func isEqual(_ object: Any?) -> Bool {
-        guard let other = object as? InlineUnderline else { return false }
-        return color == other.color && offset == other.offset && thickness == other.thickness
-    }
-    override var hash: Int { color.hashValue ^ offset.hashValue ^ thickness.hashValue }
-}
-
 extension NSAttributedString.Key {
     static let exactBackground = NSAttributedString.Key("ExactInlineBackground")
-    static let exactUnderline = NSAttributedString.Key("ExactInlineUnderline")
 }
 
 /// One line's paint into a y-down context, shared by every Apple painter.
@@ -1117,9 +1114,6 @@ enum TextLinePaint {
     static func draw(_ line: CTLine, at origin: CGPoint, in ctx: CGContext) {
         ctx.saveGState()
         for (rect, color) in backgrounds(line, at: origin) {
-            ctx.setFillColor(color); ctx.fill(rect)
-        }
-        for (rect, color) in underlines(line, at: origin, in: ctx) {
             ctx.setFillColor(color); ctx.fill(rect)
         }
         // The text matrix is not graphics state; put the caller's back.
@@ -1137,33 +1131,7 @@ enum TextLinePaint {
     /// its glyphs' advance across and its font's content area down. Glyph
     /// runs that fallback or bidi split are joined again where they touch.
     static func backgrounds(_ line: CTLine, at origin: CGPoint) -> [(CGRect, CGColor)] {
-        spans(line, key: .exactBackground).map { (lo, hi, fill: InlineBackground) in
-            (CGRect(x: origin.x + lo, y: origin.y - fill.ascent, width: hi - lo, height: fill.ascent + fill.descent), fill.color)
-        }
-    }
-
-    /// Underlines under each decorated fragment, in `ctx`'s user space and
-    /// snapped to its device pixels as the browser snaps them: the top edge
-    /// to the nearest, the thickness up to whole pixels.
-    static func underlines(_ line: CTLine, at origin: CGPoint, in ctx: CGContext?) -> [(CGRect, CGColor)] {
-        spans(line, key: .exactUnderline).map { (lo, hi, mark: InlineUnderline) in
-            let rect = CGRect(x: origin.x + lo, y: origin.y + mark.offset, width: hi - lo, height: mark.thickness)
-            guard let ctx else { return (rect, mark.color) }
-            // Device space may run either way up: snap the edge nearest the
-            // baseline and grow away from it by whole pixels.
-            let scale = ctx.userSpaceToDeviceSpaceTransform.d
-            let top = ctx.convertToDeviceSpace(CGPoint(x: rect.minX, y: rect.minY))
-            let edge = top.y.rounded()
-            let far = edge + (scale < 0 ? -1 : 1) * max(1, ceil(abs(mark.thickness * scale) - 0.01))
-            let a = ctx.convertToUserSpace(CGPoint(x: top.x, y: edge)).y, b = ctx.convertToUserSpace(CGPoint(x: top.x, y: far)).y
-            return (CGRect(x: rect.minX, y: min(a, b), width: rect.width, height: abs(b - a)), mark.color)
-        }
-    }
-
-    /// The horizontal extents of the glyph runs carrying `key`, joined where
-    /// equal values touch.
-    static func spans<Value: NSObject>(_ line: CTLine, key: NSAttributedString.Key) -> [(CGFloat, CGFloat, Value)] {
-        var spans: [(CGFloat, CGFloat, Value)] = []
+        var spans: [(CGFloat, CGFloat, InlineBackground)] = []
         let runs = CTLineGetGlyphRuns(line) as! [CTRun]
         // CSS removes the collapsible spaces that end a line: a wrapped run's
         // background stops at its last glyph, as the browser paints it. A
@@ -1174,7 +1142,7 @@ enum TextLinePaint {
         }
         for run in runs {
             let attributes = CTRunGetAttributes(run) as NSDictionary
-            guard let fill = attributes[key] as? Value else { continue }
+            guard let fill = attributes[NSAttributedString.Key.exactBackground] as? InlineBackground else { continue }
             let count = CTRunGetGlyphCount(run)
             guard count > 0 else { continue }
             var positions = [CGPoint](repeating: .zero, count: count)
@@ -1190,12 +1158,14 @@ enum TextLinePaint {
             if hi > lo { spans.append((lo, hi, fill)) }
         }
         spans.sort { $0.0 < $1.0 }
-        var merged: [(CGFloat, CGFloat, Value)] = []
+        var merged: [(CGFloat, CGFloat, InlineBackground)] = []
         for span in spans {
             if let last = merged.last, last.2.isEqual(span.2), span.0 <= last.1 + 0.01 {
                 merged[merged.count - 1].1 = max(last.1, span.1)
             } else { merged.append(span) }
         }
-        return merged
+        return merged.map { lo, hi, fill in
+            (CGRect(x: origin.x + lo, y: origin.y - fill.ascent, width: hi - lo, height: fill.ascent + fill.descent), fill.color)
+        }
     }
 }

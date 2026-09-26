@@ -58,8 +58,9 @@ final class TextPaintTests: XCTestCase {
         XCTAssertEqual(fragments.filter { !$0.isEmpty }.count, 2, "one background per line fragment of the run")
         let font = engine.font(size: 16, weight: 400, family: 0, italic: false)
         let first = try XCTUnwrap(fragments[0].first?.0)
-        XCTAssertEqual(first.minY, -CSSLineBox.pixels(font.ascender), accuracy: 0.01, "the content area of the run's font, whole pixels")
-        XCTAssertEqual(first.height, CSSLineBox.pixels(font.ascender) + CSSLineBox.pixels(-font.descender), accuracy: 0.01)
+        let (ascent, descent) = CSSLineBox.content(font as CTFont)
+        XCTAssertEqual(first.minY, -ascent, accuracy: 0.01, "the content area of the run's font, whole pixels as Chrome's")
+        XCTAssertEqual(first.height, ascent + descent, accuracy: 0.01)
         let plainWidth = CGFloat(CTLineGetOffsetForStringIndex(p.lines[0], 6, nil))
         XCTAssertEqual(first.minX, plainWidth, accuracy: 0.5, "starts where the run does")
 

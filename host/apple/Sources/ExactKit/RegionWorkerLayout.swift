@@ -106,6 +106,7 @@ final class RegionWorkerLayout {
             (run.font.above, run.font.below)
         }
         let minimum = source.strut.map { ($0.above, $0.below) } ?? (0, 0)
+        var explicit = false
         var lineBottoms: [CGFloat] = []
         var lines: [CTLine] = []
         var summaries: [RegionLine] = []
@@ -148,7 +149,13 @@ final class RegionWorkerLayout {
             // and only the runs on this line, preserving each font's half-leading.
             var above = minimum.0, below = minimum.1
             var lineInk = fontInk
-            func include(_ a: CGFloat, _ b: CGFloat) { above = max(above, a); below = max(below, b) }
+            var aboveExplicit = source.strutExplicit, belowExplicit = aboveExplicit
+            func include(_ a: CGFloat, _ b: CGFloat, explicit: Bool) {
+                if a > above { above = a; aboveExplicit = explicit }
+                else if a == above { aboveExplicit = aboveExplicit && explicit }
+                if b > below { below = b; belowExplicit = explicit }
+                else if b == below { belowExplicit = belowExplicit && explicit }
+            }
             for glyphRun in CTLineGetGlyphRuns(line) as! [CTRun] {
                 let range = CTRunGetStringRange(glyphRun)
                 let attributes = CTRunGetAttributes(glyphRun) as NSDictionary
@@ -163,22 +170,23 @@ final class RegionWorkerLayout {
                         // Explicit boxes use authored metrics; fallback ink
                         // can overflow without enlarging the inline box.
                         let (a, b) = extents(authored)
-                        include(a, b)
+                        include(a, b, explicit: true)
                     } else {
                         includesNormal = true
                     }
                 }
                 if !matched, source.strutExplicit {
                     let (a, b) = minimum
-                    include(a, b)
+                    include(a, b, explicit: true)
                     continue
                 }
                 if matched && !includesNormal { continue }
                 // Normal line height includes the actual emoji/fallback face's
                 // line box, as the browser's does.
                 let (a, d) = CSSLineBox.extents(shapedFont, height: nil)
-                include(a, d)
+                include(a, d, explicit: false)
             }
+            explicit = explicit || aboveExplicit || belowExplicit
             if retainHits || lineCount == 0 { baselines.append(y + above) }
             y += above + below
             if retainHits { lineBottoms.append(y) }
@@ -196,9 +204,10 @@ final class RegionWorkerLayout {
             // Empty editors retain the paragraph's own line box.
             baselines.append(minimum.0)
             y = minimum.0 + minimum.1
+            explicit = source.strutExplicit
         }
-        // The line boxes are already the browser's (CSSLineBox): the height is
-        // their sum; a width rounds up to the 1/64 layout unit.
+        // An authored line height keeps its fractions; `normal` rounds up once
+        // (CSSLineBox); a width rounds up to the 1/64 layout unit.
         // Check before metadata and at its coarse line boundaries. No partial
         // metrics or layout binding escape if the authoritative owner changed.
         try beforeMetadata()
@@ -206,10 +215,10 @@ final class RegionWorkerLayout {
         if compact {
             metadata = RegionParagraph(source: source, sourceSHA256: preparation.sourceSHA256,
                 lines: summaries, baselines: baselines, lineBottoms: lineBottoms,
-                width: CSSLineBox.layoutWidth(maxWidth), height: y, offeredWidth: width)
+                width: CSSLineBox.layoutWidth(maxWidth), height: explicit ? y : ceil(y), offeredWidth: width)
         } else {
             metadata = try RegionParagraph(source: source, sourceSHA256: preparation.sourceSHA256,
-                lines: lines, baselines: baselines, width: CSSLineBox.layoutWidth(maxWidth), height: y,
+                lines: lines, baselines: baselines, width: CSSLineBox.layoutWidth(maxWidth), height: explicit ? y : ceil(y),
                 lineBottoms: lineBottoms, offeredWidth: width, retainHits: retainHits, captureHits: false,
                 metadataCheckpoint: beforeMetadata)
         }

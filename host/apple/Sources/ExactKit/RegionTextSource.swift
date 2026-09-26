@@ -118,7 +118,7 @@ final class RegionTextSource: Sendable {
                 NSAttributedString.Key(kCTForegroundColorAttributeName as String): run.color,
             ]
             if run.letterSpacing != 0 { attributes[.kern] = run.letterSpacing }
-            if run.underline { attributes[.exactUnderline] = InlineUnderline(font: run.font.value, color: run.color) }
+            if run.underline { attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue }
             if run.strike { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             value.append(NSAttributedString(string: run.text, attributes: attributes))
         }
