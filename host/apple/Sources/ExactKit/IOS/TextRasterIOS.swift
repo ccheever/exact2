@@ -11,14 +11,38 @@ final class TextRasterizer {
         let key: TextRasterKey
         let group = DispatchGroup()
         var result: TextRasterImage?
+        weak var operation: Operation?
+        private let lock = NSLock()
+        private var started = false, abandoned = false
         init(_ node: NodeView, key: TextRasterKey) {
             self.node = node; self.key = key
             group.enter()
         }
+        /// The worker's claim: false once the job was abandoned unstarted.
+        func begin() -> Bool {
+            lock.lock(); defer { lock.unlock() }
+            started = !abandoned
+            return started
+        }
+        var wasAbandoned: Bool { lock.lock(); defer { lock.unlock() }; return abandoned }
+        /// Drop a job no worker has begun: true if it will never render.
+        func abandon() -> Bool {
+            lock.lock()
+            let unstarted = !started
+            if unstarted { abandoned = true }
+            lock.unlock()
+            if unstarted { operation?.cancel() }
+            return unstarted
+        }
     }
     private var working: [Work] = []
-    private static let maxConcurrent = 2
+    /// A worker per two cores, from two to four; twice that many jobs in
+    /// flight, so a worker finishing one finds the next already queued.
+    static let concurrency = max(2, min(4, ProcessInfo.processInfo.activeProcessorCount / 2))
+    private static let maxInFlight = concurrency * 2
     private static let maximumBytes: CGFloat = 16 * 1024 * 1024
+    var inFlight: Int { working.count }
+    var hasRoom: Bool { working.count < Self.maxInFlight }
 
     private func key(_ node: NodeView) -> TextRasterKey {
         let scale = node.window?.screen.scale ?? node.traitCollection.displayScale
@@ -38,15 +62,21 @@ final class TextRasterizer {
         return key
     }
 
+    /// Pixels for `node`'s paragraph. `urgent`: what shows has none, so they
+    /// are painted now — taken from its worker if that has finished or is
+    /// running, else rendered here. Otherwise a worker job at `priority`, if
+    /// there is room for one (false when there is not).
     @discardableResult
-    func ensure(_ node: NodeView, urgent: Bool) -> Bool {
+    func ensure(_ node: NodeView, urgent: Bool, priority: Operation.QueuePriority = .normal) -> Bool {
         guard node.canRasterText else { return true }
         let key = key(node)
         let visible = node.presenter?.textUrgentRect(node) ?? .zero
         let missingPixels = node.textRaster == nil || !node.textRasterFrame.contains(visible)
         if node.textRasterKey == key && (node.textRasterReady || !urgent || !missingPixels) { return true }
         let firstPixels = urgent && missingPixels
-        guard firstPixels || working.count < Self.maxConcurrent else { return false }
+        let pending = working.last { $0.node === node }
+        if firstPixels, let pending, pending.key == key, take(pending) { return true }
+        guard firstPixels || hasRoom else { return false }
         guard let engine = node.text else { return true }
         let measured = engine.measuredBreaks(key.spec, width: key.box.width)
         let paragraph = measured == nil ? node.paragraphLayout() : nil
@@ -56,6 +86,8 @@ final class TextRasterizer {
         let job = TextRasterJob(source: source.copy() as! NSAttributedString, ranges: ranges, baselines: baselines,
             flush: key.spec.align == 1 ? 0.5 : key.spec.align == 2 ? 1 : 0,
             box: key.box, size: key.size, scale: key.scale, clip: key.clip)
+        // A job for the paragraph's previous text or box paints nothing now.
+        if let pending { _ = pending.abandon() }
         node.textRasterKey = key; node.textRasterReady = false; node.textRasterFailed = false
         if firstPixels {
             let post = Presenter.signposts.beginInterval("text-raster-urgent")
@@ -65,13 +97,34 @@ final class TextRasterizer {
             let work = Work(node, key: key)
             working.append(work)
             work.group.notify(queue: .main) { [weak self] in self?.publish(work) }
-            RegionTextExecutor.queue.addOperation {
+            let operation = BlockOperation {
+                guard work.begin() else { return }
                 let post = Presenter.signposts.beginInterval("text-raster-worker")
                 work.result = job.render()
                 Presenter.signposts.endInterval("text-raster-worker", post)
-                work.group.leave()
             }
+            operation.queuePriority = priority
+            // Also when abandoned unstarted: the mailbox always closes.
+            operation.completionBlock = { work.group.leave() }
+            work.operation = operation
+            RegionTextExecutor.queue.addOperation(operation)
         }
+        return true
+    }
+    /// A worker's pixels for what shows now: its finished result, or the
+    /// running one waited for (it has the paragraph partly painted; the main
+    /// thread would start over). False when it has not begun: it is dropped
+    /// and the caller paints.
+    private func take(_ work: Work) -> Bool {
+        guard !work.wasAbandoned else { return false }
+        if work.group.wait(timeout: .now()) != .success {
+            if work.abandon() { return false }
+            let post = Presenter.signposts.beginInterval("text-raster-wait")
+            let done = work.group.wait(timeout: .now() + .milliseconds(8)) == .success
+            Presenter.signposts.endInterval("text-raster-wait", post)
+            guard done else { return false }
+        }
+        publish(work)
         return true
     }
     private func publish(_ work: Work) {
@@ -79,8 +132,20 @@ final class TextRasterizer {
         // Only a completed worker's mailbox is read, including by agent settlement.
         guard work.group.wait(timeout: .now()) == .success else { return }
         working.remove(at: index)
+        // Dropped unstarted: no pixels, and no failure either.
+        guard !work.wasAbandoned else { return }
         work.node?.showTextRaster(work.result, for: work.key)
         work.node?.presenter?.requestTextPublication()
+    }
+    /// Jobs whose paragraph left, or whose text or box changed since, or
+    /// that the list has already carried past (`passed`), and that no worker
+    /// has begun, are dropped: their pixels would never show.
+    func abandonStale(passed: (NodeView) -> Bool) {
+        for work in working {
+            guard let node = work.node, node.textRasterKey == work.key else { _ = work.abandon(); continue }
+            // A passed paragraph owes a job again if the list comes back.
+            if passed(node), work.abandon() { node.textRasterKey = nil }
+        }
     }
 
     /// A synchronous agent screenshot must observe the requested appearance,
@@ -105,10 +170,15 @@ final class TextRasterizer {
 extension NodeView {
     var canRasterText: Bool {
         if textRasterFailed && textRasterKey != nil { return false }
-        return isParagraph && flowShapes.isEmpty && !Capture.capturing && window != nil
-            && bounds.width > 0 && bounds.height > 0 && number("line_clamp") == 0 && canvasAbove == nil
-            && !paragraphSpec().ellipsis // `text-overflow` truncates as it paints (LLP 1053 G5)
+        guard isParagraph && flowShapes.isEmpty && !Capture.capturing && window != nil
+            && bounds.width > 0 && bounds.height > 0 && number("line_clamp") == 0 else { return false }
+        // `text-overflow` truncates as it paints (LLP 1053 G5).
+        return !paragraphSpec().ellipsis && canvasAbove == nil
     }
+    /// The whole paragraph's pixels are up for its current text and box: a
+    /// refresh has nothing to do for it until a change clears its key
+    /// (`invalidateText`, `textRasterGeometryChanged`, `dropTextRaster`).
+    var textRasterSettled: Bool { textRasterReady && textRasterWhole }
     func textRasterGeometryChanged() {
         if let key = textRasterKey, key.size == bounds.size, key.box == contentBox() { return }
         textRasterKey = nil
@@ -232,37 +302,72 @@ extension Presenter {
         return visible.isEmpty ? textBand(node, reach: viewport.bounds.height) : visible
     }
 
-    /// Called after layout/scroll returns, never by the scroll callback. Lead
-    /// rows receive workers before display; uncovered pixels that show, or
-    /// that the next frames' `travel` (points) will show, are urgent.
-    /// Each ancestor's clip is found once (`TextClips`), each paragraph's
-    /// distance from the viewport once, then sorted by that number.
+    /// Before the frame commits (the scroll callback, a rescue): a paragraph
+    /// that shows without pixels for what shows gets them now, from its
+    /// worker if that has finished or is running, else painted here — the
+    /// reader never sees it blank (LLP 1050.000 D1). A settled paragraph
+    /// costs one flag; the rest, their frame against the port.
+    func paintVisibleText() {
+        guard !applying else { return }
+        let port = viewport.bounds
+        let culls = viewport.clipsToBounds
+        var clips: TextClips?
+        defer { textClips = nil }
+        for node in textViews.values where !node.textRasterSettled && !node.bounds.isEmpty {
+            let c = clips ?? TextClips(viewport, soon: 0, reach: 0)
+            clips = c; textClips = c
+            if culls && !c.frame(node).intersects(port) { continue }
+            guard node.canRasterText else { continue }
+            let visible = textScrollportRect(node)
+            guard !visible.isEmpty, node.textRaster == nil || !node.textRasterFrame.contains(visible) else { continue }
+            textRasters.ensure(node, urgent: true)
+        }
+    }
+
+    /// Called after layout/scroll returns. What shows without pixels is
+    /// painted (as `paintVisibleText`); built paragraphs within the lead get
+    /// worker jobs, nearest first, what the next frames of travel
+    /// (`velocity`, points a second, over `interval`) will show before the
+    /// rest. At speed, what the list has carried past gets none, and its
+    /// unstarted jobs are dropped. Each ancestor's clip is found once
+    /// (`TextClips`), each paragraph's distance from the viewport once.
+    /// True while jobs wait for room or time.
     @discardableResult
-    func refreshVisibleText(deadline: TimeInterval? = nil, travel: CGFloat = 0) -> Bool {
+    func refreshVisibleText(deadline: TimeInterval? = nil, velocity: CGFloat = 0, interval: TimeInterval = 1.0 / 60) -> Bool {
         guard !applying else { return true }
-        let reach = viewport.bounds.height, port = viewport.bounds
-        let clips = TextClips(viewport, soon: min(max(0, travel), reach), reach: reach)
+        let port = viewport.bounds
+        let soon = min(port.height, abs(velocity) * CGFloat(interval) * 2)
+        // A quarter second of travel, at least a viewport.
+        let reach = max(port.height, abs(velocity) / 4)
+        let clips = TextClips(viewport, soon: 0, reach: reach)
         textClips = clips
         defer { textClips = nil }
+        // More than two viewports a second: what is behind will not show.
+        let fast = abs(velocity) > port.height * 2
+        func passed(_ r: CGRect) -> Bool { fast && (velocity > 0 ? r.maxY <= port.minY : r.minY >= port.maxY) }
+        if textRasters.inFlight > 0 { textRasters.abandonStale { passed(clips.frame($0)) } }
+        // The viewport clips its content: a paragraph farther than the reach
+        // from it has no band, so its distance alone rules it out.
+        let culls = viewport.clipsToBounds
         var ranked: [(distance: CGFloat, node: NodeView)] = []
-        ranked.reserveCapacity(textViews.count)
-        for node in textViews.values where !node.bounds.isEmpty && !textBand(node, reach: reach).isEmpty {
+        for node in textViews.values where !node.textRasterSettled && !node.bounds.isEmpty {
             let r = clips.frame(node)
-            ranked.append((max(0, port.minY - r.maxY, r.minY - port.maxY), node))
+            let distance = max(0, port.minY - r.maxY, r.minY - port.maxY)
+            guard !(culls && distance > reach), !passed(r), !textBand(node, reach: reach).isEmpty else { continue }
+            ranked.append((distance, node))
         }
         ranked.sort { $0.distance == $1.distance ? $0.node.id < $1.node.id : $0.distance < $1.distance }
-        var deferred = false, admitted = 0
-        for (_, node) in ranked where node.canRasterText {
-            let visible = textUrgentRect(node)
-            let urgent = !visible.isEmpty && (node.textRaster == nil || !node.textRasterFrame.contains(visible))
-            if urgent {
+        var deferred = false
+        for (distance, node) in ranked where node.canRasterText {
+            let visible = textScrollportRect(node)
+            if !visible.isEmpty && (node.textRaster == nil || !node.textRasterFrame.contains(visible)) {
                 textRasters.ensure(node, urgent: true)
                 continue
             }
-            guard !node.textRasterReady || node.textRasterKey == nil || node.textRasterKey?.clip != nil else { continue }
-            if admitted >= 6 || deadline.map({ CACurrentMediaTime() >= $0 }) == true { deferred = true; continue }
-            if !textRasters.ensure(node, urgent: false) { deferred = true }
-            admitted += 1
+            guard !node.textRasterSettled else { continue }
+            if !textRasters.hasRoom || deadline.map({ CACurrentMediaTime() >= $0 }) == true { deferred = true; continue }
+            let priority: Operation.QueuePriority = distance == 0 ? .veryHigh : distance <= soon ? .high : .normal
+            if !textRasters.ensure(node, urgent: false, priority: priority) { deferred = true }
         }
         return deferred
     }

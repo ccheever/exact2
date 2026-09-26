@@ -104,9 +104,8 @@ final class Presenter {
         }
         collections.requestFill = { [unowned self] in scrollPump.requestFill() }
         // Rows a rescue built show this frame: their text paints now, not
-        // after the commit, or they show without it (LLP 1050.000 D1). The
-        // deadline admits no worker job; only uncovered pixels paint.
-        collections.rescued = { [unowned self] in refreshVisibleText(deadline: CACurrentMediaTime()) }
+        // after the commit, or they show without it (LLP 1050.000 D1).
+        collections.rescued = { [unowned self] in paintVisibleText() }
         viewport.contentInsetAdjustmentBehavior = .never
         viewport.backgroundColor = .white
         if ExactEnv.agentMode {

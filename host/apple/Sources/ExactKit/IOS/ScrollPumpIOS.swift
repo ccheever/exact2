@@ -94,6 +94,8 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
                     || (!cover.atEnd && port.maxY + port.height + bias + 1 > cover.last) { pending.insert(node.id) }
             }
         }
+        // What this frame shows has its text before it commits.
+        p.paintVisibleText()
         textPending = true
         scheduleAfterScroll()
         start()
@@ -192,9 +194,9 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         }
         if textPending {
             let post = Presenter.signposts.beginInterval("pump-text")
-            // Paint now what the fastest list's next two frames will show.
-            let travel = p.listViews.keys.map { abs(velocity($0)) }.max() ?? 0
-            textPending = p.refreshVisibleText(deadline: deadline, travel: CGFloat(travel * refreshInterval * 2))
+            // Lead the fastest list's travel.
+            let fastest = p.listViews.keys.map { velocity($0) }.max { abs($0) < abs($1) } ?? 0
+            textPending = p.refreshVisibleText(deadline: deadline, velocity: CGFloat(fastest), interval: refreshInterval)
             Presenter.signposts.endInterval("pump-text", post)
         }
         if pending.isEmpty && !textPending && p.collections.fillPending.isEmpty { stop() }

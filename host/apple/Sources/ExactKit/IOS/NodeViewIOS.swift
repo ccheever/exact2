@@ -99,7 +99,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var boxDrawn = false
     /// A uniform border under the children, where they can reach it.
     var boxBorder: CALayer?
-    var textRasterKey: TextRasterKey?
+    var textRasterKey: TextRasterKey? { didSet { textRasterWhole = textRasterKey.map { $0.clip == nil } ?? false } }
+    /// The key is set and paints the whole paragraph (not a band of it).
+    private(set) var textRasterWhole = false
     var textRaster: CGImage?
     var textRasterLayer: CALayer?
     var textRasterFrame = CGRect.zero
