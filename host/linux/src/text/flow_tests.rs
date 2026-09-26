@@ -258,6 +258,29 @@ fn css_white_space_changes_flow_width_and_breaks() {
 }
 
 #[test]
+fn pre_line_flows_the_lines_its_plain_layout_has() {
+    // @ref LLP 1053 §0 G5 — flowed text breaks where plain text does.
+    let mut engine = TextEngine::new();
+    let s = crate::paint::text_spec(
+        &exact_kernel::StyleProps {
+            font_size: 16.0,
+            line_height: exact_kernel::LineHeight::Number(1.5),
+            white_space: exact_kernel::WhiteSpace::PreLine,
+            ..Default::default()
+        },
+        "A    B  \n\n  C",
+    );
+    assert_eq!(s.runs[0].text, "A B\n\nC");
+    let flowed = engine.paragraph_flow(&s, 500.0, &circle(900.0), None);
+    let plain = engine.paragraph(&s, Some(500.0));
+    assert_eq!(flowed.fragments().len(), 3);
+    assert_eq!(plain.layout_runs().count(), 3);
+    assert_eq!(flowed.height, plain.height);
+    let pair = engine.paragraph_flow(&spec("A B"), 500.0, &circle(900.0), None);
+    assert!((flowed.fragments()[0].width - pair.fragments()[0].width).abs() < 0.01);
+}
+
+#[test]
 fn rtl_hebrew_and_arabic_take_right_interval_first() {
     let mut engine = TextEngine::new();
     let hole = [FlowShape::RoundRect {

@@ -13,9 +13,7 @@ pub fn advance(text: &str) -> f32 {
 }
 pub fn prepare(text: &str, options: Options) -> Prepared {
     Prepared::new(text, options, &mut |r: std::ops::Range<usize>| {
-        if options.white_space != exact_textflow::WhiteSpace::PreWrap
-            && text[r.clone()].chars().all(char::is_whitespace)
-        {
+        if !options.white_space.preserves() && text[r.clone()].chars().all(char::is_whitespace) {
             8.0
         } else {
             advance(&text[r])

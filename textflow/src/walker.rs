@@ -39,7 +39,7 @@ pub enum OverflowWrap {
 }
 /// CSS `white-space`, the shorthand of `white-space-collapse` × `text-wrap-mode`:
 /// `normal` is collapse × wrap, `pre-wrap` preserve × wrap, `nowrap` collapse ×
-/// nowrap. @ref LLP 1053 §0 G5 — `pre-line` (preserve-breaks × wrap) is next.
+/// nowrap, `pre-line` preserve-breaks × wrap. @ref LLP 1053 §0 G5
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum WhiteSpace {
     /// Collapse spaces, tabs and segment breaks to one hanging space.
@@ -49,12 +49,21 @@ pub enum WhiteSpace {
     PreWrap,
     /// Collapse like `normal` with no soft wrap opportunity: one line, however wide.
     Nowrap,
+    /// Collapse spaces and tabs like `normal`, but a line feed is a forced
+    /// break, and the spaces around it go. As in Chrome, only U+000A is a
+    /// segment break: a carriage return is a space, and U+2028 and the other
+    /// Unicode breaks collapse as under `normal`.
+    PreLine,
 }
 impl WhiteSpace {
     /// `white-space-collapse: preserve`: spaces and segment breaks are kept;
     /// otherwise they collapse ([`crate::collapse`] on native engines).
     pub fn preserves(self) -> bool {
         self == WhiteSpace::PreWrap
+    }
+    /// `preserve` or `preserve-breaks`: a segment break is a forced line break.
+    pub fn preserves_breaks(self) -> bool {
+        matches!(self, WhiteSpace::PreWrap | WhiteSpace::PreLine)
     }
     /// `text-wrap-mode: wrap`: soft wrap opportunities may end a line.
     pub fn wraps(self) -> bool {
@@ -175,7 +184,14 @@ impl Prepared {
             content_end: 0,
         };
         let preserve = options.white_space == WhiteSpace::PreWrap;
-        let whitespace = |ch| space(ch) || (!preserve && hard_break(ch));
+        // A forced break: every Unicode hard break when preserving, only a line
+        // feed under `pre-line`; any other break character is collapsible space.
+        let forced = |ch| match options.white_space {
+            WhiteSpace::PreWrap => hard_break(ch),
+            WhiteSpace::PreLine => ch == '\n',
+            WhiteSpace::Normal | WhiteSpace::Nowrap => false,
+        };
+        let whitespace = |ch| space(ch) || (hard_break(ch) && !forced(ch));
         let mut start = 0;
         for end in opportunities(text, words) {
             if end == start {
@@ -199,12 +215,8 @@ impl Prepared {
                 continue;
             }
             let source = &text[start..end];
-            let hard = preserve && source.chars().next_back().is_some_and(hard_break);
-            let without_break = if preserve {
-                source.trim_end_matches(hard_break)
-            } else {
-                source
-            };
+            let hard = source.chars().next_back().is_some_and(forced);
+            let without_break = source.trim_end_matches(forced);
             let without_space = without_break.trim_end_matches(whitespace);
             let hyphen = without_break.ends_with('\u{ad}') && !hard && end < text.len();
             let content = without_space.trim_end_matches(['\u{ad}', '\u{200b}']);

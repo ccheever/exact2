@@ -620,6 +620,10 @@ mod declaration_tests {
                 &[],
             ),
             css(
+                &[(StyleId::WhiteSpace, StyleValue::Text("pre-line".into()))],
+                &[],
+            ),
+            css(
                 &[
                     (StyleId::Opacity, StyleValue::Number(0.125)),
                     (StyleId::Width, StyleValue::Number(33.5)),
@@ -636,6 +640,7 @@ mod declaration_tests {
             "box-shadow:-1px 1000000000px 0.1px rgba(0,0,0,0);",
             "font-variant-numeric:tabular-nums;white-space:nowrap;",
             "font-variant-numeric:normal;",
+            "white-space:pre-line;",
             "width:33.5px;opacity:0.125;",
         ];
         assert_eq!(cases, golden);

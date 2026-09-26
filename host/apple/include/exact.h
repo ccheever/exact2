@@ -91,15 +91,16 @@ typedef struct ExactTextRun {
     uint8_t font_variant_numeric; /* CSS bits: 1 tabular-nums (the face's tnum) */
 } ExactTextRun;
 
-/* LLP 1053 G5. CSS white space collapsing (normal, nowrap) of a paragraph's runs,
- * the one algorithm the measurer applies before each measure callback. `utf8` is the
- * runs joined, `lens` their byte lengths. Returns 0 when nothing collapses (outputs
+/* LLP 1053 G5. CSS white space collapsing (normal, nowrap, pre-line) of a paragraph's
+ * runs, the one algorithm the measurer applies before each measure callback. `utf8` is
+ * the runs joined, `lens` their byte lengths, `white_space` as in ExactMeasureRequest.
+ * Returns 0 when nothing collapses (outputs
  * untouched), else the edit count + 1, writing the collapsed text (<= len bytes),
  * each run's collapsed length, and up to edit_cap edits: from collapsed UTF-16 offset
  * `utf16` on, the source offset is collapsed + `removed`. Null outputs query. */
 typedef struct ExactCollapseEdit { size_t utf16, removed; } ExactCollapseEdit;
 size_t exact_text_collapse(const uint8_t *utf8, size_t len, const size_t *lens, size_t count,
-    uint8_t *out, size_t *out_lens, ExactCollapseEdit *edits, size_t edit_cap);
+    uint8_t white_space, uint8_t *out, size_t *out_lens, ExactCollapseEdit *edits, size_t edit_cap);
 
 /* LLP 1043.000 D5-D7. Same-thread TextShape lifetime, independent of runtime.
  * Non-null buffers must be aligned and valid for their stated counts. */
@@ -143,7 +144,7 @@ typedef struct ExactMeasureRequest {
     uint8_t align;         /* 0 left, 1 center, 2 right, 3 justify */
     uint32_t line_clamp;   /* 0 = unlimited */
     uint8_t overflow_wrap; /* 0 normal, 1 break-word, 2 anywhere */
-    uint8_t white_space;   /* 0 normal, 1 pre-wrap, 2 nowrap; runs arrive collapsed unless 1 */
+    uint8_t white_space;   /* 0 normal, 1 pre-wrap, 2 nowrap, 3 pre-line; runs arrive collapsed unless 1 */
     uint8_t direction;     /* 0 ltr, 1 rtl */
     const ExactFlowShape *exclusions;
     size_t exclusion_count;

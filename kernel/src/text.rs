@@ -317,6 +317,7 @@ impl crate::WhiteSpace {
             crate::WhiteSpace::Normal => exact_textflow::WhiteSpace::Normal,
             crate::WhiteSpace::PreWrap => exact_textflow::WhiteSpace::PreWrap,
             crate::WhiteSpace::Nowrap => exact_textflow::WhiteSpace::Nowrap,
+            crate::WhiteSpace::PreLine => exact_textflow::WhiteSpace::PreLine,
         }
     }
 }
@@ -325,11 +326,7 @@ impl TextMeasurer for MonospaceMeasurer {
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
         let white_space = request.paragraph.white_space.model();
         // CSS collapsing first, as every native engine now does (LLP 1053 G5).
-        let collapsed = if white_space.preserves() {
-            None
-        } else {
-            exact_textflow::collapse(request.runs)
-        };
+        let collapsed = exact_textflow::collapse(request.runs, white_space);
         // Tokenize across runs. A word may span runs; its width accumulates.
         let mut tokens: Vec<Token> = Vec::new();
         let mut line_height = self.line_height(&request.paragraph.strut);
@@ -576,6 +573,19 @@ mod tests {
             crate::WhiteSpace::Normal,
         );
         assert_eq!(m.width, 18.0);
+    }
+
+    #[test]
+    fn pre_line_breaks_at_line_feeds_and_collapses_the_rest() {
+        // @ref LLP 1053 §0 G5 — max-content is the longest forced line,
+        // min-content the longest word.
+        let text = "  one   two  \n  three";
+        let m = measure_in(text, AxisOffer::MaxContent, crate::WhiteSpace::PreLine);
+        assert_eq!((m.width, m.height), (42.0, 24.0));
+        let m = measure_in(text, AxisOffer::MinContent, crate::WhiteSpace::PreLine);
+        assert_eq!((m.width, m.height), (30.0, 36.0));
+        let m = measure_in("a\n\nb", AxisOffer::MaxContent, crate::WhiteSpace::PreLine);
+        assert_eq!((m.width, m.height), (6.0, 36.0));
     }
 
     #[test]

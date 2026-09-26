@@ -450,6 +450,54 @@ fn pre_wrap_preserves_spaces_tabs_and_hangs_trailing_space() {
 }
 
 #[test]
+fn pre_line_keeps_line_feeds_and_collapses_the_rest_as_chrome_renders() {
+    // @ref LLP 1053 §0 G5 — each source's lines as Chrome 154 renders them
+    // under `white-space: pre-line` (a monospace face; `None` is max-content,
+    // a width is in characters), whitespace runs shown collapsed.
+    let pre_line = Options {
+        white_space: exact_textflow::WhiteSpace::PreLine,
+        ..options(OverflowWrap::Normal)
+    };
+    for (text, width, chrome) in [
+        ("a    b", None, &["a b"][..]),
+        ("a\nb", None, &["a", "b"]),
+        ("a\n\nb", None, &["a", "", "b"]),
+        ("a  \n  b", None, &["a", "b"]),
+        ("  lead\n  mid  \ntrail  ", None, &["lead", "mid", "trail"]),
+        (
+            "one two three four five six",
+            Some(10),
+            &["one two", "three four", "five six"],
+        ),
+        ("\nfirst", None, &["", "first"]),
+        ("last\n", None, &["last"]),
+        ("a\rb", None, &["a b"]),
+        ("a\r\nb", None, &["a", "b"]),
+        ("a\tb\t\nc", None, &["a b", "c"]),
+    ] {
+        let p = prepare(text, pre_line);
+        let got: Vec<(String, f32)> = lines(&p, width.map_or(f32::INFINITY, |w| w as f32 * 8.0))
+            .iter()
+            .map(|l| {
+                let painted = &text[p.paint_range(text, l.start.byte..l.end.byte)];
+                let shown = painted.split([' ', '\t', '\r']).filter(|w| !w.is_empty());
+                (shown.collect::<Vec<_>>().join(" "), l.width)
+            })
+            .collect();
+        let want: Vec<(String, f32)> = chrome
+            .iter()
+            .map(|l| (l.to_string(), l.chars().count() as f32 * 8.0))
+            .collect();
+        assert_eq!(got, want, "{text:?}");
+    }
+    // min-content is the longest word; max-content the longest forced line.
+    let p = prepare("one two\nthree", pre_line);
+    assert_eq!(p.min_content_width(), 5.0 * 8.0);
+    assert_eq!(p.natural_width(), 7.0 * 8.0);
+    assert_eq!(p.line_stats(f32::INFINITY), (2, 7.0 * 8.0));
+}
+
+#[test]
 fn nowrap_collapses_whitespace_and_never_soft_wraps() {
     let text = "one   two\nthree four";
     let p = prepare(
@@ -551,6 +599,7 @@ fn fast_path_agrees_with_streaming_walker_on_fuzz() {
             exact_textflow::WhiteSpace::Normal,
             exact_textflow::WhiteSpace::PreWrap,
             exact_textflow::WhiteSpace::Nowrap,
+            exact_textflow::WhiteSpace::PreLine,
         ] {
             for mode in [
                 OverflowWrap::Normal,

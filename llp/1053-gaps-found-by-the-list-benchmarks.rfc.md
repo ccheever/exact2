@@ -46,7 +46,7 @@ Astra (`gpt-6-astra`, reasoning max) and Grok (served as `grok-4.6-build`, xhigh
 | G2 `border-*-color` longhands | keep `currentcolor`; Apple rounded multicolour borders (iOS and macOS); Linux rounded corner joins; parity with four colours, unequal widths and radii |
 | G3 `flex-grow` | longhand; non-negative validation for grow and shrink; `flex: 1` versus `flex-grow: 1` cases |
 | G4 `font-variant-numeric` | `normal` and `tabular-nums` only, other keywords refused by name; web emits CSS; Apple carries it through the measure ABI into a CoreText feature; Linux passes `tnum` to cosmic-text; cache identities include it |
-| G5 `white-space: nowrap` | internally `white-space-collapse` × `text-wrap-mode`; CSS collapsing preparation on native; min-content = max-content for nowrap; real inline ellipsis (`overflow: hidden` + `text-overflow: ellipsis`) without `line-clamp` on Apple and Linux; the text-flow walker and protocol; `pre-line` later |
+| G5 `white-space: nowrap` | internally `white-space-collapse` × `text-wrap-mode`; CSS collapsing preparation on native; min-content = max-content for nowrap; real inline ellipsis (`overflow: hidden` + `text-overflow: ellipsis`) without `line-clamp` on Apple and Linux; the text-flow walker and protocol; `pre-line` (preserve-breaks × wrap: only a line feed is a forced break, as in Chrome) in the same pass, since collapsing on native turns `normal`'s newlines into spaces |
 | G7 `font-family` choices | ternary / `match` over literal family names, each arm resolved to a stack id at compile time; declared-face validation preserved; runtime strings refused |
 | `direction` | stop renaming it to `flex-direction`; bind `StyleId::Direction` |
 

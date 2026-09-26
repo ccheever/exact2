@@ -1,4 +1,4 @@
-//! @ref LLP 1053 §0 G4, G5 — CSS white space, `nowrap`, `text-overflow`,
+//! @ref LLP 1053 §0 G4, G5 — CSS white space, `nowrap`, `pre-line`, `text-overflow`,
 //! tabular figures and inline backgrounds, with the browser as the oracle.
 use super::*;
 use exact_kernel::{StyleProps, WhiteSpace};
@@ -83,6 +83,56 @@ fn nowrap_min_content_is_max_content_and_no_soft_break_is_taken() {
     let normal = spec(text, WhiteSpace::Normal);
     assert!(e.measure(&normal, AxisOffer::MinContent).width < min.width);
     assert!(e.measure(&normal, AxisOffer::Definite(60.0)).height > max.height);
+}
+
+#[test]
+fn pre_line_keeps_line_feeds_wraps_and_sizes_by_forced_lines() {
+    // Chrome 154's innerText for each source under `white-space: pre-line`.
+    for (source, rendered) in [
+        ("a    b", "a b"),
+        ("a  \n  b", "a\nb"),
+        ("a\n\nb", "a\n\nb"),
+        ("\nfirst", "\nfirst"),
+        ("  lead\n  mid  \ntrail  ", "lead\nmid\ntrail"),
+        ("a\r\nb", "a\nb"),
+        ("a\tb\t\nc", "a b\nc"),
+    ] {
+        assert_eq!(spec(source, WhiteSpace::PreLine).runs[0].text, rendered);
+    }
+    let mut e = engine(INTER, "Inter");
+    let one = |e: &mut TextEngine, t: &str| {
+        e.measure(&spec(t, WhiteSpace::Normal), AxisOffer::MaxContent)
+    };
+    let line = one(&mut e, "one two three");
+    let s = spec("one two three  \n  four", WhiteSpace::PreLine);
+    let max = e.measure(&s, AxisOffer::MaxContent);
+    assert_eq!(
+        max.width, line.width,
+        "max-content is the longest forced line"
+    );
+    // Lines as the collapsed text's forced breaks, preserved, give them.
+    let pre = |e: &mut TextEngine, t: &str, w| e.measure(&spec(t, WhiteSpace::PreWrap), w);
+    assert_eq!(
+        max,
+        pre(&mut e, "one two three\nfour", AxisOffer::MaxContent)
+    );
+    let min = e.measure(&s, AxisOffer::MinContent);
+    assert_eq!(
+        min.width,
+        one(&mut e, "three").width,
+        "min-content the longest word"
+    );
+    let offer = one(&mut e, "one two").width + 1.0;
+    let narrow = e.measure(&s, AxisOffer::Definite(offer));
+    assert_eq!(
+        narrow,
+        pre(&mut e, "one two\nthree\nfour", AxisOffer::MaxContent),
+        "and it wraps"
+    );
+    // A blank line keeps its line box, as in the browser.
+    let blank = e.measure(&spec("a\n\nb", WhiteSpace::PreLine), AxisOffer::MaxContent);
+    assert_eq!(blank, pre(&mut e, "a\n\nb", AxisOffer::MaxContent));
+    assert!(blank.height > 2.5 * line.height);
 }
 
 #[test]

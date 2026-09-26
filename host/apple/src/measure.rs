@@ -77,7 +77,7 @@ pub struct CRequest {
     pub line_clamp: u32,
     /// CSS overflow-wrap: normal, break-word, anywhere.
     pub overflow_wrap: u8,
-    /// CSS white-space: normal, pre-wrap, nowrap. Runs arrive collapsed
+    /// CSS white-space: normal, pre-wrap, nowrap, pre-line. Runs arrive collapsed
     /// unless it preserves (LLP 1053 G5).
     pub white_space: u8,
     /// CSS direction: ltr, rtl.
@@ -224,10 +224,9 @@ impl CallbackMeasurer {
     ) -> CMetrics {
         // CSS collapsing before CoreText, as the browser does (LLP 1053 G5);
         // Markdown source keeps its own lines. The strings live for the call.
-        let collapsed = (request.paragraph.markup == exact_kernel::Markup::None
-            && !request.paragraph.white_space.model().preserves())
-        .then(|| exact_textflow::collapse(request.runs))
-        .flatten();
+        let collapsed = (request.paragraph.markup == exact_kernel::Markup::None)
+            .then(|| exact_textflow::collapse(request.runs, request.paragraph.white_space.model()))
+            .flatten();
         let text = |i: usize| -> &str {
             collapsed
                 .as_ref()

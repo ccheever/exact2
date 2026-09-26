@@ -11,6 +11,17 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
+/// The ABI's CSS `white-space` (the schema's wire order): 0 normal,
+/// 1 pre-wrap, 2 nowrap, 3 pre-line.
+pub(crate) fn white_space_mode(code: u32) -> exact_textflow::WhiteSpace {
+    match code {
+        1 => exact_textflow::WhiteSpace::PreWrap,
+        2 => exact_textflow::WhiteSpace::Nowrap,
+        3 => exact_textflow::WhiteSpace::PreLine,
+        _ => exact_textflow::WhiteSpace::Normal,
+    }
+}
+
 /// A counted pair used for polygon vertices or silhouette intervals.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
@@ -154,11 +165,7 @@ pub fn prepare(
     let prepared = Prepared::with_words(
         text,
         Options {
-            white_space: match white_space {
-                1 => exact_textflow::WhiteSpace::PreWrap,
-                2 => exact_textflow::WhiteSpace::Nowrap,
-                _ => exact_textflow::WhiteSpace::Normal,
-            },
+            white_space: white_space_mode(white_space),
             overflow_wrap: match overflow_wrap {
                 1 => OverflowWrap::BreakWord,
                 2 => OverflowWrap::Anywhere,

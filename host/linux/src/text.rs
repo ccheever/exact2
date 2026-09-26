@@ -131,11 +131,8 @@ impl Spec {
     /// shapes what it is given, the browser collapses first. Collapsed runs are
     /// the spec's identity, so equal renderings share one shape.
     pub fn collapse_white_space(mut self) -> Self {
-        if self.white_space.model().preserves() {
-            return self;
-        }
         let texts: Vec<&str> = self.runs.iter().map(|r| r.text.as_str()).collect();
-        if let Some(collapsed) = exact_textflow::collapse(&texts) {
+        if let Some(collapsed) = exact_textflow::collapse(&texts, self.white_space.model()) {
             for (run, text) in self.runs.iter_mut().zip(collapsed.runs) {
                 run.text = text;
             }

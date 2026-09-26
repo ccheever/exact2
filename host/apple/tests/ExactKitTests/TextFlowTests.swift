@@ -172,6 +172,22 @@ final class TextFlowTests: XCTestCase {
         XCTAssertGreaterThan(preserved.fragments[0].width, pair.fragments[0].width)
     }
 
+    func testPreLineFlowsTheLinesItsPlainLayoutHas() {
+        // LLP 1053 §0 G5: the collapsed source keeps its line feeds; flowed text
+        // breaks where plain text does.
+        var input = spec("A    B  \n\n  C")
+        _ = SourceMap.collapse(&input.runs, whiteSpace: 3)
+        input.whiteSpace = 3
+        XCTAssertEqual(input.runs[0].text, "A B\n\nC")
+        let plain = engine.paragraph(input, width: 500)
+        let flowed = engine.layoutFlow(plain.shape!, width: 500, flow: [])
+        XCTAssertEqual(plain.lines.count, 3)
+        XCTAssertEqual(flowed.fragments.count, 3)
+        XCTAssertEqual(flowed.height, plain.height, accuracy: 0.02)
+        let pair = engine.layoutFlow(shape(spec("A B")), width: 500, flow: [])
+        XCTAssertEqual(flowed.fragments[0].width, pair.fragments[0].width, accuracy: 0.02)
+    }
+
     func testAdvanceClustersMatchCoreTextOffsetsAcrossScripts() {
         for (text, family) in [("Latin letters and words", 0), ("office affinity ffi fi fl", 3),
                                ("مرحبا بالعالم العربية لَا", 0), ("שלום עולם בעברית", 0),

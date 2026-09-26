@@ -29,7 +29,8 @@ fn slice<'a, T>(p: *const T, n: usize) -> Option<&'a [T]> {
 }
 
 /// Collapse `count` runs whose UTF-8 text is `utf8` joined and whose byte
-/// lengths are `lens`. Returns 0 when nothing collapses or the input is
+/// lengths are `lens`, under CSS `white-space` `white_space` (the measure
+/// ABI's code: 0 normal, 1 pre-wrap, 2 nowrap, 3 pre-line). Returns 0 when nothing collapses or the input is
 /// invalid, leaving the outputs untouched. Otherwise returns the edit count
 /// plus one and, when the outputs are non-null, writes the collapsed text
 /// (never longer than `len`) to `out`, each run's collapsed byte length to
@@ -40,6 +41,7 @@ pub fn collapse(
     len: usize,
     lens: *const usize,
     count: usize,
+    white_space: u8,
     out: *mut u8,
     out_lens: *mut usize,
     edits: *mut CEdit,
@@ -63,7 +65,8 @@ pub fn collapse(
     if at != len {
         return 0;
     }
-    let Some(collapsed) = exact_textflow::collapse(&runs) else {
+    let mode = crate::textflow::white_space_mode(u32::from(white_space));
+    let Some(collapsed) = exact_textflow::collapse(&runs, mode) else {
         return 0;
     };
     if !out.is_null() && !out_lens.is_null() {
@@ -101,12 +104,23 @@ macro_rules! collapse_exports {
             len: usize,
             lens: *const usize,
             count: usize,
+            white_space: u8,
             out: *mut u8,
             out_lens: *mut usize,
             edits: *mut $crate::collapse::CEdit,
             edit_cap: usize,
         ) -> usize {
-            $crate::collapse::collapse(utf8, len, lens, count, out, out_lens, edits, edit_cap)
+            $crate::collapse::collapse(
+                utf8,
+                len,
+                lens,
+                count,
+                white_space,
+                out,
+                out_lens,
+                edits,
+                edit_cap,
+            )
         }
     };
 }
@@ -127,6 +141,7 @@ mod tests {
             text.len(),
             lens.as_ptr(),
             2,
+            0,
             out.as_mut_ptr(),
             out_lens.as_mut_ptr(),
             edits.as_mut_ptr(),
@@ -143,6 +158,23 @@ mod tests {
                 removed: 3
             }
         );
+        // `pre-line` (3) keeps the line feed and drops the spaces beside it.
+        let mut out = vec![0u8; text.len()];
+        let n = collapse(
+            text.as_ptr(),
+            text.len(),
+            lens.as_ptr(),
+            2,
+            3,
+            out.as_mut_ptr(),
+            out_lens.as_mut_ptr(),
+            edits.as_mut_ptr(),
+            8,
+        );
+        assert!(n > 1);
+        let total: usize = out_lens.iter().sum();
+        assert_eq!(std::str::from_utf8(&out[..total]).unwrap(), "a\nb c");
+        assert_eq!(out_lens, [2, 3]);
         // Nothing to collapse: 0 and the outputs untouched.
         let clean = "a b";
         assert_eq!(
@@ -151,6 +183,7 @@ mod tests {
                 3,
                 [3usize].as_ptr(),
                 1,
+                0,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
@@ -166,6 +199,7 @@ mod tests {
                 2,
                 [1usize, 1].as_ptr(),
                 2,
+                0,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),

@@ -83,7 +83,7 @@ struct Spec: Hashable {
     var color: [Double] // r g b a, 0–255
     var overflowWrap: Int = 0 // CSS: normal, break-word, anywhere
     var direction: Int = 0 // CSS: ltr, rtl
-    var whiteSpace: Int = 0 // CSS: normal, pre-wrap, nowrap (runs already collapsed unless pre-wrap)
+    var whiteSpace: Int = 0 // CSS: normal, pre-wrap, nowrap, pre-line (runs already collapsed unless pre-wrap)
     var strut: Run? = nil // paragraph minimum line box, including smaller inline runs
     /// CSS `text-overflow: ellipsis` in a clipping box: paint ends an
     /// over-wide line in "…"; never metrics (LLP 1053 G5).
@@ -113,19 +113,20 @@ struct SourceMap: Hashable {
         return lo < edits.count && at >= Int(edits[lo].utf16) ? Int(edits[lo].utf16) : at
     }
 
-    /// CSS white space collapsing of `runs` (normal, nowrap), as the measurer
-    /// collapses them in Rust before its callback: the same function.
-    static func collapse(_ runs: inout [Run]) -> SourceMap {
+    /// CSS white space collapsing of `runs` (normal, nowrap, pre-line), as the
+    /// measurer collapses them in Rust before its callback: the same function.
+    static func collapse(_ runs: inout [Run], whiteSpace: Int) -> SourceMap {
         var joined = Data(); var lens: [Int] = []
         for r in runs { let bytes = Data(r.text.utf8); joined.append(bytes); lens.append(bytes.count) }
         return joined.withUnsafeBytes { raw -> SourceMap in
             let utf8 = raw.bindMemory(to: UInt8.self).baseAddress
-            let count = exact_text_collapse(utf8, joined.count, lens, lens.count, nil, nil, nil, 0)
+            let mode = UInt8(whiteSpace)
+            let count = exact_text_collapse(utf8, joined.count, lens, lens.count, mode, nil, nil, nil, 0)
             guard count > 0 else { return SourceMap() }
             var out = [UInt8](repeating: 0, count: joined.count)
             var outLens = [Int](repeating: 0, count: lens.count)
             var edits = [ExactCollapseEdit](repeating: ExactCollapseEdit(), count: count - 1)
-            _ = exact_text_collapse(utf8, joined.count, lens, lens.count, &out, &outLens, &edits, edits.count)
+            _ = exact_text_collapse(utf8, joined.count, lens, lens.count, mode, &out, &outLens, &edits, edits.count)
             var at = 0
             for i in runs.indices {
                 runs[i].text = String(decoding: out[at..<at + outLens[i]], as: UTF8.self)

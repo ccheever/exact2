@@ -13,6 +13,9 @@
 //!   its own run;
 //! - spaces at the start and end of the paragraph go.
 //!
+//! `pre-line` (`white-space-collapse: preserve-breaks`) keeps every line feed
+//! and removes the spaces around it; the rest collapses as above.
+//!
 //! Only U+0020, U+0009, U+000A and U+000D collapse; no-break, ideographic and
 //! other spaces, and form feeds, are text. The walker (`Prepared`) collapses
 //! flowed text itself and is handed the source, not this.
@@ -21,6 +24,8 @@
 //! UTF-8 bytes and UTF-16 units; [`Collapsed`] maps either way between the
 //! collapsed text (what is shaped, selected and copied, as the browser copies
 //! it) and the source (what links, lists and the runner address).
+
+use crate::WhiteSpace;
 
 /// A paragraph's runs after collapsing, with the map back to the source.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -47,87 +52,126 @@ fn collapsible(ch: char) -> bool {
     matches!(ch, ' ' | '\t' | '\n' | '\r')
 }
 
-/// Collapse `runs` as CSS `white-space-collapse: collapse` does. `None` when
-/// the text is already collapsed, which is the common case and allocates nothing.
-pub fn collapse<S: AsRef<str>>(runs: &[S]) -> Option<Collapsed> {
-    if !needs_collapse(runs) {
+/// Collapse `runs` as CSS `white-space` does before shaping: `normal` and
+/// `nowrap` collapse, `pre-line` keeps line feeds, `pre-wrap` preserves.
+/// `None` when nothing changes, which is the common case and allocates nothing.
+pub fn collapse<S: AsRef<str>>(runs: &[S], white_space: WhiteSpace) -> Option<Collapsed> {
+    let keep_breaks = white_space.preserves_breaks();
+    if white_space.preserves() || !needs_collapse(runs, keep_breaks) {
         return None;
     }
     let mut out: Vec<String> = runs
         .iter()
         .map(|r| String::with_capacity(r.as_ref().len()))
         .collect();
-    let mut edits = Vec::new();
-    let (mut byte, mut utf16, mut removed) = (0usize, 0usize, 0usize);
-    // The pending whitespace sequence: its run, whether it holds a segment
-    // break, and its length.
-    let mut pending: Option<(usize, bool, usize)> = None;
+    let mut at = Offsets::default();
+    // The pending whitespace sequence, each character with its run.
+    let mut pending: Vec<(usize, char)> = Vec::new();
     let mut previous: Option<char> = None;
     for (index, run) in runs.iter().enumerate() {
         for ch in run.as_ref().chars() {
             if collapsible(ch) {
-                let (_, breaks, count) = pending.get_or_insert((index, false, 0));
-                *breaks |= ch == '\n';
-                *count += 1;
+                pending.push((index, ch));
                 continue;
             }
-            if let Some((run, breaks, count)) = pending.take() {
-                let at_start = previous.is_none();
+            if !pending.is_empty() {
+                let breaks = pending.iter().any(|&(_, c)| c == '\n');
                 let beside_zwsp = breaks && (previous == Some('\u{200b}') || ch == '\u{200b}');
-                if at_start || beside_zwsp {
-                    drop(count, byte, utf16, &mut removed, &mut edits);
+                if keep_breaks && breaks {
+                    at.keep_breaks(&pending, &mut out);
+                } else if previous.is_none() || beside_zwsp {
+                    at.drop(pending.len());
                 } else {
-                    out[run].push(' ');
-                    byte += 1;
-                    utf16 += 1;
-                    drop(count - 1, byte, utf16, &mut removed, &mut edits);
+                    out[pending[0].0].push(' ');
+                    at.byte += 1;
+                    at.utf16 += 1;
+                    at.drop(pending.len() - 1);
                 }
+                pending.clear();
             }
             out[index].push(ch);
-            byte += ch.len_utf8();
-            utf16 += ch.len_utf16();
+            at.byte += ch.len_utf8();
+            at.utf16 += ch.len_utf16();
             previous = Some(ch);
         }
     }
-    if let Some((_, _, count)) = pending {
-        drop(count, byte, utf16, &mut removed, &mut edits);
+    if keep_breaks {
+        at.keep_breaks(&pending, &mut out);
+    } else {
+        at.drop(pending.len());
     }
-    Some(Collapsed { runs: out, edits })
+    Some(Collapsed {
+        runs: out,
+        edits: at.edits,
+    })
 }
 
-/// Remove `count` source units at a collapsed offset.
-fn drop(count: usize, byte: usize, utf16: usize, removed: &mut usize, edits: &mut Vec<Edit>) {
-    if count == 0 {
-        return;
-    }
-    *removed += count;
-    match edits.last_mut() {
-        Some(last) if last.byte == byte => last.removed = *removed,
-        _ => edits.push(Edit {
-            byte,
-            utf16,
-            removed: *removed,
-        }),
-    }
+/// The collapsed offset reached, and the edits so far.
+#[derive(Default)]
+struct Offsets {
+    byte: usize,
+    utf16: usize,
+    removed: usize,
+    edits: Vec<Edit>,
 }
 
-/// Whether any collapsing would change `runs`: a tab, a line feed or a
-/// carriage return, two spaces in a row (across runs), or a space at either end.
-fn needs_collapse<S: AsRef<str>>(runs: &[S]) -> bool {
-    let mut previous_space = true; // a leading space collapses away
-    let mut any = false;
-    for run in runs {
-        for &b in run.as_ref().as_bytes() {
-            match b {
-                b'\t' | b'\n' | b'\r' => return true,
-                b' ' if previous_space => return true,
-                b' ' => previous_space = true,
-                _ => previous_space = false,
-            }
-            any = true;
+impl Offsets {
+    /// Remove `count` source units here.
+    fn drop(&mut self, count: usize) {
+        if count == 0 {
+            return;
+        }
+        self.removed += count;
+        match self.edits.last_mut() {
+            Some(last) if last.byte == self.byte => last.removed = self.removed,
+            _ => self.edits.push(Edit {
+                byte: self.byte,
+                utf16: self.utf16,
+                removed: self.removed,
+            }),
         }
     }
-    any && previous_space
+
+    /// `pre-line`: keep each line feed of a whitespace sequence, in its run,
+    /// and remove the spaces and tabs around them.
+    fn keep_breaks(&mut self, pending: &[(usize, char)], out: &mut [String]) {
+        for &(run, ch) in pending {
+            if ch == '\n' {
+                out[run].push('\n');
+                self.byte += 1;
+                self.utf16 += 1;
+            } else {
+                self.drop(1);
+            }
+        }
+    }
+}
+
+/// Whether any collapsing would change `runs`: a tab or a carriage return, a
+/// line feed (unless kept), two spaces in a row (across runs), a space beside a
+/// kept line feed, or a space at either end.
+fn needs_collapse<S: AsRef<str>>(runs: &[S], keep_breaks: bool) -> bool {
+    #[derive(PartialEq)]
+    enum Before {
+        Start,
+        Space,
+        Break,
+        Text,
+    }
+    let mut before = Before::Start;
+    for run in runs {
+        for &b in run.as_ref().as_bytes() {
+            before = match b {
+                b'\t' | b'\r' => return true,
+                b'\n' if !keep_breaks || before == Before::Space => return true,
+                b'\n' => Before::Break,
+                b' ' if before != Before::Text => return true,
+                b' ' => Before::Space,
+                _ => Before::Text,
+            };
+        }
+    }
+    before == Before::Space
 }
 
 impl Collapsed {
@@ -181,7 +225,7 @@ mod tests {
     use super::*;
 
     fn one(text: &str) -> String {
-        collapse(&[text]).map_or_else(|| text.to_string(), |c| c.text())
+        collapse(&[text], WhiteSpace::Normal).map_or_else(|| text.to_string(), |c| c.text())
     }
 
     #[test]
@@ -208,20 +252,56 @@ mod tests {
     }
 
     #[test]
+    fn pre_line_keeps_line_feeds_as_chrome_renders() {
+        // Chrome 154's innerText for each source under `white-space: pre-line`.
+        let pre_line = |text: &str| {
+            collapse(&[text], WhiteSpace::PreLine).map_or_else(|| text.to_string(), |c| c.text())
+        };
+        for (source, rendered) in [
+            ("a    b", "a b"),
+            ("a\nb", "a\nb"),
+            ("a\n\nb", "a\n\nb"),
+            ("a  \n  b", "a\nb"),
+            ("  lead\n  mid  \ntrail  ", "lead\nmid\ntrail"),
+            ("\nfirst", "\nfirst"),
+            ("last\n", "last\n"),
+            ("a\rb", "a b"),
+            ("a\r\nb", "a\nb"),
+            ("a\tb\t\nc", "a b\nc"),
+            ("中\n文", "中\n文"),
+            ("a\u{200b}\nb", "a\u{200b}\nb"),
+            ("a\u{c}b", "a\u{c}b"),
+        ] {
+            assert_eq!(pre_line(source), rendered, "{source:?}");
+        }
+        assert!(collapse(&["a\nb", "\n\nc"], WhiteSpace::PreLine).is_none());
+        assert!(collapse(&["a  b\n"], WhiteSpace::PreWrap).is_none());
+        // Line feeds stay in their runs; offsets map both ways.
+        let c = collapse(&["a \n", " \nb "], WhiteSpace::PreLine).unwrap();
+        assert_eq!(c.runs, ["a\n", "\nb"]);
+        assert_eq!(c.source_utf16(2), 4); // the second line feed
+        assert_eq!(c.collapsed_utf16(4), 2);
+        assert_eq!(c.source_utf16(3), 5); // b
+    }
+
+    #[test]
     fn already_collapsed_text_allocates_nothing() {
-        assert_eq!(collapse(&["a b", " c"]), collapse(&["x"]));
-        assert!(collapse(&["a b", " c"]).is_none());
-        assert!(collapse(&["a ", "", "b"]).is_none());
-        assert!(collapse(&[""]).is_none());
+        assert_eq!(
+            collapse(&["a b", " c"], WhiteSpace::Normal),
+            collapse(&["x"], WhiteSpace::Normal)
+        );
+        assert!(collapse(&["a b", " c"], WhiteSpace::Normal).is_none());
+        assert!(collapse(&["a ", "", "b"], WhiteSpace::Normal).is_none());
+        assert!(collapse(&[""], WhiteSpace::Normal).is_none());
     }
 
     #[test]
     fn the_first_space_is_kept_in_its_own_run_across_boundaries() {
-        let c = collapse(&["a ", " b", "  ", "c "]).unwrap();
+        let c = collapse(&["a ", " b", "  ", "c "], WhiteSpace::Normal).unwrap();
         assert_eq!(c.runs, ["a ", "b", " ", "c"]);
-        let c = collapse(&["a", "  ", "b"]).unwrap();
+        let c = collapse(&["a", "  ", "b"], WhiteSpace::Normal).unwrap();
         assert_eq!(c.runs, ["a", " ", "b"]);
-        let c = collapse(&["  ", "a"]).unwrap();
+        let c = collapse(&["  ", "a"], WhiteSpace::Normal).unwrap();
         assert_eq!(c.runs, ["", "a"]);
     }
 
@@ -229,7 +309,7 @@ mod tests {
     fn offsets_map_both_ways() {
         // source: "  a \n\t b  é  c  " → "a b é c"
         let source = "  a \n\t b  é  c  ";
-        let c = collapse(&[source]).unwrap();
+        let c = collapse(&[source], WhiteSpace::Normal).unwrap();
         let text = c.text();
         assert_eq!(text, "a b é c");
         let s16: Vec<u16> = source.encode_utf16().collect();

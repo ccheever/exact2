@@ -243,7 +243,7 @@ fn trailing_collapsed_source_after_a_hard_break_stays_owned_by_the_dom() {
 #[test]
 fn white_space_protocol_preserves_spaces_and_segment_breaks() {
     let text = "A    B\nC";
-    for (mode, bands, first_width) in [(0u32, 1, 25.0), (1, 2, 30.0), (2, 1, 25.0)] {
+    for (mode, bands, first_width) in [(0u32, 1, 25.0), (1, 2, 30.0), (2, 1, 25.0), (3, 2, 15.0)] {
         let mut f = TextFlow::new();
         let mut input = 0u32.to_le_bytes().to_vec();
         input.extend([mode, 0].map(u32::to_le_bytes).concat());
