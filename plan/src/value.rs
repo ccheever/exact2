@@ -179,7 +179,7 @@ impl Value {
     /// Decode one value from `r`, bounded in depth so a hostile payload cannot
     /// exhaust the stack.
     pub fn decode(r: &mut Reader<'_>) -> Result<Value, PlanError> {
-        Self::decode_depth(r, 0)
+        Self::decode_depth(r, 0, &mut Strings::default())
     }
 
     /// Decode exactly one value from `bytes`; trailing bytes are a refusal.
@@ -192,7 +192,7 @@ impl Value {
         Ok(v)
     }
 
-    fn decode_depth(r: &mut Reader<'_>, depth: u32) -> Result<Value, PlanError> {
+    fn decode_depth(r: &mut Reader<'_>, depth: u32, strings: &mut Strings) -> Result<Value, PlanError> {
         if depth > 64 {
             return Err(PlanError::ValueTooDeep);
         }
@@ -205,15 +205,15 @@ impl Value {
                 Value::Number(n)
             }
             1 => Value::Bool(r.u8()? != 0),
-            2 => Value::Str(Rc::from(r.string()?)),
+            2 => Value::Str(strings.get(r.str()?)),
             3 => Value::Unit,
             4 => Value::Option(None),
-            5 => Value::Option(Some(Rc::new(Self::decode_depth(r, depth + 1)?))),
+            5 => Value::Option(Some(Rc::new(Self::decode_depth(r, depth + 1, strings)?))),
             6 => {
                 let n = r.count()?;
                 let mut items = Vec::with_capacity(n.min(crate::bytes::RESERVE));
                 for _ in 0..n {
-                    items.push(Self::decode_depth(r, depth + 1)?);
+                    items.push(Self::decode_depth(r, depth + 1, strings)?);
                 }
                 Value::List(Rc::new(items))
             }
@@ -221,12 +221,60 @@ impl Value {
                 let n = r.count()?;
                 let mut fields = Vec::with_capacity(n.min(crate::bytes::RESERVE));
                 for _ in 0..n {
-                    fields.push(Self::decode_depth(r, depth + 1)?);
+                    fields.push(Self::decode_depth(r, depth + 1, strings)?);
                 }
                 Value::Record(Rc::new(fields))
             }
             tag => return Err(PlanError::UnknownValueTag(tag)),
         })
+    }
+}
+
+/// Identical short strings in one decoded value share one allocation: a
+/// baked list repeats its authors, file names, style names and small
+/// numbers as text, and a separate `Rc<str>` for each copy is most of a
+/// string's cost. Sharing is sound where identity is compared
+/// (`compare::same`): equal strings are equal values. The table is
+/// direct-mapped and bounded; a collision only keeps the later string. A
+/// small value never makes one.
+#[derive(Default)]
+struct Strings {
+    slots: Vec<Option<Rc<str>>>,
+    seen: u32,
+}
+
+impl Strings {
+    /// Longest string shared, in bytes.
+    const SHORT: usize = 24;
+    const SLOTS: usize = 4096;
+    /// Strings a value decodes before it gets a table.
+    const AFTER: u32 = 64;
+
+    fn get(&mut self, s: &str) -> Rc<str> {
+        if s.len() > Self::SHORT {
+            return Rc::from(s);
+        }
+        if self.slots.is_empty() {
+            self.seen += 1;
+            if self.seen < Self::AFTER {
+                return Rc::from(s);
+            }
+            self.slots = vec![None; Self::SLOTS];
+        }
+        // FxHash over the bytes; the high bits pick the slot.
+        let mut h: u64 = 0;
+        for &b in s.as_bytes() {
+            h = (h.rotate_left(5) ^ b as u64).wrapping_mul(0x517c_c1b7_2722_0a95);
+        }
+        let slot = &mut self.slots[(h >> 52) as usize % Self::SLOTS];
+        match slot {
+            Some(rc) if **rc == *s => rc.clone(),
+            _ => {
+                let rc: Rc<str> = Rc::from(s);
+                *slot = Some(rc.clone());
+                rc
+            }
+        }
     }
 }
 
@@ -304,5 +352,41 @@ mod debug_tests {
             assert_eq!(format!("{v:?}"), format!("{:?}", derived(v)));
             assert_eq!(format!("{v:#?}"), format!("{:#?}", derived(v)));
         }
+    }
+}
+
+#[cfg(test)]
+mod decode_tests {
+    use super::Value;
+    use std::rc::Rc;
+
+    fn strs(v: &Value) -> Vec<Rc<str>> {
+        let Value::List(items) = v else { panic!("a list") };
+        items
+            .iter()
+            .map(|v| match v {
+                Value::Str(s) => s.clone(),
+                _ => panic!("a string"),
+            })
+            .collect()
+    }
+
+    /// A large value shares its repeated short strings; a small one and a
+    /// long string never do, and every string decodes to what was encoded.
+    #[test]
+    fn repeated_short_strings_share_one_allocation() {
+        let long = "x".repeat(25);
+        let items: Vec<Value> = (0..200)
+            .map(|i| Value::str(if i % 2 == 0 { "bold" } else { &long }))
+            .collect();
+        let big = Value::List(Rc::new(items));
+        let decoded = Value::from_bytes(&big.to_bytes()).unwrap();
+        assert_eq!(decoded, big);
+        let s = strs(&decoded);
+        assert!(Rc::ptr_eq(&s[198], &s[196]), "late repeats share");
+        assert!(!Rc::ptr_eq(&s[199], &s[197]), "long strings stay separate");
+        let small = Value::List(Rc::new(vec![Value::str("bold"), Value::str("bold")]));
+        let s = strs(&Value::from_bytes(&small.to_bytes()).unwrap());
+        assert!(!Rc::ptr_eq(&s[0], &s[1]), "a small value makes no table");
     }
 }

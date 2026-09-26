@@ -97,9 +97,14 @@ impl<'a> Reader<'a> {
 
     /// A length-prefixed UTF-8 string.
     pub fn string(&mut self) -> Result<String, PlanError> {
+        self.str().map(str::to_owned)
+    }
+
+    /// A length-prefixed UTF-8 string, borrowed from the input.
+    pub fn str(&mut self) -> Result<&'a str, PlanError> {
         let n = self.count()?;
         let bytes = self.bytes(n)?;
-        String::from_utf8(bytes.to_vec()).map_err(|_| PlanError::BadUtf8)
+        std::str::from_utf8(bytes).map_err(|_| PlanError::BadUtf8)
     }
 }
 
