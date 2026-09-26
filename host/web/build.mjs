@@ -18,6 +18,7 @@ import { gpuModules, rustPolicy, webHostFiles } from '../../scripts/app.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
 import { copyShaders, bakeOutput, buildBake, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp, wasmRemapFlags, WEB_STD, WEB_TOOLCHAIN, webToolchainEnv } from '../../scripts/app.mjs';
 import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
+import { splitStages, unsplitReason } from './stages.mjs';
 import { appManifestDigest, copyStaticTreeIfPresent, listAssets, publicFileCards, webEnvelope, moduleCards, MODULE_FILES } from './serve.mjs';
 
 const app = resolveApp(process.argv[2]);
@@ -40,7 +41,12 @@ buildEnv.EXACT_BAKE_OUTPUT = bakeOutput(app, buildEnv);
 // duplicate-function elimination, and wasm-opt keeps names. The code is the
 // shipped code's; the file is not for shipping.
 const keepNames = process.env.EXACT_WEB_NAMES === '1';
-if (keepNames) buildEnv.CARGO_PROFILE_WEB_STRIP = 'debuginfo';
+// A production artifact is split into a core and its staged capabilities
+// (LLP 1047.000 §9), which needs the names too; they are stripped after the
+// split. The dev loop's `EXACT_WEB_LINK=all` build and the names build stay
+// whole, as does a machine whose binaryen isn't the pinned one.
+const unsplit = keepNames || process.env.EXACT_WEB_LINK === 'all' ? 'a development or names build' : unsplitReason();
+if (keepNames || !unsplit) buildEnv.CARGO_PROFILE_WEB_STRIP = 'debuginfo';
 const buildReceipt = buildBake(app, 'web', 'wasm32-unknown-unknown', {env:buildEnv});
 const built = resolve(app.target, 'wasm32-unknown-unknown/web', crate.replace(/-/g, '_') + '.wasm');
 // Build one app into its own staging directory. Only a complete build replaces
@@ -64,11 +70,19 @@ const out = resolve(stage, 'app.wasm');
 // about what a large one does to set up. RealWorld's boot compiles 15% fewer
 // (1,314 -> 1,123), for 511 B less Brotli (+7 KB raw); 10 or 16 add Brotli.
 // The feature flags match what rustc's wasm32 target emits.
-const opt = spawnSync('wasm-opt', ['-Oz', '--one-caller-inline-max-function-size', '20', '--always-inline-max-function-size', '6', '--converge', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', keepNames ? '-g' : '--strip-debug', '--strip-producers', '-o', out, built], { stdio: 'inherit' });
+const named = resolve(stage, 'app.named.wasm');
+const opt = spawnSync('wasm-opt', ['-Oz', '--one-caller-inline-max-function-size', '20', '--always-inline-max-function-size', '6', '--converge', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', keepNames || !unsplit ? '-g' : '--strip-debug', '--strip-producers', '-o', unsplit ? out : named, built], { stdio: 'inherit' });
 let optNote;
 if (opt.error?.code === 'ENOENT') { copyFileSync(built, out); optNote = 'wasm-opt not on PATH (brew install binaryen): shipped unoptimized'; }
 else if (opt.status !== 0) process.exit(opt.status ?? 1);
-else optNote = 'wasm-opt -Oz';
+else if (unsplit) optNote = `wasm-opt -Oz; unsplit: ${unsplit}`;
+else {
+  const split = splitStages(named);
+  writeFileSync(out, split.core);
+  for (const [path, bytes] of split.files) { mkdirSync(resolve(stage, path, '..'), { recursive: true }); writeFileSync(resolve(stage, path), bytes); }
+  rmSync(named);
+  optNote = `wasm-opt -Oz; the core, with stages: ${split.report.join('; ')}`;
+}
 
 // The app's static files ride beside the page: `assets/…` images and an
 // optional `deck/` iframe guest (@ref LLP 1020 M1). Replaced whole, so a

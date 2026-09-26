@@ -319,7 +319,7 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
     let contact = null;
     const ask = async (req) => JSON.parse(await evaluate(`exact.agentSettled(${JSON.stringify(req)}).then((r) => JSON.stringify(r))`));
     return {
-      host: 'web', boot: Number(boot), hostLines,
+      host: 'web', boot: Number(boot), hostLines, evaluate,
       async gpuMs() {
         const ms = await evaluate("document.getElementById('exact-root')?.dataset.gpuMs ?? null");
         return ms == null ? null : Number(ms);

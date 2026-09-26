@@ -939,10 +939,15 @@ function deferFulfill(...args) {
 // and every animation the browser holds (`Animation.currentTime`, LLP 1002
 // D3), and the GPU module's picture. `tap`, `type`, and `screenshot` are
 // the driver's, over CDP: real input, real pixels.
-function ask(request) {
-  const n = writeIn(JSON.stringify(request));
-  return JSON.parse(readOut(wasm.exact_agent(n)));
+function ask(request) { // entering an unloaded stage traps mid-call; callers load it first (LLP 1047.000 §9)
+  if (!stageLoaded('inspection')) throw new Error('inspection is a stage that has not loaded (LLP 1047.000): load it before asking');
+  return JSON.parse(readOut(wasm.exact_agent(writeIn(JSON.stringify(request)))));
 }
+// Staged capabilities (the core's `exact.stages`; none unsplit): modules over its memory and tables, named by digest (LLP 1047.000 §9).
+let stages = {}; const stageLoads = new Map(), stageLoaded = (name) => !stages[name] || stageLoads.get(name)?.loaded === true;
+function loadStage(name) { if (!stages[name] || !wasm) return Promise.resolve(); let load = stageLoads.get(name); if (load) return load.promise;
+  load = { loaded: false }; stageLoads.set(name, load); return load.promise = WebAssembly.instantiateStreaming(fetch(new URL(stages[name], import.meta.url)), { primary: wasm })
+    .then(() => { load.loaded = true; }, (error) => { stageLoads.delete(name); throw new Error(`the ${name} stage (${stages[name]}) did not load: ${error}`); }); }
 // A line for the runner's journal (LLP 1012 §3): what the page refused, and why.
 function log(line) {
   if (wasm) wasm.exact_log(writeIn(line));
@@ -1135,7 +1140,7 @@ async function waitForInflight(deadline) {
   return helpers ? helpers.waitForInflight(inflight, deadline) : false;
 }
 async function settleGpu() { loadGpuIfNeeded(); await gpuLoading; await globalThis.exact.gpu?.settled(); }
-function agent(request) { return agentMode && gpuInPlay() ? settleGpu().then(() => agentNow(request)) : agentNow(request); }
+async function agent(request) { await loadStage('inspection'); return agentMode && gpuInPlay() ? settleGpu().then(() => agentNow(request)) : agentNow(request); }
 function agentNow(request) { const r = agentReply(request), decorate = globalThis.exact.gpu?.decorate; return decorate ? decorate(request, r) : r; }
 function agentReply(request) {
   try {
@@ -1311,7 +1316,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
     if (!current() || request !== bootAttempt) return null;
   }
   const launch = encoder.encode(location.pathname + location.search); // @ref LLP 1038 D5
-  const kept = !fresh && (bytes || module) ? focus.keep(ask({ op: "tree" }), Number(document.activeElement?.closest?.("[data-view]")?.dataset.view)) : undefined;
+  const kept = !fresh && (bytes || module) ? (await loadStage('inspection'), focus.keep(ask({ op: "tree" }), Number(document.activeElement?.closest?.("[data-view]")?.dataset.view))) : undefined;
   let len;
   if (module) {
     const id = module.rust ?? new TextEncoder().encode(JSON.stringify(module.realm.id));
@@ -1418,7 +1423,7 @@ globalThis.exact = { ...globalThis.exact, mutate, devFirst: () => devFirst(),
   message: (el, text) => { const id = Number(el?.dataset.view); if (inputReady && el && views.get(id) === el && messageViews.has(id)) send(wasm.exact_dispatch(id, 9, writeIn(text), now())); },
   get devAssets() { return devAssets; },
   get ready() { return ready.then(async () => { await moduleReady; if (!inputReady) throw new Error(root.dataset.error || 'data executor not ready'); }); },
-  ...(agentMode ? { agent, agentSettled, now, worldCarry: globalThis.exactWorldCarry } : {}), get wasm() { return wasm; }, writeIn, send, views, root, generation: 0, pendingSurfaces: [],
+  ...(agentMode ? { agent, agentSettled, now, worldCarry: globalThis.exactWorldCarry } : {}), get wasm() { return wasm; }, stages: () => Object.fromEntries(Object.keys(stages).map(name => [name, stageLoaded(name) ? 'loaded' : 'staged'])), writeIn, send, views, root, generation: 0, pendingSurfaces: [],
 };
 // The GPU module, on demand: a script element after a rendering opportunity
 // (two animation-frame callbacks), never an eager import, and only when a
@@ -1439,8 +1444,8 @@ async function main() {
   const download = () => { const stop = new AbortController(); globalThis.navigation?.addEventListener("navigate", e => e.destination.sameDocument || e.downloadRequest != null || (stop.abort(), document.querySelector('link[href="./app.wasm"]')?.remove()), { signal: stop.signal }); return fetch(url, { signal: stop.signal }); };
   const stayed = () => new Promise(done => { const later = () => setTimeout(done); globalThis.navigation?.addEventListener("navigateerror", later, { once: true }); addEventListener("pageshow", later, { once: true }); setTimeout(done, 1000); });
   let response = (globalThis.exact.runtime ??= download()).then(r => r.url === url.href ? r : download(), e => aborted(e) ? Promise.reject(e) : download()), instance;
-  for (;;) try { ({ instance } = await WebAssembly.instantiateStreaming(response, imports)); break; } catch (e) { if (!aborted(e)) throw e; await stayed(); response = download(); }
-  wasm = instance.exports;
+  let compiled; for (;;) try { ({ instance, module: compiled } = await WebAssembly.instantiateStreaming(response, imports)); break; } catch (e) { if (!aborted(e)) throw e; await stayed(); response = download(); }
+  wasm = instance.exports; const [staged] = WebAssembly.Module.customSections(compiled, 'exact.stages'); if (staged) stages = JSON.parse(new TextDecoder().decode(staged)).stages;
   memory = wasm.memory;
   globalThis.exact.compat = JSON.parse(readOut(wasm.exact_compat()));
   logicInfo = typeof wasm.exact_module_artifact === 'function' && wasm.exact_logic ? JSON.parse(readOut(wasm.exact_logic())) : null;
