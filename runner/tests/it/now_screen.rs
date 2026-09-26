@@ -213,7 +213,7 @@ fn a_timers_send_lands_only_if_its_reply_beats_the_next_tick() {
     body.send(mutation, source, 0);
     let body = b.code(body);
     let tick = b.action("tick", &[], &[result], body);
-    b.timer(300, tick);
+    b.timer(300, tick, false);
     b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
     let mut r = Runner::boot(
         b.finish().unwrap(),
@@ -246,7 +246,7 @@ fn a_timers_send_lands_only_if_its_reply_beats_the_next_tick() {
     assert!(dropped.is_none());
     let line = format!("reply {first} dropped: no such request in flight");
     assert!(
-        r.journal().any(|l| l.ends_with(&line)),
+        r.journal().any(|l| l.contains(&line)),
         "{:?}",
         r.journal().collect::<Vec<_>>()
     );

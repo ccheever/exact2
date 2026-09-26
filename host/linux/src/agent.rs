@@ -340,7 +340,6 @@ fn clock_within<D: DataSource>(
     let from = p.host().now();
     let settle_to_end = field_bool(line, "settle");
     let mut to = field_num(line, "to");
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     if settle_to_end {
         // A request in flight is waited for first (LLP 1016): its reply
         // commits, and may start motion, before the fixed point is measured.
