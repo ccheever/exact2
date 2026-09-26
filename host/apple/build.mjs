@@ -619,10 +619,9 @@ function main(args) {
   };
   // A production bake is `release`; any other builds `apple-dev` (Cargo.toml),
   // the same optimizations without whole-graph LTO, for the touch-one-line budget.
-  // An app's own workspace may not declare it yet: build `release` and say so.
-  // (A table-header match, not a TOML parse: Node runs this for apps outside the repo.)
-  const devProfile = /^\s*\[profile\.apple-dev\]/m.test(readFileSync(resolve(app.workspace, 'Cargo.toml'), 'utf8')) ? 'apple-dev' : 'release';
-  if (devProfile === 'release') console.log(`apple: ${app.workspace}/Cargo.toml has no [profile.apple-dev]; building release (copy exact2's [profile.apple-dev] and its build-override for faster rebuilds)`);
+  // An app outside this repo gets it with the root's other profiles, injected
+  // at build (injectedProfiles, LLP 1036.001 D1).
+  const devProfile = 'apple-dev';
   const cargoProfile = cargoEnv.EXACT_UPDATE_TRUST === 'production' ? 'release' : devProfile;
   const cargoLibDir = resolve(app.target, target, cargoProfile);
   // Named Cargo products can alias in external workspaces or two checkouts
