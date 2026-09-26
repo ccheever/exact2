@@ -37,6 +37,9 @@ const BOOTSTRAP_ROWS: usize = 16;
 const ESTIMATED_HEIGHT: f64 = 32.0;
 /// Travel the window leads by, past its viewport of overscan.
 const LEAD_SECONDS: f64 = 0.25;
+/// A mounted row farther than this many viewports from what shows retires
+/// with any report, whatever its limit.
+const FAR_VIEWPORTS: f64 = 2.0;
 
 /// How far the window reaches past the viewport, before and after it: one
 /// viewport each side, and toward the side the list travels, a quarter
@@ -457,9 +460,10 @@ impl Collection {
     /// Realize the window: every row it owes (visible and pinned), then, on
     /// a limited report, at most `fill.limit` more, nearest the viewport on
     /// the side of travel first, retiring at most `max(2·limit, 4)` rows past
-    /// the window (none for a limit of zero), farthest first (@ref LLP
-    /// 1050.000 §6). A data update
-    /// realizes the whole window. What a limit leaves undone is `pending`.
+    /// the window (none for a limit of zero), farthest first, and every row
+    /// more than two viewports from what shows (@ref LLP 1050.000 §6). A
+    /// data update realizes the whole window. What a limit leaves undone is
+    /// `pending`.
     fn realize_window(
         &mut self,
         u: &mut Update<'_>,
@@ -570,15 +574,18 @@ impl Collection {
                 }),
             }
         }
-        if let Some((limit, _)) = limited {
-            // A rescue (no limit past what shows) only builds; slices retire.
+        if let Some((limit, (top, end))) = limited {
+            // A rescue (no limit past what shows) only builds; slices retire,
+            // but a row two viewports past what shows always goes: travel
+            // faster than slices retire must not keep every row it passed.
             let cap = if limit == 0 {
                 0
             } else {
                 (2 * limit as usize).max(4)
             };
             leaving.sort_by(|a, b| b.0.total_cmp(&a.0));
-            let kept = leaving.split_off(cap.min(leaving.len()));
+            let far = leaving.partition_point(|row| row.0 > FAR_VIEWPORTS * (end - top));
+            let kept = leaving.split_off(far.max(cap).min(leaving.len()));
             for (_, _, gone) in leaving {
                 u.ops.push(Op::DestroyView { id: gone.wrapper });
             }

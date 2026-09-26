@@ -34,13 +34,13 @@ fn a_limited_report_builds_what_it_owes_then_leads_in_travel_order() {
         [130, 131]
     );
     assert_eq!(
-        settled.iter().filter(|i| !now.contains(i)).count(),
-        4,
-        "retirement is bounded"
-    );
-    assert!(
-        !now.contains(&90) && now.contains(&94),
-        "the farthest rows retire first"
+        settled
+            .iter()
+            .copied()
+            .filter(|i| !now.contains(i))
+            .collect::<Vec<_>>(),
+        (90..99).collect::<Vec<_>>(),
+        "rows two viewports past what shows retire at once, past the cap"
     );
     assert!(h.snapshot().pending);
     assert!(
@@ -126,4 +126,36 @@ fn travel_inside_the_realized_window_moves_only_the_geometry() {
             .collect::<Vec<_>>()
     };
     assert_eq!(rows(h.snapshot()), rows(fresh.snapshot()));
+}
+
+#[test]
+fn a_limited_report_retires_nearer_rows_at_its_cap() {
+    let mut h = Harness::new(1_000, false, false);
+    let rows = |h: &Harness| {
+        h.snapshot()
+            .rows
+            .iter()
+            .map(|r| r.index)
+            .collect::<Vec<_>>()
+    };
+    h.send(h.feedback(3200.0));
+    let settled = rows(&h);
+    // One viewport down: rows 90..99 leave the window, none of them two
+    // viewports away, so a report that may build two retires four.
+    let down = CollectionFill {
+        velocity: 1_600.0,
+        limit: Some(2),
+    };
+    h.send_filled(h.feedback(3520.0), down);
+    let now = rows(&h);
+    assert_eq!(
+        settled.iter().filter(|i| !now.contains(i)).count(),
+        4,
+        "retirement is bounded"
+    );
+    assert!(
+        !now.contains(&90) && now.contains(&94),
+        "the farthest rows retire first"
+    );
+    assert!(h.snapshot().pending);
 }
