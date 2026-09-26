@@ -11,7 +11,7 @@ use exact_plan::Value;
 /// Reserved resource source, answered before the app data seam.
 pub const SOURCE: &str = "exactTime";
 /// Fields an app may declare, filled by name.
-pub const FIELDS: &[&str] = &["epochAtZero", "utcOffset", "locale", "timeZone"];
+pub const FIELDS: &[&str] = &["epochAtZero", "utcOffset", "locale", "timeZone", "seed"];
 
 /// What the host said about the date. Zero until it says: the bake, and a
 /// host that has not supplied it, answer an unknown date as `0`.
@@ -55,6 +55,11 @@ pub struct Place {
     pub locale: String,
     /// IANA, the device's current zone.
     pub time_zone: String,
+    /// A whole number below 2^53 from the platform's secure random source,
+    /// drawn once per launch: the explicit entropy a source mixes with the
+    /// date and a counter for ids (LLP 1027.000's seed, supplied). Zero
+    /// until the host says.
+    pub seed: f64,
 }
 
 impl Place {
@@ -79,6 +84,7 @@ impl Place {
         match name {
             "locale" => Some(Value::Str(self.locale.as_str().into())),
             "timeZone" => Some(Value::Str(self.time_zone.as_str().into())),
+            "seed" => Some(Value::Number(self.seed)),
             _ => None,
         }
     }

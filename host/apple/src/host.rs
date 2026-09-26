@@ -817,18 +817,27 @@ impl<D: DataSource> Host<D> {
     }
 
     /// The viewer's locale and zone, beside the date: one commit when it changes.
-    pub fn set_place(&mut self, locale: &str, time_zone: &str) -> String {
-        match self.runner.set_place(locale, time_zone) {
-            Ok(Some(receipt)) => self.commit(
-                &[Timed {
+    pub fn set_place(&mut self, locale: &str, time_zone: &str, seed: Option<f64>) -> String {
+        let mut receipts = Vec::new();
+        let mut error = None;
+        let place = self.runner.set_place(locale, time_zone);
+        let seeded = seed
+            .map(|seed| self.runner.set_seed(seed))
+            .unwrap_or(Ok(None));
+        for result in [place, seeded] {
+            match result {
+                Ok(Some(receipt)) => receipts.push(Timed {
                     at_ms: self.now_ms,
                     receipt,
-                }],
-                None,
-            ),
-            Ok(None) => self.finish(Batch::new(), None),
-            Err(e) => self.finish(Batch::new(), Some(format!("place: {e:?}"))),
+                }),
+                Ok(None) => {}
+                Err(e) => error = Some(format!("place: {e:?}")),
+            }
         }
+        if receipts.is_empty() {
+            return self.finish(Batch::new(), error);
+        }
+        self.commit(&receipts, error)
     }
 
     fn resize_inner(&mut self, width: f32, height: f32) -> String {

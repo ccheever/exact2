@@ -55,6 +55,7 @@ impl<D: DataSource> Runner<D> {
         let place = Place {
             locale: locale.into(),
             time_zone: time_zone.into(),
+            seed: self.place.seed,
         };
         if let Err(error) = place.validate() {
             self.log(format!("place refused: {error:?}"));
@@ -140,6 +141,33 @@ impl<D: DataSource> Runner<D> {
             .filter(|i| self.watching[*i].iter().any(|t| t == topic))
             .collect();
         self.recommit(which, "changed")
+    }
+
+    /// The launch's seed ([`Place::seed`]), from the host's secure random
+    /// source once per launch: every `exactTime` resource re-answers. The
+    /// runner draws none itself, so a test or the agent supplies its own.
+    pub fn set_seed(&mut self, seed: f64) -> Result<Option<CommitReceipt>, RunnerError> {
+        if !(seed.is_finite()
+            && seed >= 0.0
+            && seed.fract() == 0.0
+            && seed < 9_007_199_254_740_992.0)
+        {
+            self.log("seed refused: InvalidPlace".to_string());
+            return Err(RunnerError::InvalidPlace);
+        }
+        if seed == self.place.seed {
+            return Ok(None);
+        }
+        let previous = self.place.seed;
+        self.place.seed = seed;
+        let which = (0..self.plan.resources.len())
+            .filter(|i| self.plan.str(self.plan.resources[*i].source) == SOURCE)
+            .collect();
+        let result = self.recommit(which, "seed");
+        if result.is_err() {
+            self.place.seed = previous;
+        }
+        result
     }
 
     pub(super) fn time_answer(&self, i: usize) -> Result<Value, DataError> {

@@ -767,13 +767,16 @@ public final class ExactSession {
         frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
     }
 
+    /// Drawn once per launch; the same across a dev reload's new runner.
+    private let launchSeed = UInt64.random(in: 0..<(1 << 53))
     /// @ref LLP 1027.000.000 — the date, against the clock `now()` reads.
     func tellTime() {
         let offset = Double(TimeZone.current.secondsFromGMT()) / 60
         apply(runtime.setTime(epochAtZero: Date().timeIntervalSince1970 * 1000 - now(), utcOffset: offset))
         // The first preferred language, as the device formats dates and numbers.
         let locale = Locale.preferredLanguages.first ?? Locale.current.identifier(.bcp47)
-        apply(runtime.setPlace(locale: locale, timeZone: TimeZone.current.identifier))
+        // The launch's seed: explicit entropy for ids, from the system's secure source.
+        apply(runtime.setPlace(locale: locale, timeZone: TimeZone.current.identifier, seed: launchSeed))
     }
     public func resize(_ size: CGSize) { guard booted, state != .destroyed else { return }; apply(runtime.resize(width: size.width, height: size.height)) }
     public func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) { guard booted, state != .destroyed else { return }; apply(runtime.insets(top: top, right: right, bottom: bottom, left: left)) }
