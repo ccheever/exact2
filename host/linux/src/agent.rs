@@ -354,7 +354,7 @@ fn clock_within<D: DataSource>(
     }
     let mut rounds = 0;
     loop {
-        let (landed, e) = p.clock(to);
+        let (landed, e) = clock_stepped(p, to, deadline);
         if let Some(e) = e {
             let mut s = String::from("{\"error\":");
             exact_runner::agent::quote(&format!("clock: {e}"), &mut s);
@@ -406,15 +406,47 @@ fn clock_within<D: DataSource>(
     }
 }
 
+/// To `to`, due time by due time, and what is in flight lands before a
+/// timer fires — the runner keeps one request per target (LLP 1016 D5), so
+/// a tick's send would drop the reply of the one before it. Past the
+/// deadline, or 4096 steps, the rest is one advance.
+fn clock_stepped<D: DataSource>(
+    p: &mut Presenter<D>,
+    to: f64,
+    deadline: std::time::Instant,
+) -> (f64, Option<String>) {
+    for _ in 0..4096 {
+        let now = p.host().now();
+        let Some(due) = p.host().timer_due_ms().filter(|d| *d > now && *d < to) else {
+            break;
+        };
+        if !wait_for_replies(p, deadline) {
+            break;
+        }
+        let (landed, e) = p.clock(due);
+        if e.is_some() {
+            return (landed, e);
+        }
+    }
+    if p.host().timer_due_ms().is_some_and(|d| d <= to) {
+        wait_for_replies(p, deadline);
+    }
+    p.clock(to)
+}
+
 /// Pump the executor until no request is in flight, or until the call's
-/// deadline (`settled: false` past it).
-fn wait_for_replies<D: DataSource>(p: &mut Presenter<D>, deadline: std::time::Instant) {
-    while p.pending() && std::time::Instant::now() < deadline {
+/// deadline (`settled: false` past it), false then.
+fn wait_for_replies<D: DataSource>(p: &mut Presenter<D>, deadline: std::time::Instant) -> bool {
+    while p.pending() {
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
         std::thread::sleep(std::time::Duration::from_millis(20));
         if let Some(e) = p.pump(p.host().now()) {
             eprintln!("exact: {e}");
         }
     }
+    true
 }
 
 /// `"key":[a,b]` in a flat request.

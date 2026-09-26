@@ -340,6 +340,8 @@ public final class ExactSession {
     /// The agent's clock (milliseconds) when the driver owns time; nil runs
     /// on the wall clock.
     public var clock: Double?
+    /// The runner's soonest timer, from the last batch (absent without timers).
+    var timerDue: Double?
     /// The view presenting this session, while one is mounted (D1).
     weak var view: ExactView?
     /// This session's agent, once a carrier asked for it (`Agent.swift`).
@@ -618,6 +620,7 @@ public final class ExactSession {
         frames.motion = batch.motion
         // The GPU module: after the first painted frame, only when a canvas exists.
         if firstDrawMs != nil { canvases.loadIfNeeded(); drainSurfaceWork() } else { DispatchQueue.main.async { [weak self] in guard let self else { return }; canvases.loadIfNeeded(); drainSurfaceWork(); frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames) } }
+        timerDue = batch.timerDueMs
         scheduleClock(due: batch.timerDueMs)
         if ExactEnv.environment["EXACT_TIMER_TRACE"] == "1", !ExactEnv.agentMode {
             if let line = timerTrace.record(batch, at: ExactEnv.wall()) { fputs(line + "\n", stderr) }
