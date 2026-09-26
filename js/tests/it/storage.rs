@@ -247,6 +247,128 @@ fn storage_then_fetch_then_storage_preserves_each_answer_context() {
     assert!(matches!(s.get("session"), Some("a" | "b")));
 }
 
+/// An app that serializes its storage work through one promise chain starts the
+/// second answer's work in a microtask of the first. Each answer must still settle
+/// with its own value.
+#[test]
+fn storage_chained_across_answers_settles_each_answer() {
+    let root = Root::new();
+    let mut m = root.module();
+    m.activate().unwrap();
+    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let aa = args("serial", "a");
+    let bb = args("serial", "b");
+    let mut pending = vec![
+        (aa.clone(), m.answer(&mut s, "work", &aa).unwrap()),
+        (bb.clone(), m.answer(&mut s, "work", &bb).unwrap()),
+    ];
+    let mut done = vec![];
+    for _ in 0..100 {
+        if pending.is_empty() {
+            break;
+        }
+        let (a, answer) = pending.remove(0);
+        match answer {
+            Answer::Now(v) => done.push(text(v)),
+            Answer::Later(request) => {
+                let token = request.continuation.expect("storage continuation");
+                let outcome = std::thread::spawn(m.continuation(token).unwrap())
+                    .join()
+                    .unwrap();
+                let next = m.parse(&mut s, "work", &a, outcome).unwrap();
+                pending.push((a, next));
+            }
+        }
+    }
+    done.sort();
+    assert_eq!(done, vec!["a:1", "b:2"], "both answers settle, in order");
+}
+
+/// The same, through the runner and the host's dispatch: the second resource's
+/// work is held while the first's storage turn is open, and released by the
+/// commit that ends it, as a native host pumps them.
+#[test]
+fn runner_holds_an_answer_behind_an_open_storage_turn() {
+    let root = Root::new();
+    let plan = contract::compile(
+        r#"
+shape Result
+  text: string
+component App
+  resource first = work("serial", "a") as shape Result else work("placeholder", "")
+  resource second = work("serial", "b") as shape Result else work("placeholder", "")
+  view
+    column
+      text first.text testId="first"
+      text second.text testId="second"
+"#,
+    )
+    .unwrap();
+    let mut m = Module::new(HBC.to_vec(), APP, GRANTS);
+    m.set_budget_ms(f64::INFINITY);
+    m.configure_storage(
+        root.0.join("data"),
+        root.0.join("cache"),
+        root.0.join("tmp"),
+    )
+    .unwrap();
+    m.bind(&plan);
+    m.activate().unwrap();
+    let mut runner =
+        Runner::boot(plan, m, Kernel::with_monospace(), Default::default(), "/").unwrap();
+    let mut held = std::collections::HashMap::new();
+    let mut ever_held = false;
+    let mut work: Vec<(u64, exact_runner::Work)> = Vec::new();
+    for _ in 0..200 {
+        for request in runner.take_requests() {
+            let token = request.request.continuation.expect("storage continuation");
+            match runner.dispatch_work(token) {
+                exact_runner::Dispatch::Run(w) => work.push((request.ticket, w)),
+                exact_runner::Dispatch::Held => {
+                    ever_held = true;
+                    held.insert(token, request.ticket);
+                }
+                _ => panic!("native storage work runs or is held"),
+            }
+        }
+        let Some((ticket, w)) = (if work.is_empty() {
+            None
+        } else {
+            Some(work.remove(0))
+        }) else {
+            break;
+        };
+        let exact_runner::Work::Now(w) = w else {
+            panic!("native work runs now")
+        };
+        let outcome = std::thread::spawn(w).join().unwrap();
+        runner.fulfill(ticket, outcome).unwrap();
+        for (token, dispatch) in runner.release_work() {
+            let exact_runner::Dispatch::Run(w) = dispatch else {
+                panic!("released work runs")
+            };
+            let ticket = held.remove(&token).expect("released work was held");
+            work.push((ticket, w));
+        }
+    }
+    assert!(ever_held, "the second answer waited for the first's turn");
+    assert!(!runner.has_pending(), "both resources settled");
+    let read = |id: &str| {
+        let key = runner.kernel().find_by_test_id(id)[0];
+        runner
+            .kernel()
+            .node_by_key(key)
+            .unwrap()
+            .props
+            .str(PropId::Text)
+            .map(str::to_owned)
+    };
+    let (a, b) = (read("first").unwrap(), read("second").unwrap());
+    let mut both = vec![a, b];
+    both.sort();
+    assert_eq!(both, vec!["a:1", "b:2"]);
+}
+
 #[test]
 fn unload_invalidates_continuations_and_configuration_survives_reload() {
     let root = Root::new();
