@@ -26,6 +26,7 @@ mod fonts;
 mod media;
 mod routes;
 mod sites;
+mod strings;
 pub mod tags;
 mod values;
 pub use sites::{Declared, NodeSite, Origin, Sites};
@@ -227,6 +228,10 @@ pub(crate) struct Lowerer<'a> {
     /// Refusals so far: an element or attribute that fails is recorded and
     /// its siblings are lowered anyway.
     errors: Vec<LowerError>,
+    /// The locale slot, once a `t` call made it (LLP 1060 D4).
+    locale: Option<exact_plan::SlotsId>,
+    /// Every key a `t` call names, the only ones baked.
+    texts_used: std::collections::BTreeSet<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -327,6 +332,8 @@ fn lower_with_sites(
         declared_fonts: BTreeMap::new(),
         fixed: BTreeMap::new(),
         errors: Vec::new(),
+        locale: None,
+        texts_used: Default::default(),
     };
     l.declare_fonts(file, asset_root)?;
     // Styles: rows only, literal only (the parser holds the second), by name.
@@ -569,6 +576,7 @@ fn lower_with_sites(
             l.b.set_slot_owner(l.slots[i], region);
         }
     }
+    l.bake_texts();
     let plan = l.b.finish().map_err(|e| LowerError {
         id: "lower-invalid-plan",
         message: format!("{e:?}"),

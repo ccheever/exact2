@@ -9,6 +9,11 @@
     {
       "name": "router",
       "codec": "opt:slots"
+    },
+    {
+      "name": "locale",
+      "codec": "opt:slots",
+      "_comment": "@ref LLP 1060 D4: the root string slot holding the resolved locale every `t(...)` reads; set only when the app calls `t`. The runner writes it from set_place."
     }
   ],
   "_about": "The single declaration authority for the plan: its tables, the expression VM's opcodes, the stdlib roster, and the enum vocabularies. plan/build.rs generates the row structs, the canonical encoder, the validating decoder, the opcode and stdlib enums, and FORMAT_DIGEST from this file. Nothing here is hand-mirrored anywhere else. Kernel node types, props, and style rows are NOT declared here: plan rows carry the kernel's ordinals as numbers, and the crates that give them meaning take the vocabulary from exact-kernel (LLP 1004 D2).",
@@ -473,6 +478,22 @@
           "codec": "bytes",
           "_comment": "@ref LLP 1048.000 D2: that source's arguments, values (a list in the plan's value encoding); empty bytes without a source."
         }
+      ]
+    },
+    {
+      "name": "texts",
+      "_comment": "@ref LLP 1060 D3: one localized text, `{name}` placeholders unfilled. Within a locale, sorted by key.",
+      "fields": [
+        { "name": "key", "codec": "str" },
+        { "name": "text", "codec": "str" }
+      ]
+    },
+    {
+      "name": "locales",
+      "_comment": "@ref LLP 1060 D3: one strings table per locale (BCP 47 name). Row 0 is the base; the rest are in name order. Only the keys the app's `t` calls name.",
+      "fields": [
+        { "name": "name", "codec": "str" },
+        { "name": "texts", "codec": "range:texts" }
       ]
     }
   ],
@@ -974,6 +995,12 @@
       "name": "contains",
       "params": ["string", "string"],
       "returns": "bool"
+    },
+    {
+      "name": "t",
+      "params": ["string", "string", "list<string>"],
+      "returns": "string",
+      "_comment": "@ref LLP 1060 D2: the text for (locale, key), placeholders filled from name/value pairs. The compiler writes every argument; an author writes `t(\"key\", name=value)`."
     }
   ],
   "_sources": "LLP 1027 D2: the data seam's signatures. One row per data-source name the app's `resource` and `send` declarations use, with the parameter types and the result type every use agrees on (the compiler refuses a disagreement by name). An executor that marshals by shape \u2014 the TypeScript module's \u2014 reads this table at bind; a Rust crate ignores it. formatVersion 3.",

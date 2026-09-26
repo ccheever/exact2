@@ -45,7 +45,8 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Re-answer every `exactTime` resource with the viewer's locale and
-    /// zone, in one commit; the same fact again commits nothing.
+    /// zone, and write the table that locale resolves to into the plan's
+    /// locale slot, in one commit; the same fact again commits nothing.
     pub fn set_place(
         &mut self,
         locale: &str,
@@ -63,14 +64,29 @@ impl<D: DataSource> Runner<D> {
             return Ok(None);
         }
         let previous = std::mem::replace(&mut self.place, place);
-        let which = (0..self.plan.resources.len())
+        let which: Vec<usize> = (0..self.plan.resources.len())
             .filter(|i| self.plan.str(self.plan.resources[*i].source) == SOURCE)
             .collect();
-        let result = self.recommit(which, "place");
+        // @ref LLP 1060 D4 — an ordinary slot write, so dependency tracking
+        // re-renders exactly the `t(...)` readers. The checkpoint the commit
+        // takes already holds the new value: a refusal restores it here.
+        let written = self.plan.locale.and_then(|slot| {
+            let i = slot.0 as usize;
+            let resolved = self.plan.resolve_locale(&self.place.locale)?;
+            let value = Value::str(resolved);
+            (self.slots[i] != value).then(|| (i, std::mem::replace(&mut self.slots[i], value)))
+        });
+        if which.is_empty() && written.is_none() {
+            return Ok(None);
+        }
+        let result = self.commit_again(which, "place");
         if result.is_err() {
             self.place = previous;
+            if let Some((i, old)) = written {
+                self.slots[i] = old;
+            }
         }
-        result
+        result.map(Some)
     }
 
     /// Take the topics the source's native module announces (LLP 1016.002),
