@@ -102,6 +102,38 @@ final class NodePoolIOSTests: XCTestCase {
         XCTAssertEqual(p.pool.count, 0)
     }
 
+    /// A paragraph of inline runs parks with its row: the next row's
+    /// `paragraph` op gives it only its own runs, and no bitmap is kept.
+    func testAParagraphOfInlineRunsParksAndShowsOnlyTheNextRuns() throws {
+        let p = Presenter()
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        p.viewport.frame = window.bounds; window.addSubview(p.viewport); window.makeKeyAndVisible()
+        func row(_ base: Int, _ words: [String]) -> [[String: Any]] {
+            [["op": "create", "id": base, "kind": "view"],
+             ["op": "create", "id": base + 1, "kind": "text", "style": ["font_size": 16.0]],
+             ["op": "paragraph", "id": base + 1, "runs": words.enumerated().map { i, w in
+                ["id": base + 2 + i, "parent": base + 1, "paint": true, "props": ["text": w], "style": ["font_weight": i == 0 ? 600.0 : 400.0]] }],
+             ["op": "children", "id": base, "ids": [base + 1]],
+             ["op": "frame", "id": base, "x": 0.0, "y": 0.0, "w": 300.0, "h": 44.0],
+             ["op": "frame", "id": base + 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 20.0]]
+        }
+        p.apply(wireBatch([collections([(10, 10)]),
+            ["op": "create", "id": 1, "kind": "list", "style": ["overflow_y": "scroll"]]]
+            + row(10, ["Hello ", "world"])
+            + [["op": "children", "id": 1, "ids": [10]], ["op": "roots", "ids": [1]],
+               ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 300.0],
+               ["op": "content", "id": 1, "w": 300.0, "h": 2000.0]]))
+        let text = try XCTUnwrap(p.views[11])
+        XCTAssertEqual(text.inlineText.count, 2)
+        p.apply(wireBatch([collections([(20, 20)])] + destroy([10, 11]) + row(20, ["Bye"])
+            + [["op": "children", "id": 1, "ids": [20]]]))
+        XCTAssertTrue(p.views[21] === text, "the paragraph's view came back")
+        XCTAssertEqual(text.inlineText.map(\.text), ["Bye"])
+        XCTAssertEqual(text.paragraphText, "Bye")
+        XCTAssertNil(p.inlineText(12), "the old runs are forgotten")
+        XCTAssertNotNil(p.inlineText(22))
+    }
+
     func testARowWhoseNodeMovesAwayIsDestroyedAsBefore() throws {
         let p = fixture()
         let old = try XCTUnwrap(p.views[10]), button = try XCTUnwrap(p.views[12])

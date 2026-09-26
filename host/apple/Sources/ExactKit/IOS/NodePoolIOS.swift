@@ -19,10 +19,12 @@
 //   whole by the create op), handlers (assigned; their recognizers follow);
 // - geometry and presentation: frame, transform, translate/scale/rotate,
 //   opacity, hidden; `content`; the create's frame and present ops set them;
-// - paint: the text raster, paragraph and inline runs, layout caches, the
-//   live-region text; a raster image and its load (the generation moves, so
-//   no completion lands); the symbol's key (its size is reported again for
-//   the new id), keeping the glyph view unless the new node shows no symbol;
+// - paint: the text raster, paragraph and inline runs (the new row's
+//   `paragraph` op sets its own), layout caches, the live-region text, the
+//   layer's bitmap; a raster image, its sublayer and its load (the
+//   generation moves, so no completion lands); the symbol's key (its size is
+//   reported again for the new id), keeping the glyph view unless the new
+//   node shows no symbol;
 // - input and accessibility: interaction enabled, the element, traits,
 //   label, value, hint, identifier, hidden-elements, all set again by props.
 // What makes a view ineligible instead of reset: a kind other than plain
@@ -30,8 +32,8 @@
 // input, a text area, a canvas, video or web view, a material, a placement;
 // gesture recognizers or interactions (menus, reorder handles, drags); a
 // press, drag or swipe in progress, or a projected swipe row; focus, a focus
-// ring, editing, a pending focus; inline runs, flow shapes, a context
-// transform, a pending scroll; a view kept by a modal's retiring root; a
+// ring, editing, a pending focus; flow shapes, a context transform, a
+// pending scroll; a view kept by a modal's retiring root; a
 // subtree node the batch does not destroy (it may be moving elsewhere).
 // While VoiceOver or Switch Control runs nothing parks: its cursor stays on
 // the element it was on, never on a view that is now another row.
@@ -152,7 +154,7 @@ final class NodePool {
             && !v.isFirstResponder && presenter.editing !== v && presenter.pendingFocusNode !== v
             && v.swipeHold == nil && v.heightHold == nil && v.reorderHold == nil && v.transformHold == nil
             && !v.pressed && (v.gestureRecognizers?.isEmpty ?? true) && v.interactions.isEmpty
-            && v.inlineText.isEmpty && v.flowShapes.isEmpty && v.contextTransform.isIdentity
+            && v.flowShapes.isEmpty && v.contextTransform.isIdentity
             && v.pendingScrollLeft == nil && v.pendingScrollTop == nil
     }
 
@@ -223,6 +225,8 @@ extension NodeView {
         inlinePressed = nil
         content = .zero
         needsCapture = false; paintedThisTurn = false
+        // A parked view keeps no bitmap: its create ops paint it again.
+        if layer.contents != nil { layer.contents = nil }
     }
     /// Taken for `newID`: a fresh view's state, before its create ops.
     func rebind(_ newID: UInt32) {
