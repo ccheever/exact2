@@ -165,15 +165,19 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         let bar = bars[owner.id] ?? {
             let value = ExactTabBar(ownerID: owner.id)
             value.delegate = self
-            value.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             owner.addSubview(value)
             bars[owner.id] = value
             return value
         }()
         if bar.superview !== owner { owner.addSubview(bar) }
-        // The whole box: a tab bar draws its own background and keeps its
-        // items clear of the home indicator itself.
-        if bar.frame != owner.bounds { bar.frame = owner.bounds }
+        // At least the bar's own height, on the box's bottom edge: a box
+        // shorter than a tab bar (an authored row sized for its own tabs)
+        // would clip the selected item's title, which iOS 26 draws inside
+        // the selection's glass, to a line of dots.
+        let fit = bar.sizeThatFits(CGSize(width: owner.bounds.width, height: 0)).height
+        let height = max(owner.bounds.height, fit)
+        let frame = CGRect(x: 0, y: owner.bounds.height - height, width: owner.bounds.width, height: height)
+        if bar.frame != frame { bar.frame = frame }
         bar.isUserInteractionEnabled = available(owner)
         bar.accessibilityLabel = owner.props["accessibilityLabel"]
         let current = bar.items ?? []

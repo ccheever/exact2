@@ -36,19 +36,13 @@ A tab bar item has exactly the second shape. A segment cannot show it.
 - **D3 — The app's accent, the platform's face.** The selected item takes
   the selected symbol's authored `tint-color`. Everything else is the bar's
   own look.
-  - *Rejected:* a `UITabBarAppearance` with title attributes. It replaces
-    the bar's rendering of every title. On the iOS 26.4 simulator that
-    drew titles as dotted fragments, where the stock bar draws them
-    correctly.
+- **D2a — At least the bar's own height.** The bar is sized to
+  `sizeThatFits` and sits on the bottom edge of the box, growing upward when
+  the box is shorter. An authored row sized for its own tabs is often
+  shorter than a tab bar. iOS 26 draws the selected item's title inside the
+  selection's glass, which is clipped to the bar's bounds, so a short frame
+  turned that title into a line of dots.
 - **D4 — The journal says which.** The one-line journal per tablist
   (`tablist #N: …`) now also names `projected to UITabBar`, and the agent
   observation reports `view: UITabBar`. That makes F12's surprise
   discoverable in the logs.
-
-## Unverified
-
-On the iOS 26.4 simulator on a macOS 27 host, the selected item's title
-renders as a dotted line. So does a stock `UITabBar` with no customisation,
-and Photos' Liquid Glass button renders its text in the wrong colour on the
-same simulator. This points to the simulator's glass rendering, not to the
-projection. It has not been checked on a device.
