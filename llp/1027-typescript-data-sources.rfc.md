@@ -15,6 +15,10 @@ unimplemented clock shadow. The macOS executor implementation and actual
 verification are recorded in the child; browser parity and iOS execution are
 recorded in D6 (2026-09-07).
 
+**Proposed amendment (2026-09-26, built on `perf/adopt`, awaiting Charlie):**
+D11 — a source may adopt the compiled value the runner already holds for
+its query, so an app keeps its list data once, not twice.
+
 **Tooling runtime (Charlie, 2026-09-14):** Bun replaces Node for the bake and
 repository scripts. Rolldown remains the app bundler, and `hermesc` remains the
 bytecode compiler; the resident producer and existing dev server retain their behavior.
@@ -1193,6 +1197,53 @@ restart, backup, deletion, and transactional restore. Snapback2 remains deferred
   last value stays on screen.
 - **Not before first pixel, never in Contract, never touching the tree**
   — §7.
+
+### D11 — `adopt`: a source may keep the value the runner already holds (2026-09-26)
+
+A resource with a compiled value (D5; LLP 1038 D5) takes it at boot
+instead of asking its source, so the runner decodes the bake's answer
+and the source never sees it. A source that edits what it answers —
+a feed a reaction bumps, a list a live tick prepends to — then had to
+build that data a second time, from its own bundled input, to have
+something to edit. The heavy-list benchmark held 10,000 messages twice
+on the iPad this way: the runner's decoded value, and the port's own
+parse of the same JSON into structs and a second set of rows.
+
+```rust
+fn adopt(&mut self, source: &str, args: &[Value], value: &Value) {}
+```
+
+- **When.** After the settlement that published it, once for each
+  resource that took its compiled value in that settlement — at boot,
+  and on a deferred executor's boot (D4), where the value stands in
+  until `data_ready`. `args` are the ones the bake answered
+  (`initial_args`), which are what `value` answers even where the
+  resource's current arguments already differ. `value` is the runner's
+  own object: a clone shares every list and record (`Rc<[Value]>`).
+- **What it means.** "The runner shows this for `source(args)`, and
+  this instance did not answer it." It is the bake's answer to the same
+  query, from an empty store (LLP 1018 D4). A source may keep it as its
+  own copy of what it would answer and edit it by building new values
+  that share the unchanged parts; it may ignore it. The default ignores
+  it, so every existing source compiles and behaves as before.
+- **Forwarding.** A source that forwards `bind` forwards this: the
+  mixed composer to the source that owns the name (D8), a swappable
+  module to its embedded source. A source placed on a worker is not
+  told (LLP 1027.002): a value reaches a worker only as a copy, and a
+  copy is what adopting saves. The TypeScript executor ignores it; its
+  values cross as JSON either way (D2).
+
+What it does not change: the runner never asks a source whether it
+adopted, never waits for it, and shows exactly what it would have shown
+without it. The contract of `query`/`answer` is unchanged — a source
+still answers every query itself, and one that adopted must answer as
+it would have without adopting (the bake's answer is its own answer).
+Nothing new is baked, carried, or sent to a host. A value that arrives
+any other way — a carried value across a reload (LLP 1007 §6), a kept
+store-reader answer, a document's seed (LLP 1048.000 D6), a placeholder
+(LLP 1048.003 D6) — is not adopted: each may reflect a store, another
+render, or an earlier instance's edits rather than this build's answer
+from an empty store, and no consumer has asked for them.
 
 ## 5. Measured, 2026-09-03
 
