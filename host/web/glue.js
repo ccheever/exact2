@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { focusController, navigation, afterPaintPieces, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst } from "./navigation.js";
+import { focusController, runFocusCommands, navigation, afterPaintPieces, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst } from "./navigation.js";
 let httpModule;
 function httpHelpers() {
   return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
@@ -814,23 +814,7 @@ function apply(batch) {
   syncLists();
   // Focusing can dispatch an action; every node/value in this batch must be
   // committed before its focus handler runs.
-  for (const { name, args } of focusCommands) {
-    if (name === "blur") { // `blur()` drops whatever holds focus; `blur(id)` only when that node holds it.
-      const active = document.activeElement;
-      if (inputReady && active && active !== document.body && (!args?.length || active.id === args[0])) active.blur();
-      continue;
-    }
-    const selectText = name === "selectText";
-    if (args?.length !== 1 || typeof args[0] !== "string" || !inputReady) continue;
-    const el = [...root.querySelectorAll("[id]")].find(node => node.id === args[0]);
-    const reason = !el ? "no live node with that id" : !el.isConnected ? "not mounted" : el.matches(":disabled,[disabled]") ? "disabled"
-      : inertAncestor(el) ? "inert ancestor" : !el.getClientRects().length ? "zero size"
-      : getComputedStyle(el).visibility !== "visible" ? "hidden ancestor" : null;
-    if (reason) { log(`focus "${args[0]}" refused: ${reason}`); continue; }
-    if (selectText && typeof el.select !== "function") { log(`selectText "${args[0]}" refused: not a text editor`); continue; }
-    el.focus();
-    if (selectText && document.activeElement === el) el.select();
-  }
+  runFocusCommands(focusCommands, { root, ready: inputReady, inertAncestor, log });
   focusAutofocus();
   positionContexts();
   return batch.timers;
