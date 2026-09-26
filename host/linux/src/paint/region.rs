@@ -264,7 +264,8 @@ impl Picture {
             // leave records are smaller. Counting uses the SAME paint emitter.
             let mut cost = 1usize; // hit, including opacity-zero nodes
             if opacity > 0. {
-                paint.emit(&geometry, |_, _, _| cost += 1);
+                paint.emit(&geometry, |_, _| cost += 1);
+                cost += paint.borders(&geometry).len();
                 cost += match &payload {
                     Payload::Empty => 0,
                     Payload::Text(..) => 1,
@@ -599,10 +600,9 @@ impl<'a> Replay<'a> {
                             .chain(n.paint.widths)
                             .chain(n.paint.radii)
                             .all(f32::is_finite);
-                    n.paint.emit(&geometry, |shape, _, stroke| {
-                        finite &= finite_rect(shape.rect)
-                            && shape.radii.into_iter().all(f32::is_finite)
-                            && stroke.is_none_or(f32::is_finite);
+                    n.paint.emit(&geometry, |shape, _| {
+                        finite &=
+                            finite_rect(shape.rect) && shape.radii.into_iter().all(f32::is_finite);
                     });
                     if let Payload::Image(image, fit) = &n.payload {
                         finite &= object_fit(image.natural(), *fit, c).is_none_or(finite_rect);

@@ -5,6 +5,7 @@
 //! @ref LLP 1015 §2
 
 use crate::image::Bitmap;
+use crate::paint::border::{BorderFill, PathOp};
 use crate::paint::{Backend, Rect4, Shape, POINTER};
 use crate::text::{Paragraph, RunPaint, TextEngine};
 use std::rc::Rc;
@@ -329,6 +330,20 @@ fn solid(c: [u8; 4]) -> Paint<'static> {
     p
 }
 
+/// A border part's path for tiny-skia.
+fn tiny_path(ops: &[PathOp]) -> Option<Path> {
+    let mut b = PathBuilder::new();
+    for op in ops {
+        match *op {
+            PathOp::Move(x, y) => b.move_to(x, y),
+            PathOp::Line(x, y) => b.line_to(x, y),
+            PathOp::Cubic(a, c, d, e, f, g) => b.cubic_to(a, c, d, e, f, g),
+            PathOp::Close => b.close(),
+        }
+    }
+    b.finish()
+}
+
 /// A shape as a path: a rectangle, or rounded corners as cubic arcs.
 pub fn rounded_rect(shape: &Shape) -> Option<Path> {
     let (x, y, w, h) = shape.rect;
@@ -608,6 +623,42 @@ impl Backend for Raster {
                 &path,
                 &solid(color),
                 FillRule::Winding,
+                dev,
+                mask.as_deref(),
+            );
+        }
+    }
+
+    fn fill_border(&mut self, part: &BorderFill, ts: Transform) {
+        let Some(region) = tiny_path(&part.region) else {
+            return;
+        };
+        let dev = self.device(ts);
+        let parent = self.clips.last().cloned();
+        // A clipped part: its quadrilaterals as a mask, under whatever clip
+        // is already in force. Only rounded multicolour borders have one.
+        let clipped = match &part.clip {
+            None => None,
+            Some(clip) => {
+                let Some(clip) = tiny_path(clip) else {
+                    return;
+                };
+                let Some(mut mask) = Mask::new(self.width, self.height) else {
+                    return;
+                };
+                mask.fill_path(&clip, FillRule::Winding, true, dev);
+                if let Some(parent) = &parent {
+                    intersect_mask(&mut mask, parent, &clip, dev);
+                }
+                Some(Rc::new(mask))
+            }
+        };
+        let mask = clipped.or(parent);
+        if let Some(t) = self.target.as_mut() {
+            t.fill_path(
+                &region,
+                &solid(part.color),
+                FillRule::EvenOdd,
                 dev,
                 mask.as_deref(),
             );

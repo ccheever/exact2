@@ -13,6 +13,7 @@
 #![allow(unsafe_code)]
 
 use crate::image::Bitmap;
+use crate::paint::border::{BorderFill, PathOp};
 use crate::paint::{Backend, Rect4, Shape, POINTER};
 use crate::text::{Paragraph, RunPaint, TextEngine};
 mod images;
@@ -22,7 +23,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 use tiny_skia::{IntSize, Pixmap, Transform};
-use vello::kurbo::{Affine, BezPath, Rect, RoundedRect, RoundedRectRadii, Stroke};
+use vello::kurbo::{Affine, BezPath, Rect, Stroke};
 use vello::peniko::{Color, Fill, ImageBrush, Mix};
 use vello::{AaConfig, AaSupport, RenderParams, Renderer, RendererOptions};
 
@@ -300,18 +301,29 @@ impl Gpu {
     }
 }
 
-fn shape(s: &Shape) -> RoundedRect {
-    let (x, y, w, h) = s.rect;
-    let r = Rect::new(x as f64, y as f64, (x + w) as f64, (y + h) as f64);
-    RoundedRect::from_rect(
-        r,
-        RoundedRectRadii::new(
-            s.radii[0] as f64,
-            s.radii[1] as f64,
-            s.radii[2] as f64,
-            s.radii[3] as f64,
-        ),
-    )
+/// A shape's path with its CSS-reduced radii. kurbo's `RoundedRect` would
+/// clamp each radius to half the shorter side, which CSS does not (a 40pt
+/// corner on a 70pt-high box whose neighbours fit keeps 40), so the path is
+/// the CPU painter's cubic arcs.
+fn shape(s: &Shape) -> BezPath {
+    let mut ops = Vec::new();
+    crate::paint::border::rounded_rect(&mut ops, s.rect, s.radii.map(|r| (r, r)));
+    bez(&ops)
+}
+
+/// A border part's path for vello.
+fn bez(ops: &[PathOp]) -> BezPath {
+    let mut b = BezPath::new();
+    let p = |x: f32, y: f32| (x as f64, y as f64);
+    for op in ops {
+        match *op {
+            PathOp::Move(x, y) => b.move_to(p(x, y)),
+            PathOp::Line(x, y) => b.line_to(p(x, y)),
+            PathOp::Cubic(a, c, d, e, f, g) => b.curve_to(p(a, c), p(d, e), p(f, g)),
+            PathOp::Close => b.close_path(),
+        }
+    }
+    b
 }
 
 fn color(c: [u8; 4]) -> Color {
@@ -340,6 +352,23 @@ impl Backend for Gpu {
         }
         let a = self.affine(ts);
         self.scene.fill(Fill::NonZero, a, color(c), None, &shape(s));
+    }
+
+    fn fill_border(&mut self, part: &BorderFill, ts: Transform) {
+        let a = self.affine(ts);
+        if let Some(clip) = &part.clip {
+            self.scene.push_clip_layer(Fill::NonZero, a, &bez(clip));
+        }
+        self.scene.fill(
+            Fill::EvenOdd,
+            a,
+            color(part.color),
+            None,
+            &bez(&part.region),
+        );
+        if part.clip.is_some() {
+            self.scene.pop_layer();
+        }
     }
 
     fn stroke(&mut self, s: &Shape, width: f32, c: [u8; 4], ts: Transform) {
@@ -443,7 +472,7 @@ impl Backend for Gpu {
     fn push_clip(&mut self, s: &Shape, ts: Transform) {
         let a = self.affine(ts);
         let clip = if s.rect.2 <= 0.0 || s.rect.3 <= 0.0 {
-            RoundedRect::from_rect(Rect::ZERO, 0.0)
+            vello::kurbo::Shape::to_path(&Rect::ZERO, 0.1)
         } else {
             shape(s)
         };
