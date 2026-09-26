@@ -1176,6 +1176,8 @@ fn live_regions_and_autofocus_use_html_attributes() {
     assert!(batch.contains("\"aria-live\":\"polite\""), "{batch}");
     assert!(batch.contains("\"aria-live\":\"assertive\""), "{batch}");
     assert!(batch.contains("\"autofocus\":\"true\""), "{batch}");
+    assert!(batch.contains("\"aria-expanded\":\"true\""), "{batch}");
+    assert!(batch.contains("\"aria-hidden\":\"true\""), "{batch}");
     assert!(host
         .agent("{\"op\":\"tree\"}")
         .contains("accessibilityLive"));
