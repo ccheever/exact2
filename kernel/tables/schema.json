@@ -864,6 +864,16 @@
       ],
       "default": "auto"
     },
+    "TextTransform": {
+      "_comment": "@ref LLP 1055 D5: applied once, where the kernel produces a paragraph's runs; editable text is never transformed.",
+      "values": [
+        "none",
+        "uppercase",
+        "lowercase",
+        "capitalize"
+      ],
+      "default": "none"
+    },
     "FieldSizing": {
       "values": [
         "fixed",
@@ -1359,7 +1369,8 @@
       "bit": 59,
       "field": "shadow_radius",
       "codec": "f32",
-      "default": 0
+      "default": 0,
+      "_comment": "@ref LLP 1055 D2: CSS `box-shadow`'s blur radius in points, a Gaussian of standard deviation radius / 2. The four shadow rows are one CSS `box-shadow`, painted only outside the border box."
     },
     {
       "bit": 60,
@@ -1630,10 +1641,11 @@
     },
     {
       "bit": 100,
-      "field": "reserved_100",
-      "codec": "u8",
-      "default": 0,
-      "_comment": "Holds bit 100 for text-transform (seth/m9-shadow-text) so bits stay dense on this branch; that row replaces this one when both land. Nothing sets it."
+      "field": "text_transform",
+      "codec": "enum:TextTransform",
+      "inherited": true,
+      "text": true,
+      "layout": true
     },
     {
       "bit": 101,

@@ -84,7 +84,7 @@ pub(super) fn request(kernel: &Kernel, p: &Pending, known: u64) -> Result<String
                 out.push('{');
                 metric(run.style, &mut out);
                 out.push_str(",\"text\":");
-                quote(run.text, &mut out);
+                quote(&run.text, &mut out);
                 colors(leaf, &mut out);
                 out.push_str(",\"decoration\":");
                 quote(

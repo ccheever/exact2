@@ -36,40 +36,23 @@ pub struct Skipped {
 pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipped>) {
     let mut out = String::new();
     let mut skipped = Vec::new();
-    let mut shadow: Option<(f32, f32, f32, Color, f32)> = None;
+    let mut shadow: Option<(f32, f32, f32, ColorValue, f32)> = None;
+    let unset = (0.0, 0.0, 0.0, ColorValue::Fixed(Color::TRANSPARENT), 0.0);
     for id in style.mask.iter() {
         let value = style.get(id);
         match (id, &value) {
             // Rows that compose into one CSS property.
             (StyleId::ShadowOffset, RowValue::Vec2(v)) => {
-                let s = shadow.get_or_insert((0.0, 0.0, 0.0, Color::TRANSPARENT, 0.0));
+                let s = shadow.get_or_insert(unset);
                 s.0 = v.x;
                 s.1 = v.y;
             }
             (StyleId::ShadowRadius, RowValue::Number(n)) => {
-                shadow
-                    .get_or_insert((0.0, 0.0, 0.0, Color::TRANSPARENT, 0.0))
-                    .2 = *n as f32
+                shadow.get_or_insert(unset).2 = *n as f32
             }
-            // A shadow is composed into one `box-shadow` string here rather
-            // than emitted as its own declaration, so its colour is resolved
-            // rather than handed over: CSS has no way to say "this shadow's
-            // colour is scheme-aware" inside a composed value. A pair on a
-            // shadow takes its light half (LLP 1034 §5).
-            (StyleId::ShadowColor, RowValue::Color(c)) => {
-                shadow
-                    .get_or_insert((0.0, 0.0, 0.0, Color::TRANSPARENT, 0.0))
-                    .3 = *c
-            }
-            (StyleId::ShadowColor, RowValue::ColorValue(v)) => {
-                shadow
-                    .get_or_insert((0.0, 0.0, 0.0, Color::TRANSPARENT, 0.0))
-                    .3 = v.resolve(false)
-            }
+            (StyleId::ShadowColor, RowValue::ColorValue(v)) => shadow.get_or_insert(unset).3 = *v,
             (StyleId::ShadowOpacity, RowValue::Number(n)) => {
-                shadow
-                    .get_or_insert((0.0, 0.0, 0.0, Color::TRANSPARENT, 0.0))
-                    .4 = *n as f32
+                shadow.get_or_insert(unset).4 = *n as f32
             }
             (StyleId::Transition, RowValue::Transitions(t)) => {
                 let (text, spring_skipped) = transition_css(t);
@@ -160,18 +143,35 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
         }
     }
     if let Some((x, y, radius, color, opacity)) = shadow {
-        let c = Color::rgba(
-            color.r(),
-            color.g(),
-            color.b(),
-            (color.a() as f32 * opacity.clamp(0.0, 1.0)) as u8,
-        );
+        // The opacity row folds into each colour's alpha, both halves of a
+        // `light-dark()` pair alike: the browser still resolves the pair per
+        // element (LLP 1034 D2, LLP 1055 D3).
+        let fade = |c: Color| {
+            Color::rgba(
+                c.r(),
+                c.g(),
+                c.b(),
+                (c.a() as f32 * opacity.clamp(0.0, 1.0)) as u8,
+            )
+        };
+        let color = match color {
+            ColorValue::Fixed(c) => ColorValue::Fixed(fade(c)),
+            ColorValue::LightDark(l, d) => ColorValue::LightDark(fade(l), fade(d)),
+        };
+        let visible = match color {
+            ColorValue::Fixed(c) => c.a() > 0,
+            ColorValue::LightDark(l, d) => l.a() > 0 || d.a() > 0,
+        };
         out.push_str("box-shadow:");
-        for n in [x, y, radius] {
-            num_into(&mut out, n);
-            out.push_str("px ");
+        if visible {
+            for n in [x, y, radius] {
+                num_into(&mut out, n);
+                out.push_str("px ");
+            }
+            declared(&mut out, StyleId::ShadowColor, &RowValue::ColorValue(color));
+        } else {
+            out.push_str("none");
         }
-        rgba_into(&mut out, c);
         out.push(';');
     }
     (out, skipped)
@@ -618,7 +618,42 @@ mod declaration_tests {
                 &[
                     (StyleId::ShadowOffset, StyleValue::Vec2(-1.0, 1e9)),
                     (StyleId::ShadowRadius, StyleValue::Number(0.1)),
+                    (StyleId::ShadowColor, StyleValue::Text("#000000".into())),
+                    (StyleId::ShadowOpacity, StyleValue::Number(1.0)),
                 ],
+                &[],
+            ),
+            // LLP 1055: Contract's `box-shadow`, one value to the four rows.
+            css(
+                &[
+                    (
+                        StyleId::ShadowColor,
+                        StyleValue::Text("0 1px 4px light-dark(#00000080, #ffffff)".into()),
+                    ),
+                    (
+                        StyleId::ShadowOffset,
+                        StyleValue::Text("0 1px 4px light-dark(#00000080, #ffffff)".into()),
+                    ),
+                    (
+                        StyleId::ShadowRadius,
+                        StyleValue::Text("0 1px 4px light-dark(#00000080, #ffffff)".into()),
+                    ),
+                    (
+                        StyleId::ShadowOpacity,
+                        StyleValue::Text("0 1px 4px light-dark(#00000080, #ffffff)".into()),
+                    ),
+                ],
+                &[],
+            ),
+            css(
+                &[
+                    (StyleId::ShadowColor, StyleValue::Text("none".into())),
+                    (StyleId::ShadowOpacity, StyleValue::Text("none".into())),
+                ],
+                &[],
+            ),
+            css(
+                &[(StyleId::TextTransform, StyleValue::Text("uppercase".into()))],
                 &[],
             ),
             css(
@@ -656,7 +691,10 @@ mod declaration_tests {
             "transition:opacity 0.25s ease-in-out 0s,all 0.5s cubic-bezier(0.4,0,0.2,1) 0.1s;",
             "display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;",
             "box-shadow:0px 2.5px 12px rgba(17,34,51,0.17254902);",
-            "box-shadow:-1px 1000000000px 0.1px rgba(0,0,0,0);",
+            "box-shadow:-1px 1000000000px 0.1px rgba(0,0,0,1);",
+            "box-shadow:0px 1px 4px light-dark(rgba(0,0,0,0.5019608), rgba(255,255,255,1));",
+            "box-shadow:none;",
+            "text-transform:uppercase;",
             "font-variant-numeric:tabular-nums;white-space:nowrap;",
             "font-variant-numeric:normal;",
             "white-space:pre-line;",

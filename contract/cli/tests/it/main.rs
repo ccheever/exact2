@@ -35,6 +35,7 @@ mod reorder_binding;
 mod reorder_collection;
 mod routes;
 mod rust_shapes;
+mod shadow_and_case;
 mod shape_cycles;
 mod source_locations;
 mod source_map;

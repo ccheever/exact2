@@ -431,7 +431,7 @@ mod projection_discriminator {
         let old_paragraph = old.paragraph as *const Paragraph;
         let old_source = old
             .request
-            .with_request(|r| r.runs.iter().map(|r| r.text).collect::<String>());
+            .with_request(|r| r.runs.iter().map(|r| &*r.text).collect::<String>());
         let old_frame = old.frame;
         let gate = crate::content_region::test_hooks::next_text();
         assert!(region
@@ -463,7 +463,7 @@ mod projection_discriminator {
         assert_eq!(old.paragraph as *const Paragraph, old_paragraph);
         assert_eq!(
             old.request
-                .with_request(|r| r.runs.iter().map(|r| r.text).collect::<String>()),
+                .with_request(|r| r.runs.iter().map(|r| &*r.text).collect::<String>()),
             old_source
         );
         assert_ne!(

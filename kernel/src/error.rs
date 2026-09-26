@@ -422,6 +422,11 @@ pub enum StyleValueError {
     BadBackgroundImage {
         style: StyleId,
     },
+    /// Not one outer CSS `box-shadow` exact2 draws; `reason` names what.
+    BadBoxShadow {
+        style: StyleId,
+        reason: &'static str,
+    },
 }
 
 impl fmt::Display for StyleValueError {

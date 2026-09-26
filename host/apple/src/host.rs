@@ -1308,6 +1308,11 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
         let _: PropId = id;
         out.insert(id.name().to_string(), text);
     }
+    // Swift paints a paragraph from its runs' `text`: the string the kernel
+    // measured, `text-transform` applied (LLP 1055 D5).
+    if let Some(std::borrow::Cow::Owned(shown)) = node.shown_text() {
+        out.insert(PropId::Text.name().to_string(), shown);
+    }
     if node.node_type == NodeType::List && node.props.bool(PropId::Virtualized) == Some(true) {
         // The runner preserves collection anchors and follows the end using
         // sequence-checked corrections. Eager native autoscroll would compete.

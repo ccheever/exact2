@@ -69,8 +69,8 @@ pub struct NodeRef<'a> {
     pub content: (f32, f32),
     /// Whether the node is a root.
     pub is_root: bool,
-    arena: &'a NodeArena,
-    slot: u32,
+    pub(crate) arena: &'a NodeArena,
+    pub(crate) slot: u32,
 }
 
 impl<'a> NodeRef<'a> {

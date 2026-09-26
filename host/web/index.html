@@ -36,7 +36,9 @@
      weight go. The node's own style rows, inline, still win. */
   h1, h2, h3, h4, h5, h6 { margin: 0; font-size: inherit; font-weight: inherit; }
   #exact-root button:focus-visible { outline: revert; outline-offset: 2px; }
-  input, textarea { cursor: text; -webkit-user-select: text; user-select: text; }
+  /* The UA's own reset, which \`all: unset\` undid: a field shows what was
+     typed, as the kernel measures it and native fields draw it (LLP 1055 D6). */
+  input, textarea { cursor: text; -webkit-user-select: text; user-select: text; text-transform: none; }
   /* Keep the textarea's native long-word wrapping through the control reset. */
   textarea { overflow-wrap: revert; }
   /* Authored flex/grid display must not expose a closed native popover. */

@@ -357,6 +357,65 @@ fn border_style_controls_pixels_and_layout_with_current_color() {
     }
 }
 
+/// LLP 1055 D2: a `box-shadow` falls outside the border box only — offset
+/// hard, or blurred as a Gaussian of half the blur radius — on every painter,
+/// and a clipping node's shadow is not clipped by it.
+#[test]
+fn a_box_shadow_paints_outside_the_box_as_a_gaussian() {
+    let source = r##"component Shadows
+  view
+    column background-color="#ffffff" padding=40 gap=50 width="100%" height="100%"
+      view testId="hard" width=100 height=60 background-color="#eeeeee" box-shadow="10px 10px 0 #0000ff"
+      view testId="soft" width=100 height=60 border-radius=16 background-color="#eeeeee" box-shadow="0 0 20px #000000"
+      view testId="ghost" width=100 height=60 background-color="rgba(255, 255, 255, 0.5)" overflow="hidden" box-shadow="0 30px 0 #ff0000"
+"##;
+    for choice in painters() {
+        let mut p = compiled(source, 1.0, choice);
+        let (hard, soft, ghost) = (
+            rect(&mut p, "hard"),
+            rect(&mut p, "soft"),
+            rect(&mut p, "ghost"),
+        );
+        let frame = p.frame();
+        assert_eq!(
+            px(&frame, hard.0 + 105.0, hard.1 + 65.0),
+            (0, 0, 255),
+            "{choice:?}"
+        );
+        assert_eq!(
+            px(&frame, hard.0 + 50.0, hard.1 + 30.0),
+            (238, 238, 238),
+            "{choice:?}"
+        );
+        assert_eq!(
+            px(&frame, hard.0 + 5.0, hard.1 + 65.0),
+            (255, 255, 255),
+            "{choice:?}"
+        );
+        // σ = 10: Φ(-1) of black ten points out, Φ(-3.5) far out.
+        let (x, y) = (soft.0 - 10.0, soft.1 + soft.3 / 2.0);
+        let ten = px(&frame, x, y).0 as f32;
+        assert!(
+            (ten - 255.0 * (1.0 - 0.1587)).abs() < 12.0,
+            "{ten} ({choice:?})"
+        );
+        assert!(px(&frame, soft.0 - 35.0, y).0 >= 250, "{choice:?}");
+        assert!(px(&frame, soft.0 - 1.0, y).0 < 150, "{choice:?}");
+        // Never inside the box, even through a translucent background; a
+        // clipping node's shadow still falls outside it.
+        assert_eq!(
+            px(&frame, ghost.0 + 50.0, ghost.1 + 45.0),
+            (255, 255, 255),
+            "{choice:?}"
+        );
+        assert_eq!(
+            px(&frame, ghost.0 + 50.0, ghost.1 + 75.0),
+            (255, 0, 0),
+            "{choice:?}"
+        );
+    }
+}
+
 #[test]
 fn an_unsupported_dialog_stays_unpainted_and_cannot_run_its_action() {
     let mut p = compiled(

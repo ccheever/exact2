@@ -17,6 +17,9 @@ use crate::generated::{
     StyleProps,
 };
 
+mod shadow;
+pub use shadow::BoxShadow;
+
 /// Largest grid track list the closed grammar carries.
 pub const MAX_GRID_TRACKS: usize = 32;
 
@@ -417,7 +420,29 @@ impl StyleValue {
             })
     }
 
+    /// A `box-shadow` given to one of its four rows: that row's part.
+    /// @ref LLP 1055 D1
+    fn box_shadow(&self, style: StyleId) -> Option<Result<BoxShadow, StyleValueError>> {
+        match self {
+            StyleValue::Text(t) => Some(
+                BoxShadow::parse(t)
+                    .map_err(|reason| StyleValueError::BadBoxShadow { style, reason }),
+            ),
+            _ => None,
+        }
+    }
+
     pub(crate) fn f32(&self, style: StyleId) -> Result<f32, StyleValueError> {
+        if matches!(style, StyleId::ShadowRadius | StyleId::ShadowOpacity) {
+            if let Some(shadow) = self.box_shadow(style) {
+                let shadow = shadow?;
+                return Ok(if style == StyleId::ShadowRadius {
+                    shadow.blur
+                } else {
+                    shadow.opacity
+                });
+            }
+        }
         // @ref LLP 1043.000 §3 D1 — shape-margin is a nonnegative CSS length.
         if style == StyleId::ShapeMargin {
             let value = match self {
@@ -522,6 +547,9 @@ impl StyleValue {
             if let Some(pair) = ColorValue::parse_light_dark(t) {
                 return Ok(pair);
             }
+            if style == StyleId::ShadowColor && Color::parse(t).is_none() {
+                return self.box_shadow(style).expect("text").map(|s| s.color);
+            }
         }
         self.color(style).map(ColorValue::Fixed)
     }
@@ -557,6 +585,9 @@ impl StyleValue {
     pub(crate) fn vec2(&self, style: StyleId) -> Result<Vec2, StyleValueError> {
         match self {
             StyleValue::Vec2(x, y) if x.is_finite() && y.is_finite() => Ok(Vec2 { x: *x, y: *y }),
+            StyleValue::Text(_) if style == StyleId::ShadowOffset => {
+                self.box_shadow(style).expect("text").map(|s| s.offset)
+            }
             StyleValue::Text(t) if style == StyleId::Translate => {
                 parse_translate(t).ok_or(StyleValueError::WrongKind {
                     style,
