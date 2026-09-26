@@ -37,7 +37,9 @@ pub enum OverflowWrap {
     /// Emergency grapheme breaks also reduce intrinsic min-content width.
     Anywhere,
 }
-/// CSS whitespace processing mode.
+/// CSS `white-space`, the shorthand of `white-space-collapse` × `text-wrap-mode`:
+/// `normal` is collapse × wrap, `pre-wrap` preserve × wrap, `nowrap` collapse ×
+/// nowrap. @ref LLP 1053 §0 G5 — `pre-line` (preserve-breaks × wrap) is next.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum WhiteSpace {
     /// Collapse spaces, tabs and segment breaks to one hanging space.
@@ -47,6 +49,17 @@ pub enum WhiteSpace {
     PreWrap,
     /// Collapse like `normal` with no soft wrap opportunity: one line, however wide.
     Nowrap,
+}
+impl WhiteSpace {
+    /// `white-space-collapse: preserve`: spaces and segment breaks are kept;
+    /// otherwise they collapse ([`crate::collapse`] on native engines).
+    pub fn preserves(self) -> bool {
+        self == WhiteSpace::PreWrap
+    }
+    /// `text-wrap-mode: wrap`: soft wrap opportunities may end a line.
+    pub fn wraps(self) -> bool {
+        self != WhiteSpace::Nowrap
+    }
 }
 /// Width-independent preparation options; letter spacing belongs to `Measure`.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]

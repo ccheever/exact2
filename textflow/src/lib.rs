@@ -11,12 +11,14 @@
 
 mod bands;
 mod chrome;
+mod collapse;
 mod flow;
 mod geometry;
 mod shape;
 mod walker;
 
 pub use bands::intervals;
+pub use collapse::{collapse, Collapsed, Edit};
 pub use flow::{flow, Direction, FlowOptions, FlowResult, Fragment};
 pub use geometry::{meets, FlowShape};
 pub use shape::ShapeOutside;
