@@ -441,6 +441,22 @@ impl NodeArena {
         crate::text::Markup::from_prop(self.props[slot as usize].str(PropId::Markup))
     }
 
+    /// The paragraph style of the leaf at `slot`. A text input's value is never
+    /// collapsed: the web's `<input>` and `<textarea>` preserve what was typed
+    /// (the UA sheet's `pre` and `pre-wrap`), so a collapsing row preserves here.
+    /// @ref LLP 1053 §0 G5
+    pub fn paragraph(&self, slot: u32) -> crate::text::Paragraph {
+        let mut paragraph =
+            crate::text::Paragraph::from_style(&self.computed_style(slot, StyleMask::INHERITED));
+        paragraph.markup = self.markup(slot);
+        if self.node_types[slot as usize] == NodeType::TextInput
+            && !paragraph.white_space.model().preserves()
+        {
+            paragraph.white_space = crate::WhiteSpace::PreWrap;
+        }
+        paragraph
+    }
+
     /// Append the text runs of the leaf rooted at `slot`, in order. A run
     /// measures with its computed style: the rows it sets, else its
     /// paragraph's, else the initial values — as a `<span>` inside a `<div>`.
@@ -761,7 +777,7 @@ mod tests {
             (StyleId::TextAlign, text("right")),
             (StyleId::LineHeight, number(1.5)),
             (StyleId::LetterSpacing, number(2.0)),
-            (StyleId::FontVariantNumeric, number(1.0)),
+            (StyleId::FontVariantNumeric, text("tabular-nums")),
             (StyleId::TextColor, text("light-dark(#112233, #ffffff)")),
             (StyleId::WhiteSpace, text("pre-wrap")),
             (StyleId::OverflowWrap, text("anywhere")),

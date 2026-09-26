@@ -310,6 +310,15 @@ upstream Taffy's transfer (`vendor/taffy/EXACT-PATCHES.md` patch 12). Declared: 
 *block* flow Taffy stretches an auto-width image to its container where CSS
 would use the intrinsic width (in a stretching flex column both stretch, by
 ratio); the ratio still holds (`kernel/tests/image.rs`; LLP 1011).
+`white-space` is a paragraph row: the measure interface carries one mode per
+paragraph, so an inline run inside a paragraph takes its paragraph's collapsing
+and wrapping, where CSS lets each inline element choose its own. A text input's
+value is never collapsed, as the web's `<input>`/`<textarea>` (the kernel measures
+a collapsing row there as `pre-wrap`). Native `text-overflow: ellipsis` truncates
+`nowrap` lines on Linux; a wrapped line that overflows with an unbreakable word is
+ellipsized on Apple and the web but not yet on Linux. Web flowed text with
+`tabular-nums` keeps ordinary layout: canvas cannot measure the feature
+(LLP 1053 §0 G4, G5).
 
 ## 2. The data model (WS-A)
 

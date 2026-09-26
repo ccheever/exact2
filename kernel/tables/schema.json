@@ -820,10 +820,19 @@
       "default": "fill"
     },
     "WhiteSpace": {
+      "_comment": "@ref LLP 1053 \u00a70 G5: the shorthand of white-space-collapse \u00d7 text-wrap-mode (normal = collapse wrap, pre-wrap = preserve wrap, nowrap = collapse nowrap); pre-line (preserve-breaks wrap) is next.",
       "values": [
         "normal",
         "pre-wrap",
         "nowrap"
+      ],
+      "default": "normal"
+    },
+    "FontVariantNumeric": {
+      "_comment": "@ref LLP 1053 \u00a70 G4: the keywords of the font_variant_numeric row, not a wire enum. normal is 0; tabular-nums is bit 0 (1), the OpenType tnum feature of the chosen face. Other CSS values are refused by name.",
+      "values": [
+        "normal",
+        "tabular-nums"
       ],
       "default": "normal"
     },
@@ -1460,6 +1469,7 @@
       "bit": 75,
       "field": "font_variant_numeric",
       "codec": "u8",
+      "keywords": "FontVariantNumeric",
       "inherited": true,
       "text": true,
       "layout": true,

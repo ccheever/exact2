@@ -386,6 +386,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "scroll-snap-align" => styles(&[StyleId::ScrollSnapAlign]),
         "line-clamp" => styles(&[StyleId::LineClamp]),
         "text-overflow" => styles(&[StyleId::TextOverflow]),
+        // @ref LLP 1053 §0 G4 — `normal` and `tabular-nums`; others refused by name.
+        "font-variant-numeric" => styles(&[StyleId::FontVariantNumeric]),
         "text-decoration-line" => styles(&[StyleId::TextDecorationLine]),
         "font-size" => styles(&[StyleId::FontSize]),
         "font-weight" => styles(&[StyleId::FontWeight]),

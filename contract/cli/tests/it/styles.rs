@@ -247,6 +247,48 @@ fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
 }
 
 #[test]
+fn nowrap_and_tabular_nums_reach_the_kernel_and_other_numeric_keywords_are_refused_by_name() {
+    // @ref LLP 1053 §0 G4, G5
+    let source = "component App\n  state tab = true\n  view\n    text \"111\" testId=\"target\" white-space=\"nowrap\" font-variant-numeric=(tab ? \"tabular-nums\" : \"normal\")\n";
+    let plan = contract::compile(source).unwrap();
+    let r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel();
+    let style = &k.node_by_key(k.find_by_test_id("target")[0]).unwrap().style;
+    assert_eq!(style.white_space, exact_kernel::WhiteSpace::Nowrap);
+    assert_eq!(style.font_variant_numeric, 1);
+    for word in ["oldstyle-nums", "slashed-zero", "tabular-nums slashed-zero"] {
+        let error = contract::compile(&format!(
+            "component App\n  view\n    text \"1\" font-variant-numeric=\"{word}\"\n"
+        ))
+        .unwrap_err();
+        assert_eq!(error.id, "lower-attr-value");
+        assert!(
+            error
+                .message
+                .contains("implements only `normal` and `tabular-nums`"),
+            "{error}"
+        );
+    }
+    let error = contract::compile(
+        "component App\n  view\n    text \"1\" font-variant-numeric=\"tabular\"\n",
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .message
+            .ends_with("expected one of \"normal\", \"tabular-nums\""),
+        "{error}"
+    );
+}
+
+#[test]
 fn auto_enum_literals_in_branches_keep_dimension_refusals_separate() {
     let source = "component App\n  state chosen = true\n  view\n    view testId=\"target\" align-self=(chosen ? \"auto\" : \"center\") width=\"auto\"\n";
     let plan = contract::compile(source).unwrap();

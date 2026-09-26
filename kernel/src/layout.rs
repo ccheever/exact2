@@ -22,11 +22,11 @@ use taffy::TraversePartialTree;
 
 use crate::arena::NodeArena;
 use crate::error::LayoutError;
-use crate::generated::{FieldSizing, NodeType, StyleMask};
+use crate::generated::{FieldSizing, NodeType};
 use crate::id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer};
 use crate::kernel::PresentedHeight;
 use crate::style::taffy_style;
-use crate::text::{Paragraph, TextMeasureRequest, TextMeasurer, TextMetrics, TextRun};
+use crate::text::{TextMeasureRequest, TextMeasurer, TextMetrics, TextRun};
 
 /// What a layout pass changed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -798,10 +798,7 @@ impl LayoutTree {
                         }
                         // Direction and alignment inherit (a paragraph inside a
                         // centred column centres, as in CSS); the rest are its own.
-                        let mut paragraph = Paragraph::from_style(
-                            &arena.computed_style(slot, StyleMask::INHERITED),
-                        );
-                        paragraph.markup = arena.markup(slot);
+                        let paragraph = arena.paragraph(slot);
                         let request = TextMeasureRequest {
                             exclusions: &[],
                             runs: &runs,

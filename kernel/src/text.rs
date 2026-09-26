@@ -204,6 +204,12 @@ pub struct TextRun<'a> {
     pub style: TextStyle,
 }
 
+impl AsRef<str> for TextRun<'_> {
+    fn as_ref(&self) -> &str {
+        self.text
+    }
+}
+
 /// What the kernel asks a measurer to size.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextMeasureRequest<'a> {
@@ -303,17 +309,39 @@ enum Token {
     Break,
 }
 
+impl crate::WhiteSpace {
+    /// The walker's and hosts' model of this row: collapse × wrap mode.
+    /// @ref LLP 1053 §0 G5
+    pub fn model(self) -> exact_textflow::WhiteSpace {
+        match self {
+            crate::WhiteSpace::Normal => exact_textflow::WhiteSpace::Normal,
+            crate::WhiteSpace::PreWrap => exact_textflow::WhiteSpace::PreWrap,
+            crate::WhiteSpace::Nowrap => exact_textflow::WhiteSpace::Nowrap,
+        }
+    }
+}
+
 impl TextMeasurer for MonospaceMeasurer {
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
+        let white_space = request.paragraph.white_space.model();
+        // CSS collapsing first, as every native engine now does (LLP 1053 G5).
+        let collapsed = if white_space.preserves() {
+            None
+        } else {
+            exact_textflow::collapse(request.runs)
+        };
         // Tokenize across runs. A word may span runs; its width accumulates.
         let mut tokens: Vec<Token> = Vec::new();
         let mut line_height = self.line_height(&request.paragraph.strut);
         let mut pending_word: Vec<f32> = Vec::new();
         let mut any_text = false;
-        for run in request.runs {
+        for (index, run) in request.runs.iter().enumerate() {
             line_height = line_height.max(self.line_height(&run.style));
             let advance = self.advance(&run.style);
-            for ch in run.text.chars() {
+            let text = collapsed
+                .as_ref()
+                .map_or(run.text, |c| c.runs[index].as_str());
+            for ch in text.chars() {
                 any_text = true;
                 if ch == '\n' {
                     if !pending_word.is_empty() {
@@ -345,6 +373,7 @@ impl TextMeasurer for MonospaceMeasurer {
 
         // Lay lines out under the offer.
         let limit = match request.width {
+            _ if !white_space.wraps() => None,
             AxisOffer::Definite(w) => Some(w.max(0.0)),
             AxisOffer::MaxContent => None,
             AxisOffer::MinContent => Some(0.0),
@@ -508,11 +537,58 @@ mod tests {
         assert_eq!(m.height, 36.0);
     }
 
+    fn measure_in(text: &str, width: AxisOffer, white_space: crate::WhiteSpace) -> TextMetrics {
+        let runs = [TextRun {
+            text,
+            style: style(10.0),
+        }];
+        let mut p = paragraph();
+        p.white_space = white_space;
+        MonospaceMeasurer::default().measure(&TextMeasureRequest {
+            exclusions: &[],
+            runs: &runs,
+            paragraph: p,
+            width,
+            height: AxisOffer::MaxContent,
+        })
+    }
+
     #[test]
-    fn explicit_newlines_break_lines() {
-        let m = measure("a\nbb\nccc", AxisOffer::MaxContent, 0);
+    fn explicit_newlines_break_only_preserved_lines() {
+        let m = measure_in(
+            "a\nbb\nccc",
+            AxisOffer::MaxContent,
+            crate::WhiteSpace::PreWrap,
+        );
         assert_eq!(m.width, 18.0);
         assert_eq!(m.height, 36.0);
+        // `normal` collapses segment breaks to spaces, as the browser does.
+        let m = measure_in(
+            "a\nbb\nccc",
+            AxisOffer::MaxContent,
+            crate::WhiteSpace::Normal,
+        );
+        assert_eq!(m.width, 48.0);
+        assert_eq!(m.height, 12.0);
+        let m = measure_in(
+            "  a \t b  ",
+            AxisOffer::MaxContent,
+            crate::WhiteSpace::Normal,
+        );
+        assert_eq!(m.width, 18.0);
+    }
+
+    #[test]
+    fn nowrap_min_content_is_the_unwrapped_line() {
+        // @ref LLP 1053 §0 G5
+        for width in [
+            AxisOffer::MinContent,
+            AxisOffer::Definite(10.0),
+            AxisOffer::MaxContent,
+        ] {
+            let m = measure_in("ab  cdef\ng", width, crate::WhiteSpace::Nowrap);
+            assert_eq!((m.width, m.height), (54.0, 12.0));
+        }
     }
 
     #[test]

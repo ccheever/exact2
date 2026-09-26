@@ -300,15 +300,17 @@ fn enum_rows_resolve_names_and_others_do_not() {
     );
     for id in StyleId::ALL {
         let names = id.enum_names();
+        // A keyword row (a bit set named by CSS keywords) lists its words too.
+        let keywords = id == StyleId::FontVariantNumeric;
         assert_eq!(
             names.is_empty(),
-            id.codec() != exact_kernel::StyleCodec::Enum,
+            id.codec() != exact_kernel::StyleCodec::Enum && !keywords,
             "{id:?}"
         );
         for (ordinal, name) in names.iter().enumerate() {
             assert_eq!(
                 id.enum_from_name(name),
-                Some(ordinal as u8),
+                (!keywords).then_some(ordinal as u8),
                 "{id:?}: {name}"
             );
             StyleProps::default()
@@ -316,6 +318,36 @@ fn enum_rows_resolve_names_and_others_do_not() {
                 .unwrap();
         }
     }
+}
+
+#[test]
+fn font_variant_numeric_is_a_keyword_bit_set() {
+    // @ref LLP 1053 §0 G4 — `normal` is 0, `tabular-nums` bit 0; others refused.
+    let set = |v: StyleValue| {
+        let mut p = StyleProps::default();
+        p.set_dynamic(StyleId::FontVariantNumeric, &v)
+            .map(|_| p.font_variant_numeric)
+    };
+    assert_eq!(set(StyleValue::Text("normal".into())), Ok(0));
+    assert_eq!(set(StyleValue::Text(" tabular-nums ".into())), Ok(1));
+    for refused in [
+        "oldstyle-nums",
+        "tabular-nums tabular-nums",
+        "normal tabular-nums",
+        "",
+        "1",
+    ] {
+        assert!(
+            set(StyleValue::Text(refused.into())).is_err(),
+            "{refused:?}"
+        );
+    }
+    assert!(
+        set(StyleValue::Number(1.0)).is_err(),
+        "a keyword row takes no number"
+    );
+    assert_eq!(exact_kernel::FontVariantNumeric::css(1), "tabular-nums");
+    assert_eq!(exact_kernel::FontVariantNumeric::css(0), "normal");
 }
 
 #[test]

@@ -202,6 +202,23 @@ pub(crate) fn check_style_value(
             if rows.contains(&StyleId::WrapFlow) && !matches!(v.as_str(), "auto" | "both") {
                 return err("lower-attr-value", "unsupported `wrap-flow` value: CSS Exclusions defines it; exact2 v1 implements `both` (or `auto`)", span);
             }
+            // @ref LLP 1053 §0 G4 — the rest of CSS's list, refused by name.
+            if rows.contains(&StyleId::FontVariantNumeric) {
+                if let Some(word) = v.split_ascii_whitespace().find(|w| {
+                    matches!(
+                        *w,
+                        "lining-nums"
+                            | "oldstyle-nums"
+                            | "proportional-nums"
+                            | "diagonal-fractions"
+                            | "stacked-fractions"
+                            | "ordinal"
+                            | "slashed-zero"
+                    )
+                }) {
+                    return err("lower-attr-value", format!("`font-variant-numeric: {word}` is CSS, but exact2 implements only `normal` and `tabular-nums`"), span);
+                }
+            }
             if rows.contains(&StyleId::ShapeMargin) && v.trim().ends_with('%') {
                 return err("lower-attr-value", "percentage `shape-margin` is not implemented in exact2 v1; use a nonnegative length in points/px", span);
             }

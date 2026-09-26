@@ -424,9 +424,7 @@ impl RegionState {
                     let stamp = arena
                         .paragraph_stamp(slot)
                         .ok_or(LayoutError::ContentRegion("paragraph lacks stamp"))?;
-                    let mut paragraph =
-                        Paragraph::from_style(&arena.computed_style(slot, StyleMask::INHERITED));
-                    paragraph.markup = arena.markup(slot);
+                    let paragraph = arena.paragraph(slot);
                     let request = TextMeasureRequest {
                         exclusions: &[],
                         runs: &runs,

@@ -58,6 +58,10 @@ struct StyleRow {
     inherited: bool,
     #[serde(default)]
     default: serde_json::Value,
+    /// A `u8` row authored as CSS keywords: the named vocabulary's first value
+    /// is the empty set (0) and each later value `i` is bit `i - 1`.
+    #[serde(default)]
+    keywords: Option<String>,
 }
 #[derive(Deserialize)]
 struct OpcodeRow {
@@ -91,56 +95,7 @@ fn packed_name(ty: &str, rows: &[(u64, &str)]) -> String {
     format!("packed_name({packed:?}, &{ends:?}, self as usize)")
 }
 
-/// Names by discriminant, packed: one string and each name's end offset.
-fn packed_table(ty: &str, rows: &[(u64, &str)]) -> (String, Vec<usize>) {
-    let max = rows.iter().map(|(id, _)| *id).max().unwrap_or(0) as usize;
-    assert!(
-        max < 2 * rows.len() + 8,
-        "{ty}: discriminants too sparse to pack"
-    );
-    let mut names = vec![""; max + 1];
-    for (id, name) in rows {
-        assert!(
-            name.is_ascii() && !name.contains(['"', '\\']),
-            "{ty}: {name}"
-        );
-        assert!(
-            names[*id as usize].is_empty(),
-            "{ty}: discriminant {id} twice"
-        );
-        names[*id as usize] = name;
-    }
-    let (mut packed, mut ends) = (String::new(), Vec::new());
-    for name in names {
-        packed.push_str(name);
-        ends.push(packed.len());
-    }
-    assert!(
-        packed.len() <= usize::from(u16::MAX),
-        "{ty}: names past u16 offsets"
-    );
-    (packed, ends)
-}
-/// `Debug` as `#[derive(Debug)]` writes a unit variant, its identifier,
-/// spelled from `name()` so no enum carries a second table of names.
-fn debug_from_name(w: &mut String, ty: &str, rows: &[(&str, &str)]) {
-    let body = if rows.iter().all(|(ident, name)| ident == name) {
-        "f.write_str(self.name())"
-    } else {
-        assert!(
-            rows.iter().all(|(ident, name)| *ident == pascal(name)),
-            "{ty}: a variant is spelled neither as its name nor as pascal(name)"
-        );
-        "debug_pascal(self.name(), f)"
-    };
-    writeln!(w, "impl ::core::fmt::Debug for {ty} {{").unwrap();
-    writeln!(
-        w,
-        "    fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {{ {body} }}"
-    )
-    .unwrap();
-    writeln!(w, "}}").unwrap();
-}
+include!("build/names.rs");
 include!("build/codec.rs");
 fn validate(schema: &Schema) {
     let mut roles = BTreeSet::new();
@@ -237,6 +192,18 @@ fn validate(schema: &Schema) {
             assert!(
                 schema.enums.contains_key(name),
                 "schema: style `{}` references unknown enum `{name}`",
+                row.field
+            );
+        }
+        if let Some(name) = &row.keywords {
+            assert!(
+                matches!(codec, Codec::U8) && row.default.as_f64() == Some(0.0),
+                "schema: keywords apply to u8 rows defaulting to 0 (`{}`)",
+                row.field
+            );
+            assert!(
+                schema.enums.get(name).is_some_and(|e| e.values.len() <= 9),
+                "schema: style `{}` keywords `{name}` must name an enum of at most 9 values",
                 row.field
             );
         }
@@ -652,6 +619,13 @@ fn generate(schema: &Schema, digest: u64) -> String {
         )
         .unwrap();
         writeln!(w, "    }}").unwrap();
+        if schema
+            .styles
+            .iter()
+            .any(|r| r.keywords.as_deref() == Some(name.as_str()))
+        {
+            write!(w, "{KEYWORD_BITS}").unwrap();
+        }
         writeln!(w, "}}").unwrap();
         let idents: Vec<String> = def.values.iter().map(|v| pascal(v)).collect();
         let rows: Vec<(&str, &str)> = idents
@@ -772,7 +746,11 @@ fn generate(schema: &Schema, digest: u64) -> String {
     .unwrap();
     writeln!(w, "        match self {{").unwrap();
     for row in &schema.styles {
-        if let Codec::Enum(name) = parse_codec(&row.codec) {
+        let name = match parse_codec(&row.codec) {
+            Codec::Enum(name) => Some(name),
+            _ => row.keywords.clone(),
+        };
+        if let Some(name) = name {
             writeln!(
                 w,
                 "            StyleId::{} => &{:?},",
@@ -1310,6 +1288,10 @@ fn generate(schema: &Schema, digest: u64) -> String {
     for row in &schema.styles {
         let id = pascal(&row.field);
         let conv = match parse_codec(&row.codec) {
+            Codec::U8 if row.keywords.is_some() => format!(
+                "{}::bits(value.text(id)?).ok_or(StyleValueError::UnknownEnumValue {{ style: id }})?",
+                row.keywords.as_deref().unwrap()
+            ),
             Codec::Dimension => format!("value.dimension(id, {})?", row.admits_auto),
             Codec::LineHeight => "value.line_height(id)?".to_string(),
             Codec::F32 => "value.f32(id)?".to_string(),
@@ -1477,6 +1459,7 @@ fn strip_prose(value: serde_json::Value) -> serde_json::Value {
 }
 fn main() {
     println!("cargo:rerun-if-changed=build/codec.rs");
+    println!("cargo:rerun-if-changed=build/names.rs");
     println!("cargo:rerun-if-changed={SCHEMA_PATH}");
     println!("cargo:rerun-if-changed=build.rs");
     let raw = fs::read_to_string(SCHEMA_PATH).expect("read tables/schema.json");
