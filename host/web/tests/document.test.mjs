@@ -77,7 +77,7 @@ const SERVED_VIEWS = `(() => { const views = [...document.querySelectorAll('#exa
 /** Whether the wasm was fetched once, by the document's head preload: the
  * capture script's and the glue's fetches take that response. */
 const WASM_ONCE = `(() => {
-  const wasm = performance.getEntriesByType('resource').filter((e) => e.name.endsWith('/app.wasm'));
+  const wasm = performance.getEntriesByType('resource').filter((e) => new URL(e.name).pathname === '/app.wasm');
   return wasm.length === 1 && wasm[0].initiatorType === 'link';
 })()`;
 
@@ -276,7 +276,7 @@ check(`a link that doesn't leave (a 204) stops the runtime's download, and the p
     await live.until(downloading, 'the download');
     await live(away('/no-content'));
     expect(await live("exact.runtime.then(() => 'downloaded', (e) => e.name)")).toBe('AbortError');
-    expect(await live(`!!document.querySelector('link[href="./app.wasm"]')`)).toBe(false);
+    expect(await live(`!!document.querySelector('link[href^="./app.wasm"]')`)).toBe(false);
     release();
     await live.until("document.getElementById('exact-root')?.dataset.moduleReady === 'true'", 'the runtime');
     expect(await live('location.pathname')).toBe('/');

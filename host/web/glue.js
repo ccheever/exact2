@@ -1426,8 +1426,9 @@ async function main() {
   // preload, so the next document has the link. A page that stays downloads it
   // again: a task after Stop (`navigateerror`, fired mid-stop) or Back from the
   // bfcache (`pageshow`); a 204 or a download says nothing, so after a second.
-  const url = new URL("./app.wasm", import.meta.url), imports = { exact_js: { call: moduleCall }, exact_rust: rustImports }, aborted = e => e?.name === "AbortError";
-  const download = () => { const stop = new AbortController(); globalThis.navigation?.addEventListener("navigate", e => e.destination.sameDocument || e.downloadRequest != null || (stop.abort(), document.querySelector('link[href="./app.wasm"]')?.remove()), { signal: stop.signal }); return fetch(url, { signal: stop.signal }); };
+  // The page names the build in its preload (`./app.wasm?v=…`, LLP 1047.000 §9), so this file is the same across builds.
+  const preload = () => [...document.querySelectorAll('link[rel="preload"]')].find(l => new URL(l.href).pathname.endsWith("/app.wasm")), url = new URL(preload()?.href ?? "./app.wasm", import.meta.url), imports = { exact_js: { call: moduleCall }, exact_rust: rustImports }, aborted = e => e?.name === "AbortError";
+  const download = () => { const stop = new AbortController(); globalThis.navigation?.addEventListener("navigate", e => e.destination.sameDocument || e.downloadRequest != null || (stop.abort(), preload()?.remove()), { signal: stop.signal }); return fetch(url, { signal: stop.signal }); };
   const stayed = () => new Promise(done => { const later = () => setTimeout(done); globalThis.navigation?.addEventListener("navigateerror", later, { once: true }); addEventListener("pageshow", later, { once: true }); setTimeout(done, 1000); });
   let response = (globalThis.exact.runtime ??= download()).then(r => r.url === url.href ? r : download(), e => aborted(e) ? Promise.reject(e) : download()), instance;
   let compiled; for (;;) try { ({ instance, module: compiled } = await WebAssembly.instantiateStreaming(response, imports)); break; } catch (e) { if (!aborted(e)) throw e; await stayed(); response = download(); }

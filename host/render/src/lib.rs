@@ -20,6 +20,7 @@
 
 mod encode;
 mod executor;
+mod generations;
 mod page;
 mod pages;
 mod serve;
@@ -404,8 +405,10 @@ fn run(executor: &Executor, held: &mut Held, r: RequestOut, dispatch: Dispatch) 
 /// methods.
 ///
 /// `--serve <dist> [--port <n>] [--renders <n>] [--queue <n>] [--lifetime
-/// <s>]` is the server instead ([`Server`]): the built web app on
-/// loopback, its plan the dist's own `app.plan` unless `--plan` names one.
+/// <s>] [--generations <dir>]` is the server instead ([`Server`]): the built
+/// web app on loopback, its plan the dist's own `app.plan` unless `--plan`
+/// names one; `--generations` keeps the builds of `app.wasm` it serves, to
+/// send the next as a delta ([`Serve::generations`]).
 /// It prints `serving http://127.0.0.1:<port>/`, then a line per render.
 pub fn main<D: DataSource + 'static>(baked: &[u8], data: fn() -> D) -> std::process::ExitCode {
     use std::process::ExitCode;
@@ -418,9 +421,10 @@ pub fn main<D: DataSource + 'static>(baked: &[u8], data: fn() -> D) -> std::proc
     let mut deadline = DEADLINE;
     let mut shell = None::<String>;
     let (mut serve, mut planned) = (None::<std::path::PathBuf>, false);
+    let mut generations = None::<std::path::PathBuf>;
     let (mut port, mut renders, mut queue, mut lifetime) = (0u16, 4usize, 32usize, 60u64);
     let usage = || {
-        eprintln!("usage: render [--plan <app.plan>] [--viewport <w>x<h>] [--name <name>] [--origin <url>] [--deadline <ms>] ([--shell <index.html>] (--build | <location>…) | --serve <dist> [--port <n>] [--renders <n>] [--queue <n>] [--lifetime <s>])");
+        eprintln!("usage: render [--plan <app.plan>] [--viewport <w>x<h>] [--name <name>] [--origin <url>] [--deadline <ms>] ([--shell <index.html>] (--build | <location>…) | --serve <dist> [--port <n>] [--renders <n>] [--queue <n>] [--lifetime <s>] [--generations <dir>])");
         ExitCode::from(2)
     };
     while let Some(arg) = args.next() {
@@ -471,6 +475,10 @@ pub fn main<D: DataSource + 'static>(baked: &[u8], data: fn() -> D) -> std::proc
                 Some(dist) => serve = Some(dist.into()),
                 None => return usage(),
             },
+            "--generations" => match args.next() {
+                Some(dir) => generations = Some(dir.into()),
+                None => return usage(),
+            },
             "--port" | "--renders" | "--queue" | "--lifetime" => {
                 let Some(n) = args.next().and_then(|n| n.parse::<u64>().ok()) else {
                     return usage();
@@ -514,6 +522,7 @@ pub fn main<D: DataSource + 'static>(baked: &[u8], data: fn() -> D) -> std::proc
             queue,
             viewport,
             lifetime: Duration::from_secs(lifetime),
+            generations,
         };
         let server = match Server::bind(config, decoded, &grants) {
             Ok(server) => server,

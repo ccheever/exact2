@@ -8,6 +8,7 @@
 // Developer builds bake development trust; EXACT_UPDATE_TRUST=production
 // requires signing keys, and the deploy verb always selects production.
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
@@ -239,6 +240,17 @@ writeFileSync(resolve(stage, 'index.html'), readFileSync(resolve(stage, 'index.h
     '<script type="module" src="./glue.js"></script>',
     `<link rel="alternate" type="application/vnd.exact.envelope+json" href="./exact.json">\n<link rel="manifest" href="./manifest.json">\n${icon ? `<link rel="icon" type="${escapeHtml(icon.type ?? 'image/png')}" href="./${escapeHtml(icon.src)}">\n` : ''}${webManifest.theme_color ? `<meta name="theme-color" content="${escapeHtml(webManifest.theme_color)}">\n` : ''}<script type="module" src="./glue.js"></script>`,
   ));
+// app.wasm's URL names its build (LLP 1047.000 §9): `./app.wasm?v=` and
+// the first 16 hex digits of its SHA-256, in the shell's preload, which the
+// capture script and the glue fetch (and a document's checkpoint, when it
+// drops the preload). A URL that names its content caches for good, so a
+// browser keeps the build as the dictionary the render server sends the next
+// one against (`--generations`). The file keeps its name, and the glue stays
+// the same across builds: a deploy that changes only the wasm leaves it cached.
+const wasmUrl = `./app.wasm?v=${createHash('sha256').update(readFileSync(out)).digest('hex').slice(0, 16)}`;
+const shellText = readFileSync(resolve(stage, 'index.html'), 'utf8');
+if (!shellText.includes('href="./app.wasm"')) throw new Error('index.html no longer preloads ./app.wasm');
+writeFileSync(resolve(stage, 'index.html'), shellText.replace('href="./app.wasm"', `href="${wasmUrl}"`));
 // Documents (LLP 1048.000 D3, D7, D9): every route the plan declares
 // `render=build`, rendered by the app's native render entry (`<app>-render`,
 // exact_render::main; looked up in its Linux crate beside its native data
