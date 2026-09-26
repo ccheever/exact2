@@ -195,11 +195,22 @@ if (es) {
   globalThis.exact.devError = show;
   // Host affordance, outside the app tree and absent from static/production pages.
   // Agent input targets the app tree; this host-only link covers app controls.
-  if (!new URLSearchParams(location.search).has('agent')) {
-    const opening = document.body.appendChild(document.createElement('a'));
+  // It covers whatever the app puts in that corner (a phone layout's tab bar),
+  // so it can be put away; the choice is kept for this origin.
+  const hidden = 'exact.dev.open.hidden';
+  if (!new URLSearchParams(location.search).has('agent') && localStorage.getItem(hidden) !== '1') {
+    const bar = document.body.appendChild(document.createElement('div'));
+    bar.style = 'position:fixed;right:10px;bottom:10px;display:flex;align-items:center;background:#fff;border:1px solid #ccd3df;border-radius:8px;font:13px system-ui;z-index:2147483646';
+    const opening = bar.appendChild(document.createElement('a'));
     opening.href = '/__dev/open' + location.search + location.hash;
     opening.textContent = 'Open in native…';
-    opening.style = 'position:fixed;right:10px;bottom:10px;padding:8px 12px;background:#fff;color:#164bc4;border:1px solid #ccd3df;border-radius:8px;font:13px system-ui;z-index:2147483646';
+    opening.style = 'padding:8px 4px 8px 12px;color:#164bc4';
+    const close = bar.appendChild(document.createElement('button'));
+    close.textContent = '×';
+    close.title = 'Hide (clear site data to bring it back)';
+    close.setAttribute('aria-label', 'Hide the Open in native link');
+    close.style = 'border:0;background:none;padding:8px 10px;font:16px system-ui;color:#5b6475;cursor:pointer';
+    close.onclick = () => { localStorage.setItem(hidden, '1'); bar.remove(); };
   }
   // The module loader uses this implementation on trusted LAN HTTP too.
   globalThis.exact.moduleDigest = digest;
