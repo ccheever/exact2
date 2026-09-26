@@ -173,7 +173,7 @@ pub(crate) fn check_style_value(
         if let Some(sides) = border_color_sides(&a.value)? {
             for (row, value) in BORDER_COLORS.iter().zip(sides) {
                 let side = Attr { value, ..a.clone() };
-                check_style_value(&side, std::slice::from_ref(row), ty, font)?;
+                check_style_value(&side, std::slice::from_ref(row), ty, fonts)?;
             }
             return Ok(());
         }
