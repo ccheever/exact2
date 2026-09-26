@@ -44,9 +44,13 @@ async function api(store: Store, path: string, method = 'GET', body?: unknown): 
   const token = store.get('realworld.jwt');
   if (token) headers.Authorization = `Token ${token}`;
   if (body !== undefined) headers['Content-Type'] = 'application/json';
+  // A read needs no FIFO order, so natively (the render server, Apple,
+  // Linux) a page's sources fetch together, as a browser's do (LLP 1041
+  // §8.4). A mutation stays on the ordered lane.
+  const read = method === 'GET' ? { exactIndependentHttp: { maxResponseBytes: 4 << 20 } } : {};
   let response: Response;
   try {
-    response = await fetch(API + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+    response = await fetch(API + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), ...read });
   } catch {
     throw new Failure(0, ['The server could not be reached.']);
   }
