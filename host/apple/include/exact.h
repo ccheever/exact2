@@ -272,6 +272,7 @@ uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
  * 20 = pan (UTF-8 dx,dy; incremental viewport CSS pixels, LLP 1043.000 D8),
  * 19 = media (UTF-8 event name, newline, payload; numeric times in seconds),
  * 21 = select (formats + newline + mixed 0/1 + newline + unavailable + newline + link);
+ * 22 = refresh (the platform's pull-to-refresh control fired; no payload);
  * any other kind is refused with an error batch.
  * Format lists are space-separated command tokens. Link keeps the remaining bytes.
  * A change's text, key's name, or guest message is the payload in the input
@@ -307,6 +308,8 @@ uint32_t exact_hold_end(ExactRuntime rt, uint64_t token, uint32_t cancel, double
 uint32_t exact_advance(ExactRuntime rt, double now_ms, uint32_t until_request);
 /* Input: name alone clears; name NUL JSON publishes a current record. */
 uint32_t exact_surface_record(ExactRuntime rt, size_t len);
+/* @ref LLP 1027.000.000: the date — Unix ms at clock zero, minutes east of UTC. */
+uint32_t exact_set_time(ExactRuntime rt, double epoch_at_zero, double utc_offset);
 /* @ref LLP 1039: re-answer viewport facts and relayout in the same batch. */
 uint32_t exact_resize(ExactRuntime rt, float width, float height);
 /* Actual list scrollport and focused/interacting descendants (zero if absent).

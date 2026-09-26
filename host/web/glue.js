@@ -475,7 +475,9 @@ function attach(el, id, handlers) {
   if (handlers.some((k) => k === "focus" || k === "blur" || k === "key") && !(el instanceof HTMLInputElement || el instanceof HTMLButtonElement) && !el.exactMarkup && !el.hasAttribute("tabindex")) el.tabIndex = 0;
   for (const kind of handlers) {
     if (kind === "press") {
-      on("click", e => focus.press(e, el, () => send(wasm.exact_dispatch(id, 0, 0, now()))));
+      // A link inside a pressable node is the innermost activation, as a
+      // nested press is: the link navigates and the outer press stays out.
+      on("click", e => { const a = e.target.closest?.("a[href]"); if (a && a !== el && el.contains(a)) return; focus.press(e, el, () => send(wasm.exact_dispatch(id, 0, 0, now()))); });
     } else if (kind === "pan") {
       let pan;
       on("pointerdown", e => (pan ??= inputHandlers?.pan(el, id, on))?.(e));
@@ -1350,6 +1352,8 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   if (!page?.holding) root.replaceChildren();
   commitFonts(preparedFonts);
   focus.restart(kept, () => applyBatch(batch), () => ask({ op: "tree" }), id => views.get(id));
+  // @ref LLP 1027.000.000 — the date, as the clock the runner already reads.
+  if (wasm.exact_set_time) applyBatch(JSON.parse(readOut(wasm.exact_set_time(Date.now() - now(), -new Date().getTimezoneOffset()))));
   globalThis.exact?.gpu?.finishRestart();
   if (bytes && !module && (inputReady || root.dataset.error)) activateData(); // A restart after the first activation.
   if (oldAssets !== assets) releaseAssets(oldAssets);

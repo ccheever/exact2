@@ -167,6 +167,9 @@ pub enum Event {
     Dblclick,
     /// A platform-recognized right swipe.
     Swiperight,
+    /// A pull past the top of a scroll container asked for fresh content
+    /// (UIKit's `UIRefreshControl`); the app answers through `refreshing`.
+    Refresh,
     /// A changed scroll position, in CSS pixels (left, top).
     Scroll(f64, f64),
     /// Incremental recognized pan displacement in viewport CSS pixels.
@@ -687,6 +690,7 @@ impl<D: DataSource> Runner<D> {
                 Event::Contextmenu => "contextmenu",
                 Event::Dblclick => "dblclick",
                 Event::Swiperight => "swiperight",
+                Event::Refresh => "refresh",
                 Event::Scroll(_, _) => "scroll",
                 Event::Pan(_, _) => "pan",
                 Event::Media(kind, _) => kind.name(),
@@ -742,6 +746,7 @@ impl<D: DataSource> Runner<D> {
             Event::Contextmenu => (EventKind::Contextmenu, None, "contextmenu"),
             Event::Dblclick => (EventKind::Dblclick, None, "dblclick"),
             Event::Swiperight => (EventKind::Swiperight, None, "swiperight"),
+            Event::Refresh => (EventKind::Refresh, None, "refresh"),
             Event::Scroll(_, _) => (EventKind::Scroll, None, "scroll"),
             Event::Media(kind, value) => (
                 *kind,

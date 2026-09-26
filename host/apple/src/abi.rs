@@ -783,6 +783,8 @@ impl<D: DataSource> Bridge<D> {
             10 => Event::Contextmenu,
             11 => Event::Dblclick,
             12 => Event::Swiperight,
+            // The platform's pull-to-refresh control fired.
+            22 => Event::Refresh,
             13 => {
                 let Some(event) = Event::scroll_payload(&payload) else {
                     return self
@@ -1013,6 +1015,15 @@ impl<D: DataSource> Bridge<D> {
             .host
             .as_mut()
             .map_or_else(not_booted, |h| h.resize(width, height));
+        self.emit(out)
+    }
+
+    /// The date changed or became known (LLP 1027.000.000).
+    pub fn set_time(&mut self, epoch_at_zero: f64, utc_offset: f64) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_time(epoch_at_zero, utc_offset));
         self.emit(out)
     }
 

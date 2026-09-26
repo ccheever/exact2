@@ -123,6 +123,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             updateSwipeGesture()
             updateLayoutPan()
             updateMaterial()
+            updateRefresh()
             if handlers.contains("scroll") { needScroll() }
             if handlers.contains("hover"), hoverRecognizer == nil {
                 let g = UIHoverGestureRecognizer(target: self, action: #selector(hovering(_:)))
@@ -1165,6 +1166,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             for child in subviews where child is NodeView { child.removeFromSuperview(); sv.addSubview(child) }
             addSubview(sv)
             scroll = sv
+            updateRefresh()
         }
         if !scrolls, let sv = scroll {
             // Neither axis scrolls any more: the children come back out.
@@ -1203,6 +1205,29 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var scrollDormant: Bool {
         scroll == nil && ((style["overflow_x"]?.string) == "scroll" || (style["overflow_y"]?.string) == "scroll")
     }
+    /// A `refresh` handler on a scroll container is UIKit's pull-to-refresh:
+    /// the control fires the event; the app's `refreshing` going false ends it.
+    func updateRefresh() {
+        guard let sv = scroll else { return }
+        if handlers.contains("refresh") {
+            if sv.refreshControl == nil {
+                let control = UIRefreshControl()
+                control.addTarget(self, action: #selector(pulledToRefresh), for: .valueChanged)
+                sv.refreshControl = control
+            }
+            if props["refreshing"] != "true", let control = sv.refreshControl, control.isRefreshing {
+                control.endRefreshing()
+            }
+        } else if sv.refreshControl != nil {
+            sv.refreshControl = nil
+        }
+    }
+    @objc func pulledToRefresh() {
+        presenter?.refresh(id)
+        // An app that starts nothing leaves `refreshing` false: end promptly.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in self?.updateRefresh() }
+    }
+
     func needScroll() {
         guard scrollDormant else { return }
         scrollNeeded = true

@@ -111,6 +111,7 @@ impl<D: DataSource> Runner<D> {
         // @ref LLP 1039 D3 / LLP 1030 D7 — runner facts are never kept answers.
         let source = self.plan.str(self.plan.resources[i].source);
         if source == crate::viewport::SOURCE
+            || source == crate::time::SOURCE
             || source == crate::delivery::SOURCE
             || source == crate::surface_record::SOURCE
         {

@@ -687,6 +687,22 @@ impl<D: DataSource> Host<D> {
         self.batch_for(&receipts, error.as_deref())
     }
 
+    /// The date (LLP 1027.000.000): re-answer `exactTime` in one batch.
+    pub fn set_time(&mut self, epoch_at_zero: f64, utc_offset: f64) -> String {
+        let (receipts, error) = match self.runner.set_time(epoch_at_zero, utc_offset) {
+            Ok(Some(receipt)) => (
+                vec![Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => (vec![], None),
+            Err(e) => (vec![], Some(format!("time: {e:?}"))),
+        };
+        self.batch_for(&receipts, error.as_deref())
+    }
+
     /// Actual nested scrollport and mounted row geometry, in the shared LE wire
     /// format. Edge actions may settle resources; geometry never advances timers.
     pub fn collection_feedback(&mut self, bytes: &[u8]) -> String {

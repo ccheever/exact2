@@ -307,6 +307,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.surface_record(len), |n| n)
         }
 
+        /// The date: Unix ms at clock zero and minutes east of UTC.
+        #[no_mangle]
+        pub extern "C" fn exact_set_time(rt: u32, epoch_at_zero: f64, utc_offset: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_time(epoch_at_zero, utc_offset), |n| n)
+        }
+
         /// The viewport changed; returns the batch length.
         #[no_mangle]
         pub extern "C" fn exact_resize(rt: u32, width: f32, height: f32) -> u32 {

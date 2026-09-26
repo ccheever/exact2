@@ -158,6 +158,7 @@ final class Runtime {
         read(exact_hold_end(rt, token, cancel ? 1 : 0, vx, vy, now))
     }
     func swiperight(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 12, 0, now)) }
+    func refresh(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 22, 0, now)) }
     func pan(_ view: UInt32, dx: Double, dy: Double, now: Double) -> Batch {
         read(exact_dispatch(rt, view, 20, write("\(dx),\(dy)"), now))
     }
@@ -218,6 +219,7 @@ final class Runtime {
     }
     func advance(now: Double, untilRequest: Bool = false) -> Batch { read(exact_advance(rt, now, untilRequest ? 1 : 0)) }
     func resize(width: CGFloat, height: CGFloat) -> Batch { read(exact_resize(rt, Float(width), Float(height))) }
+    func setTime(epochAtZero: Double, utcOffset: Double) -> Batch { read(exact_set_time(rt, epochAtZero, utcOffset)) }
     /// `limit` rations the report (`exact.h`): 0 is the whole window.
     func list(_ view: UInt32, top: Double, height: Double, width: Double, origin: Double, focus: UInt32, interaction: UInt32, limit: UInt32 = 0, velocity: Double = 0) -> Batch {
         read(exact_list(rt, view, top, height, width, origin, focus, interaction, limit, velocity))

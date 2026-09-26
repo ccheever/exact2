@@ -429,6 +429,7 @@ public final class ExactSession {
         presenter.onKey = { [unowned self] id, name in apply(runtime.key(id, name, now: now())) }
         presenter.onContextmenu = { [unowned self] id in apply(runtime.contextmenu(id, now: now())) }
         presenter.onSwiperight = { [unowned self] id in apply(runtime.swiperight(id, now: now())) }
+        presenter.onRefresh = { [unowned self] id in apply(runtime.refresh(id, now: now())) }
         presenter.onPan = { [unowned self] id, dx, dy in apply(runtime.pan(id, dx: dx, dy: dy, now: now())) }
         presenter.onScroll = { [unowned self] id, left, top in apply(runtime.scroll(id, left: left, top: top, now: now())) }
         presenter.onList = { [unowned self] id, top, height, width, origin, focus, interaction, limit in
@@ -505,6 +506,7 @@ public final class ExactSession {
             text.commitFonts()
         }
         apply(batch)
+        if batch.error == nil { tellTime() }
         // A fresh runner must receive the view's current viewport and insets.
         if batch.error == nil { view?.rebooted() }
         applyMs = (CACurrentMediaTime() - tApply) * 1000
@@ -582,6 +584,7 @@ public final class ExactSession {
         app.lifecycle?.generationStarted(app, token: updateToken)
         autofocusHeld = restart
         apply(batch)
+        tellTime()
         view?.rebooted()
         autofocusHeld = false
         if restart { presenter.restoreFocus(kept, tree: agent("{\"op\":\"tree\"}")) }
@@ -764,6 +767,11 @@ public final class ExactSession {
         frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
     }
 
+    /// @ref LLP 1027.000.000 — the date, against the clock `now()` reads.
+    func tellTime() {
+        let offset = Double(TimeZone.current.secondsFromGMT()) / 60
+        apply(runtime.setTime(epochAtZero: Date().timeIntervalSince1970 * 1000 - now(), utcOffset: offset))
+    }
     public func resize(_ size: CGSize) { guard booted, state != .destroyed else { return }; apply(runtime.resize(width: size.width, height: size.height)) }
     public func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) { guard booted, state != .destroyed else { return }; apply(runtime.insets(top: top, right: right, bottom: bottom, left: left)) }
     /// The agent API's runner half (LLP 1012): `tree`, `state`, `logs`, `settle`.

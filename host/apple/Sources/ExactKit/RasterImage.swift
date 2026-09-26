@@ -35,6 +35,13 @@ struct RasterMetadata: Equatable, Sendable {
     static func read(prefix: Data, encodedBytes: Int) throws -> Self {
         guard encodedBytes > 0, encodedBytes <= encodedLimit else { throw RasterFailure.encodedLimit }
         guard !prefix.isEmpty, prefix.count <= headerLimit, prefix.count <= encodedBytes else { throw RasterFailure.headerLimit }
+        // ImageIO reads WebP only whole; its size is in the first chunk, so a
+        // prefix of a large WebP (the Bluesky CDN serves every image as one)
+        // answers from the header itself.
+        if prefix.count < encodedBytes, let (width, height) = webpSize(prefix) {
+            return try validated(width: width, height: height, orientation: 1,
+                                 encodedBytes: encodedBytes, headerBytes: prefix.count)
+        }
         let source = CGImageSourceCreateIncremental([kCGImageSourceShouldCache: false] as CFDictionary)
         CGImageSourceUpdateData(source, prefix as CFData, prefix.count == encodedBytes)
         guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
@@ -43,6 +50,28 @@ struct RasterMetadata: Equatable, Sendable {
         return try validated(width: width.intValue, height: height.intValue,
             orientation: (properties[kCGImagePropertyOrientation] as? NSNumber)?.intValue ?? 1,
             encodedBytes: encodedBytes, headerBytes: prefix.count)
+    }
+}
+
+/// A WebP's canvas size from its RIFF header (`VP8 `, `VP8L` or `VP8X`),
+/// or nil when the prefix is not one.
+func webpSize(_ data: Data) -> (Int, Int)? {
+    let b = [UInt8](data.prefix(32))
+    guard b.count >= 30, b[0...3] == [0x52, 0x49, 0x46, 0x46], b[8...11] == [0x57, 0x45, 0x42, 0x50] else { return nil }
+    let le16 = { (i: Int) in Int(b[i]) | Int(b[i + 1]) << 8 }
+    let le24 = { (i: Int) in Int(b[i]) | Int(b[i + 1]) << 8 | Int(b[i + 2]) << 16 }
+    switch String(bytes: b[12...15], encoding: .ascii) {
+    case "VP8 ":
+        guard b[23...25] == [0x9d, 0x01, 0x2a] else { return nil }
+        return (le16(26) & 0x3fff, le16(28) & 0x3fff)
+    case "VP8L":
+        guard b[20] == 0x2f else { return nil }
+        let bits = Int(b[21]) | Int(b[22]) << 8 | Int(b[23]) << 16 | Int(b[24]) << 24
+        return ((bits & 0x3fff) + 1, ((bits >> 14) & 0x3fff) + 1)
+    case "VP8X":
+        return (le24(24) + 1, le24(27) + 1)
+    default:
+        return nil
     }
 }
 

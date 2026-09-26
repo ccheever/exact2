@@ -610,6 +610,15 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// Re-answer `exactTime` resources (LLP 1027.000.000).
+    pub fn set_time(&mut self, epoch_at_zero: f64, utc_offset: f64) -> u32 {
+        let out = self.host.as_mut().map_or_else(
+            || exact_runner::agent::error("not booted"),
+            |h| h.set_time(epoch_at_zero, utc_offset),
+        );
+        self.emit(out)
+    }
+
     /// Apply the common LE collection feedback in the first `len` input bytes.
     /// Unlike events this reports layout facts and never advances the clock.
     pub fn collection_feedback(&mut self, len: usize) -> u32 {
@@ -950,6 +959,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_resize(width: f64, height: f64, now_ms: f64) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().resize(width, height, now_ms))
+        }
+
+        /// The date: Unix ms at clock zero and minutes east of UTC.
+        #[no_mangle]
+        pub extern "C" fn exact_set_time(epoch_at_zero: f64, utc_offset: f64) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().set_time(epoch_at_zero, utc_offset))
         }
 
         /// Advance the runner clock; nonzero `until_request` stops after a
