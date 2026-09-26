@@ -226,6 +226,20 @@ impl Parser {
         }
     }
 
+    /// A name in a place the grammar can't mistake for syntax: a shape field,
+    /// a prop, a member after `.`, a named argument. A keyword that only
+    /// structures a file (`state`, `key`, `view`, …) is a name here; one that
+    /// shapes an expression or a block (`when`, `if`, `match`, …) never is.
+    fn field_name(&mut self) -> R<(String, Span)> {
+        match self.peek_kind().clone() {
+            TokenKind::Ident(w) if is_name_word(&w) => {
+                let t = self.next();
+                Ok((w, t.span))
+            }
+            _ => self.ident(),
+        }
+    }
+
     fn newline(&mut self) -> R<()> {
         match self.peek_kind() {
             TokenKind::Newline => {
@@ -482,7 +496,15 @@ impl Parser {
                     }
                 };
                 p.next();
-                let value = p.expr()?;
+                let value = match p.expr()? {
+                    // `-0.2` is a literal to anyone writing a style: fold it, so
+                    // `letter-spacing=-0.2` is a constant like `0.2`.
+                    Expr::Unary(UnOp::Neg, inner, span) if matches!(*inner, Expr::Number(..)) => {
+                        let Expr::Number(n, _) = *inner else { unreachable!() };
+                        Expr::Number(-n, span)
+                    }
+                    other => other,
+                };
                 if !matches!(value, Expr::Number(..) | Expr::Str(..) | Expr::Bool(..)) {
                     return Err(SyntaxError {
                         id: "contract-style-literal",
@@ -517,7 +539,7 @@ impl Parser {
         let name = self.named_ident(span)?;
         self.newline()?;
         let fields = self.block(|p| {
-            let (name, span) = p.ident()?;
+            let (name, span) = p.field_name()?;
             p.expect_punct(":")?;
             let ty = p.type_expr()?;
             p.newline()?;
@@ -606,7 +628,7 @@ impl Parser {
                             self.next();
                             self.newline()?;
                             let list = self.block(|p| {
-                                let (name, span) = p.ident()?;
+                                let (name, span) = p.field_name()?;
                                 p.expect_punct(":")?;
                                 let ty = p.type_expr()?;
                                 p.newline()?;
@@ -1219,7 +1241,7 @@ impl Parser {
     fn named_args(&mut self) -> R<Vec<Attr>> {
         let mut out = Vec::new();
         while !self.at_punct(")") {
-            let (name, span) = self.ident()?;
+            let (name, span) = self.field_name()?;
             self.expect_punct("=")?;
             let value = self.expr()?;
             out.push(Attr { name, value, span });
@@ -1237,7 +1259,7 @@ impl Parser {
             let arg = if matches!(self.peek_kind(), TokenKind::Ident(_))
                 && matches!(self.peek2(), TokenKind::Punct("=" | ":"))
             {
-                let (name, span) = self.ident()?;
+                let (name, span) = self.field_name()?;
                 if self.at_punct(":") {
                     return self.err(
                         "syntax-named-argument",
@@ -1261,6 +1283,16 @@ impl Parser {
         self.last = deepest;
         Ok(out)
     }
+}
+
+/// A keyword that may still be a name where one is expected: every keyword but
+/// those that begin or join an expression, a region, or a statement.
+fn is_name_word(w: &str) -> bool {
+    !is_keyword(w)
+        || !matches!(
+            w,
+            "when" | "if" | "else" | "each" | "in" | "match" | "case" | "as" | "fn" | "refresh"
+        )
 }
 
 fn is_keyword(w: &str) -> bool {

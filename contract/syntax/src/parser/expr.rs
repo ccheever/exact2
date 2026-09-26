@@ -127,7 +127,7 @@ impl Parser {
         let mut e = self.primary()?;
         while self.at_punct(".") {
             self.next();
-            let (field, span) = self.ident()?;
+            let (field, span) = self.field_name()?;
             self.built(self.last, span)?;
             e = Expr::Member(Box::new(e), field, span);
         }
@@ -187,11 +187,15 @@ impl Parser {
                         span,
                     })
                 }
-                _ if is_keyword(&w) => Err(SyntaxError {
-                    id: "syntax-keyword-as-value",
-                    message: format!("`{w}` is a keyword"),
-                    span,
-                }),
+                // A keyword that names a prop or field (`state`, `key`) reads as
+                // that name; one that shapes syntax, or a call, stays refused.
+                _ if is_keyword(&w) && (!is_name_word(&w) || self.at_punct("(")) => {
+                    Err(SyntaxError {
+                        id: "syntax-keyword-as-value",
+                        message: format!("`{w}` is a keyword"),
+                        span,
+                    })
+                }
                 _ => {
                     if self.eat_punct("(") {
                         let args = self.call_args()?;

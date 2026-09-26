@@ -25,6 +25,7 @@ mod instance_work;
 mod lint;
 mod markdown_editing;
 mod mutation;
+mod names;
 mod negative_margin;
 mod pan;
 mod placeholder;
