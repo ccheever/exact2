@@ -299,8 +299,11 @@ fn style_rows_lower_to_css_by_their_names() {
     .unwrap();
     s.set_dynamic(StyleId::LineClamp, &StyleValue::Number(2.0))
         .unwrap();
+    s.set_dynamic(StyleId::ScrollBehavior, &StyleValue::Text("smooth".into()))
+        .unwrap();
     let (css, skipped) = css_text(&s, &[]);
     for expected in [
+        "scroll-behavior:smooth;",
         "display:-webkit-box;",
         "-webkit-box-orient:vertical;",
         "-webkit-line-clamp:2;",

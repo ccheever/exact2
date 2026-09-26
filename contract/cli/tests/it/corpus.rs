@@ -109,6 +109,36 @@ fn dynamic_auto_keeps_the_meaning_of_its_style_row() {
 }
 
 #[test]
+fn the_scroll_fixture_writes_a_smooth_scroll_top_from_a_press() {
+    let plan = contract::compile(&corpus("scroll.contract")).unwrap();
+    let mut r = Runner::boot(
+        Plan::decode(&plan.encode()).unwrap(),
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let key = r.kernel().find_by_test_id("rows")[0];
+    let top = |r: &Runner<Schedule>| {
+        r.kernel()
+            .node_by_key(key)
+            .unwrap()
+            .props
+            .get(PropId::ScrollTop)
+            .and_then(exact_kernel::PropValue::as_float)
+    };
+    let node = r.kernel().node_by_key(key).unwrap();
+    assert_eq!(
+        node.style.scroll_behavior,
+        exact_kernel::ScrollBehavior::Smooth
+    );
+    assert_eq!(top(&r), Some(0.0));
+    r.act("jump", vec![]).unwrap();
+    assert_eq!(top(&r), Some(600.0));
+}
+
+#[test]
 fn a_style_attributes_branches_may_mix_a_length_and_a_keyword() {
     let plan = contract::compile(&corpus("style-branches.contract")).unwrap();
     let mut r = Runner::boot(

@@ -190,6 +190,7 @@ fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
             "bounce",
         ),
         ("scrollbar-width", StyleId::ScrollbarWidth, "wide"),
+        ("scroll-behavior", StyleId::ScrollBehavior, "instant"),
         ("touch-action", StyleId::TouchAction, "swipe"),
     ] {
         for named_style in [false, true] {

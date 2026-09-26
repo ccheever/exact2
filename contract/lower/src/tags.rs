@@ -499,6 +499,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         }
         "overscroll-behavior-x" => styles(&[StyleId::OverscrollBehaviorX]),
         "overscroll-behavior-y" => styles(&[StyleId::OverscrollBehaviorY]),
+        "scroll-behavior" => styles(&[StyleId::ScrollBehavior]),
         "z-index" => styles(&[StyleId::ZIndex]),
         "transition" => styles(&[StyleId::Transition]),
         "interpolate-size" => styles(&[StyleId::InterpolateSize]),
