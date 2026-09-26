@@ -327,7 +327,7 @@ enum RegionRetentionInvalidation {
         for op in ops {
             let kind = op.op
             switch kind {
-            case .region, .frame, .content, .hold, .heightDrag, .transformDrag, .retireMotion:
+            case .region, .frame, .content, .hold, .heightDrag, .transformDrag, .retireMotion, .reorder:
                 continue
             case .create, .props, .style, .destroy, .present, .surface:
                 guard let id = op.nodeID else { return true }

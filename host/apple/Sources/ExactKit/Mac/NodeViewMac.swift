@@ -13,10 +13,6 @@ private final class SymbolClip: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
-final class FlippedView: NSView {
-    override var isFlipped: Bool { true }
-}
-
 /// A material paints, but never supplies a new hit target or focus owner.
 private final class MaterialContent: NSView {
     override var isFlipped: Bool { true }
@@ -212,6 +208,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var clipPath: CGPath?
     var handlers: Set<String> = []
     var translate = CGPoint.zero
+    var arrangeShift = CGPoint.zero
     var scale: CGFloat = 1
     var rotate: CGFloat = 0
     weak var presenter: Presenter?
@@ -276,6 +273,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             ancestor = view.superview
         }
         return false
+    }
+    /// `aria-hidden` on this node or an ancestor: off the accessibility tree.
+    var accessibilityHiddenByProp: Bool {
+        sequence(first: self as NSView, next: { $0.superview }).contains { ($0 as? NodeView)?.props["accessibilityElementsHidden"] == "true" }
     }
     var disabled: Bool { props["disabled"] == "true" }
     /// The pointer's tracking, for a `hover` handler (LLP 1005 §3).
@@ -439,6 +440,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             setAccessibilityElement(true)
             setAccessibilityRole(props["accessibilityRole"] == "link" ? .link : .button)
             setAccessibilitySelected(props["accessibilitySelected"] == "true")
+            if let expanded = props["accessibilityExpanded"] { setAccessibilityExpanded(expanded == "true") }
         } else if kind == "image" {
             let labelled = !(props["accessibilityLabel"] ?? "").isEmpty
             setAccessibilityElement(labelled)
@@ -708,7 +710,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     @objc func clipScrolled() {
-        presenter?.collections.changed(id, user: true)
+        // A collection's knob keeps the offset the reader saw (CollectionMac.swift).
+        if let sv = scroll, let drag = KnobDrag.of(sv), !drag.admits(sv.contentView, correcting: presenter?.collections.correcting == true) { return }
+        presenter?.collectionScrolled(id)
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
         // The list window and the text bands follow the scroll; they are not
@@ -1172,8 +1176,15 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     func applyTransform() {
+        // A lifted Arrange row moves by its frame: AppKit paints and culls a
+        // view where its frame is, never where its layer was moved.
+        let shift = presenter?.reorder?.lifts(id) == true ? translate : .zero
+        if shift != arrangeShift {
+            setFrameOrigin(NSPoint(x: frame.minX - arrangeShift.x + shift.x, y: frame.minY - arrangeShift.y + shift.y))
+            arrangeShift = shift
+        }
         let b = bounds
-        var t = CGAffineTransform(translationX: translate.x, y: translate.y)
+        var t = CGAffineTransform(translationX: translate.x - shift.x, y: translate.y - shift.y)
         t = t.translatedBy(x: b.midX, y: b.midY).rotated(by: rotate * .pi / 180).scaledBy(x: scale, y: scale).translatedBy(x: -b.midX, y: -b.midY)
         layer?.setAffineTransform(t)
     }
@@ -1256,31 +1267,15 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             bg.setFill()
             if rounded { path.fill() } else { NSGraphicsContext.current?.cgContext.fill(bounds) }
         }
-        // The host sends each side's colour (`style.rs`), never a uniform one.
-        let borderColor = color("border_color_top", .clear)
+        // The host sends each side's colour (`style.rs`), never a uniform
+        // one: each side in its colour, joined as the web joins them.
         let uniform = number("border_width")
-        let top = number("border_width_top", uniform), right = number("border_width_right", uniform)
-        let bottom = number("border_width_bottom", uniform), left = number("border_width_left", uniform)
-        // A uniform border on a rounded box follows the curve (the web's
-        // rule). Four edge rects would square the corners and show as nubs.
-        if rounded, top > 0, top == right, right == bottom, bottom == left {
-            let inset = top / 2
-            let stroke = roundedPath(in: bounds.insetBy(dx: inset, dy: inset), inset: inset)
-            stroke.lineWidth = top
-            stroke.lineJoinStyle = .round
-            borderColor.setStroke()
-            stroke.stroke()
-        } else {
-            let sides: [(String, NSRect)] = [
-                ("border_width_top", NSRect(x: 0, y: 0, width: bounds.width, height: top)),
-                ("border_width_bottom", NSRect(x: 0, y: bounds.height - bottom, width: bounds.width, height: bottom)),
-                ("border_width_left", NSRect(x: 0, y: 0, width: left, height: bounds.height)),
-                ("border_width_right", NSRect(x: bounds.width - right, y: 0, width: right, height: bounds.height)),
-            ]
-            for (key, r) in sides where number(key, uniform) > 0 {
-                color(key.replacingOccurrences(of: "width", with: "color"), borderColor).setFill()
-                r.fill()
-            }
+        let widths = ["top", "right", "bottom", "left"].map { number("border_width_" + $0, uniform) }
+        let top = color("border_color_top", .clear)
+        let colors = ["top", "right", "bottom", "left"].map { color("border_color_" + $0, top).cgColor }
+        let radii = ["top_left", "top_right", "bottom_right", "bottom_left"].map { number("border_radius_" + $0) }
+        if let ctx = NSGraphicsContext.current?.cgContext {
+            BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii)
         }
         if kind == "image", symbolView == nil, let bitmap = raster?.image {
             // CSS object-fit over the content box (the frame inside border
@@ -1346,6 +1341,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         presenter?.collections.pointerDown(id, event: event)
         if presenter?.mouseLayoutPan.down(self, event: event) == true { return }
         presenter?.mouseHeightDrag.down(self, event: event)
+        presenter?.mouseReorder.down(self, event: event)
         presenter?.mouseTransformDrag.down(self, event: event)
         presenter?.mouseSwipe.down(self, event: event)
         guard !disabled else { pressed = false; return }
@@ -1388,6 +1384,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         inlinePressed = nil
         if presenter?.mouseLayoutPan.drag(event) == true { return }
         if presenter?.mouseTransformDrag.drag(event) == true { return }
+        if presenter?.mouseReorder.drag(event) == true { return }
         if presenter?.mouseHeightDrag.drag(event) == true { return }
         if presenter?.mouseSwipe.drag(event) == true { return }
         if isParagraph && !hasPressableAncestor { presenter?.selection.drag(event) }
@@ -1407,6 +1404,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
         if presenter?.mouseLayoutPan.up(event) == true { return }
         if presenter?.mouseTransformDrag.up(event) == true { return }
+        if presenter?.mouseReorder.up(event) == true { return }
         if presenter?.mouseHeightDrag.up(event) == true { return }
         if presenter?.mouseSwipe.up(event) == true { return }
         presenter?.collections.releaseInteractionLater()

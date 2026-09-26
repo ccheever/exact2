@@ -105,7 +105,7 @@ extension BatchReader {
         var style = InlineStyle(), height: BatchValue?
         try object { r, key in
             switch key {
-            case "font_size", "font_weight", "font_family", "font_style", "letter_spacing", "text_color", "text_decoration_line":
+            case "font_size", "font_weight", "font_family", "font_style", "letter_spacing", "text_color", "text_decoration_line", "background_color":
                 try style.set(key, r.value())
             case "line_height": height = try r.value()
             default: try r.skip()
@@ -207,14 +207,24 @@ extension InlineStyle {
         case "text_decoration_line": run.decoration = try BatchFields.string(value)
         case "text_color":
             guard case .array(let a) = value else { throw BatchReader.Invalid.wire }
-            paired = a.count == 2
-            if paired {
+            if a.count == 2 {
+                paired = true
                 run.color = try BatchFields.array(a[0], BatchFields.number)
                 darkColor = try BatchFields.array(a[1], BatchFields.number)
             } else {
                 run.color = try a.map(BatchFields.number); darkColor = run.color
             }
             guard run.color?.count == 4, darkColor?.count == 4 else { throw BatchReader.Invalid.wire }
+        case "background_color":
+            guard case .array(let a) = value else { throw BatchReader.Invalid.wire }
+            if a.count == 2 {
+                paired = true
+                run.background = try BatchFields.array(a[0], BatchFields.number)
+                darkBackground = try BatchFields.array(a[1], BatchFields.number)
+            } else {
+                run.background = try a.map(BatchFields.number); darkBackground = run.background
+            }
+            guard run.background?.count == 4, darkBackground?.count == 4 else { throw BatchReader.Invalid.wire }
         default: break
         }
     }

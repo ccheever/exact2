@@ -43,6 +43,8 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
         }
         let value = match style.get(id) {
             RowValue::ShapeOutside(_) => continue, // LLP 1043.000 M3
+            // Layout only (LLP 1053 G1): the kernel sizes the box.
+            RowValue::AspectRatio(_) => continue,
             RowValue::Dimension(d) => match d.resolve(env) {
                 Dimension::Auto => "\"auto\"".to_string(),
                 Dimension::Points(p) => num(p),

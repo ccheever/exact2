@@ -7,14 +7,36 @@
 struct ChromeIndex {
     static let keys = ["navigationBack", "inert", "popover", "popovertarget",
                        "contextTarget", "toolbarPlacement", "accessibilityKeyShortcuts",
-                       "commandfor", "swipeContent", "id"]
+                       "commandfor", "swipeContent", "id", "accessibilityLive", "autofocus"]
     /// Props a pass reads for one value. Every list row has a role and every
     /// `main` or `header` a tag, so these are indexed by that value, never by
     /// presence.
     static let values = [("role:tablist", "accessibilityRole", "tablist"), ("tag:dialog", "semanticTag", "dialog")]
     private var byKey: [String: Set<UInt32>] = [:]
+    /// The views carrying each `id` value, and the values whose carriers
+    /// changed since `takeChangedNames` — what resolves a name without
+    /// reading every named view.
+    private(set) var named: [String: Set<UInt32>] = [:]
+    private var nameOf: [UInt32: String] = [:]
+    private var changedNames = Set<String>()
+    mutating func takeChangedNames() -> Set<String> {
+        defer { changedNames.removeAll(keepingCapacity: true) }
+        return changedNames
+    }
+    private mutating func rename(_ id: UInt32, _ name: String?) {
+        let old = nameOf[id]
+        guard old != name else { return }
+        if let old {
+            named[old]?.remove(id)
+            if named[old]?.isEmpty == true { named[old] = nil }
+            changedNames.insert(old)
+        }
+        if let name { named[name, default: []].insert(id); changedNames.insert(name) }
+        nameOf[id] = name
+    }
 
     mutating func note(_ id: UInt32, props: [String: String]) {
+        rename(id, props["id"])
         for key in Self.keys {
             if props[key] != nil { byKey[key, default: []].insert(id) }
             else if let index = byKey.index(forKey: key), byKey.values[index].contains(id) {
@@ -29,6 +51,7 @@ struct ChromeIndex {
         }
     }
     mutating func forget(_ id: UInt32) {
+        rename(id, nil)
         // Only the member sets change; dictionary keys and indices stay fixed.
         for index in byKey.indices where byKey.values[index].contains(id) { byKey.values[index].remove(id) }
     }

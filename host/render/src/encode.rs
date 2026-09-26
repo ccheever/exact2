@@ -1,7 +1,8 @@
 //! Compression (LLP 1048.000 D11): brotli, else gzip, as `Accept-Encoding`
 //! allows, for text, scripts, the wasm and SVG, with `Vary:
 //! Accept-Encoding` and the encoding in the ETag. A page is compressed as it
-//! is sent (brotli at quality 5: a 57 KB document in about a millisecond); a
+//! is sent (brotli at quality 5: a 57 KB document in about a millisecond),
+//! and a page the origin keeps once more at the best, off the request path; a
 //! file of the dist once, at bind and off the request path, at brotli's best
 //! — until its variant is made it goes out as it is.
 
@@ -21,6 +22,8 @@ const HELD: usize = 256 << 20;
 pub(crate) struct Accepts {
     br: bool,
     gzip: bool,
+    /// Dictionary-Compressed Brotli, named outright (`*` doesn't offer it).
+    dcb: bool,
 }
 
 impl Accepts {
@@ -40,6 +43,7 @@ impl Accepts {
                 (_, true) => {}
                 ("br", _) => accepts.br = true,
                 ("gzip", _) => accepts.gzip = true,
+                ("dcb", _) => accepts.dcb = true,
                 ("*", _) => {
                     accepts.br = true;
                     accepts.gzip = true;
@@ -48,6 +52,11 @@ impl Accepts {
             }
         }
         accepts
+    }
+
+    /// Whether it takes a body compressed against a dictionary it holds.
+    pub(crate) fn dcb(self) -> bool {
+        self.dcb
     }
 
     /// Brotli, else gzip, else none.
@@ -127,6 +136,74 @@ fn compress(body: &[u8], encoding: Encoding, best: bool) -> Option<Vec<u8>> {
         }
     };
     (out.len() < body.len()).then_some(out)
+}
+
+/// `body` as Dictionary-Compressed Brotli (`dcb`) against `dictionary`, whose
+/// SHA-256 is `hash`: four magic bytes, the hash, then a brotli stream that may
+/// copy from the dictionary as if it came first (a raw LZ77 prefix). Quality 5,
+/// as a page is compressed as it is sent; none when it doesn't shrink.
+pub(crate) fn against(body: &[u8], dictionary: &[u8], hash: &[u8; 32]) -> Option<Vec<u8>> {
+    let params = brotli::enc::BrotliEncoderParams {
+        quality: 5,
+        lgwin: 22,
+        size_hint: body.len(),
+        ..Default::default()
+    };
+    // The window holds the dictionary and the body, or the stream can't reach it.
+    if dictionary.len() + body.len() > (1usize << params.lgwin) - 16 {
+        return None;
+    }
+    let mut out = vec![0xff, 0x44, 0x43, 0x42];
+    out.extend_from_slice(hash);
+    let (mut input, mut output) = (vec![0u8; 4096], vec![0u8; 4096]);
+    brotli::BrotliCompressCustomIoCustomDict(
+        &mut brotli::IoReaderWrapper(&mut &body[..]),
+        &mut brotli::IoWriterWrapper(&mut out),
+        &mut input,
+        &mut output,
+        &params,
+        brotli::enc::StandardAlloc::default(),
+        &mut |_, _, _, _| (),
+        dictionary,
+        std::io::Error::from(std::io::ErrorKind::UnexpectedEof),
+    )
+    .ok()?;
+    (out.len() < body.len()).then_some(out)
+}
+
+/// A cached page's bodies at brotli's and gzip's best, each only when it's
+/// smaller, made once off the request path (D11).
+#[derive(Default)]
+pub(crate) struct Best {
+    br: Option<Vec<u8>>,
+    gzip: Option<Vec<u8>>,
+}
+
+impl Best {
+    pub(crate) fn of(body: &[u8]) -> Best {
+        if body.len() < MIN {
+            return Best::default();
+        }
+        Best {
+            br: compress(body, Encoding::Br, true),
+            gzip: compress(body, Encoding::Gzip, true),
+        }
+    }
+
+    /// The variant `accepts` picks, when it was made.
+    pub(crate) fn pick(&self, accepts: Accepts) -> Option<(Encoding, &[u8])> {
+        let encoding = accepts.pick()?;
+        let body = match encoding {
+            Encoding::Br => self.br.as_deref(),
+            Encoding::Gzip => self.gzip.as_deref(),
+        }?;
+        Some((encoding, body))
+    }
+
+    /// The bytes it holds.
+    pub(crate) fn bytes(&self) -> usize {
+        self.br.as_ref().map_or(0, Vec::len) + self.gzip.as_ref().map_or(0, Vec::len)
+    }
 }
 
 /// The dist's files as the server sends them: each file's validator (a hash
@@ -339,13 +416,40 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_body_against_a_dictionary_decodes_to_the_same_bytes() {
+        use sha2::{Digest, Sha256};
+        // Two pages that share their chrome, as a site's pages do.
+        let chrome: String = (0..400)
+            .map(|i| format!("<a href=\"/tag/t{}\">t{i}</a>", i * 7919 % 1000))
+            .collect();
+        let dictionary = format!("<!doctype html>{chrome}<h1>Global Feed</h1>").into_bytes();
+        let body = format!("<!doctype html>{chrome}<h1>python</h1>").into_bytes();
+        let hash: [u8; 32] = Sha256::digest(&dictionary).into();
+        let made = against(&body, &dictionary, &hash).unwrap();
+        assert_eq!(made[..4], [0xff, 0x44, 0x43, 0x42]);
+        assert_eq!(made[4..36], hash);
+        assert!(made.len() < compress(&body, Encoding::Br, true).unwrap().len());
+        let mut decoded = Vec::new();
+        brotli::Decompressor::new_with_custom_dict(&made[36..], 4096, dictionary.clone().into())
+            .read_to_end(&mut decoded)
+            .unwrap();
+        assert_eq!(decoded, body);
+        // A dictionary the window can't hold makes no variant.
+        assert_eq!(against(&body, &vec![b'x'; 4 << 20], &hash), None);
+    }
+
+    #[test]
     fn accept_encoding_reads_as_rfc_9110_says() {
         let both = Accepts {
             br: true,
             gzip: true,
+            dcb: false,
         };
         assert_eq!(Accepts::parse("gzip, deflate, br, zstd"), both);
         assert_eq!(Accepts::parse("*"), both);
+        // A dictionary's coding is only ever named, never implied by `*`.
+        assert!(Accepts::parse("gzip, deflate, br, zstd, dcb, dcz").dcb());
+        assert!(!Accepts::parse("*").dcb() && !Accepts::parse("dcb;q=0").dcb());
         assert_eq!(
             Accepts::parse("br;q=0, gzip;q=0.5").pick(),
             Some(Encoding::Gzip)

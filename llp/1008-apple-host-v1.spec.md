@@ -714,15 +714,32 @@ configured control is disabled, another control does not silently acquire the
 full-swipe gesture. UIKit owns recognition, progress, reversal and release.
 
 The parent authored scroll view retains vertical scrolling. The kernel retains
-row dimensions. Projection moves the content's wrapper subtree as a unit,
-retaining intermediate ancestors and their styles/input restrictions; before
-each batch it restores that subtree to its logical parent and frame, then
-remounts it after ordinary updates and navigation. Authored fallback action
-controls are hidden only during projection. Native cell chrome supplies the
-content node's background while it is mounted. Other rows close when a new row
-starts editing; a size change or inactive route closes its native surface.
+row dimensions. A row is projected only while a swipe can start (2026-09-25):
+at rest the authored scroll holds its content and a batch moves nothing. A
+touch landing on the row projects it from the row's hit test, before UIKit
+gathers the touch's recognizers, so the table's own swipe sees the first pan;
+the projection is released once the touch has ended, the row is closed and
+UIKit's own animation has settled. While VoiceOver or Switch Control runs every
+row stays projected, since they read the actions from the cell. Projection moves
+the content's wrapper subtree as a unit, retaining intermediate ancestors and
+their styles/input restrictions; before each batch it restores that subtree to
+its logical parent and frame, then remounts it after ordinary updates and
+navigation. Authored fallback action controls are hidden only during
+projection. The cell's background is clear: the content paints itself,
+rounded corners included. The cell follows the row's height. Other rows close
+when a new row starts editing; a size change or inactive route closes its
+native surface.
 Invalid or ambiguous references, missing accessible names and nonmatching row
 dimensions retain the authored fallback with a diagnostic.
+A swipe owner's scroll container keeps no `UIScrollView` until something needs
+it (2026-09-25): the swipe cell takes the row's touches, and a closed row sits
+at its scroll start, as at rest on the web, so its children live in the owner,
+clipped as the scroll clips them. The scroll view is made when the row is
+refused (the authored fallback is then the swipe), for an authored
+`scrollLeft`/`scrollTop` or `scroll` handler, for the agent's wheel and for a
+keyboard reveal; the agent reports the waiting scroll at offset zero. A list
+builds its rows without one scroll view, its recognizers and its window
+registration each.
 
 Agent inspection observes the native action's public UIKit button and descendant
 image, never a private class name or a guessed offset. A revealed action reports

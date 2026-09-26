@@ -21,7 +21,10 @@ function fixture(plan) {
   const agentURL = new URL(location.href); agentURL.searchParams.set('agent', '1');
   history.replaceState(null, '', agentURL);
   const instantiate = WebAssembly.instantiateStreaming;
+  let wrapped = false; // the app's own instantiation; its staged capabilities (LLP 1047.000) load as they are
   WebAssembly.instantiateStreaming = async (...args) => {
+    if (wrapped) return instantiate(...args);
+    wrapped = true;
     const result = await instantiate(...args), w = result.instance.exports;
     history.replaceState(null, '', location.origin + location.pathname);
     globalThis.historyCalls = [];

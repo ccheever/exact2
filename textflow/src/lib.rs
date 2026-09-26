@@ -10,6 +10,7 @@
 #![deny(missing_docs)]
 
 mod bands;
+mod chrome;
 mod flow;
 mod geometry;
 mod shape;
@@ -20,7 +21,8 @@ pub use flow::{flow, Direction, FlowOptions, FlowResult, Fragment};
 pub use geometry::{meets, FlowShape};
 pub use shape::ShapeOutside;
 pub use walker::{
-    grapheme_ranges, Cursor, LineRange, Measure, Options, OverflowWrap, Prepared, WhiteSpace,
+    grapheme_ranges, utf16_words, Cursor, LineRange, Measure, Options, OverflowWrap, Prepared,
+    WhiteSpace,
 };
 
 // Saturate arithmetic at the public f32 boundary; never emit NaN or infinity.

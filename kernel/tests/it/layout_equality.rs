@@ -7,7 +7,7 @@
 
 use exact_kernel::{
     export, AlignItems, Dimension, Display, FlexDirection, JustifyContent, Kernel,
-    MonospaceMeasurer, NodeType, Offer, Op, PositionType, PropId, StyleId, StyleProps,
+    MonospaceMeasurer, NodeType, Offer, Op, Overflow, PositionType, PropId, StyleId, StyleProps,
 };
 
 struct Rng(u64);
@@ -130,6 +130,11 @@ fn random_style(rng: &mut Rng, node_type: NodeType) -> Box<StyleProps> {
         s.display = Display::Flex;
         s.mask.set(StyleId::Display);
     }
+    // A clipping box is a relayout boundary candidate wherever it sits.
+    if node_type != NodeType::Text && rng.chance(3) {
+        s.overflow_y = *rng.pick(&[Overflow::Hidden, Overflow::Scroll]);
+        s.mask.set(StyleId::OverflowY);
+    }
     if node_type == NodeType::Text {
         s.font_size = *rng.pick(&[10.0, 12.0, 16.0, 20.0]);
         s.mask.set(StyleId::FontSize);
@@ -149,6 +154,8 @@ struct World {
     /// parent → children, mirrored so batches stay valid.
     children: Vec<(u32, Vec<u32>)>,
     log: Vec<Vec<Op>>,
+    /// Nodes mutations mostly leave alone (the panes' ancestors and panes).
+    fixed: Vec<u32>,
 }
 
 impl World {
@@ -165,6 +172,11 @@ impl World {
             Some(entry) => entry.1 = kids,
             None => self.children.push((id, kids)),
         }
+    }
+
+    /// Whether to leave a fixed node alone this time (nine times in ten).
+    fn spared(&mut self, id: u32) -> bool {
+        self.fixed.contains(&id) && self.rng.below(10) != 0
     }
 
     fn containers(&self) -> Vec<u32> {
@@ -261,6 +273,9 @@ impl World {
             match self.rng.below(6) {
                 0 | 1 => {
                     let (id, node_type) = *self.rng.pick(&self.live);
+                    if self.spared(id) {
+                        continue;
+                    }
                     ops.push(Op::SetStyle {
                         id,
                         patch: random_style(&mut self.rng, node_type),
@@ -283,6 +298,9 @@ impl World {
                 }
                 3 => {
                     let parent = *self.rng.pick(&self.containers());
+                    if self.spared(parent) {
+                        continue;
+                    }
                     let node_type = *self.rng.pick(&[NodeType::View, NodeType::Text]);
                     let child = self.create(&mut ops, node_type);
                     self.attach(&mut ops, parent, child);
@@ -297,6 +315,9 @@ impl World {
                         .collect();
                     if !candidates.is_empty() {
                         let id = *self.rng.pick(&candidates);
+                        if self.spared(id) {
+                            continue;
+                        }
                         self.destroy(&mut ops, id);
                     }
                 }
@@ -312,6 +333,9 @@ impl World {
                         continue;
                     }
                     let child = *self.rng.pick(&candidates);
+                    if self.spared(child) {
+                        continue;
+                    }
                     let mut descendants = vec![child];
                     let mut stack = vec![child];
                     while let Some(n) = stack.pop() {
@@ -358,11 +382,13 @@ impl World {
     }
 }
 
-fn frames(k: &Kernel) -> Vec<(u32, [u32; 4])> {
+/// Frames and scroll extents, as bits.
+fn frames(k: &Kernel) -> Vec<(u32, [u32; 6])> {
     k.rows(None)
         .unwrap()
         .into_iter()
         .map(|r| {
+            let (w, h) = k.arena().content(k.arena().slot_of(r.id).unwrap());
             (
                 r.id,
                 [
@@ -370,6 +396,8 @@ fn frames(k: &Kernel) -> Vec<(u32, [u32; 4])> {
                     r.frame.y.to_bits(),
                     r.frame.width.to_bits(),
                     r.frame.height.to_bits(),
+                    w.to_bits(),
+                    h.to_bits(),
                 ],
             )
         })
@@ -383,10 +411,102 @@ fn run(seed: u64, rounds: usize) {
         live: Vec::new(),
         children: Vec::new(),
         log: Vec::new(),
+        fixed: Vec::new(),
     };
+    let first = world.initial();
+    compare(seed, rounds, world, first);
+}
+
+/// A list's shape: a flex column holding a header and clipping panes sized
+/// every way a pane is (flex, fixed, auto, percent, first or not), with most
+/// mutations inside the panes, where a relayout boundary replays them.
+fn run_panes(seed: u64, rounds: usize) {
+    let mut world = World {
+        rng: Rng(seed),
+        next_id: 1,
+        live: Vec::new(),
+        children: Vec::new(),
+        log: Vec::new(),
+        fixed: Vec::new(),
+    };
+    let mut ops = Vec::new();
+    let root = world.create(&mut ops, NodeType::View);
+    let mut s = StyleProps::default();
+    s.width = Dimension::Points(320.0);
+    s.height = Dimension::Points(480.0);
+    s.display = Display::Flex;
+    s.flex_direction = FlexDirection::Column;
+    for id in [
+        StyleId::Width,
+        StyleId::Height,
+        StyleId::Display,
+        StyleId::FlexDirection,
+    ] {
+        s.mask.set(id);
+    }
+    ops.push(Op::SetStyle {
+        id: root,
+        patch: Box::new(s),
+    });
+    ops.push(Op::AttachRoot { id: root });
+    let header = world.create(&mut ops, NodeType::Text);
+    let mut panes = vec![header];
+    for _ in 0..3 {
+        let pane = world.create(&mut ops, NodeType::ScrollView);
+        let mut s = StyleProps::default();
+        match world.rng.below(4) {
+            0 => {
+                s.flex_grow = 1.0;
+                s.flex_basis = Dimension::Percent(0.0);
+                s.min_height = Dimension::Points(0.0);
+                s.mask.set(StyleId::FlexGrow);
+                s.mask.set(StyleId::FlexBasis);
+                s.mask.set(StyleId::MinHeight);
+            }
+            1 => {
+                s.height = Dimension::Points(world.rng.below(200) as f32);
+                s.mask.set(StyleId::Height);
+            }
+            2 => {
+                s.width = Dimension::Percent(world.rng.below(100) as f32);
+                s.mask.set(StyleId::Width);
+            }
+            _ => {}
+        }
+        if world.rng.chance(2) {
+            s.display = Display::Flex;
+            s.mask.set(StyleId::Display);
+        }
+        ops.push(Op::SetStyle {
+            id: pane,
+            patch: Box::new(s),
+        });
+        panes.push(pane);
+    }
+    let at = world.rng.below(4) as usize;
+    panes.swap(0, at);
+    world.set_children(root, panes.clone());
+    ops.push(Op::SetChildren {
+        id: root,
+        children: panes.clone(),
+    });
+    world.fixed = std::iter::once(root).chain(panes).collect();
+    for _ in 0..24 {
+        let parent = *world.rng.pick(&world.containers()[1..]);
+        let node_type = *world
+            .rng
+            .pick(&[NodeType::View, NodeType::View, NodeType::Text]);
+        let child = world.create(&mut ops, node_type);
+        world.attach(&mut ops, parent, child);
+    }
+    world.log.push(ops.clone());
+    compare(seed, rounds, world, ops);
+}
+
+fn compare(seed: u64, rounds: usize, mut world: World, first: Vec<Op>) {
     let mut kernel = Kernel::with_monospace();
     let offer = Offer::definite(320.0, 480.0);
-    kernel.apply(0, 0, &world.initial()).unwrap();
+    kernel.apply(0, 0, &first).unwrap();
     kernel.compute_layout(1, offer).unwrap();
 
     for round in 0..rounds {
@@ -441,8 +561,50 @@ fn incremental_relayout_is_result_equal_to_full_relayout() {
 }
 
 #[test]
+fn contained_pane_relayout_is_result_equal_to_full_relayout() {
+    for seed in 1..=24 {
+        run_panes(seed, 40);
+    }
+}
+
+#[test]
 fn long_run_single_seed() {
     run(0x5eed_c0de, 200);
+}
+
+// Seeds that once differed from a fresh layout, each through an input Taffy's
+// layout cache key left out (vendor/taffy/EXACT-PATCHES.md, patch 11).
+
+/// Round 13: a parent turns from block to flex, and its block child's final
+/// layout, with its first child's 4.5-point margin collapsed through it, was
+/// reused as a flex item's (`vertical_margins_are_collapsible`, `sizing_mode`).
+#[test]
+fn seed_2423214_block_child_of_a_new_flex_parent() {
+    run(2423214, 14);
+}
+
+/// Round 7: an item's own percentage height, resolved against a 144-point
+/// parent under `InherentSize`, answered a `ContentSize` probe with no parent
+/// height (`sizing_mode`, the parent's height).
+#[test]
+fn pane_seed_405_percentage_height_probe() {
+    run_panes(405, 40);
+}
+
+/// Round 13: a measurement whose `height: 86%` resolved against a 62-point
+/// parent answered the same probe once the parent's height was auto (the
+/// parent's height: the measurement key compared only its width).
+#[test]
+fn pane_seed_503_percentage_height_after_the_parent_loses_its_height() {
+    run_panes(503, 40);
+}
+
+/// Round 27: a block parent's `InherentSize` width probe, which applies the
+/// child's own size styles, answered a flex base-size probe, which ignores
+/// them: 58 points for 110 (`sizing_mode`, `vertical_margins_are_collapsible`).
+#[test]
+fn pane_seed_1412_styled_width_probe_as_a_flex_basis() {
+    run_panes(1412, 40);
 }
 
 #[test]

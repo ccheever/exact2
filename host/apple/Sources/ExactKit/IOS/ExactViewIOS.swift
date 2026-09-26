@@ -16,7 +16,8 @@ public final class ExactView: UIView {
     private var fitPending = false
     private var lastSize = CGSize.zero
     private var lastInsets = UIEdgeInsets.zero
-    private let keyboardProbe = UIView()
+    private var keyboardProbe: UIView?
+    private var keyboardObserver: NSObjectProtocol?
     /// The adapter's hook for the first root's `viewport-fit` and its
     /// canvas colour (the window's background under the safe areas is the
     /// window's business).
@@ -31,17 +32,10 @@ public final class ExactView: UIView {
         super.init(frame: .zero)
         backgroundColor = .white
         addSubview(session.presenter.viewport)
-        // A zero-size dependent makes UIKit lay this view out as its keyboard
-        // guide moves. Frame notifications alone omit interactive drag frames.
-        keyboardProbe.isHidden = true
-        keyboardProbe.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(keyboardProbe)
-        NSLayoutConstraint.activate([
-            keyboardProbe.topAnchor.constraint(equalTo: keyboardLayoutGuide.topAnchor),
-            keyboardProbe.leadingAnchor.constraint(equalTo: leadingAnchor),
-            keyboardProbe.widthAnchor.constraint(equalToConstant: 0),
-            keyboardProbe.heightAnchor.constraint(equalToConstant: 0),
-        ])
+        keyboardObserver = NotificationCenter.default.addObserver(
+            forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.installKeyboardProbe() }
+        }
         session.view = self
         session.presenter.onViewportFit = { [weak self] in self?.setNeedsLayout(); self?.onViewportFit?() }
         session.presenter.onCanvasColor = { [weak self] color in self?.backgroundColor = color; self?.onCanvasColor?(color) }
@@ -51,6 +45,30 @@ public final class ExactView: UIView {
     }
 
     required init?(coder: NSCoder) { nil }
+    deinit { keyboardObserver.map(NotificationCenter.default.removeObserver) }
+
+    /// A zero-size dependent makes UIKit lay this view out as its keyboard
+    /// guide moves: frame notifications alone omit interactive drag frames.
+    /// It comes with the first keyboard, not before: a constraint anywhere in
+    /// the window gives the window a layout engine, and every view added
+    /// after joins it (`_switchToLayoutEngine:`), which a list pays for each
+    /// view of each row it builds. No node view uses a constraint.
+    private func installKeyboardProbe() {
+        guard keyboardProbe == nil else { return }
+        keyboardObserver.map(NotificationCenter.default.removeObserver)
+        keyboardObserver = nil
+        let probe = UIView()
+        probe.isHidden = true
+        probe.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(probe)
+        NSLayoutConstraint.activate([
+            probe.topAnchor.constraint(equalTo: keyboardLayoutGuide.topAnchor),
+            probe.leadingAnchor.constraint(equalTo: leadingAnchor),
+            probe.widthAnchor.constraint(equalToConstant: 0),
+            probe.heightAnchor.constraint(equalToConstant: 0),
+        ])
+        keyboardProbe = probe
+    }
 
     /// The first root's `viewport-fit` prop (`"cover"` or nothing).
     public var viewportFit: String? { session.presenter.viewportFit }

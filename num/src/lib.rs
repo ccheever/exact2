@@ -15,6 +15,11 @@
 //! behind it, about 23 KB of wasm) prints one text per value and format, so
 //! [`Shortest`], [`Shortest32`], [`ShortestDebug`], [`Exponent`] and
 //! [`Fixed`] print exactly core's `{}`, `{:?}`, `{:e}` and `{:.N}`.
+//!
+//! And text built on a page's first paths skips `core::fmt` itself:
+//! [`text!`] and [`push_text!`] fill a template's `{}` holes with each
+//! [`Piece`]'s text (strings, integers, `bool`, [`Shortest`]), as
+//! `format!` and `write!` would.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
@@ -22,9 +27,13 @@
 use std::cmp::Ordering;
 use std::fmt;
 
+mod piece;
 mod text;
+pub use piece::{fill, fill_into, Piece};
 pub use text::{Exponent, Fixed, Shortest, Shortest32, ShortestDebug};
 
+#[cfg(test)]
+mod piece_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]

@@ -264,7 +264,9 @@
     for (var i = 0; i < call.tickets.length; i++) if (pending.has(call.tickets[i])) return JSON.stringify({ tag: 1, call: call.id, ticket: call.tickets[i] });
     if (call.storage > 0) return JSON.stringify({ tag:1, call:call.id, ticket:0 });
     calls.delete(call.id);
-    return fail(new Error("the answer is pending on nothing: no host operation will resolve it"));
+    return fail(new Error("the answer is pending on nothing: no host operation it started will resolve it. " +
+      "An answer that awaits a promise another answer started (a fetch shared between answers) waits on work it does not own; " +
+      "make each answer's own fetch, or share the resolved value rather than the promise"));
   }
   // The executor: `__exact_call(source, argsJson)` → tag 0/2 at once, or
   // tag 3 with a call id — then it drains microtasks and asks

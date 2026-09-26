@@ -11,9 +11,9 @@ use exact_kernel::{
 };
 use std::collections::BTreeMap;
 
-type Rows = Vec<(StyleId, StyleValue)>;
+pub(crate) type Rows = Vec<(StyleId, StyleValue)>;
 
-fn props(rows: &Rows) -> StyleProps {
+pub(crate) fn props(rows: &Rows) -> StyleProps {
     let mut p = StyleProps::default();
     for (row, value) in rows {
         p.set_dynamic(*row, value).unwrap();
@@ -24,6 +24,17 @@ fn props(rows: &Rows) -> StyleProps {
 /// Lays out one case: the outer box and its descendants, each
 /// `(id, parent, rows)`; a node given text is a text node.
 fn lay_out(root: StyleProps, nodes: Vec<(u32, u32, Rows)>, texts: &[(u32, &str)]) -> Kernel {
+    lay_out_with(root, nodes, texts, &[])
+}
+
+/// [`lay_out`], where a node in `images` is an `Image` whose natural size
+/// is known (`Some`) or not yet (`None`, an `<img>` before it loads).
+pub(crate) fn lay_out_with(
+    root: StyleProps,
+    nodes: Vec<(u32, u32, Rows)>,
+    texts: &[(u32, &str)],
+    images: &[(u32, Option<(f32, f32)>)],
+) -> Kernel {
     let mut ops = vec![
         Op::CreateView {
             id: 1,
@@ -41,6 +52,8 @@ fn lay_out(root: StyleProps, nodes: Vec<(u32, u32, Rows)>, texts: &[(u32, &str)]
             id: *id,
             node_type: if text.is_some() {
                 NodeType::Text
+            } else if images.iter().any(|(i, _)| i == id) {
+                NodeType::Image
             } else {
                 NodeType::View
             },
@@ -66,12 +79,15 @@ fn lay_out(root: StyleProps, nodes: Vec<(u32, u32, Rows)>, texts: &[(u32, &str)]
     ops.push(Op::AttachRoot { id: 1 });
     let mut k = kernel();
     k.apply(0, 1, &ops).unwrap();
+    for (id, size) in images {
+        k.set_intrinsic_size(*id, *size).unwrap();
+    }
     k.compute_layout(1, Offer::definite(800.0, 600.0)).unwrap();
     k
 }
 
 /// Every mismatch of `[x, y, width, height]`, named by case and node.
-fn mismatches(case: &str, k: &Kernel, expected: &[(u32, [f32; 4])]) -> Vec<String> {
+pub(crate) fn mismatches(case: &str, k: &Kernel, expected: &[(u32, [f32; 4])]) -> Vec<String> {
     let mut out = Vec::new();
     for (id, want) in expected {
         let f = k.node(*id).unwrap().frame;

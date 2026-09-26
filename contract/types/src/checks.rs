@@ -1,6 +1,8 @@
 //! Type diagnostics and component checks that require recursive traversal.
 
-use super::{err, infer, ComponentTypes, Ref, Scope, Shapes, Sink, Ty, TypeError, Types};
+use super::{
+    arms, disagree, err, infer, ComponentTypes, Ref, Scope, Shapes, Sink, Ty, TypeError, Types,
+};
 use contract_syntax::{
     one_spelling_edit, Attr, Component, Expr, File, Node, Span, Stmt, TemplatePart, TypeExpr,
 };
@@ -927,15 +929,29 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes, sink: &
 /// One element attribute's value.
 fn check_attr(a: &Attr, scope: &Scope, shapes: &Shapes) -> Result<(), TypeError> {
     if a.name == "class" {
-        // `class=Name` names a `style`, resolved at lowering.
-        if !matches!(a.value, Expr::Ident(..)) {
-            return err(
+        // `class=Name` names a `style`, resolved at lowering; `class=(cond ?
+        // A : B)` chooses between two, and only its condition is typed here.
+        return match &a.value {
+            Expr::Ident(..) => Ok(()),
+            Expr::Ternary(cond, yes, no, _)
+                if matches!((&**yes, &**no), (Expr::Ident(..), Expr::Ident(..))) =>
+            {
+                let tc = infer(cond, scope, shapes)?;
+                if tc != Ty::Bool {
+                    return err(
+                        "type-condition",
+                        format!("a condition must be a bool, given `{tc}`"),
+                        cond.span(),
+                    );
+                }
+                Ok(())
+            }
+            _ => err(
                 "type-class-name",
-                "`class=` names a style declared with `style Name`",
+                "`class=` names a style declared with `style Name`, or chooses between two: `class=(cond ? A : B)`",
                 a.span,
-            );
-        }
-        return Ok(());
+            ),
+        };
     }
     if a.name == "surface" {
         // `surface=name(args)`: the name is the GPU module's,
@@ -977,7 +993,28 @@ fn check_attr(a: &Attr, scope: &Scope, shapes: &Shapes) -> Result<(), TypeError>
         }
         return Ok(());
     }
+    if shapes.style_attr.is_some_and(|style| style(&a.name)) {
+        return style_value(&a.value, scope, shapes).map(|_| ());
+    }
     infer(&a.value, scope, shapes).map(|_| ())
+}
+
+/// A style row is one CSS value space — a length or a keyword — so a style
+/// attribute's ternary or `match` may put a number in one arm and a string
+/// in the other; lowering checks each literal against the row and the
+/// runner converts each value. Arms that disagree otherwise are refused as
+/// any expression's are.
+fn style_value(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> {
+    if !matches!(e, Expr::Ternary(..) | Expr::Match { .. }) {
+        return infer(e, scope, shapes);
+    }
+    let (ta, tb) = arms(e, scope, shapes, style_value)?;
+    let dimension = |t: &Ty| matches!(t, Ty::Number | Ty::String);
+    match ta.unify(&tb) {
+        Some(t) => Ok(t),
+        None if dimension(&ta) && dimension(&tb) => Ok(Ty::Unknown),
+        None => Err(disagree(e, &ta, &tb)),
+    }
 }
 
 #[cfg(test)]

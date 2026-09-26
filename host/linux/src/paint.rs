@@ -29,6 +29,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::Arc;
 use tiny_skia::{Pixmap, Point, Transform};
+pub mod border;
 pub(crate) mod damage;
 mod region;
 pub(crate) use region::{ActionNode, ActionSlot, RegionActions, ScrollBounds};
@@ -74,7 +75,7 @@ impl Presented {
 pub type Rect4 = (f32, f32, f32, f32);
 
 /// A rectangle with per-corner radii (top-left, top-right, bottom-right,
-/// bottom-left), each clamped so neighbours never overlap.
+/// bottom-left), reduced by CSS's one factor so neighbours never overlap.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Shape {
     /// The box.
@@ -84,12 +85,13 @@ pub struct Shape {
 }
 
 impl Shape {
-    /// A box with radii, clamped.
+    /// A box with radii, reduced as CSS reduces them: every corner by the
+    /// one factor that fits the tightest edge.
     pub fn new(rect: Rect4, radii: [f32; 4]) -> Shape {
-        let limit = (rect.2 / 2.0).min(rect.3 / 2.0).max(0.0);
+        let circles = radii.map(|r| (r.max(0.0), r.max(0.0)));
         Shape {
             rect,
-            radii: radii.map(|r| r.max(0.0).min(limit)),
+            radii: border::reduced(circles, rect.2, rect.3).map(|(r, _)| r),
         }
     }
 
@@ -128,7 +130,6 @@ struct BoxPaint {
     colors: [[u8; 4]; 4],
     background: [u8; 4],
     padding: [f32; 4],
-    uniform: bool,
 }
 struct BoxGeometry {
     outer: Shape,
@@ -150,9 +151,6 @@ impl BoxPaint {
             .computed_style(StyleMask::of(StyleId::TextColor))
             .text_color;
         let colors = s.border_colors(current);
-        // Compare authored color values before resolving, as ordinary paint did.
-        let uniform =
-            widths.iter().all(|b| *b == widths[0]) && colors.iter().all(|c| *c == colors[0]);
         let env = kernel.env();
         let pad = |d: Dimension| match d.resolve(&env) {
             Dimension::Points(p) => p,
@@ -176,7 +174,6 @@ impl BoxPaint {
                 pad(s.padding_bottom),
                 pad(s.padding_left),
             ],
-            uniform,
         }
     }
     fn geometry(&self, rect: Rect4) -> BoxGeometry {
@@ -194,37 +191,21 @@ impl BoxPaint {
         }
     }
     fn paint(&self, backend: &mut dyn Backend, geometry: &BoxGeometry, ts: Transform) {
-        self.emit(geometry, |shape, color, stroke| match stroke {
-            Some(width) => backend.stroke(&shape, width, color, ts),
-            None => backend.fill(&shape, color, ts),
-        });
+        self.emit(geometry, |shape, color| backend.fill(&shape, color, ts));
+        for part in self.borders(geometry) {
+            backend.fill_border(&part, ts);
+        }
     }
-    fn emit(&self, geometry: &BoxGeometry, mut emit: impl FnMut(Shape, [u8; 4], Option<f32>)) {
+    /// The background: the border box with its radii.
+    fn emit(&self, geometry: &BoxGeometry, mut emit: impl FnMut(Shape, [u8; 4])) {
         let outer = geometry.outer;
-        let (x, y, w, h) = outer.rect;
-        if self.background[3] > 0 && w > 0.0 && h > 0.0 {
-            emit(outer, self.background, None);
+        if self.background[3] > 0 && outer.rect.2 > 0.0 && outer.rect.3 > 0.0 {
+            emit(outer, self.background);
         }
-        let widths = self.widths;
-        let colors = self.colors;
-        if widths.iter().any(|b| *b > 0.0) {
-            if self.uniform && outer.rounded() && colors[0][3] > 0 {
-                let bw = widths[0];
-                emit(outer.inset(bw / 2.0), colors[0], Some(bw));
-            } else {
-                let sides = [
-                    (x, y, w, widths[0]),
-                    (x + w - widths[1], y, widths[1], h),
-                    (x, y + h - widths[2], w, widths[2]),
-                    (x, y, widths[3], h),
-                ];
-                for (i, side) in sides.iter().enumerate() {
-                    if widths[i] > 0.0 && colors[i][3] > 0 && side.2 > 0.0 && side.3 > 0.0 {
-                        emit(Shape::rect(*side), colors[i], None);
-                    }
-                }
-            }
-        }
+    }
+    /// The border, one fill per colour, joined as the web joins sides.
+    fn borders(&self, geometry: &BoxGeometry) -> Vec<border::BorderFill> {
+        border::border_fills(geometry.outer.rect, self.radii, self.widths, self.colors)
     }
 }
 type ProjectiveHit = ([f32; 9], Rect4, Option<Rect4>, [[f32; 3]; 2]);
@@ -343,8 +324,9 @@ pub trait Backend {
     }
     /// Fill a shape.
     fn fill(&mut self, shape: &Shape, color: [u8; 4], ts: Transform);
-    /// Stroke a shape's outline, centred on it.
-    fn stroke(&mut self, shape: &Shape, width: f32, color: [u8; 4], ts: Transform);
+    /// Fill one colour's share of a border (LLP 1053 G2): its region
+    /// even-odd, inside its clip (non-zero) when it has one.
+    fn fill_border(&mut self, part: &border::BorderFill, ts: Transform);
     /// Draw a picture scaled into `dst`, clipped to every shape in `clips`.
     fn image(&mut self, image: &Arc<Bitmap>, dst: Rect4, clips: &[Shape], ts: Transform);
     /// Composite an internally rendered canvas child, distinct from decoded image assets.
@@ -390,7 +372,7 @@ impl Backend for Unpainted {
     }
     fn begin(&mut self, _: f32, _: f32, _: f32) {}
     fn fill(&mut self, _: &Shape, _: [u8; 4], _: Transform) {}
-    fn stroke(&mut self, _: &Shape, _: f32, _: [u8; 4], _: Transform) {}
+    fn fill_border(&mut self, _: &border::BorderFill, _: Transform) {}
     fn image(&mut self, _: &Arc<Bitmap>, _: Rect4, _: &[Shape], _: Transform) {}
     fn text(
         &mut self,
@@ -1072,7 +1054,7 @@ pub fn text_spec(s: &StyleProps, text: &str) -> Spec {
             text,
             exact_kernel::TextStyle::from_style(s),
         )],
-        align: s.text_align,
+        align: s.text_align.physical(s.direction),
         line_clamp: s.line_clamp,
         overflow_wrap: s.overflow_wrap,
         white_space: s.white_space,

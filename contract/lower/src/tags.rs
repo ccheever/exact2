@@ -194,6 +194,11 @@ pub fn prop_ty(prop: PropId) -> PropTy {
     }
 }
 
+/// Whether an attribute sets style rows.
+pub fn style(name: &str) -> bool {
+    matches!(attr(name), Some(AttrTarget::Styles(_)))
+}
+
 /// Look up an attribute.
 pub fn attr(name: &str) -> Option<AttrTarget> {
     let styles = |rows: &'static [StyleId]| AttrTarget::Styles(rows);
@@ -364,6 +369,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // @ref LLP 1039 D6 — vertical tablists retain authored layout.
         "aria-orientation" => AttrTarget::Prop(p("accessibilityOrientation")),
         "aria-selected" => AttrTarget::Prop(p("accessibilitySelected")),
+        "aria-expanded" => AttrTarget::Prop(p("accessibilityExpanded")),
+        "aria-hidden" => AttrTarget::Prop(p("accessibilityElementsHidden")),
         // style rows, by their CSS property names
         "white-space" => styles(&[StyleId::WhiteSpace]),
         "overflow-wrap" => styles(&[StyleId::OverflowWrap]),
@@ -451,6 +458,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
             StyleId::BorderColorBottom,
             StyleId::BorderColorLeft,
         ]),
+        "border-top-color" => styles(&[StyleId::BorderColorTop]),
+        "border-right-color" => styles(&[StyleId::BorderColorRight]),
+        "border-bottom-color" => styles(&[StyleId::BorderColorBottom]),
+        "border-left-color" => styles(&[StyleId::BorderColorLeft]),
         "width" => styles(&[StyleId::Width]),
         "height" => styles(&[StyleId::Height]),
         "min-width" => styles(&[StyleId::MinWidth]),
@@ -458,10 +469,16 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "max-width" => styles(&[StyleId::MaxWidth]),
         "max-height" => styles(&[StyleId::MaxHeight]),
         "flex" => AttrTarget::Flex,
+        // @ref LLP 1053 G3 — the longhand: `flex-basis` stays `auto`, unlike `flex`.
+        "flex-grow" => styles(&[StyleId::FlexGrow]),
         "flex-shrink" => styles(&[StyleId::FlexShrink]),
         "flex-basis" => styles(&[StyleId::FlexBasis]),
         "flex-wrap" => styles(&[StyleId::FlexWrap]),
         "flex-direction" => styles(&[StyleId::FlexDirection]),
+        // @ref LLP 1053 — CSS `direction` (inherited), not a flex direction.
+        "direction" => styles(&[StyleId::Direction]),
+        // @ref LLP 1053 G1 — `auto || <ratio>`.
+        "aspect-ratio" => styles(&[StyleId::AspectRatio]),
         "display" => styles(&[StyleId::Display]),
         "align-items" => styles(&[StyleId::AlignItems]),
         "align-self" => styles(&[StyleId::AlignSelf]),
@@ -522,6 +539,10 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "borderBottomWidth" => "border-bottom-width",
         "borderLeftWidth" => "border-left-width",
         "borderColor" => "border-color",
+        "borderTopColor" => "border-top-color",
+        "borderRightColor" => "border-right-color",
+        "borderBottomColor" => "border-bottom-color",
+        "borderLeftColor" => "border-left-color",
         "minWidth" => "min-width",
         "minHeight" => "min-height",
         "maxWidth" => "max-width",
@@ -529,7 +550,9 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "flexShrink" => "flex-shrink",
         "flexBasis" => "flex-basis",
         "wrap" | "flexWrap" => "flex-wrap",
-        "direction" | "flexDirection" => "flex-direction",
+        "flexDirection" => "flex-direction",
+        "flexGrow" => "flex-grow",
+        "aspectRatio" => "aspect-ratio",
         "align" | "alignItems" => "align-items",
         "alignSelf" => "align-self",
         "boxSizing" => "box-sizing",

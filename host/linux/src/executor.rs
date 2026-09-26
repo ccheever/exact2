@@ -29,9 +29,19 @@ impl Executor {
         };
         #[cfg(target_vendor = "apple")]
         let (host, note) = (ibex2::host::Host::new(), None);
-        let bindings = ibex2::grant::GrantSet::parse(&exact_runner::io_grants(grants))
-            .ok()
-            .map(|g| host.endow(g));
+        // Grants that do not parse hold nothing: the journal says so once,
+        // and every request's refusal names the line (the core's).
+        let (bindings, note) = match ibex2::grant::GrantSet::parse(&exact_runner::io_grants(grants))
+        {
+            Ok(g) => (Some(host.endow(g)), note),
+            Err(e) => {
+                let why = format!("the app's grants did not parse: {e}; every request is refused");
+                (
+                    None,
+                    Some(note.map_or(why.clone(), |n| format!("{n}; {why}"))),
+                )
+            }
+        };
         let core = core::Core::start(
             bindings,
             grants,
@@ -43,7 +53,8 @@ impl Executor {
         );
         Self { core, wake, note }
     }
-    /// Transport trust-store note for the journal.
+    /// A note for the journal: the transport's trust roots, and grants
+    /// that do not parse.
     pub fn note(&self) -> Option<&str> {
         self.note.as_deref()
     }
@@ -58,6 +69,10 @@ impl Executor {
     /// Called only after the runner has no retained ordered admission refusals.
     pub fn resume_ordered(&self) {
         self.core.resume_ordered();
+    }
+    /// Let go of the work for tickets the runner no longer holds.
+    pub fn forget(&self, held: impl Fn(u64) -> bool) {
+        self.core.forget(held);
     }
     /// Admit work, or return a refusal without an overflow queue.
     pub fn run(&self, request: RequestOut, work: Option<Work>) -> Result<(), &'static str> {

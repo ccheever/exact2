@@ -78,7 +78,7 @@ final class RasterLoaderTests: XCTestCase {
         try png(root, "b.png", width: 64, height: 64, identity: 2)
         try png(root, "c.png", width: 120, height: 80, identity: 3)
         var intrinsic = CGSize.zero
-        presenter.onIntrinsic = { _, size in intrinsic = size ?? .zero }
+        presenter.onIntrinsic = { sizes in intrinsic = sizes.last?.1 ?? .zero }
         node.loadGeneration = 1
         loader.load(node, source: "a.png", resolver: resolver)
         settle { node.raster != nil }
@@ -179,8 +179,8 @@ final class RasterLoaderTests: XCTestCase {
         defer { loader.shutdown(); node.raster = nil; window.close(); try? FileManager.default.removeItem(at: root) }
         try png(root, "bootstrap.png", width: 1200, height: 600, identity: 50)
         node.frame = .zero; node.loadGeneration += 1
-        presenter.onIntrinsic = { _, size in
-            node.frame = CGRect(origin: .zero, size: size ?? .zero); loader.resized(node)
+        presenter.onIntrinsic = { sizes in
+            node.frame = CGRect(origin: .zero, size: sizes.last?.1 ?? .zero); loader.resized(node)
         }
         loader.load(node, source: "bootstrap.png", resolver: resolver)
         settle { node.raster?.image.image.width == 1200 }

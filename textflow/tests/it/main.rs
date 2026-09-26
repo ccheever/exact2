@@ -3,6 +3,7 @@
 //! allocator that other tests would contaminate.
 
 mod bands;
+mod corpus;
 mod flow;
 mod shapes;
 mod support;

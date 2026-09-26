@@ -189,7 +189,7 @@ fn asset_cards(app: &Path, out: &Path, manifest: &Manifest) -> Result<Vec<Value>
         for (const [name,bytes] of shaderFiles(app)) cards.push({name:`shaders/${name}`,sha256:createHash('sha256').update(bytes).digest('hex'),bytes:bytes.length});
         process.stdout.write(JSON.stringify({cards:cards.sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0),roots:[...shaderRoots(app),...shaderPreludeFiles(app)]}));
     "#;
-    let output = std::process::Command::new("bun")
+    let output = crate::bun()
         .args(["--input-type=module", "-e", code])
         .arg(gate)
         .arg(app)
@@ -862,7 +862,7 @@ mod tests {
         }
         // A fresh process-local test key: no publisher's private key is stored.
         let canonical = exact_update::canonical_bytes(&receipt["envelope"].to_string()).unwrap();
-        let output = std::process::Command::new("bun").args(["-e", r#"
+        let output = crate::bun().args(["-e", r#"
             const {generateKeyPairSync,sign}=require('node:crypto');
             const {publicKey,privateKey}=generateKeyPairSync('ed25519');
             process.stdout.write(JSON.stringify({public:publicKey.export({type:'spki',format:'der'}).subarray(-32).toString('base64'),

@@ -135,6 +135,26 @@ try {
     assert.equal(result.pendingCallbacks,0,'no pending callbacks after the final edge');
     writeFileSync(dir+'/result.json',JSON.stringify(result,null,2));
     console.log(JSON.stringify({passed:true,case:process.env.EXACT_COLLECTION_EDGES,...result}));
+  } else if (process.env.EXACT_COLLECTION_JUMP) {
+    // LLP 1050.000 §6: an authored jump builds its target rows, then moves the
+    // port, inside the press's task: no frame can show the offset uncovered.
+    await until('collectionSmoke.snapshots[0]?.rows.length > 0 && collectionSmoke.snapshots[0].rows.every(r=>r.measured)');
+    await evaluate('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
+    const result = await evaluate(`(() => {
+      const list=document.querySelector('[data-testid="list"]'), calls=collectionSmoke.calls;
+      document.querySelector('[data-testid="go"]').click();
+      const port=list.getBoundingClientRect(), top=port.top+list.clientTop, bottom=top+list.clientHeight;
+      const rows=collectionSmoke.snapshots[0].rows.map(r=>document.querySelector('[data-view="'+r.view+'"]').getBoundingClientRect())
+        .filter(r=>r.bottom>top&&r.top<bottom).sort((a,b)=>a.top-b.top);
+      let reached=top, gap=0; for(const r of rows){ gap=Math.max(gap,r.top-reached); reached=Math.max(reached,r.bottom); }
+      gap=Math.max(gap,bottom-reached);
+      return {scrollTop:list.scrollTop,shown:rows.length,gap,reports:collectionSmoke.calls-calls};
+    })()`);
+    assert(result.scrollTop > 10000, JSON.stringify(result));
+    assert(result.reports >= 1, 'the jump reported before its task ended: ' + JSON.stringify(result));
+    assert(result.shown > 0 && result.gap <= 1, 'the port was covered when the task ended: ' + JSON.stringify(result));
+    assert.deepEqual(errors, []);
+    console.log(JSON.stringify({ passed: true, case: 'jump', ...result }));
   } else if (gallery) {
     await evaluate(`document.querySelector('[data-testid="count-25000"]').click(); document.querySelector('[data-testid="mode-sheet"]').click()`);
     await until('collectionSmoke.snapshots.some(s=>s.count===25000)');

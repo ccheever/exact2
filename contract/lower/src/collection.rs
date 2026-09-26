@@ -51,20 +51,10 @@ impl Lowerer<'_> {
                 span,
             );
         }
+        // An unknown class is the node's own refusal; here it has no rows.
         let mut expanded = attrs.clone();
-        if let Some(Attr {
-            value: Expr::Ident(name, _),
-            ..
-        }) = attrs.iter().find(|a| a.name == "class")
-        {
-            if let Some(style) = self.styles.get(name) {
-                expanded.extend(
-                    style
-                        .iter()
-                        .filter(|s| !attrs.iter().any(|a| a.name == s.name))
-                        .cloned(),
-                );
-            }
+        if let Some((_, rows)) = self.class_rows(attrs).ok().flatten() {
+            expanded.extend(rows);
         }
         self.collection_flow(&expanded, false)
     }
@@ -78,13 +68,8 @@ impl Lowerer<'_> {
                 Node::Element {
                     attrs, children, ..
                 } => {
-                    let style = attrs.iter().find_map(|a| match (&*a.name, &a.value) {
-                        ("class", Expr::Ident(name, _)) => self.styles.get(name),
-                        _ => None,
-                    });
-                    let opt = attrs.iter().find(|a| a.name == "virtualized").or_else(|| {
-                        style.and_then(|attrs| attrs.iter().find(|a| a.name == "virtualized"))
-                    });
+                    // `virtualized` is a prop, which no `style` may hold.
+                    let opt = attrs.iter().find(|a| a.name == "virtualized");
                     if let Some(opt) = opt.filter(|a| matches!(a.value, Expr::Bool(true, _))) {
                         return err("lower-collection-nested", "a virtualized list cannot occur inside another virtualized list's row template until bounded ancestor-row lifetime is supported; use an ordinary container or an eager outer list", opt.span);
                     }

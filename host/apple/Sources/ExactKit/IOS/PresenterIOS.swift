@@ -21,8 +21,9 @@ final class Presenter {
     let viewport = ScrollView(frame: .zero)
     var views: [UInt32: NodeView] = [:]
     private(set) var chrome = ChromeIndex()
-    func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props) }
+    func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props); view.updateReorderGesture() }
     func carrying(_ key: String) -> [NodeView] { chrome.ids(key).sorted().compactMap { views[$0] } }
+    func takeChangedNames() -> Set<String> { chrome.takeChangedNames() }
     var scrollers: Set<UInt32> = []
     var pendingScrolls: Set<UInt32> = []
     var materialNodes: Set<UInt32> = []
@@ -30,9 +31,13 @@ final class Presenter {
     var inlineOwners: [UInt32: (owner: UInt32, index: Int)] = [:]
     var heightBindings: [UInt32: HeightDragBinding] = [:]
     var transformBindings: [UInt32: TransformDragBinding] = [:]
+    /// The one Arrange contact, until its source settles; a test's calls.
+    var reorder: ReorderHold?
+    var reorderCalls: ReorderCalls?
     lazy var transformGeometry = TransformGeometryHost(self)
     var videoVisibility: VideoVisibilityHost?
     lazy var collections = CollectionHost(self)
+    lazy var pool = NodePool(self)
     /// The native menu arm (LLP 1021 D3).
     lazy var swipeActions = SwipeActionsHost(self)
     lazy var menus = MenuHost(presenter: self)
@@ -93,6 +98,11 @@ final class Presenter {
     init() {
         viewport.addSubview(root)
         viewport.delegate = scrollPump
+        collections.motion = { [unowned self] id in
+            let velocity = scrollPump.velocity(id)
+            return velocity == 0 ? nil : velocity
+        }
+        collections.requestFill = { [unowned self] in scrollPump.requestFill() }
         viewport.contentInsetAdjustmentBehavior = .never
         viewport.backgroundColor = .white
         if ExactEnv.agentMode {
@@ -216,7 +226,9 @@ final class Presenter {
         guard let node, node.window != nil else { return }
         var v: UIView? = node.superview
         while let cur = v {
-            if let sv = cur as? ScrollView {
+            var target = cur as? ScrollView
+            if let waiting = cur as? NodeView, waiting.scrollDormant { waiting.needScroll(); target = waiting.scroll }
+            if let sv = target {
                 // The node's box in the container's content space, with a
                 // little air; the visible part of that space.
                 let r = node.convert(node.bounds, to: sv).insetBy(dx: 0, dy: -8)
@@ -249,12 +261,14 @@ final class Presenter {
     /// A restart: every view goes.
     func reset() {
         session?.transformInputHold?.cancel()
+        reorder?.abandon()
         session?.rasters.reset()
         collections.reset()
         autofocusProcessed.removeAll()
         segments.reset()
         menus.reset()
         swipeActions.reset()
+        pool.reset()
         modals.reset()
         navigation.reset()
         session?.canvases.reset()
@@ -286,7 +300,8 @@ final class Presenter {
     }
     var onPress: ((UInt32) -> Void)?
     var onChange: ((UInt32, String) -> Void)?
-    var onIntrinsic: ((UInt32, CGSize?) -> Void)?
+    /// Images' intrinsic sizes, several at once under one layout.
+    var onIntrinsic: (([(UInt32, CGSize?)]) -> Void)?
     /// A capability an action called (LLP 1005 §3), after its commit.
     var onCommand: ((String, [Any]) -> Void)?
 
@@ -300,6 +315,7 @@ final class Presenter {
     }
 
     func cancelPendingFocus() { pendingFocus = nil }
+    var pendingFocusNode: NodeView? { pendingFocus?.node }
 
     func flushPendingFocus() {
         guard let pending = pendingFocus, !applying, !navigation.defersFocus, !modals.defersFocus else { return }
@@ -401,6 +417,20 @@ final class Presenter {
         }
     }
 
+    /// The action's blur(): drop focus and the keyboard, and any focus still
+    /// waiting to be delivered; blur(html-id) only when that node holds it.
+    func blurElement(_ args: [Any]) {
+        pendingFocus = nil
+        if let name = args.first as? String {
+            guard let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }) else { return }
+            let responder: UIView = target.textArea ?? target.field ?? target
+            if responder.isFirstResponder { _ = responder.resignFirstResponder() }
+            return
+        }
+        // `endEditing` resigns text editors only; a focused control resigns itself.
+        if !viewport.endEditing(true), let held = views.values.first(where: { $0.isFirstResponder }) { _ = held.resignFirstResponder() }
+    }
+
     /// The events beyond press and change (LLP 1005 §3).
     var onHover: ((UInt32, Bool) -> Void)?
     var onFocus: ((UInt32) -> Void)?
@@ -417,6 +447,8 @@ final class Presenter {
     var textViews: [UInt32: NodeView] = [:]
     lazy var scrollPump = ScrollPump(self)
     let textRasters = TextRasterizer()
+    /// Clip geometry memoized for one text refresh (`TextClips`), else nil.
+    var textClips: TextClips?
     func listVelocity(_ id: UInt32) -> Double { scrollPump.velocity(id) }
     func settlePump() {
         scrollPump.settle()
@@ -473,12 +505,36 @@ final class Presenter {
             onMessage?(id, value)
         }
     }
-    func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?(id, size) }
+    func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?([(id, size)]) }
+    /// A symbol's size, known as its view is created but not reportable
+    /// while the batch that created it applies. Every symbol a turn creates
+    /// goes to the runner together, after that turn: one layout for a row's
+    /// symbols, not one each.
+    private struct QueuedSymbol { weak var view: NodeView?; let generation: Int; let size: CGSize? }
+    private var symbolSizes: [QueuedSymbol] = []
+    func queueSymbolSize(_ view: NodeView, generation: Int, _ size: CGSize?) {
+        if symbolSizes.isEmpty {
+            DispatchQueue.main.async { [weak self] in self?.flushSymbolSizes() }
+        }
+        symbolSizes.append(QueuedSymbol(view: view, generation: generation, size: size))
+    }
+    private func flushSymbolSizes() {
+        let queued = symbolSizes
+        symbolSizes = []
+        var latest: [UInt32: CGSize?] = [:], order: [UInt32] = []
+        for entry in queued {
+            guard let view = entry.view, view.loadGeneration == entry.generation,
+                  views[view.id] === view else { continue }
+            if latest.updateValue(entry.size, forKey: view.id) == nil { order.append(view.id) }
+        }
+        if !order.isEmpty { onIntrinsic?(order.map { ($0, latest[$0]!) }) }
+    }
 
     func apply(_ batch: Batch) {
         let post = Self.signposts.beginInterval("apply")
         defer { Self.signposts.endInterval("apply", post) }
         collections.beginBatch(batch)
+        pool.begin(batch)
         swipeActions.prepare()
         prepareContexts(batch)
         modals.prepare(batch)
@@ -489,6 +545,7 @@ final class Presenter {
         applying = true
         defer {
             collections.endBatch()
+            pool.end()
             if outermost {
                 applying = false
                 videoVisibility?.changed()
@@ -500,8 +557,13 @@ final class Presenter {
             }
         }
         var beganGeometry = false
+        var touchedIDs: [UInt32] = []
         for op in batch.ops {
             let kind = op.op
+            switch kind {
+            case .create, .props, .style, .children, .paragraph, .flow, .frame: touchedIDs.append(op.id)
+            default: break
+            }
             if !beganGeometry && (kind == .frame || kind == .content) {
                 beganGeometry = true
                 // Mount the native owner under the root's available box before
@@ -542,10 +604,14 @@ final class Presenter {
                     views[binding.id]?.updateHeightDragGesture()
                 }
             case .create:
-                let v = NodeView(id: id, kind: op.kind, presenter: self)
+                let reused = pool.take(id)
+                let v = reused ?? NodeView(id: id, kind: op.kind, presenter: self)
                 v.handlers = op.handlers
+                // Before the style makes it a scroll container: a swipe row's waits.
+                v.swipeOwner = op.props["swipeContent"] != nil
                 v.applyStyle(op.style)
                 v.applyProps(set: op.props, clear: [])
+                if reused != nil { v.finishReuse() }
                 views[id] = v
                 if v.kind == "list" { listViews[id] = v }
                 if v.isParagraph { textViews[id] = v }
@@ -561,37 +627,36 @@ final class Presenter {
                 guard let parent = views[id] else { continue }
                 let want = op.ids.compactMap { views[UInt32($0)] }
                 let container = parent.container
-                for case let child as NodeView in container.subviews where !(want as [UIView]).contains(child) {
+                let wanted = Set(want.map(ObjectIdentifier.init))
+                var current = container.subviews
+                for case let child as NodeView in current where !wanted.contains(ObjectIdentifier(child)) && !pool.isParked(child) {
                     if !modals.retainsRemovedView(child) { child.removeFromSuperview() }
                 }
                 // In order, below anything else in the container (a scroll
                 // view's indicators): inserting a subview at an index moves
-                // it when it is already there.
+                // it when it is already there. One already there stays.
                 let contained = want.filter { !navigation.ownsContainment(of: $0, under: parent) }
-                for (i, child) in contained.enumerated() { container.insertSubview(child, at: i) }
+                current = container.subviews
+                for (i, child) in contained.enumerated() where !(i < current.count && current[i] === child) {
+                    container.insertSubview(child, at: i)
+                    current = container.subviews
+                }
             case .surface:
                 if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] ?? []) }
             case .command:
                 onCommand?(op.payload["name"] as? String ?? "", op.payload["args"] as? [Any] ?? [])
             case .destroy:
-                session?.canvases.destroy(view: id)
-                views[id]?.forget()
+                // A collection's retired row parks for the next of its shape.
+                if let view = views[id], pool.retire(view) { continue }
                 // Out of the map before out of the window: the editing-ended
                 // notification removal fires finds no view to send for.
-                listViews.removeValue(forKey: id)
-                textViews.removeValue(forKey: id)
-                scrollPump.forget(id)
-                heightBindings.removeValue(forKey: id)
-                transformBindings.removeValue(forKey: id)
-                transformGeometry.retire(id)
-                chrome.forget(id)
-                scrollers.remove(id); pendingScrolls.remove(id); materialNodes.remove(id); contextNodes.remove(id)
-                let gone = views.removeValue(forKey: id)
+                let gone = release(id) { $0.forget() }
                 if let gone, !modals.retainsRemovedView(gone) { gone.removeFromSuperview() }
             case .roots:
                 root.subviews.forEach { $0.removeFromSuperview() }
                 for r in op.ids.compactMap({ views[UInt32($0)] }) { root.addSubview(r) }
             case .frame, .content:
+                if kind == .frame { pool.framed(id) }
                 if let node = views[id], !modals.deferGeometry(op, for: node) { applyGeometry(op) }
             case .present:
                 guard let v = views[id] else { continue }
@@ -630,9 +695,42 @@ final class Presenter {
         navigation.sync(batch)
         segments.sync()
         menus.sync()
-        swipeActions.sync()
+        let changed = touchedAndAbove(touchedIDs)
+        swipeActions.sync(changed: changed)
         positionContexts()
-        syncAccessibility()
+        syncAccessibility(changed: changed)
+    }
+
+    /// Everything kept for `id` goes, the view out of the map (not out of
+    /// the window): `leaving` forgets it (a destroy) or recycles it (a
+    /// parked row, `NodePool`).
+    @discardableResult
+    func release(_ id: UInt32, _ leaving: (NodeView) -> Void) -> NodeView? {
+        session?.canvases.destroy(view: id)
+        if let view = views[id] { autofocusProcessed.remove(ObjectIdentifier(view)); leaving(view) }
+        listViews.removeValue(forKey: id)
+        textViews.removeValue(forKey: id)
+        scrollPump.forget(id)
+        heightBindings.removeValue(forKey: id)
+        transformBindings.removeValue(forKey: id)
+        transformGeometry.retire(id)
+        chrome.forget(id)
+        scrollers.remove(id); pendingScrolls.remove(id); materialNodes.remove(id); contextNodes.remove(id)
+        return views.removeValue(forKey: id)
+    }
+
+    /// The views a batch touched and every view above them, as the batch
+    /// left the hierarchy: what a pass reading a subtree must revisit.
+    private func touchedAndAbove(_ ids: [UInt32]) -> Set<UInt32> {
+        var seen = Set<UInt32>()
+        for id in ids {
+            var view: UIView? = views[id]
+            while let current = view {
+                if let node = current as? NodeView, !seen.insert(node.id).inserted { break }
+                view = current.superview
+            }
+        }
+        return seen
     }
 
     /// Geometry can be deferred for the source route while a modal owns the

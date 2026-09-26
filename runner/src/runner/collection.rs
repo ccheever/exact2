@@ -1,7 +1,7 @@
 //! Portable viewport feedback and runner-owned geometric edge events.
 use super::*;
 use crate::compare::{equivalent, equivalent_all};
-use crate::instance::collection::{CollectionFeedback, CollectionSnapshot};
+use crate::instance::collection::{CollectionFeedback, CollectionFill, CollectionSnapshot};
 
 impl<D: DataSource> Runner<D> {
     /// Mounted collection metadata for a host's post-commit layout/measurement.
@@ -33,12 +33,19 @@ impl<D: DataSource> Runner<D> {
     }
     /// Decode the common numeric LE protocol before touching state.
     pub fn collection_feedback_bytes(&mut self, bytes: &[u8]) -> Result<Advanced, RunnerError> {
-        let feedback = CollectionFeedback::decode(bytes).map_err(|_| {
+        let (feedback, fill) = CollectionFeedback::decode_with_fill(bytes).map_err(|_| {
             RunnerError::Instance(InstanceError::Collection(
                 "malformed collection feedback".into(),
             ))
         })?;
-        self.collection_feedback(feedback)
+        self.collection_feedback_filled(feedback, fill)
+    }
+    /// [`Runner::collection_feedback_filled`] with no limit and no motion.
+    pub fn collection_feedback(
+        &mut self,
+        feedback: CollectionFeedback,
+    ) -> Result<Advanced, RunnerError> {
+        self.collection_feedback_filled(feedback, CollectionFill::default())
     }
     /// Update the addressed window and release transferred focus/interaction pins
     /// in other collections in the same commit, then dispatch each edge at most
@@ -46,24 +53,25 @@ impl<D: DataSource> Runner<D> {
     /// Pre-commit errors return Err; an edge refusal accompanies the
     /// committed receipts in Advanced.error. Hosts must consume both. No timers
     /// advance. Without an edge handler, no resources or keys are evaluated.
-    pub fn collection_feedback(
+    pub fn collection_feedback_filled(
         &mut self,
         feedback: CollectionFeedback,
+        fill: CollectionFill,
     ) -> Result<Advanced, RunnerError> {
         if self.poisoned {
             return Err(RunnerError::Poisoned);
         }
-        feedback.validate().map_err(|_| {
-            RunnerError::Instance(InstanceError::Collection(
+        if feedback.validate().is_err() || !fill.velocity.is_finite() {
+            return Err(RunnerError::Instance(InstanceError::Collection(
                 "invalid collection feedback".into(),
-            ))
-        })?;
+            )));
+        }
         let view = feedback.view;
         let mut tree = self.tree.take().expect("booted");
         let mut ids = std::mem::take(&mut self.ids);
         let result = {
             let mut update = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
-            tree.update_collection(&mut update, feedback)
+            tree.update_collection(&mut update, feedback, fill)
                 .map(|changed| (changed, update.ops, update.surfaces, update.notes))
         };
         self.tree = Some(tree);
