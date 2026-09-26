@@ -25,5 +25,27 @@ final class TextWebKitMacTests: XCTestCase {
     }
 
     func testIntrinsicWidthsAreWebKitsAdvances() { assertWebKitWidths() }
+
+    /// Min-content is the widest word, each rounded up to the layout unit.
+    func testIntrinsicWordScalarsKeepFontMetricsAndExactUnicodeSource() {
+        let engine = TextEngine(resolve: { _ in nil })
+        var small = Run(text: "Café", size: 13.25, weight: 400, family: 0, italic: false, lineHeight: 18.125, letterSpacing: 0)
+        small.text = String(repeating: "Café Cafe\u{301} 🦀 ", count: 80)
+        var large = small; large.size = 31.25; large.family = 5
+        let input = Spec(runs: [small, large], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        var expected: CGFloat = 0
+        for run in [small, large] {
+            for word in ["Café", "Cafe\u{301}", "🦀"] {
+                var one = input; var r = run; r.text = word; one.runs = [r]
+                let line = CTLineCreateWithAttributedString(engine.attributed(one))
+                expected = max(expected, ceil(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) * 64) / 64)
+            }
+        }
+        XCTAssertEqual(engine.minContentWidth(input), expected)
+        XCTAssertEqual(engine.minContentWidth(input), expected)
+        XCTAssertEqual(engine.residencyStats.liveParagraphs, 0)
+        XCTAssertEqual(engine.residencyStats.liveShapes, 0)
+        XCTAssertEqual(engine.residencyStats.scalarEntries, 1)
+    }
 }
 #endif

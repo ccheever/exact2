@@ -594,7 +594,9 @@ final class TextEngine {
         for r in spec.runs {
             var a: [NSAttributedString.Key: Any] = [.font: font(r), .foregroundColor: r.color.map(TextEngine.color) ?? color]
             if r.letterSpacing != 0 { a[.kern] = r.letterSpacing }
-            if r.decoration.contains("underline") || (r.decoration.isEmpty && !r.href.isEmpty) { a[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+            if r.decoration.contains("underline") || (r.decoration.isEmpty && !r.href.isEmpty) {
+                a[.exactUnderline] = InlineUnderline(font: a[.font] as! PlatformFont as CTFont, color: (a[.foregroundColor] as! PlatformColor).cgColor)
+            }
             if r.decoration.contains("line-through") { a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             if let fill = r.background.map(TextEngine.color), fill.cgColor.alpha > 0 {
                 let f = a[.font] as! PlatformFont
@@ -1079,8 +1081,31 @@ final class InlineBackground: NSObject {
     override var hash: Int { color.hashValue ^ ascent.hashValue ^ descent.hashValue }
 }
 
+/// `text-decoration-line: underline` as WebKit paints it (the parity
+/// oracle), not CoreText's: the line's top edge sits `max(1, ceil(size / 32))`
+/// below the baseline, and it is `size / 16` thick (`text-decoration-thickness:
+/// auto`), rounded up to whole device pixels. Measured in Safari on the iOS 27
+/// simulator at 12–34 px; the font's own underline position is not used.
+final class InlineUnderline: NSObject {
+    let color: CGColor
+    let offset: CGFloat
+    let thickness: CGFloat
+    init(font: CTFont, color: CGColor) {
+        let size = CTFontGetSize(font)
+        self.color = color
+        offset = max(1, ceil(size / 32))
+        thickness = size / 16
+    }
+    override func isEqual(_ object: Any?) -> Bool {
+        guard let other = object as? InlineUnderline else { return false }
+        return color == other.color && offset == other.offset && thickness == other.thickness
+    }
+    override var hash: Int { color.hashValue ^ offset.hashValue ^ thickness.hashValue }
+}
+
 extension NSAttributedString.Key {
     static let exactBackground = NSAttributedString.Key("ExactInlineBackground")
+    static let exactUnderline = NSAttributedString.Key("ExactInlineUnderline")
 }
 
 /// One line's paint into a y-down context, shared by every Apple painter.
@@ -1092,6 +1117,9 @@ enum TextLinePaint {
     static func draw(_ line: CTLine, at origin: CGPoint, in ctx: CGContext) {
         ctx.saveGState()
         for (rect, color) in backgrounds(line, at: origin) {
+            ctx.setFillColor(color); ctx.fill(rect)
+        }
+        for (rect, color) in underlines(line, at: origin, in: ctx) {
             ctx.setFillColor(color); ctx.fill(rect)
         }
         // The text matrix is not graphics state; put the caller's back.
@@ -1109,7 +1137,33 @@ enum TextLinePaint {
     /// its glyphs' advance across and its font's content area down. Glyph
     /// runs that fallback or bidi split are joined again where they touch.
     static func backgrounds(_ line: CTLine, at origin: CGPoint) -> [(CGRect, CGColor)] {
-        var spans: [(CGFloat, CGFloat, InlineBackground)] = []
+        spans(line, key: .exactBackground).map { (lo, hi, fill: InlineBackground) in
+            (CGRect(x: origin.x + lo, y: origin.y - fill.ascent, width: hi - lo, height: fill.ascent + fill.descent), fill.color)
+        }
+    }
+
+    /// Underlines under each decorated fragment, in `ctx`'s user space and
+    /// snapped to its device pixels as the browser snaps them: the top edge
+    /// to the nearest, the thickness up to whole pixels.
+    static func underlines(_ line: CTLine, at origin: CGPoint, in ctx: CGContext?) -> [(CGRect, CGColor)] {
+        spans(line, key: .exactUnderline).map { (lo, hi, mark: InlineUnderline) in
+            let rect = CGRect(x: origin.x + lo, y: origin.y + mark.offset, width: hi - lo, height: mark.thickness)
+            guard let ctx else { return (rect, mark.color) }
+            // Device space may run either way up: snap the edge nearest the
+            // baseline and grow away from it by whole pixels.
+            let scale = ctx.userSpaceToDeviceSpaceTransform.d
+            let top = ctx.convertToDeviceSpace(CGPoint(x: rect.minX, y: rect.minY))
+            let edge = top.y.rounded()
+            let far = edge + (scale < 0 ? -1 : 1) * max(1, ceil(abs(mark.thickness * scale) - 0.01))
+            let a = ctx.convertToUserSpace(CGPoint(x: top.x, y: edge)).y, b = ctx.convertToUserSpace(CGPoint(x: top.x, y: far)).y
+            return (CGRect(x: rect.minX, y: min(a, b), width: rect.width, height: abs(b - a)), mark.color)
+        }
+    }
+
+    /// The horizontal extents of the glyph runs carrying `key`, joined where
+    /// equal values touch.
+    static func spans<Value: NSObject>(_ line: CTLine, key: NSAttributedString.Key) -> [(CGFloat, CGFloat, Value)] {
+        var spans: [(CGFloat, CGFloat, Value)] = []
         let runs = CTLineGetGlyphRuns(line) as! [CTRun]
         // CSS removes the collapsible spaces that end a line: a wrapped run's
         // background stops at its last glyph, as the browser paints it. A
@@ -1120,7 +1174,7 @@ enum TextLinePaint {
         }
         for run in runs {
             let attributes = CTRunGetAttributes(run) as NSDictionary
-            guard let fill = attributes[NSAttributedString.Key.exactBackground] as? InlineBackground else { continue }
+            guard let fill = attributes[key] as? Value else { continue }
             let count = CTRunGetGlyphCount(run)
             guard count > 0 else { continue }
             var positions = [CGPoint](repeating: .zero, count: count)
@@ -1136,14 +1190,12 @@ enum TextLinePaint {
             if hi > lo { spans.append((lo, hi, fill)) }
         }
         spans.sort { $0.0 < $1.0 }
-        var merged: [(CGFloat, CGFloat, InlineBackground)] = []
+        var merged: [(CGFloat, CGFloat, Value)] = []
         for span in spans {
             if let last = merged.last, last.2.isEqual(span.2), span.0 <= last.1 + 0.01 {
                 merged[merged.count - 1].1 = max(last.1, span.1)
             } else { merged.append(span) }
         }
-        return merged.map { lo, hi, fill in
-            (CGRect(x: origin.x + lo, y: origin.y - fill.ascent, width: hi - lo, height: fill.ascent + fill.descent), fill.color)
-        }
+        return merged
     }
 }

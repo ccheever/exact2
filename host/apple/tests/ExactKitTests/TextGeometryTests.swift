@@ -761,6 +761,11 @@ extension TextGeometryTests {
             context.textMatrix = .identity
             for (line, baseline) in zip(paragraph.lines, paragraph.baselines) {
                 let x = CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(bounds.width)))
+                // Underlines are the browser's, painted beside CoreText's glyphs.
+                let origin = CGPoint(x: bounds.minX + x, y: bounds.minY + baseline.rounded())
+                for (rect, color) in TextLinePaint.underlines(line, at: origin, in: context) {
+                    context.setFillColor(color); context.fill(rect)
+                }
                 context.saveGState()
                 context.translateBy(x: bounds.minX + x, y: bounds.minY + baseline.rounded())
                 context.scaleBy(x: 1, y: -1)
@@ -933,27 +938,6 @@ private final class WeakParagraphForResidency {
 
 
 extension TextGeometryTests {
-    func testIntrinsicWordScalarsKeepFontMetricsAndExactUnicodeSource() {
-        let engine = TextEngine(resolve: { _ in nil })
-        var small = spec("Café").runs[0]
-        small.text = String(repeating: "Café Cafe\u{301} 🦀 ", count: 80)
-        var large = small; large.size = 31.25; large.family = 5
-        var input = spec(""); input.runs = [small, large]
-        var expected: CGFloat = 0
-        for run in [small, large] {
-            for word in ["Café", "Cafe\u{301}", "🦀"] {
-                var one = input; var r = run; r.text = word; one.runs = [r]
-                let line = CTLineCreateWithAttributedString(engine.attributed(one))
-                expected = max(expected, ceil(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) * 64) / 64)
-            }
-        }
-        XCTAssertEqual(engine.minContentWidth(input), expected)
-        XCTAssertEqual(engine.minContentWidth(input), expected)
-        XCTAssertEqual(engine.residencyStats.liveParagraphs, 0)
-        XCTAssertEqual(engine.residencyStats.liveShapes, 0)
-        XCTAssertEqual(engine.residencyStats.scalarEntries, 1)
-    }
-
     func testDroppingAcceptedLeaseAlsoReleasesItsSourceAndShaperWithoutAnotherLookup() {
         let engine = TextEngine(resolve: { _ in nil })
         weak var source: TextIdentity?

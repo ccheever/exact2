@@ -35,5 +35,25 @@ final class TextWebKitIOSTests: XCTestCase {
     }
 
     func testIntrinsicWidthsAreSafarisAdvances() { assertWebKitWidths() }
+
+    /// Safari's underline at 3× (the iPhone 17 Pro): its top one point below
+    /// the baseline (two at 34 px), `size / 16` thick rounded up to pixels.
+    func testAnUnderlineIsWhereSafariPaintsIt() throws {
+        let engine = TextEngine(resolve: { _ in nil })
+        let context = try XCTUnwrap(CGContext(data: nil, width: 30, height: 30, bitsPerComponent: 8, bytesPerRow: 120,
+                                              space: CGColorSpaceCreateDeviceRGB(),
+                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.scaleBy(x: 3, y: 3)
+        for (size, below, pixels): (CGFloat, CGFloat, CGFloat) in [(12, 1, 3), (13, 1, 3), (15, 1, 3), (16, 1, 3),
+                                                                  (17, 1, 4), (20, 1, 4), (24, 1, 5), (34, 2, 7)] {
+            let run = Run(text: "xxxx", size: size, weight: 400, family: 0, italic: false, lineHeight: nil,
+                          letterSpacing: 0, decoration: "underline")
+            let p = engine.paragraph(Spec(runs: [run], align: 0, lineClamp: 0, color: [0, 0, 0, 255]), width: .infinity)
+            let marks = TextLinePaint.underlines(p.lines[0], at: CGPoint(x: 0, y: 5), in: context)
+            let rect = try XCTUnwrap(marks.first?.0, "\(size)px")
+            XCTAssertEqual(rect.minY, 5 + below, accuracy: 0.001, "\(size)px")
+            XCTAssertEqual(rect.height * 3, pixels, accuracy: 0.001, "\(size)px")
+        }
+    }
 }
 #endif
