@@ -38,7 +38,7 @@ impl Collection {
         let old_end = self.items.len() - shared.suffix;
         let mut kept = vec![false; old_end - start];
         let mut keys = Vec::with_capacity(shared.middle.len());
-        let mut idents: Vec<Rc<str>> = Vec::with_capacity(shared.middle.len());
+        let mut idents: Vec<(Rc<str>, Option<usize>)> = Vec::with_capacity(shared.middle.len());
         let mut fresh = Vec::new();
         let mut inner = frames.to_vec();
         inner.push(Frame::default());
@@ -50,7 +50,7 @@ impl Collection {
                         return Ok(false);
                     }
                     keys.push(self.keys[old].clone());
-                    idents.push(self.index.shared_key(old).unwrap().clone());
+                    idents.push((self.index.shared_key(old).unwrap().clone(), Some(old)));
                 }
                 None => {
                     u.work.rows_keyed += 1;
@@ -61,7 +61,7 @@ impl Collection {
                     })?;
                     fresh.push(k);
                     keys.push(value);
-                    idents.push(Rc::from(text));
+                    idents.push((Rc::from(text), None));
                 }
             }
         }
@@ -69,7 +69,7 @@ impl Collection {
         // key repeats and every identity is its key's text.
         let mut seen = std::collections::BTreeSet::new();
         for &k in &fresh {
-            let ident = &*idents[k];
+            let ident = &*idents[k].0;
             let repeats_kept = self
                 .index
                 .position(ident)

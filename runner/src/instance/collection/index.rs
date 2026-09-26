@@ -127,7 +127,17 @@ impl HeightIndex {
             if positions.insert(key.clone(), i).is_some() {
                 return Err(IndexError::DuplicateKey(key.to_string()));
             }
-            rows.push(self.row_for(key, None, &mut generation)?);
+            let row = if let Some(&old) = self.positions.get(key) {
+                self.rows[old]
+            } else {
+                generation = next_generation(generation)?;
+                RowHeight {
+                    height: self.estimate,
+                    generation,
+                    measured_epoch: None,
+                }
+            };
+            rows.push(row);
         }
         let tree = SumTree::new(&rows)?;
         self.order = Rc::from(keys);
@@ -143,76 +153,93 @@ impl HeightIndex {
     }
 
     /// `replace_keys` of the order that keeps rows `..start` and `end..` and
-    /// puts `middle` between them, with the same result. It moves the kept
-    /// rows and their positions (O(N) copies) but compares, looks up and
-    /// allocates keys only for `middle`: a live insert costs its own key.
+    /// puts `middle` between them, with the same result. Each middle key
+    /// comes with the old position it moves from when the caller knows it
+    /// (the key at that position, inside `start..end`); the others are
+    /// looked up. It moves the kept rows and renumbers positions in one pass
+    /// (O(N) copies, no key comparisons), and compares, looks up and
+    /// allocates keys only for the looked-up ones: a live insert costs its
+    /// own key.
     pub(crate) fn splice_keys(
         &mut self,
         start: usize,
         end: usize,
-        middle: Vec<Rc<str>>,
+        middle: Vec<(Rc<str>, Option<usize>)>,
     ) -> Result<(), IndexError> {
         assert!(start <= end && end <= self.len(), "splice inside the order");
-        let mut seen = std::collections::BTreeSet::new();
+        // Per old middle position, its new position if its key survives.
+        let mut moved: Vec<Option<usize>> = vec![None; end - start];
+        let mut fresh = std::collections::BTreeSet::new();
+        // Middle keys new to the index, which `positions` must gain.
+        let mut added = Vec::new();
         let mut generation = self.next_generation;
         let mut rows = Vec::with_capacity(self.len() - (end - start) + middle.len());
         rows.extend_from_slice(&self.rows[..start]);
-        for key in &middle {
-            if !seen.insert(&**key) {
-                return Err(IndexError::DuplicateKey(key.to_string()));
-            }
-            rows.push(self.row_for(key, Some(start..end), &mut generation)?);
+        for (i, (key, from)) in middle.iter().enumerate() {
+            let old = match *from {
+                Some(old) => {
+                    assert!(
+                        (start..end).contains(&old)
+                            && (Rc::ptr_eq(&self.order[old], key) || self.order[old] == *key),
+                        "a moved key is the key at its old position"
+                    );
+                    Some(old)
+                }
+                None => {
+                    if !fresh.insert(&**key) {
+                        return Err(IndexError::DuplicateKey(key.to_string()));
+                    }
+                    match self.positions.get(&**key) {
+                        Some(&old) if (start..end).contains(&old) => Some(old),
+                        Some(_) => return Err(IndexError::DuplicateKey(key.to_string())),
+                        None => None,
+                    }
+                }
+            };
+            rows.push(match old {
+                Some(old) => {
+                    if moved[old - start].replace(start + i).is_some() {
+                        return Err(IndexError::DuplicateKey(key.to_string()));
+                    }
+                    self.rows[old]
+                }
+                None => {
+                    added.push(i);
+                    generation = next_generation(generation)?;
+                    RowHeight {
+                        height: self.estimate,
+                        generation,
+                        measured_epoch: None,
+                    }
+                }
+            });
         }
         rows.extend_from_slice(&self.rows[end..]);
         let tree = SumTree::new(&rows)?;
-        for key in &self.order[start..end] {
-            self.positions.remove(&**key);
-        }
         let after = start + middle.len();
-        if after != end {
-            for position in self.positions.values_mut() {
-                if *position >= end {
-                    *position = *position - end + after;
+        self.positions.retain(|_, position| {
+            if *position >= end {
+                *position = *position - end + after;
+            } else if *position >= start {
+                match moved[*position - start] {
+                    Some(new) => *position = new,
+                    None => return false,
                 }
             }
+            true
+        });
+        for i in added {
+            self.positions.insert(middle[i].0.clone(), start + i);
         }
         let mut order = Vec::with_capacity(rows.len());
         order.extend_from_slice(&self.order[..start]);
-        for (i, key) in middle.into_iter().enumerate() {
-            self.positions.insert(key.clone(), start + i);
-            order.push(key);
-        }
+        order.extend(middle.into_iter().map(|(key, _)| key));
         order.extend_from_slice(&self.order[end..]);
         self.order = Rc::from(order);
         self.rows = rows;
         self.tree = tree;
         self.next_generation = generation;
         Ok(())
-    }
-
-    /// A key's row in the new order: its old row if it survives (from inside
-    /// `within`, when given; elsewhere it would repeat a kept row), else a
-    /// fresh estimate with the next generation.
-    fn row_for(
-        &self,
-        key: &str,
-        within: Option<Range<usize>>,
-        generation: &mut u64,
-    ) -> Result<RowHeight, IndexError> {
-        match (self.positions.get(key), within) {
-            (Some(&old), Some(within)) if !within.contains(&old) => {
-                Err(IndexError::DuplicateKey(key.to_owned()))
-            }
-            (Some(&old), _) => Ok(self.rows[old]),
-            (None, _) => {
-                *generation = next_generation(*generation)?;
-                Ok(RowHeight {
-                    height: self.estimate,
-                    generation: *generation,
-                    measured_epoch: None,
-                })
-            }
-        }
     }
 
     /// Everything a membership change decides, for comparing two paths.

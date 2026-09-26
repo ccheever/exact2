@@ -814,3 +814,29 @@ fn measured_bands_require_current_rows_without_scanning_the_band() {
     assert!(i.range_measured(0..1));
     assert!(!i.range_measured(0..2));
 }
+
+#[test]
+fn a_splice_equals_the_replacement_and_refuses_a_repeat_untouched() {
+    let spliced = |index: &mut HeightIndex| {
+        // Keep k0 and k4; k2 moves ahead of a new key; k1 and k3 go.
+        index.splice_keys(1, 4, vec![("k2".into(), Some(2)), ("new".into(), None)])
+    };
+    let mut a = index(&[10., 20., 30., 40., 50.]);
+    let mut b = index(&[10., 20., 30., 40., 50.]);
+    spliced(&mut a).unwrap();
+    b.replace_keys(vec!["k0".into(), "k2".into(), "new".into(), "k4".into()])
+        .unwrap();
+    assert_eq!(a.fingerprint(), b.fingerprint());
+    let before = a.fingerprint();
+    for middle in [
+        vec![("k2".into(), Some(1)), ("k2".into(), None)],
+        vec![("k0".into(), None)],
+        vec![("x".into(), None), ("x".into(), None)],
+    ] {
+        assert!(matches!(
+            a.splice_keys(1, 3, middle),
+            Err(IndexError::DuplicateKey(_))
+        ));
+        assert_eq!(a.fingerprint(), before);
+    }
+}
