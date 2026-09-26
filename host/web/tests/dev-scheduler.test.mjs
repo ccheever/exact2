@@ -140,7 +140,7 @@ test('generated game arguments use the resident plan compiler without a host reb
     const changed=new Function('app','paths','watch','resolve','existsSync','watchFile','unwatchFile',`
       const source=resolve(app.dir,'app.contract'), skipped=/(^|\\/)(target|dist)(\\/|$)/;
       const builtReceipts=[{binary:{inputs:paths.map(path=>({path})),directories:[{path:resolve(app.dir,'.shells')}],missing:[resolve(app.dir,'missing/config.json')]}}];
-      const rustInputFiles=new Set(),gpuInputs=new Set(),appInputs=new Set(),assetTrees=[];
+      const rustInputFiles=new Set(),gpuInputs=new Set(),appInputs=new Set(),failedInputs=new Set(),assetTrees=[];
       const typescript=false,portableRust=false,rebuildOn={rust:'save'},changed=new Set();
       const console={log(){},error(error){throw new Error(error);}},gpuOnly=()=>false;
       const clearTimeout=()=>{},setTimeout=()=>0,rebuild=()=>{};let timer;
@@ -209,13 +209,15 @@ function scheduler() {
     : source.slice(source.indexOf('function produceRust()'), source.indexOf('function produceRustNow()'));
   return new Function(`
     let building=false, rustActive=false, buildPending=false, rustPending=false, rustDirty=false, again=false, changed=new Set(), calls=[];
+    let lastFailed=new Set(), failedInputs=new Set(), failing=false;
     const gpuOnly = files => files.length && files.every(f=>f==='gpu.rs');
     const produceGpu = files => { building=true; calls.push(['gpu',files]); };
-    const rebuildNow = files => { building=true; calls.push(['full',files]); };
+    const rebuildNow = files => { building=true; calls.push(['full',files]); if (failing) lastFailed=new Set(files); };
     const produceRustNow = () => { rustActive=true; calls.push(['rust']); };
     ${legacy ? 'function rebuild(){if(building){again=true;return;}const files=[...changed];changed.clear();if(gpuOnly(files))produceGpu(files);else rebuildNow(files);}function drainBuilds(){rebuild();}' : ''}
     ${functions}
     return {calls, rust:produceRust, change(file){changed.add(file);buildPending=true;drainBuilds();},
+      set failing(value){failing=value;}, get retrying(){return lastFailed.size>0;},
       finish(){building=false;rustActive=false;${legacy ? 'if(again||changed.size){again=false;rebuild();}' : 'drainBuilds();'}}};
   `)();
 }
@@ -228,6 +230,14 @@ test('GPU and full builds wait for the active resident Rust producer', () => {
   const s=scheduler(); s.rust(); s.change('gpu.rs'); assert.equal(s.calls.length,1);
   s.finish(); assert.equal(s.calls[1][0],'gpu'); s.change('app.rs'); s.finish();
   assert.deepEqual(s.calls[2],['full',['app.rs']]);
+});
+test('a failed build\'s files ride with the next build, whatever it touches', () => {
+  const s=scheduler(); s.failing=true; s.change('app.rs'); s.finish();
+  assert.deepEqual(s.calls,[['full',['app.rs']]]); assert.equal(s.retrying,true);
+  s.failing=false; s.change('gpu.rs'); s.finish();
+  assert.deepEqual(s.calls[1],['full',['app.rs','gpu.rs']],'a GPU-only save after a failed app build rebuilds the wasm');
+  assert.equal(s.retrying,false); s.change('gpu.rs'); s.finish();
+  assert.deepEqual(s.calls[2],['gpu',['gpu.rs']],'a success clears the failed set');
 });
 test('compiler cleanup kills the recorded GPU cargo group too', () => {
   const cleanup=source.slice(source.indexOf('const killCompiler = () => {'),source.indexOf('\nstartCompiler();'));
@@ -295,7 +305,7 @@ test('declared source files report in-place edits after inclusion and replacemen
     api=new Function('app','main','watch','resolve','existsSync','watchFile','unwatchFile',`
       const source=resolve(app.dir,'app.contract'),skipped=/(^|\\/)(target|dist)(\\/|$)/;
       const builtReceipts=[{binary:{inputs:[{path:main}],directories:[],missing:[]}}];
-      const rustInputFiles=new Set(),gpuInputs=new Set(),appInputs=new Set(),assetTrees=[];
+      const rustInputFiles=new Set(),gpuInputs=new Set(),appInputs=new Set(),failedInputs=new Set(),assetTrees=[];
       const typescript=false,portableRust=false,rebuildOn={rust:'save'},changed=new Set();
       const console={log(){},error(message){throw Error(message);}},gpuOnly=()=>true;
       const builds=[],rebuild=()=>{builds.push([...changed]);changed.clear();};let timer;

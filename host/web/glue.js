@@ -1444,8 +1444,12 @@ async function main() {
   const first = await globalThis.exact.devFirst?.();
   // A data module's realm: beside the boot on a served document, whose first
   // pixel is painted (LLP 1048.000 D6); a client page's after its baked frame.
+  // The baked data source admits only the baked module's revision. A dev
+  // generation's module with another (a TypeScript edit since the wasm was
+  // built) replaces it at activation through the module path, whose receipt
+  // names its revision — no wasm rebuild.
   const realm = () => typeof wasm.exact_module_artifact !== 'function' ? null : loadAfterPaint('./module-glue.js','moduleRuntime')
-    .then(async loader => { moduleLoader = loader; const payload = first?.module ?? await loader.baked(); return { ...payload, realm: await loader.prepare(payload, logicInfo, 0) }; });
+    .then(async loader => { moduleLoader = loader; const payload = first?.module ?? await loader.baked(); const replaces = Boolean(first?.module) && JSON.parse(decoder.decode(payload.receipt)).module?.sha256 !== logicInfo.revision; return { ...payload, replaces, realm: await loader.prepare(payload, logicInfo, replaces ? undefined : 0) }; });
   const prepared = page ? realm() : null; prepared?.catch(() => {}); // awaited, and reported, at activation
   await boot(first?.plan ?? null, first ? assetNamespace(first.assets) : null, () => true, null, true); // @ref LLP 1007 §6
   root.dataset.bootMs = (performance.now() - t0).toFixed(1);
@@ -1457,8 +1461,11 @@ async function main() {
       inputHandlers = create({ root, views, retiredViews, ready: () => inputReady, inertAncestor,
         dispatch: (id, payload) => send(wasm.exact_dispatch(id, 20, writeIn(payload), now())) });
     }).catch(console.error);
-    try { activeModule = await (prepared ?? realm()) ?? activeModule; await activateData(); }
-    catch (error) { root.dataset.error = String(error); console.error(error); }
+    try {
+      const module = await (prepared ?? realm());
+      if (module?.replaces) await boot(first.plan, devAssets, () => true, module); else activeModule = module ?? activeModule;
+      await activateData();
+    } catch (error) { root.dataset.error = String(error); console.error(error); }
     finally {
       resolveModuleReady(); if (logicInfo) httpHelpers(); // a data module's first response is read without a load
       if (globalThis.exact.compat.inputs.rustModule && globalThis.exact.compat.inputs.rustMode === 'browser') {

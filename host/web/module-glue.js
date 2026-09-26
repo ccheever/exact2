@@ -260,7 +260,7 @@ export function call(request) {
   const realm = realms.get(request.id);
   if (!realm) return { error: 'browser module not loaded' };
   if (request.op === 'activate') return realm.meta.appId === request.appId && realm.meta.grants.trim() === request.grants.trim() && realm.meta.module.sha256 === request.revision && realm.placement === (request.placement ?? 'main')
-    ? { ok: true } : { error: 'browser module admission mismatch' };
+    ? { ok: true } : { error: `browser module admission mismatch: the page's module is ${realm.meta.module.sha256.slice(0, 12)} (${realm.meta.appId}, ${realm.placement}); the wasm admits ${String(request.revision).slice(0, 12)} (${request.appId}, ${request.placement ?? 'main'}) — rebuild the wasm (r + Enter in the dev loop)` };
   if (request.op === 'dispatch') {
     const turn = turns.get(request.token);
     if (!turn || turn.id !== request.id) return { error: 'browser continuation is no longer live' };
