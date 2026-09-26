@@ -45,6 +45,7 @@ pub mod runner;
 pub mod stdlib;
 pub mod store;
 pub mod surface_record;
+pub mod time;
 pub mod uses;
 pub mod viewport;
 pub mod vm;

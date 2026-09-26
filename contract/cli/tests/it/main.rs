@@ -37,6 +37,7 @@ mod styles;
 mod surface;
 mod symbols;
 mod tests_decl;
+mod time;
 mod transform_binding;
 mod typescript;
 mod r#use;

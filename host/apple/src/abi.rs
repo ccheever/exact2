@@ -1013,6 +1013,15 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// The date changed or became known (LLP 1027.000.000).
+    pub fn set_time(&mut self, epoch_at_zero: f64, utc_offset: f64) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_time(epoch_at_zero, utc_offset));
+        self.emit(out)
+    }
+
     /// The safe-area insets changed.
     pub fn insets(&mut self, top: f32, right: f32, bottom: f32, left: f32) -> u32 {
         let out = self

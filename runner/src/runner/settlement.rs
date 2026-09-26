@@ -369,6 +369,7 @@ impl<D: DataSource> Runner<D> {
                             s.args == args
                                 && self.plan.str(row.source) != crate::delivery::SOURCE
                                 && self.plan.str(row.source) != crate::viewport::SOURCE
+                                && self.plan.str(row.source) != crate::time::SOURCE
                                 && self.plan.str(row.source) != crate::surface_record::SOURCE
                                 && !forced
                                 && (!self.store_readers[i]
@@ -387,6 +388,7 @@ impl<D: DataSource> Runner<D> {
                         None if (boot || !self.data.ready())
                             && self.plan.str(row.source) != crate::delivery::SOURCE
                             && self.plan.str(row.source) != crate::viewport::SOURCE
+                            && self.plan.str(row.source) != crate::time::SOURCE
                             && self.plan.str(row.source) != crate::surface_record::SOURCE
                             && row.initial.len > 0
                             && (!self.data.ready()

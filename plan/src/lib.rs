@@ -562,5 +562,8 @@ impl std::error::Error for PlanError {}
 
 /// Sources answered by the runner, with a result shape selected by each reader.
 pub fn runner_owned_source(name: &str) -> bool {
-    matches!(name, "exactDelivery" | "exactViewport" | "exactSurface")
+    matches!(
+        name,
+        "exactDelivery" | "exactViewport" | "exactSurface" | "exactTime"
+    )
 }

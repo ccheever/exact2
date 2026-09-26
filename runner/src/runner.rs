@@ -25,6 +25,7 @@ pub mod router;
 pub use lists::{ListStatus, ListTextPosition, ListViewport};
 mod settlement;
 mod surface_record;
+mod time;
 mod viewport;
 pub use carry::Carried;
 pub use checkpoint::Checkpoint;
@@ -118,6 +119,8 @@ pub enum RunnerError {
     NonFiniteClock,
     /// A viewport dimension is non-finite or non-positive.
     InvalidViewport,
+    /// A date fact is non-finite, negative, or its offset past ±18 hours.
+    InvalidTime,
     /// The declared router shapes, table, launch fallback or value is invalid.
     Router(String),
     /// A clock value exceeds the exact integer-millisecond domain.
@@ -291,6 +294,8 @@ pub struct Runner<D: DataSource> {
     delivery: crate::delivery::Delivery,
     // @ref LLP 1039 D2 — the layout size before settlement.
     viewport: crate::Viewport,
+    // @ref LLP 1027.000.000 — the date, once the host says it.
+    time: crate::time::WallTime,
     surface_records: exact_kernel::SortedMap<String, String>,
     /// What the host links of the runner's own answers (LLP 1047 D3).
     links: RunnerLinks,
@@ -552,6 +557,7 @@ impl<D: DataSource> Runner<D> {
                 resource.reader
                     || plan.str(resource.source) == crate::delivery::SOURCE
                     || plan.str(resource.source) == crate::viewport::SOURCE
+                    || plan.str(resource.source) == crate::time::SOURCE
                     || plan.str(resource.source) == crate::surface_record::SOURCE
                     || (same_logic
                         && carried.is_some_and(|carried| {
@@ -605,6 +611,7 @@ impl<D: DataSource> Runner<D> {
             keeps_answers: false,
             delivery,
             viewport,
+            time: Default::default(),
             surface_records: Default::default(),
             links,
             router,
@@ -1084,6 +1091,12 @@ impl<D: DataSource> Runner<D> {
         if source == crate::viewport::SOURCE {
             return self
                 .viewport_answer(i)
+                .map(Answer::Now)
+                .map_err(|error| RunnerError::Data { resource, error });
+        }
+        if source == crate::time::SOURCE {
+            return self
+                .time_answer(i)
                 .map(Answer::Now)
                 .map_err(|error| RunnerError::Data { resource, error });
         }

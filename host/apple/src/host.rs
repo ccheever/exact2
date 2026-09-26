@@ -767,6 +767,25 @@ impl<D: DataSource> Host<D> {
 
     /// that moved.
     pub fn resize(&mut self, width: f32, height: f32) -> String {
+        self.resize_inner(width, height)
+    }
+
+    /// The date (LLP 1027.000.000): re-answer `exactTime` in one commit.
+    pub fn set_time(&mut self, epoch_at_zero: f64, utc_offset: f64) -> String {
+        match self.runner.set_time(epoch_at_zero, utc_offset) {
+            Ok(Some(receipt)) => self.commit(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => self.finish(Batch::new(), None),
+            Err(e) => self.finish(Batch::new(), Some(format!("time: {e:?}"))),
+        }
+    }
+
+    fn resize_inner(&mut self, width: f32, height: f32) -> String {
         // @ref LLP 1039 D2 — merge re-answer and relayout, once.
         let receipt = match self.runner.set_viewport(width as f64, height as f64) {
             Ok(receipt) => receipt,

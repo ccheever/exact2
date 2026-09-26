@@ -497,6 +497,7 @@ public final class ExactSession {
             text.commitFonts()
         }
         apply(batch)
+        if batch.error == nil { tellTime() }
         // A fresh runner must receive the view's current viewport and insets.
         if batch.error == nil { view?.rebooted() }
         applyMs = (CACurrentMediaTime() - tApply) * 1000
@@ -574,6 +575,7 @@ public final class ExactSession {
         app.lifecycle?.generationStarted(app, token: updateToken)
         autofocusHeld = restart
         apply(batch)
+        tellTime()
         view?.rebooted()
         autofocusHeld = false
         if restart { presenter.restoreFocus(kept, tree: agent("{\"op\":\"tree\"}")) }
@@ -747,6 +749,11 @@ public final class ExactSession {
         frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
     }
 
+    /// @ref LLP 1027.000.000 — the date, against the clock `now()` reads.
+    func tellTime() {
+        let offset = Double(TimeZone.current.secondsFromGMT()) / 60
+        apply(runtime.setTime(epochAtZero: Date().timeIntervalSince1970 * 1000 - now(), utcOffset: offset))
+    }
     public func resize(_ size: CGSize) { guard booted, state != .destroyed else { return }; apply(runtime.resize(width: size.width, height: size.height)) }
     public func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) { guard booted, state != .destroyed else { return }; apply(runtime.insets(top: top, right: right, bottom: bottom, left: left)) }
     /// The agent API's runner half (LLP 1012): `tree`, `state`, `logs`, `settle`.

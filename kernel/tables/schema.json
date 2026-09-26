@@ -1796,6 +1796,112 @@
       "slider.horizontal.3",
       "M4 6h9m4 0h3m-3 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM4 12h3m4 0h9m-9 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM4 18h8m4 0h4m-4 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z"
     ]
+,
+    [
+      "heart",
+      "heart",
+      "M12 20s-7-4.4-9-8.5C1.6 8.3 3.4 5 6.8 5c2.1 0 3.5 1.2 5.2 3 1.7-1.8 3.1-3 5.2-3 3.4 0 5.2 3.3 3.8 6.5-2 4.1-9 8.5-9 8.5Z"
+    ],
+    [
+      "heart-fill",
+      "heart.fill",
+      "M12 21s-7.6-4.6-9.8-9.1C.6 8.4 2.6 4 6.8 4c2.2 0 3.8 1.1 5.2 2.8C13.4 5.1 15 4 17.2 4c4.2 0 6.2 4.4 4.6 7.9C19.6 16.4 12 21 12 21Z"
+    ],
+    [
+      "reply",
+      "bubble.left",
+      "M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H10l-5 4v-4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"
+    ],
+    [
+      "share",
+      "square.and.arrow.up",
+      "M12 3v12M8 7l4-4 4 4M7 10H5v11h14V10h-2"
+    ],
+    [
+      "ellipsis",
+      "ellipsis",
+      "M6 12h.01M12 12h.01M18 12h.01"
+    ],
+    [
+      "home-fill",
+      "house.fill",
+      "M12 2.5 2 10.2V22h7v-7h6v7h7V10.2Z"
+    ],
+    [
+      "notifications-fill",
+      "bell.fill",
+      "M12 2a6 6 0 0 0-6 6v5.5L4 17v1h16v-1l-2-3.5V8a6 6 0 0 0-6-6Zm-3 18a3 3 0 0 0 6 0Z"
+    ],
+    [
+      "person-fill",
+      "person.crop.circle.fill",
+      "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 4a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Zm0 14a8 8 0 0 1-6-2.7c.6-2.2 3-3.3 6-3.3s5.4 1.1 6 3.3A8 8 0 0 1 12 20Z"
+    ],
+    [
+      "photo",
+      "photo",
+      "M4 5h16v14H4ZM4 16l5-5 4 4 2-2 5 5M15.5 9.5h.01"
+    ],
+    [
+      "play",
+      "play",
+      "M7 4v16l13-8Z"
+    ],
+    [
+      "play-fill",
+      "play.fill",
+      "M6 3.5v17a1 1 0 0 0 1.5.9l13.2-8.5a1 1 0 0 0 0-1.8L7.5 2.6A1 1 0 0 0 6 3.5Z"
+    ],
+    [
+      "pin",
+      "pin",
+      "M9 3h6M10 3l-.5 6L6 13h12l-3.5-4L14 3M12 13v8"
+    ],
+    [
+      "link",
+      "link",
+      "M10 14a4 4 0 0 0 6 0l3-3a4 4 0 0 0-6-6l-1 1M14 10a4 4 0 0 0-6 0l-3 3a4 4 0 0 0 6 6l1-1"
+    ],
+    [
+      "checkmark",
+      "checkmark",
+      "m5 12 5 5 9-10"
+    ],
+    [
+      "forward-chevron",
+      "chevron.forward",
+      "m9 5 7 7-7 7"
+    ],
+    [
+      "at",
+      "at",
+      "M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Zm0 0v1.5a2.5 2.5 0 0 0 5 0V12a9 9 0 1 0-3.5 7.1"
+    ],
+    [
+      "hashtag",
+      "number",
+      "M9 3 7 21M17 3l-2 18M4 8h17M3 16h17"
+    ],
+    [
+      "follow",
+      "person.badge.plus",
+      "M15 8a4 4 0 1 1-8 0 4 4 0 0 1 8 0ZM3 21v-1a6 6 0 0 1 11-3.3M19 14v6M16 17h6"
+    ],
+    [
+      "sign-out",
+      "rectangle.portrait.and.arrow.right",
+      "M14 4H5v16h9M10 12h11M17 8l4 4-4 4"
+    ],
+    [
+      "quote",
+      "quote.bubble",
+      "M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H10l-5 4v-4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2ZM9 9v3M15 9v3"
+    ],
+    [
+      "feeds",
+      "number.square",
+      "M4 4h16v16H4ZM10 7 9 17M15 7l-1 10M7 10h11M6 14h11"
+    ]
   ],
   "_symbols": "[role, Apple system symbol name, browser SVG path in a 24-unit box]. The path is stroked; a filled state is its own role, `<role>-fill` for Apple's `<name>.fill`, whose path is a filled silhouette (even-odd, so a cutout is a subpath). Generated once; hosts never admit platform names directly."
 }
