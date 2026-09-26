@@ -93,3 +93,82 @@ fn an_announced_topic_asks_again_exactly_the_answers_that_watch_it() {
     native.changed("weather");
     assert!(r.apply_announced().0.is_empty());
 }
+
+/// A worker turn that watches a topic and then yields another request (a
+/// long native call) still watches it: the topic was lost with the yield.
+#[test]
+fn a_topic_watched_before_a_yield_is_kept() {
+    use exact_runner::{Outcome, Request, Response};
+    struct Yielding {
+        asks: usize,
+        native: Native,
+    }
+    impl DataSource for Yielding {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::Unavailable("answers only with the store".into()))
+        }
+        fn answer(
+            &mut self,
+            _: &mut Store,
+            source: &str,
+            _: &[Value],
+        ) -> Result<Answer, DataError> {
+            if source == "waiting" {
+                return Ok(Answer::Now(Value::record(vec![Value::str("…")])));
+            }
+            self.asks += 1;
+            Ok(Answer::Later(Request::get("https://first.test/")))
+        }
+        fn parse(
+            &mut self,
+            store: &mut Store,
+            _: &str,
+            _: &[Value],
+            outcome: Outcome,
+        ) -> Result<Answer, DataError> {
+            let Outcome::Response(r) = outcome else {
+                unreachable!()
+            };
+            if r.body == b"first" {
+                store.observe_topic("meter");
+                return Ok(Answer::Later(Request::get("https://second.test/")));
+            }
+            Ok(Answer::Now(Value::record(vec![Value::str("landed")])))
+        }
+        fn native(&self) -> Option<Native> {
+            Some(self.native.clone())
+        }
+    }
+    const ONE: &str = "shape Line\n  text: string\ncomponent App\n  resource meter = meter() as shape Line else waiting()\n  view\n    text meter.text\n";
+    let native = Native::default();
+    let source = Yielding {
+        asks: 0,
+        native: native.clone(),
+    };
+    let mut r = Runner::boot(
+        contract::compile(ONE).unwrap(),
+        source,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.listen(Arc::new(|| {}));
+    let reply = |body: &[u8]| {
+        Outcome::Response(Response {
+            status: 200,
+            headers: vec![],
+            body: body.to_vec(),
+        })
+    };
+    let first = r.take_requests()[0].ticket;
+    r.fulfill(first, reply(b"first")).unwrap();
+    let second = r.take_requests()[0].ticket;
+    r.fulfill(second, reply(b"second")).unwrap();
+    let asks = r.data().asks;
+    native.changed("meter");
+    let (receipts, error) = r.apply_announced();
+    assert!(error.is_none());
+    assert_eq!(receipts.len(), 1);
+    assert_eq!(r.data().asks, asks + 1, "the announcement asked again");
+}

@@ -742,13 +742,23 @@ impl<D: DataSource> Runner<D> {
             Target::Mutation(m) => self.plan.mutations[m].ty,
         };
         self.store.take_topics();
-        let value = match self
+        let parsed = self
             .data
-            .parse_for(p.target, &mut self.store, &p.source, &p.args, outcome)
-            .map_err(|error| RunnerError::Data {
-                resource: name.clone(),
-                error,
-            })? {
+            .parse_for(p.target, &mut self.store, &p.source, &p.args, outcome);
+        // What this reply's turn watched joins the resource's topics whatever
+        // the reply says: a turn that yields another request (a long native
+        // call) watched them as much as the one that answers.
+        if let Target::Resource(i) = p.target {
+            for topic in self.store.take_topics() {
+                if !self.watching[i].contains(&topic) {
+                    self.watching[i].push(topic);
+                }
+            }
+        }
+        let value = match parsed.map_err(|error| RunnerError::Data {
+            resource: name.clone(),
+            error,
+        })? {
             Answer::Now(value) => value,
             Answer::Later(request) => {
                 // One more round (LLP 1027 D1a): the target keeps its value,
@@ -765,11 +775,6 @@ impl<D: DataSource> Runner<D> {
         match p.target {
             Target::Resource(i) => {
                 self.stale[i] = false;
-                for topic in self.store.take_topics() {
-                    if !self.watching[i].contains(&topic) {
-                        self.watching[i].push(topic);
-                    }
-                }
                 self.keep_answer(i, &p.args, &value);
                 self.resources[i] = Some(ResourceState {
                     args: p.args,
