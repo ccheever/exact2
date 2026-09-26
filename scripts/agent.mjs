@@ -32,7 +32,7 @@ import { tmpdir } from 'node:os';
 import { basename, resolve } from 'node:path';
 import { appleArtifacts, assertAppleIdentity, bundleId, crashReports, developmentLaunchEnvironment, install, phone, phoneBridge, showSimulator, simulator } from '../host/apple/build.mjs';
 import { builtAppMatches, serveStatic } from '../host/web/serve.mjs';
-import { resolveApp } from './app.mjs';
+import { resolveApp, webDist as defaultWebDist } from './app.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -210,7 +210,7 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
     catch (error) { await reuse.close(); throw error; }
   }
   const selected = resolveApp(app);
-  const dist = resolve(webDist ?? process.env.EXACT_WEB_DIST ?? resolve(ROOT, 'host/web/dist'));
+  const dist = resolve(webDist ?? defaultWebDist());
   if (!pageURL) await assertWebDistApp(dist, selected);
   const server = createServer((req, res) => {
     if (req.url === '/__plan' && plan) { res.writeHead(200, { 'content-type': 'application/octet-stream' }); res.end(readFileSync(plan)); return; }
@@ -450,9 +450,20 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
       },
       async screenshot(path) {
         await frame();
+        // Images in the viewport finish loading first, up to 3 s: a picture
+        // of grey placeholders is not the page (LLP 1054.000 R9). `clock
+        // settle` stays the app's clock alone; this wait is the picture's.
+        const pending = await waitAtMost(evaluate(`(async () => {
+          const on = (i) => { const b = i.getBoundingClientRect(); return b.bottom > 0 && b.right > 0 && b.top < innerHeight && b.left < innerWidth; };
+          const left = () => [...document.images].filter((i) => !i.complete && on(i));
+          const end = performance.now() + 3000;
+          while (left().length && performance.now() < end) await new Promise((r) => setTimeout(r, 25));
+          return left().length;
+        })()`), 3500);
+        await frame();
         const { data } = await call('Page.captureScreenshot', { format: 'png' });
         writeFileSync(path, Buffer.from(data, 'base64'));
-        return { screenshot: path, w: size[0], h: size[1] };
+        return { screenshot: path, w: size[0], h: size[1], ...(pending ? { imagesPending: pending } : {}) };
       },
       close,
     };

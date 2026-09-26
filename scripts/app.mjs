@@ -153,6 +153,20 @@ export function webToolchainEnv(env) {
     `the web artifact builds with ${WEB_TOOLCHAIN} and its std sources (LLP 1047):\n` +
     `  rustup toolchain install ${WEB_TOOLCHAIN} --profile minimal --component rust-src\n` +
     `  cargo +${WEB_TOOLCHAIN} fetch --manifest-path "$(rustc +${WEB_TOOLCHAIN} --print sysroot)/lib/rustlib/src/rust/library/Cargo.toml"`);
+  // `-Zbuild-std` builds std offline, so std's own locked sources must be in
+  // Cargo's cache. Checked once per toolchain (a marker beside the sysroot's
+  // library) and fetched when missing, rather than failing mid-build.
+  const library = resolve(sysroot.stdout.trim(), 'lib/rustlib/src/rust/library');
+  const marker = resolve(library, '.exact-fetched');
+  if (!existsSync(marker)) {
+    const offline = spawnSync('cargo', ['metadata', '--offline', '--locked', '--format-version', '1', '--manifest-path', resolve(library, 'Cargo.toml')], { env: { ...env, RUSTUP_TOOLCHAIN: WEB_TOOLCHAIN }, encoding: 'utf8', maxBuffer: 1 << 26 });
+    let ready = offline.status === 0;
+    if (!ready) {
+      console.error(`${WEB_TOOLCHAIN}: std's sources are not fetched; fetching them once (cargo fetch --manifest-path …/library/Cargo.toml)`);
+      ready = spawnSync('cargo', ['fetch', '--locked', '--manifest-path', resolve(library, 'Cargo.toml')], { env: { ...env, RUSTUP_TOOLCHAIN: WEB_TOOLCHAIN }, stdio: ['ignore', 'inherit', 'inherit'] }).status === 0;
+    }
+    if (ready) try { writeFileSync(marker, ''); } catch { /* a read-only toolchain checks again next time */ }
+  }
   return { ...env, RUSTUP_TOOLCHAIN: WEB_TOOLCHAIN, EXACT_WEB_SIZE: [...WEB_STD, ...WEB_RUSTFLAGS].join(' ') };
 }
 
@@ -205,6 +219,17 @@ function checkoutOf(dir) {
     }
     if (dirname(at) === at) return null;
   }
+}
+
+/** The web build's output directory: `EXACT_WEB_DIST` when set; for an app
+ * outside this repository, its own `target/web-dist` — a checkout's
+ * `host/web/dist` is one slot every in-repo build writes (the checks rebuild
+ * Caltrain into it), and an outside app served from it silently became
+ * Caltrain (LLP 1054 O5); otherwise `host/web/dist`. */
+export function webDist() {
+  if (process.env.EXACT_WEB_DIST) return resolve(process.env.EXACT_WEB_DIST);
+  if (process.env.EXACT_APP_DIR) return resolve(resolveApp().target, 'web-dist');
+  return resolve(ROOT, 'host/web/dist');
 }
 
 /** Refuse a target directory inside another checkout of the same repository:
@@ -439,7 +464,15 @@ const buildHash = (v) => createHash('sha256').update(v).digest('hex');
 const under = (root, path) => path === root || path.startsWith(root + '/');
 const orderedBuild = (rows) => rows.sort((a, b) => Buffer.compare(Buffer.from(canonicalBuild(a)), Buffer.from(canonicalBuild(b))));
 function buildCommand(command, args, app, env, stderr = 'pipe') {
-  const result = spawnSync(command, args, { cwd: app.workspace, env, stdio: ['ignore','pipe',stderr], encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 });
+  let result = spawnSync(command, args, { cwd: app.workspace, env, stdio: ['ignore','pipe',stderr], encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 });
+  // An offline Cargo that lacks a source it needs (a new workspace, a new
+  // lock entry) fetches the lock's sources once and tries again, instead of
+  // failing on the first missing crate (LLP 1054 O2).
+  if (command === 'cargo' && result.status !== 0 && /--offline was specified|attempting to make an HTTP request/.test(result.stderr ?? '')) {
+    console.error(`${app.name}: Cargo's sources are not all fetched; fetching the locked ones (cargo fetch --locked) and trying again`);
+    const fetched = spawnSync('cargo', ['fetch', '--locked'], { cwd: app.workspace, env, stdio: ['ignore', 'inherit', 'inherit'] });
+    if (fetched.status === 0) result = spawnSync(command, args, { cwd: app.workspace, env, stdio: ['ignore','pipe',stderr], encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 });
+  }
   if (result.error || result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed: ${result.error?.message ?? result.stderr ?? `exit ${result.signal ?? result.status} (see diagnostics above)`}\n${(result.stdout ?? '').slice(-4000)}`);
   return result;
 }

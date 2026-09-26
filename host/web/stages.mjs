@@ -27,6 +27,9 @@ export const STAGES = [
  * names, so the pair comes from one run of one version; another version
  * builds unsplit rather than guess. */
 export const BINARYEN = 'version 132';
+/** Where the pinned binaryen comes from on a machine without a package
+ * manager (LLP 1054 O2): the release tarball, unpacked, its `bin/` on PATH. */
+export const BINARYEN_DOWNLOAD = `https://github.com/WebAssembly/binaryen/releases/tag/${BINARYEN.replace(' ', '_')}`;
 const FEATURES = ['--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', '--enable-reference-types'];
 
 const run = (command, args, options = {}) => spawnSync(command, args, { encoding: 'utf8', maxBuffer: 1 << 28, ...options });
@@ -34,8 +37,8 @@ const run = (command, args, options = {}) => spawnSync(command, args, { encoding
 /** Why this machine can't split, or null when it can. */
 export function unsplitReason() {
   const version = run('wasm-split', ['--version']);
-  if (version.error) return 'wasm-split is not on PATH (brew install binaryen)';
-  if (!version.stdout.includes(BINARYEN)) return `wasm-split is ${version.stdout.trim()}, not the pinned ${BINARYEN}`;
+  if (version.error) return `wasm-split is not on PATH (binaryen ${BINARYEN}: brew install binaryen, or ${BINARYEN_DOWNLOAD})`;
+  if (!version.stdout.includes(BINARYEN)) return `wasm-split is ${version.stdout.trim()}, not the pinned ${BINARYEN} (${BINARYEN_DOWNLOAD})`;
   if (run('c++filt', ['--version']).error) return 'c++filt is not on PATH';
   return null;
 }

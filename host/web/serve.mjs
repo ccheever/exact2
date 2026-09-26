@@ -12,7 +12,7 @@ import { networkInterfaces } from 'node:os';
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { filesystem, filesystemRead } from '../../scripts/filesystem.mjs';
-import { copyShaders, developmentURLScheme, webHostFiles } from '../../scripts/app.mjs';
+import { copyShaders, developmentURLScheme, webDist, webHostFiles } from '../../scripts/app.mjs';
 import { appDocumentPath, webRequestURL, parseWebRoot, sha256, webReleasePath, webRootPath } from '../../scripts/origin.mjs';
 
 import { INSTALL_FILES, INSTALL_ROOT, installRoute, installNetworkPage } from '../../scripts/install-page.mjs';
@@ -744,7 +744,7 @@ async function main() {
   const argv = process.argv.slice(2);
   const at = argv.indexOf('--origin');
   if (at >= 0 && (!argv[at + 1] || argv[at + 1].startsWith('--'))) throw new Error('--origin needs a directory');
-  const dist = at >= 0 ? resolve(argv.splice(at, 2)[1]) : resolve(process.env.EXACT_WEB_DIST ?? new URL('./dist', import.meta.url).pathname);
+  const dist = at >= 0 ? resolve(argv.splice(at, 2)[1]) : webDist();
   if (!await readStaticFileAsync(dist, '/app.wasm')) { console.error('run bun host/web/build.mjs first, or serve a published --origin <dir>'); return 2; }
   const loopback = argv.includes('--loopback') || process.env.EXACT_LOOPBACK === '1';
   const port = Number(argv.find((a) => !a.startsWith('--')) ?? 8765);
@@ -757,7 +757,10 @@ async function main() {
       const priv = (a) => /^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/.test(a);
       urls.push(...Object.values(networkInterfaces()).flat().filter((a) => a && !a.internal && a.family === 'IPv4').map((a) => a.address).sort((a, b) => priv(b) - priv(a)).map((a) => `http://${a}:${port}/`));
     }
-    console.log(urls.join('\n') + `\n  (serving ${dist}; ctrl-c to stop)`);
+    // Name the app, so a directory another build replaced is seen at once (LLP 1054 O5).
+    let served = '';
+    try { const { app } = JSON.parse(readFileSync(resolve(dist, 'exact.json'), 'utf8')); served = ` ${app.name} (${app.id})`; } catch { /* an older build has no envelope */ }
+    console.log(urls.join('\n') + `\n  (serving${served} from ${dist}; ctrl-c to stop)`);
     warming.then(n => console.log(`  (${n} files compressed: brotli and gzip)`));
   });
   return 0;

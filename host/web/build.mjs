@@ -9,16 +9,16 @@
 // requires signing keys, and the deploy verb always selects production.
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { relative, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { rolldown } from 'rolldown';
 import { minifySync } from 'rolldown/experimental';
 import { writeInstallPages } from '../../scripts/install-page.mjs';
 import { gpuModules, rustPolicy, webHostFiles } from '../../scripts/app.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
-import { copyShaders, bakeOutput, buildBake, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp, wasmRemapFlags, WEB_STD, WEB_TOOLCHAIN, webToolchainEnv } from '../../scripts/app.mjs';
+import { webDist, copyShaders, bakeOutput, buildBake, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp, wasmRemapFlags, WEB_STD, WEB_TOOLCHAIN, webToolchainEnv } from '../../scripts/app.mjs';
 import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
-import { splitStages, unsplitReason } from './stages.mjs';
+import { BINARYEN_DOWNLOAD, splitStages, unsplitReason } from './stages.mjs';
 import { appManifestDigest, copyStaticTreeIfPresent, listAssets, publicFileCards, webEnvelope, moduleCards, MODULE_FILES } from './serve.mjs';
 
 const app = resolveApp(process.argv[2]);
@@ -27,7 +27,7 @@ const kib = (n) => `${(n / 1024).toFixed(0)} KiB`;
 const root = resolve(new URL('../..', import.meta.url).pathname);
 // `EXACT_WEB_DIST` names another output directory: `exact deploy` bakes into a
 // run-specific one and never publishes from the dev server's shared dist/.
-const dist = process.env.EXACT_WEB_DIST ? resolve(process.env.EXACT_WEB_DIST) : resolve(root, 'host/web/dist');
+const dist = webDist();
 const previous = `${dist}.previous`;
 // A hard stop can land after dist moved aside but before the completed stage
 // took its place. Restore the prior complete build before doing slow work;
@@ -73,7 +73,7 @@ const out = resolve(stage, 'app.wasm');
 const named = resolve(stage, 'app.named.wasm');
 const opt = spawnSync('wasm-opt', ['-Oz', '--one-caller-inline-max-function-size', '20', '--always-inline-max-function-size', '6', '--converge', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', keepNames || !unsplit ? '-g' : '--strip-debug', '--strip-producers', '-o', unsplit ? out : named, built], { stdio: 'inherit' });
 let optNote;
-if (opt.error?.code === 'ENOENT') { copyFileSync(built, out); optNote = 'wasm-opt not on PATH (brew install binaryen): shipped unoptimized'; }
+if (opt.error?.code === 'ENOENT') { copyFileSync(built, out); optNote = `wasm-opt not on PATH (binaryen: brew install binaryen, or ${BINARYEN_DOWNLOAD}): shipped unoptimized`; }
 else if (opt.status !== 0) process.exit(opt.status ?? 1);
 else if (unsplit) optNote = `wasm-opt -Oz; unsplit: ${unsplit}`;
 else {
@@ -346,4 +346,4 @@ try {
 rmSync(previous, { recursive: true, force: true });
 const textFlowWasm = readFileSync(resolve(dist, 'textflow.wasm'));
 const markdownEditor = readFileSync(resolve(dist, 'markup-editor.wasm'));
-console.log(`host/web/dist: app.wasm ${kib(wasm.length)} (${kib(gzipSync(wasm, { level: 9 }).length)} gzip; ${optNote}), index.html, glue.js, app.plan ${kib(planBytes.length)}, exact.json; documents: ${documentNote}; GPU: ${gpuNote}; markup-editor.wasm ${kib(markdownEditor.length)} (${kib(gzipSync(markdownEditor, { level: 9 }).length)} gzip), on demand; textflow.wasm ${kib(textFlowWasm.length)} (${kib(gzipSync(textFlowWasm, { level: 9 }).length)} gzip), on demand`);
+console.log(`${relative(process.cwd(), dist) || "."}: app.wasm ${kib(wasm.length)} (${kib(gzipSync(wasm, { level: 9 }).length)} gzip; ${optNote}), index.html, glue.js, app.plan ${kib(planBytes.length)}, exact.json; documents: ${documentNote}; GPU: ${gpuNote}; markup-editor.wasm ${kib(markdownEditor.length)} (${kib(gzipSync(markdownEditor, { level: 9 }).length)} gzip), on demand; textflow.wasm ${kib(textFlowWasm.length)} (${kib(gzipSync(textFlowWasm, { level: 9 }).length)} gzip), on demand`);

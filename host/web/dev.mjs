@@ -34,7 +34,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { resolve } from 'node:path';
 import { rustPackage, rustOutput, rustInputs, rustCards } from '../../scripts/rust.mjs';
 import { gpuModules, shaderWatchRoots, rustPolicy, rebuildPolicy } from '../../scripts/app.mjs';
-import { cargoReproducibilityFlags, compilerPaths, developmentBuildEnv, developmentCandidate, pendingBuildInputs, readBuilds, resolveApp } from '../../scripts/app.mjs';
+import { webDist, cargoReproducibilityFlags, compilerPaths, developmentBuildEnv, developmentCandidate, pendingBuildInputs, readBuilds, resolveApp } from '../../scripts/app.mjs';
 import { developmentLinks, phones, simulators } from '../apple/build.mjs';
 import { webRequestURL } from '../../scripts/origin.mjs';
 import { applyShaderTreeChange, sendStaticBody, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
@@ -52,7 +52,7 @@ const host = lan ? '0.0.0.0' : '127.0.0.1';
 const origins = installBrowserOrigins({ host, port });
 const gate = developmentGate(origins, port);
 const root = resolve(new URL('../..', import.meta.url).pathname);
-const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(root, 'host/web/dist'));
+const dist = webDist();
 const source = resolve(app.dir, 'app.contract');
 let typescript = existsSync(resolve(app.dir, 'app.ts'));
 let portableRust = Boolean(rustPackage(app)) && rustPolicy(app.manifest, 'web') !== 'off';

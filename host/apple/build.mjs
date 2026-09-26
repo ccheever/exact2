@@ -416,6 +416,20 @@ export const entitlements = (app, team) => {
   return plistFile(dict);
 };
 
+/** Build with Xcode when `xcode-select` names the Command Line Tools, which
+ * carry no iOS SDK (LLP 1054 O2): the iOS build otherwise fails deep in a
+ * crate's build script with `SDK "iphonesimulator" cannot be located`. An
+ * explicit `DEVELOPER_DIR` is kept. */
+export function useXcode() {
+  if (process.platform !== 'darwin' || process.env.DEVELOPER_DIR) return;
+  const selected = spawnSync('xcode-select', ['-p'], { encoding: 'utf8' }).stdout?.trim() ?? '';
+  const xcode = '/Applications/Xcode.app/Contents/Developer';
+  if (selected.includes('CommandLineTools') && existsSync(xcode)) {
+    process.env.DEVELOPER_DIR = xcode;
+    console.log(`host/apple: xcode-select names the Command Line Tools (${selected}); building with ${xcode}`);
+  }
+}
+
 /** The iOS `Info.plist` from the manifest (LLP 1030 D2: one declaration; `build.mjs` consumes what it generates). The dev client's local-networking permission is `host.ios.localNetworking` (a string: the prompt); the store-required version numbers are counters bake owns, not authored. */
 export const infoPlist = (app, device = false, { executable = 'ExactIOS', id = app.id, name = app.displayName, development = null, icon = {} } = {}) => {
   const ios = app.manifest.host?.ios ?? {};
@@ -974,6 +988,7 @@ function test(args) {
 
 if (process.argv[1] && resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
   const args = process.argv.slice(2);
+  useXcode();
   try { if (args.includes('--test')) test(args); else main(args); }
   catch (error) { console.error(error.message); process.exitCode = 1; }
 }
