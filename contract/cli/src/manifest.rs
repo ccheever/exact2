@@ -382,8 +382,44 @@ fn validate_placement_policy(value: &serde_json::Value) -> Result<(), String> {
                     }
                 }
             }
+            // Mounted TypeScript directories: the bake resolves and checks them (`js/bake` `mounts`).
+            "sources" => {
+                value
+                    .as_object()
+                    .ok_or("typescript.sources must be an object of name to directory")?;
+            }
             other => return Err(format!("invalid typescript policy key: {other}")),
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod placement_tests {
+    use super::Manifest;
+
+    fn manifest(json: serde_json::Value) -> Manifest {
+        Manifest {
+            json,
+            id: "test.app".into(),
+            name: "Test".into(),
+            declared: true,
+        }
+    }
+
+    /// A mounted source directory is the bake's to check, not a placement key.
+    #[test]
+    fn typescript_sources_sit_beside_the_placement() {
+        let m = manifest(
+            serde_json::json!({"typescript": {"placement": "worker", "sources": {"core": "../core"}}}),
+        );
+        assert_eq!(m.placement("typescript", "ios").unwrap(), "worker");
+        let bad = manifest(serde_json::json!({"typescript": {"sources": ["../core"]}}));
+        assert!(bad
+            .placement("typescript", "ios")
+            .unwrap_err()
+            .contains("typescript.sources"));
+        let unknown = manifest(serde_json::json!({"typescript": {"elsewhere": 1}}));
+        assert!(unknown.placement("typescript", "ios").is_err());
+    }
 }
