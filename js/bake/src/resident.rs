@@ -3,7 +3,7 @@ use super::{bake_in, compile_bytecode, BakeMode, Baked, Scratch, Seed, Tools};
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{Child, ChildStdin, ChildStdout, Stdio};
 
 /// Sequential development bakes over one private captured graph. Every request
 /// still runs strict diagnostics, bundling, HBC compilation and the normal bake.
@@ -65,7 +65,7 @@ pub(super) struct Compiler {
 }
 impl Compiler {
     fn new(root: &Path, stage: &Path) -> Result<Self, String> {
-        let mut child = Command::new("bun")
+        let mut child = exact_bake::bun()
             .args(["--input-type=module", "-e", WORKER])
             .arg(stage)
             .current_dir(root)

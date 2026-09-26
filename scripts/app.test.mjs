@@ -836,3 +836,24 @@ test('declared shader packs merge, reject duplicates and links, and preserve a r
     assert.throws(()=>shaderFiles(app));
   } finally { rmSync(dir,{recursive:true,force:true}); }
 });
+
+test('a build env keeps the pinned toolchain and the checked Bun ahead of ambient ones', async () => {
+  const { developmentBuildEnv } = await import('./app.mjs');
+  const { readFileSync } = await import('node:fs');
+  const { delimiter, dirname, resolve } = await import('node:path');
+  const pinned = /^channel\s*=\s*"([^"]+)"/m.exec(readFileSync(resolve(import.meta.dir, '../rust-toolchain.toml'), 'utf8'))[1];
+  const previous = process.env.RUSTUP_TOOLCHAIN;
+  try {
+    process.env.RUSTUP_TOOLCHAIN = 'stable'; // What `mise exec` exports.
+    assert.equal(developmentBuildEnv().RUSTUP_TOOLCHAIN, undefined);
+    for (const same of [pinned, `${pinned}-aarch64-apple-darwin`]) {
+      process.env.RUSTUP_TOOLCHAIN = same;
+      assert.equal(developmentBuildEnv().RUSTUP_TOOLCHAIN, same);
+    }
+    delete process.env.RUSTUP_TOOLCHAIN;
+    const env = developmentBuildEnv();
+    assert.equal(env.RUSTUP_TOOLCHAIN, undefined);
+    assert.equal(env.PATH.split(delimiter)[0], dirname(process.execPath));
+    assert.equal(env.EXACT_UPDATE_TRUST, process.env.EXACT_UPDATE_TRUST ?? 'development');
+  } finally { if (previous === undefined) delete process.env.RUSTUP_TOOLCHAIN; else process.env.RUSTUP_TOOLCHAIN = previous; }
+});

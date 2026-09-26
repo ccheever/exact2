@@ -34,6 +34,7 @@ use std::process::Command;
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(exact_js_engine)");
     for var in [
+        "BUN",
         "EXACT_JS_ENGINE",
         "EXACT_HERMES_DIR",
         "EXACT_HERMES_IOS_DIR",
@@ -290,7 +291,8 @@ fn main() {
                     .any(|word| matches!(word.rsplit('/').next(), Some("node" | "bun")))
         });
         let mut bundler = if javascript {
-            let mut command = Command::new("bun");
+            // `BUN` names the Bun to run it with, else the first on PATH.
+            let mut command = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()));
             command.arg(&rolldown);
             command
         } else {
