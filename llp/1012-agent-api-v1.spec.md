@@ -442,7 +442,8 @@ the transcript fixture renders byte-equal (§7); the five landmarks and
 "Mountain View"; the root's width equals the viewport's; the logo's box is
 96×36 (polled, up to 2 s — image decode is host I/O); after `clock +60000`
 **every** countdown still shown is one less, `state.clock` is 60 000,
-`nowMs` moved by 60 000, and the journal shows `advance → 60 timers fired`;
+`nowMs` moved by 60 000, and the journal's advances in that seek fire sixty
+timers in all (one line per due time: a host steps a jump, LLP 1016 D5);
 `tap change-station` shows the stations screen; `type station-search Palo`
 leaves the field's value and the `query` slot at `"Palo"` and exactly one
 match, `station-paloalto`; tapping it makes the station "Palo Alto" and

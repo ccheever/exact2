@@ -579,7 +579,12 @@ try {
     let state = await s.state();
     check(state.clock === 60000 && state.slots.nowMs === 1787915400000 + 60000, `state after +60 s: clock ${state.clock}, nowMs ${state.slots.nowMs}`);
     journal = await s.logs();
-    check(journal.lines.some((l) => /advance → 60 timers fired/.test(l)), 'the journal does not show sixty timers firing from one seek');
+    // The host takes a jump due time by due time (a timer's reply lands
+    // before the next fires), so the seek journals one advance per step;
+    // together they fire sixty, the last at the seek's end.
+    const fired = journal.lines.map((l) => /^t=(\d+) advance → (\d+) timers? fired/.exec(l)).filter((m) => m && Number(m[1]) > 0 && Number(m[1]) <= 60000);
+    const firedSum = fired.reduce((n, m) => n + Number(m[2]), 0);
+    check(firedSum === 60 && fired.at(-1)?.[1] === '60000', `the journal does not show sixty timers firing from one seek: ${firedSum} across ${fired.length} advances`);
 
   // 4. One interaction through the host's real input path: change station,
   // search, pick, home.
