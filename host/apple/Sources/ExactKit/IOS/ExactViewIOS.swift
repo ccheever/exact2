@@ -30,7 +30,8 @@ public final class ExactView: UIView {
     public init(session: ExactSession) {
         self.session = session
         super.init(frame: .zero)
-        backgroundColor = .white
+        // The launch screen's colour (the manifest's `launch`) until the first frame names the canvas.
+        backgroundColor = UIColor(named: "ExactLaunch") ?? .white
         addSubview(session.presenter.viewport)
         keyboardObserver = NotificationCenter.default.addObserver(
             forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { [weak self] _ in

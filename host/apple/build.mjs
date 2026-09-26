@@ -535,6 +535,38 @@ export function appIcon(app, dir, platform) {
   return { CFBundleIconFile: 'AppIcon' };
 }
 
+/** The launch screen in the app's own background, light and dark
+ * (`launch`, else the manifest's `background_color`): iOS crossfades
+ * from the launch screen to the first frame, and between two screens of one
+ * colour that crossfade is invisible, so the app opens on its first frame.
+ * `UILaunchScreen` names colours only from an asset catalog, so this
+ * compiles one (`actool`) into the bundle. Returns the plist keys to merge. */
+export function launchScreen(app, dir, device) {
+  const launch = app.manifest.launch ?? {};
+  const light = launch.background ?? app.manifest.background_color;
+  if (!light) return {};
+  const components = (hex, field) => {
+    const m = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(hex ?? '');
+    if (!m) throw new Error(`launch.${field} must be a #RGB, #RRGGBB or #RRGGBBAA colour, not ${JSON.stringify(hex)}`);
+    const h = m[1].length === 3 ? [...m[1]].map((c) => c + c).join('') : m[1];
+    const a = h.length === 8 ? parseInt(h.slice(6), 16) : 255;
+    return { 'color-space': 'srgb', components: { red: `0x${h.slice(0, 2)}`, green: `0x${h.slice(2, 4)}`, blue: `0x${h.slice(4, 6)}`, alpha: (a / 255).toFixed(3) } };
+  };
+  const colors = [{ idiom: 'universal', color: components(light, 'background') }];
+  if (launch.backgroundDark) colors.push({ idiom: 'universal', appearances: [{ appearance: 'luminosity', value: 'dark' }], color: components(launch.backgroundDark, 'backgroundDark') });
+  const work = mkdtempSync(resolve(tmpdir(), 'exact-launch-'));
+  try {
+    const catalog = resolve(work, 'Launch.xcassets');
+    mkdirSync(resolve(catalog, 'ExactLaunch.colorset'), { recursive: true });
+    writeFileSync(resolve(catalog, 'Contents.json'), JSON.stringify({ info: { author: 'exact', version: 1 } }));
+    writeFileSync(resolve(catalog, 'ExactLaunch.colorset', 'Contents.json'), JSON.stringify({ colors, info: { author: 'exact', version: 1 } }));
+    run('xcrun', ['actool', catalog, '--compile', dir, '--platform', device ? 'iphoneos' : 'iphonesimulator',
+      '--minimum-deployment-target', app.manifest.host?.ios?.minimumOS ?? '17.0',
+      '--output-partial-info-plist', resolve(work, 'partial.plist')], { stdio: 'ignore' });
+  } finally { rmSync(work, { recursive: true, force: true }); }
+  return { UILaunchScreen: { UIColorName: 'ExactLaunch' } };
+}
+
 /** The macOS `Info.plist` for a bundled build, from the same manifest. */
 export const macInfoPlist = (app, { development = null, icon = {} } = {}) => plistFile({
   ...icon,
@@ -890,7 +922,7 @@ function main(args) {
   // with the module before a surface is created, never strings in the dylib.
   copyAppleStaticTrees(paths.capture, bundle);
   verifyBakeFiles(bakedCompat, bakedPlan, listAssets(bundle, true));
-  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, icon: appIcon(app, bundle, 'ios') }));
+  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, icon: { ...appIcon(app, bundle, 'ios'), ...launchScreen(app, bundle, device) } }));
   if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(bundle, 'Frameworks', loadName));
   for (const m of moduleDylibs) copyFileSync(resolve(libDir, m.built), resolve(bundle, 'Frameworks', m.load));
   copyFileSync(webBuilt, resolve(bundle, 'Frameworks', webLoadName));

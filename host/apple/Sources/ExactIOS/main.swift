@@ -123,10 +123,13 @@ func agentReady() {
 
 /// The one screen: the view fills the controller's view; the plan boots at
 /// the view's first layout (`ExactView.fit`).
+/// The build's launch colour (the manifest's `launch`), else white.
+let launchColor = UIColor(named: "ExactLaunch") ?? .white
+
 final class Controller: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .white
+        view.backgroundColor = launchColor
         exactView.frame = view.bounds
         exactView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(exactView)
@@ -220,7 +223,9 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         if let url = incoming, !ExactDevelopmentLink.claims(url) { ExactIOS.session.openURL(url) }
         ExactEnv.stamp("before boot")
         let w = UIWindow(windowScene: ws)
-        w.backgroundColor = .white
+        // The launch screen's colour until the first frame names the canvas,
+        // so nothing lighter or darker shows between them.
+        w.backgroundColor = launchColor
         adapter.window = w
         exactView = ExactView(session: ExactIOS.session)
         // The root's background into the safe areas (`Presenter.paintCanvas`).
