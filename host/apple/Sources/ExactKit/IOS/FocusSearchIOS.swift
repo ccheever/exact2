@@ -8,11 +8,14 @@
 // map of the window, every view's frame and eligibility. A list scrolling
 // slowly built, parked and took back rows all the time and paid that
 // search for each one — 13% of the main thread on an M1 iPad Pro at
-// 1k pt/s — and found nothing each time. So exact2's containers answer the
-// search with no items unless a view UIKit can focus may be in the window:
-// anything exact2 did not make itself (a field, a text area, a web view, a
-// segmented control, a menu's button, a swipe's table, a platform view).
-// Then the search is UIKit's own, as before.
+// 1k pt/s, and one 20-40 ms frame a second once its throttle backed off —
+// and found nothing each time. So the viewport, the one way into a
+// session's views, answers the search with no items unless a view UIKit
+// can focus may be in the window: anything exact2 did not make itself (a
+// field, a text area, a web view, a segmented control, a menu's button, a
+// swipe's table, a platform view). Then the search is UIKit's own, as
+// before. Only the viewport answers: UIKit logs, at every init, each view
+// of a class that answers `focusItems(in:)`.
 #if os(iOS)
 import UIKit
 
@@ -31,9 +34,13 @@ enum FocusSearch {
     }
 
     /// The child focus items `container` gives UIKit's focus search.
-    static func items(_ container: UIView, _ own: () -> [any UIFocusItem]) -> [any UIFocusItem] {
+    fileprivate static func items(_ container: UIView, _ own: () -> [any UIFocusItem]) -> [any UIFocusItem] {
         guard let window = container.window, candidates.allObjects.contains(where: { $0.window === window }) else { return [] }
         return own()
     }
+}
+/// A session's viewport (`Presenter.viewport`), which answers the search.
+final class Viewport: ScrollView {
+    override func focusItems(in rect: CGRect) -> [any UIFocusItem] { FocusSearch.items(self) { super.focusItems(in: rect) } }
 }
 #endif

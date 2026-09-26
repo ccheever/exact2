@@ -17,7 +17,6 @@ import UIKit
 /// the touch reaches what holds it (the canvas, the viewport).
 final class PlainView: UIView {
     override func didAddSubview(_ subview: UIView) { super.didAddSubview(subview); FocusSearch.joined(subview) }
-    override func focusItems(in rect: CGRect) -> [any UIFocusItem] { FocusSearch.items(self) { super.focusItems(in: rect) } }
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard !isHidden, isUserInteractionEnabled, bounds.contains(point) else { return nil }
         for sub in subviews.reversed() {
@@ -33,8 +32,7 @@ final class PlainView: UIView {
 /// its edge). Which axes it scrolls comes from the node's rows; a tap's
 /// wheel (the agent's) applies the web's chaining rule itself
 /// (`AgentIOS.swift`).
-final class ScrollView: UIScrollView {
-    override func focusItems(in rect: CGRect) -> [any UIFocusItem] { FocusSearch.items(self) { super.focusItems(in: rect) } }
+class ScrollView: UIScrollView {
     var scrollsX = true
     var scrollsY = true
     override func touchesShouldCancel(in view: UIView) -> Bool {
@@ -351,9 +349,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// A node with focus, blur, or key handlers takes the focus (an input's
     /// field does by itself): the web's rule that only a focusable element
     /// hears these. Keys come from a hardware keyboard (`pressesBegan`).
-    /// UIKit's focus search sees what UIKit can focus (`FocusSearch`).
+    /// UIKit's focus search finds what UIKit can focus (`FocusSearch`).
     override func didAddSubview(_ subview: UIView) { super.didAddSubview(subview); FocusSearch.joined(subview) }
-    override func focusItems(in rect: CGRect) -> [any UIFocusItem] { FocusSearch.items(self) { super.focusItems(in: rect) } }
     override var canBecomeFirstResponder: Bool { !disabled && !inert && field == nil && textArea == nil && (kind == "button" || canvases?.wantsInput(id) == true || !handlers.isDisjoint(with: ["focus", "blur", "key"])) }
     override func becomeFirstResponder() -> Bool {
         guard !disabled, !inert else { return false }

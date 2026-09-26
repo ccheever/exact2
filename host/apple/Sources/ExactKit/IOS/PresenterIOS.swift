@@ -18,7 +18,7 @@ final class Presenter {
     /// The document: the roots live here, content-sized like a page.
     let root = PlainView(frame: .zero)
     /// The viewport over it: the window's content, scrolling like a browser's.
-    let viewport = ScrollView(frame: .zero)
+    let viewport: ScrollView = Viewport(frame: .zero)
     var views: [UInt32: NodeView] = [:]
     private(set) var chrome = ChromeIndex()
     func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props); view.updateReorderGesture() }
