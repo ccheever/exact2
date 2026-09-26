@@ -81,6 +81,9 @@ impl<D: DataSource> DataSource for Anonymous<D> {
     fn bind(&mut self, plan: &Plan) {
         self.inner.bind(plan);
     }
+    fn adopt(&mut self, source: &str, args: &[Value], value: &Value) {
+        self.inner.adopt(source, args, value);
+    }
     fn ready(&self) -> bool {
         self.inner.ready()
     }

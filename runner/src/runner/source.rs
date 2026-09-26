@@ -258,6 +258,18 @@ pub trait DataSource {
         let _ = plan;
     }
 
+    /// A value the runner holds for `source(args)` that this instance did
+    /// not answer: the plan's compiled value, which a resource takes at
+    /// boot instead of asking (LLP 1027 D11). It is the bake's answer to
+    /// the same query, so a source that keeps its own copy of what it
+    /// answers may keep this one — cloning shares its allocations — instead
+    /// of building it again. Told once per resource that takes it, after
+    /// the settlement that published it. Nothing the runner does depends on
+    /// whether a source adopts; the default forgets it.
+    fn adopt(&mut self, source: &str, args: &[Value], value: &Value) {
+        let _ = (source, args, value);
+    }
+
     /// After a commit that let requests go, the ones still in flight. A
     /// request is let go when newer arguments replace it (LLP 1016 D5), when
     /// its target is answered now or assigned, when the runner is poisoned,

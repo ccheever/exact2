@@ -770,6 +770,14 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
         self.rust.bind(plan);
     }
 
+    fn adopt(&mut self, source: &str, args: &[Value], value: &Value) {
+        match self.owner(source) {
+            Ok(true) => self.rust.adopt(source, args, value),
+            Ok(false) => self.javascript.adopt(source, args, value),
+            Err(_) => {}
+        }
+    }
+
     fn activate(&mut self) -> Result<(), DataError> {
         self.javascript.activate()?;
         self.rust.activate()

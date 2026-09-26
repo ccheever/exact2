@@ -283,6 +283,12 @@ impl<D: DataSource> DataSource for Swappable<D> {
             self.plan = Some(plan.encode());
         }
     }
+    /// A replaced module is not told: its values cross as copies.
+    fn adopt(&mut self, source: &str, args: &[Value], value: &Value) {
+        if let Some(embedded) = &mut self.embedded {
+            embedded.adopt(source, args, value);
+        }
+    }
     fn activate(&mut self) -> Result<(), DataError> {
         if let Some(embedded) = &mut self.embedded {
             embedded.activate()

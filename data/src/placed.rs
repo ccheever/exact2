@@ -425,6 +425,14 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
         }
     }
 
+    /// A source on a worker is not told: a value reaches it only as a copy,
+    /// which is what adopting saves (LLP 1027 D11).
+    fn adopt(&mut self, source: &str, args: &[Value], value: &Value) {
+        if let Some(inner) = self.inner.as_mut() {
+            inner.adopt(source, args, value);
+        }
+    }
+
     fn configure_storage(
         &mut self,
         data: std::path::PathBuf,

@@ -73,6 +73,14 @@ macro_rules! configured {
             fn bind(&mut self, plan: &$crate::exact_plan::Plan) {
                 $crate::exact_runner::DataSource::bind(&mut self.0, plan)
             }
+            fn adopt(
+                &mut self,
+                source: &str,
+                args: &[$crate::exact_plan::Value],
+                value: &$crate::exact_plan::Value,
+            ) {
+                $crate::exact_runner::DataSource::adopt(&mut self.0, source, args, value)
+            }
             fn activate(&mut self) -> Result<(), $crate::exact_runner::DataError> {
                 $crate::exact_runner::DataSource::activate(&mut self.0)
             }

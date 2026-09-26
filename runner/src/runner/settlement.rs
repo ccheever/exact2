@@ -195,6 +195,9 @@ impl<D: DataSource> Runner<D> {
         let mut states: Vec<Option<ResourceState>> = self.resources.clone();
         effects.clear();
         effects.resize_with(states.len(), || RequestEffect::None);
+        // Which resources took their compiled value in this settlement: each
+        // source is told once it is published (LLP 1027 D11).
+        let mut adopted = vec![false; states.len()];
         let mut passes = 0usize;
         loop {
             passes += 1;
@@ -383,6 +386,9 @@ impl<D: DataSource> Runner<D> {
                     // successful reuse skips validation; fresh/baked/fallback
                     // answers still cross the shape boundary below.
                     let reused = reuse.is_some();
+                    // A reused value keeps what an earlier pass recorded;
+                    // anything else is recorded by the branch that takes it.
+                    let compiled = std::mem::replace(&mut adopted[i], false);
                     let value = match reuse {
                         Some(v) => v,
                         None if (boot || !self.data.ready())
@@ -414,6 +420,7 @@ impl<D: DataSource> Runner<D> {
                                 self.stale[i] = true;
                             }
                             awaiting[i] = false;
+                            adopted[i] = true;
                             Value::from_bytes(self.plan.bytes(row.initial))
                                 .map_err(RunnerError::Plan)?
                         }
@@ -495,6 +502,7 @@ impl<D: DataSource> Runner<D> {
                         }
                     };
                     let value = if reused {
+                        adopted[i] = compiled;
                         value
                     } else {
                         self.check_shape(i, &value)?;
@@ -554,6 +562,7 @@ impl<D: DataSource> Runner<D> {
             self.resource_values = resources;
             self.resources = states;
             self.awaiting = awaiting;
+            self.adopt(&adopted);
             for (i, effect) in effects.iter().enumerate() {
                 if matches!(effect, RequestEffect::Answered) {
                     self.forget(Target::Resource(i));
@@ -573,6 +582,23 @@ impl<D: DataSource> Runner<D> {
             // The flags follow the tickets and what awaits its source.
             self.sync_pending_flags();
             return Ok(());
+        }
+    }
+
+    /// Hand each source the compiled value its resource just took, with the
+    /// arguments the bake answered it for (LLP 1027 D11): the one decoded
+    /// copy, shared.
+    fn adopt(&mut self, adopted: &[bool]) {
+        for (i, _) in adopted.iter().enumerate().filter(|(_, a)| **a) {
+            let row = &self.plan.resources[i];
+            let (Ok(Value::List(args)), Some(state)) = (
+                Value::from_bytes(self.plan.bytes(row.initial_args)),
+                self.resources[i].as_ref(),
+            ) else {
+                continue;
+            };
+            self.data
+                .adopt(self.plan.str(row.source), &args, &state.value);
         }
     }
 }
@@ -603,6 +629,7 @@ mod tests {
         bad_guard: bool,
         write_on_parse: bool,
         read_store: bool,
+        adopted: Vec<(String, Vec<Value>, Value)>,
     }
 
     impl Data {
@@ -615,6 +642,7 @@ mod tests {
                 bad_guard: false,
                 write_on_parse: false,
                 read_store: false,
+                adopted: Vec::new(),
             }
         }
     }
@@ -662,6 +690,10 @@ mod tests {
 
         fn ready(&self) -> bool {
             self.ready
+        }
+        fn adopt(&mut self, source: &str, args: &[Value], value: &Value) {
+            self.adopted
+                .push((source.to_string(), args.to_vec(), value.clone()));
         }
         fn grants(&self) -> &str {
             "secret.keep token\n"
@@ -816,6 +848,39 @@ mod tests {
             ));
             assert_eq!(checks(), 1);
         }
+    }
+
+    #[test]
+    fn a_compiled_value_is_adopted_once_as_the_runner_holds_it() {
+        let baked = records(3);
+        let mut r = boot(
+            plan(TypeKind::Number, Some(&baked), false, false),
+            Data::new(records(5)),
+        );
+        assert_eq!(r.data().queries, 0, "the compiled value answers boot");
+        let adopted = std::mem::take(&mut r.data().adopted);
+        assert_eq!(adopted.len(), 1);
+        let (source, args, value) = &adopted[0];
+        assert_eq!(
+            (source.as_str(), args.as_slice()),
+            ("rows", &[Value::Number(0.)][..])
+        );
+        let (Value::List(given), Some(Value::List(held))) = (value, r.resource("rows")) else {
+            panic!()
+        };
+        assert!(Rc::ptr_eq(given, held), "the one decoded copy, shared");
+        tick(&mut r);
+        r.act("change", vec![Value::Number(1.)]).unwrap();
+        assert_eq!(r.data().queries, 1, "new arguments ask the source");
+        assert!(r.data().adopted.is_empty(), "an answer is never adopted");
+        let fresh = boot(
+            plan(TypeKind::Number, None, false, false),
+            Data::new(records(3)),
+        );
+        assert!(
+            fresh.data.adopted.is_empty(),
+            "nothing compiled, nothing adopted"
+        );
     }
 
     #[test]

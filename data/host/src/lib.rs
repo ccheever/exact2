@@ -182,6 +182,9 @@ impl<D: DataSource> DataSource for Storage<D> {
     fn bind(&mut self, plan: &Plan) {
         self.source.bind(plan)
     }
+    fn adopt(&mut self, source: &str, args: &[Value], value: &Value) {
+        self.source.adopt(source, args, value)
+    }
     fn ready(&self) -> bool {
         self.active && self.source.ready()
     }
