@@ -755,8 +755,19 @@ impl Parser {
         self.expect_word("as")?;
         self.expect_word("shape")?;
         let shape = self.type_expr()?;
+        let then = if self.at_ident("then") {
+            let then_span = self.next().span;
+            Some(self.named_ident(then_span).map(|name| (name, then_span))?)
+        } else {
+            None
+        };
         self.newline()?;
-        Ok(MutationDecl { name, shape, span })
+        Ok(MutationDecl {
+            name,
+            shape,
+            then,
+            span,
+        })
     }
 
     fn action(&mut self) -> R<Action> {

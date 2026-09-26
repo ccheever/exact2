@@ -403,8 +403,18 @@ impl PlanBuilder {
     /// the source is named at each `send`.
     pub fn mutation(&mut self, name: &str, slot: SlotsId, ty: TypesId) -> MutationsId {
         let name = self.str(name);
-        self.plan.mutations.push(MutationsRow { name, slot, ty });
+        self.plan.mutations.push(MutationsRow {
+            name,
+            slot,
+            ty,
+            then: None,
+        });
         MutationsId(self.plan.mutations.len() as u32 - 1)
+    }
+
+    /// The action run after each of `mutation`'s answers lands.
+    pub fn set_mutation_then(&mut self, mutation: MutationsId, action: ActionsId) {
+        self.plan.mutations[mutation.0 as usize].then = Some(action);
     }
 
     /// A data-source signature (LLP 1027 D2): the parameter types and the

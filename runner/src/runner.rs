@@ -252,6 +252,12 @@ pub struct Runner<D: DataSource> {
     /// `pending` as flags, by resource and by mutation, for expressions.
     pending_res: Vec<bool>,
     pending_mut: Vec<bool>,
+    /// Mutations whose answer landed in the commit being made; their `then`
+    /// actions are armed once it stands (LLP 1016.001).
+    landed: Vec<usize>,
+    /// When each mutation's `then` action is due, as a one-shot timer:
+    /// infinite until an answer lands.
+    then_due: Vec<f64>,
     next_ticket: u64,
     /// Second edges waiting for the first action's async targets to settle.
     deferred_edges: Vec<(u32, Vec<Target>)>,
@@ -605,6 +611,8 @@ impl<D: DataSource> Runner<D> {
             pending: Vec::new(),
             pending_res: Vec::new(),
             pending_mut: Vec::new(),
+            landed: Vec::new(),
+            then_due: Vec::new(),
             next_ticket: 1,
             forgot: false,
             refused_asks: Vec::new(),
@@ -716,6 +724,7 @@ impl<D: DataSource> Runner<D> {
         runner.resource_values = vec![None; runner.plan.resources.len()];
         runner.pending_res = vec![false; runner.plan.resources.len()];
         runner.pending_mut = vec![false; runner.plan.mutations.len()];
+        runner.then_due = vec![f64::INFINITY; runner.plan.mutations.len()];
         runner.now_ms = now_ms;
         // A carried boot never takes compiled data: it was baked for the
         // initial state, and the carried state is not that.
@@ -940,7 +949,7 @@ impl<D: DataSource> Runner<D> {
 
     /// Whether the plan has timers (a host then drives `advance`).
     pub fn has_timers(&self) -> bool {
-        !self.plan.timers.is_empty()
+        !self.plan.timers.is_empty() || self.plan.mutations.iter().any(|m| m.then.is_some())
     }
 
     /// Soonest timer deadline in this runner's clock domain; no host polling.
@@ -949,6 +958,7 @@ impl<D: DataSource> Runner<D> {
         self.timers
             .iter()
             .map(|timer| timer.next_ms)
+            .chain(self.then_due.iter().copied())
             .filter(|ms| ms.is_finite())
             .reduce(f64::min)
     }

@@ -506,6 +506,9 @@ impl<'a> Resolver<'a> {
             }
             for m in &c.mutations {
                 self.ty(&m.shape);
+                if let Some((name, span)) = &m.then {
+                    self.name(name, self.file.names.name(*span));
+                }
             }
             for (ai, a) in c.actions.iter().enumerate() {
                 self.owner = Some(a.name.clone());

@@ -191,6 +191,11 @@
         {
           "name": "ty",
           "codec": "idx:types"
+        },
+        {
+          "name": "then",
+          "codec": "opt:actions",
+          "_comment": "The action a `mutation … then action` runs after each answer lands, as its own commit (LLP 1016.001). None: nothing runs."
         }
       ]
     },

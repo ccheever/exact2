@@ -209,6 +209,7 @@ pub fn check_all(checked: &Checked<'_>) -> Result<Analysis, Vec<AnalyzeError>> {
             .map(|r| r.slot.as_str());
         check_actions(c, scoped, router, &mut errors);
         errors.extend(check_tasks(c).err());
+        errors.extend(check_mutation_then(c).err());
         errors.extend(check_view(&c.view, &scope, file).err());
     }
     errors.extend(check_controls(&expanded.root.view, false).err());
@@ -350,6 +351,36 @@ fn writes_of<'a>(stmts: &'a [Stmt], out: &mut Vec<(&'a String, &'a Span, &'stati
             Stmt::Command { .. } | Stmt::Refresh { .. } => {}
         }
     }
+}
+
+/// `mutation m as shape T then action` names an action that takes nothing:
+/// it reads the answer from `m`, as the view does (LLP 1016.001).
+fn check_mutation_then(c: &Component) -> Result<(), AnalyzeError> {
+    for m in &c.mutations {
+        let Some((name, span)) = &m.then else {
+            continue;
+        };
+        let Some(a) = c.actions.iter().find(|a| &a.name == name) else {
+            return err(
+                "analyze-unknown-action",
+                format!("`{name}` is not an action"),
+                *span,
+            );
+        };
+        if !a.params.is_empty() {
+            return err(
+                "analyze-handler-arity",
+                format!(
+                    "`{}` takes {} parameter(s); an answer passes none (read it from `{}`)",
+                    a.name,
+                    a.params.len(),
+                    m.name
+                ),
+                *span,
+            );
+        }
+    }
+    Ok(())
 }
 
 fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {

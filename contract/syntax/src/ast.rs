@@ -387,6 +387,8 @@ pub struct MutationDecl {
     pub name: String,
     /// The reply's shape, `T`.
     pub shape: TypeExpr,
+    /// `then action`: run after each answer lands (LLP 1016.001), and where.
+    pub then: Option<(String, Span)>,
     /// Where.
     pub span: Span,
 }

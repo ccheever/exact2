@@ -487,6 +487,12 @@ fn lower_with_sites(
         let code = l.b.code(asm);
         l.b.set_action_body(l.actions[i], code);
     }
+    for (i, m) in root.mutations.iter().enumerate() {
+        if let Some((name, _)) = &m.then {
+            let action = l.actions[root.actions.iter().position(|a| &a.name == name).unwrap()];
+            l.b.set_mutation_then(l.mutations[i], action);
+        }
+    }
     for t in &root.tasks {
         let word = match t.kind {
             TaskKind::Every => "every",

@@ -172,6 +172,57 @@ impl<D: DataSource> Runner<D> {
                     a.next_ms.partial_cmp(&b.next_ms).unwrap().then(ia.cmp(ib))
                 })
                 .map(|(i, t)| (i, t.next_ms));
+            // An answer's `then` goes before a timer due at the same time: the
+            // answer landed first.
+            let then = self
+                .then_due
+                .iter()
+                .enumerate()
+                .filter(|(_, at)| **at <= now_ms)
+                .min_by(|(ia, a), (ib, b)| a.partial_cmp(b).unwrap().then(ia.cmp(ib)))
+                .map(|(m, at)| (m, *at))
+                .filter(|(_, at)| due.is_none_or(|(_, timer)| *at <= timer));
+            if let Some((m, at)) = then {
+                if receipts.len() == TIMER_FIRE_LIMIT {
+                    return Advanced {
+                        receipts,
+                        now_ms: self.now_ms,
+                        error: Some(RunnerError::TimerFireLimit {
+                            limit: TIMER_FIRE_LIMIT,
+                        }),
+                    };
+                }
+                self.now_ms = self.now_ms.max(at);
+                self.then_due[m] = f64::INFINITY;
+                let action = self.plan.mutations[m].then.expect("armed only with a then");
+                let was_poisoned = self.poisoned;
+                let ticket = self.next_ticket;
+                match self.run_action(action, Vec::new(), &[]) {
+                    Ok(receipt) => receipts.push(Timed {
+                        at_ms: self.now_ms,
+                        receipt,
+                    }),
+                    Err(e) => {
+                        let what = format!(
+                            "{} then {}",
+                            self.plan.str(self.plan.mutations[m].name),
+                            self.plan.str(self.plan.action(action).name)
+                        );
+                        let failed = Err(e);
+                        self.log_outcome(&what, &failed, was_poisoned);
+                        return Advanced {
+                            receipts,
+                            now_ms: self.now_ms,
+                            error: failed.err(),
+                        };
+                    }
+                }
+                if until_request && self.next_ticket != ticket {
+                    landed = self.now_ms;
+                    break;
+                }
+                continue;
+            }
             let Some((i, at)) = due else { break };
             if receipts.len() == TIMER_FIRE_LIMIT {
                 return Advanced {
@@ -254,7 +305,21 @@ impl<D: DataSource> Runner<D> {
         let checkpoint = self.checkpoint(false);
         let result = self.run_action_inner(action, args, frames);
         self.conclude(checkpoint, &result, was_poisoned);
+        self.arm_then(result.is_ok());
         result
+    }
+
+    /// Arm the `then` action of each mutation answered in the commit just
+    /// made, if it stood. It runs as its own commit when the host next
+    /// advances the clock, which it does at once for a due time already
+    /// past (`timer_due_ms`): the answer's commit is never extended by
+    /// what it causes, and a refused `then` leaves the answer standing.
+    pub(super) fn arm_then(&mut self, stood: bool) {
+        for m in std::mem::take(&mut self.landed) {
+            if stood && self.plan.mutations[m].then.is_some() {
+                self.then_due[m] = self.now_ms;
+            }
+        }
     }
 
     /// Journal the store's writes from index `since`: the names, never the
@@ -347,6 +412,7 @@ impl<D: DataSource> Runner<D> {
                         }
                     };
                     answered.push((slot as u32, Value::some(v)));
+                    self.landed.push(m);
                 }
                 Answer::Later(request) => later.push((m, source.clone(), sargs.clone(), request)),
             }
@@ -630,6 +696,7 @@ impl<D: DataSource> Runner<D> {
         let (refused, target) = (p.refused, p.target);
         let result = self.fulfill_inner(p, outcome);
         self.conclude(checkpoint, &result, was_poisoned);
+        self.arm_then(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);
         if refused && result.is_err() && self.holds(ticket) {
             return self.release_refused(ticket, target);
@@ -692,6 +759,7 @@ impl<D: DataSource> Runner<D> {
             Target::Mutation(m) => {
                 let slot = self.mutation_slot(m)?;
                 self.slots[slot] = Value::some(value);
+                self.landed.push(m);
             }
         }
         self.router_change().and_then(|_| self.settle(false))?;

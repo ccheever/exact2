@@ -94,6 +94,7 @@ impl DataSource for Castle {
                 Ok(Value::record(vec![Value::Number(n)]))
             }
             "login" | "logout" => Err(DataError::Unavailable(format!("{source} answers later"))),
+            "greet" => Ok(session(true, args[0].as_str().unwrap_or(""), "")),
             other => Err(DataError::UnknownSource(other.into())),
         }
     }
@@ -807,5 +808,123 @@ fn a_baked_store_dependency_is_transitive_through_resource_arguments() {
     assert_eq!(
         r.resource("echoed"),
         Some(&Value::record(vec![Value::str("ada")]))
+    );
+}
+
+/// LLP 1016.001: `then` runs a named action after each answer lands, as a
+/// commit of its own that reads the answer from the mutation's slot.
+const THEN: &str = r#"
+shape Session
+  ok: bool
+  username: string
+  error: string
+
+component App
+  state who = "ada"
+  state greeted = ""
+  state landings = 0
+  mutation session as shape Session then signedIn
+  action submit writes session
+    send session = login(who, "pw")
+  action quick writes session
+    send session = greet(who)
+  action signedIn writes greeted, landings
+    landings = landings + 1
+    match session
+      case some(s)
+        greeted = s.ok ? `hello ${s.username}` : s.error
+      case none
+        greeted = "?"
+  view
+    column testId="app"
+      button press=submit aria-label="Log in" testId="login"
+        text "Log in"
+      button press=quick aria-label="Greet" testId="quick"
+        text "Greet"
+      text `${greeted}/${landings}` testId="greeted"
+"#;
+
+fn boot_then(later: bool) -> Runner<Castle> {
+    let baked = contract::bake(contract::compile(THEN).unwrap(), Castle::default()).unwrap();
+    Runner::boot(
+        baked,
+        Castle {
+            later,
+            ..Castle::default()
+        },
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap()
+}
+
+#[test]
+fn then_runs_after_a_later_answer_lands_as_its_own_commit() {
+    let mut r = boot_then(true);
+    assert_eq!(r.timer_due_ms(), None, "nothing is armed before an answer");
+    r.advance(10.0).unwrap();
+    r.dispatch(view_of(&r, "login"), Event::Press).unwrap();
+    let t = r.take_requests()[0].ticket;
+    assert_eq!(r.timer_due_ms(), None, "a request is not an answer");
+    r.fulfill(t, ok(200)).unwrap().unwrap();
+    // The answer's commit shows the answer and nothing it caused.
+    assert_eq!(text_of(&r, "greeted").as_deref(), Some("/0"));
+    // It is due at once; the host's next advance runs it.
+    assert_eq!(r.timer_due_ms(), Some(10.0));
+    let commits = r.advance(10.0).unwrap();
+    assert_eq!(commits.len(), 1);
+    assert_eq!(text_of(&r, "greeted").as_deref(), Some("hello ada/1"));
+    assert_eq!(r.timer_due_ms(), None, "spent until the next answer");
+    assert!(r.advance(20.0).unwrap().is_empty());
+    // A failure the source shapes is an answer too.
+    r.dispatch(view_of(&r, "login"), Event::Press).unwrap();
+    let t = r.take_requests()[0].ticket;
+    r.fulfill(
+        t,
+        Outcome::Failed {
+            kind: FailureKind::Network,
+            message: "no route".into(),
+        },
+    )
+    .unwrap();
+    r.advance(20.0).unwrap();
+    assert_eq!(text_of(&r, "greeted").as_deref(), Some("no route/2"));
+}
+
+#[test]
+fn then_runs_after_an_answer_in_the_sending_commit_and_not_after_a_failure() {
+    // `greet` answers now: the slot fills in the send's own commit, and the
+    // `then` follows as the next one.
+    let mut r = boot_then(false);
+    r.dispatch(view_of(&r, "quick"), Event::Press).unwrap();
+    assert_eq!(text_of(&r, "greeted").as_deref(), Some("/0"));
+    assert_eq!(r.timer_due_ms(), Some(0.0));
+    assert_eq!(r.advance(0.0).unwrap().len(), 1);
+    assert_eq!(text_of(&r, "greeted").as_deref(), Some("hello ada/1"));
+    // A refused send (`login` cannot answer now here) arms nothing.
+    assert!(r.dispatch(view_of(&r, "login"), Event::Press).is_err());
+    assert_eq!(r.timer_due_ms(), None, "a refused commit arms nothing");
+    // A reply the source cannot parse is let go, not an answer.
+    let mut r = boot_then(true);
+    r.data().fail_parse = true;
+    r.dispatch(view_of(&r, "login"), Event::Press).unwrap();
+    let t = r.take_requests()[0].ticket;
+    let _ = r.fulfill(t, ok(200));
+    assert_eq!(r.timer_due_ms(), None);
+    assert_eq!(text_of(&r, "greeted").as_deref(), Some("/0"));
+}
+
+#[test]
+fn then_names_an_action_that_takes_nothing() {
+    let refuse = |edit: &str, with: &str, id: &str| {
+        let e = contract::compile(&THEN.replace(edit, with)).unwrap_err();
+        assert!(format!("{e}").contains(id), "{e}");
+    };
+    refuse("then signedIn", "then nobody", "analyze-unknown-action");
+    refuse(
+        "action signedIn writes",
+        "action signedIn(x: number) writes",
+        "analyze-handler-arity",
     );
 }
