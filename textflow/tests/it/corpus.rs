@@ -1,39 +1,53 @@
-//! The walker's break opportunities against Chrome's, over excerpts of
-//! Pretext's corpora (MIT, © Pretext contributors). `tests/corpus/record.mjs`
-//! recorded where Chrome starts each line in a box of width 0, where every
-//! opportunity is taken; the walker at width 0 takes each of its own. It is
-//! given the Thai, Lao, Khmer and Myanmar word boundaries `Intl.Segmenter`
-//! found, as the web host gives them, so the scorecard is the web host's.
+//! The walker's break opportunities against Chrome's, Safari's and Firefox's,
+//! over excerpts of Pretext's corpora (MIT, © Pretext contributors).
+//! `tests/corpus/record.mjs` recorded where each engine starts each line in a
+//! box of width 0, where every opportunity is taken; the walker at width 0
+//! takes each of its own. Against each engine it is given the Thai, Lao, Khmer
+//! and Myanmar word boundaries that engine's `Intl.Segmenter` found, as the web
+//! host would be, so each column is the web host's in that browser.
 //! @ref LLP 1043 §4 C — agreement with the browser is the parity obligation.
 use exact_textflow::{Cursor, Options, Prepared};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 
-const CHROME: &str = include_str!("../corpus/chrome.txt");
+const BREAKS: &str = include_str!("../corpus/breaks.txt");
+const ENGINES: [&str; 3] = ["chrome", "webkit", "firefox"];
 
-/// Per corpus: Chrome's starts the walker lacks, and the walker's Chrome lacks.
-/// The scorecard is exact, so a change that moves either count updates it here.
-/// The five extras are compounds `Intl.Segmenter` splits and Chrome's line
-/// breaker keeps whole (`วสันต|ฤดู`).
-const SCORECARD: &[(&str, usize, usize)] = &[
-    ("mixed-app-text", 0, 0),
-    ("en-gatsby-opening", 0, 0),
-    ("ja-rashomon", 0, 0),
-    ("ja-kumo-no-ito", 0, 0),
-    ("ko-unsu-joh-eun-nal", 0, 0),
-    ("ko-sonagi", 0, 0),
-    ("zh-zhufu", 0, 0),
-    ("zh-guxiang", 0, 0),
-    ("th-nithan-vetal-story-1", 0, 0),
-    ("th-nithan-vetal-story-7", 0, 2),
-    ("my-cunning-heron-teacher", 0, 2),
-    ("my-bad-deeds-return-to-you-teacher", 0, 1),
-    ("km-prachum-reuang-preng-khmer-volume-7-stories-1-10", 0, 0),
-    ("ar-risalat-al-ghufran-part-1", 0, 0),
-    ("ar-al-bukhala", 0, 0),
-    ("hi-eidgah", 0, 0),
-    ("he-masaot-binyamin-metudela", 0, 0),
-    ("ur-chughd", 0, 0),
+/// Per corpus and engine (Chrome, WebKit, Firefox): the engine's starts the
+/// walker lacks, and the walker's the engine lacks. The walker follows Blink,
+/// so Chrome's column is the one kept at zero; the others record where the
+/// browsers disagree with it. The scorecard is exact, so any change updates it.
+/// Chrome's five extras are compounds `Intl.Segmenter` splits and Chrome's
+/// line breaker keeps whole (`วสันต|ฤดู`). WebKit (Safari 27) also breaks
+/// after a closing `”` before Hangul or Myanmar (`못해!”|하고`). Firefox 156
+/// breaks before a zero-width space rather than after it (most of Khmer's),
+/// before Myanmar `။`, inside URLs after `/`, and never before small kana.
+type Score = (usize, usize);
+const SCORECARD: &[(&str, [Score; 3])] = &[
+    ("mixed-app-text", [(0, 0), (0, 0), (5, 0)]),
+    ("en-gatsby-opening", [(0, 0), (0, 0), (0, 0)]),
+    ("ja-rashomon", [(0, 0), (0, 0), (0, 0)]),
+    ("ja-kumo-no-ito", [(0, 0), (0, 0), (0, 53)]),
+    ("ko-unsu-joh-eun-nal", [(0, 0), (8, 0), (1, 0)]),
+    ("ko-sonagi", [(0, 0), (0, 0), (0, 0)]),
+    ("zh-zhufu", [(0, 0), (0, 0), (0, 0)]),
+    ("zh-guxiang", [(0, 0), (0, 0), (0, 0)]),
+    ("th-nithan-vetal-story-1", [(0, 0), (0, 0), (2, 0)]),
+    ("th-nithan-vetal-story-7", [(0, 2), (0, 0), (5, 0)]),
+    ("my-cunning-heron-teacher", [(0, 2), (8, 0), (61, 0)]),
+    (
+        "my-bad-deeds-return-to-you-teacher",
+        [(0, 1), (4, 0), (30, 0)],
+    ),
+    (
+        "km-prachum-reuang-preng-khmer-volume-7-stories-1-10",
+        [(0, 0), (0, 0), (430, 0)],
+    ),
+    ("ar-risalat-al-ghufran-part-1", [(0, 0), (0, 0), (0, 0)]),
+    ("ar-al-bukhala", [(0, 0), (0, 0), (0, 0)]),
+    ("hi-eidgah", [(0, 0), (0, 0), (0, 0)]),
+    ("he-masaot-binyamin-metudela", [(0, 0), (0, 0), (0, 0)]),
+    ("ur-chughd", [(0, 0), (0, 0), (0, 0)]),
 ];
 
 struct Corpus<'a> {
@@ -43,41 +57,52 @@ struct Corpus<'a> {
 
 struct Paragraph<'a> {
     text: &'a str,
-    chrome: BTreeSet<usize>,
-    words: Vec<usize>,
+    /// Offsets per key: an engine's starts, or `<engine>-words`.
+    data: BTreeMap<&'a str, Vec<usize>>,
 }
 
 fn corpora() -> Vec<Corpus<'static>> {
     let mut result: Vec<Corpus> = Vec::new();
-    let mut lines = CHROME.lines().skip_while(|l| l.starts_with('#'));
-    while let Some(line) = lines.next() {
+    for line in BREAKS
+        .lines()
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+    {
         if let Some(header) = line.strip_prefix("@ ") {
             let id = header.split(' ').next().unwrap();
             result.push(Corpus {
                 id,
                 paragraphs: Vec::new(),
             });
-            continue;
+        } else if let Some(entry) = line.strip_prefix("= ") {
+            let mut fields = entry.split(' ');
+            let key = fields.next().unwrap();
+            let data = &mut result
+                .last_mut()
+                .unwrap()
+                .paragraphs
+                .last_mut()
+                .unwrap()
+                .data;
+            let offsets = if entry.ends_with(" =") {
+                // The same as Chrome's line of this kind.
+                let chrome = key.replacen(key.split('-').next().unwrap(), "chrome", 1);
+                data[chrome.as_str()].clone()
+            } else {
+                fields.map(|s| s.parse().unwrap()).collect()
+            };
+            data.insert(key, offsets);
+        } else {
+            let corpus = result.last_mut().unwrap();
+            corpus.paragraphs.push(Paragraph {
+                text: line,
+                data: BTreeMap::new(),
+            });
         }
-        let mut offsets = || -> Vec<usize> {
-            let line = lines.next().expect("each paragraph has starts and words");
-            line.split(' ')
-                .filter(|s| !s.is_empty())
-                .map(|s| s.parse().unwrap())
-                .collect()
-        };
-        let chrome = offsets().into_iter().collect();
-        let words = offsets();
-        result.last_mut().unwrap().paragraphs.push(Paragraph {
-            text: line,
-            chrome,
-            words,
-        });
     }
     result
 }
 
-/// The walker's line starts at width 0, as the recorder reads Chrome's: the
+/// The walker's line starts at width 0, as the recorder reads a browser's: the
 /// first painted byte of every line with ink, after the first such line.
 fn walker_starts(text: &str, words: &[usize]) -> BTreeSet<usize> {
     let mut measure = |r: std::ops::Range<usize>| r.len() as f32;
@@ -108,39 +133,45 @@ fn context(text: &str, at: usize) -> String {
 }
 
 #[test]
-fn walker_breaks_where_chrome_breaks() {
+fn walker_breaks_where_browsers_break() {
     let mut report = String::new();
     let mut scores = Vec::new();
     for corpus in corpora() {
-        let (mut missing, mut extra) = (0, 0);
-        let mut examples = Vec::new();
-        for p in &corpus.paragraphs {
-            let ours = walker_starts(p.text, &p.words);
-            for &at in p.chrome.difference(&ours) {
-                missing += 1;
-                examples.push(format!("  missing {}", context(p.text, at)));
+        let mut row = [(0, 0); 3];
+        for (engine, score) in ENGINES.iter().zip(&mut row) {
+            let mut examples = Vec::new();
+            let mut total = 0;
+            for p in &corpus.paragraphs {
+                let words = &p.data[format!("{engine}-words").as_str()];
+                let theirs: BTreeSet<usize> = p.data[engine].iter().copied().collect();
+                let ours = walker_starts(p.text, words);
+                total += theirs.len();
+                for &at in theirs.difference(&ours) {
+                    score.0 += 1;
+                    examples.push(format!("  missing {}", context(p.text, at)));
+                }
+                for &at in ours.difference(&theirs) {
+                    score.1 += 1;
+                    examples.push(format!("  extra   {}", context(p.text, at)));
+                }
             }
-            for &at in ours.difference(&p.chrome) {
-                extra += 1;
-                examples.push(format!("  extra   {}", context(p.text, at)));
+            let (missing, extra) = *score;
+            writeln!(
+                report,
+                "{} {engine}: {missing} missing, {extra} extra of {total}",
+                corpus.id
+            )
+            .unwrap();
+            for example in examples.iter().take(6) {
+                writeln!(report, "{example}").unwrap();
             }
         }
-        let total: usize = corpus.paragraphs.iter().map(|p| p.chrome.len()).sum();
-        writeln!(
-            report,
-            "{}: {missing} missing, {extra} extra of {total}",
-            corpus.id
-        )
-        .unwrap();
-        for example in examples.iter().take(8) {
-            writeln!(report, "{example}").unwrap();
-        }
-        scores.push((corpus.id, missing, extra));
+        scores.push((corpus.id, row));
     }
     println!("{report}");
-    let expected: Vec<_> = SCORECARD.to_vec();
     assert_eq!(
-        scores, expected,
-        "the walker's agreement with Chrome moved; update SCORECARD\n{report}"
+        scores,
+        SCORECARD.to_vec(),
+        "the walker's agreement with the browsers moved; update SCORECARD\n{report}"
     );
 }
