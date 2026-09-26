@@ -741,6 +741,7 @@ impl<D: DataSource> Runner<D> {
             Target::Resource(i) => self.plan.resources[i].ty,
             Target::Mutation(m) => self.plan.mutations[m].ty,
         };
+        self.store.take_topics();
         let value = match self
             .data
             .parse_for(p.target, &mut self.store, &p.source, &p.args, outcome)
@@ -764,6 +765,11 @@ impl<D: DataSource> Runner<D> {
         match p.target {
             Target::Resource(i) => {
                 self.stale[i] = false;
+                for topic in self.store.take_topics() {
+                    if !self.watching[i].contains(&topic) {
+                        self.watching[i].push(topic);
+                    }
+                }
                 self.keep_answer(i, &p.args, &value);
                 self.resources[i] = Some(ResourceState {
                     args: p.args,

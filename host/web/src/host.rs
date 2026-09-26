@@ -703,6 +703,23 @@ impl<D: DataSource> Host<D> {
         self.batch_for(&receipts, error.as_deref())
     }
 
+    /// The page module says `topic` changed (LLP 1016.002): the resources
+    /// watching it are asked again, in one batch.
+    pub fn changed(&mut self, topic: &str) -> String {
+        let (receipts, error) = match self.runner.changed(topic) {
+            Ok(Some(receipt)) => (
+                vec![Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => (vec![], None),
+            Err(e) => (vec![], Some(format!("changed: {e:?}"))),
+        };
+        self.batch_for(&receipts, error.as_deref())
+    }
+
     /// The viewer's locale and zone, beside the date.
     pub fn set_place(&mut self, locale: &str, time_zone: &str) -> String {
         let (receipts, error) = match self.runner.set_place(locale, time_zone) {

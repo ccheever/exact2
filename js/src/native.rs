@@ -5,6 +5,10 @@ use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+/// How a native module says a device topic changed (LLP 1016.002): every
+/// answer that called `native.watch(topic)` is asked again. Any thread.
+pub type Changed = Arc<dyn Fn(&str) + Send + Sync>;
+
 /// A native module's handler for long calls (`native.later` in TypeScript).
 pub type LaterHandler = Arc<dyn Fn(Value, NativeReply) + Send + Sync>;
 
@@ -60,5 +64,13 @@ pub trait NativeModule {
     /// through [`NativeModule::call`], inside the answer.
     fn later(&mut self) -> Option<LaterHandler> {
         None
+    }
+
+    /// Where to announce a changed topic, given once after
+    /// `configure_storage`. Keep it and call it from any thread when a
+    /// watched thing changes — a level, a step, new words — instead of being
+    /// polled. The default keeps nothing: the module announces nothing.
+    fn changes(&mut self, changed: Changed) {
+        let _ = changed;
     }
 }

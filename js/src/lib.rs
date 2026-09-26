@@ -58,7 +58,7 @@ pub use engine::ENGINE_LINKED;
 pub use exact_data::Placed;
 pub use exact_js_value::{from_json, to_json, Shape};
 pub use exact_runner::Placement;
-pub use native::{LaterHandler, NativeModule, NativeReply};
+pub use native::{Changed, LaterHandler, NativeModule, NativeReply};
 pub use paired::Paired;
 
 use engine::{Engine, HostFn};
@@ -243,6 +243,13 @@ unsafe extern "C" fn host_door(
                     (*store).observe_external_read();
                 }
                 Ok(state.native.is_some().then(|| "native".into()))
+            } else if a == "watch" {
+                // The answer watches a device topic; its announcement asks
+                // the answer again (LLP 1016.002).
+                if let Some(store) = state.store {
+                    (*store).observe_topic(&b);
+                }
+                Ok(None)
             } else if a == "later" {
                 Ok(state.later.then(|| "later".into()))
             } else {
@@ -545,6 +552,8 @@ impl Module {
                     paths.cache.clone(),
                     paths.temporary.clone(),
                 )?;
+                let slot = self.native_slot.clone();
+                native.changes(Arc::new(move |topic: &str| slot.changed(topic)));
                 let later = native.later();
                 self.host.later = later.is_some();
                 self.native_slot

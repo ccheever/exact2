@@ -21,6 +21,8 @@ self.__exact_host = (op, name, value) => {
   if (op === 6) {
     // A page module answers `native.later` on the page; nothing here can answer at once.
     if (name === 'kind' || name === 'available') return admitted.native ? 'native' : '';
+    // A topic the page module announces asks this answer again (LLP 1016.002).
+    if (name === 'watch') { context.topics.push(String(value)); return; }
     if (name === 'later') return admitted.native ? 'later' : '';
     throw new Error('the browser answers no native call at once; use native.later');
   }
@@ -51,7 +53,7 @@ function init(message) {
 }
 
 function begin(request) {
-  context = {owner:{}, store:new Map(request.store), grants:new Set(request.grants), reads:[], writes:[], externalRead:false, requests:new Map()};
+  context = {owner:{}, store:new Map(request.store), grants:new Set(request.grants), reads:[], writes:[], externalRead:false,topics:[], requests:new Map()};
   if (request.op === 'answer') return JSON.parse(self.__exact_call(request.source, JSON.stringify(request.args)));
   const parked = pending.get(key(request));
   if (!parked) throw new Error('reply for an answer not in flight');
@@ -63,7 +65,7 @@ function begin(request) {
 }
 
 function finish(answer, request) {
-  const result = {...answer, reads:context.reads, writes:context.writes, externalRead:context.externalRead};
+  const result = {...answer, reads:context.reads, writes:context.writes, externalRead:context.externalRead,topics:context.topics};
   if (answer.tag === 1) {
     result.request = context.requests.get(answer.ticket);
     if (!result.request) throw new Error('module awaits a fetch it never made');

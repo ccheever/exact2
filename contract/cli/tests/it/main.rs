@@ -1,6 +1,7 @@
 //! The compiler's integration tests: one binary, so one link and one launch.
 
 mod action_related;
+mod announce;
 mod borders;
 mod branch;
 mod checkpoint;

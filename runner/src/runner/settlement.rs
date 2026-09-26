@@ -443,11 +443,15 @@ impl<D: DataSource> Runner<D> {
                                 self.discard_request(&request);
                             }
                             pending_res[i] = self.pending_res[i];
+                            self.store.take_topics();
                             let answer = self.query(i, &args)?;
                             force.retain(|forced| *forced != i);
                             if self.store.reads() > reads_before {
                                 self.store_readers[i] = true;
                             }
+                            // What a fresh answer watches replaces what the
+                            // last one did; its reply's parse may add more.
+                            self.watching[i] = self.store.take_topics();
                             match answer {
                                 Answer::Now(v) => {
                                     if pending_res[i] {

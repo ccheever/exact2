@@ -296,6 +296,13 @@ impl Core {
         wake(&mut self.shared.state.lock().unwrap());
     }
 
+    /// `notify`, as a handle another thread keeps (a native module's
+    /// announcements, LLP 1016.002).
+    pub(super) fn waker(&self) -> std::sync::Arc<dyn Fn() + Send + Sync> {
+        let shared = self.shared.clone();
+        std::sync::Arc::new(move || wake(&mut shared.state.lock().unwrap()))
+    }
+
     pub(super) fn begin_pump(&self) {
         let mut state = self.shared.state.lock().unwrap();
         state.notified = false;

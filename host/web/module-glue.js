@@ -99,6 +99,8 @@ export async function prepare(payload, admitted, id = nextId++) {
     if (op === 6) {
     // A page module answers `native.later` on the page; nothing here can answer at once.
     if (name === 'kind' || name === 'available') return admitted.native ? 'native' : '';
+    // A topic the page module announces asks this answer again (LLP 1016.002).
+    if (name === 'watch') { context.topics.push(String(value)); return; }
     if (name === 'later') return admitted.native ? 'later' : '';
     throw new Error('the browser answers no native call at once; use native.later');
   }
@@ -132,7 +134,7 @@ export async function prepare(payload, admitted, id = nextId++) {
     // arguments are two calls (LLP 1027 D1a).
     const key = r => JSON.stringify([r.target ?? null,r.source,r.args]);
     const finish = (answer, request) => {
-      const result = {...answer, reads:context.reads, writes:context.writes, externalRead:context.externalRead};
+      const result = {...answer, reads:context.reads, writes:context.writes, externalRead:context.externalRead,topics:context.topics};
       const reported = answer.tag === 1 ? context.early.get(answer.ticket) : null;
       for (const drop of context.early.values()) if (drop !== reported) drop();
       if (reported) setTimeout(reported, 0);
@@ -148,7 +150,7 @@ export async function prepare(payload, admitted, id = nextId++) {
     };
     const begin = request => {
       if (disposed) throw new Error('module environment disposed');
-      context = {owner:{},store:new Map(request.store),grants:new Set(request.grants),reads:[],writes:[],externalRead:false,requests:new Map(),early:new Map()};
+      context = {owner:{},store:new Map(request.store),grants:new Set(request.grants),reads:[],writes:[],externalRead:false,topics:[],requests:new Map(),early:new Map()};
       if (request.op === 'answer') return JSON.parse(win.__exact_call(request.source,JSON.stringify(request.args)));
       const parked = pending.get(key(request));
       if (!parked) throw new Error('reply for an answer not in flight');

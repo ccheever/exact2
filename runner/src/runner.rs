@@ -16,7 +16,9 @@ mod carry;
 mod checkpoint;
 mod collection;
 mod source;
-pub use source::{DataError, DataSource, InFlight, Interrupt, Native, NativeHandler, Target};
+pub use source::{
+    Announce, DataError, DataSource, InFlight, Interrupt, Native, NativeHandler, Target,
+};
 mod delivery;
 mod kept;
 mod lines;
@@ -271,6 +273,12 @@ pub struct Runner<D: DataSource> {
     /// Which resources consulted the store when they settled (bake gives
     /// them no compiled value, LLP 1018 D4).
     store_readers: Vec<bool>,
+    /// The device topics each resource's current answer watches (LLP
+    /// 1016.002): an announced topic asks exactly these again.
+    watching: Vec<Vec<String>>,
+    /// Topics the source's native module announced since the host last
+    /// applied them, from any thread ([`Runner::listen`]).
+    announced: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
     /// Deferred resources shown from a placeholder — a kept answer or
     /// the compiled empty-store value — to ask again at `data_ready`.
     stale: Vec<bool>,
@@ -611,6 +619,8 @@ impl<D: DataSource> Runner<D> {
             pending: Vec::new(),
             pending_res: Vec::new(),
             pending_mut: Vec::new(),
+            announced: Default::default(),
+            watching: Vec::new(),
             landed: Vec::new(),
             then_due: Vec::new(),
             next_ticket: 1,
@@ -724,6 +734,7 @@ impl<D: DataSource> Runner<D> {
         runner.resource_values = vec![None; runner.plan.resources.len()];
         runner.pending_res = vec![false; runner.plan.resources.len()];
         runner.pending_mut = vec![false; runner.plan.mutations.len()];
+        runner.watching = vec![Vec::new(); runner.plan.resources.len()];
         runner.then_due = vec![f64::INFINITY; runner.plan.mutations.len()];
         runner.now_ms = now_ms;
         // A carried boot never takes compiled data: it was baked for the

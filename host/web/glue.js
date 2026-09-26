@@ -41,6 +41,12 @@ let logicInfo = null, moduleLoader = null, activeModule = null, moduleResponse =
 // on the page, where the browser's own capabilities are. Loaded at first use.
 const pageNative = document.querySelector('meta[name="exact-native"]')?.content;
 let pageNativeModule = null;
+// The page module, loaded once; its `connect({ changed })` receives the one
+// way it announces a device topic (LLP 1016.002).
+const loadPageNative = () => pageNativeModule ??= import(new URL(pageNative, document.baseURI).href).then((module) => {
+  module.connect?.({ changed: (topic) => { if (inputReady && wasm.exact_changed) applyBatch(JSON.parse(readOut(wasm.exact_changed(writeIn(String(topic)))))); } });
+  return module;
+});
 let rustLoader = null, rustLoading = null;
 const rustImports = Object.fromEntries(['load', 'call', 'read', 'drop'].map(name => [name, (...args) => {
   if (!rustLoader) throw new Error('Rust module loader is not ready');
@@ -687,7 +693,7 @@ function apply(batch) {
         if (url === "exact-native:") {
           const p = Promise.resolve().then(async () => {
             if (!pageNative) throw new Error("this app has no page module (host.web.native)");
-            const module = await (pageNativeModule ??= import(new URL(pageNative, document.baseURI).href));
+            const module = await loadPageNative();
             if (typeof module.later !== "function") throw new Error("the page module exports no later(request)");
             const request = JSON.parse(decoder.decode(Uint8Array.from(atob(body ?? ""), (c) => c.charCodeAt(0))));
             return JSON.stringify(await module.later(request) ?? null);
@@ -1284,6 +1290,7 @@ function startClock() {
   }
 }
 function activateData() {
+  if (pageNative) loadPageNative().catch((e) => console.error("exact: the page module did not load", e));
   const batch = JSON.parse(readOut(wasm.exact_data_ready()));
   if (batch.error) throw new Error(batch.error);
   page?.release(applyBatch); applyBatch(batch);

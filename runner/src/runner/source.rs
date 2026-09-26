@@ -30,7 +30,17 @@ impl Interrupt {
 /// so a handle taken at construction reaches an instance built or moved to
 /// another thread later, as [`Interrupt`] does.
 #[derive(Clone, Default)]
-pub struct Native(std::sync::Arc<std::sync::Mutex<Option<NativeHandler>>>);
+pub struct Native(std::sync::Arc<NativeSlots>);
+
+#[derive(Default)]
+pub struct NativeSlots {
+    handler: std::sync::Mutex<Option<NativeHandler>>,
+    announce: std::sync::Mutex<Option<Announce>>,
+}
+
+/// Where a host takes the device topics a native module announces
+/// ([`Native::changed`]), from any thread (LLP 1016.002).
+pub type Announce = std::sync::Arc<dyn Fn(&str) + Send + Sync>;
 
 /// A native module's handler for calls that answer later: the request's
 /// JSON body and the reply to send when it is done.
@@ -39,12 +49,35 @@ pub type NativeHandler = std::sync::Arc<dyn Fn(Vec<u8>, crate::Reply) + Send + S
 impl Native {
     /// Fill the slot (activation) or empty it (unload).
     pub fn set(&self, handler: Option<NativeHandler>) {
-        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = handler;
+        *self.0.handler.lock().unwrap_or_else(|e| e.into_inner()) = handler;
     }
 
     /// The handler now, if the source has one.
     pub fn handler(&self) -> Option<NativeHandler> {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.0
+            .handler
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// Where the host takes announced topics; `None` stops taking them.
+    pub fn on_changed(&self, announce: Option<Announce>) {
+        *self.0.announce.lock().unwrap_or_else(|e| e.into_inner()) = announce;
+    }
+
+    /// The module says `topic` changed; the host asks the resources that
+    /// watch it again ([`super::Runner::changed`]). Dropped when no host listens.
+    pub fn changed(&self, topic: &str) {
+        let announce = self
+            .0
+            .announce
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if let Some(announce) = announce {
+            announce(topic);
+        }
     }
 }
 

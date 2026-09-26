@@ -33,7 +33,7 @@ pub fn encode(result: Result<Answer, DataError>, local: &mut Store, logs: Vec<St
         .into_iter()
         .map(|w| json!([w.name, w.value]))
         .collect();
-    let mut body = json!({"turn": 1, "reads": local.reads(), "writes": writes, "logs": logs});
+    let mut body = json!({"turn": 1, "reads": local.reads(), "topics": local.take_topics(), "writes": writes, "logs": logs});
     match result {
         Ok(Answer::Now(value)) => body["value"] = Json::String(base64(&value.to_bytes())),
         Ok(Answer::Later(request)) => body["request"] = request_json(&request),
@@ -78,7 +78,16 @@ pub fn apply(
             logs.push(line.to_string());
         }
     }
-    for _ in 0..json["reads"].as_u64().unwrap_or(0) {
+    // Topics the turn watched (LLP 1016.002), before its reads: each also
+    // counts one, which the reads below would otherwise count twice.
+    let topics: Vec<&str> = json["topics"]
+        .as_array()
+        .map(|t| t.iter().filter_map(|t| t.as_str()).collect())
+        .unwrap_or_default();
+    for topic in &topics {
+        store.observe_topic(topic);
+    }
+    for _ in topics.len() as u64..json["reads"].as_u64().unwrap_or(0) {
         store.observe_external_read();
     }
     for write in json["writes"].as_array().into_iter().flatten() {

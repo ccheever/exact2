@@ -30,6 +30,9 @@ pub struct Store {
     /// Device-state observations: secrets and external storage both make
     /// resources device-dependent at bake (LLP 1018 D4 / LLP 1027 D4).
     reads: std::cell::Cell<usize>,
+    /// Device topics the answer being made watches (`native.watch`, LLP
+    /// 1016.002): taken by the runner after each answer.
+    topics: std::cell::RefCell<Vec<String>>,
     /// Each entry's value before its first write since the open checkpoint:
     /// what a refused transaction puts back. A checkpoint costs what the
     /// transaction writes, not the store's size. Checkpoints do not nest.
@@ -100,6 +103,7 @@ impl Store {
             writes: Vec::new(),
             revision: 0,
             reads: std::cell::Cell::new(0),
+            topics: Default::default(),
             undo: Vec::new(),
             copied: 0,
         }
@@ -272,6 +276,22 @@ impl Store {
     /// This changes neither the store revision nor its persisted values.
     pub fn observe_external_read(&self) {
         self.reads.set(self.reads.get() + 1);
+    }
+
+    /// The answer being made watches `topic`: the device announces when it
+    /// changes, and the resource is asked again (LLP 1016.002). A watched
+    /// answer is the device's, so it counts as a read too.
+    pub fn observe_topic(&self, topic: &str) {
+        self.observe_external_read();
+        let mut topics = self.topics.borrow_mut();
+        if !topics.iter().any(|t| t == topic) {
+            topics.push(topic.to_owned());
+        }
+    }
+
+    /// The topics watched since the last take.
+    pub fn take_topics(&self) -> Vec<String> {
+        std::mem::take(&mut self.topics.borrow_mut())
     }
 
     /// How many device-state observations so far, including secret reads.

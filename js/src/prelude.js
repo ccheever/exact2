@@ -290,6 +290,13 @@
       var native = host(6, "kind", "") !== "native" ? null : Object.freeze({
         get available() { return host(6, "available", "") === "native"; },
         call: nativeCall,
+        // This answer depends on a device topic the module announces when it
+        // changes (a level, a step, new words): the host asks it again then,
+        // instead of the app polling (LLP 1016.002).
+        watch: function (topic) {
+          if (!currentCall || currentCall.status !== "pending") throw new Error("native.watch outside an answer");
+          host(6, "watch", String(topic));
+        },
         // Long work: off the source's thread and outside its budget, settled
         // when the module's own work replies. It travels as a request the
         // host hands to the module (on the web, the app's page module), so

@@ -15,6 +15,21 @@
 
 import Foundation
 
+/// Say a device topic changed: every TypeScript answer that called
+/// `native.watch(topic)` is asked again, instead of polling (LLP 1016.002).
+/// From any thread; before the host listens, nothing hears it.
+public enum ExactNative {
+  nonisolated(unsafe) fileprivate static var announce: (UnsafeMutableRawPointer?, @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>) -> Void)?
+  fileprivate static let lock = NSLock()
+  public static func changed(_ topic: String) {
+    lock.lock()
+    let target = announce
+    lock.unlock()
+    guard let (context, call) = target else { return }
+    topic.withCString { call(context, $0) }
+  }
+}
+
 /// A refusal the TypeScript side sees as a rejected promise or a thrown error.
 public struct ExactNativeError: Error, CustomStringConvertible {
   public let description: String
@@ -82,6 +97,16 @@ public func exactNativeLater(
     free(reply)
   }
   do { module.later(try object(request), done: finish) } catch { finish(.failure(error)) }
+}
+
+/// Where `ExactNative.changed` announces, set once the host listens.
+@_cdecl("exact_native_listen")
+public func exactNativeListen(
+  _ context: UnsafeMutableRawPointer?, _ call: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>) -> Void
+) {
+  ExactNative.lock.lock()
+  ExactNative.announce = (context, call)
+  ExactNative.lock.unlock()
 }
 
 @_cdecl("exact_native_free")

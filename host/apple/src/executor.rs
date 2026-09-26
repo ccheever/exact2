@@ -65,4 +65,8 @@ impl Executor {
     pub fn notify(&self) {
         self.core.notify();
     }
+    /// A wake another thread may keep: a native module's announcements.
+    pub fn waker(&self) -> std::sync::Arc<dyn Fn() + Send + Sync> {
+        self.core.waker()
+    }
 }

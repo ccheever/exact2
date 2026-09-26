@@ -344,6 +344,7 @@ impl<D: DataSource> Presenter<D> {
         // Decoded pixels and their natural dimensions arrive together later.
         // Only now may the app's queued requests reach its executor.
         let executor = crate::executor::Executor::start(&host.grants());
+        host.listen(executor.waker());
         if let Some(note) = executor.note() {
             host.log(note.to_string());
         }
@@ -612,6 +613,7 @@ impl<D: DataSource> Presenter<D> {
         images.enable_decode();
         self.images = images;
         self.executor = crate::executor::Executor::start(&self.host.grants());
+        self.host.listen(self.executor.waker());
         self.parked.clear();
         self.scroll.clear();
         self.collection = collection::State::default();
@@ -759,6 +761,7 @@ impl<D: DataSource> Presenter<D> {
         self.text = candidate_text.clone();
         self.brush.text = candidate_text;
         self.executor = crate::executor::Executor::start(&self.host.grants());
+        self.host.listen(self.executor.waker());
         self.parked.clear();
         self.scroll.clear();
         self.collection = collection::State::default();
@@ -1409,7 +1412,7 @@ impl<D: DataSource> Presenter<D> {
         if self.host.has_request_refusals(self.executor.ordered_idle()) {
             self.executor.notify();
         }
-        if outcomes.is_empty() {
+        if outcomes.is_empty() && !self.host.has_announced() {
             let refined = self.refine_collections();
             return region_error
                 .or(refined)

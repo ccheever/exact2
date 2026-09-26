@@ -451,11 +451,13 @@ impl<D: DataSource> Bridge<D> {
                     host.log(&format!("{why}; every request is refused"));
                 }
                 host.commit_boot();
-                self.executor = Some(crate::executor::Executor::start(
+                let executor = crate::executor::Executor::start(
                     bindings,
                     &host.grants(),
                     hooks.wake.map(|w| (w, hooks.wake_ctx)),
-                ));
+                );
+                host.listen(executor.waker());
+                self.executor = Some(executor);
                 self.host = Some(host);
                 self.parked.clear();
                 Ok(batch)
@@ -747,11 +749,13 @@ impl<D: DataSource> Bridge<D> {
             return self.prepare_error("{\"ops\":[],\"error\":\"no prepared plan\"}".into());
         };
         candidate.host.commit_boot();
-        self.executor = Some(crate::executor::Executor::start(
+        let executor = crate::executor::Executor::start(
             candidate.bindings,
             &candidate.host.grants(),
             candidate.hooks.wake.map(|w| (w, candidate.hooks.wake_ctx)),
-        ));
+        );
+        candidate.host.listen(executor.waker());
+        self.executor = Some(executor);
         self.host = Some(candidate.host);
         self.parked.clear();
         self.emit(candidate.batch)

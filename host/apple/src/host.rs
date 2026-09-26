@@ -522,6 +522,11 @@ impl<D: DataSource> Host<D> {
         self.runner.dispatch_work(token)
     }
 
+    /// Take the source's announced topics, waking the host (LLP 1016.002).
+    pub fn listen(&mut self, wake: std::sync::Arc<dyn Fn() + Send + Sync>) {
+        self.runner.listen(wake);
+    }
+
     /// A long native call's work: the source's native handler, off this thread.
     pub fn native_work(&mut self, request: &exact_runner::Request) -> exact_runner::Dispatch {
         self.runner.native_work(request)
@@ -611,8 +616,16 @@ impl<D: DataSource> Host<D> {
     /// the ones before it stand.
     pub fn fulfill_all(&mut self, outcomes: Vec<(u64, Outcome)>, now_ms: f64) -> String {
         self.now_ms = now_ms.max(self.now_ms);
-        let mut receipts = Vec::new();
-        let mut error = None;
+        // Announced topics first: what the device said before these replies.
+        let (announced, failed) = self.runner.apply_announced();
+        let mut error = failed.map(|e| format!("{e:?}"));
+        let mut receipts: Vec<Timed> = announced
+            .into_iter()
+            .map(|receipt| Timed {
+                at_ms: self.now_ms,
+                receipt,
+            })
+            .collect();
         for (ticket, outcome) in outcomes {
             match self.runner.fulfill(ticket, outcome) {
                 Ok(Some(receipt)) => receipts.push(Timed {
