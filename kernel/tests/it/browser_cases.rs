@@ -417,6 +417,53 @@ fn percentage_padding_resolves_against_the_containing_block_width() {
 /// centred by the anonymous box HTML's rendering rules give a button (LLP
 /// 1007 §1) — which is why a button is never block.
 #[test]
+fn calc_of_a_percentage_and_a_length_resolves_against_the_containing_block() {
+    // CSS Values 4 §10: each term against the percentage's own basis. The
+    // numbers are that arithmetic (2026-09-24), not a Chrome capture.
+    // <div style="width:400px;height:100px">
+    //   <div style="width:calc(100% - 89px);height:20px"></div>
+    //   <div style="width:calc(25% + 10px);height:calc(50% - 5px);margin-left:calc(10% - 4px)"></div>
+    //   <div style="padding-left:calc(50% - 100px);height:10px"></div>
+    // </div>
+    let root = props(&vec![(Width, n(400.0)), (Height, n(100.0))]);
+    let k = lay_out(
+        root,
+        vec![
+            (
+                2,
+                1,
+                vec![(Width, t("calc(100% - 89px)")), (Height, n(20.0))],
+            ),
+            (
+                3,
+                1,
+                vec![
+                    (Width, t("calc(25% + 10px)")),
+                    (Height, t("calc(50% - 5px)")),
+                    (MarginLeft, t("calc(10% - 4px)")),
+                ],
+            ),
+            (
+                4,
+                1,
+                vec![(PaddingLeft, t("calc(50% - 100px)")), (Height, n(10.0))],
+            ),
+        ],
+        &[],
+    );
+    let bad = mismatches(
+        "calc",
+        &k,
+        &[
+            (2, [0.0, 0.0, 311.0, 20.0]),
+            (3, [36.0, 20.0, 110.0, 45.0]),
+            (4, [0.0, 65.0, 400.0, 10.0]),
+        ],
+    );
+    assert!(bad.is_empty(), "{bad:#?}");
+}
+
+#[test]
 fn a_flex_button_lays_out_as_the_kernel_does() {
     let mut failures = Vec::new();
     let mut case = |name: &str, root: Rows, nodes, texts: &[(u32, &str)], want: &[_]| {

@@ -292,6 +292,11 @@ fn style_rows_lower_to_css_by_their_names() {
         &StyleValue::Text("calc(env(safe-area-inset-left) - 2px)".into()),
     )
     .unwrap();
+    s.set_dynamic(
+        StyleId::MinWidth,
+        &StyleValue::Text("calc(100% - 89px)".into()),
+    )
+    .unwrap();
     s.set_dynamic(StyleId::LineClamp, &StyleValue::Number(2.0))
         .unwrap();
     let (css, skipped) = css_text(&s, &[]);
@@ -300,6 +305,7 @@ fn style_rows_lower_to_css_by_their_names() {
         "-webkit-box-orient:vertical;",
         "-webkit-line-clamp:2;",
         "width:100%;",
+        "min-width:calc(100% - 89px);",
         "max-width:640px;",
         "height:auto;",
         "flex-grow:1;",

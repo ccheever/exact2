@@ -28,3 +28,4 @@ component Styles
         text "overridden"
       button class=(selected ? Active : Idle) press=toggle testId="chip"
         text "chip"
+      column width="calc(100% - 89px)" height=20 testId="calc"

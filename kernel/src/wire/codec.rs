@@ -149,8 +149,9 @@ impl<'a> Reader<'a> {
     }
 
     /// Read a dimension: kind byte (0 auto, 1 points, 2 percent, 3–6 an
-    /// `env()` length at the top/right/bottom/left safe-area inset) then
-    /// `f32` (the points added to an inset).
+    /// `env()` length at the top/right/bottom/left safe-area inset, 7 a
+    /// `calc()` of a percent and points) then `f32` (the points added to an
+    /// inset); a `calc()` carries its percent first and a second `f32`.
     pub fn dimension(
         &mut self,
         style: StyleId,
@@ -168,9 +169,10 @@ impl<'a> Reader<'a> {
             1 => Dimension::Points(value),
             2 => Dimension::Percent(value),
             3..=6 => Dimension::Env(Edge::from_index(kind - 3).expect("3..=6 is an edge"), value),
+            7 => Dimension::Calc(value, self.f32()?),
             other => return Err(DecodeError::UnknownDimensionKind(other)),
         };
-        if kind != 0 && !value.is_finite() {
+        if kind != 0 && !dim.is_finite() {
             return Err(DecodeError::NonFinite(style));
         }
         Ok(dim)
@@ -495,6 +497,11 @@ impl Writer {
                 self.u8(2);
                 self.f32(v);
             }
+            Dimension::Calc(p, v) => {
+                self.u8(7);
+                self.f32(p);
+                self.f32(v);
+            }
         }
     }
 
@@ -694,11 +701,43 @@ mod tests {
                 Ok(Dimension::Env(*edge, i as f32 * 1.5))
             );
         }
-        let mut r = Reader::new(&[7u8, 0, 0, 0, 0]);
+        let mut r = Reader::new(&[8u8, 0, 0, 0, 0]);
         assert_eq!(
             r.dimension(StyleId::Width, true),
-            Err(DecodeError::UnknownDimensionKind(7))
+            Err(DecodeError::UnknownDimensionKind(8))
         );
+    }
+
+    #[test]
+    fn calc_lengths_round_trip_with_both_terms() {
+        let mut w = Writer::new();
+        w.dimension(Dimension::Calc(100.0, -89.0));
+        w.dimension(Dimension::Calc(-12.5, 0.25));
+        let bytes = w.into_vec();
+        assert_eq!(bytes.len(), 18, "kind, percent, points");
+        assert_eq!(bytes[0], 7, "calc is kind 7");
+        let mut r = Reader::new(&bytes);
+        assert_eq!(
+            r.dimension(StyleId::Width, true),
+            Ok(Dimension::Calc(100.0, -89.0))
+        );
+        assert_eq!(
+            r.dimension(StyleId::PaddingTop, false),
+            Ok(Dimension::Calc(-12.5, 0.25))
+        );
+        assert!(r.is_empty());
+        let mut w = Writer::new();
+        w.dimension(Dimension::Calc(50.0, f32::NAN));
+        let bytes = w.into_vec();
+        assert_eq!(
+            Reader::new(&bytes).dimension(StyleId::Width, true),
+            Err(DecodeError::NonFinite(StyleId::Width))
+        );
+        let mut r = Reader::new(&bytes[..5]);
+        assert!(matches!(
+            r.dimension(StyleId::Width, true),
+            Err(DecodeError::Truncated { .. })
+        ));
     }
 
     #[test]

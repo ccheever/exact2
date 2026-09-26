@@ -296,3 +296,65 @@ fn unpadded_reads_what_the_engine_style_would() {
         assert_eq!(p.unpadded(&env), engine(&p), "{style:?} {width}");
     }
 }
+
+#[test]
+fn calc_lengths_parse_one_percent_and_one_pixel_term_and_resolve_by_basis() {
+    for (text, percent, points) in [
+        ("calc(100% - 89px)", 100.0, -89.0),
+        ("calc(50% + 12.5px)", 50.0, 12.5),
+        ("calc(-10% + 4px)", -10.0, 4.0),
+        ("calc(89px - 100%)", -100.0, 89.0),
+        ("calc(4PX + 25%)", 25.0, 4.0),
+        (" calc(\t1e2%\n-\t2E1px ) ", 100.0, -20.0),
+    ] {
+        assert_eq!(
+            Dimension::parse_calc(text),
+            Some(Dimension::Calc(percent, points)),
+            "{text}"
+        );
+    }
+    for bad in [
+        "calc(100%-89px)",
+        "calc(100% -89px)",
+        "calc(100% - 89)",
+        "calc(100% - 0)",
+        "calc(100% * 2)",
+        "calc(50% + 50%)",
+        "calc(10px + 20px)",
+        "calc(100%)",
+        "calc(1e39% - 1px)",
+        "calc(nan% - 1px)",
+        "calc(env(safe-area-inset-top) + 50%)",
+        "calc(100% - 89px",
+        "100%",
+        "89px",
+    ] {
+        assert_eq!(Dimension::parse_calc(bad), None, "{bad}");
+    }
+    let env = Env::default();
+    let width = Dimension::Calc(100.0, -89.0).to_taffy(&env);
+    assert_eq!(width, Dimension::Calc(100.0, -89.0).to_taffy(&env));
+    assert_ne!(width, Dimension::Calc(100.0, -88.0).to_taffy(&env));
+    let mut handle = None;
+    if let taffy::style::ExpandedDimension::Calc(h) = width.expand() {
+        handle = Some(h);
+    }
+    let handle = handle.expect("a calc() is a calc handle");
+    assert_eq!(resolve_calc(handle, 400.0), 311.0);
+    assert_eq!(resolve_calc(handle, 0.0), -89.0);
+    let mut s = StyleProps::default();
+    s.set_dynamic(
+        StyleId::Width,
+        &StyleValue::Text("calc(100% - 89px)".into()),
+    )
+    .unwrap();
+    assert_eq!(s.width, Dimension::Calc(100.0, -89.0));
+    assert!(!uses_env(&s));
+    assert_eq!(
+        s.set_dynamic(StyleId::Width, &StyleValue::Text("calc(1px + 2px)".into())),
+        Err(StyleValueError::WrongKind {
+            style: StyleId::Width,
+            expected: "number, px length, percent, auto, calc(<percent> ± <px>), or env(safe-area-inset-*)",
+        })
+    );
+}

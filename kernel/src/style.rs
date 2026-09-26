@@ -103,9 +103,11 @@ impl Env {
 }
 
 /// A length: automatic, absolute points, a percentage of the parent (0–100),
-/// or a safe-area inset of the viewport plus points — CSS's
-/// `env(safe-area-inset-<edge>)` and `calc(env(safe-area-inset-<edge>) + <n>px)`,
-/// resolved against the kernel's [`Env`] at layout.
+/// a percentage plus points — CSS's `calc(<p>% + <n>px)`, which the engine
+/// resolves against the percentage's basis — or a safe-area inset of the
+/// viewport plus points — `env(safe-area-inset-<edge>)` and
+/// `calc(env(safe-area-inset-<edge>) + <n>px)`, resolved against the
+/// kernel's [`Env`] at layout.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Dimension {
     /// Let the engine decide.
@@ -115,9 +117,39 @@ pub enum Dimension {
     Points(f32),
     /// Percent of the containing block, authored as 0–100.
     Percent(f32),
+    /// Percent of the containing block (0–100) plus points: `calc(50% - 89px)`
+    /// is `Calc(50.0, -89.0)`.
+    Calc(f32, f32),
     /// The viewport's safe-area inset at an edge, plus points (zero for a
     /// bare `env()`).
     Env(Edge, f32),
+}
+
+/// The `calc()` pairs the engine holds by handle: Taffy keeps one opaque
+/// pointer per length, so a pair is interned here and named by its index,
+/// shifted past the three tag bits Taffy reserves. Equal pairs share a
+/// handle, so an unchanged style still compares equal by value.
+static CALC_PAIRS: std::sync::Mutex<Vec<(f32, f32)>> = std::sync::Mutex::new(Vec::new());
+
+fn calc_handle(percent: f32, points: f32) -> *const () {
+    let mut pairs = CALC_PAIRS.lock().unwrap_or_else(|e| e.into_inner());
+    let index = pairs
+        .iter()
+        .position(|(p, x)| p.to_bits() == percent.to_bits() && x.to_bits() == points.to_bits())
+        .unwrap_or_else(|| {
+            pairs.push((percent, points));
+            pairs.len() - 1
+        });
+    ((index + 1) << 3) as *const ()
+}
+
+/// The points a `calc()` handle resolves to against `basis`, the size its
+/// percentage is a fraction of — what [`crate::LayoutTree`] gives Taffy.
+pub(crate) fn resolve_calc(handle: *const (), basis: f32) -> f32 {
+    let index = (handle as usize >> 3) - 1;
+    let pairs = CALC_PAIRS.lock().unwrap_or_else(|e| e.into_inner());
+    let (percent, points) = pairs[index];
+    basis * percent / 100.0 + points
 }
 
 impl Dimension {
@@ -126,7 +158,40 @@ impl Dimension {
         match self {
             Dimension::Auto => true,
             Dimension::Points(v) | Dimension::Percent(v) | Dimension::Env(_, v) => v.is_finite(),
+            Dimension::Calc(p, v) => p.is_finite() && v.is_finite(),
         }
+    }
+
+    /// A `calc()` of one percentage and one pixel length by CSS's grammar —
+    /// `calc(<p>% + <n>px)` or `calc(<n>px - <p>%)`, either order, the
+    /// operator set off by whitespace as CSS requires — or `None` when the
+    /// text is not one. Two of a kind, a bare number, or `*` and `/` are not.
+    pub fn parse_calc(text: &str) -> Option<Dimension> {
+        let body = text.trim().strip_prefix("calc(")?.strip_suffix(')')?;
+        let b = body.as_bytes();
+        let op = (1..b.len().saturating_sub(1)).find(|&i| {
+            matches!(b[i], b'+' | b'-')
+                && b[i - 1].is_ascii_whitespace()
+                && b[i + 1].is_ascii_whitespace()
+        })?;
+        let sign = if b[op] == b'-' { -1.0 } else { 1.0 };
+        let term = |t: &str| -> Option<(bool, f32)> {
+            let t = t.trim();
+            let px = t.len() > 2
+                && t.get(t.len() - 2..)
+                    .is_some_and(|u| u.eq_ignore_ascii_case("px"));
+            match t.strip_suffix('%') {
+                Some(p) => exact_num::parse_f32(p).ok().map(|v| (true, v)),
+                None if px => parse_pixel_length(t).map(|v| (false, v)),
+                None => None,
+            }
+        };
+        let dim = match (term(&body[..op])?, term(&body[op + 1..])?) {
+            ((true, percent), (false, points)) => Dimension::Calc(percent, sign * points),
+            ((false, points), (true, percent)) => Dimension::Calc(sign * percent, points),
+            _ => return None,
+        };
+        dim.is_finite().then_some(dim)
     }
 
     /// An `env()` length by CSS's grammar, or `None` when the text is not one:
@@ -179,6 +244,7 @@ impl Dimension {
             Dimension::Auto => auto(),
             Dimension::Points(v) => length(v),
             Dimension::Percent(v) => percent(v / 100.0),
+            Dimension::Calc(p, v) => taffy::style::Dimension::calc(calc_handle(p, v)),
             Dimension::Env(..) => unreachable!("resolved above"),
         }
     }
@@ -188,6 +254,7 @@ impl Dimension {
             Dimension::Auto => auto(),
             Dimension::Points(v) => length(v),
             Dimension::Percent(v) => percent(v / 100.0),
+            Dimension::Calc(p, v) => taffy::style::LengthPercentageAuto::calc(calc_handle(p, v)),
             Dimension::Env(..) => unreachable!("resolved above"),
         }
     }
@@ -199,6 +266,7 @@ impl Dimension {
             Dimension::Auto => length(0.0_f32),
             Dimension::Points(v) => length(v),
             Dimension::Percent(v) => percent(v / 100.0),
+            Dimension::Calc(p, v) => taffy::style::LengthPercentage::calc(calc_handle(p, v)),
             Dimension::Env(..) => unreachable!("resolved above"),
         }
     }
@@ -210,6 +278,8 @@ impl Dimension {
             Dimension::Auto => true,
             Dimension::Points(v) => v.to_bits() == 0,
             Dimension::Percent(v) => (v / 100.0).to_bits() == 0,
+            // A calc() is a handle the engine resolves, never its zero length.
+            Dimension::Calc(..) => false,
             Dimension::Env(..) => unreachable!("resolved above"),
         }
     }
@@ -423,20 +493,19 @@ impl StyleValue {
             StyleValue::Percent(p) if (*p as f32).is_finite() => Ok(Dimension::Percent(*p as f32)),
             StyleValue::Auto if admits_auto => Ok(Dimension::Auto),
             StyleValue::Auto => Err(StyleValueError::AutoNotAdmitted { style }),
-            StyleValue::Text(t) if Dimension::parse_env(t).is_some() => {
-                Ok(Dimension::parse_env(t).unwrap_or_default())
-            }
-            StyleValue::Text(t) => {
-                parse_pixel_length(t.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']))
-                    .map(Dimension::Points)
-                    .ok_or(StyleValueError::WrongKind {
-                        style,
-                        expected: "number, px length, percent, auto, or env(safe-area-inset-*)",
-                    })
-            }
+            StyleValue::Text(t) => Dimension::parse_env(t)
+                .or_else(|| Dimension::parse_calc(t))
+                .or_else(|| {
+                    parse_pixel_length(t.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']))
+                        .map(Dimension::Points)
+                })
+                .ok_or(StyleValueError::WrongKind {
+                    style,
+                    expected: "number, px length, percent, auto, calc(<percent> ± <px>), or env(safe-area-inset-*)",
+                }),
             _ => Err(StyleValueError::WrongKind {
                 style,
-                expected: "number, percent, auto, or env(safe-area-inset-*)",
+                expected: "number, percent, auto, calc(<percent> ± <px>), or env(safe-area-inset-*)",
             }),
         }
     }
