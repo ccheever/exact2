@@ -375,7 +375,7 @@ pub enum StyleValueError {
     OutOfRange {
         style: StyleId,
     },
-    /// A color text was not `#rgb`, `#rrggbb`, or `#rrggbbaa`.
+    /// A color text was not hex (`#rgb`, `#rrggbb`, `#rrggbbaa`) or `rgb()`.
     BadColor {
         style: StyleId,
     },
