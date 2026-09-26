@@ -509,6 +509,10 @@ struct TextResidency {
         }
         trim(incoming: 0, keeping: coldLast)
     }
+    /// Memory pressure: every cold value goes; views keep what they show.
+    mutating func dropCold() {
+        while let key = coldFirst { removeCold(key) }
+    }
     mutating func prepare(estimatedBytes: Int) {
         trim(incoming: estimatedBytes, keeping: nil)
     }

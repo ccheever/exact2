@@ -1162,6 +1162,18 @@ extension TextGeometryTests {
 }
 
 extension TextGeometryTests {
+    func testMemoryPressureDropsColdTextButNotWhatAViewHolds() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let held = engine.paragraph(spec("held by a view"), width: 180)
+        engine.accepted(held)
+        for i in 0..<32 { _ = engine.paragraph(spec("cold \(i)"), width: 180) }
+        XCTAssertGreaterThan(engine.residencyStats.coldEntries, 32)
+        engine.dropCold()
+        XCTAssertEqual(engine.residencyStats.coldEntries, 0)
+        XCTAssertEqual(engine.residencyStats.coldEstimatedBytes, 0)
+        XCTAssertTrue(engine.paragraph(spec("held by a view"), width: 180) === held)
+    }
+
     func testScalarAndParagraphChargesShareSourceAndReleaseIndependently() {
         let engine = TextEngine(resolve: { _ in nil })
         let input = spec("shared scalar paragraph café e\u{301} 🦀")

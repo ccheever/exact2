@@ -332,6 +332,7 @@ public final class ExactSession {
     #endif
     var text: TextEngine
     let presenter: Presenter
+    private var textPressure: DispatchSourceMemoryPressure?
     let canvases: Canvases
     let webviews: WebViews
     let frames: Frames
@@ -390,6 +391,9 @@ public final class ExactSession {
         runtime.setFonts(TextEngine.installFonts, ctx: text.opaque)
         ExactSession.live[runtime.rt] = WeakSession(self)
         runtime.setWake(ExactSession.wake, ctx: UnsafeMutableRawPointer(bitPattern: UInt(runtime.rt)))
+        let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
+        pressure.setEventHandler { [weak self] in self?.text.dropCold() }
+        pressure.resume(); textPressure = pressure
         wire()
     }
 
@@ -865,6 +869,7 @@ public final class ExactSession {
         presenter.reset()
         ExactSession.live.removeValue(forKey: runtime.rt)
         rasters.shutdown()
+        textPressure?.cancel(); textPressure = nil
         runtime.destroy()
         app.forget(self)
     }
