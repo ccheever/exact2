@@ -226,7 +226,10 @@ unsafe extern "C" fn host_door(
         }
         6 => {
             if a == "available" {
-                Ok(Some("native".into()))
+                // Only a linked, configured module: an app gets `native` null at
+                // bake, in agent mode, and when it links none, as on the web,
+                // instead of an object whose every call throws.
+                Ok(state.native.is_some().then(|| "native".into()))
             } else {
                 if let Some(store) = state.store {
                     (*store).observe_external_read();

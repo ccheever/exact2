@@ -10,6 +10,7 @@ let tail: Promise<unknown> = Promise.resolve();
 async function answer(_source:string, args:unknown[], store:Store, storage:Storage, native?:{call(request:Record<string,unknown>):Record<string,unknown>}|null) {
   const op = String(args[0]), value = String(args[1]);
   if (op === 'native' || op === 'native-fetch') {
+    if (!native) return {text: 'no native module'};
     try {
       if(op === 'native-fetch') await fetch('https://example.test/native');
       return {text:String(native!.call({value}).text)};
