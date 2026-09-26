@@ -276,3 +276,25 @@ fn aspect_ratio_takes_the_css_grammar() {
         .message
         .contains("auto 4 / 3"));
 }
+
+/// LLP 1053 G3: `flex-grow` is the longhand (`flex-basis` stays `auto`);
+/// the later of `flex` and `flex-grow` sets the grow factor, as the later
+/// CSS declaration wins; a negative factor is refused.
+#[test]
+fn flex_grow_is_a_longhand_and_the_later_binding_wins() {
+    let r = boot("component App\n  view\n    row\n      view flex-grow=1 testId=\"grow\"\n      view flex=1 flex-grow=3 testId=\"flex-then-grow\"\n      view flex-grow=3 flex=1 testId=\"grow-then-flex\"\n");
+    let grow = style_of(&r, "grow");
+    assert_eq!(
+        (grow.flex_grow, grow.flex_shrink, grow.flex_basis),
+        (1.0, 1.0, Dimension::Auto)
+    );
+    let a = style_of(&r, "flex-then-grow");
+    assert_eq!((a.flex_grow, a.flex_basis), (3.0, Dimension::Percent(0.0)));
+    let b = style_of(&r, "grow-then-flex");
+    assert_eq!((b.flex_grow, b.flex_basis), (1.0, Dimension::Percent(0.0)));
+    for attrs in ["flex-grow=-1", "flex-shrink=-1", "flex=-2"] {
+        let e = refused(attrs);
+        assert_eq!(e.id, "lower-attr-value", "{attrs}: {e}");
+        assert!(e.message.contains("nonnegative"), "{e}");
+    }
+}

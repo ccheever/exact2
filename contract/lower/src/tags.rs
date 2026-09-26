@@ -462,6 +462,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "max-width" => styles(&[StyleId::MaxWidth]),
         "max-height" => styles(&[StyleId::MaxHeight]),
         "flex" => AttrTarget::Flex,
+        // @ref LLP 1053 G3 — the longhand: `flex-basis` stays `auto`, unlike `flex`.
+        "flex-grow" => styles(&[StyleId::FlexGrow]),
         "flex-shrink" => styles(&[StyleId::FlexShrink]),
         "flex-basis" => styles(&[StyleId::FlexBasis]),
         "flex-wrap" => styles(&[StyleId::FlexWrap]),
@@ -540,6 +542,7 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "flexBasis" => "flex-basis",
         "wrap" | "flexWrap" => "flex-wrap",
         "direction" | "flexDirection" => "flex-direction",
+        "flexGrow" => "flex-grow",
         "aspectRatio" => "aspect-ratio",
         "align" | "alignItems" => "align-items",
         "alignSelf" => "align-self",

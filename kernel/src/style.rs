@@ -358,6 +358,16 @@ impl StyleValue {
                 style, expected: "nonnegative finite length in points/px (percentage shape-margin is not implemented in exact2 v1)",
             });
         }
+        // @ref LLP 1053 G3 — CSS refuses a negative flex factor.
+        if matches!(style, StyleId::FlexGrow | StyleId::FlexShrink) {
+            return match self {
+                StyleValue::Number(n) if (*n as f32).is_finite() && *n >= 0.0 => Ok(*n as f32),
+                _ => Err(StyleValueError::WrongKind {
+                    style,
+                    expected: "nonnegative number",
+                }),
+            };
+        }
         match self {
             StyleValue::Number(n) if (*n as f32).is_finite() => Ok(*n as f32),
             _ => Err(StyleValueError::WrongKind {
