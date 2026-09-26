@@ -33,9 +33,15 @@ impl Collection {
         if !self.dups.is_empty() {
             return Ok(false);
         }
-        let shared = crate::compare::shared(&self.items, items);
+        let shared = crate::compare::shared(&self.items, items, true);
         let start = shared.prefix;
         let old_end = self.items.len() - shared.suffix;
+        // Mostly new objects: the full path is as cheap, and it is the
+        // reference.
+        let found = shared.middle.iter().filter(|m| m.is_some()).count();
+        if 2 * (start + shared.suffix + found) < items.len() {
+            return Ok(false);
+        }
         let mut kept = vec![false; old_end - start];
         let mut keys = Vec::with_capacity(shared.middle.len());
         let mut idents: Vec<(Rc<str>, Option<usize>)> = Vec::with_capacity(shared.middle.len());

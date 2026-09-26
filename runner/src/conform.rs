@@ -62,7 +62,9 @@ impl Conformed {
         let ok = match self.lists.get(&ty.0) {
             Some(previous) if Rc::ptr_eq(previous, items) => return true,
             Some(previous) => {
-                let shared = compare::shared(previous, items);
+                // Moved items are checked again: finding them costs about
+                // what checking them does.
+                let shared = compare::shared(previous, items, false);
                 let end = items.len() - shared.suffix;
                 shared
                     .middle

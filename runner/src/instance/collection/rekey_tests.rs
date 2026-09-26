@@ -251,3 +251,15 @@ fn a_bad_key_in_a_new_row_is_refused_as_before() {
     h.slots[0] = Value::list(next);
     assert!(h.update().is_err());
 }
+
+#[test]
+fn an_answer_of_new_objects_takes_the_full_path() {
+    // Nothing to share: the full path keys every row, as before.
+    assert_eq!(
+        keyed(|v| {
+            *v = (0..N).map(bumped).collect();
+            v.insert(0, record(5_000));
+        }),
+        N + 1
+    );
+}

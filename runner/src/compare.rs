@@ -50,11 +50,12 @@ pub struct Shared {
 
 /// Match `new` against `old` by [`same`]: the common prefix and suffix, then
 /// a lockstep walk of the middles that steps over single insertions,
-/// removals and replacements, then an identity lookup for what is left. Every
+/// removals and replacements, then (with `lookup`) an identity lookup for
+/// what is left, which finds moved items at the cost of hashing it. Every
 /// match is a same object; `None` only means none was found. O(N) pointer
 /// comparisons, plus hashing the unmatched remainder: an insert at the top of
 /// a 10,000-row answer is the whole old list as a suffix.
-pub fn shared(old: &[Value], new: &[Value]) -> Shared {
+pub fn shared(old: &[Value], new: &[Value], lookup: bool) -> Shared {
     let prefix = old.iter().zip(new).take_while(|(a, b)| same(a, b)).count();
     let room = old.len().min(new.len()) - prefix;
     let suffix = old
@@ -87,7 +88,7 @@ pub fn shared(old: &[Value], new: &[Value]) -> Shared {
             }
         }
     }
-    if middle.iter().any(Option::is_none) && used.iter().any(|u| !u) {
+    if lookup && middle.iter().any(Option::is_none) && used.iter().any(|u| !u) {
         let mut by_identity = std::collections::HashMap::new();
         for (k, item) in old[prefix..old_end].iter().enumerate() {
             if !used[k] {
@@ -217,13 +218,13 @@ mod tests {
         // An insert at the top: the whole old list is the suffix.
         let mut new = old.clone();
         new.insert(0, fresh.clone());
-        let s = shared(&old, &new);
+        let s = shared(&old, &new, true);
         assert_eq!((s.prefix, s.suffix, s.middle), (0, 6, vec![None]));
         // One insert and one replacement: the lockstep steps over both.
         let mut new = old.clone();
         new.insert(1, fresh.clone());
         new[4] = Value::str("3");
-        let s = shared(&old, &new);
+        let s = shared(&old, &new, true);
         assert_eq!((s.prefix, s.suffix), (1, 2));
         assert_eq!(s.middle, vec![None, Some(1), Some(2), None]);
         // A reversal: identity lookup, and an equal but new string is not
@@ -232,7 +233,7 @@ mod tests {
         new.reverse();
         new.pop();
         new.push(Value::str("0"));
-        let s = shared(&old, &new);
+        let s = shared(&old, &new, true);
         let found: Vec<_> = (0..new.len())
             .map(|i| {
                 if i < s.prefix {
@@ -250,7 +251,7 @@ mod tests {
         );
         // Numbers are the same by their bits.
         let numbers = [Value::Number(1.0), Value::Number(-0.0)];
-        let s = shared(&numbers, &[Value::Number(0.0), Value::Number(1.0)]);
+        let s = shared(&numbers, &[Value::Number(0.0), Value::Number(1.0)], true);
         assert_eq!(s.middle, vec![None, Some(0)]);
     }
 }
