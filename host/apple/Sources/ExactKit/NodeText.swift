@@ -92,6 +92,14 @@ extension NodeView {
             runs.append(InlineText.run(value, style: style, href: props["href"] ?? "", dark: night))
         } else {
             runs = inlineText.filter(\.paints).map { $0.run(dark: night) }
+            // A container's background covers its descendants' fragments (CSS).
+            if inlineText.contains(where: { !$0.paints && $0.run(dark: night).background != nil }) {
+                let byId = Dictionary(inlineText.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+                for (i, leaf) in inlineText.filter(\.paints).enumerated() where runs[i].background == nil {
+                    var up = byId[leaf.parent]
+                    while let run = up, runs[i].background == nil { runs[i].background = run.run(dark: night).background; up = byId[run.parent] }
+                }
+            }
         }
         let spec = Spec(runs: runs, align: align, lineClamp: Int(number("line_clamp")),
                         color: channels("text_color", dark: night) ?? [0, 0, 0, 255],

@@ -56,6 +56,7 @@ struct TextRasterJob {
                 frame = frame.union(CGRect(x: position.x + ink.minX, y: position.y - ink.maxY,
                                            width: ink.width, height: ink.height).insetBy(dx: -1 / scale, dy: -1 / scale))
             }
+            for (fill, _) in TextLinePaint.backgrounds(line, at: position) { frame = frame.union(fill) }
         }
         frame = frame.intersection(bounds.insetBy(dx: -Self.maxInkOverflow, dy: -Self.maxInkOverflow))
         if let clip { frame = frame.intersection(clip) }

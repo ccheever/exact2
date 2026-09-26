@@ -36,12 +36,15 @@ struct Run: Hashable {
     var color: [Double]? = nil
     var decoration: String = ""
     var href: String = ""
+    /// The inline box's `background-color`: paint, never metrics.
+    var background: [Double]? = nil
 
     static func == (lhs: Run, rhs: Run) -> Bool {
         guard lhs.size == rhs.size, lhs.weight == rhs.weight, lhs.family == rhs.family,
               lhs.italic == rhs.italic, lhs.lineHeight == rhs.lineHeight,
               lhs.letterSpacing == rhs.letterSpacing, lhs.color == rhs.color,
-              lhs.decoration == rhs.decoration, lhs.href == rhs.href else { return false }
+              lhs.decoration == rhs.decoration, lhs.href == rhs.href,
+              lhs.background == rhs.background else { return false }
         // CoreText's ranges address the original UTF16 source. Swift String's
         // canonical equality would alias NFC/NFD paragraphs with different
         // source lengths, so both equality and hashing use the exact UTF8.
@@ -64,6 +67,7 @@ struct Run: Hashable {
         hasher.combine(color)
         hasher.combine(decoration)
         hasher.combine(href)
+        hasher.combine(background)
     }
 }
 
@@ -210,9 +214,10 @@ extension Spec {
             value.runs[i].color = nil
             value.runs[i].decoration = ""
             value.runs[i].href = ""
+            value.runs[i].background = nil
         }
         if var strut = value.strut {
-            strut.text = ""; strut.color = nil; strut.decoration = ""; strut.href = ""
+            strut.text = ""; strut.color = nil; strut.decoration = ""; strut.href = ""; strut.background = nil
             value.strut = strut
         }
         return value
@@ -452,6 +457,10 @@ final class TextEngine {
             if r.letterSpacing != 0 { a[.kern] = r.letterSpacing }
             if r.decoration.contains("underline") || (r.decoration.isEmpty && !r.href.isEmpty) { a[.underlineStyle] = NSUnderlineStyle.single.rawValue }
             if r.decoration.contains("line-through") { a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
+            if let fill = r.background.map(TextEngine.color), fill.cgColor.alpha > 0 {
+                let f = a[.font] as! PlatformFont
+                a[.exactBackground] = InlineBackground(color: fill.cgColor, ascent: f.ascender, descent: -f.descender)
+            }
             let length = r.text.utf16.count
             if length > 0 { s.setAttributes(a, range: NSRange(location: offset, length: length)) }
             offset += length
@@ -895,6 +904,27 @@ final class TextEngine {
     }
 }
 
+/// An inline box's `background-color`, carried on the attributed source so
+/// that the main thread's paint and a worker's raster read the same value.
+/// The content area is the run's own font's, as the web's inline box is.
+final class InlineBackground: NSObject {
+    let color: CGColor
+    let ascent: CGFloat
+    let descent: CGFloat
+    init(color: CGColor, ascent: CGFloat, descent: CGFloat) {
+        self.color = color; self.ascent = ascent; self.descent = descent
+    }
+    override func isEqual(_ object: Any?) -> Bool {
+        guard let other = object as? InlineBackground else { return false }
+        return color == other.color && ascent == other.ascent && descent == other.descent
+    }
+    override var hash: Int { color.hashValue ^ ascent.hashValue ^ descent.hashValue }
+}
+
+extension NSAttributedString.Key {
+    static let exactBackground = NSAttributedString.Key("ExactInlineBackground")
+}
+
 /// One line's paint into a y-down context, shared by every Apple painter.
 enum TextLinePaint {
     /// The CTM, not the text matrix, flips y: CoreText positions a glyph
@@ -903,6 +933,9 @@ enum TextLinePaint {
     /// ink fell below the line box it was measured in.
     static func draw(_ line: CTLine, at origin: CGPoint, in ctx: CGContext) {
         ctx.saveGState()
+        for (rect, color) in backgrounds(line, at: origin) {
+            ctx.setFillColor(color); ctx.fill(rect)
+        }
         // The text matrix is not graphics state; put the caller's back.
         let matrix = ctx.textMatrix
         ctx.translateBy(x: origin.x, y: origin.y)
@@ -912,5 +945,38 @@ enum TextLinePaint {
         CTLineDraw(line, ctx)
         ctx.textMatrix = matrix
         ctx.restoreGState()
+    }
+
+    /// CSS: an inline box's background covers each of its line fragments,
+    /// its glyphs' advance across and its font's content area down. Glyph
+    /// runs that fallback or bidi split are joined again where they touch.
+    static func backgrounds(_ line: CTLine, at origin: CGPoint) -> [(CGRect, CGColor)] {
+        var spans: [(CGFloat, CGFloat, InlineBackground)] = []
+        for run in CTLineGetGlyphRuns(line) as! [CTRun] {
+            let attributes = CTRunGetAttributes(run) as NSDictionary
+            guard let fill = attributes[NSAttributedString.Key.exactBackground] as? InlineBackground else { continue }
+            let count = CTRunGetGlyphCount(run)
+            guard count > 0 else { continue }
+            var positions = [CGPoint](repeating: .zero, count: count)
+            var advances = [CGSize](repeating: .zero, count: count)
+            CTRunGetPositions(run, CFRange(), &positions)
+            CTRunGetAdvances(run, CFRange(), &advances)
+            var lo = CGFloat.infinity, hi = -CGFloat.infinity
+            for i in 0..<count {
+                lo = min(lo, positions[i].x, positions[i].x + advances[i].width)
+                hi = max(hi, positions[i].x, positions[i].x + advances[i].width)
+            }
+            spans.append((lo, hi, fill))
+        }
+        spans.sort { $0.0 < $1.0 }
+        var merged: [(CGFloat, CGFloat, InlineBackground)] = []
+        for span in spans {
+            if let last = merged.last, last.2.isEqual(span.2), span.0 <= last.1 + 0.01 {
+                merged[merged.count - 1].1 = max(last.1, span.1)
+            } else { merged.append(span) }
+        }
+        return merged.map { lo, hi, fill in
+            (CGRect(x: origin.x + lo, y: origin.y - fill.ascent, width: hi - lo, height: fill.ascent + fill.descent), fill.color)
+        }
     }
 }
