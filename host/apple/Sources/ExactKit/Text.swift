@@ -790,13 +790,10 @@ final class TextEngine {
     /// UIView's): one CTLineDraw per line, baselines currently rounded to
     /// logical points, flush by alignment.
     static func draw(_ p: Paragraph, spec: Spec, in bounds: CGRect, context ctx: CGContext, dirty: CGRect? = nil) {
-        ctx.saveGState()
-        ctx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
         func paint(_ index: Int) {
             let line = p.lines[index], baseline = p.baselines[index]
             let x = p.origin(index, align: spec.align, width: bounds.width)
-            ctx.textPosition = CGPoint(x: bounds.minX + x, y: bounds.minY + baseline.rounded())
-            CTLineDraw(line, ctx)
+            TextLinePaint.draw(line, at: CGPoint(x: bounds.minX + x, y: bounds.minY + baseline.rounded()), in: ctx)
         }
         if let dirty {
             p.inkBounds().forEachLine(from: dirty.minY - bounds.minY,
@@ -804,7 +801,6 @@ final class TextEngine {
         } else {
             for index in p.lines.indices { paint(index) }
         }
-        ctx.restoreGState()
     }
 
     /// The kernel's measurer for one request: called for every paragraph
@@ -896,5 +892,25 @@ final class TextEngine {
     static let measureText: ExactMeasureFn = { ctx, request in
         guard let ctx, let request = request?.pointee else { return ExactMetrics(width: 0, height: 0, baseline: -1) }
         return Unmanaged<TextEngine>.fromOpaque(ctx).takeUnretainedValue().measure(request)
+    }
+}
+
+/// One line's paint into a y-down context, shared by every Apple painter.
+enum TextLinePaint {
+    /// The CTM, not the text matrix, flips y: CoreText positions a glyph
+    /// in text space, so a flipped text matrix turned the vertical offsets
+    /// of cursive attachment and marks (SF Arabic's) upside down, and that
+    /// ink fell below the line box it was measured in.
+    static func draw(_ line: CTLine, at origin: CGPoint, in ctx: CGContext) {
+        ctx.saveGState()
+        // The text matrix is not graphics state; put the caller's back.
+        let matrix = ctx.textMatrix
+        ctx.translateBy(x: origin.x, y: origin.y)
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.textMatrix = .identity
+        ctx.textPosition = .zero
+        CTLineDraw(line, ctx)
+        ctx.textMatrix = matrix
+        ctx.restoreGState()
     }
 }

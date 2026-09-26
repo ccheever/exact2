@@ -97,11 +97,7 @@ struct TextRasterJob {
         ctx.scaleBy(x: scale, y: -scale)
         ctx.translateBy(x: -frame.minX, y: -frame.minY)
         ctx.setShouldSmoothFonts(true)
-        ctx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
-        for (line, position) in zip(lines, positions) {
-            ctx.textPosition = position
-            CTLineDraw(line, ctx)
-        }
+        for (line, position) in zip(lines, positions) { TextLinePaint.draw(line, at: position, in: ctx) }
         ctx.flush()
         #if os(iOS)
         guard let image = ctx.makeImage() else { return nil }
