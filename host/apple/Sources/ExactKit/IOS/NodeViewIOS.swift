@@ -1263,7 +1263,6 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // 1009 D4), on the next turn (LLP 1014's readback fixture found a
         // batch's own attempt too early).
         if presenter?.views[id] === self { firstDraw() }
-        let radius = number("border_radius", number("border_radius_top_left"))
         let path = roundedPath(in: bounds)
         let uniform = number("border_width")
         // A box Core Animation can say is the layer's (`applyBoxLayer`).
@@ -1273,30 +1272,14 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
                 bg.setFill()
                 path.fill()
             }
-            let borderColor = color("border_color_top", .clear)
-            let top = number("border_width_top", uniform), right = number("border_width_right", uniform)
-            let bottom = number("border_width_bottom", uniform), left = number("border_width_left", uniform)
-            // A uniform border on a rounded box follows the curve (the web's
-            // rule). Four edge rects would square the corners and show as nubs.
-            if radius > 0, top > 0, top == right, right == bottom, bottom == left {
-                let inset = top / 2
-                let stroke = roundedPath(in: bounds.insetBy(dx: inset, dy: inset), inset: inset)
-                stroke.lineWidth = top
-                stroke.lineJoinStyle = .round
-                borderColor.setStroke()
-                stroke.stroke()
-            } else {
-                let sides: [(String, CGRect)] = [
-                    ("border_width_top", CGRect(x: 0, y: 0, width: bounds.width, height: top)),
-                    ("border_width_bottom", CGRect(x: 0, y: bounds.height - bottom, width: bounds.width, height: bottom)),
-                    ("border_width_left", CGRect(x: 0, y: 0, width: left, height: bounds.height)),
-                    ("border_width_right", CGRect(x: bounds.width - right, y: 0, width: right, height: bounds.height)),
-                ]
-                for (key, r) in sides where number(key, uniform) > 0 {
-                    ctx.setFillColor(color(key.replacingOccurrences(of: "width", with: "color"), borderColor).cgColor)
-                    ctx.fill(r)
-                }
-            }
+            // Sides that differ in colour or width, or a radius the layer
+            // cannot say: each side in its colour, joined as the web joins
+            // them (`BorderPaint`).
+            let widths = ["top", "right", "bottom", "left"].map { number("border_width_" + $0, uniform) }
+            let top = color("border_color_top", .clear)
+            let colors = ["top", "right", "bottom", "left"].map { color("border_color_" + $0, top).cgColor }
+            let radii = ["top_left", "top_right", "bottom_right", "bottom_left"].map { number("border_radius_" + $0) }
+            BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii)
         }
         if kind == "image", symbolView == nil, let bitmap = raster?.image {
             // CSS object-fit over the content box (the frame inside border

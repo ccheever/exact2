@@ -1262,31 +1262,15 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             bg.setFill()
             if rounded { path.fill() } else { NSGraphicsContext.current?.cgContext.fill(bounds) }
         }
-        // The host sends each side's colour (`style.rs`), never a uniform one.
-        let borderColor = color("border_color_top", .clear)
+        // The host sends each side's colour (`style.rs`), never a uniform
+        // one: each side in its colour, joined as the web joins them.
         let uniform = number("border_width")
-        let top = number("border_width_top", uniform), right = number("border_width_right", uniform)
-        let bottom = number("border_width_bottom", uniform), left = number("border_width_left", uniform)
-        // A uniform border on a rounded box follows the curve (the web's
-        // rule). Four edge rects would square the corners and show as nubs.
-        if rounded, top > 0, top == right, right == bottom, bottom == left {
-            let inset = top / 2
-            let stroke = roundedPath(in: bounds.insetBy(dx: inset, dy: inset), inset: inset)
-            stroke.lineWidth = top
-            stroke.lineJoinStyle = .round
-            borderColor.setStroke()
-            stroke.stroke()
-        } else {
-            let sides: [(String, NSRect)] = [
-                ("border_width_top", NSRect(x: 0, y: 0, width: bounds.width, height: top)),
-                ("border_width_bottom", NSRect(x: 0, y: bounds.height - bottom, width: bounds.width, height: bottom)),
-                ("border_width_left", NSRect(x: 0, y: 0, width: left, height: bounds.height)),
-                ("border_width_right", NSRect(x: bounds.width - right, y: 0, width: right, height: bounds.height)),
-            ]
-            for (key, r) in sides where number(key, uniform) > 0 {
-                color(key.replacingOccurrences(of: "width", with: "color"), borderColor).setFill()
-                r.fill()
-            }
+        let widths = ["top", "right", "bottom", "left"].map { number("border_width_" + $0, uniform) }
+        let top = color("border_color_top", .clear)
+        let colors = ["top", "right", "bottom", "left"].map { color("border_color_" + $0, top).cgColor }
+        let radii = ["top_left", "top_right", "bottom_right", "bottom_left"].map { number("border_radius_" + $0) }
+        if let ctx = NSGraphicsContext.current?.cgContext {
+            BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii)
         }
         if kind == "image", symbolView == nil, let bitmap = raster?.image {
             // CSS object-fit over the content box (the frame inside border
