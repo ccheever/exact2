@@ -1021,3 +1021,33 @@ needs 129–133 KB, which nothing sized here reaches. With `core::fmt` off
 the boot path the stable split's primary is 168.0 KB (1,672 ms). The rule
 models a runtime press at load; since tags became links (`98958c9e`), a
 tag tapped at load loads its rendered page instead.
+
+**The web toolchain, 2026-09-25 (Charlie: "ok do your pick", answering §9 Q4).**
+The web artifacts now build with a pinned nightly (`WEB_TOOLCHAIN`,
+`nightly-2026-08-21`, in `scripts/app.mjs`). It builds std with
+`-Zbuild-std=std,panic_abort -Zbuild-std-features=optimize_for_size`, and adds
+`-Cpanic=immediate-abort -Zlocation-detail=none` to the wasm rustflags.
+- **What it covers:** the app's own artifact, the Markdown editor and text
+  flow. A GPU crate keeps its toolchain's std. Everything else, and the five
+  checks, stay on `rust-toolchain.toml`'s stable.
+- **What it costs:** nothing the web shows. The web prints no panic message
+  (`panic_output()` is `None` on wasm32-unknown-unknown), and the glue reads
+  no trap.
+- **Deprecations are stable's to judge.** The nightly deprecates
+  `fetch_update` before stable has `try_update`, so its rustflags allow
+  `deprecated`.
+- **The receipt reads both of Cargo's build-dir layouts.** A build script's
+  stdout is `output`, or `run/stdout` in the nightly's new layout. So does
+  `dev.mjs`'s game-input scan.
+- **A machine without the toolchain is refused** with the two install
+  commands. Cargo builds offline, so std's own dependencies are fetched once.
+
+| brotli-11 | stable | web toolchain |
+|---|---|---|
+| RealWorld `app.wasm` | 267,921 B | 250,059 B (−17.9 KB, −6.7%) |
+| `markup-editor.wasm` | 69 KiB gzip | 45,260 B |
+| `textflow.wasm` | 54 KiB gzip | 38,480 B |
+
+RealWorld's raw `app.wasm` fell 76 KB, from 856,926 to 780,997 B. That is more
+than the ~10 KB the table above gave panic text alone: std built for size is
+the rest. The web smoke passes on it.

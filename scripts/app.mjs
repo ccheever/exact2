@@ -121,18 +121,39 @@ const ROOT = resolve(new URL('..', import.meta.url).pathname);
  * and in every checkout. Every web-profile wasm build passes the same flags,
  * so they share one set of artifacts. Later prefixes win (rustc's rule). */
 const rustcFacts = new Map();
-export function wasmRemapFlags(app) {
-  const cwd = app?.workspace ?? ROOT;
-  const rustc = (...args) => spawnSync('rustc', args, { cwd, encoding: 'utf8' }).stdout ?? '';
-  if (!rustcFacts.has(cwd)) rustcFacts.set(cwd, { commit: /^commit-hash: (\S+)$/m.exec(rustc('-vV'))?.[1], sysroot: rustc('--print', 'sysroot').trim() });
-  const { commit, sysroot } = rustcFacts.get(cwd);
+export function wasmRemapFlags(app, toolchain = null) {
+  const cwd = app?.workspace ?? ROOT, key = `${cwd}\0${toolchain ?? ''}`;
+  const env = toolchain ? { ...process.env, RUSTUP_TOOLCHAIN: toolchain } : process.env;
+  const rustc = (...args) => spawnSync('rustc', args, { cwd, env, encoding: 'utf8' }).stdout ?? '';
+  if (!rustcFacts.has(key)) rustcFacts.set(key, { commit: /^commit-hash: (\S+)$/m.exec(rustc('-vV'))?.[1], sysroot: rustc('--print', 'sysroot').trim() });
+  const { commit, sysroot } = rustcFacts.get(key);
   const pairs = [[resolve(process.env.CARGO_HOME ?? resolve(homedir(), '.cargo')), 'cargo']];
   if (sysroot && commit) pairs.push([resolve(sysroot, 'lib/rustlib/src/rust'), `/rustc/${commit}`]);
   pairs.push([ROOT, '']);
   if (app && resolve(app.workspace) !== ROOT) pairs.push([resolve(app.workspace), '']);
   if (app) pairs.push([resolve(app.target), 'target']);
-  const flags = pairs.map(([from, to]) => JSON.stringify(`--remap-path-prefix=${from}=${to}`));
+  const flags = [...pairs.map(([from, to]) => `--remap-path-prefix=${from}=${to}`), ...(toolchain === WEB_TOOLCHAIN ? WEB_RUSTFLAGS : [])].map(f => JSON.stringify(f));
   return ['--config', `target.wasm32-unknown-unknown.rustflags=[${flags.join(',')}]`];
+}
+
+/** The web artifacts' toolchain (LLP 1047 §6, §10): a pinned nightly builds
+ * std for size, and a panic aborts without its message or location. The web
+ * shows neither: wasm32-unknown-unknown has no panic output and the glue
+ * reads no trap. Everything else builds with rust-toolchain.toml's stable. */
+export const WEB_TOOLCHAIN = 'nightly-2026-08-21';
+export const WEB_STD = ['-Zbuild-std=std,panic_abort', '-Zbuild-std-features=optimize_for_size'];
+// Deprecation is stable's to judge (the five checks' clippy): the nightly
+// deprecates names, like `fetch_update`, before stable has their successors.
+const WEB_RUSTFLAGS = ['-Zunstable-options', '-Cpanic=immediate-abort', '-Zlocation-detail=none', '-Adeprecated'];
+/** The environment for a web build, refusing a machine without the toolchain
+ * or its std sources (Cargo builds offline, so std's dependencies too). */
+export function webToolchainEnv(env) {
+  const sysroot = spawnSync('rustc', ['--print', 'sysroot'], { env: { ...env, RUSTUP_TOOLCHAIN: WEB_TOOLCHAIN }, encoding: 'utf8' });
+  if (sysroot.status !== 0 || !existsSync(resolve(sysroot.stdout.trim(), 'lib/rustlib/src/rust/library/Cargo.lock'))) throw new Error(
+    `the web artifact builds with ${WEB_TOOLCHAIN} and its std sources (LLP 1047):\n` +
+    `  rustup toolchain install ${WEB_TOOLCHAIN} --profile minimal --component rust-src\n` +
+    `  cargo +${WEB_TOOLCHAIN} fetch --manifest-path "$(rustc +${WEB_TOOLCHAIN} --print sysroot)/lib/rustlib/src/rust/library/Cargo.toml"`);
+  return { ...env, RUSTUP_TOOLCHAIN: WEB_TOOLCHAIN, EXACT_WEB_SIZE: [...WEB_STD, ...WEB_RUSTFLAGS].join(' ') };
 }
 
 // A Bun older than package.json's pin is refused before anything builds.
@@ -561,7 +582,8 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     const role = roleOf(m.out_dir); if (!graph.roles.get(m.package_id).has(role)) continue;
     const pkg = graph.packages.get(m.package_id), source = pkg.targets.find((t) => t.kind.includes('custom-build'));
     if (source) add(source.src_path);
-    const output = readFileSync(resolve(m.out_dir,'../output'),'utf8'); const environment = [];
+    // The script's stdout: `output` beside `out`, or `run/stdout` in Cargo's new build-dir layout (the web toolchain's).
+    const output = readFileSync([resolve(m.out_dir,'../output'), resolve(m.out_dir,'../run/stdout')].find(existsSync) ?? resolve(m.out_dir,'../output'),'utf8'); const environment = [];
     for (const line of output.split('\n')) {
       const changed = /^cargo::?rerun-if-changed=(.*)$/.exec(line);
       // The app's plan/manifest/static watches are inputs of replaceable
@@ -611,7 +633,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
     }
   }
   const metadata={app:app.manifest.app,host:app.manifest.host?.[platform]??{},icons:app.manifest.icons??[],delivery:compat.delivery,store:compat.inputs.store,keys:compat.inputs.keys};
-  const configuration={target,units:orderedBuild([...new Map(units.map(u=>[canonicalBuild(u),u])).values()]),builders:orderedBuild([...new Map(builders.map(u=>[canonicalBuild(u),u])).values()]),rustc:buildCommand('rustc',['-vV'],app,env).stdout,flags:{...Object.fromEntries(['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','MACOSX_DEPLOYMENT_TARGET','IPHONEOS_DEPLOYMENT_TARGET'].map((k)=>[k,env[k]??null])),...(env.EXACT_WEB_LINK?{EXACT_WEB_LINK:env.EXACT_WEB_LINK}:{})}};
+  const configuration={target,units:orderedBuild([...new Map(units.map(u=>[canonicalBuild(u),u])).values()]),builders:orderedBuild([...new Map(builders.map(u=>[canonicalBuild(u),u])).values()]),rustc:buildCommand('rustc',['-vV'],app,env).stdout,flags:{...Object.fromEntries(['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','MACOSX_DEPLOYMENT_TARGET','IPHONEOS_DEPLOYMENT_TARGET'].map((k)=>[k,env[k]??null])),...(env.EXACT_WEB_LINK?{EXACT_WEB_LINK:env.EXACT_WEB_LINK}:{}),...(env.EXACT_WEB_SIZE?{EXACT_WEB_SIZE:env.EXACT_WEB_SIZE}:{})}};
   const files=[...inputs.values()].sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0);
   const fingerprint={files:files.map(({name,sha256})=>({name,sha256})),absent:[...absent.keys()].sort(),configuration,metadata};
   const products=roots.flatMap((r)=>messages.filter((m)=>m.reason==='compiler-artifact'&&m.package_id===r.package&&m.target.name===r.name).flatMap((m)=>m.filenames)).filter((p)=>!p.endsWith('.d')).map((path)=>prepared.get(path)??path).map((path)=>({path,bytes:statSync(path).size,sha256:buildHash(readFileSync(path))}));
@@ -666,7 +688,8 @@ export function bakeSelection(graph, part) {
  * classify its completed receipt; compatibility is never recomputed in JS. */
 export function buildBake(app, platform, target, options = {}) {
   const kind=platform==='macos'||platform==='ios'?'apple':platform;
-  const env={...process.env,...options.env};env.CARGO_TARGET_DIR=app.target;env.EXACT_BAKE_OUTPUT=options.output??bakeOutput(app,env);
+  let env={...process.env,...options.env};env.CARGO_TARGET_DIR=app.target;env.EXACT_BAKE_OUTPUT=options.output??bakeOutput(app,env);
+  if(platform==='web')env=webToolchainEnv(env);
   if(options.analysis && env.EXACT_UPDATE_TRUST==='production')env.EXACT_BAKE_ANALYSIS='1';else delete env.EXACT_BAKE_ANALYSIS;
   mkdirSync(env.EXACT_BAKE_OUTPUT,{recursive:true});
   const rustBundle=prepareRustBundle(app,platform,target,env);
@@ -696,7 +719,9 @@ export function buildBake(app, platform, target, options = {}) {
   for(const {pkg,unit} of selected) {
     // The GPU bake can create the first asset directory (for a typed level).
     env.EXACT_ASSET_ROOTS=['assets','deck',...(app.manifest.game ? [] : ['gpu/shaders'])].filter(root=>(root==='assets' && app.manifest.game && (app.manifest.game.assets === true || existsSync(resolve(app.dir,'art')))) || existsSync(resolve(app.dir,root))).join(',');
-    const args=['build',...cargoReproducibilityFlags(app),...(target==='wasm32-unknown-unknown'?wasmRemapFlags(app):[]),'-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(kind==='linux'&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(gpuPackage(pkg)?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json-render-diagnostics'];
+    // The app's own web artifact builds std for size; a GPU crate keeps the toolchain's std.
+    const sized=platform==='web'&&!gpuPackage(pkg);
+    const args=['build',...cargoReproducibilityFlags(app),...(sized?WEB_STD:[]),...(target==='wasm32-unknown-unknown'?wasmRemapFlags(app,sized?WEB_TOOLCHAIN:null):[]),'-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(kind==='linux'&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(gpuPackage(pkg)?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json-render-diagnostics'];
     const result=buildCommand('cargo',args,app,env,'inherit');
     const output=result.stdout.split('\n').filter(Boolean).map((line)=>JSON.parse(line));messages.push(...output);roots.push({package:pkg.id,name:unit.name});
     if (gpuPackage(pkg) && platform !== 'web') {
