@@ -475,7 +475,9 @@ function attach(el, id, handlers) {
   if (handlers.some((k) => k === "focus" || k === "blur" || k === "key") && !(el instanceof HTMLInputElement || el instanceof HTMLButtonElement) && !el.exactMarkup && !el.hasAttribute("tabindex")) el.tabIndex = 0;
   for (const kind of handlers) {
     if (kind === "press") {
-      on("click", e => focus.press(e, el, () => send(wasm.exact_dispatch(id, 0, 0, now()))));
+      // A link inside a pressable node is the innermost activation, as a
+      // nested press is: the link navigates and the outer press stays out.
+      on("click", e => { const a = e.target.closest?.("a[href]"); if (a && a !== el && el.contains(a)) return; focus.press(e, el, () => send(wasm.exact_dispatch(id, 0, 0, now()))); });
     } else if (kind === "pan") {
       let pan;
       on("pointerdown", e => (pan ??= inputHandlers?.pan(el, id, on))?.(e));
