@@ -170,6 +170,9 @@ pub(crate) fn compile(
                 let template = l.path_expr(args, *span, scope)?;
                 return compile(l, asm, &template, scope, locals);
             }
+            if contract_types::strings::is_text_call(name, scope) {
+                return l.text_call(asm, args, *span, scope, locals);
+            }
             if name == "pending" {
                 // Typed already: one name, a resource or a mutation.
                 let Some(Expr::Ident(target, _)) = args.first() else {

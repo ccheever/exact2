@@ -566,7 +566,11 @@ impl<D: DataSource> Runner<D> {
                 .map(|(_, old)| old);
             self.slots[slot.0 as usize] = context.initial(old, launch)?;
         }
-        for i in 0..self.plan.slots.len() {
+        // @ref LLP 1060 D4 — the locale slot is the last one lowered, and an
+        // initializer may call `t`: it is filled first.
+        let locale = self.plan.locale.map(|s| s.0 as usize);
+        let rest = (0..self.plan.slots.len()).filter(|i| Some(*i) != locale);
+        for i in locale.into_iter().chain(rest) {
             let row = &self.plan.slots[i];
             if row.owner.is_some() || self.plan.router == Some(SlotsId(i as u32)) {
                 continue;

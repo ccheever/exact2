@@ -85,6 +85,20 @@ pub fn call(
         Stdlib::Floor => Value::Number(num(0)?.floor()),
         Stdlib::Max => Value::Number(num(0)?.max(num(1)?)),
         Stdlib::Min => Value::Number(num(0)?.min(num(1)?)),
+        // @ref LLP 1060 D2 — the compiler proved the key is in the base table
+        // and the pairs fill its placeholders; a miss here is a trap.
+        Stdlib::T => {
+            let Value::List(pairs) = args.get(2)? else {
+                return None;
+            };
+            let text = plan.localized(args.first()?.as_str()?, args.get(1)?.as_str()?)?;
+            Value::str(&exact_plan::strings::fill(text, |name| {
+                pairs
+                    .chunks_exact(2)
+                    .find(|pair| pair[0].as_str() == Some(name))
+                    .and_then(|pair| pair[1].as_str())
+            }))
+        }
     })
 }
 

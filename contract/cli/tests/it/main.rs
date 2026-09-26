@@ -36,6 +36,7 @@ mod rust_shapes;
 mod shape_cycles;
 mod source_locations;
 mod source_map;
+mod strings;
 mod styles;
 mod surface;
 mod symbols;

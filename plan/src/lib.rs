@@ -27,6 +27,7 @@
 pub mod asm;
 pub mod builder;
 pub mod bytes;
+pub mod strings;
 pub mod value;
 
 /// Generated from `tables/format.json`.
@@ -416,6 +417,7 @@ impl Plan {
         {
             return Err(PlanError::GenericStacks);
         }
+        self.validate_texts()?;
         self.validate_site_depth()?;
         self.validate_acyclic_types()
     }

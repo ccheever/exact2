@@ -22,6 +22,8 @@ mod component;
 /// Router declaration checking and compile-time path expansion (LLP 1038 D2/D3).
 pub mod routes;
 mod selection;
+/// The strings call and the tables it is checked against (LLP 1060).
+pub mod strings;
 mod uses;
 
 use contract_syntax::{BinOp, Component, Expr, File, Span, TemplatePart, TypeExpr, UnOp};
@@ -239,6 +241,8 @@ pub struct Shapes {
     /// Which attribute names set style rows (lowering's table): their
     /// branches may mix a number and a string, one CSS value space.
     pub style_attr: Option<fn(&str) -> bool>,
+    /// The app's strings tables, when it has them (LLP 1060 D1).
+    pub strings: Option<Arc<strings::Strings>>,
 }
 
 impl Shapes {
@@ -599,6 +603,9 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                 routes::expand_path(args, *span, scope, shapes)?;
                 return Ok(Ty::String);
             }
+            if strings::is_text_call(name, scope) {
+                return strings::check_call(args, *span, scope, shapes);
+            }
             if name == "pending" {
                 // `pending(x)`: whether resource or mutation `x` has a
                 // request in flight (LLP 1016 D3). Not a roster call: its
@@ -952,24 +959,27 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
 /// Check a file: shared declarations, then every component. The first
 /// refusal, as [`check_all`] orders them.
 pub fn check(file: &File, style_attr: fn(&str) -> bool) -> Result<Checked<'_>, TypeError> {
-    check_with_sites(file, false, style_attr).map_err(|mut all| all.swap_remove(0))
+    check_with_sites(file, false, style_attr, None).map_err(|mut all| all.swap_remove(0))
 }
 
 /// Check a file and report every independent refusal (at most
 /// [`MAX_REFUSALS`]), call sites first; `mapped` retains source provenance.
-/// `style_attr` says which attribute names set style rows.
+/// `style_attr` says which attribute names set style rows; `strings` are the
+/// app's tables, which `t(...)` is checked against.
 pub fn check_all(
     file: &File,
     mapped: bool,
     style_attr: fn(&str) -> bool,
+    strings: Option<Arc<strings::Strings>>,
 ) -> Result<Checked<'_>, Vec<TypeError>> {
-    check_with_sites(file, mapped, style_attr)
+    check_with_sites(file, mapped, style_attr, strings)
 }
 
 fn check_with_sites(
     file: &File,
     capture_sites: bool,
     style_attr: fn(&str) -> bool,
+    strings: Option<Arc<strings::Strings>>,
 ) -> Result<Checked<'_>, Vec<TypeError>> {
     if file.components.is_empty() {
         return Err(vec![TypeError {
@@ -980,6 +990,7 @@ fn check_with_sites(
     }
     let mut shapes = check_declarations(file).map_err(|e| vec![e])?;
     shapes.style_attr = Some(style_attr);
+    shapes.strings = strings;
     let mut types = Types {
         shapes,
         components: Vec::new(),
