@@ -456,6 +456,19 @@ final class Canvases {
         }
     }
 
+    /// Whether any of `view` is inside the window and every clipping
+    /// ancestor (a scroll view's visible bounds included).
+    func onScreen(_ view: UIView) -> Bool {
+        guard let window = view.window else { return false }
+        var clip = window.bounds
+        var ancestor = view.superview
+        while let a = ancestor, a !== window {
+            if a.clipsToBounds { clip = clip.intersection(a.convert(a.bounds, to: window)) }
+            ancestor = a.superview
+        }
+        return view.convert(view.bounds, to: window).intersects(clip)
+    }
+
     /// Render every dirty or wanting surface at `now`; whether more is wanted.
     func tick(now: Double) -> Bool {
         guard !modules.isEmpty, visible else { return false }
@@ -480,6 +493,11 @@ final class Canvases {
             // twice on the turn a batch already captured.
             if e.through, !e.view.paintedThisTurn, let overlay = e.view.overlay, editing(under: overlay) { capture(m, e) }
             guard live(e.view.id) === e, e.wants || m.dirty(e.id) != 0, let metal = e.view.metal else { continue }
+            // D4: a canvas renders when the host judges it on screen. A
+            // virtualized list keeps rows mounted past the viewport; their
+            // canvases keep what they want (and their dirty inputs) and render
+            // the first frame they are seen.
+            guard onScreen(metal) else { more = true; continue }
             // No starvation guard here (the AppKit presenter pauses a canvas
             // whose render took over 200 ms, a covered window's drawable
             // wait): iOS has no occlusion of that kind — a backgrounded app
