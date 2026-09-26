@@ -676,6 +676,18 @@ impl NodeInst {
                     }
                     Err(e) => return Err(InstanceError::Bridge(e)),
                 },
+                // A class choice's row the chosen style does not set is
+                // `none`: an explicit unset, cleared to the kernel's default.
+                BindingKind::Style if matches!(value, Value::Option(None)) => {
+                    let style = exact_kernel::StyleId::from_bit(binding.id as u32)
+                        .expect("known to the bridge");
+                    let mut mask = exact_kernel::StyleMask::default();
+                    mask.set(style);
+                    u.ops.push(Op::ClearStyle {
+                        id: self.view,
+                        mask,
+                    });
+                }
                 BindingKind::Style => {
                     let p = patch.get_or_insert_with(StyleProps::default);
                     match bridge::set_style(p, binding.id, &value, plan.stacks.len()) {

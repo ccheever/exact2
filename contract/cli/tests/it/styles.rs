@@ -60,6 +60,46 @@ fn a_class_applies_its_style_and_the_nodes_own_attribute_wins() {
 }
 
 #[test]
+fn a_class_chooses_between_two_styles_by_state() {
+    let plan = contract::compile(&corpus("styles.contract")).unwrap();
+    let plan = contract::bake(plan, NoData).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let chip = |r: &Runner<NoData>| {
+        let k = r.kernel();
+        let node = k.node_by_key(k.find_by_test_id("chip")[0]).unwrap();
+        (node.id, node.style.clone())
+    };
+    let (chip_id, idle) = chip(&r);
+    assert_eq!(
+        idle.background_color,
+        Color::parse_hex("#cccccc").unwrap().into()
+    );
+    assert_eq!(idle.opacity, 0.5);
+    // Only `Active` sets padding: the kernel's default while `Idle` is chosen.
+    assert_eq!(idle.padding_top, Dimension::Points(0.0));
+    r.dispatch(chip_id, exact_runner::Event::Press).unwrap();
+    let (_, active) = chip(&r);
+    assert_eq!(
+        active.background_color,
+        Color::parse_hex("#0000ff").unwrap().into()
+    );
+    assert_eq!(active.opacity, 1.0);
+    assert_eq!(active.padding_top, Dimension::Points(12.0));
+    assert_eq!(active.padding_left, Dimension::Points(12.0));
+    r.dispatch(chip_id, exact_runner::Event::Press).unwrap();
+    let (_, again) = chip(&r);
+    assert_eq!(again.opacity, 0.5);
+    assert_eq!(again.padding_top, Dimension::Points(0.0));
+}
+
+#[test]
 fn a_style_is_refused_with_the_css_name_for_an_old_spelling() {
     let src =
         "style Card\n  radius=16\ncomponent A\n  view\n    column class=Card\n      text \"a\"\n";
