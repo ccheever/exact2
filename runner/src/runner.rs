@@ -301,6 +301,9 @@ pub struct Runner<D: DataSource> {
     journal: std::collections::VecDeque<String>,
     journal_start: usize,
     flow_warned: exact_kernel::SortedSet<exact_kernel::NodeKey>,
+    /// The lists already found conforming to their types, so a live answer
+    /// is checked where it changed (LLP 1053 §0 G8).
+    conformed: std::cell::RefCell<crate::conform::Conformed>,
 }
 
 /// How many journal lines the runner retains (about an hour of a one-second
@@ -621,6 +624,7 @@ impl<D: DataSource> Runner<D> {
             journal: std::collections::VecDeque::new(),
             journal_start: 0,
             flow_warned: Default::default(),
+            conformed: Default::default(),
         };
         runner.init_slots(carried, launch)?;
         runner.derives = vec![None; runner.plan.derives.len()];

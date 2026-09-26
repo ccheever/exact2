@@ -37,6 +37,7 @@
 pub mod agent;
 pub mod bridge;
 pub mod compare;
+mod conform;
 pub mod delivery;
 pub mod head;
 pub mod instance;

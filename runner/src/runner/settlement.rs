@@ -119,7 +119,7 @@ impl<D: DataSource> Runner<D> {
         let row = &self.plan.resources[i];
         #[cfg(test)]
         tests::SHAPE_CHECKS.with(|count| count.set(count.get() + 1));
-        if value.conforms(&self.plan, row.ty) {
+        if self.conforms(value, row.ty) {
             Ok(())
         } else {
             Err(RunnerError::Shape {
@@ -262,7 +262,7 @@ impl<D: DataSource> Runner<D> {
                     };
                     match result {
                         Ok(o) => {
-                            if !o.value.conforms(&self.plan, self.plan.derives[i].ty) {
+                            if !self.conforms(&o.value, self.plan.derives[i].ty) {
                                 return Err(RunnerError::DeriveType {
                                     derive: self.plan.str(self.plan.derives[i].name).to_string(),
                                 });

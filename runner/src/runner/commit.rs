@@ -335,7 +335,7 @@ impl<D: DataSource> Runner<D> {
             };
             match answer {
                 Answer::Now(v) => {
-                    if !v.conforms(&self.plan, mrow.ty) {
+                    if !self.conforms(&v, mrow.ty) {
                         self.discard_later(&later);
                         return Err(RunnerError::Shape { resource: name });
                     }
@@ -361,7 +361,7 @@ impl<D: DataSource> Runner<D> {
             .chain(outcome.row_writes.iter().map(|(s, v, _)| (s, v)))
         {
             let row = &self.plan.slots[*slot as usize];
-            let refusal = if !value.conforms(&self.plan, row.ty) {
+            let refusal = if !self.conforms(value, row.ty) {
                 Some(RunnerError::SlotType {
                     slot: self.plan.str(row.name).to_string(),
                 })
@@ -456,6 +456,12 @@ impl<D: DataSource> Runner<D> {
             }
         }
         result
+    }
+
+    /// Whether `value` conforms to `ty`, checking only the list items not
+    /// already found conforming ([`crate::conform::Conformed`]).
+    pub(super) fn conforms(&self, value: &Value, ty: exact_plan::TypesId) -> bool {
+        self.conformed.borrow_mut().conforms(&self.plan, value, ty)
     }
 
     pub(super) fn poison(&mut self) {
@@ -661,7 +667,7 @@ impl<D: DataSource> Runner<D> {
                 return self.update();
             }
         };
-        if !value.conforms(&self.plan, ty) {
+        if !self.conforms(&value, ty) {
             return Err(RunnerError::Shape { resource: name });
         }
         match p.target {
