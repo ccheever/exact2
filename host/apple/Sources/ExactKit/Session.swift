@@ -336,6 +336,8 @@ public final class ExactSession {
     let webviews: WebViews
     let frames: Frames
     var clockTimer: Timer?
+    /// The runner deadline `clockTimer` fires for.
+    private var clockDue: Double?
     private var timerTrace = SessionTimerTrace()
     /// The agent's clock (milliseconds) when the driver owns time; nil runs
     /// on the wall clock.
@@ -410,7 +412,13 @@ public final class ExactSession {
     private func wire() {
         presenter.collections.onFeedback = { [weak self] bytes in
             guard let self, state != .destroyed else { return }
-            apply(runtime.collectionFeedback(bytes, now: now()))
+            let batch = runtime.collectionFeedback(bytes, now: now())
+            // A report inside the built window commits nothing: while a list
+            // moves that is most frames. Skip the presenter's finalization
+            // pass for it, as the windowed list does (`onList`), unless the
+            // clock or the motion it reports is news.
+            if batch.ops.isEmpty && batch.error == nil && batch.motion == frames.motion && batch.timerDueMs == timerDue { return }
+            apply(batch)
         }
         presenter.onPress = { [unowned self] id in apply(runtime.press(id, now: now())) }
         presenter.onChange = { [unowned self] id, value in apply(runtime.change(id, value, now: now())) }
@@ -733,11 +741,20 @@ public final class ExactSession {
     // @ref LLP 1043.000 §3 D8, §6 ruling 5 — one advance per display frame,
     // or one distant wake. Runner retains ordered catch-up and its 4096-commit cap.
     func scheduleClock(due: Double?) {
-        clockTimer?.invalidate()
-        clockTimer = nil
         let wake = SessionClockTimer.wake(due: due, now: now(), agent: ExactEnv.agentMode || clock != nil)
         frames.timerSoon = wake == .frame
+        // A timer armed for this same deadline stays: most batches leave the
+        // runner's next deadline where it was, and a new timer each batch
+        // cost more than the batch's other bookkeeping.
+        if case .timeout = wake, let armed = clockTimer, armed.isValid, clockDue == due {
+            frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
+            return
+        }
+        clockTimer?.invalidate()
+        clockTimer = nil
+        clockDue = nil
         if case .timeout(let delay) = wake {
+            clockDue = due
             clockTimer = SessionClockTimer.schedule(after: delay / 1000) { [weak self] _ in
                 guard let self, state != .destroyed else { return }
                 clockTimer = nil
@@ -983,3 +1000,4 @@ final class Frames: NSObject {
         #endif
     }
 }
+

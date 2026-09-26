@@ -531,7 +531,21 @@ final class Presenter {
         if !order.isEmpty { onIntrinsic?(order.map { ($0, latest[$0]!) }) }
     }
 
+    /// A batch that only carries collection snapshots (the runner's revision,
+    /// a row owed, heights it measured) changes no view. While a list fills,
+    /// that is one batch in two or three; the collection takes the snapshot
+    /// and makes its correction without the presenter's whole finalization
+    /// pass, unless work waits on a batch (a focus, a callback, a scroll).
+    private func applySnapshots(_ batch: Batch) -> Bool {
+        guard !applying, batch.error == nil, !batch.ops.isEmpty, batch.ops.allSatisfy({ $0.op == .collections }),
+              waiting.isEmpty, pendingScrolls.isEmpty, pendingFocus == nil else { return false }
+        collections.beginBatch(batch)
+        collections.endBatch()
+        return true
+    }
+
     func apply(_ batch: Batch) {
+        if applySnapshots(batch) { return }
         let post = Self.signposts.beginInterval("apply")
         defer { Self.signposts.endInterval("apply", post) }
         collections.beginBatch(batch)
