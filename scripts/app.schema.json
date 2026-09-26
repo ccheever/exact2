@@ -568,6 +568,11 @@
         "placement": {
           "$ref": "#/$defs/placement"
         },
+        "aliases": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Bare import specifiers resolved to a directory of the capture: {\"@/core\": \"core\"} makes `import … from '@/core'` resolve to the mounted core, the way a shared source's own project resolves it. Each target is a mounted source's name or a directory of the app."
+        },
         "sources": {
           "type": "object",
           "additionalProperties": { "type": "string" },

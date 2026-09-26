@@ -747,3 +747,49 @@ fn both_producer_paths_check_worker_web_types_and_refuse_dom_ui_types() {
     f.write("logic.ts", accepted);
     assert_eq!(producer.bake(&f.0, None).unwrap().receipt, f.bake().receipt);
 }
+
+#[test]
+fn an_alias_resolves_a_mounted_source_alike_in_both_producers_and_names_only_the_capture() {
+    if !exact_js::ENGINE_LINKED {
+        return;
+    }
+    let f = Fixture::new();
+    // A shared directory that imports through its own project's alias.
+    let shared = Fixture(f.0.with_extension("shared"));
+    std::fs::create_dir_all(shared.0.join("deep")).unwrap();
+    shared.write(
+        "prefix.ts",
+        "import { word } from '@/lib/deep/word';\nexport const prefix = word + ': ';\n",
+    );
+    shared.write("deep/word.ts", "export const word = 'aliased';\n");
+    let manifest = |aliases: &str| {
+        format!(
+            r#"{{"app":{{"id":"test.exact.logic","name":"Logic"}},"typescript":{{"sources":{{"lib":"../{}"}},"aliases":{aliases}}}}}"#,
+            shared.0.file_name().unwrap().to_str().unwrap()
+        )
+    };
+    f.write("app.json", &manifest(r#"{"@/lib":"lib"}"#));
+    f.write("logic.ts", "export { prefix } from '@/lib/prefix';\n");
+    let standalone = f.bake();
+    assert!(String::from_utf8_lossy(&standalone.script).contains("aliased"));
+    let mut producer = exact_js_bake::Producer::new(Tools::default()).unwrap();
+    assert_eq!(producer.bake(&f.0, None).unwrap().script, standalone.script);
+    // Without the alias the same import is refused, by the checker, before bundling.
+    f.write("app.json", &manifest("{}"));
+    assert!(producer
+        .bake(&f.0, None)
+        .err()
+        .unwrap()
+        .contains("@/lib/prefix"));
+    // An alias names a mount or a directory of the app, and nothing outside it.
+    for (aliases, refusal) in [
+        (r#"{"@/lib":"../elsewhere"}"#, "must be a mounted source"),
+        (r#"{"@/lib":"missing"}"#, "must be a mounted source"),
+        (r#"{"./lib":"lib"}"#, "a bare import specifier"),
+        (r#"{"@/lib":1}"#, "a directory"),
+    ] {
+        f.write("app.json", &manifest(aliases));
+        let error = bake(&f.0, &Tools::default()).err().unwrap();
+        assert!(error.contains(refusal), "{aliases}: {error}");
+    }
+}

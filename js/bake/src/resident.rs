@@ -134,7 +134,7 @@ impl Drop for Compiler {
 
 const WORKER: &str = r#"
 import { rolldown } from 'rolldown';
-import { writeFileSync, realpathSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, realpathSync, rmSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { resolve, dirname, sep } from 'node:path';
@@ -150,7 +150,18 @@ const allowed = path => { path=resolve(path);return path === stage || path.start
 const config=resolve(stage,'__exact_tsconfig.json');
 // The native builder owns dependency and diagnostic invalidation, including
 // globals and standard libraries. Its cache never comes from the app capture.
-writeFileSync(config,JSON.stringify({compilerOptions:{noEmit:true,strict:true,target:'ES2020',module:'ESNext',moduleResolution:'bundler',lib:['ES2020','WebWorker'],incremental:true,tsBuildInfoFile:resolve(stage,'__exact_build.tsbuildinfo')},files:['__exact_entry.ts']}));
+// The app's aliases (`typescript.aliases`): TypeScript `paths` and a Rolldown
+// alias into the stage, reread each compile since the manifest may change.
+const aliases=()=>{try{return JSON.parse(readFileSync(resolve(stage,'__exact_aliases.json'),'utf8'));}catch{return {};}};
+let configured='';
+function configure(){
+  const map=aliases(),key=JSON.stringify(map);
+  if(key===configured)return map;
+  const paths=Object.fromEntries(Object.entries(map).flatMap(([from,to])=>[[from,['./'+to]],[from+'/*',['./'+to+'/*']]]));
+  writeFileSync(config,JSON.stringify({compilerOptions:{noEmit:true,strict:true,target:'ES2020',module:'ESNext',moduleResolution:'bundler',lib:['ES2020','WebWorker'],paths,incremental:true,tsBuildInfoFile:resolve(stage,'__exact_build.tsbuildinfo')},files:['__exact_entry.ts']}));
+  configured=key;
+  return map;
+}
 async function check() {
   let files;
   try { ({stdout:files}=await execute(tsc,['--project',config,'--pretty','false','--listFiles'],{cwd:stage,env:checkEnv,encoding:'utf8',maxBuffer:4*1024*1024})); }
@@ -168,10 +179,12 @@ async function compile() {
   // Generated output is not a captured input. Remove it before resolution,
   // so an app's ./app.js import follows the same TS substitution as one-shot.
   rmSync(resolve(stage,'app.js'),{force:true});
+  const map=configure();
   const checking=check().then(()=>null,error=>error);
   let failed;
   try {
   const bundle=await rolldown({cwd:stage,input:resolve(stage,'__exact_entry.ts'),platform:'neutral',
+    resolve:{alias:Object.fromEntries(Object.entries(map).map(([from,to])=>[from,resolve(stage,to)]))},
     plugins:[{name:'captured-sources',load(id){if(!id.startsWith(stage+sep))throw new Error('module outside captured app: '+id);return null;}}]});
   try { await bundle.write({file:resolve(stage,'app.js'),format:'iife',name:'exact'}); }
   finally { await bundle.close(); }

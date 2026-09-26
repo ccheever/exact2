@@ -382,7 +382,12 @@ fn validate_placement_policy(value: &serde_json::Value) -> Result<(), String> {
                     }
                 }
             }
-            // Mounted TypeScript directories: the bake resolves and checks them (`js/bake` `mounts`).
+            // Mounted directories and import aliases: the bake resolves and checks them (`js/bake`).
+            "aliases" => {
+                value
+                    .as_object()
+                    .ok_or("typescript.aliases must be an object of specifier to directory")?;
+            }
             "sources" => {
                 value
                     .as_object()
