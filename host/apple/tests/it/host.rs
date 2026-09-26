@@ -754,6 +754,22 @@ fn an_intrinsic_size_is_refused_for_a_non_image_and_for_a_bad_value() {
     assert!(!batch.contains("\"op\":\"frame\""), "{batch}");
 }
 
+#[test]
+fn several_intrinsic_sizes_lay_out_once_and_a_refusal_keeps_the_rest() {
+    let (mut host, _) = boot();
+    let (logo, name) = (view(&host, "logo"), view(&host, "station-name"));
+    let batch = host.set_intrinsics(&[(name, Some((320.0, 120.0))), (logo, Some((320.0, 120.0)))]);
+    assert!(batch.contains("NotAnImage"), "{batch}");
+    assert!(
+        batch.contains(&format!(
+            "\"op\":\"frame\",\"id\":{logo},\"x\":0,\"y\":0,\"w\":96,\"h\":36"
+        )),
+        "the image's size still lands: {batch}"
+    );
+    let again = host.set_intrinsics(&[(logo, Some((320.0, 120.0)))]);
+    assert_eq!(again.matches("\"op\":\"frame\"").count(), 0, "{again}");
+}
+
 /// The insets fixture (`contract/corpus/insets.contract`), booted here.
 fn boot_insets() -> (Host<NoData>, String) {
     let src = std::fs::read_to_string(

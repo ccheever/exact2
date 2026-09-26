@@ -237,6 +237,15 @@ fn css_white_space_changes_flow_width_and_breaks() {
     assert_eq!(preserved.fragments().len(), 2);
     let pair = engine.paragraph_flow(&spec("A B"), 500.0, &circle(900.0), None);
     assert!(preserved.fragments()[0].width > pair.fragments()[0].width);
+    s.white_space = exact_kernel::WhiteSpace::Nowrap;
+    let unwrapped = engine.paragraph_flow(&s, 500.0, &circle(900.0), None);
+    assert_eq!(unwrapped.fragments().len(), 1);
+    assert!((unwrapped.fragments()[0].width - normalized.fragments()[0].width).abs() < 0.01);
+    let mut long = spec("one two three four five six seven eight nine ten");
+    long.white_space = exact_kernel::WhiteSpace::Nowrap;
+    let one = engine.paragraph_flow(&long, 40.0, &circle(900.0), None);
+    assert_eq!(one.fragments().len(), 1);
+    assert!(one.fragments()[0].width > 40.0);
 }
 
 #[test]

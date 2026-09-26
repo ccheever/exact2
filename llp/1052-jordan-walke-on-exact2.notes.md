@@ -1,0 +1,95 @@
+# LLP 1052: Jordan Walke on exact2 — notes from a conversation
+
+**Type:** Notes
+**Status:** Draft. Charlie's notes of a 2026-09-24 conversation with Jordan Walke, what was concluded from them that night, and what is still to ask him. It decides nothing.
+**Systems:** Runner and the data seam (how Rust and TypeScript hold and share values), Motion and the hosts' gesture recognition, Kernel (hypothetical layout)
+**Author:** Charlie Cheever (the notes); Claude (Opus 5.5) (the write-up)
+**Date:** 2026-09-24 (the conversation); written up 2026-09-25
+**Related:** LLP 1051 and LLP 1051.000 (hypothetical layout: the follow-up to the third point); LLP 1027.003 and LLP 1027.004 (value transfer measured; bounded answers); LLP 1002 D4 and D5, LLP 1035.001, LLP 1041 §8.5 (gestures); `rules/NOT-DOING.md` §Motion
+
+## The notes, as written that afternoon
+
+> He told me about reimplementing the gesture system from ios and running on
+> the main thread, and that it missed a few things.
+>
+> He told me about preflex or something which is like computing layouts on the
+> main thread sort of hypothetically in order to do things like reparenting
+> correctly.
+>
+> He brought up issues about garbage collection and rust type stuff being
+> unable to evict stuff or being slow on allocation
+
+## Charlie's fuller account, that evening
+
+1. **Rust and garbage collection.** *"He was very focused on how Rust has
+   trouble interoperating with garbage collected languages and it's hard to do
+   on the web. Allocations can be expensive. Hard to know when to evict things.
+   GC often better. Hard to interop with JS."* He asked how Rust and
+   TypeScript store and share data, and what that substrate is. *"He seemed to
+   think it will be the problem and bottleneck as apps scale and get more
+   complicated."*
+2. **Gestures.** *"He thought iOS handled gestures the best of any platform
+   he'd seen and he spent a bunch of time reimplementing that system for other
+   platforms like web."*
+   - He found problems with it, *"like wanting to exclude touches below or
+     above in certain subtrees when doing multiple gesture recognitions at
+     once."*
+   - *"He thought a DSL like Reanimated uses was not as good as being able to
+     just write code on the main thread to handle anything."*
+3. **Preflex.** *"Some system called Preflex or something that was kind of
+   like Cheng Lou's Pretext thing but more general … it seemed like you could
+   on the main thread, compute a hypothetical layout and then adjust your
+   gestures or animations or whatever accordingly based on where things would
+   be and how much space they would take up."*
+
+## What was concluded that night
+
+This is from sweeps of the code in a Claude session on 2026-09-24. It is
+analysis, not Jordan's words. The three points share one theme: app code
+reaching the UI synchronously, on the main thread, to get at its data,
+gestures and geometry. exact2 says no in each area, and each no traces back to
+something that went wrong in exact1.
+
+- **Data: the design holds, but it was never measured at scale.**
+  - Rust and TypeScript never share a heap. Every value crosses as a copy: JSON
+    for TypeScript, canonical bytes for Rust modules and workers.
+  - Rust values are immutable reference-counted trees, freed as soon as the
+    last reference drops. JavaScript values belong to their engine's garbage
+    collector.
+  - LLP 1027.003 found that plain JSON beat immutable views, typed buffers and a
+    shared heap. The result that mattered was granularity: at 100,000 rows an
+    edit cost about 0.3 ms with a 100-row window, against 78 ms for the whole
+    list. LLP 1027.004 made windowed answers the rule.
+  - Where Jordan is right: data that is not windowed hits the limit early.
+    Mounting 25,000 rows eagerly kept about 96 MiB alive for 2.1 MiB of input
+    (LLP 1010). Whether the runner itself should use garbage collection was
+    never studied, and wasm memory never shrinks.
+  - Next: measure Messages at 100,000 rows on a real phone — crossing cost, JS
+    and wasm memory together, and whether wasm memory levels off after a full
+    scroll.
+- **Gestures: where he is most right, and where it hurts now.**
+  - "The platform recognizes" (LLP 1002 D4) is true only on iOS. The web,
+    macOS and Linux each have hand-written recognizers.
+  - Each interaction is a one-off attribute implemented on each host
+    (`swiperight`, `heightDragFor`, `transformDragFor`, `reorderFor`).
+    Recognition is one finger only, with no pinch.
+  - The subtree exclusion he wanted exists, but it is hard-coded in the iOS
+    host; authors get only `touch-action`.
+  - The proposal was one recognizer primitive (pan, pinch, long press)
+    reporting began, changed and ended, with velocity, to Contract actions on
+    the main thread. iOS keeps UIKit; one shared Rust core replaces the other
+    hosts' recognizers; authors declare arbitration. It needs an RFC, and it
+    moves NOT-DOING's gesture-arena line.
+- **Hypothetical layout: exact2 offered none to apps.** The one what-if pass
+  (`measure_height_targets`) is native only, host only and returns heights
+  only. The follow-up is LLP 1051 (the research, with a ball flung against a
+  wall worked through) and LLP 1051.000 (an implementation outline).
+
+## To ask Jordan
+
+1. **Preflex.** What it takes and returns, and how it stays in agreement with
+   the platform's layout. Nothing public goes by that name (searched
+   2026-09-25). His `jordwalke/flex` is a Reason port of Yoga, from 2016.
+2. **Subtree exclusion.** His cases for excluding touches above or below a
+   subtree while several recognizers run at once.
+3. **What his iOS reimplementation missed**, and which behaviours did not port.

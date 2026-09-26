@@ -108,6 +108,49 @@ fn symbol_roles_carry_host_paths_and_decorative_images() {
     assert!(changed.contains("\"data-symbol-path\":\"\""), "{changed}");
 }
 
+#[test]
+fn a_filled_role_is_a_filled_silhouette_and_its_outline_is_stroked() {
+    let plan = contract::compile(
+        r##"component App
+  state saved = false
+  action toggle writes saved
+    saved = not saved
+  view
+    button press=toggle testId="toggle" aria-label="Save"
+      image (saved ? "symbol:bookmark-fill" : "symbol:bookmark") tint-color="#ff8d28"
+"##,
+    )
+    .unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let outline = exact_kernel::generated::symbol("bookmark").unwrap();
+    let filled = exact_kernel::generated::symbol("bookmark-fill").unwrap();
+    assert_eq!((outline.0, outline.2), ("bookmark", false));
+    assert_eq!((filled.0, filled.2), ("bookmark.fill", true));
+    assert!(
+        first.contains(&format!("\"data-symbol-path\":\"{}\"", outline.1)),
+        "{first}"
+    );
+    assert!(!first.contains("data-symbol-fill"), "{first}");
+    let saved = host.dispatch(view_with_test_id(&host, "toggle"), Event::Press);
+    assert!(
+        saved.contains(&format!("\"data-symbol-path\":\"{}\"", filled.1)),
+        "{saved}"
+    );
+    assert!(saved.contains("\"data-symbol-fill\":\"\""), "{saved}");
+    let unsaved = host.dispatch(view_with_test_id(&host, "toggle"), Event::Press);
+    assert!(
+        unsaved.contains("\"data-symbol-fill\""),
+        "cleared: {unsaved}"
+    );
+    assert!(!unsaved.contains("\"data-symbol-fill\":\"\""), "{unsaved}");
+}
+
 fn view_with_test_id(host: &Host<caltrain_data::Caltrain>, test_id: &str) -> u32 {
     let k = host.runner().kernel();
     let key = k.find_by_test_id(test_id)[0];
@@ -1133,6 +1176,8 @@ fn live_regions_and_autofocus_use_html_attributes() {
     assert!(batch.contains("\"aria-live\":\"polite\""), "{batch}");
     assert!(batch.contains("\"aria-live\":\"assertive\""), "{batch}");
     assert!(batch.contains("\"autofocus\":\"true\""), "{batch}");
+    assert!(batch.contains("\"aria-expanded\":\"true\""), "{batch}");
+    assert!(batch.contains("\"aria-hidden\":\"true\""), "{batch}");
     assert!(host
         .agent("{\"op\":\"tree\"}")
         .contains("accessibilityLive"));
@@ -1340,5 +1385,33 @@ fn a_block_root_is_a_formatting_context_of_its_own() {
     assert!(
         root.contains("display:flex;") && !root.contains("flow-root"),
         "{root}"
+    );
+}
+
+/// `blur()` reaches the page as a command op in the batch that carries the
+/// press, for the glue to drop `document.activeElement` after the commit —
+/// the same staging as `focus`.
+#[test]
+fn a_blur_command_reaches_the_batch_by_name() {
+    struct NoData;
+    impl exact_runner::DataSource for NoData {
+        fn query(
+            &mut self,
+            source: &str,
+            _: &[exact_plan::Value],
+        ) -> Result<exact_plan::Value, exact_runner::DataError> {
+            Err(exact_runner::DataError::UnknownSource(source.into()))
+        }
+    }
+    let plan = contract::compile(include_str!(
+        "../../../../contract/corpus/keyboard-bar.contract"
+    ))
+    .unwrap();
+    let (mut host, _) = Host::boot(&plan.encode(), NoData, Default::default(), "/").unwrap();
+    let dismiss = view_with_test_id_any(&host, "dismiss");
+    let batch = host.dispatch(dismiss, Event::Press);
+    assert!(
+        batch.contains("{\"op\":\"command\",\"name\":\"blur\",\"args\":[]}"),
+        "{batch}"
     );
 }

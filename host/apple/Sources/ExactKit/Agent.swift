@@ -37,13 +37,16 @@ public final class Agent {
 
     /// Serve requests from `fd` until it closes — on the calling thread:
     /// each line is answered on the main thread before the next is read.
-    /// The stream closing ends the process.
+    /// The stream closing ends the process, and says so on stderr: a driver
+    /// that saw the hangup reads why there, not a silent exit.
     public static func serve(fd: Int32) {
         var pending = Data()
         var buf = [UInt8](repeating: 0, count: 65536)
         while true {
             let n = read(fd, &buf, buf.count)
-            if n <= 0 { break }
+            if n < 0 && errno == EINTR { continue }
+            if n < 0 { fputs("exact agent: read failed (\(String(cString: strerror(errno)))); exiting\n", stderr); break }
+            if n == 0 { fputs("exact agent: the driver closed the connection; exiting\n", stderr); break }
             pending.append(buf, count: n)
             while let i = pending.firstIndex(of: UInt8(ascii: "\n")) {
                 let line = String(decoding: pending[pending.startIndex..<i], as: UTF8.self)
@@ -228,8 +231,10 @@ public final class Agent {
         // A request in flight (LLP 1016) is waited for first: its reply
         // commits — and may start motion or ask for more — before the fixed
         // point is measured. The wake lands on the main queue, which the
-        // run loop drains here.
-        let deadline = Date(timeIntervalSinceNow: 20)
+        // run loop drains here. One bound for the whole call (LLP 1012 §2),
+        // not one per round: a request that never answers ends the call at
+        // twenty seconds, not sixteen times that.
+        let deadline = Date(timeIntervalSinceNow: Agent.settleBound)
         if settle { waitForReplies(until: deadline) }
         var target = req["to"] as? Double
         if settle { target = max(from, self.settle() ?? from) }
@@ -256,7 +261,7 @@ public final class Agent {
             guard settle else { return reply(landed) }
             if pendingCount() > 0 {
                 rounds += 1
-                if rounds >= 16 { return reply(landed, false) }
+                if rounds >= 16 || Date() >= deadline { return reply(landed, false, reason: "requests") }
                 waitForReplies(until: deadline)
                 continue
             }
@@ -311,12 +316,14 @@ public final class Agent {
         return (o["pending"] as? [Any])?.count ?? 0
     }
 
+    /// `clock settle`'s bound on requests in flight: a network's worth.
+    static let settleBound: TimeInterval = 20
+
     /// Pump the executor's queue until no request is in flight, or until
-    /// the deadline (twenty seconds from the op: a network's worth;
-    /// `settled: false` past it), false then. The wake's own pump is a
-    /// main-queue block, and this runs inside one — so the queue is drained
-    /// here directly, the run loop turning in between for the executor's
-    /// thread to make progress.
+    /// the call's deadline (`settled: false` past it), false then. The wake's
+    /// own pump is a main-queue block, and this runs inside one — so the
+    /// queue is drained here directly, the run loop turning in between for
+    /// the executor's thread to make progress.
     @discardableResult
     func waitForReplies(until deadline: Date) -> Bool {
         while pendingCount() > 0 {

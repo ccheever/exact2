@@ -40,7 +40,7 @@ pub fn reply_from_json_slice(bytes: &[u8], shape: &Shape) -> Result<Reply, Error
     let json::Reply { fields, value } = json::reply(bytes, shape)?;
     Ok(Reply {
         fields: fields.into(),
-        value,
+        value: value.unwrap_or_else(|| from_lean(&Json::Null, shape)),
     })
 }
 
@@ -259,7 +259,7 @@ impl Envelope<'_> {
     fn other(self, fields: Json) -> json::Reply {
         json::Reply {
             fields,
-            value: from_lean(&Json::Null, self.0),
+            value: None,
         }
     }
 }
@@ -287,10 +287,10 @@ impl Visit for Envelope<'_> {
     }
     fn object(self, members: &mut Members<'_, '_>) -> Result<json::Reply, Error> {
         let mut fields = Object::new();
-        let mut value = from_lean(&Json::Null, self.0);
+        let mut value = None;
         while let Some(key) = members.key()? {
             if key == "value" {
-                value = node_value(members, Node(Some(self.0), self.1))?;
+                value = Some(node_value(members, Node(Some(self.0), self.1))?);
             } else {
                 let key = key.to_owned();
                 let member = members.value(Tree)?;

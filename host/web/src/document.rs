@@ -259,13 +259,16 @@ impl<D: DataSource> Walk<'_, D> {
         if let Some(kinds) = self.handlers.get(&id).filter(|kinds| !kinds.is_empty()) {
             attrs.push((
                 "data-exact-on".into(),
-                Some(
-                    kinds
-                        .iter()
-                        .map(|kind| kind.name())
-                        .collect::<Vec<_>>()
-                        .join(" "),
-                ),
+                Some({
+                    let mut names = String::new();
+                    for (i, kind) in kinds.iter().enumerate() {
+                        if i > 0 {
+                            names.push(' ');
+                        }
+                        names.push_str(kind.name());
+                    }
+                    names
+                }),
             ));
         }
         let hears = self.handlers.get(&id).is_some_and(|kinds| {
@@ -428,17 +431,24 @@ const SURFACE: &str = "<canvas data-surface=\"\" style=\"position:absolute;inset
 /// parser folds a literal one into a newline); a NUL has no spelling the
 /// parser keeps.
 fn escape(out: &mut String, text: &str, attribute: bool) -> Result<(), &'static str> {
-    for c in text.chars() {
-        match c {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' if attribute => out.push_str("&quot;"),
-            '\r' => out.push_str("&#13;"),
-            '\0' => return Err("a NUL character, which the HTML parser drops"),
-            c => out.push(c),
-        }
+    // Every byte that needs a reference is ASCII, so the runs between them
+    // end on character boundaries and are copied whole.
+    let mut run = 0;
+    for (at, b) in text.bytes().enumerate() {
+        let reference = match b {
+            b'&' => "&amp;",
+            b'<' => "&lt;",
+            b'>' => "&gt;",
+            b'"' if attribute => "&quot;",
+            b'\r' => "&#13;",
+            0 => return Err("a NUL character, which the HTML parser drops"),
+            _ => continue,
+        };
+        out.push_str(&text[run..at]);
+        out.push_str(reference);
+        run = at + 1;
     }
+    out.push_str(&text[run..]);
     Ok(())
 }
 
@@ -449,30 +459,35 @@ fn escape(out: &mut String, text: &str, attribute: bool) -> Result<(), &'static 
 /// relative to the page's https base; an http(s) authority whose host does
 /// not parse is refused, as the parser's failure is (IDNA aside).
 pub fn navigable(href: &str) -> bool {
-    let url: String = href
-        .trim_matches(|c: char| c <= ' ')
-        .chars()
-        .filter(|c| !matches!(c, '\t' | '\n' | '\r'))
-        .collect();
-    let mut scheme = String::new();
-    for (at, c) in url.char_indices() {
-        match c {
-            ':' if !scheme.is_empty() => {
-                let rest = &url[at + 1..];
-                return match scheme.as_str() {
-                    "mailto" | "tel" => true,
+    let trimmed = href.trim_matches(|c: char| c <= ' ');
+    let url: std::borrow::Cow<'_, str> = if trimmed.contains(['\t', '\n', '\r']) {
+        trimmed
+            .chars()
+            .filter(|c| !matches!(c, '\t' | '\n' | '\r'))
+            .collect::<String>()
+            .into()
+    } else {
+        trimmed.into()
+    };
+    // A scheme is a letter, then letters, digits, `+`, `-` or `.`, then `:`.
+    for (at, b) in url.bytes().enumerate() {
+        match b {
+            b':' if at > 0 => {
+                let (scheme, rest) = (&url[..at], &url[at + 1..]);
+                let is = |name: &str| scheme.eq_ignore_ascii_case(name);
+                return if is("mailto") || is("tel") {
+                    true
+                } else if is("https") && !rest.starts_with("//") {
                     // The base's own scheme reads the rest as relative
                     // unless it starts `//`; another special scheme's
                     // authority follows whatever slashes there are.
-                    "https" if !rest.starts_with("//") => true,
-                    "http" | "https" => authority_parses(rest),
-                    _ => false,
+                    true
+                } else {
+                    (is("http") || is("https")) && authority_parses(rest)
                 };
             }
-            c if c.is_ascii_alphabetic() => scheme.push(c.to_ascii_lowercase()),
-            c if !scheme.is_empty() && (c.is_ascii_digit() || matches!(c, '+' | '-' | '.')) => {
-                scheme.push(c)
-            }
+            b if b.is_ascii_alphabetic() => {}
+            b if at > 0 && (b.is_ascii_digit() || matches!(b, b'+' | b'-' | b'.')) => {}
             _ => break,
         }
     }

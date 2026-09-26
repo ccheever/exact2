@@ -55,7 +55,7 @@ mod tests {
     #[test]
     fn exported_buffers_refuse_bad_lengths_and_reset_paragraphs() {
         textflow_request(6, 0, 0);
-        let bytes = b"\0\0\0\0\0\0\0\0hello";
+        let bytes = b"\0\0\0\0\0\0\0\0\0\0\0\0hello";
         textflow_in(bytes.len() as u32);
         INPUT.with(|input| input.borrow_mut().copy_from_slice(bytes));
         let len = textflow_request(0, 1, bytes.len() as u32);

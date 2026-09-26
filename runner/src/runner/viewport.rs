@@ -20,6 +20,7 @@ impl<D: DataSource> Runner<D> {
     ) -> Result<Option<CommitReceipt>, RunnerError> {
         let viewport = Viewport { width, height };
         if let Err(error) = viewport.validate() {
+            let (width, height) = (exact_num::Shortest(width), exact_num::Shortest(height));
             self.log(format!("viewport {width} × {height} refused: {error:?}"));
             return Err(error);
         }

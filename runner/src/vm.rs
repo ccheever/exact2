@@ -216,7 +216,7 @@ impl Extent {
 /// their expansion. Each entry pins its value: an address cannot be reused
 /// for another while it is remembered.
 #[derive(Default)]
-struct Extents(std::collections::HashMap<usize, (Value, Extent)>);
+struct Extents(exact_kernel::id::IdMap<usize, (Value, Extent)>);
 
 impl Extents {
     fn key(v: &Value) -> Option<usize> {

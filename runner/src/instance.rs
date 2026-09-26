@@ -157,7 +157,7 @@ pub struct Ids {
     next: ViewId,
     /// Every instance node's view and site, destroyed ones included until
     /// [`Ids::retain`] drops them.
-    sites: std::collections::HashMap<ViewId, NodesId>,
+    sites: exact_kernel::id::IdMap<ViewId, NodesId>,
 }
 
 impl Ids {
@@ -209,10 +209,9 @@ impl SurfaceUpdate {
     /// Host reserialization may reorder keys: transport bytes are never hash inputs.
     pub fn arguments_json(&self) -> String {
         fn value_json(value: &Value, out: &mut String) {
-            use std::fmt::Write;
             match value {
                 Value::Number(n) if n.is_finite() => {
-                    let _ = write!(out, "{n}");
+                    exact_num::push_text!(out, "{}", exact_num::Shortest(*n))
                 }
                 Value::Number(_) | Value::Unit | Value::Option(None) => out.push_str("null"),
                 Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
@@ -395,10 +394,11 @@ impl SiteIndex {
                 Site::Region(RegionsId(i as u32)),
             ));
         }
-        entries.sort_by_key(|(parent, order, site)| (*parent, *order, site.rank()));
+        let key = |i: usize| (entries[i].0, entries[i].1, entries[i].2.rank());
+        let order = stable_order(entries.len(), &|i, j| key(i) < key(j));
         let mut groups: Vec<(SiteParent, std::ops::Range<usize>)> = Vec::new();
         let mut sites = Vec::with_capacity(entries.len());
-        for (parent, order, site) in entries {
+        for (parent, order, site) in order.into_iter().map(|i| entries[i]) {
             let end = sites.len() + 1;
             if let Some((previous, range)) = groups
                 .last_mut()
@@ -448,6 +448,39 @@ impl Site {
     }
 }
 
+/// The indices `0..n` in the order a stable sort by `less` gives. A bottom-up
+/// merge sort written once, so each caller doesn't link its own
+/// instantiation of core's sort (LLP 1047 §6).
+fn stable_order(n: usize, less: &dyn Fn(usize, usize) -> bool) -> Vec<usize> {
+    let mut a: Vec<usize> = (0..n).collect();
+    let mut b = a.clone();
+    let mut width = 1;
+    while width < n {
+        let mut start = 0;
+        while start < n {
+            let mid = (start + width).min(n);
+            let end = (start + 2 * width).min(n);
+            let (mut l, mut r) = (start, mid);
+            for slot in &mut b[start..end] {
+                // The right run's element goes first only when strictly less.
+                let right = r < end && (l == mid || less(a[r], a[l]));
+                if right {
+                    *slot = a[r];
+                    r += 1;
+                } else {
+                    *slot = a[l];
+                    l += 1;
+                }
+            }
+            start = end;
+        }
+        std::mem::swap(&mut a, &mut b);
+        width *= 2;
+    }
+    a
+}
+
+/// For each of `n` texts, how many earlier texts equal it.
 // A region adds one lexical frame. Reserve it with the inherited frames so
 // row construction does not allocate and then immediately reallocate.
 fn with_frame(frames: &[Frame], frame: Frame) -> Vec<Frame> {
@@ -643,6 +676,18 @@ impl NodeInst {
                     }
                     Err(e) => return Err(InstanceError::Bridge(e)),
                 },
+                // A class choice's row the chosen style does not set is
+                // `none`: an explicit unset, cleared to the kernel's default.
+                BindingKind::Style if matches!(value, Value::Option(None)) => {
+                    let style = exact_kernel::StyleId::from_bit(binding.id as u32)
+                        .expect("known to the bridge");
+                    let mut mask = exact_kernel::StyleMask::default();
+                    mask.set(style);
+                    u.ops.push(Op::ClearStyle {
+                        id: self.view,
+                        mask,
+                    });
+                }
                 BindingKind::Style => {
                     let p = patch.get_or_insert_with(StyleProps::default);
                     match bridge::set_style(p, binding.id, &value, plan.stacks.len()) {
@@ -896,7 +941,6 @@ impl RegionInst {
                 // Key every item. A repeated key is the data's error, not the
                 // plan's: its later rows get their own identity, in order.
                 let mut keyed: Vec<(String, Value, u32, Frame)> = Vec::with_capacity(items.len());
-                let mut seen: BTreeMap<String, u32> = BTreeMap::new();
                 for item in items.iter() {
                     u.work.rows_keyed += 1;
                     let frame = Frame {
@@ -909,10 +953,19 @@ impl RegionInst {
                     let key_text = key_text(&key).ok_or(InstanceError::KeyKind {
                         region: self.region,
                     })?;
-                    let repeats = seen.entry(key_text.clone()).or_insert(0);
-                    let dup = *repeats;
-                    *repeats += 1;
-                    keyed.push((disambiguate(key_text, dup), key, dup, frame));
+                    keyed.push((key_text, key, 0, frame));
+                }
+                // A key's rows after its first are numbered in item order.
+                let order = stable_order(keyed.len(), &|i, j| keyed[i].0 < keyed[j].0);
+                for pair in order.windows(2) {
+                    if keyed[pair[0]].0 == keyed[pair[1]].0 {
+                        keyed[pair[1]].2 = keyed[pair[0]].2 + 1;
+                    }
+                }
+                for k in &mut keyed {
+                    if k.2 > 0 {
+                        k.0 = disambiguate(std::mem::take(&mut k.0), k.2);
+                    }
                 }
                 // Reuse rows by key, create the new, destroy the gone; order follows the items.
                 // A linear search per row made an unchanged 10,000-row list
@@ -920,18 +973,30 @@ impl RegionInst {
                 // Keep old order for destruction, which is observable in receipts.
                 let mut old: Vec<Option<Row>> =
                     std::mem::take(rows).into_iter().map(Some).collect();
-                let by_key: BTreeMap<String, usize> = old
+                // Old rows by identity, sorted; of rows with one identity the
+                // last is found, as a map built from them would keep it.
+                let idents: Vec<String> = old
                     .iter()
-                    .enumerate()
-                    .map(|(i, r)| {
+                    .map(|r| {
                         let r = r.as_ref().unwrap();
-                        (ident(&r.key, r.dup).expect("validated key"), i)
+                        ident(&r.key, r.dup).expect("validated key")
                     })
                     .collect();
+                let mut by_key = stable_order(idents.len(), &|i, j| idents[i] < idents[j]);
+                by_key.dedup_by(|later, earlier| {
+                    let same = idents[*later] == idents[*earlier];
+                    if same {
+                        *earlier = *later;
+                    }
+                    same
+                });
                 let mut roots = keyed.len() != old.len();
                 let mut next = Vec::with_capacity(keyed.len());
                 for (position, (key_text, key, dup, mut frame)) in keyed.into_iter().enumerate() {
-                    let found = by_key.get(&key_text).copied();
+                    let found = by_key
+                        .binary_search_by(|&i| idents[i].as_str().cmp(&key_text))
+                        .ok()
+                        .map(|at| by_key[at]);
                     let existing = found.and_then(|i| old[i].take());
                     frame.region = Some(self.region.0);
                     match existing {
@@ -1096,11 +1161,12 @@ fn repeated(region: RegionsId, key: &Value, ident: &str) -> String {
 /// VM's equality), bools. NaN is not a key.
 fn key_text(v: &Value) -> Option<String> {
     match v {
-        Value::Str(s) => Some(format!("s:{s}")),
-        Value::Number(n) if n.is_finite() => {
-            Some(format!("n:{}", if *n == 0.0 { 0.0 } else { *n }))
-        }
-        Value::Bool(b) => Some(format!("b:{b}")),
+        Value::Str(s) => Some(exact_num::text!("s:{}", s)),
+        Value::Number(n) if n.is_finite() => Some(exact_num::text!(
+            "n:{}",
+            exact_num::Shortest(if *n == 0.0 { 0.0 } else { *n })
+        )),
+        Value::Bool(b) => Some(exact_num::text!("b:{}", b)),
         _ => None,
     }
 }
@@ -1264,6 +1330,9 @@ impl RegionInst {
         }
     }
 }
+
+#[cfg(test)]
+mod order_tests;
 
 #[cfg(test)]
 mod site_tests {

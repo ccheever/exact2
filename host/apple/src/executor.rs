@@ -44,6 +44,10 @@ impl Executor {
     pub fn resume_ordered(&self) {
         self.core.resume_ordered();
     }
+    /// Let go of the work for tickets the runner no longer holds.
+    pub fn forget(&self, held: impl Fn(u64) -> bool) {
+        self.core.forget(held);
+    }
     /// Admit or return a terminal refusal without allocating a failure queue.
     /// The caller records refusals on existing runner tickets and wakes a pump.
     pub fn run(&self, request: RequestOut, work: Option<Work>) -> Result<(), &'static str> {

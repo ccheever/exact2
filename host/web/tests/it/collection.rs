@@ -311,3 +311,44 @@ component App
         );
     }
 }
+
+#[test]
+#[ignore = "build a pure Rust web dist with EXACT_WEB_LINK=all; set EXACT_COLLECTION_DIST and CHROME"]
+fn real_browser_authored_jump_builds_its_rows_before_it_moves() {
+    use std::{path::Path, process::Command};
+    let source = r#"shape Row
+  index: number
+component App
+  resource rows = rows() as shape list<Row>
+  state target = 0
+  action go writes target
+    target = 20000
+  view
+    column
+      button press=go testId="go"
+        text "Go"
+      list virtualized=true height=180 width=320 scrollTop=target testId="list"
+        each x in rows key=x.index
+          text `${x.index}` height=32
+"#;
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let dir = std::env::temp_dir().join(format!("exact-collection-jump-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let baked = contract::bake(contract::compile(source).unwrap(), NoData).unwrap();
+    std::fs::write(dir.join("app.plan"), baked.encode()).unwrap();
+    let output = Command::new("bun")
+        .arg("host/web/tests/collection.mjs")
+        .env("EXACT_COLLECTION_TEST", &dir)
+        .env("EXACT_COLLECTION_JUMP", "1")
+        .current_dir(root)
+        .output()
+        .unwrap();
+    eprintln!("{}", String::from_utf8_lossy(&output.stdout));
+    std::fs::remove_dir_all(dir).unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

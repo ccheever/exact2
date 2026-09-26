@@ -216,7 +216,16 @@ fn refusals_are_typed_and_change_nothing() {
             StyleValue::Text("x".into()),
             StyleValueError::WrongKind {
                 style: StyleId::FlexGrow,
-                expected: "number",
+                expected: "nonnegative number",
+            },
+        ),
+        // CSS refuses a negative flex factor (LLP 1053 G3).
+        (
+            StyleId::FlexShrink,
+            StyleValue::Number(-1.0),
+            StyleValueError::WrongKind {
+                style: StyleId::FlexShrink,
+                expected: "nonnegative number",
             },
         ),
         (
@@ -231,7 +240,7 @@ fn refusals_are_typed_and_change_nothing() {
             StyleValue::Auto,
             StyleValueError::WrongKind {
                 style: StyleId::FlexGrow,
-                expected: "number",
+                expected: "nonnegative number",
             },
         ),
         (
@@ -494,5 +503,65 @@ fn dimension_pixel_strings_use_css_numbers_and_refuse_invalid_values_atomically(
             "{text}"
         );
         assert_eq!(style, before);
+    }
+}
+
+#[test]
+fn every_row_writes_its_own_field_and_no_other() {
+    let candidates = [
+        StyleValue::Number(3.0),
+        StyleValue::Number(0.5),
+        StyleValue::Percent(50.0),
+        StyleValue::Vec2(1.0, 2.0),
+        StyleValue::Text("#123456".into()),
+        StyleValue::Text("opacity 1s".into()),
+        StyleValue::Text("circle(50%)".into()),
+        StyleValue::Text("12px".into()),
+        StyleValue::Text("path(\"M 0 0 L 10 0 L 10 10 Z\")".into()),
+    ];
+    let mut unwritten = Vec::new();
+    let base = StyleProps::default();
+    for id in StyleId::ALL {
+        let names = id.enum_names();
+        let values = names
+            .iter()
+            .rev()
+            .map(|name| StyleValue::Text((*name).into()))
+            .chain(candidates.iter().cloned());
+        let mut written = None;
+        for value in values {
+            let mut s = base.clone();
+            if s.set_dynamic(id, &value).is_ok() && s.get(id) != base.get(id) {
+                written = Some(s);
+                break;
+            }
+        }
+        let Some(s) = written else {
+            unwritten.push(id);
+            continue;
+        };
+        for other in StyleId::ALL.into_iter().filter(|&other| other != id) {
+            assert_eq!(s.get(other), base.get(other), "{id:?} wrote {other:?}");
+        }
+    }
+    // Grid rows have no dynamic form; every other row was written.
+    assert_eq!(
+        unwritten,
+        [
+            StyleId::GridTemplateColumns,
+            StyleId::GridTemplateRows,
+            StyleId::GridColumn,
+            StyleId::GridRow
+        ]
+    );
+}
+
+#[test]
+fn style_ids_round_trip_through_their_names() {
+    for id in StyleId::ALL {
+        assert_eq!(StyleId::from_name(id.name()), Some(id));
+    }
+    for name in ["", "widt", "width ", "Width", "min_widthx"] {
+        assert_eq!(StyleId::from_name(name), None, "{name:?}");
     }
 }

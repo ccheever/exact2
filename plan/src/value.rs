@@ -12,7 +12,7 @@ use crate::{FieldsRange, Plan, PlanError, TypeKind, TypesId};
 use std::rc::Rc;
 
 /// A runtime value.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum Value {
     /// IEEE 754 binary64.
     Number(f64),
@@ -28,6 +28,24 @@ pub enum Value {
     List(Rc<Vec<Value>>),
     /// A record; fields by position per its type.
     Record(Rc<Vec<Value>>),
+}
+
+/// The derived text, with the number printed by exact-num (LLP 1047 §6).
+impl std::fmt::Debug for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::Number(n) => f
+                .debug_tuple("Number")
+                .field(&exact_num::ShortestDebug(*n))
+                .finish(),
+            Value::Bool(b) => f.debug_tuple("Bool").field(b).finish(),
+            Value::Str(s) => f.debug_tuple("Str").field(s).finish(),
+            Value::Unit => f.write_str("Unit"),
+            Value::Option(o) => f.debug_tuple("Option").field(o).finish(),
+            Value::List(items) => f.debug_tuple("List").field(items).finish(),
+            Value::Record(fields) => f.debug_tuple("Record").field(fields).finish(),
+        }
+    }
 }
 
 impl Default for Value {
@@ -219,5 +237,72 @@ impl Plan {
         fields
             .iter()
             .position(|f| self.str(self.field(f).name) == name)
+    }
+}
+
+#[cfg(test)]
+mod debug_tests {
+    use super::Value;
+    use std::rc::Rc;
+
+    /// `Value` as it was, with the derived `Debug` and core's float printer.
+    #[derive(Debug)]
+    #[allow(dead_code)] // read only by `Debug`
+    enum Derived {
+        Number(f64),
+        Bool(bool),
+        Str(Rc<str>),
+        Unit,
+        Option(Option<Rc<Derived>>),
+        List(Rc<Vec<Derived>>),
+        Record(Rc<Vec<Derived>>),
+    }
+
+    fn derived(v: &Value) -> Derived {
+        let all = |items: &[Value]| Rc::new(items.iter().map(derived).collect());
+        match v {
+            Value::Number(n) => Derived::Number(*n),
+            Value::Bool(b) => Derived::Bool(*b),
+            Value::Str(s) => Derived::Str(Rc::clone(s)),
+            Value::Unit => Derived::Unit,
+            Value::Option(o) => Derived::Option(o.as_deref().map(|v| Rc::new(derived(v)))),
+            Value::List(items) => Derived::List(all(items)),
+            Value::Record(fields) => Derived::Record(all(fields)),
+        }
+    }
+
+    #[test]
+    fn debug_text_is_the_derived_text() {
+        let numbers = [
+            0.0,
+            -0.0,
+            1.0,
+            -2.5,
+            0.1,
+            1e-5,
+            123456.789,
+            1e16,
+            1e300,
+            f64::NAN,
+            f64::INFINITY,
+        ];
+        let mut values: Vec<Value> = numbers.iter().map(|n| Value::Number(*n)).collect();
+        values.extend([
+            Value::Bool(true),
+            Value::str("a \"quoted\"\nline"),
+            Value::Unit,
+            Value::Option(None),
+            Value::Option(Some(Rc::new(Value::Number(0.5)))),
+        ]);
+        let list = Value::List(Rc::new(values.clone()));
+        values.push(Value::Record(Rc::new(vec![
+            list.clone(),
+            Value::Number(-1e-7),
+        ])));
+        values.push(list);
+        for v in &values {
+            assert_eq!(format!("{v:?}"), format!("{:?}", derived(v)));
+            assert_eq!(format!("{v:#?}"), format!("{:#?}", derived(v)));
+        }
     }
 }

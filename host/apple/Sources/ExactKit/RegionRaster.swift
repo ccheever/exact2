@@ -267,7 +267,6 @@ final class RegionPaintIndex {
             ctx.setBlendMode(.normal)
             ctx.translateBy(x: 0, y: CGFloat(request.height))
             ctx.scaleBy(x: CGFloat(request.scale), y: -CGFloat(request.scale))
-            ctx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
             index.query(top: Double(request.scroll.y), bottom: Double(request.scroll.y + request.size.height)) { ids, _ in
                 // Ordinary renderer paints all selection before all ink.
                 for selected in [true, false] {
@@ -288,7 +287,7 @@ final class RegionPaintIndex {
                                 let x0 = CTLineGetOffsetForStringIndex(line, lo, nil), x1 = CTLineGetOffsetForStringIndex(line, hi, nil)
                                 ctx.fill(CGRect(x: x + min(x0, x1), y: y - a, width: max(1, abs(x1 - x0)), height: a + d))
                             }
-                        } else { ctx.textPosition = CGPoint(x: x, y: y); CTLineDraw(line, ctx) }
+                        } else { TextLinePaint.draw(line, at: CGPoint(x: x, y: y), in: ctx) }
                     }
                 }
             }

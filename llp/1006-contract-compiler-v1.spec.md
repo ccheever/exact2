@@ -223,8 +223,9 @@ on an `input` is Enter, the web's implicit submission; a `key`'s or
 `change`'s payload types the last parameter `string`, a `hover`'s `bool`);
 an assignment to an undeclared slot is
 `analyze-write-not-declared`. **Tasks.** `task name mount` with
-`every(ms, action)` with a whole positive number of milliseconds
-(`lower-timer-interval`). **View.** Elements `tag positional attr=expr …` with
+`every(ms, action)` (fires at boot+ms and every ms after) or `after(ms,
+action)` (fires once at boot+ms, then is spent and reports no deadline),
+with a whole positive number of milliseconds (`lower-timer-interval`). **View.** Elements `tag positional attr=expr …` with
 indented children; component uses `Name(arg=expr, …)`; `when cond … else …`;
 `each x in list key=expr`; `match subject` with `case some(x)` and `case
 none`. **Expressions.** Numbers, strings, templates with `${…}`, `true`/

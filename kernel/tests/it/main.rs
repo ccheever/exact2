@@ -2,6 +2,8 @@
 
 mod apply;
 mod browser_cases;
+mod browser_flex;
+mod browser_ratio;
 mod canvas;
 mod content_region;
 mod env;

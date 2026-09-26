@@ -37,10 +37,12 @@ fn legacy(catalog: &mut catalog::Catalog, spec: &Spec, width: Option<f32>) -> Le
             spec.line_clamp as usize,
         )));
     }
-    let align = match spec.align {
-        TextAlign::Left => None,
+    let align = match spec.align.physical(spec.direction) {
+        // Physical: cosmic-text's `None` would align by each line's own bidi
+        // direction, not the paragraph's CSS `direction` (LLP 1053).
+        TextAlign::Left | TextAlign::Start => Some(Align::Left),
         TextAlign::Center => Some(Align::Center),
-        TextAlign::Right => Some(Align::Right),
+        TextAlign::Right | TextAlign::End => Some(Align::Right),
         TextAlign::Justify => Some(Align::Justified),
     };
     let weights: Vec<u16> = spec
@@ -989,4 +991,55 @@ mod last_font_metrics {
         let old = source.layout_reference(Some(0.), None);
         parity(&mut engine, &p, &old);
     }
+}
+
+/// LLP 1053: `direction: rtl` is the paragraph's base direction, so a Latin
+/// word that starts it sits at the right; `text-align: start` (the initial
+/// value) is then the right edge, and `end` the left.
+#[test]
+fn rtl_direction_sets_the_base_direction_and_start_alignment() {
+    let mut engine = compact_fixture_engine();
+    let x_of = |p: &Paragraph, byte: usize| {
+        p.layout_runs()
+            .flat_map(|r| r.glyphs.iter())
+            .find(|g| g.start == byte)
+            .map(|g| g.x)
+            .unwrap()
+    };
+    let text = "abc \u{5d0}\u{5d1}\u{5d2}";
+    let hebrew = "abc ".len();
+    let mut s = crate::paint::text_spec(&exact_kernel::StyleProps::default(), text);
+    let ltr = engine.paragraph(&s, Some(300.));
+    assert!(x_of(&ltr, 0) < x_of(&ltr, hebrew), "ltr: Latin first");
+    assert!(x_of(&ltr, 0) < 1.0, "ltr start is the left edge");
+    let mut style = exact_kernel::StyleProps::default();
+    style
+        .set_dynamic(
+            exact_kernel::StyleId::Direction,
+            &exact_kernel::StyleValue::Text("rtl".into()),
+        )
+        .unwrap();
+    s = crate::paint::text_spec(&style, text);
+    assert_eq!(s.align, TextAlign::Right, "start under rtl");
+    let rtl = engine.paragraph(&s, Some(300.));
+    assert!(
+        x_of(&rtl, 0) > x_of(&rtl, hebrew),
+        "rtl: Latin at the right"
+    );
+    let right = rtl
+        .layout_runs()
+        .flat_map(|r| r.glyphs.iter())
+        .map(|g| g.x + g.w)
+        .fold(0.0f32, f32::max);
+    assert!(
+        (right - 300.).abs() < 0.5,
+        "rtl start is the right edge: {right}"
+    );
+    style
+        .set_dynamic(
+            exact_kernel::StyleId::TextAlign,
+            &exact_kernel::StyleValue::Text("end".into()),
+        )
+        .unwrap();
+    assert_eq!(crate::paint::text_spec(&style, text).align, TextAlign::Left);
 }

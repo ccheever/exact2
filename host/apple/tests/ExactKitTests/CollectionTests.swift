@@ -3,15 +3,18 @@ import XCTest
 @testable import ExactKit
 
 final class CollectionTests: XCTestCase {
-    func testWireIsVersionOneLittleEndianAndPreservesLargeEpochs() {
+    func testWireIsVersionTwoLittleEndianAndPreservesLargeEpochs() {
         let facts = CollectionFacts(top: 12, portWidth: 320, portHeight: 480, rowWidth: 300,
             measurements: [.init(view: 23, epoch: 0xfedcba9876543210, height: 72)], focus: 31, interaction: nil)
         let bytes = [UInt8](facts.encode(view: 17, revision: 9, sequence: 11))
-        XCTAssertEqual(bytes.count, 88)
-        XCTAssertEqual(Array(bytes.prefix(8)), [1, 0, 0, 0, 17, 0, 0, 0])
+        XCTAssertEqual(bytes.count, 100)
+        XCTAssertEqual(Array(bytes.prefix(8)), [2, 0, 0, 0, 17, 0, 0, 0])
         XCTAssertEqual(Array(bytes[8..<16]), [9, 0, 0, 0, 0, 0, 0, 0])
-        XCTAssertEqual(Array(bytes[56..<68]), [31, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0])
-        XCTAssertEqual(Array(bytes[72..<80]), [0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe])
+        XCTAssertEqual(Array(bytes[56..<64]), [31, 0, 0, 0, 0, 0, 0, 0])
+        XCTAssertEqual(Array(bytes[72..<80]), [255, 255, 255, 255, 1, 0, 0, 0], "no limit, one row")
+        XCTAssertEqual(Array(bytes[84..<92]), [0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe])
+        let filled = [UInt8](facts.encode(view: 17, revision: 9, sequence: 11, velocity: -2, limit: 3))
+        XCTAssertEqual(Array(filled[64..<76]), [0, 0, 0, 0, 0, 0, 0, 0xc0, 3, 0, 0, 0])
     }
 
     func testCorrectionIsOncePerRevisionAndCannotReplaceNewUserIntent() {

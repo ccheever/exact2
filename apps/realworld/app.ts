@@ -3,7 +3,7 @@ import type { Answer, Sources, Result } from './app.contract.d.ts';
 // RealWorld's hosted API (docs.realworld.show). The token is a store secret
 // (LLP 1018): localStorage on the web, the Keychain on Apple.
 export const appId = 'com.exact.realworld';
-export const grants = 'net.fetch https://api.realworld.show\nsecret.keep jwtToken';
+export const grants = 'net.fetch https://api.realworld.show\nsecret.keep realworld.jwt';
 const API = 'https://api.realworld.show/api';
 const AVATAR = '/assets/default-avatar.svg';
 const PAGE = 10;
@@ -41,7 +41,7 @@ function errorList(body: Json | null, status: number): string[] {
 }
 async function api(store: Store, path: string, method = 'GET', body?: unknown): Promise<Json> {
   const headers: Record<string, string> = {};
-  const token = store.get('jwtToken');
+  const token = store.get('realworld.jwt');
   if (token) headers.Authorization = `Token ${token}`;
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   let response: Response;
@@ -75,9 +75,9 @@ const emptyArticle: Article = { found: false, slug: '', title: '', description: 
 const emptyProfile: Profile = { found: false, username: '', bio: '', image: AVATAR, following: false };
 
 async function currentUser(store: Store): Promise<User> {
-  if (!store.get('jwtToken')) return anonymous;
+  if (!store.get('realworld.jwt')) return anonymous;
   try { return user((await api(store, '/user')).user); } catch (e) {
-    if (e instanceof Failure && e.status === 401) store.forget('jwtToken');
+    if (e instanceof Failure && e.status === 401) store.forget('realworld.jwt');
     return anonymous;
   }
 }
@@ -125,7 +125,7 @@ type Auth = Result<'login'>;
 async function signIn(store: Store, path: string, body: Json, method = 'POST'): Promise<Auth> {
   try {
     const u = (await api(store, path, method, { user: body })).user;
-    if (u?.token) store.set('jwtToken', String(u.token));
+    if (u?.token) store.set('realworld.jwt', String(u.token));
     return { stamp: ++stamp, ok: true, errors: [] };
   } catch (e) { return { stamp: ++stamp, ok: false, errors: failed(e) }; }
 }
@@ -155,7 +155,7 @@ const sources: Sources = {
   register: ([username, email, password], store) => signIn(store, '/users', { username, email, password }),
   saveSettings: ([image, username, bio, email, password], store) =>
     signIn(store, '/user', { image, username, bio, email, ...(password ? { password } : {}) }, 'PUT'),
-  logout: (_, store) => { store.forget('jwtToken'); return { stamp: ++stamp, ok: true, errors: [] }; },
+  logout: (_, store) => { store.forget('realworld.jwt'); return { stamp: ++stamp, ok: true, errors: [] }; },
   favorite: ([slug, on], store) => change('favorite', async () => {
     await api(store, `${slugPath(slug)}/favorite`, on ? 'POST' : 'DELETE'); return slug;
   }),
