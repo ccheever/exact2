@@ -7,6 +7,22 @@ import CExact
 @testable import ExactKit
 
 final class RasterLoaderTests: XCTestCase {
+    /// A large WebP's size is read from its prefix (ImageIO reads WebP only
+    /// whole): the Bluesky CDN's `VP8X`, and synthetic `VP8L` and `VP8 `.
+    func testWebPSizeFromItsHeader() throws {
+        let vp8x: [UInt8] = [82, 73, 70, 70, 92, 196, 4, 0, 87, 69, 66, 80, 86, 80, 56, 88, 10, 0, 0, 0, 8, 0, 0, 0, 237, 2, 0, 231, 3, 0, 86, 80]
+        XCTAssertTrue(webpSize(Data(vp8x))! == (750, 1000))
+        var vp8l: [UInt8] = [82, 73, 70, 70, 0, 0, 0, 0, 87, 69, 66, 80, 86, 80, 56, 76, 0, 0, 0, 0, 0x2f]
+        let bits = UInt32(99) | UInt32(49) << 14
+        vp8l += [UInt8(bits & 0xff), UInt8(bits >> 8 & 0xff), UInt8(bits >> 16 & 0xff), UInt8(bits >> 24 & 0xff)] + [UInt8](repeating: 0, count: 7)
+        XCTAssertTrue(webpSize(Data(vp8l))! == (100, 50))
+        let vp8: [UInt8] = [82, 73, 70, 70, 0, 0, 0, 0, 87, 69, 66, 80, 86, 80, 56, 32, 0, 0, 0, 0, 0, 0, 0, 0x9d, 0x01, 0x2a, 0x80, 0x02, 0xe0, 0x01, 0, 0]
+        XCTAssertTrue(webpSize(Data(vp8))! == (640, 480))
+        XCTAssertNil(webpSize(Data([UInt8](repeating: 0, count: 32))))
+        let metadata = try RasterMetadata.read(prefix: Data(vp8x), encodedBytes: 312_420)
+        XCTAssertEqual(metadata.naturalSize, CGSize(width: 750, height: 1000))
+    }
+
     func testHTTPImagesReuseFreshBytesRespectNoStoreAndRevalidate() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)

@@ -158,6 +158,7 @@ final class Runtime {
         read(exact_hold_end(rt, token, cancel ? 1 : 0, vx, vy, now))
     }
     func swiperight(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 12, 0, now)) }
+    func refresh(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 22, 0, now)) }
     func pan(_ view: UInt32, dx: Double, dy: Double, now: Double) -> Batch {
         read(exact_dispatch(rt, view, 20, write("\(dx),\(dy)"), now))
     }

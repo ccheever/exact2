@@ -813,6 +813,8 @@ final class Presenter {
     var onContextmenu: ((UInt32) -> Void)?
     var onDblclick: ((UInt32) -> Void)?
     var onSwiperight: ((UInt32) -> Void)?
+    /// Pull-to-refresh is UIKit's; AppKit has no such control, so this never fires.
+    var onRefresh: ((UInt32) -> Void)?
     var onPan: ((UInt32, Double, Double) -> Void)?
     var onScroll: ((UInt32, Double, Double) -> Void)?
     var onList: ((UInt32, Double, Double, Double, Double, UInt32, UInt32, UInt32) -> Bool)?

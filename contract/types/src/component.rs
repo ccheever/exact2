@@ -324,6 +324,7 @@ fn refine_params_from_view(
                             | "contextmenu"
                             | "dblclick"
                             | "swiperight"
+                            | "refresh"
                             | "reachstart"
                             | "reachend"
                             | "scroll"

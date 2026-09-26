@@ -21,7 +21,7 @@ final class Presenter {
     let viewport = ScrollView(frame: .zero)
     var views: [UInt32: NodeView] = [:]
     private(set) var chrome = ChromeIndex()
-    func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props); view.updateReorderGesture() }
+    func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props); view.updateReorderGesture(); view.updateRefresh() }
     func carrying(_ key: String) -> [NodeView] { chrome.ids(key).sorted().compactMap { views[$0] } }
     func takeChangedNames() -> Set<String> { chrome.takeChangedNames() }
     var scrollers: Set<UInt32> = []
@@ -439,6 +439,7 @@ final class Presenter {
     var onContextmenu: ((UInt32) -> Void)?
     var onDblclick: ((UInt32) -> Void)?
     var onSwiperight: ((UInt32) -> Void)?
+    var onRefresh: ((UInt32) -> Void)?
     var onPan: ((UInt32, Double, Double) -> Void)?
     var onScroll: ((UInt32, Double, Double) -> Void)?
     var onList: ((UInt32, Double, Double, Double, Double, UInt32, UInt32, UInt32) -> Bool)?
@@ -494,6 +495,7 @@ final class Presenter {
     func contextmenu(_ id: UInt32) { send(id) { [self] in onContextmenu?(id) } }
     func dblclick(_ id: UInt32) { send(id) { [self] in onDblclick?(id) } }
     func swiperight(_ id: UInt32) { send(id) { [self] in onSwiperight?(id) } }
+    func refresh(_ id: UInt32) { send(id) { [self] in onRefresh?(id) } }
     func pan(_ id: UInt32, _ dx: Double, _ dy: Double) { send(id) { [self] in onPan?(id, dx, dy) } }
     func scroll(_ id: UInt32, _ left: Double, _ top: Double) { send(id) { [self] in onScroll?(id, left, top) } }
     func submit(_ id: UInt32) { send(id) { [self] in onSubmit?(id) } }

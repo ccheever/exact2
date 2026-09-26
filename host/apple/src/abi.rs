@@ -783,6 +783,8 @@ impl<D: DataSource> Bridge<D> {
             10 => Event::Contextmenu,
             11 => Event::Dblclick,
             12 => Event::Swiperight,
+            // The platform's pull-to-refresh control fired.
+            22 => Event::Refresh,
             13 => {
                 let Some(event) = Event::scroll_payload(&payload) else {
                     return self

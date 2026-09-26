@@ -378,7 +378,7 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 36] = [
+pub const HANDLERS: [&str; 37] = [
     "press",
     "change",
     "select",
@@ -392,6 +392,7 @@ pub const HANDLERS: [&str; 36] = [
     "contextmenu",
     "dblclick",
     "swiperight",
+    "refresh",
     "scroll",
     "pan",
     "loadedmetadata",
@@ -434,7 +435,7 @@ pub fn handler_payload(attr: &str) -> Option<&'static str> {
 /// `None` means that this event forbids the supplied explicit arguments.
 /// Analysis and lowering share this rule, including navigate's optional payload.
 pub fn handler_arity(attr: &str, given: usize) -> Option<std::ops::RangeInclusive<usize>> {
-    if matches!(attr, "reachstart" | "reachend") {
+    if matches!(attr, "reachstart" | "reachend" | "refresh") {
         return (given == 0).then_some(0..=0);
     }
     if attr == "navigate" {
