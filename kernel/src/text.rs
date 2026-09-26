@@ -335,7 +335,7 @@ impl MonospaceMeasurer {
         let mut text = String::new();
         let mut ends = Vec::with_capacity(request.runs.len());
         for run in request.runs {
-            text.push_str(run.text);
+            text.push_str(&run.text);
             ends.push((text.len(), self.advance(&run.style)));
             line_height = line_height.max(self.line_height(&run.style));
         }

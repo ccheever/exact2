@@ -107,7 +107,7 @@ fn frame(k: &Kernel, id: u32) -> Frame {
 /// fits exactly, so a product (48 × 9.6) instead of a sum moves a break.
 fn painted(k: &Kernel, id: u32) -> (Vec<Fragment>, f32) {
     let node = k.node(id).unwrap();
-    let words: String = node.text_runs().iter().map(|r| r.text).collect();
+    let words: String = node.text_runs().iter().map(|r| r.text.as_ref()).collect();
     let prepared = Prepared::new(&words, Options::default(), &mut |r: std::ops::Range<
         usize,
     >| {
@@ -402,7 +402,7 @@ fn padded_leaves_are_measured_in_content_space_and_line_clamp_holds() {
         .map(|s| s.translate(-8., -5.))
         .collect();
     let runs = [TextRun {
-        text: PROSE,
+        text: PROSE.into(),
         style: node.text_style(),
     }];
     let metrics = MonospaceMeasurer::default().measure(&TextMeasureRequest {

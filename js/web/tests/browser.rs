@@ -83,7 +83,8 @@ const startupStub=()=>{
   WebAssembly.instantiateStreaming=async response=>{
     await response;
     if(new URL(location.href).searchParams.has('early'))queueMicrotask(()=>{globalThis.earlyReload=globalThis.exact.reload(new Uint8Array([1]));});
-    return {instance:{exports:{memory,exact_out:()=>65536,exact_in:()=>0,
+    // A real result carries its module; the glue reads the module's custom sections.
+    return {module:await WebAssembly.compile(new Uint8Array([0,97,115,109,1,0,0,0])),instance:{exports:{memory,exact_out:()=>65536,exact_in:()=>0,
       exact_compat:()=>out({inputs:{app:'test.startup'}}),exact_logic:()=>out(rustOnly?null:{appId:'test.startup',grants:''}),
       ...(rustOnly?{}:{exact_module_artifact:()=>0}),
       exact_plan:()=>out([]),exact_plan_fonts:()=>out([]),exact_boot:()=>out(batch),exact_boot_plan:()=>out(batch),
