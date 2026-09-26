@@ -663,8 +663,13 @@ final class TextEngine {
     private var measuredBreakOrder: [MeasuredBreakKey] = []
     private static let measuredBreakLimit = 512
 
+    /// Counts identity namespaces: pixels kept by paint (`TextRasterizer`)
+    /// under an older one may name another face by the same family index.
+    private(set) var namespace = 0
+
     /// A new identity namespace (a font catalog, a restored checkpoint) keys nothing here.
     private func dropMeasuredBreaks() {
+        namespace += 1
         measuredBreakCache.removeAll(keepingCapacity: true)
         measuredBreakOrder.removeAll(keepingCapacity: true)
     }

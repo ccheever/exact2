@@ -4,12 +4,17 @@ import Foundation
 import CoreText
 import IOSurface
 
-struct TextRasterKey: Equatable {
+struct TextRasterKey: Hashable {
     let spec: Spec
     let size: CGSize
     let box: CGRect
     let scale: CGFloat
     var clip: CGRect? = nil
+    func hash(into h: inout Hasher) {
+        h.combine(spec); h.combine(size.width); h.combine(size.height)
+        for v in [box.minX, box.minY, box.width, box.height, scale] { h.combine(v) }
+        if let clip { for v in [clip.minX, clip.minY, clip.width, clip.height] { h.combine(v) } }
+    }
 }
 
 struct TextRasterImage {

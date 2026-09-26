@@ -9,13 +9,14 @@ final class TextRasterizer {
     private final class Work {
         weak var node: NodeView?
         let key: TextRasterKey
+        let namespace: Int
         let group = DispatchGroup()
         var result: TextRasterImage?
         weak var operation: Operation?
         private let lock = NSLock()
         private var started = false, abandoned = false
-        init(_ node: NodeView, key: TextRasterKey) {
-            self.node = node; self.key = key
+        init(_ node: NodeView, key: TextRasterKey, namespace: Int) {
+            self.node = node; self.key = key; self.namespace = namespace
             group.enter()
         }
         /// The worker's claim: false once the job was abandoned unstarted.
@@ -43,6 +44,42 @@ final class TextRasterizer {
     private static let maximumBytes: CGFloat = 16 * 1024 * 1024
     var inFlight: Int { working.count }
     var hasRoom: Bool { working.count < Self.maxInFlight }
+
+    /// Pixels by what they paint. Rows repeat small labels (a reaction's
+    /// emoji and count, a relative time), and a list that turns back shows
+    /// what it just left: those take the pixels another view already paid
+    /// for. Least recently used first, bounded by bytes; only small images,
+    /// so what stays beyond the views that show it is a few megabytes.
+    private struct Kept {
+        let image: TextRasterImage
+        let bytes: Int
+        var used: UInt64
+    }
+    private var kept: [TextRasterKey: Kept] = [:]
+    private var keptBytes = 0
+    private var keptClock: UInt64 = 0
+    private var keptNamespace = 0
+    private static let keptLimit = 4 * 1024 * 1024
+    private static let keptEntryLimit = 64 * 1024
+    private func keptImage(_ key: TextRasterKey, namespace: Int) -> TextRasterImage? {
+        if namespace != keptNamespace { kept.removeAll(); keptBytes = 0; keptNamespace = namespace; return nil }
+        guard var hit = kept[key] else { return nil }
+        keptClock += 1; hit.used = keptClock; kept[key] = hit
+        return hit.image
+    }
+    private func keep(_ image: TextRasterImage?, for key: TextRasterKey, namespace: Int) {
+        guard let image, namespace == keptNamespace, kept[key] == nil else { return }
+        let bytes = image.image.bytesPerRow * image.image.height
+        guard bytes <= Self.keptEntryLimit else { return }
+        keptClock += 1
+        kept[key] = Kept(image: image, bytes: bytes, used: keptClock)
+        keptBytes += bytes
+        guard keptBytes > Self.keptLimit else { return }
+        for (key, entry) in kept.sorted(by: { $0.value.used < $1.value.used }) {
+            kept.removeValue(forKey: key); keptBytes -= entry.bytes
+            if keptBytes <= Self.keptLimit * 3 / 4 { break }
+        }
+    }
 
     private func key(_ node: NodeView) -> TextRasterKey {
         let scale = node.window?.screen.scale ?? node.traitCollection.displayScale
@@ -75,9 +112,15 @@ final class TextRasterizer {
         if node.textRasterKey == key && (node.textRasterReady || !urgent || !missingPixels) { return true }
         let firstPixels = urgent && missingPixels
         let pending = working.last { $0.node === node }
+        guard let engine = node.text else { return true }
+        if key.clip == nil, let image = keptImage(key, namespace: engine.namespace) {
+            if let pending { _ = pending.abandon() }
+            node.textRasterKey = key; node.textRasterReady = false; node.textRasterFailed = false
+            node.showTextRaster(image, for: key)
+            return true
+        }
         if firstPixels, let pending, pending.key == key, take(pending) { return true }
         guard firstPixels || hasRoom else { return false }
-        guard let engine = node.text else { return true }
         let measured = engine.measuredBreaks(key.spec, width: key.box.width)
         let paragraph = measured == nil ? node.paragraphLayout() : nil
         guard let (ranges, baselines) = measured
@@ -91,10 +134,12 @@ final class TextRasterizer {
         node.textRasterKey = key; node.textRasterReady = false; node.textRasterFailed = false
         if firstPixels {
             let post = Presenter.signposts.beginInterval("text-raster-urgent")
-            node.showTextRaster(job.render(), for: key)
+            let image = job.render()
+            node.showTextRaster(image, for: key)
+            if key.clip == nil { keep(image, for: key, namespace: engine.namespace) }
             Presenter.signposts.endInterval("text-raster-urgent", post)
         } else {
-            let work = Work(node, key: key)
+            let work = Work(node, key: key, namespace: engine.namespace)
             working.append(work)
             work.group.notify(queue: .main) { [weak self] in self?.publish(work) }
             let operation = BlockOperation {
@@ -134,6 +179,7 @@ final class TextRasterizer {
         working.remove(at: index)
         // Dropped unstarted: no pixels, and no failure either.
         guard !work.wasAbandoned else { return }
+        if work.key.clip == nil { keep(work.result, for: work.key, namespace: work.namespace) }
         work.node?.showTextRaster(work.result, for: work.key)
         work.node?.presenter?.requestTextPublication()
     }
