@@ -170,10 +170,13 @@ final class TextRasterizer {
 extension NodeView {
     var canRasterText: Bool {
         if textRasterFailed && textRasterKey != nil { return false }
+        // `text-overflow` truncates as it paints (LLP 1053 G5). A paragraph
+        // that does is asked this every frame (the text scans): its cached
+        // spec answers first, without a copy.
+        if cachedTextSpec?.ellipsis == true { return false }
         guard isParagraph && flowShapes.isEmpty && !Capture.capturing && window != nil
             && bounds.width > 0 && bounds.height > 0 && number("line_clamp") == 0 else { return false }
-        // `text-overflow` truncates as it paints (LLP 1053 G5).
-        return !paragraphSpec().ellipsis && canvasAbove == nil
+        return !(cachedTextSpec?.ellipsis ?? paragraphSpec().ellipsis) && canvasAbove == nil
     }
     /// The whole paragraph's pixels are up for its current text and box: a
     /// refresh has nothing to do for it until a change clears its key
