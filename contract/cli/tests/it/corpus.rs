@@ -821,6 +821,31 @@ component Label
 }
 
 #[test]
+fn the_motion_fixtures_after_task_fires_once_and_its_timer_is_then_spent() {
+    let plan = contract::compile(&corpus("motion.contract")).unwrap();
+    assert_eq!(plan.timers.len(), 2);
+    assert!(!plan.timers[0].once && plan.timers[1].once);
+    let plan = Plan::decode(&plan.encode()).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(text_of(&r, "launch").as_deref(), Some("Launching"));
+    assert_eq!(r.timer_due_ms(), Some(60.0));
+    assert_eq!(r.advance(60.0).unwrap().len(), 1);
+    assert_eq!(text_of(&r, "launch").as_deref(), Some("Ready"));
+    // Spent: only the repeating ticker's deadline remains.
+    assert_eq!(r.timer_due_ms(), Some(1_000.0));
+    assert_eq!(r.advance(120.0).unwrap().len(), 0);
+    assert_eq!(r.advance(180.0).unwrap().len(), 0);
+    assert_eq!(r.advance(2_500.0).unwrap().len(), 2);
+}
+
+#[test]
 fn a_child_binder_never_captures_a_name_its_parent_passes_in() {
     let boot = |name: &str| {
         let plan = contract::compile(&corpus(name)).unwrap_or_else(|e| panic!("{name}: {e}"));

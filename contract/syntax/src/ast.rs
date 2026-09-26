@@ -481,15 +481,26 @@ pub enum Stmt {
     },
 }
 
-/// `task name mount` with `every(ms, action)`.
+/// `task name mount` with `every(ms, action)` or `after(ms, action)`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Task {
     /// Name.
     pub name: String,
-    /// `every(interval, action)`, the one v1 body.
-    pub every: (Expr, String, Span),
+    /// Whether the timer repeats or fires once.
+    pub kind: TaskKind,
+    /// `(ms, action)` and the entry's span.
+    pub timer: (Expr, String, Span),
     /// Where.
     pub span: Span,
+}
+
+/// A task's schedule.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskKind {
+    /// `every(ms, action)`: fires at boot+ms, then every ms.
+    Every,
+    /// `after(ms, action)`: fires once at boot+ms, then is spent.
+    After,
 }
 
 /// A view node.

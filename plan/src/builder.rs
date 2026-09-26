@@ -471,11 +471,13 @@ impl PlanBuilder {
         ActionsId(self.plan.actions.len() as u32 - 1)
     }
 
-    /// A timer that dispatches `action` every `interval_ms`.
-    pub fn timer(&mut self, interval_ms: u32, action: ActionsId) -> TimersId {
+    /// A timer that dispatches `action` at boot+`interval_ms`, then every
+    /// `interval_ms` — or, when `once`, never again.
+    pub fn timer(&mut self, interval_ms: u32, action: ActionsId, once: bool) -> TimersId {
         self.plan.timers.push(TimersRow {
             interval_ms,
             action,
+            once,
         });
         TimersId(self.plan.timers.len() as u32 - 1)
     }

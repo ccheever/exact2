@@ -30,7 +30,7 @@ mod values;
 pub use sites::{Declared, NodeSite, Origin, Sites};
 
 use contract_analyze::Analysis;
-use contract_syntax::{Attr, Expr, File, FnDecl, Node, Span, Stmt};
+use contract_syntax::{Attr, Expr, File, FnDecl, Node, Span, Stmt, TaskKind};
 use contract_types::{Checked, Ref, Scope, Ty, Types};
 use exact_kernel::StyleId;
 use exact_plan::asm::Asm;
@@ -487,26 +487,30 @@ fn lower_with_sites(
         l.b.set_action_body(l.actions[i], code);
     }
     for t in &root.tasks {
-        let Expr::Number(ms, _) = &t.every.0 else {
+        let word = match t.kind {
+            TaskKind::Every => "every",
+            TaskKind::After => "after",
+        };
+        let Expr::Number(ms, _) = &t.timer.0 else {
             return Err(err_one(
                 "lower-timer-literal",
-                "`every` needs a literal number of milliseconds",
-                t.every.2,
+                format!("`{word}` needs a literal number of milliseconds"),
+                t.timer.2,
             ));
         };
         if !(ms.is_finite() && ms.fract() == 0.0 && *ms >= 1.0 && *ms <= u32::MAX as f64) {
             return Err(err_one(
                 "lower-timer-interval",
-                format!("`every` needs a whole number of milliseconds, at least 1; given {ms}"),
-                t.every.2,
+                format!("`{word}` needs a whole number of milliseconds, at least 1; given {ms}"),
+                t.timer.2,
             ));
         }
         let action = l.actions[root
             .actions
             .iter()
-            .position(|a| a.name == t.every.1)
+            .position(|a| a.name == t.timer.1)
             .unwrap()];
-        l.b.timer(*ms as u32, action);
+        l.b.timer(*ms as u32, action, t.kind == TaskKind::After);
     }
     // The view, inlined (by `expand`, above).
     let view = &root.view;

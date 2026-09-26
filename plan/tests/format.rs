@@ -38,7 +38,7 @@ fn sample() -> Plan {
         .store_slot(count);
     let inc = b.code(inc);
     let tick = b.action("tick", &[], &[count], inc);
-    b.timer(1000, tick);
+    b.timer(1000, tick, false);
     let mut text = Asm::new();
     text.load_derive(doubled).call(Stdlib::ToString);
     let text = b.code(text);
@@ -472,6 +472,9 @@ fn region_topology_and_timer_progress_are_validated() {
     ));
     let mut stuck = plan.clone();
     stuck.timers[0].interval_ms = 0;
+    assert_eq!(stuck.validate(), Err(PlanError::ZeroInterval { timer: 0 }));
+    // A one-shot timer is refused the same way: `after(0, x)` would fire at boot.
+    stuck.timers[0].once = true;
     assert_eq!(stuck.validate(), Err(PlanError::ZeroInterval { timer: 0 }));
 }
 

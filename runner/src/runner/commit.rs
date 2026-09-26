@@ -167,9 +167,15 @@ impl<D: DataSource> Runner<D> {
                     }),
                 };
             }
-            let interval = self.plan.timers[i].interval_ms as f64;
-            let next_ms = at + interval;
-            if !next_ms.is_finite() || next_ms <= at {
+            let row = &self.plan.timers[i];
+            // A one-shot timer is spent: an infinite deadline is never due
+            // and never reported (`timer_due_ms`), so it keeps no host awake.
+            let next_ms = if row.once {
+                f64::INFINITY
+            } else {
+                at + row.interval_ms as f64
+            };
+            if !row.once && (!next_ms.is_finite() || next_ms <= at) {
                 return Advanced {
                     receipts,
                     now_ms: self.now_ms,
