@@ -327,7 +327,15 @@ fn build_sources(
         }
         std::fs::write(out.join("logic.rs"), entry).map_err(|e| e.to_string())?;
     }
-    println!("cargo:rerun-if-changed={}", app.display());
+    // Each captured source by name, not the app directory: Cargo scans a named
+    // directory recursively, and an app outside this repo keeps its `target/`
+    // (and a dev server's output) inside it, so every build dirtied the next
+    // and the dev loop rebuilt forever. A new file matters once a watched one
+    // names it, which is itself a change.
+    let root = app.canonicalize().map_err(|e| e.to_string())?;
+    for name in sources(&root)?.keys() {
+        println!("cargo:rerun-if-changed={}", root.join(name).display());
+    }
     Ok(())
 }
 

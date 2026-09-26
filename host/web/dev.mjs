@@ -835,6 +835,8 @@ function classifyRebuild() {
 }
 const watched=new Map();
 let compilerInputFiles = new Set(), compilerInputTrees = [], compilerMissingInputs = [], swiftSourceDirectories = new Set();
+const optionalRoots = () => ['assets', 'deck', 'gpu', 'gpu/shaders'].map(root => existsSync(resolve(app.dir, root)) ? 1 : 0).join('');
+let optionalRootsSeen = optionalRoots();
 function watchCompilerInputs() {
   // Poll declared file metadata: saves and replacement survive directory-event
   // coalescing. Only open-ended source discovery needs a directory watch.
@@ -879,7 +881,13 @@ function watchCompilerInputs() {
     try {
       if(file){
         const listener=(now,previous)=>{
-          if(['dev','ino','size','mtimeNs','ctimeNs'].some(key=>now[key]!==previous[key]))changedPath();
+          if(!['dev','ino','size','mtimeNs','ctimeNs'].some(key=>now[key]!==previous[key]))return;
+          // The bake watches the app root only for an optional root it lacks
+          // (deck/, assets/, gpu/: receipt/watch.rs). Any save or stray file
+          // there changes the root's metadata; only such a root appearing or
+          // going away is an input change.
+          if(target===app.dir){const roots=optionalRoots();if(roots===optionalRootsSeen)return;optionalRootsSeen=roots;}
+          changedPath();
         };
         watchFile(target,{bigint:true,interval:100},listener);
         watched.set(target,{close:()=>unwatchFile(target,listener)});
