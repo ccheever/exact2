@@ -108,3 +108,43 @@ fn pan_abi_20_commits_deltas_and_refuses_nonfinite_payload_before_clock() {
     let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
     assert!(out.contains("\"text\":\"102\""), "{out}");
 }
+
+// @ref LLP 1043.000 §8 — the kernel's admission rule reaches the browser's executor.
+#[test]
+fn a_drop_cap_admits_its_auto_height_paragraph_and_a_flex_context_refuses() {
+    let source = |container: &str| {
+        format!(
+            r#"component Test
+  view
+    {container} width=400 padding=20 position="relative"
+      box position="absolute" left=20 top=20 width=58 height=58 wrap-flow="both" shape-outside="inset(0)" shape-margin=6
+        text "T" font-size=64 line-height=1
+      text "here is an hour when the garden belongs to neither day nor night." testId="lede"
+"#
+        )
+    };
+    let boot = |container: &str| {
+        let plan = contract::compile(&source(container)).unwrap();
+        crate::Host::boot(
+            &plan.encode(),
+            caltrain_data::Caltrain,
+            Default::default(),
+            "/",
+        )
+        .unwrap()
+        .1
+    };
+    let batch = boot("box");
+    assert!(
+        batch.contains("\"definite\":false,\"refusal\":null"),
+        "{batch}"
+    );
+    let batch = boot("column");
+    assert!(
+        batch.contains(&format!(
+            "\"definite\":false,\"refusal\":\"{}\"",
+            exact_kernel::FlowRefusal::Context.message()
+        )),
+        "{batch}"
+    );
+}

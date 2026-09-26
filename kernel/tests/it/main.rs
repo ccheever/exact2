@@ -10,6 +10,7 @@ mod content_region;
 mod env;
 mod export;
 mod flow;
+mod flow_auto;
 mod flow_rows;
 mod head;
 mod height_binding;

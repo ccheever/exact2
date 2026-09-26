@@ -326,8 +326,72 @@ impl crate::WhiteSpace {
     }
 }
 
+impl MonospaceMeasurer {
+    /// @ref LLP 1043.000 §3 D5–D6 — flow around exclusions through the shared
+    /// walker over this measurer's advances, as the hosts do over theirs.
+    fn flow(&self, request: &TextMeasureRequest<'_>, width: f32) -> TextMetrics {
+        let strut = &request.paragraph.strut;
+        let mut line_height = self.line_height(strut);
+        let mut text = String::new();
+        let mut ends = Vec::with_capacity(request.runs.len());
+        for run in request.runs {
+            text.push_str(run.text);
+            ends.push((text.len(), self.advance(&run.style)));
+            line_height = line_height.max(self.line_height(&run.style));
+        }
+        let mut measure = |range: std::ops::Range<usize>| {
+            text[range.clone()]
+                .char_indices()
+                .map(|(i, _)| {
+                    let at = range.start + i;
+                    ends.iter().find(|(end, _)| at < *end).map_or(0.0, |r| r.1)
+                })
+                .sum::<f32>()
+        };
+        let prepared = exact_textflow::Prepared::new(
+            &text,
+            exact_textflow::Options {
+                white_space: request.paragraph.white_space.model(),
+                overflow_wrap: match request.paragraph.overflow_wrap {
+                    OverflowWrap::Normal => exact_textflow::OverflowWrap::Normal,
+                    OverflowWrap::BreakWord => exact_textflow::OverflowWrap::BreakWord,
+                    OverflowWrap::Anywhere => exact_textflow::OverflowWrap::Anywhere,
+                },
+                hyphen_advance: self.advance(strut),
+            },
+            &mut measure,
+        );
+        let mut fragments = Vec::new();
+        let result = exact_textflow::flow(
+            &prepared,
+            request.exclusions,
+            &exact_textflow::FlowOptions {
+                direction: match request.paragraph.direction {
+                    Direction::Ltr => exact_textflow::Direction::Ltr,
+                    Direction::Rtl => exact_textflow::Direction::Rtl,
+                },
+                width,
+                line_height,
+                min_fragment: strut.font_size * exact_textflow::MIN_FRAGMENT_EM,
+                max_lines: request.paragraph.line_clamp,
+            },
+            &mut fragments,
+        );
+        TextMetrics {
+            width: fragments.iter().map(|f| f.x + f.width).fold(0.0, f32::max),
+            height: result.height,
+            first_baseline: Some(line_height * self.baseline_frac),
+        }
+    }
+}
+
 impl TextMeasurer for MonospaceMeasurer {
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
+        if let AxisOffer::Definite(width) = request.width {
+            if !request.exclusions.is_empty() {
+                return self.flow(request, width);
+            }
+        }
         let white_space = request.paragraph.white_space.model();
         // CSS collapsing first, as every native engine now does (LLP 1053 G5).
         let collapsed = exact_textflow::collapse(request.runs, white_space);

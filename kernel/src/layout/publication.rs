@@ -127,6 +127,7 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
                 .is_none_or(|node| tree.height_measured(node))
         },
         |_| true,
+        crate::flow::AutoFlow::Admit(&tree.unsettled),
     );
     LayoutReceipt {
         epoch: 0,

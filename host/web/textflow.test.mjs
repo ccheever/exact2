@@ -103,7 +103,7 @@ test('worst fragment array is linear and a stable 1000-frame geometry touches no
 // Minimal DOM test double: exercises the actual controller and its phase order,
 // not browser line layout. Real metrics/selection remain an orchestrator check.
 import { createTextFlow } from './textflow-glue.js';
-function controllerFixture({ trim = false, clamp = false } = {}) {
+function controllerFixture({ trim = false, clamp = false, paragraph = { id: 2, definite: true } } = {}) {
   const events = [], frames = new Map(), timers = new Map(), fontEvents = new Map(); let serial = 0, paused = false, time = 0, interval = 16;
   const defaults = { ...style, fontFamily: 'serif', fontStyle: 'normal', fontWeight: '400', letterSpacing: '0px',
     transform: 'none', translate: 'none', scale: 'none', rotate: 'none', position: 'static', visibility: 'visible',
@@ -161,7 +161,9 @@ function controllerFixture({ trim = false, clamp = false } = {}) {
   const views = new Map([[1, context], [2, p], [3, ball], [4, link]]);
   let controller;
   const request = (op, id, bytes) => {
-    calls.push(op); records.push({ op, id, bytes: bytes.length });
+    // Flow requests keep the paragraph band limit and the first shape's leaf-relative y.
+    const floats = op === 2 ? new DataView(bytes.buffer, bytes.byteOffset) : null;
+    calls.push(op); records.push({ op, id, bytes: bytes.length, height: floats?.getFloat32(16, true), shapeY: bytes.length > 24 ? floats?.getFloat32(40, true) : undefined });
     if (op === 0) {
       if (bytes.length > 65544) return { error: 'textflow exceeds 64 KiB source limit' };
       if (!live.has(id) && live.size >= 64) return { error: 'textflow exceeds 64 live paragraphs' };
@@ -179,15 +181,15 @@ function controllerFixture({ trim = false, clamp = false } = {}) {
       fragments: [{ ...fragment(0, 8, 0, 0), utf16_start: 0, utf16_end: 8, paint_start: 0, paint_end: trim ? 7 : 8, available: 30, width: 25, line: 0 },
         { ...fragment(8, text.length, x, 0), utf16_start: 8, utf16_end: text.length, paint_start: 8, paint_end: text.length, available: 50, width: 40, line: 0 }] };
   };
-  const batch = { ops: [{ op: 'textflow', contexts: [{ id: 1, exclusions: [3], paragraphs: [{ id: 2, definite: true }] }] }], timers: false };
+  const batch = { ops: [{ op: 'textflow', contexts: [{ id: 1, exclusions: [3], paragraphs: [paragraph] }] }], timers: false };
   controller = createTextFlow({ views, request, agentMode: false, now: () => time, log: line => events.push(['log', line]),
     advance() { events.push(['commit']); if (paused) { controller.afterBatch({ ops: [], timers: true, timer_due_ms: time + interval }); return; } const b = { ops: [{ op: 'style', id: 3 }], timers: true, timer_due_ms: time + interval }; controller.beforeBatch(b); ball.box.x++; controller.afterBatch(b); },
     raf(fn) { frames.set(++serial, fn); return serial; }, cancel(id) { frames.delete(id); },
     delay(fn, ms) { events.push(["delay", ms]); timers.set(++serial, fn); return serial; }, clearDelay(id) { timers.delete(id); } });
   controller.afterBatch(batch);
   return { controller, context, p, link, ball, events, calls, records, live, frames, timers, fontEvents, batch,
-    addParagraph(id, y) { const el = new Element('paragraph'); el.textContent = 'one two three four'; el.box.y = y;
-      context.append(el); views.set(id, el); batch.ops[0].contexts[0].paragraphs.push({ id, definite: true }); return el; },
+    addParagraph(id, y, info = { definite: true }) { const el = new Element('paragraph'); el.textContent = 'one two three four'; el.box.y = y;
+      context.append(el); views.set(id, el); batch.ops[0].contexts[0].paragraphs.push({ id, ...info }); return el; },
     pause(value) { paused = value; }, timer(ms) { interval = ms; controller.afterBatch({ ops: [], timers: true, timer_due_ms: time + ms }); }, poll(ms = interval) { time += ms; const pending = [...timers.values()]; timers.clear(); pending.forEach(fn => fn()); },
     select() { doc.selection = { anchorNode: p.childNodes[0], anchorOffset: 2, focusNode: link.childNodes[0], focusOffset: 5,
       setBaseAndExtent(a, ao, b, bo) { this.anchorNode = a; this.anchorOffset = ao; this.focusNode = b; this.focusOffset = bo; } }; },
@@ -337,7 +339,49 @@ test('auto-height overlap journals once per boot and a nonmeeting shape is legit
     for (let i = 0; i < 3; i++) {
       f.controller.afterBatch({ ops: [{ op: 'style', id: 3 }], timers: false }); await f.settle();
     }
-    expect(f.events.filter(e => e[0] === 'log')).toEqual([['log', 'wrap-flow: text #2 has auto height and is not flowed (LLP 1043.000 stage 2)']]);
+    expect(f.events.filter(e => e[0] === 'log')).toEqual([['log', 'textflow #2: a percentage height is not proven definite; ordinary text retained']]);
+  } finally { f.close(); }
+});
+
+// @ref LLP 1043.000 §8 — the kernel admits auto height; the glue writes the flowed height.
+test('an admitted auto-height paragraph flows unbounded and takes the flowed height', async () => {
+  const f = controllerFixture({ paragraph: { id: 2, definite: false, refusal: null } });
+  try {
+    await f.controller.settle();
+    expect(f.controller.facts(2).fragments.length).toBe(2);
+    expect(f.records.filter(r => r.op === 2).at(-1).height).toBe(3.4028234663852886e38);
+    expect(f.p.style.height).toBe('24px'); // the fake walker's height, content-box
+    f.p.computed.boxSizing = 'border-box'; f.p.computed.paddingTop = '5px'; f.p.computed.borderBottomWidth = '1px';
+    const change = { ops: [{ op: 'style', id: 2 }], timers: false };
+    f.controller.beforeBatch(change); f.controller.afterBatch(change); await f.settle();
+    expect(f.p.style.height).toBe('30px');
+    const remove = { ops: [{ op: 'textflow', contexts: [] }], timers: false };
+    f.controller.beforeBatch(remove); f.controller.afterBatch(remove); await f.settle();
+    expect(f.p.style.height).toBe(undefined); // the authored (absent) height is restored
+    expect(f.p.childNodes[1]).toBe(f.link);
+  } finally { f.close(); }
+});
+
+test('a later auto paragraph is flowed where the earlier one\'s written height puts it, in one frame', async () => {
+  const f = controllerFixture({ paragraph: { id: 2, definite: false, refusal: null } });
+  try {
+    const next = f.addParagraph(5, 0, { definite: false, refusal: null });
+    Object.defineProperty(next, 'box', { get: () => ({ x: 0, y: 200 + (Number.parseFloat(f.p.style.height) || 200), width: 100, height: 24 }) });
+    f.ball.box = { x: 30, y: 10, width: 20, height: 220 }; // meets 5 only once it has moved up
+    f.controller.afterBatch(f.batch); await f.controller.settle();
+    // p is 200 tall until its flowed 24px is written; then 5 sits at 224, meets the ball, flows.
+    expect(next.style.height).toBe('24px');
+    expect(f.records.filter(r => r.op === 2 && r.id === 5).map(r => r.shapeY)).toEqual([10 - 224]);
+  } finally { f.close(); }
+});
+
+test('a refused auto paragraph keeps ordinary text and journals the kernel\'s reason once', async () => {
+  const f = controllerFixture({ paragraph: { id: 2, definite: false, refusal: 'its wrapping context is flex' } });
+  try {
+    for (let i = 0; i < 3; i++) { f.controller.afterBatch({ ops: [{ op: 'style', id: 3 }], timers: false }); await f.settle(); }
+    expect(f.p.childNodes[1]).toBe(f.link); expect(f.calls.filter(op => op === 2)).toEqual([]);
+    expect(f.controller.facts(2).skipped).toBe('its wrapping context is flex');
+    expect(f.events.filter(e => e[0] === 'log')).toEqual([['log', 'wrap-flow: text #2 has auto height and is not flowed: its wrapping context is flex (LLP 1043.000 §8)']]);
   } finally { f.close(); }
 });
 

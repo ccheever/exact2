@@ -3,7 +3,15 @@ use crate::tests::{boot_size, id};
 use exact_linux::Presenter;
 use std::time::{Duration, Instant};
 use textflow_data::Textflow;
-const SCENES: [&str; 6] = ["drag", "orbs", "dancer", "ball", "editorial", "polygon"];
+const SCENES: [&str; 7] = [
+    "drag",
+    "orbs",
+    "dancer",
+    "ball",
+    "editorial",
+    "polygon",
+    "article",
+];
 fn select(p: &mut Presenter<Textflow>, scene: &str) {
     p.tap(id(p, &format!("scene-{scene}"))).unwrap();
     p.frame();
@@ -11,6 +19,10 @@ fn select(p: &mut Presenter<Textflow>, scene: &str) {
 fn prose(scene: &str) -> Vec<String> {
     if scene == "editorial" {
         vec!["editorial-left".into(), "editorial-right".into()]
+    } else if scene == "article" {
+        ["article-lede", "article-second", "article-third"]
+            .map(String::from)
+            .to_vec()
     } else {
         vec![format!("{scene}-prose")]
     }
@@ -19,7 +31,11 @@ fn check(p: &Presenter<Textflow>, scene: &str, slack: bool) {
     for name in prose(scene) {
         let view = id(p, &name);
         let node = p.host().kernel().node(view).unwrap();
-        assert!(!node.flow_skipped(), "{name}: flow skipped");
+        assert!(!node.flow_refusal().is_some(), "{name}: flow skipped");
+        // Article's later paragraphs meet the quotation only at some widths.
+        if scene == "article" && name != "article-lede" && node.flow_shapes().is_empty() {
+            continue;
+        }
         assert!(!node.flow_shapes().is_empty(), "{name}: missing exclusions");
         let para = p.paragraph(view).unwrap();
         let source = node
@@ -58,7 +74,14 @@ fn check(p: &Presenter<Textflow>, scene: &str, slack: bool) {
         }
         assert_eq!(end, source.len(), "{name}: lost trailing bytes");
         let bottom = para.fragments().last().unwrap().y + para.flow_line_height();
-        if slack {
+        // @ref LLP 1043.000 §8 — an auto-height paragraph is exactly its flow.
+        if scene == "article" {
+            assert!(
+                (bottom - node.frame.height).abs() < 0.01,
+                "{name}: measured {} but painted {bottom}",
+                node.frame.height
+            );
+        } else if slack {
             assert!(
                 bottom <= node.frame.height * 0.8 + 0.1,
                 "{name}: normal type lacks 20% slack: {bottom}/{}",
@@ -259,5 +282,30 @@ fn per_scene_cpu_frame_cost() {
         let flow = p.text().borrow().flowing - before;
         let us = |d: Duration| d.as_secs_f64() * 1e6 / frames as f64;
         println!("M6 {scene} 960x900 CPU {frames} frames: {:.1} us/frame; commit+kernel {:.1}; flow {:.1}; paint {:.1}; p95 {:.1}; max {:.1}",us(commit+paint),us(commit),us(flow),us(paint.saturating_sub(flow)), samples[frames*95/100].as_secs_f64()*1e6, samples.last().unwrap().as_secs_f64()*1e6);
+    }
+}
+#[test]
+fn article_paragraphs_take_their_flowed_heights_and_stack() {
+    // @ref LLP 1043.000 §8 — the Reader's drop cap: auto height grows, what follows moves.
+    for size in [(960., 900.), (390., 844.)] {
+        let heights = |wrap: bool| {
+            let mut p = boot_size(wrap, size);
+            select(&mut p, "article");
+            let k = p.host().kernel();
+            let frame = |name: &str| k.node(id(&p, name)).unwrap().frame;
+            let (lede, second, third) = (
+                frame("article-lede"),
+                frame("article-second"),
+                frame("article-third"),
+            );
+            assert_eq!(second.y, lede.y + lede.height + 14.);
+            assert_eq!(third.y, second.y + second.height + 14.);
+            let article = frame("article");
+            assert_eq!(article.height, third.y + third.height - article.y);
+            [lede.height, second.height, third.height]
+        };
+        let (flowed, plain) = (heights(true), heights(false));
+        assert!(flowed[0] > plain[0], "{size:?}: {flowed:?} vs {plain:?}");
+        assert!(flowed.iter().zip(&plain).all(|(a, b)| a >= b));
     }
 }

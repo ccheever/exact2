@@ -80,9 +80,9 @@ impl<'a> NodeRef<'a> {
         self.arena.flow_shapes(self.slot)
     }
 
-    /// Intersecting exclusions were skipped because Taffy measured this height.
-    pub fn flow_skipped(&self) -> bool {
-        self.arena.flow_skipped(self.slot)
+    /// Why this auto-height leaf keeps ordinary layout beside an exclusion.
+    pub fn flow_refusal(&self) -> Option<crate::FlowRefusal> {
+        self.arena.flow_refusal(self.slot)
     }
 
     /// Current input identity for an independent Text/TextInput paragraph.

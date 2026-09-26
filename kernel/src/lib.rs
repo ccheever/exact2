@@ -80,3 +80,4 @@ pub use region::{
 
 /// CSS authored and resolved exclusion geometry (LLP 1043.000).
 pub use exact_textflow::{FlowShape, ShapeOutside};
+pub use flow::FlowRefusal;

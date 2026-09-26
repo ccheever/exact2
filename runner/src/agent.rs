@@ -361,7 +361,7 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
         num(f.width as f64),
         num(f.height as f64)
     );
-    // @ref LLP 1043.000 §3 D4 — leaf-local geometry and the M8 deferral reason.
+    // @ref LLP 1043.000 §3 D4, §8 — leaf-local geometry, or why auto height refused it.
     if !node.flow_shapes().is_empty() {
         s.push_str(",\"flow_shapes\":[");
         for (i, shape) in node.flow_shapes().iter().enumerate() {
@@ -372,8 +372,9 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
         }
         s.push(']');
     }
-    if node.flow_skipped() {
-        s.push_str(",\"flow_skipped\":\"Taffy measured this paragraph's height; auto-height flow requires M8\"");
+    if let Some(refusal) = node.flow_refusal() {
+        s.push_str(",\"flow_skipped\":");
+        quote(refusal.message(), &mut s);
     }
     if node.content != (0.0, 0.0) {
         let _ = write!(

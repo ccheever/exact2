@@ -787,7 +787,11 @@ impl<D: DataSource> Runner<D> {
         for &key in keys {
             if self.flow_warned.insert(key) {
                 if let Some(node) = self.kernel.node_by_key(key) {
-                    self.log(format!("wrap-flow: text #{} has auto height and is not flowed (LLP 1043.000 stage 2)", node.id));
+                    let why = node.flow_refusal().map_or("", |r| r.message());
+                    self.log(format!(
+                        "wrap-flow: text #{} has auto height and is not flowed: {why} (LLP 1043.000 §8)",
+                        node.id
+                    ));
                 }
             }
         }

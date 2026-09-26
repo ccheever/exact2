@@ -141,6 +141,9 @@ struct BoxPaint {
 struct BoxGeometry {
     outer: Shape,
     content: Rect4,
+    // Left and top padding + border, summed as the kernel's measure closure
+    // sums them: flowed text is measured and painted around the same bits.
+    inset: (f32, f32),
 }
 fn paint_rect(frame: exact_kernel::Frame, offset: (f32, f32)) -> Rect4 {
     (
@@ -190,6 +193,7 @@ impl BoxPaint {
         let widths = self.widths;
         let pad = self.padding;
         BoxGeometry {
+            inset: (pad[3] + widths[3], pad[0] + widths[0]),
             outer: Shape::new(rect, self.radii),
             content: (
                 x + widths[3] + pad[3],
@@ -896,7 +900,7 @@ impl Painter {
                         &node
                             .flow_shapes()
                             .iter()
-                            .map(|s| s.translate(-(content.0 - rect.0), -(content.1 - rect.1)))
+                            .map(|s| s.translate(-geometry.inset.0, -geometry.inset.1))
                             .collect::<Vec<_>>(),
                         self.accepted_text.get(&node.key),
                         build,

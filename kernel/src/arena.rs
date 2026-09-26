@@ -233,9 +233,16 @@ impl NodeArena {
         self.flow.get(&slot).map_or(&[], |s| s.shapes.as_slice())
     }
 
-    /// Whether intersecting exclusions were skipped because height was measured.
-    pub fn flow_skipped(&self, slot: u32) -> bool {
-        self.flow.get(&slot).is_some_and(|s| s.skipped)
+    /// Why an intersecting auto-height leaf keeps ordinary layout, if it does.
+    pub fn flow_refusal(&self, slot: u32) -> Option<crate::FlowRefusal> {
+        self.flow.get(&slot).and_then(|s| s.refusal)
+    }
+
+    /// Whether auto-height flow's admission rule refuses this text leaf, by
+    /// tree and style alone — what a host that lays out without the kernel's
+    /// engine (the web) applies. `flow_refusal` is the laid-out answer.
+    pub fn auto_flow_refusal(&self, slot: u32) -> Option<crate::FlowRefusal> {
+        crate::flow::structural_refusal(self, slot)
     }
 
     /// Number of entries in the sparse derived flow column (including skips).

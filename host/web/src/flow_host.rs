@@ -51,7 +51,14 @@ impl<D: DataSource> Host<D> {
                     }
                     first = false;
                     let definite = node.style.height != Dimension::Auto;
-                    let _ = write!(json, "{{\"id\":{id},\"definite\":{definite}}}");
+                    let _ = write!(json, "{{\"id\":{id},\"definite\":{definite},\"refusal\":");
+                    // @ref LLP 1043.000 §8 — the kernel's admission rule, by structure.
+                    let slot = kernel.arena().slot_of(id).expect("live child");
+                    match kernel.arena().auto_flow_refusal(slot) {
+                        Some(refusal) => exact_runner::agent::quote(refusal.message(), &mut json),
+                        None => json.push_str("null"),
+                    }
+                    json.push('}');
                 } else {
                     stack.extend(node.children().into_iter().rev());
                 }

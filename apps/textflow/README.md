@@ -1,6 +1,6 @@
 # Textflow
 
-Six studies in live typography, after Cheng Lou's Pretext demos. Original prose,
+Seven studies in live typography, after Cheng Lou's Pretext demos. Original prose,
 system serif, light and dark paper. One Contract runs on Linux, macOS, iOS and web.
 
 | Tab / stable id | What to try |
@@ -11,10 +11,11 @@ system serif, light and dark paper. One Contract runs on Linux, macOS, iOS and w
 | Ball — `scene-ball` | The original single moving exclusion. |
 | Editorial — `scene-editorial` | Drop cap, inset pull quote and circles; two columns become one stacked column on a phone. |
 | Polygon — `scene-polygon` | A moving triangle with matching visible and exclusion edges. |
+| Article — `scene-article` | A drop cap and a pull quote in a block column. No paragraph has a height: each is measured around the shapes it meets, and what follows moves (LLP 1043.000 §8). |
 
 Pause freezes app time. Dark paper changes the palette. Type 115% exercises wider
-font metrics: prose has definite heights until auto-height flow lands, and normal
-Linux type leaves at least 20% spare height. At 390×844 the main scenes fit a single
+font metrics: the first six scenes keep definite heights, with at least 20% spare
+height at normal Linux type; Article's paragraphs are auto height. At 390×844 the main scenes fit a single
 column; Editorial is a longer page and scrolls. Shapes use layout positions, never
 transforms or transitions on `left`/`top`. No font or image binaries are required.
 
@@ -63,6 +64,7 @@ bun scripts/agent.mjs "$HOST" --app textflow --size 960x900 \
   "tap scene-ball" "clock +800" "layout ball-prose" \
   "tap scene-editorial" "layout editorial-left" "layout editorial-right" \
   "tap scene-polygon" "clock +800" "layout polygon-prose" \
+  "tap scene-article" "layout article-lede" "layout article-second" \
   "tap type-size" "tap appearance" logs
 
 cargo test -p textflow-linux --release --offline -- --nocapture --test-threads=1
