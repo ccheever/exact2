@@ -155,6 +155,12 @@ final class CollectionHost {
     private var gestureContact: UInt64?
     private var lastVisited: UInt32 = 0
     private var refreshPins = false
+    #if os(iOS)
+    /// `focusedView()` walks every node; a report asks each frame. UIKit's
+    /// responder changes all reach `pinsChanged` (a node's become and
+    /// resign, an input's begin and end editing), which forgets it.
+    private var focusFound: UInt32??
+    #endif
     /// LLP 1050.000's fill. A platform with a pump reports each moving
     /// collection's velocity (nil at rest) and builds `fillPending` in slices;
     /// one without leaves `motion` nil, and every report is unlimited.
@@ -178,6 +184,9 @@ final class CollectionHost {
         fillPending.removeAll(); sliceLimits.removeAll()
         budget = CollectionTurnBudget()
         refreshPins = false; lastVisited = 0
+        #if os(iOS)
+        focusFound = nil
+        #endif
     }
     func beginBatch(_ batch: Batch) {
         batchDepth += 1
@@ -292,6 +301,9 @@ final class CollectionHost {
         schedule()
     }
     func pinsChanged() {
+        #if os(iOS)
+        focusFound = nil
+        #endif
         guard !entries.isEmpty else { return }
         dirty.formUnion(entries.keys)
         // Responder callbacks may precede AppKit/UIKit committing the new
@@ -330,7 +342,12 @@ final class CollectionHost {
         schedule()
         while !dirty.isEmpty {
             guard budget.begin() else { return }
+            #if os(iOS)
+            let focus = focusFound ?? focusedView()
+            focusFound = focus
+            #else
             let focus = focusedView()
+            #endif
             let focusOwner = owningCollection(focus)
             let interactionOwner = owningCollection(interaction)
             // Retire old owners before publishing replacement pins, even when
@@ -388,7 +405,12 @@ final class CollectionHost {
             guard let self, generation == captured else { return }
             queued = false
             budget.nextTurn()
-            if refreshPins { refreshPins = false; dirty.formUnion(entries.keys) }
+            if refreshPins {
+                refreshPins = false; dirty.formUnion(entries.keys)
+                #if os(iOS)
+                focusFound = nil
+                #endif
+            }
             flush()
         }
     }
