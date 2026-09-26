@@ -120,13 +120,13 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                 Some(tags::AttrTarget::Styles(rows))
                                     if rows != [StyleId::FontFamily] =>
                                 {
-                                    values::check_style_value(a, rows, &Ty::Unknown, None)
+                                    values::check_style_value(a, rows, &Ty::Unknown, &[])
                                 }
                                 Some(tags::AttrTarget::Flex) => values::check_style_value(
                                     a,
                                     &[StyleId::FlexGrow],
                                     &Ty::Unknown,
-                                    None,
+                                    &[],
                                 ),
                                 Some(_) => Ok(()),
                             };
@@ -871,7 +871,7 @@ impl<'a> Lowerer<'a> {
                         &mut bindings,
                         &mut handlers,
                         &mut surface,
-                        font.as_ref(),
+                        &font,
                     ) {
                         self.errors.push(e);
                     }
@@ -1171,7 +1171,7 @@ impl<'a> Lowerer<'a> {
         bindings: &mut Vec<BindingsRow>,
         handlers: &mut Vec<(EventKind, exact_plan::ActionsId, Vec<Code>)>,
         surface: &mut Option<exact_plan::SurfacesId>,
-        font: Option<&FontUse>,
+        font: &[FontUse],
     ) -> Result<(), LowerError> {
         let Some(target) = tags::attr(&a.name) else {
             return Err(unknown_attr(tag, a));
@@ -1259,21 +1259,9 @@ impl<'a> Lowerer<'a> {
             }
             tags::AttrTarget::Styles(rows) => {
                 if rows == [StyleId::FontFamily] {
-                    let Expr::Str(name, _) = &a.value else {
-                        return err(
-                            "lower-font-family-literal",
-                            "`font-family` is literal-only in v1",
-                            a.span,
-                        );
-                    };
-                    let Some(stack) = self.font_stacks.get(name).copied() else {
-                        return err(
-                            "lower-font-undeclared",
-                            format!("font family `{name}` is neither generic nor declared"),
-                            a.span,
-                        );
-                    };
-                    let code = self.b.constant(&Value::Number(stack.0 as f64));
+                    // @ref LLP 1053 G7 — each arm's family is a stack id now.
+                    let stacks = self.family_stacks(&a.value)?;
+                    let (code, _) = self.typed_code(&stacks, scope, locals)?;
                     bindings.push(BindingsRow {
                         kind: BindingKind::Style,
                         id: StyleId::FontFamily as u16,

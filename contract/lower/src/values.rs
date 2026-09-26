@@ -167,7 +167,7 @@ pub(crate) fn check_style_value(
     a: &Attr,
     rows: &[StyleId],
     ty: &Ty,
-    font: Option<&FontUse>,
+    fonts: &[FontUse],
 ) -> Result<(), LowerError> {
     if rows == BORDER_COLORS {
         if let Some(sides) = border_color_sides(&a.value)? {
@@ -280,7 +280,7 @@ pub(crate) fn check_style_value(
             }
             _ => {}
         }
-        if let Some(font) = font {
+        for font in fonts {
             if rows.contains(&StyleId::FontStyle) {
                 let requested = match value {
                     Expr::Str(s, _) if s == "normal" => Some(false),
