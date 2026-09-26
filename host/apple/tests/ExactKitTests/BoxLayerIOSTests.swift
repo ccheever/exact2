@@ -1,5 +1,6 @@
 #if os(iOS)
 import UIKit
+import ImageIO
 import XCTest
 @testable import ExactKit
 
@@ -61,6 +62,59 @@ final class BoxLayerIOSTests: XCTestCase {
         let corners = node(["background_color": white, "border_radius_top_left": 8, "border_radius_bottom_right": 20])
         XCTAssertNotNil(corners.layer.contents, "two radii draw")
         XCTAssertEqual(corners.layer.cornerRadius, 0)
+    }
+
+    /// An image's decoded pixels are a sublayer's contents: the visible part
+    /// of the fitted image (`contentsRect`), carrying the radius, with no
+    /// bitmap painted for the view. An image whose clip the sublayer cannot
+    /// say (padding under a radius) draws as before.
+    func testAnImagesPixelsAreASublayersContents() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("exact-image-layer-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let context = try XCTUnwrap(CGContext(data: nil, width: 200, height: 100, bitsPerComponent: 8, bytesPerRow: 800,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(red: 1, green: 0, blue: 0, alpha: 1); context.fill(CGRect(x: 0, y: 0, width: 200, height: 100))
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithURL(root.appendingPathComponent("wide.png") as CFURL, "public.png" as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, try XCTUnwrap(context.makeImage()), nil)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+
+        let p = Presenter(), loader = RasterLoader(), resolver = AssetResolver(root: root)
+        defer { loader.shutdown(); withExtendedLifetime(resolver) {} }
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 300, height: 300))
+        p.viewport.frame = window.bounds; window.addSubview(p.viewport); window.makeKeyAndVisible()
+        func image(_ id: UInt32, _ style: NodeStyle) -> NodeView {
+            let n = NodeView(id: id, kind: "image", presenter: p)
+            p.views[id] = n; p.viewport.addSubview(n)
+            n.frame = CGRect(x: 0, y: 0, width: 40, height: 40)
+            n.applyStyle(style)
+            n.loadGeneration = 1
+            loader.load(n, source: "wide.png", resolver: resolver)
+            return n
+        }
+        let avatar = image(1, ["object_fit": .string("cover"), "border_radius_top_left": 20, "border_radius_top_right": 20,
+            "border_radius_bottom_right": 20, "border_radius_bottom_left": 20])
+        let padded = image(2, ["object_fit": .string("cover"), "padding_left": 4, "border_radius_top_left": 20,
+            "border_radius_top_right": 20, "border_radius_bottom_right": 20, "border_radius_bottom_left": 20])
+        let end = Date(timeIntervalSinceNow: 5)
+        while (avatar.raster == nil || padded.raster == nil) && Date() < end { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
+        avatar.layer.displayIfNeeded(); padded.layer.displayIfNeeded()
+
+        let sub = try XCTUnwrap(avatar.imageLayer)
+        XCTAssertTrue((sub.contents as AnyObject?) === avatar.raster?.image.image)
+        XCTAssertNil(avatar.layer.contents, "no bitmap of the view's size")
+        XCTAssertEqual(sub.frame, avatar.bounds)
+        // A 2:1 image covering a square: the middle half of its width shows.
+        XCTAssertEqual(sub.contentsRect, CGRect(x: 0.25, y: 0, width: 0.5, height: 1))
+        XCTAssertEqual(sub.cornerRadius, 20); XCTAssertTrue(sub.masksToBounds)
+
+        XCTAssertNil(padded.imageLayer)
+        XCTAssertNotNil(padded.layer.contents, "a radius over a padded content box draws")
+
+        avatar.raster = nil
+        XCTAssertNil(avatar.imageLayer, "no pixels outlive the lease")
+        XCTAssertNil(sub.superlayer)
+        padded.raster = nil
     }
 }
 #endif

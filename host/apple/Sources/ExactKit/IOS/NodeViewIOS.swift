@@ -322,7 +322,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var symbolKey: String?
     var symbolRefusal: String?
     var image: UIImage?
-    var raster: NativeRasterLease?
+    var raster: NativeRasterLease? { didSet { if raster == nil, let l = imageLayer { l.removeFromSuperlayer(); imageLayer = nil } } }
+    /// An image's pixels as a sublayer's contents (`applyImageLayer`).
+    var imageLayer: CALayer?
     var imageSource: String?
     var loadGeneration = 0
     var pressed = false
@@ -1226,7 +1228,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if focusRing != nil { showFocusRing(true) }
         if let s = presenter?.session, s.firstLayoutMs == nil { s.firstLayoutMs = ExactEnv.wall() }
         super.layoutSubviews()
-        if kind == "image" { presenter?.session?.rasters.resized(self) }
+        if kind == "image" { presenter?.session?.rasters.resized(self); if raster != nil { applyImageLayer() } }
         presenter?.collections.changed(id)
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()

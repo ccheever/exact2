@@ -5,8 +5,12 @@
 // times the scale squared, painted or not: a collection's spacer asked for
 // gigabytes, and each card of a list carried its own. What Core Animation
 // cannot say still draws, through `draw(_:)` as before: borders that differ
-// by side, radii that differ by corner, an image, a paragraph without a
-// raster, a capture's picture. (The macOS host's `wantsUpdateLayer` split.)
+// by side, radii that differ by corner, a paragraph without a raster, a
+// capture's picture. (The macOS host's `wantsUpdateLayer` split.) An image's
+// pixels are a sublayer's contents where its clip is one radius over the
+// part of the content box it covers: no bitmap of the view's size is painted
+// on the main thread, and the decoded pixels are the only copy; an image
+// clipped otherwise draws as before.
 #if os(iOS)
 import UIKit
 
@@ -16,6 +20,7 @@ final class NodeLayer: CALayer {
     override func display() {
         guard let node = delegate as? NodeView else { super.display(); return }
         node.applyBoxLayer()
+        node.applyImageLayer()
         if node.drawsPaint { super.display(); return }
         contents = nil
         if node.isParagraph {
@@ -30,11 +35,61 @@ final class NodeLayer: CALayer {
 
 extension NodeView {
     /// Paint only `draw(_:)` makes: a box Core Animation cannot say, an
-    /// image's pixels, a capture's picture, a paragraph with no raster.
+    /// image's pixels no sublayer shows, a capture's picture, a paragraph
+    /// with no raster.
     var drawsPaint: Bool {
-        if boxDrawn || (kind == "image" && symbolView == nil && raster != nil) { return true }
+        if boxDrawn || (kind == "image" && symbolView == nil && raster != nil && imageLayer == nil) { return true }
         if Capture.capturing && (kind == "canvas" || Capture.web[id] != nil) { return true }
         return isParagraph && !canRasterText
+    }
+
+    /// An image's pixels onto a sublayer, or none, and `draw(_:)` paints
+    /// them. `draw(_:)`'s geometry: object-fit over the content box, clipped
+    /// by it and by the border box's radius. The sublayer is the visible part
+    /// of the fitted image, `contentsRect` selecting it; it can carry the
+    /// radius only when it is the whole content box and that is the border
+    /// box, or when no corner is rounded.
+    func applyImageLayer() {
+        guard kind == "image", symbolView == nil, let bitmap = raster?.image else {
+            imageLayer?.removeFromSuperlayer(); imageLayer = nil; return
+        }
+        let uniform = number("border_width")
+        let content = bounds.insetBy(
+            left: number("border_width_left", uniform) + number("padding_left"),
+            top: number("border_width_top", uniform) + number("padding_top"),
+            right: number("border_width_right", uniform) + number("padding_right"),
+            bottom: number("border_width_bottom", uniform) + number("padding_bottom"))
+        let rect = RasterGeometry.rect(natural: bitmap.naturalSize, content: content, fit: style["object_fit"]?.string ?? "fill")
+        let shown = rect.intersection(content)
+        let radii = cornerRadii(in: bounds)
+        let radius = radii.max() ?? 0
+        let oneRadius = radii.allSatisfy { $0 == 0 || abs($0 - radius) < 0.01 }
+            && radius <= min(bounds.width, bounds.height) / 2 + 0.01
+        let fits = radius == 0 || (oneRadius && content == bounds && shown == content)
+        guard fits, !shown.isNull, !shown.isEmpty, rect.width > 0, rect.height > 0 else {
+            imageLayer?.removeFromSuperlayer(); imageLayer = nil
+            return
+        }
+        var corners: CACornerMask = []
+        let masks: [CACornerMask] = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
+        for (r, mask) in zip(radii, masks) where r > 0 { corners.insert(mask) }
+        let unit = CGRect(x: (shown.minX - rect.minX) / rect.width, y: (shown.minY - rect.minY) / rect.height,
+                          width: shown.width / rect.width, height: shown.height / rect.height)
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        let l = imageLayer ?? CALayer()
+        if l.superlayer !== layer {
+            // Where `draw(_:)` paints it: under the border and the children.
+            if let border = boxBorder, border.superlayer === layer { layer.insertSublayer(l, below: border) } else { layer.insertSublayer(l, at: 0) }
+            imageLayer = l
+        }
+        if l.frame != shown { l.frame = shown }
+        if l.contentsRect != unit { l.contentsRect = unit }
+        if (l.contents as AnyObject?) !== bitmap.image { l.contents = bitmap.image }
+        if l.cornerRadius != radius { l.cornerRadius = radius }
+        if radius > 0, l.maskedCorners != corners { l.maskedCorners = corners }
+        let clips = radius > 0
+        if l.masksToBounds != clips { l.masksToBounds = clips }
     }
 
     /// The box onto the layer, or `boxDrawn` when `draw(_:)` must paint it.
@@ -80,7 +135,10 @@ extension NodeView {
         if ownWidth > 0, layer.borderColor != border { layer.borderColor = border }
         guard let border, !own else { boxBorder?.removeFromSuperlayer(); boxBorder = nil; return }
         let b = boxBorder ?? CALayer()
-        if b.superlayer !== layer { layer.insertSublayer(b, at: 0); boxBorder = b }
+        if b.superlayer !== layer {
+            if let image = imageLayer, image.superlayer === layer { layer.insertSublayer(b, above: image) } else { layer.insertSublayer(b, at: 0) }
+            boxBorder = b
+        }
         if b.frame != bounds { b.frame = bounds }
         if b.cornerRadius != cornerRadius { b.cornerRadius = cornerRadius }
         if b.maskedCorners != layer.maskedCorners { b.maskedCorners = layer.maskedCorners }
