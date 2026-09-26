@@ -481,10 +481,15 @@ impl<D: DataSource> Host<D> {
     fn configure_storage(source: &mut D) -> Result<(), exact_runner::DataError> {
         use exact_runner::DataError;
         use std::path::PathBuf;
-        // Scripted drives must not read or write the developer's app files.
-        if std::env::var_os("EXACT_AGENT").is_some() {
-            return Ok(());
-        }
+        // Scripted drives must not read or write the developer's app files;
+        // one that names a scratch tree gets storage there instead.
+        let scratch = match std::env::var_os("EXACT_AGENT") {
+            Some(_) => match agent_scratch()? {
+                Some(name) => Some(name),
+                None => return Ok(()),
+            },
+            None => None,
+        };
         let app_id = source.app_id().to_string();
         if app_id.is_empty() {
             return Ok(());
@@ -500,11 +505,15 @@ impl<D: DataSource> Host<D> {
             .map(PathBuf::from)
             .filter(|p| p.is_absolute())
             .ok_or_else(|| DataError::Unavailable("app storage needs an absolute HOME".into()))?;
-        let data = home
+        let mut data = home
             .join("Library/Application Support/exact")
             .join(&app_id)
             .join("data");
-        let cache = home.join("Library/Caches/exact").join(&app_id);
+        let mut cache = home.join("Library/Caches/exact").join(&app_id);
+        if let Some(name) = scratch {
+            cache = cache.join("agent").join(name);
+            data = cache.join("data");
+        }
         // Sibling roots keep app:/cache grants from implicitly reaching tmp.
         // The user's cache base avoids a predictable shared /tmp directory.
         let temporary = cache.join("temporary");
@@ -1346,6 +1355,28 @@ fn handler_name(e: EventKind) -> Option<&'static str> {
     match e {
         EventKind::Reachstart | EventKind::Reachend => None,
         _ => Some(e.name()),
+    }
+}
+
+/// A scripted drive's scratch storage (`EXACT_AGENT_STORAGE=<name>`): a tree
+/// of its own under the cache base, so a drive can exercise storage without
+/// touching the app's real files. Absent, a drive has no storage.
+fn agent_scratch() -> Result<Option<String>, exact_runner::DataError> {
+    let Some(name) = std::env::var_os("EXACT_AGENT_STORAGE") else {
+        return Ok(None);
+    };
+    match name.to_str() {
+        Some(name)
+            if !matches!(name, "" | "." | "..")
+                && name
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b".-_".contains(&b)) =>
+        {
+            Ok(Some(name.to_owned()))
+        }
+        _ => Err(exact_runner::DataError::Unavailable(
+            "EXACT_AGENT_STORAGE: one name of letters, digits, '.', '-' or '_'".into(),
+        )),
     }
 }
 
