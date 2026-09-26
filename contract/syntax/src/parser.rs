@@ -213,6 +213,12 @@ impl Parser {
                 let t = self.next();
                 Ok((w, t.span))
             }
+            // A keyword where a name goes says so, and how to get out of it
+            // (LLP 1054 L2: a shape field `key`, an action `view`).
+            TokenKind::Ident(w) => self.err(
+                "syntax-expected-name",
+                format!("expected a name, found `{w}`, a reserved word: choose another name (`{w}s`, `my{}{}`)", w[..1].to_uppercase(), &w[1..]),
+            ),
             other => self.err(
                 "syntax-expected-name",
                 format!("expected a name, found {}", describe(&other)),

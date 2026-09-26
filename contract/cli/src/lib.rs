@@ -15,6 +15,7 @@
 mod logic;
 mod manifest;
 mod map;
+mod rust;
 mod sources;
 mod surface;
 mod symbols;
@@ -26,6 +27,7 @@ pub use exact_runner::DataSource;
 pub use logic::{rust_entry, web_linked, web_rust_mode};
 pub use manifest::Manifest;
 pub use map::{plan_digest, SourceMap};
+pub use rust::rust;
 pub use symbols::symbols_json;
 pub use typescript::typescript;
 

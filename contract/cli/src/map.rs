@@ -101,6 +101,38 @@ impl SourceMap {
     }
 
     /// Serialize beside the final plan bytes. A bake changes the plan's resource
+    /// What each component costs the plan (LLP 1054 L10): every use is
+    /// inlined, so a component's plan nodes are its instances' nodes,
+    /// including those of the components it uses. `(component, instances,
+    /// nodes)`, most nodes first; the root is left out.
+    pub fn component_costs(&self) -> Vec<(String, usize, usize)> {
+        let mut costs: std::collections::BTreeMap<&str, (usize, usize)> = Default::default();
+        for inst in self.sites.instances.iter().skip(1) {
+            costs.entry(inst.component.as_str()).or_default().0 += 1;
+        }
+        for node in &self.sites.nodes {
+            let mut instance = node.instance as usize;
+            let mut seen: Vec<&str> = Vec::new();
+            while instance != 0 {
+                let name = self.sites.instances[instance].component.as_str();
+                if !seen.contains(&name) {
+                    seen.push(name);
+                    costs.entry(name).or_default().1 += 1;
+                }
+                match self.sites.instances[instance].parent {
+                    Some(parent) => instance = parent as usize,
+                    None => break,
+                }
+            }
+        }
+        let mut out: Vec<(String, usize, usize)> = costs
+            .into_iter()
+            .map(|(name, (uses, nodes))| (name.to_string(), uses, nodes))
+            .collect();
+        out.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.0.cmp(&b.0)));
+        out
+    }
+
     /// values, so the caller supplies the encoded bytes *after* baking.
     pub fn json(&self, plan_bytes: &[u8]) -> String {
         // Serialize directly: no second tree of JSON objects proportional to

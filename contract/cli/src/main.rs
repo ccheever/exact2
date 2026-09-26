@@ -3,6 +3,8 @@
 //! happens in the app's own build (see `apps/caltrain`), not here.
 //! `contract types <file.contract> [-o <app.d.ts>]` — generate TypeScript's
 //! data-source signatures from the same plan tables the executor reads.
+//! `contract rust <file.contract> [-o <shapes.rs>]` — the same shapes as Rust
+//! structs with their `Value` conversions, for a data crate's `build.rs`.
 
 use std::process::ExitCode;
 
@@ -14,6 +16,7 @@ const USAGE: &str = "usage:
   contract symbols <file.contract> [--name <exact-name>]
   contract fmt [--check | --stdout] <file.contract>
   contract types <file.contract> [-o <app.d.ts>]
+  contract rust <file.contract> [-o <shapes.rs>]
   contract test <file.test.contract>";
 
 fn main() -> ExitCode {
@@ -27,7 +30,8 @@ fn main() -> ExitCode {
         Some("symbols") => symbols(&args[1..]),
         Some("fmt") => fmt(&args[1..]),
         Some("test") => tests(&args[1..]),
-        Some("types") => types(&args[1..]),
+        Some("types") => types(&args[1..], "types", "app.d.ts", contract::typescript),
+        Some("rust") => types(&args[1..], "rust", "shapes.rs", contract::rust),
         _ => {
             eprintln!("{USAGE}");
             ExitCode::from(2)
@@ -63,21 +67,28 @@ fn symbols(args: &[String]) -> ExitCode {
     }
 }
 
-fn types(args: &[String]) -> ExitCode {
-    const USAGE: &str = "usage: contract types <file.contract> [-o <app.d.ts>]";
+/// `contract types` (TypeScript) or `contract rust` (Rust structs): the
+/// data seam's shapes, derived from the plan.
+fn types(
+    args: &[String],
+    command: &str,
+    out: &str,
+    generate: fn(&exact_plan::Plan) -> Result<String, String>,
+) -> ExitCode {
+    let usage = format!("usage: contract {command} <file.contract> [-o <{out}>]");
     if matches!(args, [flag] if flag == "--help" || flag == "-h") {
-        println!("{USAGE}");
+        println!("{usage}");
         return ExitCode::SUCCESS;
     }
     let valid = matches!(args, [input] if !input.starts_with('-'))
         || matches!(args, [input, flag, output] if !input.starts_with('-') && flag == "-o" && !output.starts_with('-'));
     if !valid {
-        eprintln!("{USAGE}");
+        eprintln!("{usage}");
         return ExitCode::from(2);
     }
     let result = contract::compile_path(std::path::Path::new(&args[0]))
         .map_err(|e| e.to_string())
-        .and_then(|plan| contract::typescript(&plan).map_err(|e| format!("{}: {e}", args[0])));
+        .and_then(|plan| generate(&plan).map_err(|e| format!("{}: {e}", args[0])));
     match result {
         Ok(declarations) => {
             if let Some(output) = args.get(2) {

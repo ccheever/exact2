@@ -31,6 +31,7 @@ mod placeholder;
 mod reorder_binding;
 mod reorder_collection;
 mod routes;
+mod rust_shapes;
 mod shape_cycles;
 mod source_locations;
 mod source_map;

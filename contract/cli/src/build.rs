@@ -86,13 +86,15 @@ pub(super) fn run(args: &[String]) -> ExitCode {
             2,
         );
     };
-    let (plan, map) = match contract::compile_path_all(Path::new(input), map) {
+    // The map is always built: it prices each component for the summary.
+    let want_map = map;
+    let (plan, map) = match contract::compile_path_all(Path::new(input), true) {
         Ok(compiled) => compiled,
         Err(errors) => return report_all(&errors, json, 1),
     };
     let bytes = plan.encode();
     if let Some(output) = output {
-        if let Some(map) = map {
+        if let Some(map) = map.as_ref().filter(|_| want_map) {
             // Publish the map first. Between these atomic renames a reader
             // may see a digest mismatch, which it must refuse; it can never
             // mistake a partial map or a partial plan for an accepted pair.
@@ -120,6 +122,21 @@ pub(super) fn run(args: &[String]) -> ExitCode {
             plan.regions.len(),
             bytes.len()
         );
+        // Every use is inlined: name what the plan's size is made of.
+        if let Some(map) = &map {
+            let costs = map.component_costs();
+            if !costs.is_empty() {
+                let top: Vec<String> = costs
+                    .iter()
+                    .take(5)
+                    .map(|(name, uses, nodes)| format!("{name} {nodes} ({uses}×)"))
+                    .collect();
+                println!(
+                    "  nodes by component, inlined uses included: {}",
+                    top.join(", ")
+                );
+            }
+        }
     }
     ExitCode::SUCCESS
 }
