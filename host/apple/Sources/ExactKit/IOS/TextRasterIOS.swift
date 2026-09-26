@@ -313,11 +313,12 @@ extension Presenter {
         let culls = viewport.clipsToBounds
         var clips: TextClips?
         defer { textClips = nil }
-        for node in textViews.values where !node.textRasterSettled && !node.bounds.isEmpty {
+        // A paragraph that never rasters (it truncates as it paints, say)
+        // is out before its geometry, which is most of a scan's cost.
+        for node in textViews.values where !node.textRasterSettled && !node.bounds.isEmpty && node.canRasterText {
             let c = clips ?? TextClips(viewport, soon: 0, reach: 0)
             clips = c; textClips = c
             if culls && !c.frame(node).intersects(port) { continue }
-            guard node.canRasterText else { continue }
             let visible = textScrollportRect(node)
             guard !visible.isEmpty, node.textRaster == nil || !node.textRasterFrame.contains(visible) else { continue }
             textRasters.ensure(node, urgent: true)
@@ -350,7 +351,7 @@ extension Presenter {
         // from it has no band, so its distance alone rules it out.
         let culls = viewport.clipsToBounds
         var ranked: [(distance: CGFloat, node: NodeView)] = []
-        for node in textViews.values where !node.textRasterSettled && !node.bounds.isEmpty {
+        for node in textViews.values where !node.textRasterSettled && !node.bounds.isEmpty && node.canRasterText {
             let r = clips.frame(node)
             let distance = max(0, port.minY - r.maxY, r.minY - port.maxY)
             guard !(culls && distance > reach), !passed(r), !textBand(node, reach: reach).isEmpty else { continue }
@@ -358,7 +359,7 @@ extension Presenter {
         }
         ranked.sort { $0.distance == $1.distance ? $0.node.id < $1.node.id : $0.distance < $1.distance }
         var deferred = false
-        for (distance, node) in ranked where node.canRasterText {
+        for (distance, node) in ranked {
             let visible = textScrollportRect(node)
             if !visible.isEmpty && (node.textRaster == nil || !node.textRasterFrame.contains(visible)) {
                 textRasters.ensure(node, urgent: true)
