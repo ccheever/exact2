@@ -224,8 +224,9 @@ final class TextSelection {
             guard let a = logicalAnchor, let b = logicalFocus else { return nil }
             let (start, end) = a.order <= b.order ? (a, b) : (b, a)
             guard (p.row, p.paragraph) >= (start.row, start.paragraph), (p.row, p.paragraph) <= (end.row, end.paragraph) else { return nil }
-            let lo = (p.row, p.paragraph) == (start.row, start.paragraph) ? min(start.offset, count) : 0
-            let hi = (p.row, p.paragraph) == (end.row, end.paragraph) ? min(end.offset, count) : count
+            let shaped = { (source: Int) in node.readerParagraph == nil ? node.shapedOffset(source) : source }
+            let lo = (p.row, p.paragraph) == (start.row, start.paragraph) ? min(shaped(start.offset), count) : 0
+            let hi = (p.row, p.paragraph) == (end.row, end.paragraph) ? min(shaped(end.offset), count) : count
             return NSRange(location: lo, length: max(0, hi - lo))
         }
         guard anchor != nil && focus != nil else { return nil }
@@ -260,7 +261,9 @@ final class TextSelection {
                     }
                 }
                 guard var result = positions[node.id] else { return nil }
-                result.offset = offset
+                // The runner's projection addresses source text; the shaped
+                // text may have collapsed white space (LLP 1053 G5).
+                result.offset = node.readerParagraph == nil ? node.sourceOffset(offset) : offset
                 return (owner, result)
             }
             ancestor = view.superview

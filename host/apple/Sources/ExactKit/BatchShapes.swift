@@ -105,7 +105,7 @@ extension BatchReader {
         var style = InlineStyle(), height: BatchValue?
         try object { r, key in
             switch key {
-            case "font_size", "font_weight", "font_family", "font_style", "letter_spacing", "text_color", "text_decoration_line", "background_color":
+            case "font_size", "font_weight", "font_family", "font_style", "letter_spacing", "text_color", "text_decoration_line", "background_color", "font_variant_numeric":
                 try style.set(key, r.value())
             case "line_height": height = try r.value()
             default: try r.skip()
@@ -204,6 +204,7 @@ extension InlineStyle {
             if key == "font_weight" { run.weight = Int(n) } else { run.family = Int(n) }
         case "font_style": run.italic = try BatchFields.string(value) == "italic"
         case "letter_spacing": run.letterSpacing = CGFloat(Float(try BatchFields.number(value)))
+        case "font_variant_numeric": run.numeric = Int(try BatchFields.number(value)) & 0xff
         case "text_decoration_line": run.decoration = try BatchFields.string(value)
         case "text_color":
             guard case .array(let a) = value else { throw BatchReader.Invalid.wire }

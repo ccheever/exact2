@@ -62,7 +62,10 @@ extension NodeView {
     }
     func inlineRects(_ run: InlineText) -> [CGRect] {
         guard let paragraph = paragraphLayout() else { return [] }
-        return paragraph.selectionRects(run.range, align: paragraphSpec().align, in: contentBox(), dirty: bounds)
+        // A run's range is in the source; the lines, in the shaped text (LLP 1053 G5).
+        let spec = paragraphSpec()
+        let lo = spec.source.collapsed(run.range.location), hi = spec.source.collapsed(NSMaxRange(run.range))
+        return paragraph.selectionRects(NSRange(location: lo, length: hi - lo), align: spec.align, in: contentBox(), dirty: bounds)
     }
     func textAccessibilityChildren() -> [Any]? {
         let interactive = inlineText.filter { !($0.props["href"] ?? "").isEmpty || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil }

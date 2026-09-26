@@ -14,7 +14,8 @@ extension NodeView {
     func textRun(_ value: String) -> Run {
         Run(text: value, size: CGFloat(Float(number("font_size", 16))), weight: Int(number("font_weight", 400)),
             family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic",
-            lineHeight: usedLineHeight, letterSpacing: CGFloat(Float(number("letter_spacing"))))
+            lineHeight: usedLineHeight, letterSpacing: CGFloat(Float(number("letter_spacing"))),
+            numeric: Int(number("font_variant_numeric")))
     }
 
     var isParagraph: Bool { kind == "text" }
@@ -106,10 +107,23 @@ extension NodeView {
                 }
             }
         }
-        let spec = Spec(runs: runs, align: align, lineClamp: Int(number("line_clamp")),
+        let whiteSpace = style["white_space"]?.string == "pre-wrap" ? 1 : style["white_space"]?.string == "nowrap" ? 2 : 0
+        // CSS collapses white space before shaping, as the measurer does in
+        // Rust with the same function (LLP 1053 G5); Markdown keeps its lines.
+        let source = whiteSpace == 1 || props["markup"] == "markdown" ? SourceMap() : SourceMap.collapse(&runs)
+        let lineClamp = Int(number("line_clamp"))
+        // `text-overflow: ellipsis` applies to a box that clips its inline overflow.
+        let clips = (style["overflow_x"]?.string).map { $0 != "visible" } ?? false
+        var spec = Spec(runs: runs, align: align, lineClamp: lineClamp,
                         color: channels("text_color", dark: night) ?? [0, 0, 0, 255],
-                        overflowWrap: style["overflow_wrap"]?.string == "anywhere" ? 2 : style["overflow_wrap"]?.string == "break-word" ? 1 : 0, direction: rtl ? 1 : 0, whiteSpace: style["white_space"]?.string == "pre-wrap" ? 1 : style["white_space"]?.string == "nowrap" ? 2 : 0, strut: textRun(""))
+                        overflowWrap: style["overflow_wrap"]?.string == "anywhere" ? 2 : style["overflow_wrap"]?.string == "break-word" ? 1 : 0, direction: rtl ? 1 : 0, whiteSpace: whiteSpace, strut: textRun(""))
+        spec.ellipsis = lineClamp == 0 && clips && style["text_overflow"]?.string == "ellipsis"
+        spec.source = source
         cachedTextSpec = spec
         return spec
     }
+
+    /// A shaped-text offset in the node's source text, and back (LLP 1053 G5).
+    func sourceOffset(_ shaped: Int) -> Int { paragraphSpec().source.source(shaped) }
+    func shapedOffset(_ source: Int) -> Int { paragraphSpec().source.collapsed(source) }
 }

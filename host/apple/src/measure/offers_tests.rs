@@ -493,6 +493,7 @@ mod storage {
                 has_line_height: u8::from(variant != 0),
                 line_height: heights[variant].unwrap_or(0.0),
                 letter_spacing: -0.125,
+                font_variant_numeric: 0,
             },
             CRun {
                 text: "".as_ptr(),
@@ -504,6 +505,7 @@ mod storage {
                 has_line_height: 1,
                 line_height: 30.25,
                 letter_spacing: -0.0,
+                font_variant_numeric: 0,
             },
         ];
         let widths = [

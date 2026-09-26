@@ -45,6 +45,8 @@ pub struct CRun {
     pub line_height: f32,
     /// Points per glyph.
     pub letter_spacing: f32,
+    /// CSS `font-variant-numeric` bits: 1 is `tabular-nums` (LLP 1053 G4).
+    pub font_variant_numeric: u8,
 }
 
 /// One request, as the callback sees it.
@@ -75,7 +77,8 @@ pub struct CRequest {
     pub line_clamp: u32,
     /// CSS overflow-wrap: normal, break-word, anywhere.
     pub overflow_wrap: u8,
-    /// CSS white-space: normal, pre-wrap, nowrap.
+    /// CSS white-space: normal, pre-wrap, nowrap. Runs arrive collapsed
+    /// unless it preserves (LLP 1053 G5).
     pub white_space: u8,
     /// CSS direction: ltr, rtl.
     pub direction: u8,
@@ -209,6 +212,7 @@ fn c_run(text: &str, style: exact_kernel::TextStyle) -> CRun {
         has_line_height: u8::from(style.line_height.is_some()),
         line_height: style.line_height.unwrap_or(0.0),
         letter_spacing: style.letter_spacing,
+        font_variant_numeric: style.font_variant_numeric,
     }
 }
 
@@ -218,16 +222,28 @@ impl CallbackMeasurer {
         request: &TextMeasureRequest<'_>,
         stamp: Option<&ParagraphStamp>,
     ) -> CMetrics {
+        // CSS collapsing before CoreText, as the browser does (LLP 1053 G5);
+        // Markdown source keeps its own lines. The strings live for the call.
+        let collapsed = (request.paragraph.markup == exact_kernel::Markup::None
+            && !request.paragraph.white_space.model().preserves())
+        .then(|| exact_textflow::collapse(request.runs))
+        .flatten();
+        let text = |i: usize| -> &str {
+            collapsed
+                .as_ref()
+                .map_or(request.runs[i].text, |c| c.runs[i].as_str())
+        };
         let single;
         let owned;
         let runs: &[CRun] = if let [run] = request.runs {
-            single = c_run(run.text, run.style);
+            single = c_run(text(0), run.style);
             std::slice::from_ref(&single)
         } else {
             owned = request
                 .runs
                 .iter()
-                .map(|r| c_run(r.text, r.style))
+                .enumerate()
+                .map(|(i, r)| c_run(text(i), r.style))
                 .collect::<Vec<CRun>>();
             &owned
         };

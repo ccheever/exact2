@@ -175,7 +175,7 @@ extension TextEngine {
     func lineBox(_ spec: Spec, line: CTLine) -> (above: CGFloat, below: CGFloat, explicit: Bool) {
         let strut = spec.strut ?? spec.runs.first
         func extents(_ run: Run) -> (CGFloat, CGFloat) {
-            let f = font(size: run.size, weight: run.weight, family: run.family, italic: run.italic)
+            let f = font(run)
             let natural = f.ascender - f.descender + f.leading
             let half = ((run.lineHeight ?? natural) - natural) / 2
             return (f.ascender + half, -f.descender + f.leading + half)

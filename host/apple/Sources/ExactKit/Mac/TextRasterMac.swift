@@ -190,7 +190,7 @@ extension NodeView {
         if textRasterFailed, textRasterKey != nil { return false }
         guard readerParagraph == nil, kind == "text", isParagraph, flowShapes.isEmpty, !hasBoxPaint, !Capture.capturing, window != nil,
               bounds.width > 0, bounds.height > 0, bounds.height <= TextRasterizer.maxHeight,
-              number("line_clamp") == 0, canvasAbove == nil, let presenter else { return false }
+              number("line_clamp") == 0, canvasAbove == nil, !paragraphSpec().ellipsis, let presenter else { return false }
         if presenter.session?.regions.owns(self) == true { return false }
         if presenter.selection.isActive, let selected = presenter.selection.range(self), selected.length > 0 { return false }
         return !textIsSmall

@@ -112,7 +112,8 @@ fn giant_unchanged_typing_adds_zero_foreign_callbacks() {
         state.borrow().calls - 1
     );
     assert_eq!(state.borrow().calls, 1);
-    assert_eq!(state.borrow().supplied_bytes, source.len());
+    // The trailing space collapses away before the callback (LLP 1053 G5).
+    assert_eq!(state.borrow().supplied_bytes, source.trim_end().len());
 }
 
 #[test]

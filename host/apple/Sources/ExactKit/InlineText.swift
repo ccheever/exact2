@@ -44,6 +44,7 @@ struct InlineText {
         return Run(text: text, size: CGFloat(size), weight: Int(number("font_weight", 400)),
                    family: Int(number("font_family")), italic: style["font_style"]?.string == "italic",
                    lineHeight: height, letterSpacing: CGFloat(Float(number("letter_spacing"))),
+                   numeric: Int(number("font_variant_numeric")),
                    color: style["text_color"]?.channels(dark: dark),
                    decoration: style["text_decoration_line"]?.string ?? "", href: href)
     }
@@ -120,7 +121,8 @@ extension NodeView {
         return offset == kCFNotFound ? nil : offset
     }
     func inlineTarget(at point: CGPoint, handler: String? = nil) -> InlineText? {
-        guard let offset = textOffset(at: point) else { return nil }
+        // Runs' ranges address the source; the hit, the shaped text (LLP 1053 G5).
+        guard let offset = textOffset(at: point).map(sourceOffset) else { return nil }
         // Leaf lookup is logarithmic even in a paragraph with thousands of runs.
         var lo = 0, hi = inlineText.count
         while lo < hi {

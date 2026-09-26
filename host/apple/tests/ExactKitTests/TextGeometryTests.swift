@@ -528,9 +528,10 @@ final class TextGeometryTests: XCTestCase {
         node.props = ["text": "First line\nSecond link", "href": "example.md"]
         session.presenter.root.addSubview(node)
         for (alignment, flush) in [("left", 0.0), ("center", 0.5), ("right", 1.0)] {
+            // The line break is a preserved segment break (CSS; LLP 1053 G5).
             node.style = ["font_size": 16.0, "line_height": "20px", "text_align": .string(alignment),
                           "padding_left": 20.0, "padding_top": 25.0, "padding_right": 30.0,
-                          "border_width": 2.0]
+                          "border_width": 2.0, "white_space": "pre-wrap"]
             node.invalidateText()
             let paragraph = try XCTUnwrap(node.paragraphLayout())
             let line = paragraph.lines[1]

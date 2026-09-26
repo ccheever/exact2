@@ -107,6 +107,7 @@ extension NodeView {
         if textRasterFailed && textRasterKey != nil { return false }
         return isParagraph && flowShapes.isEmpty && !Capture.capturing && window != nil
             && bounds.width > 0 && bounds.height > 0 && number("line_clamp") == 0 && canvasAbove == nil
+            && !paragraphSpec().ellipsis // `text-overflow` truncates as it paints (LLP 1053 G5)
     }
     func textRasterGeometryChanged() {
         if let key = textRasterKey, key.size == bounds.size, key.box == contentBox() { return }

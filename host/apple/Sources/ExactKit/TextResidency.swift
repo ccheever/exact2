@@ -9,16 +9,17 @@ import CExact
 /// No borrowed buffer, request, or pointer is retained in the identity index.
 enum TextMetricKey {
     private static func fields(_ size: CGFloat, _ weight: Int, _ family: Int, _ italic: Bool,
-                               _ lineHeight: CGFloat?, _ spacing: CGFloat, _ h: inout Hasher) {
+                               _ lineHeight: CGFloat?, _ spacing: CGFloat, _ numeric: Int, _ h: inout Hasher) {
         h.combine(size); h.combine(weight); h.combine(family); h.combine(italic)
-        h.combine(lineHeight); h.combine(spacing)
+        h.combine(lineHeight); h.combine(spacing); h.combine(numeric)
     }
     private static func fields(_ r: Run, _ h: inout Hasher) {
-        fields(r.size, r.weight, r.family, r.italic, r.lineHeight, r.letterSpacing, &h)
+        fields(r.size, r.weight, r.family, r.italic, r.lineHeight, r.letterSpacing, r.numeric, &h)
     }
     private static func fields(_ r: ExactTextRun, _ h: inout Hasher) {
         fields(CGFloat(r.font_size), Int(r.font_weight), Int(r.font_family), r.italic != 0,
-               r.has_line_height != 0 ? CGFloat(r.line_height) : nil, CGFloat(r.letter_spacing), &h)
+               r.has_line_height != 0 ? CGFloat(r.line_height) : nil, CGFloat(r.letter_spacing),
+               Int(r.font_variant_numeric), &h)
     }
     static func hash(_ spec: Spec) -> Int {
         var h = Hasher()
@@ -55,6 +56,7 @@ enum TextMetricKey {
             && Int(raw.font_family) == owned.family && (raw.italic != 0) == owned.italic
             && (raw.has_line_height != 0 ? CGFloat(raw.line_height) : nil) == owned.lineHeight
             && CGFloat(raw.letter_spacing) == owned.letterSpacing
+            && Int(raw.font_variant_numeric) == owned.numeric
     }
     static func matches(_ request: ExactMeasureRequest, _ geometry: Spec) -> Bool {
         // An expanded Markdown request has more runs than its one source run;
@@ -120,13 +122,16 @@ struct TextPaint: Hashable {
     }
     let color: [Double]
     let runs: [Inline]
+    let ellipsis: Bool
     init(_ spec: Spec) {
         color = spec.color
+        ellipsis = spec.ellipsis
         runs = spec.runs.map { Inline(color: $0.color, decoration: $0.decoration, href: $0.href, background: $0.background) }
     }
     func applying(to identity: TextIdentity) -> Spec {
         var spec = identity.geometry
         spec.color = color
+        spec.ellipsis = ellipsis
         for i in spec.runs.indices {
             spec.runs[i].color = runs[i].color
             spec.runs[i].decoration = runs[i].decoration

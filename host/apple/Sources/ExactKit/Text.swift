@@ -33,6 +33,9 @@ struct Run: Hashable {
     var italic: Bool
     var lineHeight: CGFloat?
     var letterSpacing: CGFloat
+    /// CSS `font-variant-numeric` bits: 1 is `tabular-nums`, the face's own
+    /// `tnum` feature. It changes advances: a metric (LLP 1053 G4).
+    var numeric: Int = 0
     var color: [Double]? = nil
     var decoration: String = ""
     var href: String = ""
@@ -42,7 +45,7 @@ struct Run: Hashable {
     static func == (lhs: Run, rhs: Run) -> Bool {
         guard lhs.size == rhs.size, lhs.weight == rhs.weight, lhs.family == rhs.family,
               lhs.italic == rhs.italic, lhs.lineHeight == rhs.lineHeight,
-              lhs.letterSpacing == rhs.letterSpacing, lhs.color == rhs.color,
+              lhs.letterSpacing == rhs.letterSpacing, lhs.numeric == rhs.numeric, lhs.color == rhs.color,
               lhs.decoration == rhs.decoration, lhs.href == rhs.href,
               lhs.background == rhs.background else { return false }
         // CoreText's ranges address the original UTF16 source. Swift String's
@@ -64,6 +67,7 @@ struct Run: Hashable {
         hasher.combine(italic)
         hasher.combine(lineHeight)
         hasher.combine(letterSpacing)
+        hasher.combine(numeric)
         hasher.combine(color)
         hasher.combine(decoration)
         hasher.combine(href)
@@ -79,8 +83,57 @@ struct Spec: Hashable {
     var color: [Double] // r g b a, 0–255
     var overflowWrap: Int = 0 // CSS: normal, break-word, anywhere
     var direction: Int = 0 // CSS: ltr, rtl
-    var whiteSpace: Int = 0 // CSS: normal, pre-wrap, nowrap
+    var whiteSpace: Int = 0 // CSS: normal, pre-wrap, nowrap (runs already collapsed unless pre-wrap)
     var strut: Run? = nil // paragraph minimum line box, including smaller inline runs
+    /// CSS `text-overflow: ellipsis` in a clipping box: paint ends an
+    /// over-wide line in "…"; never metrics (LLP 1053 G5).
+    var ellipsis = false
+    /// Collapsed → source offsets for the runs above (LLP 1053 G5).
+    var source = SourceMap()
+}
+
+/// Where collapsed white space went, from `exact_text_collapse`: offsets
+/// into the shaped (collapsed) text map to the node's source text. Carried
+/// beside a Spec but never part of its identity: equal shaped text is equal.
+struct SourceMap: Hashable {
+    var edits: [ExactCollapseEdit] = []
+    static func == (_: SourceMap, _: SourceMap) -> Bool { true }
+    func hash(into hasher: inout Hasher) {}
+    /// A collapsed UTF-16 offset's source offset.
+    func source(_ collapsed: Int) -> Int {
+        var lo = 0, hi = edits.count
+        while lo < hi { let mid = (lo + hi) / 2; if Int(edits[mid].utf16) <= collapsed { lo = mid + 1 } else { hi = mid } }
+        return collapsed + (lo == 0 ? 0 : Int(edits[lo - 1].removed))
+    }
+    /// A source UTF-16 offset's collapsed offset; removed text maps to where it was.
+    func collapsed(_ source: Int) -> Int {
+        var lo = 0, hi = edits.count
+        while lo < hi { let mid = (lo + hi) / 2; if Int(edits[mid].utf16 + edits[mid].removed) <= source { lo = mid + 1 } else { hi = mid } }
+        let at = source - (lo == 0 ? 0 : Int(edits[lo - 1].removed))
+        return lo < edits.count && at >= Int(edits[lo].utf16) ? Int(edits[lo].utf16) : at
+    }
+
+    /// CSS white space collapsing of `runs` (normal, nowrap), as the measurer
+    /// collapses them in Rust before its callback: the same function.
+    static func collapse(_ runs: inout [Run]) -> SourceMap {
+        var joined = Data(); var lens: [Int] = []
+        for r in runs { let bytes = Data(r.text.utf8); joined.append(bytes); lens.append(bytes.count) }
+        return joined.withUnsafeBytes { raw -> SourceMap in
+            let utf8 = raw.bindMemory(to: UInt8.self).baseAddress
+            let count = exact_text_collapse(utf8, joined.count, lens, lens.count, nil, nil, nil, 0)
+            guard count > 0 else { return SourceMap() }
+            var out = [UInt8](repeating: 0, count: joined.count)
+            var outLens = [Int](repeating: 0, count: lens.count)
+            var edits = [ExactCollapseEdit](repeating: ExactCollapseEdit(), count: count - 1)
+            _ = exact_text_collapse(utf8, joined.count, lens, lens.count, &out, &outLens, &edits, edits.count)
+            var at = 0
+            for i in runs.indices {
+                runs[i].text = String(decoding: out[at..<at + outLens[i]], as: UTF8.self)
+                at += outLens[i]
+            }
+            return SourceMap(edits: edits)
+        }
+    }
 }
 
 /// A wrapped paragraph at one width: what is measured is what is painted.
@@ -114,6 +167,22 @@ final class Paragraph {
     }
     private(set) var cachedInk: ParagraphInkIndex?
     var firstBaseline: CGFloat { baselines.first ?? 0 }
+    private var truncated: (width: CGFloat, lines: [Int: CTLine])?
+
+    /// CSS `text-overflow: ellipsis`: a line wider than the box ends in "…",
+    /// as painted; the measured line (and every metric) is unchanged.
+    func ellipsized(_ index: Int, spec: Spec, width: CGFloat) -> CTLine {
+        let line = lines[index]
+        guard CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) - CTLineGetTrailingWhitespaceWidth(line) > width + 0.5,
+              let source = shape?.attributed else { return line }
+        if truncated?.width != width { truncated = (width, [:]) }
+        if let kept = truncated?.lines[index] { return kept }
+        let range = CTLineGetStringRange(line)
+        let made = TextEngine.ellipsis(line, range: NSRange(location: range.location, length: range.length),
+                                       width: Double(width), source: source) ?? line
+        truncated?.lines[index] = made
+        return made
+    }
     init(lines: [CTLine], baselines: [CGFloat], width: CGFloat, height: CGFloat, lineBottoms: [CGFloat] = [],
          shape: TextShape? = nil, offeredWidth: CGFloat? = nil, glyphCount: Int = 0,
          origins: [CGFloat] = [], fragments: [ExactFlowFragment] = [], flowLineHeight: CGFloat = 0) {
@@ -210,6 +279,8 @@ extension Spec {
     var geometry: Spec {
         var value = self
         value.color = [0, 0, 0, 255]
+        value.ellipsis = false
+        value.source = SourceMap()
         for i in value.runs.indices {
             value.runs[i].color = nil
             value.runs[i].decoration = ""
@@ -389,6 +460,24 @@ final class TextEngine {
         }
     }
 
+    func font(_ run: Run) -> PlatformFont {
+        font(size: run.size, weight: run.weight, family: run.family, italic: run.italic, numeric: run.numeric)
+    }
+
+    /// CSS `tabular-nums` is the chosen face's own OpenType `tnum` feature,
+    /// never a substitute monospaced face; a face without it is unchanged.
+    func font(size: CGFloat, weight: Int, family: Int, italic: Bool, numeric: Int) -> PlatformFont {
+        let base = font(size: size, weight: weight, family: family, italic: italic)
+        guard numeric & 1 != 0 else { return base }
+        let key = "\(family)/\(size)/\(weight)/\(italic)/tnum"
+        if let f = fonts[key] { return f }
+        let settings = [[kCTFontOpenTypeFeatureTag: "tnum", kCTFontOpenTypeFeatureValue: 1]] as CFArray
+        let descriptor = CTFontDescriptorCreateWithAttributes([kCTFontFeatureSettingsAttribute: settings] as CFDictionary)
+        let f = CTFontCreateCopyWithAttributes(base as CTFont, size, nil, descriptor) as PlatformFont
+        fonts[key] = f
+        return f
+    }
+
     func font(size: CGFloat, weight: Int, family: Int, italic: Bool) -> PlatformFont {
         let key = "\(family)/\(size)/\(weight)/\(italic)"
         if let f = fonts[key] { return f }
@@ -453,7 +542,7 @@ final class TextEngine {
         let color = TextEngine.color(spec.color)
         var offset = 0
         for r in spec.runs {
-            var a: [NSAttributedString.Key: Any] = [.font: font(size: r.size, weight: r.weight, family: r.family, italic: r.italic), .foregroundColor: r.color.map(TextEngine.color) ?? color]
+            var a: [NSAttributedString.Key: Any] = [.font: font(r), .foregroundColor: r.color.map(TextEngine.color) ?? color]
             if r.letterSpacing != 0 { a[.kern] = r.letterSpacing }
             if r.decoration.contains("underline") || (r.decoration.isEmpty && !r.href.isEmpty) { a[.underlineStyle] = NSUnderlineStyle.single.rawValue }
             if r.decoration.contains("line-through") { a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
@@ -573,7 +662,7 @@ final class TextEngine {
         let length = shape.identity.utf16Count
         let strut = spec.strut ?? spec.runs.first
         func extents(_ run: Run) -> (CGFloat, CGFloat) {
-            let f = font(size: run.size, weight: run.weight, family: run.family, italic: run.italic)
+            let f = font(run)
             let natural = f.ascender - f.descender + f.leading
             let half = ((run.lineHeight ?? natural) - natural) / 2
             return (f.ascender + half, -f.descender + f.leading + half)
@@ -607,7 +696,8 @@ final class TextEngine {
         // emergency breaks from ordinary opportunities (including CJK).
         var boundaries: [Int] = []
         var boundaryIndex = 0
-        if spec.overflowWrap == 0 && width.isFinite && breaks == nil && ranges == nil {
+        // `nowrap` takes no soft break (below), so it needs none of them.
+        if spec.overflowWrap == 0 && spec.whiteSpace != 2 && width.isFinite && breaks == nil && ranges == nil {
             if let cached = shape.lineBreakBoundaries { boundaries = cached }
             else {
                 boundaries = lineBoundaries(shape.attributed.string as NSString, length: length)
@@ -746,6 +836,15 @@ final class TextEngine {
         return boundaries
     }
 
+    /// An over-wide line truncated at `width` with the ellipsis in the style
+    /// of the character it replaces; the browser keeps the first character
+    /// when not even the token fits.
+    static func ellipsis(_ line: CTLine, range: NSRange, width: Double, source: NSAttributedString) -> CTLine? {
+        let at = max(range.location, min(NSMaxRange(range), source.length) - 1)
+        let token = CTLineCreateWithAttributedString(NSAttributedString(string: "…", attributes: source.attributes(at: at, effectiveRange: nil)))
+        return CTLineCreateTruncatedLine(line, width, .end, token)
+    }
+
     func ellipsizedLine(_ spec: Spec, range: NSRange, width: Double, source: NSAttributedString? = nil) -> CTLine? {
         let source = source ?? attributed(spec)
         let string = source.string as NSString
@@ -797,7 +896,7 @@ final class TextEngine {
         for r in spec.runs {
             for word in r.text.split(whereSeparator: { $0.isWhitespace }) {
                 var one = spec
-                one.runs = [Run(text: String(word), size: r.size, weight: r.weight, family: r.family, italic: r.italic, lineHeight: r.lineHeight, letterSpacing: r.letterSpacing)]
+                one.runs = [Run(text: String(word), size: r.size, weight: r.weight, family: r.family, italic: r.italic, lineHeight: r.lineHeight, letterSpacing: r.letterSpacing, numeric: r.numeric)]
                 let key = one.runs[0]
                 if let width = words[key] { widest = max(widest, width); continue }
                 // This probe needs one scalar, never a cached width-specific
@@ -820,7 +919,8 @@ final class TextEngine {
     /// logical points, flush by alignment.
     static func draw(_ p: Paragraph, spec: Spec, in bounds: CGRect, context ctx: CGContext, dirty: CGRect? = nil) {
         func paint(_ index: Int) {
-            let line = p.lines[index], baseline = p.baselines[index]
+            let line = spec.ellipsis ? p.ellipsized(index, spec: spec, width: bounds.width) : p.lines[index]
+            let baseline = p.baselines[index]
             let x = p.origin(index, align: spec.align, width: bounds.width)
             TextLinePaint.draw(line, at: CGPoint(x: bounds.minX + x, y: bounds.minY + baseline.rounded()), in: ctx)
         }
@@ -862,7 +962,7 @@ final class TextEngine {
         // decoding: a fallback adds its failed borrowed lookup interval below.
         let lookupSeconds = CACurrentMediaTime() - lookupStarted
         func run(_ run: ExactTextRun) -> Run {
-            Run(text: String(decoding: UnsafeBufferPointer(start: run.text, count: run.len), as: UTF8.self), size: CGFloat(run.font_size), weight: Int(run.font_weight), family: Int(run.font_family), italic: run.italic != 0, lineHeight: run.has_line_height != 0 ? CGFloat(run.line_height) : nil, letterSpacing: CGFloat(run.letter_spacing))
+            Run(text: String(decoding: UnsafeBufferPointer(start: run.text, count: run.len), as: UTF8.self), size: CGFloat(run.font_size), weight: Int(run.font_weight), family: Int(run.font_family), italic: run.italic != 0, lineHeight: run.has_line_height != 0 ? CGFloat(run.line_height) : nil, letterSpacing: CGFloat(run.letter_spacing), numeric: Int(run.font_variant_numeric))
         }
         let spec: Spec
         if let knownIdentity {
@@ -972,7 +1072,15 @@ enum TextLinePaint {
     /// runs that fallback or bidi split are joined again where they touch.
     static func backgrounds(_ line: CTLine, at origin: CGPoint) -> [(CGRect, CGColor)] {
         var spans: [(CGFloat, CGFloat, InlineBackground)] = []
-        for run in CTLineGetGlyphRuns(line) as! [CTRun] {
+        let runs = CTLineGetGlyphRuns(line) as! [CTRun]
+        // CSS removes the collapsible spaces that end a line: a wrapped run's
+        // background stops at its last glyph, as the browser paints it. A
+        // left-to-right line ends on the right (LLP 1053 §0, the Linux parity).
+        var end = CGFloat.infinity
+        if !runs.contains(where: { CTRunGetStatus($0).contains(.rightToLeft) }) {
+            end = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) - CGFloat(CTLineGetTrailingWhitespaceWidth(line))
+        }
+        for run in runs {
             let attributes = CTRunGetAttributes(run) as NSDictionary
             guard let fill = attributes[NSAttributedString.Key.exactBackground] as? InlineBackground else { continue }
             let count = CTRunGetGlyphCount(run)
@@ -986,7 +1094,8 @@ enum TextLinePaint {
                 lo = min(lo, positions[i].x, positions[i].x + advances[i].width)
                 hi = max(hi, positions[i].x, positions[i].x + advances[i].width)
             }
-            spans.append((lo, hi, fill))
+            hi = min(hi, end)
+            if hi > lo { spans.append((lo, hi, fill)) }
         }
         spans.sort { $0.0 < $1.0 }
         var merged: [(CGFloat, CGFloat, InlineBackground)] = []
