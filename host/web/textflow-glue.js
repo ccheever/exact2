@@ -14,6 +14,7 @@ import { createTimerScheduler } from "./timer-glue.js";
 // plus wasm's documented bound; preparations are O(source + ranges*log runs).
 // Pool size never exceeds a paragraph's maximum returned fragment count.
 const MAX_CACHE = 8192, MAX_CACHE_UNITS = 1024 * 1024;
+const UNBOUNDED = 3.4028234663852886e38; // f32::MAX: the wasm refuses nonfinite input
 const encoder = new TextEncoder();
 const px = value => Number.parseFloat(value) || 0;
 const lower = (items, value) => {
@@ -168,7 +169,7 @@ function layoutBox(el, styles) {
 // A percentage against an auto-height containing block is not definite. CSSOM
 // height reports a used px value even then; checking that value would collapse
 // the paragraph as soon as its children become absolute. Only explicit chains
-// are admitted here; stretched/implicit percentage definiteness waits for M8.
+// are admitted here; a stretched or implicit percentage height is not flowed.
 function definiteHeight(el) {
   for (let node = el; node; node = node.parentElement) {
     const height = node.style.height || '';
@@ -277,6 +278,7 @@ export function createTextFlow({ views, request, advance, agentMode, log = conso
     replaceNodes(s.el, s.original);
     s.el.style.position = s.position;
     s.el.style.contain = s.contain;
+    s.el.style.height = s.height;
     s.rendered = false;
     s.last = [];
   }
@@ -300,6 +302,7 @@ export function createTextFlow({ views, request, advance, agentMode, log = conso
       for (const p of c.paragraphs) {
         let item = wanted.get(p.id);
         if (!item) wanted.set(p.id, item = { ...p, exclusions: new Set() });
+        item.refusal ??= p.refusal;
         c.exclusions.forEach(id => item.exclusions.add(id));
       }
     }
@@ -374,10 +377,12 @@ export function createTextFlow({ views, request, advance, agentMode, log = conso
           && b.y - margin < box.y + box.height && b.y + b.height + margin > box.y;
       });
       s.meetingIds = new Set(exclusions.map(e => e.id));
-      if (!s.info.definite || !definiteHeight(s.el)) {
-        const meeting = exclusions.length > 0;
-        return meeting ? { s, autoHeight: true, skipped: 'height is not proven definite; auto-height flow requires M8' } : { s, inactive: true };
-      }
+      // @ref LLP 1043.000 §8 — auto height flows where the kernel's admission
+      // rule holds; the walker's height becomes the paragraph's, written below.
+      const auto = !s.info.definite;
+      if (!exclusions.length && (auto || !definiteHeight(s.el))) return { s, inactive: true };
+      if (auto && s.info.refusal) return { s, autoHeight: true, skipped: s.info.refusal };
+      if (!auto && !definiteHeight(s.el)) return { s, skipped: 'a percentage height is not proven definite; ordinary text retained' };
       if (s.needsSource) {
         s.original = [...s.el.childNodes]; s.runs = sourceRuns(s.el, mac); s.runEnds = s.runs.map(r => r.end);
         s.text = s.runs.map(r => r.text).join(''); s.needsSource = false; s.recheck = true;
@@ -386,8 +391,11 @@ export function createTextFlow({ views, request, advance, agentMode, log = conso
       const fonts = [font, ...s.runs.map(r => r.font)];
       const lineHeight = fonts.reduce((height, f) => Math.max(height, f.lineHeight || f.size * 1.2), 0);
       const left = px(style.borderLeftWidth) + px(style.paddingLeft), top = px(style.borderTopWidth) + px(style.paddingTop);
+      const bottom = px(style.borderBottomWidth) + px(style.paddingBottom);
       return { s, font, distance: Math.max(0, box.y - (globalThis.innerHeight || 900), -box.y - box.height), width: Math.max(0, box.width - left - px(style.borderRightWidth) - px(style.paddingRight)),
-        height: Math.max(0, box.height - top - px(style.borderBottomWidth) - px(style.paddingBottom)),
+        // An auto paragraph's band limit is unbounded: its box is what we write.
+        height: auto ? UNBOUNDED : Math.max(0, box.height - top - bottom), auto,
+        verticalInset: style.boxSizing === 'border-box' ? top + bottom : 0,
         x: box.x + left, y: box.y + top, contentOrigin: { x: left, y: top }, padX: px(style.paddingLeft), padY: px(style.paddingTop),
         lineHeight, maxLines: px(style.webkitLineClamp), overflow: style.overflowWrap, whiteSpace: style.whiteSpace,
         align: style.textAlign, direction: style.direction, position: style.position, exclusions, transformed: box.transformed };
@@ -496,7 +504,7 @@ export function createTextFlow({ views, request, advance, agentMode, log = conso
       if (result.skipped) {
         release(s); restore(s); s.facts = { fragments: [], shapes: [], ...result.partial, skipped: result.skipped };
         if (result.autoHeight) {
-          if (!autoHeightWarned.has(s.id)) { autoHeightWarned.add(s.id); log(`wrap-flow: text #${s.id} has auto height and is not flowed (LLP 1043.000 stage 2)`); }
+          if (!autoHeightWarned.has(s.id)) { autoHeightWarned.add(s.id); log(`wrap-flow: text #${s.id} has auto height and is not flowed: ${result.skipped} (LLP 1043.000 §8)`); }
         } else if (s.error !== result.skipped) { log(`textflow #${s.id}: ${result.skipped}`); s.error = result.skipped; }
       }
       return;
@@ -510,6 +518,7 @@ export function createTextFlow({ views, request, advance, agentMode, log = conso
       s.el.replaceChildren();
       if (result.position === 'static') s.el.style.position = 'relative';
       s.el.style.contain = 'layout';
+      s.height = s.el.style.height;
       s.rendered = true;
     }
     for (const change of diff.updates) {
@@ -532,8 +541,12 @@ export function createTextFlow({ views, request, advance, agentMode, log = conso
     s.last = fragments; s.geometry = result.key;
     s.facts = { ...result.facts, fragments, coordinate_space: 'content', content_origin: result.contentOrigin, prepare_count: s.prepareCount, touched_spans: diff.updates.length,
       pooled_spans: s.pool.length, measurement_calls: metrics.calls, transformed_box: result.transformed };
-    // Definite height is untouched. M8 can publish result.facts.height here,
-    // in this write phase, once auto-height admission comes from the host.
+    // Definite height is untouched. An auto paragraph takes the flowed height
+    // (the fragments are absolutely positioned, so its content alone is 0).
+    if (result.auto) {
+      const height = `${result.facts.height + result.verticalInset}px`;
+      if (s.el.style.height !== height) { s.el.style.height = height; result.heightChanged = true; }
+    }
   }
 
   function selectionSnapshot() {
@@ -578,21 +591,28 @@ export function createTextFlow({ views, request, advance, agentMode, log = conso
     if (!dirty || !fontsReady || disposed) return false;
     dirty = false;
     const selected = pendingSelection ?? selectionSnapshot(); pendingSelection = null;
-    const snapshots = readFrame(); // reads first; stable paragraph boxes are cached
-    const meeting = snapshots.filter(s => s.exclusions?.length).sort((a, b) => a.distance - b.distance);
-    meeting.forEach((s, i) => {
-      if (i >= 64) s.skipped = '64 paragraph budget reached; nearest-to-viewport paragraphs retain flow';
-      // Reserve one temporary slot for clear paragraphs and the 64th walker.
-      s.retain = i < 63;
-    });
-    for (const s of snapshots) if (!s.retain) release(s.s);
-    snapshots.sort((a, b) => Number(!!a.retain) - Number(!!b.retain));
     let moved = false;
-    for (const snapshot of snapshots) if (snapshot.exclusions) {
-      const boxes = JSON.stringify([snapshot.x, snapshot.y, snapshot.width, snapshot.height, snapshot.exclusions]);
-      moved ||= snapshot.s.boxes != null && snapshot.s.boxes !== boxes; snapshot.s.boxes = boxes;
+    // @ref LLP 1043.000 §8 — an auto paragraph's written height moves what follows
+    // it and nothing before it, so re-reading settles one more paragraph in
+    // document order each round: at most one round per auto paragraph, in this frame.
+    for (let round = 0; ; round++) {
+      const snapshots = readFrame(); // reads first; stable paragraph boxes are cached
+      const meeting = snapshots.filter(s => s.exclusions?.length).sort((a, b) => a.distance - b.distance);
+      meeting.forEach((s, i) => {
+        if (i >= 64) s.skipped = '64 paragraph budget reached; nearest-to-viewport paragraphs retain flow';
+        // Reserve one temporary slot for clear paragraphs and the 64th walker.
+        s.retain = i < 63;
+      });
+      for (const s of snapshots) if (!s.retain) release(s.s);
+      snapshots.sort((a, b) => Number(!!a.retain) - Number(!!b.retain));
+      for (const snapshot of snapshots) if (snapshot.exclusions) {
+        const boxes = JSON.stringify([snapshot.x, snapshot.y, snapshot.width, snapshot.height, snapshot.exclusions]);
+        moved ||= round === 0 && snapshot.s.boxes != null && snapshot.s.boxes !== boxes; snapshot.s.boxes = boxes;
+      }
+      const results = framePhases(snapshots, value => value, compute, write);
+      if (!results.some(r => r.heightChanged) || round >= results.filter(r => r.auto).length) break;
+      for (const s of states.values()) s.box = null;
     }
-    framePhases(snapshots, value => value, compute, write);
     restoreSelection(selected);
     let pending = false;
     for (const p of calibration.values()) {

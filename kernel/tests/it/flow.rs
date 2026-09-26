@@ -198,10 +198,20 @@ fn auto_height_hidden_unsupported_and_nonabsolute_exclusions() {
         ],
     )
     .unwrap();
+    // A block context admits auto height (LLP 1043.000 §8; tests/it/flow_auto.rs).
+    let r = layout(&mut k);
+    assert_eq!(shape(&k, 2).len(), 1);
+    assert!(r.flow_skipped.is_empty());
+    // A flex context does not: the leaf keeps ordinary layout and says why.
+    k.apply(0, 0, &[patch(1, &[(StyleId::Display, t("flex"))])])
+        .unwrap();
     let r = layout(&mut k);
     assert!(shape(&k, 2).is_empty());
     assert_eq!(r.flow_skipped, vec![k.node(2).unwrap().key]);
-    assert!(k.node(2).unwrap().flow_skipped());
+    assert_eq!(
+        k.node(2).unwrap().flow_refusal(),
+        Some(FlowRefusal::Context)
+    );
     assert_eq!(layout(&mut k).flow_skipped, r.flow_skipped); // cache hit retains proof
     k.apply(0, 0, &[sized(2, 600., 400.)]).unwrap();
     assert_eq!(layout(&mut k).flow_changed.len(), 1);
@@ -273,7 +283,7 @@ fn text_inputs_images_and_inline_runs_never_flow() {
     layout(&mut k);
     for id in [4, 5, 6] {
         assert!(shape(&k, id).is_empty());
-        assert!(!k.node(id).unwrap().flow_skipped());
+        assert!(!k.node(id).unwrap().flow_refusal().is_some());
     }
 }
 #[test]
@@ -360,7 +370,7 @@ fn stretched_height_proof_survives_cache_hits_and_changed_parent_constraints() {
     .unwrap();
     layout(&mut k);
     assert!(
-        k.node(2).unwrap().flow_skipped(),
+        k.node(2).unwrap().flow_refusal().is_some(),
         "this flex algorithm probes intrinsic height before stretching"
     );
     for align in ["flex-start", "stretch", "flex-start", "stretch"] {
@@ -371,8 +381,8 @@ fn stretched_height_proof_survives_cache_hits_and_changed_parent_constraints() {
         layout(&mut fresh);
         assert_eq!(shape(&k, 2), shape(&fresh, 2), "{align}");
         assert_eq!(
-            k.node(2).unwrap().flow_skipped(),
-            fresh.node(2).unwrap().flow_skipped(),
+            k.node(2).unwrap().flow_refusal().is_some(),
+            fresh.node(2).unwrap().flow_refusal().is_some(),
             "{align}"
         );
     }

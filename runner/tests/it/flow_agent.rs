@@ -103,6 +103,29 @@ fn layout_reports_resolved_and_skipped_paragraphs() {
             }],
         )
         .unwrap();
+    // A block context admits auto height (LLP 1043.000 §8): it still flows.
+    let receipt = runner
+        .kernel_mut()
+        .compute_layout(1, Offer::definite(600., 400.))
+        .unwrap();
+    assert!(receipt.flow_skipped.is_empty());
+    assert!(agent::node(&runner, 2).contains("\"flow_shapes\""));
+    let mut flex = StyleProps {
+        display: exact_kernel::Display::Flex,
+        ..Default::default()
+    };
+    flex.mask.set(StyleId::Display);
+    runner
+        .kernel_mut()
+        .apply(
+            0,
+            0,
+            &[Op::SetStyle {
+                id: 1,
+                patch: Box::new(flex),
+            }],
+        )
+        .unwrap();
     let receipt = runner
         .kernel_mut()
         .compute_layout(1, Offer::definite(600., 400.))
@@ -110,13 +133,19 @@ fn layout_reports_resolved_and_skipped_paragraphs() {
     runner.report_flow_skipped(&receipt.flow_skipped);
     runner.report_flow_skipped(&receipt.flow_skipped);
     let json = agent::node(&runner, 2);
-    assert!(json.contains("\"flow_skipped\":\"Taffy measured this paragraph's height; auto-height flow requires M8\""),"{json}");
+    assert!(
+        json.contains(&format!(
+            "\"flow_skipped\":\"{}\"",
+            exact_kernel::FlowRefusal::Context.message()
+        )),
+        "{json}"
+    );
     assert!(!json.contains("flow_shapes"));
     assert_eq!(
         runner
             .journal()
             .filter(|line| line.contains(
-                "wrap-flow: text #2 has auto height and is not flowed (LLP 1043.000 stage 2)"
+                "wrap-flow: text #2 has auto height and is not flowed: its wrapping context"
             ))
             .count(),
         1

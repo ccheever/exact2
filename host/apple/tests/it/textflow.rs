@@ -215,3 +215,54 @@ fn list_settlement_publishes_final_mounted_flow_and_clears_disappearing_shapes()
         "unchanged clears are not repeated: {repeated}"
     );
 }
+
+// @ref LLP 1043.000 §8 — the Reader's drop cap: an auto-height paragraph is
+// measured through the seam around the shape it is painted around.
+#[test]
+fn a_drop_cap_measures_its_auto_height_paragraph_around_the_shape() {
+    use std::{cell::RefCell, rc::Rc};
+    struct Seen(Rc<RefCell<Vec<usize>>>);
+    impl TextMeasurer for Seen {
+        fn measure(
+            &mut self,
+            r: &exact_kernel::TextMeasureRequest<'_>,
+        ) -> exact_kernel::TextMetrics {
+            self.0.borrow_mut().push(r.exclusions.len());
+            MonospaceMeasurer::default().measure(r)
+        }
+    }
+    let boot = |wrap: &str| {
+        let plan = contract::compile(&format!(
+            r#"component App
+  view
+    box width=360 padding=20 position="relative"
+      box position="absolute" left=20 top=20 width=48 height=48 wrap-flow="{wrap}" shape-outside="inset(0)" shape-margin=6
+        text "T" font-size=48 line-height=1
+      text "There is an hour when the garden belongs to neither day nor night. The visitors have gone, but the birds have not yet settled." testId="lede"
+      text "After." testId="after"
+"#
+        ))
+        .unwrap()
+        .encode();
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let (h, batch) = Host::boot(&plan, Data, Box::new(Seen(seen.clone())), 400., 600.).unwrap();
+        let seen = seen.borrow().clone();
+        (h, batch, seen)
+    };
+    let (plain, _, _) = boot("auto");
+    let (h, batch, seen) = boot("both");
+    let (lede, after) = (id(&h, "lede"), id(&h, "after"));
+    let kernel = h.runner().kernel();
+    let (l, a) = (
+        kernel.node(lede).unwrap().frame,
+        kernel.node(after).unwrap().frame,
+    );
+    assert!(seen.contains(&1), "no request carried the shape: {seen:?}");
+    assert!(
+        batch.contains(&format!("\"op\":\"flow\",\"id\":{lede}")),
+        "{batch}"
+    );
+    assert_eq!(kernel.node(lede).unwrap().flow_refusal(), None);
+    assert!(l.height > plain.runner().kernel().node(lede).unwrap().frame.height);
+    assert_eq!(a.y, l.y + l.height);
+}
