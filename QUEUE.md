@@ -703,3 +703,13 @@ and the Linux headless CPU renderer without claiming display frame timing.
   yet) would also need the capture root its exact2 path dependencies arrive under
   remapped, as `wasmRemapFlags` does for web builds.
 - **Other `fs.watch` consumers under Bun** (2026-09-23): on this Mac, Bun 1.4.2's `fs.watch` (file and recursive directory) delivered no event in 45 s while `watchFile` polling fired in 2 ms (oven-sh/bun#43870); a Contract save reached the update-lab page 10–40 s late or never. `watchModuleSources` in `host/web/dev.mjs` now polls at 100 ms as well. Still fs.watch-only: `rustOutputWatch` (the `current` pointer; the baker's reply covers the common case), the compiler-input directory watch at `dev.mjs` line ~863 (files there already poll), and `watchStaticTrees` in `serve.mjs` (asset, deck, and shader edits). Same fix or a shared poller.
+
+- Code review (Codex, 2026-09-24): address the reproduced
+  [game page memory-safety hole](issues/20260924-game-page-mask-unsound.md),
+  [Markdown stack overflow](issues/20260924-markdown-nested-link-stack-overflow.md),
+  [update-store rollback race](issues/20260924-update-concurrent-store-rollback.md),
+  [render accept-loop stall](issues/20260924-render-overload-blocks-accept.md),
+  [unclosed-link parsing cost](issues/20260924-markdown-unclosed-destination-quadratic.md),
+  [footnote indexing cost](issues/20260924-markdown-footnote-index-quadratic.md),
+  [kept-answer Unicode panic](issues/20260924-kept-answer-unicode-panic.md), and
+  [render clock initialization](issues/20260924-render-clock-zero.md).
