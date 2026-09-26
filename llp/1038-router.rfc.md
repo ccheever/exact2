@@ -405,7 +405,9 @@ becomes a push or pop only when one controller list is a prefix of the
 other, and a swap without a transition otherwise. The animation follows the
 prefix relationship of the controller lists, whatever verb produced it: an
 `open` that extends the current stack animates as a push, one that replaces
-it swaps. **macOS and
+it swaps. *Amended 2026-09-26:* a replacement that keeps the stack's root
+and puts a new screen on top (a finished capture giving way to what it
+wrote) arrives as UIKit's push; only a change of root — a tab — swaps. **macOS and
 Linux:** adopt the web's rule (`glue.js:824-836`): every route but the
 selected one, and the one beneath a modal, is hidden and inert. Without it
 the rows would paint on top of each other on the two hosts that never

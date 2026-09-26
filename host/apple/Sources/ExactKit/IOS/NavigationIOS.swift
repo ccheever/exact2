@@ -175,9 +175,13 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             let nav = owners[index], stack = Array(wanted[parts[index]])
             let same = nav.viewControllers.count == stack.count && zip(nav.viewControllers, stack).allSatisfy { $0 === $1 }
             if !same {
-                // @ref LLP 1038 D6 — replacements (tabs/open) swap immediately.
+                // @ref LLP 1038 D6 — a tab change swaps immediately. A replacement within one stack
+                // whose new top was not on it (a finished screen giving way to its result) arrives
+                // as UIKit's own push, rather than cutting.
                 let pushOrPop = NavigationRules.isPushOrPop(from: nav.viewControllers.map(ObjectIdentifier.init), to: stack.map(ObjectIdentifier.init))
-                nav.setViewControllers(stack, animated: pushOrPop && index == owners.count - 1 && mounted.count == boundaries.count && !ExactEnv.agentFreezes && nav.view.window != nil)
+                let arrives = stack.count > 1 && nav.viewControllers.first === stack.first
+                    && !nav.viewControllers.contains { $0 === stack.last }
+                nav.setViewControllers(stack, animated: (pushOrPop || arrives) && index == owners.count - 1 && mounted.count == boundaries.count && !ExactEnv.agentFreezes && nav.view.window != nil)
             }
             nav.view.layoutIfNeeded()
         }
