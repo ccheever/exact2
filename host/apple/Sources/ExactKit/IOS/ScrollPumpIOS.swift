@@ -23,8 +23,26 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     private var lastSlice = -Double.infinity
     private var finalizationCost = 0.0005
 
-    init(_ presenter: Presenter) { self.presenter = presenter }
-    deinit { link?.invalidate() }
+    /// When the main run loop last woke: what this turn has already spent
+    /// (a long timer or display-link handler before the pump's slice).
+    private var turnStarted = CACurrentMediaTime()
+    private var turnObserver: CFRunLoopObserver?
+    /// A slice left its rows to the next one; that one builds them.
+    private var fillDeferred = false
+
+    init(_ presenter: Presenter) {
+        self.presenter = presenter
+        super.init()
+        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.afterWaiting.rawValue, true, 0) { [weak self] _, _ in
+            self?.turnStarted = CACurrentMediaTime()
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        turnObserver = observer
+    }
+    deinit {
+        link?.invalidate()
+        if let turnObserver { CFRunLoopRemoveObserver(CFRunLoopGetMain(), turnObserver, .commonModes) }
+    }
     var sliceBudget: TimeInterval { min(0.004, max(0.001, refreshInterval * 0.24)) }
 
     private struct Travel { var top: CGFloat, time: TimeInterval, velocity = 0.0 }
@@ -134,15 +152,23 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     /// Build each owed collection's rows for this slice: as many as its
     /// measured per-row cost fits, at least one, and at least what the next
     /// two frames of travel uncover — so the scroll callback that follows
-    /// finds its rows built instead of building them itself.
+    /// finds its rows built instead of building them itself. A turn that
+    /// has already spent half its frame before the slice builds nothing
+    /// while the next frame's travel is covered: its rows wait for the next
+    /// slice, which builds them, rather than making this frame late.
     @discardableResult
     private func fillCollections(deadline: TimeInterval) -> Int {
         guard let p = presenter else { return 0 }
         var rows = 0
+        let spent = !fillDeferred && CACurrentMediaTime() - turnStarted > refreshInterval * 0.5
+        fillDeferred = false
         for id in p.collections.fillPending.sorted() {
             let started = CACurrentMediaTime()
             let fits = (costs[id] ?? FillCost()).rows(in: deadline - started)
             let needed = p.collections.rowsToCover(id, ahead: CGFloat(velocity(id) * refreshInterval * 2))
+            if spent && p.collections.rowsToCover(id, ahead: CGFloat(velocity(id) * refreshInterval)) == 0 {
+                fillDeferred = true; continue
+            }
             let created = p.collections.fillSlice(id, limit: max(1, fits, needed))
             costs[id, default: FillCost()].record(CACurrentMediaTime() - started, rows: created)
             rows += created
