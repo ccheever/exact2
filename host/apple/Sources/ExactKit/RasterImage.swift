@@ -1,6 +1,7 @@
 import Foundation
 import CoreGraphics
 import ImageIO
+import ObjectiveC
 
 enum RasterFailure: Error { case encodedLimit, headerLimit, dimensions, sourcePixels, overflow, tooLarge, decode, reservation }
 
@@ -127,27 +128,22 @@ struct RasterDecodePlan: Sendable {
 protocol RasterBackingCharge: AnyObject, Sendable {}
 protocol RasterSourceOwner: AnyObject, Sendable {}
 
-private final class RasterStorage {
-    let pointer: UnsafeMutableRawPointer
-    let count: Int
+/// An image's charge, owned by the `CGImage` itself (an associated object),
+/// so every alias of it, a painter's or a framework's, stays charged. The
+/// pixels are Core Graphics' own (see `decode`), not a provider of ours.
+private final class RasterOwner {
     let charge: any RasterBackingCharge
     let sourceOwner: (any RasterSourceOwner)?
-    /// ImageIO's own pixels, when they are already what a draw would make.
-    private let adopted: CFData?
-    init(count: Int, charge: any RasterBackingCharge, sourceOwner: (any RasterSourceOwner)?) {
-        self.count = count; self.charge = charge; self.sourceOwner = sourceOwner; adopted = nil
-        pointer = .allocate(byteCount: count, alignment: 64)
-        pointer.initializeMemory(as: UInt8.self, repeating: 0, count: count)
+    init(charge: any RasterBackingCharge, sourceOwner: (any RasterSourceOwner)?) { self.charge = charge; self.sourceOwner = sourceOwner }
+    private static var key: UInt8 = 0
+    func own(_ image: CGImage) -> CGImage {
+        objc_setAssociatedObject(image, &Self.key, self, .OBJC_ASSOCIATION_RETAIN)
+        return image
     }
-    init(adopting data: CFData, charge: any RasterBackingCharge, sourceOwner: (any RasterSourceOwner)?) {
-        self.charge = charge; self.sourceOwner = sourceOwner; adopted = data
-        pointer = UnsafeMutableRawPointer(mutating: CFDataGetBytePtr(data)); count = CFDataGetLength(data)
-    }
-    deinit { if adopted == nil { pointer.deallocate() } } // storage dies before the retained charge
 }
 
-/// Immutable CG-only payload: safe to destroy on a worker. The CGDataProvider,
-/// not merely this wrapper, owns the charge so every CGImage alias stays charged.
+/// Immutable CG-only payload: safe to destroy on a worker. The `CGImage`, not
+/// merely this wrapper, owns the charge so every alias stays charged.
 final class RasterImage: @unchecked Sendable {
     // Cache identity: first frame, EXIF-transformed pixels, normalized sRGB RGBA8.
     static let variant: UInt32 = 1
@@ -165,6 +161,7 @@ final class RasterImage: @unchecked Sendable {
         // Recheck the actual bytes before asking ImageIO for any pixel buffer.
         let actual = try RasterMetadata.read(prefix: bytes.prefix(RasterMetadata.headerLimit), encodedBytes: bytes.count)
         guard actual == metadata else { throw RasterFailure.reservation }
+        let owner = RasterOwner(charge: charge, sourceOwner: sourceOwner)
         // This pool ends before the caller publishes the payload/completes its
         // permit. No ImageIO source, thumbnail, or CGContext enters the mailbox.
         return try autoreleasepool {
@@ -180,48 +177,59 @@ final class RasterImage: @unchecked Sendable {
             let (staging, overflow) = thumbnail.bytesPerRow.multipliedReportingOverflow(by: thumbnail.height)
             guard !overflow, thumbnail.width <= plan.width, thumbnail.height <= plan.height,
                   staging <= plan.scratchBytes else { throw RasterFailure.reservation }
-            let space = CGColorSpace(name: CGColorSpace.sRGB)!
-            let storage: RasterStorage, bitmap: CGBitmapInfo, stride: Int
-            if let data = adoptable(thumbnail, plan: plan) {
-                // An opaque sRGB thumbnail at the planned size is already the
-                // pixels the draw below would copy: keep ImageIO's buffer.
-                storage = RasterStorage(adopting: data, charge: charge, sourceOwner: sourceOwner)
-                bitmap = thumbnail.bitmapInfo; stride = thumbnail.bytesPerRow
-            } else {
-                storage = RasterStorage(count: plan.outputBytes, charge: charge, sourceOwner: sourceOwner)
-                bitmap = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue); stride = plan.stride
-                guard let context = CGContext(data: storage.pointer, width: plan.width, height: plan.height,
-                    bitsPerComponent: 8, bytesPerRow: plan.stride, space: space, bitmapInfo: bitmap.rawValue) else { throw RasterFailure.decode }
-                context.draw(thumbnail, in: CGRect(x: 0, y: 0, width: plan.width, height: plan.height))
-            }
-            let owner = Unmanaged.passRetained(storage).toOpaque()
-            guard let provider = CGDataProvider(dataInfo: owner, data: storage.pointer, size: storage.count,
-                releaseData: { info, _, _ in
-                    if let info { Unmanaged<RasterStorage>.fromOpaque(info).release() }
-                }) else { Unmanaged<RasterStorage>.fromOpaque(owner).release(); throw RasterFailure.decode }
-            guard let image = CGImage(width: plan.width, height: plan.height, bitsPerComponent: 8,
-                bitsPerPixel: 32, bytesPerRow: stride, space: space, bitmapInfo: bitmap,
-                provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent) else { throw RasterFailure.decode }
             // The reservation is charged whole: ImageIO's rows are never wider.
-            return RasterImage(image: image, natural: metadata.naturalSize, bytes: plan.outputBytes)
+            if isAdoptable(thumbnail, plan: plan) {
+                // An opaque sRGB thumbnail at the planned size is already the
+                // pixels a draw would make: keep ImageIO's image itself.
+                return RasterImage(image: owner.own(thumbnail), natural: metadata.naturalSize, bytes: plan.outputBytes)
+            }
+            // Draw into a scratch bitmap and keep Core Graphics' copy of it,
+            // as ImageIO does for a thumbnail: CG's image data is memory
+            // Core Animation shares with the render server as it is, where
+            // a bitmap of ours would be copied again at each first commit.
+            // BGRA, premultiplied: Core Animation's own layout, which it
+            // shares without converting.
+            let space = CGColorSpace(name: CGColorSpace.sRGB)!
+            let bitmap = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+            guard let image = withScratch(plan.outputBytes, { scratch -> CGImage? in
+                guard let context = CGContext(data: scratch, width: plan.width, height: plan.height,
+                    bitsPerComponent: 8, bytesPerRow: plan.stride, space: space, bitmapInfo: bitmap) else { return nil }
+                context.draw(thumbnail, in: CGRect(x: 0, y: 0, width: plan.width, height: plan.height))
+                return context.makeImage()
+            }) else { throw RasterFailure.decode }
+            return RasterImage(image: owner.own(image), natural: metadata.naturalSize, bytes: plan.outputBytes)
         }
     }
 }
 
-/// The thumbnail's own bytes when drawing it into the planned sRGB bitmap
-/// would change nothing but their layout: the planned size (no resample),
-/// 8-bit opaque sRGB (no conversion; the skipped alpha byte reads as opaque),
-/// rows no wider than the plan's. Otherwise nil, and the caller draws.
-private func adoptable(_ thumbnail: CGImage, plan: RasterDecodePlan) -> CFData? {
-    guard thumbnail.width == plan.width, thumbnail.height == plan.height,
-          thumbnail.bitsPerComponent == 8, thumbnail.bitsPerPixel == 32,
-          thumbnail.bytesPerRow <= plan.stride, thumbnail.bitmapInfo.subtracting(.alphaInfoMask).subtracting(.byteOrderMask).isEmpty,
-          [.noneSkipFirst, .noneSkipLast].contains(thumbnail.alphaInfo),
-          thumbnail.colorSpace?.name == CGColorSpace.sRGB,
-          let data = thumbnail.dataProvider?.data,
-          CFDataGetLength(data) >= thumbnail.bytesPerRow * (thumbnail.height - 1) + thumbnail.width * 4,
-          CFDataGetLength(data) <= plan.outputBytes else { return nil }
-    return data
+/// Whether drawing the thumbnail into the planned sRGB bitmap would change
+/// nothing but its bytes' layout: the planned size (no resample), 8-bit
+/// opaque sRGB (no conversion; the skipped alpha byte reads as opaque),
+/// rows no wider than the plan's. Otherwise the caller draws.
+private func isAdoptable(_ thumbnail: CGImage, plan: RasterDecodePlan) -> Bool {
+    thumbnail.width == plan.width && thumbnail.height == plan.height
+        && thumbnail.bitsPerComponent == 8 && thumbnail.bitsPerPixel == 32
+        && thumbnail.bytesPerRow <= plan.stride
+        && thumbnail.bitmapInfo.subtracting(.alphaInfoMask).subtracting(.byteOrderMask).isEmpty
+        && [.noneSkipFirst, .noneSkipLast].contains(thumbnail.alphaInfo)
+        && thumbnail.colorSpace?.name == CGColorSpace.sRGB
+}
+
+/// Zeroed memory for a bitmap that lives only while `body` runs. A large
+/// one is pages returned to the system as it ends: a freed large malloc
+/// block can stay dirty in the allocator's cache, charged to the process,
+/// until it is reused. A small one is not worth the system calls.
+func withScratch<T>(_ count: Int, _ body: (UnsafeMutableRawPointer) throws -> T?) rethrows -> T? {
+    guard count > 0 else { return nil }
+    if count < 128 * 1024 {
+        guard let small = calloc(count, 1) else { return nil }
+        defer { free(small) }
+        return try body(small)
+    }
+    guard let pages = mmap(nil, count, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0),
+          pages != MAP_FAILED else { return nil }
+    defer { munmap(pages, count) }
+    return try body(pages)
 }
 
 enum RasterGeometry {
