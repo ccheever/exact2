@@ -6,13 +6,15 @@
 
 use crate::image::Bitmap;
 use crate::paint::border::{BorderFill, PathOp};
+use crate::paint::GradientPaint;
 use crate::paint::{Backend, Rect4, Shape, POINTER};
 use crate::text::{Paragraph, RunPaint, TextEngine};
+use exact_kernel::gradient::{premultiplied_ramp, Geometry};
 use std::rc::Rc;
 use std::sync::Arc;
 use tiny_skia::{
-    Color, FillRule, FilterQuality, Mask, Paint, Path, PathBuilder, Pixmap, PixmapPaint, Point,
-    Rect, Stroke, Transform,
+    Color, FillRule, FilterQuality, GradientStop, LinearGradient, Mask, Paint, Path, PathBuilder,
+    Pixmap, PixmapPaint, Point, RadialGradient, Rect, SpreadMode, Stroke, Transform,
 };
 
 // One optional CPU coverage mask, never a source, picture or node owner.
@@ -626,6 +628,49 @@ impl Backend for Raster {
                 dev,
                 mask.as_deref(),
             );
+        }
+    }
+
+    fn fill_gradient(&mut self, shape: &Shape, gradient: &GradientPaint, ts: Transform) {
+        let Some(path) = rounded_rect(shape) else {
+            return;
+        };
+        // tiny-skia mixes stops unpremultiplied; CSS mixes premultiplied.
+        let stops = premultiplied_ramp(&gradient.stops)
+            .into_iter()
+            .map(|(at, c)| GradientStop::new(at, Color::from_rgba8(c.r(), c.g(), c.b(), c.a())))
+            .collect();
+        let shader = match gradient.geometry {
+            Geometry::Linear { start, end } => LinearGradient::new(
+                Point::from_xy(start.0, start.1),
+                Point::from_xy(end.0, end.1),
+                stops,
+                SpreadMode::Pad,
+                Transform::identity(),
+            ),
+            // The unit circle, scaled to the ellipse.
+            Geometry::Radial { center, radii } => RadialGradient::new(
+                Point::zero(),
+                0.0,
+                Point::zero(),
+                1.0,
+                stops,
+                SpreadMode::Pad,
+                Transform::from_row(radii.0, 0.0, 0.0, radii.1, center.0, center.1),
+            ),
+        };
+        let Some(shader) = shader else {
+            return;
+        };
+        let paint = Paint {
+            shader,
+            anti_alias: true,
+            ..Paint::default()
+        };
+        let dev = self.device(ts);
+        let mask = self.clips.last().cloned();
+        if let Some(t) = self.target.as_mut() {
+            t.fill_path(&path, &paint, FillRule::Winding, dev, mask.as_deref());
         }
     }
 

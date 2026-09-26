@@ -265,6 +265,7 @@ impl Picture {
             let mut cost = 1usize; // hit, including opacity-zero nodes
             if opacity > 0. {
                 paint.emit(&geometry, |_, _| cost += 1);
+                cost += usize::from(paint.gradient.is_some());
                 cost += paint.borders(&geometry).len();
                 cost += match &payload {
                     Payload::Empty => 0,
