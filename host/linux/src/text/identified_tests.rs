@@ -560,6 +560,7 @@ mod owned_spec {
             italic: false,
             line_height: None,
             letter_spacing: 0.,
+            font_variant_numeric: 0,
         }
     }
     fn spec(text: &str) -> Spec {

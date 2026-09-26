@@ -82,9 +82,11 @@ fn failed_font_admission_continues_to_good_fallback() {
 }
 
 fn code_spec(text: &str) -> Spec {
+    // Code keeps its lines and spaces: `pre-wrap`, as a `<pre>` would.
     let style = StyleProps {
         font_family: 5,
         font_size: 13.,
+        white_space: exact_kernel::WhiteSpace::PreWrap,
         ..StyleProps::default()
     };
     let mut spec = crate::paint::text_spec(&style, text);

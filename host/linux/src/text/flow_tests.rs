@@ -154,9 +154,12 @@ fn measure_request_and_fragment_paint_have_identical_metrics() {
 #[test]
 fn fragment_byte_coverage_survives_clusters_and_hard_breaks() {
     let mut engine = TextEngine::new();
-    let text = "office affinity e\u{301} 👩‍👩‍👧‍👦   word\n\nשלום עולם\r\nNext\t\tend".repeat(30);
-    let mut s = spec(&text);
+    let source = "office affinity e\u{301} 👩‍👩‍👧‍👦   word\n\nשלום עולם\r\nNext\t\tend".repeat(30);
+    let mut s = spec(&source);
     s.overflow_wrap = exact_kernel::OverflowWrap::Anywhere;
+    // Fragments address the spec's text, collapsed per CSS (LLP 1053 G5).
+    let text = s.runs[0].text.clone();
+    assert!(text.len() < source.len());
     let p = engine.paragraph_flow(&s, 190., &circle(90.), None);
     let mut at = 0;
     for f in p.fragments() {
@@ -189,7 +192,11 @@ fn unbreakable_normal_word_reports_its_actual_overflow() {
 fn trailing_blank_lines_keep_source_glyphs_in_their_own_bands() {
     let mut engine = TextEngine::new();
     let text = "First source line.\nSecond source line.\n\n\n";
-    let p = engine.paragraph_flow(&spec(text), 400., &circle(200.), None);
+    // Hard breaks are preserved segment breaks: `pre-wrap` (CSS; LLP 1053 G5).
+    let mut pre = spec("");
+    pre.white_space = exact_kernel::WhiteSpace::PreWrap;
+    pre.runs[0].text = text.into();
+    let p = engine.paragraph_flow(&pre, 400., &circle(200.), None);
     assert_eq!(p.fragments().last().unwrap().end, text.len());
     assert_eq!(p.fragments().len(), p.layout_runs().count());
     for (f, run) in p.fragments().iter().zip(p.layout_runs()) {
@@ -232,7 +239,9 @@ fn css_white_space_changes_flow_width_and_breaks() {
         .flat_map(|r| r.glyphs.iter().map(|g| g.x))
         .collect();
     assert_eq!(normal_ink, normalized_ink);
+    // The spec collapsed its source (LLP 1053 G5); preserve the raw source.
     s.white_space = exact_kernel::WhiteSpace::PreWrap;
+    s.runs[0].text = "A    B\nC".into();
     let preserved = engine.paragraph_flow(&s, 500.0, &circle(900.0), None);
     assert_eq!(preserved.fragments().len(), 2);
     let pair = engine.paragraph_flow(&spec("A B"), 500.0, &circle(900.0), None);
@@ -287,7 +296,7 @@ fn rtl_hebrew_and_arabic_take_right_interval_first() {
                 }
             }
             assert!(split > 0);
-            assert_eq!(p.fragments().last().unwrap().end, text.len());
+            assert_eq!(p.fragments().last().unwrap().end, s.runs[0].text.len());
         }
     }
 }

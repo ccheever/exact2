@@ -447,6 +447,7 @@ pub(crate) fn adopt(
             width: metrics.width,
             height: metrics.height,
             first_baseline: metrics.first_baseline.unwrap_or(0.),
+            ellipsized: RefCell::new(None),
             ink: RefCell::new(ink::Cache::from_index(
                 &raster.catalog.borrow().ink_catalog,
                 input.paint.scale(),

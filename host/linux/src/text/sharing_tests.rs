@@ -438,6 +438,7 @@ fn uncompacted_oracle(engine: &mut TextEngine, p: &Paragraph, width: Option<f32>
     let old = legacy(&mut engine.catalog.borrow_mut(), &p.source.spec, width);
     let mut oracle = Paragraph {
         flow: None,
+        ellipsized: RefCell::new(None),
         source: p.source.clone(),
         layouts: Arc::new(
             old.buffer

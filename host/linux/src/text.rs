@@ -68,6 +68,8 @@ pub struct Run {
     pub line_height: Option<f32>,
     /// Points per glyph.
     pub letter_spacing: f32,
+    /// CSS `font-variant-numeric` bits (LLP 1053 G4): 1 is `tabular-nums`.
+    pub font_variant_numeric: u8,
 }
 
 #[cfg(test)]
@@ -82,6 +84,7 @@ impl Clone for Run {
             italic: self.italic,
             line_height: self.line_height,
             letter_spacing: self.letter_spacing,
+            font_variant_numeric: self.font_variant_numeric,
         }
     }
 }
@@ -99,6 +102,7 @@ impl Run {
             italic: style.font_style != exact_kernel::FontStyle::Normal,
             line_height: style.line_height,
             letter_spacing: style.letter_spacing,
+            font_variant_numeric: style.font_variant_numeric,
         }
     }
 }
@@ -123,6 +127,22 @@ pub struct Spec {
 }
 
 impl Spec {
+    /// CSS white space collapsing, before shaping (LLP 1053 G5): cosmic-text
+    /// shapes what it is given, the browser collapses first. Collapsed runs are
+    /// the spec's identity, so equal renderings share one shape.
+    pub fn collapse_white_space(mut self) -> Self {
+        if self.white_space.model().preserves() {
+            return self;
+        }
+        let texts: Vec<&str> = self.runs.iter().map(|r| r.text.as_str()).collect();
+        if let Some(collapsed) = exact_textflow::collapse(&texts) {
+            for (run, text) in self.runs.iter_mut().zip(collapsed.runs) {
+                run.text = text;
+            }
+        }
+        self
+    }
+
     /// The spec a kernel measure request describes.
     pub fn from_request(request: &TextMeasureRequest<'_>) -> Spec {
         Spec {
@@ -138,6 +158,7 @@ impl Spec {
             white_space: request.paragraph.white_space,
             direction: request.paragraph.direction,
         }
+        .collapse_white_space()
     }
 
     /// Whether there is nothing to shape.
@@ -164,6 +185,7 @@ pub struct Paragraph {
     /// CSS shared-baseline placement for each wrapped line, used by both painters.
     baselines: Arc<Vec<f32>>,
     ink: RefCell<ink::Cache>,
+    ellipsized: RefCell<Option<(f32, Rc<Paragraph>)>>,
     // S + L, excluding canonical key K. Shared S must be deduplicated across
     // snapshots; lazy ink is read separately below.
     resident_capacity_bytes: usize,
@@ -232,6 +254,76 @@ impl Paragraph {
     /// Accounting/maintenance runs outside paint's exclusive ink borrow.
     fn owned_capacity_bytes(&self) -> usize {
         self.resident_capacity_bytes + self.ink_capacity_bytes()
+    }
+
+    /// CSS inline backgrounds (LLP 1053 §0): each run's `background-color`
+    /// covers each of its line fragments, its glyphs' advance across and its
+    /// own font's content area down; touching spans of one colour join.
+    /// Rectangles are in points from the paragraph's top-left, in paint order.
+    pub fn run_backgrounds(
+        &self,
+        backgrounds: &[Option<[u8; 4]>],
+    ) -> Vec<(crate::paint::Rect4, [u8; 4])> {
+        let mut out = Vec::new();
+        if backgrounds.iter().all(Option::is_none) {
+            return out;
+        }
+        let metrics = &self.source.data.run_metrics;
+        for (line, baseline) in self.layout_runs().zip(self.baselines.iter()) {
+            let mut spans: Vec<(f32, f32, usize)> = Vec::new();
+            for g in line.glyphs {
+                if backgrounds.get(g.metadata).copied().flatten().is_none() {
+                    continue;
+                }
+                let (lo, hi) = (g.x.min(g.x + g.w), g.x.max(g.x + g.w));
+                match spans.last_mut() {
+                    Some(last)
+                        if last.2 == g.metadata && lo <= last.1 + 0.01 && hi >= last.0 - 0.01 =>
+                    {
+                        last.0 = last.0.min(lo);
+                        last.1 = last.1.max(hi);
+                    }
+                    _ => spans.push((lo, hi, g.metadata)),
+                }
+            }
+            spans.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let mut merged: Vec<(f32, f32, usize)> = Vec::new();
+            for span in spans {
+                let color = backgrounds[span.2];
+                match merged.last_mut() {
+                    Some(last) if backgrounds[last.2] == color && span.0 <= last.1 + 0.01 => {
+                        last.1 = last.1.max(span.1)
+                    }
+                    _ => merged.push(span),
+                }
+            }
+            for (lo, hi, run) in merged {
+                let (ascent, descent, _) = metrics[run];
+                out.push((
+                    (lo, baseline - ascent, hi - lo, ascent + descent),
+                    backgrounds[run].expect("filtered"),
+                ));
+            }
+        }
+        out
+    }
+
+    /// The same source laid out for CSS `text-overflow: ellipsis` at `width`:
+    /// each line wider than the box ends in an ellipsis (paint only; the
+    /// measured paragraph is unchanged). Kept for the last width asked.
+    pub fn ellipsized(&self, width: f32) -> Option<Rc<Paragraph>> {
+        if self.width <= width + 0.01 || self.source.spec.line_clamp > 0 {
+            return None;
+        }
+        let mut cached = self.ellipsized.borrow_mut();
+        if let Some((w, p)) = cached.as_ref() {
+            if w.to_bits() == width.to_bits() {
+                return Some(p.clone());
+            }
+        }
+        let p = Rc::new(self.source.layout_ellipsized(width));
+        *cached = Some((width, p.clone()));
+        Some(p)
     }
 
     /// The shared CPU/GPU stream: every glyph keeps its canonical run index
@@ -924,3 +1016,7 @@ mod sharing_tests;
 #[cfg(test)]
 #[path = "text/span_capacity_tests.rs"]
 mod span_capacity_tests;
+
+#[cfg(test)]
+#[path = "text/css_tests.rs"]
+mod css_tests;

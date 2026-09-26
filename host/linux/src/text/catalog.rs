@@ -245,6 +245,13 @@ impl Catalog {
         if run.letter_spacing != 0.0 && run.size > 0.0 {
             a = a.letter_spacing(run.letter_spacing / run.size);
         }
+        // CSS `tabular-nums` is the chosen face's own `tnum` feature, never a
+        // substitute face; a face without it keeps its figures (LLP 1053 G4).
+        if run.font_variant_numeric & 1 != 0 {
+            let mut features = cosmic_text::FontFeatures::new();
+            features.enable(cosmic_text::FeatureTag::new(b"tnum"));
+            a = a.font_features(features);
+        }
         a
     }
     pub(super) fn normal_line_height(&mut self, run: &Run) -> f32 {

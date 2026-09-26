@@ -101,7 +101,7 @@ impl FlowSource {
             }
             offset = start + run.text.len();
         }
-        if source.spec.white_space != exact_kernel::WhiteSpace::PreWrap
+        if !source.spec.white_space.model().preserves()
             && text.chars().any(|ch| {
                 matches!(
                     ch,
@@ -177,11 +177,7 @@ impl FlowSource {
         let prepared = Prepared::new(
             &text,
             Options {
-                white_space: match source.spec.white_space {
-                    exact_kernel::WhiteSpace::Normal => exact_textflow::WhiteSpace::Normal,
-                    exact_kernel::WhiteSpace::PreWrap => exact_textflow::WhiteSpace::PreWrap,
-                    exact_kernel::WhiteSpace::Nowrap => exact_textflow::WhiteSpace::Nowrap,
-                },
+                white_space: source.spec.white_space.model(),
                 overflow_wrap,
                 hyphen_advance: hyphen.iter().map(|g| g.w).sum(),
             },
@@ -345,7 +341,7 @@ impl TextEngine {
                         ' ' | '\t' | '\r' | '\n' | '\u{85}' | '\u{c}' | '\u{2028}' | '\u{2029}'
                     )
                 }) {
-                    if source.spec.white_space == exact_kernel::WhiteSpace::PreWrap {
+                    if source.spec.white_space.model().preserves() {
                         if value.chars().all(|ch| matches!(ch, ' ' | '\t')) {
                             visible.push(c);
                         }
@@ -498,6 +494,7 @@ impl TextEngine {
             height,
             first_baseline: baselines.first().copied().unwrap_or(0.0),
             baselines: Arc::new(baselines),
+            ellipsized: RefCell::new(None),
             ink: RefCell::new(ink::Cache::default()),
             resident_capacity_bytes: 0,
             private_text_bytes_estimate: 0,

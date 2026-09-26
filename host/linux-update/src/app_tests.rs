@@ -489,7 +489,7 @@ fn verified_launch_refusals_are_demoted_after_failed_launches() {
         .unwrap()
         .encode();
     let bad_layout = contract::compile(
-        "component App\n  view\n    text \" \" font-size=300000000000000000000000000000000000000\n",
+        "component App\n  view\n    text \"x\" font-size=300000000000000000000000000000000000000\n",
     )
     .unwrap()
     .encode();
@@ -669,7 +669,7 @@ fn a_refused_initial_layout_releases_no_network_requests() {
     let baked = contract::compile("component App\n  view\n    text \"baked\"\n")
         .unwrap()
         .encode();
-    let source = "shape Reply\n  value: string\nshape Delivery\n  seq: number\ncomponent App\n  resource delivery = exactDelivery() as shape Delivery\n  resource reply = ping(delivery.seq) as shape Reply\n  view\n    text \" \" font-size=SIZE\n";
+    let source = "shape Reply\n  value: string\nshape Delivery\n  seq: number\ncomponent App\n  resource delivery = exactDelivery() as shape Delivery\n  resource reply = ping(delivery.seq) as shape Reply\n  view\n    text \"x\" font-size=SIZE\n";
     let dir = std::env::temp_dir().join(format!(
         "exact-linux-refused-network-{}",
         std::process::id()

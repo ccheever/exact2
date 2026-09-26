@@ -31,7 +31,9 @@ use std::sync::Arc;
 use tiny_skia::{Pixmap, Point, Transform};
 pub mod border;
 pub(crate) mod damage;
+mod inline;
 mod region;
+use inline::{text_backgrounds, text_palette};
 pub(crate) use region::{ActionNode, ActionSlot, RegionActions, ScrollBounds};
 
 /// A node's presentation values: what the motion engine says to paint.
@@ -859,7 +861,7 @@ impl Painter {
                         .iter()
                         .map(|run| Run::from_style(run.text, run.style))
                         .collect();
-                    spec
+                    spec.collapse_white_space()
                 };
                 let paragraph = if let Some(stamp) = node.paragraph_stamp() {
                     // @ref LLP 1043.000 §3 D7 — ordinary text takes the same
@@ -884,14 +886,26 @@ impl Painter {
                     let mut palette = Vec::new();
                     text_palette(walk.scene.kernel, node, self.dark, &mut palette);
                     walk.text.insert(node.key, paragraph.clone());
+                    // CSS `text-overflow: ellipsis` in a clipping box: an
+                    // over-wide line ends in "…" (LLP 1053 G5; paint only).
+                    let shown = (s.text_overflow == exact_kernel::TextOverflow::Ellipsis
+                        && effective_overflow(node).0 != Overflow::Visible)
+                        .then(|| paragraph.ellipsized(content.2))
+                        .flatten()
+                        .unwrap_or_else(|| paragraph.clone());
+                    // Inline backgrounds, under the glyphs, per line fragment.
+                    let mut backgrounds = Vec::new();
+                    text_backgrounds(walk.scene.kernel, node, None, self.dark, &mut backgrounds);
+                    for (r, color) in shown.run_backgrounds(&backgrounds) {
+                        self.backend.fill(
+                            &Shape::rect((content.0 + r.0, content.1 + r.1, r.2, r.3)),
+                            color,
+                            ts,
+                        );
+                    }
                     let mut engine = self.text.borrow_mut();
-                    self.backend.text(
-                        &mut engine,
-                        &paragraph,
-                        &palette,
-                        (content.0, content.1),
-                        ts,
-                    );
+                    self.backend
+                        .text(&mut engine, &shown, &palette, (content.0, content.1), ts);
                 }
             }
             NodeType::TextInput => {
@@ -908,7 +922,11 @@ impl Painter {
                 } else {
                     value
                 };
-                let computed = node.computed_style(StyleMask::INHERITED);
+                let mut computed = node.computed_style(StyleMask::INHERITED);
+                // A field's value is never collapsed, as the kernel measures it.
+                if !computed.white_space.model().preserves() {
+                    computed.white_space = exact_kernel::WhiteSpace::PreWrap;
+                }
                 let spec = text_spec(&computed, shown);
                 let multiline = node.props.str(PropId::SemanticTag) == Some("textarea");
                 let paragraph = self
@@ -1047,6 +1065,8 @@ pub fn object_fit(natural: (u32, u32), fit: ObjectFit, content: Rect4) -> Option
 
 /// A text node's paragraph spec from its rows (the kernel's defaults are
 /// CSS's, so every row reads directly).
+/// Its white space is collapsed per CSS unless the row preserves it; the
+/// caller that replaces the runs collapses again ([`Spec::collapse_white_space`]).
 pub fn text_spec(s: &StyleProps, text: &str) -> Spec {
     Spec {
         strut: Run::from_style("", exact_kernel::TextStyle::from_style(s)),
@@ -1060,23 +1080,7 @@ pub fn text_spec(s: &StyleProps, text: &str) -> Spec {
         white_space: s.white_space,
         direction: s.direction,
     }
-}
-
-/// Mirror the canonical run ownership (own text suppresses descendants),
-/// retaining paint-only information without adding it to the metric ABI.
-fn text_palette(kernel: &Kernel, node: &NodeRef<'_>, dark: bool, out: &mut Vec<RunPaint>) {
-    if node.props.str(PropId::Text).is_some() {
-        out.push(RunPaint {
-            color: rgba(node.text_color().resolve(dark)),
-            source: node.id,
-        });
-    } else {
-        for child in node.children() {
-            if let Some(child) = kernel.node(child).filter(|c| c.node_type == NodeType::Text) {
-                text_palette(kernel, &child, dark, out);
-            }
-        }
-    }
+    .collapse_white_space()
 }
 
 /// A node's effective overflow per axis — the kernel's own rule: a

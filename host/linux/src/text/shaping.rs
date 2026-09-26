@@ -74,7 +74,7 @@ pub(super) struct ShapeData {
     lines: Vec<Line>,
     metrics: Metrics,
     strut: (f32, f32),
-    run_metrics: Vec<FontMetrics>,
+    pub(super) run_metrics: Vec<FontMetrics>,
 }
 impl ShapedSource {
     pub(super) fn flow_box<'a>(&self, glyphs: impl Iterator<Item = &'a LayoutGlyph>) -> (f32, f32) {
@@ -234,6 +234,18 @@ impl ShapedSource {
         self.data.lines.iter().map(|_| Vec::new()).collect()
     }
     pub(super) fn layout(self: &Rc<Self>, width: Option<f32>, wrap: Option<Wrap>) -> Paragraph {
+        self.layout_as(width, wrap, false)
+    }
+    /// CSS `text-overflow: ellipsis`: each over-wide line ends in "…" (paint).
+    pub(super) fn layout_ellipsized(self: &Rc<Self>, width: f32) -> Paragraph {
+        self.layout_as(Some(width), None, true)
+    }
+    fn layout_as(
+        self: &Rc<Self>,
+        width: Option<f32>,
+        wrap: Option<Wrap>,
+        ellipsis: bool,
+    ) -> Paragraph {
         let spec = &self.spec;
         let wrap = if spec.white_space == exact_kernel::WhiteSpace::Nowrap {
             Wrap::None
@@ -248,6 +260,8 @@ impl ShapedSource {
         };
         let ellipsize = if spec.line_clamp > 0 {
             Ellipsize::End(EllipsizeHeightLimit::Lines(spec.line_clamp as usize))
+        } else if ellipsis && wrap == Wrap::None {
+            Ellipsize::End(EllipsizeHeightLimit::Lines(1))
         } else {
             Ellipsize::None
         };
@@ -306,6 +320,7 @@ impl ShapedSource {
             first_baseline: 0.,
             baselines: Arc::new(Vec::new()),
             ink: RefCell::new(ink::Cache::default()),
+            ellipsized: RefCell::new(None),
             resident_capacity_bytes: 0,
             private_text_bytes_estimate: 0,
         };
@@ -444,6 +459,7 @@ impl ShapedSource {
             first_baseline: 0.,
             baselines: Arc::new(Vec::new()),
             ink: RefCell::new(ink::Cache::default()),
+            ellipsized: RefCell::new(None),
             resident_capacity_bytes: 0,
             private_text_bytes_estimate: 0,
         };

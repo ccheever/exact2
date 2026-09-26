@@ -204,6 +204,7 @@ fn declared_bytes_are_the_resolved_faces_and_the_painted_geometry() {
                     italic: false,
                     line_height: None,
                     letter_spacing: 0.0,
+                    font_variant_numeric: 0,
                 }],
                 align: TextAlign::Left,
                 line_clamp: 0,
@@ -296,8 +297,13 @@ fn normal_paragraph_preserves_fractional_explicit_child_boxes() {
         font_size: 16.0,
         ..StyleProps::default()
     };
+    // A preserved segment break makes the second line (CSS; LLP 1053 G5).
+    let preserved = StyleProps {
+        white_space: exact_kernel::WhiteSpace::PreWrap,
+        ..style.clone()
+    };
     for (text, count) in [("Child", 1.0), ("First\nSecond", 2.0)] {
-        let mut spec = exact_linux::paint::text_spec(&style, text);
+        let mut spec = exact_linux::paint::text_spec(&preserved, text);
         spec.runs[0].line_height = Some(60.25);
         let measured = engine.measure(&spec, AxisOffer::MaxContent);
         assert!(
