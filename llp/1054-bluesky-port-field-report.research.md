@@ -20,8 +20,10 @@ every problem; this document catalogs it.
 
 Six gaps were closed in exact2 during the port and merged at `f115a0e6`:
 the date as a host fact, pull to refresh, WebP sizes on Apple, link
-activation, app icons, and symbol roles (§1). Thirty findings remain open
-(§2–§6). Their proposed resolutions are LLP 1054.000.
+activation, app icons, and symbol roles (§1). Thirty-two numbered findings
+remain open (§2–§6; L7 and D4 are one problem seen twice). Their proposed
+resolutions are LLP 1054.000. Two reviews (Claude and Astra,
+`llp/reviews/1054.000-*`) corrected this report where noted *(revised)*.
 
 The port also confirmed what works. The same source ran on three hosts
 nearly first try. The compiler's diagnostics named every fix. The data
@@ -62,8 +64,9 @@ correctness; **S3** costs time once.
 - **O2 (S3) — Prerequisites arrive one failure at a time.** In order: the
   pinned nightly with `rust-src`; `cargo fetch` in the app workspace (the
   build is `--offline`); `cargo +nightly fetch` of std's lockfile
-  (`-Zbuild-std`); binaryen *exactly* 132 for `wasm-split` (133 refused;
-  no download line; "brew install binaryen" on a machine without Homebrew);
+  (`-Zbuild-std`); binaryen 132 for `wasm-split` (any other version builds
+  unsplit, with a note that named no download; "brew install binaryen" on
+  a machine without Homebrew) *(revised: not a refusal)*;
   `DEVELOPER_DIR` when `xcode-select` names the Command Line Tools (the iOS
   build fails inside `ibex2`'s build script). Five builds to learn five
   prerequisites, each named well only when hit.
@@ -98,7 +101,8 @@ correctness; **S3** costs time once.
 - **L5 (S2) — No list indexing, and `fn` cannot loop.** "The first image"
   needed the data crate to number ids and `each … when p.id == "0"`. Finding
   the viewer's own avatar in `list<Profile>` needed a whole data source.
-- **L6 (S3) — `display` is refused on a virtualized list's root.** Keeping a
+- **L6 (S3) — `display` other than a literal `block` is refused on a
+  virtualized list's root** *(revised: narrowed)*. Keeping a
   list per home feed mounted needed a wrapper column to carry `display`.
 - **L7 (S3) — `reachend` cannot take bound arguments.** See D4.
 - **L8 (S2) — Record resources need a hand-written placeholder source each.**
@@ -109,7 +113,8 @@ correctness; **S3** costs time once.
   `build.mjs` a Contract error is a `build.rs` panic in ~200 lines of cargo
   JSON. The port used `contract build app.contract -o /tmp/x.plan` as its
   inner loop instead.
-- **L10 (S2) — Plan size is invisible, and it is wasm size.** Every
+- **L10 (S2) — Which component costs what is invisible, and plan size is
+  wasm size.** The summary line prints total nodes and bytes *(revised)*. Every
   component use is inlined, and the plan is `include_bytes!`'d into the wasm
   (and served again as `app.plan`). `Row` (~100 nodes) was used six times
   and carried a thread-only `FocusPost`; splitting it and merging two screens
@@ -124,8 +129,11 @@ correctness; **S3** costs time once.
   silently shifts the rest; the runner's shape check catches it only at
   runtime. The port mirrored ~20 shapes by hand, with the order recorded in
   comments.
-- **D2 (S1) — A source cannot say its answers changed.** The runner re-asks
-  a resource only when an argument changes. When a `send` changes what a
+- **D2 (S2) — A source cannot say its answers changed.** The runner re-asks
+  a resource when an argument changes, on `refresh r`, and when a store it
+  read changes revision; state a source keeps outside the store is not
+  tracked *(revised: S1 → S2; an app-level workaround exists, and
+  `apps/realworld` threads `changeStamp`/`authStamp` the same way)*. When a `send` changes what a
   resource would answer (a pending message, a read badge), the app must also
   bump a state the resource takes as an unused argument. The port threads
   `rev` through eight resources and forgot it twice: sent messages did not
@@ -141,11 +149,13 @@ correctness; **S3** costs time once.
   handler takes no bound arguments, so the guard in D3 needed a separate
   `loaded(homeFeeds, authorFeeds)` resource to read page counts off lists.
 - **D5 (S1) — Independent reads beyond the budget are refused, not queued.**
-  The native executor reserves each independent read's
-  `max_response_bytes` against 32 MiB. At 8 MiB the fifth launch read was
-  refused ("native executor admission limit reached") and the app showed a
-  network error. The knob is a reservation, not a cap, and nothing says so
-  outside `executor_core.rs`.
+  Admission charged each independent read its whole reservation —
+  request buffers + max(2 × `max_response_bytes`, 32 KiB) + 128 KiB —
+  against a 32 MiB budget, so two 8 MiB reads (≈16.1 MiB each) could not be
+  admitted together *(revised: the first draft said "the fifth")*. A launch
+  read was refused ("native executor admission limit reached") and the app
+  showed a network error. The ordered lane had already been fixed for this
+  (LLP 1041 §8.4: charge the ceiling when the job starts, and wait).
 - **D6 (S3) — HTTP is ordered by default.** Overlap is opt-in per request
   with `.independent_http(bytes)`, found only in `runner/src/request.rs`.
   For a feed client almost every read wants it.
@@ -158,16 +168,22 @@ correctness; **S3** costs time once.
 
 ### 5. Host parity
 
-- **P1 (S2) — iOS: a list row's height ignores a child's negative margin.** A
-  profile header row with `margin-top: -44` on a child measured 44 pt taller
-  than its content on iOS (the web's was right). Found by dumping frames on
-  both hosts; worked around with an absolutely positioned avatar.
+- **P1 (S2) — A flex item's negative margin is lost when it has a
+  `min-height`.** A profile header row with `margin-top: -44` measured 44 pt
+  taller than its content on iOS (the web's was right). Found by dumping
+  frames on both hosts; worked around with an absolutely positioned avatar.
+  *(Revised: the cause is the kernel, not UIKit, so macOS and Linux shared
+  it. Taffy's intrinsic main-size contribution added the margin before
+  clamping by the item's min size, which swallowed a negative margin:
+  330 against the browser's 286 in the reduced case. Fixed as Taffy patch
+  14, `contract/cli/tests/it/negative_margin.rs`.)*
 - **P2 (S2) — AppKit: `overflow: hidden` with `border-radius` does not clip
   an image child to the corners** (the web and iOS do). Avatars came out
   square; worked around with a radius on each image.
 - **P3 (S2) — AppKit: a `line-clamp: 1` text whose one word is wider than its
-  box draws over its neighbour.** CSS clips it (line-clamp implies
-  `overflow: hidden`), and the web does. Worked around with
+  box draws over its neighbour.** The web does not: exact2's web adapter
+  emits `overflow: hidden` with its clamp (`host/web/src/css.rs`)
+  *(revised: CSS's `line-clamp` itself does not imply it)*. Worked around with
   `white-space: nowrap; text-overflow: ellipsis; overflow: hidden`.
 - **P4 (S3) — Pull to refresh exists on iOS only** (X2). A `refresh` handler
   is silently inert on the web and AppKit.
@@ -177,9 +193,9 @@ correctness; **S3** costs time once.
 - **A1 (S2) — `clock settle` does not wait for images.** Every web and iOS
   screenshot showed grey placeholders; headless Chrome with a virtual-time
   budget showed the images loading. (iOS is also in QUEUE.)
-- **A2 (S3) — `layout` takes an id, and ids are not stable** across runs of a
-  live-data app. The port wrote a 25-line script over `agent.mjs` `open()`
-  to find nodes by testId first.
+- **A2 (S3) — withdrawn.** The draft said `layout` takes only an id. It
+  already resolves a testId as `tree` does (`scripts/agent.mjs`, `find`);
+  the port wrote a 25-line script it did not need *(revised)*.
 - **A3 (S3) — AppKit screenshots omit SF Symbols**, and `screenshot … window`
   needs Screen Recording permission. Symbols were checked by `layout`'s
   `native.symbol` instead. Covered in part: issue
@@ -212,7 +228,9 @@ correctness; **S3** costs time once.
 
 High for every S1/S2 finding: each was reproduced and worked around in the
 port, with the workaround in the app's history. P1–P3 were measured by
-frame dumps on two hosts. D5's budget arithmetic is from
-`host/apple/src/executor_core.rs` (`BYTES`, `reservation`). L10's numbers
+frame dumps on two hosts, and P1's cause by a kernel test that reproduces
+it. D5's budget arithmetic is from `host/apple/src/executor_core.rs`
+(`BYTES`, `reservation`); the draft had it wrong by a factor of two, and
+both reviews caught it. L10's numbers
 are from the compiler's own summary line. Lower for O2's "five builds": the
 order depends on what a machine already has.
