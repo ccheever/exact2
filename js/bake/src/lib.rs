@@ -420,6 +420,9 @@ impl Drop for Scratch {
     }
 }
 
+/// The generated declarations `app.ts` imports.
+const DECLARATIONS: &str = "app.contract.d.ts";
+
 /// Capture the app-local source graph. External/npm imports intentionally fail
 /// in the private snapshot until dependency capture is implemented; they must
 /// not silently resolve to unrelated files on the producer machine.
@@ -439,6 +442,8 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
             }
             if matches!(&*name, ".git" | "node_modules" | "target" | "dist")
                 || name.starts_with(".exact-js-bake-")
+                // Written beside app.ts for an editor (below); the bake makes its own.
+                || (at == root && name == DECLARATIONS)
             {
                 continue;
             }
@@ -606,7 +611,13 @@ fn bake_in(
         map.relocate_sources(stage, &app)?;
     }
     let declarations = contract::typescript(&plan)?;
-    write_changed(&stage.join("app.contract.d.ts"), declarations.as_bytes())?;
+    write_changed(&stage.join(DECLARATIONS), declarations.as_bytes())?;
+    // And beside app.ts, so an editor type-checks the module against the plan
+    // it will run with. Never captured as a source, never committed; written
+    // only when it changes, so a watcher sees one event per contract change.
+    if development {
+        write_changed(&app.join(DECLARATIONS), declarations.as_bytes())?;
+    }
     let entry = format!("import * as app from './app';\nimport type {{ Answer }} from './app.contract.d.ts';\nexport const abi = {};\nexport const appId: string = app.appId;\nexport const grants: string = app.grants;\nexport const answer: Answer = app.answer;\n", exact_js::ABI);
     write_changed(&stage.join("__exact_entry.ts"), entry.as_bytes())?;
     if let BakeMode::Development {

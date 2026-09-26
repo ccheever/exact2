@@ -547,7 +547,8 @@ function startModuleCompiler() {
     console.error(`module producer exited ${code}: ${errors}`);
     killCompiler(); process.exit(code || 1);
   });
-  moduleWatch = watchModuleSources(app.dir, name => skipped.test(name) || /(^|\/)\./.test(name)
+  // The declarations the producer writes beside app.ts are its output, not a source.
+  moduleWatch = watchModuleSources(app.dir, name => name === 'app.contract.d.ts' || skipped.test(name) || /(^|\/)\./.test(name)
     || assetTrees.some(([tree]) => resolve(app.dir,name) === tree || resolve(app.dir,name).startsWith(tree+'/')), error => {
     moduleRun++; moduleSaved = Date.now(); clearImmediate(moduleTimer);
     if (error) { console.error(error.message); push({error:error.message}); return; }

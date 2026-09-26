@@ -13,6 +13,9 @@ host/apple/.build/
 # Generated game shells; game/app/shells.mjs writes their own .gitignore.
 game/.shells/
 
+# Declarations the dev producer writes beside each app.ts for an editor.
+apps/*/app.contract.d.ts
+
 # Messages schema bytecode is compiled at bake, never committed.
 apps/messages/snapback/backend.ts
 apps/messages/snapback/generated/
