@@ -216,7 +216,16 @@ fn refusals_are_typed_and_change_nothing() {
             StyleValue::Text("x".into()),
             StyleValueError::WrongKind {
                 style: StyleId::FlexGrow,
-                expected: "number",
+                expected: "nonnegative number",
+            },
+        ),
+        // CSS refuses a negative flex factor (LLP 1053 G3).
+        (
+            StyleId::FlexShrink,
+            StyleValue::Number(-1.0),
+            StyleValueError::WrongKind {
+                style: StyleId::FlexShrink,
+                expected: "nonnegative number",
             },
         ),
         (
@@ -231,7 +240,7 @@ fn refusals_are_typed_and_change_nothing() {
             StyleValue::Auto,
             StyleValueError::WrongKind {
                 style: StyleId::FlexGrow,
-                expected: "number",
+                expected: "nonnegative number",
             },
         ),
         (

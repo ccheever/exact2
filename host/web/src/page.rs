@@ -277,8 +277,8 @@ pub fn read_checkpoint(text: &str) -> Result<Checkpoint, String> {
                     let answer = match item {
                         Value::Record(fields) => match fields.as_slice() {
                             [Value::Str(name), Value::Str(source), Value::List(args), value] => (
-                                name.to_string(),
-                                source.to_string(),
+                                String::from(&**name),
+                                String::from(&**source),
                                 args.to_vec(),
                                 value.clone(),
                             ),
@@ -458,7 +458,18 @@ pub fn digest(plan: &[u8], location: &str, checkpoint: &str, document: &str) -> 
         hash.update(&(part.len() as u64).to_be_bytes());
         hash.update(part);
     }
-    format!("{:032x}", hash.finish())
+    hex32(hash.finish())
+}
+
+/// `format!("{v:032x}")`, without the formatter (the digest is on boot's path).
+fn hex32(v: u128) -> String {
+    let mut out = String::with_capacity(32);
+    let mut shift = 128;
+    while shift > 0 {
+        shift -= 4;
+        out.push(char::from(b"0123456789abcdef"[(v >> shift) as usize & 15]));
+    }
+    out
 }
 
 /// MurmurHash3's x64 128-bit function (Austin Appleby's, public domain),
@@ -659,7 +670,22 @@ pub fn build_locations(plan: &Plan) -> Result<Vec<(String, bool)>, String> {
 
 #[cfg(test)]
 mod murmur_tests {
-    use super::Murmur128;
+    use super::{hex32, Murmur128};
+
+    #[test]
+    fn a_digest_is_its_hash_as_32_hex_digits() {
+        let mut v: u128 = 0x9e37_79b9_7f4a_7c15;
+        for probe in [0, 1, 15, 16, u128::from(u64::MAX), u128::MAX - 1, u128::MAX] {
+            assert_eq!(hex32(probe), format!("{probe:032x}"));
+        }
+        for _ in 0..10_000 {
+            v = v
+                .wrapping_mul(0x2545_f491_4f6c_dd1d_9e37_79b9_7f4a_7c15)
+                .wrapping_add(1);
+            let probe = v >> (v % 128);
+            assert_eq!(hex32(probe), format!("{probe:032x}"));
+        }
+    }
 
     fn hash(bytes: &[u8], seed: u32) -> [u8; 16] {
         let mut h = Murmur128::new(seed);

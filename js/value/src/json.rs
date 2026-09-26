@@ -8,6 +8,7 @@
 //! as the same value.
 
 use crate::Shape;
+use exact_num::Piece;
 use exact_plan::Value;
 use std::fmt;
 use std::ops::{Index, IndexMut};
@@ -19,8 +20,11 @@ pub use crate::parse::{parse, Error};
 pub struct Reply {
     /// The envelope's fields other than the answer value.
     pub fields: Json,
-    /// The shape-checked answer, or its shape error.
-    pub value: Result<Value, String>,
+    /// The shape-checked answer, or its shape error; `None` when the
+    /// envelope has no `value`, which reads as `null` would ([`decode`] of
+    /// [`Json::Null`]) — made only if asked for: most such envelopes are
+    /// a continuation or a request, never read as an answer.
+    pub value: Option<Result<Value, String>>,
 }
 
 /// An executor reply from its UTF-8 bytes.
@@ -40,7 +44,7 @@ pub fn encode(v: &Value, shape: &Shape) -> Result<Json, String> {
             Json::Number(Number::Float(*n))
         }
         (Shape::Bool, Value::Bool(b)) => Json::Bool(*b),
-        (Shape::String, Value::Str(s)) => Json::String(s.to_string()),
+        (Shape::String, Value::Str(s)) => Json::String(String::from(&**s)),
         (Shape::Unit, Value::Unit) => Json::Null,
         (Shape::Option(_), Value::Option(None)) => Json::Null,
         (Shape::Option(inner), Value::Option(Some(v))) => encode(v, inner)?,
@@ -135,6 +139,14 @@ impl Object {
         }
     }
 
+    /// [`Object::insert`] without its answer, out of line: each iterator an
+    /// object is collected from would otherwise carry its own copy of the
+    /// search and the insert.
+    #[inline(never)]
+    fn put(&mut self, key: String, value: Json) {
+        self.insert(key, value);
+    }
+
     /// Remove `key`; its value, if it had one.
     pub fn remove(&mut self, key: &str) -> Option<Json> {
         self.find(key).ok().map(|i| self.0.remove(i).1)
@@ -166,20 +178,25 @@ impl FromIterator<(String, Json)> for Object {
     fn from_iter<I: IntoIterator<Item = (String, Json)>>(iter: I) -> Self {
         let mut object = Object::new();
         for (key, value) in iter {
-            object.insert(key, value);
+            object.put(key, value);
         }
         object
     }
 }
 
 /// An object from `(key, value)` pairs, in any order.
-pub fn object<'k>(members: impl IntoIterator<Item = (&'k str, Json)>) -> Json {
-    Json::Object(
-        members
-            .into_iter()
-            .map(|(k, v)| (k.to_owned(), v))
-            .collect(),
-    )
+pub fn object<const N: usize>(mut members: [(&str, Json); N]) -> Json {
+    object_of(&mut members)
+}
+
+/// [`object`]'s one body: its callers pass arrays of many lengths, and a
+/// body per length would be a copy each.
+fn object_of(members: &mut [(&str, Json)]) -> Json {
+    let mut object = Object::new();
+    for (key, value) in members {
+        object.put((*key).to_owned(), std::mem::take(value));
+    }
+    Json::Object(object)
 }
 
 impl Json {
@@ -299,18 +316,14 @@ impl Json {
 impl Number {
     fn write(&self, out: &mut String) {
         match *self {
-            Number::PosInt(n) => write_u64(n, out),
-            Number::NegInt(n) => {
-                out.push('-');
-                write_u64(n.unsigned_abs(), out);
-            }
+            Number::PosInt(n) => n.push_to(out),
+            Number::NegInt(n) => n.push_to(out),
             // serde_json writes a non-finite float as `null`, as
             // JSON.stringify does; none is ever made here.
             Number::Float(n) if !n.is_finite() => out.push_str("null"),
             Number::Float(n) => {
-                use std::fmt::Write as _;
                 let start = out.len();
-                let _ = write!(out, "{}", exact_num::Shortest(n));
+                exact_num::Shortest(n).push_to(out);
                 // A float stays a float read back, as serde_json writes one.
                 if !out[start..].contains(['.', 'e']) {
                     out.push_str(".0");
@@ -318,21 +331,6 @@ impl Number {
             }
         }
     }
-}
-
-fn write_u64(mut n: u64, out: &mut String) {
-    let mut digits = [0u8; 20];
-    let mut at = digits.len();
-    loop {
-        at -= 1;
-        digits[at] = b'0' + (n % 10) as u8;
-        n /= 10;
-        if n == 0 {
-            break;
-        }
-    }
-    // ASCII digits.
-    out.push_str(std::str::from_utf8(&digits[at..]).unwrap_or_default());
 }
 
 /// A string in quotes, escaped as serde_json and JSON.stringify escape it:

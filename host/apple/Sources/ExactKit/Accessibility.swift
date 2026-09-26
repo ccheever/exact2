@@ -29,14 +29,45 @@ extension NodeView {
     }
 }
 
+/// What an authored tab shows as one segment of the system's segmented
+/// control (LLP 1035.001 D10): its one image, or its words.
+enum SegmentFace: Equatable { case image(NodeView), title(String) }
+
+extension NodeView {
+    /// How this tab shows as a segment, or nil when a segment cannot show
+    /// what was authored: exactly one image child is the segment's image;
+    /// text alone, whose words are its accessible name, is its title. An
+    /// icon beside a label, a badge, or any other node keeps the authored
+    /// rendering — the web's, where a role never changes what is drawn.
+    var segmentFace: SegmentFace? {
+        let children = container.subviews.compactMap { $0 as? NodeView }
+        if children.count == 1, children[0].kind == "image" { return .image(children[0]) }
+        let text = accessibleText
+        guard !children.isEmpty, !text.isEmpty, children.allSatisfy(\.isParagraph),
+              (props["accessibilityLabel"] ?? text) == text else { return nil }
+        return .title(text)
+    }
+}
+
 extension Presenter {
-    func syncAccessibility() {
+    /// Names, live regions and autofocus. `changed` limits the pass to the
+    /// views a batch touched and their ancestors — a button's name reads its
+    /// subtree — plus every live region and pending autofocus; nil reads
+    /// every view.
+    func syncAccessibility(changed: Set<UInt32>? = nil) {
         guard Thread.isMainThread else {
             DispatchQueue.main.async { [weak self] in self?.syncAccessibility() }
             return
         }
-        autofocusProcessed.formIntersection(Set(views.values.map { ObjectIdentifier($0) }))
-        for node in views.values.sorted(by: { $0.id < $1.id }) {
+        let nodes: [NodeView]
+        if let changed {
+            let indexed = chrome.ids("accessibilityLive").union(chrome.ids("autofocus"))
+            nodes = changed.union(indexed).compactMap { views[$0] }.sorted { $0.id < $1.id }
+        } else {
+            autofocusProcessed.formIntersection(Set(views.values.map { ObjectIdentifier($0) }))
+            nodes = views.values.sorted(by: { $0.id < $1.id })
+        }
+        for node in nodes {
             if node.kind == "button" || node.props["accessibilityRole"] == "button" {
                 #if os(macOS)
                 node.setAccessibilityLabel(node.accessibleName)

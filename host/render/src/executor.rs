@@ -59,6 +59,11 @@ impl Executor {
         self.core.resume_ordered();
     }
 
+    /// Let go of the work for tickets the runner no longer holds.
+    pub fn forget(&self, held: impl Fn(u64) -> bool) {
+        self.core.forget(held);
+    }
+
     /// Wait until the core has news, or until `until`.
     pub fn wait(&self, until: Instant) {
         let (woken, ready) = &*self.wake;

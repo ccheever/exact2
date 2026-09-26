@@ -22,13 +22,24 @@ function preloadRuntime(checkpoint) {
   const files = ["./input-glue.js"];
   if (!new URL(location.href).searchParams.has("agent")) files.push("./timer-glue.js");
   if (logic && logic !== "null") files.push("./module-glue.js", "./http-body.js", "./module-prelude.js");
+  let glue;
   for (const file of files) {
     const link = document.createElement("link");
     link.href = new URL(file, import.meta.url).href;
     // module-glue reads the prelude with `fetch`; the rest are imported.
-    if (file === "./module-prelude.js") { link.rel = "preload"; link.as = "fetch"; link.crossOrigin = ""; }
-    else link.rel = "modulepreload";
-    document.head.append(link);
+    if (file !== "./module-prelude.js") {
+      link.rel = "modulepreload";
+      if (file === "./module-glue.js") glue = link;
+      document.head.append(link);
+      continue;
+    }
+    // The prelude follows module-glue, its reader: all five beside the wasm
+    // would take the six connections an HTTP/1.1 origin gets, and a link
+    // tapped then would wait for one to close.
+    link.rel = "preload"; link.as = "fetch"; link.crossOrigin = "";
+    const append = () => document.head.append(link);
+    glue.addEventListener("load", append, { once: true });
+    glue.addEventListener("error", append, { once: true });
   }
 }
 

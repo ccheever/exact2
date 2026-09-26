@@ -5,7 +5,6 @@
 
 use crate::block::B;
 use crate::{BOLD, CODE, IMAGE, ITALIC, LINK, STRIKE};
-use std::collections::HashMap;
 
 const NO_CODE: usize = usize::MAX - 1;
 
@@ -120,8 +119,10 @@ fn find_code(cs: &[(usize, char)], mut i: usize, len: usize, hi: usize) -> (usiz
 /// Only a failed search with later runs pays for an index. Reuse the buffer, and drop
 /// the temporary length map before styling. An escaped first tick leaves the
 /// rest of its run as an opener, but only whole runs can close another run.
+/// The map is a vector by run length: no longer than the text, and no hash.
 fn index_code(cs: &[(usize, char)], closes: &mut [usize]) {
-    let mut next = HashMap::new();
+    let mut next: Vec<usize> = Vec::new();
+    let at = |next: &[usize], len: usize| next.get(len).copied().unwrap_or(NO_CODE);
     let mut i = cs.len();
     while i > 0 {
         if cs[i - 1].1 != '`' {
@@ -133,11 +134,14 @@ fn index_code(cs: &[(usize, char)], closes: &mut [usize]) {
             i -= 1;
         }
         let len = end - i;
-        closes[i] = next.get(&len).copied().unwrap_or(NO_CODE);
+        closes[i] = at(&next, len);
         if len > 1 {
-            closes[i + 1] = next.get(&(len - 1)).copied().unwrap_or(NO_CODE);
+            closes[i + 1] = at(&next, len - 1);
         }
-        next.insert(len, i);
+        if next.len() <= len {
+            next.resize(len + 1, NO_CODE);
+        }
+        next[len] = i;
     }
 }
 

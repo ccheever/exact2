@@ -253,12 +253,23 @@ impl HeightIndex {
         viewport: f64,
         pins: [Option<&str>; 2],
     ) -> Result<Window, IndexError> {
+        self.window_led(offset, viewport, [viewport, viewport], pins)
+    }
+    /// [`HeightIndex::window`] with its overscan `lead` before and after the
+    /// viewport given, rather than one viewport each side.
+    pub(crate) fn window_led(
+        &self,
+        offset: f64,
+        viewport: f64,
+        lead: [f64; 2],
+        pins: [Option<&str>; 2],
+    ) -> Result<Window, IndexError> {
         let offset = self.clamp_offset(offset, viewport)?;
         let end = (offset + viewport).min(self.total_height());
         let visible = self.band(offset, end);
         let overscan = self.band(
-            (offset - viewport).max(0.0),
-            (end + viewport).min(self.total_height()),
+            (offset - lead[0]).max(0.0),
+            (end + lead[1]).min(self.total_height()),
         );
         let mut ranges = self.tree.positive_ranges(&overscan);
         for key in pins.into_iter().flatten() {

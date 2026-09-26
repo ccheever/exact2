@@ -19,6 +19,7 @@ mod source;
 pub use source::{DataError, DataSource, InFlight, Interrupt, Target};
 mod delivery;
 mod kept;
+mod lines;
 mod lists;
 pub mod router;
 pub use lists::{ListStatus, ListTextPosition, ListViewport};
@@ -196,6 +197,8 @@ enum Seed<'a> {
 #[derive(Clone)]
 struct PendingReq {
     refusal: Option<(&'static str, bool)>,
+    /// The host refused it at admission: it never ran (LLP 1041 §8.4).
+    refused: bool,
     ticket: u64,
     target: Target,
     source: String,
@@ -205,6 +208,7 @@ struct PendingReq {
 }
 
 struct Timer {
+    /// The next due time; infinite once a one-shot timer has fired.
     next_ms: f64,
 }
 
@@ -236,6 +240,9 @@ pub struct Runner<D: DataSource> {
     /// This commit let a request go: `conclude` tells the source what is
     /// still in flight.
     forgot: bool,
+    /// Resources refused ordered admission, asked again once the last
+    /// ordered refusal has settled (`release_refused`).
+    refused_asks: Vec<usize>,
     /// `pending` as flags, by resource and by mutation, for expressions.
     pending_res: Vec<bool>,
     pending_mut: Vec<bool>,
@@ -583,6 +590,7 @@ impl<D: DataSource> Runner<D> {
             pending_mut: Vec::new(),
             next_ticket: 1,
             forgot: false,
+            refused_asks: Vec::new(),
             deferred_edges: Vec::new(),
             requests: Vec::new(),
             refresh_next: Vec::new(),
@@ -713,12 +721,7 @@ impl<D: DataSource> Runner<D> {
         runner.tree = Some(tree);
         let receipt = runner.apply(ops)?;
         runner.surfaces = surfaces;
-        let line = format!(
-            "boot{}: {} nodes, epoch {}",
-            if carried.is_some() { " (carried)" } else { "" },
-            runner.kernel.live_count(),
-            receipt.epoch
-        );
+        let line = lines::boot(carried.is_some(), runner.kernel.live_count(), receipt.epoch);
         runner.log(line);
         if !note.is_empty() {
             runner.log(note);
@@ -731,8 +734,7 @@ impl<D: DataSource> Runner<D> {
     /// layout refusal) so one read sees everything in order.
     pub fn log(&mut self, line: impl Into<String>) {
         let line = line.into();
-        self.journal
-            .push_back(format!("t={} {line}", crate::agent::num(self.now_ms)));
+        self.journal.push_back(lines::stamped(self.now_ms, &line));
         if self.journal.len() > JOURNAL_RING {
             self.journal.pop_front();
             self.journal_start += 1;
@@ -771,12 +773,12 @@ impl<D: DataSource> Runner<D> {
         was_poisoned: bool,
     ) {
         let line = match result {
-            Ok(r) => format!(
-                "{what} → epoch {} (+{} −{} ~{})",
+            Ok(r) => lines::committed(
+                what,
                 r.epoch,
                 r.created.len(),
                 r.destroyed.len(),
-                r.touched.len()
+                r.touched.len(),
             ),
             Err(e) if self.poisoned && !was_poisoned => {
                 format!("{what} poisoned the runner: {e:?}")
@@ -927,6 +929,7 @@ impl<D: DataSource> Runner<D> {
         self.timers
             .iter()
             .map(|timer| timer.next_ms)
+            .filter(|ms| ms.is_finite())
             .reduce(f64::min)
     }
 
@@ -1089,7 +1092,7 @@ impl<D: DataSource> Runner<D> {
                 .map_err(|error| RunnerError::Data { resource, error });
         }
         // @ref LLP 1038 D5 / §8 — distinguish asked sources from compiled boot values.
-        self.log(format!("query {resource}: {source}"));
+        self.log(lines::query(&resource, &source));
         self.data
             .answer_for(Target::Resource(i), &mut self.store, &source, args)
             .map_err(|error| RunnerError::Data { resource, error })

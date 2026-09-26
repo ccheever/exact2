@@ -37,13 +37,16 @@ public final class Agent {
 
     /// Serve requests from `fd` until it closes — on the calling thread:
     /// each line is answered on the main thread before the next is read.
-    /// The stream closing ends the process.
+    /// The stream closing ends the process, and says so on stderr: a driver
+    /// that saw the hangup reads why there, not a silent exit.
     public static func serve(fd: Int32) {
         var pending = Data()
         var buf = [UInt8](repeating: 0, count: 65536)
         while true {
             let n = read(fd, &buf, buf.count)
-            if n <= 0 { break }
+            if n < 0 && errno == EINTR { continue }
+            if n < 0 { fputs("exact agent: read failed (\(String(cString: strerror(errno)))); exiting\n", stderr); break }
+            if n == 0 { fputs("exact agent: the driver closed the connection; exiting\n", stderr); break }
             pending.append(buf, count: n)
             while let i = pending.firstIndex(of: UInt8(ascii: "\n")) {
                 let line = String(decoding: pending[pending.startIndex..<i], as: UTF8.self)
@@ -228,8 +231,11 @@ public final class Agent {
         // A request in flight (LLP 1016) is waited for first: its reply
         // commits — and may start motion or ask for more — before the fixed
         // point is measured. The wake lands on the main queue, which the
-        // run loop drains here.
-        if settle { waitForReplies() }
+        // run loop drains here. One bound for the whole call (LLP 1012 §2),
+        // not one per round: a request that never answers ends the call at
+        // twenty seconds, not sixteen times that.
+        let deadline = Date(timeIntervalSinceNow: Agent.settleBound)
+        if settle { waitForReplies(until: deadline) }
         var target = req["to"] as? Double
         if settle { target = max(from, self.settle() ?? from) }
         guard var to = target, to.isFinite else { return ["error": "clock needs \"to\" (ms) or \"settle\": true"] }
@@ -244,8 +250,7 @@ public final class Agent {
             return out
         }
         while true {
-            let batch = session.runtime.advance(now: to)
-            session.apply(batch)
+            let batch = advanceStepped(to: to, deadline: deadline)
             let landed = batch.clock ?? to
             session.clock = landed
             session.apply(session.runtime.tick(now: landed))
@@ -256,8 +261,8 @@ public final class Agent {
             guard settle else { return reply(landed) }
             if pendingCount() > 0 {
                 rounds += 1
-                if rounds >= 16 { return reply(landed, false) }
-                waitForReplies()
+                if rounds >= 16 || Date() >= deadline { return reply(landed, false, reason: "requests") }
+                waitForReplies(until: deadline)
                 continue
             }
             let next = max(landed, self.settle() ?? landed, world.settleAt ?? landed)
@@ -285,6 +290,25 @@ public final class Agent {
         }
     }
 
+    /// To `to`, due time by due time, and what is in flight lands before a
+    /// timer fires — the runner keeps one request per target (LLP 1016 D5),
+    /// so a tick's send would drop the reply of the one before it. Past the
+    /// deadline, or 4096 steps, the rest is one advance. Each step's batch
+    /// is applied; the last one is returned.
+    func advanceStepped(to: Double, deadline: Date) -> Batch {
+        var steps = 0
+        while true {
+            var step = to
+            if steps < 4096, let due = session.timerDue, due > (session.clock ?? 0), due < to { step = due }
+            if let due = session.timerDue, due <= step, !waitForReplies(until: deadline) { step = to }
+            let batch = session.runtime.advance(now: step)
+            session.apply(batch)
+            session.clock = batch.clock ?? step
+            if batch.error != nil || step == to { return batch }
+            steps += 1
+        }
+    }
+
     /// How many requests the runner has in flight (`state.pending`).
     func pendingCount() -> Int {
         guard let d = session.agent("{\"op\":\"state\"}").data(using: .utf8),
@@ -292,17 +316,22 @@ public final class Agent {
         return (o["pending"] as? [Any])?.count ?? 0
     }
 
-    /// Pump the executor's queue until no request is in flight, or for at
-    /// most twenty seconds (a network's worth; `settled: false` past it).
-    /// The wake's own pump is a main-queue block, and this runs inside one
-    /// — so the queue is drained here directly, the run loop turning in
-    /// between for the executor's thread to make progress.
-    func waitForReplies() {
-        let deadline = Date(timeIntervalSinceNow: 20)
-        while pendingCount() > 0 && Date() < deadline {
+    /// `clock settle`'s bound on requests in flight: a network's worth.
+    static let settleBound: TimeInterval = 20
+
+    /// Pump the executor's queue until no request is in flight, or until
+    /// the call's deadline (`settled: false` past it), false then. The wake's
+    /// own pump is a main-queue block, and this runs inside one — so the
+    /// queue is drained here directly, the run loop turning in between for
+    /// the executor's thread to make progress.
+    @discardableResult
+    func waitForReplies(until deadline: Date) -> Bool {
+        while pendingCount() > 0 {
+            if Date() >= deadline { return false }
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
             session.apply(session.runtime.pump(now: session.now()))
         }
+        return true
     }
 }
 

@@ -242,6 +242,7 @@ export function afterPaintPieces(load, o) {
   const commit = call('collections', 'commit'), reconcile = call('collections', 'commit', false);
   const collections = { commit: items => (items.length ? commit : reconcile)(items) };
   for (const name of ['reset', 'dataReady', 'releaseInteraction']) collections[name] = call('collections', name, false);
+  collections.jump = call('collections', 'jump');
   // `preload`: a plan that uses motion (its wasm exports `exact_motion`) needs
   // them before its first spring. `pending`: the load in flight, else null.
   return { collections, motion, arrange, preload: start, pending: () => live || !loading ? null : loading };
@@ -387,3 +388,25 @@ export function focusController({ready, elements, inert}) {
   }};
 }
 
+
+// The focus, blur and selectText commands a batch carried, run once every
+// node and value in it is committed (a focus handler may dispatch an action).
+export function runFocusCommands(commands, { root, ready, inertAncestor, log }) {
+  for (const { name, args } of commands) {
+    if (name === "blur") { // `blur()` drops whatever holds focus; `blur(id)` only when that node holds it.
+      const active = document.activeElement;
+      if (ready && active && active !== document.body && (!args?.length || active.id === args[0])) active.blur();
+      continue;
+    }
+    const selectText = name === "selectText";
+    if (args?.length !== 1 || typeof args[0] !== "string" || !ready) continue;
+    const el = [...root.querySelectorAll("[id]")].find(node => node.id === args[0]);
+    const reason = !el ? "no live node with that id" : !el.isConnected ? "not mounted" : el.matches(":disabled,[disabled]") ? "disabled"
+      : inertAncestor(el) ? "inert ancestor" : !el.getClientRects().length ? "zero size"
+      : getComputedStyle(el).visibility !== "visible" ? "hidden ancestor" : null;
+    if (reason) { log(`focus "${args[0]}" refused: ${reason}`); continue; }
+    if (selectText && typeof el.select !== "function") { log(`selectText "${args[0]}" refused: not a text editor`); continue; }
+    el.focus();
+    if (selectText && document.activeElement === el) el.select();
+  }
+}

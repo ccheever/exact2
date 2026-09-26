@@ -159,6 +159,10 @@ final class Presenter {
     lazy var mouseLayoutPan = MouseLayoutPan(self)
     lazy var mouseHeightDrag = MouseHeightDrag(self)
     lazy var mouseTransformDrag = MouseTransformDrag(self)
+    lazy var mouseReorder = MouseReorder(self)
+    /// The one Arrange contact, until its source settles; a test's calls.
+    var reorder: ReorderHold?
+    var reorderCalls: ReorderCalls?
     private var scrollObserver: NSObjectProtocol?
     private var visibleText: [UInt32: NSRect] = [:]
     private var textViewportIndex: TextViewportIndex?
@@ -197,6 +201,17 @@ final class Presenter {
         viewport.drawsBackground = true
         viewport.backgroundColor = .white
         viewport.contentView.postsBoundsChangedNotifications = true
+        // LLP 1050.000 stage 1: a collection reports its travel and builds
+        // ahead in the pump's slices, as the windowed list does.
+        collections.motion = { [unowned self] id in
+            let velocity = listVelocity(id)
+            return velocity == 0 ? nil : velocity
+        }
+        // A slice's own continuation waits for the next frame's link.
+        collections.requestFill = { [unowned self] in
+            startPump()
+            if !pumping { queuePostSyncSlice() }
+        }
         scrollObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
             object: viewport.contentView, queue: .main) { [weak self] _ in self?.scrolled(); self?.transformGeometry.changed(); self?.videoVisibility?.changed() }
     }
@@ -331,6 +346,7 @@ final class Presenter {
     private var inScrollCallback = false
     private var textPending = false
     private var textTurn = false
+    private var pumping = false
     private var listBatchPending = false
     private var listFinalizationCost: TimeInterval = 0.0005
     private var pumpSchedule = PumpSchedule()
@@ -407,13 +423,18 @@ final class Presenter {
               CACurrentMediaTime() - travel.time < 0.15 else { return 0 }
         return travel.velocity
     }
-    private func sampleListTravel() {
+    private func sampleListTravel(only: UInt32? = nil) {
         let now = CACurrentMediaTime()
-        for (id, list) in listViews {
-            guard !collections.owns(id), let scroll = list.scroll else { continue }
+        for (id, list) in listViews where only == nil || only == id {
+            guard let scroll = list.scroll else { continue }
             let port = scroll.contentView.bounds
             var travel = listTravel[id] ?? ListTravel(top: port.minY, time: now)
             let delta = port.minY - travel.top, elapsed = now - travel.time
+            // A step longer than the port is a jump, not travel: nothing to lead.
+            if abs(delta) > port.height {
+                listTravel[id] = ListTravel(top: port.minY, time: now)
+                continue
+            }
             if delta != 0, elapsed > 0 {
                 let speed = Double(delta) / max(elapsed, refreshInterval / 2)
                 travel.velocity = elapsed > 0.15 || speed * travel.velocity <= 0
@@ -425,6 +446,27 @@ final class Presenter {
     }
     private var listIsMoving: Bool {
         listTravel.contains { listVelocity($0.key) != 0 }
+    }
+
+    /// A collection's clip view moved (`NodeView.clipScrolled`): its travel
+    /// first, so the rescue or the slice that follows leads the right way.
+    func collectionScrolled(_ id: UInt32) {
+        if collections.owns(id) { sampleListTravel(only: id) }
+        collections.changed(id, user: true)
+    }
+
+    /// Build each owed collection's rows for this slice: as many as its
+    /// measured per-row cost fits, at least one, and at least what the next
+    /// two frames of travel uncover, so the scroll callback that follows
+    /// finds them built (LLP 1050.000 stage 1; the iOS `ScrollPump`'s rule).
+    private func fillCollections(deadline: TimeInterval) {
+        for id in collections.fillPending.sorted() {
+            let started = CACurrentMediaTime()
+            let fits = (listFillCosts[id] ?? ListFillCost()).rows(within: deadline - started)
+            let needed = collections.rowsToCover(id, ahead: CGFloat(listVelocity(id) * refreshInterval * 2))
+            let created = collections.fillSlice(id, limit: max(1, fits, needed))
+            listFillCosts[id, default: ListFillCost()].record(seconds: CACurrentMediaTime() - started, rows: created)
+        }
     }
 
     /// A scroll container moved. Nothing here may take long: AppKit is inside
@@ -528,14 +570,15 @@ final class Presenter {
         // Match the previous bounded native-feedback depth while keeping
         // background admission out of this synchronous agent boundary.
         for _ in 0..<8 {
-            guard listSyncPending || !listPending.isEmpty else { break }
+            guard listSyncPending || !listPending.isEmpty || !collections.fillPending.isEmpty else { break }
+            for id in collections.fillPending.sorted() { collections.fillSlice(id, limit: UInt32.max - 1) }
             listSyncPending = false
             syncLists()
         }
         refreshVisibleText()
         textPending = false
         textTurn = false
-        if listSyncPending { startPump() } else { stopPump() }
+        if listSyncPending || !collections.fillPending.isEmpty { startPump() } else { stopPump() }
     }
 
     /// The refresh interval sets the deadline. A report sizes its overscan from
@@ -543,6 +586,13 @@ final class Presenter {
     /// briefly grow the lead while still losing ground over two frames: keep
     /// filling during travel, and admit text after it instead of alternating.
     func pump() {
+        pumping = true
+        defer { pumping = false }
+        if !collections.fillPending.isEmpty {
+            let post = Self.signposts.beginInterval("pump-collection")
+            fillCollections(deadline: CACurrentMediaTime() + sliceBudget)
+            Self.signposts.endInterval("pump-collection", post)
+        }
         if listSyncPending && (listIsMoving || !(textTurn && textPending)) {
             let post = Self.signposts.beginInterval("pump-list")
             let deadline = CACurrentMediaTime() + sliceBudget
@@ -561,7 +611,7 @@ final class Presenter {
             textPending = refreshVisibleText(limit: Self.textBandsPerSlice, afterFrame: true)
             Self.signposts.endInterval("pump-text", post)
         }
-        if !listSyncPending && !textPending { stopPump() }
+        if !listSyncPending && !textPending && collections.fillPending.isEmpty { stopPump() }
     }
 
     private enum ListNeed { case nothing, soon, now }
@@ -658,6 +708,8 @@ final class Presenter {
         mouseLayoutPan.cancel()
         mouseHeightDrag.cancel()
         mouseTransformDrag.cancel()
+        mouseReorder.cancel()
+        reorder?.abandon()
         collections.reset()
         autofocusProcessed.removeAll()
         resetting = true
@@ -712,7 +764,8 @@ final class Presenter {
     }
     var onPress: ((UInt32) -> Void)?
     var onChange: ((UInt32, String) -> Void)?
-    var onIntrinsic: ((UInt32, CGSize?) -> Void)?
+    /// Images' intrinsic sizes, several at once under one layout.
+    var onIntrinsic: (([(UInt32, CGSize?)]) -> Void)?
     /// A capability an action called (LLP 1005 §3), after its commit.
     var onCommand: ((String, [Any]) -> Void)?
 
@@ -738,6 +791,18 @@ final class Presenter {
             if let editor = target.textArea, window.firstResponder === editor { editor.selectAll(nil) }
             else { target.field?.currentEditor()?.selectAll(nil) }
         }
+    }
+
+    /// The action's blur(): drop the first responder; blur(html-id) only when
+    /// that node holds it (a field's responder is its editor).
+    func blurElement(_ args: [Any]) {
+        guard let window = viewport.window else { return }
+        if let name = args.first as? String {
+            guard let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }) else { return }
+            let responder: NSView = target.textArea ?? target.field ?? target
+            guard window.firstResponder === responder || window.firstResponder === target.field?.currentEditor() else { return }
+        }
+        window.makeFirstResponder(nil)
     }
 
     /// The events beyond press and change (LLP 1005 §3).
@@ -937,7 +1002,7 @@ final class Presenter {
             onMessage?(id, value)
         }
     }
-    func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?(id, size) }
+    func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?([(id, size)]) }
 
     func apply(_ batch: Batch) {
         let post = Self.signposts.beginInterval("apply", "\(batch.ops.count) ops")
@@ -951,6 +1016,8 @@ final class Presenter {
         applying = true
         defer {
             collections.endBatch()
+            collections.observeKnobDrags()
+            collections.limitPrepared()
             if outermost {
                 applying = false
                 videoVisibility?.changed()
@@ -1031,11 +1098,12 @@ final class Presenter {
                         } else { container.addSubview(child) }
                     }
                     let siblings = container.subviews
-                    if i >= siblings.count || siblings[i] !== child {
+                    if !collections.owns(id), i >= siblings.count || siblings[i] !== child {
                         child.removeFromSuperview()
                         container.addSubview(child, positioned: .above, relativeTo: i > 0 ? want[i - 1] : nil)
                     }
                 }
+                if collections.owns(id) { collections.orderChildren(want, in: container) }
             case .surface:
                 if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] ?? []) }
             case .command:
@@ -1045,6 +1113,7 @@ final class Presenter {
                 mouseLayoutPan.retire(id)
                 mouseHeightDrag.retire(id)
                 mouseTransformDrag.retire(id)
+                mouseReorder.retire(id)
                 session?.canvases.destroy(view: id)
                 views[id]?.forget()
                 // Out of the map before out of the window: the editing-ended
@@ -1071,6 +1140,7 @@ final class Presenter {
             case .frame:
                 guard let v = views[id] else { continue }
                 v.frame = NSRect(x: op.x, y: op.y, width: op.w, height: op.h)
+                v.arrangeShift = .zero
                 v.textRasterGeometryChanged()
                 v.scroll?.frame = v.bounds
                 v.field?.frame = v.contentBox()
@@ -1128,6 +1198,7 @@ final class Presenter {
         }
         refreshVisibleText()
         syncAccessibility()
+        _ = chrome.takeChangedNames()
     }
 
     /// Align an enclosing context panel's preview with its source, while

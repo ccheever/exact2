@@ -322,13 +322,28 @@ fn settle<D: DataSource>(p: &Presenter<D>) -> Option<f64> {
 /// more, again — bounded, `settled: false` when the bound is hit (LLP 1012
 /// §2).
 fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
+    clock_within(p, line, SETTLE_BOUND)
+}
+
+/// `clock settle`'s bound on requests in flight: a network's worth.
+const SETTLE_BOUND: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// [`clock`] with its request bound as a parameter. One deadline covers the
+/// whole call, not each round: a request that never answers ends `settle` at
+/// the bound, not sixteen times it.
+fn clock_within<D: DataSource>(
+    p: &mut Presenter<D>,
+    line: &str,
+    bound: std::time::Duration,
+) -> String {
+    let deadline = std::time::Instant::now() + bound;
     let from = p.host().now();
     let settle_to_end = field_bool(line, "settle");
     let mut to = field_num(line, "to");
     if settle_to_end {
         // A request in flight is waited for first (LLP 1016): its reply
         // commits, and may start motion, before the fixed point is measured.
-        wait_for_replies(p);
+        wait_for_replies(p, deadline);
         to = Some(from.max(settle(p).unwrap_or(from)));
     }
     let Some(mut to) = to.filter(|t| t.is_finite()) else {
@@ -339,7 +354,7 @@ fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     }
     let mut rounds = 0;
     loop {
-        let (landed, e) = p.clock(to);
+        let (landed, e) = clock_stepped(p, to, deadline);
         if let Some(e) = e {
             let mut s = String::from("{\"error\":");
             exact_runner::agent::quote(&format!("clock: {e}"), &mut s);
@@ -348,7 +363,7 @@ fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         p.sync_surfaces();
         let world = p.worlds(serde_json::json!({"op":"clock","settle":settle_to_end}));
         p.sync_surfaces();
-        let response = |settled: Option<bool>| {
+        let response = |settled: Option<bool>, requests: bool| {
             let mut r = format!("{{\"clock\":{}", num(landed));
             if let Some(s) = settled {
                 r.push_str(&format!(",\"settled\":{s}"));
@@ -358,19 +373,21 @@ fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             }
             if settled == Some(false) && world.iter().any(|w| w["quiescent"] == false) {
                 r.push_str(",\"reason\":\"world\"");
+            } else if settled == Some(false) && requests {
+                r.push_str(",\"reason\":\"requests\"");
             }
             r.push('}');
             r
         };
         if !settle_to_end {
-            return response(None);
+            return response(None, false);
         }
         if p.pending() {
             rounds += 1;
-            if rounds >= 16 {
-                return response(Some(false));
+            if rounds >= 16 || std::time::Instant::now() >= deadline {
+                return response(Some(false), true);
             }
-            wait_for_replies(p);
+            wait_for_replies(p, deadline);
             continue;
         }
         let next = world
@@ -379,29 +396,60 @@ fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             .filter_map(|w| w["settleAt"].as_f64())
             .fold(landed.max(settle(p).unwrap_or(landed)), f64::max);
         if next <= landed {
-            return response(Some(true));
+            return response(Some(true), false);
         }
         rounds += 1;
         if rounds >= 16 {
-            return response(Some(false));
+            return response(Some(false), false);
         }
         to = next;
     }
 }
 
-/// `"key":[a,b]` in a flat request.
-/// Pump the executor until no request is in flight, or for at most twenty
-/// seconds (a network's worth; `settled: false` past it).
-fn wait_for_replies<D: DataSource>(p: &mut Presenter<D>) {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-    while p.pending() && std::time::Instant::now() < deadline {
+/// To `to`, due time by due time, and what is in flight lands before a
+/// timer fires — the runner keeps one request per target (LLP 1016 D5), so
+/// a tick's send would drop the reply of the one before it. Past the
+/// deadline, or 4096 steps, the rest is one advance.
+fn clock_stepped<D: DataSource>(
+    p: &mut Presenter<D>,
+    to: f64,
+    deadline: std::time::Instant,
+) -> (f64, Option<String>) {
+    for _ in 0..4096 {
+        let now = p.host().now();
+        let Some(due) = p.host().timer_due_ms().filter(|d| *d > now && *d < to) else {
+            break;
+        };
+        if !wait_for_replies(p, deadline) {
+            break;
+        }
+        let (landed, e) = p.clock(due);
+        if e.is_some() {
+            return (landed, e);
+        }
+    }
+    if p.host().timer_due_ms().is_some_and(|d| d <= to) {
+        wait_for_replies(p, deadline);
+    }
+    p.clock(to)
+}
+
+/// Pump the executor until no request is in flight, or until the call's
+/// deadline (`settled: false` past it), false then.
+fn wait_for_replies<D: DataSource>(p: &mut Presenter<D>, deadline: std::time::Instant) -> bool {
+    while p.pending() {
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
         std::thread::sleep(std::time::Duration::from_millis(20));
         if let Some(e) = p.pump(p.host().now()) {
             eprintln!("exact: {e}");
         }
     }
+    true
 }
 
+/// `"key":[a,b]` in a flat request.
 fn field_pair(json: &str, key: &str) -> Option<(f64, f64)> {
     let needle = format!("\"{key}\"");
     let at = json.find(&needle)?;
@@ -429,6 +477,59 @@ mod tests {
         fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
             Err(DataError::UnknownSource(source.into()))
         }
+    }
+
+    /// A source whose one request is handed to work that never replies: the
+    /// reply is leaked, so neither an outcome nor the drop's abort arrives.
+    #[derive(Default)]
+    struct Hung;
+    impl DataSource for Hung {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+        fn answer(
+            &mut self,
+            _: &mut exact_runner::Store,
+            source: &str,
+            _: &[Value],
+        ) -> Result<exact_runner::Answer, DataError> {
+            Ok(match source {
+                "fallback" => exact_runner::Answer::Now(Value::Bool(false)),
+                _ => exact_runner::Answer::Later(exact_runner::Request::continuation(1)),
+            })
+        }
+        fn dispatch(&mut self, _: u64, _: &exact_runner::Store) -> exact_runner::Dispatch {
+            exact_runner::Dispatch::Run(exact_runner::Work::Later(Box::new(std::mem::forget)))
+        }
+    }
+
+    #[test]
+    fn settle_takes_one_bound_for_a_request_that_never_answers() {
+        let plan = contract::compile(
+            "component App\n  resource item = item() as shape bool else fallback()\n  view\n    text \"x\" height=20\n",
+        )
+        .unwrap();
+        let (mut p, boot_error) = Presenter::boot_with(
+            &plan.encode(),
+            Hung,
+            (300.0, 300.0),
+            1.0,
+            std::path::PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(boot_error.is_none(), "{boot_error:?}");
+        let bound = std::time::Duration::from_millis(200);
+        let started = std::time::Instant::now();
+        let reply = clock_within(&mut p, r#"{"op":"clock","settle":true}"#, bound);
+        let took = started.elapsed();
+        assert!(p.pending(), "the request is still out: {reply}");
+        assert!(reply.contains("\"settled\":false"), "{reply}");
+        assert!(reply.contains("\"reason\":\"requests\""), "{reply}");
+        assert!(
+            took < bound * 2,
+            "settle took {took:?} for a {bound:?} bound"
+        );
     }
 
     #[test]

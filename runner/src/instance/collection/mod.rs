@@ -18,6 +18,20 @@ pub(super) use traversal::invalidate_typography;
 
 const BOOTSTRAP_ROWS: usize = 16;
 const ESTIMATED_HEIGHT: f64 = 32.0;
+/// Travel the window leads by, past its viewport of overscan.
+const LEAD_SECONDS: f64 = 0.25;
+
+/// How far the window reaches past the viewport, before and after it: one
+/// viewport each side, and toward the side the list travels, a quarter
+/// second of that travel more, up to two viewports.
+fn lead(viewport: f64, velocity: f64) -> [f64; 2] {
+    let extra = (velocity.abs() * LEAD_SECONDS).min(viewport * 2.0);
+    if velocity > 0.0 {
+        [viewport, viewport + extra]
+    } else {
+        [viewport + extra, viewport]
+    }
+}
 
 /// Candidates from one accepted geometry report. The second edge may run only
 /// after a pure no-op first action. State changes defer it until settlement.
@@ -62,6 +76,8 @@ pub(crate) struct Collection {
     follow_end: bool,
     edge_handlers: [bool; 2],
     edge_armed: [bool; 2],
+    /// The last realization left window rows unbuilt or kept rows past it.
+    pending: bool,
 }
 fn index_error(e: index::IndexError) -> InstanceError {
     InstanceError::Collection(e.to_string())
@@ -116,7 +132,7 @@ impl Collection {
         // Invalidated zeroes now have positive estimates. Re-select the window
         // and emit its spacers in this commit, even if no old rows were mounted;
         // otherwise the host has nothing to lay out and cannot measure again.
-        self.realize_window(u, frames, false)?;
+        self.realize_window(u, frames, false, CollectionFill::default())?;
         advance(&mut self.revision)?;
         Ok(())
     }
@@ -202,6 +218,7 @@ impl Collection {
                     .any(|h| plan.handler(h).event == event)
             }),
             edge_armed: [true; 2],
+            pending: false,
         });
         this.update_data(u, frames, true)?;
         Ok(Some(this))
@@ -318,7 +335,7 @@ impl Collection {
             }
             self.restore(anchor)?;
         }
-        self.realize_window(u, frames, true)?;
+        self.realize_window(u, frames, true, CollectionFill::default())?;
         if changed {
             advance(&mut self.revision)?;
         }
@@ -391,12 +408,22 @@ impl Collection {
         }
         Ok(reached)
     }
+    /// Realize the window: every row it owes (visible and pinned), then, on
+    /// a limited report, at most `fill.limit` more, nearest the viewport on
+    /// the side of travel first, retiring at most `max(2·limit, 4)` rows past
+    /// the window (none for a limit of zero), farthest first (@ref LLP
+    /// 1050.000 §6). A data update
+    /// realizes the whole window. What a limit leaves undone is `pending`.
     fn realize_window(
         &mut self,
         u: &mut Update<'_>,
         frames: &[Frame],
         update: bool,
+        fill: CollectionFill,
     ) -> Result<(), InstanceError> {
+        let limit = fill.limit.filter(|_| !update);
+        let mut owed: Vec<std::ops::Range<usize>> = Vec::new();
+        let mut port = None;
         let ranges = if let Some(g) = &self.geometry {
             let focus = self.pin(g.focus_view);
             let interaction = self
@@ -405,14 +432,23 @@ impl Collection {
                 .filter(|p| p.pin_owned)
                 .map(|p| p.source.clone())
                 .or_else(|| self.pin(g.interaction_view));
-            self.index
-                .window(
+            let window = self
+                .index
+                .window_led(
                     g.scroll_top,
                     g.port_height,
+                    lead(g.port_height, fill.velocity),
                     [focus.as_deref(), interaction.as_deref()],
                 )
-                .map_err(index_error)?
-                .segments
+                .map_err(index_error)?;
+            owed.push(window.visible.clone());
+            for key in [&focus, &interaction].into_iter().flatten() {
+                if let Some(i) = self.index.position(key) {
+                    owed.push(i..i + 1);
+                }
+            }
+            port = Some((window.offset, window.offset + g.port_height));
+            window.segments
         } else {
             let first = self.index.row_at(0.0).map_err(index_error)?.unwrap_or(0);
             std::iter::once(first..self.index.len().min(first + self.bootstrap_rows)).collect()
@@ -426,17 +462,28 @@ impl Collection {
                 )
             })
             .collect();
+        let limited = limit.zip(port);
+        let is_owed = |p: usize| owed.iter().any(|r| r.contains(&p));
+        let toward_start = fill.velocity < 0.0;
+        let mut pending = false;
+        let mut admitted = std::collections::BTreeSet::new();
+        if let Some((limit, (top, end))) = limited {
+            let mut optional = Vec::new();
+            for p in ranges.iter().cloned().flatten() {
+                if !is_owed(p) && !old.contains_key(self.index.key(p).unwrap()) {
+                    let (before, distance) = self.distance(p, top, end);
+                    optional.push((before != toward_start, distance, p));
+                }
+            }
+            optional.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)).then(a.2.cmp(&b.2)));
+            pending = optional.len() > limit as usize;
+            admitted.extend(optional.into_iter().take(limit as usize).map(|(_, _, p)| p));
+        }
         for position in ranges.into_iter().flatten() {
             let text = self.index.key(position).unwrap().to_owned();
-            let mut mounted = match old.remove(&text) {
+            let mounted = match old.remove(&text) {
                 Some(mut mounted) => {
-                    mounted.position = position;
-                    let item = Some(self.items[position].clone());
-                    // An equivalent item keeps its object for nested memos.
-                    let dirty = !crate::compare::equivalent_opt(&mounted.row.frame.item, &item);
-                    if dirty {
-                        mounted.row.frame.item = item;
-                    }
+                    let dirty = self.reposition(&mut mounted, position);
                     if update {
                         let body = &u.sites.deps.bodies[self.region.0 as usize];
                         update_row(u, &mut mounted.row, frames, dirty, body)?;
@@ -446,6 +493,9 @@ impl Collection {
                     mounted
                 }
                 None => {
+                    if limited.is_some() && !is_owed(position) && !admitted.contains(&position) {
+                        continue;
+                    }
                     let token = self.index.invalidate_row(&text).map_err(index_error)?;
                     let row = self.create_row(u, position, frames)?;
                     let wrapper = views::row_wrapper(u, roots_of(&row.roots), &text)?;
@@ -460,25 +510,87 @@ impl Collection {
                     }
                 }
             };
-            views::validate_row(u.env.plan, &mounted.row.roots)?;
-            let count = self.index.len();
-            if mounted.published != (position, count) {
-                views::publish_position(u, mounted.wrapper, position, count);
-                mounted.published = (position, count);
-            }
-            let token = self.index.measurement_token(&text).unwrap();
-            if token != mounted.token {
-                mounted.token = token;
-                mounted.epoch = advance(&mut self.next_epoch)?;
-            }
-            self.mounted.push(mounted);
+            self.settle_mounted(u, mounted, &text)?;
         }
-        for gone in old.into_values() {
-            u.ops.push(Op::DestroyView { id: gone.wrapper });
+        // Rows past the window: all retire, unless a limited report bounds it.
+        let mut leaving: Vec<(f64, String, Mounted)> = Vec::new();
+        for (text, mounted) in old {
+            match (limited, self.index.position(&text)) {
+                (Some((_, (top, end))), Some(p)) => {
+                    leaving.push((self.distance(p, top, end).1, text, mounted))
+                }
+                _ => u.ops.push(Op::DestroyView {
+                    id: mounted.wrapper,
+                }),
+            }
         }
+        if let Some((limit, _)) = limited {
+            // A rescue (no limit past what shows) only builds; slices retire.
+            let cap = if limit == 0 {
+                0
+            } else {
+                (2 * limit as usize).max(4)
+            };
+            leaving.sort_by(|a, b| b.0.total_cmp(&a.0));
+            let kept = leaving.split_off(cap.min(leaving.len()));
+            for (_, _, gone) in leaving {
+                u.ops.push(Op::DestroyView { id: gone.wrapper });
+            }
+            pending |= !kept.is_empty();
+            for (_, text, mut mounted) in kept {
+                let position = self.index.position(&text).unwrap();
+                self.reposition(&mut mounted, position);
+                self.settle_mounted(u, mounted, &text)?;
+            }
+            self.mounted.sort_by_key(|row| row.position);
+        }
+        self.pending = pending;
         self.emit_children(u)?;
         self.emit_preview(u)?;
         Ok(())
+    }
+    /// Move a mounted row to `position`; whether its item changed. An
+    /// equivalent item keeps its object for nested memos.
+    fn reposition(&self, mounted: &mut Mounted, position: usize) -> bool {
+        mounted.position = position;
+        let item = Some(self.items[position].clone());
+        let dirty = !crate::compare::equivalent_opt(&mounted.row.frame.item, &item);
+        if dirty {
+            mounted.row.frame.item = item;
+        }
+        dirty
+    }
+    /// Publish a row's position and measurement epoch, and mount it.
+    fn settle_mounted(
+        &mut self,
+        u: &mut Update<'_>,
+        mut mounted: Mounted,
+        text: &str,
+    ) -> Result<(), InstanceError> {
+        views::validate_row(u.env.plan, &mounted.row.roots)?;
+        let position = mounted.position;
+        let count = self.index.len();
+        if mounted.published != (position, count) {
+            views::publish_position(u, mounted.wrapper, position, count);
+            mounted.published = (position, count);
+        }
+        let token = self.index.measurement_token(text).unwrap();
+        if token != mounted.token {
+            mounted.token = token;
+            mounted.epoch = advance(&mut self.next_epoch)?;
+        }
+        self.mounted.push(mounted);
+        Ok(())
+    }
+    /// Whether row `p` lies before the port, and its distance from it.
+    fn distance(&self, p: usize, top: f64, end: f64) -> (bool, f64) {
+        let start = self.index.prefix(p).unwrap();
+        let finish = start + self.index.height(p).unwrap();
+        if finish <= top {
+            (true, top - finish)
+        } else {
+            (false, (start - end).max(0.0))
+        }
     }
     fn create_row(
         &self,
@@ -591,11 +703,31 @@ impl Collection {
         frames: &[Frame],
         mut feedback: CollectionFeedback,
         by_view: &BTreeMap<ViewId, usize>,
+        mut fill: CollectionFill,
     ) -> Result<(bool, Option<CollectionEdges>), InstanceError> {
         let changed_width = self
             .geometry
             .as_ref()
             .is_none_or(|g| g.row_width != feedback.row_width);
+        // A new port size, width or pin retires every row that left and
+        // builds the whole window: only travel is sliced.
+        if self.geometry.as_ref().is_none_or(|g| {
+            (
+                g.port_width,
+                g.port_height,
+                g.row_width,
+                g.focus_view,
+                g.interaction_view,
+            ) != (
+                feedback.port_width,
+                feedback.port_height,
+                feedback.row_width,
+                feedback.focus_view,
+                feedback.interaction_view,
+            )
+        }) {
+            fill.limit = None;
+        }
         if changed_width {
             self.end_preview(u)?;
         }
@@ -646,7 +778,7 @@ impl Collection {
         }
         self.check_preview_height(u)?;
         self.restore(anchor)?;
-        self.realize_window(u, frames, false)?;
+        self.realize_window(u, frames, false, fill)?;
         let mut now = self.snapshot();
         // Receiving a newer sequence without changing rows/extent/correction is
         // a fact update, not a new frame (avoids post-layout feedback loops).
@@ -691,7 +823,7 @@ impl Collection {
         if categories[1] {
             g.interaction_view = None;
         }
-        self.realize_window(u, frames, false)?;
+        self.realize_window(u, frames, false, CollectionFill::default())?;
         // Invalidate queued reports that still claim the former ownership,
         // even when its old pinned row happens to remain inside the window.
         advance(&mut self.revision)?;
@@ -720,6 +852,7 @@ impl Collection {
                 })
                 .collect(),
             correction: self.correction,
+            pending: self.pending,
         }
     }
 }

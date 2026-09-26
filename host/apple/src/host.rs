@@ -20,6 +20,11 @@ use exact_kernel::{
 };
 use exact_motion::{Change, Engine, HoldToken, Property};
 
+#[path = "arrange.rs"]
+mod arrange;
+#[cfg(test)]
+#[path = "arrange_tests.rs"]
+mod arrange_tests;
 #[path = "content_region/host.rs"]
 mod content_region_host;
 #[path = "height.rs"]
@@ -46,8 +51,8 @@ mod layout;
 mod transform_drag;
 #[path = "transform_drag_wire.rs"]
 mod transform_drag_wire;
+use crate::store::Platform;
 use exact_kernel::id::{IdMap, IdSet};
-use ibex2::host::Secrets;
 use std::collections::{BTreeMap, BTreeSet};
 use transform_drag::TransformDrags;
 
@@ -105,6 +110,8 @@ pub struct Host<D: DataSource> {
     height_auto_owned: bool,
     height_drag: Option<HeightDrag>,
     transform_drags: TransformDrags,
+    /// The one Arrange contact, from its catch until its source settles.
+    arrange: Option<arrange::Arrange>,
     content_region: Option<crate::content_region::RegionState>,
     /// Lists whose last report stopped before their rows' heights were read back
     /// (a registered content region publishes as it lays out, so a report is
@@ -122,9 +129,10 @@ pub struct Host<D: DataSource> {
     layout_calls: usize,
     viewport: (f32, f32),
     now_ms: f64,
-    /// Where the app's kept secrets go after a commit (LLP 1018 D6); `None`
-    /// keeps them in the runner only (a test, or no grants).
-    secrets: Option<Secrets>,
+    /// Where the app's kept secrets, and the runner's kept answers, go after
+    /// a commit (LLP 1018 D6); `None` keeps them in the runner only (a test,
+    /// or grants that do not parse).
+    secrets: Option<Platform>,
     data_activated: bool,
     /// The update store's last line this host journaled, so a sync after
     /// a check writes it once.
@@ -191,7 +199,7 @@ impl<D: DataSource> Host<D> {
         height: f32,
         carried: Option<&Carried>,
         snapshot: Vec<(String, String)>,
-        secrets: Option<Secrets>,
+        secrets: Option<Platform>,
     ) -> Result<(Host<D>, String), HostError> {
         let (mut host, batch) = Host::boot_stored_after_decode(
             plan_bytes,
@@ -225,7 +233,7 @@ impl<D: DataSource> Host<D> {
         height: f32,
         carried: Option<&Carried>,
         snapshot: Vec<(String, String)>,
-        secrets: Option<Secrets>,
+        secrets: Option<Platform>,
         compat: Option<&str>,
         delivery: Option<&'static crate::delivery::Hooks>,
         candidate_delivery: Option<exact_runner::Delivery>,
@@ -261,7 +269,7 @@ impl<D: DataSource> Host<D> {
         height: f32,
         carried: Option<&Carried>,
         snapshot: Vec<(String, String)>,
-        secrets: Option<Secrets>,
+        secrets: Option<Platform>,
         compat: Option<&str>,
         delivery: Option<&'static crate::delivery::Hooks>,
         candidate_delivery: Option<exact_runner::Delivery>,
@@ -345,6 +353,7 @@ impl<D: DataSource> Host<D> {
             height_auto_owned: false,
             height_drag: None,
             transform_drags: TransformDrags::new()?,
+            arrange: None,
             content_region,
             list_unsettled: BTreeSet::new(),
             height_projection: Vec::new(),
@@ -559,11 +568,7 @@ impl<D: DataSource> Host<D> {
             let Some(secrets) = &self.secrets else {
                 continue;
             };
-            let result = match &w.value {
-                Some(v) => secrets.set(&w.name, v),
-                None => secrets.forget(&w.name),
-            };
-            if let Err(e) = result {
+            if let Err(e) = secrets.write(&w) {
                 self.runner.log(format!("store {} failed: {e}", w.name));
             }
         }
@@ -707,6 +712,24 @@ impl<D: DataSource> Host<D> {
             Ok(()) => self.layout(&mut batch).err(),
             Err(e) => Some(format!("intrinsic: {e:?}")),
         };
+        self.finish(batch, error)
+    }
+
+    /// Several images' intrinsic sizes at once — the symbols a batch just
+    /// created — under one layout. A refusal for one view (it is gone, or
+    /// not an image) leaves the others set and is the batch's error.
+    pub fn set_intrinsics(&mut self, sizes: &[(ViewId, Option<(f32, f32)>)]) -> String {
+        self.height_targets_dirty = true;
+        let mut batch = Batch::new();
+        let mut error = None;
+        for &(view, size) in sizes {
+            if let Err(e) = self.runner.kernel_mut().set_intrinsic_size(view, size) {
+                error.get_or_insert(format!("intrinsic: {e:?}"));
+            }
+        }
+        if let Err(e) = self.layout(&mut batch) {
+            error.get_or_insert(e);
+        }
         self.finish(batch, error)
     }
 
@@ -911,6 +934,9 @@ impl<D: DataSource> Host<D> {
         let mut batch = Batch::new();
         let seek = self.engine.advance(self.now_ms / 1000.0);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
+        if self.arrange_settled() {
+            return self.arrange_settle();
+        }
         let error = self.height_layout_if_needed(&mut batch).err();
         // Only suspended ancestor mappings need a settle recheck. Normal
         // photo Translate/Scale frames keep the existing cheap tick path.
@@ -947,12 +973,20 @@ impl<D: DataSource> Host<D> {
         self.commit_into(receipts, error, Batch::new())
     }
 
-    fn commit_into(
+    fn commit_into(&mut self, receipts: &[Timed], error: Option<String>, batch: Batch) -> String {
+        let (mut batch, error) = self.commit_tree(receipts, error, batch);
+        // A receipt can end an Arrange contact; its terminal runs at receipt time.
+        let arrange = self.arrange_after_commit(&mut batch);
+        self.commit_finish(batch, error.or(arrange))
+    }
+
+    /// The receipts into the mirror, the engine and layout; not yet presented.
+    fn commit_tree(
         &mut self,
         receipts: &[Timed],
         error: Option<String>,
         mut batch: Batch,
-    ) -> String {
+    ) -> (Batch, Option<String>) {
         self.list_unsettled
             .retain(|view| self.runner.kernel().node(*view).is_some());
         self.native_retire_removed_owner(&mut batch);
@@ -1059,10 +1093,15 @@ impl<D: DataSource> Host<D> {
         for c in self.runner.take_commands() {
             batch.command(&c.name, &c.args);
         }
+        (batch, error.or(layout_error))
+    }
+
+    /// Persist, then the presentation after every commit in the batch.
+    fn commit_finish(&mut self, mut batch: Batch, error: Option<String>) -> String {
         self.persist();
         self.emit_transform_drags(&mut batch);
         self.present(&mut batch, false);
-        self.finish(batch, error.or(layout_error))
+        self.finish(batch, error)
     }
 
     /// Every presentation value the engine changed, as `present` ops. At
@@ -1134,6 +1173,7 @@ fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
     let pad = |d: exact_kernel::Dimension, against: f32| match d.resolve(&env) {
         exact_kernel::Dimension::Points(p) => p,
         exact_kernel::Dimension::Percent(p) => against * p / 100.0,
+        exact_kernel::Dimension::Calc(p, x) => against * p / 100.0 + x,
         exact_kernel::Dimension::Auto | exact_kernel::Dimension::Env(..) => 0.0,
     };
     let pad_right = pad(node.style.padding_right, node.frame.width);

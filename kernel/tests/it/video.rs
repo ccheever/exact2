@@ -120,13 +120,15 @@ fn high_resolution_video_keeps_ratio_constraints_and_only_used_box_overflow() {
             .compute_layout(1, Offer::definite(200., 900.))
             .unwrap();
         let video = kernel.node(2).unwrap();
+        // A set width stays; the height by ratio is clamped on its own
+        // (Chrome 154: a 7680×4320 `<img>` with these rows is 192×72).
         assert_eq!(
             (video.frame.width, video.frame.height),
-            (128., 72.),
+            (192., 72.),
             "{fit}"
         );
         // Content is the children's used bounds, not the parent's own box.
         assert_eq!(kernel.node(1).unwrap().frame.width, 200., "{fit}");
-        assert_eq!(kernel.node(1).unwrap().content, (128., 72.), "{fit}");
+        assert_eq!(kernel.node(1).unwrap().content, (192., 72.), "{fit}");
     }
 }

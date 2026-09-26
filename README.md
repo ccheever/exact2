@@ -2,6 +2,11 @@
 
 Tooling runs on **Bun 1.4.2**, the version `package.json` pins.
 Run `bun install --frozen-lockfile` to install the dependencies in `bun.lock`.
+The web artifacts build with a pinned nightly Rust and its std sources (LLP 1047);
+everything else uses `rust-toolchain.toml`'s stable. `host/web/build.mjs` prints the
+install commands when they're missing:
+`rustup toolchain install nightly-2026-08-21 --profile minimal --component rust-src`,
+then `cargo +nightly-2026-08-21 fetch` on that toolchain's `library/Cargo.toml`.
 Node and npm are not required. Rolldown remains the app bundler; the existing
 build, serve, watch, and reload scripts run under Bun. Run tooling unit tests with
 `bun test ./scripts/install-page.test.mjs ./scripts/rust.test.mjs`; the explicit

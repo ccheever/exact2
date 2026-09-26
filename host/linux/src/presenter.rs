@@ -672,6 +672,20 @@ impl<D: DataSource> Presenter<D> {
                     }
                 }
                 "copyText" => eprintln!("exact: copyText unsupported on the headless/DRM host"),
+                // `blur()` drops the focus; `blur(id)` only when that node holds it.
+                "blur" => {
+                    let holds = |name: &str| {
+                        self.focus
+                            .and_then(|id| self.host.kernel().node(id))
+                            .is_some_and(|n| n.props.str(PropId::Id) == Some(name))
+                    };
+                    if match c.args.first() {
+                        Some(exact_plan::Value::Str(s)) => holds(s),
+                        _ => true,
+                    } {
+                        self.blur();
+                    }
+                }
                 "selectText" => eprintln!("exact: selectText unsupported on the headless/DRM host"),
                 other => eprintln!("exact: unknown command {other}"),
             }
@@ -897,6 +911,8 @@ impl<D: DataSource> Presenter<D> {
         // A continuation is dispatched here, on this thread, after the
         // commit that handed it out (LLP 1027.002 D3); one a source holds
         // is parked and released after a later commit.
+        self.executor
+            .forget(|ticket| self.host.runner().holds(ticket));
         if !self.host.has_ordered_request_refusals() {
             self.executor.resume_ordered();
         }

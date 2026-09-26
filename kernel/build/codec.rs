@@ -37,6 +37,7 @@ fn parse_codec(s: &str) -> Codec {
         "transitions" => Codec::Transitions,
         // @ref LLP 1043.000 §3 D1 — one parse/css/default codec for both shapes.
         "clip-path" => Codec::CssValue { path: "crate::clip::ClipPath", variant: "ClipPath", error: "BadClipPath" },
+        "aspect-ratio" => Codec::CssValue { path: "crate::ratio::AspectRatio", variant: "AspectRatio", error: "BadAspectRatio" },
         "shape-outside" => Codec::CssValue { path: "exact_textflow::ShapeOutside", variant: "ShapeOutside", error: "BadShapeOutside" },
         other => match other.strip_prefix("enum:") {
             Some(name) => Codec::Enum(name.to_string()),

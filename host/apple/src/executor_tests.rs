@@ -374,8 +374,8 @@ fn a_full_new_cohort_recovers_only_after_old_outcomes_are_drained() {
         .unwrap();
     }
     fixture.wait_held(2);
-    // Forgetting UI tickets does not cancel queued/running native work. The
-    // next generation gets explicit refusals while old reservations remain.
+    // Until the host forgets their tickets (`Core::forget`), old work keeps
+    // its reservations: the next generation gets explicit refusals.
     for ticket in 128..256 {
         assert!(core
             .run(
@@ -529,4 +529,280 @@ fn asynchronous_module_reply_keeps_io_available_and_ordered_results_in_order() {
         [10, 11]
     );
     assert!(core.ordered_idle());
+}
+
+#[test]
+fn grants_that_do_not_parse_are_named_in_every_refusal() {
+    let (wake, woke) = channel();
+    let core = Core::start(
+        None,
+        "net.fetch https://example.test\nsecret.keep jwtToken",
+        Box::new(move || {
+            let _ = wake.send(());
+        }),
+    );
+    for (ticket, request) in [
+        (1, Request::get("https://example.test/a")),
+        (
+            2,
+            Request::get("https://example.test/b").independent_http(4096),
+        ),
+    ] {
+        core.run(job(ticket, request), None).unwrap();
+    }
+    for (_, outcome) in collect(&core, &woke, 2) {
+        let Outcome::Failed { kind, message } = outcome else {
+            panic!("an unbound owner answered: {outcome:?}");
+        };
+        assert_eq!(kind, FailureKind::Refused);
+        assert!(
+            message.contains("did not parse") && message.contains("jwtToken"),
+            "{message}"
+        );
+    }
+}
+
+fn settled(core: &Core) -> bool {
+    let state = core.shared.state.lock().unwrap();
+    state.counts == [0, 0] && state.bytes == [0, 0] && state.running.is_empty()
+}
+
+fn until_settled(core: &Core) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !settled(core) {
+        assert!(
+            Instant::now() < deadline,
+            "forgotten work kept its reservation"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[test]
+fn a_forgotten_read_is_aborted_and_later_ordered_results_drain() {
+    let (core, fixture, woke) = setup();
+    core.run(job(1, Request::get("https://example.test/hold")), None)
+        .unwrap();
+    fixture.wait_held(1);
+    for ticket in 2..=3 {
+        core.run(job(ticket, Request::get("https://example.test/read")), None)
+            .unwrap();
+    }
+    // A poll's new arguments superseded ticket 1 (Seth's Crew port, F3).
+    core.forget(|ticket| ticket != 1);
+    assert_eq!(
+        collect(&core, &woke, 2)
+            .into_iter()
+            .map(|v| v.0)
+            .collect::<Vec<_>>(),
+        [2, 3]
+    );
+    until_settled(&core);
+    assert!(core.ordered_idle());
+}
+
+#[test]
+fn a_forgotten_write_still_runs_but_its_outcome_is_not_drained() {
+    let (core, fixture, woke) = setup();
+    core.run(job(1, Request::get("https://example.test/hold")), None)
+        .unwrap();
+    fixture.wait_held(1);
+    core.run(
+        job(2, Request::post_json("https://example.test/write", "{}")),
+        None,
+    )
+    .unwrap();
+    core.run(job(3, Request::get("https://example.test/read")), None)
+        .unwrap();
+    core.forget(|ticket| ticket != 2 && ticket != 3);
+    fixture.release();
+    assert_eq!(collect(&core, &woke, 1)[0].0, 1);
+    until_settled(&core);
+    assert!(core.drain().is_empty());
+    // The queued read was never sent; the write was, in its order.
+    assert_eq!(
+        fixture.state.lock().unwrap().2,
+        ["https://example.test/hold", "https://example.test/write"]
+    );
+}
+
+#[test]
+fn forgotten_independent_reads_release_their_transports_and_admission() {
+    let (core, fixture, _) = setup();
+    for ticket in 0..128 {
+        core.run(
+            job(
+                ticket,
+                Request::get("https://example.test/hold").independent_http(4096),
+            ),
+            None,
+        )
+        .unwrap();
+    }
+    fixture.wait_held(2);
+    core.forget(|_| false);
+    until_settled(&core);
+    core.run(
+        job(
+            200,
+            Request::get("https://example.test/read").independent_http(4096),
+        ),
+        None,
+    )
+    .unwrap();
+}
+
+#[test]
+fn ordered_admission_charges_request_buffers_until_a_job_runs() {
+    let (core, fixture, woke) = setup();
+    core.run(job(0, Request::get("https://example.test/hold")), None)
+        .unwrap();
+    fixture.wait_held(1);
+    // Six asks at boot were Crew's; the count is the limit now, not bytes.
+    for ticket in 1..16 {
+        core.run(job(ticket, Request::get("https://example.test/read")), None)
+            .unwrap();
+    }
+    assert!(core
+        .run(job(16, Request::get("https://example.test/read")), None)
+        .is_err());
+    fixture.release();
+    assert_eq!(
+        collect(&core, &woke, 16)
+            .into_iter()
+            .map(|v| v.0)
+            .collect::<Vec<_>>(),
+        (0..16).collect::<Vec<_>>()
+    );
+    assert!(settled(&core));
+}
+
+#[test]
+fn an_ordered_job_waits_for_retained_bytes_instead_of_refusing() {
+    let (core, fixture, woke) = setup();
+    // Four undrained outcomes retain 480 MiB of capacity (never touched).
+    for ticket in 1..=4 {
+        core.run(
+            job(ticket, Request::continuation(ticket)),
+            Some(Box::new(|| Outcome::Storage(Vec::with_capacity(120 << 20)))),
+        )
+        .unwrap();
+    }
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while core.shared.state.lock().unwrap().completed[0].len() < 4 {
+        assert!(Instant::now() < deadline);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    // Admitted on its request buffers; its 128 MiB ceiling doesn't fit yet.
+    core.run(job(5, Request::get("https://example.test/read")), None)
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(fixture.state.lock().unwrap().2.is_empty());
+    core.begin_pump();
+    assert_eq!(core.drain()[0].0, 1);
+    let rest = collect(&core, &woke, 4);
+    assert_eq!(
+        rest.into_iter().map(|v| v.0).collect::<Vec<_>>(),
+        [2, 3, 4, 5]
+    );
+    assert_eq!(
+        fixture.state.lock().unwrap().2,
+        ["https://example.test/read"]
+    );
+    assert!(settled(&core));
+}
+
+/// The platform transport, a loopback server and a body over its 64 KiB
+/// handoff, behind and beside handed-off module turns as worker placement
+/// queues them (the Crew port's F4/F6, not reproduced on macOS).
+#[test]
+fn a_large_body_on_the_platform_transport_drains_behind_handed_off_turns() {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let mut stream = stream.unwrap();
+            std::thread::spawn(move || {
+                let mut buf = [0u8; 4096];
+                let n = stream.read(&mut buf).unwrap_or(0);
+                let head = String::from_utf8_lossy(&buf[..n]).to_string();
+                let size = if head.contains("/big") { 190_785 } else { 24 };
+                let body = format!("\"{}\"", "x".repeat(size - 2));
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+            });
+        }
+    });
+    let grants = format!("net.fetch http://127.0.0.1:{port}");
+    let owners = (0..WORKERS)
+        .map(|_| {
+            Some(ibex2::host::Host::new().endow(ibex2::grant::GrantSet::parse(&grants).unwrap()))
+        })
+        .collect();
+    let (wake, woke) = channel();
+    let core = Core::with_owners(
+        owners,
+        &grants,
+        Box::new(move || {
+            let _ = wake.send(());
+        }),
+    );
+    // A handed-off turn that completes a little later, like the owner's.
+    let turn = |ticket: u64| {
+        let mut request = Request::continuation(ticket);
+        request.http = HttpScheduling::Ordered;
+        let work: OwnedWork = OwnedWork::Later(Box::new(|reply: Reply| {
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(50));
+                reply.send(Outcome::Response(Response {
+                    status: 200,
+                    headers: vec![],
+                    body: b"turn".to_vec(),
+                }));
+            });
+        }));
+        (job(ticket, request), work)
+    };
+    let (r, w) = turn(1);
+    core.run_owned(r, Some(w)).unwrap();
+    core.run_owned(
+        job(2, Request::get(&format!("http://127.0.0.1:{port}/big"))),
+        None,
+    )
+    .unwrap();
+    let (r, w) = turn(3);
+    core.run_owned(r, Some(w)).unwrap();
+    core.run_owned(
+        job(4, Request::get(&format!("http://127.0.0.1:{port}/small"))),
+        None,
+    )
+    .unwrap();
+    core.run_owned(
+        job(5, Request::get(&format!("http://127.0.0.1:{port}/big"))),
+        None,
+    )
+    .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut outcomes = vec![];
+    while outcomes.len() < 5 {
+        core.begin_pump();
+        outcomes.extend(core.drain());
+        if outcomes.len() < 5 {
+            woke.recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                .unwrap_or_else(|_| panic!("stalled after {outcomes:?}"));
+        }
+    }
+    let sizes: Vec<(u64, usize)> = outcomes
+        .iter()
+        .map(|(t, o)| match o {
+            Outcome::Response(r) => (*t, r.body.len()),
+            other => panic!("{t}: {other:?}"),
+        })
+        .collect();
+    assert_eq!(sizes, [(1, 4), (2, 190_785), (3, 4), (4, 24), (5, 190_785)]);
 }

@@ -747,6 +747,7 @@ mod tests {
                 scroll_sequence: 2,
                 scroll_top: 200.,
             }),
+            pending: false,
         }
     }
     #[test]

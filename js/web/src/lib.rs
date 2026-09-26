@@ -14,11 +14,11 @@ fn unavailable(message: impl Into<String>) -> DataError {
     DataError::Unavailable(message.into())
 }
 
-/// The runner's target as the realm keys it: opaque, and `null` when the
-/// caller named none. Two targets asking one source with equal arguments
-/// are two calls, here and in the realm.
+/// The runner's target as the realm keys it: opaque (`Resource(3)`), and
+/// `null` when the caller named none. Two targets asking one source with
+/// equal arguments are two calls, here and in the realm.
 fn target_json(target: Option<Target>) -> Json {
-    target.map_or(Json::Null, |target| Json::String(format!("{target:?}")))
+    target.map_or(Json::Null, |target| Json::String(target.text()))
 }
 
 /// The key a call waits under: `[target, source, args]` as compact JSON.
@@ -328,7 +328,10 @@ impl Module {
                 self.waiting.insert(key, false);
                 Answer::Later(request)
             } else if response["tag"] == 0 {
-                Answer::Now(reply.value.map_err(|e| {
+                let value = reply
+                    .value
+                    .unwrap_or_else(|| json::decode(&Json::Null, result));
+                Answer::Now(value.map_err(|e| {
                     unavailable(format!("`{source}` answered outside its shape: {e}"))
                 })?)
             } else {
@@ -445,7 +448,7 @@ impl DataSource for Module {
             ..
         } in in_flight
         {
-            let Some((params, _)) = self.signatures.get(*source) else {
+            let Some((params, _)) = self.signatures.get(source) else {
                 continue;
             };
             let Ok(args) = args
@@ -687,6 +690,27 @@ mod tests {
                 )
                 .is_err());
             assert_eq!(store.get("token"), Some("changed"));
+        }
+    }
+
+    #[test]
+    fn an_answer_without_a_value_reads_as_null_would() {
+        let mut module = Module::new("test", "", "revision");
+        let mut store = Store::new("", []);
+        for (shape, answer) in [
+            (Shape::Unit, Ok(Answer::Now(Value::Unit))),
+            (
+                Shape::Number,
+                Err(unavailable(
+                    "`source` answered outside its shape: expected a number, got null",
+                )),
+            ),
+        ] {
+            module.signatures.insert("source".into(), (vec![], shape));
+            assert_eq!(
+                module.step(&mut store, "source", "key".into(), br#"{"tag":0}"#),
+                answer
+            );
         }
     }
 

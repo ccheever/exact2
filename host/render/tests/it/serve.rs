@@ -219,11 +219,23 @@ fn each_route_answers_by_its_policy() {
         header(&headers, "cache-control"),
         Some("public, max-age=0, s-maxage=120, stale-while-revalidate=120")
     );
-    let keys = header(&headers, "surrogate-key").unwrap();
+    // Its surrogate keys go only to a CDN (RFC 8586's `CDN-Loop`), with the
+    // same page, validator and lifetime a browser gets.
+    assert_eq!(header(&headers, "surrogate-key"), None);
+    assert_eq!(header(&headers, "cache-tag"), None);
+    let (status, cdn, cdn_body) =
+        fetch(addr, "GET /post/7 HTTP/1.1\r\nCDN-Loop: cloudflare\r\n\r\n");
+    assert_eq!((status, cdn_body.as_str()), (200, body.as_str()));
+    assert_eq!(header(&cdn, "etag"), header(&headers, "etag"));
+    assert_eq!(
+        header(&cdn, "cache-control"),
+        header(&headers, "cache-control")
+    );
+    let keys = header(&cdn, "surrogate-key").unwrap();
     assert!(keys.split(' ').any(|k| k == "post"), "{keys}");
     assert!(keys.split(' ').any(|k| k.starts_with("post:")), "{keys}");
     assert_eq!(
-        header(&headers, "cache-tag"),
+        header(&cdn, "cache-tag"),
         Some(keys.replace(' ', ",").as_str())
     );
     let csp = header(&headers, "content-security-policy").unwrap();
@@ -254,13 +266,18 @@ fn each_route_answers_by_its_policy() {
     assert_eq!(header(&headers, "vary"), Some("Accept-Encoding"));
     // Canonical URLs come from the configured origin, not the request's Host.
     assert!(!body.contains("evil.test"));
-    // An unchanged page is a 304 to a cache that has it.
+    // An unchanged page is a 304 to a cache that has it, a browser's or a
+    // CDN's, and carries no keys: the stored response has them.
     let etag = header(&headers, "etag").unwrap().to_string();
-    let (status, _, body) = fetch(
-        addr,
-        &format!("GET /post/7 HTTP/1.1\r\nIf-None-Match: {etag}\r\n\r\n"),
-    );
-    assert_eq!((status, body.as_str()), (304, ""));
+    for via in ["", "CDN-Loop: cloudflare\r\n"] {
+        let (status, fresh, body) = fetch(
+            addr,
+            &format!("GET /post/7 HTTP/1.1\r\n{via}If-None-Match: {etag}\r\n\r\n"),
+        );
+        assert_eq!((status, body.as_str()), (304, ""));
+        assert_eq!(header(&fresh, "etag"), Some(etag.as_str()));
+        assert_eq!(header(&fresh, "surrogate-key"), None);
+    }
     // HEAD: the same headers, no body.
     let (status, headers, body) = fetch(addr, "HEAD /post/7 HTTP/1.1\r\n\r\n");
     assert_eq!((status, body.as_str()), (200, ""));
@@ -647,6 +664,133 @@ fn pages_and_files_go_compressed_as_the_client_accepts() {
     );
     assert_eq!(header(&headers, "content-encoding"), None);
     assert_eq!(header(&headers, "vary"), None);
+}
+
+#[test]
+fn a_cached_page_goes_at_the_best_compression_once_it_is_made() {
+    let addr = start("best", 1, 8, 300);
+    let request = "GET /post/7 HTTP/1.1\r\nAccept-Encoding: br\r\n\r\n";
+    // The render's own response is compressed as it is sent.
+    let (status, first_headers, first) = fetch_bytes(addr, request);
+    assert_eq!(status, 200);
+    assert_eq!(header(&first_headers, "content-encoding"), Some("br"));
+    // A later hit gets the page made at the best, off the request path.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let (headers, best) = loop {
+        let (_, headers, body) = fetch_bytes(addr, request);
+        if body.len() < first.len() || std::time::Instant::now() > deadline {
+            break (headers, body);
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert!(
+        best.len() < first.len(),
+        "{} !< {}",
+        best.len(),
+        first.len()
+    );
+    assert_eq!(decoded(&headers, &best), decoded(&first_headers, &first));
+    assert_eq!(header(&headers, "content-encoding"), Some("br"));
+    assert_eq!(header(&headers, "vary"), Some("Accept-Encoding"));
+    // One representation, one tag: a client holding either gets a 304.
+    let etag = header(&headers, "etag").unwrap();
+    assert_eq!(Some(etag), header(&first_headers, "etag"));
+    let (status, _, body) = fetch_bytes(
+        addr,
+        &format!("GET /post/7 HTTP/1.1\r\nAccept-Encoding: br\r\nIf-None-Match: {etag}\r\n\r\n"),
+    );
+    assert_eq!((status, body.len()), (304, 0));
+    // A render that isn't kept goes as it is sent.
+    let (_, _, fresh) = fetch_bytes(
+        addr,
+        "GET /post/7 HTTP/1.1\r\nAccept-Encoding: br\r\nCache-Control: no-store\r\n\r\n",
+    );
+    assert_eq!(fresh.len(), first.len());
+}
+
+#[test]
+fn a_kept_page_goes_against_a_dictionary_the_browser_holds() {
+    use sha2::{Digest, Sha256};
+    const USE: &str = "match=\"/*\", match-dest=(\"document\")";
+    let addr = start("dictionary", 1, 8, 300);
+    // A kept page says a browser may keep it as a dictionary; its hash names it.
+    let (status, headers, dictionary) = fetch_bytes(addr, "GET /post/7 HTTP/1.1\r\n\r\n");
+    assert_eq!(
+        (status, header(&headers, "use-as-dictionary")),
+        (200, Some(USE))
+    );
+    let hash = exact_data::envelope::base64(&Sha256::digest(&dictionary));
+    let ask = |extra: &str| {
+        fetch_bytes(
+            addr,
+            &format!("GET /post/8 HTTP/1.1\r\nAccept-Encoding: gzip, deflate, br, zstd, dcb, dcz\r\nAvailable-Dictionary: :{hash}:\r\n{extra}\r\n"),
+        )
+    };
+    // A browser that holds it gets the next page against it: the render that
+    // keeps the page, then a hit.
+    for _ in 0..2 {
+        let (status, headers, body) = ask("");
+        assert_eq!(status, 200);
+        assert_eq!(header(&headers, "content-encoding"), Some("dcb"));
+        assert_eq!(
+            header(&headers, "vary"),
+            Some("Accept-Encoding, Available-Dictionary")
+        );
+        assert_eq!(header(&headers, "use-as-dictionary"), Some(USE));
+        assert!(header(&headers, "etag").unwrap().ends_with("-dcb\""));
+        assert_eq!(body[..4], [0xff, 0x44, 0x43, 0x42]);
+        assert_eq!(body[4..36], Sha256::digest(&dictionary)[..]);
+        let mut decoded = Vec::new();
+        brotli::Decompressor::new_with_custom_dict(&body[36..], 4096, dictionary.clone().into())
+            .read_to_end(&mut decoded)
+            .unwrap();
+        assert_eq!(decoded, fetch_bytes(addr, "GET /post/8 HTTP/1.1\r\n\r\n").2);
+        assert!(
+            body.len() * 2 < decoded.len() / 4,
+            "{} of {}",
+            body.len(),
+            decoded.len()
+        );
+    }
+    // Its own ETag gets a 304.
+    let etag = header(&ask("").1, "etag").unwrap().to_string();
+    let (status, _, body) = ask(&format!("If-None-Match: {etag}\r\n"));
+    assert_eq!((status, body.len()), (304, 0));
+    // So does the tag of the page as brotli, which a browser coming back holds
+    // when it now asks with a dictionary: every encoding decodes to the page.
+    let (_, headers, _) = fetch_bytes(addr, "GET /post/8 HTTP/1.1\r\nAccept-Encoding: br\r\n\r\n");
+    let br = header(&headers, "etag").unwrap().to_string();
+    assert!(br.ends_with("-br\""), "{br}");
+    let (status, headers, body) = ask(&format!("If-None-Match: {br}\r\n"));
+    assert_eq!((status, body.len()), (304, 0));
+    assert_eq!(header(&headers, "etag"), Some(br.as_str()));
+    // A hash this server doesn't keep falls back to brotli.
+    let unknown = exact_data::envelope::base64(&[0u8; 32]);
+    let (_, headers, _) = fetch_bytes(
+        addr,
+        &format!("GET /post/8 HTTP/1.1\r\nAccept-Encoding: br, dcb\r\nAvailable-Dictionary: :{unknown}:\r\n\r\n"),
+    );
+    assert_eq!(header(&headers, "content-encoding"), Some("br"));
+    assert_eq!(header(&headers, "vary"), Some("Accept-Encoding"));
+    // A CDN's request hears of no dictionary and gets none.
+    let (_, headers, _) = ask("CDN-Loop: cloudflare\r\n");
+    assert_eq!(header(&headers, "content-encoding"), Some("br"));
+    assert_eq!(header(&headers, "use-as-dictionary"), None);
+    // Nor do pages that aren't kept: one per request, or one asked not to be stored.
+    for target in [
+        "/live/7 HTTP/1.1\r\n",
+        "/post/8 HTTP/1.1\r\nCache-Control: no-store\r\n",
+    ] {
+        let (status, headers, _) = fetch_bytes(
+            addr,
+            &format!(
+                "GET {target}Accept-Encoding: br, dcb\r\nAvailable-Dictionary: :{hash}:\r\n\r\n"
+            ),
+        );
+        assert_eq!(status, 200);
+        assert_eq!(header(&headers, "use-as-dictionary"), None);
+        assert_eq!(header(&headers, "content-encoding"), Some("br"));
+    }
 }
 
 #[test]

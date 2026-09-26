@@ -19,7 +19,9 @@ pub(super) const MAX_KEPT_BYTES: usize = 8 * 1024;
 
 /// The store name a resource's kept answer lives under.
 pub(super) fn kept_name(resource: &str) -> String {
-    format!("{}{resource}", Store::KEPT)
+    let mut name = String::from(Store::KEPT);
+    name.push_str(resource);
+    name
 }
 
 pub(super) fn encode(args: &[Value], value: &Value) -> String {
@@ -77,8 +79,16 @@ pub(super) fn decode(text: &str) -> Option<(Vec<Value>, Value)> {
     Some((args, value))
 }
 
+/// Two lowercase digits a byte (`{:02x}`'s), without the formatter: a kept
+/// answer is written on a first press's path.
 fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        out.push(char::from(DIGITS[usize::from(b >> 4)]));
+        out.push(char::from(DIGITS[usize::from(b & 15)]));
+    }
+    out
 }
 
 fn unhex(s: &str) -> Option<Vec<u8>> {
@@ -144,6 +154,16 @@ mod tests {
         assert!(decode("zz|00").is_none());
         assert!(decode(&text[..text.len() - 1]).is_none());
         assert_eq!(kept_name("remembered"), "exact.kept.remembered");
+    }
+
+    #[test]
+    fn hex_is_two_lowercase_digits_a_byte() {
+        let every: Vec<u8> = (0..=255).collect();
+        let reference = |bytes: &[u8]| bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
+        assert_eq!(hex(&every), reference(&every));
+        assert_eq!(hex(&[]), "");
+        let value = Value::record(vec![Value::str("é💬"), Value::Number(-2.5)]).to_bytes();
+        assert_eq!(hex(&value), reference(&value));
     }
 
     #[test]
