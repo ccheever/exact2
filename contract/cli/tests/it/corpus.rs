@@ -26,11 +26,29 @@ fn symbols_admit_roles_and_refuse_platform_names_or_misspellings() {
         "messages",
         "notifications",
         "settings",
+        "repeat",
+        "activity",
+        "bookmark",
+        "bookmark-fill",
+        "document",
+        "select",
+        "select-fill",
+        "reorder",
+        "sort",
+        "filter",
     ] {
         contract::compile(&format!("component App\n  view\n    image \"symbol:{role}\" tint-color=\"light-dark(#123456,#abcdef)\"\n")).unwrap();
     }
     contract::compile("component App\n  state selected = true\n  view\n    button role=\"tab\" aria-selected=selected\n      text \"Questions\"\n").unwrap();
-    for role in ["", "chevron.backward", "sf/plus", "Search", "serach"] {
+    for role in [
+        "",
+        "chevron.backward",
+        "sf/plus",
+        "Search",
+        "serach",
+        "bookmark.fill",
+        "checkmark-circle",
+    ] {
         let error = contract::compile(&format!(
             "component App\n  view\n    image \"symbol:{role}\"\n"
         ))
@@ -118,6 +136,43 @@ fn the_scroll_fixture_writes_a_smooth_scroll_top_from_a_press() {
     assert_eq!(top(&r), Some(0.0));
     r.act("jump", vec![]).unwrap();
     assert_eq!(top(&r), Some(600.0));
+}
+
+#[test]
+fn a_style_attributes_branches_may_mix_a_length_and_a_keyword() {
+    let plan = contract::compile(&corpus("style-branches.contract")).unwrap();
+    let mut r = Runner::boot(
+        Plan::decode(&plan.encode()).unwrap(),
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let key = r.kernel().find_by_test_id("sheet")[0];
+    let style = |r: &Runner<Schedule>| r.kernel().node_by_key(key).unwrap().style.clone();
+    let closed = style(&r);
+    assert_eq!(closed.margin_top, Dimension::Auto);
+    assert_eq!(closed.width, Dimension::Percent(50.0));
+    assert_eq!(closed.height, Dimension::Auto);
+    r.act("set", vec![Value::Bool(true)]).unwrap();
+    let open = style(&r);
+    assert_eq!(open.margin_top, Dimension::Points(-14.5));
+    assert_eq!(open.width, Dimension::Points(100.0));
+    assert_eq!(open.height, Dimension::Points(200.0));
+    // Only a style row is one value space: a prop, a state, or a derive
+    // still needs one type.
+    for (declarations, attr) in [
+        ("", "testId=(open ? 1 : \"a\")"),
+        ("  derive top = open ? -14.5 : \"auto\"\n", "margin-top=top"),
+        ("", "margin-top=(open ? 1 : true)"),
+    ] {
+        let source = format!(
+            "component App\n  state open = false\n{declarations}  view\n    text \"a\" {attr}\n"
+        );
+        let error = contract::compile(&source).unwrap_err();
+        assert_eq!(error.id, "type-branches", "{source}");
+    }
 }
 
 fn corpus(name: &str) -> String {
@@ -830,6 +885,31 @@ component Label
         );
         runner.act("change", vec![]).unwrap();
     }
+}
+
+#[test]
+fn the_motion_fixtures_after_task_fires_once_and_its_timer_is_then_spent() {
+    let plan = contract::compile(&corpus("motion.contract")).unwrap();
+    assert_eq!(plan.timers.len(), 2);
+    assert!(!plan.timers[0].once && plan.timers[1].once);
+    let plan = Plan::decode(&plan.encode()).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(text_of(&r, "launch").as_deref(), Some("Launching"));
+    assert_eq!(r.timer_due_ms(), Some(60.0));
+    assert_eq!(r.advance(60.0).unwrap().len(), 1);
+    assert_eq!(text_of(&r, "launch").as_deref(), Some("Ready"));
+    // Spent: only the repeating ticker's deadline remains.
+    assert_eq!(r.timer_due_ms(), Some(1_000.0));
+    assert_eq!(r.advance(120.0).unwrap().len(), 0);
+    assert_eq!(r.advance(180.0).unwrap().len(), 0);
+    assert_eq!(r.advance(2_500.0).unwrap().len(), 2);
 }
 
 #[test]

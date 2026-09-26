@@ -8,6 +8,7 @@ struct InlineText {
     let props: [String: String]
     private let lightRun: Run
     private let darkColor: [Double]?
+    private let darkBackground: [Double]?
     let hasSchemeColor: Bool
     let handlers: Set<String>
     let paints: Bool
@@ -21,6 +22,7 @@ struct InlineText {
         value.href = props["href"] ?? ""
         lightRun = value
         darkColor = style.darkColor
+        darkBackground = style.darkBackground
         hasSchemeColor = style.paired
         self.handlers = handlers; self.paints = paints
     }
@@ -28,7 +30,7 @@ struct InlineText {
     var text: String { lightRun.text }
     func run(dark: Bool) -> Run {
         var value = lightRun
-        if dark { value.color = darkColor }
+        if dark { value.color = darkColor; value.background = darkBackground }
         return value
     }
 
@@ -51,6 +53,7 @@ struct InlineText {
 struct InlineStyle {
     var run = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
     var darkColor: [Double]?
+    var darkBackground: [Double]?
     var paired = false
 }
 

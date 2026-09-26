@@ -132,6 +132,21 @@ final class TextFlowTests: XCTestCase {
         XCTAssertNil(first, "No separate source/width history may retain the boundary array")
     }
 
+    /// Thai has no spaces between words; CoreFoundation's line-break units are
+    /// the walker's only opportunities inside the run (LLP 1043 §4 C).
+    func testThaiFlowBreaksOnlyAtCoreFoundationWords() {
+        let text = "ภาษาไทยไม่มีช่องว่างระหว่างคำจึงต้องใช้พจนานุกรมในการตัดคำ"
+        let words = TextFlowSource.complexWords(text)
+        XCTAssertGreaterThan(words.count, 5)
+        XCTAssertEqual(TextFlowSource.complexWords("No Thai, 中文 or Ω here"), [])
+        let flowed = engine.layoutFlow(shape(spec(text)), width: 150,
+            flow: [TextFlowShape(kind: 2, x: 400, y: 0, a: 10, b: 10)])
+        XCTAssertGreaterThan(flowed.fragments.count, 2)
+        for f in flowed.fragments.dropLast() {
+            XCTAssertTrue(words.contains(UInt32(f.utf16_end)), "\(f.utf16_end) is not a word boundary")
+        }
+    }
+
     func testSoftHyphenPaintsDashBesideHole() {
         let flowed = engine.layoutFlow(shape(spec("ab\u{ad}cdefghij")), width: 400,
             flow: [TextFlowShape(kind: 2, x: 64, y: 0, a: 160, b: 100)])

@@ -71,7 +71,7 @@ final class TextFlowSource {
         var space = false
         for i in 0..<original.length {
             let ch = original.character(at: i)
-            if shape.spec.whiteSpace == 0 && [32, 9, 10, 13, 12, 0x85, 0x2028, 0x2029].contains(ch) {
+            if shape.spec.whiteSpace != 1 && [32, 9, 10, 13, 12, 0x85, 0x2028, 0x2029].contains(ch) {
                 if space { replacements.append((i, "\u{200b}")) }
                 else if ch != 32 { replacements.append((i, " ")) }
                 space = true
@@ -91,12 +91,33 @@ final class TextFlowSource {
         let attrs = shape.attributed.length > 0 ? shape.attributed.attributes(at: 0, effectiveRange: nil) : [:]
         let hyphen = CTLineCreateWithAttributedString(NSAttributedString(string: "-", attributes: attrs))
         let width = Float(CTLineGetTypographicBounds(hyphen, nil, nil, nil))
-        let table = advances
+        let table = advances, words = Self.complexWords(text)
         handle = Array(text.utf8).withUnsafeBufferPointer { bytes in
             table.withUnsafeBufferPointer { table in
-                exact_textflow_prepare(bytes.baseAddress, bytes.count, table.baseAddress, table.count, UInt32(shape.spec.overflowWrap), UInt32(shape.spec.whiteSpace), width)
+                words.withUnsafeBufferPointer { words in
+                    exact_textflow_prepare(bytes.baseAddress, bytes.count, table.baseAddress, table.count, words.baseAddress, words.count, UInt32(shape.spec.overflowWrap), UInt32(shape.spec.whiteSpace), width)
+                }
             }
         }
+    }
+    /// CoreFoundation's line-break units that start between two Thai, Lao, Khmer
+    /// or Myanmar letters: the walker has no dictionary (LLP 1043 §4 C).
+    static func complexWords(_ text: String) -> [UInt32] {
+        let string = text as NSString, length = string.length
+        func complex(_ i: Int) -> Bool {
+            switch string.character(at: i) {
+            case 0x0E00...0x0EFF, 0x1000...0x109F, 0x1780...0x17FF, 0x1980...0x19FF, 0x1A20...0x1AAF, 0xA9E0...0xA9FF, 0xAA60...0xAADF: true
+            default: false
+            }
+        }
+        guard (0..<length).contains(where: complex) else { return [] }
+        let tokenizer = CFStringTokenizerCreate(nil, string, CFRange(location: 0, length: length), kCFStringTokenizerUnitLineBreak, nil)
+        var words: [UInt32] = []
+        while CFStringTokenizerAdvanceToNextToken(tokenizer).rawValue != 0 {
+            let start = CFStringTokenizerGetCurrentTokenRange(tokenizer).location
+            if start > 0 && complex(start - 1) && complex(start) { words.append(UInt32(start)) }
+        }
+        return words
     }
     deinit { exact_textflow_free(handle) }
     static func advances(_ line: CTLine, text: String) -> [Float] {

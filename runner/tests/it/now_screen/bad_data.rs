@@ -73,7 +73,7 @@ pub(super) fn fragile() -> Runner<Fragile> {
         let body = b.code(body);
         let action = b.action(name, &[], &[slot], body);
         if name == "tick" {
-            b.timer(1000, action);
+            b.timer(1000, action, false);
         }
     }
     Runner::boot(

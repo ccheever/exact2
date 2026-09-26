@@ -219,3 +219,11 @@ fn positionals_after_named_attributes_stay_on_the_elements_head() {
         );
     }
 }
+
+#[test]
+fn send_as_a_name_and_the_send_statement_both_round_trip() {
+    // `send` spaces like any other name: `who` beside it gets the same treatment.
+    let src = "component A\n  props\n    send: action\n  mutation session as shape Session\n  action go writes session\n    send()\n    send session = login(who=1, send=2)\n  view\n    Row(who=go, send=go)\n";
+    let expected = src.replace("login(who=1, send=2)", "login(who = 1, send = 2)");
+    assert_eq!(preserved(src), expected);
+}

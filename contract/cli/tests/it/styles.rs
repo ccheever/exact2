@@ -1,6 +1,6 @@
 //! LLP 1017 P6: named styles, proven on the kernel's rows after boot.
 
-use exact_kernel::{Color, Dimension, Kernel};
+use exact_kernel::{Color, Dimension, Kernel, WhiteSpace};
 use exact_plan::Value;
 use exact_runner::{DataError, DataSource, Runner};
 use std::path::Path;
@@ -45,7 +45,8 @@ fn a_class_applies_its_style_and_the_nodes_own_attribute_wins() {
     assert_eq!(card.row_gap, 10.0);
     assert_eq!(
         card.background_color,
-        Color::parse_hex("#ffffffd9").unwrap().into()
+        Color::parse_hex("#ffffffd9").unwrap().into(),
+        "`rgba(255, 255, 255, 0.85)` is `#ffffffd9`"
     );
     let tight = style_of("tight");
     assert_eq!(tight.padding_top, Dimension::Points(4.0));
@@ -55,6 +56,49 @@ fn a_class_applies_its_style_and_the_nodes_own_attribute_wins() {
         tight.background_color,
         Color::parse_hex("#000000").unwrap().into()
     );
+    // A `calc()` of a percentage and a length is one row, not text.
+    assert_eq!(style_of("calc").width, Dimension::Calc(100.0, -89.0));
+    assert_eq!(tight.white_space, WhiteSpace::Nowrap);
+}
+
+#[test]
+fn a_class_chooses_between_two_styles_by_state() {
+    let plan = contract::compile(&corpus("styles.contract")).unwrap();
+    let plan = contract::bake(plan, NoData).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let chip = |r: &Runner<NoData>| {
+        let k = r.kernel();
+        let node = k.node_by_key(k.find_by_test_id("chip")[0]).unwrap();
+        (node.id, node.style.clone())
+    };
+    let (chip_id, idle) = chip(&r);
+    assert_eq!(
+        idle.background_color,
+        Color::parse_hex("#cccccc").unwrap().into()
+    );
+    assert_eq!(idle.opacity, 0.5);
+    // Only `Active` sets padding: the kernel's default while `Idle` is chosen.
+    assert_eq!(idle.padding_top, Dimension::Points(0.0));
+    r.dispatch(chip_id, exact_runner::Event::Press).unwrap();
+    let (_, active) = chip(&r);
+    assert_eq!(
+        active.background_color,
+        Color::parse_hex("#0000ff").unwrap().into()
+    );
+    assert_eq!(active.opacity, 1.0);
+    assert_eq!(active.padding_top, Dimension::Points(12.0));
+    assert_eq!(active.padding_left, Dimension::Points(12.0));
+    r.dispatch(chip_id, exact_runner::Event::Press).unwrap();
+    let (_, again) = chip(&r);
+    assert_eq!(again.opacity, 0.5);
+    assert_eq!(again.padding_top, Dimension::Points(0.0));
 }
 
 #[test]
@@ -225,4 +269,99 @@ fn auto_enum_literals_in_branches_keep_dimension_refusals_separate() {
         error.message.ends_with("`auto` is not admitted here"),
         "{error}"
     );
+}
+
+fn boot(src: &str) -> Runner<NoData> {
+    let plan = contract::bake(contract::compile(src).unwrap(), NoData).unwrap();
+    Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap()
+}
+
+fn style_of(r: &Runner<NoData>, id: &str) -> exact_kernel::StyleProps {
+    let k = r.kernel();
+    k.node_by_key(k.find_by_test_id(id)[0])
+        .unwrap()
+        .style
+        .clone()
+}
+
+fn refused(attrs: &str) -> contract::CompileError {
+    contract::compile(&format!("component App\n  view\n    view {attrs}\n")).unwrap_err()
+}
+
+/// LLP 1053 G1: CSS `aspect-ratio` — `auto`, a ratio, or both.
+#[test]
+fn aspect_ratio_takes_the_css_grammar() {
+    use exact_kernel::ratio::AspectRatio;
+    let r = boot("component App\n  state wide = true\n  view\n    column\n      view aspect-ratio=\"16 / 9\" testId=\"a\"\n      view aspect-ratio=1.5 testId=\"b\"\n      view aspect-ratio=\"auto 4/3\" testId=\"c\"\n      view aspect-ratio=\"auto\" testId=\"d\"\n      view aspect-ratio=(wide ? \"2/1\" : \"1\") testId=\"e\"\n");
+    for (id, css) in [
+        ("a", "16/9"),
+        ("b", "1.5"),
+        ("c", "auto 4/3"),
+        ("d", "auto"),
+        ("e", "2/1"),
+    ] {
+        assert_eq!(
+            style_of(&r, id).aspect_ratio,
+            AspectRatio::parse(css).unwrap(),
+            "{id}"
+        );
+    }
+    for value in ["-1", "\"16:9\"", "\"auto auto\"", "\"50%\"", "\"1 / -2\""] {
+        let e = refused(&format!("aspect-ratio={value}"));
+        assert_eq!(e.id, "lower-attr-value", "{value}: {e}");
+    }
+    assert!(refused("aspect-ratio=\"16:9\"")
+        .message
+        .contains("auto 4 / 3"));
+}
+
+/// LLP 1053 G3: `flex-grow` is the longhand (`flex-basis` stays `auto`);
+/// the later of `flex` and `flex-grow` sets the grow factor, as the later
+/// CSS declaration wins; a negative factor is refused.
+#[test]
+fn flex_grow_is_a_longhand_and_the_later_binding_wins() {
+    let r = boot("component App\n  view\n    row\n      view flex-grow=1 testId=\"grow\"\n      view flex=1 flex-grow=3 testId=\"flex-then-grow\"\n      view flex-grow=3 flex=1 testId=\"grow-then-flex\"\n");
+    let grow = style_of(&r, "grow");
+    assert_eq!(
+        (grow.flex_grow, grow.flex_shrink, grow.flex_basis),
+        (1.0, 1.0, Dimension::Auto)
+    );
+    let a = style_of(&r, "flex-then-grow");
+    assert_eq!((a.flex_grow, a.flex_basis), (3.0, Dimension::Percent(0.0)));
+    let b = style_of(&r, "grow-then-flex");
+    assert_eq!((b.flex_grow, b.flex_basis), (1.0, Dimension::Percent(0.0)));
+    for attrs in ["flex-grow=-1", "flex-shrink=-1", "flex=-2"] {
+        let e = refused(attrs);
+        assert_eq!(e.id, "lower-attr-value", "{attrs}: {e}");
+        assert!(e.message.contains("nonnegative"), "{e}");
+    }
+}
+
+/// LLP 1053: `direction` is CSS `direction` (inherited), no longer an old
+/// spelling of `flex-direction`.
+#[test]
+fn direction_is_css_direction() {
+    use exact_kernel::Direction;
+    let r = boot("component App\n  view\n    column direction=\"rtl\" testId=\"outer\"\n      text \"שלום\" testId=\"inner\"\n");
+    assert_eq!(style_of(&r, "outer").direction, Direction::Rtl);
+    let k = r.kernel();
+    let inner = k.node_by_key(k.find_by_test_id("inner")[0]).unwrap();
+    assert_eq!(
+        inner
+            .computed_style(exact_kernel::StyleMask::INHERITED)
+            .direction,
+        Direction::Rtl
+    );
+    let e = refused("direction=\"row\"");
+    assert_eq!(e.id, "lower-attr-value");
+    assert!(e.message.contains("\"ltr\", \"rtl\""), "{e}");
+    let e = refused("flexDirection=\"row\"");
+    assert!(e.message.contains("`flex-direction`"), "{e}");
 }

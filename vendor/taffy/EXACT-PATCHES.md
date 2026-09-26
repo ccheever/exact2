@@ -3,13 +3,13 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9 and 10 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12 and 13 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
-- **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size.
+- **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
   `BlockContext` belongs to block_layout; float_layout is unnecessary and
   disabled. No float row is exposed. Upstream's other newly default features
-  (flexbox_balance, calc, detailed_layout_info) are unnecessary here too.
+  (flexbox_balance, detailed_layout_info) are unnecessary here too.
 - **Replacement plan:** upstream the remaining fixes; remove each divergence
   when a published version provides it. The numbered inventory retains the
   history so a refresh cannot silently lose an Exact correction.
@@ -302,23 +302,42 @@ journal plus sparse positions makes both draining and removal proportional to
 changed entries, without scanning a prior large hash-table capacity. No layout
 algorithm, cache key, root sizing rule or rounding behavior changes.
 
-A sparse opt-in map retains the exact final `LayoutInput` and `LayoutOutput`
-for candidate boundaries only. `mark_dirty_to` clears the dirty path through
-that boundary; `compute_boundary_with_measure` replays the same input through
-Taffy's ordinary child-layout algorithm, retaining the parent-assigned location
-and updating the box's own overflow. This is one serial Taffy owner, without a
+A sparse opt-in map retains, for candidate boundaries only, the exact final
+`LayoutInput` and `LayoutOutput` and whether an ancestor could have consumed
+any other content-dependent answer since it was last invalidated through the
+node: a `ComputeSize` without both known dimensions (or a known width on the
+horizontal axis: every algorithm's short-circuit answers those from the query
+alone), or a `PerformLayout` under other inputs. Recording is at the
+`cache_store` seam, which every miss passes, and a hit returns an entry stored
+under the same known dimensions, so the record is complete. A full
+`mark_dirty` through the node starts a new record, since every ancestor that
+asked it anything is invalidated with it; a hidden layout's `cache_clear`
+drops the saved inputs. `last_layout_input` answers only while nothing else
+was consumed. `mark_dirty_to` clears the dirty path through that boundary;
+`compute_boundary_with_measure` replays the same input through Taffy's
+ordinary child-layout algorithm, retaining the parent-assigned location and
+updating the box's own overflow. `set_style_unmarked` and
+`set_children_unmarked` (children detached or already the parent's) change
+the tree without invalidating it, for a caller that marks the node dirty,
+either way, before any layout. This is one serial Taffy owner, without a
 second engine or a continuation/pending-layout API. Callers must establish an
 independent formatting context and invalidate ancestors when its output changes.
 
-The kernel currently admits text invalidation inside an ordinary block with
-point width/height and hidden/scroll overflow on both axes, under block,
-nonabsolute, nonintrinsic/nonpercentage ancestors and an unchanged definite
-viewport. The root's viewport percentage lowering is retained. Descendant
-percentages use the saved input's original parent size and definiteness. A
-changed size, baseline or collapsed-margin output propagates normally; clipped
-internal overflow publishes on the boundary. Flex/grid ancestors, auto/percent
-boundary sizes, visible overflow, changed offers, exclusions, concurrent style
-or topology changes, and nested dirty boundaries take the normal root path.
+The kernel defers style, child-list and text invalidation to the next layout
+and then admits, as a boundary for each change, the nearest box at or above it
+(strictly above a restyled one) that clips both axes, is in flow, is not
+restyled or dirty, and has a replayable record, under no hidden ancestor and
+an unchanged definite viewport. Flex, grid, percentage and auto sizing need no
+rule of their own: the record says whether the ancestors asked. Every
+ordinary invalidation walks before any local one, so none stops at a box a
+local walk cleared. A changed size, collapsed-margin or baseline output
+propagates normally, except that a flex column's non-startmost item's
+baselines are unread (CSS Flexbox §8.5 and §9.4: the column aligns no item by
+baseline and takes its own from its startmost item). Clipped internal overflow
+publishes on the boundary. Exclusions, changed offers, a dirty root and
+nested boundaries take the normal root path. A virtualized list (`flex: 1`,
+`min-height: 0`, `width: 100%` under a column) is such a boundary for its
+window changes, row measurement, inserts and removes.
 
 Kernel publication follows sparse ancestor paths in document order and descends
 where absolute origins move. Per-root publication generations expire old geometry
@@ -330,7 +349,13 @@ conservative traversal.
 Regressions in `kernel::locality_tests` compare all frames and overflow bitwise
 with a fresh engine, assert one measure and three publication visits among 100
 and 2,000 unrelated siblings, and exercise negative dependencies, mixed dirty
-sources, changed viewports and reparenting. Apple layout tests cover silent
+sources, changed viewports and reparenting. `layout::containment_tests` holds
+the list shape local and its coupled cases (first item, content-sized, header,
+restyled) at the root; `layout_equality`'s random trees gain clipping boxes and
+a list-shaped differential of clipping panes, each round compared with a
+rehydrated and a replayed kernel, frames and scroll extents. Over 1,500 seeds
+of both (about 14,000 contained replays) this patch adds no divergence: the
+four seeds that differ also differ on the prior tip; patch 11 fixes all four. Apple layout tests cover silent
 settlement and inherited spelling hints on unmoved editors. Existing layout,
 reader, exclusion, region and upstream differential expectations are unchanged.
 
@@ -360,3 +385,132 @@ nine literal-Chrome cases, including the `padding-top: 56.25%` embed idiom,
 which a zero `height` already kept right (only the box's own padding
 counts then). Taffy's 130 unit tests pass on the patched source (a scratch
 copy without the uncached roxmltree dev-dependency, as in M8).
+
+## Patch 11: the layout cache is keyed on every layout input — to upstream
+
+**Implementer:** Claude, 2026-09-25 (found by `layout_equality`'s seeds).
+
+`src/tree/cache.rs::CacheKey` left three inputs out of the key under which it
+reuses a result, so an entry computed under one input answered another:
+
+- `vertical_margins_are_collapsible`. Whether the node sits in its parent's
+  block formatting context decides whether a first or last child's margin
+  collapses through it (CSS 2.1 §8.3.1), and so its size, its children's
+  positions and the margins it reports. A block parent that turns flex or grid
+  reused its child's final layout with the inner margin still collapsed through
+  it (`run(2423214, 14)`: a 4.5-point margin in the wrong place).
+- `sizing_mode`. `InherentSize` applies the node's own size, min and max
+  styles; `ContentSize` ignores them. Flex asks `ContentSize` (flex basis,
+  final layout); block and grid ask `InherentSize`, with the same known
+  dimensions (`run_panes(1412, 40)`: a 58-point styled width answered a
+  110-point basis probe).
+- The parent's height, for measurements. `ComputeSize` lookups compared only
+  the parent's width, but a node resolves its own percentage height against the
+  parent's height (CSS 2.1 §10.5): `height: 86%` measured under a 62-point
+  parent answered once the parent's height was auto (`run_panes(503, 40)`;
+  `run_panes(405, 40)` is the same through `sizing_mode` too).
+  Final-layout entries already compared the whole parent size.
+
+The key now carries the two fields, and a measurement matches on everything but
+the requested axis. The alternative, clearing a child's cache when its parent's
+display changes, is not correct in general: the cache memoizes a function of the
+node's subtree, which its own dirty flag covers, and of its `LayoutInput`, which
+only the key covers. One unchanged block parent asks the same child under both
+flag values (it measures every child's width with collapsible margins, then lays
+a flex, grid or scrolling child out without), and a parent's height or sizing
+mode changes without its display changing. Keying costs only hits between
+genuinely different inputs.
+
+**Upstream fixture** (`cache.rs` tests): three key tests, one per omitted input,
+and three trees laid out, restyled and laid out again against a fresh tree:
+block to flex and block to grid (margin collapse; grid differs from the block
+only in the flag), and a block losing its height under a percentage-height flex
+child. All six fail on the unpatched source and pass patched; Taffy's 135 unit
+tests and 5 doctests pass (scratch copy without roxmltree, as in M8).
+
+**Held by** `kernel/tests/it/layout_equality.rs`: `seed_2423214_…`,
+`pane_seed_405_…`, `pane_seed_503_…` and `pane_seed_1412_…`, each failing before.
+Seeds 1–10,000 of `run` and of `run_panes` (40 rounds) differed from a fresh
+layout 21 and 16 times before and 0 times after; the 512-tree differential
+passes before and after.
+
+## Patch 12: sizing through `aspect-ratio` as CSS does — to upstream
+
+**Implementer:** Claude (Opus 5.5), 2026-09-25, for LLP 1053 G1.
+
+Upstream applies a ratio by `Size::maybe_apply_aspect_ratio` wherever a size,
+min or max is resolved, in the box-sizing box, into any unset axis. Patch 5's
+leaf then treated every leaf with a ratio as a replaced element and resolved
+it by CSS 2.1 §10.4's table. Against Chrome 154 that is wrong in five ways:
+
+- **A non-replaced box is not replaced.** A text leaf or empty box with
+  `width: 200px; max-height: 50px; aspect-ratio: 1` is 200×50, not 50×50.
+- **Min/max transfer only into an unsized axis.** A `max-height` becomes a max
+  width for a stretched block (100×100 from `aspect-ratio: 1; max-height:
+  100px`), never for a set width. The same holds for images: `width: 96px;
+  max-height: 20px` on a 320×120 image is 96×20. The §10.4 table is for
+  neither dimension set.
+- **The derived block size is a floor.** For a box that is neither replaced
+  nor a scroll container and whose `min-height` is `auto` (CSS Box Sizing 4
+  §5.2), taller content grows it: `width: 20px; aspect-ratio: 1` holding five
+  lines is 90 tall, not 20. `min-height: 0`, `overflow: hidden` or a
+  `max-height` still hold it.
+- **The ratio's box.** `auto <ratio>` and an image's natural ratio relate
+  content-box sizes even under `box-sizing: border-box`.
+- **A provisional stretch is not definite.** Flex measured a ratio item's
+  base size, and its automatic minimum, under the stretched cross size of an
+  indefinite container: `flex-grow: 1; aspect-ratio: 2` in a 400px row laid
+  out at 1200×600 under a 600px-tall offer.
+
+The fix is one module, `src/compute/ratio.rs`, plus its call sites.
+`Ratio::resolve` takes a box's given border-box sizes and authored min/max,
+and returns its size, min and max:
+- min/max transferred into unsized axes;
+- one given axis clamped, the other derived from it;
+- a floored derived height becomes a minimum instead of a size.
+
+`Style::aspect_ratio_content_box` (with `CoreStyle::aspect_ratio_content_box`)
+carries the box. The call sites are:
+- `leaf.rs`: sizes through `Ratio`, keeps the §10.4 table only for a
+  replaced element with neither dimension given, and derives a
+  content-sized box's height from its width.
+- `block.rs`: the entry size, the item sizes and the container's
+  known-dimension transfer.
+- `flexbox.rs`: the item size; min/max transfer only into axes the item
+  does not size (`transfer_into_unsized`); the base-size and automatic-minimum
+  measurements drop a provisional stretched cross size for ratio items.
+
+Unchanged and not claimed: absolutely positioned boxes, grid items, a flex or
+grid container's own ratio and the root path in `compute/mod.rs` keep
+upstream's `maybe_apply_aspect_ratio`; the automatic minimum of a width
+derived from a height (the inline axis) is not applied.
+
+**Held by** `kernel/tests/it/browser_ratio.rs`: 60 literal-Chrome cases.
+`image.rs` and `video.rs` each change one expectation to Chrome's: a set width
+stays when `max-height` clamps the ratio's height. Taffy's 136 unit tests and
+5 doctests pass on a scratch copy without roxmltree. The 512-tree differential
+passes.
+
+## Patch 13: `TaffyTree` resolves `calc()` through a caller's function
+
+**Implementer:** Claude, 2026-09-24 (the iOS Messages port's
+`calc(100% - 89px)`).
+
+Upstream's `calc` feature stores a `calc()` length as an opaque pointer and
+asks the tree for its value through `LayoutPartialTree::resolve_calc_value`,
+but `TaffyTree`'s own implementation (`src/tree/taffy_tree.rs`, on
+`TaffyView`) is a stub returning `0.0`: only a custom tree can resolve one.
+`TaffyTree` gains a `calc_resolver: fn(*const (), f32) -> f32` field,
+`|_, _| 0.0` by default, a `set_calc_resolver` setter, and `TaffyView`
+forwards to it. Nothing else changes; the `calc` feature is now enabled.
+
+The kernel interns each `(percent, points)` pair (`kernel/src/style.rs`,
+`calc_handle`) and names it by index shifted past the three tag bits, so a
+handle is never null or misaligned, equal pairs compare equal as styles, and
+resolution (`resolve_calc`: `basis × percent / 100 + points`) needs no
+unsafe code. Held by
+`kernel/tests/it/browser_cases.rs::calc_of_a_percentage_and_a_length_resolves_against_the_containing_block`
+(a `calc(100% - 89px)` child of a 400px block is 311px; a calc height, margin
+and padding resolve against their own bases) and the codec's round trip of
+wire kind 7. Upstream would want the same hook or a `TaffyTree` generic over
+a resolver; either removes this patch.

@@ -63,10 +63,12 @@ Wave opening, release and inspection remain ordered on a separate transport, so
 This is transport concurrency; native module continuations and storage still
 share the ordered worker. HTTP methods and origins do not infer independence.
 
-At the 128-request admission limit, old work retains its reservations even after
-navigation forgets its tickets. Release and let those results retire before
-starting another full cohort. Starting earlier may visibly refuse new lanes;
-it must not grow an overflow queue. The smoke drive exercises this recovery.
+Navigation forgets the old tickets, and a native host lets go of their work:
+held reads are aborted, queued ones are never sent and undrained results are
+dropped, so another full cohort is admitted at once. Work that can't be dropped
+(an ordered write) still runs and keeps its reservation until it ends. At the
+128-request admission limit a new lane is visibly refused; there is no overflow
+queue. The smoke drive exercises this recovery.
 
 The compiler currently permits resources only at the root. There are 128
 explicit root resources, one per possible lane; inactive lanes answer idle
@@ -106,9 +108,9 @@ lane and exact `wave N lane M` payload before it can count as valid.
   sockets or 128 commits in one frame. This is not an HTTP/2 benchmark.
 - Native limits: 128 admitted independent requests and 32 MiB of reserved
   payload/result capacity, including queued, running and undrained results;
-  two concurrent data transports. The ordered lane separately reserves up to
-  16 requests / 512 MiB. Its unchanged 64 MiB response ceiling is conservatively
-  reserved for each call, so the byte limit normally admits three ordered calls.
+  two concurrent data transports. The ordered lane separately admits 16
+  requests within 512 MiB: a waiting call is charged its request buffers, the
+  one running its 64 MiB response ceiling and a completed one what it retains.
   Request-owned buffers are capped at 4 MiB. Independent replies here are capped
   at 4 KiB while received, not just after JSON decode. No effect runs on refusal.
 - One outcome settles per native pump; ready lanes and admission refusals get

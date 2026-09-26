@@ -484,7 +484,7 @@ fn run(tool: &Path, args: &[&str], cwd: &Path) -> Result<(), String> {
                 .any(|word| matches!(word.rsplit('/').next(), Some("node" | "bun")))
     });
     let mut command = if javascript {
-        let mut command = Command::new("bun");
+        let mut command = exact_bake::bun();
         command.arg(tool);
         command
     } else {

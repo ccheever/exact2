@@ -13,3 +13,9 @@ mod receipt;
 
 pub use compat::{compatibility_id, compatibility_id_sources, Compat};
 pub use receipt::write_development_artifacts;
+
+/// The Bun a bake spawns: `BUN` names one, else the first on PATH. The scripts
+/// put the Bun they checked against package.json's pin first (`developmentBuildEnv`).
+pub fn bun() -> std::process::Command {
+    std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
+}

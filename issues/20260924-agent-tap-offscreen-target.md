@@ -1,0 +1,14 @@
+# Agent tap activates a target whose middle is off the viewport
+
+**Status:** Open
+**Systems:** Agent API, Apple host, web host
+**Severity:** P3
+**Author:** Claude (Opus 5.5) for Charlie Cheever
+**Date:** 2026-09-24
+**Related:** LLP 1012 §3; LLP 1035.003 (a contact is never substituted); Crew port report D6 (2026-09-24)
+
+The Crew port (report of 2026-09-24, D6) found `tap` reporting success on a button under the iOS software keyboard. That is fixed: on iOS a tap whose target's middle is under the keyboard or another view is refused before anything changes (the keyboard stays up), success replies carry `pressed: <id|null>`, and the web carrier makes the same check with `elementFromPoint`.
+
+One case was left as it was, deliberately. A target whose middle is below or beside the viewport, with nothing covering it, is still activated on iOS (the old `win.hitTest(p) ?? v` fallback, `AgentIOS.swift`), now with `offscreen: "<why>"` in the reply. Caltrain's `deck-toggle` sits below the 778 pt viewport and the iOS smoke taps it, and external scripts may depend on the same thing. No finger can make that contact, and LLP 1035.003 says action dispatch is never substituted for one. The web carrier refuses the same case (a click there reached nothing anyway), so the two carriers now disagree. macOS `tap` keeps the unconditional fallback (`AgentMac.swift`); there is no software keyboard there.
+
+Charlie's call, one rule for every carrier: refuse off-viewport targets (and fix the smoke to scroll first), or scroll the target into view and then tap, as Playwright does. Done when iOS, macOS and the web give the same answer for a target outside the viewport and the smoke drives Caltrain's deck toggle through it.

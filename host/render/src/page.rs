@@ -9,7 +9,9 @@ use crate::Rendered;
 /// replays them once after adoption. Once the page has painted (its first
 /// paint entry), a page that doesn't activate on interaction hands its wasm's
 /// download, which the head's preload began, to the glue (`exact.runtime`).
-/// It holds no app logic. The
+/// A navigation that leaves the document stops that download, and removes the
+/// preload, which would otherwise keep it going: the next document needs the
+/// link. It holds no app logic. The
 /// server's CSP admits it by hash; `scripts/boot.mjs` pins that hash and its
 /// size.
 pub fn capture() -> &'static str {

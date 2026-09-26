@@ -24,6 +24,8 @@ struct Blog {
     placeholder_later: bool,
     /// A module its host hasn't loaded yet: every answer refuses.
     not_loaded: std::rc::Rc<std::cell::Cell<bool>>,
+    /// A failure isn't data here: parse refuses it (a worker-placed module).
+    refuse_failures: bool,
 }
 
 fn post(id: &str, title: &str) -> Value {
@@ -67,6 +69,11 @@ impl DataSource for Blog {
         _: &[Value],
         outcome: Outcome,
     ) -> Result<Answer, DataError> {
+        if self.refuse_failures && matches!(outcome, Outcome::Failed { .. }) {
+            return Err(DataError::Unavailable(
+                "the module refused a failure".into(),
+            ));
+        }
         Ok(Answer::Now(match (source, outcome) {
             ("post", Outcome::Response(r)) if r.status == 200 => post("7", "Hello"),
             // A failure is data the source shapes (LLP 1016 D4).
@@ -264,8 +271,51 @@ fn a_module_not_loaded_at_boot_shows_placeholders_until_data_ready() {
     let requests = r.take_requests();
     let targets: Vec<&str> = requests.iter().map(|q| q.target.as_str()).collect();
     assert_eq!(targets, ["post", "comments"]);
+    // The bake answered the placeholder's own arguments from no store: that
+    // answer stands, as it does when the source is ready at boot (Seth's
+    // Crew port asked each `#else` again, a worker turn each).
+    assert!(
+        !r.journal().any(|l| l.contains("query post#else")),
+        "{:?}",
+        r.journal().collect::<Vec<_>>()
+    );
     assert_eq!(text_of(&r, "state"), "loading");
     r.fulfill(requests[0].ticket, ok()).unwrap();
     assert_eq!(text_of(&r, "title"), "Hello");
     assert_eq!(text_of(&r, "state"), "ready");
+}
+
+#[test]
+fn asks_refused_admission_are_asked_again_once_the_last_refusal_settles() {
+    let plan = contract::bake(contract::compile(&corpus()).unwrap(), Blog::default()).unwrap();
+    let data = Blog {
+        refuse_failures: true,
+        ..Blog::default()
+    };
+    let mut r = boot(&plan, data, "/post/7").unwrap();
+    let asked = r.take_requests();
+    assert_eq!(asked.len(), 2);
+    for q in &asked {
+        r.refuse_request(q.ticket, "native executor admission limit reached", true);
+    }
+    // The source can't shape the refusal: the ticket isn't kept pending
+    // forever. Asked again now, it would be refused behind the other one.
+    let (first, outcome) = r.take_request_refusal(true).unwrap();
+    assert_eq!(r.fulfill(first, outcome).unwrap(), None);
+    assert!(!r.holds(first));
+    assert!(r.take_requests().is_empty());
+    let (second, outcome) = r.take_request_refusal(true).unwrap();
+    assert!(r.fulfill(second, outcome).unwrap().is_some());
+    assert!(!r.holds(second));
+    let again = r.take_requests();
+    let targets: Vec<&str> = again.iter().map(|q| q.target.as_str()).collect();
+    assert_eq!(targets, ["post", "comments"]);
+    assert!(again.iter().all(|q| r.holds(q.ticket)));
+    assert_eq!(text_of(&r, "state"), "loading");
+    assert_eq!(
+        r.journal()
+            .filter(|l| l.contains("was refused admission: asked again"))
+            .count(),
+        2
+    );
 }

@@ -103,9 +103,11 @@ impl Env {
 }
 
 /// A length: automatic, absolute points, a percentage of the parent (0–100),
-/// or a safe-area inset of the viewport plus points — CSS's
-/// `env(safe-area-inset-<edge>)` and `calc(env(safe-area-inset-<edge>) + <n>px)`,
-/// resolved against the kernel's [`Env`] at layout.
+/// a percentage plus points — CSS's `calc(<p>% + <n>px)`, which the engine
+/// resolves against the percentage's basis — or a safe-area inset of the
+/// viewport plus points — `env(safe-area-inset-<edge>)` and
+/// `calc(env(safe-area-inset-<edge>) + <n>px)`, resolved against the
+/// kernel's [`Env`] at layout.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum Dimension {
     /// Let the engine decide.
@@ -115,9 +117,39 @@ pub enum Dimension {
     Points(f32),
     /// Percent of the containing block, authored as 0–100.
     Percent(f32),
+    /// Percent of the containing block (0–100) plus points: `calc(50% - 89px)`
+    /// is `Calc(50.0, -89.0)`.
+    Calc(f32, f32),
     /// The viewport's safe-area inset at an edge, plus points (zero for a
     /// bare `env()`).
     Env(Edge, f32),
+}
+
+/// The `calc()` pairs the engine holds by handle: Taffy keeps one opaque
+/// pointer per length, so a pair is interned here and named by its index,
+/// shifted past the three tag bits Taffy reserves. Equal pairs share a
+/// handle, so an unchanged style still compares equal by value.
+static CALC_PAIRS: std::sync::Mutex<Vec<(f32, f32)>> = std::sync::Mutex::new(Vec::new());
+
+fn calc_handle(percent: f32, points: f32) -> *const () {
+    let mut pairs = CALC_PAIRS.lock().unwrap_or_else(|e| e.into_inner());
+    let index = pairs
+        .iter()
+        .position(|(p, x)| p.to_bits() == percent.to_bits() && x.to_bits() == points.to_bits())
+        .unwrap_or_else(|| {
+            pairs.push((percent, points));
+            pairs.len() - 1
+        });
+    ((index + 1) << 3) as *const ()
+}
+
+/// The points a `calc()` handle resolves to against `basis`, the size its
+/// percentage is a fraction of — what [`crate::LayoutTree`] gives Taffy.
+pub(crate) fn resolve_calc(handle: *const (), basis: f32) -> f32 {
+    let index = (handle as usize >> 3) - 1;
+    let pairs = CALC_PAIRS.lock().unwrap_or_else(|e| e.into_inner());
+    let (percent, points) = pairs[index];
+    basis * percent / 100.0 + points
 }
 
 impl Dimension {
@@ -126,7 +158,40 @@ impl Dimension {
         match self {
             Dimension::Auto => true,
             Dimension::Points(v) | Dimension::Percent(v) | Dimension::Env(_, v) => v.is_finite(),
+            Dimension::Calc(p, v) => p.is_finite() && v.is_finite(),
         }
+    }
+
+    /// A `calc()` of one percentage and one pixel length by CSS's grammar —
+    /// `calc(<p>% + <n>px)` or `calc(<n>px - <p>%)`, either order, the
+    /// operator set off by whitespace as CSS requires — or `None` when the
+    /// text is not one. Two of a kind, a bare number, or `*` and `/` are not.
+    pub fn parse_calc(text: &str) -> Option<Dimension> {
+        let body = text.trim().strip_prefix("calc(")?.strip_suffix(')')?;
+        let b = body.as_bytes();
+        let op = (1..b.len().saturating_sub(1)).find(|&i| {
+            matches!(b[i], b'+' | b'-')
+                && b[i - 1].is_ascii_whitespace()
+                && b[i + 1].is_ascii_whitespace()
+        })?;
+        let sign = if b[op] == b'-' { -1.0 } else { 1.0 };
+        let term = |t: &str| -> Option<(bool, f32)> {
+            let t = t.trim();
+            let px = t.len() > 2
+                && t.get(t.len() - 2..)
+                    .is_some_and(|u| u.eq_ignore_ascii_case("px"));
+            match t.strip_suffix('%') {
+                Some(p) => exact_num::parse_f32(p).ok().map(|v| (true, v)),
+                None if px => parse_pixel_length(t).map(|v| (false, v)),
+                None => None,
+            }
+        };
+        let dim = match (term(&body[..op])?, term(&body[op + 1..])?) {
+            ((true, percent), (false, points)) => Dimension::Calc(percent, sign * points),
+            ((false, points), (true, percent)) => Dimension::Calc(sign * percent, points),
+            _ => return None,
+        };
+        dim.is_finite().then_some(dim)
     }
 
     /// An `env()` length by CSS's grammar, or `None` when the text is not one:
@@ -179,6 +244,7 @@ impl Dimension {
             Dimension::Auto => auto(),
             Dimension::Points(v) => length(v),
             Dimension::Percent(v) => percent(v / 100.0),
+            Dimension::Calc(p, v) => taffy::style::Dimension::calc(calc_handle(p, v)),
             Dimension::Env(..) => unreachable!("resolved above"),
         }
     }
@@ -188,6 +254,7 @@ impl Dimension {
             Dimension::Auto => auto(),
             Dimension::Points(v) => length(v),
             Dimension::Percent(v) => percent(v / 100.0),
+            Dimension::Calc(p, v) => taffy::style::LengthPercentageAuto::calc(calc_handle(p, v)),
             Dimension::Env(..) => unreachable!("resolved above"),
         }
     }
@@ -199,6 +266,7 @@ impl Dimension {
             Dimension::Auto => length(0.0_f32),
             Dimension::Points(v) => length(v),
             Dimension::Percent(v) => percent(v / 100.0),
+            Dimension::Calc(p, v) => taffy::style::LengthPercentage::calc(calc_handle(p, v)),
             Dimension::Env(..) => unreachable!("resolved above"),
         }
     }
@@ -210,6 +278,8 @@ impl Dimension {
             Dimension::Auto => true,
             Dimension::Points(v) => v.to_bits() == 0,
             Dimension::Percent(v) => (v / 100.0).to_bits() == 0,
+            // A calc() is a handle the engine resolves, never its zero length.
+            Dimension::Calc(..) => false,
             Dimension::Env(..) => unreachable!("resolved above"),
         }
     }
@@ -254,8 +324,8 @@ impl LineHeight {
     pub fn css(self) -> String {
         match self {
             Self::Normal => "normal".into(),
-            Self::Number(n) => exact_num::Shortest32(n).to_string(),
-            Self::Length(n) => format!("{}px", exact_num::Shortest32(n)),
+            Self::Number(n) => exact_num::text!("{}", exact_num::Shortest32(n)),
+            Self::Length(n) => exact_num::text!("{}px", exact_num::Shortest32(n)),
         }
     }
 }
@@ -311,7 +381,7 @@ pub enum StyleValue {
     /// A number: points for dimensions, the raw value for numeric rows, a
     /// packed `0xRRGGBBAA` for colors.
     Number(f64),
-    /// Text: an enum value by name, or a color as `#rrggbb[aa]`.
+    /// Text: an enum value by name, or a color as `#rrggbb[aa]` or `rgb()`.
     Text(String),
     /// A percentage, authored 0–100.
     Percent(f64),
@@ -358,6 +428,16 @@ impl StyleValue {
                 style, expected: "nonnegative finite length in points/px (percentage shape-margin is not implemented in exact2 v1)",
             });
         }
+        // @ref LLP 1053 G3 — CSS refuses a negative flex factor.
+        if matches!(style, StyleId::FlexGrow | StyleId::FlexShrink) {
+            return match self {
+                StyleValue::Number(n) if (*n as f32).is_finite() && *n >= 0.0 => Ok(*n as f32),
+                _ => Err(StyleValueError::WrongKind {
+                    style,
+                    expected: "nonnegative number",
+                }),
+            };
+        }
         match self {
             StyleValue::Number(n) if (*n as f32).is_finite() => Ok(*n as f32),
             _ => Err(StyleValueError::WrongKind {
@@ -383,6 +463,16 @@ impl StyleValue {
         }
     }
 
+    /// A CSS-valued row's text: text as given, a number (`aspect-ratio: 2`)
+    /// or `auto` as CSS spells it.
+    pub(crate) fn css_text(&self, style: StyleId) -> Result<String, StyleValueError> {
+        match self {
+            StyleValue::Number(n) => Ok(exact_num::Shortest(*n).to_string()),
+            StyleValue::Auto => Ok("auto".into()),
+            _ => self.text(style).map(str::to_string),
+        }
+    }
+
     pub(crate) fn text(&self, style: StyleId) -> Result<&str, StyleValueError> {
         match self {
             StyleValue::Text(t) => Ok(t),
@@ -403,20 +493,19 @@ impl StyleValue {
             StyleValue::Percent(p) if (*p as f32).is_finite() => Ok(Dimension::Percent(*p as f32)),
             StyleValue::Auto if admits_auto => Ok(Dimension::Auto),
             StyleValue::Auto => Err(StyleValueError::AutoNotAdmitted { style }),
-            StyleValue::Text(t) if Dimension::parse_env(t).is_some() => {
-                Ok(Dimension::parse_env(t).unwrap_or_default())
-            }
-            StyleValue::Text(t) => {
-                parse_pixel_length(t.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']))
-                    .map(Dimension::Points)
-                    .ok_or(StyleValueError::WrongKind {
-                        style,
-                        expected: "number, px length, percent, auto, or env(safe-area-inset-*)",
-                    })
-            }
+            StyleValue::Text(t) => Dimension::parse_env(t)
+                .or_else(|| Dimension::parse_calc(t))
+                .or_else(|| {
+                    parse_pixel_length(t.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']))
+                        .map(Dimension::Points)
+                })
+                .ok_or(StyleValueError::WrongKind {
+                    style,
+                    expected: "number, px length, percent, auto, calc(<percent> ± <px>), or env(safe-area-inset-*)",
+                }),
             _ => Err(StyleValueError::WrongKind {
                 style,
-                expected: "number, percent, auto, or env(safe-area-inset-*)",
+                expected: "number, percent, auto, calc(<percent> ± <px>), or env(safe-area-inset-*)",
             }),
         }
     }
@@ -453,7 +542,7 @@ impl StyleValue {
             {
                 Ok(Color(*n as u32))
             }
-            StyleValue::Text(t) => Color::parse_hex(t).ok_or(StyleValueError::BadColor { style }),
+            StyleValue::Text(t) => Color::parse(t).ok_or(StyleValueError::BadColor { style }),
             _ => Err(StyleValueError::WrongKind {
                 style,
                 expected: "color",
@@ -583,10 +672,20 @@ impl ColorValue {
     /// this function, and falls through to the plain colour parse.
     pub fn parse_light_dark(text: &str) -> Option<ColorValue> {
         let inner = text.trim().strip_prefix("light-dark(")?.strip_suffix(')')?;
-        let (light, night) = inner.split_once(',')?;
+        // The comma between the two colours, not one inside an `rgb()`.
+        let mut depth = 0;
+        let comma = inner.find(|c| {
+            match c {
+                '(' => depth += 1,
+                ')' => depth -= 1,
+                ',' if depth == 0 => return true,
+                _ => {}
+            }
+            false
+        })?;
         Some(ColorValue::LightDark(
-            Color::parse_hex(light.trim())?,
-            Color::parse_hex(night.trim())?,
+            Color::parse(&inner[..comma])?,
+            Color::parse(&inner[comma + 1..])?,
         ))
     }
 }
@@ -598,6 +697,52 @@ impl From<Color> for ColorValue {
 }
 
 impl Color {
+    /// A CSS colour: hex or `rgb()` notation, whitespace around it free.
+    pub fn parse(text: &str) -> Option<Color> {
+        let text = text.trim();
+        Color::parse_hex(text).or_else(|| Color::parse_rgb(text))
+    }
+
+    /// CSS `rgb()` / `rgba()` (one function under two names, as in CSS
+    /// Color 4): `rgb(255, 0, 0)`, `rgba(255, 0, 0, 0.5)`, `rgb(255 0 0 / 50%)`.
+    /// A channel is a number 0–255 or a percentage; alpha is a number 0–1 or
+    /// a percentage; out-of-range values clamp, as on the web.
+    fn parse_rgb(text: &str) -> Option<Color> {
+        let inner = text
+            .strip_prefix("rgba(")
+            .or_else(|| text.strip_prefix("rgb("))?
+            .strip_suffix(')')?;
+        let parts: Vec<&str> = if inner.contains(',') {
+            inner.split(',').map(str::trim).collect()
+        } else {
+            let (rgb, alpha) = match inner.split_once('/') {
+                Some((rgb, alpha)) => (rgb, Some(alpha.trim())),
+                None => (inner, None),
+            };
+            rgb.split_whitespace().chain(alpha).collect()
+        };
+        let ([r, g, b], alpha) = match parts[..] {
+            [r, g, b] => ([r, g, b], None),
+            [r, g, b, a] => ([r, g, b], Some(a)),
+            _ => return None,
+        };
+        // A value as a byte: a percentage of 255, or a number in `unit`s of
+        // a byte (1 for a channel, 255 for alpha).
+        let byte = |s: &str, unit: f32| -> Option<u8> {
+            let v = match s.strip_suffix('%') {
+                Some(p) => p.parse::<f32>().ok()? / 100.0 * 255.0,
+                None => s.parse::<f32>().ok()? * unit,
+            };
+            v.is_finite().then(|| v.round().clamp(0.0, 255.0) as u8)
+        };
+        Some(Color::rgba(
+            byte(r, 1.0)?,
+            byte(g, 1.0)?,
+            byte(b, 1.0)?,
+            alpha.map_or(Some(255), |a| byte(a, 255.0))?,
+        ))
+    }
+
     /// Parse CSS hex notation: `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`.
     pub fn parse_hex(text: &str) -> Option<Color> {
         let hex = text.strip_prefix('#')?;
@@ -635,6 +780,8 @@ pub enum RowValue<'a> {
     ClipPath(&'a crate::clip::ClipPath),
     /// CSS shape-outside, resolved after layout (LLP 1043.000 D1).
     ShapeOutside(&'a exact_textflow::ShapeOutside),
+    /// CSS `aspect-ratio` as authored (LLP 1053 G1).
+    AspectRatio(&'a crate::ratio::AspectRatio),
     /// A dimension.
     Dimension(Dimension),
     /// A number (`f32`, `u8`, `u16`, `u32`, `i32` rows).
@@ -656,6 +803,29 @@ pub enum RowValue<'a> {
     Placement(GridPlacement),
     /// The `transition` row.
     Transitions(&'a Transitions),
+}
+
+impl RowValue<'_> {
+    /// Whether every number the row carries is finite. Rows without floats
+    /// (and the CSS values, which parse to finite numbers) are.
+    pub(crate) fn is_finite(&self) -> bool {
+        match self {
+            RowValue::LineHeight(v) => v.is_finite(),
+            RowValue::Dimension(v) => v.is_finite(),
+            RowValue::Number(v) => v.is_finite(),
+            RowValue::Vec2(v) => v.x.is_finite() && v.y.is_finite(),
+            RowValue::Tracks(v) => v.is_finite(),
+            RowValue::Transitions(v) => v.is_finite(),
+            RowValue::ClipPath(_)
+            | RowValue::ShapeOutside(_)
+            | RowValue::AspectRatio(_)
+            | RowValue::Color(_)
+            | RowValue::ColorValue(_)
+            | RowValue::Color2(_)
+            | RowValue::Enum(_)
+            | RowValue::Placement(_) => true,
+        }
+    }
 }
 
 /// Two floats.
@@ -954,11 +1124,8 @@ impl StyleProps {
             width: self.max_width.to_lpa(env),
             height: self.max_height.to_lpa(env),
         };
-        s.aspect_ratio = if self.aspect_ratio > 0.0 && self.aspect_ratio.is_finite() {
-            Some(self.aspect_ratio)
-        } else {
-            None
-        };
+        s.aspect_ratio = self.aspect_ratio.preferred();
+        s.aspect_ratio_content_box = self.aspect_ratio.content_box();
 
         s.inset = taffy::geometry::Rect {
             top: self.top.to_lpa(env),
@@ -1048,12 +1215,15 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     // A root with `width: auto` fills what it is offered, as a `<div>` fills
     // the body: CSS's block rule, which Taffy does not apply to a root.
     // Height stays auto — as tall as its content, the page a viewport scrolls.
-    // A replaced element keeps its intrinsic ratio unless a row sets one:
-    // CSS sizes an `<img>` with one dimension given from the other by ratio.
-    if arena.node_type(slot).is_replaced() && !arena.style(slot).mask.has(StyleId::AspectRatio) {
+    // A replaced element keeps its natural ratio under `aspect-ratio: auto`
+    // (with or without a fallback ratio, or a degenerate one): CSS sizes an
+    // `<img>` with one dimension given from the other by that ratio. Only a
+    // plain `<ratio>` overrides it; natural ratios are of the content box.
+    if arena.node_type(slot).is_replaced() && arena.style(slot).aspect_ratio.defers_to_natural() {
         if let Some((w, h)) = arena.intrinsic(slot) {
             if w > 0.0 && h > 0.0 {
                 s.aspect_ratio = Some(w / h);
+                s.aspect_ratio_content_box = true;
             }
         }
     }
@@ -1071,259 +1241,66 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+mod tests;
 
-    #[test]
-    fn percent_converts_exactly_once() {
-        let d = Dimension::Percent(50.0);
-        let env = Env::default();
-        assert_eq!(d.to_taffy(&env), percent(0.5_f32));
-        assert_eq!(d.to_lpa(&env), percent(0.5_f32));
-        assert_eq!(d.to_lp(&env), percent(0.5_f32));
+#[cfg(test)]
+mod finite_tests {
+    use crate::{GridTrack, GridTracks, LineHeight, StyleId, StyleProps, StyleValue};
+
+    /// xorshift64*, deterministic.
+    fn next(state: &mut u64) -> u64 {
+        *state ^= *state >> 12;
+        *state ^= *state << 25;
+        *state ^= *state >> 27;
+        state.wrapping_mul(0x2545_f491_4f6c_dd1d)
     }
 
     #[test]
-    fn env_lengths_parse_by_the_css_grammar_and_resolve_against_the_environment() {
-        assert_eq!(
-            Dimension::parse_env("env(safe-area-inset-top)"),
-            Some(Dimension::Env(Edge::Top, 0.0))
-        );
-        assert_eq!(
-            Dimension::parse_env(" env( safe-area-inset-left ) "),
-            Some(Dimension::Env(Edge::Left, 0.0))
-        );
-        assert_eq!(
-            Dimension::parse_env("calc(env(safe-area-inset-bottom) + 12px)"),
-            Some(Dimension::Env(Edge::Bottom, 12.0))
-        );
-        assert_eq!(
-            Dimension::parse_env("calc(env(safe-area-inset-right)-2.5px)"),
-            Some(Dimension::Env(Edge::Right, -2.5))
-        );
-        for bad in [
-            "env(safe-area-inset-middle)",
-            "env(keyboard-inset-height)",
-            "calc(env(safe-area-inset-top) + 12)",
-            "calc(env(safe-area-inset-top) * 2)",
-            "calc(12px + env(safe-area-inset-top))",
-            "env(safe-area-inset-top, 0px)",
-            "12px",
-            "auto",
-        ] {
-            assert_eq!(Dimension::parse_env(bad), None, "{bad}");
+    fn check_finite_names_the_row_the_row_by_row_check_names() {
+        let numbers = [0.0, 1.5, -3.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY];
+        let mut state = 0x9e37_79b9_7f4a_7c15u64;
+        let mut refused = 0;
+        for _ in 0..4000 {
+            let mut s = StyleProps::default();
+            for _ in 0..(next(&mut state) % 12) {
+                let id = StyleId::ALL[(next(&mut state) % StyleId::ALL.len() as u64) as usize];
+                let n = numbers[(next(&mut state) % numbers.len() as u64) as usize];
+                let m = numbers[(next(&mut state) % numbers.len() as u64) as usize];
+                let value = match next(&mut state) % 3 {
+                    0 => StyleValue::Number(n),
+                    1 => StyleValue::Vec2(n as f32, m as f32),
+                    _ => StyleValue::Percent(n),
+                };
+                let _ = s.set_dynamic(id, &value);
+            }
+            // Rows set_dynamic refuses non-finite values for, written directly.
+            if next(&mut state).is_multiple_of(4) {
+                s.line_height = LineHeight::Length(f32::NAN);
+                s.mask.set(StyleId::LineHeight);
+            }
+            if next(&mut state).is_multiple_of(4) {
+                s.grid_template_columns = GridTracks(vec![GridTrack::Fr(f32::INFINITY)]);
+                if next(&mut state).is_multiple_of(2) {
+                    s.mask.set(StyleId::GridTemplateColumns);
+                }
+            }
+            assert_eq!(s.check_finite(), s.check_finite_rows(), "{:?}", s.mask);
+            refused += usize::from(s.check_finite().is_err());
         }
-        let env = Env::new(62.0, 0.0, 34.0, 0.0);
-        assert_eq!(Dimension::Env(Edge::Top, 0.0).to_lp(&env), length(62.0_f32));
-        assert_eq!(
-            Dimension::Env(Edge::Bottom, 12.0).to_lpa(&env),
-            length(46.0_f32)
-        );
-        assert_eq!(
-            Dimension::Env(Edge::Left, 8.0).to_taffy(&env),
-            length(8.0_f32)
-        );
-        // Environment and explicit pixel lengths share dimension decoding.
-        let mut s = StyleProps::default();
-        s.set_dynamic(
-            StyleId::PaddingTop,
-            &StyleValue::Text("env(safe-area-inset-top)".into()),
-        )
-        .unwrap();
-        assert_eq!(s.padding_top, Dimension::Env(Edge::Top, 0.0));
-        assert!(uses_env(&s));
-        s.set_dynamic(StyleId::PaddingTop, &StyleValue::Text("12px".into()))
-            .unwrap();
-        assert_eq!(s.padding_top, Dimension::Points(12.0));
-        assert!(!uses_env(&s));
-        assert!(!uses_env(&StyleProps::default()));
+        assert!(refused > 500, "{refused} states with a non-finite row");
     }
 
     #[test]
-    fn defaults_are_the_css_defaults() {
-        let s = StyleProps::default().to_taffy(NodeType::View, &Env::default());
-        assert_eq!(s.display, taffy::style::Display::Block);
-        assert_eq!(s.box_sizing, taffy::style::BoxSizing::ContentBox);
-        assert_eq!(s.flex_direction, taffy::style::FlexDirection::Row);
-        assert_eq!(s.flex_shrink, 1.0);
-        // `normal`, which each layout mode resolves (flex: stretch).
-        assert_eq!(s.align_items, None);
-        assert_eq!(s.justify_content, None);
-        assert_eq!(s.align_content, None);
-        assert_eq!(s.justify_items, None);
-        assert_eq!(s.position, taffy::style::Position::Relative);
-        assert_eq!(s.overflow.y, taffy::style::Overflow::Visible);
-    }
-
-    #[test]
-    fn scroll_containers_scroll_on_the_block_axis_by_default() {
-        let s = StyleProps::default().to_taffy(NodeType::ScrollView, &Env::default());
-        assert_eq!(s.overflow.y, taffy::style::Overflow::Scroll);
-        // CSS Overflow §3: a `visible` axis beside a non-visible one computes
-        // to `auto` — `scroll` here — so a scroll container clips both axes.
-        assert_eq!(s.overflow.x, taffy::style::Overflow::Scroll);
-        let plain = StyleProps::default().to_taffy(NodeType::View, &Env::default());
-        assert_eq!(plain.overflow.x, taffy::style::Overflow::Visible);
-        // Symmetric: a hidden x makes an unset y scrollable, not hidden.
-        let mut hidden_x = StyleProps::default();
-        hidden_x.overflow_x = Overflow::Hidden;
-        hidden_x.mask.set(StyleId::OverflowX);
-        let t = hidden_x.to_taffy(NodeType::View, &Env::default());
-        assert_eq!(
-            (t.overflow.x, t.overflow.y),
-            (
-                taffy::style::Overflow::Hidden,
-                taffy::style::Overflow::Scroll
-            )
-        );
-        let mut explicit = StyleProps::default();
-        explicit.overflow_y = Overflow::Hidden;
-        explicit.mask.set(StyleId::OverflowY);
-        assert_eq!(
-            explicit
-                .to_taffy(NodeType::ScrollView, &Env::default())
-                .overflow
-                .y,
-            taffy::style::Overflow::Hidden
-        );
-    }
-
-    #[test]
-    fn a_colour_row_holds_a_light_dark_pair_and_the_host_resolves_it() {
-        // CSS's spelling, and only it (LLP 1034 D1).
-        let pair = ColorValue::parse_light_dark("light-dark(#ffffff, #000000)").unwrap();
-        assert_eq!(
-            pair,
-            ColorValue::LightDark(
-                Color::parse_hex("#ffffff").unwrap(),
-                Color::parse_hex("#000000").unwrap()
-            )
-        );
-        assert_eq!(pair.resolve(false), Color::parse_hex("#ffffff").unwrap());
-        assert_eq!(pair.resolve(true), Color::parse_hex("#000000").unwrap());
-        assert!(pair.is_scheme_aware());
-        // Whitespace is free.
-        assert_eq!(
-            ColorValue::parse_light_dark("  light-dark( #fff , #000 )  "),
-            Some(ColorValue::LightDark(
-                Color::parse_hex("#fff").unwrap(),
-                Color::parse_hex("#000").unwrap()
-            ))
-        );
-        // Anything that is not two colours is not this function.
-        for text in [
-            "#ffffff",
-            "light-dark(#fff)",
-            "light-dark(#fff, nope)",
-            "dark-light(#fff, #000)",
-            "light-dark(#fff, #000",
-        ] {
-            assert_eq!(ColorValue::parse_light_dark(text), None, "{text}");
+    fn line_height_css_is_the_text_format_wrote() {
+        let mut state = 0x2545_f491_4f6c_dd1du64;
+        let mut values = vec![0.0f32, 1.0, 1.5, 24.0, 0.1, 1e-7, 1e21, f32::MAX];
+        values.extend((0..5000).map(|_| (next(&mut state) % 100_000) as f32 / 100.0));
+        values.extend((0..5000).map(|_| f32::from_bits(next(&mut state) as u32 & 0x7fff_ffff)));
+        for n in values.into_iter().filter(|n| n.is_finite()) {
+            let shown = exact_num::Shortest32(n);
+            assert_eq!(LineHeight::Number(n).css(), shown.to_string());
+            assert_eq!(LineHeight::Length(n).css(), format!("{shown}px"));
         }
-        // A fixed colour resolves to itself under either appearance.
-        let one = ColorValue::Fixed(Color::parse_hex("#abcdef").unwrap());
-        assert_eq!(one.resolve(false), one.resolve(true));
-        assert!(!one.is_scheme_aware());
-    }
-
-    #[test]
-    fn a_colour_row_takes_a_pair_dynamically_as_a_dimension_takes_env() {
-        let mut s = StyleProps::default();
-        s.set_dynamic(
-            StyleId::BackgroundColor,
-            &StyleValue::Text("light-dark(#ffffff, #17181b)".into()),
-        )
-        .expect("a colour row takes CSS's own function");
-        assert_eq!(
-            s.background_color,
-            ColorValue::LightDark(
-                Color::parse_hex("#ffffff").unwrap(),
-                Color::parse_hex("#17181b").unwrap()
-            )
-        );
-        // And still takes a plain colour, which is the common case.
-        s.set_dynamic(StyleId::TextColor, &StyleValue::Text("#112233".into()))
-            .expect("a hex is still a colour");
-        assert_eq!(
-            s.text_color,
-            ColorValue::Fixed(Color::parse_hex("#112233").unwrap())
-        );
-        // A text that is neither is refused, not silently taken.
-        assert!(s
-            .set_dynamic(
-                StyleId::TextColor,
-                &StyleValue::Text("light-dark(#fff)".into())
-            )
-            .is_err());
-    }
-
-    #[test]
-    fn color_channels() {
-        let c = Color::rgba(0x12, 0x34, 0x56, 0x78);
-        assert_eq!(c.0, 0x1234_5678);
-        assert_eq!((c.r(), c.g(), c.b(), c.a()), (0x12, 0x34, 0x56, 0x78));
-    }
-
-    #[test]
-    fn grid_tracks_lower_to_engine_tracks() {
-        let mut p = StyleProps::default();
-        p.display = Display::Grid;
-        p.grid_template_columns = GridTracks(vec![
-            GridTrack::Fr(1.0),
-            GridTrack::Points(40.0),
-            GridTrack::Auto,
-        ]);
-        p.grid_row = GridPlacement {
-            start: GridLine::Line(1),
-            end: GridLine::Span(2),
-        };
-        let s = p.to_taffy(NodeType::View, &Env::default());
-        assert_eq!(s.grid_template_columns.len(), 3);
-        assert_eq!(s.grid_row.start, line(1));
-        assert_eq!(s.grid_row.end, span(2));
-    }
-
-    /// Content regions check padding and border without the engine's style;
-    /// the answer is the one the engine's style gives.
-    #[test]
-    fn unpadded_reads_what_the_engine_style_would() {
-        let env = Env::new(62.0, 0.0, 0.0, 0.0);
-        let zero = |x: taffy::style::LengthPercentage| x == length(0.) || x == percent(0.);
-        let engine = |p: &StyleProps| {
-            let s = p.to_taffy(NodeType::View, &env);
-            [s.padding, s.border]
-                .iter()
-                .all(|r| [r.left, r.right, r.top, r.bottom].into_iter().all(zero))
-        };
-        for d in [
-            Dimension::Auto,
-            Dimension::Points(0.0),
-            Dimension::Points(-0.0),
-            Dimension::Points(1.0),
-            Dimension::Percent(0.0),
-            Dimension::Percent(-0.0),
-            Dimension::Percent(1e-45),
-            Dimension::Percent(3.0),
-            Dimension::Env(Edge::Right, 0.0),
-            Dimension::Env(Edge::Right, -0.0),
-            Dimension::Env(Edge::Top, 0.0),
-            Dimension::Env(Edge::Top, -62.0),
-        ] {
-            let mut p = StyleProps::default();
-            p.padding_bottom = d;
-            assert_eq!(p.unpadded(&env), engine(&p), "{d:?}");
-        }
-        for (style, width) in [
-            (BorderStyle::Solid, 0.0),
-            (BorderStyle::Solid, -0.0),
-            (BorderStyle::Solid, -2.0),
-            (BorderStyle::Solid, 1.0),
-            (BorderStyle::None, 3.0),
-        ] {
-            let mut p = StyleProps::default();
-            p.border_style_left = style;
-            p.border_width_left = width;
-            assert_eq!(p.unpadded(&env), engine(&p), "{style:?} {width}");
-        }
+        assert_eq!(LineHeight::Normal.css(), "normal");
     }
 }

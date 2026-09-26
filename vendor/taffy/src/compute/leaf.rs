@@ -7,6 +7,7 @@ use crate::style::{AvailableSpace, Overflow, Position};
 use crate::tree::{Baselines, CollapsibleMarginSet, RunMode};
 use crate::tree::{LayoutInput, LayoutOutput, SizingMode};
 use crate::util::debug::debug_log;
+use crate::compute::ratio::{floors_height, Ratio};
 use crate::util::sys::{f32_max, f32_min};
 use crate::util::MaybeMath;
 use crate::util::{MaybeResolve, ResolveOrZero};
@@ -36,31 +37,21 @@ where
 
     // Resolve node's preferred/min/max sizes (width/heights) against the available space (percentages resolve to pixel values)
     // For ContentSize mode, we pretend that the node has no size styles as these should be ignored.
-    let (node_size, node_min_size, node_max_size, aspect_ratio) = match sizing_mode {
-        SizingMode::ContentSize => {
-            let node_size = known_dimensions;
-            let node_min_size = Size::NONE;
-            let node_max_size = Size::NONE;
-            (node_size, node_min_size, node_max_size, style.aspect_ratio())
-        }
-        SizingMode::InherentSize => {
-            let aspect_ratio = style.aspect_ratio();
-            let style_size = style
-                .size()
-                .maybe_resolve(parent_size, &resolve_calc_value)
-                .maybe_apply_aspect_ratio(aspect_ratio)
-                .maybe_add(box_sizing_adjustment);
-            let style_min_size = style
-                .min_size()
-                .maybe_resolve(parent_size, &resolve_calc_value)
-                .maybe_apply_aspect_ratio(aspect_ratio)
-                .maybe_add(box_sizing_adjustment);
-            let style_max_size =
-                style.max_size().maybe_resolve(parent_size, &resolve_calc_value).maybe_add(box_sizing_adjustment);
-
-            let node_size = known_dimensions.or(style_size);
-            (node_size, style_min_size, style_max_size, aspect_ratio)
-        }
+    // EXACT PATCH 12 (LLP 1053 G1): the size styles through the ratio
+    // (`compute::ratio`); the authored minimum is kept for the table below.
+    let ratio = Ratio::of(style, pb_sum);
+    let (given, raw_min_size, raw_max_size) = match sizing_mode {
+        SizingMode::ContentSize => (known_dimensions, Size::NONE, Size::NONE),
+        SizingMode::InherentSize => (
+            known_dimensions.or(style.size().maybe_resolve(parent_size, &resolve_calc_value).maybe_add(box_sizing_adjustment)),
+            style.min_size().maybe_resolve(parent_size, &resolve_calc_value).maybe_add(box_sizing_adjustment),
+            style.max_size().maybe_resolve(parent_size, &resolve_calc_value).maybe_add(box_sizing_adjustment),
+        ),
+    };
+    let floor_height = floors_height(style, raw_min_size.height);
+    let (node_size, node_min_size, node_max_size) = match ratio {
+        Some(ratio) => ratio.resolve(given, raw_min_size, raw_max_size, floor_height),
+        None => (given, raw_min_size, raw_max_size),
     };
 
     // Scrollbar gutters are reserved when the `overflow` property is set to `Overflow::Scroll`.
@@ -147,26 +138,26 @@ where
         .or(node_size)
         .unwrap_or(measured_size + content_box_inset.sum_axes())
         .maybe_clamp(node_min_size, node_max_size);
-    // EXACT PATCH (LLP 1011 §1): a leaf with an aspect ratio is a replaced
-    // element; its tentative size (the set dimension and the other by ratio,
-    // else the measured natural size) resolves against min/max by CSS 2.1
-    // §10.4's constraint table, keeping the ratio — never clamping each axis
-    // on its own.
-    let size = match aspect_ratio {
-        Some(ratio) if ratio > 0.0 => {
-            let known = known_dimensions.or(node_size);
-            let tentative = match (known.width, known.height) {
-                (Some(w), Some(h)) => Size { width: w, height: h },
-                (Some(w), None) => Size { width: w, height: w / ratio },
-                (None, Some(h)) => Size { width: h * ratio, height: h },
-                (None, None) => measured_size + content_box_inset.sum_axes(),
-            };
-            replaced_constraints(tentative, node_min_size, node_max_size)
+    // EXACT PATCH 5 + 12 (LLP 1011 §1, LLP 1053 G1): with a ratio and
+    // neither dimension given, a replaced element resolves its natural size
+    // against min/max by CSS 2.1 §10.4's table, keeping the ratio; any other
+    // box takes its content width and derives its height from it. A given
+    // dimension was resolved through the ratio above.
+    let size = match ratio {
+        Some(ratio) if node_size.width.is_none() && node_size.height.is_none() => {
+            if style.is_compressible_replaced() {
+                replaced_constraints(measured_size + content_box_inset.sum_axes(), raw_min_size, raw_max_size)
+            } else {
+                let derived = ratio.height(clamped_size.width);
+                let height = if floor_height {
+                    f32_max(clamped_size.height, derived.maybe_min(node_max_size.height))
+                } else {
+                    derived
+                };
+                Size { width: clamped_size.width, height: height.maybe_clamp(node_min_size.height, node_max_size.height) }
+            }
         }
-        _ => Size {
-            width: clamped_size.width,
-            height: f32_max(clamped_size.height, aspect_ratio.map(|ratio| clamped_size.width / ratio).unwrap_or(0.0)),
-        },
+        _ => clamped_size,
     };
     let size = size.maybe_max(padding_border.sum_axes().map(Some));
 

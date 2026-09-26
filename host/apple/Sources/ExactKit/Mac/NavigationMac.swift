@@ -49,7 +49,7 @@ final class NavigationHost {
         // accessibility subtree is suppressed as HTML inert suppresses it.
         for id in touched {
             guard let node = presenter.views[id] else { continue }
-            let gate = [node.isHidden, node.routeInert, node.props["inert"] == "true"]
+            let gate = [node.isHidden, node.routeInert, node.props["inert"] == "true", node.props["accessibilityElementsHidden"] == "true"]
             if let old = gates[id], old != gate { subtrees.insert(id) }
             gates[id] = gate
         }
@@ -60,9 +60,9 @@ final class NavigationHost {
         for id in subtrees { if let node = presenter.views[id] { descendants(node) } }
         for id in touched {
             guard let node = presenter.views[id] else { continue }
-            gates[id] = [node.isHidden, node.routeInert, node.props["inert"] == "true"]
+            gates[id] = [node.isHidden, node.routeInert, node.props["inert"] == "true", node.props["accessibilityElementsHidden"] == "true"]
             let inert = node.inert
-            let hidden = inert || node.isHiddenOrHasHiddenAncestor
+            let hidden = inert || node.isHiddenOrHasHiddenAncestor || node.accessibilityHiddenByProp
             // The AX getter can traverse the legacy unsupported-attribute path
             // for non-elements; writing this property is cheaper than querying it.
             node.setAccessibilityHidden(hidden)

@@ -385,3 +385,43 @@ fn accessors_and_comparisons_answer_as_serde_json_does() {
     built["extra"] = Json::Array(vec![Json::Null]);
     assert_eq!(built.text(), r#"{"extra":[null],"id":7,"op":"resume"}"#);
 }
+
+#[test]
+fn numbers_are_written_as_the_formatter_wrote_them() {
+    // The reference: `{}` for integers; for a float, `{}` of its shortest
+    // form and `.0` when that has no point or exponent.
+    let reference = |n: &Number| match *n {
+        Number::PosInt(n) => format!("{n}"),
+        Number::NegInt(n) => format!("{n}"),
+        Number::Float(n) if !n.is_finite() => "null".into(),
+        Number::Float(n) => {
+            let text = format!("{}", exact_num::Shortest(n));
+            if text.contains(['.', 'e']) {
+                text
+            } else {
+                text + ".0"
+            }
+        }
+    };
+    let mut rng = Rng(0x0dd_ba11);
+    let mut numbers = vec![
+        Number::PosInt(0),
+        Number::PosInt(u64::MAX),
+        Number::NegInt(-1),
+        Number::NegInt(i64::MIN),
+        Number::Float(0.0),
+        Number::Float(-0.0),
+        Number::Float(1e21),
+        Number::Float(1e-7),
+        Number::Float(f64::NAN),
+    ];
+    for _ in 0..20_000 {
+        let bits = rng.next();
+        numbers.push(Number::PosInt(bits >> rng.below(64)));
+        numbers.push(Number::NegInt(-((bits >> 1) as i64) >> rng.below(63)));
+        numbers.push(Number::Float(f64::from_bits(bits)));
+    }
+    for n in &numbers {
+        assert_eq!(Json::Number(*n).text(), reference(n), "{n:?}");
+    }
+}

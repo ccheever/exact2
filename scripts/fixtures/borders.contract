@@ -1,0 +1,31 @@
+// LLP 1053 G2's parity page: per-side border colours, the browser the oracle.
+// Twelve 100×70 border boxes on a 125×95 grid, no text. `flip` changes the
+// `color` the `currentcolor` sides follow; `dark` switches the scheme the
+// `light-dark()` sides resolve under. Chrome's pictures of it (the web host,
+// at 1×) are borders.web.png (as booted) and borders.web-dark.png (flipped,
+// dark); Linux's raster test and the Apple XCTests hold their own paint to
+// them within an antialiasing band.
+component Borders
+  state flipped = false
+  state dark = false
+  action flip writes flipped
+    flipped = not flipped
+  action scheme writes dark
+    dark = not dark
+    setScheme(dark ? "light" : "dark")
+  view
+    main testId="borders" position="relative" width=390 height=460 background-color="light-dark(#ffffff, #121212)"
+      box testId="square4" position="absolute" left=20 top=20 width=100 height=70 box-sizing="border-box" background-color="#eeeeee" border-style="solid" border-width=10 border-color="#e53935 #43a047 #1e88e5 #fdd835"
+      box testId="round4" position="absolute" left=145 top=20 width=100 height=70 box-sizing="border-box" background-color="#eeeeee" border-style="solid" border-width=10 border-radius=24 border-top-color="#e53935" border-right-color="#43a047" border-bottom-color="#1e88e5" border-left-color="#fdd835"
+      box testId="unequal" position="absolute" left=270 top=20 width=100 height=70 box-sizing="border-box" border-style="solid" border-top-width=4 border-right-width=12 border-bottom-width=20 border-left-width=8 border-color="#e53935 #43a047 #1e88e5 #fdd835"
+      box testId="unequal-round" position="absolute" left=20 top=115 width=100 height=70 box-sizing="border-box" border-style="solid" border-top-width=4 border-right-width=12 border-bottom-width=20 border-left-width=8 border-radius=30 border-color="#e53935 #43a047 #1e88e5 #fdd835"
+      box testId="radii" position="absolute" left=145 top=115 width=100 height=70 box-sizing="border-box" background-color="#eeeeee" border-style="solid" border-width=6 border-top-left-radius=40 border-top-right-radius=10 border-bottom-right-radius=35 border-color="#e53935 #43a047 #1e88e5 #fdd835"
+      box testId="ring" position="absolute" left=270 top=115 width=100 height=70 box-sizing="border-box" border-style="solid" border-top-width=2 border-right-width=10 border-bottom-width=2 border-left-width=10 border-radius=20 border-color="#6a1b9a"
+      box testId="transparent" position="absolute" left=20 top=210 width=100 height=70 box-sizing="border-box" background-color="#eeeeee" border-style="solid" border-width=10 border-radius=20 border-color="#e53935 #00000000 #1e88e5"
+      box testId="translucent" position="absolute" left=145 top=210 width=100 height=70 box-sizing="border-box" background-color="#eeeeee" border-style="solid" border-width=12 border-radius=18 border-color="#1e88e580 #e5393580 #e5393580 #1e88e580"
+      box testId="quote" position="absolute" left=270 top=210 width=100 height=70 box-sizing="border-box" background-color="#eeeeee" border-radius=12 border-left-style="solid" border-left-width=6 border-left-color="#e53935"
+      box testId="current" position="absolute" left=20 top=305 width=100 height=70 box-sizing="border-box" color=(flipped ? "#1e88e5" : "#e53935") border-style="solid" border-width=10 border-radius=16 border-color="#43a047" border-left-color="currentcolor" border-bottom-color="currentcolor"
+      box testId="scheme" position="absolute" left=145 top=305 width=100 height=70 box-sizing="border-box" border-style="solid" border-width=10 border-radius=20 border-color="light-dark(#e53935, #80deea) light-dark(#43a047, #ffcc80) #1e88e5 light-dark(#fdd835, #ce93d8)"
+      box testId="hairline" position="absolute" left=270 top=305 width=100 height=70 box-sizing="border-box" border-style="solid" border-top-width=1 border-right-width=2 border-bottom-width=3 border-left-width=4 border-radius=12 border-color="#e53935 #43a047 #1e88e5 #fdd835"
+      button testId="flip" press=flip aria-label="Flip color" position="absolute" left=20 top=400 width=40 height=40 background-color="#bdbdbd"
+      button testId="dark" press=scheme aria-label="Scheme" position="absolute" left=80 top=400 width=40 height=40 background-color="#757575"

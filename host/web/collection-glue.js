@@ -1,7 +1,9 @@
 // Virtualized collections' DOM controller (@ref LLP 1010 §6), the list
 // engine's browser half: an after-paint piece, fetched when a batch first
 // commits a collection (LLP 1047 D5); navigation.js stands in until then.
-export function collectionBytes(facts) {
+// `fill` (LLP 1050.000 §6): `velocity` in CSS px/s toward the end, and
+// `limit`, the rows past what the report owes it may build (null: any).
+export function collectionBytes(facts, fill = {}) {
   const valid = n => Number.isFinite(n) && n >= 0 && n <= 3.4028234663852886e38;
   const id = n => Number.isInteger(n) && n > 0 && n <= 0xffffffff;
   const u64 = n => { if (typeof n === 'number' && !Number.isSafeInteger(n)) throw Error('unsafe collection identity'); const v = BigInt(n); if (v < 0n || v > 0xffffffffffffffffn) throw Error('invalid collection identity'); return v; };
@@ -12,15 +14,18 @@ export function collectionBytes(facts) {
     if (!id(row.view) || seen.has(row.view) || !valid(row.height)) throw Error('invalid collection row');
     seen.add(row.view);
   }
-  const bytes = new Uint8Array(68 + rows.length * 20), d = new DataView(bytes.buffer);
-  d.setUint32(0, 1, true); d.setUint32(4, facts.view, true);
+  const velocity = Number.isFinite(fill.velocity) ? fill.velocity : 0;
+  const limit = Number.isInteger(fill.limit) && fill.limit >= 0 ? Math.min(fill.limit, 0xfffffffe) : 0xffffffff;
+  const bytes = new Uint8Array(80 + rows.length * 20), d = new DataView(bytes.buffer);
+  d.setUint32(0, 2, true); d.setUint32(4, facts.view, true);
   d.setBigUint64(8, u64(facts.revision), true); d.setBigUint64(16, u64(facts.scroll_sequence), true);
   [facts.scroll_top, facts.port_width, facts.port_height, facts.row_width].forEach((n, i) => d.setFloat64(24 + i * 8, n, true));
   d.setUint32(56, facts.focus_view ?? 0, true); d.setUint32(60, facts.interaction_view ?? 0, true);
-  d.setUint32(64, rows.length, true);
+  d.setFloat64(64, velocity, true); d.setUint32(72, limit, true);
+  d.setUint32(76, rows.length, true);
   rows.forEach((row, i) => {
-    d.setUint32(68 + i * 20, row.view, true); d.setBigUint64(72 + i * 20, u64(row.epoch), true);
-    d.setFloat64(80 + i * 20, row.height, true);
+    d.setUint32(80 + i * 20, row.view, true); d.setBigUint64(84 + i * 20, u64(row.epoch), true);
+    d.setFloat64(92 + i * 20, row.height, true);
   });
   return bytes;
 }
@@ -31,9 +36,57 @@ export function applyCollectionFeedback(batch, applyBatch) {
 }
 
 export function collectionController({ root, views, report, settled=()=>{},
-  requestFrame = fn => requestAnimationFrame(fn), cancelFrame = id => cancelAnimationFrame(id) }) {
+  requestFrame = fn => requestAnimationFrame(fn), cancelFrame = id => cancelAnimationFrame(id), now = () => performance.now() }) {
   const states = new Map(), dirty = new Set(), waiting = new Set(), rowOwners = new WeakMap(), doc = root.ownerDocument;
   let frame = null, delivering = false, interaction = null, reportsLeft = 4, notification=false;
+  // LLP 1050.000 stage 1. The browser scrolls on its own thread and never
+  // waits for rows (the declared deviation), so each frame's reports share a
+  // slice of time: every row a report owes (what shows, the pins), then as
+  // many more as the measured per-row cost fits, or the next two frames of
+  // travel uncover. A report's reply that leaves rows unbuilt (`pending`)
+  // continues in the next frame. Authored jumps build first, then move (§6).
+  let interval = 1000 / 60, lastFrame = null, deadline = 0;
+  const jumps = [];
+  const slice = () => Math.min(4, Math.max(1, interval * 0.24));
+  const velocity = s => s.travel && now() - s.travel.time < 150 ? s.travel.velocity : 0;
+  function sample(s) {
+    const time = now(), top = s.port.scrollTop, t = s.travel;
+    // A step longer than the port is a jump, not travel: nothing to lead.
+    if (!t || Math.abs(top - t.top) > s.port.clientHeight) { s.travel = { top, time, velocity: 0 }; return; }
+    const delta = top - t.top, elapsed = time - t.time;
+    if (delta === 0 || elapsed <= 0) return;
+    const speed = delta * 1000 / Math.max(elapsed, interval / 2);
+    t.velocity = elapsed > 150 || speed * t.velocity <= 0 ? speed : t.velocity * 0.5 + speed * 0.5;
+    t.top = top; t.time = time;
+  }
+  function fits(s, remaining) {
+    if (remaining <= 0) return 0;
+    if (s.perRow == null) return 1;
+    return Math.max(0, Math.min(s.lastRows * 2, Math.floor(remaining * 0.9 / s.perRow)));
+  }
+  // Rows past the mounted run the port needs once it travels `ahead` px,
+  // at the mounted rows' mean height, from rects this pass already read.
+  function rowsToCover(s, rects, g, ahead) {
+    if (!ahead || !rects.length) return 0;
+    const count = s.snapshot.count, rows = s.rows.map((row, i) => ({ index: row.index, top: rects[i].top, bottom: rects[i].bottom }))
+      .sort((a, b) => a.top - b.top);
+    const mean = rows.reduce((n, r) => n + r.bottom - r.top, 0) / rows.length;
+    if (!(mean > 0)) return 0;
+    const top = viewport(s.port).top, bottom = top + g.height;
+    let shortfall;
+    if (ahead > 0) {
+      if (rows.at(-1).index === count - 1) return 0;
+      let reached = top;
+      for (const r of rows) if (r.top <= reached + 0.5) reached = Math.max(reached, r.bottom);
+      shortfall = bottom + ahead - reached;
+    } else {
+      if (rows[0].index === 0) return 0;
+      let reached = bottom;
+      for (const r of rows.toReversed()) if (r.bottom >= reached - 0.5) reached = Math.min(reached, r.top);
+      shortfall = reached - (top + ahead);
+    }
+    return shortfall > 0 ? Math.min(64, Math.ceil(shortfall / mean)) : 0;
+  }
   const number = text => Number.parseFloat(text) || 0;
   const size = el => { const r = el.getBoundingClientRect(); return `${r.width},${r.height}`; };
   const portOf = el => {
@@ -88,12 +141,17 @@ export function collectionController({ root, views, report, settled=()=>{},
     return old && ((old.focus_view != null && old.focus_view !== next[0])
       || (old.interaction_view != null && old.interaction_view !== next[1]));
   }
-  function flush(beforePaint = false) {
-    if (!beforePaint) { frame = null; reportsLeft = 4; }
+  function flush(beforePaint = false, only = null) {
+    if (!beforePaint) {
+      frame = null; reportsLeft = 4;
+      const time = now();
+      if (lastFrame !== null && time - lastFrame > 4 && time - lastFrame < 50) interval = time - lastFrame;
+      lastFrame = time; deadline = time + slice();
+    }
     const attempted = new Set();
-    for (let pass = 0; pass < 4 && reportsLeft > 0; pass++) {
+    for (let pass = 0; pass < 4 && (reportsLeft > 0 || only?.jump != null); pass++) {
       const releases = [...states.values()].filter(retiring);
-      const candidates = [...dirty].filter(s => !attempted.has(s));
+      const candidates = [...dirty].filter(s => !attempted.has(s) && (!only || s === only));
       const s = candidates.find(s => releases.includes(s)) ?? candidates[0];
       if (!s) break;
       dirty.delete(s); attempted.add(s);
@@ -105,12 +163,13 @@ export function collectionController({ root, views, report, settled=()=>{},
       else waiting.delete(s);
       let g = s.valid ? geometry(s) : null;
       let measurements = [];
-      const measuredSizes = new Map();
+      const measuredSizes = new Map(), rects = [], jump = s.jump;
       const visible = g && g.height > 0 && g.rowWidth > 0
         && s.rows.every(row => row.el.isConnected && row.el.getClientRects().length);
       if (visible) {
         measurements = s.rows.map(row => {
           const rect = row.el.getBoundingClientRect();
+          rects.push(rect);
           measuredSizes.set(row.el, `${rect.width},${rect.height}`);
           return { view: row.view, epoch: row.epoch, height: rect.height };
         });
@@ -118,6 +177,12 @@ export function collectionController({ root, views, report, settled=()=>{},
         g = { raw: old.scroll_top, width: old.port_width, height: old.port_height, rowWidth: old.row_width };
       } else continue;
       scrollChanged(s);
+      // The jump's target, clamped as the browser will: reported before it
+      // is assigned, so its rows exist before any frame shows it.
+      if (jump != null) {
+        g = { ...g, raw: g.raw + Math.max(0, Math.min(jump, s.port.scrollHeight - s.port.clientHeight)) - s.port.scrollTop };
+        s.sequence++;
+      }
       const dimensions = `${g.width},${g.height},${g.rowWidth}`;
       if (s.dimensions !== null && dimensions !== s.dimensions) s.sequence++;
       s.dimensions = dimensions;
@@ -127,15 +192,26 @@ export function collectionController({ root, views, report, settled=()=>{},
       const signature = [facts.scroll_top, facts.scroll_sequence, dimensions, ...pins,
         ...measurements.flatMap(r => [r.view, r.epoch, r.height])].join('|');
       for (const [el, value] of measuredSizes) if (s.observed.has(el)) s.observed.set(el, value);
-      if (s.signature === signature) continue;
+      if (s.signature === signature && jump == null && !s.snapshot.pending) continue;
+      const v = jump == null ? velocity(s) : 0;
+      const fill = { velocity: v, limit: jump != null ? 2
+        : Math.max(1, fits(s, deadline - now()), rowsToCover(s, rects, g, v * interval * 2 / 1000)) };
       let bytes;
-      try { bytes = collectionBytes(facts); } catch { continue; }
+      try { bytes = collectionBytes(facts, fill); } catch { continue; }
       s.budget--; reportsLeft--;
       for (const el of s.observed.keys()) if (!measuredSizes.has(el)) s.observed.set(el, size(el));
       measuredSizes.clear();
       delivering = true;
       let accepted;
+      const before = new Set(s.rows.map(row => row.view)), top = s.scrollTop, started = now();
       try { accepted = report(bytes) !== false; } finally { delivering = false; }
+      const created = s.rows.filter(row => !before.has(row.view)).length;
+      if (created > 0) {
+        const cost = Math.max(0.001, (now() - started) / created);
+        s.perRow = Math.max(cost, (s.perRow ?? cost) * 0.75 + cost * 0.25); s.lastRows = created;
+      }
+      // An anchor correction in the reply already moved the port there.
+      if (jump != null) { s.jump = null; if (s.scrollTop === top) move(s, jump); }
       if (accepted) {
         s.signature = signature; s.lastFacts = facts;
         if(!notification){notification=true;queueMicrotask(()=>{notification=false;settled();});}
@@ -143,6 +219,17 @@ export function collectionController({ root, views, report, settled=()=>{},
       }
     }
     schedule();
+    if (!delivering) for (const [s, top] of jumps.splice(0)) jumpTo(s, top);
+  }
+  function move(s, top) {
+    s.port.scrollTop = top; s.scrollTop = s.port.scrollTop; s.travel = null;
+  }
+  function jumpTo(s, top) {
+    if (!states.has(s.snapshot.view)) return;
+    if (delivering) { jumps.push([s, top]); return; }
+    s.jump = top; enqueue(s, true); flush(true, s);
+    // Not reportable (hidden, partial): move now; its rows follow a frame later.
+    if (s.jump != null) { s.jump = null; move(s, top); scrollChanged(s); enqueue(s, true); }
   }
   function detach(s) {
     dirty.delete(s); waiting.delete(s); s.observer.disconnect();
@@ -240,10 +327,10 @@ export function collectionController({ root, views, report, settled=()=>{},
         if (s && (s.el !== el || s.port !== port)) { detach(s); s = null; }
         if (s && BigInt(snapshot.revision) < BigInt(s.snapshot.revision)) continue;
         if (!s) {
-          s = { el, port, snapshot, rows: [], valid: false, observed: new Map(), budget: 2,
+          s = { el, port, snapshot, rows: [], valid: false, observed: new Map(), budget: 2, travel: null, perRow: null, lastRows: 1, jump: null,
             sequence: BigInt(snapshot.scrollSequence), scrollTop: port.scrollTop,
             dimensions: null, signature: null, lastFacts: null, corrected: null, anchor: el.style.overflowAnchor };
-          s.scrolled = () => { if (scrollChanged(s)) enqueue(s, true); };
+          s.scrolled = () => { sample(s); if (scrollChanged(s)) enqueue(s, true); };
           s.observer = new ResizeObserver(entries => {
             let changed = false, resizedPort = false, pending = false;
             for (const { target } of entries) {
@@ -296,9 +383,17 @@ export function collectionController({ root, views, report, settled=()=>{},
           }
         }
         observe(s);
-        enqueue(s, !delivering || freshRows);
+        // A reply that left rows unbuilt owes the next slice a report.
+        enqueue(s, !delivering || freshRows || snapshot.pending === true);
       }
       if (!dirty.size && frame !== null && !delivering) { cancelFrame(frame); frame = null; }
+    },
+    // An authored `scrollTop` on a collection (glue.js): its rows are built
+    // at the target, then the port moves, in this task (LLP 1050.000 §6).
+    jump(view, top) {
+      const s = states.get(view);
+      if (s && s.port === s.el) jumpTo(s, top);
+      else { const el = views.get(view); if (el) el.scrollTop = top; }
     },
     dataReady() {
       // A refused pre-activation action stays armed. Retry unchanged geometry

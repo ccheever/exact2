@@ -238,6 +238,26 @@ component A
   view
     text "a"
 ---
+== lower-timer-interval
+component A
+  state n = 1
+  action tick writes n
+    n = n + 1
+  task t mount
+    after(0, tick)
+  view
+    text "a"
+---
+== contract-task-body
+component A
+  state n = 1
+  action tick writes n
+    n = n + 1
+  task t mount
+    later(60, tick)
+  view
+    text "a"
+---
 == lower-leaf-children
 component A
   state q = ""
@@ -353,6 +373,24 @@ component A
 component A
   view
     column class="Card"
+      text "a"
+---
+== type-class-name
+style Card
+  padding=16
+component A
+  state on = true
+  view
+    column class=(on ? Card : "Card")
+      text "a"
+---
+== lower-unknown-class
+style Card
+  padding=16
+component A
+  state on = true
+  view
+    column class=(on ? Card : Chip)
       text "a"
 ---
 == contract-use-unresolved
@@ -772,3 +810,41 @@ component A
   resource s = s(id) as shape S else empty(id)
   view
     text s.a
+---
+== type-unknown-command
+# An action body's call names a host command; any other name is a no-op on every host.
+component A
+  action go
+    beep("x")
+  view
+    button press=go
+      text "a"
+---
+== type-unknown-command
+# An action is not callable from an action.
+component A
+  state n = 1
+  action begin writes n
+    n = 2
+  action go
+    begin()
+  view
+    button press=go
+      text "a"
+---
+== type-unknown-command
+# Nor is an action prop.
+component Child
+  props
+    comment: action
+  action go
+    comment("x")
+  view
+    button press=go
+      text "a"
+component App
+  state draft = ""
+  action post(text: string) writes draft
+    draft = text
+  view
+    Child(comment=post)
