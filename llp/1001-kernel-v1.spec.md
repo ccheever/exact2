@@ -316,7 +316,11 @@ and wrapping, where CSS lets each inline element choose its own. A text input's
 value is never collapsed, as the web's `<input>`/`<textarea>` (the kernel measures
 a collapsing row there as `pre-wrap`). Native `text-overflow: ellipsis` truncates
 `nowrap` lines on Linux; a wrapped line that overflows with an unbreakable word is
-ellipsized on Apple and the web but not yet on Linux. Web flowed text with
+ellipsized on Apple and the web but not yet on Linux. `overflow: hidden` on a
+box with four equal radii clips its children to the rounded border box on
+every host. Declared: with unequal radii, UIKit and AppKit clip to the unrounded
+box, since a layer's single corner radius cannot carry four and `layer.mask`
+already carries `clip-path` (LLP 1054.000 R7). Web flowed text with
 `tabular-nums` keeps ordinary layout: canvas cannot measure the feature
 (LLP 1053 §0 G4, G5).
 

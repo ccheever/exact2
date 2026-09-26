@@ -1134,6 +1134,20 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
         scroll?.scrollsX = ox == "scroll"
         scroll?.scrollsY = oy == "scroll"
+        // `overflow: hidden` clips the children, to the box's rounded corners
+        // as the web and UIKit do (LLP 1054 P2). One radius rides the layer;
+        // differing radii clip to the bounds, as UIKit's layer path does.
+        let clips = ox == "hidden" || oy == "hidden"
+        // CSS's line-clamp implies `overflow: hidden`: a clamped paragraph's
+        // one over-wide word must not paint over its neighbour (LLP 1054 P3).
+        let clamped = kind == "text" && number("line_clamp") > 0
+        // On a layer-backed view this is the layer's `masksToBounds`.
+        if clipsToBounds != (clips || clamped) { clipsToBounds = clips || clamped }
+        if let l = layer {
+            let radii = ["top_left", "top_right", "bottom_right", "bottom_left"].map { CGFloat(number("border_radius_" + $0, number("border_radius"))) }
+            let radius = clips && radii.allSatisfy({ $0 == radii[0] }) ? radii[0] : 0
+            if l.cornerRadius != radius { l.cornerRadius = radius }
+        }
         // `overscroll-behavior` (CSS): `auto` chains, `contain` keeps the
         // gesture and bounces, `none` keeps it and does not.
         let bx = s["overscroll_behavior_x"]?.string ?? "auto"
@@ -1154,7 +1168,6 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         scroll?.hasVerticalScroller = oy == "scroll" && scrollbarWidth != "none"
         scroll?.horizontalScroller?.controlSize = scrollbarWidth == "thin" ? .small : .regular
         scroll?.verticalScroller?.controlSize = scrollbarWidth == "thin" ? .small : .regular
-        clipsToBounds = ox == "hidden" || oy == "hidden"
         styleTextArea()
         if let f = field, let t = text {
             (f.currentEditor() as? NSTextView)?.insertionPointColor = caretColor
