@@ -1051,3 +1051,21 @@ The web artifacts now build with a pinned nightly (`WEB_TOOLCHAIN`,
 RealWorld's raw `app.wasm` fell 76 KB, from 856,926 to 780,997 B. That is more
 than the ~10 KB the table above gave panic text alone: std built for size is
 the rest. The web smoke passes on it.
+
+**Two leads sized on the web toolchain's build, 2026-09-25.** RealWorld's
+names build, attributed by module and each group brotli'd alone (not
+additive):
+- **Errors as codes** (message text in a dev-only table): all `fmt`,
+  `Display` and `Debug` code is 22.7 KB raw, ~7.4 KB brotli. The data
+  segments are 108.7 KB raw, 57.8 of it the plan. With panic text already
+  gone, codes would save about 5–8 KB brotli, and touch every error site.
+  Not taken; derived `Debug`'s text (above) is the cheap part of it.
+- **A DOM-only web kernel:** the kernel is ~31 KB brotli on the web:
+  - generated style code 8.3;
+  - transactions 7.0;
+  - ids, arena and sorted sets 7.1;
+  - the rest ~8.
+
+  A host that only patches the DOM still needs ids, the tree, transactions
+  and style-to-CSS, so about 10–15 KB could go, behind a runner–kernel
+  boundary that doesn't exist today. Not taken.
