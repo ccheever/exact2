@@ -410,3 +410,32 @@ export function runFocusCommands(commands, { root, ready, inertAncestor, log }) 
     if (selectText && document.activeElement === el) el.select();
   }
 }
+
+// The nearest inert ancestor (a modal dialog ends the search: its subtree is live).
+export function inertAncestor(el) {
+  for (let node = el; node; node = node.parentElement) {
+    if (node.hasAttribute("inert")) return node;
+    if (node.localName === "dialog" && node.matches(":modal")) return null;
+  }
+  return null;
+}
+
+// The page's environment: the safe-area insets from a hidden probe's padding, and the
+// keyboard's height as the visual viewport reports it.
+let probe;
+export function environment() {
+  if (!probe) {
+    probe = document.createElement("div");
+    probe.style.cssText = "position:fixed;inset:0;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)";
+    document.body.append(probe);
+  }
+  const r2 = (x) => Math.round(x * 100) / 100;
+  const cs = getComputedStyle(probe);
+  return {
+    "safe-area-inset-top": r2(parseFloat(cs.paddingTop) || 0),
+    "safe-area-inset-right": r2(parseFloat(cs.paddingRight) || 0),
+    "safe-area-inset-bottom": r2(parseFloat(cs.paddingBottom) || 0),
+    "safe-area-inset-left": r2(parseFloat(cs.paddingLeft) || 0),
+    "keyboard-inset-height": r2(Math.max(0, innerHeight - (visualViewport?.height ?? innerHeight))),
+  };
+}

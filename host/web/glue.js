@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { focusController, runFocusCommands, navigation, afterPaintPieces, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst } from "./navigation.js";
+import { focusController, runFocusCommands, environment, inertAncestor, navigation, afterPaintPieces, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst } from "./navigation.js";
 let httpModule;
 function httpHelpers() {
   return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
@@ -335,14 +335,6 @@ function refreshSymbols() {
     el.style.setProperty("--exact-symbol-fit", fit);
   }
 }
-function inertAncestor(el) {
-  for (let node = el; node; node = node.parentElement) {
-    if (node.hasAttribute("inert")) return node;
-    if (node.localName === "dialog" && node.matches(":modal")) return null;
-  }
-  return null;
-}
-
 // The app's `value` into an editor as a person types: the changed middle only (`setRangeText` keeps the selection where a whole assignment throws the caret to the end), never mid-composition — held, applied at compositionend. LLP 1045 D5.
 const composing = new WeakSet(), heldValues = new WeakMap(), compositionFlush = new WeakMap();
 function writeValue(el, value) {
@@ -456,23 +448,6 @@ function syncViewportFit() {
   if (meta && meta.content !== want) meta.content = want;
   const vv = globalThis.visualViewport;
   root.style.height = widget === "resizes-content" && vv && vv.scale === 1 && !root.querySelector('[data-scrolldocument="true"]') ? `${Math.min(innerHeight, vv.height)}px` : "";
-}
-let probe;
-function environment() {
-  if (!probe) {
-    probe = document.createElement("div");
-    probe.style.cssText = "position:fixed;inset:0;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)";
-    document.body.append(probe);
-  }
-  const r2 = (x) => Math.round(x * 100) / 100;
-  const cs = getComputedStyle(probe);
-  return {
-    "safe-area-inset-top": r2(parseFloat(cs.paddingTop) || 0),
-    "safe-area-inset-right": r2(parseFloat(cs.paddingRight) || 0),
-    "safe-area-inset-bottom": r2(parseFloat(cs.paddingBottom) || 0),
-    "safe-area-inset-left": r2(parseFloat(cs.paddingLeft) || 0),
-    "keyboard-inset-height": r2(Math.max(0, innerHeight - (visualViewport?.height ?? innerHeight))),
-  };
 }
 function attach(el, id, handlers) {
   el.dataset.view = String(id); el.exactHandlers = handlers; if (handlers.length) el.dataset.exactOn = handlers.join(" "); else delete el.dataset.exactOn;
