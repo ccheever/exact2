@@ -5,7 +5,7 @@ import UIKit
 
 private final class ExactSegmentedControl: UISegmentedControl {
     let ownerID: UInt32
-    var icons: [Int: (source: UIImage, size: CGSize, label: String)] = [:]
+    var icons: [Int: (source: AnyObject, size: CGSize, label: String)] = [:]
     init(ownerID: UInt32) {
         self.ownerID = ownerID
         super.init(items: [])
@@ -71,12 +71,15 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate {
     private func content(_ tab: NodeView, at index: Int, in control: ExactSegmentedControl) {
         let label = tab.accessibleName
         if case .image(let icon)? = tab.segmentFace {
-            guard let source = icon.image, icon.bounds.width > 0, icon.bounds.height > 0 else {
+            let raster = icon.raster?.image.image
+            guard let source = raster.map({ UIImage(cgImage: $0) }) ?? icon.image,
+                  icon.bounds.width > 0, icon.bounds.height > 0 else {
                 control.setTitle(nil, forSegmentAt: index)
                 return
             }
+            let identity: AnyObject = raster.map { $0 as AnyObject } ?? source
             let size = icon.bounds.size
-            if let old = control.icons[index], old.source === source, old.size == size, old.label == label { return }
+            if let old = control.icons[index], old.source === identity, old.size == size, old.label == label { return }
             let image = UIGraphicsImageRenderer(size: size).image { _ in
                 let ratio = min(size.width / source.size.width, size.height / source.size.height)
                 let fit = CGSize(width: source.size.width * ratio, height: source.size.height * ratio)
@@ -84,7 +87,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate {
             }.withRenderingMode(.alwaysOriginal)
             image.accessibilityLabel = label
             control.setImage(image, forSegmentAt: index)
-            control.icons[index] = (source, size, label)
+            control.icons[index] = (identity, size, label)
         } else {
             control.icons.removeValue(forKey: index)
             if control.imageForSegment(at: index) != nil { control.setImage(nil, forSegmentAt: index) }
