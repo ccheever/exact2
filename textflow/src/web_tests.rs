@@ -243,7 +243,7 @@ fn trailing_collapsed_source_after_a_hard_break_stays_owned_by_the_dom() {
 #[test]
 fn white_space_protocol_preserves_spaces_and_segment_breaks() {
     let text = "A    B\nC";
-    for (mode, bands, first_width) in [(0u32, 1, 25.0), (1, 2, 30.0)] {
+    for (mode, bands, first_width) in [(0u32, 1, 25.0), (1, 2, 30.0), (2, 1, 25.0)] {
         let mut f = TextFlow::new();
         let mut input = 0u32.to_le_bytes().to_vec();
         input.extend([mode, 0].map(u32::to_le_bytes).concat());
@@ -266,6 +266,26 @@ fn white_space_protocol_preserves_spaces_and_segment_breaks() {
         assert_eq!(out[0].width, first_width);
         assert_eq!(out.last().unwrap().end, text.len());
     }
+}
+
+#[test]
+fn white_space_nowrap_protocol_keeps_one_band_wider_than_the_flow() {
+    let text = "one two three four five six seven eight";
+    let mut f = TextFlow::new();
+    let mut input = 0u32.to_le_bytes().to_vec();
+    input.extend([2u32, 0].map(u32::to_le_bytes).concat());
+    input.extend(text.as_bytes());
+    f.segments(1, &input).unwrap();
+    let mut advances = 5f32.to_le_bytes().to_vec();
+    for r in &f.sources[&1].ranges {
+        advances.extend((text[r.clone()].chars().count() as f32 * 5.0).to_le_bytes());
+    }
+    f.prepare(1, &advances).unwrap();
+    f.flow(1, &[], options()).unwrap();
+    let out = &f.sources[&1].fragments;
+    assert_eq!(out.len(), 1);
+    assert_eq!(out[0].end, text.len());
+    assert!(out[0].width > options().width);
 }
 
 #[test]

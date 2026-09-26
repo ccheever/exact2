@@ -101,7 +101,7 @@ impl FlowSource {
             }
             offset = start + run.text.len();
         }
-        if source.spec.white_space == exact_kernel::WhiteSpace::Normal
+        if source.spec.white_space != exact_kernel::WhiteSpace::PreWrap
             && text.chars().any(|ch| {
                 matches!(
                     ch,
@@ -177,10 +177,10 @@ impl FlowSource {
         let prepared = Prepared::new(
             &text,
             Options {
-                white_space: if source.spec.white_space == exact_kernel::WhiteSpace::PreWrap {
-                    exact_textflow::WhiteSpace::PreWrap
-                } else {
-                    exact_textflow::WhiteSpace::Normal
+                white_space: match source.spec.white_space {
+                    exact_kernel::WhiteSpace::Normal => exact_textflow::WhiteSpace::Normal,
+                    exact_kernel::WhiteSpace::PreWrap => exact_textflow::WhiteSpace::PreWrap,
+                    exact_kernel::WhiteSpace::Nowrap => exact_textflow::WhiteSpace::Nowrap,
                 },
                 overflow_wrap,
                 hyphen_advance: hyphen.iter().map(|g| g.w).sum(),

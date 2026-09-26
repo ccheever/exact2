@@ -1,6 +1,6 @@
 //! LLP 1017 P6: named styles, proven on the kernel's rows after boot.
 
-use exact_kernel::{Color, Dimension, Kernel};
+use exact_kernel::{Color, Dimension, Kernel, WhiteSpace};
 use exact_plan::Value;
 use exact_runner::{DataError, DataSource, Runner};
 use std::path::Path;
@@ -56,6 +56,7 @@ fn a_class_applies_its_style_and_the_nodes_own_attribute_wins() {
         tight.background_color,
         Color::parse_hex("#000000").unwrap().into()
     );
+    assert_eq!(tight.white_space, WhiteSpace::Nowrap);
 }
 
 #[test]

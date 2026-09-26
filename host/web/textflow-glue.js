@@ -127,7 +127,7 @@ function sourceInput(text, overflow, whiteSpace) {
   const source = encoder.encode(text), words = complexWords(text);
   const bytes = new Uint8Array(12 + words.length * 4 + source.length), view = new DataView(bytes.buffer);
   view.setUint32(0, overflow === 'anywhere' ? 2 : overflow === 'break-word' ? 1 : 0, true);
-  view.setUint32(4, whiteSpace === 'pre-wrap' ? 1 : 0, true);
+  view.setUint32(4, whiteSpace === 'pre-wrap' ? 1 : whiteSpace === 'nowrap' ? 2 : 0, true);
   view.setUint32(8, words.length, true);
   words.forEach((w, i) => view.setUint32(12 + i * 4, w, true));
   bytes.set(source, 12 + words.length * 4); return bytes;

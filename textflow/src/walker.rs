@@ -45,6 +45,8 @@ pub enum WhiteSpace {
     Normal,
     /// Preserve spaces/tabs and break at segment breaks; trailing spaces hang.
     PreWrap,
+    /// Collapse like `normal` with no soft wrap opportunity: one line, however wide.
+    Nowrap,
 }
 /// Width-independent preparation options; letter spacing belongs to `Measure`.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -99,7 +101,9 @@ struct Segment {
 ///
 /// Each visible run is measured once (a UAX #14 segment, split around internal
 /// collapsed space runs where needed). `normal` collapses spaces, tabs and
-/// segment breaks; `pre-wrap` preserves spaces/tabs and mandatory breaks.
+/// segment breaks; `pre-wrap` preserves spaces/tabs and mandatory breaks;
+/// `nowrap` collapses like `normal` and never breaks (`overflow-wrap` only
+/// applies where wrapping is allowed, so it admits no emergency cut either).
 /// A terminal break ends a line without a synthetic empty line.
 /// @ref LLP 1043.000 §3 D6 — CSS whitespace processing found in M9 review.
 ///
@@ -142,6 +146,11 @@ impl Prepared {
     ) -> Self {
         let options = Options {
             hyphen_advance: advance(options.hyphen_advance),
+            overflow_wrap: if options.white_space == WhiteSpace::Nowrap {
+                OverflowWrap::Normal
+            } else {
+                options.overflow_wrap
+            },
             ..options
         };
         let mut result = Self {
@@ -286,7 +295,7 @@ impl Prepared {
         if !self.valid_cursor(start) {
             return None;
         }
-        let fit = (if width.is_nan() { 0.0 } else { width.max(0.0) } as f64) + FIT_EPSILON;
+        let fit = self.fit(width);
         let mut total = 0.0;
         let mut visible = false;
         let mut best = None;
@@ -296,7 +305,7 @@ impl Prepared {
             let mut atom = if i == start.segment { start.atom } else { 0 };
             // Emergency continuation may begin at an internal collapsed space.
             // Own those bytes but give them no width at the new line's start.
-            while self.options.white_space == WhiteSpace::Normal
+            while self.options.white_space != WhiteSpace::PreWrap
                 && atom > 0
                 && atom < segment.atoms.len()
                 && self.atoms[segment.atoms.start + atom].space
@@ -440,7 +449,7 @@ impl Prepared {
     /// tolerance, same best/fallback rule, same hyphen and hard-break handling);
     /// `tests/walker.rs` checks both agree over the corpus and fuzz text.
     fn count_and_max(&self, width: f32) -> (usize, f32) {
-        let fit = (if width.is_nan() { 0.0 } else { width.max(0.0) } as f64) + FIT_EPSILON;
+        let fit = self.fit(width);
         let hyphen = self.options.hyphen_advance as f64;
         let n = self.segments.len();
         let mut start = 0;
@@ -496,8 +505,12 @@ impl Prepared {
         self.line_stats(f32::INFINITY).1
     }
 
-    /// Min-content width; only `Anywhere` counts emergency grapheme opportunities.
+    /// Min-content width; only `Anywhere` counts emergency grapheme opportunities,
+    /// and `nowrap` has none at all, so its min-content is its max-content.
     pub fn min_content_width(&self) -> f32 {
+        if self.options.white_space == WhiteSpace::Nowrap {
+            return self.natural_width();
+        }
         let mut max: f32 = 0.0;
         for s in &self.segments {
             if self.options.overflow_wrap == OverflowWrap::Anywhere {
@@ -523,6 +536,13 @@ impl Prepared {
     }
     pub(crate) fn work_units(&self) -> usize {
         self.units
+    }
+    /// The advance a line may paint before it breaks; `nowrap` never breaks.
+    fn fit(&self, width: f32) -> f64 {
+        if self.options.white_space == WhiteSpace::Nowrap {
+            return f64::INFINITY;
+        }
+        (if width.is_nan() { 0.0 } else { width.max(0.0) } as f64) + FIT_EPSILON
     }
     pub(crate) fn has_remaining(&self, cursor: Cursor) -> bool {
         cursor.segment < self.content_end && self.valid_cursor(cursor)
