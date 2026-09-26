@@ -745,7 +745,16 @@ async function main() {
   const at = argv.indexOf('--origin');
   if (at >= 0 && (!argv[at + 1] || argv[at + 1].startsWith('--'))) throw new Error('--origin needs a directory');
   const dist = at >= 0 ? resolve(argv.splice(at, 2)[1]) : webDist();
-  if (!await readStaticFileAsync(dist, '/app.wasm')) { console.error('run bun host/web/build.mjs first, or serve a published --origin <dir>'); return 2; }
+  if (!await readStaticFileAsync(dist, '/app.wasm')) {
+    // A build that is there but unreadable says why: the reader is a Cargo-built
+    // helper, and "build first" misled when cargo was not on PATH (LLP 1054 O5).
+    let why = null;
+    if (existsSync(resolve(dist, 'app.wasm'))) {
+      try { filesystem({ op: 'get', root: resolve(dist), path: 'app.wasm' }); } catch (error) { why = error.message; }
+    }
+    console.error(why ? `${dist}/app.wasm is built but could not be read: ${why}` : `no build in ${dist}: run bun host/web/build.mjs first, or serve a published --origin <dir>`);
+    return 2;
+  }
   const loopback = argv.includes('--loopback') || process.env.EXACT_LOOPBACK === '1';
   const port = Number(argv.find((a) => !a.startsWith('--')) ?? 8765);
   const host = loopback ? '127.0.0.1' : '0.0.0.0';
