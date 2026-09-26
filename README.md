@@ -28,7 +28,6 @@ Surfaces: web, macOS, iOS, Linux.
 Start here:
 
 - **`rules/RULES.md`** — how work happens here. One page. Read it before your first PR.
-- **`rules/NOT-DOING.md`** — what v1 deliberately excludes, and why.
 - **`llp/1000-exact2-root.explainer.md`** — the map: what exists, what is next, how the
   design corpus is laid out.
 
