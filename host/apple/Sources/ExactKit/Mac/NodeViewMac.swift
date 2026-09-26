@@ -855,7 +855,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// Whether any colour on this node is a pair — what says an appearance
     /// change is something to this view rather than nothing.
     var hasSchemeColor: Bool {
-        style.values.contains { $0.isSchemeColor }
+        style.values.contains { $0.isSchemeColor || $0.isSchemeGradient }
     }
 
     func color(_ key: String, _ fallback: NSColor) -> NSColor {
@@ -1087,7 +1087,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         defer { video?.update() }
         style = s
         let uniformBorder = number("border_width")
-        hasBoxPaint = s["background_color"] != nil
+        hasBoxPaint = s["background_color"] != nil || s["background_image"] != nil
             || number("border_width_top", uniformBorder) > 0
             || number("border_width_right", uniformBorder) > 0
             || number("border_width_bottom", uniformBorder) > 0
@@ -1289,6 +1289,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             bg.setFill()
             if rounded { path.fill() } else { NSGraphicsContext.current?.cgContext.fill(bounds) }
         }
+        if let ctx = NSGraphicsContext.current?.cgContext { paintGradient(ctx, clip: path.cgPath) }
         // The host sends each side's colour (`style.rs`), never a uniform
         // one: each side in its colour, joined as the web joins them.
         let uniform = number("border_width")

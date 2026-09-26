@@ -100,6 +100,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var boxDrawn = false
     /// A uniform border under the children, where they can reach it.
     var boxBorder: CALayer?
+    /// A `background-image` gradient Core Animation paints (LLP 1056).
+    var boxGradient: CAGradientLayer?
     var textRasterKey: TextRasterKey? { didSet { textRasterWhole = textRasterKey.map { $0.clip == nil } ?? false } }
     /// The key is set and paints the whole paragraph (not a band of it).
     private(set) var textRasterWhole = false
@@ -1317,6 +1319,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
                 bg.setFill()
                 path.fill()
             }
+        }
+        paintGradient(ctx, clip: path.cgPath)
+        if boxDrawn {
             // Sides that differ in colour or width, or a radius the layer
             // cannot say: each side in its colour, joined as the web joins
             // them (`BorderPaint`).

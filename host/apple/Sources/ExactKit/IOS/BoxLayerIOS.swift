@@ -21,6 +21,7 @@ final class NodeLayer: CALayer {
         guard let node = delegate as? NodeView else { super.display(); return }
         node.applyBoxLayer()
         node.applyImageLayer()
+        node.applyGradientLayer()
         if node.drawsPaint { super.display(); return }
         contents = nil
         if node.isParagraph {
@@ -92,6 +93,27 @@ extension NodeView {
         if l.masksToBounds != clips { l.masksToBounds = clips }
     }
 
+    /// A `background-image` gradient (LLP 1056) as a sublayer under
+    /// everything else the layer holds — over the layer's background, under
+    /// its border and children — with the box's one radius, which is all a
+    /// box `draw(_:)` does not paint can have. A view that paints through
+    /// `draw(_:)` paints the gradient there instead, in the same place.
+    func applyGradientLayer() {
+        guard !drawsPaint, let gradient = Gradient(style["background_image"]) else {
+            boxGradient?.removeFromSuperlayer(); boxGradient = nil; return
+        }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        let g = boxGradient ?? CAGradientLayer()
+        boxGradient = g
+        if layer.sublayers?.first !== g { layer.insertSublayer(g, at: 0) }
+        if g.frame != layer.bounds { g.frame = layer.bounds }
+        if g.cornerRadius != layer.cornerRadius { g.cornerRadius = layer.cornerRadius }
+        if g.maskedCorners != layer.maskedCorners { g.maskedCorners = layer.maskedCorners }
+        if g.masksToBounds != (layer.cornerRadius > 0) { g.masksToBounds = layer.cornerRadius > 0 }
+        gradient.apply(g, bounds: layer.bounds, box: gradientBox, dark: drawsDark)
+    }
+
     /// The box onto the layer, or `boxDrawn` when `draw(_:)` must paint it.
     /// The web's box: background and border inside the border box, a
     /// uniform border following the curve, the radius clipping children only
@@ -112,7 +134,8 @@ extension NodeView {
         let radius = radii.max() ?? 0
         let oneRadius = radii.allSatisfy { $0 == 0 || abs($0 - radius) < 0.01 }
             && radius <= min(bounds.width, bounds.height) / 2 + 0.01
-        boxDrawn = !(oneBorder && oneRadius) && (fill != nil || widths.contains { $0 > 0 })
+        let gradient = style["background_image"] != nil
+        boxDrawn = !(oneBorder && oneRadius) && (fill != nil || gradient || widths.contains { $0 > 0 })
         let onLayer = !boxDrawn
         var corners: CACornerMask = []
         let masks: [CACornerMask] = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
