@@ -96,7 +96,12 @@ export async function prepare(payload, admitted, id = nextId++) {
   win.addEventListener('error', event => { initializationError = event.message; event.preventDefault(); });
   win.__exact_host = (op, name, value) => {
     if (!context) throw new Error('host call outside an answer');
-    if (op === 6) { if (name === 'available') return 'web'; throw new Error('native modules are unavailable in the browser'); }
+    if (op === 6) {
+    // A page module answers `native.later` on the page; nothing here can answer at once.
+    if (name === 'kind' || name === 'available') return admitted.native ? 'native' : '';
+    if (name === 'later') return admitted.native ? 'later' : '';
+    throw new Error('the browser answers no native call at once; use native.later');
+  }
     if (op === 1) {
       const request = JSON.parse(value), drop = fetchEarly(request, admitted.grants);
       context.requests.set(Number(name), request); if (drop) context.early.set(Number(name), drop); return;

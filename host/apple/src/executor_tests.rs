@@ -833,3 +833,35 @@ fn a_large_body_on_the_platform_transport_drains_behind_handed_off_turns() {
         .collect();
     assert_eq!(sizes, [(1, 4), (2, 190_785), (3, 4), (4, 24), (5, 190_785)]);
 }
+
+/// A long native call is handed to the module on the independent lane: it
+/// holds no worker, and ordered storage behind it finishes first.
+#[test]
+fn a_native_call_is_handed_off_and_never_holds_the_ordered_lane() {
+    let (core, _fixture, woke) = setup();
+    let mut native = Request::get(exact_runner::NATIVE_URL).independent_http(1 << 20);
+    native.method = "POST".into();
+    native.body = br#"{"op":"transcribe"}"#.to_vec();
+    assert!(native.is_native());
+    let (handed, replies) = channel();
+    core.run_owned(
+        job(20, native),
+        Some(OwnedWork::Later(Box::new(move |reply| {
+            handed.send(reply).unwrap();
+        }))),
+    )
+    .unwrap();
+    let reply = replies.recv_timeout(Duration::from_secs(5)).unwrap();
+    core.run(
+        job(21, Request::continuation(1)),
+        Some(Box::new(|| Outcome::Storage(vec![1]))),
+    )
+    .unwrap();
+    assert_eq!(collect(&core, &woke, 1)[0].0, 21);
+    reply.send(Outcome::Response(Response {
+        status: 200,
+        headers: vec![],
+        body: b"{}".to_vec(),
+    }));
+    assert_eq!(collect(&core, &woke, 1)[0].0, 20);
+}

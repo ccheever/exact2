@@ -81,7 +81,20 @@ pub struct Request {
     pub body: Vec<u8>,
 }
 
+/// The URL of a long native call (`native.later` in TypeScript): not HTTP.
+/// A host hands its body to the source's [`crate::Native`] handler (the app's
+/// native module; on the web, its page module) instead of the network.
+pub const NATIVE_URL: &str = "exact-native:";
+
 impl Request {
+    /// A long native call, for the source's native handler, not the network.
+    pub fn is_native(&self) -> bool {
+        self.url == NATIVE_URL
+            && self.continuation.is_none()
+            && self.storage.is_none()
+            && self.surface.is_none()
+    }
+
     /// Native ordered lane is mandatory for storage and continuations, even
     /// when an invalid HTTP annotation will cause their admission to refuse.
     pub fn is_ordered(&self) -> bool {

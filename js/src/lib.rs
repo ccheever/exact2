@@ -51,13 +51,14 @@ mod native;
 mod paired;
 mod pure;
 mod storage;
+pub mod swift;
 mod watch;
 
 pub use engine::ENGINE_LINKED;
 pub use exact_data::Placed;
 pub use exact_js_value::{from_json, to_json, Shape};
 pub use exact_runner::Placement;
-pub use native::NativeModule;
+pub use native::{LaterHandler, NativeModule, NativeReply};
 pub use paired::Paired;
 
 use engine::{Engine, HostFn};
@@ -133,6 +134,8 @@ struct HostState {
     store: Option<*mut Store>,
     requests: Vec<(u64, Request)>,
     native: Option<Box<dyn NativeModule>>,
+    /// The native module takes long calls off this thread (`native.later`).
+    later: bool,
 }
 
 /// A TypeScript data source: bytecode, its bake-time identity, and the
@@ -150,6 +153,9 @@ pub struct Module {
     directories: Option<storage::Directories>,
     host: Box<HostState>,
     native_factory: Option<NativeFactory>,
+    /// Where the host sends `native.later` requests; shared with an instance
+    /// built from this template, which fills it on its owner.
+    native_slot: exact_runner::Native,
     /// The bound plan, kept so an owner thread can bind its own instance.
     plan: Option<Plan>,
     sigs: HashMap<String, Sig>,
@@ -225,11 +231,20 @@ unsafe extern "C" fn host_door(
             }
         }
         6 => {
-            if a == "available" {
-                // Only a linked, configured module: an app gets `native` null at
-                // bake, in agent mode, and when it links none, as on the web,
-                // instead of an object whose every call throws.
+            if a == "kind" {
+                // A native executor can always link a module; no read.
+                Ok(Some("native".into()))
+            } else if a == "available" {
+                // Only a linked, configured module: `native.available` is false
+                // at bake, in agent mode, and when the app links none. Whether
+                // there is one is the device's fact, not the build's: an answer
+                // that asks is not compiled, and the host asks it again.
+                if let Some(store) = state.store {
+                    (*store).observe_external_read();
+                }
                 Ok(state.native.is_some().then(|| "native".into()))
+            } else if a == "later" {
+                Ok(state.later.then(|| "later".into()))
             } else {
                 if let Some(store) = state.store {
                     (*store).observe_external_read();
@@ -385,6 +400,7 @@ impl Module {
             directories: None,
             host: Box::default(),
             native_factory: None,
+            native_slot: Default::default(),
             plan: None,
             sigs: HashMap::new(),
             parked: Vec::new(),
@@ -426,10 +442,13 @@ impl Module {
         let budget_ms = template.budget_ms;
         let max_heap = template.max_heap;
         let watch = template.watch.clone();
+        let native_slot = template.native_slot.clone();
         Box::new(move || {
             let mut module = Module::new(bytecode, app_id, grants);
-            // The template's interrupt reaches the instance on its owner.
+            // The template's interrupt reaches the instance on its owner, and
+            // its native handle finds the instance's long-call handler.
             module.watch = watch;
+            module.native_slot = native_slot;
             if let Some(factory) = native_factory {
                 module = module.with_native(factory);
             }
@@ -526,6 +545,18 @@ impl Module {
                     paths.cache.clone(),
                     paths.temporary.clone(),
                 )?;
+                let later = native.later();
+                self.host.later = later.is_some();
+                self.native_slot
+                    .set(later.map(|handler| -> exact_runner::NativeHandler {
+                        std::sync::Arc::new(move |body: Vec<u8>, reply| {
+                            let reply = NativeReply::new(reply);
+                            match serde_json::from_slice(&body) {
+                                Ok(request) => handler(request, reply),
+                                Err(e) => reply.send(Err(format!("native.later: {e}"))),
+                            }
+                        })
+                    }));
                 self.host.native = Some(native);
             }
             self.storage = Some(storage::Session::open(paths, &self.grants)?);
@@ -554,6 +585,8 @@ impl Module {
         }
         self.storage = None;
         self.host.native = None;
+        self.host.later = false;
+        self.native_slot.set(None);
         self.parked.clear();
         self.host.requests.clear();
     }
@@ -1078,6 +1111,10 @@ impl DataSource for Module {
     fn interrupt(&self) -> Option<Interrupt> {
         let watch = self.watch.clone();
         Some(Interrupt::new(move || watch.trigger()))
+    }
+
+    fn native(&self) -> Option<exact_runner::Native> {
+        Some(self.native_slot.clone())
     }
 
     /// Not before the host loads it (LLP 1027 D4): the runner boots

@@ -51,6 +51,9 @@ macro_rules! configured {
             fn interrupt(&self) -> Option<$crate::exact_runner::Interrupt> {
                 $crate::exact_runner::DataSource::interrupt(&self.0)
             }
+            fn native(&self) -> Option<$crate::exact_runner::Native> {
+                $crate::exact_runner::DataSource::native(&self.0)
+            }
             fn forgotten(&mut self, in_flight: &[$crate::exact_runner::InFlight<'_>]) {
                 $crate::exact_runner::DataSource::forgotten(&mut self.0, in_flight)
             }

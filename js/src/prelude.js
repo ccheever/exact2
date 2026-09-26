@@ -279,12 +279,30 @@
     var result;
     currentCall = call;
     try {
-      var native = host(6, "available", "") === "native" ? Object.freeze({
-        call: function (request) {
-          if (!currentCall || currentCall.status !== "pending") throw new Error("native call outside an answer");
-          return JSON.parse(host(6, "call", JSON.stringify(request)));
+      var nativeCall = function (request) {
+        if (!currentCall || currentCall.status !== "pending") throw new Error("native call outside an answer");
+        return JSON.parse(host(6, "call", JSON.stringify(request)));
+      };
+      // Null only where no module can be (a page with no page module). Else an
+      // object; whether a module is linked is the device's fact, not the
+      // build's, so asking `available` marks the answer as the device's: the
+      // bake leaves it uncompiled and the host asks it again.
+      var native = host(6, "kind", "") !== "native" ? null : Object.freeze({
+        get available() { return host(6, "available", "") === "native"; },
+        call: nativeCall,
+        // Long work: off the source's thread and outside its budget, settled
+        // when the module's own work replies. It travels as a request the
+        // host hands to the module (on the web, the app's page module), so
+        // the answer waits for it as for a fetch. A module that takes no
+        // long calls answers through `call`, now.
+        later: function (request) {
+          if (host(6, "later", "") !== "later") {
+            try { return Promise.resolve(nativeCall(request)); } catch (e) { return Promise.reject(e); }
+          }
+          return global.fetch("exact-native:", { method: "POST", body: JSON.stringify(request), exactIndependentHttp: { maxResponseBytes: 1048576 } })
+            .then(function (r) { return r.text().then(function (t) { if (r.status === 200) return JSON.parse(t); throw new Error(t || "native call failed"); }); });
         },
-      }) : null;
+      });
       result = global.exact.answer(source, JSON.parse(argsJson), store, storage, native);
     }
     catch (e) { currentCall = null; return fail(e); }

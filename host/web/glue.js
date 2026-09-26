@@ -37,6 +37,10 @@ let inputReady = false;
 let inputHandlers;
 const authoredDisabled = new WeakMap();
 let logicInfo = null, moduleLoader = null, activeModule = null, moduleResponse = new Uint8Array();
+// The app's page module (`host.web.native`): it answers `native.later` here,
+// on the page, where the browser's own capabilities are. Loaded at first use.
+const pageNative = document.querySelector('meta[name="exact-native"]')?.content;
+let pageNativeModule = null;
 let rustLoader = null, rustLoading = null;
 const rustImports = Object.fromEntries(['load', 'call', 'read', 'drop'].map(name => [name, (...args) => {
   if (!rustLoader) throw new Error('Rust module loader is not ready');
@@ -679,6 +683,20 @@ function apply(batch) {
       case "request": {
         // Host and source scopes both admit the request (LLP 1027.001 D2).
         const { ticket, method, url, headers, body, cache } = op, requestIncarnation = incarnation;
+        // A long native call is the app's own page module's, not the network's.
+        if (url === "exact-native:") {
+          const p = Promise.resolve().then(async () => {
+            if (!pageNative) throw new Error("this app has no page module (host.web.native)");
+            const module = await (pageNativeModule ??= import(new URL(pageNative, document.baseURI).href));
+            if (typeof module.later !== "function") throw new Error("the page module exports no later(request)");
+            const request = JSON.parse(decoder.decode(Uint8Array.from(atob(body ?? ""), (c) => c.charCodeAt(0))));
+            return JSON.stringify(await module.later(request) ?? null);
+          }).then((reply) => safelyFulfill(requestIncarnation, ticket, 0, 200, "", encoder.encode(reply)),
+            (e) => safelyFulfill(requestIncarnation, ticket, 0, 500, "", encoder.encode(String(e?.message ?? e))));
+          inflight.add(p);
+          p.finally(() => inflight.delete(p));
+          break;
+        }
         const scopeValid = op.scope == null || typeof op.scope === 'string' && op.scope.split('\n').map(s=>s.trim()).filter(Boolean).every(s=>grants.map(g=>g.trim()).includes(s));
         // Plain bundled-asset GETs use the immutable app namespace.
         const asset = method === 'GET' && !body && Object.keys(headers).length === 0 && /^\/assets\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/.test(url);
@@ -1435,7 +1453,7 @@ async function main() {
   wasm = instance.exports; const [staged] = WebAssembly.Module.customSections(compiled, 'exact.stages'); if (staged) stages = JSON.parse(new TextDecoder().decode(staged)).stages;
   memory = wasm.memory;
   globalThis.exact.compat = JSON.parse(readOut(wasm.exact_compat()));
-  logicInfo = typeof wasm.exact_module_artifact === 'function' && wasm.exact_logic ? JSON.parse(readOut(wasm.exact_logic())) : null;
+  logicInfo = typeof wasm.exact_module_artifact === 'function' && wasm.exact_logic ? { ...JSON.parse(readOut(wasm.exact_logic())), native: Boolean(pageNative) } : null;
   setInputReady(false); // Every data executor activates after the baked first pixel.
   // Restore granted secrets before the baked frame (LLP 1018 D6).
   if (!agentMode) {

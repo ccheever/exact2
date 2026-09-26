@@ -164,6 +164,84 @@ fn native_modules_are_deferred_retired_and_unavailable_to_validation() {
     );
 }
 
+/// `native.later`: the answer leaves as a native request, the host hands its
+/// body to the module's handler, the module's own thread replies, and the
+/// answer resumes with the value — or with the module's refusal.
+#[test]
+fn native_later_answers_from_the_modules_own_thread() {
+    struct Native;
+    impl exact_js::NativeModule for Native {
+        fn configure_storage(&mut self, _: PathBuf, _: PathBuf, _: PathBuf) -> Result<(), String> {
+            Ok(())
+        }
+        fn call(&mut self, request: &serde_json::Value) -> Result<serde_json::Value, String> {
+            Ok(serde_json::json!({"text": format!("now:{}", request["value"].as_str().unwrap())}))
+        }
+        fn later(&mut self) -> Option<exact_js::LaterHandler> {
+            Some(std::sync::Arc::new(|request, reply| {
+                let value = request["value"].as_str().unwrap_or("").to_string();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(150));
+                    reply.send(if value == "bad" {
+                        Err("the model is unavailable".into())
+                    } else {
+                        Ok(serde_json::json!({"text": value.to_uppercase()}))
+                    });
+                });
+            }))
+        }
+    }
+    let root = Root::new();
+    let mut m = root.module().with_native(|_| Box::new(Native));
+    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    m.activate().unwrap();
+    let native = m.native().expect("a module offers its native handle");
+    for (value, expected) in [
+        ("slow", "SLOW"),
+        ("bad", "refused: the model is unavailable"),
+    ] {
+        let a = args("later", value);
+        let Answer::Later(request) = m.answer(&mut s, "work", &a).unwrap() else {
+            panic!("a long native call answers later")
+        };
+        assert!(request.is_native(), "{request:?}");
+        let handler = native.handler().expect("filled at activation");
+        let (tx, rx) = std::sync::mpsc::channel();
+        // Returns at once: the work is on the module's thread.
+        let started = std::time::Instant::now();
+        handler(
+            request.body.clone(),
+            exact_runner::Reply::new(move |outcome| tx.send(outcome).unwrap()),
+        );
+        assert!(started.elapsed() < std::time::Duration::from_millis(100));
+        let outcome = rx.recv().unwrap();
+        let answer = m.parse(&mut s, "work", &a, outcome).unwrap();
+        assert_eq!(finish(&mut m, &mut s, &a, answer), expected);
+    }
+    // Unloaded, the handle is empty: a late request fails, it does not run.
+    m.unload();
+    assert!(native.handler().is_none());
+}
+
+/// A module that takes no long calls answers `native.later` through `call`.
+#[test]
+fn native_later_without_a_handler_answers_now() {
+    struct Native;
+    impl exact_js::NativeModule for Native {
+        fn configure_storage(&mut self, _: PathBuf, _: PathBuf, _: PathBuf) -> Result<(), String> {
+            Ok(())
+        }
+        fn call(&mut self, request: &serde_json::Value) -> Result<serde_json::Value, String> {
+            Ok(serde_json::json!({"text": format!("now:{}", request["value"].as_str().unwrap())}))
+        }
+    }
+    let root = Root::new();
+    let mut m = root.module().with_native(|_| Box::new(Native));
+    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    m.activate().unwrap();
+    assert_eq!(call(&mut m, &mut s, "later", "quick"), "now:quick");
+}
+
 #[test]
 fn storage_is_lazy_persistent_isolated_and_grant_checked() {
     let root = Root::new();

@@ -22,6 +22,8 @@ const PUBLIC_FILES = new Set([
   ...Object.keys(webHostFiles()).map(name => '/' + name),
   '/app.js', '/app.hbc', '/app.module.json', '/app.plan', '/app.wasm', '/exact.json',
   '/gpu.js', '/gpu_bg.wasm', '/markup-editor.wasm', '/textflow.wasm', '/index.html', '/manifest.json',
+  // The app's page module (`host.web.native`), when it declares one.
+  '/native.js',
   // The one dot path a static origin serves: the deep-link association
   // file bake generates (LLP 1030 D1), read by Apple's CDN over HTTPS.
   '/.well-known/apple-app-site-association',

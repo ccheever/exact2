@@ -88,9 +88,9 @@ pub fn typescript(plan: &Plan) -> Result<String, String> {
            set(name: string, value: string): void;\n\
            forget(name: string): void;\n\
          }\n\
-         export interface NativeModule { call(request: Record<string, unknown>): Record<string, unknown> }\n\
-         export type Sources = { [S in Source]: (args: Args<S>, store: Store, storage: Storage, native?: NativeModule | null) => Result<S> | Promise<Result<S>> };\n\
-         export type Answer = <S extends Source>(source: S, args: Args<S>, store: Store, storage: Storage, native?: NativeModule | null) => Result<S> | Promise<Result<S>>;\n",
+         export interface NativeModule { readonly available: boolean; call(request: Record<string, unknown>): Record<string, unknown>; later(request: Record<string, unknown>): Promise<Record<string, unknown>> }\n\
+         export type Sources = { [S in Source]: (args: Args<S>, store: Store, storage: Storage, native: NativeModule | null) => Result<S> | Promise<Result<S>> };\n\
+         export type Answer = <S extends Source>(source: S, args: Args<S>, store: Store, storage: Storage, native: NativeModule | null) => Result<S> | Promise<Result<S>>;\n",
     );
     Ok(out)
 }

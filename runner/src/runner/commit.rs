@@ -632,6 +632,21 @@ impl<D: DataSource> Runner<D> {
         self.data.dispatch(token, &self.store)
     }
 
+    /// The work behind a long native call ([`Request::is_native`]): hand its
+    /// body to the source's native handler with the reply, on the host's
+    /// worker, which returns at once — the module's own thread answers.
+    pub fn native_work(&mut self, request: &Request) -> Dispatch {
+        let handler = self.data.native().and_then(|n| n.handler());
+        let body = request.body.clone();
+        Dispatch::Run(crate::Work::Later(Box::new(move |reply| match handler {
+            Some(handler) => handler(body, reply),
+            None => reply.send(crate::Outcome::Failed {
+                kind: crate::FailureKind::Unsupported,
+                message: "no native module here takes long calls".into(),
+            }),
+        })))
+    }
+
     /// Work the source held at dispatch and the last commit releases, in
     /// order; a host asks after every commit.
     pub fn release_work(&mut self) -> Vec<(u64, Dispatch)> {

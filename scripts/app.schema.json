@@ -297,6 +297,9 @@
         },
         "web": {
           "type": "object",
+          "properties": {
+            "native": { "type": "string", "description": "The app's page module, relative to the app: an ES module exporting `later(request)` that answers `native.later` in the browser, on the page, where getUserMedia, speech and the built-in model are. Served beside the glue as native.js." }
+          },
           "additionalProperties": false
         }
       },

@@ -7,10 +7,15 @@ const grants = "fs.read app:/data\nfs.write app:/data\nsqlite.open app:/data/not
 // database operations. The second answer's storage calls run in a later microtask.
 let tail: Promise<unknown> = Promise.resolve();
 
-async function answer(_source:string, args:unknown[], store:Store, storage:Storage, native?:{call(request:Record<string,unknown>):Record<string,unknown>}|null) {
+async function answer(_source:string, args:unknown[], store:Store, storage:Storage, native:{available:boolean; call(request:Record<string,unknown>):Record<string,unknown>; later(request:Record<string,unknown>):Promise<Record<string,unknown>>}|null) {
   const op = String(args[0]), value = String(args[1]);
+  if (op === 'later') {
+    if (!native?.available) return {text: 'no native module'};
+    try { return {text:String((await native!.later({value})).text)}; }
+    catch(error:any) { return {text:'refused: ' + error.message}; }
+  }
   if (op === 'native' || op === 'native-fetch') {
-    if (!native) return {text: 'no native module'};
+    if (!native?.available) return {text: 'no native module'};
     try {
       if(op === 'native-fetch') await fetch('https://example.test/native');
       return {text:String(native!.call({value}).text)};

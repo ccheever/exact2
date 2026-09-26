@@ -18,7 +18,12 @@ const key = r => JSON.stringify([r.target ?? null, r.source, r.args]);
 
 self.__exact_host = (op, name, value) => {
   if (!context) throw new Error('host call outside an answer');
-  if (op === 6) { if (name === 'available') return 'web'; throw new Error('native modules are unavailable in the browser'); }
+  if (op === 6) {
+    // A page module answers `native.later` on the page; nothing here can answer at once.
+    if (name === 'kind' || name === 'available') return admitted.native ? 'native' : '';
+    if (name === 'later') return admitted.native ? 'later' : '';
+    throw new Error('the browser answers no native call at once; use native.later');
+  }
   if (op === 1) { context.requests.set(Number(name), JSON.parse(value)); return; }
   if (op === 2) { context.reads.push(name); return context.store.get(name); }
   if (op === 5) { context.externalRead = true; return; }

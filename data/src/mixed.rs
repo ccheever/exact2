@@ -755,6 +755,11 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
     }
 
     /// Stops whichever child is running a call.
+    /// Only TypeScript calls `native.later`; a Rust source calls its own code.
+    fn native(&self) -> Option<exact_runner::Native> {
+        self.javascript.native()
+    }
+
     fn interrupt(&self) -> Option<Interrupt> {
         match (self.javascript.interrupt(), self.rust.interrupt()) {
             (Some(javascript), Some(rust)) => Some(Interrupt::new(move || {

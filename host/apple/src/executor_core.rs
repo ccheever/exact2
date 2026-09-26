@@ -407,9 +407,10 @@ fn complete(shared: &Shared, ticket: u64, outcome: Outcome) {
     }
 }
 
-/// A continuation a worker hands to the module's owner instead of running.
+/// A continuation a worker hands to the module's owner instead of running,
+/// and a long native call it hands to the app's native module.
 fn handoff(request: &Request) -> bool {
-    request.continuation.is_some() && request.storage.is_none()
+    (request.continuation.is_some() && request.storage.is_none()) || request.is_native()
 }
 
 fn handed_off(job: &Job) -> bool {

@@ -472,6 +472,11 @@ impl<D: DataSource> Host<D> {
         self.runner.dispatch_work(token)
     }
 
+    /// A long native call's work: the source's native handler, off this thread.
+    pub fn native_work(&mut self, request: &exact_runner::Request) -> exact_runner::Dispatch {
+        self.runner.native_work(request)
+    }
+
     /// Work a source held at dispatch that the last commit released.
     pub fn release_work(&mut self) -> Vec<(u64, exact_runner::Dispatch)> {
         self.runner.release_work()

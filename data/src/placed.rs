@@ -134,6 +134,8 @@ pub struct Placed<D> {
     /// Taken at construction: a moved source's handle still reaches it on its
     /// owner, and a built instance shares its template's.
     interrupt: Option<Interrupt>,
+    /// Taken at construction too: the instance on the owner fills it.
+    native: Option<exact_runner::Native>,
     owner: Option<Sender<Job>>,
     recorded: BTreeMap<u64, Recorded>,
     stages: HashMap<Key, VecDeque<Stage>>,
@@ -169,6 +171,7 @@ impl<D: DataSource + 'static> Placed<D> {
             grants: source.grants().to_string(),
             revision: source.revision().map(str::to_string),
             interrupt: source.interrupt(),
+            native: source.native(),
             inner: Some(source),
             placement,
             spawn,
@@ -403,6 +406,10 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
 
     fn interrupt(&self) -> Option<Interrupt> {
         self.interrupt.clone()
+    }
+
+    fn native(&self) -> Option<exact_runner::Native> {
+        self.native.clone()
     }
 
     fn ready(&self) -> bool {

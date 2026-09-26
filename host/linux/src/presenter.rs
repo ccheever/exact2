@@ -937,6 +937,7 @@ impl<D: DataSource> Presenter<D> {
             }
             let dispatch = match r.request.continuation {
                 Some(token) => self.host.dispatch_work(token),
+                None if r.request.is_native() => self.host.native_work(&r.request),
                 None => {
                     self.run_dispatch(r, exact_runner::Dispatch::Missing);
                     continue;

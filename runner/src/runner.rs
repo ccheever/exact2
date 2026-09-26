@@ -16,7 +16,7 @@ mod carry;
 mod checkpoint;
 mod collection;
 mod source;
-pub use source::{DataError, DataSource, InFlight, Interrupt, Target};
+pub use source::{DataError, DataSource, InFlight, Interrupt, Native, NativeHandler, Target};
 mod delivery;
 mod kept;
 mod lines;

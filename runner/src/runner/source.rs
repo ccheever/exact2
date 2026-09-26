@@ -22,6 +22,32 @@ impl Interrupt {
     }
 }
 
+/// Where a source's long native calls go (`native.later` in TypeScript):
+/// the host hands each [`Request::is_native`] request's body and a [`Reply`]
+/// to the handler, off the renderer and off the I/O workers, and the call
+/// answers when the app's own code sends the reply. Empty until the source
+/// activates a native module that takes such calls. Clones share one slot,
+/// so a handle taken at construction reaches an instance built or moved to
+/// another thread later, as [`Interrupt`] does.
+#[derive(Clone, Default)]
+pub struct Native(std::sync::Arc<std::sync::Mutex<Option<NativeHandler>>>);
+
+/// A native module's handler for calls that answer later: the request's
+/// JSON body and the reply to send when it is done.
+pub type NativeHandler = std::sync::Arc<dyn Fn(Vec<u8>, crate::Reply) + Send + Sync>;
+
+impl Native {
+    /// Fill the slot (activation) or empty it (unload).
+    pub fn set(&self, handler: Option<NativeHandler>) {
+        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = handler;
+    }
+
+    /// The handler now, if the source has one.
+    pub fn handler(&self) -> Option<NativeHandler> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+}
+
 /// A request still in flight, as [`DataSource::forgotten`] names it.
 #[derive(Debug, Clone, Copy)]
 pub struct InFlight<'a> {
@@ -278,6 +304,13 @@ pub trait DataSource {
     /// own, as a Rust source's does. A source that forwards to another
     /// forwards this too.
     fn interrupt(&self) -> Option<Interrupt> {
+        None
+    }
+
+    /// Where the host sends this source's long native calls, taken at
+    /// construction; `None` for a source that makes none. A source that
+    /// forwards to another forwards this too.
+    fn native(&self) -> Option<Native> {
         None
     }
 

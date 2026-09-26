@@ -333,7 +333,7 @@ export function resolveApp(nameOrCrate) {
     const located = spawnSync('cargo', ['locate-project', '--workspace', '--message-format', 'plain'], {cwd:dir, encoding:'utf8'});
     workspace = located.status === 0 && located.stdout?.trim() ? realpathSync(dirname(located.stdout.trim())) : dir;
     // EXACT_APP_DIR may name an app of this repo; only another workspace is checked.
-    if (workspace !== ROOT) {
+    if (workspace !== ROOT && existsSync(resolve(workspace, 'Cargo.toml'))) {
       const problems = outsideWorkspaceProblems(workspace);
       if (problems.length) throw new Error(problems.join('\n'));
       refreshOutsideLock(workspace);
