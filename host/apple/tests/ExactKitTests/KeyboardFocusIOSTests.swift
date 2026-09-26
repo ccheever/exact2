@@ -69,5 +69,29 @@ final class KeyboardFocusIOSTests: XCTestCase {
         XCTAssertTrue(first.becomeFirstResponder())
         XCTAssertNil(first.focusRing, "a touch's focus shows no ring")
     }
+
+    /// UIKit's focus search (`FocusSearch`) finds nothing in a tree of
+    /// exact2's own views, and finds an input's field as UIKit always did.
+    func testFocusSearchSeesOnlyWhatUIKitCanFocus() throws {
+        let p = Presenter()
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        let button = NodeView(id: 1, kind: "button", presenter: p)
+        button.frame = CGRect(x: 0, y: 0, width: 200, height: 40)
+        p.root.addSubview(button); p.views[button.id] = button
+        window.makeKeyAndVisible()
+        let all = window.bounds
+        XCTAssertTrue(p.viewport.focusItems(in: all).isEmpty, "a tree of exact2's views offers UIKit nothing to search")
+        XCTAssertTrue(p.root.focusItems(in: all).isEmpty)
+        let input = NodeView(id: 2, kind: "input", presenter: p)
+        input.frame = CGRect(x: 0, y: 50, width: 200, height: 40)
+        p.root.addSubview(input); p.views[input.id] = input
+        let editor = try XCTUnwrap(input.field)
+        XCTAssertTrue(p.root.focusItems(in: all).contains { $0 === input }, "a field in the window opens the search")
+        XCTAssertTrue(input.focusItems(in: all).contains { $0 === editor })
+        input.removeFromSuperview()
+        XCTAssertTrue(p.root.focusItems(in: all).isEmpty, "and it closes when the field leaves")
+    }
 }
 #endif
