@@ -228,7 +228,7 @@ fn err<T>(id: &'static str, message: impl Into<String>, span: Span) -> Result<T,
 }
 
 /// The shapes a file declares.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default)]
 pub struct Shapes {
     /// Checked app route table, when declared. @ref LLP 1038 D2/D3.
     pub routes: Option<exact_route::Table>,
@@ -236,6 +236,9 @@ pub struct Shapes {
     pub map: BTreeMap<String, Vec<(String, Ty)>>,
     /// `fn` name → (parameter types, result type) (LLP 1017 P5).
     pub fns: BTreeMap<String, (Vec<Ty>, Ty)>,
+    /// Which attribute names set style rows (lowering's table): their
+    /// branches may mix a number and a string, one CSS value space.
+    pub style_attr: Option<fn(&str) -> bool>,
 }
 
 impl Shapes {
@@ -475,7 +478,7 @@ pub struct Checked<'a> {
 }
 
 /// Everything the checker learned.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default)]
 pub struct Types {
     /// Shapes.
     pub shapes: Shapes,
@@ -786,9 +789,33 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                 }
             }
         }
-        Expr::Ternary(c, a, b, span) => {
+        Expr::Ternary(..) | Expr::Match { .. } => {
+            let (ta, tb) = arms(e, scope, shapes, infer)?;
+            ta.unify(&tb).ok_or_else(|| disagree(e, &ta, &tb))?
+        }
+        Expr::Let {
+            name, value, body, ..
+        } => {
+            let t = infer(value, scope, shapes)?;
+            let mut inner = scope.clone();
+            inner.push(vec![(name.clone(), Ref::Local(0), t)]);
+            infer(body, &inner, shapes)?
+        }
+    })
+}
+
+/// The two arms of a ternary or a `match`, each typed by `leaf` once the
+/// condition is a bool or the subject an option.
+pub(crate) fn arms(
+    e: &Expr,
+    scope: &Scope,
+    shapes: &Shapes,
+    leaf: fn(&Expr, &Scope, &Shapes) -> Result<Ty, TypeError>,
+) -> Result<(Ty, Ty), TypeError> {
+    match e {
+        Expr::Ternary(c, a, b, _) => {
             // Naming the type defers a condition still `?` (a derive the fixpoint has
-            // not settled) the way `Binary` above does: the message carries `?`, the
+            // not settled) the way `Binary` does: the message carries `?`, the
             // round skips it, and the strict pass reports what never types.
             let tc = infer(c, scope, shapes)?;
             if tc != Ty::Bool {
@@ -798,25 +825,14 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                     c.span(),
                 );
             }
-            let ta = infer(a, scope, shapes)?;
-            let tb = infer(b, scope, shapes)?;
-            match ta.unify(&tb) {
-                Some(t) => t,
-                None => {
-                    return err(
-                        "type-branches",
-                        format!("branches disagree: `{ta}` and `{tb}`"),
-                        *span,
-                    )
-                }
-            }
+            Ok((leaf(a, scope, shapes)?, leaf(b, scope, shapes)?))
         }
         Expr::Match {
             subject,
             var,
             some,
             none,
-            span,
+            ..
         } => {
             let ts = infer(subject, scope, shapes)?;
             let Ty::Option(inner) = ts else {
@@ -828,28 +844,26 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
             };
             let mut inner_scope = scope.clone();
             inner_scope.push(vec![(var.clone(), Ref::Local(0), (*inner).clone())]);
-            let ta = infer(some, &inner_scope, shapes)?;
-            let tb = infer(none, scope, shapes)?;
-            match ta.unify(&tb) {
-                Some(t) => t,
-                None => {
-                    return err(
-                        "type-branches",
-                        format!("`match` arms disagree: `{ta}` and `{tb}`"),
-                        *span,
-                    )
-                }
-            }
+            Ok((
+                leaf(some, &inner_scope, shapes)?,
+                leaf(none, scope, shapes)?,
+            ))
         }
-        Expr::Let {
-            name, value, body, ..
-        } => {
-            let t = infer(value, scope, shapes)?;
-            let mut inner = scope.clone();
-            inner.push(vec![(name.clone(), Ref::Local(0), t)]);
-            infer(body, &inner, shapes)?
-        }
-    })
+        _ => unreachable!("a ternary or a `match`"),
+    }
+}
+
+/// Two arm types where one was needed.
+pub(crate) fn disagree(e: &Expr, ta: &Ty, tb: &Ty) -> TypeError {
+    let what = match e {
+        Expr::Match { .. } => "`match` arms disagree",
+        _ => "branches disagree",
+    };
+    TypeError {
+        id: "type-branches",
+        message: format!("{what}: `{ta}` and `{tb}`"),
+        span: e.span(),
+    }
 }
 
 /// Check shared shapes and functions, including a module without a root component.
@@ -937,17 +951,26 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
 
 /// Check a file: shared declarations, then every component. The first
 /// refusal, as [`check_all`] orders them.
-pub fn check(file: &File) -> Result<Checked<'_>, TypeError> {
-    check_with_sites(file, false).map_err(|mut all| all.swap_remove(0))
+pub fn check(file: &File, style_attr: fn(&str) -> bool) -> Result<Checked<'_>, TypeError> {
+    check_with_sites(file, false, style_attr).map_err(|mut all| all.swap_remove(0))
 }
 
 /// Check a file and report every independent refusal (at most
 /// [`MAX_REFUSALS`]), call sites first; `mapped` retains source provenance.
-pub fn check_all(file: &File, mapped: bool) -> Result<Checked<'_>, Vec<TypeError>> {
-    check_with_sites(file, mapped)
+/// `style_attr` says which attribute names set style rows.
+pub fn check_all(
+    file: &File,
+    mapped: bool,
+    style_attr: fn(&str) -> bool,
+) -> Result<Checked<'_>, Vec<TypeError>> {
+    check_with_sites(file, mapped, style_attr)
 }
 
-fn check_with_sites(file: &File, capture_sites: bool) -> Result<Checked<'_>, Vec<TypeError>> {
+fn check_with_sites(
+    file: &File,
+    capture_sites: bool,
+    style_attr: fn(&str) -> bool,
+) -> Result<Checked<'_>, Vec<TypeError>> {
     if file.components.is_empty() {
         return Err(vec![TypeError {
             id: "analyze-no-component",
@@ -955,7 +978,8 @@ fn check_with_sites(file: &File, capture_sites: bool) -> Result<Checked<'_>, Vec
             span: Span::point(1, 1),
         }]);
     }
-    let shapes = check_declarations(file).map_err(|e| vec![e])?;
+    let mut shapes = check_declarations(file).map_err(|e| vec![e])?;
+    shapes.style_attr = Some(style_attr);
     let mut types = Types {
         shapes,
         components: Vec::new(),

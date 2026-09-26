@@ -23,6 +23,8 @@
 //!
 pub(crate) mod common;
 pub(crate) mod leaf;
+// EXACT PATCH 12 (LLP 1053 G1): sizing through a preferred aspect ratio.
+pub(crate) mod ratio;
 
 #[cfg(feature = "block_layout")]
 pub(crate) mod block;

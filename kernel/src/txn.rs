@@ -18,9 +18,8 @@ use crate::arena::NodeArena;
 use crate::error::{ApplyError, StyleDomainError};
 use crate::generated::{InheritedStyle, NodeType, PropId, StyleMask};
 use crate::id::{NodeFlags, NodeKey, ViewId};
-use crate::layout::LayoutTree;
+use crate::layout::LayoutMirror;
 use crate::selector::SelectorIndex;
-use crate::style::taffy_style;
 use crate::wire::Op;
 
 /// The deepest a node may sit below the top of its tree (a root is 0). Layout
@@ -423,13 +422,12 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
 pub struct Target<'a> {
     /// The arena.
     pub arena: &'a mut NodeArena,
-    /// The layout engine.
-    pub layout: &'a mut LayoutTree,
-    /// Whether the engine mirrors the arena's nodes. A kernel that builds its
+    /// The layout engine's side of the commit. A kernel that builds its
     /// tree only when a layout is first asked for (a browser host, whose
-    /// browser lays out) gives new nodes no engine node; every other engine
-    /// call follows a node's engine handle, so none reaches the tree.
-    pub mirrored: bool,
+    /// browser lays out) passes [`crate::layout::Unmirrored`]: new nodes get
+    /// no engine node, and every other engine call follows a node's engine
+    /// handle, so none reaches a tree.
+    pub layout: &'a mut dyn LayoutMirror,
     /// The selector index.
     pub selectors: &'a mut SelectorIndex,
 }
@@ -454,7 +452,6 @@ pub fn apply(
     let Target {
         arena,
         layout,
-        mirrored,
         selectors,
     } = target;
     let mut receipt = CommitReceipt {
@@ -483,12 +480,7 @@ pub fn apply(
                             op_index,
                             what: "validated batch exhausted slot space",
                         })?;
-                    if mirrored {
-                        let node = layout.new_leaf(
-                            taffy_style(arena, slot),
-                            slot,
-                            node_type.is_measured_leaf(),
-                        );
+                    if let Some(node) = layout.new_leaf(arena, slot, node_type.is_measured_leaf()) {
                         arena.set_taffy(slot, Some(node));
                     }
                     created.insert(slot);
@@ -681,7 +673,7 @@ pub fn apply(
                         // A root's engine style differs from a child's (it fills its
                         // offered width): re-derive it now that the node is one.
                         if let Some(node) = arena.taffy(slot) {
-                            layout.set_style(node, taffy_style(arena, slot));
+                            layout.restyle(arena, slot, node);
                         }
                         touched.push(arena.key(slot));
                         receipt.layout_invalidated = true;
@@ -719,22 +711,13 @@ pub fn apply(
 
 /// Push the arena's child list for `parent` into the layout engine. A `Text`
 /// parent's children are inline runs: they are measured with it, not laid out.
-fn sync_children(arena: &NodeArena, layout: &mut LayoutTree, parent: u32) {
+fn sync_children(arena: &NodeArena, layout: &mut dyn LayoutMirror, parent: u32) {
     let Some(node) = arena.taffy(parent) else {
         return;
     };
-    if arena.node_type(parent) == NodeType::Text {
-        layout.set_children(node, &[]);
-        return;
-    }
-    let ids: Vec<_> = arena
-        .children(parent)
-        .iter()
-        .filter_map(|c| arena.taffy(*c))
-        .collect();
+    let _entries = layout.sync_children(arena, parent, node);
     #[cfg(test)]
-    count(ids.len(), 0);
-    layout.set_children(node, &ids);
+    count(_entries, 0);
 }
 
 /// A run of `DestroyView`s detaches lazily. Each op records its parent once
@@ -767,7 +750,7 @@ impl Detach {
     fn flush(
         &mut self,
         arena: &mut NodeArena,
-        layout: &mut LayoutTree,
+        layout: &mut dyn LayoutMirror,
         selectors: &mut SelectorIndex,
     ) {
         if self.runs.is_empty() {
@@ -827,7 +810,7 @@ fn count(entries: usize, attached: usize) {
     });
 }
 
-fn invalidate_text(arena: &mut NodeArena, layout: &mut LayoutTree, slot: u32) {
+fn invalidate_text(arena: &mut NodeArena, layout: &mut dyn LayoutMirror, slot: u32) {
     let owner = arena.measure_owner(slot);
     arena.revise_text(owner, true);
     arena.flags_mut(owner).insert(NodeFlags::TEXT_DIRTY);
@@ -852,7 +835,7 @@ fn invalidate_text_sources(arena: &mut NodeArena, slot: u32) {
 
 fn inherited_after_move(
     arena: &mut NodeArena,
-    layout: &mut LayoutTree,
+    layout: &mut dyn LayoutMirror,
     slot: u32,
     before: InheritedStyle,
     touched: &mut Vec<NodeKey>,
@@ -875,7 +858,7 @@ fn inherited_after_move(
 
 fn style_changed(
     arena: &mut NodeArena,
-    layout: &mut LayoutTree,
+    layout: &mut dyn LayoutMirror,
     slot: u32,
     mask: StyleMask,
     receipt: &mut CommitReceipt,
@@ -883,7 +866,7 @@ fn style_changed(
     if mask.intersects(StyleMask::LAYOUT) {
         arena.flags_mut(slot).insert(NodeFlags::STYLE_DIRTY);
         if let Some(node) = arena.taffy(slot) {
-            layout.set_style(node, taffy_style(arena, slot));
+            layout.restyle(arena, slot, node);
         }
         receipt.layout_invalidated = true;
     }
@@ -906,7 +889,7 @@ fn style_changed(
 /// re-derive descendants per frame (LLP 1035.000 D4).
 fn propagate_inherited(
     arena: &mut NodeArena,
-    layout: &mut LayoutTree,
+    layout: &mut dyn LayoutMirror,
     slot: u32,
     changed: StyleMask,
     touched: &mut Vec<NodeKey>,
@@ -934,14 +917,14 @@ fn propagate_inherited(
 /// also rederive the engine style of containers.
 fn inherited_changed(
     arena: &mut NodeArena,
-    layout: &mut LayoutTree,
+    layout: &mut dyn LayoutMirror,
     slot: u32,
     rows: StyleMask,
     receipt: &mut CommitReceipt,
 ) {
     if rows.intersects(StyleMask::LAYOUT) {
         if let Some(node) = arena.taffy(slot) {
-            layout.set_style(node, taffy_style(arena, slot));
+            layout.restyle(arena, slot, node);
         }
         receipt.layout_invalidated = true;
     }

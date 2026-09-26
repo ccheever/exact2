@@ -329,6 +329,18 @@ test('rendered tree includes focus and the computed accessible name', async () =
 });
 
 
+test('a native hangup names how the app ended, its crash reports, and only its last 20 lines', async () => {
+  const { hangup } = await import('./agent.mjs');
+  const hostLines = Array.from({ length: 30 }, (_, i) => `app: line ${i}`);
+  const hung = hangup({ what: 'the app hung up', pid: 999999, exit: { code: null, signal: 'SIGKILL' }, reports: ['/r/ExactIOS-1.ips'], hostLines });
+  assert.match(hung, /^the app hung up \(killed by SIGKILL\)\ncrash report: \/r\/ExactIOS-1\.ips\napp: line 10\n/);
+  assert.doesNotMatch(hung, /line 9\n/);
+  assert.match(hangup({ what: 'clock did not answer', pid: process.pid }), /^clock did not answer \(pid \d+ still running\)$/);
+  assert.match(hangup({ what: 'the app hung up', pid: 999999 }), /\(pid 999999 gone\)$/);
+  assert.match(hangup({ what: 'the app exited', exit: { code: 3, signal: null } }), /\(exit code 3\)$/);
+});
+
+
 test('autofocus is deferred and consumed per mounted control, preserving other UI focus', async () => {
   const { readFileSync } = await import('node:fs');
   const { runInNewContext } = await import('node:vm');
@@ -823,4 +835,25 @@ test('declared shader packs merge, reject duplicates and links, and preserve a r
     symlinkSync(resolve(dir,'gpu/shaders/a.wgsl'),resolve(dir,'pack/b.wgsl'));
     assert.throws(()=>shaderFiles(app));
   } finally { rmSync(dir,{recursive:true,force:true}); }
+});
+
+test('a build env keeps the pinned toolchain and the checked Bun ahead of ambient ones', async () => {
+  const { developmentBuildEnv } = await import('./app.mjs');
+  const { readFileSync } = await import('node:fs');
+  const { delimiter, dirname, resolve } = await import('node:path');
+  const pinned = /^channel\s*=\s*"([^"]+)"/m.exec(readFileSync(resolve(import.meta.dir, '../rust-toolchain.toml'), 'utf8'))[1];
+  const previous = process.env.RUSTUP_TOOLCHAIN;
+  try {
+    process.env.RUSTUP_TOOLCHAIN = 'stable'; // What `mise exec` exports.
+    assert.equal(developmentBuildEnv().RUSTUP_TOOLCHAIN, undefined);
+    for (const same of [pinned, `${pinned}-aarch64-apple-darwin`]) {
+      process.env.RUSTUP_TOOLCHAIN = same;
+      assert.equal(developmentBuildEnv().RUSTUP_TOOLCHAIN, same);
+    }
+    delete process.env.RUSTUP_TOOLCHAIN;
+    const env = developmentBuildEnv();
+    assert.equal(env.RUSTUP_TOOLCHAIN, undefined);
+    assert.equal(env.PATH.split(delimiter)[0], dirname(process.execPath));
+    assert.equal(env.EXACT_UPDATE_TRUST, process.env.EXACT_UPDATE_TRUST ?? 'development');
+  } finally { if (previous === undefined) delete process.env.RUSTUP_TOOLCHAIN; else process.env.RUSTUP_TOOLCHAIN = previous; }
 });

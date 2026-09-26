@@ -412,7 +412,7 @@ public final class ExactSession {
         }
         presenter.onPress = { [unowned self] id in apply(runtime.press(id, now: now())) }
         presenter.onChange = { [unowned self] id, value in apply(runtime.change(id, value, now: now())) }
-        presenter.onIntrinsic = { [unowned self] id, size in apply(runtime.intrinsic(id, width: size?.width ?? 0, height: size?.height ?? 0)) }
+        presenter.onIntrinsic = { [unowned self] sizes in apply(runtime.intrinsics(sizes)) }
         presenter.onHover = { [unowned self] id, over in apply(runtime.hover(id, over: over, now: now())) }
         presenter.onFocus = { [unowned self] id in apply(runtime.focus(id, now: now())) }
         presenter.onBlur = { [unowned self] id in apply(runtime.blur(id, now: now())) }
@@ -613,6 +613,8 @@ public final class ExactSession {
         #endif
         for op in batch.ops where op.op == .surfaceWork { pendingSurfaceWork.append((op.payload, generation)) }
         presenter.apply(batch)
+        for op in batch.ops where op.op == .reorder { presenter.reorder?.observe(ReorderState(op.payload)) }
+        presenter.reorder?.raiseLifted()
         frames.motion = batch.motion
         // The GPU module: after the first painted frame, only when a canvas exists.
         if firstDrawMs != nil { canvases.loadIfNeeded(); drainSurfaceWork() } else { DispatchQueue.main.async { [weak self] in guard let self else { return }; canvases.loadIfNeeded(); drainSurfaceWork(); frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames) } }
@@ -656,6 +658,10 @@ public final class ExactSession {
                 }
                 if name == "focus" || name == "selectText" {
                     app.deliver { [weak self] in self?.presenter.focusElement(args, selectText: name == "selectText") }
+                    continue
+                }
+                if name == "blur" {
+                    app.deliver { [weak self] in self?.presenter.blurElement(args) }
                     continue
                 }
                 if name == "format" {

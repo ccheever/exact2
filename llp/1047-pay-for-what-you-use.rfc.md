@@ -7,7 +7,7 @@
 **Systems:** Build (the generated app entry, `contract::rust_entry`, the hosts' export macros); Plan (a use-set derived from plan bytes, no format change); Runner (the router and inspection behind seams); Web host (`exact-web`'s exports and dependencies, `glue.js`, `navigation.js`); Apple and Linux hosts (the same rule for their archives); Delivery (the linked set as a compatibility input); Metrics (a core byte budget, reported per commit)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-09-22
-**Related:** LLP 1000 (the crate graph: "an embedder links the crate it wants and the linker drops the rest"); LLP 1007 §7 ("Where the bytes are"); LLP 1009 D2 (the GPU module, loaded on demand); LLP 1020 (the Apple web arm, `dlopen`ed at the first `iframe`); LLP 1024 (the module roster; an unknown tag is a bake error); LLP 1030 (the delivery adapter chosen by the generated entry, its absence established by artifact inspection; D3a, the compatibility id); LLP 1043.000 §3 D7/D8 (text flow's JavaScript executor, absent from ordinary boots); `rules/RULES.md` §Time budgets and §Agents
+**Related:** LLP 1000 (the crate graph: "an embedder links the crate it wants and the linker drops the rest"); LLP 1007 §7 ("Where the bytes are"); LLP 1009 D2 (the GPU module, loaded on demand); LLP 1020 (the Apple web arm, `dlopen`ed at the first `iframe`); LLP 1024 (the module roster; an unknown tag is a bake error); LLP 1030 (the delivery adapter chosen by the generated entry, its absence established by artifact inspection; D3a, the compatibility id); LLP 1043.000 §3 D7/D8 (text flow's JavaScript executor, absent from ordinary boots); `rules/RULES.md` §Time budgets and §Agents; LLP 1047.000 (staged loading by capability: where the web bytes go, and a split by capability measured)
 
 ## Summary
 
@@ -687,6 +687,62 @@ Caltrain twice:
 It reports and never blocks. The first run is about 7 minutes with a cold
 names target.
 
+**D4, 2026-09-24: the layout engine.** The browser lays out, so the web's
+kernel builds no engine tree until a layout is asked for (`3e69aa79`). The
+engine's code stayed linked all the same, because every commit named it.
+- **The seam.** A commit and a restyle reach Taffy only through
+  `exact_kernel::layout::LayoutMirror`: a leaf for a new node, a restyle, a
+  child sync, a removal and a dirty mark.
+  - `Kernel::new` boxes a `LayoutTree`, as before.
+  - `Kernel::on_demand`, the web's, holds none. Until a layout is asked for,
+    it commits through `Unmirrored`.
+  - Only the layout path boxes a `LayoutTree`.
+- **Content regions** check the owner's padding and border with
+  `StyleProps::unpadded`, which reads what `to_taffy` would give without
+  building the engine's style. A unit test compares the two, `-0` included.
+- **Native kernels** make the same engine calls, in the same order.
+- **Bytes at `c35f78f7`, raw and brotli-11:**
+  - RealWorld: 914,280 → 891,346 raw; 281,900 → 275,418 brotli.
+  - Video player: 701,688 → 678,757 raw; 222,573 → 216,368 brotli.
+  - Caltrain: 881,207 → 858,277 raw; 273,451 → 267,131 brotli.
+- **Absence.** None of the three keeps a function of `taffy` or `slotmap`.
+  What remains is the arena's engine-id column: `NodeArena::taffy`, and
+  three `Vec` instantiations over `taffy::NodeId`, 140 bytes in all.
+
+**§6, 2026-09-24: generic code.** Generic families in RealWorld at
+`e9a38626`, and what removing each whole would save:
+
+| Family | Raw | Brotli-11 |
+|---|---|---|
+| Hash tables | 20.3 KB | 5.1 KB |
+| Drop glue | 20.1 KB | 5.1 KB |
+| Collect scaffolding (`from_iter`, `extend`, `fold`) | 36.9 KB | 7.3 KB |
+| B-trees (mostly the list engine's) | 54.9 KB | 12.1 KB |
+
+- **Outlined generic code compresses well.** With `-Zshare-generics=no`
+  (measured only; it is nightly), LLVM inlines the collect scaffolding:
+  RealWorld is 45.9 KB smaller raw but 3.6 KB larger in brotli. So
+  iterator chains are not rewritten as loops.
+- **SipHash is gone.** Four maps keyed by internal identities
+  hash with the kernel's `IdHasher`, and Markdown's code-span index is a
+  vector by run length. On the web, `RandomState`'s keys come from fixed
+  addresses, so it defended nothing there.
+- **`json::object`** was one copy per array length; it now has one body.
+- **The settlement pass** no longer clones its effect enum per row.
+- **A compact id map was tried and dropped.** It kept dense entries and one
+  index over their ids, code shared by every key and value type. It would
+  have saved about 2.5–2.9 KB brotli per app (RealWorld 266,870 → 264,020),
+  and it matched std in a differential test of 3M random operations. But
+  the transaction's per-commit sets start empty and grow on every commit,
+  and that growth rewrote the index. On a native churn bench (500 commits,
+  each creating 20 rows, moving 220 and destroying 20) it cost 55–70% more
+  cycles for 1% more instructions. hashbrown stays; presizing those sets is
+  in `QUEUE.md`.
+- **Bytes at `e9a38626`, raw and brotli-11:**
+  - RealWorld: 898,973 → 890,987 raw; 275,704 → 273,574 brotli.
+  - Video player: 685,217 → 682,458 raw; 216,724 → 215,435 brotli.
+  - Caltrain: 866,208 → 863,431 raw; 267,479 → 266,532 brotli.
+
 **Deferred: the collections seam.** It waits for the
 `llp-ship/20260923-review-followups` run to publish. That run retires the
 windowed list (`window.rs`, `heights.rs`) and rewrites
@@ -815,3 +871,201 @@ Where a tap at `load` goes (five traces): 1,027 ms waiting for the wasm's
 bytes; 9 ms finishing its compilation; 251 ms from instantiation to the
 replayed press, `exact_boot` about 143 of it; 210 ms for the press, 150 of them
 the API.
+
+**Tags are links, 2026-09-24.** RealWorld's tag is a link to its own rendered
+route (`/tag/:tag`, `render=cached`), as React's is, so before the runtime is
+up a tap loads that page. At `6b686d1b` (nine runs, load 13–14) a tap at
+`load` shows the python feed 356 ms later, at 1,176 ms; the button took
+1,334, with the feed at 2,142, and React takes 220, with it at 1,480. After a
+3-second read the tap takes 267 ms, not 227: the new route rebuilds the
+page's ~150 views.
+
+Two follow-ups, on the same bench (nine runs, loads 13–20):
+- **One page.** `/` and `/tag/:tag` are one page (`479b1475`), so a tag
+  changes 2 views, not ~150. After a read, the tap takes 249 ms against the
+  tag buttons' 251 in the same batch.
+- **The download stops.** A link that leaves the page stops the runtime's
+  download (LLP 1048.000 D6, `f23f1c6d`). A tap at `load` shows the feed
+  261 ms later, not 362, at 1,116 ms; React takes 236, at 1,628.
+
+What's left at load is a document's round trip and its transfer, against
+React's API answer.
+
+Round 3, on the same bench (nine runs, loads 8–12):
+- **The shell's style is minified** (`2a341b98`). The feed text now needs
+  ~2.8 KB of the document, not ~4.0.
+- **The feed tabs are links** (`c241d954`).
+
+Results:
+- **Tag at `load`:** 249 ms against React's 232, with the feed at 1,083 ms
+  against 1,657.
+- **After a read:** 223 against 204.
+- **Global Feed at `load`, now a link:** 1,313 → 244 ms (React 215).
+- **A press that's still a button** (♥, signed out) takes 1,126 ms against
+  React's 54.
+
+With React's API over the throttled network (supplementary), its tag at
+`load` took 219 ms.
+
+Round 4 (nine runs, loads 8–15): with the surrogate keys sent only to a CDN
+(`030fd1d0`), the tag at `load` takes 239 and 233 ms in two batches, against
+React's 208 and 214 (before: 256 and 248), with the feed at 1,006 and 993 ms
+against 1,410 and 1,385; after a read, 218 against 197. A signed-out ♥ is a
+link to `/register` (`43d54245`), now a rendered page (`493bf1b0`): at `load`
+it shows the sign-up page 233 ms after the tap, not 1,129 (React 58).
+
+Round 5 (nine runs, loads 9–19). The runtime's wasm and five module preloads
+were six requests, every connection an HTTP/1.1 origin gets, so a link tapped
+at `load` waited for the wasm's abort to free one. The runtime now leaves a
+connection for the next page (`7195a0e4`), and the tag at `load` takes 221
+and 223 ms against React's 210 and 212 (before: 235 and 242). A signed-out
+Follow is a link, and `/login` is a rendered page (`afe1ca16`): Follow at
+`load` takes 220 ms, not 1,123, and ♥ 224 (React 48 and 46).
+
+Round 8 (nine runs, three batches, loads 9–13). A kept page goes at brotli's
+best (`a673c6d8`), and against a dictionary the browser holds (`5432a03b`,
+`e1bc99d1`): `/tag/python` after `/` is 1,110 bytes, not 4,372, with the feed
+text in its first 252. The tag at `load` takes 208, 225 and 215 ms against
+React's 213, 205 and 220 (without dictionaries: 220, 226 and 224). That is
+React's time within the spread: under it in two batches, over it in one.
+
+**Where the goal stands, 2026-09-25 (the coordinator).**
+- **The goal's measure** (the python tag at `load`, tap to feed) is React's
+  time within the spread. Over round 8's three batches: exact2 208, 225
+  and 215 ms against React's 213, 205 and 220. Pooled, 27 runs each: a
+  median of 215 against 214 (means 216.3 and 212.8); Mann–Whitney p = 0.17,
+  and a bootstrapped median difference of +1 ms (95% CI −4 to +12). The
+  feed shows about 400 ms before React's: 952–982 ms against 1,350–1,407.
+- **It got there through the document, not the artifact.**
+  - A tap before the runtime is up is a link to a rendered page, as React's
+    tag is a link to a route (LLP 1048.000 D6, D8).
+  - The server trims what precedes the feed text: surrogate keys only to a
+    CDN, the minified shell style, brotli's best, and a dictionary.
+  - Linking by use and the diet took `app.wasm` from 390,646 to about
+    263,500 bytes brotli-11 (−33%), which moves the rows below, not this
+    one.
+- **What it doesn't cover:**
+  - **A press that needs the runtime** (a signed-in ♥ or Follow, a form
+    submit) still waits for it: about 1.1 s at `load` against React's
+    ~0.2 s. The split plus nightly `build-std` would take it to about
+    1,610 ms feed-shown against React's ~1,470. That trade, and the
+    split's build-time profile, are Charlie's.
+  - **A client-only page** (`/register` and `/login` from a signed-out ♥
+    or Follow) is a round trip in exact2, about 220 ms, where React draws
+    it from memory in about 50.
+- **After a 3-second read** (the runtime up): 218 against 197 ms, the
+  in-place press path.
+
+### As built: the core diet (the diet lane)
+
+Each change reads what std read and prints what core printed, bit for bit
+and byte for byte, and its differential tests hold it to std. RealWorld's
+app.wasm, brotli-11, at each landing (each commit's message has all three
+apps and the raw bytes):
+
+| Landing | What left | RealWorld br |
+|---|---|---|
+| `7033b993` | wasm-opt inlines single callers up to 20, to convergence | −3,019 |
+| `e39e1541` | Unicode case tables (`data-` names lowered as ASCII) | −3,763 |
+| `113abeaa` | machine paths (source paths remapped) | +40 |
+| `02ec4dce` | std's float reader and its 10 KB table (`exact-num`) | −10,873 |
+| `7b3759b3` | per-name strings (generated names are one packed string) | −1,063 |
+| `6d60a438` | the engine's small `BTreeMap`s and sets (sorted vectors, bitsets) | −9,566 |
+| `918da815` | two sorts (touched keys, detached slots) | −580 |
+| `c798948b` | `route::Params`' `BTreeMap` | −2,872 |
+| `d3b77fa8` | serde_json from the JS bridge (`exact_js_value::json`) | −11,676 |
+| `c35f78f7` | six small hash tables | −1,321 |
+| web: the browser's kernel links no text measurer | the monospace measurer | −462 |
+| num: one float printer everywhere | core's Grisu, Dragon and bignum | −6,365 |
+| plan: a decoded plan's rows read through a sticky reader | `Plan::decode`'s per-field error copies (18.2 → 8.7 KB raw) | −535 |
+| kernel: generated style code converts once per codec, names by one table | two masked copies, per-row conversions, 26 string matches | −1,101 |
+| `bde196a1`–`6aa8cc15` | per-row finiteness copies, two sort instantiations, the store's generic constructor, joined boot-path text | −2,614 |
+| `629bb030` | Unicode case tables again (a merge lowered a failure's kind with `to_lowercase`; ASCII now) | −3,455 |
+| num: `text!` fills `{}` holes without `core::fmt` | `core::fmt` from boot, adoption and the press: the batch, CSS, the journal's lines, keys, the realm's call key, JSON numbers, the digests; a reply's missing value is made only when read | +447 (the split's primary −1,964) |
+
+The float printer needed list-engine lines, approved for exactly those:
+`window.rs`'s four `f64::clamp` calls (std's assertion message prints the
+bounds as floats) and two printers in `collection/`. `Plan::encode` (3 KB)
+is reached only from inspection's plan digest (`Runner::inspection_digest`
+through `agent::handle`), so it is already linked by use: an artifact
+without inspection drops it.
+
+Sized at `629bb030` against a fresh profile (boot, adoption, the tag press
+as a runtime press; 1,355 of 2,926 functions run), the split's primary is
+169,996 B (the carried profile had 170,973) and the whole module 263,090 B.
+What is left, in brotli-11 KB, each family's code or bytes removed (all
+data stays in the primary: wasm-split moves functions only):
+
+| Family | Whole | Primary | What removing it takes |
+|---|---|---|---|
+| data only deferred code reads (30.8 KB raw) | — | 11.1 | the split moves data too: exact symbol bounds from the linker, a post-split pass (Charlie's, with the split) |
+| panic locations and paths | 10.2 | 8.0 (locations 4.0) | nightly `-Cpanic=immediate-abort -Zlocation-detail=none`; the web prints neither (`panic_output()` is `None` on wasm32-unknown-unknown) (Charlie's) |
+| plan validation at load | 4.3 | 4.0 | Charlie's |
+| derived `Debug` (code, names, escape tables) | 8.9 | 3.8, nearly all data | left: 14 of its 42 sites put `{e:?}` in a batch's error text; its data leaves with the data split |
+| hash maps, `BTreeMap<u32, Value>` | 12.2 | 3.9 | declined (below) |
+| `core::fmt` on the boot path | — | 1.6 | landed (above): 2.0 KB left the primary. `snapshots_json` never pinned it: its writes run only for a collection, and RealWorld's boot has none |
+| dlmalloc | 2.1 | 2.1 | left: another allocator changes memory behaviour |
+| JSON trees on the reply path | 1.4 | 1.6 (about 1 net) | left: under the 2 KB bar |
+| Unicode tables (markdown punctuation, `Debug` escapes) | — | 3.2 | leave with the data split |
+| the app's plan and JS module | — | 7.3 | the app's own bytes, needed before the press |
+| the split's import and export tables | — | 2.8 | the split's design |
+
+Maps were sized and declined: one non-generic map would touch about 40
+sites across kernel, runner and web for 2–3 KB net, carries the
+commit-path risk that sank the compact id map (+55–70% cycles), and cannot
+move the goal. Feed shown by the activation lane's rule (1,700 ms at
+173.6 KB, 5 ms per KB, 6 ms without validation): the stable split 170.0 KB,
+1,682 ms; nightly flags 162.0 KB, 1,642 ms; and no validation 158.0 KB,
+1,616 ms; the data split on top 149.5 KB, 1,573 ms. Parity (~1,470 ms)
+needs 129–133 KB, which nothing sized here reaches. With `core::fmt` off
+the boot path the stable split's primary is 168.0 KB (1,672 ms). The rule
+models a runtime press at load; since tags became links (`98958c9e`), a
+tag tapped at load loads its rendered page instead.
+
+**The web toolchain, 2026-09-25 (Charlie: "ok do your pick", answering §9 Q4).**
+The web artifacts now build with a pinned nightly (`WEB_TOOLCHAIN`,
+`nightly-2026-08-21`, in `scripts/app.mjs`). It builds std with
+`-Zbuild-std=std,panic_abort -Zbuild-std-features=optimize_for_size`, and adds
+`-Cpanic=immediate-abort -Zlocation-detail=none` to the wasm rustflags.
+- **What it covers:** the app's own artifact, the Markdown editor and text
+  flow. A GPU crate keeps its toolchain's std. Everything else, and the five
+  checks, stay on `rust-toolchain.toml`'s stable.
+- **What it costs:** nothing the web shows. The web prints no panic message
+  (`panic_output()` is `None` on wasm32-unknown-unknown), and the glue reads
+  no trap.
+- **Deprecations are stable's to judge.** The nightly deprecates
+  `fetch_update` before stable has `try_update`, so its rustflags allow
+  `deprecated`.
+- **The receipt reads both of Cargo's build-dir layouts.** A build script's
+  stdout is `output`, or `run/stdout` in the nightly's new layout. So does
+  `dev.mjs`'s game-input scan.
+- **A machine without the toolchain is refused** with the two install
+  commands. Cargo builds offline, so std's own dependencies are fetched once.
+
+| brotli-11 | stable | web toolchain |
+|---|---|---|
+| RealWorld `app.wasm` | 267,921 B | 250,059 B (−17.9 KB, −6.7%) |
+| `markup-editor.wasm` | 69 KiB gzip | 45,260 B |
+| `textflow.wasm` | 54 KiB gzip | 38,480 B |
+
+RealWorld's raw `app.wasm` fell 76 KB, from 856,926 to 780,997 B. That is more
+than the ~10 KB the table above gave panic text alone: std built for size is
+the rest. The web smoke passes on it.
+
+**Two leads sized on the web toolchain's build, 2026-09-25.** RealWorld's
+names build, attributed by module and each group brotli'd alone (not
+additive):
+- **Errors as codes** (message text in a dev-only table): all `fmt`,
+  `Display` and `Debug` code is 22.7 KB raw, ~7.4 KB brotli. The data
+  segments are 108.7 KB raw, 57.8 of it the plan. With panic text already
+  gone, codes would save about 5–8 KB brotli, and touch every error site.
+  Not taken; derived `Debug`'s text (above) is the cheap part of it.
+- **A DOM-only web kernel:** the kernel is ~31 KB brotli on the web:
+  - generated style code 8.3;
+  - transactions 7.0;
+  - ids, arena and sorted sets 7.1;
+  - the rest ~8.
+
+  A host that only patches the DOM still needs ids, the tree, transactions
+  and style-to-CSS, so about 10–15 KB could go, behind a runner–kernel
+  boundary that doesn't exist today. Not taken.

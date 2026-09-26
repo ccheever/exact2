@@ -91,7 +91,13 @@ fn path_query(input: &str) -> String {
             })),
         }
     }
-    let mut out = format!("/{}", segments.join("/"));
+    let mut out = String::from("/");
+    for (i, segment) in segments.iter().enumerate() {
+        if i > 0 {
+            out.push('/');
+        }
+        out.push_str(segment);
+    }
     if !query.is_empty() {
         out.push('?');
         out.push_str(&encode(query, |b| {

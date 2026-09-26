@@ -177,3 +177,77 @@ fn duplicate_style_attributes_cannot_bypass_the_face_diagnostic() {
         "syntax-duplicate-attr",
     );
 }
+
+/// LLP 1053 G7: a choice between literal families compiles each arm to its
+/// stack id; the face checks cover every declared arm.
+#[test]
+fn a_choice_of_literal_families_resolves_each_arm_to_its_stack() {
+    let app = AppDir::new(&format!(
+        "{DECLARATION}component App\n  state mono = true\n  state picked = some(\"x\")\n  view\n    column\n      text \"a\" font-family=(mono ? \"ui-monospace\" : \"Fixture Sans\") testId=\"ternary\"\n      text \"b\" font-family=(mono ? \"serif\" : \"system-ui\") font-weight=700 testId=\"generic\"\n      text \"c\" font-family=match picked {{ case some(p) => \"Fixture Sans\", case none => \"serif\" }} testId=\"match\"\n"
+    ));
+    let plan = app.compile().unwrap();
+    let runner = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let kernel = runner.kernel();
+    let family = |id: &str| {
+        kernel
+            .node_by_key(kernel.find_by_test_id(id)[0])
+            .unwrap()
+            .style
+            .font_family
+    };
+    // Generic stacks are 0–7 (`ui-monospace` is 5, `serif` 4); the declared
+    // family is 8.
+    assert_eq!(family("ternary"), 5);
+    assert_eq!(family("generic"), 4);
+    assert_eq!(family("match"), 8);
+}
+
+#[test]
+fn a_family_choice_is_refused_unless_every_arm_is_a_known_literal() {
+    for (value, id) in [
+        // A runtime string: fonts resolve at compile time.
+        ("family", "lower-font-family-literal"),
+        ("(on ? family : \"serif\")", "lower-font-family-literal"),
+        ("`${family}`", "lower-font-family-literal"),
+        ("(on ? \"Missing\" : \"serif\")", "lower-font-undeclared"),
+        (
+            "(on ? \"serif, monospace\" : \"serif\")",
+            "lower-font-family-list",
+        ),
+    ] {
+        refusal(
+            &format!("component App\n  state on = false\n  state family = \"serif\"\n  view\n    text \"x\" font-family={value}\n"),
+            id,
+        );
+    }
+    let app = AppDir::new(
+        "component App\n  state family = \"serif\"\n  view\n    text \"x\" font-family=family\n",
+    );
+    let error = app.compile().unwrap_err();
+    assert!(error.message.contains("compile time"), "{error}");
+}
+
+#[test]
+fn a_family_choice_keeps_the_declared_face_checks() {
+    // Either arm may be used, so each declared arm must have the face.
+    refusal(
+        &format!("{DECLARATION}font \"Regular Only\" = \"assets/DejaVuSans.ttf\"\ncomponent App\n  state on = false\n  view\n    text \"x\" font-family=(on ? \"Fixture Sans\" : \"Regular Only\") font-weight=700\n"),
+        "lower-font-face",
+    );
+    refusal(
+        &format!("{DECLARATION}component App\n  state on = false\n  view\n    text \"x\" font-family=(on ? \"Fixture Sans\" : \"serif\") font-style=\"italic\"\n"),
+        "lower-font-face",
+    );
+    AppDir::new(&format!(
+        "{DECLARATION}component App\n  state on = false\n  view\n    text \"x\" font-family=(on ? \"Fixture Sans\" : \"serif\") font-weight=700\n"
+    ))
+    .compile()
+    .unwrap();
+}

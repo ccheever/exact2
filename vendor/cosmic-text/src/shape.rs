@@ -1318,6 +1318,22 @@ impl ShapeLine {
         empty
     }
 
+    /// EXACT PATCH (LLP 1053): [`Self::new`] with the paragraph's base
+    /// direction given (`Some(true)` right-to-left), as CSS `direction` sets
+    /// it, instead of found from the first strong character.
+    pub fn new_with_base(
+        font_system: &mut FontSystem,
+        line: &str,
+        attrs_list: &AttrsList,
+        shaping: Shaping,
+        tab_width: u16,
+        base_rtl: Option<bool>,
+    ) -> Self {
+        let mut empty = Self::empty();
+        empty.build_with_base(font_system, line, attrs_list, shaping, tab_width, base_rtl);
+        empty
+    }
+
     /// See [`Self::new`].
     ///
     /// Reuses as much of the pre-existing internal allocations as possible.
@@ -1333,6 +1349,20 @@ impl ShapeLine {
         shaping: Shaping,
         tab_width: u16,
     ) {
+        self.build_with_base(font_system, line, attrs_list, shaping, tab_width, None);
+    }
+
+    /// EXACT PATCH (LLP 1053): [`Self::build`] with a given base direction
+    /// (see [`Self::new_with_base`]).
+    pub fn build_with_base(
+        &mut self,
+        font_system: &mut FontSystem,
+        line: &str,
+        attrs_list: &AttrsList,
+        shaping: Shaping,
+        tab_width: u16,
+        base_rtl: Option<bool>,
+    ) {
         // Clear stale ellipsis span so it gets recomputed with the current attrs.
         // Without this, reusing a ShapeLine from a previous text (via Cached::Unused)
         // would keep an ellipsis shaped with the old attrs.
@@ -1345,7 +1375,8 @@ impl ShapeLine {
         cached_spans.clear();
         cached_spans.extend(spans.drain(..).rev());
 
-        let bidi = unicode_bidi::BidiInfo::new(line, None);
+        let base = base_rtl.map(|rtl| if rtl { unicode_bidi::Level::rtl() } else { unicode_bidi::Level::ltr() });
+        let bidi = unicode_bidi::BidiInfo::new(line, base);
         let rtl = if bidi.paragraphs.is_empty() {
             false
         } else {

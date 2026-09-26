@@ -532,7 +532,6 @@ fn public_arena_clone_forks_cannot_stamp_different_canonical_runs_identically() 
             txn::Target {
                 arena,
                 layout,
-                mirrored: true,
                 selectors,
             },
             &[prop(3, PropId::Text, text)],

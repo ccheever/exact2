@@ -238,7 +238,7 @@ fn one_dimension_set_gives_the_other_by_the_intrinsic_ratio() {
     assert_eq!(frame(&mut kernel, image), (96.0, 36.0));
     // A set ratio row wins over the intrinsic one.
     let mut square = StyleProps::default();
-    square.aspect_ratio = 1.0;
+    square.aspect_ratio = exact_kernel::ratio::AspectRatio::parse("1").unwrap();
     square.mask.set(StyleId::AspectRatio);
     kernel
         .apply(
@@ -316,10 +316,12 @@ fn the_css_replaced_element_constraint_table() {
         (400.0, 150.0),
         "min-width keeps the ratio",
     );
+    // CSS 2.1 §10.4's table is for neither dimension set; a set width
+    // stays, and the height by ratio is clamped on its own (Chrome 154).
     near(
         loaded(&[(Width, 96.0), (MaxHeight, 20.0)], false),
-        (20.0 * 320.0 / 120.0, 20.0),
-        "a set width, then max-height: the width follows",
+        (96.0, 20.0),
+        "a set width, then max-height: the width stays",
     );
     near(
         loaded(&[(MaxWidth, 100.0), (MaxHeight, 20.0)], false),

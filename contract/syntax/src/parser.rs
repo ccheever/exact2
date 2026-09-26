@@ -842,7 +842,10 @@ impl Parser {
                 span,
             });
         }
-        if self.at_ident("send") {
+        // `send` is a keyword only where the send statement starts: `send`
+        // then a name. Elsewhere (`send = x`, `send(x)`, a prop or state
+        // named `send`) it is an ordinary name.
+        if self.at_ident("send") && matches!(self.peek2(), TokenKind::Ident(_)) {
             let span = self.expect_word("send")?;
             let target = self.named_ident(span)?;
             self.expect_punct("=")?;
@@ -889,33 +892,42 @@ impl Parser {
         let name = self.named_ident(span)?;
         self.expect_word("mount")?;
         self.newline()?;
-        let mut every = None;
+        let mut timer = None;
         self.block(|p| {
             let (f, fspan) = p.ident()?;
-            if f != "every" {
-                return p.err(
-                    "contract-task-body",
-                    "a v1 task body is `every(ms, action)`",
-                );
-            }
+            let kind = match f.as_str() {
+                "every" => TaskKind::Every,
+                "after" => TaskKind::After,
+                _ => {
+                    return p.err(
+                        "contract-task-body",
+                        "a task body is `every(ms, action)` or `after(ms, action)`",
+                    )
+                }
+            };
             p.expect_punct("(")?;
             let ms = p.expr()?;
             p.expect_punct(",")?;
             let action = p.named_ident(fspan)?;
             p.expect_punct(")")?;
             p.newline()?;
-            if every.is_some() {
-                return duplicate("task entry", "every", fspan, span);
+            if timer.is_some() {
+                return duplicate("task entry", &f, fspan, span);
             }
-            every = Some((ms, action, fspan));
+            timer = Some((kind, (ms, action, fspan)));
             Ok(())
         })?;
-        let every = every.ok_or(SyntaxError {
+        let (kind, timer) = timer.ok_or(SyntaxError {
             id: "contract-task-body",
-            message: "a task needs `every(ms, action)`".into(),
+            message: "a task needs `every(ms, action)` or `after(ms, action)`".into(),
             span,
         })?;
-        Ok(Task { name, every, span })
+        Ok(Task {
+            name,
+            kind,
+            timer,
+            span,
+        })
     }
 
     // ---- view -------------------------------------------------------------
@@ -1255,7 +1267,6 @@ fn is_keyword(w: &str) -> bool {
             | "derive"
             | "resource"
             | "mutation"
-            | "send"
             | "refresh"
             | "action"
             | "task"

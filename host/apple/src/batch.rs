@@ -154,6 +154,13 @@ impl Batch {
         ));
     }
 
+    /// One Arrange contact's state (LLP 1041 §8.5): its reorder serial as a
+    /// decimal string, the List and lifted wrapper views (0 once gone), and
+    /// `active`, `settling`, `finished` or `refused`.
+    pub(crate) fn reorder(&mut self, token: u64, ids: (u32, u32), phase: &str, dispatched: bool) {
+        self.ops.push(format!("{{\"op\":\"reorder\",\"token\":\"{token}\",\"list\":{},\"wrapper\":{},\"phase\":\"{phase}\",\"dispatched\":{dispatched}}}", ids.0, ids.1));
+    }
+
     /// An authored header's resolved binding, with exact generational keys.
     pub fn height_drag(&mut self, id: u32, handle_key: u64, target: Option<(u32, u64)>) {
         let (target, target_key) = target.map_or_else(

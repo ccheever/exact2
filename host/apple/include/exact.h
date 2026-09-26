@@ -1,4 +1,4 @@
-/* exact.h — the Apple host's C ABI, v8 (LLP 1008 §4; LLP 1031 D2).
+/* exact.h — the Apple host's C ABI, v9 (LLP 1008 §4; LLP 1031 D2).
  *
  * Every call takes a runtime handle: exact_create() hands one out (a u32,
  * never 0, never reused) and exact_destroy() frees everything attributable
@@ -30,7 +30,7 @@
 #include <stdint.h>
 
 /* The ABI's version: part of the compatibility id (LLP 1030 D3a). */
-#define EXACT_ABI_VERSION 8
+#define EXACT_ABI_VERSION 9
 
 #ifdef __cplusplus
 extern "C" {
@@ -106,9 +106,12 @@ typedef struct ExactFlowFragment {
     uint32_t line;
 } ExactFlowFragment;
 typedef struct ExactFlowResult { size_t count; float height; size_t bytes; uint8_t complete, clamped; } ExactFlowResult;
-/* Advances: one per UTF-16 unit; cluster advance at its lowest string index. */
+/* Advances: one per UTF-16 unit; cluster advance at its lowest string index.
+ * Words: ascending UTF-16 line-break boundaries between Thai, Lao, Khmer or
+ * Myanmar letters, the walker's only breaks inside such a run (it has no dictionary). */
 uint64_t exact_textflow_prepare(const uint8_t *utf8, size_t len,
-    const float *advances, size_t count, uint32_t overflow_wrap, uint32_t white_space, float hyphen_advance);
+    const float *advances, size_t count, const uint32_t *words, size_t word_count,
+    uint32_t overflow_wrap, uint32_t white_space, float hyphen_advance);
 /* Returns required count, height, and completion. Writes min(count,cap); null output
  * is a query. max_lines counts bands (0 = no line clamp). Reject incomplete output
  * unless clamped is set; guard exhaustion requires ordinary paragraph fallback. */
@@ -270,6 +273,17 @@ uint32_t exact_height_drag_begin(ExactRuntime rt, uint64_t handle_key, uint64_t 
 uint32_t exact_height_drag_update(ExactRuntime rt, uint64_t token, double height, double now_ms);
 uint32_t exact_height_drag_release(ExactRuntime rt, uint64_t token, double height, double velocity, double now_ms);
 uint32_t exact_transform_motion(uint32_t rt, uint32_t len);
+/* Arrange (reorderFor / reorderdrop, LLP 1041 §8.5): the platform recognizes
+ * the contact on the handle view. scroll_top is the List's actual offset as
+ * its collection feedback reports it; dy the pointer's downward travel since
+ * recognition, points; inside whether the pointer is in the List's port.
+ * Every reply carries {"op":"reorder","token":decimal-string,"list","wrapper",
+ * "phase":"active"|"settling"|"finished"|"refused","dispatched"}; a later
+ * batch may carry "settling" (a receipt ended the contact) or "finished"
+ * (the source settled: release the handle's interaction pin). */
+uint32_t exact_reorder_begin(ExactRuntime rt, uint32_t handle, double scroll_top, double now_ms);
+uint32_t exact_reorder_move(ExactRuntime rt, uint64_t token, double dy, double scroll_top, uint32_t inside, double now_ms);
+uint32_t exact_reorder_end(ExactRuntime rt, uint64_t token, uint32_t drop, double dy, double scroll_top, uint32_t inside, double velocity, double now_ms);
 uint32_t exact_hold_begin(ExactRuntime rt, uint32_t view, uint32_t property, double now_ms);
 uint32_t exact_has_hold(ExactRuntime rt, uint64_t token);
 uint32_t exact_hold_update(ExactRuntime rt, uint64_t token, double x, double y, double now_ms);
@@ -308,6 +322,9 @@ uint32_t exact_tick(ExactRuntime rt, double now_ms);      /* a motion frame, onl
  * failed, or the source was removed). Lays out again; the batch carries
  * every frame that moved. */
 uint32_t exact_intrinsic(ExactRuntime rt, uint32_t view, float width, float height);
+/* exact_intrinsic for several views under one layout: the input buffer's
+ * first len bytes are LE records of (uint32 view, float width, float height). */
+uint32_t exact_intrinsics(ExactRuntime rt, size_t len);
 
 /* The agent API (LLP 1012): a request in the input buffer's first len bytes
  * ({"op":"tree"} / "state" / "logs" / "settle"), the reply in the output

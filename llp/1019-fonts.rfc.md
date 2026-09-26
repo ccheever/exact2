@@ -206,7 +206,9 @@ is invalidated. Two limits on that claim, both from the panel:
 **`font-family` is literal-only.** A `derive` evaluating to `"Menlo"` has
 nowhere to intern. v1 accepts string literals and closed control flow over
 literals (a `when` with two literal stacks — which is how theme switching is
-written); it does not accept a data string.
+written); it does not accept a data string. As built (LLP 1053 G7,
+2026-09-25): a `?:` or `match` whose every arm is a literal family compiles
+each arm to its stack id, and the face checks apply to every declared arm.
 
 ### D3 — the id names a stack; v1 stacks are single-member
 

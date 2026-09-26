@@ -105,11 +105,16 @@ fn slice<'a, T>(p: *const T, n: usize) -> Option<&'a [T]> {
 }
 /// Prepare once from UTF-8 and one advance per UTF-16 unit. Invalid input returns 0.
 /// Cluster advances belong to their lowest string index; continuation units are 0.
+/// Words are ascending UTF-16 line-break boundaries between Thai, Lao, Khmer or
+/// Myanmar letters (`CFStringTokenizer`'s); the walker has no dictionary.
+#[allow(clippy::too_many_arguments)]
 pub fn prepare(
     text: *const u8,
     len: usize,
     advances: *const f32,
     count: usize,
+    words: *const u32,
+    word_count: usize,
     overflow_wrap: u32,
     white_space: u32,
     hyphen_advance: f32,
@@ -120,6 +125,10 @@ pub fn prepare(
     let Some(advances) = slice(advances, count) else {
         return 0;
     };
+    let Some(words) = slice(words, word_count) else {
+        return 0;
+    };
+    let words = exact_textflow::utf16_words(text, words.iter().map(|&w| w as usize));
     if text.encode_utf16().count() != count {
         return 0;
     }
@@ -142,13 +151,13 @@ pub fn prepare(
                 },
         );
     }
-    let prepared = Prepared::new(
+    let prepared = Prepared::with_words(
         text,
         Options {
-            white_space: if white_space == 1 {
-                exact_textflow::WhiteSpace::PreWrap
-            } else {
-                exact_textflow::WhiteSpace::Normal
+            white_space: match white_space {
+                1 => exact_textflow::WhiteSpace::PreWrap,
+                2 => exact_textflow::WhiteSpace::Nowrap,
+                _ => exact_textflow::WhiteSpace::Normal,
             },
             overflow_wrap: match overflow_wrap {
                 1 => OverflowWrap::BreakWord,
@@ -157,6 +166,7 @@ pub fn prepare(
             },
             hyphen_advance,
         },
+        &words,
         &mut |range: std::ops::Range<usize>| {
             (prefix[utf16[range.end]] - prefix[utf16[range.start]]) as f32
         },
@@ -421,11 +431,14 @@ macro_rules! textflow_exports {
     () => {
         /// Prepare retained Unicode break opportunities and advances.
         #[no_mangle]
+        #[allow(clippy::too_many_arguments)]
         pub extern "C" fn exact_textflow_prepare(
             text: *const u8,
             len: usize,
             advances: *const f32,
             count: usize,
+            words: *const u32,
+            word_count: usize,
             overflow_wrap: u32,
             white_space: u32,
             hyphen_advance: f32,
@@ -435,6 +448,8 @@ macro_rules! textflow_exports {
                 len,
                 advances,
                 count,
+                words,
+                word_count,
                 overflow_wrap,
                 white_space,
                 hyphen_advance,

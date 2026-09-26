@@ -1,7 +1,10 @@
 //! The batch: what the glue applies, as JSON built by hand (no serde in the
-//! wasm; the shape is six op kinds and a handful of strings).
+//! wasm; the shape is six op kinds and a handful of strings). The ops a
+//! page's boot and first press send are written piece by piece
+//! (`exact_num::text!`, `format!`'s `{}` without `core::fmt`); the drag
+//! ops still format.
 
-use std::fmt::Write as _;
+use exact_num::{push_text, text, Piece, Shortest};
 
 /// A JSON writer for one batch.
 #[derive(Debug, Default)]
@@ -24,20 +27,32 @@ pub(crate) fn request_refusal(request: &exact_runner::Request) -> Option<&'stati
 }
 
 pub(crate) fn quote(s: &str, out: &mut String) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
     out.push('"');
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => {
-                let _ = write!(out, "\\u{:04x}", c as u32);
-            }
-            c => out.push(c),
+    // Every byte that needs an escape is ASCII, so the runs between them
+    // end on character boundaries and are copied whole.
+    let mut run = 0;
+    for (at, b) in s.bytes().enumerate() {
+        let escape = match b {
+            b'"' => "\\\"",
+            b'\\' => "\\\\",
+            b'\n' => "\\n",
+            b'\r' => "\\r",
+            b'\t' => "\\t",
+            0..0x20 => "",
+            _ => continue,
+        };
+        out.push_str(&s[run..at]);
+        if escape.is_empty() {
+            out.push_str("\\u00");
+            out.push(char::from(HEX[usize::from(b >> 4)]));
+            out.push(char::from(HEX[usize::from(b & 15)]));
+        } else {
+            out.push_str(escape);
         }
+        run = at + 1;
     }
+    out.push_str(&s[run..]);
     out.push('"');
 }
 
@@ -146,14 +161,14 @@ impl Batch {
 
     /// @ref LLP 1038 D7 — one coalesced router change beside commands.
     pub fn router(&mut self, change: &exact_runner::RouterChange) {
-        let mut s = format!("{{\"op\":\"router\",\"top\":{},\"url\":", change.top);
+        let mut s = text!("{{\"op\":\"router\",\"top\":{},\"url\":", change.top);
         quote(&change.url, &mut s);
         s.push_str(",\"removed\":[");
         for (i, id) in change.removed.iter().enumerate() {
             if i > 0 {
                 s.push(',');
             }
-            let _ = write!(s, "{id}");
+            id.push_to(&mut s);
         }
         s.push_str("]}");
         self.ops.push(s);
@@ -162,12 +177,12 @@ impl Batch {
     /// Full live collection metadata, serialized by the common runner seam.
     pub(crate) fn collections(&mut self, snapshots: &str) {
         self.ops
-            .push(format!("{{\"op\":\"collections\",\"items\":{snapshots}}}"));
+            .push(text!("{{\"op\":\"collections\",\"items\":{}}}", snapshots));
     }
 
     /// A terminal admission refusal, delivered after the enclosing DOM batch.
     pub(crate) fn refuse(&mut self, ticket: u64, message: &str) {
-        let mut out = format!("{{\"op\":\"refuse\",\"ticket\":{ticket},\"message\":");
+        let mut out = text!("{{\"op\":\"refuse\",\"ticket\":{},\"message\":", ticket);
         quote(message, &mut out);
         out.push('}');
         self.ops.push(out);
@@ -177,7 +192,7 @@ impl Batch {
     /// @ref LLP 1043.000 §3 D2, D7
     pub(crate) fn textflow(&mut self, contexts: &str) {
         self.ops
-            .push(format!("{{\"op\":\"textflow\",\"contexts\":{contexts}}}"));
+            .push(text!("{{\"op\":\"textflow\",\"contexts\":{}}}", contexts));
     }
 
     /// Whether nothing was recorded.
@@ -194,8 +209,7 @@ impl Batch {
         css: &str,
         handlers: &[&str],
     ) {
-        let mut s = String::new();
-        let _ = write!(s, "{{\"op\":\"create\",\"id\":{id},\"tag\":");
+        let mut s = text!("{{\"op\":\"create\",\"id\":{},\"tag\":", id);
         quote(tag, &mut s);
         s.push_str(",\"props\":");
         string_map(props, &mut s);
@@ -213,7 +227,7 @@ impl Batch {
     pub fn head(&mut self, head: &exact_runner::Head) {
         let mut s = String::from("{\"op\":\"head\"");
         for (name, value) in head.fields() {
-            let _ = write!(s, ",\"{name}\":");
+            push_text!(&mut s, ",\"{}\":", name);
             match value {
                 Some(value) => quote(value, &mut s),
                 None => s.push_str("null"),
@@ -221,7 +235,7 @@ impl Batch {
         }
         match head.status {
             Some(code) => {
-                let _ = write!(s, ",\"status\":{code}");
+                push_text!(&mut s, ",\"status\":{}", code);
             }
             None => s.push_str(",\"status\":null"),
         }
@@ -234,13 +248,12 @@ impl Batch {
     /// rather than replacing it.
     pub fn adopt(&mut self, adopted: bool) {
         self.ops
-            .push(format!("{{\"op\":\"adopt\",\"adopted\":{adopted}}}"));
+            .push(text!("{{\"op\":\"adopt\",\"adopted\":{}}}", adopted));
     }
 
     /// `{"op":"props","id":…,"set":{…},"clear":[…]}`.
     pub fn props(&mut self, id: u32, set: &[(&str, String)], clear: &[&str]) {
-        let mut s = String::new();
-        let _ = write!(s, "{{\"op\":\"props\",\"id\":{id},\"set\":");
+        let mut s = text!("{{\"op\":\"props\",\"id\":{},\"set\":", id);
         string_map(set, &mut s);
         s.push_str(",\"clear\":");
         string_list(clear, &mut s);
@@ -250,8 +263,7 @@ impl Batch {
 
     /// `{"op":"style","id":…,"css":…}` — the whole `cssText`.
     pub fn style(&mut self, id: u32, css: &str) {
-        let mut s = String::new();
-        let _ = write!(s, "{{\"op\":\"style\",\"id\":{id},\"css\":");
+        let mut s = text!("{{\"op\":\"style\",\"id\":{},\"css\":", id);
         quote(css, &mut s);
         s.push('}');
         self.ops.push(s);
@@ -259,13 +271,12 @@ impl Batch {
 
     /// `{"op":"children","id":…,"ids":[…]}`.
     pub fn children(&mut self, id: u32, ids: &[u32]) {
-        let mut s = String::new();
-        let _ = write!(s, "{{\"op\":\"children\",\"id\":{id},\"ids\":[");
+        let mut s = text!("{{\"op\":\"children\",\"id\":{},\"ids\":[", id);
         for (i, c) in ids.iter().enumerate() {
             if i > 0 {
                 s.push(',');
             }
-            let _ = write!(s, "{c}");
+            c.push_to(&mut s);
         }
         s.push_str("]}");
         self.ops.push(s);
@@ -283,21 +294,24 @@ impl Batch {
         values: &[(f64, f64)],
         pair: bool,
     ) {
-        let mut s = String::new();
-        let _ = write!(s, "{{\"op\":\"animate\",\"id\":{id},\"property\":");
+        let mut s = text!("{{\"op\":\"animate\",\"id\":{},\"property\":", id);
         quote(property, &mut s);
-        let _ = write!(
-            s,
-            ",\"delay\":{delay_ms},\"duration\":{duration_ms},\"values\":["
+        let (delay_ms, duration_ms) = (Shortest(delay_ms), Shortest(duration_ms));
+        push_text!(
+            &mut s,
+            ",\"delay\":{},\"duration\":{},\"values\":[",
+            delay_ms,
+            duration_ms
         );
         for (i, (x, y)) in values.iter().enumerate() {
             if i > 0 {
                 s.push(',');
             }
+            let (x, y) = (Shortest(*x), Shortest(*y));
             if pair {
-                let _ = write!(s, "[{x},{y}]");
+                push_text!(&mut s, "[{},{}]", x, y);
             } else {
-                let _ = write!(s, "{x}");
+                x.push_to(&mut s);
             }
         }
         s.push_str("]}");
@@ -306,7 +320,7 @@ impl Batch {
 
     /// End a property's ownership, including a held presentation override.
     pub fn retire_motion(&mut self, id: u32, property: &str) {
-        let mut s = format!("{{\"op\":\"retire-motion\",\"id\":{id},\"property\":");
+        let mut s = text!("{{\"op\":\"retire-motion\",\"id\":{},\"property\":", id);
         quote(property, &mut s);
         s.push('}');
         self.ops.push(s);
@@ -314,8 +328,7 @@ impl Batch {
 
     /// A canvas binding, preserving positional values or authored argument names.
     pub fn surface(&mut self, update: &exact_runner::SurfaceUpdate) {
-        let mut s = String::new();
-        let _ = write!(s, "{{\"op\":\"surface\",\"id\":{},\"name\":", update.view);
+        let mut s = text!("{{\"op\":\"surface\",\"id\":{},\"name\":", update.view);
         quote(&update.name, &mut s);
         s.push_str(",\"values\":");
         s.push_str(&update.arguments_json());
@@ -345,9 +358,10 @@ impl Batch {
                 || !r.request.body.is_empty();
             let oversized =
                 bytes.is_some_and(|bytes| bytes.len() > exact_runner::MAX_HOST_WORK_BYTES);
-            let mut s = format!(
-                "{{\"op\":\"surfaceWork\",\"ticket\":{},\"mode\":\"{mode}\",\"name\":",
-                r.ticket
+            let mut s = text!(
+                "{{\"op\":\"surfaceWork\",\"ticket\":{},\"mode\":\"{}\",\"name\":",
+                r.ticket,
+                mode
             );
             quote(name, &mut s);
             s.push_str(",\"scope\":");
@@ -371,14 +385,15 @@ impl Batch {
             return;
         }
         if let Some(token) = r.request.continuation {
-            self.ops.push(format!(
-                "{{\"op\":\"continue\",\"ticket\":{},\"token\":{token}}}",
-                r.ticket
+            self.ops.push(text!(
+                "{{\"op\":\"continue\",\"ticket\":{},\"token\":{}}}",
+                r.ticket,
+                token
             ));
             return;
         }
         if let Some(payload) = &r.request.storage {
-            let mut s = format!("{{\"op\":\"storage\",\"ticket\":{},\"payload\":", r.ticket);
+            let mut s = text!("{{\"op\":\"storage\",\"ticket\":{},\"payload\":", r.ticket);
             // Empty text is invalid JSON and refuses before effects; never repair
             // malformed bytes into a different, executable storage request.
             quote(std::str::from_utf8(payload).unwrap_or(""), &mut s);
@@ -392,7 +407,7 @@ impl Batch {
             self.ops.push(s);
             return;
         }
-        let mut s = format!("{{\"op\":\"request\",\"ticket\":{},\"target\":", r.ticket);
+        let mut s = text!("{{\"op\":\"request\",\"ticket\":{},\"target\":", r.ticket);
         quote(&r.target, &mut s);
         s.push_str(",\"scope\":");
         if let Some(scope) = &r.request.grants {
@@ -401,9 +416,11 @@ impl Batch {
             s.push_str("null")
         }
         if let exact_runner::HttpScheduling::Independent { max_response_bytes } = r.request.http {
-            s.push_str(&format!(
-                ",\"nativeHttp\":\"independent\",\"maxResponseBytes\":{max_response_bytes}"
-            ));
+            push_text!(
+                &mut s,
+                ",\"nativeHttp\":\"independent\",\"maxResponseBytes\":{}",
+                max_response_bytes
+            );
         }
         s.push_str(",\"method\":");
         quote(&r.request.method, &mut s);
@@ -480,7 +497,7 @@ impl Batch {
 
     /// `{"op":"destroy","id":…}`.
     pub fn destroy(&mut self, id: u32) {
-        self.ops.push(format!("{{\"op\":\"destroy\",\"id\":{id}}}"));
+        self.ops.push(text!("{{\"op\":\"destroy\",\"id\":{}}}", id));
     }
 
     /// `{"op":"at","ms":…}` — the clock at which the ops that follow were
@@ -488,7 +505,8 @@ impl Batch {
     /// owns time can attribute the transitions they start to that instant
     /// (LLP 1012: one seek and sixty give the same bits).
     pub fn at(&mut self, ms: f64) {
-        self.ops.push(format!("{{\"op\":\"at\",\"ms\":{ms}}}"));
+        self.ops
+            .push(text!("{{\"op\":\"at\",\"ms\":{}}}", Shortest(ms)));
     }
 
     /// `{"op":"roots","ids":[…]}`.
@@ -498,7 +516,7 @@ impl Batch {
             if i > 0 {
                 s.push(',');
             }
-            let _ = write!(s, "{c}");
+            c.push_to(&mut s);
         }
         s.push_str("]}");
         self.ops.push(s);
@@ -511,16 +529,26 @@ impl Batch {
     /// that timer's due time).
     pub fn finish(self, timer_due_ms: Option<f64>, clock_ms: f64, error: Option<&str>) -> String {
         let mut s = String::from("{\"ops\":[");
-        s.push_str(&self.ops.join(","));
+        for (i, op) in self.ops.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            s.push_str(op);
+        }
         s.push(']');
         let timers = timer_due_ms.is_some();
         if let Some(due) = timer_due_ms {
-            let _ = write!(s, ",\"timer_due_ms\":{due}");
+            push_text!(&mut s, ",\"timer_due_ms\":{}", Shortest(due));
         }
         if self.collection_accepted {
             s.push_str(",\"accepted\":true");
         }
-        let _ = write!(s, ",\"timers\":{timers},\"clock\":{clock_ms},\"error\":");
+        push_text!(
+            &mut s,
+            ",\"timers\":{},\"clock\":{},\"error\":",
+            timers,
+            Shortest(clock_ms)
+        );
         match error {
             Some(e) => quote(e, &mut s),
             None => s.push_str("null"),
@@ -534,9 +562,7 @@ impl Batch {
 pub fn value_json(v: &exact_plan::Value, out: &mut String) {
     use exact_plan::Value;
     match v {
-        Value::Number(n) if n.is_finite() => {
-            let _ = write!(out, "{n}");
-        }
+        Value::Number(n) if n.is_finite() => Shortest(*n).push_to(out),
         Value::Number(_) | Value::Unit | Value::Option(None) => out.push_str("null"),
         Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
         Value::Str(s) => quote(s, out),
@@ -564,5 +590,15 @@ mod timer_tests {
         let empty = super::Batch::new().finish(None, 0.0, None);
         assert!(!empty.contains("timer_due_ms"), "{empty}");
         assert!(empty.contains("\"timers\":false"), "{empty}");
+    }
+}
+
+#[cfg(test)]
+mod quote_tests {
+    #[test]
+    fn strings_are_json_with_every_control_escaped() {
+        let mut out = String::new();
+        super::quote("a\"b\\c\nd\re\tf\u{1}g\u{1f}h\u{7f}é€😀", &mut out);
+        assert_eq!(out, "\"a\\\"b\\\\c\\nd\\re\\tf\\u0001g\\u001fh\u{7f}é€😀\"");
     }
 }

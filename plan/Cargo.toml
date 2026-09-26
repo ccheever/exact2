@@ -20,6 +20,7 @@ name = "exact_plan"
 crate-type = ["rlib"]
 
 [dependencies]
+exact-num = { path = "../num" }
 
 [build-dependencies]
 serde = { version = "1.0", features = ["derive"] }

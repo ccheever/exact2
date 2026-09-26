@@ -87,6 +87,12 @@ fn pascal(s: &str) -> String {
 /// table and a length table, eight bytes a name; this is two. A discriminant
 /// no row takes (a retired id) names nothing.
 fn packed_name(ty: &str, rows: &[(u64, &str)]) -> String {
+    let (packed, ends) = packed_table(ty, rows);
+    format!("packed_name({packed:?}, &{ends:?}, self as usize)")
+}
+
+/// Names by discriminant, packed: one string and each name's end offset.
+fn packed_table(ty: &str, rows: &[(u64, &str)]) -> (String, Vec<usize>) {
     let max = rows.iter().map(|(id, _)| *id).max().unwrap_or(0) as usize;
     assert!(
         max < 2 * rows.len() + 8,
@@ -113,7 +119,7 @@ fn packed_name(ty: &str, rows: &[(u64, &str)]) -> String {
         packed.len() <= usize::from(u16::MAX),
         "{ty}: names past u16 offsets"
     );
-    format!("packed_name({packed:?}, &{ends:?}, self as usize)")
+    (packed, ends)
 }
 /// `Debug` as `#[derive(Debug)]` writes a unit variant, its identifier,
 /// spelled from `name()` so no enum carries a second table of names.
@@ -152,6 +158,13 @@ fn validate(schema: &Schema) {
             path.bytes()
                 .all(|c| c.is_ascii_alphanumeric() || b" .,-".contains(&c)),
             "schema: invalid symbol path {role}"
+        );
+        // A filled state is its own role, named as Apple names it, beside its outline.
+        let base = role.strip_suffix("-fill");
+        assert!(
+            base.is_some() == apple.ends_with(".fill")
+                && base.is_none_or(|base| schema.symbols.iter().any(|row| row[0] == base)),
+            "schema: symbol {role}: `-fill` is exactly Apple's `.fill`, beside its role"
         );
     }
     assert_eq!(
@@ -297,16 +310,17 @@ fn generate(schema: &Schema, digest: u64) -> String {
     .unwrap();
     writeln!(
         w,
-        "/// Resolve a role to its Apple name and browser path; never accepts a platform name."
+        "/// Resolve a role to its Apple name, browser path, and whether that path is\n/// filled (even-odd) rather than stroked; never accepts a platform name."
     )
     .unwrap();
     writeln!(
         w,
-        "pub fn symbol(role: &str) -> Option<(&'static str, &'static str)> {{ match role {{"
+        "pub fn symbol(role: &str) -> Option<(&'static str, &'static str, bool)> {{ match role {{"
     )
     .unwrap();
     for [role, apple, path] in &schema.symbols {
-        writeln!(w, "{role:?} => Some(({apple:?}, {path:?})),").unwrap();
+        let filled = role.ends_with("-fill");
+        writeln!(w, "{role:?} => Some(({apple:?}, {path:?}, {filled})),").unwrap();
     }
     writeln!(w, "_ => None, }} }}").unwrap();
     writeln!(
@@ -326,6 +340,18 @@ fn generate(schema: &Schema, digest: u64) -> String {
         "fn packed_name(names: &'static str, ends: &'static [u16], i: usize) -> &'static str {\n",
         "    let start = if i == 0 { 0 } else { usize::from(ends[i - 1]) };\n",
         "    &names[start..usize::from(ends[i])]\n",
+        "}\n",
+        "/// The index of `name` in a packed table of distinct nonempty names.\n",
+        "fn packed_find(names: &'static str, ends: &'static [u16], name: &str) -> Option<usize> {\n",
+        "    let mut start = 0;\n",
+        "    for (i, &end) in ends.iter().enumerate() {\n",
+        "        let end = usize::from(end);\n",
+        "        if names[start..end] == *name {\n",
+        "            return Some(i);\n",
+        "        }\n",
+        "        start = end;\n",
+        "    }\n",
+        "    None\n",
         "}\n",
         "/// What `#[derive(Debug)]` writes for a variant spelled `pascal(name)` by\n",
         "/// build.rs: each word's first letter raised; `_`, `-` and spaces dropped.\n",
@@ -606,10 +632,12 @@ fn generate(schema: &Schema, digest: u64) -> String {
             .enumerate()
             .map(|(i, v)| (i as u64, v.as_str()))
             .collect();
+        let (names, ends) = packed_table(name, &rows);
+        writeln!(w, "    const NAMES: &'static str = {names:?};").unwrap();
+        writeln!(w, "    const ENDS: &'static [u16] = &{ends:?};").unwrap();
         writeln!(
             w,
-            "    pub fn name(self) -> &'static str {{ {} }}",
-            packed_name(name, &rows)
+            "    pub fn name(self) -> &'static str {{ packed_name(Self::NAMES, Self::ENDS, self as usize) }}"
         )
         .unwrap();
         writeln!(
@@ -618,12 +646,11 @@ fn generate(schema: &Schema, digest: u64) -> String {
         )
         .unwrap();
         writeln!(w, "    pub fn from_name(name: &str) -> Option<Self> {{").unwrap();
-        writeln!(w, "        match name {{").unwrap();
-        for v in &def.values {
-            writeln!(w, "            \"{v}\" => Some({name}::{}),", pascal(v)).unwrap();
-        }
-        writeln!(w, "            _ => None,").unwrap();
-        writeln!(w, "        }}").unwrap();
+        writeln!(
+            w,
+            "        packed_find(Self::NAMES, Self::ENDS, name).map(|i| Self::ALL[i])"
+        )
+        .unwrap();
         writeln!(w, "    }}").unwrap();
         writeln!(w, "}}").unwrap();
         let idents: Vec<String> = def.values.iter().map(|v| pascal(v)).collect();
@@ -637,7 +664,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     // ---- StyleId / StyleCodec --------------------------------------------
     writeln!(w, "/// Wire codec of a style row.").unwrap();
     writeln!(w, "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]").unwrap();
-    writeln!(w, "pub enum StyleCodec {{ Dimension, LineHeight, F32, U8, U16, U32, I32, Rgba8, ColorValue, KeywordColor, Vec2, Color2, Tracks, Placement, Transitions, ClipPath, ShapeOutside, Enum }}").unwrap();
+    writeln!(w, "pub enum StyleCodec {{ Dimension, LineHeight, F32, U8, U16, U32, I32, Rgba8, ColorValue, KeywordColor, Vec2, Color2, Tracks, Placement, Transitions, ClipPath, ShapeOutside, AspectRatio, Enum }}").unwrap();
     writeln!(w, "/// One style row; the discriminant is the mask bit.").unwrap();
     writeln!(w, "#[repr(u8)]").unwrap();
     writeln!(
@@ -682,26 +709,22 @@ fn generate(schema: &Schema, digest: u64) -> String {
         .iter()
         .map(|r| (u64::from(r.bit), r.field.as_str()))
         .collect();
+    let (names, ends) = packed_table("StyleId", &rows);
+    assert_eq!(ends.len(), schema.styles.len(), "StyleId: bits are dense");
+    writeln!(w, "    const NAMES: &'static str = {names:?};").unwrap();
+    writeln!(w, "    const ENDS: &'static [u16] = &{ends:?};").unwrap();
     writeln!(
         w,
-        "    pub fn name(self) -> &'static str {{ {} }}",
-        packed_name("StyleId", &rows)
+        "    pub fn name(self) -> &'static str {{ packed_name(Self::NAMES, Self::ENDS, self as usize) }}"
     )
     .unwrap();
     writeln!(w, "    /// Look a field name up.").unwrap();
     writeln!(w, "    pub fn from_name(name: &str) -> Option<Self> {{").unwrap();
-    writeln!(w, "        match name {{").unwrap();
-    for row in &schema.styles {
-        writeln!(
-            w,
-            "            \"{}\" => Some(StyleId::{}),",
-            row.field,
-            pascal(&row.field)
-        )
-        .unwrap();
-    }
-    writeln!(w, "            _ => None,").unwrap();
-    writeln!(w, "        }}").unwrap();
+    writeln!(
+        w,
+        "        packed_find(Self::NAMES, Self::ENDS, name).map(|i| Self::ALL[i])"
+    )
+    .unwrap();
     writeln!(w, "    }}").unwrap();
     writeln!(w, "    /// The wire codec.").unwrap();
     writeln!(w, "    pub fn codec(self) -> StyleCodec {{").unwrap();
@@ -1055,21 +1078,8 @@ fn generate(schema: &Schema, digest: u64) -> String {
         "    pub fn apply_patch(&mut self, patch: &StyleProps) {{"
     )
     .unwrap();
-    for row in &schema.styles {
-        let id = pascal(&row.field);
-        let clone = if parse_codec(&row.codec).is_copy() {
-            ""
-        } else {
-            ".clone()"
-        };
-        writeln!(
-            w,
-            "        if patch.mask.has(StyleId::{id}) {{ self.{f} = patch.{f}{clone}; }}",
-            f = row.field
-        )
-        .unwrap();
-    }
-    writeln!(w, "        self.mask = self.mask.union(patch.mask);").unwrap();
+    // One masked copy serves the patch, the reset and the row copy.
+    writeln!(w, "        self.copy_rows(patch, patch.mask);").unwrap();
     writeln!(w, "    }}").unwrap();
     writeln!(
         w,
@@ -1077,17 +1087,9 @@ fn generate(schema: &Schema, digest: u64) -> String {
     )
     .unwrap();
     writeln!(w, "    pub fn clear(&mut self, mask: StyleMask) {{").unwrap();
-    writeln!(w, "        let d = StyleProps::default();").unwrap();
-    for row in &schema.styles {
-        let id = pascal(&row.field);
-        writeln!(
-            w,
-            "        if mask.has(StyleId::{id}) {{ self.{f} = d.{f}; }}",
-            f = row.field
-        )
-        .unwrap();
-    }
-    writeln!(w, "        self.mask = self.mask.minus(mask);").unwrap();
+    writeln!(w, "        let before = self.mask;").unwrap();
+    writeln!(w, "        self.copy_rows(&StyleProps::default(), mask);").unwrap();
+    writeln!(w, "        self.mask = before.minus(mask);").unwrap();
     writeln!(w, "    }}").unwrap();
     writeln!(
         w,
@@ -1212,6 +1214,21 @@ fn generate(schema: &Schema, digest: u64) -> String {
         "    pub fn check_finite(&self) -> Result<(), StyleId> {{"
     )
     .unwrap();
+    // Rows in bit order, which is schema order: the first failing row is
+    // the one a row-by-row check would name.
+    writeln!(
+        w,
+        "        match self.mask.iter().find(|&id| !self.get(id).is_finite()) {{ Some(id) => Err(id), None => Ok(()) }}"
+    )
+    .unwrap();
+    writeln!(w, "    }}").unwrap();
+    // The row-by-row form it replaced, for the test that holds them equal.
+    writeln!(w, "    #[cfg(test)]").unwrap();
+    writeln!(
+        w,
+        "    pub(crate) fn check_finite_rows(&self) -> Result<(), StyleId> {{"
+    )
+    .unwrap();
     for row in &schema.styles {
         let id = pascal(&row.field);
         let test = match parse_codec(&row.codec) {
@@ -1287,33 +1304,56 @@ fn generate(schema: &Schema, digest: u64) -> String {
     .unwrap();
     writeln!(w, "    pub fn set_dynamic(&mut self, id: StyleId, value: &StyleValue) -> Result<(), StyleValueError> {{").unwrap();
     writeln!(w, "        match id {{").unwrap();
+    // Rows that convert alike share one conversion, then store by row: the
+    // conversion (and its refusal) is written once per codec, not per row.
+    let mut groups: Vec<(String, Vec<(String, String)>)> = Vec::new();
     for row in &schema.styles {
         let id = pascal(&row.field);
-        let f = &row.field;
-        let stmt = match parse_codec(&row.codec) {
-            Codec::Dimension => format!("self.{f} = value.dimension(id, {})?;", row.admits_auto),
-            Codec::LineHeight => format!("self.{f} = value.line_height(id)?;"),
-            Codec::F32 => format!("self.{f} = value.f32(id)?;"),
-            Codec::U8 => format!("self.{f} = value.int(id, 0.0, u8::MAX as f64)? as u8;"),
-            Codec::U16 => format!("self.{f} = value.int(id, 0.0, u16::MAX as f64)? as u16;"),
-            Codec::U32 => format!("self.{f} = value.int(id, 0.0, u32::MAX as f64)? as u32;"),
-            Codec::I32 => format!("self.{f} = value.int(id, i32::MIN as f64, i32::MAX as f64)? as i32;"),
-            Codec::Rgba8 => format!("self.{f} = value.color(id)?;"),
-            Codec::ColorValue => format!("self.{f} = value.color_value(id)?;"),
-            Codec::KeywordColor(keyword) => format!("self.{f} = value.keyword_color(id, {keyword:?})?;"),
-            Codec::Vec2 => format!("self.{f} = value.vec2(id)?;"),
+        let conv = match parse_codec(&row.codec) {
+            Codec::Dimension => format!("value.dimension(id, {})?", row.admits_auto),
+            Codec::LineHeight => "value.line_height(id)?".to_string(),
+            Codec::F32 => "value.f32(id)?".to_string(),
+            Codec::U8 => "value.int(id, 0.0, u8::MAX as f64)? as u8".to_string(),
+            Codec::U16 => "value.int(id, 0.0, u16::MAX as f64)? as u16".to_string(),
+            Codec::U32 => "value.int(id, 0.0, u32::MAX as f64)? as u32".to_string(),
+            Codec::I32 => "value.int(id, i32::MIN as f64, i32::MAX as f64)? as i32".to_string(),
+            Codec::Rgba8 => "value.color(id)?".to_string(),
+            Codec::ColorValue => "value.color_value(id)?".to_string(),
+            Codec::KeywordColor(keyword) => format!("value.keyword_color(id, {keyword:?})?"),
+            Codec::Vec2 => "value.vec2(id)?".to_string(),
             Codec::Enum(name) => format!(
-                "self.{f} = {name}::from_name(value.text(id)?).ok_or(StyleValueError::UnknownEnumValue {{ style: id }})?;"
+                "{name}::from_name(value.text(id)?).ok_or(StyleValueError::UnknownEnumValue {{ style: id }})?"
             ),
-            Codec::Transitions => format!(
-                "self.{f} = Transitions::parse(value.text(id)?).map_err(|_| StyleValueError::BadTransition {{ style: id }})?;"
-            ),
-            Codec::CssValue { path, error, .. } => format!("self.{f} = {path}::parse(value.text(id)?).ok_or(StyleValueError::{error} {{ style: id }})?;"),
-            Codec::Color2 | Codec::Tracks | Codec::Placement => {
-                "return Err(StyleValueError::Unsupported { style: id });".to_string()
-            }
+            Codec::Transitions => "Transitions::parse(value.text(id)?).map_err(|_| StyleValueError::BadTransition { style: id })?".to_string(),
+            Codec::CssValue { path, error, .. } => format!("{path}::parse(&value.css_text(id)?).ok_or(StyleValueError::{error} {{ style: id }})?"),
+            Codec::Color2 | Codec::Tracks | Codec::Placement => String::new(),
         };
-        writeln!(w, "            StyleId::{id} => {{ {stmt} }}").unwrap();
+        match groups.iter_mut().find(|(c, _)| *c == conv) {
+            Some((_, rows)) => rows.push((id, row.field.clone())),
+            None => groups.push((conv, vec![(id, row.field.clone())])),
+        }
+    }
+    for (conv, rows) in &groups {
+        let pattern = rows
+            .iter()
+            .map(|(id, _)| format!("StyleId::{id}"))
+            .collect::<Vec<_>>()
+            .join(" | ");
+        if conv.is_empty() {
+            writeln!(w, "            {pattern} => return Err(StyleValueError::Unsupported {{ style: id }}),").unwrap();
+        } else if let [(_, f)] = rows.as_slice() {
+            writeln!(w, "            {pattern} => {{ self.{f} = {conv}; }}").unwrap();
+        } else {
+            writeln!(w, "            {pattern} => {{").unwrap();
+            writeln!(w, "                let v = {conv};").unwrap();
+            writeln!(w, "                match id {{").unwrap();
+            for (id, f) in rows {
+                writeln!(w, "                    StyleId::{id} => self.{f} = v,").unwrap();
+            }
+            writeln!(w, "                    _ => {{}}").unwrap();
+            writeln!(w, "                }}").unwrap();
+            writeln!(w, "            }}").unwrap();
+        }
     }
     writeln!(w, "        }}").unwrap();
     writeln!(w, "        self.mask.set(id);").unwrap();

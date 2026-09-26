@@ -18,6 +18,8 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate {
     private var controls: [UInt32: ExactSegmentedControl] = [:]
     private var hidden: [UInt32: Bool] = [:]
     private var members: [UInt32: [UInt32]] = [:]
+    /// The last projection decision journaled per tablist, so each is said once.
+    private var decisions: [UInt32: String] = [:]
 
     init(_ presenter: Presenter) { self.presenter = presenter; super.init() }
 
@@ -65,10 +67,10 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate {
 
     /// An image-only authored tab stays image-only in UIKit. Its accessible
     /// name belongs to the segment image; it is not a visible fallback title.
+    /// A text-only tab's words are its title (`SegmentFace`).
     private func content(_ tab: NodeView, at index: Int, in control: ExactSegmentedControl) {
-        let label = tab.props["accessibilityLabel"] ?? ""
-        let children = tab.container.subviews.compactMap { $0 as? NodeView }
-        if children.count == 1, let icon = children.first, icon.kind == "image" {
+        let label = tab.accessibleName
+        if case .image(let icon)? = tab.segmentFace {
             guard let source = icon.image, icon.bounds.width > 0, icon.bounds.height > 0 else {
                 control.setTitle(nil, forSegmentAt: index)
                 return
@@ -90,6 +92,13 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate {
         }
     }
 
+    /// Journal why a tablist is or is not a segmented control, once per change.
+    private func decide(_ owner: NodeView, _ decision: String) {
+        guard decisions[owner.id] != decision else { return }
+        decisions[owner.id] = decision
+        presenter.session?.log("tablist #\(owner.id): \(decision)")
+    }
+
     private func restore(owner id: UInt32) {
         for childID in members.removeValue(forKey: id) ?? [] {
             if let child = presenter.views[childID] { child.isHidden = hidden.removeValue(forKey: childID) ?? false }
@@ -106,9 +115,20 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate {
         }
         let live = Set(owners.map(\.id))
         for id in Array(controls.keys) where !live.contains(id) { restore(owner: id) }
+        for id in Array(decisions.keys) where !live.contains(id) { decisions.removeValue(forKey: id) }
         for owner in owners {
             let tabs = tabs(in: owner)
-            guard tabs.count > 1 else { restore(owner: owner.id); continue }
+            // Authored tabs a segment cannot show stay as authored, and the
+            // tablist tells VoiceOver it is a tab bar (LLP 1035.001 D10).
+            let unshown = tabs.first { $0.segmentFace == nil }
+            if tabs.count <= 1 || unshown != nil {
+                restore(owner: owner.id)
+                owner.accessibilityTraits.insert(.tabBar)
+                decide(owner, unshown.map { "kept as authored: tab #\($0.id) is not one image or its label alone, which a segment cannot show" } ?? "kept as authored: fewer than two pressable tabs")
+                continue
+            }
+            owner.accessibilityTraits.remove(.tabBar)
+            decide(owner, "projected to UISegmentedControl (\(tabs.count) segments)")
             let ids = tabs.map(\.id)
             if members[owner.id] != ids {
                 restore(owner: owner.id)
@@ -136,7 +156,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate {
             if control.numberOfSegments != tabs.count {
                 control.removeAllSegments()
                 control.icons.removeAll()
-                for index in tabs.indices { control.insertSegment(withTitle: tabs[index].props["accessibilityLabel"] ?? "", at: index, animated: false) }
+                for index in tabs.indices { control.insertSegment(withTitle: "", at: index, animated: false) }
             }
             for (index, tab) in tabs.enumerated() {
                 content(tab, at: index, in: control)

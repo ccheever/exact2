@@ -8,6 +8,7 @@
 //! does not decide — because the runner builds for wasm and depends on
 //! nothing; a host converts, one line each way.
 
+use exact_num::text;
 use exact_plan::Value;
 
 /// Maximum bytes in one portable host-work request or outcome.
@@ -272,6 +273,33 @@ pub enum Outcome {
     },
 }
 
+impl Outcome {
+    /// What came back, for the journal: a status and a size, or why nothing
+    /// did, cut to 200 characters — never a body. A failure the app catches
+    /// is still on the record (LLP 1016 D4).
+    pub fn summary(&self) -> String {
+        match self {
+            Outcome::Response(r) => text!("HTTP {}, {} bytes", r.status, r.body.len()),
+            Outcome::Failed { kind, message } => {
+                let cut = message
+                    .char_indices()
+                    .nth(200)
+                    .map_or(message.len(), |(i, _)| i);
+                let more = if cut < message.len() { "…" } else { "" };
+                // Variant names are ASCII: ASCII lowering is the whole
+                // lowering, and links no Unicode case tables.
+                let kind = format!("{kind:?}").to_ascii_lowercase();
+                format!("{kind}: {}{more}", &message[..cut])
+            }
+            Outcome::Storage(bytes) => text!("storage, {} bytes", bytes.len()),
+            Outcome::Surface(SurfaceOutcome::Captured(bytes)) => {
+                text!("surface captured, {} bytes", bytes.len())
+            }
+            Outcome::Surface(SurfaceOutcome::Restored) => "surface restored".into(),
+        }
+    }
+}
+
 /// Why a request produced no response.
 #[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -389,6 +417,52 @@ pub struct RequestOut {
     pub request: Request,
     /// The app forced it (`refresh`): the executor bypasses its cache.
     pub forced: bool,
+}
+
+#[cfg(test)]
+mod summary_tests {
+    use super::*;
+
+    #[test]
+    fn a_summary_is_the_text_format_wrote() {
+        for (status, len) in [(200, 0), (404, 5), (u16::MAX, 70_000)] {
+            let outcome = Outcome::Response(Response {
+                status,
+                headers: vec![],
+                body: vec![0; len],
+            });
+            assert_eq!(outcome.summary(), format!("HTTP {status}, {len} bytes"));
+            let storage = Outcome::Storage(vec![1; len]);
+            assert_eq!(storage.summary(), format!("storage, {len} bytes"));
+            let captured = Outcome::Surface(SurfaceOutcome::Captured(vec![2; len]));
+            assert_eq!(captured.summary(), format!("surface captured, {len} bytes"));
+        }
+    }
+
+    #[test]
+    fn a_failure_summary_lowers_its_kind_as_unicode_would() {
+        for kind in [
+            FailureKind::Network,
+            FailureKind::Refused,
+            FailureKind::Unsupported,
+            FailureKind::Aborted,
+        ] {
+            // Every variant is listed: adding one breaks this match.
+            match kind {
+                FailureKind::Network
+                | FailureKind::Refused
+                | FailureKind::Unsupported
+                | FailureKind::Aborted => {}
+            }
+            let name = format!("{kind:?}");
+            assert!(name.is_ascii(), "{name}");
+            let outcome = Outcome::Failed {
+                kind,
+                message: "no".into(),
+            };
+            assert_eq!(outcome.summary(), format!("{}: no", name.to_lowercase()));
+        }
+    }
 }
 
 #[cfg(test)]

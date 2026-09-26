@@ -78,7 +78,8 @@ pub fn error(message: &str) -> String {
 }
 
 /// The tree: every live node in preorder — id, parent, depth, type, props by
-/// their schema names, the events it handles, its children — plus the
+/// their schema names, the events it handles, `inactive` when it is under a
+/// route its navigation root has not selected, its children — plus the
 /// kernel's epoch and incarnation (the consistency token: nothing moves
 /// between two calls unless the agent moved it).
 fn tree_request<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
@@ -119,9 +120,18 @@ fn tree_request<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     let found = if let Some(id) = id {
         locate(id as u32)
     } else {
-        kernel
-            .find_first_by_test_id(name.as_deref().unwrap())
-            .and_then(|key| locate(kernel.node_by_key(key)?.id))
+        // The first match in preorder on a selected route; a covered
+        // screen's copy only when no active one carries the testId.
+        let located: Vec<_> = kernel
+            .find_by_test_id(name.as_deref().unwrap())
+            .into_iter()
+            .filter_map(|key| locate(kernel.node_by_key(key)?.id))
+            .collect();
+        located
+            .iter()
+            .copied()
+            .find(|(id, _)| !runner.inactive(*id))
+            .or_else(|| located.first().copied())
     };
     let Some((root, depth)) = found else {
         return error(&format!(
@@ -198,7 +208,11 @@ fn tree_rows<D: DataSource>(
             }
             quote(e.name(), &mut s);
         }
-        s.push_str("],\"children\":");
+        s.push(']');
+        if runner.inactive(node.id) {
+            s.push_str(",\"inactive\":true");
+        }
+        s.push_str(",\"children\":");
         ids(&node.children(), &mut s);
         s.push('}');
     }
@@ -428,6 +442,7 @@ fn row_json(v: RowValue<'_>, out: &mut String) {
             let _ = write!(out, "[{},{}]", num(v.x as f64), num(v.y as f64));
         }
         RowValue::ClipPath(p) => quote(&p.css(), out),
+        RowValue::AspectRatio(r) => quote(&r.css(), out),
         RowValue::ShapeOutside(p) => quote(&p.css(), out),
         RowValue::Transitions(_) => quote("(transition)", out),
         RowValue::Color2(_) | RowValue::Tracks(_) | RowValue::Placement(_) => quote("(grid)", out),
@@ -725,23 +740,35 @@ pub fn untyped_json(v: &Value, out: &mut String) {
 }
 
 /// Format a finite number as JSON, or `null`, without a temporary string.
-pub fn num(n: f64) -> impl std::fmt::Display {
-    struct Number(f64);
-    impl std::fmt::Display for Number {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            let n = self.0;
-            if n.is_finite() {
-                if n == n.trunc() && n.abs() < 1e15 {
-                    write!(f, "{}", n as i64)
-                } else {
-                    write!(f, "{n}")
-                }
-            } else {
-                f.write_str("null")
-            }
+pub fn num(n: f64) -> Num {
+    Num(n)
+}
+
+/// [`num`]'s number: a piece of `exact_num::text!` for the journal's lines,
+/// which skip `core::fmt`, and `Display` (the same text) for the agent's
+/// replies.
+pub struct Num(f64);
+
+impl std::fmt::Display for Num {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use exact_num::Piece;
+        let mut text = String::new();
+        self.push_to(&mut text);
+        f.write_str(&text)
+    }
+}
+
+impl exact_num::Piece for Num {
+    fn push_to(&self, out: &mut String) {
+        let n = self.0;
+        if !n.is_finite() {
+            out.push_str("null");
+        } else if n == n.trunc() && n.abs() < 1e15 {
+            (n as i64).push_to(out);
+        } else {
+            exact_num::Shortest(n).push_to(out);
         }
     }
-    Number(n)
 }
 
 /// A JSON string.

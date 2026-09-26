@@ -433,6 +433,11 @@ if (host === 'web') {
 }
 
 const s = await open({ host });
+// A web artifact's staged capabilities (LLP 1047.000 §9): the page boots
+// without them, and the first agent call loads inspection before it asks.
+const stages = async () => host === 'web' ? JSON.parse(await s.carrier.evaluate('JSON.stringify(exact.stages())')) : {};
+const staged = await stages();
+check(Object.values(staged).every((state) => state === 'staged'), `the page booted with a stage already loaded: ${JSON.stringify(staged)}`);
 let caltrainFixture = false;
 let deckFixture = false;
 let appCoversViewport = false;
@@ -442,6 +447,7 @@ try {
   // landmark its later steps need is required rather than silently skipped.
   let tree = await s.tree();
   check(tree.roots?.length > 0 && tree.nodes.length > 0, `${app.name} produced no live roots`);
+  if (staged.inspection) check((await stages()).inspection === 'loaded', 'the first agent call did not load the inspection stage');
   caltrainFixture = !!byTestId(tree, 'caltrain-main');
   deckFixture = !!byTestId(tree, 'deck-toggle');
   appCoversViewport = tree.nodes.find((n) => n.id === tree.roots[0])?.props.viewportFit === 'cover';
@@ -1053,6 +1059,14 @@ if (deckFixture) {
       } else {
         check(kb === 0 && note.y === noteBefore.y, `no software keyboard here: keyboard-inset-height ${kb}, the field at ${note.y} (was ${noteBefore.y})`);
         console.log(`${host} insets: env ${JSON.stringify(env)}; the viewport ${l.viewport.w}×${l.viewport.h}; no keyboard`);
+      }
+      // A finger lands only where the target is seen: the strip at the
+      // page's bottom is under the software keyboard, so the tap is refused,
+      // having pressed nothing and kept the editor and its keyboard.
+      if (host === 'ios') {
+        const under = await f.tap('under').then(() => null, (e) => e.message);
+        st = await f.state();
+        check(/under the software keyboard/.test(under ?? '') && st.slots.under === 0 && st.slots.focused === true && st.keyboard?.visible === true, `a tap under the keyboard is refused and changes nothing: ${under}, ${JSON.stringify(st.slots)}, keyboard ${JSON.stringify(st.keyboard)}`);
       }
       // A press stops at its button, before the enclosing key handler can
       // steal focus. This is the reaction-strip shape used by Messages.

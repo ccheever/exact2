@@ -73,19 +73,19 @@ impl ClipPath {
         if self.commands.is_empty() {
             return "none".into();
         }
-        let commands: Vec<_> = self
-            .commands
-            .iter()
-            .map(|(command, values)| {
-                let mut text = command.to_string();
-                for value in values {
-                    text.push(' ');
-                    text.push_str(&value.to_string());
-                }
-                text
-            })
-            .collect();
-        format!("path(\"{}\")", commands.join(" "))
+        use std::fmt::Write as _;
+        let mut text = String::from("path(\"");
+        for (i, (command, values)) in self.commands.iter().enumerate() {
+            if i > 0 {
+                text.push(' ');
+            }
+            text.push(*command);
+            for value in values {
+                let _ = write!(text, " {}", exact_num::Shortest32(*value));
+            }
+        }
+        text.push_str("\")");
+        text
     }
 }
 
@@ -125,6 +125,10 @@ mod tests {
     #[test]
     fn curves_round_trip_and_invalid_paths_are_refused() {
         let path = ClipPath::parse("path('M0,0 C0,10 5,18 20,18 Q14,15 14,0 Z')").unwrap();
+        assert_eq!(
+            path.css(),
+            "path(\"M 0 0 C 0 10 5 18 20 18 Q 14 15 14 0 Z\")"
+        );
         assert_eq!(ClipPath::parse(&path.css()), Some(path));
         assert_eq!(ClipPath::default().css(), "none");
         for bad in [

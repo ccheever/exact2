@@ -234,7 +234,11 @@ fn rejected_or_stale_feedback_never_transfers_session_pins() {
         let sites = crate::instance::SiteIndex::new(&h.plan);
         let mut u = Update::new(env(&h.plan, &h.slots), &sites, &mut h.ids);
         assert!(
-            !matches!(h.tree.update_collection(&mut u, f), Ok((true, _))),
+            !matches!(
+                h.tree
+                    .update_collection(&mut u, f, CollectionFill::default()),
+                Ok((true, _))
+            ),
             "variant {variant}"
         );
         assert!(

@@ -1005,6 +1005,7 @@ version = "0.1.0"
 name = "exact-plan"
 version = "0.1.0"
 dependencies = [
+ "exact-num",
  "serde",
  "serde_json",
  "sha2",
