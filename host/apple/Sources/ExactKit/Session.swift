@@ -950,7 +950,13 @@ final class Frames: NSObject {
         let previous = s.canvases.frameNow
         s.canvases.frameNow = frameNow
         defer { s.canvases.frameNow = previous }
-        if timerSoon, !ExactEnv.agentMode, s.clock == nil { s.apply(s.runtime.advance(now: s.now())) }
+        // Frame-precise timers: the first frame at or past the deadline fires
+        // them. A frame before it would advance to no timer, and its commit
+        // and presenter pass cost a list in motion a report a frame.
+        if timerSoon, !ExactEnv.agentMode, s.clock == nil {
+            let now = s.now()
+            if s.timerDue.map({ now >= $0 }) ?? true { s.apply(s.runtime.advance(now: now)) }
+        }
         if motion { s.apply(s.runtime.tick(now: s.now())) }
         let more = s.canvases.tick(now: frameNow)
         run(motion || timerSoon || more || s.canvases.wantsFrames || s.canvases.lifecycle.needsRetry)
