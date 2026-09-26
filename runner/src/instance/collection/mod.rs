@@ -77,7 +77,7 @@ pub(crate) struct Collection {
     index: HeightIndex,
     estimated_height: f64,
     bootstrap_rows: usize,
-    items: Rc<Vec<Value>>,
+    items: Rc<[Value]>,
     keys: Vec<Value>,
     /// Positions whose key repeats an earlier one, and which repeat.
     dups: BTreeMap<usize, u32>,
@@ -215,7 +215,7 @@ impl Collection {
             bootstrap_rows: ((BOOTSTRAP_ROWS as f64 * ESTIMATED_HEIGHT / estimated_height)
                 .ceil()
                 .clamp(1.0, BOOTSTRAP_ROWS as f64)) as usize,
-            items: Rc::new(Vec::new()),
+            items: Rc::from([]),
             keys: Vec::new(),
             dups: BTreeMap::new(),
             string_keys: true,

@@ -86,7 +86,7 @@ fn message(id: &str, i: usize, bump: f64) -> Value {
 
 /// The feed a source keeps: the rows it answered last, shared.
 struct Feed {
-    rows: Rc<Vec<Value>>,
+    rows: Rc<[Value]>,
     ticks: usize,
     /// The next tick answers one record of the wrong shape.
     bad: bool,
@@ -94,10 +94,10 @@ struct Feed {
 impl Feed {
     fn new() -> Self {
         Self {
-            rows: Rc::new(
+            rows: Rc::<[Value]>::from(
                 (0..COUNT)
                     .map(|i| message(&format!("m{i}"), i, 0.0))
-                    .collect(),
+                    .collect::<Vec<_>>(),
             ),
             ticks: 0,
             bad: false,
@@ -133,7 +133,7 @@ impl DataSource for Feed {
                 rows[at] = Value::record(fields);
                 return Ok(Value::record(vec![Value::list(rows)]));
             }
-            self.rows = Rc::new(rows);
+            self.rows = Rc::<[Value]>::from(rows);
         }
         Ok(self.feed())
     }

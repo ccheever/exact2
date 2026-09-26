@@ -52,7 +52,7 @@ fn fits(args: &[Value], value: &Value) -> bool {
             }
             Value::Unit | Value::Option(None) => (1, None),
             Value::Option(Some(v)) => (1, Some(std::slice::from_ref(v.as_ref()))),
-            Value::List(v) | Value::Record(v) => (5, Some(v.as_slice())),
+            Value::List(v) | Value::Record(v) => (5, Some(&v[..])),
         };
         let Some(left) = remaining.checked_sub(bytes) else {
             return false;

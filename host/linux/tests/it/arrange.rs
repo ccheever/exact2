@@ -6,22 +6,22 @@ use exact_runner::{DataError, DataSource, Value};
 use std::{path::PathBuf, rc::Rc};
 
 struct Rows {
-    rows: Rc<Vec<Value>>,
+    rows: Rc<[Value]>,
     calls: usize,
 }
 impl Rows {
     fn new(n: usize) -> Self {
         Self {
-            rows: Rc::new(
+            rows: Rc::<[Value]>::from(
                 (0..n)
                     .map(|i| {
-                        Value::Record(Rc::new(vec![
+                        Value::Record(Rc::from(vec![
                             Value::str(&i.to_string()),
                             Value::str(if i == 0 { "#ff0000" } else { "#0000ff" }),
                             Value::Number(40.),
                         ]))
                     })
-                    .collect(),
+                    .collect::<Vec<_>>(),
             ),
             calls: 0,
         }
@@ -31,7 +31,7 @@ impl DataSource for Rows {
     fn query(&mut self, name: &str, args: &[Value]) -> Result<Value, DataError> {
         self.calls += 1;
         if name == "removeFirst" {
-            self.rows = Rc::new(self.rows.iter().skip(1).cloned().collect());
+            self.rows = Rc::<[Value]>::from(self.rows.iter().skip(1).cloned().collect::<Vec<_>>());
         }
         if name == "move" {
             let key = |v: &Value| {
@@ -40,7 +40,7 @@ impl DataSource for Rows {
                 };
                 fields[0].as_str().unwrap().to_owned()
             };
-            let mut rows = self.rows.as_ref().clone();
+            let mut rows = self.rows.to_vec();
             let i = rows
                 .iter()
                 .position(|v| key(v) == args[0].as_str().unwrap())
@@ -54,7 +54,7 @@ impl DataSource for Rows {
                 .and_then(|b| rows.iter().position(|v| key(v) == b))
                 .unwrap_or(rows.len());
             rows.insert(at, item);
-            self.rows = Rc::new(rows);
+            self.rows = Rc::<[Value]>::from(rows);
         }
         Ok(Value::List(Rc::clone(&self.rows)))
     }

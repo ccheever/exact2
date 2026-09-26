@@ -343,7 +343,7 @@ fn malformed_shapes_and_fractional_ids_are_typed_refusals() {
     let mut r = boot(fixture::plan(&table()), "/");
     let before = r.slot("nav").unwrap().clone();
     let Value::Record(v) = &before else { panic!() };
-    let mut fields = v.as_ref().clone();
+    let mut fields = v.to_vec();
     fields[2] = Value::Number(0.5);
     assert!(matches!(
         r.act("set", vec![Value::record(fields)]),
@@ -702,7 +702,7 @@ fn a_refused_navigation_does_not_carry_its_refresh_into_the_next_commit() {
     let Some(Value::Record(fields)) = r.slot("nav").cloned() else {
         panic!("router record")
     };
-    let mut forged = fields.as_ref().clone();
+    let mut forged = fields.to_vec();
     forged[2] = Value::Number(0.);
     assert!(matches!(
         r.act("refreshAndSet", vec![Value::record(forged)]),

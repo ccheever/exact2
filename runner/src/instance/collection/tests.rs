@@ -1074,7 +1074,7 @@ fn key_reuse_items(h: &Harness) -> Vec<Value> {
     let Value::List(items) = &h.slots[0] else {
         panic!("list fixture")
     };
-    items.as_ref().clone()
+    items.to_vec()
 }
 
 #[test]

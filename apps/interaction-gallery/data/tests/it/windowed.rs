@@ -21,7 +21,7 @@ fn press(r: &mut Runner<Gallery>, name: &str) {
     let id = r.kernel().node_by_key(keys[0]).unwrap().id;
     r.dispatch(id, Event::Press).unwrap();
 }
-fn rows(r: &Runner<Gallery>) -> Rc<Vec<Value>> {
+fn rows(r: &Runner<Gallery>) -> Rc<[Value]> {
     let Value::List(rows) = r.resource("rows").expect("separate stable row resource") else {
         panic!("rows must be a list")
     };

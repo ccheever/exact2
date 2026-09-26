@@ -58,7 +58,7 @@ fn press(r: &mut Runner<Counted>, name: &str) {
     let id = r.kernel().node_by_key(key(r, name)).unwrap().id;
     r.dispatch(id, Event::Press).unwrap();
 }
-fn rows(r: &Runner<Counted>) -> Rc<Vec<Value>> {
+fn rows(r: &Runner<Counted>) -> Rc<[Value]> {
     let Value::List(rows) = r.resource("rows").unwrap() else {
         panic!("rows")
     };

@@ -100,7 +100,7 @@ fn close_to(actual: [f64; 3], expected: [f64; 3]) {
     }
 }
 
-fn rows(r: &Runner<CountedGallery>) -> Rc<Vec<Value>> {
+fn rows(r: &Runner<CountedGallery>) -> Rc<[Value]> {
     let Value::List(rows) = r.resource("rows").unwrap() else {
         panic!("row resource")
     };

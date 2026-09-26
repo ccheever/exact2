@@ -223,7 +223,9 @@ struct Extents(exact_kernel::id::IdMap<usize, (Value, Extent)>);
 impl Extents {
     fn key(v: &Value) -> Option<usize> {
         match v {
-            Value::List(items) | Value::Record(items) => Some(Rc::as_ptr(items) as usize),
+            Value::List(items) | Value::Record(items) => {
+                Some(Rc::as_ptr(items).cast::<()>() as usize)
+            }
             Value::Option(Some(inner)) => Some(Rc::as_ptr(inner) as usize),
             _ => None,
         }

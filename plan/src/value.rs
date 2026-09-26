@@ -25,9 +25,9 @@ pub enum Value {
     /// `none` or `some(v)`.
     Option(Option<Rc<Value>>),
     /// An ordered list.
-    List(Rc<Vec<Value>>),
+    List(Rc<[Value]>),
     /// A record; fields by position per its type.
-    Record(Rc<Vec<Value>>),
+    Record(Rc<[Value]>),
 }
 
 /// The derived text, with the number printed by exact-num (LLP 1047 §6).
@@ -71,12 +71,12 @@ impl Value {
 
     /// A record from its fields in order.
     pub fn record(fields: Vec<Value>) -> Value {
-        Value::Record(Rc::new(fields))
+        Value::Record(Rc::from(fields))
     }
 
     /// A list.
     pub fn list(items: Vec<Value>) -> Value {
-        Value::List(Rc::new(items))
+        Value::List(Rc::from(items))
     }
 
     /// The number, if it is one.
@@ -192,7 +192,11 @@ impl Value {
         Ok(v)
     }
 
-    fn decode_depth(r: &mut Reader<'_>, depth: u32, strings: &mut Strings) -> Result<Value, PlanError> {
+    fn decode_depth(
+        r: &mut Reader<'_>,
+        depth: u32,
+        strings: &mut Strings,
+    ) -> Result<Value, PlanError> {
         if depth > 64 {
             return Err(PlanError::ValueTooDeep);
         }
@@ -215,7 +219,7 @@ impl Value {
                 for _ in 0..n {
                     items.push(Self::decode_depth(r, depth + 1, strings)?);
                 }
-                Value::List(Rc::new(items))
+                Value::List(Rc::from(items))
             }
             7 => {
                 let n = r.count()?;
@@ -223,7 +227,7 @@ impl Value {
                 for _ in 0..n {
                     fields.push(Self::decode_depth(r, depth + 1, strings)?);
                 }
-                Value::Record(Rc::new(fields))
+                Value::Record(Rc::from(fields))
             }
             tag => return Err(PlanError::UnknownValueTag(tag)),
         })
@@ -342,8 +346,8 @@ mod debug_tests {
             Value::Option(None),
             Value::Option(Some(Rc::new(Value::Number(0.5)))),
         ]);
-        let list = Value::List(Rc::new(values.clone()));
-        values.push(Value::Record(Rc::new(vec![
+        let list = Value::List(Rc::from(values.clone()));
+        values.push(Value::Record(Rc::from(vec![
             list.clone(),
             Value::Number(-1e-7),
         ])));
@@ -361,7 +365,9 @@ mod decode_tests {
     use std::rc::Rc;
 
     fn strs(v: &Value) -> Vec<Rc<str>> {
-        let Value::List(items) = v else { panic!("a list") };
+        let Value::List(items) = v else {
+            panic!("a list")
+        };
         items
             .iter()
             .map(|v| match v {
@@ -379,13 +385,13 @@ mod decode_tests {
         let items: Vec<Value> = (0..200)
             .map(|i| Value::str(if i % 2 == 0 { "bold" } else { &long }))
             .collect();
-        let big = Value::List(Rc::new(items));
+        let big = Value::List(Rc::from(items));
         let decoded = Value::from_bytes(&big.to_bytes()).unwrap();
         assert_eq!(decoded, big);
         let s = strs(&decoded);
         assert!(Rc::ptr_eq(&s[198], &s[196]), "late repeats share");
         assert!(!Rc::ptr_eq(&s[199], &s[197]), "long strings stay separate");
-        let small = Value::List(Rc::new(vec![Value::str("bold"), Value::str("bold")]));
+        let small = Value::List(Rc::from(vec![Value::str("bold"), Value::str("bold")]));
         let s = strs(&Value::from_bytes(&small.to_bytes()).unwrap());
         assert!(!Rc::ptr_eq(&s[0], &s[1]), "a small value makes no table");
     }
