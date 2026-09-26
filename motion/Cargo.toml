@@ -11,7 +11,7 @@ name = "exact-motion"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Motion evaluator: CSS transitions, a spring, and a seekable clock"
+description = "Motion evaluator: CSS transitions and keyframe animations, a spring, and a seekable clock"
 publish = false
 
 [lib]

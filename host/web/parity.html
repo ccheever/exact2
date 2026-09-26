@@ -37,7 +37,15 @@ try {
       }
       getComputedStyle(el)[c.property];
     };
-    if (c.frames) {
+    if (c.animation) {
+      // Keyframes: the host's rules and declaration, started at zero over
+      // the initial value.
+      const sheet = document.head.appendChild(document.createElement("style")).sheet;
+      for (const rule of c.rules) sheet.insertRule(rule, sheet.cssRules.length);
+      el.style.animation = c.animation;
+      getComputedStyle(el)[c.property];
+      for (const a of el.getAnimations()) { a.pause(); a.currentTime = 0; created.set(a, 0); }
+    } else if (c.frames) {
       // A spring: the frames the engine lowered, played as the glue plays them.
       const step = c.steps[0];
       const a = el.animate(c.frames.map((v) => ({ [c.property]: css(c.property, v) })), { duration: c.duration, easing: "linear", fill: "forwards" });

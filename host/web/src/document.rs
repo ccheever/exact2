@@ -52,6 +52,9 @@ pub struct Document {
     /// The active head's fields: the page's `<head>` (LLP 1048.003 D1). A
     /// head node has no element in the root.
     pub head: exact_runner::Head,
+    /// Every `@keyframes` rule an element's `animation` names, once each
+    /// (LLP 1057 D5), for the head: a reader without JavaScript sees it play.
+    pub keyframes: String,
 }
 
 /// Why a tree has no document.
@@ -105,6 +108,7 @@ fn walk<D: DataSource>(
         fonts: font_names(runner.plan()),
         handlers: runner.handlers(),
         routes: SortedMap::new(),
+        keyframes: SortedMap::new(),
         out: String::new(),
         links: 0,
         buttons: 0,
@@ -125,6 +129,7 @@ fn walk<D: DataSource>(
         viewport_fit: prop(PropId::ViewportFit),
         interactive_widget: prop(PropId::InteractiveWidget),
         head: runner.head(),
+        keyframes: walk.keyframes.values().map(String::as_str).collect(),
     };
     Ok((document, walk.computed))
 }
@@ -149,6 +154,7 @@ struct Walk<'r, D: DataSource> {
     fonts: Vec<String>,
     handlers: SortedMap<ViewId, Vec<EventKind>>,
     routes: SortedMap<ViewId, Route>,
+    keyframes: SortedMap<String, String>,
     out: String,
     /// Open `a` and `button` elements: the parser closes an open one when a
     /// second starts inside it, and a button's containers are `<span>`s.
@@ -177,6 +183,9 @@ impl<D: DataSource> Walk<'_, D> {
         }
         let props = props_for(&node);
         let (text, _) = css::css_text(node.style, &self.fonts);
+        for (name, rule) in css::keyframes_rules(node.style) {
+            self.keyframes.insert(name, rule);
+        }
         let mut style = host_css(&node, text, tag);
         let kept = self.computed.is_some().then(|| style.clone());
         // `glue.js` create: a canvas is a `div` holding the surface element.

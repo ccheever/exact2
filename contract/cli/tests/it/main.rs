@@ -22,6 +22,7 @@ mod height_binding;
 mod insets;
 mod instance;
 mod instance_work;
+mod keyframes;
 mod lint;
 mod markdown_editing;
 mod mutation;

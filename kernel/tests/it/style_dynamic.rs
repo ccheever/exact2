@@ -550,6 +550,7 @@ fn every_row_writes_its_own_field_and_no_other() {
         StyleValue::Text("circle(50%)".into()),
         StyleValue::Text("12px".into()),
         StyleValue::Text("path(\"M 0 0 L 10 0 L 10 10 Z\")".into()),
+        StyleValue::Text("k 1s @keyframes k{to{opacity:0}}".into()),
     ];
     let mut unwritten = Vec::new();
     let base = StyleProps::default();

@@ -515,7 +515,10 @@ impl Motion for Springs {
         let seek = self.engine.advance(now);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
         for receipt in receipts {
-            let sync = kernel.motion_sync(receipt);
+            let mut sync = kernel.motion_sync(receipt);
+            // The browser plays `animation` from CSS (LLP 1057 D5); this
+            // engine only lowers springs and holds.
+            sync.animations.clear();
             // Engine::remove also erases dirty entries, so frame() will never
             // mention these nodes again. Retire ownership directly, without
             // scanning springs belonging to other mounted rows.

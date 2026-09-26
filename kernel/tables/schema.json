@@ -1627,9 +1627,30 @@
       "field": "scroll_behavior",
       "codec": "enum:ScrollBehavior",
       "_comment": "CSS `scroll-behavior`: `smooth` animates a scrollTop/scrollLeft prop write on every host; a user's own scroll is never affected."
+    },
+    {
+      "bit": 100,
+      "field": "reserved_100",
+      "codec": "u8",
+      "default": 0,
+      "_comment": "Holds bit 100 for text-transform (seth/m9-shadow-text) so bits stay dense on this branch; that row replaces this one when both land. Nothing sets it."
+    },
+    {
+      "bit": 101,
+      "field": "reserved_101",
+      "codec": "u8",
+      "default": 0,
+      "_comment": "Holds bit 101 for background-image (seth/m9-gradient) so bits stay dense on this branch; that row replaces this one when both land. Nothing sets it."
+    },
+    {
+      "bit": 102,
+      "field": "animation",
+      "codec": "animations",
+      "_comment": "@ref LLP 1057: CSS `animation`, its @keyframes resolved by the compiler. Grammar: `_animations`."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, 1 translate, 2 scale, 3 rotate, 4 opacity), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
+  "_animations": "The `animation` row is CSS `animation` with its keyframes resolved (LLP 1057): count u8 (\u22648), then per animation name string, duration f32 s, delay f32 s, easing (the `_transitions` easing, spring refused), iterations f32 (+inf is `infinite`), direction u8 (0 normal, 1 reverse, 2 alternate, 3 alternate-reverse), fill u8 (0 none, 1 forwards, 2 backwards, 3 both), play-state u8 (0 running, 1 paused), keyframe count u8 (\u226432), then per keyframe offset f32, easing flag u8 (0 the animation's, 1 an easing follows), value count u8, then per value property u8 (0 translate, 1 scale, 2 rotate, 3 opacity), x f32, y f32. Its Rust type lives in exact-motion; the kernel owns the bytes.",
   "_opcodes": "The closed wire-visible op list for EXWF frame revision 1. There is no op count on the wire; consumers iterate by validated lengths.",
   "opcodes": [
     {

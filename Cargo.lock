@@ -385,6 +385,7 @@ dependencies = [
  "contract-syntax",
  "contract-types",
  "exact-kernel",
+ "exact-motion",
  "exact-plan",
  "exact-runner",
  "serde_json",
@@ -407,6 +408,7 @@ dependencies = [
  "contract-syntax",
  "contract-types",
  "exact-kernel",
+ "exact-motion",
  "exact-plan",
 ]
 

@@ -307,6 +307,8 @@ addEventListener("resize", () => {
   requestAnimationFrame(positionContexts);
 });
 visualViewport?.addEventListener("resize", () => requestAnimationFrame(positionContexts));
+const keyframesSheet = document.head.appendChild(document.createElement("style")), keyframeNames = new Set(); // `@keyframes` named by content, each inserted once, kept across a restart (LLP 1057 D5)
+function keyframes(op) { if (!keyframeNames.has(op.name)) { keyframeNames.add(op.name); keyframesSheet.sheet.insertRule(op.css, keyframesSheet.sheet.cssRules.length); } }
 const symbolStyle = document.createElement("style");
 symbolStyle.textContent = 'img[data-symbol-path]{background-color:var(--exact-symbol-tint,#000)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,100% 100%);mask-origin:content-box;mask-clip:content-box}';
 document.head.append(symbolStyle);
@@ -553,6 +555,7 @@ function apply(batch) {
       case "textflow": break; // consumed once after the complete DOM batch
       case "head": (headGlue ??= loadAfterPaint('./document-glue.js', 'documentHead')).then(head => head(op)); break;
       case "router": navigation.apply(op); break;
+      case "keyframes": keyframes(op); break;
       case "create": {
         // Canvas overlays use a div; data-surface is the host-owned drawing leaf.
         const el = page?.adopting?.get(op.id) ?? document.createElement(op.tag === "canvas" ? "div" : op.tag); // an adopted document's element (LLP 1048.000 D6)
@@ -1099,9 +1102,9 @@ function settleCandidate() {
   let to = agentClock;
   const s = ask({ op: "settle" }).settle;
   if (s != null) to = Math.max(to, s);
-  for (const a of document.getAnimations()) {
+  for (const a of document.getAnimations()) { // an `infinite` one never ends and is not waited for (LLP 1057 D6)
     const timing = a.effect?.getComputedTiming();
-    if (timing) to = Math.max(to, (starts.get(a) ?? agentClock) + timing.endTime);
+    if (timing && Number.isFinite(timing.endTime)) to = Math.max(to, (starts.get(a) ?? agentClock) + timing.endTime);
   }
   return to;
 }

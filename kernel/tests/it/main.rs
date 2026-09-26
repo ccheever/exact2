@@ -1,5 +1,6 @@
 //! The kernel's integration tests: one binary, so one link and one launch.
 
+mod animation;
 mod apply;
 mod browser_cases;
 mod browser_flex;

@@ -5,6 +5,8 @@
 //! that are not one CSS property each are listed here by hand)
 //! @ref LLP 1002 D2 (`transition` as CSS; a spring is the one declared
 //! deviation and is not emitted as CSS)
+//! @ref LLP 1057 D5 (`animation` as CSS: the declaration here, its
+//! `@keyframes` rule through [`keyframes_rules`] into the page's sheet)
 //!
 //! Every set row of a node becomes one declaration, read through the
 //! kernel's generated `StyleProps::get`, so a row added to `schema.json`
@@ -15,7 +17,7 @@
 use exact_kernel::style::ColorValue;
 use exact_kernel::{Color, Dimension, Display, Overflow, RowValue, StyleId, StyleProps};
 use exact_motion::{
-    Easing, StepPosition, TimingFunction, Transition, TransitionProperty, Transitions,
+    Animations, Easing, Keyframes, TimingFunction, Transition, TransitionProperty, Transitions,
 };
 use exact_num::{push_text, Piece, Shortest32};
 use std::fmt::Write as _;
@@ -79,6 +81,18 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                         row: id,
                         reason: "spring transitions are lowered to keyframes by the host, not to CSS `transition`",
                     });
+                }
+            }
+            (StyleId::Animation, RowValue::Animations(a)) => {
+                if !a.0.is_empty() {
+                    out.push_str("animation:");
+                    for (i, animation) in a.0.iter().enumerate() {
+                        if i > 0 {
+                            out.push(',');
+                        }
+                        out.push_str(&animation.css(&keyframes_name(&animation.keyframes)));
+                    }
+                    out.push(';');
                 }
             }
             (StyleId::FontFamily, RowValue::Number(index)) => {
@@ -218,7 +232,8 @@ fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
         RowValue::Color2(_)
         | RowValue::Tracks(_)
         | RowValue::Placement(_)
-        | RowValue::Transitions(_) => false,
+        | RowValue::Transitions(_)
+        | RowValue::Animations(_) => false,
         _ => true,
     }
 }
@@ -310,7 +325,8 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         RowValue::Color2(_)
         | RowValue::Tracks(_)
         | RowValue::Placement(_)
-        | RowValue::Transitions(_) => {}
+        | RowValue::Transitions(_)
+        | RowValue::Animations(_) => {}
     }
 }
 
@@ -348,45 +364,44 @@ fn transition_property(tr: &Transition) -> &'static str {
 
 /// A CSS `<easing-function>` from the motion crate's spelling.
 pub fn easing_css(e: &Easing) -> String {
-    match e {
-        Easing::Linear => "linear".into(),
-        Easing::Ease => "ease".into(),
-        Easing::EaseIn => "ease-in".into(),
-        Easing::EaseOut => "ease-out".into(),
-        Easing::EaseInOut => "ease-in-out".into(),
-        Easing::CubicBezier { x1, y1, x2, y2 } => format!(
-            "cubic-bezier({},{},{},{})",
-            num(*x1 as f32),
-            num(*y1 as f32),
-            num(*x2 as f32),
-            num(*y2 as f32)
-        ),
-        Easing::Steps { count, position } => format!(
-            "steps({count},{})",
-            match position {
-                StepPosition::JumpStart => "jump-start",
-                StepPosition::JumpEnd => "jump-end",
-                StepPosition::JumpNone => "jump-none",
-                StepPosition::JumpBoth => "jump-both",
-            }
-        ),
-        Easing::PiecewiseLinear(stops) => {
-            let mut text = String::from("linear(");
-            for (i, s) in stops.iter().enumerate() {
-                if i > 0 {
-                    text.push(',');
-                }
-                let _ = write!(
-                    text,
-                    "{} {}%",
-                    num(s.output as f32),
-                    num((s.input * 100.0) as f32)
-                );
-            }
-            text.push(')');
-            text
-        }
+    e.css()
+}
+
+/// The page's name for a keyframes list: the authored name and a hash of
+/// the rule, so two lists never share a name and one list always has the
+/// same one — the page inserts each rule once, and an unchanged list keeps
+/// its name, so its animation never restarts.
+pub fn keyframes_name(keyframes: &Keyframes) -> String {
+    // FNV-1a: stable across builds and platforms, unlike `DefaultHasher`.
+    let mut hash: u32 = 0x811c_9dc5;
+    for byte in keyframes.rule(&keyframes.name).bytes() {
+        hash = (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193);
     }
+    let mut name = keyframes.name.clone();
+    name.push('-');
+    for shift in (0..8).rev() {
+        name.push(char::from(
+            b"0123456789abcdef"[(hash >> (shift * 4)) as usize & 15],
+        ));
+    }
+    name
+}
+
+/// Each `@keyframes` rule a style's `animation` row plays, as the page names
+/// it: `(name, rule)`. A host inserts each name's rule once, before the
+/// declaration that uses it.
+pub fn keyframes_rules(style: &StyleProps) -> Vec<(String, String)> {
+    let Animations(list) = &style.animation;
+    if !style.mask.has(StyleId::Animation) {
+        return Vec::new();
+    }
+    list.iter()
+        .map(|a| {
+            let name = keyframes_name(&a.keyframes);
+            let rule = a.keyframes.rule(&name);
+            (name, rule)
+        })
+        .collect()
 }
 
 fn dimension(out: &mut String, d: Dimension) {

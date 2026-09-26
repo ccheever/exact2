@@ -206,6 +206,7 @@ impl Loader<'_> {
             fonts: declarations!(fonts),
             shapes: declarations!(shapes),
             styles: declarations!(styles),
+            keyframes: declarations!(keyframes),
             fns: declarations!(fns),
             components: declarations!(components),
         }
@@ -238,6 +239,7 @@ fn check_use_name(u: &UseDecl, exports: &Exports, files: &[File]) -> Result<(), 
         choices!(components, "components");
         choices!(shapes, "shapes");
         choices!(styles, "styles");
+        choices!(keyframes, "keyframes");
         choices!(fns, "functions");
         let available = if choices.is_empty() {
             "this file exports no components, shapes, styles, or functions".to_owned()
@@ -301,6 +303,7 @@ struct Exports {
     fonts: Vec<Declaration>,
     shapes: Vec<Declaration>,
     styles: Vec<Declaration>,
+    keyframes: Vec<Declaration>,
     fns: Vec<Declaration>,
     components: Vec<Declaration>,
 }
@@ -311,6 +314,7 @@ impl Exports {
             fonts: indices(file.fonts.len()),
             shapes: indices(file.shapes.len()),
             styles: indices(file.styles.len()),
+            keyframes: indices(file.keyframes.len()),
             fns: indices(file.fns.len()),
             components: indices(file.components.len()),
         }
@@ -328,6 +332,10 @@ impl Exports {
                 .styles
                 .iter()
                 .any(|&(s, i)| files[s].styles[i].name == name)
+            || self
+                .keyframes
+                .iter()
+                .any(|&(s, i)| files[s].keyframes[i].name == name)
             || self.fns.iter().any(|&(s, i)| files[s].fns[i].name == name)
     }
 
@@ -348,6 +356,7 @@ impl Exports {
         merge!(fonts, "font");
         merge!(shapes, "shape");
         merge!(styles, "style");
+        merge!(keyframes, "keyframes");
         merge!(fns, "fn");
         merge!(components, "component");
         Ok(())

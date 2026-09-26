@@ -93,7 +93,7 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
                 _ => format!("\"{}\"", v.css()),
             },
             RowValue::Number(n) => num(n as f32),
-            RowValue::Transitions(_) => continue, // the engine's, not the presenter's
+            RowValue::Transitions(_) | RowValue::Animations(_) => continue, // the engine's, not the presenter's
             RowValue::Color2(_) | RowValue::Tracks(_) | RowValue::Placement(_) => {
                 skipped.push(Skipped {
                     row: id,

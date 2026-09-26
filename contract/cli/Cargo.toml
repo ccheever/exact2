@@ -28,3 +28,6 @@ exact-runner = { path = "../../runner" }
 # The app manifest, diagnostics and source maps as JSON; plan digests.
 serde_json = "1.0"
 sha2 = "0.10"
+
+[dev-dependencies]
+exact-motion = { path = "../../motion" }

@@ -373,6 +373,10 @@ impl Color {
 /// kernel owns the bytes (`wire::codec`); the engine owns the semantics.
 pub use exact_motion::Transitions;
 
+/// The `animation` row's type: CSS `animation` with its keyframes resolved,
+/// owned by `exact-motion` like [`Transitions`] (LLP 1057).
+pub use exact_motion::Animations;
+
 /// An untyped style value from a producer that resolves rows by id — a plan
 /// runner, a compiler lowering a literal, a TypeScript encoder. Exactly one
 /// place turns it into a row: the generated `StyleProps::set_dynamic`.
@@ -808,6 +812,8 @@ pub enum RowValue<'a> {
     Placement(GridPlacement),
     /// The `transition` row.
     Transitions(&'a Transitions),
+    /// The `animation` row.
+    Animations(&'a Animations),
 }
 
 impl RowValue<'_> {
@@ -821,6 +827,7 @@ impl RowValue<'_> {
             RowValue::Vec2(v) => v.x.is_finite() && v.y.is_finite(),
             RowValue::Tracks(v) => v.is_finite(),
             RowValue::Transitions(v) => v.is_finite(),
+            RowValue::Animations(v) => v.is_finite(),
             RowValue::ClipPath(_)
             | RowValue::ShapeOutside(_)
             | RowValue::AspectRatio(_)

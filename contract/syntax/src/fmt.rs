@@ -63,6 +63,8 @@ struct Layout<'a> {
     levels: Vec<usize>,
     attributes: BTreeSet<Span>,
     type_angles: BTreeSet<Span>,
+    /// A keyframe selector's `%`, which stays against its number: `50%`.
+    percents: BTreeSet<Span>,
     breaks: BTreeMap<Span, usize>,
     opaque: BTreeMap<usize, usize>,
 }
@@ -149,6 +151,7 @@ impl<'a> Layout<'a> {
             levels,
             attributes: BTreeSet::new(),
             type_angles: BTreeSet::new(),
+            percents: BTreeSet::new(),
             breaks: BTreeMap::new(),
             opaque,
         }
@@ -177,6 +180,18 @@ impl<'a> Layout<'a> {
         }
         for style in &file.styles {
             self.attributes.extend(style.attrs.iter().map(|a| a.span));
+        }
+        for block in file.keyframes.iter().flat_map(|k| &k.blocks) {
+            self.attributes.extend(block.attrs.iter().map(|a| a.span));
+            let start = self.position(block.span).unwrap();
+            let selector = self.tokens[start..]
+                .iter()
+                .take_while(|t| !matches!(t.kind, TokenKind::Newline | TokenKind::Eof));
+            self.percents.extend(
+                selector
+                    .filter(|t| t.kind == TokenKind::Punct("%"))
+                    .map(|t| t.span),
+            );
         }
         for component in &file.components {
             for ty in component
@@ -356,6 +371,7 @@ impl<'a> Layout<'a> {
             let tight = attr_equals
                 || after_attr_equals
                 || self.type_angles.contains(&token.span)
+                || self.percents.contains(&token.span)
                 || (a == "<" && self.type_angles.contains(&previous.span))
                 || matches!(b, ")" | "]" | ",")
                 || matches!(a, "(" | "[")

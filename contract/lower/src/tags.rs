@@ -506,6 +506,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "scroll-behavior" => styles(&[StyleId::ScrollBehavior]),
         "z-index" => styles(&[StyleId::ZIndex]),
         "transition" => styles(&[StyleId::Transition]),
+        // @ref LLP 1057 — its keyframes resolve at compile time (`keyframes.rs`).
+        "animation" => styles(&[StyleId::Animation]),
         "interpolate-size" => styles(&[StyleId::InterpolateSize]),
         "translate" => styles(&[StyleId::Translate]),
         "scale" => styles(&[StyleId::Scale]),

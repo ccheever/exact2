@@ -382,6 +382,13 @@ impl Parser {
                 }
                 TokenKind::Ident(w) if w == "shape" => file.shapes.push(self.shape()?),
                 TokenKind::Ident(w) if w == "style" => file.styles.push(self.style()?),
+                TokenKind::Ident(w) if w == "keyframes" => {
+                    let decl = self.keyframes_decl()?;
+                    if let Some(first) = file.keyframes.iter().find(|k| k.name == decl.name) {
+                        return duplicate("keyframes", &decl.name, decl.span, first.span);
+                    }
+                    file.keyframes.push(decl);
+                }
                 TokenKind::Ident(w) if w == "fn" => file.fns.push(self.fn_decl()?),
                 TokenKind::Ident(w) if w == "test" => file.tests.push(self.test_decl()?),
                 TokenKind::Ident(w) if w == "component" => {
@@ -400,7 +407,7 @@ impl Parser {
                     return self.err(
                         "syntax-expected-declaration",
                         format!(
-                        "expected `routes`, `font`, `shape`, `style`, `fn`, `use`, or `component`, found {}",
+                        "expected `routes`, `font`, `shape`, `style`, `keyframes`, `fn`, `use`, or `component`, found {}",
                         describe(other)
                     ),
                     )
@@ -483,6 +490,13 @@ impl Parser {
         let span = self.expect_word("style")?;
         let name = self.named_ident(span)?;
         self.newline()?;
+        let attrs = self.literal_attrs(&format!("style {name}"))?;
+        Ok(StyleDecl { name, attrs, span })
+    }
+
+    /// An indented block of `attr=literal` lines, several to a line, each
+    /// name once: the body of a `style` or of a keyframe.
+    fn literal_attrs(&mut self, owner: &str) -> R<Vec<Attr>> {
         let lines = self.block(|p| {
             let mut attrs = Vec::new();
             while !matches!(p.peek_kind(), TokenKind::Newline | TokenKind::Eof) {
@@ -491,7 +505,7 @@ impl Parser {
                     (other, _) => {
                         return p.err(
                             "syntax-expected-attr",
-                            format!("expected `attr=literal` in a style, found {}", describe(&other)),
+                            format!("expected `attr=literal` in `{owner}`, found {}", describe(&other)),
                         )
                     }
                 };
@@ -508,7 +522,7 @@ impl Parser {
                 if !matches!(value, Expr::Number(..) | Expr::Str(..) | Expr::Bool(..)) {
                     return Err(SyntaxError {
                         id: "contract-style-literal",
-                        message: format!("`{aname}` in `style {name}` must be a literal: a style is constant, and a node's own attribute may compute"),
+                        message: format!("`{aname}` in `{owner}` must be a literal: a style is constant, and a node's own attribute may compute"),
                         span: aspan,
                     });
                 }
@@ -526,12 +540,55 @@ impl Parser {
             if attrs[..index].iter().any(|prior| prior.name == attr.name) {
                 return Err(SyntaxError {
                     id: "syntax-duplicate-attr",
-                    message: format!("attribute `{}` appears twice in `style {name}`", attr.name),
+                    message: format!("attribute `{}` appears twice in `{owner}`", attr.name),
                     span: attr.span,
                 });
             }
         }
-        Ok(StyleDecl { name, attrs, span })
+        Ok(attrs)
+    }
+
+    /// `keyframes Name`, then keyframe blocks: a selector line — `from`,
+    /// `to`, `50%`, or several with commas — over lines of `attr=literal`.
+    /// CSS's `@keyframes`, indented instead of braced (LLP 1057 D1).
+    fn keyframes_decl(&mut self) -> R<KeyframesDecl> {
+        let span = self.expect_word("keyframes")?;
+        let name = self.named_ident(span)?;
+        self.newline()?;
+        let owner = format!("keyframes {name}");
+        let blocks = self.required_block(span, "keyframes", |p| {
+            let span = p.peek().span;
+            let mut offsets = Vec::new();
+            loop {
+                let offset = match p.peek_kind().clone() {
+                    TokenKind::Ident(w) if w == "from" => 0.0,
+                    TokenKind::Ident(w) if w == "to" => 100.0,
+                    TokenKind::Number(n) if matches!(p.peek2(), TokenKind::Punct("%")) => {
+                        p.next();
+                        n
+                    }
+                    other => {
+                        return p.err(
+                            "syntax-expected-keyframe",
+                            format!("expected a keyframe selector — `from`, `to`, or a percentage like `50%` — found {}", describe(&other)),
+                        )
+                    }
+                };
+                p.next();
+                offsets.push(offset);
+                if !p.eat_punct(",") {
+                    break;
+                }
+            }
+            p.newline()?;
+            let attrs = p.literal_attrs(&owner)?;
+            Ok(KeyframeDecl {
+                offsets,
+                attrs,
+                span,
+            })
+        })?;
+        Ok(KeyframesDecl { name, blocks, span })
     }
 
     fn shape(&mut self) -> R<ShapeDecl> {
