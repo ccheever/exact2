@@ -2,6 +2,7 @@
 //! @ref LLP 1010 §6 / LLP 1041 §8. No historical instance or row-state cache.
 mod api;
 mod index;
+mod rekey;
 mod reorder;
 mod reorder_api;
 #[cfg(test)]
@@ -275,71 +276,21 @@ impl Collection {
                 });
             };
             let compare_previous = !fresh && items.len() == self.items.len();
-            let reuse_items = compare_previous && !keys_stale;
-            // No candidate N-vector or canonical strings until an actual key
-            // mismatch. All equal results reuse the existing uniqueness proof.
-            let mut changed = !compare_previous;
-            let mut keys = Vec::new();
-            let mut text_keys = Vec::new();
-            if changed {
-                keys.reserve(items.len());
-                text_keys.reserve(items.len());
-            }
-            let mut unique = std::collections::BTreeSet::new();
-            let mut dups = BTreeMap::new();
-            let mut inner = frames.to_vec();
-            inner.push(Frame::default());
-            for (position, item) in items.iter().enumerate() {
-                let key = if reuse_items && crate::compare::same(item, &self.items[position]) {
-                    if !changed {
-                        continue;
-                    }
-                    self.keys[position].clone()
-                } else {
-                    u.work.rows_keyed += 1;
-                    inner.last_mut().unwrap().item = Some(item.clone());
-                    u.eval(descriptor.key, &inner)?
-                };
-                if !changed && same_key(&key, &self.keys[position]) {
-                    continue;
-                }
-                if !changed {
-                    // Seed only the already-validated prefix. Checking each
-                    // following row now preserves duplicate-before-later-trap.
-                    keys.reserve(items.len());
-                    text_keys.reserve(items.len());
-                    for prefix in 0..position {
-                        let text = self.index.key(prefix).unwrap().to_owned();
-                        unique.insert(text.clone());
-                        text_keys.push(text);
-                        keys.push(self.keys[prefix].clone());
-                    }
-                    dups.extend(self.dups.range(..position).map(|(p, d)| (*p, *d)));
-                    changed = true;
-                }
-                let text = key_text(&key).ok_or(InstanceError::KeyKind {
-                    region: self.region,
-                })?;
-                // A repeated key is the data's error: the repeat takes the
-                // next identity in order (as an `each` does).
-                let mut dup = 0;
-                let mut ident = text.clone();
-                while unique.contains(&ident) {
-                    dup += 1;
-                    ident = super::disambiguate(text.clone(), dup);
-                }
-                unique.insert(ident.clone());
-                if dup > 0 {
-                    dups.insert(position, dup);
-                }
-                keys.push(key);
-                text_keys.push(ident);
-            }
-            if changed {
-                self.index.replace_keys(text_keys).map_err(index_error)?;
-                self.string_keys = keys.iter().all(|key| key.as_str().is_some());
-                self.keys = keys;
-                self.dups = dups;
+            // A different length with the same key inputs: keep the keys of
+            // the items that are the same objects, key the rest.
+            let shared = !fresh
+                && !keys_stale
+                && !compare_previous
+                && self.rekey_shared(u, frames, descriptor.key, &items)?;
+            if !shared {
+                self.rekey_full(
+                    u,
+                    frames,
+                    descriptor.key,
+                    &items,
+                    compare_previous,
+                    keys_stale,
+                )?;
             }
             self.items = items;
         }
@@ -354,6 +305,85 @@ impl Collection {
         self.realize_window(u, frames, true, CollectionFill::default())?;
         if changed {
             advance(&mut self.revision)?;
+        }
+        Ok(())
+    }
+    /// Key every item, reusing a key only where the list kept its length and
+    /// an item its position ([`Self::rekey_shared`] handles the rest).
+    fn rekey_full(
+        &mut self,
+        u: &mut Update<'_>,
+        frames: &[Frame],
+        key_code: exact_plan::Code,
+        items: &[Value],
+        compare_previous: bool,
+        keys_stale: bool,
+    ) -> Result<(), InstanceError> {
+        let reuse_items = compare_previous && !keys_stale;
+        // No candidate N-vector or canonical strings until an actual key
+        // mismatch. All equal results reuse the existing uniqueness proof.
+        let mut changed = !compare_previous;
+        let mut keys = Vec::new();
+        let mut text_keys = Vec::new();
+        if changed {
+            keys.reserve(items.len());
+            text_keys.reserve(items.len());
+        }
+        let mut unique = std::collections::BTreeSet::new();
+        let mut dups = BTreeMap::new();
+        let mut inner = frames.to_vec();
+        inner.push(Frame::default());
+        for (position, item) in items.iter().enumerate() {
+            let key = if reuse_items && crate::compare::same(item, &self.items[position]) {
+                if !changed {
+                    continue;
+                }
+                self.keys[position].clone()
+            } else {
+                u.work.rows_keyed += 1;
+                inner.last_mut().unwrap().item = Some(item.clone());
+                u.eval(key_code, &inner)?
+            };
+            if !changed && same_key(&key, &self.keys[position]) {
+                continue;
+            }
+            if !changed {
+                // Seed only the already-validated prefix. Checking each
+                // following row now preserves duplicate-before-later-trap.
+                keys.reserve(items.len());
+                text_keys.reserve(items.len());
+                for prefix in 0..position {
+                    let text = self.index.shared_key(prefix).unwrap().clone();
+                    unique.insert(text.to_string());
+                    text_keys.push(text);
+                    keys.push(self.keys[prefix].clone());
+                }
+                dups.extend(self.dups.range(..position).map(|(p, d)| (*p, *d)));
+                changed = true;
+            }
+            let text = key_text(&key).ok_or(InstanceError::KeyKind {
+                region: self.region,
+            })?;
+            // A repeated key is the data's error: the repeat takes the
+            // next identity in order (as an `each` does).
+            let mut dup = 0;
+            let mut ident = text.clone();
+            while unique.contains(&ident) {
+                dup += 1;
+                ident = super::disambiguate(text.clone(), dup);
+            }
+            unique.insert(ident.clone());
+            if dup > 0 {
+                dups.insert(position, dup);
+            }
+            keys.push(key);
+            text_keys.push(Rc::from(ident));
+        }
+        if changed {
+            self.index.replace_keys(text_keys).map_err(index_error)?;
+            self.string_keys = keys.iter().all(|key| key.as_str().is_some());
+            self.keys = keys;
+            self.dups = dups;
         }
         Ok(())
     }

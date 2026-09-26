@@ -65,7 +65,7 @@ struct RowHeight {
 /// at the same within-row offset. If no old key survives, restore to the start.
 #[derive(Debug, Clone)]
 pub(crate) struct Anchor {
-    order: Rc<[String]>,
+    order: Rc<[Rc<str>]>,
     row: Option<usize>,
     within: f64,
     follows_end: bool,
@@ -84,8 +84,8 @@ pub(crate) struct Window {
 
 #[derive(Debug)]
 pub(crate) struct HeightIndex {
-    order: Rc<[String]>,
-    positions: BTreeMap<String, usize>,
+    order: Rc<[Rc<str>]>,
+    positions: BTreeMap<Rc<str>, usize>,
     rows: Vec<RowHeight>,
     tree: SumTree,
     estimate: f64,
@@ -116,7 +116,7 @@ impl HeightIndex {
     /// Transactional membership rebuild. Surviving keys retain heights and tokens;
     /// same-key content changes must separately call `invalidate_row`/`invalidate_all`.
     /// Deleted and later reinserted keys always receive new measurement generations.
-    pub(crate) fn replace_keys(&mut self, keys: Vec<String>) -> Result<(), IndexError> {
+    pub(crate) fn replace_keys(&mut self, keys: Vec<Rc<str>>) -> Result<(), IndexError> {
         if self.order.as_ref() == keys.as_slice() {
             return Ok(());
         }
@@ -125,19 +125,9 @@ impl HeightIndex {
         let mut generation = self.next_generation;
         for (i, key) in keys.iter().enumerate() {
             if positions.insert(key.clone(), i).is_some() {
-                return Err(IndexError::DuplicateKey(key.clone()));
+                return Err(IndexError::DuplicateKey(key.to_string()));
             }
-            let row = if let Some(&old) = self.positions.get(key) {
-                self.rows[old]
-            } else {
-                generation = next_generation(generation)?;
-                RowHeight {
-                    height: self.estimate,
-                    generation,
-                    measured_epoch: None,
-                }
-            };
-            rows.push(row);
+            rows.push(self.row_for(key, None, &mut generation)?);
         }
         let tree = SumTree::new(&rows)?;
         self.order = Rc::from(keys);
@@ -152,12 +142,105 @@ impl HeightIndex {
         Ok(())
     }
 
+    /// `replace_keys` of the order that keeps rows `..start` and `end..` and
+    /// puts `middle` between them, with the same result. It moves the kept
+    /// rows and their positions (O(N) copies) but compares, looks up and
+    /// allocates keys only for `middle`: a live insert costs its own key.
+    pub(crate) fn splice_keys(
+        &mut self,
+        start: usize,
+        end: usize,
+        middle: Vec<Rc<str>>,
+    ) -> Result<(), IndexError> {
+        assert!(start <= end && end <= self.len(), "splice inside the order");
+        let mut seen = std::collections::BTreeSet::new();
+        let mut generation = self.next_generation;
+        let mut rows = Vec::with_capacity(self.len() - (end - start) + middle.len());
+        rows.extend_from_slice(&self.rows[..start]);
+        for key in &middle {
+            if !seen.insert(&**key) {
+                return Err(IndexError::DuplicateKey(key.to_string()));
+            }
+            rows.push(self.row_for(key, Some(start..end), &mut generation)?);
+        }
+        rows.extend_from_slice(&self.rows[end..]);
+        let tree = SumTree::new(&rows)?;
+        for key in &self.order[start..end] {
+            self.positions.remove(&**key);
+        }
+        let after = start + middle.len();
+        if after != end {
+            for position in self.positions.values_mut() {
+                if *position >= end {
+                    *position = *position - end + after;
+                }
+            }
+        }
+        let mut order = Vec::with_capacity(rows.len());
+        order.extend_from_slice(&self.order[..start]);
+        for (i, key) in middle.into_iter().enumerate() {
+            self.positions.insert(key.clone(), start + i);
+            order.push(key);
+        }
+        order.extend_from_slice(&self.order[end..]);
+        self.order = Rc::from(order);
+        self.rows = rows;
+        self.tree = tree;
+        self.next_generation = generation;
+        Ok(())
+    }
+
+    /// A key's row in the new order: its old row if it survives (from inside
+    /// `within`, when given; elsewhere it would repeat a kept row), else a
+    /// fresh estimate with the next generation.
+    fn row_for(
+        &self,
+        key: &str,
+        within: Option<Range<usize>>,
+        generation: &mut u64,
+    ) -> Result<RowHeight, IndexError> {
+        match (self.positions.get(key), within) {
+            (Some(&old), Some(within)) if !within.contains(&old) => {
+                Err(IndexError::DuplicateKey(key.to_owned()))
+            }
+            (Some(&old), _) => Ok(self.rows[old]),
+            (None, _) => {
+                *generation = next_generation(*generation)?;
+                Ok(RowHeight {
+                    height: self.estimate,
+                    generation: *generation,
+                    measured_epoch: None,
+                })
+            }
+        }
+    }
+
+    /// Everything a membership change decides, for comparing two paths.
+    #[cfg(test)]
+    pub(crate) fn fingerprint(&self) -> String {
+        format!(
+            "{:?} {:?} {:?} {} {} {:?} {:?}",
+            self.order,
+            self.positions,
+            self.rows,
+            self.next_generation,
+            self.epoch,
+            self.tree.sums,
+            self.tree.measured
+        )
+    }
+
     pub(crate) fn len(&self) -> usize {
         self.rows.len()
     }
 
     pub(crate) fn key(&self, index: usize) -> Option<&str> {
-        self.order.get(index).map(String::as_str)
+        self.order.get(index).map(|key| &**key)
+    }
+
+    /// The key at `index`, shared.
+    pub(crate) fn shared_key(&self, index: usize) -> Option<&Rc<str>> {
+        self.order.get(index)
     }
 
     pub(crate) fn position(&self, key: &str) -> Option<usize> {

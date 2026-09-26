@@ -12,6 +12,9 @@
 //!   still attempt.
 //!
 //! All three stop at the first difference.
+//!
+//! [`shared`] matches two lists by [`same`]: what a new answer kept of the
+//! previous one, so the work of a live insert follows what changed.
 
 use exact_plan::Value;
 use std::rc::Rc;
@@ -27,6 +30,98 @@ pub fn same(a: &Value, b: &Value) -> bool {
         (Value::List(a), Value::List(b)) | (Value::Record(a), Value::Record(b)) => Rc::ptr_eq(a, b),
         (Value::Option(Some(a)), Value::Option(Some(b))) => Rc::ptr_eq(a, b),
         _ => false,
+    }
+}
+
+/// Where a new list's items are the same objects as an old list's: a common
+/// prefix and suffix, and between them, for each new item, the old position
+/// of a same object if one was found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Shared {
+    /// Leading items that are the same objects in both lists.
+    pub prefix: usize,
+    /// Trailing items that are the same objects in both lists (disjoint from
+    /// the prefix in each).
+    pub suffix: usize,
+    /// Per new item in `prefix..new.len() - suffix`: an old position in
+    /// `prefix..old.len() - suffix` holding the same object, or `None`.
+    pub middle: Vec<Option<usize>>,
+}
+
+/// Match `new` against `old` by [`same`]: the common prefix and suffix, then
+/// a lockstep walk of the middles that steps over single insertions,
+/// removals and replacements, then an identity lookup for what is left. Every
+/// match is a same object; `None` only means none was found. O(N) pointer
+/// comparisons, plus hashing the unmatched remainder: an insert at the top of
+/// a 10,000-row answer is the whole old list as a suffix.
+pub fn shared(old: &[Value], new: &[Value]) -> Shared {
+    let prefix = old.iter().zip(new).take_while(|(a, b)| same(a, b)).count();
+    let room = old.len().min(new.len()) - prefix;
+    let suffix = old
+        .iter()
+        .rev()
+        .zip(new.iter().rev())
+        .take(room)
+        .take_while(|(a, b)| same(a, b))
+        .count();
+    let (old_end, new_end) = (old.len() - suffix, new.len() - suffix);
+    let mut middle = vec![None; new_end - prefix];
+    let mut used = vec![false; old_end - prefix];
+    let (mut i, mut j) = (prefix, prefix);
+    while i < new_end && j < old_end {
+        if same(&new[i], &old[j]) {
+            middle[i - prefix] = Some(j);
+            used[j - prefix] = true;
+            i += 1;
+            j += 1;
+        } else if j + 1 < old_end && same(&new[i], &old[j + 1]) {
+            // old[j] was removed.
+            j += 1;
+        } else {
+            // new[i] was inserted if the next new item is old[j]; otherwise
+            // it replaced old[j].
+            let inserted = i + 1 < new_end && same(&new[i + 1], &old[j]);
+            i += 1;
+            if !inserted {
+                j += 1;
+            }
+        }
+    }
+    if middle.iter().any(Option::is_none) && used.iter().any(|u| !u) {
+        let mut by_identity = std::collections::HashMap::new();
+        for (k, item) in old[prefix..old_end].iter().enumerate() {
+            if !used[k] {
+                by_identity.entry(identity(item)).or_insert(prefix + k);
+            }
+        }
+        for (k, found) in middle.iter_mut().enumerate() {
+            if found.is_none() {
+                *found = by_identity.get(&identity(&new[prefix + k])).copied();
+            }
+        }
+    }
+    Shared {
+        prefix,
+        suffix,
+        middle,
+    }
+}
+
+/// A value's identity for [`same`]: equal exactly when `same` is true (a
+/// scalar by its bits, anything else by its allocation's address).
+fn identity(v: &Value) -> (u8, u64) {
+    fn at<T: ?Sized>(rc: &Rc<T>) -> u64 {
+        Rc::as_ptr(rc) as *const u8 as usize as u64
+    }
+    match v {
+        Value::Number(n) => (0, n.to_bits()),
+        Value::Bool(b) => (1, *b as u64),
+        Value::Unit => (2, 0),
+        Value::Option(None) => (3, 0),
+        Value::Str(s) => (4, at(s)),
+        Value::Option(Some(v)) => (5, at(v)),
+        Value::List(v) => (6, at(v)),
+        Value::Record(v) => (7, at(v)),
     }
 }
 
@@ -113,5 +208,49 @@ mod tests {
         assert!(same(&shared, &shared.clone()));
         assert!(!same(&shared, &Value::str("shared")));
         assert!(equivalent(&shared, &Value::str("shared")));
+    }
+
+    #[test]
+    fn shared_finds_the_same_objects_around_an_edit() {
+        let old: Vec<Value> = (0..6).map(|i| Value::str(&format!("{i}"))).collect();
+        let fresh = Value::str("new");
+        // An insert at the top: the whole old list is the suffix.
+        let mut new = old.clone();
+        new.insert(0, fresh.clone());
+        let s = shared(&old, &new);
+        assert_eq!((s.prefix, s.suffix, s.middle), (0, 6, vec![None]));
+        // One insert and one replacement: the lockstep steps over both.
+        let mut new = old.clone();
+        new.insert(1, fresh.clone());
+        new[4] = Value::str("3");
+        let s = shared(&old, &new);
+        assert_eq!((s.prefix, s.suffix), (1, 2));
+        assert_eq!(s.middle, vec![None, Some(1), Some(2), None]);
+        // A reversal: identity lookup, and an equal but new string is not
+        // the same object.
+        let mut new = old.clone();
+        new.reverse();
+        new.pop();
+        new.push(Value::str("0"));
+        let s = shared(&old, &new);
+        let found: Vec<_> = (0..new.len())
+            .map(|i| {
+                if i < s.prefix {
+                    Some(i)
+                } else if i >= new.len() - s.suffix {
+                    Some(old.len() - (new.len() - i))
+                } else {
+                    s.middle[i - s.prefix]
+                }
+            })
+            .collect();
+        assert_eq!(
+            found,
+            vec![Some(5), Some(4), Some(3), Some(2), Some(1), None]
+        );
+        // Numbers are the same by their bits.
+        let numbers = [Value::Number(1.0), Value::Number(-0.0)];
+        let s = shared(&numbers, &[Value::Number(0.0), Value::Number(1.0)]);
+        assert_eq!(s.middle, vec![None, Some(0)]);
     }
 }

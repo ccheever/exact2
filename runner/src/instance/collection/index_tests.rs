@@ -30,8 +30,8 @@ fn reorder_twenty_five_thousand_zero_ties_do_not_scan_rows() {
     assert!(i.tree.visits.get() < 200);
 }
 
-fn keys(count: usize) -> Vec<String> {
-    (0..count).map(|i| format!("k{i}")).collect()
+fn keys(count: usize) -> Vec<Rc<str>> {
+    (0..count).map(|i| Rc::from(format!("k{i}"))).collect()
 }
 
 fn index(heights: &[f64]) -> HeightIndex {

@@ -6,6 +6,8 @@ use exact_plan::{asm::Asm, builder::PlanBuilder, BindingsRow, Opcode, TypeKind};
 mod fill;
 #[path = "ownership_tests.rs"]
 mod ownership;
+#[path = "rekey_tests.rs"]
+mod rekey;
 
 fn code(b: &mut PlanBuilder, emit: impl FnOnce(&mut Asm)) -> exact_plan::Code {
     let mut a = Asm::new();
