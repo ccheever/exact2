@@ -17,4 +17,5 @@ contract-analyze = { path = "../analyze" }
 contract-syntax = { path = "../syntax" }
 contract-types = { path = "../types" }
 exact-kernel = { path = "../../kernel" }
+exact-motion = { path = "../../motion" }
 exact-plan = { path = "../../plan" }

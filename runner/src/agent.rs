@@ -455,6 +455,8 @@ fn row_json(v: RowValue<'_>, out: &mut String) {
         RowValue::BackgroundImage(g) => quote(&g.css(), out),
         RowValue::ShapeOutside(p) => quote(&p.css(), out),
         RowValue::Transitions(_) => quote("(transition)", out),
+        // The row's own text, keyframes and all: what plays is readable.
+        RowValue::Animations(a) => quote(&a.text(), out),
         RowValue::Color2(_) | RowValue::Tracks(_) | RowValue::Placement(_) => quote("(grid)", out),
     }
 }

@@ -30,7 +30,7 @@ fn whole_i64(n: f64) -> bool {
 }
 
 /// The kernel's refusal of a style value, in an author's words.
-fn describe(e: &StyleValueError) -> String {
+pub(crate) fn describe(e: &StyleValueError) -> String {
     match e {
         StyleValueError::WrongKind { expected, .. } => format!("expected {expected}"),
         StyleValueError::UnknownEnumValue { style } => format!(
@@ -45,6 +45,7 @@ fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadAspectRatio { .. } => "expected auto, a ratio (`16 / 9`, or a number), or both (`auto 4 / 3`); numbers are nonnegative".into(),
         StyleValueError::BadBackgroundImage { .. } => "expected none, linear-gradient(…) or radial-gradient(…)".into(),
         StyleValueError::BadTransition { .. } => "not a CSS `transition` shorthand".into(),
+        StyleValueError::BadAnimation { .. } => "not a CSS `animation` shorthand".into(),
         StyleValueError::Unsupported { .. } => "this row has no dynamic form".into(),
     }
 }

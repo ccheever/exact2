@@ -321,6 +321,9 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                         StyleDomainError::InvalidTransition(error) => {
                             ApplyError::InvalidTransition { op_index, error }
                         }
+                        StyleDomainError::InvalidAnimation(error) => {
+                            ApplyError::InvalidAnimation { op_index, error }
+                        }
                     });
                 }
             }

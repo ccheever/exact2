@@ -30,7 +30,8 @@ pub struct Site<'a> {
 impl Document {
     /// What `<head>` holds for this document, after the shell's charset and
     /// base: the title, the viewport meta, the head's description, canonical,
-    /// robots, OpenGraph and Twitter tags, and the plan's fonts.
+    /// robots, OpenGraph and Twitter tags, the plan's fonts, and the
+    /// `@keyframes` the document's animations name.
     pub fn page_head(
         &self,
         plan: &Plan,
@@ -115,6 +116,9 @@ impl Document {
             meta(&mut out, "name", "twitter:image", image)?;
         }
         fonts(&mut out, plan)?;
+        if !self.keyframes.is_empty() {
+            let _ = write!(out, "<style>{}</style>", self.keyframes);
+        }
         Ok(out)
     }
 }

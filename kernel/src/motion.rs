@@ -3,9 +3,9 @@
 //! @ref LLP 1002 §3 (the frame); LLP 1003 §4 (the seam)
 //!
 //! Motion's inputs are style. After a commit, the animatable rows of every
-//! node the commit created or touched are the engine's new targets, and each
-//! node's `transition` row is how it gets there — exactly the two things a
-//! browser reads from computed style. Nothing else crosses: no bindings, no
+//! node the commit created or touched are the engine's new targets, each
+//! node's `transition` row is how it gets there, and its `animation` row is
+//! what plays over them — exactly what a browser reads from computed style. Nothing else crosses: no bindings, no
 //! shared values, no second graph. A destroyed node is forgotten. Numeric
 //! height is a separate, explicitly registered host trial: the ordinary seam
 //! and boot targets remain the four compositor properties.
@@ -21,7 +21,7 @@ use crate::id::NodeKey;
 use crate::kernel::Kernel;
 use crate::style::Dimension;
 use crate::txn::CommitReceipt;
-use exact_motion::{Change, Engine, EngineError, Property, Transitions, Value};
+use exact_motion::{Animations, Change, Engine, EngineError, Property, Transitions, Value};
 
 /// The engine's node number for a kernel node.
 pub fn motion_node(key: NodeKey) -> u64 {
@@ -30,7 +30,7 @@ pub fn motion_node(key: NodeKey) -> u64 {
 
 /// Everything the motion engine must hear about one commit, in the order it
 /// must hear it: forgotten nodes, retired properties, then per node its
-/// `transition` row and targets.
+/// `transition` row and targets, then its `animation` row.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct MotionSync {
     /// Nodes destroyed by the commit.
@@ -43,6 +43,10 @@ pub struct MotionSync {
     pub transitions: Vec<(u64, Transitions)>,
     /// The sync's eligible targets; ordinary receipt sync has four per node.
     pub changes: Vec<Change>,
+    /// Each created or touched node's `animation` row (LLP 1057). Applied
+    /// after the targets, so a node created animating has values to play
+    /// over.
+    pub animations: Vec<(u64, Animations)>,
 }
 
 impl MotionSync {
@@ -59,6 +63,9 @@ impl MotionSync {
         }
         for change in &self.changes {
             engine.observe(*change)?;
+        }
+        for (node, animations) in &self.animations {
+            engine.set_animations(*node, animations.clone())?;
         }
         Ok(())
     }
@@ -234,6 +241,7 @@ impl Kernel {
             };
             let id = motion_node(*key);
             sync.transitions.push((id, node.style.transition.clone()));
+            sync.animations.push((id, node.style.animation.clone()));
             for (property, value) in targets(node.style) {
                 sync.changes.push(Change {
                     node: id,

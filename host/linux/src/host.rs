@@ -170,7 +170,8 @@ impl<D: DataSource> Host<D> {
             router_op: None,
             navigation: Default::default(),
         };
-        // The engine hears the whole tree once: values, no transitions.
+        // The engine hears the whole tree once: values, no transitions; an
+        // `animation` starts now, as a browser starts one on a new element.
         let mut sync = MotionSync::default();
         host.discover_height_handles();
         host.discover_transform_handles();
@@ -180,6 +181,7 @@ impl<D: DataSource> Host<D> {
                 host.keys.insert(key, id);
                 let n = motion_node(node.key);
                 sync.transitions.push((n, node.style.transition.clone()));
+                sync.animations.push((n, node.style.animation.clone()));
                 for (property, value) in targets(node.style) {
                     sync.changes.push(Change {
                         node: n,

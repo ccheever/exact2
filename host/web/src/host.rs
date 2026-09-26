@@ -271,6 +271,8 @@ pub struct Host<D: DataSource> {
     /// While the first batch is made: what a page's projection computed for
     /// each view (LLP 1048.000 D6), taken instead of computing it again.
     computed: document::Computed,
+    /// `@keyframes` rules the page was sent, by name (LLP 1057 D5).
+    keyframes: SortedSet<String>,
 }
 
 impl<D: DataSource> Host<D> {
@@ -422,6 +424,7 @@ impl<D: DataSource> Host<D> {
             head: Default::default(),
             head_dirty: false,
             computed,
+            keyframes: Default::default(),
         };
         // Everything live is new to the page.
         let roots = host.runner.roots();
@@ -1192,6 +1195,7 @@ impl<D: DataSource> Host<D> {
             .collect();
         let pairs: Vec<(&str, String)> =
             props.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
+        self.emit_keyframes(id, batch);
         batch.create(id, tag, &pairs, &css, &handlers);
         self.mirror.insert(
             id,
@@ -1246,8 +1250,20 @@ impl<D: DataSource> Host<D> {
             m.props = props;
         }
         if css != m.css {
+            m.css = css.clone();
+            self.emit_keyframes(id, batch);
             batch.style(id, &css);
-            m.css = css;
+        }
+    }
+
+    /// Each `@keyframes` rule the node's `animation` plays that the page has
+    /// not been sent, ahead of the declaration naming it.
+    fn emit_keyframes(&mut self, id: ViewId, batch: &mut Batch) {
+        let node = self.runner.kernel().node(id).expect("live");
+        for (name, rule) in css::keyframes_rules(node.style) {
+            if self.keyframes.insert(name.clone()) {
+                batch.keyframes(&name, &rule);
+            }
         }
     }
 

@@ -1,5 +1,5 @@
 # exact motion parity fixture — the browser's samples of the cases in host/web/src/parity.rs
-# recorded by host/web/parity.mjs: 2026-08-29, Chrome/151.0.0.0
+# recorded by host/web/parity.mjs: 2026-09-26, Chrome/153.0.0.0
 # `sample <case> <seconds> <x> <y>`; held by host/web/tests/it/parity.rs within 0.001
 sample linear 0.1 0.1 0
 sample linear 0.25 0.25 0
@@ -106,3 +106,41 @@ sample spring 0.2 1.56019 0
 sample spring 0.35 1.5567 0
 sample spring 0.5 1.47958 0
 sample spring 0.8 1.50441 0
+sample kf-breathe 0.1 0.448996 0
+sample kf-breathe 0.25 0.7 0
+sample kf-breathe 0.4 0.951004 0
+sample kf-breathe 0.6 0.951004 0
+sample kf-breathe 1.1 0.448996 0
+sample kf-breathe 2.3 0.80087 0
+sample kf-keyframe-easing 0.1 0 0
+sample kf-keyframe-easing 0.2 0.3 0
+sample kf-keyframe-easing 0.3 0.6 0
+sample kf-keyframe-easing 0.5 0.634042 0
+sample kf-keyframe-easing 0.7 0.910224 0
+sample kf-keyframe-easing 0.9 0.993343 0
+sample kf-implicit 0.25 0.6 0
+sample kf-implicit 0.5 1 0
+sample kf-implicit 0.75 0.6 0
+sample kf-implicit 1.2 0.2 0
+sample kf-alternate-fill 0.2 0.1 0
+sample kf-alternate-fill 0.75 0.3 0
+sample kf-alternate-fill 1.25 0.7 0
+sample kf-alternate-fill 1.75 0.7 0
+sample kf-alternate-fill 3 0.1 0
+sample kf-reverse-negative-delay 0 1.94069 0
+sample kf-reverse-negative-delay 0.25 1.70361 0
+sample kf-reverse-negative-delay 0.5 1.11277 0
+sample kf-reverse-negative-delay 0.8 0.5 0
+sample kf-reverse-negative-delay 1.5 0.5 0
+sample kf-translate 0.1 37.5087 -7.00349
+sample kf-translate 0.3 22.8352 -1.13408
+sample kf-translate 0.6 12.3346 3.06614
+sample kf-translate 0.7 22.8352 -1.13408
+sample kf-translate 1 27.3857 -2.95429
+sample kf-rotate 0.15 36 0
+sample kf-rotate 0.3 72 0
+sample kf-rotate 0.65 81 0
+sample kf-rotate 1.15 36 0
+sample kf-rotate 2.5 0 0
+sample kf-zero-duration 0 0.5 0
+sample kf-zero-duration 0.5 0.5 0

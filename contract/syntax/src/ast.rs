@@ -36,6 +36,8 @@ pub struct File {
     pub shapes: Vec<ShapeDecl>,
     /// `style` declarations, in order (LLP 1017 P6).
     pub styles: Vec<StyleDecl>,
+    /// `keyframes` declarations, in order (LLP 1057).
+    pub keyframes: Vec<KeyframesDecl>,
     /// `fn` declarations, in order (LLP 1017 P5).
     pub fns: Vec<FnDecl>,
     /// `test` declarations, in order (LLP 1017 P7) — normally in a file of
@@ -244,6 +246,30 @@ pub struct StyleDecl {
     /// The name.
     pub name: String,
     /// The rows, as attributes with literal values.
+    pub attrs: Vec<Attr>,
+    /// Where.
+    pub span: Span,
+}
+
+/// `keyframes Name` with its keyframe blocks — CSS's `@keyframes` rule, which
+/// an `animation` attribute names (LLP 1057).
+#[derive(Debug, Clone, PartialEq)]
+pub struct KeyframesDecl {
+    /// The name.
+    pub name: String,
+    /// The blocks, as written.
+    pub blocks: Vec<KeyframeDecl>,
+    /// Where.
+    pub span: Span,
+}
+
+/// One keyframe block: its selectors (`from`, `to`, `50%`; several with
+/// commas) and lines of `attr=literal`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct KeyframeDecl {
+    /// Each selector's offset in percent: `from` is 0, `to` is 100.
+    pub offsets: Vec<f64>,
+    /// The values, as attributes with literal values.
     pub attrs: Vec<Attr>,
     /// Where.
     pub span: Span,

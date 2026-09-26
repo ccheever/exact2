@@ -14,9 +14,13 @@
 //! A spring case is the frames the engine lowers (`Engine::spring_frames`),
 //! played by the browser through `Element.animate` exactly as the glue plays
 //! them; its samples hold the *lowering* to the engine, midpoints included.
+//!
+//! A keyframe case (LLP 1057) is an `animation` row: the page gets the
+//! declaration and `@keyframes` rules the host emits, starts it at time zero
+//! over the case's initial value, and seeks it the same way.
 
-use crate::css::transition_css;
-use exact_motion::{Change, Engine, Property, TimingFunction, Transitions, Value};
+use crate::css::{keyframes_name, transition_css};
+use exact_motion::{Animations, Change, Engine, Property, TimingFunction, Transitions, Value};
 use std::fmt::Write as _;
 
 /// The band a browser sample may differ from the engine's by: computed
@@ -50,6 +54,8 @@ pub struct Case {
     pub property: Property,
     /// The node's `transition` row.
     pub transitions: Transitions,
+    /// The node's `animation` row, started at time zero.
+    pub animations: Animations,
     /// The value before the script starts (set with no transition).
     pub initial: Value,
     /// The script, in time order.
@@ -74,8 +80,26 @@ fn single(
         name,
         property,
         transitions: Transitions::parse(css).expect("a valid case"),
+        animations: Animations::NONE,
         initial: from,
         steps,
+    }
+}
+
+fn keyframes(
+    name: &'static str,
+    property: Property,
+    text: &str,
+    underlying: Value,
+    at: &[f64],
+) -> Case {
+    Case {
+        name,
+        property,
+        transitions: Transitions::NONE,
+        animations: Animations::parse(text).expect("a valid case"),
+        initial: underlying,
+        steps: samples(at),
     }
 }
 
@@ -272,6 +296,69 @@ pub fn cases() -> Vec<Case> {
         o(1.5),
         &[0.05, 0.1, 0.1020833333, 0.2, 0.35, 0.5, 0.8],
     ));
+    let o = |v: f64| Value::scalar(v);
+    out.extend([
+        // The timing function eases each interval, not the iteration.
+        keyframes(
+            "kf-breathe",
+            Property::Opacity,
+            "b 1s ease-in-out infinite @keyframes b{from{opacity:0.4}50%{opacity:1}to{opacity:0.4}}",
+            o(1.0),
+            &[0.1, 0.25, 0.4, 0.6, 1.1, 2.3],
+        ),
+        // A keyframe's own easing governs the interval it starts.
+        keyframes(
+            "kf-keyframe-easing",
+            Property::Opacity,
+            "k 1s linear @keyframes k{0%{opacity:0;animation-timing-function:steps(3, jump-none)}40%{opacity:0.6;animation-timing-function:cubic-bezier(0.4, 0, 0.2, 1)}100%{opacity:1}}",
+            o(1.0),
+            &[0.1, 0.2, 0.3, 0.5, 0.7, 0.9],
+        ),
+        // Missing `from`/`to`: the underlying value; after the end with no
+        // fill, the underlying value again.
+        keyframes(
+            "kf-implicit",
+            Property::Opacity,
+            "k 1s linear @keyframes k{50%{opacity:1}}",
+            o(0.2),
+            &[0.25, 0.5, 0.75, 1.2],
+        ),
+        keyframes(
+            "kf-alternate-fill",
+            Property::Opacity,
+            "k 1s linear 0.5s 2 alternate both @keyframes k{from{opacity:0.1}to{opacity:0.9}}",
+            o(1.0),
+            &[0.2, 0.75, 1.25, 1.75, 3.0],
+        ),
+        keyframes(
+            "kf-reverse-negative-delay",
+            Property::Scale,
+            "k 1s ease -0.25s reverse forwards @keyframes k{from{scale:0.5}to{scale:2}}",
+            o(1.0),
+            &[0.0, 0.25, 0.5, 0.8, 1.5],
+        ),
+        keyframes(
+            "kf-translate",
+            Property::Translate,
+            "k 0.5s ease-out 1.5 alternate-reverse forwards @keyframes k{from{translate:0px 8px}to{translate:40px -8px}}",
+            Value::ZERO,
+            &[0.1, 0.3, 0.6, 0.7, 1.0],
+        ),
+        keyframes(
+            "kf-rotate",
+            Property::Rotate,
+            "k 1s linear(0, 0.8 30%, 1) 2 @keyframes k{to{rotate:90deg}}",
+            o(0.0),
+            &[0.15, 0.3, 0.65, 1.15, 2.5],
+        ),
+        keyframes(
+            "kf-zero-duration",
+            Property::Opacity,
+            "k 0s 3 forwards @keyframes k{from{opacity:0}to{opacity:0.5}}",
+            o(1.0),
+            &[0.0, 0.5],
+        ),
+    ]);
     out
 }
 
@@ -293,6 +380,9 @@ pub fn engine_samples(case: &Case) -> Vec<(f64, Value)> {
             .expect("finite");
     };
     observe(&mut engine, case.initial);
+    engine
+        .set_animations(1, case.animations.clone())
+        .expect("a valid case");
     let mut out = Vec::new();
     for step in &case.steps {
         match step {
@@ -376,6 +466,19 @@ pub fn cases_json() -> String {
             }
         }
         s.push(']');
+        if !case.animations.0.is_empty() {
+            s.push_str(",\"animation\":\"");
+            let mut rules = Vec::new();
+            for (i, a) in case.animations.0.iter().enumerate() {
+                let name = keyframes_name(&a.keyframes);
+                if i > 0 {
+                    s.push(',');
+                }
+                s.push_str(&a.css(&name));
+                rules.push(a.keyframes.rule(&name));
+            }
+            let _ = write!(s, "\",\"rules\":[\"{}\"]", rules.join("\",\""));
+        }
         if let Some((duration, frames)) = spring_frames(case) {
             let _ = write!(s, ",\"duration\":{},\"frames\":[", duration * 1000.0);
             for (k, v) in frames.iter().enumerate() {

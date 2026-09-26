@@ -848,3 +848,30 @@ component App
     draft = text
   view
     Child(comment=post)
+---
+== lower-unknown-keyframes
+component A
+  view
+    text "a" animation="pulse 1s infinite"
+---
+== lower-animation-literal
+component A
+  state name = "pulse"
+  view
+    text "a" animation=`${name} 1s`
+---
+== lower-keyframes
+keyframes grow
+  from
+    width=10
+component A
+  view
+    text "a"
+---
+== syntax-expected-keyframe
+keyframes grow
+  halfway
+    opacity=1
+component A
+  view
+    text "a"

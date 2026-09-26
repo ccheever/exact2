@@ -14,6 +14,7 @@ enum Codec {
     Tracks,
     Placement,
     Transitions,
+    Animations,
     CssValue { path: &'static str, variant: &'static str, error: &'static str },
     Enum(String),
 }
@@ -35,6 +36,7 @@ fn parse_codec(s: &str) -> Codec {
         "tracks" => Codec::Tracks,
         "placement" => Codec::Placement,
         "transitions" => Codec::Transitions,
+        "animations" => Codec::Animations,
         // @ref LLP 1043.000 §3 D1 — one parse/css/default codec for both shapes.
         "clip-path" => Codec::CssValue { path: "crate::clip::ClipPath", variant: "ClipPath", error: "BadClipPath" },
         "aspect-ratio" => Codec::CssValue { path: "crate::ratio::AspectRatio", variant: "AspectRatio", error: "BadAspectRatio" },
@@ -65,6 +67,7 @@ impl Codec {
             Codec::Tracks => "GridTracks".into(),
             Codec::Placement => "GridPlacement".into(),
             Codec::Transitions => "Transitions".into(),
+            Codec::Animations => "Animations".into(),
             Codec::CssValue { path, .. } => (*path).into(),
             Codec::Enum(name) => name.clone(),
         }
@@ -86,6 +89,7 @@ impl Codec {
             Codec::Tracks => "Tracks",
             Codec::Placement => "Placement",
             Codec::Transitions => "Transitions",
+            Codec::Animations => "Animations",
             Codec::CssValue { variant, .. } => variant,
             Codec::Enum(_) => "Enum",
         }
@@ -162,6 +166,13 @@ impl Codec {
                 );
                 "Transitions::default()".into()
             }
+            Codec::Animations => {
+                assert!(
+                    value.is_null(),
+                    "schema: `{field}` (animations) cannot declare a default"
+                );
+                "Animations::default()".into()
+            }
             Codec::Placement => {
                 assert!(
                     value.is_null(),
@@ -194,6 +205,7 @@ impl Codec {
             Codec::Tracks => "r.tracks_for_style()?".into(),
             Codec::Placement => "r.placement_for_style()?".into(),
             Codec::Transitions => "r.transitions()?".into(),
+            Codec::Animations => "r.animations()?".into(),
             Codec::CssValue { path, error, .. } => format!("{path}::parse(r.string()?).ok_or(crate::error::DecodeError::{error})?"),
             Codec::Enum(name) => format!(
                 "{{ let v = r.u8()?; {name}::from_wire(v).ok_or(DecodeError::UnknownEnumValue {{ style: StyleId::{style_id}, value: v }})? }}"
@@ -217,13 +229,17 @@ impl Codec {
             Codec::Tracks => format!("w.tracks(&{access});"),
             Codec::Placement => format!("w.placement({access});"),
             Codec::Transitions => format!("w.transitions(&{access});"),
+            Codec::Animations => format!("w.animations(&{access});"),
             Codec::CssValue { .. } => format!("w.string(&{access}.css());"),
             Codec::Enum(_) => format!("w.u8({access} as u8);"),
         }
     }
     /// Whether the field type is `Copy` (so encode can pass by value).
     fn is_copy(&self) -> bool {
-        !matches!(self, Codec::Tracks | Codec::Transitions | Codec::CssValue { .. })
+        !matches!(
+            self,
+            Codec::Tracks | Codec::Transitions | Codec::Animations | Codec::CssValue { .. }
+        )
     }
 }
 

@@ -1,0 +1,32 @@
+// Accept fixture: `keyframes` declarations and the `animation` shorthand that
+// names them (LLP 1057). The compiler resolves each name into the row, so the
+// plan carries keyframes, not names: a checklist step that breathes while it
+// runs, and an entry that fades in once when it appears.
+keyframes breathe
+  from
+    opacity=0.4
+    scale=0.9
+  50%
+    opacity=1
+  to
+    opacity=0.4
+
+keyframes appear
+  from
+    opacity=0
+    translate="0px 8px"
+    animation-timing-function="ease-out"
+
+style Fresh
+  animation="appear 300ms both"
+
+component Checklist
+  state doing = true
+  action toggle writes doing
+    doing = not doing
+  view
+    column testId="root"
+      button press=toggle aria-label="Toggle" testId="toggle"
+        text "Toggle"
+      text "Step" testId="mark" animation=(doing ? "breathe 1.6s ease-in-out infinite" : "none")
+      text "Just added" testId="added" class=Fresh

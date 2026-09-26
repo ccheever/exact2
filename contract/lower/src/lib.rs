@@ -23,6 +23,7 @@ mod class;
 mod collection;
 pub mod expr;
 mod fonts;
+mod keyframes;
 mod media;
 mod routes;
 mod sites;
@@ -102,7 +103,7 @@ fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
 /// rows. The driver runs this when an earlier pass refused, so a misspelled
 /// tag or a bad colour is reported in the same run as a type error.
 pub fn lint(file: &File) -> Vec<LowerError> {
-    fn walk(nodes: &[Node], errors: &mut Vec<LowerError>) {
+    fn walk(nodes: &[Node], table: &keyframes::Table, errors: &mut Vec<LowerError>) {
         for n in nodes {
             match n {
                 Node::Element {
@@ -119,6 +120,9 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                             let checked = match tags::attr(&a.name) {
                                 None => Err(unknown_attr(tag, a)),
                                 // A family is resolved against declared fonts.
+                                Some(tags::AttrTarget::Styles([StyleId::Animation])) => {
+                                    keyframes::animation_value(&a.value, table).map(|_| ())
+                                }
                                 Some(tags::AttrTarget::Styles(rows))
                                     if rows != [StyleId::FontFamily] =>
                                 {
@@ -135,28 +139,28 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                             errors.extend(checked.err());
                         }
                     }
-                    walk(children, errors);
+                    walk(children, table, errors);
                 }
-                Node::Use { children, .. } => walk(children, errors),
-                Node::Provide { body, .. } => walk(body, errors),
+                Node::Use { children, .. } => walk(children, table, errors),
+                Node::Provide { body, .. } => walk(body, table, errors),
                 Node::When {
                     then, otherwise, ..
                 } => {
-                    walk(then, errors);
-                    walk(otherwise, errors);
+                    walk(then, table, errors);
+                    walk(otherwise, table, errors);
                 }
-                Node::Each { body, .. } => walk(body, errors),
+                Node::Each { body, .. } => walk(body, table, errors),
                 Node::Match { some, none, .. } => {
-                    walk(&some.1, errors);
-                    walk(none, errors);
+                    walk(&some.1, table, errors);
+                    walk(none, table, errors);
                 }
                 Node::Children { .. } => {}
             }
         }
     }
-    let mut errors = Vec::new();
+    let (table, mut errors) = keyframes::resolve(file);
     for c in &file.components {
-        walk(&c.view, &mut errors);
+        walk(&c.view, &table, &mut errors);
     }
     errors.truncate(MAX_REFUSALS);
     errors
@@ -209,6 +213,8 @@ pub(crate) struct Lowerer<'a> {
     pub actions: Vec<exact_plan::ActionsId>,
     /// The file's `style` declarations, by name (LLP 1017 P6).
     pub styles: BTreeMap<String, Vec<Attr>>,
+    /// The file's `keyframes` declarations, resolved (LLP 1057).
+    keyframes: keyframes::Table,
     /// The file's `fn` declarations, by name, expanded inline at each call
     /// (LLP 1017 P5), each with its body's repeated calls bound once.
     pub fns: BTreeMap<&'a str, (&'a FnDecl, &'a Expr)>,
@@ -319,6 +325,7 @@ fn lower_with_sites(
         mutation_slots: Vec::new(),
         actions: Vec::new(),
         styles: BTreeMap::new(),
+        keyframes: keyframes::Table::default(),
         fns: file
             .fns
             .iter()
@@ -336,6 +343,9 @@ fn lower_with_sites(
         texts_used: Default::default(),
     };
     l.declare_fonts(file, asset_root)?;
+    let (table, refused) = keyframes::resolve(file);
+    l.keyframes = table;
+    l.errors.extend(refused);
     // Styles: rows only, literal only (the parser holds the second), by name.
     for s in &file.styles {
         for a in &s.attrs {
@@ -1281,6 +1291,15 @@ impl<'a> Lowerer<'a> {
                         return Ok(());
                     }
                 }
+                // Keyframe names become the keyframes themselves (LLP 1057 D3).
+                let resolved;
+                let a = if rows == [StyleId::Animation] {
+                    let value = keyframes::animation_value(&a.value, &self.keyframes)?;
+                    resolved = Attr { value, ..a.clone() };
+                    &resolved
+                } else {
+                    a
+                };
                 let (code, ty) = self.typed_code(&a.value, scope, locals)?;
                 values::check_style_value(a, rows, &ty, font)?;
                 for &row in rows {

@@ -397,12 +397,14 @@ impl<D: DataSource> Host<D> {
         for c in host.runner.take_commands() {
             batch.command(&c.name, &c.args);
         }
-        // The engine hears the whole tree once: values, no transitions.
+        // The engine hears the whole tree once: values, no transitions; an
+        // `animation` starts now, as a browser starts one on a new element.
         let mut sync = MotionSync::default();
         for id in &order {
             if let Some(node) = host.runner.kernel().node(*id) {
                 let n = motion_node(node.key);
                 sync.transitions.push((n, node.style.transition.clone()));
+                sync.animations.push((n, node.style.animation.clone()));
                 for (property, value) in targets(node.style) {
                     sync.changes.push(Change {
                         node: n,

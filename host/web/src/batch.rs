@@ -269,6 +269,17 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// `{"op":"keyframes","name":…,"css":…}` — one `@keyframes` rule for the
+    /// page's sheet, sent once per name before a style that names it.
+    pub fn keyframes(&mut self, name: &str, css: &str) {
+        let mut s = String::from("{\"op\":\"keyframes\",\"name\":");
+        quote(name, &mut s);
+        s.push_str(",\"css\":");
+        quote(css, &mut s);
+        s.push('}');
+        self.ops.push(s);
+    }
+
     /// `{"op":"children","id":…,"ids":[…]}`.
     pub fn children(&mut self, id: u32, ids: &[u32]) {
         let mut s = text!("{{\"op\":\"children\",\"id\":{},\"ids\":[", id);

@@ -412,6 +412,7 @@ pub(crate) fn projection_size(
                     }
                 }
                 RowValue::Transitions(v) => bytes = add_wire(bytes, v.0.len(), 256)?,
+                RowValue::Animations(v) => bytes = add_wire(bytes, v.text().len(), 6)?,
                 RowValue::Tracks(v) => bytes = add_wire(bytes, v.0.len(), 128)?,
                 // Both appearances' stops, each up to eight after expansion.
                 RowValue::BackgroundImage(g) => {
@@ -426,6 +427,7 @@ pub(crate) fn projection_size(
             exact_kernel::StyleId::ClipPath,
             exact_kernel::StyleId::BackgroundImage,
             exact_kernel::StyleId::Transition,
+            exact_kernel::StyleId::Animation,
             exact_kernel::StyleId::GridTemplateColumns,
             exact_kernel::StyleId::GridTemplateRows,
         ] {
@@ -441,6 +443,7 @@ pub(crate) fn projection_size(
                     }
                 }
                 RowValue::Transitions(v) => bytes = add_wire(bytes, v.0.len(), 256)?,
+                RowValue::Animations(v) => bytes = add_wire(bytes, v.text().len(), 6)?,
                 RowValue::Tracks(v) => bytes = add_wire(bytes, v.0.len(), 128)?,
                 // Both appearances' stops, each up to eight after expansion.
                 RowValue::BackgroundImage(g) => {

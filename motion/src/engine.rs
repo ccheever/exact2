@@ -15,6 +15,7 @@
 //! executor — but the same engine under a virtual clock is the oracle a web
 //! host's output is compared against.
 
+use crate::animation::{Animation, AnimationError, Animations, PlayState};
 use crate::property::{Property, Value};
 use crate::transition::{Curve, Running, TransitionError, Transitions};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -61,6 +62,29 @@ pub enum EngineError {
     HoldSerialExhausted,
     /// A `transition` row was invalid.
     Transition(TransitionError),
+    /// An `animation` row was invalid.
+    Animation(AnimationError),
+}
+
+/// A keyframe animation in play on one node. Its start is the clock when
+/// its style first applied (CSS Animations §3); while paused, `paused` holds
+/// the local time it stopped at.
+#[derive(Debug, Clone, PartialEq)]
+struct Playing {
+    animation: Animation,
+    start: f64,
+    paused: Option<f64>,
+}
+
+impl Playing {
+    fn local(&self, now: f64) -> f64 {
+        self.paused.unwrap_or(now - self.start)
+    }
+
+    /// Whether its values can still change as the clock moves.
+    fn live(&self, now: f64) -> bool {
+        self.paused.is_none() && self.local(now) < self.animation.end_time()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -148,6 +172,10 @@ pub struct Engine {
     // need a clock. Holds and settled slots never enter this index.
     running: BTreeSet<(u64, Property)>,
     dirty: HashSet<(u64, Property), BuildHasherDefault<SlotHasher>>,
+    // Keyframe animations overlay the slots' values; `animating` indexes the
+    // nodes whose overlay still moves with the clock.
+    animations: BTreeMap<u64, Vec<Playing>>,
+    animating: BTreeSet<u64>,
 }
 
 impl Engine {
@@ -177,9 +205,92 @@ impl Engine {
         Ok(())
     }
 
+    /// Set a node's `animation` row, at the current clock. CSS Animations
+    /// §3: an animation already playing under the same keyframes keeps its
+    /// start time, and new durations, delays or counts apply as if it had
+    /// always had them; a new one starts now; one no longer listed stops,
+    /// and the property shows its un-animated value again. An unchanged row
+    /// changes nothing, so re-rendering never restarts an animation.
+    pub fn set_animations(&mut self, node: u64, list: Animations) -> Result<(), EngineError> {
+        list.validate().map_err(EngineError::Animation)?;
+        let now = self.now;
+        let old = self.animations.remove(&node).unwrap_or_default();
+        let mut unmatched: Vec<Option<&Playing>> = old.iter().map(Some).collect();
+        let next: Vec<Playing> = list
+            .0
+            .into_iter()
+            .map(|animation| {
+                let paused = animation.play_state == PlayState::Paused;
+                let same = unmatched
+                    .iter_mut()
+                    .find(|p| p.is_some_and(|p| p.animation.keyframes == animation.keyframes))
+                    .and_then(Option::take);
+                match same {
+                    Some(p) => {
+                        let local = p.local(now);
+                        Playing {
+                            animation,
+                            start: if p.paused.is_some() && !paused {
+                                now - local
+                            } else {
+                                p.start
+                            },
+                            paused: paused.then_some(local),
+                        }
+                    }
+                    None => Playing {
+                        animation,
+                        start: now,
+                        paused: paused.then_some(0.0),
+                    },
+                }
+            })
+            .collect();
+        if next == old {
+            if !old.is_empty() {
+                self.animations.insert(node, old);
+            }
+            return Ok(());
+        }
+        for property in Property::ALL {
+            if old
+                .iter()
+                .chain(&next)
+                .any(|p| p.animation.keyframes.affects(property))
+            {
+                self.dirty.insert((node, property));
+            }
+        }
+        if next.iter().any(|p| p.live(now)) {
+            self.animating.insert(node);
+        } else {
+            self.animating.remove(&node);
+        }
+        if !next.is_empty() {
+            self.animations.insert(node, next);
+        }
+        Ok(())
+    }
+
+    /// The value a property shows: its transition-level value with every
+    /// animation on the node composited over it, in list order.
+    fn shown(&self, node: u64, property: Property, base: Value) -> Value {
+        let Some(list) = self.animations.get(&node) else {
+            return base;
+        };
+        list.iter().fold(base, |under, p| {
+            p.animation
+                .progress(p.local(self.now))
+                .and_then(|progress| p.animation.value(property, progress, under))
+                .unwrap_or(under)
+        })
+    }
+
     /// Forget a node entirely.
     pub fn remove(&mut self, node: u64) {
         self.transitions.remove(&node);
+        self.animations.remove(&node);
+        self.animating.remove(&node);
         // Removing a list must not scan every other node once per row.
         for property in Property::ALL {
             self.remove_property(node, property);
@@ -346,6 +457,16 @@ impl Engine {
             self.dirty.insert(*key);
             !sample.done
         });
+        let (animations, dirty) = (&self.animations, &mut self.dirty);
+        self.animating.retain(|node| {
+            let list = &animations[node];
+            for property in Property::ALL {
+                if list.iter().any(|p| p.animation.keyframes.affects(property)) {
+                    dirty.insert((*node, property));
+                }
+            }
+            list.iter().any(|p| p.live(now))
+        });
         Ok(())
     }
 
@@ -370,7 +491,7 @@ impl Engine {
                 self.slots.get(&key).map(|slot| Presentation {
                     node: key.0,
                     property: key.1,
-                    value: slot.presented,
+                    value: self.shown(key.0, key.1, slot.presented),
                 })
             })
             .collect()
@@ -408,9 +529,11 @@ impl Engine {
         })
     }
 
-    /// The current presentation value of one property.
+    /// The current presentation value of one property, animations included.
     pub fn value(&self, node: u64, property: Property) -> Option<Value> {
-        self.slots.get(&(node, property)).map(|s| s.presented)
+        self.slots
+            .get(&(node, property))
+            .map(|s| self.shown(node, property, s.presented))
     }
 
     /// The current target of one property.
@@ -418,23 +541,34 @@ impl Engine {
         self.slots.get(&(node, property)).map(|s| s.target)
     }
 
-    /// Whether nothing is running.
+    /// Whether nothing is running: no transition, and no animation whose
+    /// value still moves with the clock. An `infinite` animation keeps a
+    /// host's frames running for as long as it plays.
     pub fn quiescent(&self) -> bool {
-        self.running.is_empty()
+        self.running.is_empty() && self.animating.is_empty()
     }
 
-    /// The clock time at which the last running transition ends, or `None`
-    /// when quiescent. An agent advances here instead of waiting.
+    /// The clock time at which the last running transition or finite
+    /// animation ends, or `None` when there is none. An agent advances here
+    /// instead of waiting. An `infinite` animation never ends and is not
+    /// waited for, as the web's `clock settle` skips an endless one.
     pub fn settle_time(&self) -> Option<f64> {
-        self.running
+        let transitions = self.running.iter().map(|key| {
+            self.slots[key]
+                .running
+                .as_ref()
+                .expect("indexed curve")
+                .end_time()
+        });
+        let animations = self
+            .animating
             .iter()
-            .map(|key| {
-                self.slots[key]
-                    .running
-                    .as_ref()
-                    .expect("indexed curve")
-                    .end_time()
-            })
+            .flat_map(|node| &self.animations[node])
+            .filter(|p| p.live(self.now))
+            .map(|p| p.start + p.animation.end_time())
+            .filter(|t| t.is_finite());
+        transitions
+            .chain(animations)
             .fold(None, |acc, t| Some(acc.map_or(t, |a: f64| a.max(t))))
     }
 }

@@ -14,6 +14,7 @@
 //! Everywhere the platform has no such engine, this crate is the executor:
 //!
 //! - [`property`] — compositor properties and the explicit numeric-height trial.
+//! - [`animation`] — CSS keyframe animations, their timing and their values.
 //! - [`easing`] — CSS easing functions, held to the browser's outputs.
 //! - [`spring`] — the one timing function CSS lacks, and its lowering to
 //!   keyframes so the web plays the same curve.
@@ -30,6 +31,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod animation;
 pub mod easing;
 pub mod engine;
 pub mod math;
@@ -39,6 +41,10 @@ pub mod spring;
 pub mod transition;
 pub mod velocity;
 
+pub use animation::{
+    Animation, AnimationError, Animations, Direction, FillMode, KeyframeBlock, Keyframes,
+    PlayState, MAX_ANIMATIONS, MAX_KEYFRAMES,
+};
 pub use easing::{Easing, EasingError, LinearStop, StepPosition};
 pub use engine::{
     Change, Engine, EngineError, HoldEnd, HoldStart, HoldToken, Presentation, SpringDescriptor,

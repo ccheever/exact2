@@ -278,6 +278,15 @@ impl<'a> Resolver<'a> {
             self.graph
                 .define("style", &style.name, names.name(style.span), None, None);
         }
+        for keyframes in &self.file.keyframes {
+            self.graph.define(
+                "keyframes",
+                &keyframes.name,
+                names.name(keyframes.span),
+                None,
+                None,
+            );
+        }
         for f in &self.file.fns {
             self.graph
                 .define("fn", &f.name, names.name(f.span), None, None);

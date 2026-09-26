@@ -8,13 +8,14 @@
 use crate::error::DecodeError;
 use crate::generated::{StyleId, StyleMask, STYLE_MASK_WORDS};
 use crate::style::{
-    Color, ColorValue, Dimension, Edge, GridLine, GridPlacement, GridTrack, GridTracks,
+    Animations, Color, ColorValue, Dimension, Edge, GridLine, GridPlacement, GridTrack, GridTracks,
     Transitions, Vec2, MAX_GRID_TRACKS,
 };
 use exact_motion::easing::MAX_LINEAR_STOPS;
 use exact_motion::{
-    Easing, LinearStop, Property, SpringConfig, StepPosition, TimingFunction, Transition,
-    TransitionProperty, MAX_TRANSITIONS,
+    Animation, Direction, Easing, FillMode, KeyframeBlock, Keyframes, LinearStop, PlayState,
+    Property, SpringConfig, StepPosition, TimingFunction, Transition, TransitionProperty, Value,
+    MAX_ANIMATIONS, MAX_KEYFRAMES, MAX_TRANSITIONS,
 };
 
 /// Bound on any string field on the wire.
@@ -293,48 +294,7 @@ impl<'a> Reader<'a> {
             };
             let duration = self.f32()? as f64;
             let delay = self.f32()? as f64;
-            let timing = match self.u8()? {
-                0 => TimingFunction::Easing(Easing::Linear),
-                1 => TimingFunction::Easing(Easing::Ease),
-                2 => TimingFunction::Easing(Easing::EaseIn),
-                3 => TimingFunction::Easing(Easing::EaseOut),
-                4 => TimingFunction::Easing(Easing::EaseInOut),
-                5 => TimingFunction::Easing(Easing::CubicBezier {
-                    x1: self.f32()? as f64,
-                    y1: self.f32()? as f64,
-                    x2: self.f32()? as f64,
-                    y2: self.f32()? as f64,
-                }),
-                6 => {
-                    let count = self.u16()?;
-                    let position = self.u8()?;
-                    TimingFunction::Easing(Easing::Steps {
-                        count,
-                        position: StepPosition::from_wire(position)
-                            .ok_or(DecodeError::UnknownStepPosition(position))?,
-                    })
-                }
-                7 => TimingFunction::Spring(SpringConfig {
-                    stiffness: self.f32()? as f64,
-                    damping: self.f32()? as f64,
-                    mass: self.f32()? as f64,
-                }),
-                8 => {
-                    let stops = self.u8()?;
-                    if stops as usize > MAX_LINEAR_STOPS {
-                        return Err(DecodeError::TooManyEasingStops(stops));
-                    }
-                    let mut list = Vec::with_capacity(stops as usize);
-                    for _ in 0..stops {
-                        list.push(LinearStop {
-                            input: self.f32()? as f64,
-                            output: self.f32()? as f64,
-                        });
-                    }
-                    TimingFunction::Easing(Easing::PiecewiseLinear(list))
-                }
-                other => return Err(DecodeError::UnknownEasing(other)),
-            };
+            let timing = self.timing()?;
             out.push(Transition {
                 property,
                 duration,
@@ -347,6 +307,126 @@ impl<'a> Reader<'a> {
             .validate()
             .map_err(DecodeError::InvalidTransition)?;
         Ok(transitions)
+    }
+
+    /// Read one easing (grammar: `schema.json` `_transitions`), spring
+    /// included: the `transition` and `animation` rows share it.
+    fn timing(&mut self) -> Result<TimingFunction, DecodeError> {
+        Ok(match self.u8()? {
+            0 => TimingFunction::Easing(Easing::Linear),
+            1 => TimingFunction::Easing(Easing::Ease),
+            2 => TimingFunction::Easing(Easing::EaseIn),
+            3 => TimingFunction::Easing(Easing::EaseOut),
+            4 => TimingFunction::Easing(Easing::EaseInOut),
+            5 => TimingFunction::Easing(Easing::CubicBezier {
+                x1: self.f32()? as f64,
+                y1: self.f32()? as f64,
+                x2: self.f32()? as f64,
+                y2: self.f32()? as f64,
+            }),
+            6 => {
+                let count = self.u16()?;
+                let position = self.u8()?;
+                TimingFunction::Easing(Easing::Steps {
+                    count,
+                    position: StepPosition::from_wire(position)
+                        .ok_or(DecodeError::UnknownStepPosition(position))?,
+                })
+            }
+            7 => TimingFunction::Spring(SpringConfig {
+                stiffness: self.f32()? as f64,
+                damping: self.f32()? as f64,
+                mass: self.f32()? as f64,
+            }),
+            8 => {
+                let stops = self.u8()?;
+                if stops as usize > MAX_LINEAR_STOPS {
+                    return Err(DecodeError::TooManyEasingStops(stops));
+                }
+                let mut list = Vec::with_capacity(stops as usize);
+                for _ in 0..stops {
+                    list.push(LinearStop {
+                        input: self.f32()? as f64,
+                        output: self.f32()? as f64,
+                    });
+                }
+                TimingFunction::Easing(Easing::PiecewiseLinear(list))
+            }
+            other => return Err(DecodeError::UnknownEasing(other)),
+        })
+    }
+
+    /// Read an `animation` row (grammar: `schema.json` `_animations`) and
+    /// validate it the way the sampler will.
+    pub fn animations(&mut self) -> Result<Animations, DecodeError> {
+        let count = self.u8()?;
+        if count as usize > MAX_ANIMATIONS {
+            return Err(DecodeError::TooManyAnimations(count));
+        }
+        let mut out = Vec::with_capacity(count as usize);
+        for _ in 0..count {
+            let name = self.string()?.to_string();
+            let duration = self.f32()? as f64;
+            let delay = self.f32()? as f64;
+            let easing = self.easing()?;
+            let iterations = self.f32()? as f64;
+            let keyword = |v: u8| DecodeError::UnknownAnimationValue(v);
+            let v = self.u8()?;
+            let direction = *Direction::ALL.get(v as usize).ok_or(keyword(v))?;
+            let v = self.u8()?;
+            let fill = *FillMode::ALL.get(v as usize).ok_or(keyword(v))?;
+            let v = self.u8()?;
+            let play_state = *PlayState::ALL.get(v as usize).ok_or(keyword(v))?;
+            let blocks = self.u8()?;
+            if blocks as usize > MAX_KEYFRAMES {
+                return Err(DecodeError::TooManyAnimations(blocks));
+            }
+            let mut list = Vec::with_capacity(blocks as usize);
+            for _ in 0..blocks {
+                let offset = self.f32()? as f64;
+                let easing = match self.u8()? {
+                    0 => None,
+                    1 => Some(self.easing()?),
+                    other => return Err(keyword(other)),
+                };
+                let values = self.u8()?;
+                let mut set = Vec::with_capacity(values as usize);
+                for _ in 0..values {
+                    let p = self.u8()?;
+                    let property = Property::from_wire(p).ok_or(keyword(p))?;
+                    let value = Value::new(self.f32()? as f64, self.f32()? as f64);
+                    set.push((property, value));
+                }
+                list.push(KeyframeBlock {
+                    offset,
+                    easing,
+                    values: set,
+                });
+            }
+            out.push(Animation {
+                keyframes: Keyframes { name, blocks: list },
+                duration,
+                easing,
+                delay,
+                iterations,
+                direction,
+                fill,
+                play_state,
+            });
+        }
+        let animations = Animations(out);
+        animations
+            .validate()
+            .map_err(DecodeError::InvalidAnimation)?;
+        Ok(animations)
+    }
+
+    /// An easing where only CSS's are admitted: a spring is refused.
+    fn easing(&mut self) -> Result<Easing, DecodeError> {
+        match self.timing()? {
+            TimingFunction::Easing(easing) => Ok(easing),
+            TimingFunction::Spring(_) => Err(DecodeError::UnknownEasing(7)),
+        }
     }
 
     /// Read the style mask words and reject reserved bits.
@@ -574,40 +654,86 @@ impl Writer {
             });
             self.f32(transition.duration as f32);
             self.f32(transition.delay as f32);
-            match &transition.timing {
-                TimingFunction::Easing(Easing::Linear) => self.u8(0),
-                TimingFunction::Easing(Easing::Ease) => self.u8(1),
-                TimingFunction::Easing(Easing::EaseIn) => self.u8(2),
-                TimingFunction::Easing(Easing::EaseOut) => self.u8(3),
-                TimingFunction::Easing(Easing::EaseInOut) => self.u8(4),
-                TimingFunction::Easing(Easing::CubicBezier { x1, y1, x2, y2 }) => {
-                    self.u8(5);
-                    for v in [x1, y1, x2, y2] {
-                        self.f32(*v as f32);
+            self.timing(&transition.timing);
+        }
+    }
+
+    /// Append an `animation` row.
+    pub fn animations(&mut self, a: &Animations) {
+        debug_assert!(a.0.len() <= MAX_ANIMATIONS);
+        self.u8(a.0.len() as u8);
+        for animation in &a.0 {
+            self.string(&animation.keyframes.name);
+            self.f32(animation.duration as f32);
+            self.f32(animation.delay as f32);
+            self.easing(&animation.easing);
+            self.f32(animation.iterations as f32);
+            self.u8(animation.direction as u8);
+            self.u8(animation.fill as u8);
+            self.u8(animation.play_state as u8);
+            let blocks = &animation.keyframes.blocks;
+            debug_assert!(blocks.len() <= MAX_KEYFRAMES);
+            self.u8(blocks.len() as u8);
+            for block in blocks {
+                self.f32(block.offset as f32);
+                match &block.easing {
+                    None => self.u8(0),
+                    Some(easing) => {
+                        self.u8(1);
+                        self.easing(easing);
                     }
                 }
-                TimingFunction::Easing(Easing::Steps { count, position }) => {
-                    self.u8(6);
-                    self.u16(*count);
-                    self.u8(StepPosition::ALL
-                        .iter()
-                        .position(|p| p == position)
-                        .unwrap_or(1) as u8);
+                self.u8(block.values.len() as u8);
+                for (property, value) in &block.values {
+                    self.u8(*property as u8);
+                    self.f32(value.x as f32);
+                    self.f32(value.y as f32);
                 }
-                TimingFunction::Spring(config) => {
-                    self.u8(7);
-                    self.f32(config.stiffness as f32);
-                    self.f32(config.damping as f32);
-                    self.f32(config.mass as f32);
+            }
+        }
+    }
+
+    /// One easing or spring (grammar: `schema.json` `_transitions`).
+    fn timing(&mut self, timing: &TimingFunction) {
+        match timing {
+            TimingFunction::Easing(easing) => self.easing(easing),
+            TimingFunction::Spring(config) => {
+                self.u8(7);
+                self.f32(config.stiffness as f32);
+                self.f32(config.damping as f32);
+                self.f32(config.mass as f32);
+            }
+        }
+    }
+
+    fn easing(&mut self, easing: &Easing) {
+        match easing {
+            Easing::Linear => self.u8(0),
+            Easing::Ease => self.u8(1),
+            Easing::EaseIn => self.u8(2),
+            Easing::EaseOut => self.u8(3),
+            Easing::EaseInOut => self.u8(4),
+            Easing::CubicBezier { x1, y1, x2, y2 } => {
+                self.u8(5);
+                for v in [x1, y1, x2, y2] {
+                    self.f32(*v as f32);
                 }
-                TimingFunction::Easing(Easing::PiecewiseLinear(stops)) => {
-                    self.u8(8);
-                    debug_assert!(stops.len() <= MAX_LINEAR_STOPS);
-                    self.u8(stops.len() as u8);
-                    for stop in stops {
-                        self.f32(stop.input as f32);
-                        self.f32(stop.output as f32);
-                    }
+            }
+            Easing::Steps { count, position } => {
+                self.u8(6);
+                self.u16(*count);
+                self.u8(StepPosition::ALL
+                    .iter()
+                    .position(|p| p == position)
+                    .unwrap_or(1) as u8);
+            }
+            Easing::PiecewiseLinear(stops) => {
+                self.u8(8);
+                debug_assert!(stops.len() <= MAX_LINEAR_STOPS);
+                self.u8(stops.len() as u8);
+                for stop in stops {
+                    self.f32(stop.input as f32);
+                    self.f32(stop.output as f32);
                 }
             }
         }

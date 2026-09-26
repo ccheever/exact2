@@ -24,6 +24,7 @@ pub enum StyleDomainError {
     TooManyTracks { style: StyleId, count: usize },
     InvalidGridSpan(StyleId),
     InvalidTransition(exact_motion::TransitionError),
+    InvalidAnimation(exact_motion::AnimationError),
 }
 
 /// A frame or payload could not be decoded. Nothing was applied.
@@ -101,6 +102,14 @@ pub enum DecodeError {
     TooManyEasingStops(u8),
     /// A `transition` row decoded but failed the evaluator's validation.
     InvalidTransition(exact_motion::TransitionError),
+    /// An `animation` row carried more animations or keyframes than the wire
+    /// admits.
+    TooManyAnimations(u8),
+    /// An `animation` row named a direction, fill mode, play state or
+    /// property discriminant its table lacks.
+    UnknownAnimationValue(u8),
+    /// An `animation` row decoded but failed the sampler's validation.
+    InvalidAnimation(exact_motion::AnimationError),
     /// A style mask set bits above the last row.
     ReservedMaskBits,
     /// A child list exceeds the bound.
@@ -228,6 +237,11 @@ pub enum ApplyError {
         op_index: usize,
         error: exact_motion::TransitionError,
     },
+    /// A `SetStyle` patch carried an `animation` row the sampler refuses.
+    InvalidAnimation {
+        op_index: usize,
+        error: exact_motion::AnimationError,
+    },
     /// The batch would leave node `id` `depth` levels below the top of its
     /// tree, past [`MAX_DEPTH`](crate::MAX_DEPTH): layout recurses once per
     /// level and the host's stack is finite. `op_index` attached the subtree
@@ -312,6 +326,7 @@ impl From<StyleDomainError> for DecodeError {
             StyleDomainError::TooManyTracks { count, .. } => DecodeError::TooManyTracks(count),
             StyleDomainError::InvalidGridSpan(_) => DecodeError::InvalidGridSpan,
             StyleDomainError::InvalidTransition(error) => DecodeError::InvalidTransition(error),
+            StyleDomainError::InvalidAnimation(error) => DecodeError::InvalidAnimation(error),
         }
     }
 }
@@ -387,6 +402,10 @@ pub enum StyleValueError {
     },
     /// A `transition` text was not CSS shorthand the evaluator accepts.
     BadTransition {
+        style: StyleId,
+    },
+    /// An `animation` text was not CSS shorthand with its `@keyframes`.
+    BadAnimation {
         style: StyleId,
     },
     BadShapeOutside {

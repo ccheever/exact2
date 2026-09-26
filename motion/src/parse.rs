@@ -10,8 +10,11 @@
 //! the other components occur. What CSS's parser would reject, this rejects,
 //! by name.
 
+use crate::animation::{
+    Animation, AnimationError, Animations, Direction, FillMode, KeyframeBlock, Keyframes, PlayState,
+};
 use crate::easing::{Easing, LinearStop, StepPosition};
-use crate::property::Property;
+use crate::property::{Property, Value};
 use crate::spring::SpringConfig;
 use crate::transition::{
     TimingFunction, Transition, TransitionError, TransitionProperty, Transitions,
@@ -32,6 +35,14 @@ pub enum ParseError {
     BadShape(String),
     /// Parsed, but the evaluator refuses it.
     Invalid(TransitionError),
+    /// An `animation` named keyframes the text does not declare.
+    UnknownKeyframes(String),
+    /// A `@keyframes` rule that does not parse.
+    BadKeyframes(String),
+    /// `spring()` is a `transition` extension; keyframes take CSS easings.
+    SpringInAnimation,
+    /// Parsed, but the sampler refuses it.
+    InvalidAnimation(AnimationError),
 }
 
 impl Transitions {
@@ -95,6 +106,232 @@ impl Transitions {
         ts.validate().map_err(ParseError::Invalid)?;
         Ok(ts)
     }
+}
+
+impl Animations {
+    /// Parse the row's text form: CSS's `animation` shorthand list, then the
+    /// `@keyframes` rules it names, in CSS syntax —
+    /// `pulse 1.6s ease-in-out infinite @keyframes pulse{0%{opacity:0.4}50%{opacity:1}}`.
+    /// A compiled plan carries this (LLP 1057 D3): the compiler appends each
+    /// rule an authored name resolves to, so nothing is looked up later.
+    pub fn parse(text: &str) -> Result<Animations, ParseError> {
+        let (head, rules) = match text.find("@keyframes") {
+            Some(at) => (&text[..at], keyframes_rules(&text[at..])?),
+            None => (text, Vec::new()),
+        };
+        let head = head.trim();
+        if head.is_empty() || head == "none" {
+            return Ok(Animations::NONE);
+        }
+        let mut out = Vec::new();
+        for entry in split_top_level(head, ',') {
+            let entry = entry.trim();
+            let bad = || ParseError::BadShape(entry.to_string());
+            let (mut duration, mut delay, mut easing, mut iterations) = (None, None, None, None);
+            let (mut direction, mut fill, mut play_state, mut name) = (None, None, None, None);
+            for part in split_top_level(entry, ' ')
+                .into_iter()
+                .filter(|p| !p.is_empty())
+            {
+                let direction_word = Direction::ALL.into_iter().find(|d| d.name() == part);
+                let fill_word = FillMode::ALL.into_iter().find(|f| f.name() == part);
+                let play_word = PlayState::ALL.into_iter().find(|p| p.name() == part);
+                // CSS §3.11: a word that fits a longhand not yet set is that
+                // longhand's, so the first `none` is the fill mode and only a
+                // second one is the name.
+                if let Ok(t) = time(part) {
+                    match (duration, delay) {
+                        (None, _) => duration = Some(t),
+                        (Some(_), None) => delay = Some(t),
+                        _ => return Err(bad()),
+                    }
+                } else if easing.is_none() && is_easing(part) {
+                    easing = Some(Easing::parse(part)?);
+                } else if iterations.is_none() && part == "infinite" {
+                    iterations = Some(f64::INFINITY);
+                } else if iterations.is_none() && exact_num::parse_f64(part).is_ok() {
+                    iterations = exact_num::parse_f64(part).ok();
+                } else if direction.is_none() && direction_word.is_some() {
+                    direction = direction_word;
+                } else if fill.is_none() && fill_word.is_some() {
+                    fill = fill_word;
+                } else if play_state.is_none() && play_word.is_some() {
+                    play_state = play_word;
+                } else if name.is_none() && is_ident(part) {
+                    name = Some(part);
+                } else {
+                    return Err(bad());
+                }
+            }
+            let Some(name) = name.filter(|n| *n != "none") else {
+                continue;
+            };
+            let keyframes = rules
+                .iter()
+                .rev()
+                .find(|k| k.name == name)
+                .cloned()
+                .ok_or_else(|| ParseError::UnknownKeyframes(name.to_string()))?;
+            out.push(Animation {
+                keyframes,
+                duration: duration.unwrap_or(0.0),
+                easing: easing.unwrap_or(Easing::Ease),
+                delay: delay.unwrap_or(0.0),
+                iterations: iterations.unwrap_or(1.0),
+                direction: direction.unwrap_or_default(),
+                fill: fill.unwrap_or_default(),
+                play_state: play_state.unwrap_or_default(),
+            });
+        }
+        let animations = Animations(out);
+        animations
+            .validate()
+            .map_err(ParseError::InvalidAnimation)?;
+        Ok(animations)
+    }
+}
+
+impl Easing {
+    /// Parse one CSS `<easing-function>`. `spring()`, a `transition`
+    /// extension, is refused.
+    pub fn parse(text: &str) -> Result<Easing, ParseError> {
+        match easing(text.trim())? {
+            TimingFunction::Easing(e) => Ok(e),
+            TimingFunction::Spring(_) => Err(ParseError::SpringInAnimation),
+        }
+    }
+}
+
+impl Keyframes {
+    /// Parse one `@keyframes name{…}` rule in CSS syntax. Blocks sort by
+    /// offset; blocks at one offset merge, the later value winning (CSS
+    /// Animations §3: keyframes at the same offset cascade).
+    pub fn parse(text: &str) -> Result<Keyframes, ParseError> {
+        let mut all = keyframes_rules(text)?;
+        match all.len() {
+            1 => Ok(all.remove(0)),
+            _ => Err(ParseError::BadKeyframes(text.trim().to_string())),
+        }
+    }
+}
+
+/// Every `@keyframes` rule in `text`, which holds nothing else.
+fn keyframes_rules(text: &str) -> Result<Vec<Keyframes>, ParseError> {
+    let mut rules = Vec::new();
+    let mut rest = text.trim_start();
+    while !rest.is_empty() {
+        let bad = || ParseError::BadKeyframes(rest.chars().take(64).collect());
+        let body = rest.strip_prefix("@keyframes").ok_or_else(bad)?;
+        let open = body.find('{').ok_or_else(bad)?;
+        let name = body[..open].trim();
+        if !is_ident(name) {
+            return Err(bad());
+        }
+        // The rule ends at the brace that closes its own.
+        let mut depth = 0;
+        let mut close = None;
+        for (i, c) in body[open..].char_indices() {
+            match c {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        close = Some(open + i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let close = close.ok_or_else(bad)?;
+        rules.push(keyframe_blocks(name, &body[open + 1..close])?);
+        rest = body[close + 1..].trim_start();
+    }
+    Ok(rules)
+}
+
+fn keyframe_blocks(name: &str, inner: &str) -> Result<Keyframes, ParseError> {
+    let bad = |what: &str| ParseError::BadKeyframes(format!("@keyframes {name}: {what}"));
+    let mut blocks: Vec<KeyframeBlock> = Vec::new();
+    let mut rest = inner.trim();
+    while !rest.is_empty() {
+        let open = rest.find('{').ok_or_else(|| bad(rest))?;
+        let close = rest.find('}').ok_or_else(|| bad(rest))?;
+        if close < open {
+            return Err(bad(rest));
+        }
+        let mut block = KeyframeBlock {
+            offset: 0.0,
+            easing: None,
+            values: Vec::new(),
+        };
+        for decl in rest[open + 1..close].split(';') {
+            let decl = decl.trim();
+            if decl.is_empty() {
+                continue;
+            }
+            let (property, value) = decl.split_once(':').ok_or_else(|| bad(decl))?;
+            let (property, value) = (property.trim(), value.trim());
+            if property == "animation-timing-function" {
+                block.easing = Some(Easing::parse(value)?);
+                continue;
+            }
+            let property = Property::from_name(property)
+                .ok_or_else(|| ParseError::UnknownProperty(property.to_string()))?;
+            let value = keyframe_value(property, value).ok_or_else(|| bad(decl))?;
+            block.values.retain(|(p, _)| *p != property);
+            block.values.push((property, value));
+        }
+        for selector in rest[..open].split(',') {
+            let offset = match selector.trim() {
+                "from" => 0.0,
+                "to" => 1.0,
+                s => s
+                    .strip_suffix('%')
+                    .and_then(|n| exact_num::parse_f64(n.trim()).ok())
+                    .map(|n| n / 100.0)
+                    .ok_or_else(|| bad(s))?,
+            };
+            blocks.push(KeyframeBlock {
+                offset,
+                ..block.clone()
+            });
+        }
+        rest = rest[close + 1..].trim_start();
+    }
+    Keyframes::new(name, blocks).map_err(ParseError::InvalidAnimation)
+}
+
+/// A keyframe's value in CSS's units: `translate` one or two lengths (`px`,
+/// or a unitless number), `rotate` an angle (`deg`, or a unitless number of
+/// degrees), `scale` and `opacity` numbers.
+fn keyframe_value(property: Property, text: &str) -> Option<Value> {
+    let number = |s: &str, unit: &str| exact_num::parse_f64(s.strip_suffix(unit).unwrap_or(s)).ok();
+    match property {
+        Property::Translate => {
+            let mut parts = text.split_whitespace();
+            let x = number(parts.next()?, "px")?;
+            let y = parts.next().map_or(Some(0.0), |y| number(y, "px"))?;
+            parts.next().is_none().then_some(Value::new(x, y))
+        }
+        Property::Rotate => number(text, "deg").map(Value::scalar),
+        _ => exact_num::parse_f64(text).ok().map(Value::scalar),
+    }
+}
+
+fn is_easing(s: &str) -> bool {
+    matches!(
+        s,
+        "linear" | "ease" | "ease-in" | "ease-out" | "ease-in-out" | "step-start" | "step-end"
+    ) || call(s).is_some()
+}
+
+/// A CSS `<custom-ident>` as Contract names are spelled.
+fn is_ident(s: &str) -> bool {
+    !s.is_empty()
+        && !s.starts_with(|c: char| c.is_ascii_digit())
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 fn time(s: &str) -> Result<f64, ParseError> {
