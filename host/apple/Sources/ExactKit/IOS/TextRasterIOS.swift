@@ -198,8 +198,10 @@ extension NodeView {
         }
         textRaster = result.image; textRasterFrame = result.frame; textRasterScale = key.scale
         textRasterReady = true; textRasterFailed = false
-        let ink = textRasterLayer ?? CALayer()
-        CATransaction.begin(); CATransaction.setDisableActions(true)
+        // The ink layer never animates (`InkLayer`), so no transaction of
+        // its own: a worker's result published between frames commits with
+        // the next frame's changes, rather than alone.
+        let ink = textRasterLayer ?? InkLayer()
         // Above the box's border (`applyBoxLayer`), under everything else.
         if ink.superlayer == nil {
             if let border = boxBorder { layer.insertSublayer(ink, above: border) } else { layer.insertSublayer(ink, at: 0) }
@@ -208,12 +210,17 @@ extension NodeView {
         ink.contentsScale = key.scale
         ink.contents = result.image
         textRasterLayer = ink
-        CATransaction.commit()
     }
     func dropTextRaster() {
         textRasterLayer?.removeFromSuperlayer(); textRasterLayer = nil
         textRaster = nil; textRasterKey = nil; textRasterReady = false; textRasterFailed = false
     }
+}
+
+/// A paragraph's worker-rendered pixels (`showTextRaster`): its changes show
+/// at once, as under `setDisableActions`, in whatever transaction is open.
+final class InkLayer: CALayer {
+    override func action(forKey event: String) -> (any CAAction)? { nil }
 }
 
 /// One refresh's clip geometry: each ancestor's accumulated clips (at no
