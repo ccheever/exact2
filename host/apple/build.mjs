@@ -69,6 +69,20 @@ export const pkg = resolve(root, 'host/apple');
 /** The simulator's Rust target and Swift triple on this machine. */
 export const iosTarget = process.arch === 'arm64' ? 'aarch64-apple-ios-sim' : 'x86_64-apple-ios';
 export const iosTriple = `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-ios17.0-simulator`;
+const newer = (a, b) => (a.split('.').map(Number).reduce((x, n, i) => x || n - (b.split('.').map(Number)[i] ?? 0), 0) > 0 ? a : b);
+/** The deployment targets an app builds for: its manifest's `minimumOS`, never
+ * below the host's own floor (Package.swift's). Every Rust, Swift and linker
+ * step of one build uses the same pair, so an app's own native code may target
+ * the newer OS it asked for without a mixed-target refusal. */
+export function deploymentTargets(app) {
+  return {
+    ios: newer(String(app.manifest.host?.ios?.minimumOS ?? '17.0'), '17.0'),
+    macos: newer(String(app.manifest.host?.macos?.minimumOS ?? '14.0'), '14.0'),
+  };
+}
+/** The Swift triple for an app's iOS build. */
+export const iosTripleFor = (app, device) =>
+  device ? `arm64-apple-ios${deploymentTargets(app).ios}` : `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-ios${deploymentTargets(app).ios}-simulator`;
 export const macTriple = `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macosx`;
 
 /** App-owned Apple paths, shared by builder and launchers. @ref LLP 1036.000 §2 */
@@ -533,6 +547,9 @@ export const macInfoPlist = (app, { development = null, icon = {} } = {}) => pli
   CFBundleShortVersionString: '0.1.0',
   LSMinimumSystemVersion: app.manifest.host?.macos?.minimumOS ?? '14.0',
   NSHighResolutionCapable: true,
+  // Usage strings for protected resources (NSMicrophoneUsageDescription, …),
+  // as `host.ios.permissions` writes them for iOS.
+  ...(app.manifest.host?.macos?.permissions ?? {}),
   ...(app.manifest.host?.macos?.window ? { ExactWindow: app.manifest.host.macos.window } : {}),
   ...(documentTypes(app).length ? { CFBundleDocumentTypes: documentTypes(app) } : {}),
   ...openingLinks(app, 'macos', development),
@@ -588,12 +605,13 @@ function main(args) {
   const target = ios ? (device ? 'aarch64-apple-ios' : iosTarget) : bakeTarget('macos');
   const sdkName = ios ? (device ? 'iphoneos' : 'iphonesimulator') : 'macosx';
   const sdk = read('xcrun', ['--sdk', sdkName, '--show-sdk-path']).stdout.trim();
+  const targets = deploymentTargets(app);
   const cargoEnv = {
     ...developmentBuildEnv(),
     SDKROOT: sdk,
-    MACOSX_DEPLOYMENT_TARGET: '14.0',
+    MACOSX_DEPLOYMENT_TARGET: targets.macos,
     ...(ios ? {
-      IPHONEOS_DEPLOYMENT_TARGET: '17.0',
+      IPHONEOS_DEPLOYMENT_TARGET: targets.ios,
       // The bake's host dependencies compile Objective-C++ too. cc-rs
       // inherits SDKROOT; target the Mac SDK explicitly for those units.
       HOST_CXXFLAGS: `${process.env.HOST_CXXFLAGS ?? ''} -isysroot ${read('xcrun', ['--sdk', 'macosx', '--show-sdk-path']).stdout.trim()}`,
@@ -684,7 +702,7 @@ function main(args) {
   // manifest compile. The target SDK stays in the explicit Swift arguments.
   const env = {
     ...process.env,
-    ...(ios ? { IPHONEOS_DEPLOYMENT_TARGET: '17.0' } : { MACOSX_DEPLOYMENT_TARGET: '14.0' }),
+    ...(ios ? { IPHONEOS_DEPLOYMENT_TARGET: targets.ios } : { MACOSX_DEPLOYMENT_TARGET: targets.macos }),
     EXACT_LIB_DIR: libDir,
     EXACT_LIB: crate.replace(/-/g, '_'),
     EXACT_APP_COMPOSITION: composition,
@@ -703,7 +721,7 @@ function main(args) {
   const swiftArgs = ['build', '-c', 'release', '--scratch-path', swiftBuildRoot];
   if (ios) {
     swiftArgs.push(
-      '--triple', device ? 'arm64-apple-ios17.0' : iosTriple,
+      '--triple', iosTripleFor(app, device),
       '--sdk', sdk,
       '-Xcc', '-isysroot', '-Xcc', sdk,
       '-Xlinker', '-syslibroot', '-Xlinker', sdk,
@@ -739,9 +757,9 @@ function main(args) {
   // Swift scratch while the completed dylib remains invocation-private.
   const webArgs = ['--sdk', sdkName, 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'webarm-module-cache'), '-parse-as-library', '-emit-library', '-O', '-module-name', 'ExactWebArm', resolve(root, 'host/apple/webarm/WebArm.swift'), '-o', webBuilt, '-framework', 'WebKit'];
   if (ios) {
-    webArgs.push('-target', device ? 'arm64-apple-ios17.0' : iosTriple, '-sdk', sdk);
+    webArgs.push('-target', iosTripleFor(app, device), '-sdk', sdk);
   } else {
-    webArgs.push('-target', `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macos14.0`);
+    webArgs.push('-target', `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macos${targets.macos}`);
   }
   // Each arm is one Swift file: compile it once per source, arguments and
   // compiler, kept in the scratch path. Rebuilt into a fresh directory, the
