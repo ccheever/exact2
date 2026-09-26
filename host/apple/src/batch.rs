@@ -9,6 +9,9 @@ use std::fmt::Write as _;
 #[derive(Debug, Default)]
 pub struct Batch {
     ops: Vec<String>,
+    /// The views this batch creates: each starts at its presentation's
+    /// identity (`Host::present`).
+    created: std::collections::HashSet<u32>,
 }
 
 pub use exact_runner::agent::quote;
@@ -221,6 +224,12 @@ impl Batch {
         string_list(handlers, &mut s);
         s.push('}');
         self.ops.push(s);
+        self.created.insert(id);
+    }
+
+    /// Whether this batch creates `id`.
+    pub fn creates(&self, id: u32) -> bool {
+        self.created.contains(&id)
     }
 
     /// `{"op":"props","id":…,"set":{…},"clear":[…]}`.

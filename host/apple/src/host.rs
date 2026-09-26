@@ -1116,16 +1116,19 @@ impl<D: DataSource> Host<D> {
     }
 
     /// Every presentation value the engine changed, as `present` ops. At
-    /// boot only values that are not the property's identity: the presenter
-    /// starts every view at identity, and the four motion rows are never in
-    /// the style dictionary.
+    /// boot, and for a view the batch creates, only values that are not the
+    /// property's identity: the presenter starts every view at identity (a
+    /// reused one is reset to it), and the four motion rows are never in the
+    /// style dictionary. A list row's views were four identity ops each,
+    /// about half of what a fill batch carried.
     fn present(&mut self, batch: &mut Batch, boot: bool) {
         self.holds.retain(|_, token| self.engine.has_hold(*token));
         for p in self.engine.frame() {
             if p.property == Property::Height {
                 continue;
             }
-            if boot && p.property.identity() == Some(p.value) {
+            let identity = p.property.identity() == Some(p.value);
+            if boot && identity {
                 continue;
             }
             let key = NodeKey {
@@ -1135,6 +1138,9 @@ impl<D: DataSource> Host<D> {
             let Some(view) = self.keys.get(&key).copied() else {
                 continue;
             };
+            if identity && batch.creates(view) {
+                continue;
+            }
             if self.inline_runs.contains_key(&view) {
                 continue;
             }

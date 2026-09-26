@@ -238,6 +238,11 @@ fn later_batches_carry_only_what_changed_and_frames_follow() {
         &swap[..200]
     );
     assert!(count(&swap, "frame") > 0, "new nodes are placed");
+    assert_eq!(
+        count(&swap, "present"),
+        0,
+        "a new view starts at its presentation's identity: {swap}"
+    );
     let nothing = host.resize(390.0, 844.0);
     assert_eq!(
         count(&nothing, "frame"),
