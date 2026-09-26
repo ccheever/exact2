@@ -275,8 +275,17 @@ ordinary press control.
 Declared deviations, each because the engine cannot express the CSS value:
 `position` has no `static` (Taffy positions an absolute child against its parent,
 so `relative` without insets is the closest box; a web host emits `position:
-relative` on every node to match); `text_align` defaults to `left`, not `start`,
-because logical alignment is not yet lowered. Font matching stops at the nearest
+relative` on every node to match). `text_align` is CSS's (`start` initially;
+`start` and `end` resolve against the paragraph's `direction` in
+`Paragraph::from_style`, so hosts see only left, center, right or justify; LLP
+1053). CSS `direction` orders flex rows and places blocks in the kernel, and
+`direction: rtl` is a paragraph's base direction on every host. Declared: under
+the initial `ltr`, the Apple and Linux engines still take a paragraph's base
+direction from its first strong character (as `unicode-bidi: plaintext`), so
+an `ltr` paragraph that opens with Hebrew or Arabic orders mixed text as an
+`rtl` one would. Its alignment is still `start` = left, and the web uses CSS.
+The Linux text-flow walker cannot yet break an RTL run inside an LTR
+paragraph. Font matching stops at the nearest
 real declared face and never synthesizes weight or style, rather than CSS's initial
 `font-synthesis: weight style small-caps`; the compiler diagnoses a literal
 weight/style whose declared family lacks the needed face, and the web host emits

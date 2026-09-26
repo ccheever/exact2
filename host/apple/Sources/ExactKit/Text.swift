@@ -465,7 +465,18 @@ final class TextEngine {
             if length > 0 { s.setAttributes(a, range: NSRange(location: offset, length: length)) }
             offset += length
         }
+        TextEngine.setBaseDirection(s, direction: spec.direction)
         return s
+    }
+
+    /// CSS `direction: rtl` as the paragraph's base writing direction (LLP
+    /// 1053). Under `ltr` CoreText's natural direction (the first strong
+    /// character) stays, as on Linux; LLP 1001 §1 declares it.
+    static func setBaseDirection(_ s: NSMutableAttributedString, direction: Int) {
+        guard direction == 1, s.length > 0 else { return }
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.baseWritingDirection = .rightToLeft
+        s.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: s.length))
     }
 
     /// Urgent raster work stays on the text engine's owning thread and uses

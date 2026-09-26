@@ -750,13 +750,16 @@
       "default": "visible"
     },
     "TextAlign": {
+      "_comment": "@ref LLP 1053: CSS's initial value is `start`; `start` and `end` follow the paragraph's `direction` (Paragraph::from_style resolves them to left or right).",
       "values": [
         "left",
         "center",
         "right",
-        "justify"
+        "justify",
+        "start",
+        "end"
       ],
-      "default": "left"
+      "default": "start"
     },
     "Display": {
       "values": [

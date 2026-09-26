@@ -56,10 +56,11 @@ pub(super) fn request(kernel: &Kernel, p: &Pending, known: u64) -> Result<String
         if r.runs.len() != leaves.len() {
             return Err("metric/paint run mismatch".into());
         }
-        let align = match r.paragraph.text_align {
-            exact_kernel::TextAlign::Left => 0,
+        // Physical already (`Paragraph::from_style`); `start`/`end` never arrive.
+        let align = match r.paragraph.text_align.physical(r.paragraph.direction) {
+            exact_kernel::TextAlign::Left | exact_kernel::TextAlign::Start => 0,
             exact_kernel::TextAlign::Center => 1,
-            exact_kernel::TextAlign::Right => 2,
+            exact_kernel::TextAlign::Right | exact_kernel::TextAlign::End => 2,
             exact_kernel::TextAlign::Justify => 3,
         };
         let wrap = match r.paragraph.overflow_wrap {

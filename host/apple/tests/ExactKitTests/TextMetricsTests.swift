@@ -18,6 +18,22 @@ func regionInvalidationFixture(ops: [[String: Any]], protected: Set<UInt32>) -> 
 }
 
 final class TextMetricsTests: XCTestCase {
+    /// LLP 1053: `direction: rtl` is the base writing direction, so a Latin
+    /// word that starts the paragraph sits at the right of the Hebrew.
+    func testRtlDirectionIsTheParagraphBaseDirection() {
+        let engine = TextEngine(resolve: { _ in nil })
+        var input = Spec(runs: [Run(text: "abc \u{5d0}\u{5d1}\u{5d2}", size: 13.25, weight: 400, family: 0,
+                                    italic: false, lineHeight: 18.125, letterSpacing: 0)],
+                         align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        let hebrew = "abc ".utf16.count
+        let x = { (p: Paragraph, i: Int) in CTLineGetOffsetForStringIndex(p.lines[0], i, nil) }
+        let ltr = engine.paragraph(input, width: 500)
+        XCTAssertLessThan(x(ltr, 0), x(ltr, hebrew))
+        input.direction = 1
+        let rtl = engine.paragraph(input, width: 500)
+        XCTAssertGreaterThan(x(rtl, 0), x(rtl, hebrew))
+    }
+
     func testDenseMeasureSourcePreservesUTF16SpansAndAttributes() {
         let engine = TextEngine(resolve: { _ in nil })
         let texts = ["e", "\u{301} 😀", "漢字", "", " café ", "אבג"]

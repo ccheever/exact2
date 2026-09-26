@@ -1053,7 +1053,7 @@ pub fn text_spec(s: &StyleProps, text: &str) -> Spec {
             text,
             exact_kernel::TextStyle::from_style(s),
         )],
-        align: s.text_align,
+        align: s.text_align.physical(s.direction),
         line_clamp: s.line_clamp,
         overflow_wrap: s.overflow_wrap,
         white_space: s.white_space,

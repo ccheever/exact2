@@ -298,3 +298,25 @@ fn flex_grow_is_a_longhand_and_the_later_binding_wins() {
         assert!(e.message.contains("nonnegative"), "{e}");
     }
 }
+
+/// LLP 1053: `direction` is CSS `direction` (inherited), no longer an old
+/// spelling of `flex-direction`.
+#[test]
+fn direction_is_css_direction() {
+    use exact_kernel::Direction;
+    let r = boot("component App\n  view\n    column direction=\"rtl\" testId=\"outer\"\n      text \"שלום\" testId=\"inner\"\n");
+    assert_eq!(style_of(&r, "outer").direction, Direction::Rtl);
+    let k = r.kernel();
+    let inner = k.node_by_key(k.find_by_test_id("inner")[0]).unwrap();
+    assert_eq!(
+        inner
+            .computed_style(exact_kernel::StyleMask::INHERITED)
+            .direction,
+        Direction::Rtl
+    );
+    let e = refused("direction=\"row\"");
+    assert_eq!(e.id, "lower-attr-value");
+    assert!(e.message.contains("\"ltr\", \"rtl\""), "{e}");
+    let e = refused("flexDirection=\"row\"");
+    assert!(e.message.contains("`flex-direction`"), "{e}");
+}

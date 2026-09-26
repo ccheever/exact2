@@ -468,6 +468,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "flex-basis" => styles(&[StyleId::FlexBasis]),
         "flex-wrap" => styles(&[StyleId::FlexWrap]),
         "flex-direction" => styles(&[StyleId::FlexDirection]),
+        // @ref LLP 1053 — CSS `direction` (inherited), not a flex direction.
+        "direction" => styles(&[StyleId::Direction]),
         // @ref LLP 1053 G1 — `auto || <ratio>`.
         "aspect-ratio" => styles(&[StyleId::AspectRatio]),
         "display" => styles(&[StyleId::Display]),
@@ -541,7 +543,7 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "flexShrink" => "flex-shrink",
         "flexBasis" => "flex-basis",
         "wrap" | "flexWrap" => "flex-wrap",
-        "direction" | "flexDirection" => "flex-direction",
+        "flexDirection" => "flex-direction",
         "flexGrow" => "flex-grow",
         "aspectRatio" => "aspect-ratio",
         "align" | "alignItems" => "align-items",

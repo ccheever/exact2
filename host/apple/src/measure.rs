@@ -242,10 +242,15 @@ impl CallbackMeasurer {
             strut: c_run("", request.paragraph.strut),
             width: offer(request.width),
             height: offer(request.height),
-            align: match request.paragraph.text_align {
-                TextAlign::Left => 0,
+            // Physical already (`Paragraph::from_style`); `start`/`end` never arrive.
+            align: match request
+                .paragraph
+                .text_align
+                .physical(request.paragraph.direction)
+            {
+                TextAlign::Left | TextAlign::Start => 0,
                 TextAlign::Center => 1,
-                TextAlign::Right => 2,
+                TextAlign::Right | TextAlign::End => 2,
                 TextAlign::Justify => 3,
             },
             line_clamp: request.paragraph.line_clamp,
