@@ -52,16 +52,25 @@ struct BatchReader {
     mutating func string() throws -> String {
         try expect(34)
         let start = offset
+        var ascii = true
         while offset < bytes.count {
             let b = bytes[offset]
             if b == 34 {
                 let span = UnsafeBufferPointer(rebasing: bytes[start..<offset])
-                guard let result = String(bytes: span, encoding: .utf8) else { throw Invalid.wire }
+                // ASCII is valid UTF-8 as it stands: the standard library's
+                // decoding copies it; only other text goes through
+                // Foundation's validating conversion (most of a key's cost).
+                let result: String
+                if ascii { result = String(decoding: span, as: UTF8.self) } else {
+                    guard let text = String(bytes: span, encoding: .utf8) else { throw Invalid.wire }
+                    result = text
+                }
                 offset += 1
                 return result
             }
             if b == 92 { return try escapedString(start: start) }
             guard b >= 32 else { throw Invalid.wire }
+            if b >= 128 { ascii = false }
             offset += 1
         }
         throw Invalid.wire

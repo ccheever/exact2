@@ -260,6 +260,7 @@ final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        canvasKey = nil
         session?.transformInputHold?.cancel()
         reorder?.abandon()
         session?.rasters.reset()
@@ -944,8 +945,16 @@ final class Presenter {
         self.title = title
         onTitle?(title)
     }
+    struct CanvasKey: Equatable { let root: ObjectIdentifier?; let channels: [Double]? }
+    private var canvasKey: CanvasKey?
     func paintCanvas() {
-        let color = (root.subviews.first as? NodeView)?.color("background_color", .white) ?? .white
+        // The root's colour, resolved and compared only when what it is made
+        // of changes: every batch asked UIKit for a colour it then compared.
+        let first = root.subviews.first as? NodeView
+        let key = CanvasKey(root: first.map(ObjectIdentifier.init), channels: first?.channels("background_color"))
+        guard key != canvasKey else { return }
+        canvasKey = key
+        let color = first?.color("background_color", .white) ?? .white
         if viewport.backgroundColor != color { viewport.backgroundColor = color; onCanvasColor?(color) }
     }
 

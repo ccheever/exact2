@@ -108,7 +108,13 @@ struct CollectionSnapshot {
         if let n = value as? NSNumber, CFNumberIsFloatType(n) == false {
             return n.int64Value >= 0 ? n.uint64Value : nil
         }
-        if let n = value as? NSNumber { return UInt64(n.stringValue) }
+        if let n = value as? NSNumber {
+            // An integral double below 2^53 is its own digits; formatting
+            // one to parse it back cost a tenth of a built row.
+            let d = n.doubleValue
+            if d.sign == .plus, d < 9_007_199_254_740_992, d.rounded(.towardZero) == d { return UInt64(d) }
+            return UInt64(n.stringValue)
+        }
         if let s = value as? String { return UInt64(s) }
         return nil
     }
