@@ -65,6 +65,9 @@ test('computed font recipe pins macOS system faces for both painting and canvas'
   expect(fontStyle({ ...style, fontFamily: 'system-ui, -apple-system, ui-sans-serif, sans-serif' }, true).family)
     .toBe('"Helvetica Neue", "Helvetica Neue", "Helvetica Neue", sans-serif');
   expect(fontStyle({ ...style, fontWeight: '700' }, true).key).not.toBe(font.key);
+  // Tabular figures change advances: they are part of the measurement key (LLP 1053 G4).
+  expect(fontStyle({ ...style, fontVariantNumeric: 'tabular-nums' }, true).key).not.toBe(font.key);
+  expect(font.extra.fontVariantNumeric).toBe('normal');
 });
 
 test('each distinct font/segment measures once, emoji and grapheme spacing fallback apply', () => {

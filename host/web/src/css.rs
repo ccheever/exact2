@@ -118,10 +118,12 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                     }
                 }
             }
-            (StyleId::FontVariantNumeric, _) => skipped.push(Skipped {
-                row: id,
-                reason: "not lowered in v1",
-            }),
+            // @ref LLP 1053 §0 G4 — the row's bits back to CSS keywords.
+            (StyleId::FontVariantNumeric, _) => push_text!(
+                &mut out,
+                "font-variant-numeric:{};",
+                exact_kernel::FontVariantNumeric::css(style.font_variant_numeric)
+            ),
             (StyleId::GridTemplateColumns, _)
             | (StyleId::GridTemplateRows, _)
             | (StyleId::GridColumn, _)
@@ -602,6 +604,23 @@ mod declaration_tests {
             ),
             css(
                 &[
+                    (
+                        StyleId::FontVariantNumeric,
+                        StyleValue::Text("tabular-nums".into()),
+                    ),
+                    (StyleId::WhiteSpace, StyleValue::Text("nowrap".into())),
+                ],
+                &[],
+            ),
+            css(
+                &[(
+                    StyleId::FontVariantNumeric,
+                    StyleValue::Text("normal".into()),
+                )],
+                &[],
+            ),
+            css(
+                &[
                     (StyleId::Opacity, StyleValue::Number(0.125)),
                     (StyleId::Width, StyleValue::Number(33.5)),
                 ],
@@ -615,6 +634,8 @@ mod declaration_tests {
             "display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;",
             "box-shadow:0px 2.5px 12px rgba(17,34,51,0.17254902);",
             "box-shadow:-1px 1000000000px 0.1px rgba(0,0,0,0);",
+            "font-variant-numeric:tabular-nums;white-space:nowrap;",
+            "font-variant-numeric:normal;",
             "width:33.5px;opacity:0.125;",
         ];
         assert_eq!(cases, golden);
