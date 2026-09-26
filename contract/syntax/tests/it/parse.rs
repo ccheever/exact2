@@ -330,3 +330,34 @@ fn source_identity_reaches_nested_ast_ranges_without_changing_syntax() {
     assert!(count > 60, "{count}");
     assert_eq!(tagged, expected);
 }
+
+#[test]
+fn send_is_a_name_everywhere_but_where_the_send_statement_starts() {
+    let src = "component A\n  props\n    send: action\n  state count = 0\n  mutation session as shape Session\n  action go writes session, count\n    send()\n    send(count)\n    send session = login(send=count)\n    count = send\n  view\n    Row(send=go)\n";
+    let file = parse(src).unwrap();
+    let a = &file.components[0];
+    assert_eq!(a.props[0].name, "send");
+    assert!(matches!(a.props[0].ty, Some(TypeExpr::Named(ref t, _)) if t == "action"));
+    let body = &a.actions[0].body;
+    assert!(
+        matches!(&body[0], Stmt::Command { name, args, .. } if name == "send" && args.is_empty())
+    );
+    assert!(
+        matches!(&body[1], Stmt::Command { name, args, .. } if name == "send" && args.len() == 1)
+    );
+    assert!(matches!(
+        &body[2],
+        Stmt::Send { target, source, args, .. }
+            if target == "session" && source == "login"
+                && matches!(&args[0], Expr::NamedArg(n, _, _) if n == "send")
+    ));
+    assert!(matches!(&body[3], Stmt::Assign { target, expr, .. }
+        if target == "count" && matches!(expr, Expr::Ident(n, _) if n == "send")));
+    assert!(matches!(&a.view[0], Node::Use { args, .. } if args[0].name == "send"));
+
+    let src = "component A\n  state send = 0\n  action go writes send\n    send = send + 1\n  view\n    text `${send}`\n";
+    let file = parse(src).unwrap();
+    let a = &file.components[0];
+    assert_eq!(a.states[0].name, "send");
+    assert!(matches!(&a.actions[0].body[0], Stmt::Assign { target, .. } if target == "send"));
+}
