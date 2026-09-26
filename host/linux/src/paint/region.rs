@@ -265,7 +265,7 @@ impl Picture {
             let mut cost = 1usize; // hit, including opacity-zero nodes
             if opacity > 0. {
                 paint.emit(&geometry, |_, _| cost += 1);
-                cost += paint.borders(&geometry).len();
+                cost += paint.borders(&geometry).len() + paint.shadow_fills(&geometry).len();
                 cost += match &payload {
                     Payload::Empty => 0,
                     Payload::Text(..) => 1,

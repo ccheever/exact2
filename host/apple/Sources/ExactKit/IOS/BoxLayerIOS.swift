@@ -123,9 +123,14 @@ extension NodeView {
         // none can reach it: they are clipped, scrolled, or painted through a
         // surface. Then it is the layer's own, which Core Animation paints
         // over the sublayers.
-        let own = clipsToBounds || scroll != nil || overlay != nil
+        let own = clipsToBounds || clipBox != nil || scroll != nil || overlay != nil
+        applyShadow(outline: roundedPath(in: bounds).cgPath)
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
+        if let box = clipBox {
+            box.layer.cornerRadius = cornerRadius
+            box.layer.maskedCorners = corners
+        }
         let bg = onLayer ? fill : nil
         if layer.backgroundColor != bg { layer.backgroundColor = bg }
         if layer.cornerRadius != cornerRadius { layer.cornerRadius = cornerRadius }

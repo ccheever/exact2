@@ -391,6 +391,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // @ref LLP 1053 §0 G4 — `normal` and `tabular-nums`; others refused by name.
         "font-variant-numeric" => styles(&[StyleId::FontVariantNumeric]),
         "text-decoration-line" => styles(&[StyleId::TextDecorationLine]),
+        // @ref LLP 1055 D5
+        "text-transform" => styles(&[StyleId::TextTransform]),
         "font-size" => styles(&[StyleId::FontSize]),
         "font-weight" => styles(&[StyleId::FontWeight]),
         "font-style" => styles(&[StyleId::FontStyle]),
@@ -400,6 +402,13 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "caret-color" => styles(&[StyleId::CaretColor]),
         "tint-color" => styles(&[StyleId::TintColor]),
         "opacity" => styles(&[StyleId::Opacity]),
+        // @ref LLP 1055 D1 — one value, each row takes its part of the parse.
+        "box-shadow" => styles(&[
+            StyleId::ShadowColor,
+            StyleId::ShadowOffset,
+            StyleId::ShadowRadius,
+            StyleId::ShadowOpacity,
+        ]),
         "letter-spacing" => styles(&[StyleId::LetterSpacing]),
         "line-height" => styles(&[StyleId::LineHeight]),
         "text-align" => styles(&[StyleId::TextAlign]),

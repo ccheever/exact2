@@ -13,8 +13,11 @@
 use crate::generated::{Direction, FontStyle, OverflowWrap, StyleProps, TextAlign, TextOverflow};
 use crate::id::AxisOffer;
 use crate::id::NodeKey;
+use std::borrow::Cow;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
+
+mod case;
 
 /// A payload-free lifetime namespace. Allocation identity is valid only while
 /// retained: it is never a wire id, address handle, or serialized cache key.
@@ -196,17 +199,18 @@ impl Paragraph {
 }
 
 /// One styled run of text.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TextRun<'a> {
-    /// The text.
-    pub text: &'a str,
+    /// The text as measured and painted: `text-transform` already applied
+    /// (LLP 1055 D5), borrowed from the node when it changes nothing.
+    pub text: Cow<'a, str>,
     /// Its style.
     pub style: TextStyle,
 }
 
 impl AsRef<str> for TextRun<'_> {
     fn as_ref(&self) -> &str {
-        self.text
+        &self.text
     }
 }
 
@@ -337,7 +341,7 @@ impl TextMeasurer for MonospaceMeasurer {
             let advance = self.advance(&run.style);
             let text = collapsed
                 .as_ref()
-                .map_or(run.text, |c| c.runs[index].as_str());
+                .map_or(&*run.text, |c| c.runs[index].as_str());
             for ch in text.chars() {
                 any_text = true;
                 if ch == '\n' {
@@ -491,7 +495,7 @@ mod tests {
 
     fn measure(text: &str, width: AxisOffer, lines: u32) -> TextMetrics {
         let runs = [TextRun {
-            text,
+            text: text.into(),
             style: style(10.0),
         }];
         let mut p = paragraph();
@@ -536,7 +540,7 @@ mod tests {
 
     fn measure_in(text: &str, width: AxisOffer, white_space: crate::WhiteSpace) -> TextMetrics {
         let runs = [TextRun {
-            text,
+            text: text.into(),
             style: style(10.0),
         }];
         let mut p = paragraph();
@@ -611,11 +615,11 @@ mod tests {
     fn runs_take_the_tallest_line_height() {
         let runs = [
             TextRun {
-                text: "ab",
+                text: "ab".into(),
                 style: style(10.0),
             },
             TextRun {
-                text: "cd",
+                text: "cd".into(),
                 style: style(20.0),
             },
         ];
@@ -633,7 +637,7 @@ mod tests {
     #[test]
     fn overflow_wrap_changes_emergency_breaks_and_only_anywhere_changes_min_content() {
         let runs = [TextRun {
-            text: "abcdefghijklmnopqrst",
+            text: "abcdefghijklmnopqrst".into(),
             style: style(10.0),
         }];
         let mut request = TextMeasureRequest {

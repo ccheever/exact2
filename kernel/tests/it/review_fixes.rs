@@ -772,7 +772,7 @@ fn content_sized_textarea_keeps_the_caret_line_after_return() {
     struct ParagraphMeasurer;
     impl TextMeasurer for ParagraphMeasurer {
         fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
-            let text: String = request.runs.iter().map(|run| run.text).collect();
+            let text: String = request.runs.iter().map(|run| &*run.text).collect();
             TextMetrics {
                 width: 80.0,
                 height: 20.0 * text.lines().count().max(1) as f32,

@@ -45,6 +45,7 @@ fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadAspectRatio { .. } => "expected auto, a ratio (`16 / 9`, or a number), or both (`auto 4 / 3`); numbers are nonnegative".into(),
         StyleValueError::BadTransition { .. } => "not a CSS `transition` shorthand".into(),
         StyleValueError::Unsupported { .. } => "this row has no dynamic form".into(),
+        StyleValueError::BadBoxShadow { reason, .. } => (*reason).into(),
     }
 }
 
@@ -222,6 +223,17 @@ pub(crate) fn check_style_value(
             if rows.contains(&StyleId::ShapeMargin) && v.trim().ends_with('%') {
                 return err("lower-attr-value", "percentage `shape-margin` is not implemented in exact2 v1; use a nonnegative length in points/px", span);
             }
+        }
+        // @ref LLP 1055 D1 — a shadow is text; a number is no shadow.
+        if rows.contains(&StyleId::ShadowOffset)
+            && (numeric_literal(value).is_some()
+                || (std::ptr::eq(value, &a.value) && matches!(ty, Ty::Number)))
+        {
+            return err(
+                "lower-attr-type",
+                format!("`{}` takes a string, as CSS writes a shadow", a.name),
+                span,
+            );
         }
         let literal = match value {
             expr if numeric_literal(expr).is_some() => {

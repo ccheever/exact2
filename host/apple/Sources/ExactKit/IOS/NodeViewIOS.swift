@@ -100,6 +100,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var boxDrawn = false
     /// A uniform border under the children, where they can reach it.
     var boxBorder: CALayer?
+    /// `box-shadow` (`BoxShadow.swift`).
+    var shadowCaster: ShadowCaster?
+    var clipBox: PlainView?
     var textRasterKey: TextRasterKey? { didSet { textRasterWhole = textRasterKey.map { $0.clip == nil } ?? false } }
     /// The key is set and paints the whole paragraph (not a band of it).
     private(set) var textRasterWhole = false
@@ -633,7 +636,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
 
     /// Glass content participates in UIKit's interactive effect. Other
     /// materials remain background siblings of the authored children.
-    var container: UIView { scroll ?? overlay ?? (materialKind == "glass" ? materialView?.contentView : nil) ?? self }
+    var container: UIView { scroll ?? overlay ?? (materialKind == "glass" ? materialView?.contentView : nil) ?? clipBox ?? self }
 
     /// The canvas this node is painted through, if any: the nearest canvas
     /// above whose overlay holds it.
@@ -1157,6 +1160,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     func syncScroll() {
         let ox = style["overflow_x"]?.string ?? "visible", oy = style["overflow_y"]?.string ?? "visible"
         let scrolls = ox == "scroll" || oy == "scroll"
+        if scrolls { syncClipBox(false) }
         if scrolls && scroll == nil && !scrollWaits {
             let sv = ScrollView(frame: bounds)
             sv.backgroundColor = .clear
@@ -1185,7 +1189,10 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         updateKeyboardDismissal()
         fitScroll()
         // A waiting scroll clips as its scroll view would.
-        clipsToBounds = ox == "hidden" || oy == "hidden" || scrollDormant
+        let clips = ox == "hidden" || oy == "hidden" || scrollDormant
+        // A paragraph paints its own text, which a box would not clip.
+        syncClipBox(clips && kind != "text" && shadowColor != nil && scroll == nil && overlay == nil && materialKind != "glass")
+        clipsToBounds = clips && clipBox == nil
     }
 
     /// A native swipe row's scroll container (`swipeContent`, LLP 1008 §9)

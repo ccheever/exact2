@@ -1219,6 +1219,14 @@ impl<'a> Lowerer<'a> {
                 a.span,
             );
         }
+        // @ref LLP 1055 D6 — a native field shows its value as typed.
+        if a.name == "text-transform" && matches!(tag, "input" | "textarea") {
+            return err(
+                "lower-attr-tag",
+                format!("`text-transform` does not apply to `{tag}`: a field shows what was typed on every host (the web's form controls reset it too); transform the value instead"),
+                a.span,
+            );
+        }
         if tag != "list" && matches!(a.name.as_str(), "reachstart" | "reachend") {
             return err(
                 "lower-attr-tag",

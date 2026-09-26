@@ -22,7 +22,11 @@ fn check(p: &Presenter<Textflow>, scene: &str, slack: bool) {
         assert!(!node.flow_skipped(), "{name}: flow skipped");
         assert!(!node.flow_shapes().is_empty(), "{name}: missing exclusions");
         let para = p.paragraph(view).unwrap();
-        let source = node.text_runs().iter().map(|r| r.text).collect::<String>();
+        let source = node
+            .text_runs()
+            .iter()
+            .map(|r| &*r.text)
+            .collect::<String>();
         let mut end = 0;
         let mut slots = vec![];
         assert!(!para.fragments().is_empty(), "{name}: empty output");

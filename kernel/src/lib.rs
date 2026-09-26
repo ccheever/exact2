@@ -60,8 +60,8 @@ pub use motion::{motion_node, MotionSync};
 pub use props::{PropList, PropValue};
 pub use sorted::{SortedMap, SortedSet};
 pub use style::{
-    uses_env, Color, ColorValue, Dimension, Edge, Env, GridLine, GridPlacement, GridTrack,
-    GridTracks, LineHeight, RowValue, StyleValue, Transitions, Vec2,
+    uses_env, BoxShadow, Color, ColorValue, Dimension, Edge, Env, GridLine, GridPlacement,
+    GridTrack, GridTracks, LineHeight, RowValue, StyleValue, Transitions, Vec2,
 };
 pub use text::{
     Markup, MonospaceMeasurer, ParagraphStamp, TextMeasureRequest, TextMeasurer, TextMetrics,

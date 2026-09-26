@@ -864,6 +864,16 @@
       ],
       "default": "auto"
     },
+    "TextTransform": {
+      "_comment": "@ref LLP 1055 D5: applied once, where the kernel produces a paragraph's runs; editable text is never transformed.",
+      "values": [
+        "none",
+        "uppercase",
+        "lowercase",
+        "capitalize"
+      ],
+      "default": "none"
+    },
     "FieldSizing": {
       "values": [
         "fixed",
@@ -1359,7 +1369,8 @@
       "bit": 59,
       "field": "shadow_radius",
       "codec": "f32",
-      "default": 0
+      "default": 0,
+      "_comment": "@ref LLP 1055 D2: CSS `box-shadow`'s blur radius in points, a Gaussian of standard deviation radius / 2. The four shadow rows are one CSS `box-shadow`, painted only outside the border box."
     },
     {
       "bit": 60,
@@ -1627,6 +1638,14 @@
       "field": "scroll_behavior",
       "codec": "enum:ScrollBehavior",
       "_comment": "CSS `scroll-behavior`: `smooth` animates a scrollTop/scrollLeft prop write on every host; a user's own scroll is never affected."
+    },
+    {
+      "bit": 100,
+      "field": "text_transform",
+      "codec": "enum:TextTransform",
+      "inherited": true,
+      "text": true,
+      "layout": true
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, 1 translate, 2 scale, 3 rotate, 4 opacity), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

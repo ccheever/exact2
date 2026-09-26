@@ -474,11 +474,11 @@ mod storage {
         };
         let runs = [
             TextRun {
-                text: &source,
+                text: source.as_str().into(),
                 style,
             },
             TextRun {
-                text: "",
+                text: "".into(),
                 style: strut,
             },
         ];

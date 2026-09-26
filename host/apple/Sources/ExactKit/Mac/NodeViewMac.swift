@@ -218,6 +218,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// A `value` that arrived mid-composition, applied when it ends.
     var pendingValue: String?
     var scroll: ChainingScrollView?
+    /// `box-shadow` (`BoxShadow.swift`).
+    var shadowCaster: ShadowCaster?
+    var clipBox: NSView?
     var materialView: NSView?
     private var materialContent: NSView?
     private var materialKind: String?
@@ -627,7 +630,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override var isFlipped: Bool { true }
 
     /// Where children go: the scroll document view, or this view.
-    var container: NSView { scroll?.documentView ?? overlay ?? materialContent ?? self }
+    var container: NSView { scroll?.documentView ?? overlay ?? materialContent ?? clipBox ?? self }
 
     // @ref LLP 1001 §1 — two semantic materials, not sampled blur constants.
     // AppKit owns accessibility/appearance adaptation, including Reduce
@@ -1141,13 +1144,18 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // CSS's line-clamp implies `overflow: hidden`: a clamped paragraph's
         // one over-wide word must not paint over its neighbour (LLP 1054 P3).
         let clamped = kind == "text" && number("line_clamp") > 0
-        // On a layer-backed view this is the layer's `masksToBounds`.
-        if clipsToBounds != (clips || clamped) { clipsToBounds = clips || clamped }
-        if let l = layer {
+        // On a layer-backed view this is the layer's `masksToBounds`, unless
+        // the node casts a shadow that clipping would clip (`BoxShadow.swift`).
+        // A paragraph paints its own text, which a box would not clip.
+        syncClipBox(clips && kind != "text" && shadowColor != nil && scroll == nil && overlay == nil && materialContent == nil)
+        let clipped = (clips || clamped) && clipBox == nil
+        if clipsToBounds != clipped { clipsToBounds = clipped }
+        if let l = clipBox?.layer ?? layer {
             let radii = ["top_left", "top_right", "bottom_right", "bottom_left"].map { CGFloat(number("border_radius_" + $0, number("border_radius"))) }
             let radius = clips && radii.allSatisfy({ $0 == radii[0] }) ? radii[0] : 0
             if l.cornerRadius != radius { l.cornerRadius = radius }
         }
+        applyShadow()
         // `overscroll-behavior` (CSS): `auto` chains, `contain` keeps the
         // gesture and bounces, `none` keeps it and does not.
         let bx = s["overscroll_behavior_x"]?.string ?? "auto"
@@ -1186,6 +1194,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     func prepareToMount() {
         guard kind == "text" else { return }
         wantsLayer = true
+        applyShadow()
         layer?.mask = ClipPath.mask(clipPath)
         layer?.zPosition = number("z_index")
         applyTransform()
@@ -1282,6 +1291,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // batch — no image, no timer, no motion — would never load it
         // (found by the readback fixture, LLP 1014).
         if presenter?.views[id] === self { firstDraw() }
+        if let ctx = NSGraphicsContext.current?.cgContext { drawCapturedShadow(ctx) }
         let rounded = ["top_left", "top_right", "bottom_right", "bottom_left"].contains { number("border_radius_" + $0) > 0 }
         let path = roundedPath(in: bounds)
         let bg = color("background_color", .clear)

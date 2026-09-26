@@ -33,6 +33,7 @@ pub mod border;
 pub(crate) mod damage;
 mod inline;
 mod region;
+mod shadow;
 use inline::{text_backgrounds, text_palette};
 pub(crate) use region::{ActionNode, ActionSlot, RegionActions, ScrollBounds};
 
@@ -132,6 +133,7 @@ struct BoxPaint {
     colors: [[u8; 4]; 4],
     background: [u8; 4],
     padding: [f32; 4],
+    shadow: Option<shadow::ShadowPaint>,
 }
 struct BoxGeometry {
     outer: Shape,
@@ -170,6 +172,7 @@ impl BoxPaint {
             widths,
             colors: colors.map(|c| rgba(c.resolve(dark))),
             background: rgba(s.background_color.resolve(dark)),
+            shadow: shadow::ShadowPaint::capture(s, dark),
             padding: [
                 pad(s.padding_top),
                 pad(s.padding_right),
@@ -193,6 +196,9 @@ impl BoxPaint {
         }
     }
     fn paint(&self, backend: &mut dyn Backend, geometry: &BoxGeometry, ts: Transform) {
+        for band in self.shadow_fills(geometry) {
+            backend.fill_border(&band, ts);
+        }
         self.emit(geometry, |shape, color| backend.fill(&shape, color, ts));
         for part in self.borders(geometry) {
             backend.fill_border(&part, ts);
@@ -204,6 +210,11 @@ impl BoxPaint {
         if self.background[3] > 0 && outer.rect.2 > 0.0 && outer.rect.3 > 0.0 {
             emit(outer, self.background);
         }
+    }
+    /// The `box-shadow`, under everything else (LLP 1055 D2).
+    fn shadow_fills(&self, geometry: &BoxGeometry) -> Vec<border::BorderFill> {
+        self.shadow
+            .map_or_else(Vec::new, |s| s.fills(&geometry.outer))
     }
     /// The border, one fill per colour, joined as the web joins sides.
     fn borders(&self, geometry: &BoxGeometry) -> Vec<border::BorderFill> {
@@ -778,8 +789,11 @@ impl Painter {
         let p = (walk.scene.presented)(id);
         // @ref LLP 1043.000 §3 D7 — collect damage eligibility during the
         // existing paint walk, not an extra whole-document walk per flow tick.
-        self.damage.unsupported |=
-            p.moves() || p.opacity != 1.0 || node.node_type == NodeType::Image;
+        // A shadow paints outside the node's box, where damage never looks.
+        self.damage.unsupported |= p.moves()
+            || p.opacity != 1.0
+            || node.node_type == NodeType::Image
+            || node.style.shadow_opacity > 0.0;
         let ts = if p.moves() {
             let (cx, cy) = (x + w / 2.0, y + h / 2.0);
             ts.pre_concat(
@@ -859,7 +873,7 @@ impl Painter {
                     spec.runs = node
                         .text_runs()
                         .iter()
-                        .map(|run| Run::from_style(run.text, run.style))
+                        .map(|run| Run::from_style(&run.text, run.style))
                         .collect();
                     spec.collapse_white_space()
                 };
@@ -1297,7 +1311,7 @@ mod paragraph_tests {
             let mut spec = text_spec(&node.computed_style(StyleMask::INHERITED), "");
             spec.runs = canonical
                 .iter()
-                .map(|r| Run::from_style(r.text, r.style))
+                .map(|r| Run::from_style(&r.text, r.style))
                 .collect();
             assert_eq!(spec.runs[0].weight, 700);
             assert!(spec.runs[1].italic);

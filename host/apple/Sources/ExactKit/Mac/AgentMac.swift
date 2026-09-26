@@ -248,7 +248,7 @@ extension Agent {
         while let s = above {
             if let n = s as? NodeView {
                 if let sv = n.scroll { let o = sv.contentView.bounds.origin; chain.append(["id": Int(n.id), "sx": Agent.r2(o.x), "sy": Agent.r2(o.y)]) }
-                if n.clipsToBounds { clippers.append((n, "overflow")) }
+                if n.clipsToBounds || n.clipBox != nil { clippers.append((n, "overflow")) }
                 if n.clipPath != nil { clippers.append((n, "clip-path")) }
             }
             above = s.superview

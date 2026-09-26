@@ -1150,6 +1150,7 @@ final class Presenter {
                 v.metal?.frame = v.bounds
                 v.overlay?.frame = v.bounds
                 v.web?.frame = v.bounds
+                v.applyShadow()
                 v.fitScroll()
                 v.applyTransform()
             case .content:
