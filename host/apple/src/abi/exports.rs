@@ -294,10 +294,11 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.hold_end(token, cancel != 0, vx, vy, now_ms), |n| n)
         }
 
-        /// Move the clock; returns the batch's length.
+        /// Move the clock; nonzero `until_request` stops after a timer that
+        /// sends. Returns the batch's length.
         #[no_mangle]
-        pub extern "C" fn exact_advance(rt: u32, now_ms: f64) -> u32 {
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.advance(now_ms), |n| n)
+        pub extern "C" fn exact_advance(rt: u32, now_ms: f64, until_request: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.advance(now_ms, until_request != 0), |n| n)
         }
 
         /// Publish or clear a named surface record; returns the batch length.

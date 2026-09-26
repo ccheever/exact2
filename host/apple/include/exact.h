@@ -1,4 +1,4 @@
-/* exact.h — the Apple host's C ABI, v9 (LLP 1008 §4; LLP 1031 D2).
+/* exact.h — the Apple host's C ABI, v10 (LLP 1008 §4; LLP 1031 D2).
  *
  * Every call takes a runtime handle: exact_create() hands one out (a u32,
  * never 0, never reused) and exact_destroy() frees everything attributable
@@ -30,7 +30,7 @@
 #include <stdint.h>
 
 /* The ABI's version: part of the compatibility id (LLP 1030 D3a). */
-#define EXACT_ABI_VERSION 9
+#define EXACT_ABI_VERSION 10
 
 #ifdef __cplusplus
 extern "C" {
@@ -300,7 +300,9 @@ uint32_t exact_hold_begin(ExactRuntime rt, uint32_t view, uint32_t property, dou
 uint32_t exact_has_hold(ExactRuntime rt, uint64_t token);
 uint32_t exact_hold_update(ExactRuntime rt, uint64_t token, double x, double y, double now_ms);
 uint32_t exact_hold_end(ExactRuntime rt, uint64_t token, uint32_t cancel, double vx, double vy, double now_ms);
-uint32_t exact_advance(ExactRuntime rt, double now_ms);   /* the runner's clock: timers */
+/* The runner's clock: timers. Nonzero until_request stops after a timer that
+ * sends, the clock at its due time (an agent's jump; the wall clock passes 0). */
+uint32_t exact_advance(ExactRuntime rt, double now_ms, uint32_t until_request);
 /* Input: name alone clears; name NUL JSON publishes a current record. */
 uint32_t exact_surface_record(ExactRuntime rt, size_t len);
 /* @ref LLP 1039: re-answer viewport facts and relayout in the same batch. */

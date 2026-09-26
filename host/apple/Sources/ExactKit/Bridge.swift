@@ -216,7 +216,7 @@ final class Runtime {
         let n = write(location)
         return read(exact_dispatch(rt, view, 14, n, now))
     }
-    func advance(now: Double) -> Batch { read(exact_advance(rt, now)) }
+    func advance(now: Double, untilRequest: Bool = false) -> Batch { read(exact_advance(rt, now, untilRequest ? 1 : 0)) }
     func resize(width: CGFloat, height: CGFloat) -> Batch { read(exact_resize(rt, Float(width), Float(height))) }
     /// `limit` rations the report (`exact.h`): 0 is the whole window.
     func list(_ view: UInt32, top: Double, height: Double, width: Double, origin: Double, focus: UInt32, interaction: UInt32, limit: UInt32 = 0, velocity: Double = 0) -> Batch {

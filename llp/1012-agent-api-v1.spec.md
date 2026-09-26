@@ -325,8 +325,16 @@ false` if one is still out at the bound (twenty seconds on the native
 hosts), with `reason: "requests"`. The bound is one deadline for the whole
 call, not one per round (2026-09-24: per round, a request that never answered
 held `clock settle` for minutes). `state` gains `pending: [{name, ticket}]`, the requests in flight by
-the resource's or mutation's name. `clock` with a time does not wait: a
-reply lands when it lands, as a fetch does under a real clock.
+the resource's or mutation's name. `clock` with a time waits only where a
+real clock would have let a reply land first (2026-09-26): the runner keeps
+one request per target (LLP 1016 D5), so in a jump a tick's send would drop
+the reply of the tick before it. Before a timer due within the jump fires,
+what is in flight lands; the runner stops the jump after each timer whose
+commit hands out a request (`Runner::advance_until_request`), and the host
+waits for the reply under the call's deadline and advances on. A jump whose
+timers send nothing is one advance; past the deadline, or 4096 stops, the
+rest is one advance; a request with no timer after it in the jump lands when
+it lands, as a fetch does under a real clock.
 
 Agent mode is opt-in per launch: `?agent=1` on the page (only then does
 `globalThis.exact` carry `agent` and `now`), `EXACT_AGENT=1` for the macOS
@@ -442,8 +450,8 @@ the transcript fixture renders byte-equal (§7); the five landmarks and
 "Mountain View"; the root's width equals the viewport's; the logo's box is
 96×36 (polled, up to 2 s — image decode is host I/O); after `clock +60000`
 **every** countdown still shown is one less, `state.clock` is 60 000,
-`nowMs` moved by 60 000, and the journal's advances in that seek fire sixty
-timers in all (one line per due time: a host steps a jump, LLP 1016 D5);
+`nowMs` moved by 60 000, and the journal shows that seek as one advance
+firing sixty timers (a jump stops only at a timer that sends, §2);
 `tap change-station` shows the stations screen; `type station-search Palo`
 leaves the field's value and the `query` slot at `"Palo"` and exactly one
 match, `station-paloalto`; tapping it makes the station "Palo Alto" and

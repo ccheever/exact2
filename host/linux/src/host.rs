@@ -642,9 +642,20 @@ impl<D: DataSource> Host<D> {
         self.advance_effects(now_ms).0
     }
 
+    /// [`Host::advance`], stopping after a timer that sends as well: an
+    /// agent's jump ([`exact_runner::Runner::advance_until_request`]).
+    pub fn advance_until_request(&mut self, now_ms: f64) -> Option<String> {
+        let a = self.runner.advance_until_request(now_ms);
+        self.advanced(a).0
+    }
+
     /// Timer-loop demand, without skipping any runner, layout or effect work.
     pub(crate) fn advance_effects(&mut self, now_ms: f64) -> (Option<String>, bool) {
         let a = self.runner.advance_timed(now_ms);
+        self.advanced(a)
+    }
+
+    fn advanced(&mut self, a: exact_runner::Advanced) -> (Option<String>, bool) {
         self.now_ms = a.now_ms.max(self.now_ms);
         let error = a.error.map(|e| format!("{e:?}"));
         self.commit_effects(&a.receipts, error)

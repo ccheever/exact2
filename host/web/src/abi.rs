@@ -736,8 +736,9 @@ impl<D: DataSource> Bridge<D> {
     }
 
     /// Move the clock.
-    pub fn advance(&mut self, now_ms: f64) -> u32 {
+    pub fn advance(&mut self, now_ms: f64, until_request: bool) -> u32 {
         let out = match self.host.as_mut() {
+            Some(h) if until_request => h.advance_until_request(now_ms),
             Some(h) => h.advance(now_ms),
             None => "{\"ops\":[],\"timers\":false,\"error\":\"not booted\"}".to_string(),
         };
@@ -951,10 +952,11 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow_mut().resize(width, height, now_ms))
         }
 
-        /// Advance the runner clock.
+        /// Advance the runner clock; nonzero `until_request` stops after a
+        /// timer that sends (the agent's jump; the wall clock passes 0).
         #[no_mangle]
-        pub extern "C" fn exact_advance(now_ms: f64) -> u32 {
-            EXACT_BRIDGE.with(|b| b.borrow_mut().advance(now_ms))
+        pub extern "C" fn exact_advance(now_ms: f64, until_request: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().advance(now_ms, until_request != 0))
         }
 
         /// An agent request from the input buffer; returns the reply's length.

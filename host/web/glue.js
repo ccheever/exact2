@@ -68,7 +68,7 @@ function flowBatch(batch) {
   flowLoading = loadAfterPaint('./textflow-glue.js', 'createTextFlow').then(async create => {
     if (generation !== incarnation) return;
     const controller = await create({ views, agentMode, log, now,
-      advance: () => send(wasm.exact_advance(now())) });
+      advance: () => send(wasm.exact_advance(now(), 0)) });
     if (generation !== incarnation) { controller.dispose(); return; }
     textflow = controller;
     textflow.afterBatch({ ops: [{ op: "textflow", contexts: flowContexts }], timer_due_ms: flowDue });
@@ -899,8 +899,10 @@ function safelyFulfill(...args) {
 function deferFulfill(...args) {
   // Refusals and malformed request bodies are known while their enclosing
   // batch is still applying. Deliver them on the next microtask so their
-  // commits cannot re-enter `apply` halfway through that batch.
-  queueMicrotask(() => safelyFulfill(...args));
+  // commits cannot re-enter `apply` halfway through that batch; in flight
+  // until then, so a wait sees what their parse asks for next.
+  const p = Promise.resolve().then(() => safelyFulfill(...args));
+  inflight.add(p); p.finally(() => inflight.delete(p));
 }
 // The agent API's page half (LLP 1012). `tree`, `state`, `logs`, and
 // `settle` go to the wasm (`exact_agent`); `layout` reads the browser's
@@ -1218,12 +1220,13 @@ function tagged(reply) {
 // in flight ends, and if the timers crossed on the way started more, again
 // (bounded; `settled: false` at the bound). A request in flight (LLP 1016)
 // is waited for first: its reply commits, and may start motion or ask for
-// more, before the fixed point is measured. A jump that crosses timers is
-// taken due time by due time, and what is in flight lands before a timer
-// fires — the runner keeps one request per target (LLP 1016 D5), so a tick's
-// send would drop the reply of the one before it; past the deadline, or 4096
-// steps, the rest is one advance. The clock lands where the runner says; a
-// timer's refusal is the error. A promise: the driver awaits it.
+// more, before the fixed point is measured. What is in flight lands before a
+// timer fires — the runner keeps one request per target (LLP 1016 D5), so a
+// tick's send would drop the reply of the one before it: a jump that crosses
+// timers stops after each timer that sends, and its reply is waited for; past
+// the deadline, or 4096 stops, the rest is one advance. The clock lands where
+// the runner says; a timer's refusal is the error. A promise: the driver
+// awaits it.
 async function clock(request) {
   const settle = !!request.settle;
   const deadline = performance.now() + SETTLE_DEADLINE_MS;
@@ -1236,10 +1239,9 @@ async function clock(request) {
     if (!(to >= agentClock)) return { error: `the clock cannot go backwards (${agentClock} → ${to})` };
     let batch;
     for (let steps = 0; ; steps++) {
-      let step = steps < 4096 && flowDue != null && flowDue > agentClock && flowDue < to ? flowDue : to;
-      if (flowDue != null && flowDue <= step && !(await waitForInflight(deadline))) step = to;
-      ({ batch } = applyBatch(JSON.parse(readOut(wasm.exact_advance(step)))));
-      if (batch.error || step === to) break;
+      const waited = flowDue != null && flowDue <= to && await waitForInflight(deadline), held = waited && steps < 4096;
+      ({ batch } = applyBatch(JSON.parse(readOut(wasm.exact_advance(to, held ? 1 : 0)))));
+      if (batch.error || !held) break; // a stop at `to` may leave a timer due there
     }
     globalThis.exact.gpu?.schedule?.();
     if (flowLoading) await flowLoading;
@@ -1258,7 +1260,7 @@ async function clock(request) {
 let ticker = null, timerFactory = null;
 function startClock() {
   if (timerFactory && !agentMode && !textflow && !flowLoading) {
-    ticker ??= timerFactory({ now, advance: time => send(wasm.exact_advance(time)) }); ticker.update(flowDue);
+    ticker ??= timerFactory({ now, advance: time => send(wasm.exact_advance(time, 0)) }); ticker.update(flowDue);
   }
 }
 function activateData() {

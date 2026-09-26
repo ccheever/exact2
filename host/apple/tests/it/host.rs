@@ -1012,7 +1012,7 @@ fn two_runtimes_live_apart_in_one_thread_and_a_dead_handle_is_refused() {
     assert!(second.contains("\"text\":\"other\""), "{second}");
     assert!(!second.contains("baked"));
     // Their clocks are their own.
-    let ta = out(a, handles::exact_advance(a, 5_000.0));
+    let ta = out(a, handles::exact_advance(a, 5_000.0, 0));
     assert!(ta.contains("\"clock\":5000"), "{ta}");
     let tb = out(b, handles::exact_tick(b, 16.0));
     assert!(tb.contains("\"clock\":0"), "{tb}");

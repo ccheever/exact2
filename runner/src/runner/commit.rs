@@ -124,6 +124,20 @@ impl<D: DataSource> Runner<D> {
     /// far are returned with their times, the clock stays at the refusing
     /// timer's due time, and the refusal rides along.
     pub fn advance_timed(&mut self, now_ms: f64) -> Advanced {
+        self.advance_within(now_ms, false)
+    }
+
+    /// [`Runner::advance_timed`], stopping after the first timer whose
+    /// commit hands the host a request: the clock stays at that timer's due
+    /// time, for the host to land the reply before advancing again. The
+    /// runner keeps one request per target (LLP 1016 D5), so the next tick's
+    /// send would drop it. An agent's clock jump advances this way (LLP
+    /// 1012); on the wall clock, replies land between ticks by themselves.
+    pub fn advance_until_request(&mut self, now_ms: f64) -> Advanced {
+        self.advance_within(now_ms, true)
+    }
+
+    fn advance_within(&mut self, now_ms: f64, until_request: bool) -> Advanced {
         let mut receipts = Vec::new();
         if !now_ms.is_finite() {
             return Advanced {
@@ -146,6 +160,7 @@ impl<D: DataSource> Runner<D> {
                 error: Some(RunnerError::ClockOutOfRange),
             };
         }
+        let mut landed = now_ms;
         loop {
             // The earliest due timer, deterministic by index on ties.
             let due = self
@@ -186,6 +201,7 @@ impl<D: DataSource> Runner<D> {
             self.timers[i].next_ms = next_ms;
             let action = self.plan.timers[i].action;
             let was_poisoned = self.poisoned;
+            let ticket = self.next_ticket;
             let result = self.run_action(action, Vec::new(), &[]);
             match result {
                 Ok(receipt) => receipts.push(Timed { at_ms: at, receipt }),
@@ -204,8 +220,12 @@ impl<D: DataSource> Runner<D> {
                     };
                 }
             }
+            if until_request && self.next_ticket != ticket {
+                landed = at;
+                break;
+            }
         }
-        self.now_ms = now_ms;
+        self.now_ms = landed;
         if !receipts.is_empty() {
             let line = super::lines::advanced(
                 receipts.len(),
@@ -215,7 +235,7 @@ impl<D: DataSource> Runner<D> {
         }
         Advanced {
             receipts,
-            now_ms,
+            now_ms: landed,
             error: None,
         }
     }

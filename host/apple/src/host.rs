@@ -697,6 +697,17 @@ impl<D: DataSource> Host<D> {
     /// stands.
     pub fn advance(&mut self, now_ms: f64) -> String {
         let a = self.runner.advance_timed(now_ms);
+        self.advanced(a)
+    }
+
+    /// [`Host::advance`], stopping after a timer that sends as well: an
+    /// agent's jump ([`exact_runner::Runner::advance_until_request`]).
+    pub fn advance_until_request(&mut self, now_ms: f64) -> String {
+        let a = self.runner.advance_until_request(now_ms);
+        self.advanced(a)
+    }
+
+    fn advanced(&mut self, a: exact_runner::Advanced) -> String {
         self.now_ms = a.now_ms.max(self.now_ms);
         let error = a.error.map(|e| format!("{e:?}"));
         self.commit(&a.receipts, error)

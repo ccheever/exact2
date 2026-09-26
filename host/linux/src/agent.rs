@@ -406,28 +406,27 @@ fn clock_within<D: DataSource>(
     }
 }
 
-/// To `to`, due time by due time, and what is in flight lands before a
-/// timer fires — the runner keeps one request per target (LLP 1016 D5), so
-/// a tick's send would drop the reply of the one before it. Past the
-/// deadline, or 4096 steps, the rest is one advance.
+/// To `to`, and what is in flight lands before a timer fires — the runner
+/// keeps one request per target (LLP 1016 D5), so a tick's send would drop
+/// the reply of the one before it: the jump stops after each timer that
+/// sends, and its reply is waited for. Past the deadline, or 4096 stops, the
+/// rest is one advance.
 fn clock_stepped<D: DataSource>(
     p: &mut Presenter<D>,
     to: f64,
     deadline: std::time::Instant,
 ) -> (f64, Option<String>) {
     for _ in 0..4096 {
-        let now = p.host().now();
-        let Some(due) = p.host().timer_due_ms().filter(|d| *d > now && *d < to) else {
-            break;
-        };
-        if !wait_for_replies(p, deadline) {
+        if !p.host().timer_due_ms().is_some_and(|d| d <= to) || !wait_for_replies(p, deadline) {
             break;
         }
-        let (landed, e) = p.clock(due);
+        let (landed, e) = p.clock_until_request(to);
         if e.is_some() {
             return (landed, e);
         }
     }
+    // After 4096 stops, what is in flight still lands first. A stop at `to`
+    // may leave a timer due there: only a plain advance ends.
     if p.host().timer_due_ms().is_some_and(|d| d <= to) {
         wait_for_replies(p, deadline);
     }
@@ -501,6 +500,72 @@ mod tests {
         fn dispatch(&mut self, _: u64, _: &exact_runner::Store) -> exact_runner::Dispatch {
             exact_runner::Dispatch::Run(exact_runner::Work::Later(Box::new(std::mem::forget)))
         }
+    }
+
+    /// Answers `save` later, on the I/O worker, with 1.
+    #[derive(Default)]
+    struct Echo;
+    impl DataSource for Echo {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+        fn answer(
+            &mut self,
+            _: &mut exact_runner::Store,
+            _: &str,
+            _: &[Value],
+        ) -> Result<exact_runner::Answer, DataError> {
+            Ok(exact_runner::Answer::Later(
+                exact_runner::Request::continuation(1),
+            ))
+        }
+        fn dispatch(&mut self, _: u64, _: &exact_runner::Store) -> exact_runner::Dispatch {
+            exact_runner::Dispatch::Run(exact_runner::Work::Now(Box::new(|| {
+                exact_runner::Outcome::Storage(b"1".to_vec())
+            })))
+        }
+        fn parse(
+            &mut self,
+            _: &mut exact_runner::Store,
+            _: &str,
+            _: &[Value],
+            _: exact_runner::Outcome,
+        ) -> Result<exact_runner::Answer, DataError> {
+            Ok(exact_runner::Answer::Now(Value::Number(1.0)))
+        }
+    }
+
+    /// A jump stops at each timer that sends and lands its reply before
+    /// the next fires (LLP 1016 D5); a stop at the target still fires the
+    /// other timers due there.
+    #[test]
+    fn a_jump_lands_every_reply_and_fires_every_timer_due() {
+        let plan = contract::compile(
+            "component App\n  state count = 0\n  mutation result as shape number\n  action ping writes result\n    send result = save()\n  action tock writes count\n    count = count + 1\n  task pings mount\n    every(300, ping)\n  task tocks mount\n    every(300, tock)\n  view\n    text toString(count)\n",
+        )
+        .unwrap();
+        let (mut p, boot_error) = Presenter::boot_with(
+            &plan.encode(),
+            Echo,
+            (300.0, 300.0),
+            1.0,
+            std::path::PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(boot_error.is_none(), "{boot_error:?}");
+        let count = |p: &mut Presenter<Echo>| {
+            let state: serde_json::Value =
+                serde_json::from_str(&handle(p, r#"{"op":"state"}"#)).unwrap();
+            state["slots"]["count"].clone()
+        };
+        let reply = handle(&mut p, r#"{"op":"clock","to":300}"#);
+        assert_eq!(count(&mut p), serde_json::json!(1), "{reply}");
+        let reply = handle(&mut p, r#"{"op":"clock","to":1500}"#);
+        assert_eq!(count(&mut p), serde_json::json!(5), "{reply}");
+        let logs = handle(&mut p, r#"{"op":"logs"}"#);
+        assert_eq!(logs.matches("fulfil ").count(), 5, "{logs}");
+        assert!(!logs.contains("dropped"), "{logs}");
     }
 
     #[test]

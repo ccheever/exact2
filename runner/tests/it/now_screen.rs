@@ -197,7 +197,7 @@ impl DataSource for LaterWrites {
     }
 }
 
-/// What a host's stepped `clock` relies on (LLP 1016 D5): a timer's send
+/// What an agent's `clock` jump relies on (LLP 1016 D5): a timer's send
 /// replied to before the next tick commits; one the next tick fired over
 /// is superseded, and its reply has nowhere to land.
 #[test]
@@ -223,9 +223,12 @@ fn a_timers_send_lands_only_if_its_reply_beats_the_next_tick() {
         "/",
     )
     .unwrap();
-    // Due time by due time: each tick's reply lands before the next fires.
+    // Advancing until a request: the jump stops at each tick that sends,
+    // and its reply lands before the next fires.
     for (at, reply) in [(300.0, "one"), (600.0, "two")] {
-        r.advance(at).unwrap();
+        let a = r.advance_until_request(700.0);
+        assert!(a.error.is_none());
+        assert_eq!((a.receipts.len(), a.now_ms, r.now_ms()), (1, at, at));
         let ticket = r.take_requests().remove(0).ticket;
         let landed = r
             .fulfill(ticket, exact_runner::Outcome::Storage(reply.into()))
@@ -233,6 +236,8 @@ fn a_timers_send_lands_only_if_its_reply_beats_the_next_tick() {
         assert!(landed.is_some(), "the reply at {at} commits");
         assert_eq!(r.slot("result"), Some(&Value::some(Value::str(reply))));
     }
+    // No tick before the target: it is reached.
+    assert_eq!(r.advance_until_request(700.0).now_ms, 700.0);
     // One jump over two ticks: the host is handed both sends, but the runner
     // keeps one request per target, so the second supersedes the first,
     // whose reply is then dropped.

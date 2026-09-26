@@ -290,21 +290,22 @@ public final class Agent {
         }
     }
 
-    /// To `to`, due time by due time, and what is in flight lands before a
-    /// timer fires — the runner keeps one request per target (LLP 1016 D5),
-    /// so a tick's send would drop the reply of the one before it. Past the
-    /// deadline, or 4096 steps, the rest is one advance. Each step's batch
-    /// is applied; the last one is returned.
+    /// To `to`, and what is in flight lands before a timer fires — the
+    /// runner keeps one request per target (LLP 1016 D5), so a tick's send
+    /// would drop the reply of the one before it: the jump stops after each
+    /// timer that sends, and its reply is waited for. Past the deadline, or
+    /// 4096 stops, the rest is one advance. Each batch is applied; the last
+    /// one is returned.
     func advanceStepped(to: Double, deadline: Date) -> Batch {
         var steps = 0
         while true {
-            var step = to
-            if steps < 4096, let due = session.timerDue, due > (session.clock ?? 0), due < to { step = due }
-            if let due = session.timerDue, due <= step, !waitForReplies(until: deadline) { step = to }
-            let batch = session.runtime.advance(now: step)
+            let waited = session.timerDue.map { $0 <= to } == true && waitForReplies(until: deadline)
+            let held = waited && steps < 4096
+            let batch = session.runtime.advance(now: to, untilRequest: held)
             session.apply(batch)
-            session.clock = batch.clock ?? step
-            if batch.error != nil || step == to { return batch }
+            session.clock = batch.clock ?? to
+            // A stop at `to` may leave a timer due there: only a plain advance ends.
+            if batch.error != nil || !held { return batch }
             steps += 1
         }
     }

@@ -31,6 +31,10 @@ fn timer_deadline_tracks_ordered_catch_up_and_absence() {
         (1..=15).map(|n| f64::from(n * 16)).collect::<Vec<_>>()
     );
     assert_eq!(r.timer_due_ms(), Some(256.0));
+    // Ticks that send nothing: advancing until a request is one advance.
+    let held = r.advance_until_request(500.0);
+    assert_eq!((held.receipts.len(), held.now_ms), (16, 500.0));
+    assert!(r.journal().any(|l| l.contains("advance → 16 timers fired")));
     let target = 1_000_000.0;
     let advanced = r.advance_timed(target);
     assert_eq!(advanced.receipts.len(), TIMER_FIRE_LIMIT);

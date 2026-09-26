@@ -981,11 +981,14 @@ impl<D: DataSource> Bridge<D> {
     }
 
     /// Move the clock (timers).
-    pub fn advance(&mut self, now_ms: f64) -> u32 {
+    pub fn advance(&mut self, now_ms: f64, until_request: bool) -> u32 {
         let out = self
             .host
             .as_mut()
-            .map_or_else(not_booted, |h| h.advance(now_ms));
+            .map_or_else(not_booted, |h| match until_request {
+                true => h.advance_until_request(now_ms),
+                false => h.advance(now_ms),
+            });
         self.emit(out)
     }
 

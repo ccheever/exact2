@@ -33,6 +33,7 @@ use tiny_skia::Pixmap;
 
 mod arrange;
 mod arrange_geometry;
+mod clock;
 mod collection;
 mod contact;
 mod display_frame;
@@ -1420,16 +1421,6 @@ impl<D: DataSource> Presenter<D> {
     /// Whether a request is in flight.
     pub fn pending(&self) -> bool {
         self.host.runner().has_pending()
-    }
-
-    /// Move the clock: timers fire, motion is seeked to where the clock
-    /// landed (LLP 1012 `clock`). Returns the landing time and the error.
-    pub fn clock(&mut self, to_ms: f64) -> (f64, Option<String>) {
-        let e = self.host.advance(to_ms);
-        let landed = self.host.now();
-        self.host.tick(landed);
-        let after = self.after_commit();
-        (landed, e.or(after))
     }
 
     /// The binary's delivery facts (LLP 1030 D7), from its `compat.json`:
