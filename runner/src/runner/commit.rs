@@ -634,6 +634,15 @@ impl<D: DataSource> Runner<D> {
         if refused && result.is_err() && self.holds(ticket) {
             return self.release_refused(ticket, target);
         }
+        if matches!(
+            result,
+            Err(RunnerError::Data { .. } | RunnerError::Shape { .. })
+        ) && self.holds(ticket)
+        {
+            // The failure is in the journal (above); what the host needs now
+            // is the commit that takes the target out of `pending`.
+            return self.release_failed(ticket, target);
+        }
         result.map(Some)
     }
 

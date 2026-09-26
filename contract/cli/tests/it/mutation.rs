@@ -255,26 +255,27 @@ fn send_asks_the_host_and_fulfill_fills_the_slot() {
     assert_eq!(text_of(&r, "error").as_deref(), Some("no route"));
 }
 
+/// No host delivers a ticket twice, so a reply the source fails to take is
+/// let go: the mutation ends unsent and the view stops showing it pending.
 #[test]
-fn a_failed_fulfill_keeps_the_ticket_for_retry() {
+fn a_failed_fulfill_ends_the_mutation_unsent() {
     let mut r = boot();
     r.dispatch(view_of(&r, "login"), Event::Press).unwrap();
     let ticket = r.take_requests()[0].ticket;
+    assert!(has(&r, "busy"));
     r.data().fail_parse = true;
 
-    assert!(matches!(
-        r.fulfill(ticket, ok(200)),
-        Err(RunnerError::Data {
-            error: DataError::Unavailable(ref message),
-            ..
-        }) if message == "parse refused"
-    ));
-    assert_eq!(r.pending(), vec![("session".to_string(), ticket)]);
-    assert!(r.has_pending());
-
-    r.data().fail_parse = false;
     assert!(r.fulfill(ticket, ok(200)).unwrap().is_some());
     assert!(r.pending().is_empty());
+    assert!(!has(&r, "busy"), "the view shows it no longer pending");
+    assert!(r.journal().any(|l| l.contains("parse refused")));
+    assert!(r
+        .journal()
+        .any(|l| l.contains("failed and is no longer pending: it ends unsent")));
+    assert!(
+        r.fulfill(ticket, ok(200)).unwrap().is_none(),
+        "a released ticket commits nothing"
+    );
 }
 
 #[test]
