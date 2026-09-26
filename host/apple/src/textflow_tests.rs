@@ -11,6 +11,8 @@ fn prepared(text: &str) -> u64 {
         text.len(),
         advances.as_ptr(),
         advances.len(),
+        std::ptr::null(),
+        0,
         2,
         0,
         8.,
@@ -65,13 +67,16 @@ fn unicode_round_trip_and_source_coverage() {
 #[test]
 fn null_empty_invalid_and_small_output_are_defined() {
     use std::ptr::null;
-    assert_eq!(prepare(null(), 1, null(), 0, 0, 0, 0.), 0);
+    assert_eq!(prepare(null(), 1, null(), 0, null(), 0, 0, 0, 0.), 0);
     assert_eq!(
-        prepare([255u8].as_ptr(), 1, [1f32].as_ptr(), 1, 0, 0, 0.),
+        prepare([255u8].as_ptr(), 1, [1f32].as_ptr(), 1, null(), 0, 0, 0, 0.),
         0
     );
-    assert_eq!(prepare("😀".as_ptr(), 4, [8f32].as_ptr(), 1, 0, 0, 0.), 0);
-    let empty = prepare(null(), 0, null(), 0, 0, 0, 0.);
+    assert_eq!(
+        prepare("😀".as_ptr(), 4, [8f32].as_ptr(), 1, null(), 0, 0, 0, 0.),
+        0
+    );
+    let empty = prepare(null(), 0, null(), 0, null(), 0, 0, 0, 0.);
     assert_ne!(empty, 0);
     assert_eq!(layout(empty, &[], 0).0.count, 0);
     free(empty);
@@ -217,4 +222,55 @@ fn soft_hyphen_flag_crosses_abi_beside_hole() {
     let (_, clear) = layout(id, &[], 30);
     assert_eq!(clear[0].hyphenated, 0);
     free(id);
+}
+#[test]
+fn thai_line_break_words_are_the_only_breaks_inside_a_run() {
+    // กิน|ข้าว|แล้ว: CoreFoundation's line-break units start at UTF-16 3 and 7.
+    let text = "กินข้าวแล้ว";
+    let advances: Vec<f32> = text.encode_utf16().map(|_| 8.).collect();
+    let lines = |words: &[u32]| {
+        let id = prepare(
+            text.as_ptr(),
+            text.len(),
+            advances.as_ptr(),
+            advances.len(),
+            words.as_ptr(),
+            words.len(),
+            0,
+            0,
+            8.,
+        );
+        let mut out = vec![CFragment::default(); 8];
+        let result = flow(
+            id,
+            std::ptr::null(),
+            0,
+            40.,
+            22.,
+            5.,
+            0,
+            0,
+            out.as_mut_ptr(),
+            8,
+        );
+        free(id);
+        out[..result.count]
+            .iter()
+            .map(|f| (f.utf16_start, f.utf16_end))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(lines(&[3, 7]), [(0, 3), (3, 7), (7, 11)]);
+    assert_eq!(lines(&[]), [(0, 11)]);
+    let missing = prepare(
+        text.as_ptr(),
+        text.len(),
+        advances.as_ptr(),
+        11,
+        std::ptr::null(),
+        1,
+        0,
+        0,
+        8.,
+    );
+    assert_eq!(missing, 0);
 }

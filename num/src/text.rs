@@ -40,13 +40,27 @@ pub struct Fixed(pub f64, pub usize);
 
 impl fmt::Display for Shortest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write(self.0.to_bits(), &F64, Layout::Decimal, f)
+        self.write(f)
     }
 }
 
 impl fmt::Display for Shortest32 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write(u64::from(self.0.to_bits()), &F32, Layout::Decimal, f)
+        self.write(f)
+    }
+}
+
+impl Shortest {
+    /// The `{}` text into any writer: a `String` takes it without
+    /// `core::fmt`'s machinery ([`crate::Piece`]).
+    pub(crate) fn write(&self, out: &mut dyn Write) -> fmt::Result {
+        write(self.0.to_bits(), &F64, Layout::Decimal, out)
+    }
+}
+
+impl Shortest32 {
+    pub(crate) fn write(&self, out: &mut dyn Write) -> fmt::Result {
+        write(u64::from(self.0.to_bits()), &F32, Layout::Decimal, out)
     }
 }
 
@@ -116,11 +130,7 @@ struct Decoded {
 /// Writes NaN or an infinity whole and gives `None`; otherwise writes the
 /// sign (`-` for any negative, zero included, as core does) and gives the
 /// value, `Some(None)` for zero.
-fn sign(
-    bits: u64,
-    f: &Format,
-    out: &mut fmt::Formatter<'_>,
-) -> Result<Option<Option<Decoded>>, fmt::Error> {
+fn sign(bits: u64, f: &Format, out: &mut dyn Write) -> Result<Option<Option<Decoded>>, fmt::Error> {
     let (width, exp_bits) = if f.p == F32.p { (32, 8) } else { (64, 11) };
     let negative = bits >> (width - 1) & 1 == 1;
     let field = (bits >> f.p) & ((1 << exp_bits) - 1);
@@ -152,7 +162,7 @@ fn sign(
     }))
 }
 
-fn write(bits: u64, f: &Format, layout: Layout, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+fn write(bits: u64, f: &Format, layout: Layout, out: &mut dyn Write) -> fmt::Result {
     let Some(d) = sign(bits, f, out)? else {
         return Ok(());
     };
@@ -180,7 +190,7 @@ fn write(bits: u64, f: &Format, layout: Layout, out: &mut fmt::Formatter<'_>) ->
 }
 
 /// `v` in decimal, in the tail of `buf`.
-fn ascii(mut v: u64, buf: &mut [u8; 20]) -> &str {
+pub(crate) fn ascii(mut v: u64, buf: &mut [u8; 20]) -> &str {
     let mut i = buf.len();
     loop {
         i -= 1;
@@ -193,11 +203,11 @@ fn ascii(mut v: u64, buf: &mut [u8; 20]) -> &str {
     std::str::from_utf8(&buf[i..]).unwrap_or_default()
 }
 
-fn zeros(n: usize, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+fn zeros(n: usize, out: &mut dyn Write) -> fmt::Result {
     (0..n).try_for_each(|_| out.write_char('0'))
 }
 
-fn zero(frac: usize, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+fn zero(frac: usize, out: &mut dyn Write) -> fmt::Result {
     out.write_char('0')?;
     if frac > 0 {
         out.write_char('.')?;
@@ -208,7 +218,7 @@ fn zero(frac: usize, out: &mut fmt::Formatter<'_>) -> fmt::Result {
 
 /// Core's `digits_to_dec_str` with no forced fraction digits:
 /// `0.digits × 10^exp`.
-fn decimal(digits: &str, exp: i32, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+fn decimal(digits: &str, exp: i32, out: &mut dyn Write) -> fmt::Result {
     if exp <= 0 {
         out.write_str("0.")?;
         zeros(exp.unsigned_abs() as usize, out)?;
@@ -225,7 +235,7 @@ fn decimal(digits: &str, exp: i32, out: &mut fmt::Formatter<'_>) -> fmt::Result 
 }
 
 /// Core's `digits_to_exp_str`, lower case, no forced fraction digits.
-fn exponential(digits: &str, exp: i32, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+fn exponential(digits: &str, exp: i32, out: &mut dyn Write) -> fmt::Result {
     let (first, rest) = digits.split_at(1);
     out.write_str(first)?;
     if !rest.is_empty() {

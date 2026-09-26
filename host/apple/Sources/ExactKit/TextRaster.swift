@@ -56,6 +56,7 @@ struct TextRasterJob {
                 frame = frame.union(CGRect(x: position.x + ink.minX, y: position.y - ink.maxY,
                                            width: ink.width, height: ink.height).insetBy(dx: -1 / scale, dy: -1 / scale))
             }
+            for (fill, _) in TextLinePaint.backgrounds(line, at: position) { frame = frame.union(fill) }
         }
         frame = frame.intersection(bounds.insetBy(dx: -Self.maxInkOverflow, dy: -Self.maxInkOverflow))
         if let clip { frame = frame.intersection(clip) }
@@ -97,11 +98,7 @@ struct TextRasterJob {
         ctx.scaleBy(x: scale, y: -scale)
         ctx.translateBy(x: -frame.minX, y: -frame.minY)
         ctx.setShouldSmoothFonts(true)
-        ctx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
-        for (line, position) in zip(lines, positions) {
-            ctx.textPosition = position
-            CTLineDraw(line, ctx)
-        }
+        for (line, position) in zip(lines, positions) { TextLinePaint.draw(line, at: position, in: ctx) }
         ctx.flush()
         #if os(iOS)
         guard let image = ctx.makeImage() else { return nil }

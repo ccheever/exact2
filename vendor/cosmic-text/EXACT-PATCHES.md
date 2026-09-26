@@ -1,4 +1,4 @@
-# cosmic-text 0.19.0 — two local patches
+# cosmic-text 0.19.0 — three local patches
 
 Complete crates.io archive, including upstream MIT/Apache licenses and
 .cargo_vcs_info.json. No source downloader, feature change or dependency upgrade.
@@ -43,3 +43,14 @@ Root `[patch.crates-io]` selects this copy while host dependency versions stay
 unchanged. Remove the patch when a pinned upstream release supplies equivalent
 admission and span-storage behavior and these regressions pass. This is not general
 support for bitmap-only font metrics. All other archive files are byte-for-byte upstream.
+
+The base-direction delta (LLP 1053, 2026-09-25, Claude Opus 5.5) adds
+`ShapeLine::new_with_base` and `ShapeLine::build_with_base` in `src/shape.rs`,
+which pass a given paragraph level to `unicode_bidi::BidiInfo::new` instead of
+`None`; `new` and `build` call them with `None`, so their behavior is unchanged.
+CSS `direction` sets a paragraph's base direction, while the Unicode
+first-strong heuristic is `unicode-bidi: plaintext`. With the level given,
+`abc אבג` in an `rtl` paragraph orders its Latin word at the right. The host
+passes `Some(true)` for every line of an `rtl` paragraph and `None` otherwise
+(`host/linux/src/text/shaping.rs`; LLP 1001 §1 declares the `ltr` case); the
+regression is in `host/linux/src/text/sharing_tests.rs`.

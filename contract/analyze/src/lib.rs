@@ -354,11 +354,11 @@ fn writes_of<'a>(stmts: &'a [Stmt], out: &mut Vec<(&'a String, &'a Span, &'stati
 
 fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
     for t in &c.tasks {
-        let Some(a) = c.actions.iter().find(|a| a.name == t.every.1) else {
+        let Some(a) = c.actions.iter().find(|a| a.name == t.timer.1) else {
             return err(
                 "analyze-unknown-action",
-                format!("`{}` is not an action", t.every.1),
-                t.every.2,
+                format!("`{}` is not an action", t.timer.1),
+                t.timer.2,
             );
         };
         if !a.params.is_empty() {
@@ -369,7 +369,7 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
                     a.name,
                     a.params.len()
                 ),
-                t.every.2,
+                t.timer.2,
             );
         }
     }

@@ -17,7 +17,7 @@ use exact_kernel::{Color, Dimension, Display, Overflow, RowValue, StyleId, Style
 use exact_motion::{
     Easing, StepPosition, TimingFunction, Transition, TransitionProperty, Transitions,
 };
-use exact_num::Shortest32;
+use exact_num::{push_text, Piece, Shortest32};
 use std::fmt::Write as _;
 
 /// Rows this host knows it does not lower (and why), so an author sees a
@@ -72,7 +72,7 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
             (StyleId::Transition, RowValue::Transitions(t)) => {
                 let (text, spring_skipped) = transition_css(t);
                 if !text.is_empty() {
-                    let _ = write!(out, "transition:{text};");
+                    push_text!(&mut out, "transition:{};", text);
                 }
                 if spring_skipped {
                     skipped.push(Skipped {
@@ -88,7 +88,7 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                     } else {
                         css_string(family)
                     };
-                    let _ = write!(out, "font-family:{value};");
+                    push_text!(&mut out, "font-family:{};", value);
                 } else {
                     skipped.push(Skipped {
                         row: id,
@@ -110,8 +110,11 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                             reason: "legacy line-clamp requires a non-scrolling block",
                         });
                     } else {
-                        let n = exact_num::Shortest(*n);
-                        let _ = write!(out, "display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:{n};overflow:hidden;");
+                        push_text!(
+                            &mut out,
+                            "display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:{};overflow:hidden;",
+                            exact_num::Shortest(*n)
+                        );
                     }
                 }
             }
@@ -147,14 +150,13 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
             color.b(),
             (color.a() as f32 * opacity.clamp(0.0, 1.0)) as u8,
         );
-        let _ = write!(
-            out,
-            "box-shadow:{}px {}px {}px {};",
-            num(x),
-            num(y),
-            num(radius),
-            rgba(c)
-        );
+        out.push_str("box-shadow:");
+        for n in [x, y, radius] {
+            num_into(&mut out, n);
+            out.push_str("px ");
+        }
+        rgba_into(&mut out, c);
+        out.push(';');
     }
     (out, skipped)
 }
@@ -274,6 +276,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         RowValue::Enum(e) => out.push_str(e),
         RowValue::ClipPath(p) => out.push_str(&p.css()),
         RowValue::ShapeOutside(p) => out.push_str(&p.css()),
+        RowValue::AspectRatio(r) => out.push_str(&r.css()),
         RowValue::Vec2(v) => {
             num_into(out, v.x);
             out.push_str("px ");
@@ -285,7 +288,6 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             | StyleId::FlexShrink
             | StyleId::Opacity
             | StyleId::ZIndex
-            | StyleId::AspectRatio
             | StyleId::FontWeight
             | StyleId::Scale
             | StyleId::ShadowOpacity => num_into(out, *n as f32),
@@ -312,21 +314,27 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
 
 /// A `transition` row as CSS; `true` when a spring was left out.
 pub fn transition_css(t: &Transitions) -> (String, bool) {
-    let mut parts = Vec::new();
+    let mut text = String::new();
     let mut spring = false;
     for tr in &t.0 {
         match &tr.timing {
             TimingFunction::Spring(_) => spring = true,
-            TimingFunction::Easing(e) => parts.push(format!(
-                "{} {}s {} {}s",
-                transition_property(tr),
-                num(tr.duration as f32),
-                easing_css(e),
-                num(tr.delay as f32)
-            )),
+            TimingFunction::Easing(e) => {
+                if !text.is_empty() {
+                    text.push(',');
+                }
+                let _ = write!(
+                    text,
+                    "{} {}s {} {}s",
+                    transition_property(tr),
+                    num(tr.duration as f32),
+                    easing_css(e),
+                    num(tr.delay as f32)
+                );
+            }
         }
     }
-    (parts.join(","), spring)
+    (text, spring)
 }
 
 fn transition_property(tr: &Transition) -> &'static str {
@@ -360,18 +368,22 @@ pub fn easing_css(e: &Easing) -> String {
                 StepPosition::JumpBoth => "jump-both",
             }
         ),
-        Easing::PiecewiseLinear(stops) => format!(
-            "linear({})",
-            stops
-                .iter()
-                .map(|s| format!(
+        Easing::PiecewiseLinear(stops) => {
+            let mut text = String::from("linear(");
+            for (i, s) in stops.iter().enumerate() {
+                if i > 0 {
+                    text.push(',');
+                }
+                let _ = write!(
+                    text,
                     "{} {}%",
                     num(s.output as f32),
                     num((s.input * 100.0) as f32)
-                ))
-                .collect::<Vec<_>>()
-                .join(",")
-        ),
+                );
+            }
+            text.push(')');
+            text
+        }
     }
 }
 
@@ -427,28 +439,13 @@ pub fn num(n: f32) -> String {
     out
 }
 
-/// [`num`], appended. A whole number is written digit by digit: the
-/// formatter is the slow part of a page's first styles.
+/// [`num`], appended, without the formatter (the slow part of a page's
+/// first styles): a whole number as an integer, the rest shortest.
 fn num_into(out: &mut String, n: f32) {
     if n.fract() == 0.0 && n.abs() < 1e9 {
-        let whole = n as i64;
-        if whole < 0 {
-            out.push('-');
-        }
-        let (mut rest, mut digits, mut at) = (whole.unsigned_abs(), [b'0'; 10], 10);
-        loop {
-            at -= 1;
-            digits[at] = b'0' + (rest % 10) as u8;
-            rest /= 10;
-            if rest == 0 {
-                break;
-            }
-        }
-        for &digit in &digits[at..] {
-            out.push(char::from(digit));
-        }
+        (n as i64).push_to(out);
     } else {
-        let _ = write!(out, "{}", Shortest32(n));
+        Shortest32(n).push_to(out);
     }
 }
 
@@ -501,5 +498,150 @@ mod flow_tests {
         assert!(css.contains("shape-margin:8px;"));
         assert!(css.contains("wrap-flow:both;"));
         assert!(skipped.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod writer_tests {
+    use super::*;
+
+    /// The writers before they wrote in place: joined parts.
+    fn transition_joined(t: &Transitions) -> (String, bool) {
+        let mut parts = Vec::new();
+        let mut spring = false;
+        for tr in &t.0 {
+            match &tr.timing {
+                TimingFunction::Spring(_) => spring = true,
+                TimingFunction::Easing(e) => parts.push(format!(
+                    "{} {}s {} {}s",
+                    transition_property(tr),
+                    num(tr.duration as f32),
+                    easing_css(e),
+                    num(tr.delay as f32)
+                )),
+            }
+        }
+        (parts.join(","), spring)
+    }
+
+    #[test]
+    fn transitions_and_linear_easings_write_what_joining_wrote() {
+        for text in [
+            "opacity 1s",
+            "opacity 250ms ease-in-out, all 0.5s cubic-bezier(0.4, 0, 0.2, 1) 100ms, translate spring(180, 12, 1)",
+            "opacity 1s steps(4, jump-both), height 200ms linear 50ms",
+            "opacity 1s linear(0, 0.2, 0.6 60%, 0.8, 1), translate 1s linear(0 0% 20%, 1 80% 100%)",
+            "translate spring(180, 12, 1)",
+        ] {
+            let t = Transitions::parse(text).unwrap();
+            assert_eq!(transition_css(&t), transition_joined(&t), "{text}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod declaration_tests {
+    use super::*;
+    use exact_kernel::StyleValue;
+
+    fn css(rows: &[(StyleId, StyleValue)], fonts: &[&str]) -> String {
+        let mut style = StyleProps::default();
+        for (id, value) in rows {
+            style.set_dynamic(*id, value).unwrap();
+        }
+        let fonts: Vec<String> = fonts.iter().map(|f| f.to_string()).collect();
+        css_text(&style, &fonts).0
+    }
+
+    /// The declarations `css_text` composes itself, as the `write!`-built
+    /// text had them, byte for byte.
+    #[test]
+    fn composed_declarations_keep_their_text() {
+        let cases = [
+            css(
+                &[(StyleId::FontFamily, StyleValue::Number(0.0))],
+                &["Inter \"Var\"\n"],
+            ),
+            css(
+                &[(StyleId::FontFamily, StyleValue::Number(1.0))],
+                &["x", "ui-monospace"],
+            ),
+            css(
+                &[(
+                    StyleId::Transition,
+                    StyleValue::Text(
+                        "opacity 250ms ease-in-out, all 0.5s cubic-bezier(0.4, 0, 0.2, 1) 100ms"
+                            .into(),
+                    ),
+                )],
+                &[],
+            ),
+            css(&[(StyleId::LineClamp, StyleValue::Number(3.0))], &[]),
+            css(
+                &[
+                    (StyleId::ShadowOffset, StyleValue::Vec2(0.0, 2.5)),
+                    (StyleId::ShadowRadius, StyleValue::Number(12.0)),
+                    (StyleId::ShadowColor, StyleValue::Text("#11223380".into())),
+                    (StyleId::ShadowOpacity, StyleValue::Number(0.35)),
+                ],
+                &[],
+            ),
+            css(
+                &[
+                    (StyleId::ShadowOffset, StyleValue::Vec2(-1.0, 1e9)),
+                    (StyleId::ShadowRadius, StyleValue::Number(0.1)),
+                ],
+                &[],
+            ),
+            css(
+                &[
+                    (StyleId::Opacity, StyleValue::Number(0.125)),
+                    (StyleId::Width, StyleValue::Number(33.5)),
+                ],
+                &[],
+            ),
+        ];
+        let golden = [
+            r#"font-family:"Inter \"Var\"\a ";"#,
+            "font-family:ui-monospace,monospace;",
+            "transition:opacity 0.25s ease-in-out 0s,all 0.5s cubic-bezier(0.4,0,0.2,1) 0.1s;",
+            "display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;",
+            "box-shadow:0px 2.5px 12px rgba(17,34,51,0.17254902);",
+            "box-shadow:-1px 1000000000px 0.1px rgba(0,0,0,0);",
+            "width:33.5px;opacity:0.125;",
+        ];
+        assert_eq!(cases, golden);
+    }
+
+    /// LLP 1053: `aspect-ratio` as authored (never a rounded float),
+    /// `direction`, and the `flex-grow` longhand reach the page as CSS.
+    #[test]
+    fn layout_rows_keep_their_css() {
+        let t = |s: &str| StyleValue::Text(s.into());
+        for (rows, want) in [
+            (
+                vec![(StyleId::AspectRatio, t("16/9"))],
+                "aspect-ratio:16 / 9;",
+            ),
+            (
+                vec![(StyleId::AspectRatio, StyleValue::Number(2.0))],
+                "aspect-ratio:2 / 1;",
+            ),
+            (
+                vec![(StyleId::AspectRatio, t("4/3 auto"))],
+                "aspect-ratio:auto 4 / 3;",
+            ),
+            (
+                vec![(StyleId::AspectRatio, StyleValue::Auto)],
+                "aspect-ratio:auto;",
+            ),
+            (vec![(StyleId::Direction, t("rtl"))], "direction:rtl;"),
+            (
+                vec![(StyleId::FlexGrow, StyleValue::Number(1.0))],
+                "flex-grow:1;",
+            ),
+        ] {
+            assert_eq!(css(&rows, &[]), want);
+        }
     }
 }

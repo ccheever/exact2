@@ -275,8 +275,17 @@ ordinary press control.
 Declared deviations, each because the engine cannot express the CSS value:
 `position` has no `static` (Taffy positions an absolute child against its parent,
 so `relative` without insets is the closest box; a web host emits `position:
-relative` on every node to match); `text_align` defaults to `left`, not `start`,
-because logical alignment is not yet lowered. Font matching stops at the nearest
+relative` on every node to match). `text_align` is CSS's (`start` initially;
+`start` and `end` resolve against the paragraph's `direction` in
+`Paragraph::from_style`, so hosts see only left, center, right or justify; LLP
+1053). CSS `direction` orders flex rows and places blocks in the kernel, and
+`direction: rtl` is a paragraph's base direction on every host. Declared: under
+the initial `ltr`, the Apple and Linux engines still take a paragraph's base
+direction from its first strong character (as `unicode-bidi: plaintext`), so
+an `ltr` paragraph that opens with Hebrew or Arabic orders mixed text as an
+`rtl` one would. Its alignment is still `start` = left, and the web uses CSS.
+The Linux text-flow walker cannot yet break an RTL run inside an LTR
+paragraph. Font matching stops at the nearest
 real declared face and never synthesizes weight or style, rather than CSS's initial
 `font-synthesis: weight style small-caps`; the compiler diagnoses a literal
 weight/style whose declared family lacks the needed face, and the web host emits
@@ -286,9 +295,18 @@ applied in `StyleProps::to_taffy` (a scroll container is `overflow: auto` on the
 web). An `Image` is a replaced element: the host reports its intrinsic size
 (`Kernel::set_intrinsic_size`, the bitmap's pixel counts one-for-one as points,
 after the image loads; before that each unknown axis measures 0, so a `width`
-row still sizes the box), the node is measured from it, and it keeps its ratio
-unless an `aspect_ratio` row is set — one dimension given, the other follows,
-and min/max resolve by CSS 2.1 §10.4's table (Taffy patch 5). Declared: in
+row still sizes the box), the node is measured from it, and it keeps its
+natural ratio under `aspect-ratio: auto`. `auto <ratio>` uses the natural ratio
+once known and the given one before; a plain `<ratio>` overrides it (LLP 1053
+G1). One dimension given, the other follows by the ratio and each is clamped
+on its own; with neither given, min/max resolve by CSS 2.1 §10.4's table
+(Taffy patches 5 and 12). Any box takes CSS `aspect-ratio` (`auto || <ratio>`,
+stored as authored). A non-replaced box's derived height is a floor its
+content can pass unless `min-height` is set or it scrolls; min/max transfer
+through the ratio only into an axis the box does not size. Declared, as not yet
+done: the automatic minimum of a *width* derived from a height; absolutely
+positioned boxes, grid items and a flex/grid container's own ratio keep
+upstream Taffy's transfer (`vendor/taffy/EXACT-PATCHES.md` patch 12). Declared: in
 *block* flow Taffy stretches an auto-width image to its container where CSS
 would use the intrinsic width (in a stretching flex column both stretch, by
 ratio); the ratio still holds (`kernel/tests/image.rs`; LLP 1011).

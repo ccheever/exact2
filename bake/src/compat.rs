@@ -481,7 +481,7 @@ fn gpu_surfaces(app_dir: &Path, manifest: &Manifest) -> Result<serde_json::Value
         const app={dir:process.argv[2],manifest:JSON.parse(process.argv[3])};
         process.stdout.write(JSON.stringify({roots:[...shaderRoots(app),...shaderPreludeFiles(app)],files:[...shaderFiles(app)].map(([name,bytes])=>[name,bytes.toString('utf8')])}));
     "#;
-    let result = std::process::Command::new("bun")
+    let result = crate::bun()
         .args(["--input-type=module", "-e", code])
         .arg(gate)
         .arg(app_dir)

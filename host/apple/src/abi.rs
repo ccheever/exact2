@@ -16,7 +16,7 @@
 
 use crate::host::Host;
 use crate::measure::{install_fonts, CallbackMeasurer, FontsFn, MeasureFn};
-use crate::store::{endow, snapshot_of};
+use crate::store::{endow, snapshot_of, Platform};
 use exact_kernel::{MonospaceMeasurer, TextMeasurer};
 use exact_runner::{
     DataSource, Event, FailureKind, Outcome, SurfaceOutcome, SurfaceRequest, MAX_HOST_WORK_BYTES,
@@ -205,6 +205,7 @@ impl<D: DataSource> Bridge<D> {
             ..
         } = self;
         if let (Some(h), Some(x)) = (host.as_mut(), executor.as_ref()) {
+            x.forget(|ticket| h.runner().holds(ticket));
             if !h.has_ordered_request_refusals() {
                 x.resume_ordered();
             }
@@ -416,9 +417,12 @@ impl<D: DataSource> Bridge<D> {
         // frame is a returning user's; the executor thread takes the same
         // bindings for its requests. Build beside any running host: the dev
         // menu may use this fresh-state path to reload the baked plan.
-        let bindings = endow(data.grants());
+        let (bindings, unbound) = match endow(data.grants()) {
+            Ok(b) => (Some(b), None),
+            Err(e) => (None, Some(e)),
+        };
         let snapshot = snapshot_of(bindings.as_ref());
-        let secrets = bindings.as_ref().map(|b| b.secrets.clone());
+        let secrets = bindings.as_ref().map(Platform::of);
         let fonts = self.fonts;
         let fonts_ctx = self.fonts_ctx;
         match Host::boot_stored_after_decode(
@@ -442,6 +446,9 @@ impl<D: DataSource> Bridge<D> {
             },
         ) {
             Ok((mut host, batch)) => {
+                if let Some(why) = unbound {
+                    host.log(&format!("{why}; every request is refused"));
+                }
                 host.commit_boot();
                 self.executor = Some(crate::executor::Executor::start(
                     bindings,
@@ -644,13 +651,16 @@ impl<D: DataSource> Bridge<D> {
         // A reload carries the running store (`Carried::store`). A fresh
         // session takes the granted platform snapshot before its first query,
         // just like boot_fresh; neither path releases effects until commit.
-        let bindings = endow(data.grants());
+        let (bindings, unbound) = match endow(data.grants()) {
+            Ok(b) => (Some(b), None),
+            Err(e) => (None, Some(e)),
+        };
         let snapshot = if carried.is_none() {
             snapshot_of(bindings.as_ref())
         } else {
             Vec::new()
         };
-        let secrets = bindings.as_ref().map(|b| b.secrets.clone());
+        let secrets = bindings.as_ref().map(Platform::of);
         let fonts = self.fonts;
         let fonts_ctx = self.fonts_ctx;
         match Host::boot_stored_after_decode(
@@ -673,7 +683,10 @@ impl<D: DataSource> Bridge<D> {
                 }
             },
         ) {
-            Ok((host, batch)) => {
+            Ok((mut host, batch)) => {
+                if let Some(why) = unbound {
+                    host.log(&format!("{why}; every request is refused"));
+                }
                 self.output = batch.as_bytes().to_vec();
                 self.prepared = Some(PreparedHost {
                     host,
@@ -905,6 +918,39 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// Arrange (LLP 1041 §8.5): catch a `reorderFor` handle's row.
+    pub fn reorder_begin(&mut self, handle: u32, scroll_top: f64, now_ms: f64) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.reorder_begin(handle, scroll_top, now_ms));
+        self.emit(out)
+    }
+    /// A pointer sample for the live contact `token`.
+    pub fn reorder_move(&mut self, token: u64, dy: f64, top: f64, inside: u32, now: f64) -> u32 {
+        let out = self.host.as_mut().map_or_else(not_booted, |h| {
+            h.reorder_move(token, dy, top, inside != 0, now)
+        });
+        self.emit(out)
+    }
+    /// The contact ended: drop (nonzero) or cancel.
+    #[allow(clippy::too_many_arguments)]
+    pub fn reorder_end(
+        &mut self,
+        token: u64,
+        drop: u32,
+        dy: f64,
+        top: f64,
+        inside: u32,
+        velocity: f64,
+        now: f64,
+    ) -> u32 {
+        let out = self.host.as_mut().map_or_else(not_booted, |h| {
+            h.reorder_end(token, drop != 0, dy, top, inside != 0, velocity, now)
+        });
+        self.emit(out)
+    }
+
     /// Liveness before an authored completion; never advances a clock.
     pub fn has_hold(&self, token: u64) -> bool {
         self.host.as_ref().is_some_and(|h| h.has_hold(token))
@@ -986,6 +1032,29 @@ impl<D: DataSource> Bridge<D> {
             .host
             .as_mut()
             .map_or_else(not_booted, |h| h.set_intrinsic(view, size));
+        self.emit(out)
+    }
+
+    /// `intrinsic` for several views from the input buffer's first `len`
+    /// bytes: LE records of (u32 view, f32 width, f32 height), one layout.
+    pub fn intrinsics(&mut self, len: usize) -> u32 {
+        let bytes = self.input.get(..len).unwrap_or(&[]);
+        let out = if bytes.len() % 12 != 0 {
+            "{\"ops\":[],\"timers\":false,\"motion\":false,\"error\":\"intrinsics: truncated record\"}".to_string()
+        } else {
+            let sizes: Vec<_> = bytes
+                .chunks_exact(12)
+                .map(|r| {
+                    let word = |i: usize| [r[i], r[i + 1], r[i + 2], r[i + 3]];
+                    let (w, h) = (f32::from_le_bytes(word(4)), f32::from_le_bytes(word(8)));
+                    let clears = w.is_finite() && h.is_finite() && (w <= 0.0 || h <= 0.0);
+                    (u32::from_le_bytes(word(0)), (!clears).then_some((w, h)))
+                })
+                .collect();
+            self.host
+                .as_mut()
+                .map_or_else(not_booted, |h| h.set_intrinsics(&sizes))
+        };
         self.emit(out)
     }
 

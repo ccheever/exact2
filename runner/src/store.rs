@@ -74,6 +74,11 @@ impl Store {
     /// The store for `grants` (its `secret.keep <name>` lines), filled from
     /// `snapshot`; an entry the grant does not name is dropped.
     pub fn new(grants: &str, snapshot: impl IntoIterator<Item = (String, String)>) -> Store {
+        // One body for every caller's snapshot type (LLP 1047 §6).
+        Store::from_snapshot(grants, snapshot.into_iter().collect())
+    }
+
+    fn from_snapshot(grants: &str, snapshot: Vec<(String, String)>) -> Store {
         let granted: Vec<String> = grants
             .lines()
             .filter_map(|l| {

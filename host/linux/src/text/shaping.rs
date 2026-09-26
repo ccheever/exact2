@@ -106,10 +106,12 @@ impl ShapedSource {
         let tallest = line_heights.iter().copied().fold(minimum, f32::max);
         let metrics = Metrics::new(base, tallest.max(f32::EPSILON));
         let mut buffer = Buffer::new_empty(metrics);
-        let align = match spec.align {
-            TextAlign::Left => None,
+        let align = match spec.align.physical(spec.direction) {
+            // Physical: cosmic-text's `None` would align by each line's own bidi
+            // direction, not the paragraph's CSS `direction` (LLP 1053).
+            TextAlign::Left | TextAlign::Start => Some(Align::Left),
             TextAlign::Center => Some(Align::Center),
-            TextAlign::Right => Some(Align::Right),
+            TextAlign::Right | TextAlign::End => Some(Align::Right),
             TextAlign::Justify => Some(Align::Justified),
         };
         let weights: Vec<u16> = spec
@@ -161,12 +163,18 @@ impl ShapedSource {
             .map(|line| {
                 #[cfg(test)]
                 SHAPE_LINES.with(|n| n.set(n.get() + 1));
-                let shape = ShapeLine::new(
+                // `direction: rtl` makes the base direction right-to-left, as
+                // CSS does (LLP 1053; vendor/cosmic-text/EXACT-PATCHES.md).
+                // Under `ltr` the first strong character still decides
+                // (declared in LLP 1001 §1): the text-flow walker cannot yet
+                // break an RTL run inside an LTR paragraph.
+                let shape = ShapeLine::new_with_base(
                     &mut catalog.fonts,
                     line.text(),
                     line.attrs_list(),
                     Shaping::Advanced,
                     8,
+                    (spec.direction == exact_kernel::Direction::Rtl).then_some(true),
                 );
                 let align = line.align();
                 Line {

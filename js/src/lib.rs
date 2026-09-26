@@ -25,13 +25,18 @@
 //! other throw is `Unavailable`). `fetch(url, init)` is the web's, over the
 //! host's ticket path: the module describes, the host runs under the grants,
 //! the Promise resolves to a `Response` with `status`, `ok`, `headers`,
-//! `text()`, `json()`, `arrayBuffer()`. `store` is `{get, set, forget}` over
-//! the runner's [`Store`]: reads counted, writes grant-checked, in Rust.
-//! `console` reaches the runner's logs. Time and random seeds are ordinary
-//! source arguments (LLP 1027.000): ambient Date/Math.random reads and
-//! Intl.DateTimeFormat formatting without an explicit timestamp refuse,
-//! including at module initialization and after await. Explicit-value Date
-//! construction and UTC arithmetic remain available. There are no timers.
+//! `text()`, `json()`, `arrayBuffer()`. Each answer owns the host work it
+//! starts: one that awaits a promise another answer started (a fetch
+//! memoized across answers) has nothing of its own to wait on and is
+//! refused as pending on nothing, so share a resolved value, never the
+//! promise (module-wide liveness is LLP 1027.003.000 §13's open question).
+//! `store` is `{get, set, forget}` over the runner's [`Store`]: reads
+//! counted, writes grant-checked, in Rust. `console` reaches the runner's
+//! logs. Time and random seeds are ordinary source arguments (LLP
+//! 1027.000): ambient Date/Math.random reads and Intl.DateTimeFormat
+//! formatting without an explicit timestamp refuse, including at module
+//! initialization and after await. Explicit-value Date construction and UTC
+//! arithmetic remain available. There are no timers.
 //!
 //! **Interrupts (LLP 1048.000 D10).** Another thread may stop a running call
 //! through [`DataSource::interrupt`]'s handle: the bake compiles with async
@@ -480,6 +485,10 @@ impl Module {
         if module.app_id.is_empty() {
             return Err("exact-js: the module exports no appId".into());
         }
+        // A grant a device would refuse refuses the build instead: a native
+        // host that cannot parse the grants holds none of them.
+        ibex2::grant::GrantSet::parse(&exact_runner::io_grants(&module.grants))
+            .map_err(|e| format!("exact-js: app.ts `grants`: {e}"))?;
         module.engine = Some(engine);
         Ok(module)
     }

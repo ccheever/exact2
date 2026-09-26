@@ -754,12 +754,18 @@ extension TextGeometryTests {
         context.clip(to: clip)
         if exhaustive {
             // Deliberately independent of TextEngine.draw and its candidate index.
-            context.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
+            // y flips in the CTM at each baseline: a flipped text matrix inverts
+            // glyphs' vertical offsets (fallback faces' cursive attachment).
             let flush: CGFloat = spec.align == 1 ? 0.5 : spec.align == 2 ? 1 : 0
+            context.textMatrix = .identity
             for (line, baseline) in zip(paragraph.lines, paragraph.baselines) {
                 let x = CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(bounds.width)))
-                context.textPosition = CGPoint(x: bounds.minX + x, y: bounds.minY + baseline.rounded())
+                context.saveGState()
+                context.translateBy(x: bounds.minX + x, y: bounds.minY + baseline.rounded())
+                context.scaleBy(x: 1, y: -1)
+                context.textPosition = .zero
                 CTLineDraw(line, context)
+                context.restoreGState()
             }
         } else {
             TextEngine.draw(paragraph, spec: spec, in: bounds, context: context, dirty: clip)

@@ -1246,50 +1246,74 @@ mod locality_tests {
             assert_eq!(k.tree().publication_visits, 0);
         }
     }
+    // Whether an edit inside the 200x80 clipping box stays there depends on
+    // what its ancestors asked of it, not on their display: a fixed-size box
+    // stays local under flex, grid, auto and percentage widths; one whose
+    // size its content decides, or that does not clip, or is out of flow,
+    // or is beside an exclusion, lays out from the root. Both equal fresh.
     #[test]
     fn coupled_styles_and_changed_viewports_refuse_local_replay() {
         use StyleId::*;
         let cases = [
-            vec![style(
-                1,
-                &[
-                    (Display, StyleValue::Text("flex".into())),
-                    (AlignItems, StyleValue::Text("baseline".into())),
-                ],
-            )],
-            vec![style(1, &[(Display, StyleValue::Text("grid".into()))])],
-            vec![style(
-                2,
-                &[
-                    (OverflowX, StyleValue::Text("visible".into())),
-                    (OverflowY, StyleValue::Text("visible".into())),
-                ],
-            )],
-            vec![style(2, &[(Width, StyleValue::Auto)])],
-            vec![style(2, &[(Width, StyleValue::Percent(50.0))])],
-            vec![style(2, &[(Height, StyleValue::Auto)])],
-            vec![style(2, &[(Height, StyleValue::Percent(50.0))])],
-            vec![style(
-                2,
-                &[(PositionType, StyleValue::Text("absolute".into()))],
-            )],
-            vec![style(
-                4,
-                &[
-                    (PositionType, StyleValue::Text("absolute".into())),
-                    (WrapFlow, StyleValue::Text("both".into())),
-                    (Width, StyleValue::Number(40.0)),
-                    (Height, StyleValue::Number(40.0)),
-                ],
-            )],
+            (
+                true,
+                vec![style(
+                    1,
+                    &[
+                        (Display, StyleValue::Text("flex".into())),
+                        (AlignItems, StyleValue::Text("baseline".into())),
+                    ],
+                )],
+            ),
+            (
+                true,
+                vec![style(1, &[(Display, StyleValue::Text("grid".into()))])],
+            ),
+            (
+                false,
+                vec![style(
+                    2,
+                    &[
+                        (OverflowX, StyleValue::Text("visible".into())),
+                        (OverflowY, StyleValue::Text("visible".into())),
+                    ],
+                )],
+            ),
+            (true, vec![style(2, &[(Width, StyleValue::Auto)])]),
+            (true, vec![style(2, &[(Width, StyleValue::Percent(50.0))])]),
+            (false, vec![style(2, &[(Height, StyleValue::Auto)])]),
+            // The root's height is its content's: a percentage is auto.
+            (
+                false,
+                vec![style(2, &[(Height, StyleValue::Percent(50.0))])],
+            ),
+            (
+                false,
+                vec![style(
+                    2,
+                    &[(PositionType, StyleValue::Text("absolute".into()))],
+                )],
+            ),
+            (
+                false,
+                vec![style(
+                    4,
+                    &[
+                        (PositionType, StyleValue::Text("absolute".into())),
+                        (WrapFlow, StyleValue::Text("both".into())),
+                        (Width, StyleValue::Number(40.0)),
+                        (Height, StyleValue::Number(40.0)),
+                    ],
+                )],
+            ),
         ];
-        for extra in cases {
+        for (i, (contained, extra)) in cases.into_iter().enumerate() {
             let (mut k, _) = fixture(8, extra);
             k.apply(0, 2, &[text(3, &"more words ".repeat(80))])
                 .unwrap();
             let offer = Offer::definite(900.0, 700.0);
             k.compute_layout(1, offer).unwrap();
-            assert_eq!(k.tree().boundary_replays, 0);
+            assert_eq!(k.tree().boundary_replays, contained as usize, "case {i}");
             equal_fresh(&k, offer);
         }
         let (mut k, _) = fixture(8, vec![]);

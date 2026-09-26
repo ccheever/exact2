@@ -231,10 +231,11 @@ fn shape_and_function_only_modules_are_queryable_without_a_fake_app() {
 #[test]
 fn duplicate_ids_report_all_authored_targets() {
     let f = Fixture::new("ids");
-    let graph=f.query("component App\n  action focusEntry\n    focus(\"entry\")\n  view\n    column\n      input id=\"entry\"\n      input id=\"entry\"\n");
+    let graph=f.query("component App\n  action focusEntry\n    focus(\"entry\")\n  action dismiss\n    blur(\"entry\")\n  view\n    column\n      input id=\"entry\"\n      input id=\"entry\"\n");
     let refs: Vec<_> = refs(&graph).iter().filter(|r| r["kind"] == "id").collect();
-    assert_eq!(refs.len(), 2);
+    assert_eq!(refs.len(), 4, "focus and blur each name both targets");
     assert_ne!(refs[0]["to"], refs[1]["to"]);
+    assert_ne!(refs[2]["to"], refs[3]["to"]);
 }
 
 #[test]

@@ -2,9 +2,10 @@
 // (LLP 1017 P6) — the web's class list without the cascade. A node's own
 // attribute replaces the style's for the same name; two bindings for one
 // row resolve to the last, so `padding=4` beats the style's `padding=16`.
+// A colour is hex or CSS `rgb()`/`rgba()`; both spell the same rgba8.
 style Card
   border-radius=16 padding=16 gap=10
-  background-color="#ffffffd9"
+  background-color="rgba(255, 255, 255, 0.85)"
 
 component Styles
   view

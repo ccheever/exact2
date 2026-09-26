@@ -150,7 +150,8 @@ pub struct Paragraph {
     pub strut: TextStyle,
     /// Base direction.
     pub direction: Direction,
-    /// Horizontal alignment.
+    /// Horizontal alignment, physical: `start` and `end` are resolved
+    /// against `direction` ([`TextAlign::physical`]), so a host never sees them.
     pub text_align: TextAlign,
     /// Maximum lines; 0 means unlimited.
     pub line_clamp: u32,
@@ -162,6 +163,22 @@ pub struct Paragraph {
     pub white_space: crate::WhiteSpace,
 }
 
+impl TextAlign {
+    /// CSS's `start` and `end` as `left` or `right` for a paragraph whose
+    /// base direction is `direction`; every other value is already physical.
+    pub fn physical(self, direction: Direction) -> TextAlign {
+        match (self, direction) {
+            (TextAlign::Start, Direction::Ltr) | (TextAlign::End, Direction::Rtl) => {
+                TextAlign::Left
+            }
+            (TextAlign::Start, Direction::Rtl) | (TextAlign::End, Direction::Ltr) => {
+                TextAlign::Right
+            }
+            (other, _) => other,
+        }
+    }
+}
+
 impl Paragraph {
     /// The paragraph style carried by a node's style rows.
     pub fn from_style(s: &StyleProps) -> Self {
@@ -169,7 +186,7 @@ impl Paragraph {
             markup: Markup::None,
             strut: TextStyle::from_style(s),
             direction: s.direction,
-            text_align: s.text_align,
+            text_align: s.text_align.physical(s.direction),
             line_clamp: s.line_clamp,
             text_overflow: s.text_overflow,
             overflow_wrap: s.overflow_wrap,
@@ -406,6 +423,30 @@ mod tests {
             line_height: None,
             letter_spacing: 0.0,
             font_variant_numeric: 0,
+        }
+    }
+
+    #[test]
+    fn start_and_end_follow_the_paragraph_direction() {
+        use crate::{StyleId, StyleValue};
+        let mut s = StyleProps::default();
+        assert_eq!(s.text_align, TextAlign::Start, "CSS's initial value");
+        assert_eq!(Paragraph::from_style(&s).text_align, TextAlign::Left);
+        s.set_dynamic(StyleId::Direction, &StyleValue::Text("rtl".into()))
+            .unwrap();
+        assert_eq!(Paragraph::from_style(&s).text_align, TextAlign::Right);
+        s.set_dynamic(StyleId::TextAlign, &StyleValue::Text("end".into()))
+            .unwrap();
+        assert_eq!(Paragraph::from_style(&s).text_align, TextAlign::Left);
+        for physical in [
+            TextAlign::Left,
+            TextAlign::Center,
+            TextAlign::Right,
+            TextAlign::Justify,
+        ] {
+            for d in [Direction::Ltr, Direction::Rtl] {
+                assert_eq!(physical.physical(d), physical);
+            }
         }
     }
 

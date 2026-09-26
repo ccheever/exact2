@@ -2,6 +2,8 @@ use super::*;
 use exact_kernel::{Kernel, PropValue};
 use exact_plan::{asm::Asm, builder::PlanBuilder, BindingsRow, Opcode, TypeKind};
 
+#[path = "fill_tests.rs"]
+mod fill;
 #[path = "ownership_tests.rs"]
 mod ownership;
 
@@ -156,9 +158,16 @@ impl Harness {
         }
     }
     fn send(&mut self, feedback: CollectionFeedback) -> bool {
+        self.send_filled(feedback, CollectionFill::default())
+    }
+    fn send_filled(&mut self, feedback: CollectionFeedback, fill: CollectionFill) -> bool {
         let sites = crate::instance::SiteIndex::new(&self.plan);
         let mut u = Update::new(env(&self.plan, &self.slots), &sites, &mut self.ids);
-        let changed = self.tree.update_collection(&mut u, feedback).unwrap().0;
+        let changed = self
+            .tree
+            .update_collection(&mut u, feedback, fill)
+            .unwrap()
+            .0;
         self.batch += 1;
         self.kernel.apply(0, self.batch, &u.ops).unwrap();
         assert_eq!(u.work.rows_keyed, 0, "geometry never keys records");
@@ -476,8 +485,27 @@ fn binary_feedback_roundtrips_and_rejects_malformed_reports() {
         height: 20.5,
     });
     let bytes = f.encode().unwrap();
-    assert_eq!(bytes.len(), 88);
+    assert_eq!(bytes.len(), 100);
     assert_eq!(CollectionFeedback::decode(&bytes).unwrap(), f);
+    let fill = CollectionFill {
+        velocity: -1200.5,
+        limit: Some(3),
+    };
+    let filled = f.encode_with(fill).unwrap();
+    assert_eq!(
+        CollectionFeedback::decode_with_fill(&filled).unwrap(),
+        (f.clone(), fill)
+    );
+    assert_eq!(
+        CollectionFeedback::decode_with_fill(&bytes).unwrap().1,
+        CollectionFill::default()
+    );
+    let mut version1 = bytes.clone();
+    version1[..4].copy_from_slice(&1u32.to_le_bytes());
+    assert!(CollectionFeedback::decode(&version1).is_err());
+    let mut fast = filled.clone();
+    fast[64..72].copy_from_slice(&f64::INFINITY.to_le_bytes());
+    assert!(CollectionFeedback::decode(&fast).is_err());
     for length in 0..bytes.len() {
         assert!(CollectionFeedback::decode(&bytes[..length]).is_err());
     }
@@ -485,7 +513,7 @@ fn binary_feedback_roundtrips_and_rejects_malformed_reports() {
     trailing.push(0);
     assert!(CollectionFeedback::decode(&trailing).is_err());
     let mut bad = bytes.clone();
-    bad[64..68].copy_from_slice(&u32::MAX.to_le_bytes());
+    bad[76..80].copy_from_slice(&u32::MAX.to_le_bytes());
     assert!(CollectionFeedback::decode(&bad).is_err());
     f.measurements.push(f.measurements[0]);
     assert!(f.encode().is_err());
@@ -516,10 +544,11 @@ fn snapshot_json_preserves_u64_metadata_as_decimal_strings() {
             scroll_sequence: (1_u64 << 53) + 3,
             scroll_top: 16.5,
         }),
+        pending: true,
     };
     let expected = concat!(
         r#"{"view":1,"revision":"9007199254740993","scrollSequence":"18446744073709551614","count":3,"totalExtent":96,"rows":["#,
-        r#"{"view":2,"root":3,"index":1,"top":32,"height":32,"epoch":"18446744073709551615","measured":true}],"#,
+        r#"{"view":2,"root":3,"index":1,"top":32,"height":32,"epoch":"18446744073709551615","measured":true}],"pending":true,"#,
         r#""correction":{"scrollSequence":"9007199254740995","scrollTop":16.5}}"#,
     );
     assert_eq!(snapshot.json(), expected);

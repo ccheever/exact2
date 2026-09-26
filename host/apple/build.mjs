@@ -27,7 +27,8 @@
 // EXACT_UPDATE_TRUST=production for a signed-update-only artifact.
 import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { homedir, tmpdir } from 'node:os';
+import { homedir, networkInterfaces, tmpdir } from 'node:os';
+import { createServer as createTCPServer } from 'node:net';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { copyShaders, appleCargoClaims, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
@@ -182,6 +183,25 @@ export function simulator(pick = process.env.EXACT_SIM) {
   return dev;
 }
 
+/** Bring Simulator.app up showing `dev`, so a person watching sees what is
+ *  driven there; `background` (`open -g`) leaves keyboard focus where it was.
+ *  Xcode 27 has no Simulator.app: its Device Hub (com.apple.dt.Devices) shows
+ *  simulators instead. */
+export function showSimulator(dev, background = false) {
+  const g = background ? ['-g'] : [], args = ['--args', '-CurrentDeviceUDID', dev.udid];
+  if (spawnSync('open', [...g, '-a', 'Simulator', ...args], { stdio: 'ignore' }).status !== 0) spawnSync('open', [...g, '-b', 'com.apple.dt.Devices', ...args], { stdio: 'ignore' });
+}
+
+/** Crash reports macOS wrote since `since` (ms) for an executable named
+ *  `name` — a simulator app crashes as a Mac process, reported here. */
+export function crashReports(name, since) {
+  const dir = resolve(homedir(), 'Library/Logs/DiagnosticReports');
+  let names = [];
+  try { names = readdirSync(dir); } catch { return []; }
+  return names.filter((f) => f.startsWith(name + '-') && /\.(ips|crash)$/.test(f))
+    .map((f) => resolve(dir, f)).filter((f) => { try { return statSync(f).mtimeMs >= since; } catch { return false; } });
+}
+
 /** Install the assembled bundle on the simulator. */
 export function install(dev, bundle, app, host = false) {
   if (!bundle || !existsSync(bundle)) throw new Error('build the selected app with --ios first');
@@ -191,6 +211,52 @@ export function install(dev, bundle, app, host = false) {
 }
 
 // ---------------------------------------------------------------- a phone: devicectl, a profile, an identity
+
+/** One launch, one phone connection; reject other peers before any agent request.
+ * The token crosses via the paired device's launch environment, not a public URL. */
+export async function phoneBridge() {
+  const interfaces = networkInterfaces();
+  const address = process.env.EXACT_AGENT_HOST ?? [...(interfaces.en0 ?? []), ...Object.values(interfaces).flat()]
+    .find((n) => n.family === 'IPv4' && !n.internal)?.address;
+  if (!address) throw new Error('phone agent needs a reachable Mac IPv4 address (EXACT_AGENT_HOST)');
+  const token = randomBytes(32).toString('hex');
+  const sockets = new Set();
+  let accept, fail;
+  const ready = new Promise((resolve, reject) => { accept = resolve; fail = reject; });
+  const server = createTCPServer((socket) => {
+    if (sockets.size >= 8) { socket.destroy(); return; }
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+    socket.on('error', () => {});
+    socket.setTimeout(5000, () => socket.destroy());
+    let buf = '';
+    socket.setEncoding('utf8');
+    const hello = (chunk) => {
+      buf += chunk;
+      if (buf.length > 4096) { socket.destroy(); return; }
+      if (!buf.includes('\n')) return;
+      let announcement;
+      try { announcement = JSON.parse(buf); } catch { socket.destroy(); return; }
+      if (!announcement || announcement.token !== token || announcement.ready !== true) { socket.destroy(); return; }
+      delete announcement.token;
+      socket.pause();
+      socket.removeListener('data', hello);
+      socket.setTimeout(0);
+      server.close();
+      for (const other of sockets) if (other !== socket) other.destroy();
+      accept({ socket, announcement });
+    };
+    socket.on('data', hello);
+  });
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, address, resolve); });
+  server.on('error', fail);
+  return {
+    ready, fail,
+    env: { EXACT_AGENT_CONNECT: `${address}:${server.address().port}`, EXACT_AGENT_TOKEN: token },
+    close() { for (const socket of sockets) socket.destroy(); server.close(); },
+  };
+}
+
 
 /** Every phone this Mac knows (devicectl): { id, udid, name, model, os, reachable }. */
 export function phones() {
@@ -493,7 +559,11 @@ function main(args) {
   };
   // A production bake is `release`; any other builds `apple-dev` (Cargo.toml),
   // the same optimizations without whole-graph LTO, for the touch-one-line budget.
-  const cargoProfile = cargoEnv.EXACT_UPDATE_TRUST === 'production' ? 'release' : 'apple-dev';
+  // An app's own workspace may not declare it yet: build `release` and say so.
+  // (A table-header match, not a TOML parse: Node runs this for apps outside the repo.)
+  const devProfile = /^\s*\[profile\.apple-dev\]/m.test(readFileSync(resolve(app.workspace, 'Cargo.toml'), 'utf8')) ? 'apple-dev' : 'release';
+  if (devProfile === 'release') console.log(`apple: ${app.workspace}/Cargo.toml has no [profile.apple-dev]; building release (copy exact2's [profile.apple-dev] and its build-override for faster rebuilds)`);
+  const cargoProfile = cargoEnv.EXACT_UPDATE_TRUST === 'production' ? 'release' : devProfile;
   const cargoLibDir = resolve(app.target, target, cargoProfile);
   // Named Cargo products can alias in external workspaces or two checkouts
   // sharing a target. Claim those names through bake-and-capture only.
@@ -805,7 +875,7 @@ function main(args) {
   if (args.includes('--run')) {
     if (device) run('xcrun', deviceLaunchArgs(ph.udid, app.id, launchEnv));
     else {
-      spawnSync('open', ['-a', 'Simulator', '--args', '-CurrentDeviceUDID', dev.udid], { stdio: 'ignore' });
+      showSimulator(dev);
       run('xcrun', ['simctl', 'launch', '--terminate-running-process', dev.udid, app.id], {
         env: { ...process.env, ...(launchEnv.EXACT_DEV_PLAN ? { SIMCTL_CHILD_EXACT_DEV_PLAN: launchEnv.EXACT_DEV_PLAN } : {}), SIMCTL_CHILD_EXACT_ASSETS: paths.capture },
       });

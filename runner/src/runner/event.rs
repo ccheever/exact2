@@ -670,8 +670,7 @@ impl<D: DataSource> Runner<D> {
     /// Deliver a host event to `view`: find its handler, evaluate the curried
     /// arguments in the instance's scope now, run the action, update.
     pub fn dispatch(&mut self, view: ViewId, event: Event) -> Result<CommitReceipt, RunnerError> {
-        let mut what = format!(
-            "{} view {view}",
+        let mut what = super::lines::event(
             match &event {
                 Event::ReorderDrop { .. } => "reorderdrop",
                 Event::Press => "press",
@@ -695,7 +694,8 @@ impl<D: DataSource> Runner<D> {
                 Event::HeightRelease { .. } => "heightrelease",
                 Event::TransformGeometry { .. } => "transformgeometry",
                 Event::TransformRelease { .. } => "transformrelease",
-            }
+            },
+            view,
         );
         let was_poisoned = self.poisoned;
         let result = self.dispatch_inner(view, event, &mut what);
@@ -816,11 +816,7 @@ impl<D: DataSource> Runner<D> {
             }
             _ => {}
         }
-        let _ = write!(
-            what,
-            " ({})",
-            self.plan.str(self.plan.action(handler.action).name)
-        );
+        super::lines::ran(what, self.plan.str(self.plan.action(handler.action).name));
         self.run_action(handler.action, args, &frames)
     }
 }

@@ -36,12 +36,15 @@ struct Run: Hashable {
     var color: [Double]? = nil
     var decoration: String = ""
     var href: String = ""
+    /// The inline box's `background-color`: paint, never metrics.
+    var background: [Double]? = nil
 
     static func == (lhs: Run, rhs: Run) -> Bool {
         guard lhs.size == rhs.size, lhs.weight == rhs.weight, lhs.family == rhs.family,
               lhs.italic == rhs.italic, lhs.lineHeight == rhs.lineHeight,
               lhs.letterSpacing == rhs.letterSpacing, lhs.color == rhs.color,
-              lhs.decoration == rhs.decoration, lhs.href == rhs.href else { return false }
+              lhs.decoration == rhs.decoration, lhs.href == rhs.href,
+              lhs.background == rhs.background else { return false }
         // CoreText's ranges address the original UTF16 source. Swift String's
         // canonical equality would alias NFC/NFD paragraphs with different
         // source lengths, so both equality and hashing use the exact UTF8.
@@ -64,6 +67,7 @@ struct Run: Hashable {
         hasher.combine(color)
         hasher.combine(decoration)
         hasher.combine(href)
+        hasher.combine(background)
     }
 }
 
@@ -210,9 +214,10 @@ extension Spec {
             value.runs[i].color = nil
             value.runs[i].decoration = ""
             value.runs[i].href = ""
+            value.runs[i].background = nil
         }
         if var strut = value.strut {
-            strut.text = ""; strut.color = nil; strut.decoration = ""; strut.href = ""
+            strut.text = ""; strut.color = nil; strut.decoration = ""; strut.href = ""; strut.background = nil
             value.strut = strut
         }
         return value
@@ -452,11 +457,26 @@ final class TextEngine {
             if r.letterSpacing != 0 { a[.kern] = r.letterSpacing }
             if r.decoration.contains("underline") || (r.decoration.isEmpty && !r.href.isEmpty) { a[.underlineStyle] = NSUnderlineStyle.single.rawValue }
             if r.decoration.contains("line-through") { a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
+            if let fill = r.background.map(TextEngine.color), fill.cgColor.alpha > 0 {
+                let f = a[.font] as! PlatformFont
+                a[.exactBackground] = InlineBackground(color: fill.cgColor, ascent: f.ascender, descent: -f.descender)
+            }
             let length = r.text.utf16.count
             if length > 0 { s.setAttributes(a, range: NSRange(location: offset, length: length)) }
             offset += length
         }
+        TextEngine.setBaseDirection(s, direction: spec.direction)
         return s
+    }
+
+    /// CSS `direction: rtl` as the paragraph's base writing direction (LLP
+    /// 1053). Under `ltr` CoreText's natural direction (the first strong
+    /// character) stays, as on Linux; LLP 1001 §1 declares it.
+    static func setBaseDirection(_ s: NSMutableAttributedString, direction: Int) {
+        guard direction == 1, s.length > 0 else { return }
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.baseWritingDirection = .rightToLeft
+        s.addAttribute(.paragraphStyle, value: paragraph, range: NSRange(location: 0, length: s.length))
     }
 
     /// Urgent raster work stays on the text engine's owning thread and uses
@@ -799,13 +819,10 @@ final class TextEngine {
     /// UIView's): one CTLineDraw per line, baselines currently rounded to
     /// logical points, flush by alignment.
     static func draw(_ p: Paragraph, spec: Spec, in bounds: CGRect, context ctx: CGContext, dirty: CGRect? = nil) {
-        ctx.saveGState()
-        ctx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
         func paint(_ index: Int) {
             let line = p.lines[index], baseline = p.baselines[index]
             let x = p.origin(index, align: spec.align, width: bounds.width)
-            ctx.textPosition = CGPoint(x: bounds.minX + x, y: bounds.minY + baseline.rounded())
-            CTLineDraw(line, ctx)
+            TextLinePaint.draw(line, at: CGPoint(x: bounds.minX + x, y: bounds.minY + baseline.rounded()), in: ctx)
         }
         if let dirty {
             p.inkBounds().forEachLine(from: dirty.minY - bounds.minY,
@@ -813,7 +830,6 @@ final class TextEngine {
         } else {
             for index in p.lines.indices { paint(index) }
         }
-        ctx.restoreGState()
     }
 
     /// The kernel's measurer for one request: called for every paragraph
@@ -905,5 +921,82 @@ final class TextEngine {
     static let measureText: ExactMeasureFn = { ctx, request in
         guard let ctx, let request = request?.pointee else { return ExactMetrics(width: 0, height: 0, baseline: -1) }
         return Unmanaged<TextEngine>.fromOpaque(ctx).takeUnretainedValue().measure(request)
+    }
+}
+
+/// An inline box's `background-color`, carried on the attributed source so
+/// that the main thread's paint and a worker's raster read the same value.
+/// The content area is the run's own font's, as the web's inline box is.
+final class InlineBackground: NSObject {
+    let color: CGColor
+    let ascent: CGFloat
+    let descent: CGFloat
+    init(color: CGColor, ascent: CGFloat, descent: CGFloat) {
+        self.color = color; self.ascent = ascent; self.descent = descent
+    }
+    override func isEqual(_ object: Any?) -> Bool {
+        guard let other = object as? InlineBackground else { return false }
+        return color == other.color && ascent == other.ascent && descent == other.descent
+    }
+    override var hash: Int { color.hashValue ^ ascent.hashValue ^ descent.hashValue }
+}
+
+extension NSAttributedString.Key {
+    static let exactBackground = NSAttributedString.Key("ExactInlineBackground")
+}
+
+/// One line's paint into a y-down context, shared by every Apple painter.
+enum TextLinePaint {
+    /// The CTM, not the text matrix, flips y: CoreText positions a glyph
+    /// in text space, so a flipped text matrix turned the vertical offsets
+    /// of cursive attachment and marks (SF Arabic's) upside down, and that
+    /// ink fell below the line box it was measured in.
+    static func draw(_ line: CTLine, at origin: CGPoint, in ctx: CGContext) {
+        ctx.saveGState()
+        for (rect, color) in backgrounds(line, at: origin) {
+            ctx.setFillColor(color); ctx.fill(rect)
+        }
+        // The text matrix is not graphics state; put the caller's back.
+        let matrix = ctx.textMatrix
+        ctx.translateBy(x: origin.x, y: origin.y)
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.textMatrix = .identity
+        ctx.textPosition = .zero
+        CTLineDraw(line, ctx)
+        ctx.textMatrix = matrix
+        ctx.restoreGState()
+    }
+
+    /// CSS: an inline box's background covers each of its line fragments,
+    /// its glyphs' advance across and its font's content area down. Glyph
+    /// runs that fallback or bidi split are joined again where they touch.
+    static func backgrounds(_ line: CTLine, at origin: CGPoint) -> [(CGRect, CGColor)] {
+        var spans: [(CGFloat, CGFloat, InlineBackground)] = []
+        for run in CTLineGetGlyphRuns(line) as! [CTRun] {
+            let attributes = CTRunGetAttributes(run) as NSDictionary
+            guard let fill = attributes[NSAttributedString.Key.exactBackground] as? InlineBackground else { continue }
+            let count = CTRunGetGlyphCount(run)
+            guard count > 0 else { continue }
+            var positions = [CGPoint](repeating: .zero, count: count)
+            var advances = [CGSize](repeating: .zero, count: count)
+            CTRunGetPositions(run, CFRange(), &positions)
+            CTRunGetAdvances(run, CFRange(), &advances)
+            var lo = CGFloat.infinity, hi = -CGFloat.infinity
+            for i in 0..<count {
+                lo = min(lo, positions[i].x, positions[i].x + advances[i].width)
+                hi = max(hi, positions[i].x, positions[i].x + advances[i].width)
+            }
+            spans.append((lo, hi, fill))
+        }
+        spans.sort { $0.0 < $1.0 }
+        var merged: [(CGFloat, CGFloat, InlineBackground)] = []
+        for span in spans {
+            if let last = merged.last, last.2.isEqual(span.2), span.0 <= last.1 + 0.01 {
+                merged[merged.count - 1].1 = max(last.1, span.1)
+            } else { merged.append(span) }
+        }
+        return merged.map { lo, hi, fill in
+            (CGRect(x: origin.x + lo, y: origin.y - fill.ascent, width: hi - lo, height: fill.ascent + fill.descent), fill.color)
+        }
     }
 }

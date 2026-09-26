@@ -30,7 +30,7 @@ pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeE
         value: value.clone(),
     };
     let out = match (prop.kind(), value) {
-        (exact_kernel::PropKind::Str, Value::Str(s)) => PropValue::Str(s.to_string()),
+        (exact_kernel::PropKind::Str, Value::Str(s)) => PropValue::Str(String::from(&**s)),
         (exact_kernel::PropKind::Str, Value::Number(n)) => {
             PropValue::Str(crate::stdlib::format_number(*n))
         }

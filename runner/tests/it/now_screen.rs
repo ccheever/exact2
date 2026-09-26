@@ -282,7 +282,7 @@ fn now_screen() -> (Plan, Vec<TypesId>) {
     tick.call(Stdlib::Now).store_slot(now_ms);
     let tick = b.code(tick);
     let tick = b.action("tick", &[], &[now_ms], tick);
-    b.timer(1000, tick);
+    b.timer(1000, tick, false);
     // A bad action: writes a slot it did not declare.
     let mut rogue = Asm::new();
     rogue.number(1.0).store_slot(now_ms);

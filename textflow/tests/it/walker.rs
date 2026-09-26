@@ -142,11 +142,13 @@ fn cjk_opener_closer_and_url_opportunities() {
             ("日".into(), 16.0)
         ]
     );
+    // Chrome 154 keeps a URL's path whole and breaks only after `?`: its
+    // Latin-1 pair table, not UAX #14's break after `/`.
     let url = "https://example.com/a/b?x=1&y=2";
     let p = prepare(url, Options::default());
     let ls = lines(&p, 80.0);
     assert!(ls.len() > 1);
-    assert_eq!(&url[..ls[0].end.byte], "https://");
+    assert_eq!(&url[..ls[0].end.byte], "https://example.com/a/b?");
     assert_eq!(ls.last().unwrap().end.byte, url.len());
 }
 #[test]

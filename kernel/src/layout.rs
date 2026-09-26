@@ -10,6 +10,8 @@
 //! An engine fault is never a panic: it is recorded, reported as
 //! [`LayoutError::Engine`], and the kernel rebuilds the tree from the columns.
 
+#[cfg(test)]
+mod containment_tests;
 mod publication;
 
 use crate::id::{IdMap, IdSet};
@@ -88,10 +90,17 @@ pub struct LayoutTree {
     pass: u64,
     fault: Option<String>,
     slots: IdMap<NodeId, u32>,
-    deferred: IdSet<NodeId>,
+    // Invalidation sources since the last layout: true where the node's own
+    // style changed (its parent's questions change), false for content only.
+    deferred: IdMap<NodeId, bool>,
+    // Each walked box's boundary during one layout's choice (outer None:
+    // hidden or not under the root); empty between layouts.
+    walks: IdMap<NodeId, Option<Option<NodeId>>>,
     offers: IdMap<NodeId, Offer>,
     #[cfg(test)]
     pub(crate) publication_visits: usize,
+    /// Boundaries replayed whose parent-facing output held: layouts that
+    /// stayed inside them.
     #[cfg(test)]
     pub(crate) boundary_replays: usize,
     // Derived heights only. Retain capacity across frames and owner changes.
@@ -100,12 +109,10 @@ pub struct LayoutTree {
 
 // A non-visible overflow on both axes establishes a formatting context and
 // prevents descendants' scrollable overflow/margins from escaping the box.
+// Whether its size depends on its content is the engine's record to prove.
 fn boundary_style(s: &taffy::Style) -> bool {
-    s.display == taffy::Display::Block
+    s.display != taffy::Display::None
         && s.position == taffy::Position::Relative
-        && s.size.width.into_option().is_some()
-        && s.size.height.into_option().is_some()
-        && s.aspect_ratio.is_none()
         && matches!(
             s.overflow.x,
             taffy::Overflow::Hidden | taffy::Overflow::Scroll
@@ -244,7 +251,8 @@ impl LayoutTree {
             pass: 0,
             fault: None,
             slots: IdMap::default(),
-            deferred: IdSet::default(),
+            deferred: IdMap::default(),
+            walks: IdMap::default(),
             offers: IdMap::default(),
             #[cfg(test)]
             publication_visits: 0,
@@ -303,7 +311,7 @@ impl LayoutTree {
 
     /// Remove a node.
     pub fn remove(&mut self, node: NodeId) {
-        self.flush_deferred();
+        self.deferred.remove(&node);
         self.slots.remove(&node);
         self.offers.remove(&node);
         self.presented_heights
@@ -330,11 +338,10 @@ impl LayoutTree {
         if self.taffy.style(node).is_ok_and(|old| *old == style) {
             return;
         }
-        self.flush_deferred();
         self.clear_measurements(node);
         self.taffy.track_layout_input(node, boundary_style(&style));
-        let r = self.taffy.set_style(node, style);
-        self.note("set_style", r);
+        self.taffy.set_style_unmarked(node, style);
+        self.deferred.insert(node, true);
     }
 
     /// Snapshot only the active numeric projections for a nonpublishing
@@ -406,12 +413,16 @@ impl LayoutTree {
         }
     }
 
-    /// Replace a node's ordered children.
+    /// Replace a node's ordered children. A child taken from another parent
+    /// invalidates both at once; otherwise this is the parent's content.
     pub fn set_children(&mut self, parent: NodeId, children: &[NodeId]) {
-        self.flush_deferred();
         self.clear_measurements(parent);
-        let r = self.taffy.set_children(parent, children);
-        self.note("set_children", r);
+        if self.taffy.set_children_unmarked(parent, children) {
+            self.deferred.entry(parent).or_insert(false);
+        } else {
+            let r = self.taffy.set_children(parent, children);
+            self.note("set_children", r);
+        }
     }
 
     /// Whether an engine node still has an engine parent: removing it then
@@ -424,45 +435,92 @@ impl LayoutTree {
     /// Mark a node (and its ancestors) dirty.
     pub fn mark_dirty(&mut self, node: NodeId) {
         self.clear_measurements(node);
-        self.deferred.insert(node);
+        self.deferred.entry(node).or_insert(false);
     }
 
-    fn flush_deferred(&mut self) {
-        for node in std::mem::take(&mut self.deferred) {
-            let r = self.taffy.mark_dirty(node);
-            self.note("mark_dirty", r);
-        }
-    }
-
-    // Only ordinary block ancestors under the same definite viewport are
-    // admitted. Flex/grid intrinsic contributions, percentages, baselines and
-    // out-of-flow sizing retain the ordinary ancestor invalidation path.
-    fn boundary_for(&self, node: NodeId, root: NodeId) -> Option<NodeId> {
-        let mut at = self.taffy.parent(node);
-        let mut boundary = None;
-        while let Some(n) = at {
-            let s = self.taffy.style(n).ok()?;
-            if s.display != taffy::Display::Block
-                || s.position != taffy::Position::Relative
-                || s.aspect_ratio.is_some()
-            {
-                return None;
+    // The nearest clipping box above a change (or at it, when only its content
+    // changed) that the engine can replay: one whose ancestors, since they
+    // were last invalidated through it, consumed no answer of its that
+    // depended on its content other than its saved final layout (vendored
+    // Taffy's record, EXACT PATCH 9). Flex, grid, percentage and intrinsic
+    // sizing questions are in that record; the replayed output is compared.
+    // A restyled box is never one: its parent asks it something new.
+    // `walks` remembers each box's answer (outer None: hidden or not under
+    // `root`), so sources that share ancestors walk them once per layout.
+    fn boundary_for(
+        &self,
+        node: NodeId,
+        root: NodeId,
+        deferred: &IdMap<NodeId, bool>,
+        walks: &mut IdMap<NodeId, Option<Option<NodeId>>>,
+    ) -> Option<NodeId> {
+        let restyled = |n| deferred.get(&n) == Some(&true);
+        let start = if restyled(node) {
+            self.taffy.parent(node)
+        } else {
+            Some(node)
+        };
+        let mut path = Vec::new();
+        let mut at = start;
+        let mut above = loop {
+            let Some(n) = at else { break None };
+            if let Some(&known) = walks.get(&n) {
+                break known;
+            }
+            let Ok(s) = self.taffy.style(n) else {
+                break None;
+            };
+            // A hidden box lays nothing out: saved inputs below it are stale.
+            if s.display == taffy::Display::None {
+                walks.insert(n, None);
+                break None;
             }
             if n == root {
-                return boundary;
+                walks.insert(n, Some(None));
+                break Some(None);
             }
-            if !(s.size.width.is_auto() || s.size.width.into_option().is_some())
-                || !(s.size.height.is_auto() || s.size.height.into_option().is_some())
-            {
-                return None;
-            }
-            if boundary.is_none() && boundary_style(s) && self.taffy.last_layout_input(n).is_some()
-            {
-                boundary = Some(n);
-            }
+            path.push(n);
             at = self.taffy.parent(n);
+        };
+        for n in path.into_iter().rev() {
+            if above.is_some()
+                && boundary_style(self.taffy.style(n).expect("walked"))
+                && !restyled(n)
+                && !self.taffy.dirty(n).unwrap_or(true)
+                && self.taffy.last_layout_input(n).is_some()
+            {
+                above = Some(Some(n));
+            }
+            walks.insert(n, above);
         }
-        None
+        above.flatten()
+    }
+
+    // A flex column aligns no item by its baseline and takes its own first
+    // baseline from its startmost item only (CSS Flexbox §8.5, §9.4 step 8).
+    // Wrapping in reverse makes which item that is depend on line breaks.
+    fn baselines_unread(&self, node: NodeId) -> bool {
+        use taffy::{FlexDirection, FlexWrap};
+        let Some(parent) = self.taffy.parent(node) else {
+            return false;
+        };
+        let Ok(s) = self.taffy.style(parent) else {
+            return false;
+        };
+        let reverse = match (s.display, s.flex_direction, s.flex_wrap) {
+            (taffy::Display::Flex, FlexDirection::Column, FlexWrap::NoWrap | FlexWrap::Wrap) => {
+                false
+            }
+            (taffy::Display::Flex, FlexDirection::ColumnReverse, FlexWrap::NoWrap) => true,
+            _ => return false,
+        };
+        let mut items = self.taffy.child_ids(parent).filter(|&c| {
+            self.taffy.style(c).is_ok_and(|s| {
+                s.position != taffy::Position::Absolute && s.display != taffy::Display::None
+            })
+        });
+        let startmost = if reverse { items.last() } else { items.next() };
+        startmost != Some(node)
     }
 
     fn prepare_boundaries(
@@ -479,16 +537,36 @@ impl LayoutTree {
             && !self.taffy.dirty(root).unwrap_or(true)
             && arena.exclusion_slots.is_empty()
             && arena.flow.is_empty();
+        // Both scratch maps keep their capacity from layout to layout.
+        let mut deferred = std::mem::take(&mut self.deferred);
+        let mut walks = std::mem::take(&mut self.walks);
+        // Decide every source before marking any. Ordinary invalidation walks
+        // first: one stopping at a box a local walk had already cleared would
+        // leave that box's ancestors clean.
         let mut boundaries = IdSet::default();
-        for node in std::mem::take(&mut self.deferred) {
-            if let Some(boundary) = local.then(|| self.boundary_for(node, root)).flatten() {
-                self.taffy.mark_dirty_to(node, boundary);
-                boundaries.insert(boundary);
-            } else {
-                let r = self.taffy.mark_dirty(node);
-                self.note("mark_dirty", r);
+        let mut contained = Vec::new();
+        for &node in deferred.keys() {
+            match local
+                .then(|| self.boundary_for(node, root, &deferred, &mut walks))
+                .flatten()
+            {
+                Some(boundary) => {
+                    contained.push((node, boundary));
+                    boundaries.insert(boundary);
+                }
+                None => {
+                    let r = self.taffy.mark_dirty(node);
+                    self.note("mark_dirty", r);
+                }
             }
         }
+        for (node, boundary) in contained {
+            self.taffy.mark_dirty_to(node, boundary);
+        }
+        deferred.clear();
+        walks.clear();
+        self.deferred = deferred;
+        self.walks = walks;
         // One unrelated dirty source may invalidate the root after the first
         // boundary was chosen. A regular root pass then handles all sources.
         if self.taffy.dirty(root).unwrap_or(true) {
@@ -539,7 +617,7 @@ impl LayoutTree {
     /// Whether a node needs layout.
     pub fn is_dirty(&self, node: NodeId) -> bool {
         self.taffy.dirty(node).unwrap_or(true)
-            || self.deferred.iter().any(|&dirty| {
+            || self.deferred.keys().any(|&dirty| {
                 let mut at = Some(dirty);
                 while let Some(n) = at {
                     if n == node {
@@ -768,7 +846,7 @@ impl LayoutTree {
         };
         #[cfg(test)]
         {
-            self.boundary_replays = boundaries.len();
+            self.boundary_replays = 0;
         }
         for (node, input, previous) in boundaries {
             let mut output = self
@@ -777,11 +855,19 @@ impl LayoutTree {
             // Both axes clip here; the changed internal extent is published on
             // this box but cannot contribute to an ancestor's scrollable extent.
             output.scrollable_overflow_rect = previous.scrollable_overflow_rect;
+            if self.baselines_unread(node) {
+                output.baselines = previous.baselines;
+            }
             if output != previous {
                 if let Some(parent) = self.taffy.parent(node) {
                     self.taffy
                         .mark_dirty(parent)
                         .map_err(|e| LayoutError::Engine(format!("boundary: {e:?}")))?;
+                }
+            } else {
+                #[cfg(test)]
+                {
+                    self.boundary_replays += 1;
                 }
             }
         }

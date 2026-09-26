@@ -3,7 +3,8 @@
 // rises with it, and the bottom safe-area inset is the keyboard's (zero) while
 // it is up. Chrome's opt-in; the default, `resizes-visual`, is
 // `insets.contract`. On iOS the frames move inside the keyboard's own
-// animation (LLP 1008 §9).
+// animation (LLP 1008 §9). `dismiss` drops the keyboard with `blur()`, the
+// command — not by focusing something else.
 // @ref LLP 1039 §5 — the app sees the same keyboard-adjusted viewport.
 shape Viewport
   width: number
@@ -18,11 +19,13 @@ component KeyboardBar
     focused = true
   action focusOut writes focused
     focused = false
+  action dismiss
+    blur()
   view
     main testId="root" viewport-fit="cover" interactive-widget="resizes-content" display="flex" flex-direction="column" width="100%" height="100%" box-sizing="border-box" background-color="#12081f" padding-top="env(safe-area-inset-top)" padding-right="env(safe-area-inset-right)" padding-bottom="env(safe-area-inset-bottom)" padding-left="env(safe-area-inset-left)"
       column testId="content" flex=1 min-height=0 gap=12 padding=16 box-sizing="border-box"
         text "Keyboard bar" testId="title" font-size=20 font-weight=700 color="#ffffff"
-        button press=focusOut focus=focusOut testId="dismiss" padding=10 border-radius=8 background-color="#7c4dff"
+        button press=dismiss testId="dismiss" padding=10 border-radius=8 background-color="#7c4dff"
           text "Dismiss the keyboard" font-size=14 color="#ffffff"
         input value=note change=setNote focus=focusIn blur=focusOut placeholder="A note" testId="note" padding=12 border-radius=8 border-style="solid" border-width=1 border-color="#5b4a7a" background-color="#ffffff"
       row testId="bar" width="100%" padding=14 box-sizing="border-box" justify-content="center" background-color="#ffd60a"

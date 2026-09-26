@@ -224,7 +224,8 @@ pub fn symbols_json(path: &Path, name: Option<&str>) -> Result<String, CompileEr
             None,
         )
     } else {
-        let checked = contract_types::check(&file).map_err(|e| sources.resolve(e.into()))?;
+        let checked = contract_types::check(&file, contract_lower::tags::style)
+            .map_err(|e| sources.resolve(e.into()))?;
         (checked.types, Some(checked.expanded))
     };
     let mut r = Resolver {
@@ -529,8 +530,8 @@ impl<'a> Resolver<'a> {
                 self.owner = None;
             }
             for t in &c.tasks {
-                self.expr(&t.every.0);
-                self.name(&t.every.1, self.file.names.name(t.every.2));
+                self.expr(&t.timer.0);
+                self.name(&t.timer.1, self.file.names.name(t.timer.2));
             }
             self.nodes(&c.view);
         }
@@ -544,7 +545,9 @@ impl<'a> Resolver<'a> {
                     self.expr(expr);
                 }
                 Stmt::Command { name, args, .. } => {
-                    if let ("focus", [Expr::Str(id, span)]) = (name.as_str(), args.as_slice()) {
+                    if let ("focus" | "blur", [Expr::Str(id, span)]) =
+                        (name.as_str(), args.as_slice())
+                    {
                         self.graph.id(id, *span);
                     }
                     for arg in args {
@@ -1061,11 +1064,11 @@ pub(crate) fn authored_action_hint(file: &File, mut error: CompileError) -> Comp
         let found = if error.id == "analyze-unknown-action" {
             c.tasks
                 .iter()
-                .find(|task| task.every.2 == error.span)
+                .find(|task| task.timer.2 == error.span)
                 .map(|task| {
                     (
-                        task.every.1.clone(),
-                        suggestion(file, c, &task.every.1, &[], true, false).map(str::to_owned),
+                        task.timer.1.clone(),
+                        suggestion(file, c, &task.timer.1, &[], true, false).map(str::to_owned),
                     )
                 })
         } else {

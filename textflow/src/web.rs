@@ -4,7 +4,9 @@
 //! `textflow_request(op, id, len)` uses the optional artifact's own input
 //! and JSON output buffers. All numeric input is little endian:
 //! 0 segments: overflow-wrap u32 (0 normal, 1 break-word, 2 anywhere),
-//! white-space u32 (0 normal, 1 pre-wrap, 2 nowrap), UTF-8;
+//! white-space u32 (0 normal, 1 pre-wrap, 2 nowrap), word count u32, that many
+//! ascending UTF-16 word boundaries u32 (`Intl.Segmenter`'s between two Thai,
+//! Lao, Khmer or Myanmar letters; others are dropped), UTF-8;
 //! 1 prepare: hyphen f32, then one f32 per returned measurement range;
 //! 2 resolve + flow: width/line-height/font-size f32, max-lines u32,
 //! paragraph-height f32, direction u32 (0 ltr, 1 rtl), then
@@ -39,6 +41,7 @@ struct Source {
     text: String,
     utf16: Vec<usize>,
     ranges: Vec<Range<usize>>,
+    words: Vec<usize>,
     options: Options,
     prepared: Option<Prepared>,
     fragments: Vec<Fragment>,
@@ -180,9 +183,6 @@ impl TextFlow {
     }
 
     fn segments(&mut self, id: u32, input: &[u8]) -> Result<String, &'static str> {
-        if input.len() > MAX_TEXT + 8 {
-            return Err("textflow exceeds 64 KiB source limit");
-        }
         if self.sources.len() >= MAX_PARAGRAPHS && !self.sources.contains_key(&id) {
             return Err("textflow exceeds 64 live paragraphs");
         }
@@ -192,8 +192,20 @@ impl TextFlow {
             2 => OverflowWrap::Anywhere,
             _ => return Err("invalid overflow-wrap"),
         };
-        let source = input.get(8..).ok_or("short textflow source header")?;
+        let count = integer(input, 8)? as usize;
+        let header = count
+            .checked_mul(4)
+            .and_then(|n| n.checked_add(12))
+            .ok_or("short textflow word list")?;
+        let source = input.get(header..).ok_or("short textflow word list")?;
+        if source.len() > MAX_TEXT {
+            return Err("textflow exceeds 64 KiB source limit");
+        }
         let text = std::str::from_utf8(source).map_err(|_| "invalid textflow UTF-8")?;
+        let words = (0..count)
+            .map(|i| integer(input, 12 + 4 * i).map(|w| w as usize))
+            .collect::<Result<Vec<_>, _>>()?;
+        let words = exact_textflow::utf16_words(text, words);
         let options = Options {
             white_space: match integer(input, 4)? {
                 0 => exact_textflow::WhiteSpace::Normal,
@@ -207,7 +219,7 @@ impl TextFlow {
         let mut ranges = Vec::new();
         // Ask the actual walker for every measurement, including spaces and
         // emergency clusters. Replaying this list must consume it exactly.
-        Prepared::new(text, options, &mut |r| {
+        Prepared::with_words(text, options, &words, &mut |r| {
             ranges.push(r);
             0.0
         });
@@ -224,6 +236,7 @@ impl TextFlow {
                 text: text.into(),
                 utf16,
                 ranges,
+                words,
                 options,
                 prepared: None,
                 fragments: Vec::new(),
@@ -249,12 +262,13 @@ impl TextFlow {
         }
         let mut at = 0;
         let mut matched = true;
-        let prepared = Prepared::new(
+        let prepared = Prepared::with_words(
             &source.text,
             Options {
                 hyphen_advance: hyphen,
                 ..source.options
             },
+            &source.words,
             &mut |r| {
                 matched &= source.ranges.get(at) == Some(&r);
                 at += 1;

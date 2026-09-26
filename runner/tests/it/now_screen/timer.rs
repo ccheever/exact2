@@ -9,6 +9,7 @@ fn timer_deadline_tracks_ordered_catch_up_and_absence() {
     plan.timers.push(exact_plan::TimersRow {
         interval_ms: 16,
         action,
+        once: false,
     });
     let mut r = Runner::boot(
         plan,
@@ -49,4 +50,64 @@ fn timer_deadline_tracks_ordered_catch_up_and_absence() {
     )
     .unwrap();
     assert_eq!(r.timer_due_ms(), None);
+}
+
+// A one-shot timer (`after(60, arrive)`) fires exactly once at boot+60 and is
+// then spent: never due again, and no deadline reported for it, so an idle
+// host has nothing to wake for.
+#[test]
+fn a_one_shot_timer_fires_once_then_owes_no_deadline() {
+    let (mut plan, _) = now_screen();
+    let action = plan.timers[0].action;
+    plan.timers[0] = exact_plan::TimersRow {
+        interval_ms: 60,
+        action,
+        once: true,
+    };
+    let mut r = Runner::boot(
+        plan,
+        Schedule::default(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(r.timer_due_ms(), Some(60.0));
+    let advanced = r.advance_timed(60.0);
+    assert_eq!(advanced.receipts.len(), 1);
+    assert_eq!(advanced.receipts[0].at_ms, 60.0);
+    assert_eq!(r.timer_due_ms(), None);
+    assert!(r.advance_timed(120.0).receipts.is_empty());
+    assert!(r.advance_timed(180.0).receipts.is_empty());
+    assert_eq!(r.timer_due_ms(), None);
+    assert_eq!(r.now_ms(), 180.0);
+
+    // Beside a repeating timer, the spent one is skipped: only the repeat's
+    // deadline is reported, and a long seek fires it alone.
+    let (mut plan, _) = now_screen();
+    plan.timers.push(exact_plan::TimersRow {
+        interval_ms: 60,
+        action,
+        once: true,
+    });
+    let mut r = Runner::boot(
+        plan,
+        Schedule::default(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(r.timer_due_ms(), Some(60.0));
+    let advanced = r.advance_timed(2_500.0);
+    assert_eq!(
+        advanced
+            .receipts
+            .iter()
+            .map(|r| r.at_ms)
+            .collect::<Vec<_>>(),
+        vec![60.0, 1_000.0, 2_000.0]
+    );
+    assert_eq!(r.timer_due_ms(), Some(3_000.0));
+    assert_eq!(r.advance_timed(4_500.0).receipts.len(), 2);
 }

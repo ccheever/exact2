@@ -87,12 +87,18 @@ final class ScrollView: UIScrollView {
 }
 
 final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollViewDelegate, UIGestureRecognizerDelegate {
-    let id: UInt32
+    /// The kernel's id; a parked view takes a new row's (`NodePool`).
+    var id: UInt32
     let firstDraw: () -> Void
     let kind: String
     var inlineText: [InlineText] = []
     var inlinePressed: UInt32?
-    override class var layerClass: AnyClass { TextNodeLayer.self }
+    override class var layerClass: AnyClass { NodeLayer.self }
+    /// The box is `draw(_:)`'s to paint: Core Animation cannot say it
+    /// (`applyBoxLayer`).
+    var boxDrawn = false
+    /// A uniform border under the children, where they can reach it.
+    var boxBorder: CALayer?
     var textRasterKey: TextRasterKey?
     var textRaster: CGImage?
     var textRasterLayer: CALayer?
@@ -114,6 +120,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             updateSwipeGesture()
             updateLayoutPan()
             updateMaterial()
+            if handlers.contains("scroll") { needScroll() }
             if handlers.contains("hover"), hoverRecognizer == nil {
                 let g = UIHoverGestureRecognizer(target: self, action: #selector(hovering(_:)))
                 // Hover observes pointer movement; it must never hold or cancel
@@ -133,6 +140,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var swipeHold: SwipeHold?
     var heightRecognizer: UIPanGestureRecognizer?
     var heightHold: HeightDragHold?
+    var reorderPan: UIPanGestureRecognizer?, reorderPress: UILongPressGestureRecognizer?
+    var reorderHold: ReorderHold?, reorderOrigin = CGPoint.zero
     var transformRecognizer: UIPanGestureRecognizer?
     var transformHold: TransformDragHold?
     var transformOrigin = CGPoint.zero
@@ -163,6 +172,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
     override func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
         if gesture === layoutPanRecognizer { return SwipeInput.allows(self) }
+        if let reorder = reorderShouldBegin(gesture) { return reorder }
         if gesture === transformRecognizer {
             return SwipeInput.allows(self) && presenter?.transformBindings[id]?.target != nil
         }
@@ -298,8 +308,12 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             if placementHidden && !oldValue { hiddenBeforePlacement = isHidden }
             if placementHidden { isHidden = true }
             else if oldValue { isHidden = hiddenBeforePlacement }
-            accessibilityElementsHidden = placementHidden || props["inert"] == "true"
+            accessibilityElementsHidden = hidesAccessibility
         }
+    }
+    /// Off the accessibility tree: projected away, inert, or `aria-hidden`.
+    private var hidesAccessibility: Bool {
+        placementHidden || props["inert"] == "true" || props["accessibilityElementsHidden"] == "true"
     }
     /// An image node's picture, once loaded (decoded off the main thread),
     /// the source it came from, and which load is current: a completion
@@ -311,8 +325,6 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var raster: NativeRasterLease?
     var imageSource: String?
     var loadGeneration = 0
-    /// The native swipe cell supplies the row surface while this view is mounted in it.
-    var nativeSwipeBody = false
     var pressed = false
     var disabled: Bool { props["disabled"] == "true" }
     /// HTML inertness covers the subtree, including direct agent activation.
@@ -502,12 +514,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             let leaf = symbolView ?? UIImageView()
             if symbolView == nil { symbolView = leaf; addSubview(leaf) }
             leaf.image = image; leaf.isAccessibilityElement = false; leaf.isUserInteractionEnabled = false
-            let size = image?.size
-            DispatchQueue.main.async { [weak self] in
-                guard let self, self.loadGeneration == generation, let presenter = self.presenter,
-                      presenter.views[self.id] === self else { return }
-                presenter.intrinsic(self.id, size)
-            }
+            presenter?.queueSymbolSize(self, generation: generation, image?.size)
         }
         symbolView?.tintColor = color("tint_color", .black)
         layoutSymbol()
@@ -526,6 +533,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             leaf.contentMode = size.width <= content.width && size.height <= content.height ? .center : .scaleAspectFit
         default: leaf.contentMode = .scaleToFill
         }
+        // A square box clips nothing the content box does not.
+        if cornerRadii(in: bounds).allSatisfy({ $0 == 0 }) { if leaf.layer.mask != nil { leaf.layer.mask = nil }; return }
         let path = roundedPath(in: bounds).cgPath
         var transform = CGAffineTransform(translationX: -content.minX, y: -content.minY)
         let mask = CAShapeLayer(); mask.path = path.copy(using: &transform); leaf.layer.mask = mask
@@ -569,8 +578,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             node.presenter?.requestTextPublication()
             if let presenter = node.presenter, node.superview === presenter.root { presenter.paintCanvas() }
         }
+        // The box's background is the layer's (`applyBoxLayer`), never
+        // UIView's: UIKit would reapply its own on a trait change.
         isOpaque = false
-        backgroundColor = .clear
         // A frame change repaints at the new width instead of stretching
         // stale pixels.
         contentMode = .redraw
@@ -698,7 +708,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
                     positions.append(min(end, max(start, targetContentOffset.pointee.x)))
                 }
                 // A nested scroll container captures its own snap areas.
-                if node.scroll == nil && (node.style["scroll_snap_type"]?.string ?? "none") == "none" { visit(node.container) }
+                if node.scroll == nil && !node.scrollDormant && (node.style["scroll_snap_type"]?.string ?? "none") == "none" { visit(node.container) }
             }
         }
         visit(scrollView)
@@ -770,6 +780,11 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if let clipPath, !clipPath.contains(point) { return nil }
         if props["swipeIndicator"] == "true" { return nil }
         if isSurfaceControl, !inert, !isHidden, isUserInteractionEnabled, bounds.contains(point) { return self }
+        // A touch landing on a native swipe row: its cell mounts now, before
+        // UIKit gathers the touch's recognizers, so the cell's swipe sees it.
+        if event?.type == .touches, props["swipeContent"] != nil, !isHidden, isUserInteractionEnabled, bounds.contains(point) {
+            presenter?.swipeActions.touch(self)
+        }
         // UIKit's default rejects a view when alpha is near zero. CSS opacity
         // changes painting, not hit participation, so walk the ordinary
         // subtree ourselves without consulting alpha.
@@ -1034,14 +1049,19 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if let raw = set["scrollLeft"], let left = Double(raw), left.isFinite { pendingScrollLeft = left }
         if clear.contains("scrollTop") { pendingScrollTop = nil }
         if let raw = set["scrollTop"], let top = Double(raw), top.isFinite { pendingScrollTop = top }
-        for k in clear { props.removeValue(forKey: k) }
-        for (k, v) in set { props[k] = v }
+        // One assignment: `props` tells the presenter of each.
+        var next = props
+        for k in clear { next.removeValue(forKey: k) }
+        for (k, v) in set { next[k] = v }
+        props = next
+        swipeOwner = props["swipeContent"] != nil
+        if (pendingScrollLeft ?? 0) != 0 || (pendingScrollTop ?? 0) != 0 { needScroll() }
         if set["inert"] != nil || clear.contains("inert") {
             let ownInert = props["inert"] == "true"
             if ownInert { endEditing(true) }
             isUserInteractionEnabled = !ownInert
-            accessibilityElementsHidden = ownInert
         }
+        accessibilityElementsHidden = hidesAccessibility
         updateKeyboardDismissal()
         updateMaterial()
         applyTextArea()
@@ -1080,6 +1100,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             accessibilityTraits.insert(.button)
             if props["accessibilitySelected"] == "true" { accessibilityTraits.insert(.selected) }
             else { accessibilityTraits.remove(.selected) }
+            if #available(iOS 18, *) {
+                accessibilityExpandedStatus = props["accessibilityExpanded"].map { $0 == "true" ? .expanded : .collapsed } ?? .unsupported
+            }
         }
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
         if kind == "image", props["imageSource"] == nil, imageSource != nil { loadGeneration += 1; presenter?.session?.rasters.cancel(id); raster = nil; imageSource = nil; clearSymbol(); image = nil; presenter?.intrinsic(id, nil) }
@@ -1102,37 +1125,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         clipPath = ClipPath.path(s["clip_path"])
         layer.mask = ClipPath.mask(clipPath)
         updateMaterial()
-        // Scrolling and clipping come from the effective overflow the host
-        // wrote in (never from the node's kind): `scroll` on an axis makes a
-        // scroll container that scrolls that axis; `hidden` clips.
-        let ox = s["overflow_x"]?.string ?? "visible", oy = s["overflow_y"]?.string ?? "visible"
-        if (ox == "scroll" || oy == "scroll") && scroll == nil {
-            let sv = ScrollView(frame: bounds)
-            sv.backgroundColor = .clear
-            sv.contentInsetAdjustmentBehavior = .never
-            sv.delegate = self
-            sv.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-            for child in subviews where child is NodeView { child.removeFromSuperview(); sv.addSubview(child) }
-            addSubview(sv)
-            scroll = sv
-        }
-        if ox != "scroll" && oy != "scroll", let sv = scroll {
-            // Neither axis scrolls any more: the children come back out.
-            for child in sv.subviews where child is NodeView { child.removeFromSuperview(); addSubview(child) }
-            sv.removeFromSuperview()
-            scroll = nil
-        }
-        scroll?.decelerationRate = (s["scroll_snap_type"]?.string) == "x mandatory" ? .fast : .normal
-        scroll?.scrollsX = ox == "scroll"
-        scroll?.scrollsY = oy == "scroll"
-        // UIKit's default indicator is already thin. CSS permits `thin`
-        // to match `auto` on such platforms; `none` only hides the track.
-        let indicators = (s["scrollbar_width"]?.string ?? "auto") != "none"
-        scroll?.showsHorizontalScrollIndicator = ox == "scroll" && indicators
-        scroll?.showsVerticalScrollIndicator = oy == "scroll" && indicators
-        updateKeyboardDismissal()
-        fitScroll()
-        clipsToBounds = ox == "hidden" || oy == "hidden"
+        syncScroll()
         styleTextArea()
         if let f = field, let t = text {
             f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic")
@@ -1142,6 +1135,65 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
         layer.zPosition = number("z_index")
         setNeedsDisplay()
+    }
+
+    /// Scrolling and clipping come from the effective overflow the host
+    /// wrote in (never from the node's kind): `scroll` on an axis makes a
+    /// scroll container that scrolls that axis; `hidden` clips.
+    func syncScroll() {
+        let ox = style["overflow_x"]?.string ?? "visible", oy = style["overflow_y"]?.string ?? "visible"
+        let scrolls = ox == "scroll" || oy == "scroll"
+        if scrolls && scroll == nil && !scrollWaits {
+            let sv = ScrollView(frame: bounds)
+            sv.backgroundColor = .clear
+            sv.contentInsetAdjustmentBehavior = .never
+            sv.delegate = self
+            sv.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            for child in subviews where child is NodeView { child.removeFromSuperview(); sv.addSubview(child) }
+            addSubview(sv)
+            scroll = sv
+        }
+        if !scrolls, let sv = scroll {
+            // Neither axis scrolls any more: the children come back out.
+            for child in sv.subviews where child is NodeView { child.removeFromSuperview(); addSubview(child) }
+            sv.removeFromSuperview()
+            scroll = nil
+        }
+        scroll?.decelerationRate = (style["scroll_snap_type"]?.string) == "x mandatory" ? .fast : .normal
+        scroll?.scrollsX = ox == "scroll"
+        scroll?.scrollsY = oy == "scroll"
+        // UIKit's default indicator is already thin. CSS permits `thin`
+        // to match `auto` on such platforms; `none` only hides the track.
+        let indicators = (style["scrollbar_width"]?.string ?? "auto") != "none"
+        scroll?.showsHorizontalScrollIndicator = ox == "scroll" && indicators
+        scroll?.showsVerticalScrollIndicator = oy == "scroll" && indicators
+        updateKeyboardDismissal()
+        fitScroll()
+        // A waiting scroll clips as its scroll view would.
+        clipsToBounds = ox == "hidden" || oy == "hidden" || scrollDormant
+    }
+
+    /// A native swipe row's scroll container (`swipeContent`, LLP 1008 §9)
+    /// waits for its UIScrollView. UIKit's swipe cell, not the scroll, takes
+    /// the row's touches (`SwipeActionsHost`), and a closed row's content
+    /// sits at the scroll's start, as it does at rest on the web: the
+    /// children live in the node itself, clipped as the scroll would clip
+    /// them. The scroll view comes when something needs it (`needScroll`):
+    /// the swipe host refusing the row (the scroll is then the swipe), an
+    /// authored scroll position or `scroll` handler, the agent's wheel, a
+    /// reveal. A list builds each row without a scroll view, its
+    /// recognizers, and its registration with the window.
+    var swipeOwner = false { didSet { if oldValue && !swipeOwner { syncScroll() } } }
+    private(set) var scrollNeeded = false
+    var scrollWaits: Bool { swipeOwner && !scrollNeeded && !handlers.contains("scroll") }
+    /// The node's overflow scrolls, and its scroll view is still waiting.
+    var scrollDormant: Bool {
+        scroll == nil && ((style["overflow_x"]?.string) == "scroll" || (style["overflow_y"]?.string) == "scroll")
+    }
+    func needScroll() {
+        guard scrollDormant else { return }
+        scrollNeeded = true
+        syncScroll()
     }
 
     /// The scroll container's content size: the kernel's extent on an axis
@@ -1178,15 +1230,19 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         layoutSymbol()
     }
 
-    /// CSS reduces overlapping corner radii by one common factor.
-    func roundedPath(in rect: CGRect, inset: CGFloat = 0) -> UIBezierPath {
+    /// CSS reduces overlapping corner radii by one common factor: top left,
+    /// top right, bottom right, bottom left.
+    func cornerRadii(in rect: CGRect, inset: CGFloat = 0) -> [CGFloat] {
         let names = ["top_left", "top_right", "bottom_right", "bottom_left"]
-        var r = names.map { max(0, number("border_radius_" + $0) - inset) }
+        let r = names.map { max(0, number("border_radius_" + $0) - inset) }
         let sums = [r[0] + r[1], r[3] + r[2], r[0] + r[3], r[1] + r[2]]
         let edges = [rect.width, rect.width, rect.height, rect.height]
         var factor: CGFloat = 1
         for i in 0..<4 where sums[i] > 0 { factor = min(factor, edges[i] / sums[i]) }
-        r = r.map { $0 * factor }
+        return r.map { $0 * factor }
+    }
+    func roundedPath(in rect: CGRect, inset: CGFloat = 0) -> UIBezierPath {
+        let r = cornerRadii(in: rect, inset: inset)
         let p = UIBezierPath()
         p.move(to: CGPoint(x: rect.minX + r[0], y: rect.minY))
         p.addLine(to: CGPoint(x: rect.maxX - r[1], y: rect.minY))
@@ -1214,37 +1270,23 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // 1009 D4), on the next turn (LLP 1014's readback fixture found a
         // batch's own attempt too early).
         if presenter?.views[id] === self { firstDraw() }
-        let radius = number("border_radius", number("border_radius_top_left"))
         let path = roundedPath(in: bounds)
-        let bg = nativeSwipeBody ? UIColor.clear : color("background_color", .clear)
-        if bg.cgColor.alpha > 0 {
-            bg.setFill()
-            path.fill()
-        }
-        let borderColor = color("border_color_top", .clear)
         let uniform = number("border_width")
-        let top = number("border_width_top", uniform), right = number("border_width_right", uniform)
-        let bottom = number("border_width_bottom", uniform), left = number("border_width_left", uniform)
-        // A uniform border on a rounded box follows the curve (the web's
-        // rule). Four edge rects would square the corners and show as nubs.
-        if radius > 0, top > 0, top == right, right == bottom, bottom == left {
-            let inset = top / 2
-            let stroke = roundedPath(in: bounds.insetBy(dx: inset, dy: inset), inset: inset)
-            stroke.lineWidth = top
-            stroke.lineJoinStyle = .round
-            borderColor.setStroke()
-            stroke.stroke()
-        } else {
-            let sides: [(String, CGRect)] = [
-                ("border_width_top", CGRect(x: 0, y: 0, width: bounds.width, height: top)),
-                ("border_width_bottom", CGRect(x: 0, y: bounds.height - bottom, width: bounds.width, height: bottom)),
-                ("border_width_left", CGRect(x: 0, y: 0, width: left, height: bounds.height)),
-                ("border_width_right", CGRect(x: bounds.width - right, y: 0, width: right, height: bounds.height)),
-            ]
-            for (key, r) in sides where number(key, uniform) > 0 {
-                ctx.setFillColor(color(key.replacingOccurrences(of: "width", with: "color"), borderColor).cgColor)
-                ctx.fill(r)
+        // A box Core Animation can say is the layer's (`applyBoxLayer`).
+        if boxDrawn {
+            let bg = color("background_color", .clear)
+            if bg.cgColor.alpha > 0 {
+                bg.setFill()
+                path.fill()
             }
+            // Sides that differ in colour or width, or a radius the layer
+            // cannot say: each side in its colour, joined as the web joins
+            // them (`BorderPaint`).
+            let widths = ["top", "right", "bottom", "left"].map { number("border_width_" + $0, uniform) }
+            let top = color("border_color_top", .clear)
+            let colors = ["top", "right", "bottom", "left"].map { color("border_color_" + $0, top).cgColor }
+            let radii = ["top_left", "top_right", "bottom_right", "bottom_left"].map { number("border_radius_" + $0) }
+            BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii)
         }
         if kind == "image", symbolView == nil, let bitmap = raster?.image {
             // CSS object-fit over the content box (the frame inside border
@@ -1271,7 +1313,10 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             if canRasterText {
                 presenter?.textRasters.ensure(self, urgent: presenter?.textIsVisible(self) == true)
             } else if !textRasterFailed { dropTextRaster() }
-            if textRaster == nil && (Capture.capturing || presenter?.textIsVisible(self) == true) {
+            // Without a raster this bitmap is the paragraph's only paint, and
+            // nothing redisplays a row the lead drew off-screen when it
+            // scrolls in: draw it now, visible or not.
+            if textRaster == nil && (!canRasterText || Capture.capturing || presenter?.textIsVisible(self) == true) {
                 let post = Presenter.signposts.beginInterval("text-draw")
                 defer { Presenter.signposts.endInterval("text-draw", post) }
                 let spec = paragraphSpec()

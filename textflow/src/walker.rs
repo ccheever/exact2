@@ -1,7 +1,7 @@
 //! @ref LLP 1043.000 §3 D6 — Pretext's greedy walker over cached host advances.
 
-use crate::finite;
-use std::ops::Range;
+use crate::{chrome, finite};
+use std::{borrow::Cow, ops::Range};
 use unicode_linebreak::{break_property, linebreaks, BreakClass};
 
 /// Fit tolerance added to a requested width before comparing advances.
@@ -128,8 +128,22 @@ impl Prepared {
             + self.atoms.capacity() * std::mem::size_of::<Atom>()
     }
 
-    /// Prepare UAX #14 opportunities, source offsets and advances in one text pass.
+    /// Prepare Chrome's break opportunities, source offsets and advances.
     pub fn new(text: &str, options: Options, measure: &mut dyn Measure) -> Self {
+        Self::with_words(text, options, &[], measure)
+    }
+
+    /// [`Prepared::new`], with the word boundaries a host's segmenter found
+    /// (ascending UTF-8 byte offsets). The walker has no dictionary: between two
+    /// characters of Thai, Lao, Khmer or Myanmar (UAX #14 class SA) these are its
+    /// only opportunities, as ICU's dictionaries are the browser's and CoreText's.
+    /// Elsewhere they are ignored. Without them an SA run breaks only at spaces.
+    pub fn with_words(
+        text: &str,
+        options: Options,
+        words: &[usize],
+        measure: &mut dyn Measure,
+    ) -> Self {
         let options = Options {
             hyphen_advance: advance(options.hyphen_advance),
             overflow_wrap: if options.white_space == WhiteSpace::Nowrap {
@@ -150,7 +164,7 @@ impl Prepared {
         let preserve = options.white_space == WhiteSpace::PreWrap;
         let whitespace = |ch| space(ch) || (!preserve && hard_break(ch));
         let mut start = 0;
-        for (end, _) in linebreaks(text) {
+        for end in opportunities(text, words) {
             if end == start {
                 continue;
             }
@@ -158,10 +172,9 @@ impl Prepared {
             // (notably a combining mark after an ASCII space or a newer mark).
             let previous = text[..end].chars().next_back().unwrap();
             if !hard_break(previous)
-                && text[end..]
-                    .chars()
-                    .next()
-                    .is_some_and(|ch| joins_previous(ch, previous))
+                && text[end..].chars().next().is_some_and(|ch| {
+                    joins_previous(ch, previous) && !(complex(ch) && complex(previous))
+                })
             {
                 continue;
             }
@@ -599,6 +612,87 @@ fn collapsed_advance(text: &str, range: Range<usize>, measure: &mut dyn Measure)
     }
     finite(total)
 }
+/// UTF-16 word boundaries, as `Intl.Segmenter` and `CFStringTokenizer` give
+/// them, to the UTF-8 byte offsets [`Prepared::with_words`] takes. A boundary
+/// inside a surrogate pair, out of order, or past the end is dropped.
+pub fn utf16_words(text: &str, words: impl IntoIterator<Item = usize>) -> Vec<usize> {
+    let mut result = Vec::new();
+    let (mut byte, mut units, mut chars) = (0, 0, text.chars());
+    for word in words {
+        while units < word {
+            let Some(ch) = chars.next() else { break };
+            byte += ch.len_utf8();
+            units += ch.len_utf16();
+        }
+        if units == word && result.last() < Some(&byte) {
+            result.push(byte);
+        }
+    }
+    result
+}
+
+fn complex(ch: char) -> bool {
+    break_property(ch as u32) == BreakClass::ComplexContext
+}
+
+/// Where a line may start, in the order Blink decides it (`NextBreakablePosition`,
+/// `text_break_iterator.cc`): never before a space, always after one, Chromium's
+/// table between two Latin-1 characters, and otherwise UAX #14 under CSS
+/// `line-break: normal`, where small kana and `ー` (class CJ) break as ideographs,
+/// and inside SA runs the host's word boundaries stand in for ICU's dictionaries.
+/// A break beside a mandatory break stays UAX's. The last entry is `text.len()`.
+/// @ref LLP 1043 §4 C — measured against Chrome by `tests/it/corpus.rs`.
+fn opportunities(text: &str, words: &[usize]) -> Vec<usize> {
+    let starter = |c: char| break_property(c as u32) == BreakClass::ConditionalJapaneseStarter;
+    // Swap each CJ character for an ideograph of the same UTF-8 length.
+    let normal = if text.chars().any(starter) {
+        Cow::Owned(
+            text.chars()
+                .map(|c| match (starter(c), c.len_utf8()) {
+                    (true, 3) => '\u{4e00}',
+                    (true, _) => '\u{20000}',
+                    _ => c,
+                })
+                .collect(),
+        )
+    } else {
+        Cow::Borrowed(text)
+    };
+    let mut uax = linebreaks(&normal).map(|(at, _)| at).peekable();
+    let latin1 = |c: char| ('\u{21}'..='\u{ff}').contains(&c);
+    let mut result = Vec::new();
+    let mut words = words.iter().copied().peekable();
+    let (mut before_before, mut before) = ('\0', None);
+    for (at, ch) in text.char_indices() {
+        while uax.next_if(|&b| b < at).is_some() {}
+        let listed = uax.peek() == Some(&at);
+        while words.next_if(|&w| w < at).is_some() {}
+        if let Some(previous) = before {
+            let open = if hard_break(previous) || hard_break(ch) {
+                listed
+            } else if space(ch) {
+                false
+            } else if space(previous) {
+                true
+            } else if complex(previous) && complex(ch) {
+                words.peek() == Some(&at)
+            } else if previous == '-' && ch.is_ascii_digit() {
+                before_before.is_ascii_alphanumeric()
+            } else if latin1(previous) && latin1(ch) && !(previous == '-' && !ch.is_ascii()) {
+                chrome::breaks(previous, ch)
+            } else {
+                listed
+            };
+            if open {
+                result.push(at);
+            }
+            before_before = previous;
+        }
+        before = Some(ch);
+    }
+    result.push(text.len());
+    result
+}
 fn advance(n: f32) -> f32 {
     if n.is_finite() {
         n.max(0.0)
@@ -621,21 +715,28 @@ fn hard_break(ch: char) -> bool {
     )
 }
 
-// Small conservative rule using the already-linked UAX table. SA is glued as
-// a whole (no dictionary segmentation); GL includes several spacing marks.
+// Small conservative rule using the already-linked UAX table. An SA run is
+// glued as a whole (no dictionary segmentation), but only to SA before it: a
+// space or zero-width space still separates Thai, Khmer or Myanmar words.
+// GL includes several spacing marks.
 // Unknown code points are conservatively glued, covering marks newer than the
 // dependency's Unicode table; Tibetan U+0F7F is a spacing mark with class BA.
 // UTF-8 Rust chars cannot contain either surrogate half. Emoji modifiers/tags,
 // regional pairs, ZWJ on either side, and virama continuations stay attached.
 fn joins_previous(ch: char, previous: char) -> bool {
+    let class = break_property(ch as u32);
     matches!(
-        break_property(ch as u32),
+        class,
         BreakClass::CombiningMark
             | BreakClass::ZeroWidthJoiner
-            | BreakClass::ComplexContext
             | BreakClass::NonBreakingGlue
             | BreakClass::Unknown
-    ) || previous == '\u{200d}'
+    ) || (class == BreakClass::ComplexContext
+        && matches!(
+            break_property(previous as u32),
+            BreakClass::ComplexContext | BreakClass::CombiningMark
+        ))
+        || previous == '\u{200d}'
         || matches!(ch as u32, 0x0f7f | 0xfe00..=0xfe0f | 0xe0100..=0xe01ef | 0x1f3fb..=0x1f3ff | 0xe0020..=0xe007f)
         || matches!(
             previous as u32,

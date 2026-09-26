@@ -3,12 +3,16 @@
 // input at the bottom that a software keyboard would cover. The host insets
 // its viewport by the keyboard and reveals the field, as a browser's visual
 // viewport does (LLP 1008 §9); `dismiss` takes the focus, and the keyboard
-// with it.
+// with it. `under`, a strip at the page's bottom, is under the keyboard while
+// it is up: a finger cannot reach it there, so neither can the driver.
 component Insets
   state note = ""
   state focused = false
   state presses = 0
   state lastKey = ""
+  state under = 0
+  action pressUnder writes under
+    under = under + 1
   action retain writes presses
     presses = presses + 1
   action menuKey(value) writes lastKey
@@ -33,3 +37,4 @@ component Insets
         else
           text "idle" testId="idle" font-size=13 color="#b8a1d9"
         input value=note change=setNote focus=focusIn blur=focusOut placeholder="A note" testId="note" padding=12 border-radius=8 border-style="solid" border-width=1 border-color="#5b4a7a" background-color="#ffffff"
+      button press=pressUnder testId="under" position="absolute" left=0 right=0 bottom=0 height=8 background-color="#ffd60a"

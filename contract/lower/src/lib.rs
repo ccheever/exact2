@@ -30,7 +30,7 @@ mod values;
 pub use sites::{Declared, NodeSite, Origin, Sites};
 
 use contract_analyze::Analysis;
-use contract_syntax::{Attr, Expr, File, FnDecl, Node, Span, Stmt};
+use contract_syntax::{Attr, Expr, File, FnDecl, Node, Span, Stmt, TaskKind};
 use contract_types::{Checked, Ref, Scope, Ty, Types};
 use exact_kernel::StyleId;
 use exact_plan::asm::Asm;
@@ -120,13 +120,13 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                 Some(tags::AttrTarget::Styles(rows))
                                     if rows != [StyleId::FontFamily] =>
                                 {
-                                    values::check_style_value(a, rows, &Ty::Unknown, None)
+                                    values::check_style_value(a, rows, &Ty::Unknown, &[])
                                 }
                                 Some(tags::AttrTarget::Flex) => values::check_style_value(
                                     a,
                                     &[StyleId::FlexGrow],
                                     &Ty::Unknown,
-                                    None,
+                                    &[],
                                 ),
                                 Some(_) => Ok(()),
                             };
@@ -487,26 +487,30 @@ fn lower_with_sites(
         l.b.set_action_body(l.actions[i], code);
     }
     for t in &root.tasks {
-        let Expr::Number(ms, _) = &t.every.0 else {
+        let word = match t.kind {
+            TaskKind::Every => "every",
+            TaskKind::After => "after",
+        };
+        let Expr::Number(ms, _) = &t.timer.0 else {
             return Err(err_one(
                 "lower-timer-literal",
-                "`every` needs a literal number of milliseconds",
-                t.every.2,
+                format!("`{word}` needs a literal number of milliseconds"),
+                t.timer.2,
             ));
         };
         if !(ms.is_finite() && ms.fract() == 0.0 && *ms >= 1.0 && *ms <= u32::MAX as f64) {
             return Err(err_one(
                 "lower-timer-interval",
-                format!("`every` needs a whole number of milliseconds, at least 1; given {ms}"),
-                t.every.2,
+                format!("`{word}` needs a whole number of milliseconds, at least 1; given {ms}"),
+                t.timer.2,
             ));
         }
         let action = l.actions[root
             .actions
             .iter()
-            .position(|a| a.name == t.every.1)
+            .position(|a| a.name == t.timer.1)
             .unwrap()];
-        l.b.timer(*ms as u32, action);
+        l.b.timer(*ms as u32, action, t.kind == TaskKind::After);
     }
     // The view, inlined (by `expand`, above).
     let view = &root.view;
@@ -871,7 +875,7 @@ impl<'a> Lowerer<'a> {
                         &mut bindings,
                         &mut handlers,
                         &mut surface,
-                        font.as_ref(),
+                        &font,
                     ) {
                         self.errors.push(e);
                     }
@@ -1171,7 +1175,7 @@ impl<'a> Lowerer<'a> {
         bindings: &mut Vec<BindingsRow>,
         handlers: &mut Vec<(EventKind, exact_plan::ActionsId, Vec<Code>)>,
         surface: &mut Option<exact_plan::SurfacesId>,
-        font: Option<&FontUse>,
+        font: &[FontUse],
     ) -> Result<(), LowerError> {
         let Some(target) = tags::attr(&a.name) else {
             return Err(unknown_attr(tag, a));
@@ -1259,27 +1263,31 @@ impl<'a> Lowerer<'a> {
             }
             tags::AttrTarget::Styles(rows) => {
                 if rows == [StyleId::FontFamily] {
-                    let Expr::Str(name, _) = &a.value else {
-                        return err(
-                            "lower-font-family-literal",
-                            "`font-family` is literal-only in v1",
-                            a.span,
-                        );
-                    };
-                    let Some(stack) = self.font_stacks.get(name).copied() else {
-                        return err(
-                            "lower-font-undeclared",
-                            format!("font family `{name}` is neither generic nor declared"),
-                            a.span,
-                        );
-                    };
-                    let code = self.b.constant(&Value::Number(stack.0 as f64));
+                    // @ref LLP 1053 G7 — each arm's family is a stack id now.
+                    let stacks = self.family_stacks(&a.value)?;
+                    let (code, _) = self.typed_code(&stacks, scope, locals)?;
                     bindings.push(BindingsRow {
                         kind: BindingKind::Style,
                         id: StyleId::FontFamily as u16,
                         expr: code,
                     });
                     return Ok(());
+                }
+                // CSS's one-to-four-value `border-color`: a binding a side.
+                if rows == values::BORDER_COLORS {
+                    if let Some(sides) = values::border_color_sides(&a.value)? {
+                        for (&row, value) in rows.iter().zip(sides) {
+                            let (code, ty) = self.typed_code(&value, scope, locals)?;
+                            let side = Attr { value, ..a.clone() };
+                            values::check_style_value(&side, &[row], &ty, font)?;
+                            bindings.push(BindingsRow {
+                                kind: BindingKind::Style,
+                                id: row as u16,
+                                expr: code,
+                            });
+                        }
+                        return Ok(());
+                    }
                 }
                 let (code, ty) = self.typed_code(&a.value, scope, locals)?;
                 values::check_style_value(a, rows, &ty, font)?;

@@ -642,3 +642,53 @@ fn a_resumed_capture_over_budget_retires_the_call_and_keeps_later_answers_clean(
     assert!(!session(&now(m.answer(&mut s, "logout", &[]).unwrap())).0);
     assert!(!session(&now(m.answer(&mut s, "remember", &[]).unwrap())).0);
 }
+
+/// A worker-placed answer (LLP 1027.002) whose reply body is large: every
+/// stage crosses to the owner thread, the body with it (Crew port, F4/F6).
+#[test]
+fn a_worker_placed_answer_takes_a_large_reply_as_it_takes_a_small_one() {
+    use exact_js::Placement;
+    use exact_runner::{Dispatch, Reply, Work};
+    fn run(placed: &mut exact_js::Placed<Module>, s: &mut Store, answer: Answer) -> Answer {
+        let token = later(answer).continuation.expect("a turn for the owner");
+        let Dispatch::Run(Work::Later(work)) = placed.dispatch(token, s) else {
+            panic!("a turn for the owner");
+        };
+        let (tx, rx) = std::sync::mpsc::channel();
+        work(Reply::new(move |outcome| {
+            let _ = tx.send(outcome);
+        }));
+        let outcome = rx
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .expect("the owner's turn replied");
+        placed.parse(s, "profile", &[], outcome).unwrap()
+    }
+    for size in [24, 200 * 1024] {
+        let mut placed = module().placed(Placement::Worker);
+        placed.activate().unwrap();
+        let mut s = store();
+        s.set("castle.session", r#"{"token":"t0k","username":"ada"}"#)
+            .unwrap();
+        let first = placed.answer(&mut s, "profile", &[]).unwrap();
+        let me = later(run(&mut placed, &mut s, first));
+        assert_eq!(me.url, "https://api.castle.xyz/me");
+        let resumed = placed
+            .parse(
+                &mut s,
+                "profile",
+                &[],
+                response(200, r#"{"username":"ada"}"#),
+            )
+            .unwrap();
+        let p = later(run(&mut placed, &mut s, resumed));
+        assert_eq!(p.url, "https://api.castle.xyz/profile/ada");
+        let body = format!("\"{}\"", "x".repeat(size - 2));
+        let resumed = placed
+            .parse(&mut s, "profile", &[], response(200, &body))
+            .unwrap();
+        let v = now(run(&mut placed, &mut s, resumed));
+        let (ok, username, text) = session(&v);
+        assert!(ok && username == "ada", "{size}");
+        assert_eq!(text.len(), size, "{size}");
+    }
+}
