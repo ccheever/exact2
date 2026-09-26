@@ -345,13 +345,13 @@ static DELIVERY: crate::delivery::Hooks = crate::delivery::Hooks {
 
 #[test]
 fn a_verified_selected_boot_is_counted_before_plan_refusal() {
-    let embedded = plan(None);
+    let embedded: &'static [u8] = plan(None).leak();
     for (selected, expected) in [
         (
             Some(b"verified bytes that are not a plan".to_vec()),
             vec!["started", "refused"],
         ),
-        (Some(embedded.clone()), vec!["started"]),
+        (Some(embedded.to_vec()), vec!["started"]),
         (None, vec![]),
     ] {
         SELECTED.with(|value| {
@@ -361,7 +361,7 @@ fn a_verified_selected_boot_is_counted_before_plan_refusal() {
         let mut bridge = Bridge::new();
         bridge.set_delivery(Some(&DELIVERY));
         let count = bridge.boot_selected(
-            &embedded,
+            embedded,
             || Returning {
                 name: "unused",
                 grants: "",

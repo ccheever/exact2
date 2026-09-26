@@ -76,6 +76,24 @@ fn a_plan_round_trips_and_its_bytes_are_canonical() {
     assert_eq!(sample().encode(), bytes, "building twice is byte-identical");
 }
 
+/// A plan linked into the program decodes to the same plan, its data pool
+/// left in the program's bytes rather than copied.
+#[test]
+fn a_static_plan_keeps_its_data_pool_in_place() {
+    let plan = sample();
+    assert!(!plan.data.is_empty(), "the sample has constants");
+    let bytes: &'static [u8] = plan.encode().leak();
+    let decoded = Plan::decode_static(bytes).unwrap();
+    assert_eq!(decoded, plan);
+    let range = bytes.as_ptr_range();
+    assert!(matches!(decoded.data, std::borrow::Cow::Borrowed(_)));
+    assert!(range.contains(&decoded.data.as_ptr()));
+    assert!(matches!(
+        Plan::decode(bytes).unwrap().data,
+        std::borrow::Cow::Owned(_)
+    ));
+}
+
 #[test]
 fn font_tables_round_trip_and_validate_their_identity_graph() {
     let mut b = PlanBuilder::new(0xdead_beef, 0x1234);

@@ -140,6 +140,23 @@ pub struct Host<D: DataSource> {
     delivery: Option<&'static crate::delivery::Hooks>,
 }
 
+/// A plan's bytes at boot: copied from while decoding, or linked into the
+/// program, whose data pool the decoded plan then keeps in place.
+#[derive(Clone, Copy)]
+pub(crate) enum PlanBytes<'a> {
+    Copied(&'a [u8]),
+    Static(&'static [u8]),
+}
+
+impl PlanBytes<'_> {
+    fn decode(self) -> Result<Plan, exact_plan::PlanError> {
+        match self {
+            PlanBytes::Copied(bytes) => Plan::decode(bytes),
+            PlanBytes::Static(bytes) => Plan::decode_static(bytes),
+        }
+    }
+}
+
 impl<D: DataSource> Host<D> {
     /// Boot from plan bytes with the app's text measurer and viewport (points):
     /// decode (a validation pass), boot the runner, lay out, and produce the
@@ -202,7 +219,7 @@ impl<D: DataSource> Host<D> {
         secrets: Option<Platform>,
     ) -> Result<(Host<D>, String), HostError> {
         let (mut host, batch) = Host::boot_stored_after_decode(
-            plan_bytes,
+            PlanBytes::Copied(plan_bytes),
             data,
             measurer,
             width,
@@ -226,7 +243,7 @@ impl<D: DataSource> Host<D> {
     /// decoding the plan twice.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn boot_stored_after_decode(
-        plan_bytes: &[u8],
+        plan_bytes: PlanBytes<'_>,
         data: D,
         measurer: Box<dyn TextMeasurer>,
         width: f32,
@@ -262,7 +279,7 @@ impl<D: DataSource> Host<D> {
 
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn boot_stored_after_decode_mode(
-        plan_bytes: &[u8],
+        plan_bytes: PlanBytes<'_>,
         data: D,
         measurer: Box<dyn TextMeasurer>,
         width: f32,
@@ -286,7 +303,7 @@ impl<D: DataSource> Host<D> {
                 return Err(HostError::Delivery("the baked store level does not match the linked delivery adapter; regenerate the app entry".into()));
             }
         }
-        let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
+        let plan = plan_bytes.decode().map_err(HostError::Plan)?;
         let kernel = Kernel::new(measurer);
         let facts = candidate_delivery.unwrap_or_else(|| {
             let mut facts = exact_runner::Delivery::default();

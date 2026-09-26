@@ -14,7 +14,7 @@
 //! batch instead of trapping. [`host!`] exports one app's source and baked plan;
 //! each process links one app archive because the C names are fixed.
 
-use crate::host::Host;
+use crate::host::{Host, PlanBytes};
 use crate::measure::{install_fonts, CallbackMeasurer, FontsFn, MeasureFn};
 use crate::store::{endow, snapshot_of, Platform};
 use exact_kernel::{MonospaceMeasurer, TextMeasurer};
@@ -344,6 +344,17 @@ impl<D: DataSource> Bridge<D> {
     /// the monospace reference measurer when none is given) under a
     /// viewport; the output is the first batch.
     pub fn boot(&mut self, plan: &[u8], data: D, hooks: Hooks, width: f32, height: f32) -> u32 {
+        self.boot_bytes(PlanBytes::Copied(plan), data, hooks, width, height)
+    }
+
+    fn boot_bytes(
+        &mut self,
+        plan: PlanBytes<'_>,
+        data: D,
+        hooks: Hooks,
+        width: f32,
+        height: f32,
+    ) -> u32 {
         if let Some(refusal) = self.refuse_analysis() {
             return refusal;
         }
@@ -365,7 +376,7 @@ impl<D: DataSource> Bridge<D> {
     /// for each attempt.
     pub fn boot_selected(
         &mut self,
-        embedded: &[u8],
+        embedded: &'static [u8],
         mut data: impl FnMut() -> D,
         hooks: Hooks,
         width: f32,
@@ -375,7 +386,7 @@ impl<D: DataSource> Bridge<D> {
             return refusal;
         }
         let Some(delivery) = self.delivery else {
-            return self.boot(embedded, data(), hooks, width, height);
+            return self.boot_bytes(PlanBytes::Static(embedded), data(), hooks, width, height);
         };
         let selected = (delivery.selected_plan)();
         if let Some((entry, bytes)) = selected {
@@ -389,17 +400,19 @@ impl<D: DataSource> Bridge<D> {
                     .map_err(|e| format!("module generation: {e:?}")),
                 None => Ok(admitted),
             });
-            match source.and_then(|source| self.boot_fresh(&bytes, source, hooks, width, height)) {
+            match source.and_then(|source| {
+                self.boot_fresh(PlanBytes::Copied(&bytes), source, hooks, width, height)
+            }) {
                 Ok(batch) => return self.emit(batch),
                 Err(e) => (delivery.entry_refused)(&entry, &e),
             }
         }
-        self.boot(embedded, data(), hooks, width, height)
+        self.boot_bytes(PlanBytes::Static(embedded), data(), hooks, width, height)
     }
 
     fn boot_fresh(
         &mut self,
-        plan: &[u8],
+        plan: PlanBytes<'_>,
         data: D,
         hooks: Hooks,
         width: f32,
@@ -664,7 +677,7 @@ impl<D: DataSource> Bridge<D> {
         let fonts = self.fonts;
         let fonts_ctx = self.fonts_ctx;
         match Host::boot_stored_after_decode(
-            &plan,
+            PlanBytes::Copied(&plan),
             data,
             measurer,
             width,

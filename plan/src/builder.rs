@@ -166,7 +166,7 @@ impl PlanBuilder {
     pub fn data(&mut self, v: &Value) -> Bytes {
         let bytes = v.to_bytes();
         let offset = self.plan.data.len() as u32;
-        self.plan.data.extend_from_slice(&bytes);
+        self.plan.data.to_mut().extend_from_slice(&bytes);
         Bytes {
             offset,
             len: bytes.len() as u32,

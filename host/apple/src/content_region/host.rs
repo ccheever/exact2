@@ -14,7 +14,7 @@ impl<D: DataSource> Host<D> {
         registration: ContentRegionRegistration,
     ) -> Result<(Self, String), HostError> {
         let (mut host, batch) = Self::boot_stored_after_decode(
-            plan,
+            crate::host::PlanBytes::Copied(plan),
             data,
             measurer,
             width,
@@ -182,7 +182,7 @@ impl<D: DataSource> Host<D> {
         limits: NativeProjectionLimits,
     ) -> Result<(Self, String), HostError> {
         let (mut host, batch) = Self::boot_stored_after_decode_mode(
-            plan,
+            crate::host::PlanBytes::Copied(plan),
             data,
             measurer,
             width,
