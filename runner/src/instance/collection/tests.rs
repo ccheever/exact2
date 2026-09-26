@@ -97,6 +97,7 @@ fn env<'a>(plan: &'a Plan, slots: &'a [Value]) -> Env<'a> {
         strings: Box::leak(crate::vm::intern(plan).into_boxed_slice()),
         slots,
         router: None,
+        lists: Some(&crate::instance::LISTS),
         derives: &[],
         resources: &[],
         params: &[],

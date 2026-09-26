@@ -57,7 +57,7 @@ pub use instance::collection::{
     ReorderBinding, ReorderFrame, ReorderGeometry, ReorderProgress, ReorderStart, ReorderToken,
     ReorderWrapper, RowMeasurement,
 };
-pub use instance::SurfaceUpdate;
+pub use instance::{ListLinks, SurfaceUpdate, LISTS};
 pub use request::{
     io_grants, Answer, Dispatch, FailureKind, HttpScheduling, Outcome, Placement, Reply, Request,
     RequestOut, Response, SurfaceOutcome, SurfaceRequest, Work, MAX_HOST_WORK_BYTES,

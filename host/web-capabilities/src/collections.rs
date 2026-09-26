@@ -7,6 +7,6 @@ use exact_web::Linked;
 
 /// Link lists into `linked`.
 pub const fn link(mut linked: Linked) -> Linked {
-    linked.collections = true;
+    linked.collections = Some(&exact_runner::LISTS);
     linked
 }

@@ -16,6 +16,22 @@ use index::{HeightIndex, MeasurementToken};
 pub use reorder_api::*;
 pub(super) use traversal::invalidate_typography;
 
+/// A collection's data update, through [`super::LISTS`] (LLP 1047.000 §9).
+pub(super) fn update_collection(
+    c: &mut Collection,
+    u: &mut Update<'_>,
+    frames: &[Frame],
+    follow: bool,
+) -> Result<(), InstanceError> {
+    c.follow_end(follow);
+    c.update_data(u, frames, false)
+}
+
+/// The mounted collections as a batch's JSON, through [`super::LISTS`].
+pub(super) fn collections_json(tree: &Tree) -> String {
+    snapshots_json(&tree.collections())
+}
+
 const BOOTSTRAP_ROWS: usize = 16;
 const ESTIMATED_HEIGHT: f64 = 32.0;
 /// Travel the window leads by, past its viewport of overscan.

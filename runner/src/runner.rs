@@ -316,6 +316,8 @@ pub struct RunnerLinks {
     pub surface_answer: SurfaceAnswer,
     /// The plan's router (LLP 1038), from its route table and shapes.
     pub router: RouterLink,
+    /// The list engines (LLP 1047.000 §9): [`crate::instance::LISTS`].
+    pub lists: Option<&'static crate::instance::ListLinks>,
 }
 
 /// How a host builds a plan's router: [`router::routing`], when linked.
@@ -331,12 +333,14 @@ impl RunnerLinks {
     pub const ALL: RunnerLinks = RunnerLinks {
         surface_answer: Some(crate::surface_record::answer),
         router: Some(router::routing),
+        lists: Some(&crate::instance::LISTS),
     };
 
     /// The core alone.
     pub const CORE: RunnerLinks = RunnerLinks {
         surface_answer: None,
         router: None,
+        lists: None,
     };
 }
 
@@ -1045,6 +1049,7 @@ impl<D: DataSource> Runner<D> {
             plan: &self.plan,
             strings: &self.strings,
             router: self.router.as_deref(),
+            lists: self.links.lists,
             slots: &self.slots,
             derives: &self.derives,
             resources: &self.resource_values,

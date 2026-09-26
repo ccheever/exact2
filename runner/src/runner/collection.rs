@@ -27,9 +27,13 @@ impl<D: DataSource> Runner<D> {
             None => Ok(Vec::new()),
         }
     }
-    /// Compact numeric metadata for existing JSON batch envelopes, without serde.
+    /// Compact numeric metadata for existing JSON batch envelopes, without
+    /// serde: `[]` where the artifact doesn't link lists (LLP 1047.000 §9).
     pub fn collections_json(&self) -> String {
-        crate::instance::collection::snapshots_json(&self.collections())
+        match (self.links.lists, &self.tree) {
+            (Some(lists), Some(tree)) => (lists.collections_json)(tree),
+            _ => "[]".to_string(),
+        }
     }
     /// Decode the common numeric LE protocol before touching state.
     pub fn collection_feedback_bytes(&mut self, bytes: &[u8]) -> Result<Advanced, RunnerError> {

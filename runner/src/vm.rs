@@ -81,6 +81,8 @@ pub struct Env<'a> {
     /// Checked route table and shapes; present only for a plan with a router.
     /// @ref LLP 1038 D3/D9 — the same table across all calls in this runner.
     pub router: Option<&'a dyn crate::runner::Routing>,
+    /// The list engines, when this artifact links them (LLP 1047.000 §9).
+    pub lists: Option<&'static crate::instance::ListLinks>,
     /// State slots by index.
     pub slots: &'a [Value],
     /// Derives by index; `None` while not yet settled this update.
@@ -740,6 +742,7 @@ mod tests {
             plan: &plan,
             strings: &strings,
             router: None,
+            lists: None,
             slots: &[],
             derives: &[],
             resources: &[],
@@ -840,6 +843,7 @@ mod tests {
             plan: &plan,
             strings: &strings,
             router: None,
+            lists: None,
             slots: &[],
             derives: &[],
             resources: &[],

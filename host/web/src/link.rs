@@ -22,8 +22,9 @@ pub struct Linked {
     /// Motion: the spring engine a host holds instead of
     /// [`crate::motion::Still`].
     pub motion: Option<fn() -> Box<dyn crate::motion::Motion>>,
-    /// Lists the host windows: their exports (`list_exports!`) are in.
-    pub collections: bool,
+    /// Lists the host windows: the runner's engines for them, and their
+    /// exports (`list_exports!`) are in (LLP 1047.000 §9).
+    pub collections: Option<&'static exact_runner::ListLinks>,
     /// Drags: the host's hooks for them, which the entry passes as
     /// [`crate::HostLinks::of`] this set.
     pub drag: bool,
@@ -42,7 +43,7 @@ impl Linked {
     pub const CORE: Linked = Linked {
         markup: None,
         motion: None,
-        collections: false,
+        collections: None,
         drag: false,
         surface_answer: None,
         router: None,
@@ -58,7 +59,7 @@ impl Linked {
         if self.motion.is_some() {
             uses = uses.with(Capability::Motion);
         }
-        if self.collections {
+        if self.collections.is_some() {
             uses = uses.with(Capability::Collections);
         }
         if self.drag {
@@ -97,7 +98,7 @@ pub fn linked() -> Linked {
 pub(crate) fn link_for_tests() {
     link(Linked {
         motion: Some(crate::motion::springs),
-        collections: true,
+        collections: Some(&exact_runner::LISTS),
         drag: true,
         surface_answer: exact_runner::RunnerLinks::ALL.surface_answer,
         router: exact_runner::RunnerLinks::ALL.router,
@@ -111,6 +112,7 @@ pub(crate) fn runner_links() -> exact_runner::RunnerLinks {
     exact_runner::RunnerLinks {
         surface_answer: linked().surface_answer,
         router: linked().router,
+        lists: linked().collections,
     }
 }
 

@@ -4,6 +4,32 @@ use super::*;
 use crate::ListViewport;
 use exact_kernel::{PropId, PropValue};
 
+/// A windowed region's update, reached through [`super::LISTS`] (LLP
+/// 1047.000 §9): new items or keys replace the window's rows; otherwise only
+/// its mounted rows may be stale. The content view is its one root.
+pub(super) fn update_region(
+    r: &mut RegionInst,
+    u: &mut Update<'_>,
+    frames: &[Frame],
+    subject_stale: bool,
+) -> Result<bool, InstanceError> {
+    let Some(mut window) = r.window.take() else {
+        return Ok(false);
+    };
+    let (plan, sites, index) = (u.env.plan, u.sites, r.region.0 as usize);
+    let result = if subject_stale || u.stale_outside(&sites.deps.keys[index], 1) {
+        match u.eval(plan.region(r.region).subject, frames) {
+            Ok(Value::List(items)) => window.replace(u, &mut r.active, r.region, items, frames),
+            Ok(_) => Err(InstanceError::SubjectKind { region: r.region }),
+            Err(trap) => Err(trap.into()),
+        }
+    } else {
+        window.refresh(u, &mut r.active, r.region, frames)
+    };
+    r.window = Some(window);
+    result.map(|_| false)
+}
+
 #[derive(Debug)]
 pub(super) struct ListWindow {
     pub content: ViewId,

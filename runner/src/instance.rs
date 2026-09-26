@@ -35,6 +35,56 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
+/// The list engines' entries (LLP 1047 D3; LLP 1047.000 §9): the core
+/// reaches virtualized collections and windowed lists only through this
+/// table, and only [`LISTS`] names them. `RunnerLinks::ALL` and the web's
+/// collections capability are what name `LISTS`, so an artifact whose plan
+/// windows no list carries neither engine. Admission (D6) refuses a plan
+/// that windows a list where the table is absent.
+pub struct ListLinks {
+    create: CreateList,
+    windowed: WindowedList,
+    prepare: fn(&mut NodeInst, &Plan, Option<Value>) -> Result<(), InstanceError>,
+    update: fn(
+        &mut collection::Collection,
+        &mut Update<'_>,
+        &[Frame],
+        bool,
+    ) -> Result<(), InstanceError>,
+    window: fn(&mut RegionInst, &mut Update<'_>, &[Frame], bool) -> Result<bool, InstanceError>,
+    typography: ListTypography,
+    pub(crate) collections_json: fn(&Tree) -> String,
+}
+
+type CreateList = fn(
+    &mut Update<'_>,
+    NodesId,
+    ViewId,
+    &[Frame],
+) -> Result<Option<Box<collection::Collection>>, InstanceError>;
+type WindowedList = fn(&NodeInst, &mut Update<'_>, &[Frame]) -> Result<Vec<Child>, InstanceError>;
+type ListTypography = fn(&mut [Child], &mut Update<'_>, &[Frame]) -> Result<(), InstanceError>;
+
+/// Both list engines.
+pub static LISTS: ListLinks = ListLinks {
+    create: collection::Collection::create,
+    windowed: NodeInst::list_children,
+    prepare: NodeInst::prepare_list,
+    update: collection::update_collection,
+    window: window::update_region,
+    typography: collection::invalidate_typography,
+    collections_json: collection::collections_json,
+};
+
+/// A list engine's state where the plan has no way to reach it: admission
+/// refused the plan, so this is the runner's defect, named rather than
+/// trapped on.
+fn unlinked() -> InstanceError {
+    InstanceError::Collection(
+        "a list engine is in use but this artifact doesn't link lists (LLP 1047 D6)".into(),
+    )
+}
+
 /// Why an instance could not be realized.
 #[allow(missing_docs)]
 #[derive(Debug, Clone, PartialEq)]
@@ -611,17 +661,22 @@ impl NodeInst {
             collection: None,
         };
         inst.emit_bindings(u, frames, true)?;
-        inst.collection = collection::Collection::create(u, node, view, frames)?;
+        let lists = u.env.lists;
+        inst.collection = match lists {
+            Some(lists) => (lists.create)(u, node, view, frames)?,
+            None => None,
+        };
         if inst.collection.is_none() {
-            inst.children = if node_type == NodeType::List
-                && (inst
-                    .bound_prop(u.env.plan, exact_kernel::PropId::ItemHeight)
-                    .is_some()
-                    || inst
-                        .bound_prop(u.env.plan, exact_kernel::PropId::EstimatedItemHeight)
-                        .is_some())
-            {
-                inst.list_children(u, frames)?
+            inst.children = if let Some(lists) = lists.filter(|_| {
+                node_type == NodeType::List
+                    && (inst
+                        .bound_prop(u.env.plan, exact_kernel::PropId::ItemHeight)
+                        .is_some()
+                        || inst
+                            .bound_prop(u.env.plan, exact_kernel::PropId::EstimatedItemHeight)
+                            .is_some())
+            }) {
+                (lists.windowed)(&inst, u, frames)?
             } else {
                 realize(u, Some(node), row.arm, frames)?
             };
@@ -770,7 +825,9 @@ impl NodeInst {
             .bound_prop(u.env.plan, exact_kernel::PropId::ScrollTop)
             .cloned();
         self.emit_bindings(u, frames, false)?;
-        self.prepare_list(u.env.plan, old_top)?;
+        if let Some(lists) = u.env.lists {
+            (lists.prepare)(self, u.env.plan, old_top)?;
+        }
 
         if let Some(collection) = &mut self.collection {
             let follow = u
@@ -787,8 +844,7 @@ impl NodeInst {
                         .then_some(self.last[i] == Some(Value::Bool(true)))
                 })
                 .unwrap_or(false);
-            collection.follow_end(follow);
-            collection.update_data(u, frames, false)?;
+            (u.env.lists.ok_or_else(unlinked)?.update)(collection, u, frames, follow)?;
         } else if update_all(u, &mut self.children, frames)? {
             self.emit_children(u);
         }
@@ -838,24 +894,8 @@ impl RegionInst {
         let index = self.region.0 as usize;
         let row = plan.region(self.region);
         let subject_stale = fresh || u.stale(&deps.subjects[index]);
-        if let Some(mut window) = self.window.take() {
-            let result = if subject_stale || u.stale_outside(&deps.keys[index], 1) {
-                match u.eval(row.subject, frames) {
-                    Ok(Value::List(items)) => {
-                        window.replace(u, &mut self.active, self.region, items, frames)
-                    }
-                    Ok(_) => Err(InstanceError::SubjectKind {
-                        region: self.region,
-                    }),
-                    Err(trap) => Err(trap.into()),
-                }
-            } else {
-                // The same items and keys: only mounted rows may be stale.
-                window.refresh(u, &mut self.active, self.region, frames)
-            };
-            self.window = Some(window);
-            // The window's content view is its one root.
-            return result.map(|_| false);
+        if self.window.is_some() {
+            return (u.env.lists.ok_or_else(unlinked)?.window)(self, u, frames, subject_stale);
         }
         match (&row.kind, &mut self.active) {
             (RegionKind::When, Active::Arm { arm, frame, roots }) => {
@@ -1217,7 +1257,9 @@ impl Tree {
             self.emit_roots(u);
         }
         if self.has_collections && u.ops.iter().any(|op| matches!(op, Op::SetStyle { patch, .. } if patch.mask.intersects(exact_kernel::StyleMask::TEXT))) {
-            collection::invalidate_typography(&mut self.children, u, &[])?;
+            if let Some(lists) = u.env.lists {
+                (lists.typography)(&mut self.children, u, &[])?;
+            }
         }
         // Views are never reused within a runner. Detach removed children in
         // the final child lists before destroying them, so a removed list does
