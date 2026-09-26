@@ -230,9 +230,11 @@ change can break.
   exact1's webview: `top` topology, navigation policy, the controller ops, `allow`,
   author-facing `srcdoc` — each with its return trigger in LLP 1020 §5.)
 - No camera anything.
-- No gradient style rows. A gradient with anything on it is a canvas surface with
+- ~~No gradient style rows. A gradient with anything on it is a canvas surface with
   children (LLP 1014 §5 — the take for widening `canvas`; the three rows return when a
-  host earns them).
+  host earns them).~~ Moved 2026-09-26 (Seth, LLP 1056): CSS `background-image`, one
+  linear or radial gradient as one row. Unblocks grnl's protection gradient under its
+  Record button, and any fade, without a canvas.
 - No virtualList v2 (cert wires, extent demand, proxy lanes). **Admitted 2026-09-14
   (Charlie: "ok do what you think"):** a straightforward windowed list with bounded
   row/view lifetime and a separate decoded-image budget (LLP 1010 §6). Unblocks
