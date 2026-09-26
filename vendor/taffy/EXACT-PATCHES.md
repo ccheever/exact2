@@ -514,3 +514,20 @@ unsafe code. Held by
 and padding resolve against their own bases) and the codec's round trip of
 wire kind 7. Upstream would want the same hook or a `TaffyTree` generic over
 a resolver; either removes this patch.
+
+## Patch 14: a flex item's intrinsic contribution clamps before its margin — to upstream
+
+**Implementer:** Claude (Opus 5.5), 2026-09-26, for LLP 1054 P1.
+
+`determine_container_main_size`'s intrinsic path (`compute/flexbox.rs`, the
+min/max-content contribution of an item with a min or max main size) added
+the item's margin to its content size and *then* took
+`max(flex_basis)` and clamped by `min-height`/`max-height`, both inner
+sizes. A negative margin therefore vanished: a content-sized column holding
+`row min-height: 48px; margin-top: -44px` over 90px of content measured 90
+where Chrome measures 46, so a Bluesky profile header was 44 pt too tall on
+iOS (whose list rows are the kernel's layout) and right on the web (the
+browser's). The fix clamps the inner size and adds the margin after, in
+both the measured branch and the definite-preferred-size branch. Held by
+`contract/cli/tests/it/negative_margin.rs` (five item shapes, and the
+header the port found). Upstream has the same order.
