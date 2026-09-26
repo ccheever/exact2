@@ -5,11 +5,12 @@
 // the page is idle. Client routes show placeholders while loading.
 routes nav
   tab home "/" render=cached
-    login "/login"
-    register "/register"
+    login "/login" render=cached
+    register "/register" render=cached
     settings "/settings"
     editor "/editor"
     edit "/editor/:slug"
+    tag "/tag/:tag" render=cached
     article "/article/:slug" render=cached
     profile "/profile/:username" render=cached
     favorites "/profile/:username/favorites" render=cached
@@ -104,10 +105,12 @@ component RealWorld
   derive current = top(nav)
   derive slug = ((current.name == "article" or current.name == "edit") ? current.params.slug: "")
   derive listName = ((current.name == "profile" or current.name == "favorites") ? current.params.username: "")
-  derive listKind = (current.name == "home" ? homeFeed: current.name == "profile" ? "author": current.name == "favorites" ? "favorited": "")
-  state homeFeed = "global"
-  state homeTag = ""
+  // `/` is the global feed, `/?feed=following` the signed-in reader's: read
+  // from the URL, as React reads `?feed=following`.
+  derive following = (current.name == "home" and searchParam(current, "feed") == "following")
+  derive listKind = (current.name == "home" ? (following ? (me.signedIn ? "feed": ""): "global"): current.name == "tag" ? "tag": current.name == "profile" ? "author": current.name == "favorites" ? "favorited": "")
   state page = 1
+  state loginNext = false
   state seenAuth = 0
   state seenChange = 0
   state editorSession = 0
@@ -124,8 +127,8 @@ component RealWorld
   derive changeSlug = match change { case some(c) => c.slug, case none => "" }
   derive editorTags = match tagEdit { case some(t) => (t.session == editorSession ? t.items: post.tags), case none => post.tags }
   resource me = currentUser(authStamp) as shape User else anonymous()
-  resource tags = popularTags(current.name == "home") as shape list<string>
-  resource feed = articles(listKind, homeTag, listName, page, me.username, changeStamp) as shape Feed else emptyFeed()
+  resource tags = popularTags(current.name == "home" or current.name == "tag") as shape list<string>
+  resource feed = articles(listKind, current.params.tag, listName, page, me.username, changeStamp) as shape Feed else emptyFeed()
   resource post = article(slug, me.username, changeStamp) as shape Article else emptyArticle()
   resource thread = comments(slug, me.username, changeStamp) as shape list<Comment>
   resource person = profile(listName, me.username, changeStamp) as shape Profile else emptyProfile()
@@ -142,15 +145,6 @@ component RealWorld
   action followLink(url: string) writes nav, page
     page = 1
     nav = go(nav, url)
-  action showFeed(kind: string) writes homeFeed, page
-    homeFeed = kind
-    page = 1
-  action showTag(t: string) writes homeFeed, homeTag, page, nav
-    homeFeed = "tag"
-    homeTag = t
-    page = 1
-    if current.name != "home"
-      nav = push(nav, "/")
   action showPage(n: number) writes page
     page = n
   action login(email: string, password: string) writes auth
@@ -159,8 +153,7 @@ component RealWorld
     send auth = register(username, email, password)
   action saveSettings(image: string, username: string, bio: string, email: string, password: string) writes auth
     send auth = saveSettings(image, username, bio, email, password)
-  action logout writes auth, homeFeed
-    homeFeed = "global"
+  action logout writes auth
     send auth = logout()
   action favorite(target: string, on: bool) writes change, nav
     if me.signedIn
@@ -196,12 +189,26 @@ component RealWorld
   // runs when it lands, so a tick looks for an unseen answer and redirects
   // the way the spec asks (signed in → home; published → the article;
   // deleted → home). LLP 1038 §7: "an action checks … and applies replace".
-  action settle writes nav, seenAuth, seenChange, homeFeed
+  // Your Feed is the signed-in reader's; a signed-out visit goes to sign in,
+  // in place of its entry, as React's <Navigate to="/login" replace />. A
+  // tab's first entry can only be its root, so a first visit's entry gives
+  // up its query, and /login follows on the next tick: Back is the global
+  // feed, never Your Feed again.
+  action settle writes nav, seenAuth, seenChange, loginNext
     if authStamp != seenAuth
       seenAuth = authStamp
       if authOk and (current.name == "login" or current.name == "register" or current.name == "settings")
-        homeFeed = (me.signedIn ? homeFeed: "global")
         nav = open(nav, "/")
+    if loginNext
+      loginNext = false
+      if current.name == "home" and not me.signedIn
+        nav = push(nav, "/login")
+    if following and not pending(me) and not me.signedIn
+      if depth(nav) > 1
+        nav = replace(nav, "/login")
+      else
+        loginNext = true
+        nav = replace(nav, "/")
     if changeStamp != seenChange
       seenChange = changeStamp
       if changeOk and changeKind == "publish"
@@ -226,26 +233,28 @@ component RealWorld
       background-color="#ffffff"
       head title="Conduit" description="A place to share your knowledge."
       Header(me=me, current=current, go=go)
+      // `/` and `/tag/:tag` are one page, outside the stack's rows, as React
+      // keeps one <Home> mounted: going to a tag changes the feed and the
+      // tabs, not the page.
+      when current.name == "home" or current.name == "tag"
+        column navigationKey=`${current.id}` flex=1 testId=`page-${current.name}`
+          head title="Home — Conduit"
+          HomePage(
+            me=me,
+            feed=feed,
+            loading=pending(feed),
+            tags=tags,
+            tagsLoading=pending(tags),
+            following=following,
+            tag=current.params.tag,
+            page=page,
+            go=go,
+            showPage=showPage,
+            favorite=favorite
+          )
       each e in stack(nav) key = e.id
-        when e.id == current.id
+        when e.id == current.id and e.name != "home" and e.name != "tag"
           column navigationKey=`${e.id}` flex=1 testId=`page-${e.name}`
-            when e.name == "home"
-              head title="Home — Conduit"
-              HomePage(
-                me=me,
-                feed=feed,
-                loading=pending(feed),
-                tags=tags,
-                tagsLoading=pending(tags),
-                homeFeed=homeFeed,
-                homeTag=homeTag,
-                page=page,
-                go=go,
-                showFeed=showFeed,
-                showTag=showTag,
-                showPage=showPage,
-                favorite=favorite
-              )
             when e.name == "login"
               head title="Sign in — Conduit"
               AuthPage(signup=false, auth=auth, go=go, login=login, register=register)
@@ -276,7 +285,6 @@ component RealWorld
                 loading=pending(post),
                 thread=thread,
                 go=go,
-                showTag=showTag,
                 favorite=favorite,
                 follow=follow,
                 remove=deleteArticle,
@@ -295,7 +303,6 @@ component RealWorld
                 favorites=(e.name == "favorites"),
                 page=page,
                 go=go,
-                showTag=showTag,
                 showPage=showPage,
                 favorite=favorite,
                 follow=follow
@@ -394,11 +401,11 @@ component Meta
 
 component Previews
   props
+    me: User
     feed: Feed
     loading: bool
     page: number
     go: action
-    showTag: action
     showPage: action
     favorite: action
   view
@@ -427,14 +434,26 @@ component Previews
           testId=`preview-${a.slug}`
           row align-items="center" margin-bottom=16
             Meta(author=a.author, date=a.date, go=go)
-            button press=favorite(a.slug, not a.favorited)
-              class=BtnSm
-              margin-left="auto"
-              border-color="#33aa44"
-              color=(a.favorited ? "#ffffff": "#33aa44")
-              background-color=(a.favorited ? "#33aa44": "#ffffff")
-              testId=`favorite-${a.slug}`
-              text `♥ ${a.favoritesCount}`
+            // Signed out, the ♥ goes to sign up: a link, so it works
+            // before the runtime loads.
+            when me.signedIn
+              button press=favorite(a.slug, not a.favorited)
+                class=BtnSm
+                margin-left="auto"
+                border-color="#33aa44"
+                color=(a.favorited ? "#ffffff": "#33aa44")
+                background-color=(a.favorited ? "#33aa44": "#ffffff")
+                testId=`favorite-${a.slug}`
+                text `♥ ${a.favoritesCount}`
+            else
+              link href="/register" press=go("/register")
+                class=BtnSm
+                margin-left="auto"
+                border-color="#33aa44"
+                color="#33aa44"
+                background-color="#ffffff"
+                testId=`favorite-${a.slug}`
+                text `♥ ${a.favoritesCount}`
           link href=`/article/${encodeURIComponent(a.slug)}` press=go(`/article/${encodeURIComponent(a.slug)}`)
             color="#373a3c"
             testId=`open-${a.slug}`
@@ -448,7 +467,7 @@ component Previews
               text "Read more..."
             row flex-wrap="wrap" justify-content="flex-end" max-width="50%"
               each t in a.tags key = t
-                button press=showTag(t)
+                link href=`/tag/${encodeURIComponent(t)}` press=go(`/tag/${encodeURIComponent(t)}`)
                   class=Tag
                   color="#aaaaaa"
                   font-weight=300
@@ -478,12 +497,10 @@ component HomePage
     loading: bool
     tags: list<string>
     tagsLoading: bool
-    homeFeed: string
-    homeTag: string
+    following: bool
+    tag: string
     page: number
     go: action
-    showFeed: action
-    showTag: action
     showPage: action
     favorite: action
   view
@@ -498,34 +515,37 @@ component HomePage
         text "A place to share your knowledge." font-weight=300 color="#999999" text-align="center"
       row class=Container flex-wrap="wrap" gap=30
         column flex=3 min-width=300
+          // The tabs are links, as React's are: Your Feed and Global Feed
+          // push their URL; a tag's own tab is where you are.
           row class=Tabs
             when me.signedIn
-              button press=showFeed("feed")
+              link href="/?feed=following" press=go("/?feed=following")
                 padding-top=8
                 padding-bottom=8
                 padding-left=16
                 padding-right=16
                 border-bottom-style="solid"
                 border-bottom-width=2
-                border-color=(homeFeed == "feed" ? "#33aa44": "#ffffff")
-                color=(homeFeed == "feed" ? "#33aa44": "#aaaaaa")
+                border-color=(following ? "#33aa44": "#ffffff")
+                color=(following ? "#33aa44": "#aaaaaa")
                 background-color="#ffffff"
                 testId="tab-feed"
                 text "Your Feed"
-            button press=showFeed("global")
+            link href="/" press=go("/")
               padding-top=8
               padding-bottom=8
               padding-left=16
               padding-right=16
               border-bottom-style="solid"
               border-bottom-width=2
-              border-color=(homeFeed == "global" ? "#33aa44": "#ffffff")
-              color=(homeFeed == "global" ? "#33aa44": "#aaaaaa")
+              border-color=((tag == "" and not following) ? "#33aa44": "#ffffff")
+              color=((tag == "" and not following) ? "#33aa44": "#aaaaaa")
               background-color="#ffffff"
               testId="tab-global"
               text "Global Feed"
-            when homeFeed == "tag"
-              button padding-top=8
+            when tag != ""
+              link href=`/tag/${encodeURIComponent(tag)}`
+                padding-top=8
                 padding-bottom=8
                 padding-left=16
                 padding-right=16
@@ -535,13 +555,13 @@ component HomePage
                 color="#33aa44"
                 background-color="#ffffff"
                 testId="tab-tag"
-                text `# ${homeTag}`
+                text `# ${tag}`
           Previews(
+            me=me,
             feed=feed,
             loading=loading,
             page=page,
             go=go,
-            showTag=showTag,
             showPage=showPage,
             favorite=favorite
           )
@@ -556,7 +576,7 @@ component HomePage
               text "Loading tags..." color="#999999"
             row flex-wrap="wrap"
               each t in tags key = t
-                button press=showTag(t)
+                link href=`/tag/${encodeURIComponent(t)}` press=go(`/tag/${encodeURIComponent(t)}`)
                   class=Tag
                   color="#222222"
                   background-color="#ffffff"
@@ -845,20 +865,38 @@ component ArticleActions
           testId="delete-article"
           text "🗑 Delete Article"
       else
-        button press=follow(post.author.username, not post.author.following)
-          class=BtnSm
-          border-color="#cccccc"
-          color=(post.author.following ? "#ffffff": "#cccccc")
-          background-color=(post.author.following ? "#cccccc": "#ffffff")
-          testId="follow"
-          text(post.author.following ? `+ Unfollow ${post.author.username}`: `+ Follow ${post.author.username}`)
-        button press=favorite(post.slug, not post.favorited)
-          class=BtnSm
-          border-color="#33aa44"
-          color=(post.favorited ? "#ffffff": "#33aa44")
-          background-color=(post.favorited ? "#33aa44": "#ffffff")
-          testId="favorite"
-          text `♥ ${post.favorited ? "Unfavorite" : "Favorite"} Article (${post.favoritesCount})`
+        // Signed out, both go to sign up: links, so they work before the
+        // runtime loads.
+        when me.signedIn
+          button press=follow(post.author.username, not post.author.following)
+            class=BtnSm
+            border-color="#cccccc"
+            color=(post.author.following ? "#ffffff": "#cccccc")
+            background-color=(post.author.following ? "#cccccc": "#ffffff")
+            testId="follow"
+            text(post.author.following ? `+ Unfollow ${post.author.username}`: `+ Follow ${post.author.username}`)
+          button press=favorite(post.slug, not post.favorited)
+            class=BtnSm
+            border-color="#33aa44"
+            color=(post.favorited ? "#ffffff": "#33aa44")
+            background-color=(post.favorited ? "#33aa44": "#ffffff")
+            testId="favorite"
+            text `♥ ${post.favorited ? "Unfavorite" : "Favorite"} Article (${post.favoritesCount})`
+        else
+          link href="/register" press=go("/register")
+            class=BtnSm
+            border-color="#cccccc"
+            color="#cccccc"
+            background-color="#ffffff"
+            testId="follow"
+            text `+ Follow ${post.author.username}`
+          link href="/register" press=go("/register")
+            class=BtnSm
+            border-color="#33aa44"
+            color="#33aa44"
+            background-color="#ffffff"
+            testId="favorite"
+            text `♥ Favorite Article (${post.favoritesCount})`
 
 component ArticlePage
   props
@@ -867,7 +905,6 @@ component ArticlePage
     loading: bool
     thread: list<Comment>
     go: action
-    showTag: action
     favorite: action
     follow: action
     remove: action
@@ -907,7 +944,7 @@ component ArticlePage
               testId="article-body"
             row flex-wrap="wrap" margin-top=16
               each t in post.tags key = t
-                button press=showTag(t)
+                link href=`/tag/${encodeURIComponent(t)}` press=go(`/tag/${encodeURIComponent(t)}`)
                   class=Tag
                   color="#aaaaaa"
                   font-weight=300
@@ -1024,7 +1061,6 @@ component ProfilePage
     favorites: bool
     page: number
     go: action
-    showTag: action
     showPage: action
     favorite: action
     follow: action
@@ -1065,14 +1101,24 @@ component ProfilePage
                 testId="edit-settings"
                 text "⚙ Edit Profile Settings"
             else
-              button press=follow(person.username, not person.following)
-                class=BtnSm
-                align-self="flex-end"
-                border-color="#999999"
-                color=(person.following ? "#ffffff": "#999999")
-                background-color=(person.following ? "#999999": "#ffffff")
-                testId="follow-profile"
-                text(person.following ? `+ Unfollow ${person.username}`: `+ Follow ${person.username}`)
+              when me.signedIn
+                button press=follow(person.username, not person.following)
+                  class=BtnSm
+                  align-self="flex-end"
+                  border-color="#999999"
+                  color=(person.following ? "#ffffff": "#999999")
+                  background-color=(person.following ? "#999999": "#ffffff")
+                  testId="follow-profile"
+                  text(person.following ? `+ Unfollow ${person.username}`: `+ Follow ${person.username}`)
+              else
+                link href="/register" press=go("/register")
+                  class=BtnSm
+                  align-self="flex-end"
+                  border-color="#999999"
+                  color="#999999"
+                  background-color="#ffffff"
+                  testId="follow-profile"
+                  text `+ Follow ${person.username}`
       column class=Container max-width=950
         row class=Tabs margin-top=24
           button press=go(`/profile/${encodeURIComponent(person.username)}`)
@@ -1100,11 +1146,11 @@ component ProfilePage
             testId="tab-favorites"
             text "Favorited Articles"
         Previews(
+          me=me,
           feed=feed,
           loading=loading,
           page=page,
           go=go,
-          showTag=showTag,
           showPage=showPage,
           favorite=favorite
         )

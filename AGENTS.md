@@ -20,6 +20,10 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
 
 - Tooling runs on Bun (pinned in `package.json`); `bun install --frozen-lockfile`.
   Rolldown remains the app bundler. Node and npm are not required.
+- The web artifacts (`app.wasm`, the Markdown editor, text flow) build with a pinned
+  nightly (`WEB_TOOLCHAIN` in `scripts/app.mjs`) that builds std for size; everything
+  else is `rust-toolchain.toml`'s stable, which the five checks use. `build.mjs`
+  names the install commands when the nightly or its `rust-src` is missing.
 
 - `kernel/tables/schema.json` is the one declaration authority; `kernel/build.rs`
   generates from it. Edit the table, never generated code.

@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { focusController, navigation, afterPaintPieces, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst } from "./navigation.js";
+import { focusController, runFocusCommands, environment, inertAncestor, navigation, afterPaintPieces, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst } from "./navigation.js";
 let httpModule;
 function httpHelpers() {
   return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
@@ -314,14 +314,15 @@ function refreshSymbols() {
   for (const el of views.values()) {
     if (!(el instanceof HTMLImageElement) || !el.hasAttribute("data-symbol-path")) continue;
     const cs = getComputedStyle(el), size = parseFloat(cs.fontSize), weight = Number(cs.fontWeight);
-    const path = el.getAttribute("data-symbol-path"), key = `${path}:${size}:${weight}`;
+    const path = el.getAttribute("data-symbol-path"), filled = el.hasAttribute("data-symbol-fill"), key = `${path}:${filled}:${size}:${weight}`;
     if (!path && el.symbolRefusal !== el.symbolSource) {
       log(`image ${el.symbolSource} refused: unknown symbol role`); el.symbolRefusal = el.symbolSource;
     }
     if (el.symbolKey !== key) {
       el.symbolKey = key;
       const point = path ? size : 0, stroke = 1.1 + (Math.max(100, Math.min(900, weight)) - 100) / 400;
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}" viewBox="0 0 24 24"><path d="${path}" fill="none" stroke="black" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+      const paint = filled ? 'fill="black" fill-rule="evenodd"' : `fill="none" stroke="black" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round"`;
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}" viewBox="0 0 24 24"><path d="${path}" ${paint}/></svg>`;
       el.symbolMask = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
       el.symbolPlaceholder = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}"/>`)}`;
     }
@@ -334,14 +335,6 @@ function refreshSymbols() {
     el.style.setProperty("--exact-symbol-fit", fit);
   }
 }
-function inertAncestor(el) {
-  for (let node = el; node; node = node.parentElement) {
-    if (node.hasAttribute("inert")) return node;
-    if (node.localName === "dialog" && node.matches(":modal")) return null;
-  }
-  return null;
-}
-
 // The app's `value` into an editor as a person types: the changed middle only (`setRangeText` keeps the selection where a whole assignment throws the caret to the end), never mid-composition — held, applied at compositionend. LLP 1045 D5.
 const composing = new WeakSet(), heldValues = new WeakMap(), compositionFlush = new WeakMap();
 function writeValue(el, value) {
@@ -455,23 +448,6 @@ function syncViewportFit() {
   if (meta && meta.content !== want) meta.content = want;
   const vv = globalThis.visualViewport;
   root.style.height = widget === "resizes-content" && vv && vv.scale === 1 && !root.querySelector('[data-scrolldocument="true"]') ? `${Math.min(innerHeight, vv.height)}px` : "";
-}
-let probe;
-function environment() {
-  if (!probe) {
-    probe = document.createElement("div");
-    probe.style.cssText = "position:fixed;inset:0;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)";
-    document.body.append(probe);
-  }
-  const r2 = (x) => Math.round(x * 100) / 100;
-  const cs = getComputedStyle(probe);
-  return {
-    "safe-area-inset-top": r2(parseFloat(cs.paddingTop) || 0),
-    "safe-area-inset-right": r2(parseFloat(cs.paddingRight) || 0),
-    "safe-area-inset-bottom": r2(parseFloat(cs.paddingBottom) || 0),
-    "safe-area-inset-left": r2(parseFloat(cs.paddingLeft) || 0),
-    "keyboard-inset-height": r2(Math.max(0, innerHeight - (visualViewport?.height ?? innerHeight))),
-  };
 }
 function attach(el, id, handlers) {
   el.dataset.view = String(id); el.exactHandlers = handlers; if (handlers.length) el.dataset.exactOn = handlers.join(" "); else delete el.dataset.exactOn;
@@ -734,7 +710,7 @@ function apply(batch) {
         // user's preference decides, which is what "follow the system" is on
         // the web. `light`/`dark` are the property's own values.
         if (op.name === "setScheme") { const s = String(op.args[0] ?? ""); document.documentElement.style.colorScheme = s === "system" ? "light dark" : s; }
-        else if (op.name === "focus" || op.name === "selectText") focusCommands.push({ args: op.args, selectText: op.name === "selectText" });
+        else if (op.name === "focus" || op.name === "selectText" || op.name === "blur") focusCommands.push({ name: op.name, args: op.args });
         else if (op.name === "format") { const owner = incarnation, run = () => { const el = [...views.values()].find(el => el.id === op.args?.[0]); if (inputReady && incarnation === owner) el?.exactMarkup?.format(op.args[1], op.args[2] ?? ''); }; if (markupModule) markupModule.then(run); else run(); }
         else if (op.name === "openURL") {
           if (op.args?.length !== 1 || typeof op.args[0] !== "string") {
@@ -799,28 +775,26 @@ function apply(batch) {
   refreshSymbols();
   for (const snapshot of collectionOp?.items ?? []) followScroll(views.get(snapshot.view), false);
   for (const s of followedScrolls.values()) settleFollow(s);
+  const jumps = []; // a collection builds a jump's rows, then moves (LLP 1050.000 §6)
   for (const [el, offsets] of pendingScrolls) if (el.isConnected) {
     // Mirroring the current offset must not restart snapping or cancel a pan.
-    for (const [name, offset] of Object.entries(offsets)) if (el[name] !== offset) el[name] = offset;
+    // `scroll-behavior: smooth` (the row's CSS) animates the assignment itself (CSSOM View §7),
+    // once; the agent's clock cannot seek that animation, so under it the scroll lands at once.
+    for (const [name, offset] of Object.entries(offsets)) if (el[name] !== offset) {
+      if (name === "scrollTop" && lists.get(el)?.window === false) jumps.push([Number(el.dataset.view), offset]);
+      else if (agentMode && el.style.scrollBehavior === "smooth") el.scrollTo({ [name === "scrollTop" ? "top" : "left"]: offset, behavior: "instant" });
+      else el[name] = offset;
+    }
     const s = followedScrolls.get(el); if (s) rememberScroll(s);
   }
   pendingScrolls.clear();
   if (collectionOp) collections.commit(collectionOp.items);
+  for (const [view, top] of jumps) collections.jump(view, top);
   listSelection?.after();
   syncLists();
   // Focusing can dispatch an action; every node/value in this batch must be
   // committed before its focus handler runs.
-  for (const { args, selectText } of focusCommands) {
-    if (args?.length !== 1 || typeof args[0] !== "string" || !inputReady) continue;
-    const el = [...root.querySelectorAll("[id]")].find(node => node.id === args[0]);
-    const reason = !el ? "no live node with that id" : !el.isConnected ? "not mounted" : el.matches(":disabled,[disabled]") ? "disabled"
-      : inertAncestor(el) ? "inert ancestor" : !el.getClientRects().length ? "zero size"
-      : getComputedStyle(el).visibility !== "visible" ? "hidden ancestor" : null;
-    if (reason) { log(`focus "${args[0]}" refused: ${reason}`); continue; }
-    if (selectText && typeof el.select !== "function") { log(`selectText "${args[0]}" refused: not a text editor`); continue; }
-    el.focus();
-    if (selectText && document.activeElement === el) el.select();
-  }
+  runFocusCommands(focusCommands, { root, ready: inputReady, inertAncestor, log });
   focusAutofocus();
   positionContexts();
   return batch.timers;
@@ -935,10 +909,15 @@ function deferFulfill(...args) {
 // and every animation the browser holds (`Animation.currentTime`, LLP 1002
 // D3), and the GPU module's picture. `tap`, `type`, and `screenshot` are
 // the driver's, over CDP: real input, real pixels.
-function ask(request) {
-  const n = writeIn(JSON.stringify(request));
-  return JSON.parse(readOut(wasm.exact_agent(n)));
+function ask(request) { // entering an unloaded stage traps mid-call; callers load it first (LLP 1047.000 §9)
+  if (!stageLoaded('inspection')) throw new Error('inspection is a stage that has not loaded (LLP 1047.000): load it before asking');
+  return JSON.parse(readOut(wasm.exact_agent(writeIn(JSON.stringify(request)))));
 }
+// Staged capabilities (the core's `exact.stages`; none unsplit): modules over its memory and tables, named by digest (LLP 1047.000 §9).
+let stages = {}; const stageLoads = new Map(), stageLoaded = (name) => !stages[name] || stageLoads.get(name)?.loaded === true;
+function loadStage(name) { if (!stages[name] || !wasm) return Promise.resolve(); let load = stageLoads.get(name); if (load) return load.promise;
+  load = { loaded: false }; stageLoads.set(name, load); return load.promise = WebAssembly.instantiateStreaming(fetch(new URL(stages[name], import.meta.url)), { primary: wasm })
+    .then(() => { load.loaded = true; }, (error) => { stageLoads.delete(name); throw new Error(`the ${name} stage (${stages[name]}) did not load: ${error}`); }); }
 // A line for the runner's journal (LLP 1012 §3): what the page refused, and why.
 function log(line) {
   if (wasm) wasm.exact_log(writeIn(line));
@@ -1131,7 +1110,7 @@ async function waitForInflight(deadline) {
   return helpers ? helpers.waitForInflight(inflight, deadline) : false;
 }
 async function settleGpu() { loadGpuIfNeeded(); await gpuLoading; await globalThis.exact.gpu?.settled(); }
-function agent(request) { return agentMode && gpuInPlay() ? settleGpu().then(() => agentNow(request)) : agentNow(request); }
+async function agent(request) { await loadStage('inspection'); return agentMode && gpuInPlay() ? settleGpu().then(() => agentNow(request)) : agentNow(request); }
 function agentNow(request) { const r = agentReply(request), decorate = globalThis.exact.gpu?.decorate; return decorate ? decorate(request, r) : r; }
 function agentReply(request) {
   try {
@@ -1239,19 +1218,29 @@ function tagged(reply) {
 // in flight ends, and if the timers crossed on the way started more, again
 // (bounded; `settled: false` at the bound). A request in flight (LLP 1016)
 // is waited for first: its reply commits, and may start motion or ask for
-// more, before the fixed point is measured. The clock lands where the
-// runner says; a timer's refusal is the error. A promise: the driver awaits it.
+// more, before the fixed point is measured. A jump that crosses timers is
+// taken due time by due time, and what is in flight lands before a timer
+// fires — the runner keeps one request per target (LLP 1016 D5), so a tick's
+// send would drop the reply of the one before it; past the deadline, or 4096
+// steps, the rest is one advance. The clock lands where the runner says; a
+// timer's refusal is the error. A promise: the driver awaits it.
 async function clock(request) {
   const settle = !!request.settle;
-  const deadline = settle ? performance.now() + SETTLE_DEADLINE_MS : 0;
+  const deadline = performance.now() + SETTLE_DEADLINE_MS;
   let world = {};
-  const reply = (settled) => ({ clock: agentClock, ...(settled === undefined ? {} : { settled }), ...world.reply, ...(settled === false && world.pending ? { reason: "world" } : {}) });
+  const reply = (settled, requests) => ({ clock: agentClock, ...(settled === undefined ? {} : { settled }), ...world.reply, ...(settled === false && world.pending ? { reason: "world" } : settled === false && requests ? { reason: "requests" } : {}) });
   for (let rounds = 0; ; rounds++) {
-    if (settle && !(await waitForInflight(deadline))) return reply(false); const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad;
+    if (settle && !(await waitForInflight(deadline))) return reply(false, true); const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad;
     if (gpuInPlay()) await settleGpu();
     const to = settle ? Math.max(settleCandidate(), world.settleAt ?? agentClock) : request.to;
     if (!(to >= agentClock)) return { error: `the clock cannot go backwards (${agentClock} → ${to})` };
-    const { batch } = applyBatch(JSON.parse(readOut(wasm.exact_advance(to))));
+    let batch;
+    for (let steps = 0; ; steps++) {
+      let step = steps < 4096 && flowDue != null && flowDue > agentClock && flowDue < to ? flowDue : to;
+      if (flowDue != null && flowDue <= step && !(await waitForInflight(deadline))) step = to;
+      ({ batch } = applyBatch(JSON.parse(readOut(wasm.exact_advance(step)))));
+      if (batch.error || step === to) break;
+    }
     globalThis.exact.gpu?.schedule?.();
     if (flowLoading) await flowLoading;
     if (textflow) await textflow.settle();
@@ -1259,7 +1248,7 @@ async function clock(request) {
     if (gpuInPlay()) await settleGpu();
     world = globalThis.exact.gpu?.clock?.(settle) ?? {};
     if (!settle) return reply();
-    if (inflight.size) { if (rounds >= 15) return reply(false); continue; }
+    if (inflight.size) { if (rounds >= 15) return reply(false, true); continue; }
     const next = Math.max(settleCandidate(), world.settleAt ?? agentClock);
     if (next <= agentClock && !world.pending) return reply(true);
     if (rounds >= 15) return reply(false);
@@ -1307,7 +1296,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
     if (!current() || request !== bootAttempt) return null;
   }
   const launch = encoder.encode(location.pathname + location.search); // @ref LLP 1038 D5
-  const kept = !fresh && (bytes || module) ? focus.keep(ask({ op: "tree" }), Number(document.activeElement?.closest?.("[data-view]")?.dataset.view)) : undefined;
+  const kept = !fresh && (bytes || module) ? (await loadStage('inspection'), focus.keep(ask({ op: "tree" }), Number(document.activeElement?.closest?.("[data-view]")?.dataset.view))) : undefined;
   let len;
   if (module) {
     const id = module.rust ?? new TextEncoder().encode(JSON.stringify(module.realm.id));
@@ -1414,7 +1403,7 @@ globalThis.exact = { ...globalThis.exact, mutate, devFirst: () => devFirst(),
   message: (el, text) => { const id = Number(el?.dataset.view); if (inputReady && el && views.get(id) === el && messageViews.has(id)) send(wasm.exact_dispatch(id, 9, writeIn(text), now())); },
   get devAssets() { return devAssets; },
   get ready() { return ready.then(async () => { await moduleReady; if (!inputReady) throw new Error(root.dataset.error || 'data executor not ready'); }); },
-  ...(agentMode ? { agent, agentSettled, now, worldCarry: globalThis.exactWorldCarry } : {}), get wasm() { return wasm; }, writeIn, send, views, root, generation: 0, pendingSurfaces: [],
+  ...(agentMode ? { agent, agentSettled, now, worldCarry: globalThis.exactWorldCarry } : {}), get wasm() { return wasm; }, stages: () => Object.fromEntries(Object.keys(stages).map(name => [name, stageLoaded(name) ? 'loaded' : 'staged'])), writeIn, send, views, root, generation: 0, pendingSurfaces: [],
 };
 // The GPU module, on demand: a script element after a rendering opportunity
 // (two animation-frame callbacks), never an eager import, and only when a
@@ -1426,9 +1415,17 @@ function loadGpuIfNeeded() {
 }
 async function main() {
   if (page) { const options = { root, views, log, early: page.early, dispatch: (id, kind = 0, value = "") => send(wasm.exact_dispatch(id, kind, value ? writeIn(value) : 0, now())) }; page = globalThis.exact.documentPage?.connect(options) ?? (await loadAfterPaint('./document-glue.js', 'documentBoot'))(options); await page.started; }
-  const url = new URL("./app.wasm", import.meta.url), response = (globalThis.exact.runtime ??= fetch(url)).then(r => r.url === url.href ? r : fetch(url), () => fetch(url)); // a served document's download began at its first paint (LLP 1048.000 D6)
-  const { instance } = await WebAssembly.instantiateStreaming(response, { exact_js: { call: moduleCall }, exact_rust: rustImports });
-  wasm = instance.exports;
+  // A served document's download began at its first paint (LLP 1048.000 D6).
+  // A navigation that leaves the page stops it, or the glue's own, and their
+  // preload, so the next document has the link. A page that stays downloads it
+  // again: a task after Stop (`navigateerror`, fired mid-stop) or Back from the
+  // bfcache (`pageshow`); a 204 or a download says nothing, so after a second.
+  const url = new URL("./app.wasm", import.meta.url), imports = { exact_js: { call: moduleCall }, exact_rust: rustImports }, aborted = e => e?.name === "AbortError";
+  const download = () => { const stop = new AbortController(); globalThis.navigation?.addEventListener("navigate", e => e.destination.sameDocument || e.downloadRequest != null || (stop.abort(), document.querySelector('link[href="./app.wasm"]')?.remove()), { signal: stop.signal }); return fetch(url, { signal: stop.signal }); };
+  const stayed = () => new Promise(done => { const later = () => setTimeout(done); globalThis.navigation?.addEventListener("navigateerror", later, { once: true }); addEventListener("pageshow", later, { once: true }); setTimeout(done, 1000); });
+  let response = (globalThis.exact.runtime ??= download()).then(r => r.url === url.href ? r : download(), e => aborted(e) ? Promise.reject(e) : download()), instance;
+  let compiled; for (;;) try { ({ instance, module: compiled } = await WebAssembly.instantiateStreaming(response, imports)); break; } catch (e) { if (!aborted(e)) throw e; await stayed(); response = download(); }
+  wasm = instance.exports; const [staged] = WebAssembly.Module.customSections(compiled, 'exact.stages'); if (staged) stages = JSON.parse(new TextDecoder().decode(staged)).stages;
   memory = wasm.memory;
   globalThis.exact.compat = JSON.parse(readOut(wasm.exact_compat()));
   logicInfo = typeof wasm.exact_module_artifact === 'function' && wasm.exact_logic ? JSON.parse(readOut(wasm.exact_logic())) : null;

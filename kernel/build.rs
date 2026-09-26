@@ -159,6 +159,13 @@ fn validate(schema: &Schema) {
                 .all(|c| c.is_ascii_alphanumeric() || b" .,-".contains(&c)),
             "schema: invalid symbol path {role}"
         );
+        // A filled state is its own role, named as Apple names it, beside its outline.
+        let base = role.strip_suffix("-fill");
+        assert!(
+            base.is_some() == apple.ends_with(".fill")
+                && base.is_none_or(|base| schema.symbols.iter().any(|row| row[0] == base)),
+            "schema: symbol {role}: `-fill` is exactly Apple's `.fill`, beside its role"
+        );
     }
     assert_eq!(
         schema.schema_version, 1,
@@ -303,16 +310,17 @@ fn generate(schema: &Schema, digest: u64) -> String {
     .unwrap();
     writeln!(
         w,
-        "/// Resolve a role to its Apple name and browser path; never accepts a platform name."
+        "/// Resolve a role to its Apple name, browser path, and whether that path is\n/// filled (even-odd) rather than stroked; never accepts a platform name."
     )
     .unwrap();
     writeln!(
         w,
-        "pub fn symbol(role: &str) -> Option<(&'static str, &'static str)> {{ match role {{"
+        "pub fn symbol(role: &str) -> Option<(&'static str, &'static str, bool)> {{ match role {{"
     )
     .unwrap();
     for [role, apple, path] in &schema.symbols {
-        writeln!(w, "{role:?} => Some(({apple:?}, {path:?})),").unwrap();
+        let filled = role.ends_with("-fill");
+        writeln!(w, "{role:?} => Some(({apple:?}, {path:?}, {filled})),").unwrap();
     }
     writeln!(w, "_ => None, }} }}").unwrap();
     writeln!(
@@ -656,7 +664,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     // ---- StyleId / StyleCodec --------------------------------------------
     writeln!(w, "/// Wire codec of a style row.").unwrap();
     writeln!(w, "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]").unwrap();
-    writeln!(w, "pub enum StyleCodec {{ Dimension, LineHeight, F32, U8, U16, U32, I32, Rgba8, ColorValue, KeywordColor, Vec2, Color2, Tracks, Placement, Transitions, ClipPath, ShapeOutside, Enum }}").unwrap();
+    writeln!(w, "pub enum StyleCodec {{ Dimension, LineHeight, F32, U8, U16, U32, I32, Rgba8, ColorValue, KeywordColor, Vec2, Color2, Tracks, Placement, Transitions, ClipPath, ShapeOutside, AspectRatio, Enum }}").unwrap();
     writeln!(w, "/// One style row; the discriminant is the mask bit.").unwrap();
     writeln!(w, "#[repr(u8)]").unwrap();
     writeln!(
@@ -1206,6 +1214,21 @@ fn generate(schema: &Schema, digest: u64) -> String {
         "    pub fn check_finite(&self) -> Result<(), StyleId> {{"
     )
     .unwrap();
+    // Rows in bit order, which is schema order: the first failing row is
+    // the one a row-by-row check would name.
+    writeln!(
+        w,
+        "        match self.mask.iter().find(|&id| !self.get(id).is_finite()) {{ Some(id) => Err(id), None => Ok(()) }}"
+    )
+    .unwrap();
+    writeln!(w, "    }}").unwrap();
+    // The row-by-row form it replaced, for the test that holds them equal.
+    writeln!(w, "    #[cfg(test)]").unwrap();
+    writeln!(
+        w,
+        "    pub(crate) fn check_finite_rows(&self) -> Result<(), StyleId> {{"
+    )
+    .unwrap();
     for row in &schema.styles {
         let id = pascal(&row.field);
         let test = match parse_codec(&row.codec) {
@@ -1302,7 +1325,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
                 "{name}::from_name(value.text(id)?).ok_or(StyleValueError::UnknownEnumValue {{ style: id }})?"
             ),
             Codec::Transitions => "Transitions::parse(value.text(id)?).map_err(|_| StyleValueError::BadTransition { style: id })?".to_string(),
-            Codec::CssValue { path, error, .. } => format!("{path}::parse(value.text(id)?).ok_or(StyleValueError::{error} {{ style: id }})?"),
+            Codec::CssValue { path, error, .. } => format!("{path}::parse(&value.css_text(id)?).ok_or(StyleValueError::{error} {{ style: id }})?"),
             Codec::Color2 | Codec::Tracks | Codec::Placement => String::new(),
         };
         match groups.iter_mut().find(|(c, _)| *c == conv) {

@@ -237,7 +237,7 @@ fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
         (app("  state drab = \"\"\n", "text drat"), "type-unknown-name", "unknown name `drat`"),
         (app("  state t = some(\"a\")\n", "buton"), "lower-unknown-tag", "unknown tag `buton`; did you mean `button`?"),
         (app("", "div"), "lower-unknown-tag", "unknown tag `div`; a flex container is `column` or `row`, and a plain box `view`"),
-        (app("", "text \"a\" color=\"bleu\""), "lower-attr-value", "`color=\"bleu\"` is not a valid `color`: a color is `#rgb`, `#rrggbb`, or `#rrggbbaa`"),
+        (app("", "text \"a\" color=\"bleu\""), "lower-attr-value", "`color=\"bleu\"` is not a valid `color`: a color is `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb(r, g, b)`, or `rgba(r, g, b, a)`"),
         (app("", "text \"a\" font-size=\"14px\""), "lower-attr-value", "`font-size=\"14px\"` is not a valid `font-size`: expected number; write `font-size=14` (a number is pixels)"),
         (app("", "text \"a\" width=10px"), "syntax-unquoted-length", "`width=10px` needs quotes: a value with a unit is a string, `width=\"10px\"` (a bare number is pixels)"),
         (app("", "text \"a\" className=\"x\""), "lower-unknown-attr", "`text` has no attribute `className`; `class` names a `style` declared in this file, as in `class=Card`"),

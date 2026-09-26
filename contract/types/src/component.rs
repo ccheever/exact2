@@ -263,12 +263,12 @@ pub(crate) fn check_component(
     let scope = types.component_scope(c, &ct);
     check_view(&c.view, &scope, shapes, sink);
     for t in &c.tasks {
-        match infer(&t.every.0, &scope, shapes) {
+        match infer(&t.timer.0, &scope, shapes) {
             Ok(Ty::Number) => {}
             Ok(_) => sink.push(TypeError {
                 id: "type-timer",
-                message: "`every` needs a number of milliseconds".into(),
-                span: t.every.2,
+                message: "a task needs a number of milliseconds".into(),
+                span: t.timer.2,
             }),
             Err(e) => sink.push(e),
         }

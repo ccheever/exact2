@@ -1,4 +1,4 @@
-// The Swift face of the C ABI (host/apple/include/exact.h, v8): one
+// The Swift face of the C ABI (host/apple/include/exact.h, v9): one
 // `Runtime` per handle — created by `exact_create`, freed by
 // `exact_destroy` — and one typed batch per call. Runtime exports take the
 // handle (LLP 1031 D2), so a session that owns a runtime owns everything
@@ -141,6 +141,15 @@ final class Runtime {
     func heightDragRelease(_ token: UInt64, height: Double, velocity: Double, now: Double) -> Batch {
         read(exact_height_drag_release(rt, token, height, velocity, now))
     }
+    func reorderBegin(_ handle: UInt32, scrollTop: Double, now: Double) -> Batch {
+        read(exact_reorder_begin(rt, handle, scrollTop, now))
+    }
+    func reorderMove(_ token: UInt64, dy: Double, scrollTop: Double, inside: Bool, now: Double) -> Batch {
+        read(exact_reorder_move(rt, token, dy, scrollTop, inside ? 1 : 0, now))
+    }
+    func reorderEnd(_ token: UInt64, drop: Bool, dy: Double, scrollTop: Double, inside: Bool, velocity: Double, now: Double) -> Batch {
+        read(exact_reorder_end(rt, token, drop ? 1 : 0, dy, scrollTop, inside ? 1 : 0, velocity, now))
+    }
     func hasHold(_ token: UInt64) -> Bool { !destroyed && exact_has_hold(rt, token) != 0 }
     func holdUpdate(_ token: UInt64, x: Double, y: Double, now: Double) -> Batch {
         read(exact_hold_update(rt, token, x, y, now))
@@ -227,7 +236,16 @@ final class Runtime {
     }
     func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) -> Batch { read(exact_insets(rt, Float(top), Float(right), Float(bottom), Float(left))) }
     func tick(now: Double) -> Batch { read(exact_tick(rt, now)) }
-    func intrinsic(_ view: UInt32, width: CGFloat, height: CGFloat) -> Batch { read(exact_intrinsic(rt, view, Float(width), Float(height))) }
+    /// Images' intrinsic sizes (nil clears one), under one layout.
+    func intrinsics(_ sizes: [(UInt32, CGSize?)]) -> Batch {
+        var bytes = Data(capacity: sizes.count * 12)
+        for (view, size) in sizes {
+            for word in [view, Float(size?.width ?? 0).bitPattern, Float(size?.height ?? 0).bitPattern] {
+                withUnsafeBytes(of: word.littleEndian) { bytes.append(contentsOf: $0) }
+            }
+        }
+        return read(exact_intrinsics(rt, write(bytes)))
+    }
     /// Refresh the runner's delivery facts after an app-level event (LLP 1030 D7).
     func deliverySync() -> Batch { read(exact_delivery_sync(rt)) }
     /// The returned JSON is copied before the runtime output buffer is reused.

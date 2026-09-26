@@ -27,10 +27,10 @@ function worldFile(path) {
   if (bytes.length > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit; inspect `state world:*` and reduce saved entities before `screenshot checkpoint.world world save`');
   return bytes;
 }
-import { connect, createServer as createTCPServer } from 'node:net';
-import { networkInterfaces, tmpdir } from 'node:os';
-import { resolve } from 'node:path';
-import { appleArtifacts, assertAppleIdentity, bundleId, developmentLaunchEnvironment, install, phone, simulator } from '../host/apple/build.mjs';
+import { connect } from 'node:net';
+import { tmpdir } from 'node:os';
+import { basename, resolve } from 'node:path';
+import { appleArtifacts, assertAppleIdentity, bundleId, crashReports, developmentLaunchEnvironment, install, phone, phoneBridge, showSimulator, simulator } from '../host/apple/build.mjs';
 import { builtAppMatches, serveStatic } from '../host/web/serve.mjs';
 import { resolveApp } from './app.mjs';
 
@@ -319,7 +319,7 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
     let contact = null;
     const ask = async (req) => JSON.parse(await evaluate(`exact.agentSettled(${JSON.stringify(req)}).then((r) => JSON.stringify(r))`));
     return {
-      host: 'web', boot: Number(boot), hostLines,
+      host: 'web', boot: Number(boot), hostLines, evaluate,
       async gpuMs() {
         const ms = await evaluate("document.getElementById('exact-root')?.dataset.gpuMs ?? null");
         return ms == null ? null : Number(ms);
@@ -376,6 +376,10 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
             await frame();
             return { ...guest, at: [x, y] };
           }
+        }
+        if (id != null && ['press', 'contextmenu', 'dblclick'].includes(kind)) {
+          const why = await evaluate(`(() => { const el = exact.views.get(${id}), hit = document.elementFromPoint(${x}, ${y}); return !el ? null : !hit ? 'its middle is outside the viewport; scroll it into view first' : el === hit || el.contains(hit) || hit.contains(el) ? null : (hit.dataset?.view ? 'node #' + hit.dataset.view : hit.tagName.toLowerCase()) + ' covers its middle'; })()`);
+          if (why) throw new Error(`tap #${id} at (${x}, ${y}): ${why}`);
         }
         if (kind === 'down' || kind === 'move' || kind === 'hold' || kind === 'up' || kind === 'cancel') {
           // A held contact (LLP 1035.003 D1) is a finger here: CDP touch
@@ -485,50 +489,14 @@ export function jsonLines(readable, writable, hostLines) {
   };
 }
 
-/** One launch, one phone connection; reject other peers before any agent request.
- * The token crosses via the paired device's launch environment, not a public URL. */
-export async function phoneBridge() {
-  const interfaces = networkInterfaces();
-  const address = process.env.EXACT_AGENT_HOST ?? [...(interfaces.en0 ?? []), ...Object.values(interfaces).flat()]
-    .find((n) => n.family === 'IPv4' && !n.internal)?.address;
-  if (!address) throw new Error('phone agent needs a reachable Mac IPv4 address (EXACT_AGENT_HOST)');
-  const token = randomBytes(32).toString('hex');
-  const sockets = new Set();
-  let accept, fail;
-  const ready = new Promise((resolve, reject) => { accept = resolve; fail = reject; });
-  const server = createTCPServer((socket) => {
-    if (sockets.size >= 8) { socket.destroy(); return; }
-    sockets.add(socket);
-    socket.on('close', () => sockets.delete(socket));
-    socket.on('error', () => {});
-    socket.setTimeout(5000, () => socket.destroy());
-    let buf = '';
-    socket.setEncoding('utf8');
-    const hello = (chunk) => {
-      buf += chunk;
-      if (buf.length > 4096) { socket.destroy(); return; }
-      if (!buf.includes('\n')) return;
-      let announcement;
-      try { announcement = JSON.parse(buf); } catch { socket.destroy(); return; }
-      if (!announcement || announcement.token !== token || announcement.ready !== true) { socket.destroy(); return; }
-      delete announcement.token;
-      socket.pause();
-      socket.removeListener('data', hello);
-      socket.setTimeout(0);
-      server.close();
-      for (const other of sockets) if (other !== socket) other.destroy();
-      accept({ socket, announcement });
-    };
-    socket.on('data', hello);
-  });
-  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, address, resolve); });
-  server.on('error', fail);
-  return {
-    ready, fail,
-    env: { EXACT_AGENT_CONNECT: `${address}:${server.address().port}`, EXACT_AGENT_TOKEN: token },
-    close() { for (const socket of sockets) socket.destroy(); server.close(); },
-  };
+/** Why a native app stopped answering, for the error that ends the run: its pid alive or gone, how it exited, any crash report since launch, and the last 20 lines it wrote — not all of them since the last `logs`. */
+export function hangup({ what, pid = null, exit = null, reports = [], hostLines = [] }) {
+  const alive = pid == null ? null : (() => { try { process.kill(pid, 0); return true; } catch { return false; } })();
+  const status = exit ? (exit.signal ? `killed by ${exit.signal}` : `exit code ${exit.code}`) : alive == null ? 'no pid known' : `pid ${pid} ${alive ? 'still running' : 'gone'}`;
+  return [`${what} (${status})`, ...reports.map((f) => `crash report: ${f}`), ...hostLines.slice(-20)].join('\n');
 }
+/** A native reply's deadline: past `clock settle`'s own 20 s bound, so only a wedged app reaches it (a phone has 45 s). */
+const REPLY_MS = 120000;
 
 /** One JSON-lines protocol over stdio on macOS/Linux, or a phone's outbound socket. */
 async function openStdio({ host, plan, world, size, app, env: extra = {}, session, device = false, phone: pick, onProcess }) {
@@ -567,6 +535,7 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
   }
   Object.assign(env, extra);
   const bridge = device ? await phoneBridge() : null;
+  const launched = Date.now(); let closing = false;
   const child = device
     ? spawn('xcrun', ['devicectl', 'device', 'process', 'launch', '--quiet', '--console', '--terminate-existing', '--device', ph.udid,
         '--environment-variables', JSON.stringify({ ...(size ? { EXACT_WINDOW_WIDTH: env.EXACT_WINDOW_WIDTH, EXACT_WINDOW_HEIGHT: env.EXACT_WINDOW_HEIGHT } : {}), ...extra, EXACT_AGENT: '1', ...bridge.env }), a.id], { stdio: ['pipe', 'pipe', 'pipe'] })
@@ -578,8 +547,8 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
   let lines = device ? null : jsonLines(child.stdout, child.stdin, hostLines);
   const fail = (why) => { lines?.fail(why); bridge?.fail(new Error(why)); };
   child.on('error', (e) => fail(`launch failed: ${e.message}`));
-  const exited = new Promise((r) => child.on('exit', (code, signal) => { r(code ?? signal); fail(`the app exited (${code ?? signal}); ` + hostLines.join('\n')); }));
-  const close = async () => { bridge?.close(); try { child.stdin.end(); if (device) child.kill('SIGTERM'); } catch {} await waitAtMost(exited, 2000); if (child.exitCode === null && child.signalCode === null) { try { child.kill('SIGKILL'); } catch {} } await exited; };
+  const exited = new Promise((r) => child.on('exit', (code, signal) => { r(code ?? signal); fail(closing ? 'the app was closed' : hangup({ what: 'the app exited', exit: { code, signal }, hostLines, reports: device ? [] : crashReports(basename(bin), launched) })); }));
+  const close = async () => { closing = true; bridge?.close(); try { child.stdin.end(); if (device) child.kill('SIGTERM'); } catch {} await waitAtMost(exited, 2000); if (child.exitCode === null && child.signalCode === null) { try { child.kill('SIGKILL'); } catch {} } await exited; };
   let readyTimeout;
   try {
     const readyLine = device ? bridge.ready.then(({ socket, announcement }) => {
@@ -597,19 +566,12 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
     // The sample host routes by label: the session the caller named, and
     // `s.session = "b"` moves every later request to another.
     const state = { session: session ?? null };
-    const ask = async (req, session = state.session) => {
-      const reply = lines.ask(session ? { ...req, session } : req);
-      if (!device) return reply;
-      let timer;
-      try {
-        return await Promise.race([reply, new Promise((_, reject) => {
-          timer = setTimeout(() => {
-            bridge.close();
-            reject(new Error(`phone ${req.op} did not answer within 45 s; check app health, foreground state and network\n` + hostLines.slice(-20).join('\n')));
-          }, 45000);
-        })]);
-      } finally { clearTimeout(timer); }
-    };
+    const ask = (req, session = state.session) => waitAtMost(lines.ask(session ? { ...req, session } : req), device ? 45000 : REPLY_MS, () => {
+      const why = device ? `phone ${req.op} did not answer within 45 s; check app health, foreground state and network\n` + hostLines.slice(-20).join('\n')
+        : hangup({ what: `${req.op} did not answer within ${REPLY_MS / 1000} s`, pid: child.pid, hostLines });
+      if (device) bridge.close(); else lines.fail(why);
+      throw new Error(why);
+    });
     return {
       host, boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state,
       ask,
@@ -655,12 +617,14 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
   const id = hostFixture ? `${a.id}.host` : a.id;
   if (!existsSync(bundle)) throw new Error(hostFixture ? 'run bun host/apple/build.mjs --ios --host first' : 'run bun host/apple/build.mjs --ios first');
   const dev = simulator();
+  showSimulator(dev, true); // a person watching sees what is driven, and keeps the focus
   install(dev, bundle, a, hostFixture);
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-ios-'));
   const sock = resolve(dir, 'agent.sock');
   const env = { EXACT_ASSETS: appleArtifacts(a,{destination:'ios-simulator',host:hostFixture}).capture, EXACT_AGENT: '1', EXACT_AGENT_SOCKET: sock, ...(plan ? { EXACT_PLAN: plan } : {}), ...(size ? {EXACT_WINDOW_WIDTH:String(size[0]), EXACT_WINDOW_HEIGHT:String(size[1])} : {}), ...extra };
   const childEnv = { ...process.env };
   for (const [k, v] of Object.entries(env)) childEnv[`SIMCTL_CHILD_${k}`] = v;
+  const launched = Date.now(); let closing = false;
   const console_ = spawn('xcrun', ['simctl', 'launch', '--console', '--terminate-running-process', dev.udid, id ?? bundleId(a.crate('apple'))], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] });
   onProcess?.(console_);
   const hostLines = [];
@@ -684,8 +648,12 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
   }
   socket.on('error', () => {});
   const lines = jsonLines(socket, socket, hostLines);
-  const exited = new Promise((r) => socket.on('close', () => { lines.fail('the app hung up; ' + hostLines.join('\n')); r(); }));
+  const exited = new Promise((r) => socket.on('close', async () => {
+    const exit = closing ? null : await waitAtMost(consoleExited, 1000);
+    lines.fail(closing ? 'the app was closed' : hangup({ what: 'the app hung up', pid, exit, hostLines, reports: crashReports(hostFixture ? 'ExactHostIOS' : 'ExactIOS', launched) })); r();
+  }));
   const close = async () => {
+    closing = true;
     try { socket.end(); } catch {}
     await waitAtMost(exited, 2000);
     if (pid) { try { process.kill(pid, 'SIGKILL'); } catch {} }
@@ -703,7 +671,9 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
     pid = ready.pid ?? null;
     // The sample host routes by label, as the macOS one does over stdio.
     const state = { session: session ?? null };
-    const ask = (req, session = state.session) => lines.ask(session ? { ...req, session } : req);
+    const ask = (req, session = state.session) => waitAtMost(lines.ask(session ? { ...req, session } : req), REPLY_MS, () => {
+      const why = hangup({ what: `${req.op} did not answer within ${REPLY_MS / 1000} s`, pid, hostLines }); lines.fail(why); throw new Error(why);
+    });
     // A held contact on a simulator (LLP 1035.003 §3, candidate 1 — decided
     // 2026-09-10): UIKit synthesizes no touch, so the contact is a real
     // mouse on the Mac's desktop, posted into the Simulator's window by
@@ -1013,11 +983,12 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
       if (colon < 0) throw new Error(`no view matches ${target}; tree lists live targets`);
       return { id: (await s.find(text.slice(0, colon))).id, entity: text.slice(colon + 1) };
     },
-    /** The node for a target: a testId (first in preorder) or a view id. */
+    /** The node for a target: a testId (first in preorder on a selected route; a covered screen's copy only when no active one carries it) or a view id. */
     async find(target, required = true) {
       if (target == null) throw new Error(`no view matches ${target}`);
       const t = await s.op(required ? {op:'tree', target, shallow:true} : {op:'tree'});
-      const node = typeof target === 'number' || /^\d+$/.test(String(target)) ? t.nodes.find((n) => n.id === Number(target)) : t.nodes.find((n) => n.props.testId === target);
+      const matches = typeof target === 'number' || /^\d+$/.test(String(target)) ? t.nodes.filter((n) => n.id === Number(target)) : t.nodes.filter((n) => n.props.testId === target);
+      const node = matches.find((n) => !n.inactive) ?? matches[0];
       if (!node && required) throw new Error(`no view matches ${target}; tree lists live targets`);
       return node;
     },
@@ -1125,7 +1096,7 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
       if (!req.settle && !Number.isFinite(req.to)) throw new Error(`clock: not a time: ${spec}; use clock +100 or clock settle; state shows the current clock`);
       const r = await s.op(req);
       s.now = r.clock;
-      if (req.settle && r.settled === false) r.diagnostic = `clock settle did not reach quiescence: ${JSON.stringify(r.world ?? r)}; state world:* busy shows moving values and busy reasons; state shows held input; logs shows reload/refusals`;
+      if (req.settle && r.settled === false) r.diagnostic = r.reason === 'requests' ? 'clock settle gave up on requests still in flight at its bound (20 s native); state shows them under pending, and logs a `request N` with no `fulfil N`' : `clock settle did not reach quiescence: ${JSON.stringify(r.world ?? r)}; state world:* busy shows moving values and busy reasons; state shows held input; logs shows reload/refusals`;
       return r;
     },
     /** Pixels as PNG (second argument true includes the native window), or a canvas carry with `(path, target, "save")`. */
@@ -1160,6 +1131,9 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
     },
     close: carrier.close,
   };
+  // Under platform timing the app's clock is time since its launch, not 0:
+  // `clock +N` counts from where the runner stands (LLP 1035.003 D5).
+  if (timing === 'platform' && carrier.host !== 'web') { const { clock } = await s.op({ op: 'tags' }); if (Number.isFinite(clock)) s.now = clock; }
   return s;
 }
 
@@ -1272,7 +1246,7 @@ export function render(op, r) {
       for (const n of r.nodes) {
         const depth = Math.max(0, n.depth - rootDepth);
         const p = n.props ?? {};
-        lines.push(`${'  '.repeat(depth)}${n.type}#${n.id}${p.testId != null ? ` [${p.testId}]` : ''}${p.text != null ? ` ${q(p.text)}` : ''}${p.value != null ? ` value=${q(p.value)}` : ''}${p.accessibilityLabel != null ? ` label=${q(p.accessibilityLabel)}` : ''}${n.focused ? " [focused]" : ""}${n.accessibleName != null ? ` name=${q(n.accessibleName)}` : ""}${n.world ? ` world{${n.world.name}} · ${n.world.entities} entities · tick ${n.world.tick}` : ""}${n.handlers?.length ? ` (${n.handlers.join(', ')})` : ''}${n.url != null ? ` url=${q(n.url)} loading=${n.loading}` : ''}`);
+        lines.push(`${'  '.repeat(depth)}${n.type}#${n.id}${p.testId != null ? ` [${p.testId}]` : ''}${p.text != null ? ` ${q(p.text)}` : ''}${p.value != null ? ` value=${q(p.value)}` : ''}${p.accessibilityLabel != null ? ` label=${q(p.accessibilityLabel)}` : ''}${n.focused ? " [focused]" : ""}${n.inactive ? " [inactive]" : ""}${n.accessibleName != null ? ` name=${q(n.accessibleName)}` : ""}${n.world ? ` world{${n.world.name}} · ${n.world.entities} entities · tick ${n.world.tick}` : ""}${n.handlers?.length ? ` (${n.handlers.join(', ')})` : ''}${n.url != null ? ` url=${q(n.url)} loading=${n.loading}` : ''}`);
         for (const g of n.guest ?? []) lines.push(`${'  '.repeat(depth + g.depth + 1)}[guest] ${g.tag}${g.id != null ? `#${g.id}` : ''}${g.testId != null ? ` [${g.testId}]` : ''}${g.text != null ? ` ${q(g.text)}` : ''}`);
       }
       return lines.join('\n');
@@ -1446,8 +1420,10 @@ async function main(argv) {
     return 2;
   }
   const s = await open({ host, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing });
+  let at = 0;
   try {
-    for (const line of ops) {
+    for (const [k, line] of ops.entries()) {
+      at = k + 1;
       const [op, ...args] = line.trim().split(/\s+/);
       let r;
       switch (op) {
@@ -1479,6 +1455,9 @@ async function main(argv) {
       console.log(flags.json ? JSON.stringify(r) : render(op, r));
     }
     return 0;
+  } catch (e) {
+    e.message = `op ${at}/${ops.length} \`${ops[at - 1]?.trim()}\`: ${e.message}`;
+    throw e;
   } finally {
     await s.close();
   }

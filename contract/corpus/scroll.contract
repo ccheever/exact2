@@ -1,11 +1,17 @@
 // Accept fixture: a scroll container that overflows, on a page that also
 // overflows. A wheel over the container scrolls it; at its edge the wheel
 // chains to the page (LLP 1008 §5) — the web's `overscroll-behavior: auto`.
+// A press on "Above" writes the container's `scrollTop`; `scroll-behavior:
+// smooth` animates that write (and only that: a wheel is the reader's own).
 component Rows
+  state top = 0
+  action jump writes top
+    top = 600
   view
     column testId="root" gap=8 padding=12
-      text "Above" testId="above"
-      scroll height=200 width="100%" testId="rows" background-color="#f0f0f0"
+      button testId="above" press=jump
+        text "Above"
+      scroll height=200 width="100%" testId="rows" background-color="#f0f0f0" scroll-behavior="smooth" scrollTop=top
         column gap=4 padding=8
           text "Row 0" font-size=14 testId="row-0"
           text "Row 1" font-size=14 testId="row-1"

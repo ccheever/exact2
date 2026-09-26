@@ -106,7 +106,7 @@ fn navigate_optional_arity_survives_multiple_bindings_and_intersection() {
     // Two navigation roots cannot both lower into one app; inspect the shared
     // interface with both bindings, then compile each legal root separately.
     let file = contract_syntax::parse(&(zero.to_owned() + nav)).unwrap();
-    let checked = contract_types::check(&file).unwrap();
+    let checked = contract_types::check(&file, contract_lower::tags::style).unwrap();
     contract_analyze::check(&checked).unwrap();
     for action in ["zero", "one"] {
         let source = zero.replace(

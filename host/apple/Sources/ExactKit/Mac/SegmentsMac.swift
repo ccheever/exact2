@@ -18,8 +18,17 @@ final class SegmentHost {
     private var controls: [UInt32: ExactSegmentedControl] = [:]
     private var hidden: [UInt32: Bool] = [:]
     private var members: [UInt32: [UInt32]] = [:]
+    /// The last projection decision journaled per tablist, so each is said once.
+    private var decisions: [UInt32: String] = [:]
 
     init(_ presenter: Presenter) { self.presenter = presenter }
+
+    /// Journal why a tablist is or is not a segmented control, once per change.
+    private func decide(_ owner: NodeView, _ decision: String) {
+        guard decisions[owner.id] != decision else { return }
+        decisions[owner.id] = decision
+        presenter.session?.log("tablist #\(owner.id): \(decision)")
+    }
 
     private func tabs(in owner: NodeView) -> [NodeView] {
         owner.container.subviews.compactMap { $0 as? NodeView }.filter {
@@ -42,9 +51,17 @@ final class SegmentHost {
         }
         let live = Set(owners.map(\.id))
         for id in Array(controls.keys) where !live.contains(id) { restore(owner: id) }
+        for id in Array(decisions.keys) where !live.contains(id) { decisions.removeValue(forKey: id) }
         for owner in owners {
             let tabs = tabs(in: owner)
-            guard tabs.count > 1 else { restore(owner: owner.id); continue }
+            // Authored tabs a segment cannot show stay as authored (LLP 1035.001 D10).
+            let unshown = tabs.first { $0.segmentFace == nil }
+            if tabs.count <= 1 || unshown != nil {
+                restore(owner: owner.id)
+                decide(owner, unshown.map { "kept as authored: tab #\($0.id) is not one image or its label alone, which a segment cannot show" } ?? "kept as authored: fewer than two pressable tabs")
+                continue
+            }
+            decide(owner, "projected to NSSegmentedControl (\(tabs.count) segments)")
             let ids = tabs.map(\.id)
             if members[owner.id] != ids {
                 restore(owner: owner.id)
@@ -67,7 +84,17 @@ final class SegmentHost {
             control.setAccessibilityLabel(owner.props["accessibilityLabel"])
             control.segmentCount = tabs.count
             for (index, tab) in tabs.enumerated() {
-                control.setLabel(tab.props["accessibilityLabel"] ?? "", forSegment: index)
+                if case .image(let icon)? = tab.segmentFace, let source = icon.image {
+                    let image = source.copy() as? NSImage
+                    if icon.bounds.width > 0, icon.bounds.height > 0 { image?.size = icon.bounds.size }
+                    image?.accessibilityDescription = tab.accessibleName
+                    control.setImage(image, forSegment: index)
+                    control.setImageScaling(.scaleProportionallyDown, forSegment: index)
+                    control.setLabel("", forSegment: index)
+                } else {
+                    control.setImage(nil, forSegment: index)
+                    control.setLabel(tab.accessibleName, forSegment: index)
+                }
                 control.setEnabled(!tab.disabled && !tab.inert, forSegment: index)
             }
             control.selectedSegment = tabs.firstIndex { $0.props["accessibilitySelected"] == "true" } ?? -1

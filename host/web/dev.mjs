@@ -124,14 +124,21 @@ function gameRuntimeInputs(inputs) {
     .filter(t => t.kind.some(k => ['lib','rlib','cdylib','proc-macro'].includes(k)) || (id !== root.id && t.kind.includes('custom-build')))
     .map(t => resolve(t.src_path))));
   const included = new Set(), found = new Set();
+  // Units in Cargo's build-dir: `build/<name>-<hash>/` beside `deps/`, or, in
+  // the new layout (the web toolchain's), `build/<name>/<hash>/` with the
+  // unit's files in `out/` and a script's stdout in `run/stdout`.
+  const subdirectories = (dir) => existsSync(dir) ? readdirSync(dir,{withFileTypes:true}).filter(e=>e.isDirectory()).map(e=>resolve(dir,e.name)) : [];
   for (const profile of [resolve(app.target,'web'), resolve(app.target,'wasm32-unknown-unknown/web')]) {
-    const build = resolve(profile,'build');
-    const directories = [resolve(profile,'deps'), ...(existsSync(build) ? readdirSync(build,{withFileTypes:true}).filter(e=>e.isDirectory()).map(e=>resolve(build,e.name)) : [])];
-    for (const directory of directories) if (existsSync(directory)) {
-      const output=resolve(directory,'output');
-      if (existsSync(output)) for (const id of runtime) {
-        const pkg=packages.get(id), name=directory.slice(directory.lastIndexOf('/')+1);
-        if (id===root.id || name.replace(/-[a-f0-9]+$/,'')!==pkg.name) continue;
+    const units = [{directory:resolve(profile,'deps'),output:null,name:''}];
+    for (const entry of subdirectories(resolve(profile,'build'))) {
+      const name = entry.slice(entry.lastIndexOf('/')+1), nested = subdirectories(entry).filter(d => /^[a-f0-9]+$/.test(d.slice(d.lastIndexOf('/')+1)));
+      if (nested.length) for (const unit of nested) units.push({directory:resolve(unit,'out'),output:resolve(unit,'run/stdout'),name});
+      else units.push({directory:entry,output:resolve(entry,'output'),name:name.replace(/-[a-f0-9]+$/,'')});
+    }
+    for (const {directory,output,name} of units) if (existsSync(directory)) {
+      if (output && existsSync(output)) for (const id of runtime) {
+        const pkg=packages.get(id);
+        if (id===root.id || name!==pkg.name) continue;
         for (const line of readFileSync(output,'utf8').split('\n')) {
           const changed=/^cargo::?rerun-if-changed=(.+)$/.exec(line); if (!changed) continue;
           const watched=resolve(pkg.manifest_path,'..',changed[1]);

@@ -167,9 +167,15 @@ impl<D: DataSource> Runner<D> {
                     }),
                 };
             }
-            let interval = self.plan.timers[i].interval_ms as f64;
-            let next_ms = at + interval;
-            if !next_ms.is_finite() || next_ms <= at {
+            let row = &self.plan.timers[i];
+            // A one-shot timer is spent: an infinite deadline is never due
+            // and never reported (`timer_due_ms`), so it keeps no host awake.
+            let next_ms = if row.once {
+                f64::INFINITY
+            } else {
+                at + row.interval_ms as f64
+            };
+            if !row.once && (!next_ms.is_finite() || next_ms <= at) {
                 return Advanced {
                     receipts,
                     now_ms: self.now_ms,
@@ -201,11 +207,9 @@ impl<D: DataSource> Runner<D> {
         }
         self.now_ms = now_ms;
         if !receipts.is_empty() {
-            let line = format!(
-                "advance → {} timer{} fired, epoch {}",
+            let line = super::lines::advanced(
                 receipts.len(),
-                if receipts.len() == 1 { "" } else { "s" },
-                receipts.last().map_or(0, |t| t.receipt.epoch)
+                receipts.last().map_or(0, |t| t.receipt.epoch),
             );
             self.log(line);
         }
@@ -239,10 +243,7 @@ impl<D: DataSource> Runner<D> {
         let writes = self.store.writes();
         let lines: Vec<String> = writes[since.min(writes.len())..]
             .iter()
-            .map(|w| match &w.value {
-                Some(_) => format!("store {}", w.name),
-                None => format!("forget {}", w.name),
-            })
+            .map(|w| super::lines::store_write(&w.name, w.value.is_some()))
             .collect();
         for line in lines {
             self.log(line);
@@ -470,7 +471,7 @@ impl<D: DataSource> Runner<D> {
         if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
             let t = self.pending.remove(pos).ticket;
             self.forgot = true;
-            self.log(format!("forget request {t} ({})", self.target_name(target)));
+            self.log(super::lines::forgot(t, &self.target_name(target)));
         }
         self.sync_pending_flags();
     }
@@ -488,21 +489,15 @@ impl<D: DataSource> Runner<D> {
         if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
             let t = self.pending.remove(pos).ticket;
             self.forgot = true;
-            self.log(format!("forget request {t} ({})", self.target_name(target)));
+            self.log(super::lines::forgot(t, &self.target_name(target)));
         }
         let ticket = self.next_ticket;
         self.next_ticket += 1;
         let name = self.target_name(target);
-        self.log(match request.continuation {
-            Some(token) => format!("continuation {ticket} ({name}): executor token {token}"),
-            None if request.storage.is_some() => format!("storage {ticket} ({name})"),
-            None => format!(
-                "request {ticket} ({name}): {} {}",
-                request.method, request.url
-            ),
-        });
+        self.log(super::lines::enqueued(ticket, &name, &request));
         self.pending.push(PendingReq {
             refusal: None,
+            refused: false,
             ticket,
             target,
             source,
@@ -579,6 +574,13 @@ impl<D: DataSource> Runner<D> {
         !self.pending.is_empty()
     }
 
+    /// Whether request `ticket` is still wanted. A host asks after each
+    /// commit and lets go of the work for any it holds that isn't (LLP 1016
+    /// D5): a superseded or forgotten reply would only be dropped here.
+    pub fn holds(&self, ticket: u64) -> bool {
+        self.pending.iter().any(|p| p.ticket == ticket)
+    }
+
     /// The host brought back the outcome of request `ticket`: the source
     /// parses it, the resource takes its value or the mutation's slot its
     /// `some`, and everything downstream settles as after an action — one
@@ -589,18 +591,23 @@ impl<D: DataSource> Runner<D> {
         ticket: u64,
         outcome: Outcome,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
+        let summary = outcome.summary();
         let Some(pos) = self.pending.iter().position(|p| p.ticket == ticket) else {
-            self.log(format!("reply {ticket} dropped: no such request in flight"));
+            self.log(super::lines::dropped(ticket, &summary));
             return Ok(None);
         };
         let was_poisoned = self.poisoned;
         let checkpoint = self.checkpoint(true);
         let p = self.pending.remove(pos);
         self.sync_pending_flags();
-        let what = format!("fulfil {ticket} ({})", self.target_name(p.target));
+        let what = super::lines::fulfilling(ticket, &self.target_name(p.target), &summary);
+        let (refused, target) = (p.refused, p.target);
         let result = self.fulfill_inner(p, outcome);
         self.conclude(checkpoint, &result, was_poisoned);
         self.log_outcome(&what, &result, was_poisoned);
+        if refused && result.is_err() && self.holds(ticket) {
+            return self.release_refused(ticket, target);
+        }
         result.map(Some)
     }
 
@@ -629,7 +636,7 @@ impl<D: DataSource> Runner<D> {
                 // One more round (LLP 1027 D1a): the target keeps its value,
                 // a new ticket goes out for the same arguments, and this
                 // commit changes nothing but the pending set.
-                self.log(format!("{name}: the reply asks for one more request"));
+                self.log(super::lines::one_more(&name));
                 self.enqueue(p.target, p.source, p.args, request, false);
                 return self.update();
             }

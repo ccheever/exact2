@@ -175,6 +175,23 @@ fn producer_bakes_the_bytecode_keeps_sources_untouched_and_refuses_bad_candidate
             first.receipt
         );
     }
+    // A grant a device would refuse must not bake: a native host that
+    // cannot parse one line holds none of the app's grants.
+    f.write(
+        "app.ts",
+        &SOURCE.replace(
+            "export const grants = ''",
+            "export const grants = 'net.fetch https://a.example\\nsecret.keep jwtToken'",
+        ),
+    );
+    let error = bake(&f.0, &Tools::default())
+        .err()
+        .expect("an unparseable grant must refuse the bake");
+    assert!(
+        error.contains("line 2") && error.contains("jwtToken"),
+        "{error}"
+    );
+    assert_eq!(std::fs::read(out.join("app.plan")).unwrap(), first.plan);
     let outside = Fixture::new();
     f.write(
         "app.ts",

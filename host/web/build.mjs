@@ -16,8 +16,9 @@ import { minifySync } from 'rolldown/experimental';
 import { writeInstallPages } from '../../scripts/install-page.mjs';
 import { gpuModules, rustPolicy, webHostFiles } from '../../scripts/app.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
-import { copyShaders, bakeOutput, buildBake, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp, wasmRemapFlags } from '../../scripts/app.mjs';
+import { copyShaders, bakeOutput, buildBake, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp, wasmRemapFlags, WEB_STD, WEB_TOOLCHAIN, webToolchainEnv } from '../../scripts/app.mjs';
 import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
+import { splitStages, unsplitReason } from './stages.mjs';
 import { appManifestDigest, copyStaticTreeIfPresent, listAssets, publicFileCards, webEnvelope, moduleCards, MODULE_FILES } from './serve.mjs';
 
 const app = resolveApp(process.argv[2]);
@@ -40,7 +41,12 @@ buildEnv.EXACT_BAKE_OUTPUT = bakeOutput(app, buildEnv);
 // duplicate-function elimination, and wasm-opt keeps names. The code is the
 // shipped code's; the file is not for shipping.
 const keepNames = process.env.EXACT_WEB_NAMES === '1';
-if (keepNames) buildEnv.CARGO_PROFILE_WEB_STRIP = 'debuginfo';
+// A production artifact is split into a core and its staged capabilities
+// (LLP 1047.000 §9), which needs the names too; they are stripped after the
+// split. The dev loop's `EXACT_WEB_LINK=all` build and the names build stay
+// whole, as does a machine whose binaryen isn't the pinned one.
+const unsplit = keepNames || process.env.EXACT_WEB_LINK === 'all' ? 'a development or names build' : unsplitReason();
+if (keepNames || !unsplit) buildEnv.CARGO_PROFILE_WEB_STRIP = 'debuginfo';
 const buildReceipt = buildBake(app, 'web', 'wasm32-unknown-unknown', {env:buildEnv});
 const built = resolve(app.target, 'wasm32-unknown-unknown/web', crate.replace(/-/g, '_') + '.wasm');
 // Build one app into its own staging directory. Only a complete build replaces
@@ -64,11 +70,19 @@ const out = resolve(stage, 'app.wasm');
 // about what a large one does to set up. RealWorld's boot compiles 15% fewer
 // (1,314 -> 1,123), for 511 B less Brotli (+7 KB raw); 10 or 16 add Brotli.
 // The feature flags match what rustc's wasm32 target emits.
-const opt = spawnSync('wasm-opt', ['-Oz', '--one-caller-inline-max-function-size', '20', '--always-inline-max-function-size', '6', '--converge', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', keepNames ? '-g' : '--strip-debug', '--strip-producers', '-o', out, built], { stdio: 'inherit' });
+const named = resolve(stage, 'app.named.wasm');
+const opt = spawnSync('wasm-opt', ['-Oz', '--one-caller-inline-max-function-size', '20', '--always-inline-max-function-size', '6', '--converge', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', keepNames || !unsplit ? '-g' : '--strip-debug', '--strip-producers', '-o', unsplit ? out : named, built], { stdio: 'inherit' });
 let optNote;
 if (opt.error?.code === 'ENOENT') { copyFileSync(built, out); optNote = 'wasm-opt not on PATH (brew install binaryen): shipped unoptimized'; }
 else if (opt.status !== 0) process.exit(opt.status ?? 1);
-else optNote = 'wasm-opt -Oz';
+else if (unsplit) optNote = `wasm-opt -Oz; unsplit: ${unsplit}`;
+else {
+  const split = splitStages(named);
+  writeFileSync(out, split.core);
+  for (const [path, bytes] of split.files) { mkdirSync(resolve(stage, path, '..'), { recursive: true }); writeFileSync(resolve(stage, path), bytes); }
+  rmSync(named);
+  optNote = `wasm-opt -Oz; the core, with stages: ${split.report.join('; ')}`;
+}
 
 // The app's static files ride beside the page: `assets/…` images and an
 // optional `deck/` iframe guest (@ref LLP 1020 M1). Replaced whole, so a
@@ -95,14 +109,15 @@ function copyHostFiles(group) {
 copyHostFiles('base');
 // The Markdown editor's rules (exact-markdown-editor, LLP 1045 D5) are their
 // own wasm beside markup-editor.js, fetched only when a Markdown textarea mounts.
-const editor = spawnSync('cargo', ['build', '--locked', '--offline', '-q', ...wasmRemapFlags(app), '-p', 'exact-markdown-editor', '--lib', '--target', 'wasm32-unknown-unknown', '--profile', 'web'], { cwd: root, env: buildEnv, stdio: 'inherit' });
+const webEnv = webToolchainEnv(buildEnv);
+const editor = spawnSync('cargo', ['build', '--locked', '--offline', '-q', ...WEB_STD, ...wasmRemapFlags(app, WEB_TOOLCHAIN), '-p', 'exact-markdown-editor', '--lib', '--target', 'wasm32-unknown-unknown', '--profile', 'web'], { cwd: root, env: webEnv, stdio: 'inherit' });
 if (editor.status !== 0) process.exit(editor.status ?? 1);
 const editorBuilt = resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'wasm32-unknown-unknown/web/exact_markdown_editor.wasm');
 const editorWasm = resolve(stage, 'markup-editor.wasm');
 if (spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', '--strip-debug', '--strip-producers', '-o', editorWasm, editorBuilt], { stdio: 'inherit' }).status !== 0) copyFileSync(editorBuilt, editorWasm);
 
 // The exclusions walker is its own leaf artifact; ordinary apps fetch none of it.
-const flow = spawnSync('cargo', ['build', '--locked', '--offline', '-q', ...wasmRemapFlags(app), '-p', 'exact-textflow', '--bin', 'textflow-web', '--target', 'wasm32-unknown-unknown', '--profile', 'web'], { cwd: root, env: buildEnv, stdio: 'inherit' });
+const flow = spawnSync('cargo', ['build', '--locked', '--offline', '-q', ...WEB_STD, ...wasmRemapFlags(app, WEB_TOOLCHAIN), '-p', 'exact-textflow', '--bin', 'textflow-web', '--target', 'wasm32-unknown-unknown', '--profile', 'web'], { cwd: root, env: webEnv, stdio: 'inherit' });
 if (flow.status !== 0) process.exit(flow.status ?? 1);
 const flowBuilt = resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'wasm32-unknown-unknown/web/textflow-web.wasm');
 const flowWasm = resolve(stage, 'textflow.wasm');
@@ -194,7 +209,30 @@ const sourceChanges = spawnSync('git', ['status', '--porcelain'], {cwd:app.dir,e
 writeInstallPages(stage, app.manifest, {id:buildReceipt.binary.sha256, source:sourceRevision.status === 0 ? sourceRevision.stdout.trim() : null, dirty:sourceChanges.status === 0 && !!sourceChanges.stdout.trim(), builtAt:new Date().toISOString(), mode:buildEnv.EXACT_UPDATE_TRUST === 'production' ? 'Release build' : 'Development build'});
 const icon = webManifest.icons?.[0];
 const escapeHtml = (t) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+// The shell's <style> ships without its comments and indentation: they are
+// for readers of host/web/index.html, and every served document's first bytes
+// carry the shell's head (LLP 1048.000 D3). Strings stay whole; whitespace
+// goes only where CSS never reads it (never before a `:`, which in a selector
+// is a descendant's pseudo-class).
+function minifyCss(css) {
+  let out = '', space = false;
+  const put = (text) => {
+    if (space && out && !'{};,:'.includes(out.at(-1)) && !'{};,!'.includes(text[0])) out += ' ';
+    space = false;
+    if (text === '}' && out.endsWith(';')) out = out.slice(0, -1);
+    out += text;
+  };
+  for (let i = 0; i < css.length;) {
+    if (css.startsWith('/*', i)) { const end = css.indexOf('*/', i + 2); i = end < 0 ? css.length : end + 2; space = true; continue; }
+    const c = css[i];
+    if (/\s/.test(c)) { space = true; i++; continue; }
+    if (c === '"' || c === "'") { let j = i + 1; while (j < css.length && css[j] !== c) j += css[j] === '\\' ? 2 : 1; put(css.slice(i, j + 1)); i = j + 1; continue; }
+    put(c); i++;
+  }
+  return out;
+}
 writeFileSync(resolve(stage, 'index.html'), readFileSync(resolve(stage, 'index.html'), 'utf8')
+  .replace(/<style>([\s\S]*?)<\/style>/, (_, css) => `<style>${minifyCss(css)}</style>`)
   .replace('<html lang="en">', `<html lang="${escapeHtml(webManifest.lang)}">`)
   .replace('<title>Exact</title>', `<title>${escapeHtml(webManifest.name)}</title>`)
   .replace(

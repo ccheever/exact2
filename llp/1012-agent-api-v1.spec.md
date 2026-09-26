@@ -322,7 +322,9 @@ document cites it rather than restating it as a second law.
 every request the runner has out before it measures the fixed point — the
 reply commits, and may start motion or ask for more — and reports `settled:
 false` if one is still out at the bound (twenty seconds on the native
-hosts). `state` gains `pending: [{name, ticket}]`, the requests in flight by
+hosts), with `reason: "requests"`. The bound is one deadline for the whole
+call, not one per round (2026-09-24: per round, a request that never answered
+held `clock settle` for minutes). `state` gains `pending: [{name, ticket}]`, the requests in flight by
 the resource's or mutation's name. `clock` with a time does not wait: a
 reply lands when it lands, as a fetch does under a real clock.
 

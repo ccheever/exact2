@@ -28,7 +28,7 @@
 import { spawnSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { arch, cpus, platform, release, tmpdir, totalmem } from 'node:os';
 import { gzipSync } from 'node:zlib';
 import { dirname, resolve } from 'node:path';
@@ -800,8 +800,13 @@ if (long) {
         if (b.status !== 0) { measured.failed = failure(b); break; }
         const wasm = readFileSync(resolve(dist, 'app.wasm'));
         if (names) measured.code = attribute(wasm);
-        else Object.assign(measured, { raw: wasm.length, gzip: gzipSync(wasm, { level: 9 }).length,
-          brotli: brotliCompressSync(wasm, { params: { [constants.BROTLI_PARAM_QUALITY]: 11, [constants.BROTLI_PARAM_SIZE_HINT]: wasm.length } }).length });
+        else {
+          const br = (b) => brotliCompressSync(b, { params: { [constants.BROTLI_PARAM_QUALITY]: 11, [constants.BROTLI_PARAM_SIZE_HINT]: b.length } }).length;
+          Object.assign(measured, { raw: wasm.length, gzip: gzipSync(wasm, { level: 9 }).length, brotli: br(wasm) });
+          // app.wasm is the core; its staged capabilities load later (LLP 1047.000 §9).
+          const staged = existsSync(resolve(dist, 'stages')) ? readdirSync(resolve(dist, 'stages')) : [];
+          if (staged.length) measured.stages = Object.fromEntries(staged.map((name) => [name.split('.')[0], br(readFileSync(resolve(dist, 'stages', name)))]));
+        }
       }
       out.web_bytes[name] = measured;
     }

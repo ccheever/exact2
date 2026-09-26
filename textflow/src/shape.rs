@@ -216,14 +216,23 @@ impl ShapeOutside {
                 e[3].css(),
                 r.css()
             ),
-            Shape::Polygon(p, evenodd) => format!(
-                "polygon({}{})",
-                if *evenodd { "evenodd, " } else { "" },
-                p.iter()
-                    .map(|(x, y)| format!("{} {}", x.css(), y.css()))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
+            Shape::Polygon(p, evenodd) => {
+                let mut text = String::from(if *evenodd {
+                    "polygon(evenodd, "
+                } else {
+                    "polygon("
+                });
+                for (i, (x, y)) in p.iter().enumerate() {
+                    if i > 0 {
+                        text.push_str(", ");
+                    }
+                    text.push_str(&x.css());
+                    text.push(' ');
+                    text.push_str(&y.css());
+                }
+                text.push(')');
+                text
+            }
         }
     }
 
@@ -305,5 +314,28 @@ fn rect(x: f32, y: f32, width: f32, height: f32, radius: f32) -> FlowShape {
         width,
         height,
         radius,
+    }
+}
+
+#[cfg(test)]
+mod css_tests {
+    use super::ShapeOutside;
+
+    #[test]
+    fn polygons_write_their_points_comma_separated() {
+        for (text, css) in [
+            (
+                "polygon(0% 0%, 100% 50%, 0% 100%)",
+                "polygon(0% 0%, 100% 50%, 0% 100%)",
+            ),
+            (
+                "polygon(evenodd, 0px 0px, 10px 0px, 5px 8px)",
+                "polygon(evenodd, 0px 0px, 10px 0px, 5px 8px)",
+            ),
+        ] {
+            let shape = ShapeOutside::parse(text).unwrap();
+            assert_eq!(shape.css(), css);
+            assert_eq!(ShapeOutside::parse(&shape.css()), Some(shape));
+        }
     }
 }

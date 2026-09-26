@@ -750,13 +750,16 @@
       "default": "visible"
     },
     "TextAlign": {
+      "_comment": "@ref LLP 1053: CSS's initial value is `start`; `start` and `end` follow the paragraph's `direction` (Paragraph::from_style resolves them to left or right).",
       "values": [
         "left",
         "center",
         "right",
-        "justify"
+        "justify",
+        "start",
+        "end"
       ],
-      "default": "left"
+      "default": "start"
     },
     "Display": {
       "values": [
@@ -819,7 +822,8 @@
     "WhiteSpace": {
       "values": [
         "normal",
-        "pre-wrap"
+        "pre-wrap",
+        "nowrap"
       ],
       "default": "normal"
     },
@@ -835,6 +839,13 @@
         "auto",
         "contain",
         "none"
+      ],
+      "default": "auto"
+    },
+    "ScrollBehavior": {
+      "values": [
+        "auto",
+        "smooth"
       ],
       "default": "auto"
     },
@@ -921,7 +932,7 @@
       "default": "numeric-only"
     }
   },
-  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (grid track list) | placement (grid line placement) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance \u2014 a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard).",
+  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (grid track list) | placement (grid line placement) | aspect-ratio (CSS text: auto, a ratio, or both) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance \u2014 a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard).",
   "styles": [
     {
       "bit": 0,
@@ -1148,9 +1159,9 @@
     {
       "bit": 30,
       "field": "aspect_ratio",
-      "codec": "f32",
+      "codec": "aspect-ratio",
       "layout": true,
-      "default": 0
+      "_comment": "@ref LLP 1053 G1: CSS `auto || <ratio>`, kept as authored (the auto flag and both numbers)."
     },
     {
       "bit": 31,
@@ -1594,6 +1605,12 @@
       "field": "interpolate_size",
       "codec": "enum:InterpolateSize",
       "inherited": true
+    },
+    {
+      "bit": 99,
+      "field": "scroll_behavior",
+      "codec": "enum:ScrollBehavior",
+      "_comment": "CSS `scroll-behavior`: `smooth` animates a scrollTop/scrollLeft prop write on every host; a user's own scroll is never affected."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, 1 translate, 2 scale, 3 rotate, 4 opacity), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
@@ -1717,7 +1734,57 @@
       "settings",
       "gearshape",
       "M9 3h6v3l3 2 3-1 1 5-3 2v3l-4 3-3-2-3 2-4-3v-3l-3-2 1-5 3 1 3-2V3Zm6 9a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+    ],
+    [
+      "repeat",
+      "repeat",
+      "m17 2 4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4m14-1v2a3 3 0 0 1-3 3H3"
+    ],
+    [
+      "activity",
+      "waveform.path.ecg",
+      "M2 12h4l3-8 6 16 3-8h4"
+    ],
+    [
+      "bookmark",
+      "bookmark",
+      "M7 3h10a1 1 0 0 1 1 1v17l-6-5-6 5V4a1 1 0 0 1 1-1Z"
+    ],
+    [
+      "bookmark-fill",
+      "bookmark.fill",
+      "M7 2h10a2 2 0 0 1 2 2v18.2l-7-5.6-7 5.6V4a2 2 0 0 1 2-2Z"
+    ],
+    [
+      "document",
+      "doc.text",
+      "M14 3H6v18h12V7l-4-4Zm0 0v4h4M9 11h6M9 14h6M9 17h4"
+    ],
+    [
+      "select",
+      "checkmark.circle",
+      "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM8 12l3 3 5-6"
+    ],
+    [
+      "select-fill",
+      "checkmark.circle.fill",
+      "M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0ZM7.3 12.7l3.8 3.8 5.7-6.9-1.6-1.2-4.3 5.1-2.2-2.2-1.4 1.4Z"
+    ],
+    [
+      "reorder",
+      "line.3.horizontal",
+      "M4 6h16M4 12h16M4 18h16"
+    ],
+    [
+      "sort",
+      "arrow.up.arrow.down",
+      "M8 20V4M4 8l4-4 4 4M16 4v16m-4-4 4 4 4-4"
+    ],
+    [
+      "filter",
+      "slider.horizontal.3",
+      "M4 6h9m4 0h3m-3 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM4 12h3m4 0h9m-9 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM4 18h8m4 0h4m-4 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z"
     ]
   ],
-  "_symbols": "[role, Apple system symbol name, browser SVG path in a 24-unit box]. Generated once; hosts never admit platform names directly."
+  "_symbols": "[role, Apple system symbol name, browser SVG path in a 24-unit box]. The path is stroked; a filled state is its own role, `<role>-fill` for Apple's `<name>.fill`, whose path is a filled silhouette (even-odd, so a cutout is a subpath). Generated once; hosts never admit platform names directly."
 }

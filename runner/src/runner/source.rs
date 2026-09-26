@@ -49,6 +49,17 @@ pub enum Target {
     Mutation(usize),
 }
 
+impl Target {
+    /// `Resource(3)`, `Mutation(0)`: what `{:?}` writes, without `core::fmt`
+    /// (a module call's key carries it, on a first press's path).
+    pub fn text(self) -> String {
+        match self {
+            Target::Resource(i) => exact_num::text!("Resource({})", i),
+            Target::Mutation(i) => exact_num::text!("Mutation({})", i),
+        }
+    }
+}
+
 /// The app's data source: the one seam through which computation enters
 /// (LLP 1004 D4). Implemented once, in Rust, by the app's data crate.
 pub trait DataSource {
@@ -293,4 +304,18 @@ pub enum DataError {
     UnknownSource(String),
     BadArguments(String),
     Unavailable(String),
+}
+
+#[cfg(test)]
+mod target_tests {
+    use super::Target;
+
+    #[test]
+    fn a_target_text_is_its_debug_text() {
+        for i in [0, 1, 9, 10, 4_294_967_295, usize::MAX] {
+            for target in [Target::Resource(i), Target::Mutation(i)] {
+                assert_eq!(target.text(), format!("{target:?}"));
+            }
+        }
+    }
 }

@@ -42,6 +42,7 @@ final class RegionTextSource: Sendable {
     let strut: RegionFont?
     let strutExplicit: Bool
     let align: Int
+    let direction: Int
     let lineClamp: Int
     let overflowWrap: Int
     let text: String
@@ -76,7 +77,7 @@ final class RegionTextSource: Sendable {
         }
         let base = spec.strut ?? spec.runs.first
         strut = base.map(font); strutExplicit = base?.lineHeight != nil
-        align = spec.align; lineClamp = spec.lineClamp; overflowWrap = spec.overflowWrap
+        align = spec.align; direction = spec.direction; lineClamp = spec.lineClamp; overflowWrap = spec.overflowWrap
         text = spec.runs.map(\.text).joined()
         utf16Count = offset
         sourceUTF8Bytes = spec.runs.reduce(0) { $0 + $1.text.utf8.count }
@@ -123,6 +124,7 @@ final class RegionTextSource: Sendable {
             if run.strike { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             value.append(NSAttributedString(string: run.text, attributes: attributes))
         }
+        TextEngine.setBaseDirection(value, direction: direction)
         return value
     }
 }

@@ -11,9 +11,9 @@ use exact_kernel::{
 };
 use std::collections::BTreeMap;
 
-type Rows = Vec<(StyleId, StyleValue)>;
+pub(crate) type Rows = Vec<(StyleId, StyleValue)>;
 
-fn props(rows: &Rows) -> StyleProps {
+pub(crate) fn props(rows: &Rows) -> StyleProps {
     let mut p = StyleProps::default();
     for (row, value) in rows {
         p.set_dynamic(*row, value).unwrap();
@@ -24,6 +24,17 @@ fn props(rows: &Rows) -> StyleProps {
 /// Lays out one case: the outer box and its descendants, each
 /// `(id, parent, rows)`; a node given text is a text node.
 fn lay_out(root: StyleProps, nodes: Vec<(u32, u32, Rows)>, texts: &[(u32, &str)]) -> Kernel {
+    lay_out_with(root, nodes, texts, &[])
+}
+
+/// [`lay_out`], where a node in `images` is an `Image` whose natural size
+/// is known (`Some`) or not yet (`None`, an `<img>` before it loads).
+pub(crate) fn lay_out_with(
+    root: StyleProps,
+    nodes: Vec<(u32, u32, Rows)>,
+    texts: &[(u32, &str)],
+    images: &[(u32, Option<(f32, f32)>)],
+) -> Kernel {
     let mut ops = vec![
         Op::CreateView {
             id: 1,
@@ -41,6 +52,8 @@ fn lay_out(root: StyleProps, nodes: Vec<(u32, u32, Rows)>, texts: &[(u32, &str)]
             id: *id,
             node_type: if text.is_some() {
                 NodeType::Text
+            } else if images.iter().any(|(i, _)| i == id) {
+                NodeType::Image
             } else {
                 NodeType::View
             },
@@ -66,12 +79,15 @@ fn lay_out(root: StyleProps, nodes: Vec<(u32, u32, Rows)>, texts: &[(u32, &str)]
     ops.push(Op::AttachRoot { id: 1 });
     let mut k = kernel();
     k.apply(0, 1, &ops).unwrap();
+    for (id, size) in images {
+        k.set_intrinsic_size(*id, *size).unwrap();
+    }
     k.compute_layout(1, Offer::definite(800.0, 600.0)).unwrap();
     k
 }
 
 /// Every mismatch of `[x, y, width, height]`, named by case and node.
-fn mismatches(case: &str, k: &Kernel, expected: &[(u32, [f32; 4])]) -> Vec<String> {
+pub(crate) fn mismatches(case: &str, k: &Kernel, expected: &[(u32, [f32; 4])]) -> Vec<String> {
     let mut out = Vec::new();
     for (id, want) in expected {
         let f = k.node(*id).unwrap().frame;
@@ -400,6 +416,53 @@ fn percentage_padding_resolves_against_the_containing_block_width() {
 /// A block `<button>` would not — the same 20px child sits at 40 in 100px,
 /// centred by the anonymous box HTML's rendering rules give a button (LLP
 /// 1007 §1) — which is why a button is never block.
+#[test]
+fn calc_of_a_percentage_and_a_length_resolves_against_the_containing_block() {
+    // CSS Values 4 §10: each term against the percentage's own basis. The
+    // numbers are that arithmetic (2026-09-24), not a Chrome capture.
+    // <div style="width:400px;height:100px">
+    //   <div style="width:calc(100% - 89px);height:20px"></div>
+    //   <div style="width:calc(25% + 10px);height:calc(50% - 5px);margin-left:calc(10% - 4px)"></div>
+    //   <div style="padding-left:calc(50% - 100px);height:10px"></div>
+    // </div>
+    let root = props(&vec![(Width, n(400.0)), (Height, n(100.0))]);
+    let k = lay_out(
+        root,
+        vec![
+            (
+                2,
+                1,
+                vec![(Width, t("calc(100% - 89px)")), (Height, n(20.0))],
+            ),
+            (
+                3,
+                1,
+                vec![
+                    (Width, t("calc(25% + 10px)")),
+                    (Height, t("calc(50% - 5px)")),
+                    (MarginLeft, t("calc(10% - 4px)")),
+                ],
+            ),
+            (
+                4,
+                1,
+                vec![(PaddingLeft, t("calc(50% - 100px)")), (Height, n(10.0))],
+            ),
+        ],
+        &[],
+    );
+    let bad = mismatches(
+        "calc",
+        &k,
+        &[
+            (2, [0.0, 0.0, 311.0, 20.0]),
+            (3, [36.0, 20.0, 110.0, 45.0]),
+            (4, [0.0, 65.0, 400.0, 10.0]),
+        ],
+    );
+    assert!(bad.is_empty(), "{bad:#?}");
+}
+
 #[test]
 fn a_flex_button_lays_out_as_the_kernel_does() {
     let mut failures = Vec::new();

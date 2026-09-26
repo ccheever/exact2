@@ -914,3 +914,76 @@ fn surface_record_abi_distinguishes_an_invalid_empty_record_from_disposal() {
         Some(&Value::record(vec![Value::Number(0.)]))
     );
 }
+
+/// A source whose module loads after first pixel and whose answer reads the
+/// store: the runner keeps that answer for the next launch (LLP 1027 D4).
+#[derive(Clone, Default)]
+struct Keeping(Arc<std::sync::atomic::AtomicBool>);
+
+impl DataSource for Keeping {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(source.into()))
+    }
+    fn ready(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::SeqCst)
+    }
+    fn activate(&mut self) -> Result<(), DataError> {
+        self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+    fn answer(&mut self, store: &mut Store, _: &str, _: &[Value]) -> Result<Answer, DataError> {
+        let _ = store.get("crew.host");
+        Ok(Answer::Now(Value::str("fresh")))
+    }
+}
+
+#[test]
+fn kept_answers_reach_the_platform_store_without_an_app_grant() {
+    // A memory store, isolated from the parent's process-global environment.
+    const CHILD: &str = "EXACT_KEPT_ANSWER_FIXTURE";
+    if std::env::var_os(CHILD).is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "abi::tests::kept_answers_reach_the_platform_store_without_an_app_grant",
+            ])
+            .env(CHILD, "1")
+            .env("EXACT_STORE", "memory")
+            .env_remove("EXACT_AGENT")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    let mut builder = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    let string = builder.primitive(TypeKind::String);
+    let crew = builder.resource("crew", "crew", &[], string, Some(&Value::str("")));
+    builder.set_resource_reader(crew, true);
+    builder.node(
+        exact_kernel::NodeType::View as u8,
+        None,
+        None,
+        0,
+        &[],
+        &[],
+        None,
+    );
+    let bytes = builder.finish().unwrap().encode();
+    let mut bridge = Bridge::new();
+    bridge.boot(&bytes, Keeping::default(), Hooks::none(), 390.0, 844.0);
+    bridge.data_ready();
+    let runner = bridge.host.as_ref().unwrap().runner();
+    let kept: Vec<_> = runner
+        .journal()
+        .filter(|line| line.contains("store exact.kept.crew"))
+        .collect();
+    assert!(
+        !kept.is_empty() && kept.iter().all(|l| !l.contains("failed")),
+        "{kept:?}"
+    );
+}

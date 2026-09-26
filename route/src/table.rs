@@ -254,18 +254,18 @@ impl Table {
             }
         }
         let mut values = params.iter();
-        Ok(route
-            .pattern
-            .split('/')
-            .map(|segment| {
-                if segment.starts_with(':') {
-                    encode_route_segment(values.next().copied().unwrap_or(""))
-                } else {
-                    Ok(segment.to_owned())
-                }
-            })
-            .collect::<Result<Vec<_>, _>>()?
-            .join("/"))
+        let mut path = String::new();
+        for (i, segment) in route.pattern.split('/').enumerate() {
+            if i > 0 {
+                path.push('/');
+            }
+            if segment.starts_with(':') {
+                path.push_str(&encode_route_segment(values.next().copied().unwrap_or(""))?);
+            } else {
+                path.push_str(segment);
+            }
+        }
+        Ok(path)
     }
 
     /// The declared root-to-leaf chain without ids, or empty on no match.
