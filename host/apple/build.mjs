@@ -417,7 +417,7 @@ export const entitlements = (app, team) => {
 };
 
 /** The iOS `Info.plist` from the manifest (LLP 1030 D2: one declaration; `build.mjs` consumes what it generates). The dev client's local-networking permission is `host.ios.localNetworking` (a string: the prompt); the store-required version numbers are counters bake owns, not authored. */
-export const infoPlist = (app, device = false, { executable = 'ExactIOS', id = app.id, name = app.displayName, development = null } = {}) => {
+export const infoPlist = (app, device = false, { executable = 'ExactIOS', id = app.id, name = app.displayName, development = null, icon = {} } = {}) => {
   const ios = app.manifest.host?.ios ?? {};
   const families = (ios.deviceFamily ?? ['iphone', 'ipad']).map((f) => (f === 'ipad' ? 2 : 1));
   const dict = {
@@ -443,6 +443,7 @@ export const infoPlist = (app, device = false, { executable = 'ExactIOS', id = a
   if (ios.backgroundModes?.length) dict.UIBackgroundModes = ios.backgroundModes;
   Object.assign(dict, openingLinks(app, 'ios', development));
   for (const [key, text] of Object.entries(ios.permissions ?? {})) dict[key] = text;
+  Object.assign(dict, icon);
   return plistFile(dict);
 };
 
@@ -480,8 +481,35 @@ export function documentTypes(app) {
   });
 }
 
+/** The app icon from the manifest's first square icon of at least 512 px
+ * (`icons`, the web manifest's own field): loose PNGs named by
+ * `CFBundleIcons` on iOS, an `.icns` built by `iconutil` on macOS. Returns
+ * the plist keys to merge; nothing when the app declares no such icon. */
+export function appIcon(app, dir, platform) {
+  const icon = (app.manifest.icons ?? []).find((i) => { const m = /^(\d+)x(\d+)$/.exec(i.sizes ?? ''); return m && m[1] === m[2] && Number(m[1]) >= 512; });
+  if (!icon) return {};
+  const source = resolve(app.dir, icon.src);
+  if (!existsSync(source)) throw new Error(`host/apple: ${app.name}'s icon ${icon.src} does not exist`);
+  const sized = (px, out) => run('sips', ['-z', String(px), String(px), source, '--out', out], { stdio: 'ignore' });
+  if (platform === 'ios') {
+    for (const [name, px] of [['AppIcon60x60@2x.png', 120], ['AppIcon60x60@3x.png', 180], ['AppIcon76x76@2x~ipad.png', 152], ['AppIcon83.5x83.5@2x~ipad.png', 167]]) sized(px, resolve(dir, name));
+    const primary = (files) => ({ CFBundlePrimaryIcon: { CFBundleIconFiles: files, CFBundleIconName: 'AppIcon' } });
+    return { CFBundleIcons: primary(['AppIcon60x60']), 'CFBundleIcons~ipad': primary(['AppIcon60x60', 'AppIcon76x76', 'AppIcon83.5x83.5']) };
+  }
+  const set = mkdtempSync(resolve(dir, '.icon-')) + '.iconset';
+  mkdirSync(set);
+  for (const base of [16, 32, 128, 256, 512]) {
+    sized(base, resolve(set, `icon_${base}x${base}.png`));
+    sized(base * 2, resolve(set, `icon_${base}x${base}@2x.png`));
+  }
+  run('iconutil', ['-c', 'icns', set, '-o', resolve(dir, 'AppIcon.icns')], { stdio: 'ignore' });
+  rmSync(set, { recursive: true, force: true });
+  return { CFBundleIconFile: 'AppIcon' };
+}
+
 /** The macOS `Info.plist` for a bundled build, from the same manifest. */
-export const macInfoPlist = (app, { development = null } = {}) => plistFile({
+export const macInfoPlist = (app, { development = null, icon = {} } = {}) => plistFile({
+  ...icon,
   CFBundleExecutable: 'ExactMac',
   CFBundleIdentifier: app.id,
   CFBundleName: app.displayName,
@@ -795,6 +823,7 @@ function main(args) {
       writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development }));
       copyAppleStaticTrees(paths.capture, resources);
       verifyBakeFiles(bakedCompat, bakedPlan, listAssets(resources, true));
+      writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development, icon: appIcon(app, resources, 'macos') }));
       copyFileSync(resolve(binDir, 'receipt.json'), resolve(resources, 'receipt.json'));
       // GPU artifacts were signed before their digests entered the baked receipt.
       // Preserve those exact bytes, as the iOS bundle assembly does below.
@@ -830,6 +859,7 @@ function main(args) {
   // with the module before a surface is created, never strings in the dylib.
   copyAppleStaticTrees(paths.capture, bundle);
   verifyBakeFiles(bakedCompat, bakedPlan, listAssets(bundle, true));
+  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, icon: appIcon(app, bundle, 'ios') }));
   if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(bundle, 'Frameworks', loadName));
   for (const m of moduleDylibs) copyFileSync(resolve(libDir, m.built), resolve(bundle, 'Frameworks', m.load));
   copyFileSync(webBuilt, resolve(bundle, 'Frameworks', webLoadName));
