@@ -86,6 +86,10 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
                     .collect();
                 format!("[{}]", commands.join(","))
             }
+            RowValue::BackgroundImage(g) => match g.gradient() {
+                Some(g) => gradient_json(g),
+                None => continue, // `none`: nothing to paint
+            },
             RowValue::Enum(e) => format!("\"{e}\""),
             RowValue::Vec2(v) => format!("[{},{}]", num(v.x), num(v.y)),
             RowValue::LineHeight(v) => match v {
@@ -220,6 +224,50 @@ pub fn style_json_for(node: &NodeRef<'_>, env: &Env) -> (String, Vec<Skipped>) {
     (json, skipped)
 }
 
+/// A gradient for the presenter (LLP 1056): its shape — `linear` degrees,
+/// a `to <corner>` as `[right, bottom]`, or `radial` as `[circle, extent,
+/// x%, xpx, y%, ypx]` (extent: closest-side, closest-corner, farthest-side,
+/// farthest-corner) — and `stops` flat as `t, r, g, b, a`, positions 0–1.
+/// The box, so the placement, is the presenter's. Stops are already expanded
+/// to mix as CSS's premultiplied ones do (Core Graphics and Core Animation
+/// mix unpremultiplied); a `light-dark()` gradient also carries `dark`, and
+/// the view picks by its own appearance (LLP 1034 D2).
+fn gradient_json(g: &exact_kernel::gradient::Gradient) -> String {
+    use exact_kernel::gradient::{premultiplied_ramp, Direction, GradientKind, Length};
+    let stops = |dark: bool| {
+        let parts: Vec<String> = premultiplied_ramp(&g.resolved(dark))
+            .into_iter()
+            .map(|(at, c)| format!("{},{},{},{},{}", num(at), c.r(), c.g(), c.b(), c.a()))
+            .collect();
+        format!("[{}]", parts.join(","))
+    };
+    let shape = match g.kind {
+        GradientKind::Linear(Direction::Angle(deg)) => format!("\"linear\":{}", num(deg)),
+        GradientKind::Linear(Direction::Corner { right, bottom }) => {
+            format!("\"corner\":[{},{}]", u8::from(right), u8::from(bottom))
+        }
+        GradientKind::Radial { circle, extent, at } => {
+            let axis = |l: Length| match l {
+                Length::Percent(p) => format!("{},0", num(p)),
+                Length::Px(px) => format!("0,{}", num(px)),
+            };
+            format!(
+                "\"radial\":[{},{},{},{}]",
+                u8::from(circle),
+                extent as u8,
+                axis(at[0]),
+                axis(at[1])
+            )
+        }
+    };
+    let dark = if g.is_scheme_aware() {
+        format!(",\"dark\":{}", stops(true))
+    } else {
+        String::new()
+    };
+    format!("{{{shape},\"stops\":{}{dark}}}", stops(false))
+}
+
 /// Shortest exact decimal for a number: `24`, not `24.0`; `0.5`.
 pub fn num(n: f32) -> String {
     if n.fract() == 0.0 && n.abs() < 1e9 {
@@ -243,5 +291,30 @@ mod flow_tests {
             s.set_dynamic(id, &StyleValue::Text(value.into())).unwrap();
         }
         assert_eq!(style_json(&s, &Env::default()), ("{}".into(), vec![]));
+    }
+
+    /// LLP 1056: a gradient crosses as its shape and ready-to-mix stops; a
+    /// `light-dark()` one carries both appearances, and `none` nothing.
+    #[test]
+    fn a_gradient_crosses_as_shape_and_stops() {
+        let json = |css: &str| {
+            let mut s = StyleProps::default();
+            s.set_dynamic(StyleId::BackgroundImage, &StyleValue::Text(css.into()))
+                .unwrap();
+            style_json(&s, &Env::default()).0
+        };
+        assert_eq!(
+            json("linear-gradient(to right, transparent, #fff 40%)"),
+            r#"{"background_image":{"linear":90,"stops":[0,255,255,255,0,0.4,255,255,255,255,1,255,255,255,255]}}"#
+        );
+        assert_eq!(
+            json("linear-gradient(to top left, light-dark(#000, #fff), #f00)"),
+            r#"{"background_image":{"corner":[0,0],"stops":[0,0,0,0,255,1,255,0,0,255],"dark":[0,255,255,255,255,1,255,0,0,255]}}"#
+        );
+        assert_eq!(
+            json("radial-gradient(circle closest-side at 10px 25%, #000, #fff)"),
+            r#"{"background_image":{"radial":[1,0,0,10,25,0],"stops":[0,0,0,0,255,1,255,255,255,255]}}"#
+        );
+        assert_eq!(json("none"), "{}");
     }
 }

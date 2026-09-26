@@ -397,6 +397,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "font-family" => styles(&[StyleId::FontFamily]),
         "color" => styles(&[StyleId::TextColor]),
         "background-color" => styles(&[StyleId::BackgroundColor]),
+        // @ref LLP 1056 — `none` or one linear/radial gradient.
+        "background-image" => styles(&[StyleId::BackgroundImage]),
         "caret-color" => styles(&[StyleId::CaretColor]),
         "tint-color" => styles(&[StyleId::TintColor]),
         "opacity" => styles(&[StyleId::Opacity]),

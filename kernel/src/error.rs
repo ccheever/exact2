@@ -45,6 +45,8 @@ pub enum DecodeError {
     BadShapeOutside,
     /// Invalid CSS `aspect-ratio` value.
     BadAspectRatio,
+    /// Invalid or unsupported CSS `background-image` value (LLP 1056).
+    BadBackgroundImage,
     /// The frame revision is not one this kernel reads.
     UnsupportedRevision(u16),
     /// The producer was generated from a different schema than this kernel.
@@ -395,6 +397,10 @@ pub enum StyleValueError {
     },
     /// Not CSS `aspect-ratio`: `auto`, a ratio, or both.
     BadAspectRatio {
+        style: StyleId,
+    },
+    /// Not `none` or one gradient this kernel draws (LLP 1056).
+    BadBackgroundImage {
         style: StyleId,
     },
 }

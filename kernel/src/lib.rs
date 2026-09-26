@@ -33,6 +33,7 @@ pub mod error;
 pub mod export;
 mod flow;
 pub mod generated;
+pub mod gradient;
 pub mod id;
 pub mod kernel;
 pub mod layout;
