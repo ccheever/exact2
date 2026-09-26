@@ -690,6 +690,21 @@ impl<D: DataSource> Host<D> {
         self.layout().err()
     }
 
+    /// The date (LLP 1027.000.000): re-answer `exactTime` in one commit.
+    pub fn set_time(&mut self, epoch_at_zero: f64, utc_offset: f64) -> Option<String> {
+        match self.runner.set_time(epoch_at_zero, utc_offset) {
+            Ok(Some(receipt)) => self.commit(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => None,
+            Err(e) => Some(format!("time: {e:?}")),
+        }
+    }
+
     /// Seek presentation. Returns whether the registered Height changed layout;
     /// paint-only properties never trigger layout or text measurement.
     pub fn tick(&mut self, now_ms: f64) -> bool {

@@ -869,6 +869,17 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
+    /// The date, as the clock `now()` reads: Unix ms at clock zero (the
+    /// runner's clock starts at boot) and the local zone's offset, in
+    /// minutes east of UTC, as Apple and the web read theirs (LLP 1054 R12).
+    pub fn set_time(&mut self, epoch_at_zero: f64, utc_offset: f64) -> Option<String> {
+        let error = self.host.set_time(epoch_at_zero, utc_offset);
+        if error.is_some() {
+            return error;
+        }
+        self.after_commit()
+    }
+
     /// The viewport changed.
     pub fn resize(&mut self, width: f32, height: f32) -> Option<String> {
         let error = self.host.resize(width, height);

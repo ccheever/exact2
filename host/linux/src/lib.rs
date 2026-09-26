@@ -59,6 +59,7 @@ mod surfaces;
 pub mod text;
 #[cfg(target_os = "linux")]
 pub mod vnc;
+mod zone;
 
 pub use app::run;
 pub use host::{Host, HostError};

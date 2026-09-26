@@ -284,6 +284,17 @@ pub fn boot_presenter<D: DataSource + Default>(
         // The accepted runner already has the complete facts. Attaching the
         // adapter must never reintroduce intermediate embedded answers.
         booted.0.set_updates(updates);
+        // @ref LLP 1027.000.000 — the date, at the clock's zero (now: boot).
+        let epoch = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0.0, |d| d.as_secs_f64() * 1000.0)
+            - booted.0.host().now();
+        if let Some(e) = booted
+            .0
+            .set_time(epoch, crate::zone::local_offset_minutes())
+        {
+            eprintln!("exact: {e}");
+        }
         booted
             .0
             .set_development(dev_url.clone(), dev_identity.clone());
