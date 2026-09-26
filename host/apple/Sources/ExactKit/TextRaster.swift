@@ -92,24 +92,37 @@ struct TextRasterJob {
                                   bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
         else { return nil }
         #else
-        // UIKit accepts a CGImage. Let Core Graphics own its storage; an image
-        // made from an externally backed IOSurface must not outlive that surface.
-        guard let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
-                                  bytesPerRow: width * 4, space: Self.space,
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
-        else { return nil }
+        // UIKit accepts a CGImage. Paint into a scratch bitmap and keep Core
+        // Graphics' copy of it (`makeImage`), as ImageIO does for a decoded
+        // image: Core Animation shares that memory with the render server as
+        // it is. A context's own buffer would stay the image's copy-on-write
+        // storage, and be copied again at the layer's first commit.
+        // Rows padded to 64 bytes, as Core Animation needs to take them as they are.
+        let (row, rowOverflow) = (width * 4).addingReportingOverflow(63)
+        let (bytes, overflow) = (row & ~63).multipliedReportingOverflow(by: height)
+        guard !rowOverflow, !overflow else { return nil }
+        return withScratch(bytes) { scratch -> TextRasterImage? in
+            guard let ctx = CGContext(data: scratch, width: width, height: height, bitsPerComponent: 8,
+                                      bytesPerRow: row & ~63, space: Self.space,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+            else { return nil }
+            paint(lines, positions, frame: frame, height: height, scale: scale, into: ctx)
+            guard let image = ctx.makeImage() else { return nil }
+            return TextRasterImage(image: image, frame: frame)
+        }
         #endif
+        #if os(macOS)
+        paint(lines, positions, frame: frame, height: height, scale: scale, into: ctx)
+        return TextRasterImage(surface: surface, frame: frame)
+        #endif
+    }
+
+    private func paint(_ lines: [CTLine], _ positions: [CGPoint], frame: CGRect, height: Int, scale: CGFloat, into ctx: CGContext) {
         ctx.translateBy(x: 0, y: CGFloat(height))
         ctx.scaleBy(x: scale, y: -scale)
         ctx.translateBy(x: -frame.minX, y: -frame.minY)
         ctx.setShouldSmoothFonts(true)
         for (line, position) in zip(lines, positions) { TextLinePaint.draw(line, at: position, in: ctx) }
         ctx.flush()
-        #if os(iOS)
-        guard let image = ctx.makeImage() else { return nil }
-        return TextRasterImage(image: image, frame: frame)
-        #else
-        return TextRasterImage(surface: surface, frame: frame)
-        #endif
     }
 }
