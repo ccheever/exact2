@@ -65,20 +65,11 @@ mod projection_discriminator {
             self.shape("fill", s, t, &c.map(u32::from));
             self.raster.fill(s, c, t);
         }
-        fn stroke(&mut self, s: &Shape, w: f32, c: [u8; 4], t: Transform) {
-            let mut extra = c.map(u32::from).to_vec();
-            extra.push(w.to_bits());
-            self.shape("stroke", s, t, &extra);
-            self.raster.stroke(s, w, c, t);
-        }
         fn fill_border(&mut self, part: &crate::paint::border::BorderFill, t: Transform) {
             let mut bits: Vec<u32> = part.color.map(u32::from).to_vec();
-            for op in part.region.iter().chain(part.clip.iter().flatten()) {
-                let xy: Vec<f32> = op.points().collect();
-                for pair in xy.chunks(2) {
-                    bits.extend(point((pair[0], pair[1]), t));
-                }
-            }
+            let ops = part.region.iter().chain(part.clip.iter().flatten());
+            let xy: Vec<f32> = ops.flat_map(|op| op.points()).collect();
+            bits.extend(xy.chunks(2).flat_map(|p| point((p[0], p[1]), t)));
             self.calls.borrow_mut().calls.push(Call("border", bits));
             self.raster.fill_border(part, t);
         }

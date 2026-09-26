@@ -93,9 +93,6 @@ impl Backend for CountPaint {
     fn fill(&mut self, s: &Shape, c: [u8; 4], t: Transform) {
         self.inner.fill(s, c, t);
     }
-    fn stroke(&mut self, s: &Shape, w: f32, c: [u8; 4], t: Transform) {
-        self.inner.stroke(s, w, c, t);
-    }
     fn fill_border(&mut self, part: &crate::paint::border::BorderFill, t: Transform) {
         self.inner.fill_border(part, t);
     }

@@ -665,21 +665,6 @@ impl Backend for Raster {
         }
     }
 
-    fn stroke(&mut self, shape: &Shape, width: f32, color: [u8; 4], ts: Transform) {
-        let Some(path) = rounded_rect(shape) else {
-            return;
-        };
-        let dev = self.device(ts);
-        let stroke = Stroke {
-            width,
-            ..Stroke::default()
-        };
-        let mask = self.clips.last().cloned();
-        if let Some(t) = self.target.as_mut() {
-            t.stroke_path(&path, &solid(color), &stroke, dev, mask.as_deref());
-        }
-    }
-
     fn image(&mut self, image: &Arc<Bitmap>, dst: Rect4, clips: &[Shape], ts: Transform) {
         let (nw, nh) = (image.width() as f32, image.height() as f32);
         if nw <= 0.0 || nh <= 0.0 || dst.2 <= 0.0 || dst.3 <= 0.0 {

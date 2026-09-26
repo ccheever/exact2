@@ -323,8 +323,6 @@ pub trait Backend {
     }
     /// Fill a shape.
     fn fill(&mut self, shape: &Shape, color: [u8; 4], ts: Transform);
-    /// Stroke a shape's outline, centred on it.
-    fn stroke(&mut self, shape: &Shape, width: f32, color: [u8; 4], ts: Transform);
     /// Fill one colour's share of a border (LLP 1053 G2): its region
     /// even-odd, inside its clip (non-zero) when it has one.
     fn fill_border(&mut self, part: &border::BorderFill, ts: Transform);
@@ -373,7 +371,6 @@ impl Backend for Unpainted {
     }
     fn begin(&mut self, _: f32, _: f32, _: f32) {}
     fn fill(&mut self, _: &Shape, _: [u8; 4], _: Transform) {}
-    fn stroke(&mut self, _: &Shape, _: f32, _: [u8; 4], _: Transform) {}
     fn fill_border(&mut self, _: &border::BorderFill, _: Transform) {}
     fn image(&mut self, _: &Arc<Bitmap>, _: Rect4, _: &[Shape], _: Transform) {}
     fn text(

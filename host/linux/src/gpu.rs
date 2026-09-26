@@ -371,15 +371,6 @@ impl Backend for Gpu {
         }
     }
 
-    fn stroke(&mut self, s: &Shape, width: f32, c: [u8; 4], ts: Transform) {
-        if s.rect.2 <= 0.0 || s.rect.3 <= 0.0 {
-            return;
-        }
-        let a = self.affine(ts);
-        self.scene
-            .stroke(&Stroke::new(width as f64), a, color(c), None, &shape(s));
-    }
-
     fn image(&mut self, image: &Arc<Bitmap>, dst: Rect4, clips: &[Shape], ts: Transform) {
         let (nw, nh) = (image.width() as f64, image.height() as f64);
         if nw <= 0.0 || nh <= 0.0 || dst.2 <= 0.0 || dst.3 <= 0.0 {
