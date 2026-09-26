@@ -176,12 +176,7 @@ extension TextEngine {
     /// Explicit CSS line boxes permit fallback ink to overflow without growing.
     func lineBox(_ spec: Spec, line: CTLine) -> (above: CGFloat, below: CGFloat, explicit: Bool) {
         let strut = spec.strut ?? spec.runs.first
-        func extents(_ run: Run) -> (CGFloat, CGFloat) {
-            let f = font(run)
-            let natural = f.ascender - f.descender + f.leading
-            let half = ((run.lineHeight ?? natural) - natural) / 2
-            return (f.ascender + half, -f.descender + f.leading + half)
-        }
+        func extents(_ run: Run) -> (CGFloat, CGFloat) { CSSLineBox.extents(font(run) as CTFont, height: run.lineHeight) }
         let minimum = strut.map(extents) ?? (0, 0)
         var above = minimum.0, below = minimum.1
         var aboveExplicit = strut?.lineHeight != nil, belowExplicit = aboveExplicit
@@ -210,7 +205,8 @@ extension TextEngine {
             if matched && !includesNormal { continue }
             let attrs = CTRunGetAttributes(glyphRun) as NSDictionary
             let font = attrs[kCTFontAttributeName] as! CTFont
-            include(CTFontGetAscent(font), CTFontGetDescent(font) + CTFontGetLeading(font), explicit: false)
+            let (a, d) = CSSLineBox.extents(font, height: nil)
+            include(a, d, explicit: false)
         }
         return (above, below, aboveExplicit || belowExplicit)
     }
@@ -258,7 +254,7 @@ extension TextEngine {
             glyphs += CTLineGetGlyphCount(line); lines.append(line)
             maxWidth = max(maxWidth, x + CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
         }
-        return Paragraph(lines: lines, baselines: baselines, width: ceil(maxWidth), height: height,
+        return Paragraph(lines: lines, baselines: baselines, width: CSSLineBox.layoutWidth(maxWidth), height: height,
                          lineBottoms: bottoms, shape: shape, glyphCount: glyphs, origins: origins,
                          fragments: fragments, flowLineHeight: lineHeight)
     }

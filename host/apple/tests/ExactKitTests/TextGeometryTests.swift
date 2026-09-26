@@ -944,7 +944,7 @@ extension TextGeometryTests {
             for word in ["Café", "Cafe\u{301}", "🦀"] {
                 var one = input; var r = run; r.text = word; one.runs = [r]
                 let line = CTLineCreateWithAttributedString(engine.attributed(one))
-                expected = max(expected, ceil(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))))
+                expected = max(expected, ceil(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) * 64) / 64)
             }
         }
         XCTAssertEqual(engine.minContentWidth(input), expected)

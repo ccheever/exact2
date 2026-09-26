@@ -59,10 +59,8 @@ final class RegionTextSource: Sendable {
         let start = ProcessInfo.processInfo.systemUptime
         func font(_ run: Run) -> RegionFont {
             let f = engine.font(size: run.size, weight: run.weight, family: run.family, italic: run.italic)
-            let natural = f.ascender - f.descender + f.leading
-            let half = ((run.lineHeight ?? natural) - natural) / 2
-            return RegionFont(owner: RegionFontOwner(f as CTFont), above: f.ascender + half,
-                              below: -f.descender + f.leading + half)
+            let (above, below) = CSSLineBox.extents(f as CTFont, height: run.lineHeight)
+            return RegionFont(owner: RegionFontOwner(f as CTFont), above: above, below: below)
         }
         var offset = 0
         runs = spec.runs.map { run in

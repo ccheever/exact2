@@ -106,7 +106,6 @@ final class RegionWorkerLayout {
             (run.font.above, run.font.below)
         }
         let minimum = source.strut.map { ($0.above, $0.below) } ?? (0, 0)
-        var explicit = false
         var lineBottoms: [CGFloat] = []
         var lines: [CTLine] = []
         var summaries: [RegionLine] = []
@@ -149,13 +148,7 @@ final class RegionWorkerLayout {
             // and only the runs on this line, preserving each font's half-leading.
             var above = minimum.0, below = minimum.1
             var lineInk = fontInk
-            var aboveExplicit = source.strutExplicit, belowExplicit = aboveExplicit
-            func include(_ a: CGFloat, _ b: CGFloat, explicit: Bool) {
-                if a > above { above = a; aboveExplicit = explicit }
-                else if a == above { aboveExplicit = aboveExplicit && explicit }
-                if b > below { below = b; belowExplicit = explicit }
-                else if b == below { belowExplicit = belowExplicit && explicit }
-            }
+            func include(_ a: CGFloat, _ b: CGFloat) { above = max(above, a); below = max(below, b) }
             for glyphRun in CTLineGetGlyphRuns(line) as! [CTRun] {
                 let range = CTRunGetStringRange(glyphRun)
                 let attributes = CTRunGetAttributes(glyphRun) as NSDictionary
@@ -170,23 +163,22 @@ final class RegionWorkerLayout {
                         // Explicit boxes use authored metrics; fallback ink
                         // can overflow without enlarging the inline box.
                         let (a, b) = extents(authored)
-                        include(a, b, explicit: true)
+                        include(a, b)
                     } else {
                         includesNormal = true
                     }
                 }
                 if !matched, source.strutExplicit {
                     let (a, b) = minimum
-                    include(a, b, explicit: true)
+                    include(a, b)
                     continue
                 }
                 if matched && !includesNormal { continue }
-                let a = CTFontGetAscent(shapedFont), d = CTFontGetDescent(shapedFont), l = CTFontGetLeading(shapedFont)
                 // Normal line height includes the actual emoji/fallback face's
-                // metrics, as CTLine measurement did before typed line heights.
-                include(a, d + l, explicit: false)
+                // line box, as the browser's does.
+                let (a, d) = CSSLineBox.extents(shapedFont, height: nil)
+                include(a, d)
             }
-            explicit = explicit || aboveExplicit || belowExplicit
             if retainHits || lineCount == 0 { baselines.append(y + above) }
             y += above + below
             if retainHits { lineBottoms.append(y) }
@@ -204,11 +196,9 @@ final class RegionWorkerLayout {
             // Empty editors retain the paragraph's own line box.
             baselines.append(minimum.0)
             y = minimum.0 + minimum.1
-            explicit = source.strutExplicit
         }
-        // An authored CSS line height fixes the line box, including fractions.
-        // Keep intrinsic width and `normal` height measurement separate: changing
-        // their rounding also changes wrapping and the established host parity.
+        // The line boxes are already the browser's (CSSLineBox): the height is
+        // their sum; a width rounds up to the 1/64 layout unit.
         // Check before metadata and at its coarse line boundaries. No partial
         // metrics or layout binding escape if the authoritative owner changed.
         try beforeMetadata()
@@ -216,10 +206,10 @@ final class RegionWorkerLayout {
         if compact {
             metadata = RegionParagraph(source: source, sourceSHA256: preparation.sourceSHA256,
                 lines: summaries, baselines: baselines, lineBottoms: lineBottoms,
-                width: ceil(maxWidth), height: explicit ? y : ceil(y), offeredWidth: width)
+                width: CSSLineBox.layoutWidth(maxWidth), height: y, offeredWidth: width)
         } else {
             metadata = try RegionParagraph(source: source, sourceSHA256: preparation.sourceSHA256,
-                lines: lines, baselines: baselines, width: ceil(maxWidth), height: explicit ? y : ceil(y),
+                lines: lines, baselines: baselines, width: CSSLineBox.layoutWidth(maxWidth), height: y,
                 lineBottoms: lineBottoms, offeredWidth: width, retainHits: retainHits, captureHits: false,
                 metadataCheckpoint: beforeMetadata)
         }
@@ -249,7 +239,7 @@ final class RegionWorkerLayout {
                 widest = max(widest, CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
                 start = NSMaxRange(range)
             }
-            return ceil(widest)
+            return CSSLineBox.layoutWidth(widest)
         }
         for run in source.runs {
             var words: [String: CGFloat] = [:]
@@ -260,7 +250,7 @@ final class RegionWorkerLayout {
                 var attrs: [NSAttributedString.Key: Any] = [NSAttributedString.Key(kCTFontAttributeName as String): run.font.value]
                 if run.letterSpacing != 0 { attrs[.kern] = run.letterSpacing }
                 let line = CTLineCreateWithAttributedString(NSAttributedString(string: word, attributes: attrs))
-                let value = ceil(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
+                let value = CSSLineBox.layoutWidth(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
                 widest = max(widest, value)
                 let cost = word.utf8.count + 64
                 if cost <= 1024 * 1024 - bytes { words[word] = value; bytes += cost }

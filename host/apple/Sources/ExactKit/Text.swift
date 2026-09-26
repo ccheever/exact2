@@ -137,6 +137,43 @@ struct SourceMap: Hashable {
     }
 }
 
+/// A face's CSS line box as WebKit sets it on this platform — the parity
+/// oracle (the web is the standard). WebKit keeps a face's ascent, descent
+/// and line gap as whole pixels: iOS rounds each up, macOS to the nearest.
+/// `line-height: normal` is that content area plus the gap, split around it;
+/// a set line height centres the whole-pixel content area in it, fractions
+/// kept. Measured in Safari on the iOS 27 simulator and in WKWebView on
+/// macOS 27 for SF, SF Mono and the fallback faces (Arabic, Thai, CJK,
+/// emoji), 10–40 px; TextParityTests pins them. (macOS WebKit also floors a
+/// set height to a whole pixel; that is not followed: Chrome keeps it.)
+enum CSSLineBox {
+    #if os(iOS)
+    static func pixels(_ value: CGFloat) -> CGFloat { ceil(value) }
+    #else
+    static func pixels(_ value: CGFloat) -> CGFloat { value.rounded() }
+    #endif
+
+    /// A text advance as the browser's layout holds it: rounded up to its
+    /// 1/64 px layout unit, never to a whole point (a chip's width).
+    static func layoutWidth(_ width: CGFloat) -> CGFloat { ceil(width * 64) / 64 }
+
+    /// Above and below the baseline: `line-height: normal` when `height` is
+    /// nil, else the authored line height.
+    static func extents(_ font: CTFont, height: CGFloat?) -> (CGFloat, CGFloat) {
+        let ascent = pixels(CTFontGetAscent(font)), descent = pixels(CTFontGetDescent(font))
+        guard let height else {
+            let gap = pixels(CTFontGetLeading(font))
+            #if os(iOS)
+            return (ascent + gap / 2, descent + gap / 2)
+            #else
+            return (ascent + floor(gap / 2), descent + ceil(gap / 2))
+            #endif
+        }
+        let half = (height - ascent - descent) / 2
+        return (ascent + half, height - ascent - half)
+    }
+}
+
 /// A wrapped paragraph at one width: what is measured is what is painted.
 final class Paragraph {
     let lines: [CTLine]
@@ -522,8 +559,20 @@ final class TextEngine {
             f = NSFontManager.shared.convert(f, toHaveTrait: .italicFontMask)
             #endif
         }
+        f = TextEngine.cssWeight(f, weight: weight, size: size)
         fonts[key] = f
         return f
+    }
+
+    /// CSS `font-weight` on a variable system face is its `wght` axis at
+    /// that number, as WebKit sets it: UIKit's semibold is `wght` 590 and its
+    /// medium 510, so `600` text measured 0.2% narrower than Safari's.
+    static func cssWeight(_ font: PlatformFont, weight: Int, size: CGFloat) -> PlatformFont {
+        let tag = 0x77676874 as NSNumber // 'wght'
+        guard let axes = CTFontCopyVariation(font as CTFont) as? [NSNumber: NSNumber], let current = axes[tag],
+              current.intValue != weight else { return font }
+        let d = CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: [tag: weight as NSNumber]] as CFDictionary)
+        return CTFontCreateCopyWithAttributes(font as CTFont, size, nil, d) as PlatformFont
     }
 
     /// A color from the style dictionary's `[r,g,b,a]` bytes (sRGB).
@@ -549,7 +598,8 @@ final class TextEngine {
             if r.decoration.contains("line-through") { a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
             if let fill = r.background.map(TextEngine.color), fill.cgColor.alpha > 0 {
                 let f = a[.font] as! PlatformFont
-                a[.exactBackground] = InlineBackground(color: fill.cgColor, ascent: f.ascender, descent: -f.descender)
+                a[.exactBackground] = InlineBackground(color: fill.cgColor, ascent: CSSLineBox.pixels(f.ascender),
+                                                       descent: CSSLineBox.pixels(-f.descender))
             }
             let length = r.text.utf16.count
             if length > 0 { s.setAttributes(a, range: NSRange(location: offset, length: length)) }
@@ -662,12 +712,7 @@ final class TextEngine {
         let spec = shape.spec, typesetter = shape.typesetter
         let length = shape.identity.utf16Count
         let strut = spec.strut ?? spec.runs.first
-        func extents(_ run: Run) -> (CGFloat, CGFloat) {
-            let f = font(run)
-            let natural = f.ascender - f.descender + f.leading
-            let half = ((run.lineHeight ?? natural) - natural) / 2
-            return (f.ascender + half, -f.descender + f.leading + half)
-        }
+        func extents(_ run: Run) -> (CGFloat, CGFloat) { CSSLineBox.extents(font(run) as CTFont, height: run.lineHeight) }
         let minimum = strut.map(extents) ?? (0, 0)
         func authoredExtents(_ run: Run) -> (CGFloat, CGFloat) {
             // Reuse only this layout's exact strut metrics. Font keys preserve
@@ -683,7 +728,6 @@ final class TextEngine {
         // The interned identity owns the UTF-16 boundaries used by every layout.
         let runEnds = shape.identity.runEnds
         let previous = spec.lineClamp == 0 ? shape.lastParagraph : nil
-        var explicit = false
         var lineBottoms: [CGFloat] = []
         var lines: [CTLine] = []
         var glyphCount = 0
@@ -742,13 +786,7 @@ final class TextEngine {
             // CSS inline boxes share a baseline. Include the paragraph strut
             // and only the runs on this line, preserving each font's half-leading.
             var above = minimum.0, below = minimum.1
-            var aboveExplicit = strut?.lineHeight != nil, belowExplicit = aboveExplicit
-            func include(_ a: CGFloat, _ b: CGFloat, explicit: Bool) {
-                if a > above { above = a; aboveExplicit = explicit }
-                else if a == above { aboveExplicit = aboveExplicit && explicit }
-                if b > below { below = b; belowExplicit = explicit }
-                else if b == below { belowExplicit = belowExplicit && explicit }
-            }
+            func include(_ a: CGFloat, _ b: CGFloat) { above = max(above, a); below = max(below, b) }
             for glyphRun in CTLineGetGlyphRuns(line) as! [CTRun] {
                 let range = CTRunGetStringRange(glyphRun)
                 var first = 0, last = runEnds.count
@@ -769,25 +807,24 @@ final class TextEngine {
                         // Explicit boxes use authored metrics; fallback ink
                         // can overflow without enlarging the inline box.
                         let (a, b) = authoredExtents(authored)
-                        include(a, b, explicit: true)
+                        include(a, b)
                     } else {
                         includesNormal = true
                     }
                 }
                 if !matched, let strut, strut.lineHeight != nil {
                     let (a, b) = extents(strut)
-                    include(a, b, explicit: true)
+                    include(a, b)
                     continue
                 }
                 if matched && !includesNormal { continue }
                 let attributes = CTRunGetAttributes(glyphRun) as NSDictionary
                 let shapedFont = attributes[kCTFontAttributeName] as! CTFont
-                let a = CTFontGetAscent(shapedFont), d = CTFontGetDescent(shapedFont), l = CTFontGetLeading(shapedFont)
                 // Normal line height includes the actual emoji/fallback face's
-                // metrics, as CTLine measurement did before typed line heights.
-                include(a, d + l, explicit: false)
+                // line box, as the browser's does.
+                let (a, d) = CSSLineBox.extents(shapedFont, height: nil)
+                include(a, d)
             }
-            explicit = explicit || aboveExplicit || belowExplicit
             baselines.append(y + above)
             y += above + below
             lineBottoms.append(y)
@@ -800,13 +837,13 @@ final class TextEngine {
             // Empty editors retain the paragraph's own line box.
             baselines.append(minimum.0)
             y = minimum.0 + minimum.1
-            explicit = strut?.lineHeight != nil
         }
-        // An authored CSS line height fixes the line box, including fractions.
-        // Keep intrinsic width and `normal` height measurement separate: changing
-        // their rounding also changes wrapping and the established host parity.
-        return Paragraph(lines: lines, baselines: baselines, width: ceil(maxWidth),
-                         height: explicit ? y : ceil(y), lineBottoms: lineBottoms,
+        // The line boxes are already the browser's (CSSLineBox), fractions of
+        // an authored height or a half gap included: the height is their sum.
+        // A width rounds up to the browser's 1/64 layout unit, so text laid
+        // out again at its own measured width still fits on its lines.
+        return Paragraph(lines: lines, baselines: baselines, width: CSSLineBox.layoutWidth(maxWidth),
+                         height: y, lineBottoms: lineBottoms,
                          shape: shape, offeredWidth: width, glyphCount: glyphCount)
     }
 
@@ -886,8 +923,8 @@ final class TextEngine {
                 widest = max(widest, CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
                 start = NSMaxRange(range)
             }
-            residency.putMinimum(identity, width: ceil(widest))
-            return ceil(widest)
+            residency.putMinimum(identity, width: CSSLineBox.layoutWidth(widest))
+            return CSSLineBox.layoutWidth(widest)
         }
         // Repeated words previously reused entire cached Paragraphs. Keep that
         // benefit with probe-local scalars, bounded by the same logical-payload
@@ -903,7 +940,7 @@ final class TextEngine {
                 // This probe needs one scalar, never a cached width-specific
                 // Paragraph or a historical per-word CTTypesetter.
                 let line = CTLineCreateWithAttributedString(attributed(one))
-                let width = ceil(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
+                let width = CSSLineBox.layoutWidth(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
                 widest = max(widest, width)
                 let bytes = key.text.utf8.count + MemoryLayout<Run>.stride + MemoryLayout<CGFloat>.stride
                 if bytes <= residency.softTargetBytes - wordBytes {
