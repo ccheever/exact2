@@ -664,7 +664,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     // ---- StyleId / StyleCodec --------------------------------------------
     writeln!(w, "/// Wire codec of a style row.").unwrap();
     writeln!(w, "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]").unwrap();
-    writeln!(w, "pub enum StyleCodec {{ Dimension, LineHeight, F32, U8, U16, U32, I32, Rgba8, ColorValue, KeywordColor, Vec2, Color2, Tracks, Placement, Transitions, ClipPath, ShapeOutside, Enum }}").unwrap();
+    writeln!(w, "pub enum StyleCodec {{ Dimension, LineHeight, F32, U8, U16, U32, I32, Rgba8, ColorValue, KeywordColor, Vec2, Color2, Tracks, Placement, Transitions, ClipPath, ShapeOutside, AspectRatio, Enum }}").unwrap();
     writeln!(w, "/// One style row; the discriminant is the mask bit.").unwrap();
     writeln!(w, "#[repr(u8)]").unwrap();
     writeln!(
@@ -1325,7 +1325,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
                 "{name}::from_name(value.text(id)?).ok_or(StyleValueError::UnknownEnumValue {{ style: id }})?"
             ),
             Codec::Transitions => "Transitions::parse(value.text(id)?).map_err(|_| StyleValueError::BadTransition { style: id })?".to_string(),
-            Codec::CssValue { path, error, .. } => format!("{path}::parse(value.text(id)?).ok_or(StyleValueError::{error} {{ style: id }})?"),
+            Codec::CssValue { path, error, .. } => format!("{path}::parse(&value.css_text(id)?).ok_or(StyleValueError::{error} {{ style: id }})?"),
             Codec::Color2 | Codec::Tracks | Codec::Placement => String::new(),
         };
         match groups.iter_mut().find(|(c, _)| *c == conv) {

@@ -276,6 +276,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         RowValue::Enum(e) => out.push_str(e),
         RowValue::ClipPath(p) => out.push_str(&p.css()),
         RowValue::ShapeOutside(p) => out.push_str(&p.css()),
+        RowValue::AspectRatio(r) => out.push_str(&r.css()),
         RowValue::Vec2(v) => {
             num_into(out, v.x);
             out.push_str("px ");
@@ -287,7 +288,6 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             | StyleId::FlexShrink
             | StyleId::Opacity
             | StyleId::ZIndex
-            | StyleId::AspectRatio
             | StyleId::FontWeight
             | StyleId::Scale
             | StyleId::ShadowOpacity => num_into(out, *n as f32),
@@ -611,5 +611,37 @@ mod declaration_tests {
             "width:33.5px;opacity:0.125;",
         ];
         assert_eq!(cases, golden);
+    }
+
+    /// LLP 1053: `aspect-ratio` as authored (never a rounded float),
+    /// `direction`, and the `flex-grow` longhand reach the page as CSS.
+    #[test]
+    fn layout_rows_keep_their_css() {
+        let t = |s: &str| StyleValue::Text(s.into());
+        for (rows, want) in [
+            (
+                vec![(StyleId::AspectRatio, t("16/9"))],
+                "aspect-ratio:16 / 9;",
+            ),
+            (
+                vec![(StyleId::AspectRatio, StyleValue::Number(2.0))],
+                "aspect-ratio:2 / 1;",
+            ),
+            (
+                vec![(StyleId::AspectRatio, t("4/3 auto"))],
+                "aspect-ratio:auto 4 / 3;",
+            ),
+            (
+                vec![(StyleId::AspectRatio, StyleValue::Auto)],
+                "aspect-ratio:auto;",
+            ),
+            (vec![(StyleId::Direction, t("rtl"))], "direction:rtl;"),
+            (
+                vec![(StyleId::FlexGrow, StyleValue::Number(1.0))],
+                "flex-grow:1;",
+            ),
+        ] {
+            assert_eq!(css(&rows, &[]), want);
+        }
     }
 }

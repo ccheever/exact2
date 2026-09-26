@@ -383,6 +383,16 @@ impl StyleValue {
         }
     }
 
+    /// A CSS-valued row's text: text as given, a number (`aspect-ratio: 2`)
+    /// or `auto` as CSS spells it.
+    pub(crate) fn css_text(&self, style: StyleId) -> Result<String, StyleValueError> {
+        match self {
+            StyleValue::Number(n) => Ok(exact_num::Shortest(*n).to_string()),
+            StyleValue::Auto => Ok("auto".into()),
+            _ => self.text(style).map(str::to_string),
+        }
+    }
+
     pub(crate) fn text(&self, style: StyleId) -> Result<&str, StyleValueError> {
         match self {
             StyleValue::Text(t) => Ok(t),
@@ -635,6 +645,8 @@ pub enum RowValue<'a> {
     ClipPath(&'a crate::clip::ClipPath),
     /// CSS shape-outside, resolved after layout (LLP 1043.000 D1).
     ShapeOutside(&'a exact_textflow::ShapeOutside),
+    /// CSS `aspect-ratio` as authored (LLP 1053 G1).
+    AspectRatio(&'a crate::ratio::AspectRatio),
     /// A dimension.
     Dimension(Dimension),
     /// A number (`f32`, `u8`, `u16`, `u32`, `i32` rows).
@@ -671,6 +683,7 @@ impl RowValue<'_> {
             RowValue::Transitions(v) => v.is_finite(),
             RowValue::ClipPath(_)
             | RowValue::ShapeOutside(_)
+            | RowValue::AspectRatio(_)
             | RowValue::Color(_)
             | RowValue::ColorValue(_)
             | RowValue::Color2(_)
@@ -976,11 +989,8 @@ impl StyleProps {
             width: self.max_width.to_lpa(env),
             height: self.max_height.to_lpa(env),
         };
-        s.aspect_ratio = if self.aspect_ratio > 0.0 && self.aspect_ratio.is_finite() {
-            Some(self.aspect_ratio)
-        } else {
-            None
-        };
+        s.aspect_ratio = self.aspect_ratio.preferred();
+        s.aspect_ratio_content_box = self.aspect_ratio.content_box();
 
         s.inset = taffy::geometry::Rect {
             top: self.top.to_lpa(env),
@@ -1070,12 +1080,15 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     // A root with `width: auto` fills what it is offered, as a `<div>` fills
     // the body: CSS's block rule, which Taffy does not apply to a root.
     // Height stays auto — as tall as its content, the page a viewport scrolls.
-    // A replaced element keeps its intrinsic ratio unless a row sets one:
-    // CSS sizes an `<img>` with one dimension given from the other by ratio.
-    if arena.node_type(slot).is_replaced() && !arena.style(slot).mask.has(StyleId::AspectRatio) {
+    // A replaced element keeps its natural ratio under `aspect-ratio: auto`
+    // (with or without a fallback ratio, or a degenerate one): CSS sizes an
+    // `<img>` with one dimension given from the other by that ratio. Only a
+    // plain `<ratio>` overrides it; natural ratios are of the content box.
+    if arena.node_type(slot).is_replaced() && arena.style(slot).aspect_ratio.defers_to_natural() {
         if let Some((w, h)) = arena.intrinsic(slot) {
             if w > 0.0 && h > 0.0 {
                 s.aspect_ratio = Some(w / h);
+                s.aspect_ratio_content_box = true;
             }
         }
     }

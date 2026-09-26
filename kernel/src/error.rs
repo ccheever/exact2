@@ -43,6 +43,8 @@ pub enum DecodeError {
     BadClipPath,
     /// Invalid CSS shape-outside value.
     BadShapeOutside,
+    /// Invalid CSS `aspect-ratio` value.
+    BadAspectRatio,
     /// The frame revision is not one this kernel reads.
     UnsupportedRevision(u16),
     /// The producer was generated from a different schema than this kernel.
@@ -389,6 +391,10 @@ pub enum StyleValueError {
         style: StyleId,
     },
     BadClipPath {
+        style: StyleId,
+    },
+    /// Not CSS `aspect-ratio`: `auto`, a ratio, or both.
+    BadAspectRatio {
         style: StyleId,
     },
 }

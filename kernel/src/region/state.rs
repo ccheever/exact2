@@ -799,7 +799,7 @@ fn flex_height_independent(arena: &NodeArena, owner: u32) -> bool {
         // automatic main-axis content minimum. Aspect transfer is not admitted.
         && limit(s.min_width)
         && limit(s.max_width)
-        && s.aspect_ratio == 0.
+        && s.aspect_ratio.preferred().is_none()
         && [s.margin_top, s.margin_right, s.margin_bottom, s.margin_left]
             .into_iter().all(zero)
         && [s.top, s.right, s.bottom, s.left]

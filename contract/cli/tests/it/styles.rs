@@ -225,3 +225,54 @@ fn auto_enum_literals_in_branches_keep_dimension_refusals_separate() {
         "{error}"
     );
 }
+
+fn boot(src: &str) -> Runner<NoData> {
+    let plan = contract::bake(contract::compile(src).unwrap(), NoData).unwrap();
+    Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap()
+}
+
+fn style_of(r: &Runner<NoData>, id: &str) -> exact_kernel::StyleProps {
+    let k = r.kernel();
+    k.node_by_key(k.find_by_test_id(id)[0])
+        .unwrap()
+        .style
+        .clone()
+}
+
+fn refused(attrs: &str) -> contract::CompileError {
+    contract::compile(&format!("component App\n  view\n    view {attrs}\n")).unwrap_err()
+}
+
+/// LLP 1053 G1: CSS `aspect-ratio` — `auto`, a ratio, or both.
+#[test]
+fn aspect_ratio_takes_the_css_grammar() {
+    use exact_kernel::ratio::AspectRatio;
+    let r = boot("component App\n  state wide = true\n  view\n    column\n      view aspect-ratio=\"16 / 9\" testId=\"a\"\n      view aspect-ratio=1.5 testId=\"b\"\n      view aspect-ratio=\"auto 4/3\" testId=\"c\"\n      view aspect-ratio=\"auto\" testId=\"d\"\n      view aspect-ratio=(wide ? \"2/1\" : \"1\") testId=\"e\"\n");
+    for (id, css) in [
+        ("a", "16/9"),
+        ("b", "1.5"),
+        ("c", "auto 4/3"),
+        ("d", "auto"),
+        ("e", "2/1"),
+    ] {
+        assert_eq!(
+            style_of(&r, id).aspect_ratio,
+            AspectRatio::parse(css).unwrap(),
+            "{id}"
+        );
+    }
+    for value in ["-1", "\"16:9\"", "\"auto auto\"", "\"50%\"", "\"1 / -2\""] {
+        let e = refused(&format!("aspect-ratio={value}"));
+        assert_eq!(e.id, "lower-attr-value", "{value}: {e}");
+    }
+    assert!(refused("aspect-ratio=\"16:9\"")
+        .message
+        .contains("auto 4 / 3"));
+}

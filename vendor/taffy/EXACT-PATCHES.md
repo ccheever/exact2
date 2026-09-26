@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10 and 11 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11 and 12 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size.
@@ -433,3 +433,60 @@ tests and 5 doctests pass (scratch copy without roxmltree, as in M8).
 Seeds 1–10,000 of `run` and of `run_panes` (40 rounds) differed from a fresh
 layout 21 and 16 times before and 0 times after; the 512-tree differential
 passes before and after.
+
+## Patch 12: sizing through `aspect-ratio` as CSS does — to upstream
+
+**Implementer:** Claude (Opus 5.5), 2026-09-25, for LLP 1053 G1.
+
+Upstream applies a ratio by `Size::maybe_apply_aspect_ratio` wherever a size,
+min or max is resolved, in the box-sizing box, into any unset axis. Patch 5's
+leaf then treated every leaf with a ratio as a replaced element and resolved
+it by CSS 2.1 §10.4's table. Against Chrome 154 that is wrong in five ways:
+
+- **A non-replaced box is not replaced.** A text leaf or empty box with
+  `width: 200px; max-height: 50px; aspect-ratio: 1` is 200×50, not 50×50.
+- **Min/max transfer only into an unsized axis.** A `max-height` becomes a max
+  width for a stretched block (100×100 from `aspect-ratio: 1; max-height:
+  100px`), never for a set width. The same holds for images: `width: 96px;
+  max-height: 20px` on a 320×120 image is 96×20. The §10.4 table is for
+  neither dimension set.
+- **The derived block size is a floor.** For a box that is neither replaced
+  nor a scroll container and whose `min-height` is `auto` (CSS Box Sizing 4
+  §5.2), taller content grows it: `width: 20px; aspect-ratio: 1` holding five
+  lines is 90 tall, not 20. `min-height: 0`, `overflow: hidden` or a
+  `max-height` still hold it.
+- **The ratio's box.** `auto <ratio>` and an image's natural ratio relate
+  content-box sizes even under `box-sizing: border-box`.
+- **A provisional stretch is not definite.** Flex measured a ratio item's
+  base size, and its automatic minimum, under the stretched cross size of an
+  indefinite container: `flex-grow: 1; aspect-ratio: 2` in a 400px row laid
+  out at 1200×600 under a 600px-tall offer.
+
+The fix is one module, `src/compute/ratio.rs`, plus its call sites.
+`Ratio::resolve` takes a box's given border-box sizes and authored min/max,
+and returns its size, min and max:
+- min/max transferred into unsized axes;
+- one given axis clamped, the other derived from it;
+- a floored derived height becomes a minimum instead of a size.
+
+`Style::aspect_ratio_content_box` (with `CoreStyle::aspect_ratio_content_box`)
+carries the box. The call sites are:
+- `leaf.rs`: sizes through `Ratio`, keeps the §10.4 table only for a
+  replaced element with neither dimension given, and derives a
+  content-sized box's height from its width.
+- `block.rs`: the entry size, the item sizes and the container's
+  known-dimension transfer.
+- `flexbox.rs`: the item size; min/max transfer only into axes the item
+  does not size (`transfer_into_unsized`); the base-size and automatic-minimum
+  measurements drop a provisional stretched cross size for ratio items.
+
+Unchanged and not claimed: absolutely positioned boxes, grid items, a flex or
+grid container's own ratio and the root path in `compute/mod.rs` keep
+upstream's `maybe_apply_aspect_ratio`; the automatic minimum of a width
+derived from a height (the inline axis) is not applied.
+
+**Held by** `kernel/tests/it/browser_ratio.rs`: 60 literal-Chrome cases.
+`image.rs` and `video.rs` each change one expectation to Chrome's: a set width
+stays when `max-height` clamps the ratio's height. Taffy's 136 unit tests and
+5 doctests pass on a scratch copy without roxmltree. The 512-tree differential
+passes.

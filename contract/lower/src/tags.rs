@@ -466,6 +466,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "flex-basis" => styles(&[StyleId::FlexBasis]),
         "flex-wrap" => styles(&[StyleId::FlexWrap]),
         "flex-direction" => styles(&[StyleId::FlexDirection]),
+        // @ref LLP 1053 G1 — `auto || <ratio>`.
+        "aspect-ratio" => styles(&[StyleId::AspectRatio]),
         "display" => styles(&[StyleId::Display]),
         "align-items" => styles(&[StyleId::AlignItems]),
         "align-self" => styles(&[StyleId::AlignSelf]),
@@ -538,6 +540,7 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "flexBasis" => "flex-basis",
         "wrap" | "flexWrap" => "flex-wrap",
         "direction" | "flexDirection" => "flex-direction",
+        "aspectRatio" => "aspect-ratio",
         "align" | "alignItems" => "align-items",
         "alignSelf" => "align-self",
         "boxSizing" => "box-sizing",

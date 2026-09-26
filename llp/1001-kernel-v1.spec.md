@@ -286,9 +286,18 @@ applied in `StyleProps::to_taffy` (a scroll container is `overflow: auto` on the
 web). An `Image` is a replaced element: the host reports its intrinsic size
 (`Kernel::set_intrinsic_size`, the bitmap's pixel counts one-for-one as points,
 after the image loads; before that each unknown axis measures 0, so a `width`
-row still sizes the box), the node is measured from it, and it keeps its ratio
-unless an `aspect_ratio` row is set — one dimension given, the other follows,
-and min/max resolve by CSS 2.1 §10.4's table (Taffy patch 5). Declared: in
+row still sizes the box), the node is measured from it, and it keeps its
+natural ratio under `aspect-ratio: auto`. `auto <ratio>` uses the natural ratio
+once known and the given one before; a plain `<ratio>` overrides it (LLP 1053
+G1). One dimension given, the other follows by the ratio and each is clamped
+on its own; with neither given, min/max resolve by CSS 2.1 §10.4's table
+(Taffy patches 5 and 12). Any box takes CSS `aspect-ratio` (`auto || <ratio>`,
+stored as authored). A non-replaced box's derived height is a floor its
+content can pass unless `min-height` is set or it scrolls; min/max transfer
+through the ratio only into an axis the box does not size. Declared, as not yet
+done: the automatic minimum of a *width* derived from a height; absolutely
+positioned boxes, grid items and a flex/grid container's own ratio keep
+upstream Taffy's transfer (`vendor/taffy/EXACT-PATCHES.md` patch 12). Declared: in
 *block* flow Taffy stretches an auto-width image to its container where CSS
 would use the intrinsic width (in a stretching flex column both stretch, by
 ratio); the ratio still holds (`kernel/tests/image.rs`; LLP 1011).

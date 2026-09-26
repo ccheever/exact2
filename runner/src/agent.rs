@@ -428,6 +428,7 @@ fn row_json(v: RowValue<'_>, out: &mut String) {
             let _ = write!(out, "[{},{}]", num(v.x as f64), num(v.y as f64));
         }
         RowValue::ClipPath(p) => quote(&p.css(), out),
+        RowValue::AspectRatio(r) => quote(&r.css(), out),
         RowValue::ShapeOutside(p) => quote(&p.css(), out),
         RowValue::Transitions(_) => quote("(transition)", out),
         RowValue::Color2(_) | RowValue::Tracks(_) | RowValue::Placement(_) => quote("(grid)", out),
