@@ -57,7 +57,8 @@ final class RasterLoaderTests: XCTestCase {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = presenter.viewport; presenter.viewport.addSubview(node)
-        return (root, AssetResolver(root: root), presenter, node, RasterLoader(), window)
+        // The core's minimum budget, which these pressures are sized for.
+        return (root, AssetResolver(root: root), presenter, node, RasterLoader(budget: 32 * 1024 * 1024), window)
     }
     func testCreationStartsBeforePresenterRegistersView() throws {
         let (root, resolver, presenter, node, loader, window) = try fixture()
@@ -121,8 +122,8 @@ final class RasterLoaderTests: XCTestCase {
                 XCTAssertTrue((s["deliveryCells"] as? UInt64 ?? UInt64.max) <= 2)
                 XCTAssertTrue((s["pending"] as? UInt64 ?? UInt64.max) <= 64)
                 XCTAssertTrue((s["subscribers"] as? UInt64 ?? UInt64.max) <= 1024)
-                XCTAssertTrue((s["coldEntries"] as? UInt64 ?? UInt64.max) <= 64)
-                XCTAssertTrue((s["sources"] as? Int ?? Int.max) <= 130)
+                XCTAssertTrue((s["coldEntries"] as? UInt64 ?? UInt64.max) <= 256)
+                XCTAssertTrue((s["sources"] as? Int ?? Int.max) <= RasterLoader.coldSources + 66)
                 try FileManager.default.removeItem(at: root.appendingPathComponent(name))
             }
         }
@@ -292,7 +293,7 @@ final class RasterLoaderTests: XCTestCase {
 /// admission boundary. They have no native backend and fail after admission;
 /// this tests metadata/decode turn fairness, not decoder throughput.
 private final class RasterAdmissionFlood: @unchecked Sendable {
-    private let session = exact_raster_session_create()
+    private let session = exact_raster_session_create(0)
     private let lock = NSLock()
     private var running = true
     private var count = 0

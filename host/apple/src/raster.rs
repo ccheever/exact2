@@ -126,9 +126,10 @@ fn interest(session: u64, id: u64) -> Option<(RasterSession, RequestId)> {
     Some((s.core.clone(), *s.requests.get(&id)?))
 }
 
-/// Creates a session account above active/candidate/retiring Host instances.
-pub fn session_create() -> u64 {
-    let core = Gate::process().session();
+/// Creates a session account above active/candidate/retiring Host instances,
+/// holding up to `budget` decoded bytes (never less than `SESSION_BYTES`).
+pub fn session_create(budget: u64) -> u64 {
+    let core = Gate::process().session_with_budget(budget);
     let id = core.id();
     handles().lock().unwrap().sessions.insert(
         id,

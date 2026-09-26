@@ -10,7 +10,7 @@ extern "C" fn release(_: u64) {
 #[test]
 fn provider_charge_outlives_session_and_duplicate_stale_delivery() {
     let _serial = SERIAL.lock().unwrap();
-    let session = session_create();
+    let session = session_create(0);
     let demand = RasterDemand {
         view: 7,
         view_generation: 1,
@@ -59,7 +59,7 @@ fn provider_charge_outlives_session_and_duplicate_stale_delivery() {
 #[test]
 fn accepted_same_view_replacement_bounds_ffi_ids_and_refused_keeps_old() {
     let _serial = SERIAL.lock().unwrap();
-    let session = session_create();
+    let session = session_create(0);
     let mut d = RasterDemand {
         view: 1234,
         view_generation: 5,
@@ -103,7 +103,7 @@ fn native_destructor_reenters_charge_release_after_session_shutdown() {
     extern "C" fn release_charge(charge: u64) {
         charge_release(charge);
     }
-    let session = session_create();
+    let session = session_create(0);
     let d = RasterDemand {
         view: 9000,
         view_generation: 1,

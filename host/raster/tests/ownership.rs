@@ -460,6 +460,33 @@ fn reclaimed_cold_bytes_admit_visible_before_smaller_overscan() {
 }
 
 #[test]
+fn a_decode_short_of_budget_evicts_only_the_oldest_cold_bytes_it_needs() {
+    let gate = Gate::new();
+    let session = gate.session_with_budget(64 * MIB);
+    let drops = Arc::new(AtomicUsize::new(0));
+    // Three cold images, oldest first: 20 + 20 + 20 of 64 MiB.
+    for source in 1..=3 {
+        let request = session.request(demand(source, source, 20, 0)).unwrap();
+        complete(gate.next_decode().unwrap(), &drops);
+        drop(session.take_ready(request).unwrap());
+        assert!(session.cancel(request));
+    }
+    assert_eq!(session.stats().cold_bytes, 60 * MIB);
+    // 10 MiB more fits after evicting the oldest alone.
+    let next = session.request(demand(4, 4, 10, 0)).unwrap();
+    let permit = gate.next_decode().unwrap();
+    assert_eq!(permit.key().source, 4);
+    assert_eq!(session.stats().evicted, 1);
+    assert_eq!(session.stats().cold_bytes, 40 * MIB);
+    complete(permit, &drops);
+    drop(session.take_ready(next).unwrap());
+    // The two newer images are still cached: asking again decodes nothing.
+    let again = session.request(demand(5, 3, 20, 0)).unwrap();
+    assert_eq!(session.status(again), Some(RequestStatus::Ready));
+    assert_eq!(session.stats().dedup_hits, 1);
+}
+
+#[test]
 fn retained_cold_backing_allows_fitting_overscan_without_spinning() {
     let gate = Gate::new();
     let session = gate.session();

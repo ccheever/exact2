@@ -147,7 +147,7 @@ fn twenty_replacement_waves_decode_distinct_sources_without_retaining_history() 
         }
         let s = images.stats();
         assert!(s.peak_bytes <= SESSION_BYTES && s.delivery_cells <= 2 && s.pending_jobs <= 64);
-        assert!(s.subscribers <= 1024 && s.cold_entries <= 64);
+        assert!(s.subscribers <= 1024 && s.cold_entries <= exact_raster::COLD_ENTRIES);
         assert!(Gate::process().stats().running <= 2);
         // A worker can own a replaced source briefly after delivering it (the
         // workers' cap test waits the same way): retention is bounded eventually.

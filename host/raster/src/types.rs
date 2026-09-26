@@ -1,6 +1,7 @@
 //! Fixed native-image limits and integer metadata; no source strings or bytes.
 
-/// Unique decoded allocations plus in-flight output/scratch/copy reservations.
+/// Unique decoded allocations plus in-flight output/scratch/copy reservations,
+/// for a session made without a budget of its own; one decode's peak, always.
 pub const SESSION_BYTES: u64 = 32 * 1024 * 1024;
 pub const RUNNING_DECODES: usize = 2;
 pub const DELIVERY_CELLS: usize = 2;
@@ -8,7 +9,7 @@ pub const DELIVERY_CELLS: usize = 2;
 pub const PENDING_JOBS: usize = 64;
 /// Live subscriptions plus detached cache entries pinned by external leases.
 pub const SUBSCRIPTIONS: usize = 1024;
-pub const COLD_ENTRIES: usize = 64;
+pub const COLD_ENTRIES: usize = 256;
 pub const MAX_ENCODED_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_HEADER_BYTES: u64 = 256 * 1024;
 pub const MAX_SOURCE_PIXELS: u64 = 64 * 1024 * 1024;

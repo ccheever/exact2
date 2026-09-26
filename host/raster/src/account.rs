@@ -1,5 +1,5 @@
 //! An allocation owns this account, never a session, mailbox or payload.
-use crate::{Refusal, Stats, SESSION_BYTES};
+use crate::{Refusal, Stats};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 
 #[derive(Default)]
@@ -17,25 +17,28 @@ impl Wake {
 
 pub(crate) struct BudgetAccount {
     pub usage: Mutex<Stats>,
+    /// Decoded bytes this session may hold: pinned, cold, retiring, reserved.
+    pub budget: u64,
     wake: Weak<Wake>,
 }
 impl BudgetAccount {
-    pub fn new(wake: &Arc<Wake>) -> Arc<Self> {
+    pub fn new(wake: &Arc<Wake>, budget: u64) -> Arc<Self> {
         Arc::new(Self {
             usage: Mutex::new(Stats::default()),
+            budget,
             wake: Arc::downgrade(wake),
         })
     }
     pub fn available(&self) -> u64 {
         let s = self.usage.lock().unwrap();
-        SESSION_BYTES - s.resident_bytes - s.reserved_bytes
+        self.budget - s.resident_bytes - s.reserved_bytes
     }
     pub fn reserve(self: &Arc<Self>, bytes: u64) -> Result<AllocationReservation, Refusal> {
-        if bytes > SESSION_BYTES {
+        if bytes > self.budget {
             return Err(Refusal::TooLarge);
         }
         let mut usage = self.usage.lock().unwrap();
-        if bytes > SESSION_BYTES - usage.resident_bytes - usage.reserved_bytes {
+        if bytes > self.budget - usage.resident_bytes - usage.reserved_bytes {
             return Err(Refusal::Budget);
         }
         usage.reserved_bytes += bytes;

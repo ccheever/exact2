@@ -1,5 +1,10 @@
 import Foundation
 import CExact
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 final class NativeRasterCharge: RasterBackingCharge, @unchecked Sendable {
     let id: UInt64
@@ -91,7 +96,7 @@ private final class RasterBackend: @unchecked Sendable {
             if source.users == 0 && source.metadata != nil && !cold.contains(where: { $0 === source }) { cold.append(source) }
         }
         // Detach strong cold owners under lock; destroy them after unlocking.
-        let evicted = Array(cold.prefix(max(0, cold.count - 64)))
+        let evicted = Array(cold.prefix(max(0, cold.count - RasterLoader.coldSources)))
         cold.removeFirst(evicted.count)
         pruneLocked()
         lock.unlock(); cancellation?.cancel()
@@ -278,13 +283,30 @@ final class RasterLoader {
         var failure: String?
         var delivered = false
     }
-    let id = exact_raster_session_create()
+    /// Decoded pixels a session may hold: what its views pin, and a cache of
+    /// what they let go, so a row that shows a source again, or another row
+    /// showing it at the same size, takes the pixels without a decode. Eight
+    /// screens of pixels, from 32 MiB to 192 MiB.
+    static let screenBudget: UInt64 = {
+        #if os(macOS)
+        let screen = NSScreen.main.map { $0.frame.size.width * $0.frame.size.height * $0.backingScaleFactor * $0.backingScaleFactor } ?? 0
+        #else
+        let screen = UIScreen.main.nativeBounds.width * UIScreen.main.nativeBounds.height
+        #endif
+        return UInt64(min(192 * 1024 * 1024, max(32 * 1024 * 1024, screen * 4 * 8)))
+    }()
+    /// Sources no view shows whose metadata stays for the cache's keys.
+    static let coldSources = 256
+    let budget: UInt64
+    let id: UInt64
     private let backend: RasterBackend
     private var interests: [UInt32: Interest] = [:]
     private var paused = false
     private var destroyed = false
     private var pressure: DispatchSourceMemoryPressure?
-    init() {
+    init(budget: UInt64 = RasterLoader.screenBudget) {
+        self.budget = budget
+        id = exact_raster_session_create(budget)
         backend = RasterBackend(id: id); backend.loader = self
         RasterWorkers.shared.add(backend)
         let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .global(qos: .utility))
@@ -421,7 +443,6 @@ final class RasterLoader {
     /// decode in flight, released as it lands; the core queues a request
     /// until they make room.
     private func available() -> Int {
-        let budget: UInt64 = 32 * 1024 * 1024
         let used = exact_raster_stats(id)
         let held = used.resident_bytes - min(used.resident_bytes, used.cold_bytes)
         return Int(budget - min(budget, held))

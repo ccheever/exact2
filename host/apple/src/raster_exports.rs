@@ -4,10 +4,10 @@
 #[macro_export]
 macro_rules! raster_exports {
     () => {
-        /// Create a session-lifetime raster account.
+        /// Create a session-lifetime raster account of `budget` decoded bytes.
         #[no_mangle]
-        pub extern "C" fn exact_raster_session_create() -> u64 {
-            $crate::raster::session_create()
+        pub extern "C" fn exact_raster_session_create(budget: u64) -> u64 {
+            $crate::raster::session_create(budget)
         }
         /// Reset, pause, resume, shut down, or trim a raster account.
         #[no_mangle]

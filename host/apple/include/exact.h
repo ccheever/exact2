@@ -57,7 +57,9 @@ typedef struct ExactRasterStats {
     uint64_t queued, running, ready, delivery_cells, pending_jobs, subscribers, cold_entries;
     uint64_t dedup_hits, cancelled, evicted, process_running, last_refusal, waiting_budget;
 } ExactRasterStats;
-uint64_t exact_raster_session_create(void);
+/* A session holding up to `budget` decoded bytes (at least 32 MiB): what
+   views pin plus a cache of what they left. */
+uint64_t exact_raster_session_create(uint64_t budget);
 /* 0 reset, 1 pause, 2 resume, 3 shutdown, 4 trim. */
 void exact_raster_session_control(uint64_t session, uint32_t op);
 uint64_t exact_raster_request(uint64_t session, ExactRasterDemand demand);

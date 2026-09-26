@@ -122,6 +122,17 @@ struct Entry {
     phase: Phase,
     touched: u64,
 }
+impl Entry {
+    /// What removing this entry's image returns to the budget.
+    fn bytes(&self) -> u64 {
+        match &self.phase {
+            Phase::Ready { image, .. } => {
+                image.output.bytes() + image.copy.as_ref().map_or(0, |c| c.bytes())
+            }
+            _ => 0,
+        }
+    }
+}
 struct Binding {
     demand: Demand,
 }
@@ -232,8 +243,14 @@ impl Gate {
         }
     }
     pub fn session(&self) -> RasterSession {
+        self.session_with_budget(SESSION_BYTES)
+    }
+    /// A session that may hold `budget` decoded bytes (at least
+    /// `SESSION_BYTES`): what views pin, plus a cache of what they left.
+    /// One decode's peak stays within `SESSION_BYTES` either way.
+    pub fn session_with_budget(&self, budget: u64) -> RasterSession {
         let id = identity();
-        let account = BudgetAccount::new(&self.inner.wake);
+        let account = BudgetAccount::new(&self.inner.wake, budget.max(SESSION_BYTES));
         self.inner.state.lock().unwrap().sessions.insert(
             id,
             SessionState {
@@ -293,8 +310,17 @@ impl Gate {
                 candidates.sort_unstable();
                 for (_, _, key) in candidates {
                     let cost = session.entries[&key].demand.cost;
-                    if cost.peak().unwrap() > session.account.available() {
+                    let available = session.account.available();
+                    if cost.peak().unwrap() > available {
+                        // The least recently used cold entries, only until
+                        // their bytes cover the shortfall: the rest stay
+                        // cached for the rows that show them again.
+                        let mut short = cost.peak().unwrap() - available;
                         for cold in session.cold_keys() {
+                            if short == 0 {
+                                break;
+                            }
+                            short = short.saturating_sub(session.entries[&cold].bytes());
                             remove_entry(session, cold, &mut garbage);
                             session.evicted += 1;
                         }
