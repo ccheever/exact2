@@ -733,8 +733,23 @@ impl Parser {
         self.expect_word("as")?;
         self.expect_word("shape")?;
         let shape = self.type_expr()?;
+        let mut refreshes = Vec::new();
+        if self.at_ident("refreshes") {
+            self.next();
+            loop {
+                refreshes.push(self.ident()?);
+                if !self.eat_punct(",") {
+                    break;
+                }
+            }
+        }
         self.newline()?;
-        Ok(MutationDecl { name, shape, span })
+        Ok(MutationDecl {
+            name,
+            shape,
+            refreshes,
+            span,
+        })
     }
 
     fn action(&mut self) -> R<Action> {

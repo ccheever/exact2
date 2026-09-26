@@ -72,6 +72,24 @@ pub(crate) fn check_component(
     }
     for m in &c.mutations {
         ct.mutations.push(sink.keep(shapes.resolve(&m.shape)));
+        // @ref LLP 1054.000.000 D1 — what a send to this mutation refreshes.
+        for (i, (name, span)) in m.refreshes.iter().enumerate() {
+            if !c.resources.iter().any(|r| &r.name == name) {
+                sink.push(TypeError {
+                    id: "type-refreshes-not-resource",
+                    message: format!(
+                        "`{name}` is not a resource: `refreshes` names this component's resources"
+                    ),
+                    span: *span,
+                });
+            } else if m.refreshes[..i].iter().any(|(n, _)| n == name) {
+                sink.push(TypeError {
+                    id: "type-refreshes-duplicate",
+                    message: format!("`{name}` is already named in `refreshes`"),
+                    span: *span,
+                });
+            }
+        }
     }
     // Slots from initializers (may hold `?` inside an option).
     if !c.states.is_empty() {

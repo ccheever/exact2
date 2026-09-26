@@ -190,6 +190,9 @@ impl<D: DataSource> Runner<D> {
         // pass hands the host, and the pending flags as they will be —
         // published with the rest only when the pass succeeds.
         let mut force = std::mem::take(&mut self.refresh_next);
+        // LLP 1054.000.000 D1: what a send changed, asked again for what the
+        // source knows now — a request it hands back is not sent.
+        let reread = std::mem::take(&mut self.reread_next);
         // Work on a copy of the committed resource states; publish only when
         // the whole pass succeeds, so a failure leaves every cache as it was.
         let mut states: Vec<Option<ResourceState>> = self.resources.clone();
@@ -361,6 +364,10 @@ impl<D: DataSource> Runner<D> {
                     // resource is device data just like a direct reader.
                     self.store_readers[i] |= store_dependent;
                     let forced = force.contains(&i);
+                    // Only for the same arguments: new ones need their request.
+                    let reread = !forced
+                        && reread.contains(&i)
+                        && states[i].as_ref().is_some_and(|s| s.args == args);
                     // A store-reading resource is reusable only at the exact
                     // store revision it observed. `answer` and `parse` both
                     // write through Store, so this is the one dirtying point.
@@ -375,6 +382,7 @@ impl<D: DataSource> Runner<D> {
                                 && self.plan.str(row.source) != crate::time::SOURCE
                                 && self.plan.str(row.source) != crate::surface_record::SOURCE
                                 && !forced
+                                && !reread
                                 && (!self.store_readers[i]
                                     || s.store_revision == self.store.revision())
                         })
@@ -457,7 +465,9 @@ impl<D: DataSource> Runner<D> {
                             }
                             match answer {
                                 Answer::Now(v) => {
-                                    if pending_res[i] {
+                                    // A re-read shows the source's answer and
+                                    // leaves a request in flight to land.
+                                    if pending_res[i] && !reread {
                                         // Newer arguments answered now: the older
                                         // request's reply is no longer wanted.
                                         effects[i] = RequestEffect::Answered;
@@ -466,6 +476,15 @@ impl<D: DataSource> Runner<D> {
                                     self.stale[i] = false;
                                     self.keep_answer(i, &args, &v);
                                     v
+                                }
+                                Answer::Later(request) if reread => {
+                                    // Nothing newer to show before the write
+                                    // lands; the reply's refresh asks the host.
+                                    // A source that parks calls hears what is
+                                    // in flight and drops the one parked here.
+                                    self.discard_request(&request);
+                                    self.forgot = true;
+                                    states[i].as_ref().expect("checked").value.clone()
                                 }
                                 Answer::Later(request) => {
                                     // The host will run it. Meanwhile the resource
@@ -581,6 +600,10 @@ impl<D: DataSource> Runner<D> {
             }
             // The flags follow the tickets and what awaits its source.
             self.sync_pending_flags();
+            // A forced resource not asked in this settlement (an argument
+            // still pending, a source not ready) is forced at the next one
+            // that can ask it (LLP 1054.000.000 D2).
+            self.refresh_next = force;
             return Ok(());
         }
     }

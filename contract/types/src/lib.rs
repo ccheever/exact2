@@ -139,6 +139,7 @@ fn roster_accepts(f: Stdlib, spec: &str, t: &Ty) -> bool {
     match (f, spec) {
         (Stdlib::Length | Stdlib::IsEmpty, "any") => matches!(t, Ty::String | Ty::List(_)),
         (Stdlib::ToString, "any") => matches!(t, Ty::Number | Ty::String | Ty::Bool),
+        (Stdlib::First, "any") => matches!(t, Ty::List(_)),
         _ => t.matches_roster(spec),
     }
 }
@@ -148,6 +149,7 @@ fn roster_spelling(f: Stdlib, spec: &str) -> &str {
     match (f, spec) {
         (Stdlib::Length | Stdlib::IsEmpty, "any") => "string | list",
         (Stdlib::ToString, "any") => "number | string | bool",
+        (Stdlib::First, "any") => "list",
         _ => spec,
     }
 }
@@ -685,8 +687,10 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                         *span,
                     );
                 }
+                let mut given = Vec::with_capacity(args.len());
                 for (i, (arg, spec)) in args.iter().zip(f.params()).enumerate() {
                     let t = infer(arg, scope, shapes)?;
+                    given.push(t.clone());
                     if !roster_accepts(f, spec, &t) {
                         return err(
                             "type-argument",
@@ -700,7 +704,11 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                     }
                 }
                 routes::location(f, args, shapes)?;
-                Ty::from_roster(f.returns())
+                match (f, given.first()) {
+                    // `first(list<T>)` is `option<T>` (LLP 1054.000 C4).
+                    (Stdlib::First, Some(Ty::List(item))) => Ty::Option(item.clone()),
+                    _ => Ty::from_roster(f.returns()),
+                }
             } else {
                 return Err(checks::unknown_function(name, scope, shapes, *span));
             }

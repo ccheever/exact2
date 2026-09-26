@@ -403,8 +403,28 @@ impl PlanBuilder {
     /// the source is named at each `send`.
     pub fn mutation(&mut self, name: &str, slot: SlotsId, ty: TypesId) -> MutationsId {
         let name = self.str(name);
-        self.plan.mutations.push(MutationsRow { name, slot, ty });
+        self.plan.mutations.push(MutationsRow {
+            name,
+            slot,
+            ty,
+            refreshes: MutationRefreshesRange { start: 0, len: 0 },
+        });
         MutationsId(self.plan.mutations.len() as u32 - 1)
+    }
+
+    /// The resources a send to `mutation` refreshes (LLP 1054.000.000 D1),
+    /// once its resources exist.
+    pub fn mutation_refreshes(&mut self, mutation: MutationsId, resources: &[ResourcesId]) {
+        let start = self.plan.mutation_refreshes.len() as u32;
+        for r in resources {
+            self.plan
+                .mutation_refreshes
+                .push(MutationRefreshesRow { resource: *r });
+        }
+        self.plan.mutations[mutation.0 as usize].refreshes = MutationRefreshesRange {
+            start,
+            len: resources.len() as u32,
+        };
     }
 
     /// A data-source signature (LLP 1027 D2): the parameter types and the

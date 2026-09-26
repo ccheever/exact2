@@ -82,6 +82,13 @@ pub fn call(
             Value::Str(s) => Value::Str(Rc::clone(s)),
             _ => return None,
         },
+        Stdlib::First => match args.first()? {
+            Value::List(items) => items
+                .first()
+                .cloned()
+                .map_or(Value::Option(None), Value::some),
+            _ => return None,
+        },
         Stdlib::Floor => Value::Number(num(0)?.floor()),
         Stdlib::Max => Value::Number(num(0)?.max(num(1)?)),
         Stdlib::Min => Value::Number(num(0)?.min(num(1)?)),

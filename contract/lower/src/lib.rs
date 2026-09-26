@@ -404,6 +404,17 @@ fn lower_with_sites(
         let id = l.b.mutation(&m.name, slot, t);
         l.mutation_slots.push(slot);
         l.mutations.push(id);
+        // @ref LLP 1054.000.000 D1 — the type check named only resources.
+        let refreshes: Vec<_> = m
+            .refreshes
+            .iter()
+            .map(|(name, _)| {
+                l.resources[root.resources.iter().position(|r| &r.name == name).unwrap()]
+            })
+            .collect();
+        if !refreshes.is_empty() {
+            l.b.mutation_refreshes(id, &refreshes);
+        }
     }
     for (i, a) in root.actions.iter().enumerate() {
         let params: Vec<(String, TypesId)> = a

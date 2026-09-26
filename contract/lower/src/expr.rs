@@ -242,11 +242,16 @@ pub(crate) fn compile(
                     *span,
                 );
             };
+            let mut given = Vec::with_capacity(args.len());
             for a in args {
-                compile(l, asm, a, scope, locals)?;
+                given.push(compile(l, asm, a, scope, locals)?);
             }
             asm.call(f);
-            Ty::from_roster(f.returns())
+            match (f, given.first()) {
+                // `first(list<T>)` is `option<T>` (LLP 1054.000 C4).
+                (Stdlib::First, Some(Ty::List(item))) => Ty::Option(item.clone()),
+                _ => Ty::from_roster(f.returns()),
+            }
         }
         Expr::Unary(op, inner, _) => {
             compile(l, asm, inner, scope, locals)?;

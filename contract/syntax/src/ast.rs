@@ -387,6 +387,9 @@ pub struct MutationDecl {
     pub name: String,
     /// The reply's shape, `T`.
     pub shape: TypeExpr,
+    /// `refreshes a, b`: resources the runner re-asks, forced, when a send
+    /// to this mutation runs and when its reply lands (LLP 1054.000.000 D1).
+    pub refreshes: Vec<(String, Span)>,
     /// Where.
     pub span: Span,
 }

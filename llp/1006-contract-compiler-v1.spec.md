@@ -209,7 +209,11 @@ mutation must be in the action's `writes`); `refresh resource` re-requests a
 resource with its current arguments; `pending(x)` is `bool` for a resource
 or mutation `x` — a name, not a value, so it is not a roster entry. The name
 reads as `option<T>` (`match session { case some(s) => … }`) and may be
-assigned (`session = none`), which forgets a reply in flight. **Actions.**
+assigned (`session = none`), which forgets a reply in flight. `mutation name
+as shape T refreshes a, b` (LLP 1054.000.000 D1) names the root's resources a
+send changes: each is re-requested, forced, in the commit that sends and in
+the one where the reply lands (`type-refreshes-not-resource`,
+`type-refreshes-duplicate`). **Actions.**
 `action name(params) writes a, b` with a body of `slot = expr`
 assignments, `send`/`refresh` statements, `name(args)` commands, and — since
 2026-08-30, LLP 1017 P2 — `if cond` … `else` … and `match option` with `case

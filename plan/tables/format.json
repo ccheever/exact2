@@ -191,6 +191,20 @@
         {
           "name": "ty",
           "codec": "idx:types"
+        },
+        {
+          "name": "refreshes",
+          "codec": "range:mutation_refreshes",
+          "_comment": "@ref LLP 1054.000.000 D1: the resources a send to this mutation refreshes, forced, when it runs and when its reply lands (`mutation m as shape T refreshes a, b`)."
+        }
+      ]
+    },
+    {
+      "name": "mutation_refreshes",
+      "fields": [
+        {
+          "name": "resource",
+          "codec": "idx:resources"
         }
       ]
     },
@@ -969,6 +983,12 @@
       "name": "contains",
       "params": ["string", "string"],
       "returns": "bool"
+    },
+    {
+      "name": "first",
+      "params": ["any"],
+      "returns": "any",
+      "_comment": "@ref LLP 1054.000 C4: a list's first item, `some(x)`, or `none` for an empty list; `any` is `list<T>` in and `option<T>` out (the type checker's)."
     }
   ],
   "_sources": "LLP 1027 D2: the data seam's signatures. One row per data-source name the app's `resource` and `send` declarations use, with the parameter types and the result type every use agrees on (the compiler refuses a disagreement by name). An executor that marshals by shape \u2014 the TypeScript module's \u2014 reads this table at bind; a Rust crate ignores it. formatVersion 3.",

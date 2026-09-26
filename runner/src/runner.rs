@@ -209,6 +209,9 @@ struct PendingReq {
     args: Vec<Value>,
     /// The source's continuation token, when the request is one.
     continuation: Option<u64>,
+    /// The request itself when a re-ask may keep it: a resource's plain
+    /// HTTP request (LLP 1054.000.000 D3).
+    keepable: Option<Request>,
 }
 
 struct Timer {
@@ -255,8 +258,12 @@ pub struct Runner<D: DataSource> {
     deferred_edges: Vec<(u32, Vec<Target>)>,
     /// Requests for the host, since the last take.
     requests: Vec<RequestOut>,
-    /// Resources an action asked to re-request; consumed by the next settle.
+    /// Resources an action asked to re-request; consumed by the next settle
+    /// that can ask them (LLP 1054.000.000 D2).
     refresh_next: Vec<usize>,
+    /// Resources a send declared it changes, to read again from the source
+    /// without sending anything (LLP 1054.000.000 D1); the next settle's.
+    reread_next: Vec<usize>,
     /// Durable client state (LLP 1018 D1): the host's snapshot, and the
     /// writes since for the host to persist.
     store: Store,
@@ -608,6 +615,7 @@ impl<D: DataSource> Runner<D> {
             deferred_edges: Vec::new(),
             requests: Vec::new(),
             refresh_next: Vec::new(),
+            reread_next: Vec::new(),
             store,
             store_readers,
             stale: Vec::new(),

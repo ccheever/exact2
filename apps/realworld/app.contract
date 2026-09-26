@@ -116,8 +116,8 @@ component RealWorld
   state editorSession = 0
   state tagInput = ""
   state commentDraft = ""
-  mutation auth as shape Auth
-  mutation change as shape Change
+  mutation auth as shape Auth refreshes me
+  mutation change as shape Change refreshes feed, post, thread, person
   mutation tagEdit as shape Tags
   derive authStamp = match auth { case some(a) => a.stamp, case none => 0 }
   derive authOk = match auth { case some(a) => a.ok, case none => false }
@@ -126,12 +126,12 @@ component RealWorld
   derive changeKind = match change { case some(c) => c.kind, case none => "" }
   derive changeSlug = match change { case some(c) => c.slug, case none => "" }
   derive editorTags = match tagEdit { case some(t) => (t.session == editorSession ? t.items: post.tags), case none => post.tags }
-  resource me = currentUser(authStamp) as shape User else anonymous()
+  resource me = currentUser() as shape User else anonymous()
   resource tags = popularTags(current.name == "home" or current.name == "tag") as shape list<string>
-  resource feed = articles(listKind, current.params.tag, listName, page, me.username, changeStamp) as shape Feed else emptyFeed()
-  resource post = article(slug, me.username, changeStamp) as shape Article else emptyArticle()
-  resource thread = comments(slug, me.username, changeStamp) as shape list<Comment>
-  resource person = profile(listName, me.username, changeStamp) as shape Profile else emptyProfile()
+  resource feed = articles(listKind, current.params.tag, listName, page, me.username) as shape Feed else emptyFeed()
+  resource post = article(slug, me.username) as shape Article else emptyArticle()
+  resource thread = comments(slug, me.username) as shape list<Comment>
+  resource person = profile(listName, me.username) as shape Profile else emptyProfile()
 
   action go(url: string) writes nav, page, editorSession, tagInput, commentDraft
     page = 1
