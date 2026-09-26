@@ -2,6 +2,7 @@
 //! `tests/surface_record.rs` stays its own binary: it installs a counting
 //! global allocator.
 
+mod active_route;
 mod flow_agent;
 mod height_binding;
 mod incremental;
