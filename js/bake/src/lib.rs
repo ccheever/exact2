@@ -333,8 +333,12 @@ fn build_sources(
     // and the dev loop rebuilt forever. A new file matters once a watched one
     // names it, which is itself a change.
     let root = app.canonicalize().map_err(|e| e.to_string())?;
+    let mounted = mounts(&root)?;
     for name in sources(&root)?.keys() {
-        println!("cargo:rerun-if-changed={}", root.join(name).display());
+        println!(
+            "cargo:rerun-if-changed={}",
+            origin(&root, &mounted, name).display()
+        );
     }
     Ok(())
 }
@@ -423,15 +427,96 @@ impl Drop for Scratch {
 /// The generated declarations `app.ts` imports.
 const DECLARATIONS: &str = "app.contract.d.ts";
 
-/// Capture the app-local source graph. External/npm imports intentionally fail
-/// in the private snapshot until dependency capture is implemented; they must
-/// not silently resolve to unrelated files on the producer machine.
+/// Directories outside the app its TypeScript also imports, from the
+/// manifest's `typescript.sources` (`{"core": "../../src/core"}`): each is
+/// captured as if it sat beside `app.ts` under its name, so `./core/model`
+/// resolves the same in the bake as in an editor given a link of that name.
+/// A domain core shared with another app is imported, not copied.
+fn mounts(root: &Path) -> Result<Vec<(String, PathBuf)>, String> {
+    const RESERVED: &[&str] = &[
+        "assets",
+        "deck",
+        "gpu",
+        "fonts",
+        "node_modules",
+        "target",
+        "dist",
+        "web",
+        "apple",
+        "linux",
+    ];
+    let manifest = root.join("app.json");
+    if !manifest.exists() {
+        return Ok(Vec::new());
+    }
+    let json: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(&manifest).map_err(|e| format!("{}: {e}", manifest.display()))?,
+    )
+    .map_err(|e| format!("{}: {e}", manifest.display()))?;
+    let Some(declared) = json.pointer("/typescript/sources") else {
+        return Ok(Vec::new());
+    };
+    let declared = declared
+        .as_object()
+        .ok_or("typescript.sources: an object of name → directory")?;
+    let mut out = Vec::new();
+    for (name, path) in declared {
+        let fine = name.chars().next().is_some_and(|c| c.is_ascii_lowercase())
+            && name
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_');
+        if !fine || RESERVED.contains(&name.as_str()) {
+            return Err(format!(
+                "typescript.sources.{name}: a lowercase name that is not one of {}",
+                RESERVED.join(", ")
+            ));
+        }
+        let path = path
+            .as_str()
+            .filter(|p| !Path::new(p).is_absolute())
+            .ok_or(format!(
+                "typescript.sources.{name}: a path relative to the app"
+            ))?;
+        let dir = root
+            .join(path)
+            .canonicalize()
+            .map_err(|e| format!("typescript.sources.{name}: {path}: {e}"))?;
+        let app = root.canonicalize().map_err(|e| e.to_string())?;
+        if !dir.is_dir() || dir.starts_with(&app) || app.starts_with(&dir) {
+            return Err(format!(
+                "typescript.sources.{name}: {path} must be a directory outside the app that does not contain it"
+            ));
+        }
+        out.push((name.clone(), dir));
+    }
+    Ok(out)
+}
+
+/// Where a captured source lives on disk: in the app, or in a mount.
+fn origin(root: &Path, mounts: &[(String, PathBuf)], name: &Path) -> PathBuf {
+    let mut parts = name.components();
+    let first = parts
+        .next()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned());
+    match mounts.iter().find(|(m, _)| Some(m) == first.as_ref()) {
+        Some((_, dir)) => dir.join(parts.as_path()),
+        None => root.join(name),
+    }
+}
+
+/// Capture the app-local source graph, and the directories the manifest
+/// mounts beside it. External/npm imports intentionally fail in the private
+/// snapshot until dependency capture is implemented; they must not silently
+/// resolve to unrelated files on the producer machine.
 fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
+    let mounts = mounts(root)?;
     fn walk(
         root: &Path,
         at: &Path,
         out: &mut BTreeMap<PathBuf, Vec<u8>>,
         total: &mut usize,
+        mounts: &[(String, PathBuf)],
+        prefix: &Path,
     ) -> Result<(), String> {
         for entry in std::fs::read_dir(at).map_err(|e| e.to_string())? {
             let entry = entry.map_err(|e| e.to_string())?;
@@ -450,11 +535,23 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
             let path = entry.path();
             let relative = path.strip_prefix(root).unwrap();
             let kind = entry.file_type().map_err(|e| e.to_string())?;
+            if let Some((_, dir)) = mounts.iter().find(|(m, _)| at == root && **m == *name) {
+                // An editor's link to the mounted directory is allowed and
+                // skipped: the mount itself is captured below. Anything else
+                // by that name would be two different files at one path.
+                if kind.is_symlink() && path.canonicalize().ok().as_ref() == Some(dir) {
+                    continue;
+                }
+                return Err(format!(
+                    "{} is mounted from typescript.sources; the app cannot also have one",
+                    path.display()
+                ));
+            }
             if kind.is_symlink() {
                 return Err(format!("source links are not captured: {}", path.display()));
             }
             if kind.is_dir() {
-                walk(root, &path, out, total)?;
+                walk(root, &path, out, total, mounts, prefix)?;
             } else if matches!(
                 path.extension().and_then(|s| s.to_str()),
                 Some("ts" | "json" | "contract" | "ttf" | "otf")
@@ -471,13 +568,25 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
                 }
                 let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
                 *total += bytes.len();
-                out.insert(path.strip_prefix(root).unwrap().to_path_buf(), bytes);
+                out.insert(prefix.join(relative), bytes);
             }
         }
         Ok(())
     }
     let mut result = BTreeMap::new();
-    walk(root, root, &mut result, &mut 0)?;
+    let mut total = 0;
+    walk(root, root, &mut result, &mut total, &mounts, Path::new(""))?;
+    for (name, dir) in &mounts {
+        // Only what TypeScript imports: a shared core's tests and fixtures
+        // stay behind (the bundle takes only what `app.ts` reaches anyway).
+        let mut mounted = BTreeMap::new();
+        walk(dir, dir, &mut mounted, &mut total, &[], Path::new(name))?;
+        result.extend(
+            mounted
+                .into_iter()
+                .filter(|(path, _)| path.extension().is_some_and(|e| e == "ts" || e == "json")),
+        );
+    }
     Ok(result)
 }
 

@@ -68,3 +68,67 @@ fn captures_fonts_and_complete_static_trees_without_following_links() {
         assert!(sources(&app.0).unwrap_err().contains("source links"));
     }
 }
+
+#[test]
+fn a_mounted_directory_is_captured_beside_app_ts_and_nothing_else_of_it() {
+    let parent = Scratch::new(&std::env::temp_dir()).unwrap();
+    let app = parent.0.join("app");
+    let core = parent.0.join("shared/core");
+    std::fs::create_dir_all(&app).unwrap();
+    std::fs::create_dir_all(core.join("deep")).unwrap();
+    std::fs::write(app.join("app.ts"), "import { x } from './core/model';").unwrap();
+    std::fs::write(
+        app.join("app.json"),
+        r#"{"typescript":{"sources":{"core":"../shared/core"}}}"#,
+    )
+    .unwrap();
+    std::fs::write(core.join("model.ts"), "export const x = 1;").unwrap();
+    std::fs::write(core.join("deep/rules.json"), "{}").unwrap();
+    std::fs::write(core.join("notes.md"), "not TypeScript").unwrap();
+    let captured = sources(&app).unwrap();
+    let names: Vec<_> = captured
+        .keys()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "app.json",
+            "app.ts",
+            "core/deep/rules.json",
+            "core/model.ts"
+        ]
+    );
+    // Where each came from, for Cargo's rerun lines.
+    let root = app.canonicalize().unwrap();
+    let mounted = super::mounts(&root).unwrap();
+    assert_eq!(
+        super::origin(&root, &mounted, std::path::Path::new("core/model.ts")),
+        core.canonicalize().unwrap().join("model.ts")
+    );
+    // An editor's link of that name is skipped; a real directory is refused.
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(&core, app.join("core")).unwrap();
+        assert_eq!(sources(&app).unwrap(), captured);
+        std::fs::remove_file(app.join("core")).unwrap();
+    }
+    std::fs::create_dir(app.join("core")).unwrap();
+    assert!(sources(&app)
+        .unwrap_err()
+        .contains("mounted from typescript.sources"));
+    std::fs::remove_dir(app.join("core")).unwrap();
+    // A mount must be outside the app, and not a reserved name.
+    for bad in [
+        r#"{"typescript":{"sources":{"core":"."}}}"#,
+        r#"{"typescript":{"sources":{"assets":"../shared/core"}}}"#,
+        r#"{"typescript":{"sources":{"core":"/etc"}}}"#,
+        r#"{"typescript":{"sources":{"core":"../missing"}}}"#,
+    ] {
+        std::fs::write(app.join("app.json"), bad).unwrap();
+        assert!(
+            sources(&app).unwrap_err().contains("typescript.sources"),
+            "{bad}"
+        );
+    }
+}

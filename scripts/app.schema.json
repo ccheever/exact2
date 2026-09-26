@@ -552,6 +552,11 @@
         "placement": {
           "$ref": "#/$defs/placement"
         },
+        "sources": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Directories outside the app its TypeScript imports, by the name they take beside app.ts: {\"core\": \"../../src/core\"} makes ./core/model resolve to ../../src/core/model.ts. Captured with the app; a link of that name, for an editor, is allowed."
+        },
         "platforms": {
           "type": "object",
           "properties": {
@@ -566,7 +571,7 @@
         }
       },
       "additionalProperties": false,
-      "description": "The TypeScript module's placement (LLP 1027.002), globally and per platform."
+      "description": "The TypeScript module's placement (LLP 1027.002), globally and per platform, and the directories it imports from outside the app."
     },
     "dev": {
       "type": "object",
