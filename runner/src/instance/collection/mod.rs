@@ -751,6 +751,9 @@ impl Collection {
         by_view: &BTreeMap<ViewId, usize>,
         mut fill: CollectionFill,
     ) -> Result<(bool, Option<CollectionEdges>), InstanceError> {
+        if let Some(edge) = self.travel_within(u, &feedback, by_view, fill)? {
+            return Ok((false, edge));
+        }
         let changed_width = self
             .geometry
             .as_ref()
@@ -833,18 +836,106 @@ impl Collection {
         if changed {
             advance(&mut self.revision)?;
         }
+        Ok((changed, self.edge_event()?))
+    }
+    /// The edge a report's geometry reached, if armed and handled.
+    fn edge_event(&mut self) -> Result<Option<CollectionEdges>, InstanceError> {
         let reached = self.geometric_edges()?;
         let ready = [0, 1].map(|i| reached[i] && self.edge_armed[i] && self.edge_handlers[i]);
         let edge = (0..2).find(|&i| ready[i]);
-        let event = edge.map(|i| {
+        Ok(edge.map(|i| {
             self.edge_armed[i] = false;
             CollectionEdges {
                 first: [EventKind::Reachstart, EventKind::Reachend][i],
                 // End remains armed until an action actually consumes it.
                 end_after_noop: ready[0] && ready[1],
             }
+        }))
+    }
+    /// Travel inside the realized window, which is most reports while a list
+    /// moves: the same port, pins and heights, no measurement, nothing owed,
+    /// no correction before or after, and the window it leads to is the
+    /// mounted rows. Realizing it would reuse every row and emit nothing, so
+    /// only the geometry moves (@ref LLP 1050.000 §6). None: realize.
+    fn travel_within(
+        &mut self,
+        u: &mut Update<'_>,
+        feedback: &CollectionFeedback,
+        by_view: &BTreeMap<ViewId, usize>,
+        fill: CollectionFill,
+    ) -> Result<Option<Option<CollectionEdges>>, InstanceError> {
+        let Some(g) = &self.geometry else {
+            return Ok(None);
+        };
+        // A host reports every mounted row's height each time; one the
+        // index already holds, measured, changes nothing (`feedback`'s own
+        // loop would set it again).
+        let remeasures = |m: &RowMeasurement| {
+            let row = &self.mounted[by_view[&m.view]];
+            let key = self.index.key(row.position).unwrap();
+            self.index.measurement_token(key) == Some(row.token)
+                && !(self.index.is_measured(key)
+                    && self.index.height(row.position) == Some(m.height)
+                    && (m.height == 0.0) == self.zero_heights.contains(key))
+        };
+        if feedback.measurements.iter().any(remeasures)
+            || self.pending
+            || self.preview.is_some()
+            || self.correction.is_some()
+            || (
+                g.port_width,
+                g.port_height,
+                g.row_width,
+                g.focus_view,
+                g.interaction_view,
+            ) != (
+                feedback.port_width,
+                feedback.port_height,
+                feedback.row_width,
+                feedback.focus_view,
+                feedback.interaction_view,
+            )
+        {
+            return Ok(None);
+        }
+        let anchor = self
+            .index
+            .capture_anchor(feedback.scroll_top, g.port_height, self.follow_end)
+            .map_err(index_error)?;
+        let corrected = self
+            .index
+            .restore_anchor(&anchor, g.port_height)
+            .map_err(index_error)?;
+        if (corrected - feedback.scroll_top).abs() > 0.01 {
+            return Ok(None);
+        }
+        let (focus, interaction) = (self.pin(g.focus_view), self.pin(g.interaction_view));
+        let window = self
+            .index
+            .window_led(
+                feedback.scroll_top,
+                feedback.port_height,
+                lead(feedback.port_height, fill.velocity),
+                [focus.as_deref(), interaction.as_deref()],
+            )
+            .map_err(index_error)?;
+        let mut mounted = self.mounted.iter().map(|row| row.position);
+        let same = window
+            .segments
+            .iter()
+            .cloned()
+            .flatten()
+            .all(|p| mounted.next() == Some(p))
+            && mounted.next().is_none();
+        if !same {
+            return Ok(None);
+        }
+        u.work.rows_reused += self.mounted.len();
+        self.geometry = Some(CollectionFeedback {
+            measurements: Vec::new(),
+            ..feedback.clone()
         });
-        Ok((changed, event))
+        Ok(Some(self.edge_event()?))
     }
     fn release_pins(
         &mut self,
