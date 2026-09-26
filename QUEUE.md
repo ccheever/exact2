@@ -1,5 +1,9 @@
 # Queue
 
+- **Every smoke fails "the journal does not show sixty timers firing from one seek"** (2026-09-26; on main at 56f3516a, web, iOS and Linux alike). It arrived with the stepped clock (`2b94203c`, merged in `73ff2935`: a clock jump lands each timer's reply before the next fires); the smoke's check still expects the old journal shape. Either the check or the journal is out of date.
+
+- **Linux collapses Markdown text's white space** (2026-09-26, LLP 1053 G5). The Linux host doesn't link Markdown, so it can't tell a Markdown paragraph from ordinary text, and CSS collapsing applies to it; Apple exempts Markdown. Carry the `markup` prop into the Linux paragraph spec, or give Markdown text `pre-wrap`.
+
 - **`smoke.mjs web --app <name>` fails for an app with a data module** (2026-09-26, found running Messages for LLP 1047.000). The generic host fixtures reload a bare plan into the app's `EXACT_WEB_LINK=all` build, and `exact.reload` refuses with "module reload requires a paired generation" when the build carries a module. So Messages, Fieldnotes and the other TypeScript apps pass only `--app-only`. The fixtures could run on a build without the app's module, or the smoke could default to `--app-only` for such apps.
 
 - **An XCTest that load breaks: `RasterLoaderTests.testTwentyGroupsOfDistinctReplacementsBoundSourceMaps`** (2026-09-25, landing LLP 1053's layout lane; the same 5 failures on main at 9e3dc16b). One of its 240 `settle` waits for a decode times out at load 10–60, so `seen.count` is 239. It is not in the gate; `build.mjs --test` runs it. Bound the wait by the decode, not a wall deadline, or count only what settled.
