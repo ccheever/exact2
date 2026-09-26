@@ -2,6 +2,7 @@
 //! `tests/it/` holds the ones that leave the font environment alone.
 
 mod borders;
+mod gradients;
 mod host;
 mod paint;
 mod text;

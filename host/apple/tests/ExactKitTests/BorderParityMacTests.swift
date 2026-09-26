@@ -16,6 +16,8 @@ final class BorderParityMacTests: XCTestCase {
         let ctx = BorderParity.canvas(page)
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: true)
+        // What the layer's clip-path mask does on screen; `draw` alone does not.
+        if let path = node.clipPath { ctx.addPath(path); ctx.clip() }
         node.draw(node.bounds)
         NSGraphicsContext.restoreGraphicsState()
         return BorderParity.bytes(ctx)
@@ -24,6 +26,13 @@ final class BorderParityMacTests: XCTestCase {
     func testEveryBorderCaseMatchesChrome() {
         var failures = BorderParity.check(flipped: false, dark: false) { render($0, dark: $1, page: $2) }
         failures += BorderParity.check(flipped: true, dark: true) { render($0, dark: $1, page: $2) }
+        XCTAssert(failures.isEmpty, failures.joined(separator: "\n"))
+    }
+
+    /// LLP 1056: the gradient page's cases (`GradientParity`), light then dark.
+    func testEveryGradientCaseMatchesChrome() {
+        var failures = GradientParity.check(dark: false) { render($0, dark: $1, page: $2) }
+        failures += GradientParity.check(dark: true) { render($0, dark: $1, page: $2) }
         XCTAssert(failures.isEmpty, failures.joined(separator: "\n"))
     }
 }

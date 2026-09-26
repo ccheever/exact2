@@ -31,6 +31,8 @@ use std::sync::Arc;
 use tiny_skia::{Pixmap, Point, Transform};
 pub mod border;
 pub(crate) mod damage;
+pub mod gradient;
+pub use gradient::GradientPaint;
 mod inline;
 mod region;
 use inline::{text_backgrounds, text_palette};
@@ -131,6 +133,7 @@ struct BoxPaint {
     widths: [f32; 4],
     colors: [[u8; 4]; 4],
     background: [u8; 4],
+    gradient: Option<gradient::Captured>,
     padding: [f32; 4],
 }
 struct BoxGeometry {
@@ -170,6 +173,7 @@ impl BoxPaint {
             widths,
             colors: colors.map(|c| rgba(c.resolve(dark))),
             background: rgba(s.background_color.resolve(dark)),
+            gradient: gradient::Captured::capture(s, dark),
             padding: [
                 pad(s.padding_top),
                 pad(s.padding_right),
@@ -194,6 +198,9 @@ impl BoxPaint {
     }
     fn paint(&self, backend: &mut dyn Backend, geometry: &BoxGeometry, ts: Transform) {
         self.emit(geometry, |shape, color| backend.fill(&shape, color, ts));
+        if let Some(g) = &self.gradient {
+            gradient::paint(g, &geometry.outer, self.widths, backend, ts);
+        }
         for part in self.borders(geometry) {
             backend.fill_border(&part, ts);
         }
@@ -326,6 +333,8 @@ pub trait Backend {
     }
     /// Fill a shape.
     fn fill(&mut self, shape: &Shape, color: [u8; 4], ts: Transform);
+    /// Fill a shape with a gradient placed in its coordinates (LLP 1056).
+    fn fill_gradient(&mut self, shape: &Shape, gradient: &gradient::GradientPaint, ts: Transform);
     /// Fill one colour's share of a border (LLP 1053 G2): its region
     /// even-odd, inside its clip (non-zero) when it has one.
     fn fill_border(&mut self, part: &border::BorderFill, ts: Transform);
@@ -374,6 +383,7 @@ impl Backend for Unpainted {
     }
     fn begin(&mut self, _: f32, _: f32, _: f32) {}
     fn fill(&mut self, _: &Shape, _: [u8; 4], _: Transform) {}
+    fn fill_gradient(&mut self, _: &Shape, _: &gradient::GradientPaint, _: Transform) {}
     fn fill_border(&mut self, _: &border::BorderFill, _: Transform) {}
     fn image(&mut self, _: &Arc<Bitmap>, _: Rect4, _: &[Shape], _: Transform) {}
     fn text(

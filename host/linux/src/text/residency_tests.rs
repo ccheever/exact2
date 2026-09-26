@@ -494,6 +494,7 @@ impl Backend for ControlledBackend {
     }
     fn begin(&mut self, _: f32, _: f32, _: f32) {}
     fn fill(&mut self, _: &Shape, _: [u8; 4], _: Transform) {}
+    fn fill_gradient(&mut self, _: &Shape, _: &crate::paint::GradientPaint, _: Transform) {}
     fn fill_border(&mut self, _: &crate::paint::border::BorderFill, _: Transform) {}
     fn image(&mut self, _: &Arc<Bitmap>, _: Rect4, _: &[Shape], _: Transform) {}
     fn text(

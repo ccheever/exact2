@@ -279,6 +279,10 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         RowValue::ClipPath(p) => out.push_str(&p.css()),
         RowValue::ShapeOutside(p) => out.push_str(&p.css()),
         RowValue::AspectRatio(r) => out.push_str(&r.css()),
+        // The kernel's canonical CSS: explicit stops, `#rrggbbaa` colours and
+        // `light-dark()` pairs the browser resolves per element (LLP 1034
+        // D2); the browser mixes premultiplied, as CSS says (LLP 1056).
+        RowValue::BackgroundImage(g) => out.push_str(&g.css()),
         RowValue::Vec2(v) => {
             num_into(out, v.x);
             out.push_str("px ");
@@ -676,5 +680,31 @@ mod declaration_tests {
         ] {
             assert_eq!(css(&rows, &[]), want);
         }
+    }
+
+    /// LLP 1056: a gradient is one `background-image` declaration after the
+    /// colour it paints over; a `light-dark()` stop is the browser's to
+    /// resolve, and `none` clears.
+    #[test]
+    fn background_image_is_one_declaration_over_the_colour() {
+        let t = |s: &str| StyleValue::Text(s.into());
+        assert_eq!(
+            css(
+                &[
+                    (StyleId::BackgroundColor, t("#102030")),
+                    (StyleId::BackgroundImage, t("linear-gradient(to top, transparent, light-dark(#fff, #000) 40%)")),
+                ],
+                &[]
+            ),
+            "background-color:rgba(16,32,48,1);background-image:linear-gradient(0deg, #00000000 0%, light-dark(#ffffffff, #000000ff) 40%);"
+        );
+        assert_eq!(
+            css(&[(StyleId::BackgroundImage, t("radial-gradient(circle at 10px bottom, #000 25%, #fff)"))], &[]),
+            "background-image:radial-gradient(circle farthest-corner at 10px 100%, #000000ff 25%, #ffffffff 100%);"
+        );
+        assert_eq!(
+            css(&[(StyleId::BackgroundImage, t("none"))], &[]),
+            "background-image:none;"
+        );
     }
 }

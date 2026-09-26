@@ -413,6 +413,10 @@ pub(crate) fn projection_size(
                 }
                 RowValue::Transitions(v) => bytes = add_wire(bytes, v.0.len(), 256)?,
                 RowValue::Tracks(v) => bytes = add_wire(bytes, v.0.len(), 128)?,
+                // Both appearances' stops, each up to eight after expansion.
+                RowValue::BackgroundImage(g) => {
+                    bytes = add_wire(bytes, g.gradient().map_or(0, |g| g.stops.len()), 512)?
+                }
                 _ => {}
             }
         }
@@ -420,6 +424,7 @@ pub(crate) fn projection_size(
         // dormant variable storage as well, rather than assuming clear() freed it.
         for id in [
             exact_kernel::StyleId::ClipPath,
+            exact_kernel::StyleId::BackgroundImage,
             exact_kernel::StyleId::Transition,
             exact_kernel::StyleId::GridTemplateColumns,
             exact_kernel::StyleId::GridTemplateRows,
@@ -437,6 +442,10 @@ pub(crate) fn projection_size(
                 }
                 RowValue::Transitions(v) => bytes = add_wire(bytes, v.0.len(), 256)?,
                 RowValue::Tracks(v) => bytes = add_wire(bytes, v.0.len(), 128)?,
+                // Both appearances' stops, each up to eight after expansion.
+                RowValue::BackgroundImage(g) => {
+                    bytes = add_wire(bytes, g.gradient().map_or(0, |g| g.stops.len()), 512)?
+                }
                 _ => {}
             }
         }

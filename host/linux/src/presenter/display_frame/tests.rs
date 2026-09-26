@@ -93,6 +93,9 @@ impl Backend for CountPaint {
     fn fill(&mut self, s: &Shape, c: [u8; 4], t: Transform) {
         self.inner.fill(s, c, t);
     }
+    fn fill_gradient(&mut self, s: &Shape, g: &crate::paint::GradientPaint, t: Transform) {
+        self.inner.fill_gradient(s, g, t);
+    }
     fn fill_border(&mut self, part: &crate::paint::border::BorderFill, t: Transform) {
         self.inner.fill_border(part, t);
     }
