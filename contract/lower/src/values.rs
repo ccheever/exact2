@@ -47,6 +47,117 @@ fn describe(e: &StyleValueError) -> String {
     }
 }
 
+/// The rows CSS's `border-color` shorthand sets: top, right, bottom, left.
+pub(crate) const BORDER_COLORS: [StyleId; 4] = [
+    StyleId::BorderColorTop,
+    StyleId::BorderColorRight,
+    StyleId::BorderColorBottom,
+    StyleId::BorderColorLeft,
+];
+
+/// A `border-color` value's one to four colours, split where CSS splits
+/// them: at white space outside parentheses, so `light-dark(#fff, #000)` is
+/// one colour.
+fn border_color_values(text: &str) -> Vec<&str> {
+    let (mut values, mut depth, mut start) = (Vec::new(), 0usize, None);
+    for (i, c) in text.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            c if c.is_whitespace() && depth == 0 => {
+                if let Some(s) = start.take() {
+                    values.push(&text[s..i]);
+                }
+                continue;
+            }
+            _ => {}
+        }
+        start.get_or_insert(i);
+    }
+    if let Some(s) = start {
+        values.push(&text[s..]);
+    }
+    values
+}
+
+/// CSS's `border-color: <color>{1,4}` as four longhand expressions (top,
+/// right, bottom, left): every literal the value can produce — a string, or
+/// an arm of a conditional — is split into its sides, and a computed leaf is
+/// one colour for all four. `None` when no literal names more than one
+/// colour, so the shorthand stays one binding for four rows.
+pub(crate) fn border_color_sides(value: &Expr) -> Result<Option<[Expr; 4]>, LowerError> {
+    fn widest(e: &Expr) -> Result<usize, LowerError> {
+        Ok(match e {
+            Expr::Str(s, span) => {
+                let n = border_color_values(s).len();
+                if n > 4 {
+                    return err(
+                        "lower-attr-value",
+                        format!("`border-color` takes one to four colours (top, right, bottom, left); \"{s}\" has {n}"),
+                        *span,
+                    );
+                }
+                n
+            }
+            Expr::Ternary(_, yes, no, _) => widest(yes)?.max(widest(no)?),
+            Expr::Match { some, none, .. } => widest(some)?.max(widest(none)?),
+            Expr::Let { body, .. } => widest(body)?,
+            _ => 1,
+        })
+    }
+    fn side(e: &Expr, i: usize) -> Expr {
+        match e {
+            Expr::Str(s, span) => {
+                let v = border_color_values(s);
+                // CSS: top; right = top; bottom = top; left = right.
+                let pick = match (v.len(), i) {
+                    (0, _) => return e.clone(),
+                    (1, _) => 0,
+                    (2, _) => i % 2,
+                    (3, 3) => 1,
+                    (_, i) => i,
+                };
+                Expr::Str(v[pick].to_string(), *span)
+            }
+            Expr::Ternary(c, yes, no, span) => Expr::Ternary(
+                c.clone(),
+                Box::new(side(yes, i)),
+                Box::new(side(no, i)),
+                *span,
+            ),
+            Expr::Match {
+                subject,
+                var,
+                some,
+                none,
+                span,
+            } => Expr::Match {
+                subject: subject.clone(),
+                var: var.clone(),
+                some: Box::new(side(some, i)),
+                none: Box::new(side(none, i)),
+                span: *span,
+            },
+            Expr::Let {
+                name,
+                value,
+                body,
+                span,
+            } => Expr::Let {
+                name: name.clone(),
+                value: value.clone(),
+                body: Box::new(side(body, i)),
+                span: *span,
+            },
+            other => other.clone(),
+        }
+    }
+    if widest(value)? < 2 {
+        return Ok(None);
+    }
+    Ok(Some([0, 1, 2, 3].map(|i| side(value, i))))
+}
+
 /// A literal style value is checked now by the kernel's own parser
 /// (`StyleProps::set_dynamic`), so `width=true` and `align-items="middle"`
 /// are refused at compile time, not at the first frame; a computed value
@@ -57,6 +168,15 @@ pub(crate) fn check_style_value(
     ty: &Ty,
     font: Option<&FontUse>,
 ) -> Result<(), LowerError> {
+    if rows == BORDER_COLORS {
+        if let Some(sides) = border_color_sides(&a.value)? {
+            for (row, value) in BORDER_COLORS.iter().zip(sides) {
+                let side = Attr { value, ..a.clone() };
+                check_style_value(&side, std::slice::from_ref(row), ty, font)?;
+            }
+            return Ok(());
+        }
+    }
     // Validate every authored literal result, including inactive branches.
     // Only the whole expression is type-checked here: match arms bind their
     // own local names, which the type pass resolves in the proper scope.

@@ -1281,6 +1281,22 @@ impl<'a> Lowerer<'a> {
                     });
                     return Ok(());
                 }
+                // CSS's one-to-four-value `border-color`: a binding a side.
+                if rows == values::BORDER_COLORS {
+                    if let Some(sides) = values::border_color_sides(&a.value)? {
+                        for (&row, value) in rows.iter().zip(sides) {
+                            let (code, ty) = self.typed_code(&value, scope, locals)?;
+                            let side = Attr { value, ..a.clone() };
+                            values::check_style_value(&side, &[row], &ty, font)?;
+                            bindings.push(BindingsRow {
+                                kind: BindingKind::Style,
+                                id: row as u16,
+                                expr: code,
+                            });
+                        }
+                        return Ok(());
+                    }
+                }
                 let (code, ty) = self.typed_code(&a.value, scope, locals)?;
                 values::check_style_value(a, rows, &ty, font)?;
                 for &row in rows {
