@@ -519,6 +519,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "transition" => styles(&[StyleId::Transition]),
         // @ref LLP 1057 — its keyframes resolve at compile time (`keyframes.rs`).
         "animation" => styles(&[StyleId::Animation]),
+        // @ref LLP 1063 — played as the node leaves; resolved like `animation`.
+        "exit-animation" => styles(&[StyleId::ExitAnimation]),
+        // @ref LLP 1063 — how the laid-out box moves when layout moves it.
+        "layout-transition" => styles(&[StyleId::LayoutTransition]),
         "interpolate-size" => styles(&[StyleId::InterpolateSize]),
         "translate" => styles(&[StyleId::Translate]),
         "scale" => styles(&[StyleId::Scale]),

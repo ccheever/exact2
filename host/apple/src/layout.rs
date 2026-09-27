@@ -138,6 +138,11 @@ impl<D: DataSource> Host<D> {
             }
             let parent = node.parent.and_then(|p| kernel.node(p)).map(|p| p.frame);
             let rel = relative(node.frame, parent);
+            let declared = node
+                .style
+                .layout_transition
+                .matching(Property::Layout)
+                .is_some();
             let content = (style::effective_overflow(&node)
                 != (Overflow::Visible, Overflow::Visible))
                 .then(|| content_size(&node, kernel));
@@ -166,7 +171,10 @@ impl<D: DataSource> Host<D> {
                     batch.content(id, c.0, c.1);
                 }
             }
+            // @ref LLP 1063 — a moved box plays from where it was.
+            self.observe_layout(key, declared, rel.0, rel.1);
         }
+        self.presence.snap = false;
         // Layout/receipt work may change the live window. Motion-only ticks and
         // stale feedback never traverse the tree to collect this metadata.
         let collections = if self.native_mode() {

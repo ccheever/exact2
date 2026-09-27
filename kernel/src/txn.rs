@@ -31,9 +31,23 @@ use crate::wire::Op;
 /// process on a stack overflow (20,000 levels did).
 pub const MAX_DEPTH: u32 = 128;
 
+/// A destroyed node that leaves with its `exit-animation` (LLP 1063): the
+/// root of a destroyed subtree whose parent survived the batch and that no
+/// earlier batch-local creation or windowed `list` owns. Its descendants go
+/// with it; their own exit rows never play.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Exit {
+    /// The destroyed node; it resolves to nothing after the commit.
+    pub key: NodeKey,
+    /// The surviving parent it leaves from.
+    pub parent: NodeKey,
+    /// Its `exit-animation` row as it was when destroyed.
+    pub animations: exact_motion::Animations,
+}
+
 /// What a committed batch changed. Every key is generation-checked; a
 /// `destroyed` key resolves to nothing after the commit by construction.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct CommitReceipt {
     /// Producer batch number from the frame (0 for structured apply without one).
     pub batch: u64,
@@ -49,6 +63,8 @@ pub struct CommitReceipt {
     pub touched: Vec<NodeKey>,
     /// Whether any change can move geometry; a host that only paints may skip layout otherwise.
     pub layout_invalidated: bool,
+    /// The destroyed nodes that play an exit before a host removes them.
+    pub exits: Vec<Exit>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -466,6 +482,8 @@ pub fn apply(
     let mut touched: Vec<NodeKey> = Vec::new();
     let mut created: IdSet<u32> = IdSet::default();
     let mut detach = Detach::default();
+    // Children detached by this batch that declare an exit: the parent each left.
+    let mut left: IdMap<u32, u32> = IdMap::default();
 
     let applied = (|| -> Result<(), ApplyError> {
         for (op_index, op) in ops.iter().enumerate() {
@@ -492,6 +510,9 @@ pub fn apply(
                 }
                 Op::DestroyView { id } => {
                     let slot = live_slot(arena, op_index, *id)?;
+                    if let Some(exit) = exit(arena, &created, &left, slot) {
+                        receipt.exits.push(exit);
+                    }
                     if let Some(parent) = arena.parent(slot) {
                         if arena.node_type(parent) == NodeType::Text {
                             invalidate_text(arena, layout, parent);
@@ -608,6 +629,11 @@ pub fn apply(
                     for o in &old {
                         if !retained.contains(o) {
                             arena.set_parent(*o, None);
+                            // A producer detaches before it destroys: the
+                            // parent an exit leaves from is the one it had.
+                            if !arena.style(*o).exit_animation.0.is_empty() {
+                                left.insert(*o, slot);
+                            }
                         }
                     }
                     // A child arriving from another parent takes its inherited
@@ -689,6 +715,11 @@ pub fn apply(
     detach.flush(arena, layout, selectors);
     applied?;
 
+    // A later op can destroy an exit's parent: then that op's root leaves
+    // (and exits, if it declares one) and this node goes inside it.
+    receipt
+        .exits
+        .retain(|exit| arena.resolve(exit.parent).is_some());
     // Compare whole keys: a slot freed and reallocated in one batch carries two generations.
     receipt.created.retain(|key| {
         arena
@@ -710,6 +741,41 @@ pub fn apply(
     touched.shrink_to_fit();
     receipt.touched = touched;
     Ok(receipt)
+}
+
+/// The exit a destroyed subtree root plays, if any (LLP 1063). Not for a
+/// node this batch created (nothing presented it), a root or inline run
+/// (nowhere to stay), or a windowed `list`'s row (the window destroys rows
+/// that scroll away; the kernel cannot tell that from a removal).
+fn exit(
+    arena: &NodeArena,
+    created: &IdSet<u32>,
+    left: &IdMap<u32, u32>,
+    slot: u32,
+) -> Option<Exit> {
+    let animations = &arena.style(slot).exit_animation;
+    if animations.0.is_empty() || created.contains(&slot) {
+        return None;
+    }
+    let parent = arena
+        .parent(slot)
+        .or_else(|| left.get(&slot).copied())
+        .filter(|p| arena.is_live(*p))?;
+    if created.contains(&parent) || arena.node_type(parent) == NodeType::Text {
+        return None;
+    }
+    let mut ancestor = Some(parent);
+    while let Some(a) = ancestor {
+        if arena.node_type(a) == NodeType::List {
+            return None;
+        }
+        ancestor = arena.parent(a);
+    }
+    Some(Exit {
+        key: arena.key(slot),
+        parent: arena.key(parent),
+        animations: animations.clone(),
+    })
 }
 
 /// Push the arena's child list for `parent` into the layout engine. A `Text`

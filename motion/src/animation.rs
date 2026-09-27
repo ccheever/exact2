@@ -179,6 +179,9 @@ pub enum AnimationError {
     InvalidValueShape,
     /// An easing was invalid.
     Easing(EasingError),
+    /// An `exit-animation` that never ends — an `infinite` count, or
+    /// `paused` — would keep its leaving node forever (LLP 1063).
+    Endless,
 }
 
 impl Keyframes {
@@ -490,6 +493,26 @@ impl Animations {
     /// Whether every number is finite, save `infinite` iteration counts.
     pub fn is_finite(&self) -> bool {
         self.0.iter().all(Animation::is_finite)
+    }
+
+    /// Local time at which the last animation ends; zero for none, infinite
+    /// when one is endless.
+    pub fn end_time(&self) -> f64 {
+        self.0.iter().map(Animation::end_time).fold(0.0, f64::max)
+    }
+
+    /// [`Animations::validate`], and every animation runs to an end: the
+    /// rule for an `exit-animation`, whose node is removed when it ends.
+    pub fn validate_ending(&self) -> Result<(), AnimationError> {
+        self.validate()?;
+        if self
+            .0
+            .iter()
+            .any(|a| a.play_state == PlayState::Paused || !a.end_time().is_finite())
+        {
+            return Err(AnimationError::Endless);
+        }
+        Ok(())
     }
 
     /// The row as its self-contained text: the shorthand list, then each
