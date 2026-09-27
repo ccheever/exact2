@@ -89,7 +89,7 @@ fn what_cannot_animate_or_resolve_is_refused_at_compile_time() {
             "no `keyframes pulse` is declared; declared: `breathe`",
         ),
         (
-            app(breathe, "animation=`breathe ${1}s`"),
+            app(breathe, "animation=`${\"breathe\"} 1s`"),
             "lower-animation-literal",
             "resolved when the app compiles",
         ),
@@ -154,4 +154,130 @@ fn keyframes_format_and_keep_their_percentages_whole() {
         contract_syntax::fmt::format(source).unwrap(),
         "keyframes k\n  0%, 100%\n    opacity=0.4 scale=0.9\n  50%\n    opacity=1\ncomponent App\n  view\n    text \"a\" animation=\"k 1s\"\n"
     );
+}
+
+/// LLP 1062 D8: `each item, i in list` names the row's position, which a
+/// stagger multiplies; a row that moves reads its new position, keeping its
+/// identity (and an animation keeps its start: only the delay changes).
+#[test]
+fn each_names_the_position_and_a_moved_row_reads_its_new_one() {
+    struct Keys;
+    impl DataSource for Keys {
+        fn query(&mut self, _: &str, args: &[PlanValue]) -> Result<PlanValue, DataError> {
+            let keys = if args == [PlanValue::Bool(true)] {
+                ["c", "a", "b"]
+            } else {
+                ["a", "b", "c"]
+            };
+            Ok(PlanValue::list(
+                keys.into_iter().map(PlanValue::str).collect(),
+            ))
+        }
+    }
+    let source = "keyframes enter\n  from\n    opacity=0\ncomponent App\n  state moved = false\n  resource keys = keys(moved) as shape list<string>\n  action move writes moved\n    moved = true\n  view\n    column\n      button \"move\" press=move testId=\"move\"\n      each k, i in keys key=k\n        text `${i}:${k}` testId=`row-${k}` animation=`enter 300ms ${i * 40}ms both`\n";
+    let plan = contract::compile(source).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Keys,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let text = |r: &Runner<Keys>, id: &str| {
+        let k = r.kernel();
+        let node = k.node_by_key(k.find_by_test_id(id)[0]).unwrap();
+        (
+            node.key,
+            node.props
+                .str(exact_kernel::PropId::Text)
+                .unwrap()
+                .to_string(),
+            node.style.animation.0[0].delay,
+        )
+    };
+    let (c_before, c_text, c_delay) = text(&r, "row-c");
+    assert_eq!(c_text, "2:c");
+    assert!((c_delay - 0.08).abs() < 1e-6);
+    r.act("move", vec![]).unwrap();
+    let (c_after, c_text, c_delay) = text(&r, "row-c");
+    assert_eq!(
+        (c_after, c_text.as_str()),
+        (c_before, "0:c"),
+        "same row, new position"
+    );
+    assert!(c_delay.abs() < 1e-6);
+    assert_eq!(text(&r, "row-b").1, "2:b");
+    // Only a plain `each` has positions; a windowed list's rows outlive theirs.
+    let list = "component App\n  resource keys = keys(false) as shape list<string>\n  view\n    list height=100 item-height=20\n      each k, i in keys key=k\n        text k\n";
+    let error = contract::compile(list).unwrap_err();
+    assert!(error.message.contains("name no position"), "{error}");
+    let virtualized = list.replace(
+        "item-height=20",
+        "virtualized=true estimated-item-height=20",
+    );
+    let error = contract::compile(&virtualized).unwrap_err();
+    assert!(error.message.contains("name no position"), "{error}");
+    assert_eq!(
+        contract_syntax::fmt::format("component App\n  resource keys = keys(false) as shape list<string>\n  view\n    column\n      each k ,  i in keys key=k\n        text k\n").unwrap(),
+        "component App\n  resource keys = keys(false) as shape list<string>\n  view\n    column\n      each k, i in keys key = k\n        text k\n"
+    );
+}
+
+/// LLP 1062 D7: an `animation` template interpolates only times, so a
+/// stagger is computed while the keyframes stay resolved at compile time;
+/// colours may be keyframed, one fixed colour each.
+#[test]
+fn a_computed_delay_staggers_and_colours_keyframe() {
+    let source = "keyframes enter\n  from\n    opacity=0\n    background-color=\"#ff000080\"\n\ncomponent App\n  state step = 2\n  action next writes step\n    step = step + 1\n  view\n    column\n      button press=next testId=\"next\"\n        text \"Next\"\n      text \"a\" testId=\"row\" animation=`enter 320ms ease-out ${step * 70}ms both`\n";
+    let plan = contract::compile(source).unwrap();
+    let mut r = Runner::boot(
+        Plan::decode(&plan.encode()).unwrap(),
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let (_, row) = animation(&r, "row");
+    let a = &row.0[0];
+    assert_eq!(a.keyframes.name, "enter");
+    assert!((a.delay - 0.14).abs() < 1e-6, "{}", a.delay);
+    assert!((a.duration - 0.32).abs() < 1e-6);
+    let (property, value) = a.keyframes.blocks[0].values[1];
+    assert_eq!(property, Property::BackgroundColor);
+    assert!((value.w - 128.0 / 255.0).abs() < 1e-6, "{value:?}");
+    let k = r.kernel();
+    let next = k.node_by_key(k.find_by_test_id("next")[0]).unwrap().id;
+    r.dispatch(next, Event::Press).unwrap();
+    let (_, row) = animation(&r, "row");
+    assert!((row.0[0].delay - 0.21).abs() < 1e-6);
+
+    let app = |attr: &str| {
+        format!("keyframes enter\n  from\n    opacity=0\ncomponent App\n  state n = 1\n  view\n    text \"a\" {attr}\n")
+    };
+    for (attr, id, says) in [
+        (
+            "animation=`enter ${n}ms ${n}ms ${n}ms`",
+            "lower-attr-value",
+            "animation=",
+        ),
+        (
+            "animation=`enter 1s ${n}`",
+            "lower-animation-literal",
+            "interpolates only times",
+        ),
+        (
+            "animation=`nope ${n}ms`",
+            "lower-unknown-keyframes",
+            "no `keyframes nope`",
+        ),
+    ] {
+        let error = contract::compile(&app(attr)).unwrap_err();
+        assert_eq!(error.id, id, "{attr}\n{error}");
+        assert!(error.message.contains(says), "{error}");
+    }
+    let dark = "keyframes k\n  to\n    color=\"light-dark(#fff, #000)\"\ncomponent App\n  view\n    text \"a\"\n";
+    let error = contract::compile(dark).unwrap_err();
+    assert!(error.message.contains("one colour"), "{error}");
 }

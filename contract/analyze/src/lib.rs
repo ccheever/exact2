@@ -528,7 +528,11 @@ fn check_view(nodes: &[Node], scope: &Scope, file: &File) -> Result<(), AnalyzeE
                 check_view(otherwise, scope, file)?;
             }
             Node::Each {
-                var, list, body, ..
+                var,
+                index,
+                list,
+                body,
+                ..
             } => {
                 let t = contract_types::infer(list, scope, &Default::default()).ok();
                 let item = match t {
@@ -536,7 +540,7 @@ fn check_view(nodes: &[Node], scope: &Scope, file: &File) -> Result<(), AnalyzeE
                     _ => Ty::Unknown,
                 };
                 let mut inner = scope.clone();
-                inner.push_region(Some((var.clone(), Ref::Item(0), item)));
+                inner.push_each(var, index.as_deref(), item);
                 check_view(body, &inner, file)?;
             }
             Node::Match { some, none, .. } => {

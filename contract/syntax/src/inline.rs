@@ -544,6 +544,7 @@ fn inline_nodes(
             }),
             Node::Each {
                 var,
+                index,
                 list,
                 key,
                 body,
@@ -558,6 +559,7 @@ fn inline_nodes(
                 out.push(Node::Each {
                     tag,
                     var: var.clone(),
+                    index: index.clone(),
                     list: subst_expr(list, subst),
                     key: subst_expr(key, subst),
                     body: body?,
@@ -653,6 +655,7 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
             Node::Each {
                 tag,
                 var,
+                index,
                 list,
                 key,
                 body,
@@ -661,9 +664,15 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                 let mut inner = map.clone();
                 let fresh = lifted(var, n);
                 inner.insert(var.clone(), fresh.clone());
+                let index = index.as_ref().map(|i| {
+                    let fresh = lifted(i, n);
+                    inner.insert(i.clone(), fresh.clone());
+                    fresh
+                });
                 Node::Each {
                     tag: *tag,
                     var: fresh,
+                    index,
                     list: renamed_locals(list, map),
                     key: renamed_locals(key, &inner),
                     body: rename_nodes(body, &inner, n),

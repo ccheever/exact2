@@ -418,8 +418,10 @@ impl Graph<'_> {
                     self.nodes(ci, then, scope, providers)?;
                     self.nodes(ci, otherwise, scope, providers)?;
                 }
-                Node::Each { var, body, .. } => {
-                    scope.push_region(Some((var.clone(), Ref::Item(0), Ty::Unknown)));
+                Node::Each {
+                    var, index, body, ..
+                } => {
+                    scope.push_each(var, index.as_deref(), Ty::Unknown);
                     self.nodes(ci, body, scope, providers)?;
                     scope.pop();
                 }

@@ -1099,6 +1099,12 @@ impl Parser {
             "each" => {
                 self.next();
                 let var = self.named_ident(span)?;
+                let index = if self.at_punct(",") {
+                    self.next();
+                    Some(self.named_ident(span)?)
+                } else {
+                    None
+                };
                 self.expect_word("in")?;
                 let list = self.expr()?;
                 self.expect_word("key")?;
@@ -1109,6 +1115,7 @@ impl Parser {
                 Ok(Node::Each {
                     tag: 0,
                     var,
+                    index,
                     list,
                     key,
                     body,

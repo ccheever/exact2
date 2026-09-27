@@ -135,7 +135,7 @@ record_variants! {
     Node {
         Element { tag, positional, attrs, children, span, instance }, Use { name, args, children, span },
         Provide { name, expr, body, span }, Children { span },
-        When { cond, then, otherwise, span }, Each { tag, var, list, key, body, span },
+        When { cond, then, otherwise, span }, Each { tag, var, index, list, key, body, span },
         Match { subject, some, none, span },
     }
 }

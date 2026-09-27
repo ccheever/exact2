@@ -999,6 +999,7 @@ impl<'a> Lowerer<'a> {
             Node::Each {
                 tag,
                 var,
+                index,
                 list,
                 key,
                 body,
@@ -1010,7 +1011,7 @@ impl<'a> Lowerer<'a> {
                     _ => Ty::Unknown,
                 };
                 let mut inner = scope.clone();
-                inner.push_region(Some((var.clone(), Ref::Item(0), item_ty)));
+                inner.push_each(var, index.as_deref(), item_ty);
                 let key = self.expr_code(key, &inner, locals)?;
                 let (r, arms) =
                     self.b

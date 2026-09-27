@@ -595,14 +595,17 @@ pub enum Node {
         /// Where.
         span: Span,
     },
-    /// `each x in list key=expr`. `tag` is the inliner's: unique per `each`
-    /// in the expanded root, so a row slot can name the `each` that owns it
-    /// before regions exist (LLP 1017 P4c); 0 as parsed.
+    /// `each x in list key=expr`, or `each x, i in list key=expr` binding
+    /// the item's position too (LLP 1062 D8). `tag` is the inliner's: unique
+    /// per `each` in the expanded root, so a row slot can name the `each`
+    /// that owns it before regions exist (LLP 1017 P4c); 0 as parsed.
     Each {
         /// The inliner's tag.
         tag: u32,
         /// The item variable.
         var: String,
+        /// The position variable, a number from 0, when named.
+        index: Option<String>,
         /// The list.
         list: Expr,
         /// The key expression (may name `var`).
