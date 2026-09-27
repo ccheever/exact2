@@ -1,5 +1,6 @@
 # Queue
 
+- **`tint-color` on Linux** (2026-09-26, LLP 1011 §6). Apple and web draw a tinted image (raster or `symbol:`) as a template; Linux paints a raster's own pixels and has no symbols. Both backends (`raster.rs`, `gpu.rs`) need a tinted `image` path, and `host/linux/src/paint.rs` is at the line cap.
 - **R1 and R2 of LLP 1054.000, as one design** (2026-09-26, the Bluesky port; both reviews rated the draft a blocker). A source or declaration that says a resource's answer changed (D2: `apps/realworld`'s `changeStamp`/`authStamp`, Bluesky's `rev`), and keeping an identical request in flight on an argument-only re-ask (D3). The RFC's §Deferred lists what the design must settle: where invalidation is declared, carrying it through every forwarder, worker envelope and the Rust module ABI, keeping it across a refused commit, and never keeping a request for a forced re-ask. It amends LLP 1016 D5.
 - **A Contract error during `build.mjs` is ~200 lines deep in cargo output** (LLP 1054 L9). Print every Contract diagnostic from a failing `build.rs`, together and last, without the artifact noise; all of them, not the first.
 - **A generated vocabulary page** (LLP 1054 L1): tags, built-ins, symbols and style rows from their tables, one page an app writer can read. Tables live in `contract/lower/src/tags.rs`, `plan/tables/format.json` and `kernel/tables/schema.json`.

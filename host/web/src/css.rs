@@ -226,7 +226,7 @@ fn generic_stack(family: &str) -> &str {
     }
 }
 
-fn css_string(value: &str) -> String {
+pub(crate) fn css_string(value: &str) -> String {
     let mut out = String::from("\"");
     for c in value.chars() {
         match c {
