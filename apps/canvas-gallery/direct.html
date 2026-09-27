@@ -32,6 +32,7 @@ const errors = [];
 // author's matrix (LLP 1056 D6): setTransform, resetTransform and reset
 // replace only the author's part. On the web an author scales by hand, so
 // this page puts the scale back under whatever the fixture sets.
+const SHADOW = new Set(["shadowBlur", "shadowOffsetX", "shadowOffsetY"]);
 function scaled(ctx, s) {
   const base = new DOMMatrix([s, 0, 0, s, 0, 0]);
   const own = {
@@ -44,8 +45,10 @@ function scaled(ctx, s) {
     getTransform: () => base.inverse().multiply(ctx.getTransform()),
   };
   return new Proxy(ctx, {
-    get: (t, k) => own[k] ?? (typeof t[k] === "function" ? t[k].bind(t) : t[k]),
-    set: (t, k, v) => { t[k] = v; return true; },
+    // Shadows ignore the author's matrix but are canvas pixels × the device
+    // scale (LLP 1056 §1): on the web they would be bitmap pixels.
+    get: (t, k) => own[k] ?? (typeof t[k] === "function" ? t[k].bind(t) : SHADOW.has(k) ? t[k] / s : t[k]),
+    set: (t, k, v) => { t[k] = SHADOW.has(k) ? Number(v) * s : v; return true; },
   });
 }
 function draw(name, canvas, ctx, step) {

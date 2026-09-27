@@ -226,6 +226,24 @@ typedef void (*ExactWakeFn)(void *ctx);
 ExactRuntime exact_create(void);
 void exact_destroy(ExactRuntime rt);
 void exact_set_measure(ExactRuntime rt, ExactMeasureFn measure, void *ctx);   /* NULL: a monospace reference measurer */
+/* LLP 1056 D8: one Canvas 2D run measured with Core Text where the draw
+ * runs, with the context exact_set_measure was given. The strings live for
+ * the call. v: width, left, right, ascent, descent (ink, from the run's left
+ * alphabetic origin), font ascent, font descent, em ascent, em descent,
+ * hanging, ideographic — CSS px. */
+typedef struct ExactCanvasText {
+    const uint8_t *text; size_t len;
+    const uint8_t *families; size_t families_len; /* names joined by ',' */
+    double size, stretch, letter_spacing, word_spacing;
+    uint16_t weight;
+    uint8_t style;   /* 0 normal, 1 italic, 2 oblique */
+    uint8_t caps;    /* fontVariantCaps index */
+    uint8_t kerning; /* 0 auto, 1 normal, 2 none */
+    uint8_t rtl;
+} ExactCanvasText;
+typedef struct ExactCanvasMetrics { double v[11]; } ExactCanvasMetrics;
+typedef ExactCanvasMetrics (*ExactCanvasTextFn)(void *ctx, const ExactCanvasText *run);
+void exact_set_canvas_text(ExactRuntime rt, ExactCanvasTextFn measure);
 void exact_set_wake(ExactRuntime rt, ExactWakeFn wake, void *ctx);
 void exact_set_fonts(ExactRuntime rt, ExactFontsFn fonts, void *ctx);
 
@@ -328,6 +346,10 @@ uint32_t exact_set_preferences(ExactRuntime rt, uint32_t bits);
 /// The display's scale and physical memory for Canvas 2D (LLP 1056 D4);
 /// callable before boot. Returns the batch length.
 uint32_t exact_canvas_display(ExactRuntime rt, double scale, double memory);
+/* LLP 1056 D9: a Canvas 2D image handle the batch's "canvasImages" named,
+ * decoded (ok 1, its size in pixels) or not (ok 0); the handle is the input
+ * buffer's first len bytes. Returns the batch length. */
+uint32_t exact_canvas_image(ExactRuntime rt, size_t len, uint32_t width, uint32_t height, uint32_t ok);
 uint32_t exact_resize(ExactRuntime rt, float width, float height);
 /* Actual list scrollport and focused/interacting descendants (zero if absent).
    Row heights use the kernel frames already delivered to the presenter. */

@@ -39,6 +39,8 @@ pub struct Hooks {
     pub wake: Option<crate::executor::WakeFn>,
     /// Passed back to `wake`.
     pub wake_ctx: *mut c_void,
+    /// Measures a Canvas 2D run with Core Text (LLP 1056 D8), with `ctx`.
+    pub canvas_text: Option<crate::canvas_text::CanvasTextFn>,
 }
 
 impl Hooks {
@@ -49,6 +51,7 @@ impl Hooks {
             ctx: std::ptr::null_mut(),
             wake: None,
             wake_ctx: std::ptr::null_mut(),
+            canvas_text: None,
         }
     }
 }
@@ -470,6 +473,9 @@ impl<D: DataSource> Bridge<D> {
                     hooks.wake.map(|w| (w, hooks.wake_ctx)),
                 );
                 host.listen(executor.waker());
+                if let Some(f) = hooks.canvas_text {
+                    host.set_canvas_text(f, hooks.ctx);
+                }
                 self.executor = Some(executor);
                 self.host = Some(host);
                 self.parked.clear();
@@ -768,6 +774,9 @@ impl<D: DataSource> Bridge<D> {
             candidate.hooks.wake.map(|w| (w, candidate.hooks.wake_ctx)),
         );
         candidate.host.listen(executor.waker());
+        if let Some(f) = candidate.hooks.canvas_text {
+            candidate.host.set_canvas_text(f, candidate.hooks.ctx);
+        }
         self.executor = Some(executor);
         self.host = Some(candidate.host);
         self.parked.clear();
@@ -1157,6 +1166,17 @@ impl<D: DataSource> Bridge<D> {
             Some(h) => h.canvas_display(),
             None => "{\"ops\":[],\"timers\":false,\"motion\":false}".to_string(),
         };
+        self.emit(out)
+    }
+
+    /// A Canvas 2D image handle (the input buffer's first `len` bytes,
+    /// UTF-8) decoded at `width` × `height` pixels, or not (`ok` false):
+    /// the canvases that asked draw again (LLP 1056 D9).
+    pub fn canvas_image(&mut self, len: usize, width: u32, height: u32, ok: bool) -> u32 {
+        let src = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
+        let out = self.host.as_mut().map_or_else(not_booted, |h| {
+            h.canvas_image(&src, ok.then_some((width, height)))
+        });
         self.emit(out)
     }
 

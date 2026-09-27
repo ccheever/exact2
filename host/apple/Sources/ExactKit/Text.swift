@@ -395,6 +395,14 @@ final class TextEngine {
     /// text is held to two screens of them (`TextResidency.fitShaped`).
     func fitShaped(visibleParagraphs: Int) { residency.fitShaped(visibleParagraphs: visibleParagraphs) }
     private var catalog: [Int: [RegisteredFace]] = [:]
+    /// Declared family names to their plan stacks, for Canvas 2D's `font`
+    /// (LLP 1056 D8).
+    private var familyStacks: [String: Int] = [:]
+    /// Canvas 2D's fonts and lines over this engine (LLP 1056 D8).
+    private(set) lazy var canvasText = CanvasText(engine: self)
+
+    /// A declared family's stack, by name.
+    func stack(named name: String) -> Int? { familyStacks[name] }
     /// Where a declared face's relative source resolves: the app's resolver
     /// (LLP 1031 D1 — the committed complete generation, else the root).
     let resolve: (String) -> URL?
@@ -433,12 +441,14 @@ final class TextEngine {
         private let fonts: [String: PlatformFont]
         private let residency: TextResidency
         private let catalog: [Int: [RegisteredFace]]
+        private let familyStacks: [String: Int]
 
         fileprivate init(_ engine: TextEngine) {
             pendingFonts = engine.pendingFonts
             fonts = engine.fonts
             residency = engine.residency
             catalog = engine.catalog
+            familyStacks = engine.familyStacks
         }
 
         fileprivate func restore(into engine: TextEngine) {
@@ -447,6 +457,8 @@ final class TextEngine {
             engine.residency = residency
             engine.residency.refreshAfterRestore()
             engine.catalog = catalog
+            engine.familyStacks = familyStacks
+            engine.canvasText = CanvasText(engine: engine)
             engine.dropMeasuredBreaks()
         }
     }
@@ -465,12 +477,17 @@ final class TextEngine {
         residency = TextResidency(softTargetBytes: residency.softTargetBytes)
         dropMeasuredBreaks()
         catalog.removeAll(keepingCapacity: true)
+        familyStacks.removeAll()
+        canvasText = CanvasText(engine: self)
         guard let value = pointer?.pointee else { return }
         let rows = UnsafeBufferPointer(start: value.faces, count: value.count)
         var staged: [Int: [RegisteredFace]] = [:]
         var failed = Set<Int>()
         for row in rows {
             let stack = Int(row.stack)
+            if let name = row.family, row.family_len > 0 {
+                familyStacks[String(decoding: UnsafeBufferPointer(start: name, count: row.family_len), as: UTF8.self)] = stack
+            }
             guard let sourceBytes = row.source else { failed.insert(stack); continue }
             let source = String(decoding: UnsafeBufferPointer(start: sourceBytes, count: row.source_len), as: UTF8.self)
             guard URL(string: source)?.scheme == nil, !source.hasPrefix("/"),

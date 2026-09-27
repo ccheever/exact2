@@ -24,6 +24,8 @@ public struct Batch {
     public var spatial = false
     /// A 2D canvas wants the next display frame (LLP 1056 D5).
     public var canvas = false
+    /// Image handles a 2D canvas asked for, to decode (LLP 1056 D9).
+    public var canvasImages: [String] = []
     init(ops: [BatchOp], timers: Bool, motion: Bool, clock: Double?, error: String?, timerDueMs: Double? = nil, pending: Bool = false) {
         self.ops = ops; self.timers = timers; self.motion = motion; self.clock = clock
         self.error = error; self.timerDueMs = timerDueMs; self.pending = pending
@@ -96,6 +98,13 @@ final class Runtime {
     /// Boot the plan baked into the library under a viewport; the first batch.
     /// The display's scale and memory for Canvas 2D (LLP 1056 D4).
     func canvasDisplay(scale: CGFloat, memory: UInt64) -> Batch { read(exact_canvas_display(rt, Double(scale), Double(memory))) }
+    /// A Canvas 2D image handle decoded (its size in pixels) or not (LLP 1056 D9).
+    func canvasImage(_ src: String, width: Int, height: Int, ok: Bool) -> Batch {
+        let n = write(src)
+        return read(exact_canvas_image(rt, n, UInt32(max(0, width)), UInt32(max(0, height)), ok ? 1 : 0))
+    }
+    /// The Canvas 2D text measurer (LLP 1056 D8), with the measurer's context.
+    func setCanvasText(_ measure: ExactCanvasTextFn?) { exact_set_canvas_text(rt, measure) }
     func boot(width: CGFloat, height: CGFloat) -> Batch { read(exact_boot(rt, Float(width), Float(height))) }
     /// Boot from plan bytes (the dev loop's restart; LLP 1007 §6): state
     /// carried — transactional, so a refused candidate leaves the running
