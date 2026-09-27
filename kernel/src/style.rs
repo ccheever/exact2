@@ -1358,3 +1358,38 @@ mod finite_tests {
         assert_eq!(LineHeight::Normal.css(), "normal");
     }
 }
+
+impl crate::generated::TouchAction {
+    /// Whether the value leaves pinch zoom to the platform: `auto`,
+    /// `manipulation` or any value naming `pinch-zoom` (LLP 1057.001 §2).
+    pub fn pinch_zoom(self) -> bool {
+        matches!(self, Self::Auto | Self::Manipulation) || self.name().ends_with("pinch-zoom")
+    }
+    /// The same value's pan axes alone: `pinch-zoom` dropped, which leaves
+    /// `none` when it named nothing else. What a pan decides by.
+    pub fn pans(self) -> Self {
+        match self.name().strip_suffix("pinch-zoom") {
+            Some("") => Self::None,
+            Some(rest) => Self::from_name(rest.trim_end()).unwrap_or(Self::None),
+            None => self,
+        }
+    }
+}
+
+#[cfg(test)]
+mod touch_action_tests {
+    use crate::generated::TouchAction;
+
+    #[test]
+    fn pinch_zoom_is_the_css_vocabulary_and_pans_drop_it() {
+        let parse = |s| TouchAction::from_name(s).unwrap();
+        assert_eq!(TouchAction::ALL.len(), 34, "CSS's whole grammar, canonical order");
+        assert!(parse("pinch-zoom").pinch_zoom() && parse("auto").pinch_zoom());
+        assert!(parse("manipulation").pinch_zoom());
+        assert!(!parse("none").pinch_zoom() && !parse("pan-x pan-y").pinch_zoom());
+        assert_eq!(parse("pinch-zoom").pans(), TouchAction::None);
+        assert_eq!(parse("pan-left pan-y pinch-zoom").pans(), parse("pan-left pan-y"));
+        assert_eq!(parse("pan-y").pans(), TouchAction::PanY);
+        assert!(TouchAction::from_name("pinch-zoom pan-y").is_none(), "only CSS's canonical order");
+    }
+}

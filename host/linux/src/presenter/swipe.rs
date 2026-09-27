@@ -51,7 +51,7 @@ impl<D: DataSource> Presenter<D> {
             let handlers = self.host.runner().handlers_of(id);
             if handlers.contains(&EventKind::Swiperight) {
                 return matches!(
-                    node.style.touch_action,
+                    node.style.touch_action.pans(),
                     TouchAction::None
                         | TouchAction::PanY
                         | TouchAction::PanLeftPanY

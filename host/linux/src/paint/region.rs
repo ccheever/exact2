@@ -336,7 +336,7 @@ impl Picture {
                 ))
             .then(|| {
                 (
-                    node.style.touch_action,
+                    node.style.touch_action.pans(),
                     node.style
                         .transition
                         .matching(exact_motion::Property::Translate)
