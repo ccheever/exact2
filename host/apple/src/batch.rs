@@ -385,6 +385,20 @@ impl Batch {
         ));
     }
 
+    /// `{"op":"svg","id":…,"scene":{…}}`: an `svg`'s whole scene (LLP 1055 D4).
+    pub fn svg(&mut self, id: u32, scene: &str) {
+        self.ops
+            .push(format!("{{\"op\":\"svg\",\"id\":{id},\"scene\":{scene}}}"));
+    }
+
+    /// `{"op":"animations","id":…,"specs":[…]}`: a view's Core Animation
+    /// specs for its CSS animations (LLP 1055 D7); `[]` removes them.
+    pub fn animations(&mut self, id: u32, specs: &str) {
+        self.ops.push(format!(
+            "{{\"op\":\"animations\",\"id\":{id},\"specs\":{specs}}}"
+        ));
+    }
+
     /// @ref LLP 1043.000 §3 D8 — carry the runner deadline, not a poll interval.
     /// The batch as one JSON document:
     /// `{"ops":[…],"timers":bool,"motion":bool,"error":null|"…"}`.

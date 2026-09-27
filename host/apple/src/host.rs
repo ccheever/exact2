@@ -47,6 +47,11 @@ pub use height::{HeightOwnerChange, HeightOwnerDisposition, HeightOwnerError};
 use height_drag::{HeightDrag, HeightHandle};
 #[path = "layout.rs"]
 mod layout;
+#[path = "svg.rs"]
+mod svg;
+#[cfg(test)]
+#[path = "svg_tests.rs"]
+mod svg_tests;
 #[path = "transform_drag.rs"]
 mod transform_drag;
 #[path = "transform_drag_wire.rs"]
@@ -98,6 +103,8 @@ pub struct Host<D: DataSource> {
     mirror: IdMap<ViewId, Mirror>,
     keys: IdMap<NodeKey, ViewId>,
     inline_runs: IdMap<ViewId, (ViewId, Vec<EventKind>)>,
+    /// SVG scenes and lowered CSS animations (LLP 1055 D4, D7).
+    svg: svg::SvgState,
     dirty_paragraphs: BTreeSet<ViewId>,
     pending_layout: IdSet<NodeKey>,
     roots: Vec<ViewId>,
@@ -359,11 +366,16 @@ impl<D: DataSource> Host<D> {
             mirror: IdMap::default(),
             keys: IdMap::default(),
             inline_runs: IdMap::default(),
+            svg: svg::SvgState::default(),
             dirty_paragraphs: BTreeSet::new(),
             pending_layout: IdSet::default(),
             roots: Vec::new(),
             collections_json: "[]".into(),
-            engine: Engine::new(),
+            engine: {
+                let mut engine = Engine::new();
+                engine.set_lowered_properties(&svg::LOWERED);
+                engine
+            },
             holds: BTreeMap::new(),
             height_owner: None,
             height_handles: BTreeMap::new(),
@@ -418,16 +430,7 @@ impl<D: DataSource> Host<D> {
         let mut sync = MotionSync::default();
         for id in &order {
             if let Some(node) = host.runner.kernel().node(*id) {
-                let n = motion_node(node.key);
-                sync.transitions.push((n, node.style.transition.clone()));
-                for (property, value) in targets(node.style) {
-                    sync.changes.push(Change {
-                        node: n,
-                        property,
-                        value,
-                        velocity: None,
-                    });
-                }
+                host.runner.kernel().motion_sync_node(node.key, &mut sync);
             }
         }
         let applied = sync.apply(&mut host.engine);
@@ -1050,6 +1053,8 @@ impl<D: DataSource> Host<D> {
                 if let Some(id) = self.keys.remove(key) {
                     if let Some((owner, _)) = self.inline_runs.remove(&id) {
                         self.dirty_paragraphs.insert(owner);
+                    } else if self.svg.destroyed(id) {
+                        self.mirror.remove(&id);
                     } else if !self.native_selected_id(id) {
                         self.mirror.remove(&id);
                         batch.destroy(id);
@@ -1177,7 +1182,7 @@ impl<D: DataSource> Host<D> {
             if identity && batch.creates(view) {
                 continue;
             }
-            if self.inline_runs.contains_key(&view) {
+            if self.inline_runs.contains_key(&view) || self.svg.presented(view) {
                 continue;
             }
             if self.native_protected_id(view) && !self.native_current() {
@@ -1189,6 +1194,7 @@ impl<D: DataSource> Host<D> {
             };
             batch.present(view, p.property.name(), x, y);
         }
+        self.svg.emit(self.runner.kernel(), &self.engine, batch);
     }
 
     fn preorder(&self) -> Vec<ViewId> {
@@ -1254,6 +1260,14 @@ fn kind_for(node: &NodeRef<'_>) -> &'static str {
         NodeType::List => "list",
         NodeType::NativeView => "native",
         NodeType::Svg => "svg",
+        // Never a view: its `svg`'s scene draws it (LLP 1055 D4).
+        NodeType::SvgGroup
+        | NodeType::SvgPath
+        | NodeType::SvgPolyline
+        | NodeType::SvgPolygon
+        | NodeType::SvgCircle
+        | NodeType::SvgLine
+        | NodeType::SvgRect => "svg-element",
         NodeType::ScrollView => "scroll",
         NodeType::Text => "text",
         NodeType::Image => "image",

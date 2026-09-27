@@ -66,7 +66,8 @@
   /* LLP 1001 §1: the kernel has no `position: static`; every node is `relative`
      (an absolute node's inline style wins). */
   #exact-root * { position: relative; }
-  img, video { display: block; }
+  /* LLP 1055 D3: an `svg` is a block, as every node is (declared deviation from HTML's inline replaced svg). */
+  img, video, svg { display: block; }
   /* The kernel owns the iframe's declared 300×150 content box. Browser UA
      borders and inline baseline space must not enlarge or shift it. Scope
      this to presented nodes: the data module's hidden iframe is not UI. */

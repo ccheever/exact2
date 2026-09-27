@@ -95,7 +95,16 @@ fn element(node: &NodeRef<'_>) -> &'static str {
         }
     }
     match node.node_type {
-        NodeType::View | NodeType::List | NodeType::NativeView | NodeType::Svg => "div",
+        NodeType::View | NodeType::List | NodeType::NativeView => "div",
+        // @ref LLP 1055 D4 — real inline SVG, created in the SVG namespace.
+        NodeType::Svg => "svg",
+        NodeType::SvgGroup => "g",
+        NodeType::SvgPath => "path",
+        NodeType::SvgPolyline => "polyline",
+        NodeType::SvgPolygon => "polygon",
+        NodeType::SvgCircle => "circle",
+        NodeType::SvgLine => "line",
+        NodeType::SvgRect => "rect",
         NodeType::ScrollView => "div",
         NodeType::Text => {
             if node.is_inline_run() {
@@ -286,6 +295,20 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
             PropId::AccessibilitySelected => "aria-selected",
             PropId::AccessibilityExpanded => "aria-expanded",
             PropId::AccessibilityElementsHidden => "aria-hidden",
+            // SVG 2 attributes by their exact (case-sensitive) names (LLP 1055 D1).
+            PropId::ViewBox => "viewBox",
+            PropId::PreserveAspectRatio => "preserveAspectRatio",
+            PropId::Points => "points",
+            PropId::D => "d",
+            PropId::PathLength => "pathLength",
+            PropId::X => "x",
+            PropId::Y => "y",
+            PropId::X1 => "x1",
+            PropId::Y1 => "y1",
+            PropId::X2 => "x2",
+            PropId::Y2 => "y2",
+            PropId::Rx => "rx",
+            PropId::Ry => "ry",
             other => {
                 // Every other prop rides as `data-<name>` so nothing is lost.
                 // Schema names are ASCII (`prop_names_are_ascii`), so ASCII

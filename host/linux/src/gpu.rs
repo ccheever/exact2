@@ -354,6 +354,43 @@ impl Backend for Gpu {
         self.scene.fill(Fill::NonZero, a, color(c), None, &shape(s));
     }
 
+    // @ref LLP 1055 D4 — an SVG shape: fill under stroke.
+    fn svg_path(&mut self, s: &crate::paint::SvgPaint<'_>, ts: Transform) {
+        let mut p = BezPath::new();
+        for seg in &s.path.0 {
+            match *seg {
+                exact_kernel::svg::Seg::Move(x, y) => p.move_to((x as f64, y as f64)),
+                exact_kernel::svg::Seg::Line(x, y) => p.line_to((x as f64, y as f64)),
+                exact_kernel::svg::Seg::Cubic(a, b, c, d, x, y) => p.curve_to(
+                    (a as f64, b as f64),
+                    (c as f64, d as f64),
+                    (x as f64, y as f64),
+                ),
+                exact_kernel::svg::Seg::Close => p.close_path(),
+            }
+        }
+        let a = self.affine(ts);
+        if let Some(fill) = s.fill {
+            let rule = if s.even_odd {
+                Fill::EvenOdd
+            } else {
+                Fill::NonZero
+            };
+            self.scene.fill(rule, a, color(fill), None, &p);
+        }
+        if let (Some(ink), true) = (s.stroke, s.width > 0.0) {
+            use vello::kurbo::{Cap, Join};
+            let mut stroke = Stroke::new(s.width as f64)
+                .with_caps([Cap::Butt, Cap::Round, Cap::Square][s.cap.min(2) as usize])
+                .with_join([Join::Miter, Join::Round, Join::Bevel][s.join.min(2) as usize])
+                .with_miter_limit(s.miter as f64);
+            if !s.dash.is_empty() {
+                stroke = stroke.with_dashes(s.phase as f64, s.dash.iter().map(|d| *d as f64));
+            }
+            self.scene.stroke(&stroke, a, color(ink), None, &p);
+        }
+    }
+
     fn fill_border(&mut self, part: &BorderFill, ts: Transform) {
         let a = self.affine(ts);
         if let Some(clip) = &part.clip {

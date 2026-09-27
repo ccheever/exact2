@@ -81,6 +81,13 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                     });
                 }
             }
+            // @ref LLP 1055 D5/D7 — the browser runs it; the rule it names
+            // is in the page's stylesheet (`Batch::keyframes`).
+            (StyleId::Animation, RowValue::Animations(a)) => {
+                if !a.0.is_empty() {
+                    push_text!(&mut out, "animation:{};", a.css());
+                }
+            }
             (StyleId::FontFamily, RowValue::Number(index)) => {
                 if let Some(family) = font_names.get(*index as usize) {
                     let value = if is_generic_family(family) {
@@ -218,7 +225,8 @@ fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
         RowValue::Color2(_)
         | RowValue::Tracks(_)
         | RowValue::Placement(_)
-        | RowValue::Transitions(_) => false,
+        | RowValue::Transitions(_)
+        | RowValue::Animations(_) => false,
         _ => true,
     }
 }
@@ -279,6 +287,8 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         RowValue::ClipPath(p) => out.push_str(&p.css()),
         RowValue::ShapeOutside(p) => out.push_str(&p.css()),
         RowValue::AspectRatio(r) => out.push_str(&r.css()),
+        RowValue::Paint(p) => out.push_str(&p.css()),
+        RowValue::DashArray(d) => out.push_str(&d.css()),
         RowValue::Vec2(v) => {
             num_into(out, v.x);
             out.push_str("px ");
@@ -292,7 +302,13 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             | StyleId::ZIndex
             | StyleId::FontWeight
             | StyleId::Scale
-            | StyleId::ShadowOpacity => num_into(out, *n as f32),
+            | StyleId::ShadowOpacity
+            // SVG's unitless numbers (LLP 1055 D2); `r`, `cx`, `cy` are lengths.
+            | StyleId::FillOpacity
+            | StyleId::StrokeOpacity
+            | StyleId::StrokeMiterlimit
+            | StyleId::StrokeWidth
+            | StyleId::StrokeDashoffset => num_into(out, *n as f32),
             StyleId::Rotate => {
                 num_into(out, *n as f32);
                 out.push_str("deg");
@@ -310,7 +326,8 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         RowValue::Color2(_)
         | RowValue::Tracks(_)
         | RowValue::Placement(_)
-        | RowValue::Transitions(_) => {}
+        | RowValue::Transitions(_)
+        | RowValue::Animations(_) => {}
     }
 }
 

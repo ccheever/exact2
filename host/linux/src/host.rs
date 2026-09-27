@@ -12,9 +12,9 @@
 //! and the only copy.
 
 use crate::paint::Presented;
-use exact_kernel::motion::{motion_node, targets, MotionSync};
+use exact_kernel::motion::{motion_node, MotionSync};
 use exact_kernel::{Kernel, NodeKey, TextMeasurer, ViewId};
-use exact_motion::{Change, Engine, Property};
+use exact_motion::{Engine, Property};
 use exact_plan::Plan;
 use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, RunnerError, Timed};
 use std::collections::BTreeMap;
@@ -178,16 +178,7 @@ impl<D: DataSource> Host<D> {
             if let Some(node) = host.runner.kernel().node(id) {
                 let key = node.key;
                 host.keys.insert(key, id);
-                let n = motion_node(node.key);
-                sync.transitions.push((n, node.style.transition.clone()));
-                for (property, value) in targets(node.style) {
-                    sync.changes.push(Change {
-                        node: n,
-                        property,
-                        value,
-                        velocity: None,
-                    });
-                }
+                host.runner.kernel().motion_sync_node(key, &mut sync);
             }
         }
         let applied = sync.apply(&mut host.engine);
@@ -847,6 +838,8 @@ impl<D: DataSource> Host<D> {
                 Property::Scale => entry.scale = p.value.x as f32,
                 Property::Rotate => entry.rotate = p.value.x as f32,
                 Property::Opacity => entry.opacity = p.value.x as f32,
+                Property::R => entry.svg.0 = Some(p.value.x as f32),
+                Property::StrokeDashoffset => entry.svg.1 = Some(p.value.x as f32),
                 Property::Height => unreachable!("height is projected through layout"),
             }
             changed = true;

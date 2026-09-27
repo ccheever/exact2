@@ -200,7 +200,8 @@ impl Batch {
         self.ops.is_empty()
     }
 
-    /// `{"op":"create","id":…,"tag":…,"props":{…},"css":…,"handlers":[…]}`.
+    /// `{"op":"create","id":…,"tag":…,"props":{…},"css":…,"handlers":[…]}`,
+    /// plus `"ns":"http://www.w3.org/2000/svg"` for an SVG element (LLP 1055 D4).
     pub fn create(
         &mut self,
         id: u32,
@@ -211,6 +212,12 @@ impl Batch {
     ) {
         let mut s = text!("{{\"op\":\"create\",\"id\":{},\"tag\":", id);
         quote(tag, &mut s);
+        if matches!(
+            tag,
+            "svg" | "g" | "path" | "polyline" | "polygon" | "circle" | "line" | "rect"
+        ) {
+            s.push_str(",\"ns\":\"http://www.w3.org/2000/svg\"");
+        }
         s.push_str(",\"props\":");
         string_map(props, &mut s);
         s.push_str(",\"css\":");
@@ -257,6 +264,17 @@ impl Batch {
         string_map(set, &mut s);
         s.push_str(",\"clear\":");
         string_list(clear, &mut s);
+        s.push('}');
+        self.ops.push(s);
+    }
+
+    /// `{"op":"keyframes","name":…,"css":…}`: one `@keyframes` rule for the
+    /// page's stylesheet, sent once per name before a node names it (LLP 1055 D7).
+    pub fn keyframes(&mut self, name: &str, css: &str) {
+        let mut s = String::from("{\"op\":\"keyframes\",\"name\":");
+        quote(name, &mut s);
+        s.push_str(",\"css\":");
+        quote(css, &mut s);
         s.push('}');
         self.ops.push(s);
     }

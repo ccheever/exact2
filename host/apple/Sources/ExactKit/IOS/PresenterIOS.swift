@@ -44,6 +44,8 @@ final class Presenter {
     lazy var segments = SegmentHost(self)
     lazy var navigation = NavigationHost(presenter: self)
     lazy var modals = ModalHost(presenter: self)
+    /// SVG scenes and CSS animations (LLP 1055 D4, D7).
+    let svg = SvgHost()
     /// The input being edited, if any (UIKit exposes no first responder):
     /// what a canvas painted through its surface captures every frame for
     /// (LLP 1014 D4 d), and what the keyboard reveals.
@@ -561,6 +563,7 @@ final class Presenter {
         navigation.prepare(batch)
         for id in scrollers where !collections.owns(id) { views[id]?.captureScrollPosition() }
         if let e = batch.error { FileHandle.standardError.write(Data("exact: \(e)\n".utf8)) }
+        svg.seek(clock: session?.clock)
         let outermost = !applying
         applying = true
         defer {
@@ -663,6 +666,8 @@ final class Presenter {
                 }
             case .surface:
                 if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] ?? []) }
+            case .svg: if let v = views[id] { svg.scene(id, op.payload, layer: v.layer, dark: v.drawsDark, clock: session?.clock) }
+            case .animations: svg.animations(id, op.payload, layer: views[id]?.layer, clock: session?.clock)
             case .command:
                 onCommand?(op.payload["name"] as? String ?? "", op.payload["args"] as? [Any] ?? [])
             case .destroy:
@@ -727,6 +732,7 @@ final class Presenter {
     @discardableResult
     func release(_ id: UInt32, _ leaving: (NodeView) -> Void) -> NodeView? {
         session?.canvases.destroy(view: id)
+        svg.forget(id)
         if let view = views[id] { autofocusProcessed.remove(ObjectIdentifier(view)); leaving(view) }
         listViews.removeValue(forKey: id)
         textViews.removeValue(forKey: id)

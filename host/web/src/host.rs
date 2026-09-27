@@ -271,6 +271,8 @@ pub struct Host<D: DataSource> {
     /// While the first batch is made: what a page's projection computed for
     /// each view (LLP 1048.000 D6), taken instead of computing it again.
     computed: document::Computed,
+    /// `@keyframes` rules already in the page's stylesheet (LLP 1055 D7).
+    keyframes: SortedSet<String>,
 }
 
 impl<D: DataSource> Host<D> {
@@ -422,6 +424,7 @@ impl<D: DataSource> Host<D> {
             head: Default::default(),
             head_dirty: false,
             computed,
+            keyframes: Default::default(),
         };
         // Everything live is new to the page.
         let roots = host.runner.roots();
@@ -1138,6 +1141,11 @@ impl<D: DataSource> Host<D> {
             (drag.created)(self, id, key, kinds);
         }
         let node = self.runner.kernel().node(id).expect("live");
+        for a in &node.style.animation.0 {
+            if self.keyframes.insert(a.name.clone()) {
+                batch.keyframes(&a.name, &a.keyframes.css());
+            }
+        }
         let in_button = in_button(self.runner.kernel(), &node);
         let tag = tag_for(&node, in_button);
         let kept = match self.computed.last() {
@@ -1192,6 +1200,11 @@ impl<D: DataSource> Host<D> {
             (drag.updated)(self, id, key);
         }
         let node = self.runner.kernel().node(id).expect("live");
+        for a in &node.style.animation.0 {
+            if self.keyframes.insert(a.name.clone()) {
+                batch.keyframes(&a.name, &a.keyframes.css());
+            }
+        }
         let props = props_for(&node);
         let (css, _skipped) = css::css_text(node.style, &self.font_names);
         let in_button = self.mirror.get(&id).is_some_and(|m| m.in_button);

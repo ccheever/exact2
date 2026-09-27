@@ -169,6 +169,8 @@ final class Presenter {
     /// The native menu arm (LLP 1021 D3).
     lazy var menus = MenuHost(presenter: self)
     lazy var navigation = NavigationHost(presenter: self)
+    /// SVG scenes and CSS animations (LLP 1055 D4, D7).
+    let svg = SvgHost()
     lazy var segments = SegmentHost(self)
     lazy var shortcuts = ShortcutHost(presenter: self)
     lazy var toolbar = WindowToolbarHost(self)
@@ -1014,6 +1016,7 @@ final class Presenter {
         toolbar.prepare()
         for id in scrollers where !collections.owns(id) { views[id]?.captureScrollPosition() }
         if let e = batch.error { FileHandle.standardError.write(Data("exact: \(e)\n".utf8)) }
+        svg.seek(clock: session?.clock)
         let outermost = !applying
         applying = true
         defer {
@@ -1108,6 +1111,8 @@ final class Presenter {
                 if collections.owns(id) { collections.orderChildren(want, in: container) }
             case .surface:
                 if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] ?? []) }
+            case .svg: if let v = views[id] { svg.scene(id, op.payload, layer: v.layer, dark: v.drawsDark, clock: session?.clock) }
+            case .animations: svg.animations(id, op.payload, layer: views[id]?.layer, clock: session?.clock)
             case .command:
                 onCommand?(op.payload["name"] as? String ?? "", op.payload["args"] as? [Any] ?? [])
             case .destroy:
@@ -1117,6 +1122,7 @@ final class Presenter {
                 mouseTransformDrag.retire(id)
                 mouseReorder.retire(id)
                 session?.canvases.destroy(view: id)
+                svg.forget(id)
                 views[id]?.forget()
                 // Out of the map before out of the window: the editing-ended
                 // notification removal fires finds no view to send for.

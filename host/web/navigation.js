@@ -228,13 +228,19 @@ export function afterPaintPieces(load, o) {
       o.replayed?.();
     })
     .catch(error => { loading = null; queue.length = 0; console.error('exact: after-paint pieces:', error); });
+  // @ref LLP 1055 D7: CSS animations need no piece — the browser runs them
+  // from one `@keyframes` rule per name in a stylesheet the page owns.
+  const keyframes = (name, body) => {
+    const sheet = (document.getElementById('exact-keyframes') ?? document.head.appendChild(Object.assign(document.createElement('style'), { id: 'exact-keyframes' }))).sheet;
+    sheet.insertRule(`@keyframes ${CSS.escape(name)}{${body}}`, sheet.cssRules.length);
+  };
   // `use`: the call needs its piece; otherwise it only reconciles what uses made.
   const call = (piece, name, use = true) => (...args) => {
     if (live) return live[piece][name](...args);
     if (!use && !loading) return;
     queue.push([piece, name, args]); start();
   };
-  const motion = { style(id, text) { if (live) return live.motion.style(id, text); const el = o.views.get(id); if (el) el.style.cssText = text; } };
+  const motion = { style(id, text) { if (live) return live.motion.style(id, text); const el = o.views.get(id); if (el) el.style.cssText = text; }, keyframes };
   for (const name of ['animate', 'retire', 'heightBinding', 'transformBinding', 'attachSwipe', 'attachHeightDrag', 'attachTransformDrag']) motion[name] = call('motion', name);
   const arrange = { binding: call('arrange', 'binding'), state: call('arrange', 'state') };
   for (const piece of [motion, arrange]) for (const name of ['commit', 'reset', 'destroy']) piece[name] = call(piece === motion ? 'motion' : 'arrange', name, false);

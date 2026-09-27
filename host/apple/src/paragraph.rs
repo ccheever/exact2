@@ -153,6 +153,12 @@ impl<D: DataSource> Host<D> {
     }
 
     pub(super) fn create(&mut self, id: ViewId, events: &[EventKind], batch: &mut Batch) {
+        // @ref LLP 1055 D4 — an SVG element is in its `svg`'s scene, not a view.
+        if self.svg.element(self.runner.kernel(), id).is_some() {
+            let key = self.runner.kernel().node(id).expect("live").key;
+            self.keys.insert(key, id);
+            return;
+        }
         self.queue_layout(id);
         if let Some(owner) = self.paragraph_owner(id) {
             self.dirty_paragraphs.insert(owner);
@@ -203,6 +209,9 @@ impl<D: DataSource> Host<D> {
     }
 
     pub(super) fn update(&mut self, id: ViewId, batch: &mut Batch) {
+        if self.svg.element(self.runner.kernel(), id).is_some() {
+            return;
+        }
         self.queue_layout(id);
         if self.reconcile_projection(id, batch) {
             return;
@@ -247,6 +256,12 @@ impl<D: DataSource> Host<D> {
     }
 
     pub(super) fn emit_children(&mut self, id: ViewId, batch: &mut Batch) {
+        // An `svg`'s and a `g`'s children are its scene's (LLP 1055 D4).
+        let node_type = self.runner.kernel().node(id).expect("live").node_type;
+        if node_type == NodeType::Svg || node_type.is_svg_element() {
+            self.svg.element(self.runner.kernel(), id);
+            return;
+        }
         let children = self.runner.kernel().node(id).expect("live").children();
         if self.mirror.get(&id).is_none_or(|m| m.children != children) {
             // Retained children still inherit from the same parent. Only an

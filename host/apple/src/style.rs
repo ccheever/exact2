@@ -94,6 +94,8 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
             },
             RowValue::Number(n) => num(n as f32),
             RowValue::Transitions(_) => continue, // the engine's, not the presenter's
+            // @ref LLP 1055 D4/D7 — the `svg` scene and CA specs carry these.
+            RowValue::Paint(_) | RowValue::DashArray(_) | RowValue::Animations(_) => continue,
             RowValue::Color2(_) | RowValue::Tracks(_) | RowValue::Placement(_) => {
                 skipped.push(Skipped {
                     row: id,

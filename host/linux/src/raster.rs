@@ -629,6 +629,55 @@ impl Backend for Raster {
         }
     }
 
+    // @ref LLP 1055 D4 — an SVG shape: fill under stroke, clipped as boxes are.
+    fn svg_path(&mut self, s: &crate::paint::SvgPaint<'_>, ts: Transform) {
+        let mut b = PathBuilder::new();
+        for seg in &s.path.0 {
+            match *seg {
+                exact_kernel::svg::Seg::Move(x, y) => b.move_to(x, y),
+                exact_kernel::svg::Seg::Line(x, y) => b.line_to(x, y),
+                exact_kernel::svg::Seg::Cubic(a, c, d, e, x, y) => b.cubic_to(a, c, d, e, x, y),
+                exact_kernel::svg::Seg::Close => b.close(),
+            }
+        }
+        let Some(path) = b.finish() else {
+            return;
+        };
+        let dev = self.device(ts);
+        let mask = self.clips.last().cloned();
+        let Some(t) = self.target.as_mut() else {
+            return;
+        };
+        if let Some(fill) = s.fill {
+            let rule = if s.even_odd {
+                FillRule::EvenOdd
+            } else {
+                FillRule::Winding
+            };
+            t.fill_path(&path, &solid(fill), rule, dev, mask.as_deref());
+        }
+        if let (Some(color), true) = (s.stroke, s.width > 0.0) {
+            let stroke = Stroke {
+                width: s.width,
+                miter_limit: s.miter,
+                line_cap: [
+                    tiny_skia::LineCap::Butt,
+                    tiny_skia::LineCap::Round,
+                    tiny_skia::LineCap::Square,
+                ][s.cap.min(2) as usize],
+                line_join: [
+                    tiny_skia::LineJoin::Miter,
+                    tiny_skia::LineJoin::Round,
+                    tiny_skia::LineJoin::Bevel,
+                ][s.join.min(2) as usize],
+                dash: (!s.dash.is_empty())
+                    .then(|| tiny_skia::StrokeDash::new(s.dash.clone(), s.phase))
+                    .flatten(),
+            };
+            t.stroke_path(&path, &solid(color), &stroke, dev, mask.as_deref());
+        }
+    }
+
     fn fill_border(&mut self, part: &BorderFill, ts: Transform) {
         let Some(region) = tiny_path(&part.region) else {
             return;

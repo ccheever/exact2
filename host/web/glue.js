@@ -111,7 +111,7 @@ const decoder = new TextDecoder();
 const t0 = performance.now();
 const agentMode = new URL(location.href).searchParams.has("agent");
 let agentClock = agentMode ? 0 : null;
-const starts = new WeakMap(); // Animation -> the agent clock when it began
+const starts = new WeakMap(), held = new WeakSet(); // Animation -> the agent clock when it began; author-paused ones
 const now = () => agentClock ?? performance.now() - t0;
 let bootAttempt = 0;
 let devAssets = null;
@@ -551,11 +551,12 @@ function apply(batch) {
     try {
       switch (op.op) {
       case "textflow": break; // consumed once after the complete DOM batch
+      case "keyframes": motion.keyframes(op.name, op.css); break; // LLP 1055 D7: the page's @keyframes
       case "head": (headGlue ??= loadAfterPaint('./document-glue.js', 'documentHead')).then(head => head(op)); break;
       case "router": navigation.apply(op); break;
       case "create": {
         // Canvas overlays use a div; data-surface is the host-owned drawing leaf.
-        const el = page?.adopting?.get(op.id) ?? document.createElement(op.tag === "canvas" ? "div" : op.tag); // an adopted document's element (LLP 1048.000 D6)
+        const el = page?.adopting?.get(op.id) ?? (op.ns ? document.createElementNS(op.ns, op.tag) : document.createElement(op.tag === "canvas" ? "div" : op.tag)); // an adopted document's element (LLP 1048.000 D6); SVG in its namespace (LLP 1055 D4)
         if (op.tag === "canvas" && el.firstElementChild?.dataset.surface === undefined) {
           const surface = document.createElement("canvas");
           surface.dataset.surface = "";
@@ -1081,15 +1082,15 @@ function guestType(frame, request) {
   target.dispatchEvent(new guest.Event("change", { bubbles: true, composed: true }));
   return { typed: request.id, guest: true, value: "value" in target ? target.value : target.textContent };
 }
-function register(t) {
-  for (const a of document.getAnimations()) if (!starts.has(a)) starts.set(a, t);
+function register(t) { // an author-paused CSS animation holds its own time (LLP 1055 D10)
+  for (const a of document.getAnimations()) if (!starts.has(a)) { starts.set(a, t); if (a.playState === "paused") held.add(a); }
 }
 function seek(to) {
   for (const a of document.getAnimations()) {
     const timing = a.effect?.getComputedTiming();
     if (!timing) continue;
     const t = to - (starts.get(a) ?? agentClock);
-    if (t >= timing.endTime) a.finish();
+    if (held.has(a)) continue; else if (t >= timing.endTime && timing.endTime !== Infinity) a.finish();
     else { a.pause(); a.currentTime = t; }
   }
 }
@@ -1101,7 +1102,7 @@ function settleCandidate() {
   if (s != null) to = Math.max(to, s);
   for (const a of document.getAnimations()) {
     const timing = a.effect?.getComputedTiming();
-    if (timing) to = Math.max(to, (starts.get(a) ?? agentClock) + timing.endTime);
+    if (timing && timing.endTime !== Infinity && !held.has(a)) to = Math.max(to, (starts.get(a) ?? agentClock) + timing.endTime); // an infinite one never settles
   }
   return to;
 }

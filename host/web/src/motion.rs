@@ -265,9 +265,12 @@ pub struct Springs {
 }
 
 impl Springs {
-    /// Empty, at clock zero.
+    /// Empty, at clock zero. The browser runs every CSS animation from the
+    /// page's `@keyframes` (LLP 1055 D7), so the engine only tracks them.
     pub fn new() -> Springs {
-        Springs::default()
+        let mut springs = Springs::default();
+        springs.engine.set_lowered(true);
+        springs
     }
 
     fn retire_height(&mut self, key: NodeKey, view: ViewId, out: &mut Vec<Lowered>) {

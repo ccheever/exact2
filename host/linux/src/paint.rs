@@ -33,8 +33,10 @@ pub mod border;
 pub(crate) mod damage;
 mod inline;
 mod region;
+mod svg;
 use inline::{text_backgrounds, text_palette};
 pub(crate) use region::{ActionNode, ActionSlot, RegionActions, ScrollBounds};
+pub use svg::SvgPaint;
 
 /// A node's presentation values: what the motion engine says to paint.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -47,6 +49,8 @@ pub struct Presented {
     pub rotate: f32,
     /// Zero to one.
     pub opacity: f32,
+    /// An SVG shape's presented `r` and `stroke-dashoffset` (LLP 1055 D6).
+    pub svg: (Option<f32>, Option<f32>),
 }
 
 impl Presented {
@@ -56,6 +60,7 @@ impl Presented {
         scale: 1.0,
         rotate: 0.0,
         opacity: 1.0,
+        svg: (None, None),
     };
 
     /// The committed style's values (what the engine starts from).
@@ -65,6 +70,7 @@ impl Presented {
             scale: s.scale,
             rotate: s.rotate,
             opacity: s.opacity,
+            svg: (None, None),
         }
     }
 
@@ -342,6 +348,8 @@ pub trait Backend {
         origin: (f32, f32),
         ts: Transform,
     );
+    /// Paint one SVG shape in `ts`'s space (LLP 1055 D4).
+    fn svg_path(&mut self, _shape: &SvgPaint<'_>, _ts: Transform) {}
     /// Clip everything until the matching pop to a shape.
     fn push_clip(&mut self, shape: &Shape, ts: Transform);
     /// Push the kernel's validated CSS path in border-box coordinates.
@@ -763,7 +771,8 @@ impl Painter {
         let Some(node) = walk.scene.kernel.node(id) else {
             return;
         };
-        if walk.skip == Some(node.key) {
+        // An SVG element is its `svg`'s content, painted there (LLP 1055 D4).
+        if walk.skip == Some(node.key) || node.node_type.is_svg_element() {
             return;
         }
         if (walk.scene.hidden)(id)
@@ -977,6 +986,7 @@ impl Painter {
                     );
                 }
             }
+            NodeType::Svg => self.svg(walk, node, rect, content, ts),
             _ => {}
         }
         // Children: clipped by this box when its overflow is not visible,
