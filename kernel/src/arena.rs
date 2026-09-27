@@ -525,6 +525,15 @@ impl NodeArena {
     /// (the web's form controls reset the row), and Markdown source, which a
     /// host expands itself.
     pub fn text_runs<'a>(&'a self, slot: u32, out: &mut Vec<TextRun<'a>>) {
+        self.text_runs_after(slot, out, &mut crate::text::case::WordBoundary::default());
+    }
+
+    fn text_runs_after<'a>(
+        &'a self,
+        slot: u32,
+        out: &mut Vec<TextRun<'a>>,
+        boundary: &mut crate::text::case::WordBoundary,
+    ) {
         let s = slot as usize;
         let computed = self.computed_style(slot, StyleMask::INHERITED);
         let style = TextStyle::from_style(&computed);
@@ -569,17 +578,17 @@ impl NodeArena {
             }
             _ => {
                 if let Some(text) = self.props[s].str(PropId::Text) {
-                    let text = if self.markup(slot) == crate::text::Markup::Markdown {
+                    let shown = if self.markup(slot) == crate::text::Markup::Markdown {
                         text.into()
                     } else {
-                        let before = out.last().map_or("", |r| &*r.text);
-                        computed.text_transform.apply(text, before)
+                        computed.text_transform.apply_after(text, *boundary)
                     };
-                    out.push(TextRun { text, style });
+                    boundary.push(text);
+                    out.push(TextRun { text: shown, style });
                 } else {
                     for child in &self.children[s] {
                         if self.node_types[*child as usize] == NodeType::Text {
-                            self.text_runs(*child, out);
+                            self.text_runs_after(*child, out, boundary);
                         }
                     }
                 }

@@ -24,11 +24,17 @@ impl TextTransform {
     /// ahead of this run, so `capitalize` sees a word split across two runs
     /// as one word.
     pub fn apply<'a>(self, text: &'a str, before: &str) -> Cow<'a, str> {
+        let mut boundary = WordBoundary::default();
+        boundary.push(before);
+        self.apply_after(text, boundary)
+    }
+
+    pub(crate) fn apply_after(self, text: &str, boundary: WordBoundary) -> Cow<'_, str> {
         let mapped = match self {
             TextTransform::None => return Cow::Borrowed(text),
             TextTransform::Uppercase => text.to_uppercase(),
             TextTransform::Lowercase => text.to_lowercase(),
-            TextTransform::Capitalize => capitalize(text, before),
+            TextTransform::Capitalize => capitalize(text, boundary),
         };
         if mapped == text {
             Cow::Borrowed(text)
@@ -38,15 +44,27 @@ impl TextTransform {
     }
 }
 
+/// Chrome carries the last source character across runs, skipping empty
+/// ones. An apostrophe joins letters within a run, but not across its end.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct WordBoundary(Option<char>);
+
+impl WordBoundary {
+    pub(crate) fn push(&mut self, text: &str) {
+        if let Some(last) = text.chars().next_back() {
+            self.0 = Some(last);
+        }
+    }
+}
+
 /// The first letter of each word in titlecase, everything else untouched.
 /// A word is what UAX #29 would keep together for ordinary prose: letters,
 /// digits, marks and `_`, joined across an apostrophe, `.`, `:` or `·` that
 /// sits between two letters — so "don't", "e.g." and "3d" each stay one word
 /// ("3d", as Chromium leaves it) and "hello-world" is two.
-fn capitalize(text: &str, before: &str) -> String {
+fn capitalize(text: &str, boundary: WordBoundary) -> String {
     let mut out = String::with_capacity(text.len());
-    let mut behind = before.chars().rev();
-    let (mut last, mut prior) = (behind.next(), behind.next());
+    let (mut last, mut prior) = (boundary.0, None::<char>);
     for c in text.chars() {
         let joined = match (prior, last) {
             (_, Some(l)) if word(l) => true,
@@ -169,6 +187,7 @@ mod tests {
         // A word split across runs is one word; a space ending the run is not.
         assert_eq!(Capitalize.apply("lo there", "hel"), "lo There");
         assert_eq!(Capitalize.apply("there", "hello "), "There");
-        assert_eq!(Capitalize.apply("t stop", "don'"), "t Stop");
+        assert_eq!(Capitalize.apply("t stop", "don'"), "T Stop");
+        assert_eq!(Capitalize.apply("'t stop", "don"), "'t Stop");
     }
 }

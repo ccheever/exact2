@@ -147,6 +147,34 @@ fn text_transform_is_measured_and_shown_as_one_string() {
 }
 
 #[test]
+fn capitalize_keeps_word_context_across_empty_and_nested_runs() {
+    for (parts, want) in [
+        (["don", "'", "t stop"], ["Don", "'", "T Stop"]),
+        (["foo", "", "bar"], ["Foo", "", "bar"]),
+        (["don'", "", "t stop"], ["Don'", "", "T Stop"]),
+        (["don", "", "'t stop"], ["Don", "", "'t Stop"]),
+        (["foo ", "", "bar"], ["Foo ", "", "Bar"]),
+        (["é", "’", "lan"], ["É", "’", "Lan"]),
+    ] {
+        let r = boot(&format!(
+            "component App\n  view\n    text text-transform=\"capitalize\" testId=\"para\"\n      text {:?} testId=\"a\"\n      text\n        text {:?} testId=\"b\"\n        text {:?} testId=\"c\"\n",
+            parts[0], parts[1], parts[2]
+        ));
+        let k = r.kernel();
+        let node = |t: &str| k.node_by_key(k.find_by_test_id(t)[0]).unwrap();
+        let runs: Vec<String> = node("para")
+            .text_runs()
+            .iter()
+            .map(|r| r.text.to_string())
+            .collect();
+        assert_eq!(runs, want, "{parts:?}");
+        for (id, want) in ["a", "b", "c"].into_iter().zip(want) {
+            assert_eq!(node(id).shown_text().as_deref(), Some(want), "{parts:?}");
+        }
+    }
+}
+
+#[test]
 fn text_transform_is_refused_on_a_field_and_lists_its_values() {
     for tag in ["input", "textarea"] {
         for style in [false, true] {
