@@ -99,6 +99,7 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
             | RowValue::DashArray(_)
             | RowValue::Transform(_)
             | RowValue::TransformOrigin(_)
+            | RowValue::PaintOrder(_)
             | RowValue::Animations(_) => continue,
             RowValue::Color2(_) | RowValue::Tracks(_) | RowValue::Placement(_) => {
                 skipped.push(Skipped {

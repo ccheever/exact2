@@ -148,6 +148,8 @@ final class SvgScene {
     private var installed: [Int: [String: String]] = [:]
     private var specs: [Int: [[String: Any]]] = [:]
     private var last: [String: Any] = [:]
+    /// The view's pixels per point, for gradients drawn as pixels.
+    var scale: CGFloat = 2
 
     init() { root.masksToBounds = false; root.anchorPoint = .zero }
 
@@ -242,6 +244,13 @@ final class SvgScene {
                 let dash = nums(e["dash"])
                 shape.lineDashPattern = dash.isEmpty ? nil : dash.map { NSNumber(value: $0) }
                 shape.lineDashPhase = CGFloat(num(e["ph"]))
+                if SvgPaint.needsParts(e) {
+                    // Gradients or a paint order: part layers paint it.
+                    shape.fillColor = nil; shape.strokeColor = nil
+                    SvgPaint.parts(shape, e, scale: scale, dark: dark) { color($0, dark: $1) }
+                } else if shape.sublayers?.isEmpty == false {
+                    shape.sublayers?.forEach { $0.removeFromSuperlayer() }
+                }
             }
             if let shape = layer as? CAShapeLayer {
                 // A non-scaling stroke: the path is in the content box's
@@ -273,6 +282,7 @@ final class SvgHost {
         guard let layer else { return }
         let scene = scenes[id] ?? { let s = SvgScene(); scenes[id] = s; return s }()
         if scene.root.superlayer !== layer { layer.addSublayer(scene.root) }
+        scene.scale = max(1, layer.contentsScale)
         scene.apply(payload["scene"] as? [String: Any] ?? [:], dark: dark, clock: clock)
     }
 

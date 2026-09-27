@@ -518,6 +518,9 @@ pub fn apply(
                         if let Some(test_id) = arena.props(s).str(PropId::TestId) {
                             detach.selectors.push((test_id.to_string(), s));
                         }
+                        if let Some(id) = arena.props(s).str(PropId::Id) {
+                            detach.selectors.push((SelectorIndex::id_key(id), s));
+                        }
                         if let Some(node) = arena.taffy(s) {
                             detach.nodes.push(node);
                         }
@@ -535,6 +538,13 @@ pub fn apply(
                     let old = arena.props_mut(slot).set(*prop, value.clone());
                     if *prop == PropId::TestId {
                         selectors.update(
+                            slot,
+                            old.as_ref().and_then(|v| v.as_str()),
+                            value.as_str(),
+                        );
+                    }
+                    if *prop == PropId::Id {
+                        selectors.update_id(
                             slot,
                             old.as_ref().and_then(|v| v.as_str()),
                             value.as_str(),
@@ -558,6 +568,9 @@ pub fn apply(
                     if let Some(old) = arena.props_mut(slot).remove(*prop) {
                         if *prop == PropId::TestId {
                             selectors.update(slot, old.as_str(), None);
+                        }
+                        if *prop == PropId::Id {
+                            selectors.update_id(slot, old.as_str(), None);
                         }
                         arena.flags_mut(slot).insert(NodeFlags::PROPS_DIRTY);
                         view_box_changed(arena, layout, slot, *prop, &mut receipt);

@@ -57,6 +57,34 @@ impl SelectorIndex {
         }
     }
 
+    /// Index a live node's `testId` and `id` props (a rebuilt index).
+    pub fn index(&mut self, slot: u32, props: &crate::props::PropList) {
+        use crate::generated::PropId;
+        if let Some(test_id) = props.str(PropId::TestId) {
+            self.update(slot, None, Some(test_id));
+        }
+        if let Some(id) = props.str(PropId::Id) {
+            self.update_id(slot, None, Some(id));
+        }
+    }
+
+    /// The index's key for an `id` prop: ids share the map, apart from
+    /// test ids by a leading control character no test id carries.
+    pub fn id_key(id: &str) -> String {
+        format!("\u{1}{id}")
+    }
+
+    /// Record that `slot`'s `id` prop is now `new` (LLP 1055.000 D3).
+    pub fn update_id(&mut self, slot: u32, old: Option<&str>, new: Option<&str>) {
+        let (old, new) = (old.map(Self::id_key), new.map(Self::id_key));
+        self.update(slot, old.as_deref(), new.as_deref());
+    }
+
+    /// Every slot whose `id` prop is `id`, in insertion order.
+    pub fn lookup_id(&self, id: &str) -> &[u32] {
+        self.lookup(&Self::id_key(id))
+    }
+
     /// Every slot carrying `test_id`, in insertion order (callers sort by tree order).
     pub fn lookup(&self, test_id: &str) -> &[u32] {
         self.by_test_id

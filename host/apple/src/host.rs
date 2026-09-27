@@ -1288,7 +1288,13 @@ fn kind_for(node: &NodeRef<'_>) -> &'static str {
         | NodeType::SvgLine
         | NodeType::SvgRect
         | NodeType::SvgEllipse
-        | NodeType::SvgViewport => "svg-element",
+        | NodeType::SvgViewport
+        | NodeType::SvgDefs
+        | NodeType::SvgLinearGradient
+        | NodeType::SvgRadialGradient
+        | NodeType::SvgStop
+        | NodeType::SvgUse
+        | NodeType::SvgSymbol => "svg-element",
         NodeType::ScrollView => "scroll",
         NodeType::Text => "text",
         NodeType::Image => "image",

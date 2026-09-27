@@ -201,7 +201,15 @@ fn paint_and_dasharray_grammar() {
     assert_eq!(Paint::parse("none"), Some(Paint::None));
     assert_eq!(Paint::parse("currentColor"), Some(Paint::CurrentColor));
     assert_eq!(Paint::parse("#16a34a").unwrap().css(), "#16a34aff");
-    assert!(Paint::parse("url(#g)").is_none());
+    assert_eq!(Paint::parse("url(#g)").unwrap().css(), "url(#g)");
+    assert_eq!(
+        Paint::parse("url('#g') none").unwrap().css(),
+        "url(#g) none"
+    );
+    assert!(
+        Paint::parse("url(other.svg#g)").is_none(),
+        "external references are refused"
+    );
     assert_eq!(Paint::parse(&Paint::BLACK.css()), Some(Paint::BLACK));
     assert_eq!(DashArray::parse("none"), Some(DashArray::default()));
     assert_eq!(DashArray::parse("1, 2px 3").unwrap().0, vec![1.0, 2.0, 3.0]);

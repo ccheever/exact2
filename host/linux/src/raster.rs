@@ -648,33 +648,102 @@ impl Backend for Raster {
         let Some(t) = self.target.as_mut() else {
             return;
         };
-        if let Some(fill) = s.fill {
-            let rule = if s.even_odd {
-                FillRule::EvenOdd
-            } else {
-                FillRule::Winding
-            };
-            t.fill_path(&path, &solid(fill), rule, dev, mask.as_deref());
-        }
-        if let (Some(color), true) = (s.stroke, s.width > 0.0) {
-            let stroke = Stroke {
-                width: s.width,
-                miter_limit: s.miter,
-                line_cap: [
-                    tiny_skia::LineCap::Butt,
-                    tiny_skia::LineCap::Round,
-                    tiny_skia::LineCap::Square,
-                ][s.cap.min(2) as usize],
-                line_join: [
-                    tiny_skia::LineJoin::Miter,
-                    tiny_skia::LineJoin::Round,
-                    tiny_skia::LineJoin::Bevel,
-                ][s.join.min(2) as usize],
-                dash: (!s.dash.is_empty())
-                    .then(|| tiny_skia::StrokeDash::new(s.dash.clone(), s.phase))
-                    .flatten(),
-            };
-            t.stroke_path(&path, &solid(color), &stroke, dev, mask.as_deref());
+        // @ref LLP 1055.000 D7 — a gradient is a tiny-skia shader in the
+        // path's space (two circles, as SVG's focal radial).
+        let paint = |ink: &crate::paint::Ink<'_>| -> Option<tiny_skia::Paint<'static>> {
+            match ink {
+                crate::paint::Ink::Solid(c) => Some(solid(*c)),
+                crate::paint::Ink::Gradient {
+                    server,
+                    stops,
+                    transform,
+                } => {
+                    use exact_kernel::svg::server::{ServerKind, Spread};
+                    use tiny_skia::{GradientStop, Point, SpreadMode};
+                    let stops: Vec<GradientStop> = stops
+                        .iter()
+                        .map(|(o, c)| {
+                            GradientStop::new(*o, Color::from_rgba8(c[0], c[1], c[2], c[3]))
+                        })
+                        .collect();
+                    let mode = match server.spread {
+                        Spread::Pad => SpreadMode::Pad,
+                        Spread::Reflect => SpreadMode::Reflect,
+                        Spread::Repeat => SpreadMode::Repeat,
+                    };
+                    let m = transform;
+                    let tr = Transform::from_row(m[0], m[1], m[2], m[3], m[4], m[5]);
+                    let shader = match server.kind {
+                        ServerKind::Linear { x1, y1, x2, y2 } => tiny_skia::LinearGradient::new(
+                            Point::from_xy(x1, y1),
+                            Point::from_xy(x2, y2),
+                            stops,
+                            mode,
+                            tr,
+                        ),
+                        ServerKind::Radial {
+                            cx,
+                            cy,
+                            r,
+                            fx,
+                            fy,
+                            fr,
+                        } => tiny_skia::RadialGradient::new(
+                            Point::from_xy(fx, fy),
+                            fr,
+                            Point::from_xy(cx, cy),
+                            r,
+                            stops,
+                            mode,
+                            tr,
+                        ),
+                    }?;
+                    Some(tiny_skia::Paint {
+                        shader,
+                        anti_alias: true,
+                        ..Default::default()
+                    })
+                }
+            }
+        };
+        for part in s.order {
+            match part {
+                0 => {
+                    if let Some(p) = s.fill.as_ref().and_then(paint) {
+                        let rule = if s.even_odd {
+                            FillRule::EvenOdd
+                        } else {
+                            FillRule::Winding
+                        };
+                        t.fill_path(&path, &p, rule, dev, mask.as_deref());
+                    }
+                }
+                1 => {
+                    let Some(p) = s.stroke.as_ref().and_then(paint).filter(|_| s.width > 0.0)
+                    else {
+                        continue;
+                    };
+                    let stroke = Stroke {
+                        width: s.width,
+                        miter_limit: s.miter,
+                        line_cap: [
+                            tiny_skia::LineCap::Butt,
+                            tiny_skia::LineCap::Round,
+                            tiny_skia::LineCap::Square,
+                        ][s.cap.min(2) as usize],
+                        line_join: [
+                            tiny_skia::LineJoin::Miter,
+                            tiny_skia::LineJoin::Round,
+                            tiny_skia::LineJoin::Bevel,
+                        ][s.join.min(2) as usize],
+                        dash: (!s.dash.is_empty())
+                            .then(|| tiny_skia::StrokeDash::new(s.dash.clone(), s.phase))
+                            .flatten(),
+                    };
+                    t.stroke_path(&path, &p, &stroke, dev, mask.as_deref());
+                }
+                _ => {}
+            }
         }
     }
 

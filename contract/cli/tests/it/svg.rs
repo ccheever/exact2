@@ -121,7 +121,7 @@ fn refusals_are_named() {
     };
     assert!(refused("component A\n  view\n    circle r=3\n").contains("lower-svg-content"));
     assert!(refused(&svg("text \"hi\"")).contains("lower-svg-content"));
-    assert!(refused(&svg("foreignObject")).contains("refused"));
+    assert!(refused(&svg("foreignObject")).contains("deferred"));
     assert!(refused(&svg("animate")).contains("SMIL is refused"));
     assert!(
         refused(&svg("circle r=3 press=go")).contains("lower-svg-attr"),
@@ -130,7 +130,9 @@ fn refusals_are_named() {
     assert!(refused(&svg("circle r=3 padding=4")).contains("lower-svg-attr"));
     assert!(refused(&svg("rect points=\"0,0\"")).contains("lower-attr-tag"));
     assert!(refused("component A\n  view\n    column points=\"0,0\"\n").contains("lower-attr-tag"));
-    assert!(refused(&svg("circle r=3 fill=\"url(#g)\"")).contains("paint servers"));
+    assert!(refused(&svg("clipPath")).contains("later stage"));
+    assert!(refused(&svg("hatch")).contains("Chrome does not implement"));
+    assert!(refused(&svg("linearGradient\n        rect width=1")).contains("does not hold"));
     assert!(refused(&svg("circle r=3 animation=\"nope 1s\"")).contains("lower-animation-name"));
     assert!(
         refused("keyframes k\n  to width=3\ncomponent A\n  view\n    column\n")
@@ -226,4 +228,30 @@ fn stage_two_colour_and_transform_motion() {
         .covers(Property::BackgroundColor));
     let spin = &node("r").style.animation.0[0];
     assert_eq!(spin.keyframes.properties(), vec![Property::Rotate]);
+}
+
+// LLP 1055.000 stage 3: definitions, gradients, use and symbol, paint order.
+#[test]
+fn stage_three_references_and_servers() {
+    let r = boot(
+        "component A\n  view\n    svg width=10 height=10\n      defs\n        radialGradient id=\"g\" fx=\"30%\" fr=0.1 spreadMethod=\"reflect\"\n          stop testId=\"s\" offset=\"50%\" stop-color=\"#ff0000\" stop-opacity=0.5\n        symbol id=\"i\" viewBox=\"0 0 24 24\"\n          path d=\"M0 0L24 24\"\n      circle testId=\"c\" r=4 fill=\"url(#g) #00ff00\" paint-order=\"stroke\"\n      use testId=\"u\" href=\"#i\" x=2 width=6 height=6\n",
+    );
+    let k = r.kernel();
+    let node = |id: &str| k.node_by_key(k.find_by_test_id(id)[0]).unwrap();
+    let c = node("c");
+    assert_eq!(c.style.fill.css(), "url(#g) #00ff00ff");
+    assert_eq!(c.style.paint_order.css(), "stroke fill markers");
+    let s = node("s");
+    assert_eq!(s.node_type, NodeType::SvgStop);
+    assert_eq!(s.props.str(PropId::Offset), Some("50%"));
+    assert_eq!(s.style.stop_opacity, 0.5);
+    let u = node("u");
+    assert_eq!(u.node_type, NodeType::SvgUse);
+    assert_eq!(u.props.str(PropId::Href), Some("#i"));
+    assert_eq!(
+        k.resolve_id(u.id, "i")
+            .and_then(|t| k.node(t))
+            .map(|n| n.node_type),
+        Some(NodeType::SvgSymbol)
+    );
 }

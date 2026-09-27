@@ -54,6 +54,8 @@ pub enum DecodeError {
     BadTransform,
     /// Invalid CSS `transform-origin` (LLP 1055.000 D5).
     BadTransformOrigin,
+    /// Invalid SVG `paint-order` (LLP 1055.000 D7).
+    BadPaintOrder,
     /// An `animation` row carried more entries or keyframes than the wire
     /// admits, or a direction/fill byte outside the table (LLP 1055 D5).
     BadAnimation,
@@ -438,6 +440,10 @@ pub enum StyleValueError {
     },
     /// Not CSS `transform-origin`.
     BadTransformOrigin {
+        style: StyleId,
+    },
+    /// Not SVG `paint-order`.
+    BadPaintOrder {
         style: StyleId,
     },
     /// Not CSS `animation` shorthand.

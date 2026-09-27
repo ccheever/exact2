@@ -316,7 +316,7 @@ fn inheritance_display_and_visibility() {
     };
     // A visible child of a hidden group paints, and `currentcolor` is the
     // inherited `color`.
-    let fill = v.fill.unwrap();
+    let fill = v.fill.clone().unwrap();
     assert_eq!(
         fill.color.resolve(false),
         exact_kernel::Color::parse("#0000ff").unwrap()
@@ -405,11 +405,143 @@ fn animated_inherited_values_flow_to_descendants() {
     };
     assert_eq!(l.dash_offset, 6.0, "the g's paused dash offset, inherited");
     // The paused `tint` is half way: `currentcolor` fill follows it.
-    let fill = l.fill.unwrap().color.resolve(false);
+    let fill = l.fill.clone().unwrap().color.resolve(false);
     let want = exact_motion::color::parse("#0891b2")
         .unwrap()
         .lerp(exact_motion::color::parse("#be185d").unwrap(), 0.5)
         .to_rgba8();
     assert_eq!([fill.r(), fill.g(), fill.b(), fill.a()], want);
     let _ = Property::Color;
+}
+
+/// LLP 1055.000 D3, D7, D8: a duplicate id resolves to the candidate
+/// nearest the reference; gradient defaults; `use` inherits from itself.
+#[test]
+fn references_resolve_nearest_and_instances_inherit_from_their_use() {
+    use NodeType::*;
+    let mut d = Doc::new();
+    let svg = d.node(
+        Svg,
+        &[(StyleId::Width, "100"), (StyleId::Height, "100")],
+        &[],
+    );
+    let mut rects = Vec::new();
+    let mut groups = Vec::new();
+    for color in ["#ff0000", "#0000ff"] {
+        let g = d.node(SvgGroup, &[], &[]);
+        let defs = d.node(SvgDefs, &[], &[]);
+        let grad = d.node(SvgLinearGradient, &[], &[(PropId::Id, "a")]);
+        let stop = d.node(SvgStop, &[(StyleId::StopColor, color)], &[]);
+        let rect = d.node(
+            SvgRect,
+            &[
+                (StyleId::Width, "10"),
+                (StyleId::Height, "10"),
+                (StyleId::Fill, "url(#a)"),
+            ],
+            &[],
+        );
+        d.children(grad, &[stop]);
+        d.children(defs, &[grad]);
+        d.children(g, &[defs, rect]);
+        groups.push(g);
+        rects.push(rect);
+    }
+    // A two-stop gradient with every default: horizontal on the bbox.
+    let defs = d.node(SvgDefs, &[], &[]);
+    let grad = d.node(SvgLinearGradient, &[], &[(PropId::Id, "h")]);
+    let s0 = d.node(SvgStop, &[(StyleId::StopColor, "#000000")], &[]);
+    let s1 = d.node(
+        SvgStop,
+        &[(StyleId::StopColor, "#ffffff")],
+        &[(PropId::Offset, "150%")],
+    );
+    d.children(grad, &[s0, s1]);
+    let symbol = d.node(
+        SvgSymbol,
+        &[],
+        &[(PropId::Id, "icon"), (PropId::ViewBox, "0 0 10 10")],
+    );
+    let dot = d.node(
+        SvgCircle,
+        &[
+            (StyleId::R, "5"),
+            (StyleId::Cx, "5"),
+            (StyleId::Cy, "5"),
+            (StyleId::Fill, "currentcolor"),
+        ],
+        &[],
+    );
+    d.children(symbol, &[dot]);
+    d.children(defs, &[grad, symbol]);
+    let bar = d.node(
+        SvgRect,
+        &[
+            (StyleId::X, "10"),
+            (StyleId::Width, "40"),
+            (StyleId::Height, "10"),
+            (StyleId::Fill, "url(#h)"),
+        ],
+        &[],
+    );
+    let use_ = d.node(
+        SvgUse,
+        &[
+            (StyleId::X, "50"),
+            (StyleId::Width, "20"),
+            (StyleId::Height, "20"),
+            (StyleId::TextColor, "#00ff00"),
+        ],
+        &[(PropId::Href, "#icon")],
+    );
+    let mut kids = groups.clone();
+    kids.extend([defs, bar, use_]);
+    d.children(svg, &kids);
+    let k = d.kernel(&[svg], 400.0);
+    let s = resolve(&k, svg);
+    let fill = |id: u32| match &find(&s.items, id).unwrap().kind {
+        Kind::Shape(sh) => sh.fill.clone().unwrap(),
+        _ => panic!(),
+    };
+    let rgb = |c: exact_kernel::ColorValue| {
+        let c = c.resolve(false);
+        [c.r(), c.g(), c.b()]
+    };
+    assert_eq!(
+        rgb(fill(rects[0]).color),
+        [255, 0, 0],
+        "the first instance's own"
+    );
+    assert_eq!(
+        rgb(fill(rects[1]).color),
+        [0, 0, 255],
+        "the second instance's own"
+    );
+    let server = fill(bar).server.expect("a gradient");
+    assert_eq!(
+        server.kind,
+        exact_kernel::svg::server::ServerKind::Linear {
+            x1: 0.0,
+            y1: 0.0,
+            x2: 1.0,
+            y2: 0.0
+        }
+    );
+    assert_eq!(
+        server.transform,
+        [40.0, 0.0, 0.0, 10.0, 10.0, 0.0],
+        "the bbox"
+    );
+    assert_eq!(server.stops[1].offset, 1.0, "clamped");
+    // The instance: a viewport 20×20 at x=50 over the symbol's 10×10 view
+    // box, its circle filled with the `use`'s colour.
+    let Kind::Viewport { rect, children, .. } = &find(&s.items, use_).unwrap().kind else {
+        panic!("a symbol instance is a viewport")
+    };
+    assert_eq!(*rect, (50.0, 0.0, 20.0, 20.0));
+    let Kind::Shape(inst) = &children[0].kind else {
+        panic!()
+    };
+    assert_eq!(rgb(inst.fill.clone().unwrap().color), [0, 255, 0]);
+    assert!(children[0].uid != dot as u64, "an instance has its own key");
 }

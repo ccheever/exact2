@@ -370,24 +370,84 @@ impl Backend for Gpu {
             }
         }
         let a = self.affine(ts);
-        if let Some(fill) = s.fill {
-            let rule = if s.even_odd {
-                Fill::EvenOdd
-            } else {
-                Fill::NonZero
-            };
-            self.scene.fill(rule, a, color(fill), None, &p);
-        }
-        if let (Some(ink), true) = (s.stroke, s.width > 0.0) {
-            use vello::kurbo::{Cap, Join};
-            let mut stroke = Stroke::new(s.width as f64)
-                .with_caps([Cap::Butt, Cap::Round, Cap::Square][s.cap.min(2) as usize])
-                .with_join([Join::Miter, Join::Round, Join::Bevel][s.join.min(2) as usize])
-                .with_miter_limit(s.miter as f64);
-            if !s.dash.is_empty() {
-                stroke = stroke.with_dashes(s.phase as f64, s.dash.iter().map(|d| *d as f64));
+        // @ref LLP 1055.000 D7 — a gradient is a peniko brush in the path's
+        // space, interpolated unpremultiplied as Chrome's SVG gradients are.
+        let brush = |ink: &crate::paint::Ink<'_>| -> (vello::peniko::Brush, Option<Affine>) {
+            match ink {
+                crate::paint::Ink::Solid(c) => (color(*c).into(), None),
+                crate::paint::Ink::Gradient {
+                    server,
+                    stops,
+                    transform,
+                } => {
+                    use exact_kernel::svg::server::{ServerKind, Spread};
+                    use vello::peniko::{Extend, Gradient, InterpolationAlphaSpace};
+                    let g = match server.kind {
+                        ServerKind::Linear { x1, y1, x2, y2 } => {
+                            Gradient::new_linear((x1 as f64, y1 as f64), (x2 as f64, y2 as f64))
+                        }
+                        ServerKind::Radial {
+                            cx,
+                            cy,
+                            r,
+                            fx,
+                            fy,
+                            fr,
+                        } => Gradient::new_two_point_radial(
+                            (fx as f64, fy as f64),
+                            fr,
+                            (cx as f64, cy as f64),
+                            r,
+                        ),
+                    };
+                    let stops: Vec<(f32, vello::peniko::color::DynamicColor)> =
+                        stops.iter().map(|(o, c)| (*o, color(*c).into())).collect();
+                    let mut g = g
+                        .with_extend(match server.spread {
+                            Spread::Pad => Extend::Pad,
+                            Spread::Reflect => Extend::Reflect,
+                            Spread::Repeat => Extend::Repeat,
+                        })
+                        .with_stops(stops.as_slice());
+                    g.interpolation_alpha_space = InterpolationAlphaSpace::Unpremultiplied;
+                    let t = transform;
+                    let m = Affine::new([t[0], t[1], t[2], t[3], t[4], t[5]].map(|v| v as f64));
+                    (g.into(), Some(m))
+                }
             }
-            self.scene.stroke(&stroke, a, color(ink), None, &p);
+        };
+        for part in s.order {
+            match part {
+                0 => {
+                    if let Some(ink) = &s.fill {
+                        let rule = if s.even_odd {
+                            Fill::EvenOdd
+                        } else {
+                            Fill::NonZero
+                        };
+                        let (b, m) = brush(ink);
+                        self.scene.fill(rule, a, &b, m, &p);
+                    }
+                }
+                1 => {
+                    if let (Some(ink), true) = (&s.stroke, s.width > 0.0) {
+                        use vello::kurbo::{Cap, Join};
+                        let mut stroke = Stroke::new(s.width as f64)
+                            .with_caps([Cap::Butt, Cap::Round, Cap::Square][s.cap.min(2) as usize])
+                            .with_join(
+                                [Join::Miter, Join::Round, Join::Bevel][s.join.min(2) as usize],
+                            )
+                            .with_miter_limit(s.miter as f64);
+                        if !s.dash.is_empty() {
+                            stroke = stroke
+                                .with_dashes(s.phase as f64, s.dash.iter().map(|d| *d as f64));
+                        }
+                        let (b, m) = brush(ink);
+                        self.scene.stroke(&stroke, a, &b, m, &p);
+                    }
+                }
+                _ => {}
+            }
         }
     }
 

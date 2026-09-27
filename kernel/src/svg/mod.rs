@@ -14,7 +14,9 @@ use std::fmt::Write as _;
 
 pub mod length;
 mod path;
+mod refs;
 pub mod scene;
+pub mod server;
 mod shape;
 pub mod transform;
 
@@ -39,19 +41,53 @@ impl NodeType {
                 | NodeType::SvgRect
                 | NodeType::SvgEllipse
                 | NodeType::SvgViewport
+                | NodeType::SvgDefs
+                | NodeType::SvgLinearGradient
+                | NodeType::SvgRadialGradient
+                | NodeType::SvgStop
+                | NodeType::SvgUse
+                | NodeType::SvgSymbol
         )
     }
 
     /// A shape that draws a path.
     pub fn is_svg_shape(self) -> bool {
-        self.is_svg_element() && !self.is_svg_container()
+        matches!(
+            self,
+            NodeType::SvgPath
+                | NodeType::SvgPolyline
+                | NodeType::SvgPolygon
+                | NodeType::SvgCircle
+                | NodeType::SvgLine
+                | NodeType::SvgRect
+                | NodeType::SvgEllipse
+        )
+    }
+
+    /// Whether the element renders where it stands: definitions (`defs`,
+    /// gradients, `stop`, `symbol`) render only through a reference.
+    pub fn renders(self) -> bool {
+        !matches!(
+            self,
+            NodeType::SvgDefs
+                | NodeType::SvgLinearGradient
+                | NodeType::SvgRadialGradient
+                | NodeType::SvgStop
+                | NodeType::SvgSymbol
+        )
     }
 
     /// An SVG element that holds SVG elements: `svg` (root or nested) and `g`.
     pub fn is_svg_container(self) -> bool {
         matches!(
             self,
-            NodeType::Svg | NodeType::SvgGroup | NodeType::SvgViewport
+            NodeType::Svg
+                | NodeType::SvgGroup
+                | NodeType::SvgViewport
+                | NodeType::SvgDefs
+                | NodeType::SvgSymbol
+                | NodeType::SvgLinearGradient
+                | NodeType::SvgRadialGradient
         )
     }
 
@@ -68,6 +104,12 @@ impl NodeType {
             NodeType::SvgRect => "rect",
             NodeType::SvgEllipse => "ellipse",
             NodeType::SvgViewport => "svg",
+            NodeType::SvgDefs => "defs",
+            NodeType::SvgLinearGradient => "linearGradient",
+            NodeType::SvgRadialGradient => "radialGradient",
+            NodeType::SvgStop => "stop",
+            NodeType::SvgUse => "use",
+            NodeType::SvgSymbol => "symbol",
             _ => return None,
         })
     }
@@ -83,9 +125,11 @@ pub(crate) fn natural_ratio(arena: &crate::arena::NodeArena, slot: u32) -> Optio
     (vb.width > 0.0 && vb.height > 0.0).then(|| vb.width / vb.height)
 }
 
-/// SVG paint (`fill`, `stroke`): `none`, `currentcolor`, or a colour.
-/// Paint servers (`url(#…)`) are refused (LLP 1055 D12).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// SVG paint (`fill`, `stroke`, `stop-color`): `none`, `currentcolor`, a
+/// colour, or a paint server `url(#id)` with an optional fallback (LLP
+/// 1055.000 D3, D7). Only same-document references: an external URL is
+/// refused.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum Paint {
     /// No paint.
     #[default]
@@ -93,6 +137,23 @@ pub enum Paint {
     /// The element's computed `color`.
     CurrentColor,
     /// A colour, fixed or `light-dark()`.
+    Color(ColorValue),
+    /// A paint server by id, and what paints when it does not resolve.
+    Url(Box<str>, PaintFallback),
+}
+
+/// What a `url()` paint falls back to when its server is missing or of the
+/// wrong type (SVG 2 §13.2): `none` unless the author gave one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PaintFallback {
+    /// None given: nothing paints.
+    #[default]
+    Default,
+    /// `none`.
+    None,
+    /// `currentcolor`.
+    CurrentColor,
+    /// A colour.
     Color(ColorValue),
 }
 
@@ -103,6 +164,19 @@ impl Paint {
     /// CSS's grammar for the subset.
     pub fn parse(css: &str) -> Option<Paint> {
         let t = css.trim();
+        if t.len() >= 4 && t[..4].eq_ignore_ascii_case("url(") {
+            let close = t.find(')')?;
+            let inner = t[4..close].trim().trim_matches(|c| c == '"' || c == '\'');
+            let id = inner.strip_prefix('#').filter(|id| !id.is_empty())?;
+            let fallback = match Paint::parse(&t[close + 1..]) {
+                _ if t[close + 1..].trim().is_empty() => PaintFallback::Default,
+                Some(Paint::None) => PaintFallback::None,
+                Some(Paint::CurrentColor) => PaintFallback::CurrentColor,
+                Some(Paint::Color(c)) => PaintFallback::Color(c),
+                _ => return None,
+            };
+            return Some(Paint::Url(id.into(), fallback));
+        }
         if t.eq_ignore_ascii_case("none") {
             return Some(Paint::None);
         }
@@ -126,6 +200,25 @@ impl Paint {
             Paint::Color(ColorValue::LightDark(a, b)) => {
                 format!("light-dark({}, {})", hex(*a), hex(*b))
             }
+            Paint::Url(id, fallback) => {
+                let tail = match fallback {
+                    PaintFallback::Default => String::new(),
+                    PaintFallback::None => " none".into(),
+                    PaintFallback::CurrentColor => " currentcolor".into(),
+                    PaintFallback::Color(c) => format!(" {}", Paint::Color(*c).css()),
+                };
+                format!("url(#{id}){tail}")
+            }
+        }
+    }
+
+    /// The paint a `url()` falls back to, or `None` when nothing paints.
+    pub fn fallback(&self) -> Option<Paint> {
+        match self {
+            Paint::Url(_, PaintFallback::CurrentColor) => Some(Paint::CurrentColor),
+            Paint::Url(_, PaintFallback::Color(c)) => Some(Paint::Color(*c)),
+            Paint::Url(..) => None,
+            other => Some(other.clone()),
         }
     }
 
@@ -133,10 +226,66 @@ impl Paint {
     /// resolved against `color`; `None` paints nothing.
     pub fn resolve(&self, color: ColorValue, dark: bool) -> Option<Color> {
         match self {
-            Paint::None => None,
+            Paint::None | Paint::Url(..) => None,
             Paint::CurrentColor => Some(color.resolve(dark)),
             Paint::Color(c) => Some(c.resolve(dark)),
         }
+    }
+}
+
+/// SVG 2 `paint-order`: the order fill (0), stroke (1) and markers (2)
+/// paint in; `normal` is `[0, 1, 2]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PaintOrder(pub [u8; 3]);
+
+impl Default for PaintOrder {
+    fn default() -> Self {
+        PaintOrder([0, 1, 2])
+    }
+}
+
+impl PaintOrder {
+    /// `normal`, or up to three distinct keywords; the rest follow in
+    /// their normal order.
+    pub fn parse(css: &str) -> Option<PaintOrder> {
+        let t = css.trim();
+        if t.eq_ignore_ascii_case("normal") {
+            return Some(PaintOrder::default());
+        }
+        let mut order: Vec<u8> = Vec::new();
+        for w in t.split_whitespace() {
+            let v = match w.to_ascii_lowercase().as_str() {
+                "fill" => 0,
+                "stroke" => 1,
+                "markers" => 2,
+                _ => return None,
+            };
+            if order.contains(&v) {
+                return None;
+            }
+            order.push(v);
+        }
+        if order.is_empty() {
+            return None;
+        }
+        for v in 0..3 {
+            if !order.contains(&v) {
+                order.push(v);
+            }
+        }
+        Some(PaintOrder([order[0], order[1], order[2]]))
+    }
+
+    /// The value as CSS reads it.
+    pub fn css(&self) -> String {
+        if *self == PaintOrder::default() {
+            return "normal".into();
+        }
+        self.0
+            .iter()
+            .map(|v| ["fill", "stroke", "markers"][*v as usize])
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 }
 

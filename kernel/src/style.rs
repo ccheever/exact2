@@ -819,6 +819,8 @@ pub enum RowValue<'a> {
     Transform(&'a crate::svg::TransformList),
     /// CSS `transform-origin` (LLP 1055.000 D5).
     TransformOrigin(&'a crate::svg::TransformOrigin),
+    /// SVG `paint-order` (LLP 1055.000 D7).
+    PaintOrder(&'a crate::svg::PaintOrder),
     /// A dimension.
     Dimension(Dimension),
     /// A number (`f32`, `u8`, `u16`, `u32`, `i32` rows).
@@ -860,6 +862,7 @@ impl RowValue<'_> {
             RowValue::Transform(v) => v.is_finite(),
             RowValue::TransformOrigin(v) => v.is_finite(),
             RowValue::Paint(_)
+            | RowValue::PaintOrder(_)
             | RowValue::ClipPath(_)
             | RowValue::ShapeOutside(_)
             | RowValue::AspectRatio(_)

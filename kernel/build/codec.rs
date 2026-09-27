@@ -43,6 +43,7 @@ fn parse_codec(s: &str) -> Codec {
         // @ref LLP 1055.000 D5 — CSS transforms on SVG elements, as CSS text.
         "transform" => Codec::CssValue { path: "crate::svg::TransformList", variant: "Transform", error: "BadTransform" },
         "transform-origin" => Codec::CssValue { path: "crate::svg::TransformOrigin", variant: "TransformOrigin", error: "BadTransformOrigin" },
+        "paint-order" => Codec::CssValue { path: "crate::svg::PaintOrder", variant: "PaintOrder", error: "BadPaintOrder" },
         // @ref LLP 1043.000 §3 D1 — one parse/css/default codec for both shapes.
         "clip-path" => Codec::CssValue { path: "crate::clip::ClipPath", variant: "ClipPath", error: "BadClipPath" },
         "aspect-ratio" => Codec::CssValue { path: "crate::ratio::AspectRatio", variant: "AspectRatio", error: "BadAspectRatio" },

@@ -5,21 +5,41 @@
 
 use super::{effective_overflow, rgba, Painter, Rect4, Shape, Walk};
 use exact_kernel::svg::scene::{self, Item, Kind, ShapePaint};
+use exact_kernel::svg::server::Server;
 use exact_kernel::svg::Path;
 use exact_kernel::{NodeKey, NodeRef, Overflow};
 use exact_motion::{Property, Value};
 use tiny_skia::Transform;
 
+/// What a fill or a stroke paints with.
+pub enum Ink<'a> {
+    /// One colour, straight RGBA.
+    Solid([u8; 4]),
+    /// A gradient (LLP 1055.000 D7): its geometry and spread, the stops
+    /// with the paint's opacity folded in, and gradient space to the
+    /// path's space.
+    Gradient {
+        /// The resolved server.
+        server: &'a Server,
+        /// Offsets and straight RGBA colours.
+        stops: Vec<(f32, [u8; 4])>,
+        /// Gradient space to the path's space.
+        transform: [f32; 6],
+    },
+}
+
 /// One shape as a backend paints it: path in user units, paint resolved.
 pub struct SvgPaint<'a> {
     /// The path.
     pub path: &'a Path,
-    /// Fill colour, or none.
-    pub fill: Option<[u8; 4]>,
+    /// Fill, or none.
+    pub fill: Option<Ink<'a>>,
     /// `fill-rule: evenodd`.
     pub even_odd: bool,
-    /// Stroke colour, or none.
-    pub stroke: Option<[u8; 4]>,
+    /// Stroke, or none.
+    pub stroke: Option<Ink<'a>>,
+    /// `paint-order`: fill (0), stroke (1), markers (2).
+    pub order: [u8; 3],
     /// `stroke-width`.
     pub width: f32,
     /// `stroke-linecap`: 0 butt, 1 round, 2 square.
@@ -32,6 +52,29 @@ pub struct SvgPaint<'a> {
     pub dash: Vec<f32>,
     /// The dash offset in path units.
     pub phase: f32,
+}
+
+/// A fill's or stroke's ink: its colour, or its gradient's stops with the
+/// paint's opacity folded in and the gradient mapped into the path's space.
+fn ink(p: Option<&ShapePaint>, dark: bool, to_path: [f32; 6]) -> Option<Ink<'_>> {
+    let p = p?;
+    let fold = |c: exact_kernel::ColorValue, o: f32| {
+        let mut c = rgba(c.resolve(dark));
+        c[3] = (c[3] as f32 * o).round() as u8;
+        c
+    };
+    Some(match &p.server {
+        None => Ink::Solid(fold(p.color, p.opacity)),
+        Some(server) => Ink::Gradient {
+            server,
+            stops: server
+                .stops
+                .iter()
+                .map(|s| (s.offset, fold(s.color, s.opacity * p.opacity)))
+                .collect(),
+            transform: exact_kernel::svg::transform::mul(to_path, server.transform),
+        },
+    })
 }
 
 fn rgba8(c: [u8; 4]) -> Value {
@@ -51,8 +94,52 @@ impl Painter {
         content: Rect4,
         ts: Transform,
     ) {
-        let kernel = walk.scene.kernel;
-        let presented = walk.scene.presented;
+        let scene = resolve_svg(walk.scene, node, content);
+        let (ox, oy) = effective_overflow(node);
+        let clips = ox != Overflow::Visible || oy != Overflow::Visible;
+        self.paint_svg(&scene, clips, rect, content, ts);
+    }
+
+    /// A resolved `svg` scene inside its box: clipped to the border box
+    /// `rect` when `clips`, its view box mapped into `content`. A retained
+    /// region replays a scene it resolved at capture.
+    pub(super) fn paint_svg(
+        &mut self,
+        scene: &exact_kernel::svg::Scene,
+        clips: bool,
+        rect: Rect4,
+        content: Rect4,
+        ts: Transform,
+    ) {
+        if scene.view.is_none() {
+            return;
+        }
+        if clips {
+            self.backend.push_clip(&Shape::rect(rect), ts);
+        }
+        let origin = ts.pre_translate(content.0, content.1);
+        let space = origin.pre_concat(affine(
+            scene.view.unwrap_or(exact_kernel::svg::transform::IDENTITY),
+        ));
+        for item in &scene.items {
+            self.svg_item(item, space, origin);
+        }
+        if clips {
+            self.backend.pop_clip();
+        }
+    }
+}
+
+/// The scene of the `svg` `node` whose content box is `content`, with the
+/// motion engine's presented values (LLP 1055.000 D1).
+pub(super) fn resolve_svg(
+    walk: &super::Scene<'_>,
+    node: &NodeRef<'_>,
+    content: Rect4,
+) -> exact_kernel::svg::Scene {
+    {
+        let kernel = walk.kernel;
+        let presented = walk.presented;
         let value = |key: NodeKey, p: Property| -> Option<Value> {
             let id = kernel.node_by_key(key)?.id;
             let v = presented(id);
@@ -70,27 +157,11 @@ impl Painter {
                 Property::Height => return None,
             })
         };
-        let scene = scene::resolve(kernel, node, content, &value);
-        if scene.view.is_none() {
-            return;
-        }
-        let (ox, oy) = effective_overflow(node);
-        let clips = ox != Overflow::Visible || oy != Overflow::Visible;
-        if clips {
-            self.backend.push_clip(&Shape::rect(rect), ts);
-        }
-        let origin = ts.pre_translate(content.0, content.1);
-        let space = origin.pre_concat(affine(
-            scene.view.unwrap_or(exact_kernel::svg::transform::IDENTITY),
-        ));
-        for item in &scene.items {
-            self.svg_item(item, space, origin);
-        }
-        if clips {
-            self.backend.pop_clip();
-        }
+        scene::resolve(kernel, node, content, &value)
     }
+}
 
+impl Painter {
     /// One item in its parent's space `ts`; `origin` is the content box's
     /// space, where a non-scaling stroke is drawn.
     fn svg_item(&mut self, item: &Item, ts: Transform, origin: Transform) {
@@ -130,17 +201,16 @@ impl Painter {
                 }
             }
             Kind::Shape(shape) => {
-                let color = |p: Option<&ShapePaint>| {
-                    p.map(|p| {
-                        let mut c = rgba(p.color.resolve(self.dark));
-                        c[3] = (c[3] as f32 * p.opacity).round() as u8;
-                        c
-                    })
+                let dark = self.dark;
+                // Drawn in the content box's space, the stroke unscaled
+                // (LLP 1055.000 D5): a gradient maps through the same ctm.
+                let to_path = if shape.non_scaling {
+                    item.ctm
+                } else {
+                    exact_kernel::svg::transform::IDENTITY
                 };
                 let mapped;
                 let (path, space) = if shape.non_scaling {
-                    // Drawn in the content box's space, the stroke unscaled
-                    // (LLP 1055.000 D5).
                     mapped = shape.path.transformed(item.ctm);
                     (&mapped, origin)
                 } else {
@@ -148,9 +218,10 @@ impl Painter {
                 };
                 let paint = SvgPaint {
                     path,
-                    fill: color(shape.fill.as_ref()),
+                    fill: ink(shape.fill.as_ref(), dark, to_path),
                     even_odd: shape.fill_rule == exact_kernel::FillRule::Evenodd,
-                    stroke: color(shape.stroke.as_ref()),
+                    stroke: ink(shape.stroke.as_ref(), dark, to_path),
+                    order: shape.order,
                     width: shape.width,
                     cap: shape.cap as u8,
                     join: shape.join as u8,

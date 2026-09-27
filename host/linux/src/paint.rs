@@ -36,7 +36,7 @@ mod region;
 mod svg;
 use inline::{presented_color, presented_text_colors, text_backgrounds, text_palette};
 pub(crate) use region::{ActionNode, ActionSlot, RegionActions, ScrollBounds};
-pub use svg::SvgPaint;
+pub use svg::{Ink, SvgPaint};
 
 /// A node's presentation values: what the motion engine says to paint.
 #[derive(Debug, Clone, Copy, PartialEq)]

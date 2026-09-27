@@ -291,6 +291,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         RowValue::DashArray(d) => out.push_str(&d.css()),
         RowValue::Transform(t) => out.push_str(&t.css()),
         RowValue::TransformOrigin(t) => out.push_str(&t.css()),
+        RowValue::PaintOrder(p) => out.push_str(&p.css()),
         RowValue::Vec2(v) => {
             num_into(out, v.x);
             out.push_str("px ");
@@ -310,7 +311,8 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             | StyleId::StrokeOpacity
             | StyleId::StrokeMiterlimit
             | StyleId::StrokeWidth
-            | StyleId::StrokeDashoffset => num_into(out, *n as f32),
+            | StyleId::StrokeDashoffset
+            | StyleId::StopOpacity => num_into(out, *n as f32),
             StyleId::Rotate => {
                 num_into(out, *n as f32);
                 out.push_str("deg");

@@ -215,7 +215,17 @@ final class Shadow {
         // before the redraw (the mark under Weird Castle's sky: box captured,
         // picture not). Through nil, the set is a real one.
         if redrew { shadow.contents = nil }
-        copy(layer, to: shadow)
+        // A layer Core Animation is animating (an SVG draw-in, a pulse, a
+        // colour: LLP 1055.000) is captured as it shows, not as its model.
+        let shown = layer.animationKeys()?.isEmpty == false ? (layer.presentation() ?? layer) : layer
+        copy(shown, to: shadow)
+        // An SVG part's mask (a gradient under its shape) comes along.
+        if let mask = layer.mask {
+            let m = mirror(mask)
+            if shadow.mask !== m { shadow.mask = m }
+        } else if shadow.mask != nil {
+            shadow.mask = nil
+        }
         if opaque { if shadow.opacity != 1 { shadow.opacity = 1 }; if shadow.isHidden { shadow.isHidden = false } }
         let view = layer.delegate as? UIView
         var children: [CALayer] = []
@@ -283,6 +293,7 @@ final class Shadow {
         if let s = a as? CAShapeLayer, let t = b as? CAShapeLayer {
             t.path = s.path; t.fillColor = s.fillColor; t.strokeColor = s.strokeColor; t.lineWidth = s.lineWidth
             t.lineCap = s.lineCap; t.lineJoin = s.lineJoin; t.fillRule = s.fillRule; t.strokeStart = s.strokeStart; t.strokeEnd = s.strokeEnd; t.lineDashPattern = s.lineDashPattern
+            t.lineDashPhase = s.lineDashPhase; t.miterLimit = s.miterLimit
         }
         if let s = a as? CATextLayer, let t = b as? CATextLayer {
             t.string = s.string; t.font = s.font; t.fontSize = s.fontSize; t.foregroundColor = s.foregroundColor

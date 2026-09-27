@@ -24,7 +24,7 @@ use exact_runner::{
 pub mod document;
 #[path = "element.rs"]
 mod element;
-use element::{css_style, host_css, in_button, props_for, tag_for};
+use element::{css_style, host_css, in_button, props_for, svg_props, tag_for};
 #[path = "height_drag.rs"]
 mod height_drag;
 pub use height_drag::HeightDragBinding;
@@ -1156,8 +1156,11 @@ impl<D: DataSource> Host<D> {
             // The projection's, for this view of this tree: the same values.
             Some((_, kept, props, css)) if kept == tag => (props, css),
             _ => {
-                let (css, _skipped) = css::css_text(&css_style(&node), &self.font_names);
-                (props_for(&node), host_css(&node, css, tag))
+                let kernel = self.runner.kernel();
+                let (css, _skipped) = css::css_text(&css_style(kernel, &node), &self.font_names);
+                let mut props = props_for(&node);
+                svg_props(kernel, &node, &mut props);
+                (props, host_css(&node, css, tag))
             }
         };
         let handlers: Vec<&str> = kinds
@@ -1205,8 +1208,10 @@ impl<D: DataSource> Host<D> {
                 batch.keyframes(&a.name, &a.keyframes.css());
             }
         }
-        let props = props_for(&node);
-        let (css, _skipped) = css::css_text(&css_style(&node), &self.font_names);
+        let mut props = props_for(&node);
+        svg_props(self.runner.kernel(), &node, &mut props);
+        let (css, _skipped) =
+            css::css_text(&css_style(self.runner.kernel(), &node), &self.font_names);
         let in_button = self.mirror.get(&id).is_some_and(|m| m.in_button);
         let css = host_css(&node, css, tag_for(&node, in_button));
         let m = self.mirror.entry(id).or_default();

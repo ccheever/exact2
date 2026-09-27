@@ -16,6 +16,7 @@ use crate::style::num;
 use exact_kernel::id::{IdMap, IdSet};
 use exact_kernel::motion::motion_node;
 use exact_kernel::svg::scene::{content_box, Item, Kind, Shape, ShapePaint};
+use exact_kernel::svg::server::{Server, ServerKind, Spread};
 use exact_kernel::svg::transform::{self as tf, Affine};
 use exact_kernel::svg::{Path, Seg};
 use exact_kernel::{ColorValue, Dimension, Kernel, NodeKey, NodeRef, NodeType, StyleProps, ViewId};
@@ -225,7 +226,7 @@ fn items(engine: &Engine, list: &[Item], parent_ctm: Affine, s: &mut String) {
 fn element(engine: &Engine, item: &Item, parent_ctm: Affine, s: &mut String) {
     let key = motion_node(item.key);
     let opacity = item.opacity as f64;
-    let _ = write!(s, "{{\"id\":{},\"o\":{}", item.id, num(item.opacity));
+    let _ = write!(s, "{{\"id\":{},\"o\":{}", item.uid, num(item.opacity));
     let shape = match &item.kind {
         Kind::Shape(shape) => Some(shape.as_ref()),
         _ => None,
@@ -310,10 +311,36 @@ fn shape_json(engine: &Engine, key: u64, opacity: f64, item: &Item, shape: &Shap
     if let Some((cx, cy, _)) = centered {
         let _ = write!(s, ",\"pos\":[{},{}]", num(cx), num(cy));
     }
+    // A circle drawn about the origin takes its gradients there too.
+    let local = |p: Option<&ShapePaint>| -> Option<ShapePaint> {
+        let mut p = p?.clone();
+        if let (Some((cx, cy, _)), Some(server)) = (centered, p.server.as_mut()) {
+            server.transform = tf::mul(tf::translate(-cx, -cy), server.transform);
+        }
+        Some(p)
+    };
     s.push_str(",\"f\":");
-    paint_json(shape.fill.as_ref(), s);
+    paint_json(local(shape.fill.as_ref()).as_ref(), s);
     s.push_str(",\"s\":");
-    paint_json(shape.stroke.as_ref(), s);
+    paint_json(local(shape.stroke.as_ref()).as_ref(), s);
+    if shape.order != [0, 1, 2] {
+        let _ = write!(
+            s,
+            ",\"po\":[{},{},{}]",
+            shape.order[0], shape.order[1], shape.order[2]
+        );
+    }
+    if shape.fill.as_ref().is_some_and(|p| p.server.is_some())
+        || shape.stroke.as_ref().is_some_and(|p| p.server.is_some())
+    {
+        // Gradients are drawn at the scale the shape shows at.
+        let m = item.ctm;
+        let _ = write!(
+            s,
+            ",\"cs\":{}",
+            num((m[0] * m[3] - m[1] * m[2]).abs().sqrt())
+        );
+    }
     let dash: Vec<String> = shape.dash.iter().map(|v| num(*v)).collect();
     let _ = write!(
         s,
@@ -337,6 +364,7 @@ fn shape_json(engine: &Engine, key: u64, opacity: f64, item: &Item, shape: &Shap
         Some(ShapePaint {
             color: ColorValue::Fixed(c),
             opacity,
+            server: None,
         }) => (Value::rgba8(c.r(), c.g(), c.b(), c.a()), *opacity as f64),
         _ => (Value::ZERO, 1.0),
     };
@@ -360,6 +388,70 @@ fn shape_json(engine: &Engine, key: u64, opacity: f64, item: &Item, shape: &Shap
     };
     let specs = specs(engine, key, props, &underlying);
     let _ = write!(s, ",\"a\":{specs}");
+}
+
+/// A gradient: `{"lg":[x1,y1,x2,y2]}` or `{"rg":[cx,cy,r,fx,fy,fr]}`, its
+/// stops `"st":[[offset, colour],…]` (colours as `paint_json` writes them,
+/// the paint's opacity folded in), spread `"sp"` (0 pad, 1 reflect, 2
+/// repeat) and `"t"`, gradient space to the shape's user space.
+fn server_json(server: &Server, opacity: f32, s: &mut String) {
+    s.push('{');
+    match server.kind {
+        ServerKind::Linear { x1, y1, x2, y2 } => {
+            let _ = write!(
+                s,
+                "\"lg\":[{},{},{},{}]",
+                num(x1),
+                num(y1),
+                num(x2),
+                num(y2)
+            );
+        }
+        ServerKind::Radial {
+            cx,
+            cy,
+            r,
+            fx,
+            fy,
+            fr,
+        } => {
+            let _ = write!(
+                s,
+                "\"rg\":[{},{},{},{},{},{}]",
+                num(cx),
+                num(cy),
+                num(r),
+                num(fx),
+                num(fy),
+                num(fr)
+            );
+        }
+    }
+    s.push_str(",\"st\":[");
+    for (i, stop) in server.stops.iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        let _ = write!(s, "[{},", num(stop.offset));
+        let paint = ShapePaint {
+            color: stop.color,
+            opacity: stop.opacity * opacity,
+            server: None,
+        };
+        paint_json(Some(&paint), s);
+        s.push(']');
+    }
+    let _ = write!(
+        s,
+        "],\"sp\":{},\"t\":",
+        match server.spread {
+            Spread::Pad => 0,
+            Spread::Reflect => 1,
+            Spread::Repeat => 2,
+        }
+    );
+    affine_json(server.transform, s);
+    s.push('}');
 }
 
 fn path_json(path: Option<&Path>, s: &mut String) {
@@ -392,6 +484,9 @@ fn paint_json(paint: Option<&ShapePaint>, s: &mut String) {
     let Some(paint) = paint else {
         return s.push_str("null");
     };
+    if let Some(server) = &paint.server {
+        return server_json(server, paint.opacity, s);
+    }
     let a = |alpha: u8| ((alpha as f32) * paint.opacity).round() as u8;
     match paint.color {
         ColorValue::Fixed(c) => {

@@ -171,6 +171,29 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: None,
         },
+        // @ref LLP 1055.000 D7/D8 — definitions and references; a `symbol`
+        // clips, as the UA's `symbol { overflow: hidden }` does.
+        "symbol" => Tag {
+            node_type: NodeType::SvgSymbol,
+            fixed_styles: &[
+                (StyleId::OverflowX, "hidden"),
+                (StyleId::OverflowY, "hidden"),
+            ],
+            fixed_props: &[],
+            positional: None,
+        },
+        "defs" | "linearGradient" | "radialGradient" | "stop" | "use" => Tag {
+            node_type: match name {
+                "defs" => NodeType::SvgDefs,
+                "linearGradient" => NodeType::SvgLinearGradient,
+                "radialGradient" => NodeType::SvgRadialGradient,
+                "stop" => NodeType::SvgStop,
+                _ => NodeType::SvgUse,
+            },
+            fixed_styles: &[],
+            fixed_props: &[],
+            positional: None,
+        },
         "g" | "path" | "polyline" | "polygon" | "circle" | "ellipse" | "line" | "rect" => Tag {
             node_type: match name {
                 "g" => NodeType::SvgGroup,
@@ -405,6 +428,16 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "points" => AttrTarget::Prop(p("points")),
         "d" => AttrTarget::Prop(p("d")),
         "pathLength" => AttrTarget::Prop(p("pathLength")),
+        "fx" => AttrTarget::Prop(p("fx")),
+        "fy" => AttrTarget::Prop(p("fy")),
+        "fr" => AttrTarget::Prop(p("fr")),
+        "gradientUnits" => AttrTarget::Prop(p("gradientUnits")),
+        "gradientTransform" => AttrTarget::Prop(p("gradientTransform")),
+        "spreadMethod" => AttrTarget::Prop(p("spreadMethod")),
+        "offset" => AttrTarget::Prop(p("offset")),
+        "stop-color" => styles(&[StyleId::StopColor]),
+        "stop-opacity" => styles(&[StyleId::StopOpacity]),
+        "paint-order" => styles(&[StyleId::PaintOrder]),
         "x1" => AttrTarget::Prop(p("x1")),
         "y1" => AttrTarget::Prop(p("y1")),
         "x2" => AttrTarget::Prop(p("x2")),

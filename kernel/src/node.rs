@@ -19,6 +19,10 @@ impl NodeType {
                 | NodeType::Svg
                 | NodeType::SvgGroup
                 | NodeType::SvgViewport
+                | NodeType::SvgDefs
+                | NodeType::SvgSymbol
+                | NodeType::SvgLinearGradient
+                | NodeType::SvgRadialGradient
         )
     }
 

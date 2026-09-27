@@ -49,8 +49,13 @@ pub struct Scene {
 /// One rendered element.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Item {
-    /// The element's node.
+    /// The element's node (for an instance under a `use`, the target's
+    /// node: events on it go to the `use`, LLP 1055.000 D8).
     pub id: ViewId,
+    /// A key unique in the scene: the node id, or for an instance the node
+    /// id mixed with the `use`s above it, so two instances of one node are
+    /// two layers.
+    pub uid: u64,
     /// Its generation-checked key (the motion engine's).
     pub key: NodeKey,
     /// Group opacity, presented.
@@ -125,13 +130,16 @@ pub enum Kind {
 }
 
 /// Paint, resolved: a colour (a `light-dark()` pair kept for the host's
-/// appearance) and the paint's opacity (`fill-opacity`/`stroke-opacity`).
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// appearance) or a gradient, and the paint's opacity
+/// (`fill-opacity`/`stroke-opacity`).
+#[derive(Debug, Clone, PartialEq)]
 pub struct ShapePaint {
-    /// The colour.
+    /// The colour, when `server` is `None`.
     pub color: ColorValue,
     /// Zero to one.
     pub opacity: f32,
+    /// A gradient in the shape's user space (LLP 1055.000 D7).
+    pub server: Option<Box<super::server::Server>>,
 }
 
 /// A shape, resolved.
@@ -165,6 +173,8 @@ pub struct Shape {
     /// `vector-effect: non-scaling-stroke`: the stroke is drawn in the
     /// content box's space, the path mapped through the item's `ctm`.
     pub non_scaling: bool,
+    /// `paint-order`: fill (0), stroke (1), markers (2), first to last.
+    pub order: [u8; 3],
 }
 
 /// The content box inside a box's border box: x, y, width, height. A
@@ -221,7 +231,11 @@ pub fn resolve(
     let clip =
         node.style.overflow_x != Overflow::Visible || node.style.overflow_y != Overflow::Visible;
     let mut inherited = node.computed_style(StyleMask::INHERITED);
-    let mut r = Resolver { kernel, presented };
+    let mut r = Resolver {
+        kernel,
+        presented,
+        uses: Vec::new(),
+    };
     r.present(node, &mut inherited);
     let items = match view {
         Some(v) => r.children(node, &inherited, vp, v),
@@ -238,6 +252,9 @@ pub fn resolve(
 struct Resolver<'k, 'p> {
     kernel: &'k Kernel,
     presented: Presented<'p>,
+    /// The `use` elements above the item being resolved, outermost first:
+    /// its instance path, and what a `use` cycle is checked against.
+    uses: Vec<ViewId>,
 }
 
 /// The rows a child computes from its parent: every inherited row it does
@@ -316,7 +333,8 @@ impl Resolver<'_, '_> {
         vp: Viewport,
         parent_ctm: Affine,
     ) -> Option<Item> {
-        if !node.node_type.is_svg_element() {
+        // Definitions render only where they are referenced.
+        if !node.node_type.is_svg_element() || !node.node_type.renders() {
             return None;
         }
         let mut style = cascade(node, inherited);
@@ -337,10 +355,12 @@ impl Resolver<'_, '_> {
         let kind = match node.node_type {
             NodeType::SvgGroup => Kind::Group(self.children(node, &style, vp, ctm)),
             NodeType::SvgViewport => self.viewport(node, &style, vp, ctm),
+            NodeType::SvgUse => self.instance(node, &style, vp, ctm)?,
             _ => Kind::Shape(Box::new(self.shape(node, &style, vp)?)),
         };
         Some(Item {
             id: node.id,
+            uid: self.uid(node.id),
             key,
             opacity,
             transform,
@@ -459,18 +479,51 @@ impl Resolver<'_, '_> {
     fn shape(&self, node: &NodeRef<'_>, style: &StyleProps, vp: Viewport) -> Option<Shape> {
         let (path, circle) = self.geometry(node, style, vp)?;
         let hidden = style.visibility != Visibility::Visible;
+        let bbox = path.bounds();
         let paint = |p: &Paint, opacity: f32| -> Option<ShapePaint> {
             if hidden {
                 return None;
             }
+            let opacity = opacity.clamp(0.0, 1.0);
             let color = match p {
                 Paint::None => return None,
                 Paint::CurrentColor => style.text_color,
                 Paint::Color(c) => *c,
+                Paint::Url(id, _) => {
+                    use super::server::{resolve, Resolved};
+                    return match resolve(self.kernel, node.id, id, bbox, vp) {
+                        Resolved::Server(server) => Some(ShapePaint {
+                            color: style.text_color,
+                            opacity,
+                            server: Some(Box::new(server)),
+                        }),
+                        Resolved::Color(color, stop) => Some(ShapePaint {
+                            color,
+                            opacity: opacity * stop,
+                            server: None,
+                        }),
+                        Resolved::Nothing => None,
+                        // A missing server paints the fallback, or nothing.
+                        Resolved::Fallback => match p.fallback()? {
+                            Paint::CurrentColor => Some(ShapePaint {
+                                color: style.text_color,
+                                opacity,
+                                server: None,
+                            }),
+                            Paint::Color(c) => Some(ShapePaint {
+                                color: c,
+                                opacity,
+                                server: None,
+                            }),
+                            _ => None,
+                        },
+                    };
+                }
             };
             Some(ShapePaint {
                 color,
-                opacity: opacity.clamp(0.0, 1.0),
+                opacity,
+                server: None,
             })
         };
         let width = style.stroke_width.max(0.0);
@@ -489,9 +542,134 @@ impl Resolver<'_, '_> {
             dash_offset: offset * scale,
             dash_scale: scale,
             non_scaling: style.vector_effect == VectorEffect::NonScalingStroke,
+            order: style.paint_order.0,
             path,
             circle,
         })
+    }
+
+    /// A key unique in the scene for `id` under the current `use` path.
+    /// Kept within 53 bits, so a host reading it as a JSON number keeps it.
+    fn uid(&self, id: ViewId) -> u64 {
+        if self.uses.is_empty() {
+            return id as u64;
+        }
+        self.uses.iter().fold(id as u64, |acc, u| {
+            (acc ^ ((*u as u64) << 32))
+                .rotate_left(13)
+                .wrapping_mul(0x9e37_79b9_7f4a_7c15)
+                & ((1 << 53) - 1)
+        })
+    }
+
+    /// A `use`: an instance of its target, inheriting from the `use` (SVG 2
+    /// §5.6), placed at `x`/`y`. A `symbol` (or `svg`) target is a viewport
+    /// sized by the `use`'s `width`/`height` (`auto` is 100%) under the
+    /// target's view box (LLP 1055.000 D8). A missing target, or one whose
+    /// instance would contain this `use`, renders nothing.
+    fn instance(
+        &mut self,
+        node: &NodeRef<'_>,
+        style: &StyleProps,
+        vp: Viewport,
+        ctm: Affine,
+    ) -> Option<Kind> {
+        let target_id = node
+            .props
+            .str(PropId::Href)
+            .and_then(|h| h.strip_prefix('#'))
+            .and_then(|h| self.kernel.resolve_id(node.id, h))?;
+        if self.uses.contains(&node.id) || self.uses.len() > 16 {
+            return None;
+        }
+        // The target must not contain the `use` itself.
+        let mut up = Some(node.id);
+        while let Some(id) = up {
+            if id == target_id {
+                return None;
+            }
+            up = self.kernel.node(id).and_then(|n| n.parent);
+        }
+        let target = self.kernel.node(target_id)?;
+        let (x, y) = (vp.x(style.x), vp.y(style.y));
+        self.uses.push(node.id);
+        let kind = if matches!(
+            target.node_type,
+            NodeType::SvgSymbol | NodeType::SvgViewport | NodeType::Svg
+        ) {
+            let size = |d: Dimension, basis: f32| match d {
+                Dimension::Auto => basis,
+                d => super::length::resolve(d, basis),
+            };
+            let rect = (
+                x,
+                y,
+                size(style.width, vp.width).max(0.0),
+                size(style.height, vp.height).max(0.0),
+            );
+            let tstyle = cascade(&target, style);
+            let vb = view_box(target.props);
+            let view = view_box_transform(
+                vb,
+                target.props.str(PropId::PreserveAspectRatio),
+                rect.2,
+                rect.3,
+            )
+            .map(|v| tf::mul(tf::translate(rect.0, rect.1), v));
+            let inner = match vb {
+                Some(v) => Viewport {
+                    width: v.width,
+                    height: v.height,
+                },
+                None => Viewport {
+                    width: rect.2,
+                    height: rect.3,
+                },
+            };
+            let clip =
+                tstyle.overflow_x != Overflow::Visible || tstyle.overflow_y != Overflow::Visible;
+            let children = match view {
+                Some(v) => self.children(&target, &tstyle, inner, tf::mul(ctm, v)),
+                None => Vec::new(),
+            };
+            Kind::Viewport {
+                rect,
+                view,
+                clip,
+                children,
+            }
+        } else {
+            let placed = tf::mul(ctm, tf::translate(x, y));
+            let item = self.item_any(&target, style, vp, placed);
+            let mut inner = Kind::Group(item.into_iter().collect());
+            if (x, y) != (0.0, 0.0) {
+                inner = Kind::Viewport {
+                    rect: (0.0, 0.0, 0.0, 0.0),
+                    view: Some(tf::translate(x, y)),
+                    clip: false,
+                    children: match inner {
+                        Kind::Group(c) => c,
+                        _ => Vec::new(),
+                    },
+                };
+            }
+            inner
+        };
+        self.uses.pop();
+        Some(kind)
+    }
+
+    /// `item`, for an instance's target: a definition (a `symbol`, or an
+    /// element inside `defs`) renders here though it does not where it
+    /// stands.
+    fn item_any(
+        &mut self,
+        node: &NodeRef<'_>,
+        inherited: &StyleProps,
+        vp: Viewport,
+        ctm: Affine,
+    ) -> Option<Item> {
+        self.item(node, inherited, vp, ctm)
     }
 
     fn viewport(

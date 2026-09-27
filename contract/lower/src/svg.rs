@@ -18,30 +18,60 @@ use exact_motion::{Animation, Animations, Keyframes, Property};
 pub(crate) fn is_element(tag: &str) -> bool {
     matches!(
         tag,
-        "g" | "path" | "polyline" | "polygon" | "circle" | "ellipse" | "line" | "rect"
+        "g" | "path"
+            | "polyline"
+            | "polygon"
+            | "circle"
+            | "ellipse"
+            | "line"
+            | "rect"
+            | "defs"
+            | "linearGradient"
+            | "radialGradient"
+            | "stop"
+            | "use"
+            | "symbol"
     )
+}
+
+/// What an SVG container may hold (LLP 1055.000 D7): a gradient holds
+/// `stop`s only, and a `stop` only sits in a gradient.
+fn holds(parent: &str, child: &str) -> bool {
+    match parent {
+        "linearGradient" | "radialGradient" => child == "stop",
+        "svg" | "g" | "defs" | "symbol" => child != "stop" && (is_element(child) || child == "svg"),
+        _ => false,
+    }
 }
 
 /// SVG length attributes CSS cannot set: props holding the authored text
 /// (LLP 1055.000 D4), so a number and `"50%"` are both accepted.
 pub(crate) fn is_length_prop(attr: &str) -> bool {
-    matches!(attr, "x1" | "y1" | "x2" | "y2")
+    matches!(
+        attr,
+        "x1" | "y1" | "x2" | "y2" | "fx" | "fy" | "fr" | "offset"
+    )
 }
 
 /// The elements an SVG-specific attribute belongs to.
 fn owners(attr: &str) -> Option<&'static [&'static str]> {
     Some(match attr {
-        "viewBox" | "preserveAspectRatio" => &["svg"],
+        "viewBox" | "preserveAspectRatio" => &["svg", "symbol"],
         "points" => &["polyline", "polygon"],
         "d" => &["path"],
         "pathLength" => &[
             "path", "polyline", "polygon", "circle", "ellipse", "line", "rect",
         ],
-        "x" | "y" => &["rect", "svg"],
+        "x" | "y" => &["rect", "svg", "use"],
         "rx" | "ry" => &["rect", "ellipse"],
-        "x1" | "y1" | "x2" | "y2" => &["line"],
-        "cx" | "cy" => &["circle", "ellipse"],
-        "r" => &["circle"],
+        "x1" | "y1" | "x2" | "y2" => &["line", "linearGradient"],
+        "cx" | "cy" => &["circle", "ellipse", "radialGradient"],
+        "r" => &["circle", "radialGradient"],
+        "fx" | "fy" | "fr" => &["radialGradient"],
+        "gradientUnits" | "gradientTransform" | "spreadMethod" => {
+            &["linearGradient", "radialGradient"]
+        }
+        "offset" | "stop-color" | "stop-opacity" => &["stop"],
         "vector-effect" => &[
             "path", "polyline", "polygon", "circle", "ellipse", "line", "rect",
         ],
@@ -75,6 +105,7 @@ fn shared(attr: &str) -> bool {
             | "scale"
             | "visibility"
             | "display"
+            | "paint-order"
             | "animation"
             | "transition"
             | "testId"
@@ -85,10 +116,17 @@ fn shared(attr: &str) -> bool {
 /// A named refusal for an SVG tag outside the subset (LLP 1055 D12).
 pub(crate) fn refused_tag(tag: &str) -> Option<&'static str> {
     Some(match tag {
-        "text" | "tspan" | "textPath" => "text inside `svg` is refused (LLP 1055 D12); put a `text` beside the `svg`",
-        "use" | "symbol" | "defs" | "clipPath" | "mask" | "pattern" | "marker"
-        | "linearGradient" | "radialGradient" | "filter" | "foreignObject" | "image" => {
-            "paint servers, references, masks, filters and embedded content are refused in SVG (LLP 1055 D12)"
+        "text" | "tspan" | "textPath" => {
+            "text inside `svg` is refused (LLP 1055 D12); put a `text` beside the `svg`"
+        }
+        "clipPath" | "mask" | "pattern" | "marker" | "filter" | "image" => {
+            "not in exact2's SVG yet: LLP 1055.000 §4 builds it in a later stage"
+        }
+        "foreignObject" => {
+            "`foreignObject` is deferred (LLP 1055.000 D13): position a box over the `svg` instead"
+        }
+        "hatch" | "hatchpath" | "mesh" | "meshgradient" | "solidcolor" => {
+            "refused (LLP 1055.000 §7): Chrome does not implement it"
         }
         "animate" | "animateTransform" | "animateMotion" | "set" => {
             "SMIL is refused (LLP 1055 D12): declare `keyframes` and set `animation`"
@@ -172,9 +210,21 @@ impl Lowerer<'_> {
         attrs: &[Attr],
         span: Span,
     ) -> Result<(), LowerError> {
-        let in_svg = matches!(parent_tag, Some("svg" | "g"));
+        let in_svg = matches!(
+            parent_tag,
+            Some("svg" | "g" | "defs" | "symbol" | "linearGradient" | "radialGradient")
+        );
         // A nested `svg` is an SVG element: a new viewport (LLP 1055.000 D4).
         let element = is_element(tag) || (tag == "svg" && in_svg);
+        if let Some(parent) = parent_tag.filter(|_| in_svg) {
+            if !holds(parent, tag) {
+                return err(
+                    "lower-svg-content",
+                    format!("`{parent}` does not hold `{tag}`"),
+                    span,
+                );
+            }
+        }
         if tag != "svg" && is_element(tag) && !in_svg {
             return err(
                 "lower-svg-content",
@@ -206,7 +256,9 @@ impl Lowerer<'_> {
                 }
             } else if element
                 && !shared(&a.name)
-                && !(matches!(tag, "rect" | "svg") && matches!(a.name.as_str(), "width" | "height"))
+                && !(matches!(tag, "rect" | "svg" | "use")
+                    && matches!(a.name.as_str(), "width" | "height"))
+                && !(matches!(tag, "use" | "linearGradient" | "radialGradient") && a.name == "href")
                 && !(tag == "svg"
                     && matches!(a.name.as_str(), "overflow" | "overflow-x" | "overflow-y"))
             {

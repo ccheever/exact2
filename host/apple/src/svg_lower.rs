@@ -260,7 +260,19 @@ pub(crate) fn eligibility(kernel: &Kernel, engine: &mut Engine, sync: &MotionSyn
             continue;
         };
         let props = animations.properties();
-        let sampled = if n.node_type.is_svg_shape() {
+        // A shape painted by a server draws parts Core Animation's lowered
+        // keys do not reach: its scene is sampled.
+        let served = |id: exact_kernel::StyleId| {
+            matches!(
+                n.computed(id),
+                exact_kernel::RowValue::Paint(exact_kernel::svg::Paint::Url(..))
+            )
+        };
+        let sampled = if n.node_type.is_svg_shape()
+            && (served(exact_kernel::StyleId::Fill) || served(exact_kernel::StyleId::Stroke))
+        {
+            true
+        } else if n.node_type.is_svg_shape() {
             let targets: Vec<(Property, Option<Value>)> = exact_kernel::motion::color_targets(&n);
             let mut alphas = animations
                 .0

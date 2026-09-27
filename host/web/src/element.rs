@@ -4,6 +4,7 @@
 //!
 //! @ref LLP 1007 §1 (a bare node is a bare `<div>`) / LLP 1048 D1
 
+use exact_kernel::svg::Paint;
 use exact_kernel::SortedMap;
 use exact_kernel::{Kernel, NodeRef, NodeType, PropId, PropValue};
 
@@ -107,6 +108,12 @@ fn element(node: &NodeRef<'_>) -> &'static str {
         NodeType::SvgRect => "rect",
         NodeType::SvgEllipse => "ellipse",
         NodeType::SvgViewport => "svg",
+        NodeType::SvgDefs => "defs",
+        NodeType::SvgLinearGradient => "linearGradient",
+        NodeType::SvgRadialGradient => "radialGradient",
+        NodeType::SvgStop => "stop",
+        NodeType::SvgUse => "use",
+        NodeType::SvgSymbol => "symbol",
         NodeType::ScrollView => "div",
         NodeType::Text => {
             if node.is_inline_run() {
@@ -163,45 +170,90 @@ fn heading_level(node: &NodeRef<'_>) -> Option<i64> {
 /// `width` and `height` as attributes instead ([`props_for`]): Chrome 154
 /// lays one out from its attributes and ignores those CSS properties
 /// (LLP 1055.000 D4).
-pub(super) fn css_style<'a>(node: &NodeRef<'a>) -> std::borrow::Cow<'a, exact_kernel::StyleProps> {
-    if node.node_type != NodeType::SvgViewport {
+pub(super) fn css_style<'a>(
+    kernel: &Kernel,
+    node: &NodeRef<'a>,
+) -> std::borrow::Cow<'a, exact_kernel::StyleProps> {
+    let as_attributes = attribute_rows(node.node_type);
+    let url = |p: &Paint| matches!(p, Paint::Url(..));
+    if as_attributes.is_empty() && !url(&node.style.fill) && !url(&node.style.stroke) {
         return std::borrow::Cow::Borrowed(node.style);
     }
     let mut style = node.style.clone();
     let mut mask = exact_kernel::StyleMask::EMPTY;
-    for row in VIEWPORT_ROWS {
+    for row in as_attributes {
         mask.set(row.0);
     }
     style.clear(mask);
+    // @ref LLP 1055.000 D3 — a paint server by the id the page gives it.
+    for paint in [&mut style.fill, &mut style.stroke] {
+        if let Paint::Url(id, fallback) = paint {
+            if let Some(target) = kernel.resolve_id(node.id, id) {
+                *paint = Paint::Url(dom_id(target).into(), *fallback);
+            }
+        }
+    }
     std::borrow::Cow::Owned(style)
 }
 
-const VIEWPORT_ROWS: [(exact_kernel::StyleId, &str); 4] = [
-    (exact_kernel::StyleId::X, "x"),
-    (exact_kernel::StyleId::Y, "y"),
-    (exact_kernel::StyleId::Width, "width"),
-    (exact_kernel::StyleId::Height, "height"),
-];
+/// The DOM id of an SVG element: unique by construction, so forty
+/// instances of one component's `id="fade"` are forty ids (LLP 1055.000 D3).
+fn dom_id(view: exact_kernel::ViewId) -> String {
+    format!("x{view}")
+}
+
+/// Rows an element takes as attributes: Chrome 154 lays out a nested `svg`
+/// and places a `use` from their attributes and ignores those CSS
+/// properties, and a radial gradient's `cx`, `cy` and `r` are attributes
+/// only (LLP 1055.000 D4, D7).
+fn attribute_rows(t: NodeType) -> &'static [(exact_kernel::StyleId, &'static str)] {
+    use exact_kernel::StyleId::*;
+    match t {
+        NodeType::SvgViewport | NodeType::SvgUse => {
+            &[(X, "x"), (Y, "y"), (Width, "width"), (Height, "height")]
+        }
+        NodeType::SvgRadialGradient => &[(Cx, "cx"), (Cy, "cy"), (R, "r")],
+        _ => &[],
+    }
+}
+
+/// An SVG element's references and attribute rows as the page takes them:
+/// its `id` rewritten to its DOM id, `href` to its target's, and the rows
+/// of [`attribute_rows`] as attributes.
+pub(super) fn svg_props(kernel: &Kernel, node: &NodeRef<'_>, out: &mut SortedMap<String, String>) {
+    if !node.node_type.is_svg_element() {
+        return;
+    }
+    if node.props.str(PropId::Id).is_some() {
+        out.insert("id".into(), dom_id(node.id));
+    }
+    if let Some(target) = node
+        .props
+        .str(PropId::Href)
+        .and_then(|h| h.strip_prefix('#'))
+        .and_then(|h| kernel.resolve_id(node.id, h))
+    {
+        out.insert("href".into(), format!("#{}", dom_id(target)));
+    }
+    for (row, name) in attribute_rows(node.node_type) {
+        if !node.style.mask.has(*row) {
+            continue;
+        }
+        let text = match node.style.get(*row) {
+            exact_kernel::RowValue::Dimension(exact_kernel::Dimension::Points(v)) => {
+                exact_num::Shortest(v as f64).to_string()
+            }
+            exact_kernel::RowValue::Dimension(exact_kernel::Dimension::Percent(p)) => {
+                format!("{}%", exact_num::Shortest(p as f64))
+            }
+            _ => continue,
+        };
+        out.insert((*name).into(), text);
+    }
+}
 
 pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
     let mut out = SortedMap::new();
-    if node.node_type == NodeType::SvgViewport {
-        for (row, name) in VIEWPORT_ROWS {
-            if !node.style.mask.has(row) {
-                continue;
-            }
-            let text = match node.style.get(row) {
-                exact_kernel::RowValue::Dimension(exact_kernel::Dimension::Points(v)) => {
-                    exact_num::Shortest(v as f64).to_string()
-                }
-                exact_kernel::RowValue::Dimension(exact_kernel::Dimension::Percent(p)) => {
-                    format!("{}%", exact_num::Shortest(p as f64))
-                }
-                _ => continue,
-            };
-            out.insert(name.into(), text);
-        }
-    }
     if node.style.wrap_flow == exact_kernel::WrapFlow::Both {
         out.insert("data-wrap-flow".into(), "both".into());
     }
@@ -348,6 +400,13 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
             PropId::Y1 => "y1",
             PropId::X2 => "x2",
             PropId::Y2 => "y2",
+            PropId::Fx => "fx",
+            PropId::Fy => "fy",
+            PropId::Fr => "fr",
+            PropId::GradientUnits => "gradientUnits",
+            PropId::GradientTransform => "gradientTransform",
+            PropId::SpreadMethod => "spreadMethod",
+            PropId::Offset => "offset",
             other => {
                 // Every other prop rides as `data-<name>` so nothing is lost.
                 // Schema names are ASCII (`prop_names_are_ascii`), so ASCII

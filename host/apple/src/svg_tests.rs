@@ -98,3 +98,29 @@ fn an_svg_is_one_scene_with_lowered_animations() {
     assert_eq!(ring["a"][1]["dl"], 0.6);
     drop(host);
 }
+
+/// LLP 1055.000 D7: a gradient paint crosses as its stops, spread and
+/// transform; a radial one as both circles.
+#[test]
+fn gradients_cross_resolved() {
+    let app = "component A\n  view\n    column\n      svg width=120 height=80 viewBox=\"0 0 120 80\"\n        defs\n          radialGradient id=\"shade\"\n            stop offset=0 stop-color=\"#ffffff\"\n            stop offset=1 stop-color=\"#f43f5e\"\n        circle cx=60 cy=40 r=32 fill=\"url(#shade)\"\n";
+    let plan = contract::compile(app).unwrap().encode();
+    let (_, batch) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    let s = scene(&batch);
+    let fill = &s["els"][0]["f"];
+    assert_eq!(
+        fill["rg"],
+        serde_json::json!([0.5, 0.5, 0.5, 0.5, 0.5, 0]),
+        "{s}"
+    );
+    // The circle is drawn about the origin, so its gradient is too.
+    assert_eq!(fill["t"], serde_json::json!([64, 0, 0, 64, -32, -32]));
+    assert_eq!(fill["st"][1][1], serde_json::json!([244, 63, 94, 255]));
+}
