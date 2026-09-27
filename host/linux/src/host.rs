@@ -33,6 +33,8 @@ mod holds;
 mod paint_motion;
 #[path = "presence.rs"]
 mod presence;
+#[path = "press.rs"]
+mod press;
 #[path = "transform_binding.rs"]
 mod transform_binding;
 
@@ -80,6 +82,7 @@ pub struct Host<D: DataSource> {
     router_op: Option<exact_runner::RouterChange>,
     navigation: crate::navigation::Navigation,
     presence: presence::Presence,
+    presses: BTreeMap<NodeKey, press::Feedback>,
     /// The 2D canvases' bitmaps (LLP 1056 D7).
     canvas2d: crate::canvas2d::Canvases,
 }
@@ -182,6 +185,7 @@ impl<D: DataSource> Host<D> {
             router_op: None,
             navigation: Default::default(),
             presence: Default::default(),
+            presses: Default::default(),
             canvas2d: Default::default(),
         };
         host.runner
@@ -397,7 +401,7 @@ impl<D: DataSource> Host<D> {
 
     /// Whether motion is running (the presenter runs frames).
     pub fn motion(&self) -> bool {
-        !self.engine.quiescent()
+        !self.engine.quiescent() || self.press_settle().is_some()
     }
 
     /// The roots, in order.
@@ -408,21 +412,34 @@ impl<D: DataSource> Host<D> {
     /// A node's presentation values: the engine's, else the committed
     /// style's.
     pub fn presented(&self, id: ViewId) -> Presented {
-        if let Some(p) = self.presented.get(&id) {
-            return *p;
-        }
-        self.runner
+        let mut p = self.presented.get(&id).copied().unwrap_or_else(|| {
+            self.runner
+                .kernel()
+                .node(id)
+                .map_or(Presented::IDENTITY, |n| Presented::from_style(n.style))
+        });
+        p.press = self
+            .runner
             .kernel()
             .node(id)
-            .map_or(Presented::IDENTITY, |n| Presented::from_style(n.style))
+            .and_then(|n| self.presses.get(&n.key))
+            .map_or(1., |f| f.factor(self.now_ms));
+        p
     }
 
     /// The agent API's read operations (LLP 1012): `tree`, `state`, `logs`
     /// from the runner; `settle` from the engine.
     pub fn agent(&self, request: &str) -> String {
         if exact_runner::agent::field_str(request, "op").as_deref() == Some("settle") {
-            return match self.engine.settle_time() {
-                Some(t) => format!("{{\"settle\":{}}}", exact_runner::agent::num(t * 1000.0)),
+            return match self
+                .engine
+                .settle_time()
+                .map(|t| t * 1000.)
+                .into_iter()
+                .chain(self.press_settle())
+                .reduce(f64::max)
+            {
+                Some(t) => format!("{{\"settle\":{}}}", exact_runner::agent::num(t)),
                 None => "{\"settle\":null}".to_string(),
             };
         }
@@ -831,6 +848,7 @@ impl<D: DataSource> Host<D> {
     /// paint-only properties never trigger layout or text measurement.
     pub fn tick(&mut self, now_ms: f64) -> bool {
         self.now_ms = now_ms.max(self.now_ms);
+        self.retire_presses();
         let seek = self.engine.advance(self.now_ms / 1000.0);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
         let changed = match self.layout_motion() {

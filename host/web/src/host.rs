@@ -1226,7 +1226,7 @@ impl<D: DataSource> Host<D> {
             .chain(&node.style.exit_animation.0)
         {
             if self.keyframes.insert(a.name.clone()) {
-                batch.keyframes(&a.name, &a.keyframes.css());
+                batch.keyframes(&a.name, &crate::css::keyframes_css(&a.keyframes));
             }
         }
         let in_button = in_button(self.runner.kernel(), &node);
@@ -1295,7 +1295,7 @@ impl<D: DataSource> Host<D> {
             .chain(&node.style.exit_animation.0)
         {
             if self.keyframes.insert(a.name.clone()) {
-                batch.keyframes(&a.name, &a.keyframes.css());
+                batch.keyframes(&a.name, &crate::css::keyframes_css(&a.keyframes));
             }
         }
         let mut props = props_for(&node);

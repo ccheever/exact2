@@ -61,6 +61,7 @@ pub(super) struct Contact {
     pub(super) hold: Option<Hold>,
     panning: bool,
     retained: Option<super::retained_action::RetainedContact>,
+    press: Option<(NodeKey, PaintedBox)>,
 }
 impl<D: DataSource> Presenter<D> {
     pub(super) fn input_live(&self, key: NodeKey) -> bool {
@@ -114,6 +115,15 @@ impl<D: DataSource> Presenter<D> {
             }
             None => {
                 self.input_live(contact.hit)
+                    && contact.press.is_none_or(|(key, _)| {
+                        self.input_live(key)
+                            && self.host.kernel().node_by_key(key).is_some_and(|n| {
+                                self.host
+                                    .runner()
+                                    .handlers_of(n.id)
+                                    .contains(&EventKind::Press)
+                            })
+                    })
                     && match contact.candidate {
                         Some(Candidate::Pan(key)) => {
                             self.input_live(key)
@@ -269,6 +279,7 @@ impl<D: DataSource> Presenter<D> {
                     last_ms: now_ms,
                     hold: None,
                     retained: Some(retained),
+                    press: None,
                     panning: false,
                 });
                 self.set_collection_interaction(Some(view));
@@ -294,6 +305,18 @@ impl<D: DataSource> Presenter<D> {
         let Some(view) = self.host.kernel().node_by_key(hit).map(|n| n.id) else {
             return Ok(false);
         };
+        let press = self.handler_target(view, EventKind::Press).and_then(|id| {
+            let node = self.host.kernel().node(id)?;
+            if node.style.press_scale == 1. {
+                return None;
+            }
+            let (key, origin) = (node.key, node.style.transform_origin);
+            self.box_of(id).map(|b| (key, b.unpressed(origin)))
+        });
+        if let Some((key, _)) = press {
+            self.host.press_feedback(key, true, now_ms);
+            self.dirty = true;
+        }
         let candidate = (!rest.is_empty()).then(|| rest.remove(0));
         self.contact = Some(Contact {
             hit,
@@ -305,6 +328,7 @@ impl<D: DataSource> Presenter<D> {
             hold: None,
             panning: false,
             retained: None,
+            press,
         });
         self.set_collection_interaction(Some(view));
         Ok(true)
@@ -321,6 +345,10 @@ impl<D: DataSource> Presenter<D> {
         self.pointer_sample(x, y, now_ms)?;
         let mut contact = self.contact.take().unwrap();
         contact.last_ms = now_ms;
+        if let Some((key, box_)) = contact.press {
+            self.host.press_feedback(key, box_.contains(x, y), now_ms);
+            self.dirty = true;
+        }
         let (dx, dy) = (
             x as f64 - contact.origin.0 as f64,
             y as f64 - contact.origin.1 as f64,
@@ -352,6 +380,9 @@ impl<D: DataSource> Presenter<D> {
             contact.position = (x, y);
             if contact.panning || dx.abs().max(dy.abs()) > exact_motion::gesture::SLOP {
                 contact.panning = true;
+                if let Some((key, _)) = contact.press.take() {
+                    self.host.press_feedback(key, false, now_ms);
+                }
                 let view = self.host.kernel().node_by_key(key).unwrap().id;
                 let error = if dx != 0. || dy != 0. {
                     self.host
@@ -378,6 +409,11 @@ impl<D: DataSource> Presenter<D> {
             if dx.abs().max(dy.abs()) <= exact_motion::gesture::SLOP {
                 self.contact = Some(contact);
                 return Ok(false);
+            }
+            if contact.candidate.is_some() {
+                if let Some((key, _)) = contact.press.take() {
+                    self.host.press_feedback(key, false, now_ms);
+                }
             }
             let begin = match contact.candidate {
                 Some(Candidate::Arrange(binding)) if dy.abs() > dx.abs() => {
@@ -410,7 +446,11 @@ impl<D: DataSource> Presenter<D> {
                     self.begin_swipe(key, now_ms)
                 }
                 _ => {
-                    self.set_collection_interaction(None);
+                    if contact.press.is_some() {
+                        self.contact = Some(contact);
+                    } else {
+                        self.set_collection_interaction(None);
+                    }
                     return Ok(false);
                 }
             };
@@ -483,6 +523,10 @@ impl<D: DataSource> Presenter<D> {
         let Some(contact) = self.contact.take() else {
             return Ok(false);
         };
+        if let Some((key, _)) = contact.press {
+            self.host.press_feedback(key, false, now_ms);
+            self.dirty = true;
+        }
         let arranged = contact
             .hold
             .as_ref()
@@ -539,6 +583,13 @@ impl<D: DataSource> Presenter<D> {
             }
         } else if contact.panning {
             Ok(true)
+        } else if let Some((key, box_)) = contact.press {
+            if box_.contains(x, y) && self.input_live(key) {
+                if let Some(node) = self.host.kernel().node_by_key(key) {
+                    self.dispatch_press(node.id, now_ms, true);
+                }
+            }
+            Ok(false)
         } else {
             let at = self
                 .hit(x, y)
@@ -574,6 +625,10 @@ impl<D: DataSource> Presenter<D> {
         }
         self.pointer_sample(0., 0., now_ms)?;
         let contact = self.contact.take().unwrap();
+        if let Some((key, _)) = contact.press {
+            self.host.press_feedback(key, false, now_ms);
+            self.dirty = true;
+        }
         let result = contact.hold.as_ref().map_or(Ok(()), |held| {
             self.end_contact(held, HoldEnd::Cancel, now_ms)
         });

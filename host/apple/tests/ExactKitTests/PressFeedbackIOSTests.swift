@@ -32,7 +32,6 @@ final class PressFeedbackIOSTests: XCTestCase {
     }
 
     func testPressingEasesToThePressScaleAndReleasingEasesBack() throws {
-        try XCTSkipIf(UIAccessibility.isReduceMotionEnabled, "reduced motion shows no press")
         let (_, v) = try fixture()
         v.pressed = true
         XCTAssertEqual(v.press.to, 0.97)
@@ -45,6 +44,20 @@ final class PressFeedbackIOSTests: XCTestCase {
         v.press.aim(1, at: mid)
         XCTAssertEqual(v.press.from, there, accuracy: 1e-12)
         XCTAssertEqual(v.press.factor(at: mid), there, accuracy: 1e-12)
+        v.pressed = false
+        XCTAssertEqual(v.press.to, 1)
+    }
+
+    func testReducedMotionKeepsThePress() throws {
+        let previous = DisplayPreferences.agent
+        defer { DisplayPreferences.agent = previous }
+        DisplayPreferences.agent = (reducedMotion: true, reducedTransparency: false)
+        let (_, v) = try fixture()
+        v.pressed = true
+        XCTAssertEqual(v.press.to, 0.97)
+        v.press.start -= 1
+        v.applyTransform()
+        XCTAssertEqual(v.transform.a, 0.97, accuracy: 1e-9)
         v.pressed = false
         XCTAssertEqual(v.press.to, 1)
     }
@@ -77,7 +90,6 @@ final class PressFeedbackIOSTests: XCTestCase {
     /// turn (`delaysContentTouches`). The release waits until the press has
     /// eased in, so the tap shows, as a UIButton's highlight does.
     func testAReleaseBeforeThePressWasSeenWaitsForIt() throws {
-        try XCTSkipIf(UIAccessibility.isReduceMotionEnabled, "reduced motion shows no press")
         let (_, v) = try fixture()
         v.pressed = true
         v.pressed = false

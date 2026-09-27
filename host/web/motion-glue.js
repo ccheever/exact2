@@ -51,6 +51,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
   const transformBindings=new Map(), geometryDirty=new Set();
   let geometryFrame=null, geometryDelivering=false, geometrySerial=0n;
   const key=(id,property)=>`${id}/${property}`;
+  const cssProperty=(el,property)=>property==='scale'&&el?.style.getPropertyValue('--exact-press')?'--exact-scale':property;
   // CSS height clamps negative interpolated lengths. Keep every spring sample
   // and its timing; only its displayed length changes, not the engine curve.
   const css=(property,value)=>property==='translate'?`${value[0]}px ${value[1]}px`:property==='rotate'?`${value[0]}deg`:property==='height'?`${Math.max(0,value[0])}px`:String(value[0]);
@@ -81,7 +82,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
     const k=key(id,property); animations.get(k)?.cancel(); animations.delete(k);
     // Browser easing is a CSSTransition; other properties continue undisturbed.
     for(const animation of el?.getAnimations()??[]) {
-      if(animation.effect?.target===el && animation.transitionProperty===property) animation.cancel();
+      if(animation.effect?.target===el && animation.transitionProperty===cssProperty(el,property)) animation.cancel();
     }
   }
   function overlay(id) {
@@ -90,8 +91,8 @@ export function motionController({views,now,generation,request,applyBatch,inert,
     if(raised.has(id)){el.style.zIndex='2147483647';if(getComputedStyle(el).position==='static')el.style.position='relative';}
     if(!active.length) return;
     const transition=el.style.transition;
-    el.style.transition=[...(transition && transition!=='none'?[transition]:[]), ...active.map(h=>`${h.property} 0s linear 0s`)].join(',');
-    for(const h of active) { el.style.setProperty(h.property,css(h.property,h.value)); cancelProperty(id,h.property,el); }
+    el.style.transition=[...(transition && transition!=='none'?[transition]:[]), ...active.map(h=>`${cssProperty(el,h.property)} 0s linear 0s`)].join(',');
+    for(const h of active) { el.style.setProperty(cssProperty(el,h.property),css(h.property,h.value)); cancelProperty(id,h.property,el); }
   }
   function restore(id) {
     const el=views.get(id); if(!el) return;
@@ -100,7 +101,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
     if(!raised.has(id)&&!properties.some(p=>held.has(key(id,p)))) authored.delete(id);
   }
   function sample(el,property) {
-    const text=getComputedStyle(el).getPropertyValue(property), numbers=text.trim().split(/\s+/);
+    const text=getComputedStyle(el).getPropertyValue(cssProperty(el,property)), numbers=text.trim().split(/\s+/);
     if(property==='translate') {
       if(text==='none') return [0,0];
       const box=el.getBoundingClientRect();
@@ -156,7 +157,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
   }
   function pairCurve(animation) {
     const props=new Set(animation.effect.getKeyframes().flatMap(frame=>Object.keys(frame))
-      .filter(p=>!['offset','computedOffset','easing','composite'].includes(p)));
+      .filter(p=>!['offset','computedOffset','easing','composite'].includes(p)).map(p=>p==='--exact-scale'?'scale':p));
     return {pair:props.has('translate')||props.has('scale'),coupled:[...props].some(p=>p!=='translate'&&p!=='scale')};
   }
   function transformSnapshot(b) {
@@ -181,7 +182,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       // stays identity. Refuse unsupported active curves, not decompose them.
       for(const a of el.getAnimations()) {
         if(a.effect?.target!==el||['idle','finished'].includes(a.playState))continue;
-        const forbidden=['rotate','transform','transformOrigin','transform-origin','perspective','zoom',...(el===b.targetEl?[]:['translate','scale'])];
+        const forbidden=['rotate','transform','transformOrigin','transform-origin','perspective','zoom',...(el===b.targetEl?[]:['translate','scale','--exact-scale','--exact-press-factor'])];
         if(forbidden.includes(a.transitionProperty)||a.effect.getKeyframes().some(frame=>forbidden.some(p=>p in frame)))return null;
         const curve=pairCurve(a);if(el===b.targetEl&&curve.pair&&curve.coupled)return null;
       }
@@ -338,7 +339,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       if(!local(h)) return false;
       const t=now(),reply=call('move',h,value,t); if(reply.accepted!==true) return false;
       h.t=t;
-      h.value=value; h.el.style.setProperty(h.property,css(h.property,value));
+      h.value=value; h.el.style.setProperty(cssProperty(h.el,h.property),css(h.property,value));
       if(reply.batch) applyBatch(reply.batch);
       return true;
     },
@@ -389,7 +390,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       cancelProperty(id,property);
       if(!op.values.length || held.has(k)) return;
       const el=views.get(id); if(!el) return;
-      const animation=el.animate(op.values.map(value=>({[property]:css(property,property==='translate'?value:[value,0])})),
+      const animation=el.animate(op.values.map(value=>({[cssProperty(el,property)]:css(property,property==='translate'?value:[value,0])})),
         {delay:op.delay,duration:op.duration,easing:'linear',fill:'backwards'});
       animations.set(k,animation);
       animation.finished.then(()=>{if(animations.get(k)===animation) animations.delete(k);},()=>{});
@@ -469,7 +470,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       }
       function present(d,v) {
         d.value=v;d.pair[0].value=v.slice(0,2);d.pair[1].value=[v[2],0];
-        for(const h of d.pair)if(local(h))h.el.style.setProperty(h.property,css(h.property,h.value));
+        for(const h of d.pair)if(local(h))h.el.style.setProperty(cssProperty(h.el,h.property),css(h.property,h.value));
       }
       function arm(e,extra) {
         const b=transformBindings.get(id);if(!transformLocal(b))return null;
@@ -756,7 +757,7 @@ export function arrangeController({views,collections,motion,request,applyBatch,n
       if(cs.visibility!=='visible'||cs.transform!=='none'||cs.perspective!=='none'||!['none','0deg'].includes(cs.rotate)
         ||!['none','1'].includes(cs.scale)||!['1','normal',''].includes(cs.zoom)||el!==b.row&&translate.some(v=>v!==0))return null;
       for(const a of el.getAnimations())if(a.effect?.target===el&&!['idle','finished'].includes(a.playState)) {
-        const forbidden=['scale','rotate','transform','perspective','zoom',...(el===b.row?[]:['translate'])];
+        const forbidden=['scale','--exact-scale','--exact-press-factor','rotate','transform','perspective','zoom',...(el===b.row?[]:['translate'])];
         if(forbidden.includes(a.transitionProperty)||a.effect.getKeyframes().some(f=>forbidden.some(p=>p in f)))return null;
       }
     }

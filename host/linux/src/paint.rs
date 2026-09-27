@@ -227,6 +227,7 @@ pub struct PaintedBox {
     pub scroll: Option<(f32, f32)>,
     projective: Option<ProjectiveHit>,
     affine: Option<(Transform, Rect4)>,
+    press: f32,
 }
 
 impl PaintedBox {
@@ -753,6 +754,7 @@ impl Painter {
             id,
             projective: None,
             affine: Some((ts, (x, y, w, h))),
+            press: p.press,
             rect: bbox(ts, (x, y, w, h)),
             clip: clip_rect,
             scroll: scrolls.then(|| walk.scene.scroll.get(&id).copied().unwrap_or((0.0, 0.0))),

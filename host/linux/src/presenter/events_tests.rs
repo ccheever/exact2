@@ -171,3 +171,77 @@ fn store_writes_are_dropped_with_their_commit() {
         "the write log went with its commit"
     );
 }
+
+fn press_fixture() -> Presenter<Keeps> {
+    let source = APP.replace(
+        "height=32\n      box opacity",
+        "width=100 height=32 scale=1.5 press-scale=0.5 transform-origin=\"0 0\"\n      box opacity",
+    );
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(&source).unwrap().encode(),
+        Keeps,
+        (400., 400.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    assert!(p
+        .set_preferences(exact_runner::Preferences {
+            reduced_motion: true,
+            ..Default::default()
+        })
+        .is_none());
+    p
+}
+
+#[test]
+fn a_held_press_multiplies_scale_about_the_origin_even_under_reduced_motion() {
+    let mut p = press_fixture();
+    let button = id(&p, "other");
+    let before = p.rect_of(button).unwrap();
+    let (x, y) = (before.0 + 20., before.1 + 10.);
+    assert!(p.pointer_down(x, y, 0.).unwrap());
+    p.clock(120.);
+    let held = p.rect_of(button).unwrap();
+    assert_eq!(held, (before.0, before.1, before.2 * 0.5, before.3 * 0.5));
+    // Moving off and back inside the original edge keeps the contact alive.
+    p.pointer_move(before.0 + before.2 + 5., y, 120.).unwrap();
+    p.clock(240.);
+    assert_eq!(p.rect_of(button).unwrap(), before);
+    p.pointer_move(before.0 + before.2 - 2., y, 240.).unwrap();
+    p.clock(360.);
+    assert_eq!(p.rect_of(button).unwrap(), held);
+    p.pointer_up(before.0 + before.2 - 2., y, 360.).unwrap();
+    p.clock(480.);
+    assert_eq!(p.rect_of(button).unwrap(), before);
+    assert!(
+        log(&p).ends_with(" 1"),
+        "the release still activates the original button"
+    );
+}
+
+#[test]
+fn a_repress_during_release_keeps_the_original_hit_box_and_cancel_never_activates() {
+    let mut p = press_fixture();
+    let button = id(&p, "other");
+    let before = p.rect_of(button).unwrap();
+    let (x, y) = (before.0 + 20., before.1 + 10.);
+    p.pointer_down(x, y, 0.).unwrap();
+    p.clock(120.);
+    p.pointer_cancel(120.).unwrap();
+    p.clock(150.);
+    let releasing = p.rect_of(button).unwrap();
+    assert!(releasing.2 > before.2 * 0.5 && releasing.2 < before.2);
+    p.pointer_down(x, y, 150.).unwrap();
+    assert_eq!(p.rect_of(button).unwrap(), releasing, "no jump on re-press");
+    p.pointer_move(before.0 + before.2 - 2., y, 150.).unwrap();
+    p.clock(270.);
+    assert_eq!(p.rect_of(button).unwrap().2, before.2 * 0.5);
+    p.pointer_cancel(270.).unwrap();
+    p.clock(390.);
+    assert_eq!(p.rect_of(button).unwrap(), before);
+    assert!(!p.host.motion(), "the feedback needs no more frames");
+    assert!(log(&p).ends_with(" 0"));
+}

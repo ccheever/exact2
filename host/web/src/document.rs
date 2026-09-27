@@ -194,7 +194,11 @@ impl<D: DataSource> Walk<'_, D> {
             .chain(&node.style.exit_animation.0)
         {
             if self.keyframes.get(&a.name).is_none() {
-                let rule = format!("@keyframes {}{{{}}}", a.name, a.keyframes.css());
+                let rule = format!(
+                    "@keyframes {}{{{}}}",
+                    a.name,
+                    crate::css::keyframes_css(&a.keyframes)
+                );
                 self.keyframes.insert(a.name.clone(), rule);
             }
         }

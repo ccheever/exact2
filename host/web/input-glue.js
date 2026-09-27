@@ -1,5 +1,5 @@
 // Input-only glue: loaded after the baked first pixel, independently of data readiness.
-export function createInputHandlers({ root, views, retiredViews, ready, inertAncestor, dispatch }) {
+export function createInputHandlers({ root, views, retiredViews, ready, inertAncestor, dispatch, agentMode = false }) {
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
   // route stays in this document: a link with its own `press` navigates by
   // it; any other goes to the root's `navigate` handler, as popstate does.
@@ -52,25 +52,54 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // ancestors, which `:active` would also match, do not), and shows it only
   // while the pointer is inside the box it had when pressed — leaving
   // releases it, coming back presses again; a pan or a cancel ends it. The
-  // node carries `data-pressed`; the shell's rule scales it. Its box is read
-  // unpressed: a press re-taken while the last one still eases out is
-  // scaled back about its centre.
+  // browser eases a separate factor, multiplied into CSS `scale`, so
+  // authored transforms, transitions and keyframes keep their values.
+  const feedback = new WeakMap();
+  const showPress = (el, down) => {
+    el.toggleAttribute("data-pressed", down);
+    const to = down ? Number(el.style.getPropertyValue("--exact-press")) : 1;
+    const old = feedback.get(el);
+    if (old?.to === to || !old && to === 1) return;
+    const progress = old?.animation.effect.getComputedTiming().progress ?? 0;
+    const from = old ? old.from + (old.to - old.from) * progress : 1;
+    old?.animation.cancel();
+    const animation = el.animate([{ "--exact-press-factor": from }, { "--exact-press-factor": to }], {
+      duration: agentMode ? 0 : 120, easing: "cubic-bezier(0.16,1,0.3,1)", fill: "both",
+    });
+    const state = { animation, from, to };
+    feedback.set(el, state);
+    animation.onfinish = () => {
+      if (to === 1 && feedback.get(el) === state) { animation.cancel(); feedback.delete(el); }
+    };
+    if (agentMode) animation.finish();
+  };
+  // A re-press may catch the release easing out. Neutralize only our effect
+  // for this synchronous measurement, then restore it before a frame. The
+  // browser undoes exactly that factor about transform-origin, including
+  // SVG's reference box and transformed ancestors; no transform is guessed.
+  const unpressedBox = el => {
+    const effect = feedback.get(el)?.animation.effect;
+    const frames = effect?.getKeyframes();
+    effect?.setKeyframes([{ "--exact-press-factor": 1 }]);
+    const box = el.getBoundingClientRect();
+    if (effect) effect.setKeyframes(frames);
+    return box;
+  };
   let press = null;
-  const release = () => { press?.el.removeAttribute("data-pressed"); press = null; };
+  const release = () => { if (press) showPress(press.el, false); press = null; };
   root.addEventListener("pointerdown", e => {
     if (e.button !== 0 || !e.isPrimary) return;
     release(); // a press whose release never reached the page
     const el = e.target.closest?.("[data-exact-on~=press]");
     if (!el || !root.contains(el) || !el.style.getPropertyValue("--exact-press") || el.closest(":disabled,[disabled='true']")) return;
-    const r = el.getBoundingClientRect(), f = new DOMMatrix(getComputedStyle(el).transform).a || 1;
-    const [cx, cy, w, h] = [r.left + r.width / 2, r.top + r.height / 2, r.width / f, r.height / f];
-    press = { el, id: e.pointerId, box: [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2] };
-    el.setAttribute("data-pressed", "");
+    const r = unpressedBox(el);
+    press = { el, id: e.pointerId, box: [r.left, r.top, r.right, r.bottom] };
+    showPress(el, true);
   }, true);
   document.addEventListener("pointermove", e => {
     if (e.pointerId !== press?.id) return;
     const [l, t, r, b] = press.box;
-    press.el.toggleAttribute("data-pressed", e.clientX >= l && e.clientX <= r && e.clientY >= t && e.clientY <= b);
+    showPress(press.el, e.clientX >= l && e.clientX <= r && e.clientY >= t && e.clientY <= b);
   }, true);
   for (const type of ["pointerup", "pointercancel"]) document.addEventListener(type, e => { if (e.pointerId === press?.id) release(); }, true);
   return {

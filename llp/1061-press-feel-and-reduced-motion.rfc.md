@@ -17,8 +17,8 @@
 grnl's design system asks three things of the platform a designer cannot
 build in Contract: a press that gives under the finger (0.97 for buttons,
 0.994 for cards), motion that runs at 120 Hz on a ProMotion iPhone, and a
-Reduce Motion setting that collapses every duration to zero and turns the
-press off. This adds one host-owned style row, one rate policy, and two
+Reduce Motion setting that collapses authored durations to zero while
+keeping the press feedback. This adds one host-owned style row, one rate policy, and two
 fields on the viewport fact:
 
 ```
@@ -91,21 +91,26 @@ overrides the engine's model writes while it runs); `layer.sublayerTransform`
 layer between the view and its content (every node would pay for it).
 
 **D3 — On the web it is CSS, composed rather than replaced.** The row emits
-`--exact-press:<n>` and a `transform 0.12s cubic-bezier(0.16,1,0.3,1)` entry
-appended to the node's own `transition` list (last, so it beats an authored
-`all`); the shell's stylesheet holds one rule,
-`[data-pressed] { transform: scale(var(--exact-press)) }`,
-inside `@media (prefers-reduced-motion: no-preference)`. Which node is
-pressed is UIKit's rule, not `:active`'s (2026-09-27): the input glue marks
-`data-pressed` on the innermost node with a `press` handler under a primary
-`pointerdown` (never its pressable ancestors, which `:active` also matches;
-nothing when that innermost one has no row or is disabled), keeps it only
-while the pointer is inside the box it had when pressed (`:active` holds while
-the button is down anywhere), and drops it on `pointerup`, `pointercancel`
-or when a pan takes the contact. `transform` is no
-row's — the motion rows are CSS's individual `translate`/`scale`/`rotate`
-properties — so it composes with them and with the engine's animations of
-them.
+`--exact-press:<n>`. A pressable node's CSS `scale` multiplies two registered,
+non-inherited numbers: `--exact-scale` (the authored row's presentation) and
+`--exact-press-factor` (1 when idle). The input glue eases the latter through
+Web Animations over 120 ms on `cubic-bezier(.16,1,.3,1)`; nothing runs per
+frame in JavaScript. Authored scale transitions and lowered springs address
+`--exact-scale`; keyframes supply both that number and ordinary CSS `scale`,
+so non-pressable nodes keep their normal CSS declarations. On a pressable
+node the composed `scale` is important so a scale keyframe cannot replace
+its multiplication. No press writes `transform`, including on SVG.
+
+Which node is pressed follows UIKit's rule, not `:active`'s: only the
+innermost node with a `press` handler under a primary `pointerdown`, never
+its pressable ancestors; nothing when that node has no row or is disabled.
+The glue marks `data-pressed` only while the pointer stays inside its
+unpressed box, and releases on up, cancel or pan takeover. Re-pressing
+while release eases out measures with only the feedback effect neutralized
+and restored synchronously: the browser keeps the authored transforms and
+undoes the feedback about the actual `transform-origin`, including SVG's
+reference box. Reduced motion keeps the feedback. Under the agent's clock
+the feedback lands immediately, as on Apple.
 
 **D4 — Motion that moves things runs at the panel's full rate.** `Frames.run`
 already asked for `CAFrameRateRange(80, max, max)` for a canvas; motion asks
@@ -143,9 +148,8 @@ policy: the app writes `none`, as a stylesheet would. Hosts:
 - **Linux and the build-time renderer:** no preference; neither has a
   setting to read.
 
-UIKit's press feedback reads `UIAccessibility.isReduceMotionEnabled` itself
-at touch-down (AppKit's, `NSWorkspace`'s): it is host-owned feedback, so the
-host honours the setting.
+Press feedback remains visible with either motion preference (the
+2026-09-27 ruling); the preference is still reported to the app.
 
 An agent sets the preferences with `prefer` (LLP 1012, 2026-09-27), by CSS's
 media feature names — `prefers-reduced-motion` and
@@ -183,7 +187,7 @@ reduced-motion switch (`DEFERRED`).
 
 Every duration an app authors can collapse on one derive:
 `transition=(still ? "none" : "…")`, `animation=(still ? "none" : "…")`, and
-`press-scale` needs nothing (the hosts drop it). A `style` that holds a
+`press-scale` needs nothing (the hosts keep its feedback). A `style` that holds a
 `transition` is chosen with a class choice (`class=(still ? Still : Moving)`).
 There is no stylesheet-wide switch: Contract has no media blocks, so a
 reduced-motion app writes the condition where the motion is.
@@ -237,9 +241,12 @@ reduced-motion app writes the condition where the motion is.
 
 ## Known gaps
 
-- **Not a gap: Linux shows no press.** It has no pointer: its `tap` is an
-  activation and a contact's phases answer `unsupported` (LLP 1012), so no
-  input ever holds a node down, and a pressed state would never be set.
+- **Linux now has contact feedback (2026-09-27).** Its presenter contact
+  path (evdev, VNC and seekable agent contacts) eases a separate factor into
+  the painter's scale about `transform-origin`, kept under reduced motion.
+  Leaving and returning uses the unpressed painted box; cancel or gesture
+  takeover releases without activation. The engine's scale remains its own.
+  The one-shot `tap` remains an activation; phases exercise the feedback.
 - **Not a gap: the agent's one-shot `tap` on iOS shows no press.** UIKit has
   no public touch synthesis, so LLP 1012 declares it an activation
   (`delivery: "activation"`), as VoiceOver's is; a press is a touch's. The

@@ -706,6 +706,7 @@ impl<'a> Replay<'a> {
                         walk.boxes.push(PaintedBox {
                             projective: None,
                             affine: Some((parent, g.outer.rect)),
+                            press: 1.,
                             id: n.id,
                             rect: bbox(parent, g.outer.rect),
                             clip,
@@ -797,6 +798,7 @@ mod hit_tests {
                 scroll: None,
                 projective: None,
                 affine: Some((ts, rect)),
+                press: 1.,
             };
             assert!(b.contains(50.0, 50.0));
             assert!(!b.contains(200.0, 200.0));

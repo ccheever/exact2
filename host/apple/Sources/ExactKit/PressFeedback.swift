@@ -5,7 +5,7 @@
 // waits for the runner — and it composes with the motion engine by folding
 // into the one transform every writer goes through (`applyTransform`): an
 // engine write mid-press keeps the press, a press mid-transition keeps the
-// engine's value. Reduced motion drops it. The tap itself is unchanged:
+// engine's value. Reduced motion keeps this feedback. The tap is unchanged:
 // `pressed` and the scroll view's cancel decide it, as before. Every
 // transform turns about the node's `transform-origin` (LLP 1061 D6).
 #if os(macOS)
@@ -76,7 +76,7 @@ extension NodeView {
     func pressFollows(inside: Bool) { if pressed { aimPress(inside) } }
 
     private func aimPress(_ down: Bool, release: Bool = false) {
-        let target = down && !DisplayPreferences.reducedMotion ? number("press_scale", 1) : 1
+        let target = down ? number("press_scale", 1) : 1
         let now = CACurrentMediaTime()
         guard target > 0 else { return }
         // Under the agent's clock (LLP 1012) nothing moves between two

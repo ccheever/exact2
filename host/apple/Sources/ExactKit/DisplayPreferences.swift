@@ -1,8 +1,8 @@
 // The user's display preferences, as the platform's accessibility settings
 // hold them (LLP 1061 D5): what a browser reports as `prefers-reduced-motion`
 // and `prefers-reduced-transparency`. The runner answers them through
-// `exactViewport()`; the app decides what they mean. The host reads reduced
-// motion itself only for the feedback it owns: press scale (LLP 1061 D2).
+// `exactViewport()`; the app decides what they mean. Press feedback stays
+// visible under reduced motion (LLP 1061's 2026-09-27 ruling).
 // An agent's `prefer` stands in for the settings, for this process only.
 #if os(macOS)
 import AppKit

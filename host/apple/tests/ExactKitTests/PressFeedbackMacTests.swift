@@ -32,7 +32,6 @@ final class PressFeedbackMacTests: XCTestCase {
     }
 
     func testTheButtonHeldInsidePressesAndADragOutReleases() throws {
-        try XCTSkipIf(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, "reduced motion shows no press")
         let (p, v) = fixture()
         var pressed: [UInt32] = []
         p.onPress = { pressed.append($0) }
@@ -49,6 +48,20 @@ final class PressFeedbackMacTests: XCTestCase {
         XCTAssertFalse(v.pressed)
         XCTAssertEqual(v.press.to, 1)
         XCTAssertEqual(pressed, [1], "the click is the tap it was")
+    }
+
+    func testReducedMotionKeepsThePress() throws {
+        let previous = DisplayPreferences.agent
+        defer { DisplayPreferences.agent = previous }
+        DisplayPreferences.agent = (reducedMotion: true, reducedTransparency: false)
+        let (_, v) = fixture()
+        v.pressed = true
+        XCTAssertEqual(v.press.to, 0.97)
+        v.press.start -= 1
+        v.applyTransform()
+        XCTAssertEqual(try XCTUnwrap(v.layer?.affineTransform().a), 0.97, accuracy: 1e-9)
+        v.pressed = false
+        XCTAssertEqual(v.press.to, 1)
     }
 
     func testANodeWithoutTheRowGivesNoFeedback() {

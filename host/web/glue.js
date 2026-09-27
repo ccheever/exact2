@@ -1442,7 +1442,7 @@ async function main() {
     if (!agentMode) loadAfterPaint('./timer-glue.js', 'createTimerScheduler').then(create => { timerFactory = create; startClock(); }).catch(console.error);
     // @ref LLP 1043.000 §3 D8 — one optional load, no activation wait or retry queue.
     loadAfterPaint('./input-glue.js', 'createInputHandlers').then(create => {
-      inputHandlers = create({ root, views, retiredViews, ready: () => inputReady, inertAncestor,
+      inputHandlers = create({ root, views, retiredViews, agentMode, ready: () => inputReady, inertAncestor,
         dispatch: (id, payload) => send(wasm.exact_dispatch(id, 20, writeIn(payload), now())) });
     }).catch(console.error);
     try {

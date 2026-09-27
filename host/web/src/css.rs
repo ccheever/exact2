@@ -34,11 +34,9 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
     let mut skipped = Vec::new();
     let mut shadow: Option<(f32, f32, f32, ColorValue, f32)> = None;
     let unset = (0.0, 0.0, 0.0, ColorValue::Fixed(Color::TRANSPARENT), 0.0);
-    // @ref LLP 1061 D3 — a press eases `transform`, which no row writes, so it
-    // joins the node's own transitions instead of replacing them; the page's
-    // `[data-pressed]` rule reads `--exact-press`.
+    // @ref LLP 1061's ruling: the row and host feedback are independent
+    // CSS numbers, multiplied through `scale` without writing `transform`.
     let press = style.mask.has(StyleId::PressScale) && style.press_scale != 1.0;
-    let mut press_pending = press;
     for id in style.mask.iter() {
         let value = style.get(id);
         match (id, &value) {
@@ -58,11 +56,22 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
             (StyleId::Transition, RowValue::Transitions(t)) => {
                 let (mut text, spring_skipped) = transition_css(t);
                 if press {
-                    if !text.is_empty() {
-                        text.push(',');
+                    // CSS transitions sit outside the additive animation stack.
+                    // Transition the row's typed number so a press multiplies
+                    // its current value, not the transition's final target.
+                    text = text.replace("scale ", "--exact-scale ");
+                    if let Some(tr) = t.matching(Property::Scale) {
+                        let mut tr = tr.clone();
+                        tr.property = TransitionProperty::Property(Property::Scale);
+                        let (scale, _) = transition_css(&Transitions(vec![tr]));
+                        if !scale.is_empty() {
+                            if !text.is_empty() {
+                                text.push(',');
+                            }
+                            text.push_str("scale 0s,");
+                            text.push_str(&scale.replace("scale ", "--exact-scale "));
+                        }
                     }
-                    text.push_str(PRESS_TRANSITION);
-                    press_pending = false;
                 }
                 if !text.is_empty() {
                     push_text!(&mut out, "transition:{};", text);
@@ -98,9 +107,14 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                     push_text!(&mut out, "--exact-layout-transition:{};", text);
                 }
             }
+            (StyleId::Scale, RowValue::Number(n)) if press => {
+                out.push_str("--exact-scale:");
+                num_into(&mut out, *n as f32);
+                out.push(';');
+            }
             (StyleId::PressScale, RowValue::Number(n)) => {
                 if press {
-                    out.push_str("--exact-press:");
+                    out.push_str("scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:");
                     num_into(&mut out, *n as f32);
                     out.push(';');
                 }
@@ -169,9 +183,6 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
             }),
         }
     }
-    if press_pending {
-        push_text!(&mut out, "transition:{};", PRESS_TRANSITION);
-    }
     if let Some((x, y, radius, color, opacity)) = shadow {
         // The opacity row folds into each colour's alpha, both halves of a
         // `light-dark()` pair alike: the browser still resolves the pair per
@@ -207,9 +218,23 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
     (out, skipped)
 }
 
-/// The press's ease in and back (LLP 1061 D2): 120 ms on a fast settle.
-/// Last in the list, so it wins over an authored `all` for `transform`.
-const PRESS_TRANSITION: &str = "transform 0.12s cubic-bezier(0.16,1,0.3,1) 0s";
+/// A scale keyframe also supplies the row number used by pressable nodes.
+/// Their important `scale` composition wins over the animation's scale;
+/// ordinary nodes still animate CSS `scale` directly.
+pub(crate) fn keyframes_css(frames: &exact_motion::animation::Keyframes) -> String {
+    let text = frames.css();
+    let mut out = String::new();
+    let mut rest = text.as_str();
+    while let Some(at) = rest.find("scale:") {
+        let end = at + rest[at..].find(';').expect("a keyframe declaration ends");
+        out.push_str(&rest[..=end]);
+        out.push_str("--exact-");
+        out.push_str(&rest[at..=end]);
+        rest = &rest[end + 1..];
+    }
+    out.push_str(rest);
+    out
+}
 
 fn is_generic_family(value: &str) -> bool {
     matches!(
@@ -890,16 +915,15 @@ mod declaration_tests {
         );
     }
 
-    /// LLP 1061 D3: a press scale is `--exact-press` for the page's pressed
-    /// rule, plus a `transform` entry appended to the node's own transitions
-    /// — never replacing them, and last so it wins over `all`. 1 is none.
+    /// The feedback's separate factor leaves the row's scale and
+    /// authored transition list intact; 1 needs no effect.
     #[test]
-    fn a_press_scale_joins_the_transitions_it_finds() {
+    fn a_press_scale_keeps_the_authored_scale_and_transitions() {
         let n = StyleValue::Number;
         let t = |s: &str| StyleValue::Text(s.into());
         assert_eq!(
             css(&[(StyleId::PressScale, n(0.97))], &[]),
-            "--exact-press:0.97;transition:transform 0.12s cubic-bezier(0.16,1,0.3,1) 0s;"
+            "scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.97;"
         );
         assert_eq!(
             css(
@@ -910,7 +934,7 @@ mod declaration_tests {
                 ],
                 &[]
             ),
-            "scale:1.5;transition:all 0.2s ease 0s,transform 0.12s cubic-bezier(0.16,1,0.3,1) 0s;--exact-press:0.994;"
+            "--exact-scale:1.5;transition:all 0.2s ease 0s,scale 0s,--exact-scale 0.2s ease 0s;scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.994;"
         );
         assert_eq!(css(&[(StyleId::PressScale, n(1.0))], &[]), "");
         assert_eq!(

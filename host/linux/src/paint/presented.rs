@@ -16,6 +16,8 @@ pub struct Presented {
     pub translate: (f32, f32),
     /// Uniform.
     pub scale: f32,
+    /// Host feedback, multiplied into scale without entering the motion engine.
+    pub press: f32,
     /// Degrees.
     pub rotate: f32,
     /// Zero to one.
@@ -35,6 +37,7 @@ impl Presented {
     pub const IDENTITY: Presented = Presented {
         translate: (0.0, 0.0),
         scale: 1.0,
+        press: 1.0,
         rotate: 0.0,
         opacity: 1.0,
         svg: [None; 8],
@@ -47,6 +50,7 @@ impl Presented {
         Presented {
             translate: (s.translate.x, s.translate.y),
             scale: s.scale,
+            press: 1.0,
             rotate: s.rotate,
             opacity: s.opacity,
             svg: [None; 8],
@@ -58,6 +62,7 @@ impl Presented {
     pub(super) fn moves(&self) -> bool {
         self.translate != (0.0, 0.0)
             || self.scale != 1.0
+            || self.press != 1.0
             || self.rotate != 0.0
             || self.layout != Presented::IDENTITY.layout
     }
@@ -75,7 +80,7 @@ impl Presented {
         let [dx, dy, ..] = self.layout;
         Transform::from_translate(cx + dx + self.translate.0, cy + dy + self.translate.1)
             .pre_rotate(self.rotate)
-            .pre_scale(self.scale, self.scale)
+            .pre_scale(self.scale * self.press, self.scale * self.press)
             .pre_translate(-cx, -cy)
     }
 
@@ -86,6 +91,24 @@ impl Presented {
     pub(super) fn surface(&self, (x, y, w, h): (f32, f32, f32, f32)) -> (f32, f32, f32, f32) {
         let [.., sx, sy] = self.layout;
         (x, y, (w * sx).max(0.0), (h * sy).max(0.0))
+    }
+}
+
+impl super::PaintedBox {
+    /// Undo only this node's feedback in its own reference box. The painted
+    /// matrix keeps the authored scale, rotation, origin and all ancestors.
+    pub(crate) fn unpressed(mut self, origin: exact_kernel::svg::TransformOrigin) -> Self {
+        if let Some((ts, rect)) = self.affine {
+            let (ox, oy) = origin.resolve(rect.2, rect.3);
+            let ts = ts
+                .pre_translate(rect.0 + ox, rect.1 + oy)
+                .pre_scale(1. / self.press, 1. / self.press)
+                .pre_translate(-rect.0 - ox, -rect.1 - oy);
+            self.affine = Some((ts, rect));
+            self.rect = super::bbox(ts, rect);
+            self.press = 1.;
+        }
+        self
     }
 }
 

@@ -214,7 +214,7 @@ component InteractionGallery
           text gallery.notice testId="status" font-size=11 color=theme.accent
           input value=draft change=edit testId="gallery-input" aria-label="Write a note while browsing and resizing" placeholder="Write a note while browsing or resizing…" padding=8 border-width=1 border-style="solid" border-color=theme.edge border-radius=6 background-color=theme.page color=theme.ink font-size=13
           text "Six imagined places · Generated photographic illustrations · Available offline" testId="readiness" font-size=10 color=theme.muted
-          text (media.prefersReducedMotion ? "Reduced motion: no press feedback, no entrance" : "Buttons give under a press; cards barely") testId="motion-preference" font-size=10 color=theme.muted
+          text (media.prefersReducedMotion ? "Reduced motion: press feedback stays, no entrance" : "Buttons give under a press; cards barely") testId="motion-preference" font-size=10 color=theme.muted
 
 component ModeButton
   inject
