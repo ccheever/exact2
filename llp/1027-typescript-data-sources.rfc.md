@@ -766,11 +766,12 @@ archives are copied into `OUT_DIR`, so normal bake receipts inventory the
 actual linked engine inputs. Missing target archives produce a named refusing
 stub, not an apparent working executor. Rust-only clients still link no VM.
 
-Provisioning uses pristine Hermes commit
-`e3371863eec2a20fad0ff46d8670a88c5c844bd7` (updated 2026-09-19), matching the
-sibling ibex vanilla headers/compiler receipt. This stable-branch update includes
-SerialExecutor finalizer race and shutdown deadlock fixes (#2162). Do not substitute the full iOS framework (it embeds
-a compiler). For each platform, configure the source with CMake/Ninja:
+Provisioning uses pristine Hermes at the commit `js/build.rs` pins
+(`HERMES_PIN`, the one place it is written), matching the sibling ibex vanilla
+headers and compiler. Do not substitute the full iOS framework (it embeds
+a compiler). `host/apple/build.mjs --ios` runs this recipe itself when a
+platform's archives are missing (LLP 1036.001 D5). For each platform it
+configures the source with CMake:
 
 ```sh
 cmake -S <matching-hermes-source> -B <build-dir> -G Ninja \
@@ -786,12 +787,13 @@ cmake --build <build-dir> --target hermesvmlean_a jsi boost_context -j 8
 
 For device use `iphoneos`. The import file defines an `IMPORTED` executable
 `imported-hermesc` with `IMPORTED_LOCATION` pointing to the matching macOS
-compiler. Preserve these output paths under each of
-`target/hermes-ios/{ios,ios-simulator}/`: `lib/libhermesvmlean_a.a`,
-`jsi/libjsi.a`, `external/boost/boost_1_86_0/libs/context/libboost_context.a`.
-`EXACT_HERMES_IOS_DIR` overrides that root; archive inputs must remain within
-the source roots captured by the normal build receipt. `EXACT_HERMES_DIR`
-continues to supply `hermes-headers` and `macos-static`.
+compiler. These output paths are kept under each of
+`~/.cache/exact/hermes/<pin>-lean-ios/{ios,ios-simulator}/`:
+`lib/libhermesvmlean_a.a`, `jsi/libjsi.a`, and
+`external/boost/boost_1_86_0/libs/context/libboost_context.a`.
+`EXACT_HERMES_IOS_DIR` overrides that root. The build receipt names these
+archives relative to the root. `EXACT_HERMES_DIR` continues to supply
+`hermes-headers` and `macos-static`.
 
 An external L=0 module client built with ordinary `host/apple/build.mjs --ios`
 ran on iPhone 17 Pro / iOS 26.5 simulator: async after `Promise.resolve()`, two

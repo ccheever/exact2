@@ -553,6 +553,15 @@ function buildCommand(command, args, app, env, stderr = 'pipe') {
   if (result.error || result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed: ${result.error?.message ?? result.stderr ?? `exit ${result.signal ?? result.status} (see diagnostics above)`}\n${(result.stdout ?? '').slice(-4000)}`);
   return result;
 }
+/** The lean iOS Hermes archives js/build.rs links: EXACT_HERMES_IOS_DIR's, or
+ * the per-pin cache every checkout shares, which host/apple/build.mjs fills
+ * (`cached`). The pin is js/build.rs's HERMES_PIN. @ref LLP 1036.001 D5 */
+export function hermesIos(env = process.env) {
+  const pin = /const HERMES_PIN: &str = "([0-9a-f]{40})";/.exec(readFileSync(resolve(ROOT, 'js/build.rs'), 'utf8'))?.[1];
+  if (!pin) throw new Error('js/build.rs names no HERMES_PIN');
+  if (env.EXACT_HERMES_IOS_DIR) return { pin, root: resolve(env.EXACT_HERMES_IOS_DIR), cached: false };
+  return { pin, root: resolve(env.HOME ?? homedir(), '.cache/exact/hermes', `${pin.slice(0, 12)}-lean-ios`), cached: true };
+}
 export function bakeTarget(platform) {
   if (platform === 'web') return 'wasm32-unknown-unknown';
   if (platform === 'ios') return 'aarch64-apple-ios';
@@ -670,12 +679,14 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   const replaced = new Set(['app.plan','compat.json','artifacts.json'].map((n) => resolve(rootOutput,n)));
   const packages = [...graph.roles.keys()].map((id) => graph.packages.get(id));
   const locations = packages.map((p) => ({ path: dirname(p.manifest_path), name:`crate:${p.name}@${p.version}` })).sort((a,b) => b.path.length-a.path.length);
+  const hermes = hermesIos(env).root;
   const nameOf = (path) => {
     path = resolve(path);
     const made = generated.find((g) => under(g.path,path));
     if (made) return `generated:${made.pkg.name}:${made.role}/${relative(made.path,path)}`;
     const pkg = locations.find((p) => under(p.path,path));
     if (pkg) return `${pkg.name}/${relative(pkg.path,path)}`;
+    if (under(hermes,path)) return `hermes-ios/${relative(hermes,path)}`; // wherever the archives live
     if (under(app.dir,path)) return `app/${relative(app.dir,path)}`;
     if (under(ROOT,path)) return `exact/${relative(ROOT,path)}`;
     if (under(graph.metadata.workspace_root,path)) return `workspace/${relative(graph.metadata.workspace_root,path)}`;

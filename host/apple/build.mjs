@@ -31,7 +31,7 @@ import { homedir, networkInterfaces, tmpdir } from 'node:os';
 import { createServer as createTCPServer } from 'node:net';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { copyShaders, appleCargoClaims, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
+import { copyShaders, appleCargoClaims, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesIos, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
@@ -598,6 +598,56 @@ export function receipt(app, fields) {
   }, null, 2) + '\n';
 }
 
+// ---------------------------------------------------------------- the lean Hermes an iOS app links
+
+/** The archives js/build.rs links from each platform's CMake build. */
+export const HERMES_IOS_ARCHIVES = ['lib/libhermesvmlean_a.a', 'jsi/libjsi.a', 'external/boost/boost_1_86_0/libs/context/libboost_context.a'];
+// Checks the source, then builds and publishes one platform; ibex's lock is held throughout.
+const HERMES_IOS_SCRIPT = `set -eu
+src=$1 pin=$2 root=$3 platform=$4 sdk=$5 arch=$6; shift 6
+out=$root/$platform build=$root/.build-$platform
+fix="run ./scripts/build-hermes.sh --vanilla $pin in ibex"
+[ -d "$src/.git" ] || { echo "no Hermes source at $src: $fix" >&2; exit 1; }
+head=$(git -C "$src" rev-parse HEAD)
+[ "$head" = "$pin" ] || { echo "ibex's Hermes source $src is at $head; js/build.rs pins $pin: $fix" >&2; exit 1; }
+[ -z "$(git -C "$src" status --porcelain --untracked-files=no)" ] || { echo "ibex's Hermes source $src is patched; the lean VM is pristine upstream: $fix" >&2; exit 1; }
+[ -f "$src/build_host_hermesc/ImportHostCompilers.cmake" ] || { echo "no host compiler in $src/build_host_hermesc: $fix" >&2; exit 1; }
+if [ -e "$out" ]; then
+  for a; do [ -f "$out/$a" ] || { echo "$out lacks $a: remove it and build again" >&2; exit 1; }; done
+  exit 0
+fi
+cmake -S "$src" -B "$build" -DHERMES_APPLE_TARGET_PLATFORM="$sdk" -DCMAKE_OSX_ARCHITECTURES="$arch" \\
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0 -DHERMES_ENABLE_DEBUGGER=OFF -DHERMES_ENABLE_INTL=ON \\
+  -DHERMES_ENABLE_TEST_SUITE=OFF -DHERMES_ENABLE_BITCODE=OFF -DHERMES_BUILD_APPLE_FRAMEWORK=OFF \\
+  -DHERMES_BUILD_SHARED_JSI=OFF -DIMPORT_HOST_COMPILERS="$src/build_host_hermesc/ImportHostCompilers.cmake" \\
+  -DCMAKE_BUILD_TYPE=MinSizeRel
+cmake --build "$build" --target hermesvmlean_a jsi boost_context -j "$(sysctl -n hw.ncpu)"
+stage=$(mktemp -d "$root/.stage-$platform.XXXXXX") && chmod 755 "$stage"
+for a; do mkdir -p "$stage/$(dirname "$a")"; cp "$build/$a" "$stage/$a"; done
+mv "$stage" "$out"
+rm -rf "$build"`;
+
+/** An iOS app with an `app.ts` links lean Hermes for its platform. Missing
+ * from the per-pin cache every checkout and outside app shares, it is built
+ * here, once per machine: only that platform's three CMake targets, from
+ * ibex's pristine source cache with ibex's host compiler, under ibex's own
+ * source-build lock, so neither build moves the checkout under the other.
+ * EXACT_HERMES_IOS_DIR's archives are provisioned elsewhere; js/build.rs
+ * refuses missing ones. @ref LLP 1036.001 D5 */
+export function provisionHermesIos(platform, env = process.env) {
+  const { pin, root, cached } = hermesIos(env), out = resolve(root, platform);
+  if (!cached || HERMES_IOS_ARCHIVES.every(a => existsSync(resolve(out, a)))) return;
+  const cache = resolve(env.HOME ?? homedir(), '.cache/exact');
+  console.error(`host/apple: building lean Hermes for ${platform} (facebook/hermes ${pin.slice(0, 12)}) into ${out}, once for this machine`);
+  mkdirSync(root, { recursive: true });
+  const { SDKROOT, ...clean } = env; // the platform names its own SDK
+  const sdk = platform === 'ios' ? 'iphoneos' : 'iphonesimulator', arch = platform === 'ios' || process.arch === 'arm64' ? 'arm64' : 'x86_64';
+  const r = spawnSync('perl', ['-MFcntl=:flock', '-e', 'open(my $l, ">>", shift) or die "lock: $!\\n"; flock($l, LOCK_EX) or die "flock: $!\\n"; exit(system(@ARGV) == 0 ? 0 : 1)',
+    resolve(cache, 'hermes-source-build.lock'), 'sh', '-c', HERMES_IOS_SCRIPT, 'hermes', resolve(cache, 'hermes/hermes-src'), pin, root, platform, sdk, arch, ...HERMES_IOS_ARCHIVES],
+    { env: clean, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  if (r.status !== 0) throw new Error(`lean Hermes for ${platform} did not build (${r.error?.message ?? `exit ${r.status}`}):\n${`${r.stdout ?? ''}${r.stderr ?? ''}`.trim().split('\n').slice(-30).join('\n')}`);
+}
+
 // ---------------------------------------------------------------- the build
 
 function main(args) {
@@ -661,6 +711,7 @@ function main(args) {
   let bakedPlan, paths;
   const development = cargoEnv.EXACT_UPDATE_TRUST === 'development' && args.includes('--url') ? developmentAdmission(app, launchEnv.EXACT_DEV_PLAN) : null;
   cargoEnv.EXACT_BAKE_OUTPUT = bakeOutput(app, cargoEnv);
+  if (ios && existsSync(resolve(app.dir, 'app.ts')) && cargoEnv.EXACT_JS_ENGINE !== 'stub') provisionHermesIos(device ? 'ios' : 'ios-simulator');
   const buildReceipt = buildBake(app, ios ? 'ios' : 'macos', target, { env: cargoEnv, profile: cargoProfile, prepareGpu(product) {
     // Cargo puts its own unsigned file back on every build, and a signature
     // carries its signing time: signing in place made the app's bake (which
