@@ -658,7 +658,7 @@ Admitted by Charlie on 2026-09-27 (§0.1). The text below is in §Components, af
    - draws are not atomic: a throw keeps what was recorded before it, as Chrome does (D4);
    - limits stay, at what browsers enforce, with a measured total budget (D4).
 
-**Open, for Charlie when he next looks:** the Contract spelling of the bitmap attributes. HTML spells them `width` and `height`, which Contract already uses for the box's CSS size, so r3 spells them `bitmap-width` and `bitmap-height`.
+**The spelling of the bitmap attributes (Charlie, 2026-09-27):** "let's do bitmap-width/bitmap-height for now i guess but keep an eye on whether agents stumble on it." HTML spells them `width` and `height`, which Contract already uses for the box's CSS size, so they stay `bitmap-width` and `bitmap-height`. Revisit trigger: agents (or people) writing `width`/`height` on a canvas meaning its bitmap. Contract should then say so by name, and the web's spelling (`width`/`height` meaning the bitmap on `canvas` only) is the alternative. QUEUE.md tracks it.
 
 ## 11. Appendix: the probes (2026-09-27, Apple M5 Max)
 
