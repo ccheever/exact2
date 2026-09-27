@@ -788,10 +788,10 @@ if (!argv.includes('--app-only')) {
   writeFileSync(resolve(tmp, 'strings/en.json'), '{"greeting":"Hello"}');
   writeFileSync(resolve(tmp, 'strings/fr.json'), '{"greeting":"Bonjour"}');
   writeFileSync(resolve(tmp, 'strings/ar.json'), '{"greeting":"مرحبا"}');
-  writeFileSync(source, 'shape Time\n  locale: string\n  resolvedLocale: string\n  timeZone: string\n  seed: number\ncomponent App\n  resource time = exactTime() as shape Time\n  view\n    column\n      text `${time.locale}|${time.resolvedLocale}|${time.timeZone}|${time.seed}` testId="place"\n      text t("greeting") testId="greeting"\n');
+  writeFileSync(source, 'shape Time\n  locale: string\n  resolvedLocale: string\n  timeZone: string\n  seed: number\n  epochAtZero: number\n  utcOffset: number\ncomponent App\n  resource time = exactTime() as shape Time\n  state minute = 0\n  action tick writes minute\n    minute = time.epochAtZero + now()\n  task minutes mount\n    every(60000, tick)\n  view\n    column\n      text `${time.locale}|${time.resolvedLocale}|${time.timeZone}|${time.seed}` testId="place"\n      text `${time.epochAtZero}|${time.utcOffset}|${minute}` testId="date"\n      text t("greeting") testId="greeting"\n');
   const compiled = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', source, '-o', plan], {cwd:ROOT, encoding:'utf8'});
   check(compiled.status === 0, 'launch facts fixture compiles: ' + compiled.stderr);
-  if (compiled.status === 0) for (const options of [{}, {}, {seed:42, locale:'fr-CA', timeZone:'America/Toronto'}, {seed:42, locale:'ar-EG', timeZone:'UTC'}]) {
+  if (compiled.status === 0) for (const options of [{}, {}, {seed:42, locale:'fr-CA', timeZone:'America/Toronto', epoch:'2026-09-21T14:13:20Z'}, {seed:42, locale:'ar-EG', timeZone:'UTC'}]) {
     const f = await open({host, plan, ...options});
     try {
       const lang = options.locale === 'ar-EG' ? 'ar' : options.locale ? 'fr' : 'en';
@@ -799,6 +799,11 @@ if (!argv.includes('--app-only')) {
       const expected = `${options.locale ?? 'en-US'}|${lang}|${options.timeZone ?? 'UTC'}|${options.seed ?? 1}`;
       const tree = await f.tree();
       check(byTestId(tree, 'place')?.props.text === expected, `launch facts: expected ${expected}, got ${byTestId(tree, 'place')?.props.text}`);
+      // LLP 1027.000.000 D3: the drive's epoch and its zone's offset; the agent clock moves the date.
+      const [epoch, offset] = options.epoch ? [1790000000000, -240] : [1767225600000, 0];
+      check(byTestId(tree, 'date')?.props.text === `${epoch}|${offset}|0`, `launch date: expected ${epoch}|${offset}|0, got ${byTestId(tree, 'date')?.props.text}`);
+      await f.clock('+60000');
+      check(byTestId(await f.tree(), 'date')?.props.text === `${epoch}|${offset}|${epoch + 60000}`, 'the agent clock moves the date');
       check(byTestId(tree, 'greeting')?.props.text === ({en:'Hello', fr:'Bonjour', ar:'مرحبا'}[lang]), 'launch locale selects the translation table');
       const language = (await f.state()).language;
       check(language.lang === lang && language.dir === dir, 'resolved language and direction reach the host');
@@ -814,7 +819,7 @@ if (!argv.includes('--app-only')) {
     finally { await f.close(); }
   }
   rmSync(tmp, {recursive:true, force:true});
-  console.log(`${host} launch facts: defaults, repeated drive, overrides, translation, lang/dir${host === 'web' ? ', reload' : ''}`);
+  console.log(`${host} launch facts: date, defaults, repeated drive, overrides, translation, lang/dir${host === 'web' ? ', reload' : ''}`);
 }
 
 const tmp = mkdtempSync(resolve(tmpdir(), 'exact-smoke-'));

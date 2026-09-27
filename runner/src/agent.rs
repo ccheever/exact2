@@ -518,6 +518,19 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
     quote(runner.resolved_locale(), &mut s);
     s.push_str(",\"dir\":");
     quote(runner.direction(), &mut s);
+    // The host's date and place facts (LLP 1027.000.000 D3), so two agent
+    // runs compare without an app that declares `exactTime`.
+    let (time, place) = (runner.wall_time(), runner.place());
+    let _ = write!(
+        s,
+        "}},\"time\":{{\"epochAtZero\":{},\"utcOffset\":{},\"locale\":",
+        num(time.epoch_at_zero),
+        num(time.utc_offset)
+    );
+    quote(&place.locale, &mut s);
+    s.push_str(",\"timeZone\":");
+    quote(&place.time_zone, &mut s);
+    let _ = write!(s, ",\"seed\":{}", num(place.seed));
     s.push_str("},\"derives\":{");
     for (i, row) in plan.derives.iter().enumerate() {
         let name = plan.str(row.name);

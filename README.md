@@ -201,15 +201,17 @@ The Go/custom-client sequence
 is in [LLP 1030.000 §7](llp/1030.000-dev-server-as-deployer.rfc.md#7-exact2-go-and-custom-development-clients--implementation-direction).
 
 Agent sessions use `exactTime()` launch facts `seed: 1` (LLP 1069.007), `locale: "en-US"`,
-`timeZone: "UTC"` on every host. Override them at session setup with
-`bun scripts/agent.mjs web --seed 42 --locale fr-CA --time-zone America/Toronto tree`
-or `open({host, seed: 42, locale: "fr-CA", timeZone: "America/Toronto"})`.
-Seeds are integers from 0 through 2^53 − 1. Native carriers pass
-`EXACT_AGENT_SEED`, `EXACT_AGENT_LOCALE`, and `EXACT_AGENT_TIME_ZONE`; direct
-agent launches can set these too. Web agent pages accept `?agent=1&seed=42&locale=fr-CA&timeZone=America/Toronto`.
+`timeZone: "UTC"` and `epochAtZero` 2026-01-01T00:00:00Z (LLP 1027.000.000 D3, with the
+zone's `utcOffset` at that instant) on every host. Override them at session setup with
+`bun scripts/agent.mjs web --seed 42 --locale fr-CA --time-zone America/Toronto --epoch 2026-09-21T14:13:20Z tree`
+or `open({host, seed: 42, locale: "fr-CA", timeZone: "America/Toronto", epoch: "2026-09-21T14:13:20Z"})`.
+Seeds are integers from 0 through 2^53 − 1; an epoch is an ISO date or Unix milliseconds. Native carriers pass
+`EXACT_AGENT_SEED`, `EXACT_AGENT_LOCALE`, `EXACT_AGENT_TIME_ZONE` and `EXACT_AGENT_EPOCH`
+(milliseconds); direct agent launches can set these too. Web agent pages accept
+`?agent=1&seed=42&locale=fr-CA&timeZone=America/Toronto&epoch=1790000000000`.
 The driver supplies its own defaults unless an option (or `open({env: ...})`)
-overrides them. These settings cover place and entropy; the existing wall-date
-report and elapsed `clock` are separate. Before the first host report, the runner
+overrides them. `clock +N` moves the date (`epochAtZero + now()`); `state.time`
+reports all five facts. Before the first host report, the runner
 also supplies usable `en-US`/`UTC` and seed 0. Ordinary launches draw their seed
 from secure platform entropy. A development reload retains that launch's seed.
 Linux takes its locale from the first nonempty `LC_ALL`, `LC_MESSAGES`, or `LANG`,

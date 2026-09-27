@@ -51,3 +51,6 @@ Implementation and verification (2026-09-27, Astra):
   (`errSecInteractionNotAllowed`) and unavailable password encryption remain.
   Stopped after the third web attempt (first: missing offline dependency;
   fetched the locked dependency, then two completed functional sweeps).
+- The date followed (2026-09-27): `--epoch` / `EXACT_AGENT_EPOCH` / `?epoch=`,
+  default 2026-01-01T00:00:00Z, with the zone's offset at that instant, on
+  web, macOS and Linux; `state.time` reports the five facts (LLP 1027.000.000 D3).

@@ -17,6 +17,7 @@ export function parseFlags(argv) {
     else if (argv[i] === '--seed') flags.seed = Number(argv[++i]);
     else if (argv[i] === '--locale') flags.locale = argv[++i];
     else if (argv[i] === '--time-zone') flags.timeZone = argv[++i];
+    else if (argv[i] === '--epoch') flags.epoch = argv[++i];
     else if (argv[i] === '--timing') flags.timing = argv[++i];
     else if (argv[i] === '--phone') flags.phone = argv[++i];
     else if (argv[i] === '--storage') flags.storage = argv[++i];
@@ -25,8 +26,15 @@ export function parseFlags(argv) {
   return { flags, rest };
 }
 
-export function launchFacts({seed, locale, timeZone, env = {}}) {
+/** LLP 1027.000.000 D3: the date at the agent clock's zero, unless the drive names one. */
+export const AGENT_EPOCH = '2026-01-01T00:00:00Z';
+
+export function launchFacts({seed, locale, timeZone, epoch, env = {}}) {
   seed = Number(seed ?? env.EXACT_AGENT_SEED ?? 1);
+  // An ISO date or Unix milliseconds; hosts are told milliseconds.
+  epoch = String(epoch ?? env.EXACT_AGENT_EPOCH ?? AGENT_EPOCH);
+  epoch = /^\d+$/.test(epoch) ? Number(epoch) : /^\d{4}-\d\d-\d\d(T|$)/.test(epoch) ? Date.parse(epoch) : NaN;
+  if (!Number.isSafeInteger(epoch) || epoch < 0) throw new Error('epoch: an ISO date or Unix milliseconds at or after 1970');
   locale = locale ?? env.EXACT_AGENT_LOCALE ?? 'en-US';
   timeZone = timeZone ?? env.EXACT_AGENT_TIME_ZONE ?? 'UTC';
   if (!Number.isSafeInteger(seed) || seed < 0) throw new Error('seed: an integer from 0 through 2^53 - 1');
@@ -34,11 +42,11 @@ export function launchFacts({seed, locale, timeZone, env = {}}) {
   locale = Intl.getCanonicalLocales(locale)[0];
   if (!locale) throw new Error('locale: a BCP 47 language tag');
   new Intl.DateTimeFormat(locale, {timeZone}).format(0);
-  return {seed, locale, timeZone};
+  return {seed, locale, timeZone, epoch};
 }
 
 export function launchEnvironment(facts) {
-  return {EXACT_AGENT_SEED: String(facts.seed), EXACT_AGENT_LOCALE: facts.locale, EXACT_AGENT_TIME_ZONE: facts.timeZone};
+  return {EXACT_AGENT_SEED: String(facts.seed), EXACT_AGENT_LOCALE: facts.locale, EXACT_AGENT_TIME_ZONE: facts.timeZone, EXACT_AGENT_EPOCH: String(facts.epoch)};
 }
 
 /** The DevTools protocol over Chrome's --remote-debugging-pipe (fd 3 in, fd 4 out; NUL-delimited JSON). A closed pipe or a dead Chrome fails every pending call; every call has a deadline. */

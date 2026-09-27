@@ -16,6 +16,49 @@ pub fn local_offset_minutes() -> f64 {
     }
 }
 
+/// Under the agent, the date at the clock's zero (`EXACT_AGENT_EPOCH`, Unix
+/// milliseconds; default 2026-01-01T00:00:00Z) and the agent zone's offset
+/// at that instant; `None` reads the machine (LLP 1027.000.000 D3).
+pub fn agent_time(
+    env: impl Fn(&str) -> Option<String>,
+    zone: &str,
+) -> Result<Option<(f64, f64)>, String> {
+    if env("EXACT_AGENT").as_deref() != Some("1") {
+        return Ok(None);
+    }
+    let epoch = env("EXACT_AGENT_EPOCH").map_or(Ok(1_767_225_600_000.0), |s| {
+        s.parse::<u64>()
+            .map(|ms| ms as f64)
+            .map_err(|e| format!("EXACT_AGENT_EPOCH: {e}"))
+    })?;
+    Ok(Some((epoch, offset_minutes_at(zone, epoch))))
+}
+
+/// A zone's UTC offset at a Unix instant, from the C library's database.
+/// The agent's process adopts the agent zone as its `TZ` to ask.
+fn offset_minutes_at(zone: &str, epoch_ms: f64) -> f64 {
+    if matches!(zone, "UTC" | "Etc/UTC") {
+        return 0.0;
+    }
+    if std::env::var("TZ").ok().as_deref() != Some(zone) {
+        std::env::set_var("TZ", zone);
+    }
+    // SAFETY: `tzset` rereads `TZ`; `localtime_r` writes only the `tm` it
+    // is given and returns null on failure.
+    unsafe {
+        extern "C" {
+            fn tzset();
+        }
+        tzset();
+        let at = (epoch_ms / 1000.0).floor() as libc::time_t;
+        let mut tm: libc::tm = std::mem::zeroed();
+        if libc::localtime_r(&at, &mut tm).is_null() {
+            return 0.0;
+        }
+        tm.tm_gmtoff as f64 / 60.0
+    }
+}
+
 /// Place and entropy are sampled once at launch. Agent mode bypasses every
 /// platform input, including the system's entropy source.
 pub fn launch_place(
@@ -149,6 +192,22 @@ mod tests {
         assert_eq!(custom.locale, "fr-CA");
         assert_eq!(custom.time_zone, "America/Toronto");
         assert_eq!(custom.seed, 9_007_199_254_740_991.0);
+        let agent = |key: &str| (key == "EXACT_AGENT").then(|| "1".into());
+        assert_eq!(
+            agent_time(agent, "UTC").unwrap(),
+            Some((1_767_225_600_000.0, 0.0))
+        );
+        let at = |key: &str| match key {
+            "EXACT_AGENT" => Some("1".into()),
+            "EXACT_AGENT_EPOCH" => Some("1790000000000".into()),
+            _ => None,
+        };
+        // 2026-09-21, daylight time in Toronto.
+        assert_eq!(
+            agent_time(at, "America/Toronto").unwrap(),
+            Some((1_790_000_000_000.0, -240.0))
+        );
+        assert_eq!(agent_time(|_| None, "UTC").unwrap(), None);
     }
 
     #[test]

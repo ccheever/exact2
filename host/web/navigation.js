@@ -546,6 +546,22 @@ export function placeReporter(params, platform = globalThis) {
   };
 }
 
+// @ref LLP 1027.000.000 D3 — under the agent the date at the clock's zero is
+// the drive's epoch (default 2026-01-01T00:00:00Z), and the offset its zone's
+// at that instant; `clock +N` moves the date because `now()` moves.
+export function timeReporter(params, platform = globalThis) {
+  return (elapsed) => {
+    if (!params.has('agent')) return [platform.Date.now() - elapsed, -new platform.Date().getTimezoneOffset()];
+    const epoch = Number(params.get('epoch') ?? Date.UTC(2026, 0, 1));
+    if (!Number.isSafeInteger(epoch) || epoch < 0) throw new Error('epoch: Unix milliseconds at or after 1970');
+    const at = {};
+    for (const {type, value} of new Intl.DateTimeFormat('en-US', {timeZone: params.get('timeZone') ?? 'UTC', hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric'}).formatToParts(epoch)) at[type] = Number(value);
+    return [epoch, (Date.UTC(at.year, at.month - 1, at.day, at.hour, at.minute, at.second) - Math.floor(epoch / 1000) * 1000) / 60000];
+  };
+}
+let pageTime;
+export const reportTime = (elapsed) => (pageTime ??= timeReporter(new URL(location.href).searchParams))(elapsed);
+
 let pagePlace;
 export function reportPlace() {
   pagePlace ??= placeReporter(new URL(location.href).searchParams);

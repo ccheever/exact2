@@ -278,6 +278,7 @@ pub fn boot_presenter<D: DataSource + Default>(
         delivery
     };
     let place = crate::zone::launch_place(|key| std::env::var(key).ok())?;
+    let agent_time = crate::zone::agent_time(|key| std::env::var(key).ok(), &place.time_zone)?;
     let dev_url = config.dev_url.clone();
     let dev_identity = config.dev_identity.clone();
     let delivered = |mut booted: (Presenter<D>, Option<String>),
@@ -288,15 +289,18 @@ pub fn boot_presenter<D: DataSource + Default>(
         if let Some(e) = booted.0.set_place(&place) {
             eprintln!("exact: {e}");
         }
-        // @ref LLP 1027.000.000 — the date, at the clock's zero (now: boot).
-        let epoch = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0.0, |d| d.as_secs_f64() * 1000.0)
-            - booted.0.host().now();
-        if let Some(e) = booted
-            .0
-            .set_time(epoch, crate::zone::local_offset_minutes())
-        {
+        // @ref LLP 1027.000.000 — the date, at the clock's zero (now: boot);
+        // under the agent, the drive's epoch (D3).
+        let (epoch, offset) = agent_time.unwrap_or_else(|| {
+            let wall = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0.0, |d| d.as_secs_f64() * 1000.0);
+            (
+                wall - booted.0.host().now(),
+                crate::zone::local_offset_minutes(),
+            )
+        });
+        if let Some(e) = booted.0.set_time(epoch, offset) {
             eprintln!("exact: {e}");
         }
         booted

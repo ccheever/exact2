@@ -29,12 +29,15 @@ final class SessionClockTimerTests: XCTestCase {
         XCTAssertEqual(defaults.locale, "en-US")
         XCTAssertEqual(defaults.timeZone, "UTC")
         XCTAssertEqual(defaults.seed, 1)
+        XCTAssertEqual(defaults.epoch, 1_767_225_600_000)
+        XCTAssertNil(LaunchPlace(environment: [:]).epoch)
         let custom = LaunchPlace(environment: ["EXACT_AGENT": "1",
             "EXACT_AGENT_LOCALE": "fr-CA", "EXACT_AGENT_TIME_ZONE": "America/Toronto",
-            "EXACT_AGENT_SEED": "9007199254740991"])
+            "EXACT_AGENT_SEED": "9007199254740991", "EXACT_AGENT_EPOCH": "1790000000000"])
         XCTAssertEqual(custom.locale, "fr-CA")
         XCTAssertEqual(custom.timeZone, "America/Toronto")
         XCTAssertEqual(custom.seed, (1 << 53) - 1)
+        XCTAssertEqual(custom.epoch, 1_790_000_000_000)
         let session = ExactApp.shared.makeSession()
         defer { session.destroy() }
         let launch = session.launchPlace

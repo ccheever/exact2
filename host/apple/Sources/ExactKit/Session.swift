@@ -20,13 +20,18 @@ struct LaunchPlace: Equatable {
     let locale: String
     let timeZone: String
     let seed: UInt64
+    /// Under the agent, the Unix milliseconds at the clock's zero (LLP
+    /// 1027.000.000 D3; default 2026-01-01T00:00:00Z); nil reads the machine.
+    let epoch: Double?
 
     init(environment: [String: String] = ExactEnv.environment) {
         if environment["EXACT_AGENT"] == "1" {
             locale = environment["EXACT_AGENT_LOCALE"] ?? "en-US"
             timeZone = environment["EXACT_AGENT_TIME_ZONE"] ?? "UTC"
             seed = UInt64(environment["EXACT_AGENT_SEED"] ?? "1") ?? 1
+            epoch = Double(environment["EXACT_AGENT_EPOCH"] ?? "1767225600000") ?? 1_767_225_600_000
         } else {
+            epoch = nil
             locale = Locale.preferredLanguages.first ?? Locale.current.identifier(.bcp47)
             timeZone = TimeZone.current.identifier
             seed = UInt64.random(in: 0..<(1 << 53))
@@ -833,8 +838,14 @@ public final class ExactSession {
     let launchPlace = LaunchPlace()
     /// @ref LLP 1027.000.000 — the date, against the clock `now()` reads.
     func tellTime() {
-        let offset = Double(TimeZone.current.secondsFromGMT()) / 60
-        apply(runtime.setTime(epochAtZero: Date().timeIntervalSince1970 * 1000 - now(), utcOffset: offset))
+        if let epoch = launchPlace.epoch {
+            let zone = TimeZone(identifier: launchPlace.timeZone) ?? TimeZone(secondsFromGMT: 0)!
+            let offset = Double(zone.secondsFromGMT(for: Date(timeIntervalSince1970: epoch / 1000))) / 60
+            apply(runtime.setTime(epochAtZero: epoch, utcOffset: offset))
+        } else {
+            let offset = Double(TimeZone.current.secondsFromGMT()) / 60
+            apply(runtime.setTime(epochAtZero: Date().timeIntervalSince1970 * 1000 - now(), utcOffset: offset))
+        }
         apply(runtime.setPlace(locale: launchPlace.locale, timeZone: launchPlace.timeZone, seed: launchPlace.seed))
         tellPreferences()
     }

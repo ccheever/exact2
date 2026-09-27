@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 import vm from 'node:vm';
 import { render, sourceMapReader, identifyInspectedNode } from '../../scripts/agent.mjs';
 import { retainDevGeneration, readDevGeneration, readDevGenerationAsync } from './serve.mjs';
-import { focusController, placeReporter } from './navigation.js';
+import { focusController, placeReporter, timeReporter } from './navigation.js';
 import { storageKey } from './storage-environment.js';
 import { open } from '../../scripts/agent.mjs';
 import { launchFacts, launchEnvironment, parseFlags } from '../../scripts/agent-launch.mjs';
@@ -279,6 +279,7 @@ function fixture(agentMode = true) {
   });
   vm.runInContext(source.match(/^let gpuLoading = .*$/m)[0] + '\n' + ['nodeDetail', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
   context.reportPlace = placeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
+  context.reportTime = timeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
   return context;
 }
 function plain(reply) {
@@ -453,11 +454,16 @@ test('a timer whose request never lands cannot hold the clock: past the deadline
 });
 
 test('launch setup supplies fixed defaults and carries CLI overrides to every host', () => {
-  expect(launchFacts({})).toEqual({seed:1, locale:'en-US', timeZone:'UTC'});
-  const {flags, rest} = parseFlags(['web', '--seed', '9007199254740991', '--locale', 'fr-ca', '--time-zone', 'America/Toronto', 'tree']);
+  expect(launchFacts({})).toEqual({seed:1, locale:'en-US', timeZone:'UTC', epoch:Date.UTC(2026, 0, 1)});
+  const {flags, rest} = parseFlags(['web', '--seed', '9007199254740991', '--locale', 'fr-ca', '--time-zone', 'America/Toronto', '--epoch', '2026-09-21T14:13:20Z', 'tree']);
   expect(rest).toEqual(['web', 'tree']);
   const facts = launchFacts(flags);
-  expect(facts).toEqual({seed:9007199254740991, locale:'fr-CA', timeZone:'America/Toronto'});
+  expect(facts).toEqual({seed:9007199254740991, locale:'fr-CA', timeZone:'America/Toronto', epoch:1790000000000});
+  expect(launchFacts({epoch:'1790000000000'}).epoch).toBe(1790000000000);
+  const time = timeReporter(new URLSearchParams({agent:'1', ...facts}), new Proxy({}, {get() { throw new Error('agent read the platform'); }}));
+  expect(time(60000)).toEqual([1790000000000, -240]);
+  expect(timeReporter(new URLSearchParams({agent:'1'}))(0)).toEqual([Date.UTC(2026, 0, 1), 0]);
+  for (const epoch of ['-1', 'yesterday']) expect(() => launchFacts({epoch})).toThrow('epoch:');
   expect(launchFacts({env:launchEnvironment(facts)})).toEqual(facts);
   const params = new URLSearchParams({agent:'1', ...facts});
   const report = placeReporter(params, new Proxy({}, {get() { throw new Error('agent read the platform'); }}));
@@ -475,9 +481,12 @@ test('agent launch facts never read the platform locale, zone or entropy', async
   let draws = 0;
   f.crypto = { getRandomValues: bytes => { draws++; bytes.set([1, 7]); return bytes; } };
   f.wasm.exact_set_place = wire => { reported.push(wire); return '{"ops":[]}'; };
+  f.Date = { now() { throw new Error('agent read the machine clock'); } };
+  f.wasm.exact_set_time = (epoch, offset) => { reported.push([epoch, offset]); return '{"ops":[]}'; };
   await f.boot(null);
   await f.boot(new Uint8Array([1]));
-  expect(reported).toEqual([['en-US', 'UTC', 1].join('\0'), ['en-US', 'UTC', 1].join('\0')]);
+  const date = [Date.UTC(2026, 0, 1), 0];
+  expect(reported).toEqual([date, ['en-US', 'UTC', 1].join('\0'), date, ['en-US', 'UTC', 1].join('\0')]);
   expect(draws).toBe(0);
 });
 
