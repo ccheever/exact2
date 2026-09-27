@@ -5,7 +5,7 @@
 **Systems:** All
 **Author:** Muse Code for Charlie Cheever
 **Date:** 2026-09-12
-**Related:** LLP 1000 (the map); `rules/RULES.md` §Scope (web is the standard), §Budgets (15-doc working set); `rules/NOT-DOING.md` (the doing-list bar); LLP 1025 (the 2026-09-01 review); LLP 1035.005 (contract authoring ergonomics); `QUEUE.md`
+**Related:** LLP 1000 (the map); `rules/RULES.md` §Scope (web is the standard), §Budgets (15-doc working set); `rules/DEFERRED.md` (the doing-list bar); LLP 1025 (the 2026-09-01 review); LLP 1035.005 (contract authoring ergonomics); `QUEUE.md`
 
 ## Summary
 
@@ -78,7 +78,7 @@ outside-the-repo app is good layering — but the discovery cost is real, and th
 
 Strains the "agents remove apparatus" rule asymmetrically: humans keep adding
 drivers one reasonable addition at a time, exactly how the old repo reached 450
-scripts. Resolution is deletion pressure per addition (the NOT-DOING move rule:
+scripts. Resolution is deletion pressure per addition (the DEFERRED move rule:
 name what comes off), starting with the two dev-only URL loaders' collapse
 already planned under LLP 1026 D12.
 

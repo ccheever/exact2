@@ -2,7 +2,7 @@
 
 - **Family:** codex (OpenAI)
 - **Provider/runtime:** `codex exec -s workspace-write`, model `gpt-5.6-sol`, `model_reasoning_effort=xhigh` (verified in the run log), fresh session `01a04a96-9dc3-7051-a146-606a0158c291`, workdir = a disposable export of the staged working tree (223 files; tree digest `67a4a7789d565e92`) with a warm cargo cache; cargo checks permitted offline
-- **Method:** one-shot code review from `REVIEW-BRIEF.md` (sha256 `13414825188482e3e1c193e898bb7edc593f158926ea16956deaca826e92e03b`), mutually blind to the same-day grok review (separate export, no shared notes). Scope: `plan/`, `runner/`, `contract/`, `apps/caltrain/`, the kernel's `set_dynamic` change; authority: RULES.md, NOT-DOING.md, LLP 1004/1005/1006.
+- **Method:** one-shot code review from `REVIEW-BRIEF.md` (sha256 `13414825188482e3e1c193e898bb7edc593f158926ea16956deaca826e92e03b`), mutually blind to the same-day grok review (separate export, no shared notes). Scope: `plan/`, `runner/`, `contract/`, `apps/caltrain/`, the kernel's `set_dynamic` change; authority: RULES.md, DEFERRED.md, LLP 1004/1005/1006.
 - **Launched:** 2026-08-28T22:56:19Z
 - **Disposition:** see the orchestrator's fold recorded at the end of this file once applied.
 

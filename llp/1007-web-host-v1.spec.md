@@ -466,7 +466,7 @@ Carried state is never why a boot fails: what no longer fits starts fresh.
 The tree, ids, derives, and the DOM are rebuilt — five screens deep stays
 five screens deep, but scroll, focus, and a spring in flight do not survive
 (identity matching between the old and new trees is the later trade, and
-`rules/NOT-DOING.md` §Runtime records this one). No patch format, no
+`rules/DEFERRED.md` §Runtime records this one). No patch format, no
 generations. A compile error is pushed to the page as an overlay with its line and
 column; the last good plan stays. Measured (`scripts/metrics.mjs`, five runs):
 **save → plan ready 8–13 ms** (compile 0.5–1 ms, bake 0.5–1 ms, the rest the
@@ -486,7 +486,7 @@ the page **reloads** rather than restarts in place, since a new wasm is a
 new program and no state carries across it. A build that fails shows its
 errors in the page's overlay, as a contract that fails does, and the page
 keeps the last good wasm. No bundler, on purpose: there is nothing to
-bundle (no app JS, `rules/NOT-DOING.md`), and the day a JavaScript bundle
+bundle (no app JS, `rules/DEFERRED.md`), and the day a JavaScript bundle
 exists it is one more built artifact this watch reloads — a bundler then
 is a build step, not the loop. The native apps take the plan push already
 (LLP 1008 §5, §9); a Rust edit there is a new binary, `build.mjs --run`.
@@ -602,7 +602,7 @@ stylesheet, LLP 1002 §4); a spring interrupted *by an easing* on the same
 property (the frames are cancelled and the CSS transition starts from the
 computed style at that moment — the browser's rule, unmeasured against the
 engine's); reusing DOM nodes across a reload by identity (a later trade
-against `rules/NOT-DOING.md` §Runtime, never a silent extension of §6).
+against `rules/DEFERRED.md` §Runtime, never a silent extension of §6).
 
 ## 10. Checks that hold this
 

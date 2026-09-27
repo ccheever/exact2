@@ -1,7 +1,7 @@
 # LLP 1019: Fonts — declared, not loaded
 
 **Type:** RFC
-**Status:** Accepted (Charlie, 2026-08-30 — two rulings: **OQ1 is nearest-face**, this document's recommendation, with the compile-time diagnostic, the LLP 1001 deviation, and `font-synthesis: none` on web; and **Weird Castle's wordmark is in v1 beside Caltrain**, closing `rules/NOT-DOING.md` §1's open decision and carrying the `RULES.md` §Agents approval to add the font tables. Buildable slice in §10. r2, 2026-08-30 — after a two-round panel, Grok 4.6 xhigh and GPT-5.6 Sol ultra, round 1 blind and round 2 mutually visible: `llp/reviews/1019-fonts.{grok,sol}.md`. r1's D2/D3 table design, D5's C-ABI and web-first-frame claims, and §5's framing of OQ1 were all wrong and are replaced; §11 records the fold and what the author re-verified.)
+**Status:** Accepted (Charlie, 2026-08-30 — two rulings: **OQ1 is nearest-face**, this document's recommendation, with the compile-time diagnostic, the LLP 1001 deviation, and `font-synthesis: none` on web; and **Weird Castle's wordmark is in v1 beside Caltrain**, closing `rules/DEFERRED.md` §1's open decision and carrying the `RULES.md` §Agents approval to add the font tables. Buildable slice in §10. r2, 2026-08-30 — after a two-round panel, Grok 4.6 xhigh and GPT-5.6 Sol ultra, round 1 blind and round 2 mutually visible: `llp/reviews/1019-fonts.{grok,sol}.md`. r1's D2/D3 table design, D5's C-ABI and web-first-frame claims, and §5's framing of OQ1 were all wrong and are replaced; §11 records the fold and what the author re-verified.)
 **Systems:** Kernel (the `font_family` row, the text measurer's seam), Contract (a file-scope declaration, two attributes), Plan (a font table), Web host (`@font-face` + the row it skips today), Apple host (CoreText registration, one resolver), Linux host (fontdb families, the pinned face), Build (assets into the bundle), Weird Castle (the app that needs this first)
 **Author:** Claude (Opus 5) for Charlie Cheever
 **Date:** 2026-08-30
@@ -38,7 +38,7 @@ internal name table — the one mistake that would reproduce exact1's worst bug
 in a new place.
 
 Both gates named by the panel are now cleared (Charlie, 2026-08-30):
-`rules/NOT-DOING.md` §1 names Caltrain as the v1 app **with Weird Castle's
+`rules/DEFERRED.md` §1 names Caltrain as the v1 app **with Weird Castle's
 wordmark in v1 beside it**, and the same ruling carries the `RULES.md`
 §Agents approval for the font tables. OQ1 is ruled **nearest-face**. The
 buildable slice, in dependency order, is §10 — and the one thing genuinely
@@ -548,7 +548,7 @@ Each of these is declared here so it is not silently assumed:
   sweep, never a sixth blocking check (`rules/RULES.md` §Budgets).
 - **OQ5 (scope — the one the rules actually wait on).** Both panelists,
   independently and in both rounds, named the same thing as the first
-  decision, ahead of every technical item here: **`rules/NOT-DOING.md` §1
+  decision, ahead of every technical item here: **`rules/DEFERRED.md` §1
   leaves the one v1 app an open decision and recommends Caltrain, and
   everything that app does not need does not exist.** Caltrain does not need a
   brand face; Weird Castle's wordmark does. `CLAUDE.md` naming
@@ -562,8 +562,8 @@ Each of these is declared here so it is not silently assumed:
 
   **Ruled (Charlie, 2026-08-30):** Caltrain defines v1 **and Weird Castle's
   wordmark is in v1 beside it** — one bundled brand face in scope, nothing
-  else about that app. Recorded in `rules/NOT-DOING.md` §1. Fonts were never
-  on the not-doing list, so no trade is owed (Grok's reading; Sol conceded
+  else about that app. Recorded in `rules/DEFERRED.md` §1. Fonts were never
+  on the deferred list, so no trade is owed (Grok's reading; Sol conceded
   it). The same ruling carries the §Agents approval for the font tables.
 
 ## 9. What r1 got wrong
@@ -673,8 +673,8 @@ as decisive.
 Grok that exact1 reserved the family id *before* awaiting the load rather than
 on resolution (`assets-fonts-registry.ts:119–147` — the coherence diagnosis is
 unaffected, the timing claim was wrong), and that this document does carry a
-date, only no implementer; Grok showed Sol that `NOT-DOING.md:141–144` governs
-moving something *off* the not-doing list, which fonts were never on, so the
+date, only no implementer; Grok showed Sol that `DEFERRED.md:141–144` governs
+moving something *off* the deferred list, which fonts were never on, so the
 obligation is §1's open v1-app decision instead.
 
 **Grok's single highest-leverage edit** was the identity rule now in D3: bind
@@ -691,7 +691,7 @@ fallback comment, and both apps' weight usage — and all of them held.
 Built on `lane/fonts` in the worktree `exact2-wt-fonts`, deliberately not in
 the main tree: two peer sessions had uncommitted work there, and
 `rules/RULES.md` §Fleet's shared-index hazard is real — main's index swept
-this document and the `NOT-DOING.md` ruling into itself mid-run.
+this document and the `DEFERRED.md` ruling into itself mid-run.
 
 **Who.** Implementer GPT-5.6 Sol at reasoning effort xhigh (`codex exec`),
 orchestrated and verified by Claude (Opus 5). Reviewers: GPT-5.6 Sol xhigh and

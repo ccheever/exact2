@@ -1,12 +1,12 @@
 # LLP 1009: The GPU canvas
 
 **Type:** RFC
-**Status:** Review (super-refine loop 2026-08-29: two rounds on r2, both families NOT READY on in-delta findings only — dispositions in `llp/reviews/1009-gpu-canvas.{codex,grok}.md`; r4 is Charlie's requested simplification; round 3 reviewed r4 at his request — both families NOT READY, neither on architecture (codex: "the core direction … is feasible"); r5 folds round 3 and is unreviewed. `rules/NOT-DOING.md` §Process forbids refine loops; this one ran on his in-session instruction, and the trades it owes are in §5.)
+**Status:** Review (super-refine loop 2026-08-29: two rounds on r2, both families NOT READY on in-delta findings only — dispositions in `llp/reviews/1009-gpu-canvas.{codex,grok}.md`; r4 is Charlie's requested simplification; round 3 reviewed r4 at his request — both families NOT READY, neither on architecture (codex: "the core direction … is feasible"); r5 folds round 3 and is unreviewed. `rules/DEFERRED.md` §Process forbids refine loops; this one ran on his in-session instruction, and the trades it owes are in §5.)
 **Systems:** Kernel (node type), Contract (tag), Plan (surface row), Runner (surface arguments), GPU module (new), Apple host, Web host
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-29
 **Revised:** 2026-09-23 (D6 — an app may declare GPU modules beside the primary, each loaded the first time a canvas of one of its surfaces mounts; built for Weird Castle's title sky and engine demo, recorded in LLP 1046.003.) 2026-08-29 (r5 — round-3 fold, unreviewed: GPU code lives in the app's GPU crate, never the host-linked data crate; `bind` returns a result and surfaces register an arity; surface arguments are evaluated with the node's bindings before apply and published as a runner side-output only after a successful commit; a bare `canvas` is 300×150 by tag default — the web's size, no deviation; fixtures read back from a module-owned copyable texture; D5 narrowed to the build-declared shader set; the minimal presentation-value extension point decided; the loader is a post-paint injected script element; §5 proposes one concrete take.) 2026-08-29 (r4 — cut to the five decisions that matter, at Charlie's request: wgpu is the one API on every host; the module is on demand; shaders are validated at build and compiled at first use, off the boot path; extensible properties are a later RFC. r3 carried an exact-owned handle, a profile table, a shader catalogue, and declared properties — machinery that answered review findings by adding rather than removing; superseded by this text.) r3, r2, r1: see the review artifacts.
-**Related:** `rules/NOT-DOING.md` §Runtime (the "door stays open" clause; this RFC walks through it) and §Components (`canvas`; §5 records the trade), LLP 1000 (the map), LLP 1001 (`NativeView`; layout is a host call), LLP 1002 (one representation, two executors; the browser as oracle), LLP 1004 D4 (app computation is a Rust data crate), LLP 1007/1008 (the hosts), LLP 1008 §6 (startup: nothing GPU joins the boot path)
+**Related:** `rules/DEFERRED.md` §Runtime (the "door stays open" clause; this RFC walks through it) and §Components (`canvas`; §5 records the trade), LLP 1000 (the map), LLP 1001 (`NativeView`; layout is a host call), LLP 1002 (one representation, two executors; the browser as oracle), LLP 1004 D4 (app computation is a Rust data crate), LLP 1007/1008 (the hosts), LLP 1008 §6 (startup: nothing GPU joins the boot path)
 
 ## Summary
 
@@ -119,7 +119,7 @@ line and column. That is the build-declared set; a surface holds a raw
 cannot see and does not claim to — wgpu validates it then, and it fails
 that surface, not the app. At runtime wgpu compiles it on first use — which by D4 is after
 the first pixel, so the measured 115 ms cold cost (§3) lands on a canvas's
-first frame and never on boot. `rules/NOT-DOING.md` says the built door
+first frame and never on boot. `rules/DEFERRED.md` says the built door
 "compiles no shaders at runtime"; this decision does not meet that
 wording and asks for it to be amended (§5) rather than met with a
 precompilation pipeline whose feasibility with bind groups is unproven.
@@ -164,7 +164,7 @@ loading it with the first world canvas. It is not smaller — every host
 needs the same per-artifact loading, routing and recovery — and it would
 teach the core what a world is, which `game/` keeps out of it.
 
-**The extension point for animatable properties** (the NOT-DOING clause
+**The extension point for animatable properties** (the DEFERRED clause
 "animatable properties are extensible"): committed state is not
 presentation state (LLP 1002), so "a property is more state" would not
 deliver a display-rate value to a surface. The minimal extension point
@@ -231,7 +231,7 @@ The spec (1009.000) transcribes the landing.
 2. Whether the module's C ABI stays hand-written (as `exact.h` is) or is
    generated from a table — hand-written until a second consumer.
 
-## 5. The NOT-DOING trades this RFC owes (Charlie's, before Acceptance)
+## 5. The DEFERRED trades this RFC owes (Charlie's, before Acceptance)
 
 The rule: name what it unblocks, and take something off the doing-list
 in the same PR.

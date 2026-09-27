@@ -227,10 +227,10 @@ Two reports. Neither refuses anything.
   for a record with one). `bun scripts/agent.mjs web "clock +60000" state`
   then shows what a minute of idle costs, and a tap's cost is the difference
   between two `state` reads. This answers a question from `state`, as
-  NOT-DOING's Agent API rule requires (`rules/NOT-DOING.md:295-302`), with no
+  DEFERRED's Agent API rule requires (`rules/DEFERRED.md:295-302`), with no
   ninth operation.
 
-*What P6 is not:* NOT-DOING refuses "contract witness / dataflow" and "perf"
+*What P6 is not:* DEFERRED refuses "contract witness / dataflow" and "perf"
 tooling (`:304-307`). The first report is one summary line computed from
 tables the compiler already has, not a dataflow explorer. The second is two
 counters in an existing reply, not a profiler.
@@ -243,7 +243,7 @@ counters in an existing reply, not a profiler.
 - **Rust source ergonomics.** TypeScript is the paved path. `contract rust`
   already removed positional records.
 - **A runner-level entity store or shared buffers.** A second application
-  state graph (`rules/NOT-DOING.md:70-71, 217`), measured against JSON in
+  state graph (`rules/DEFERRED.md:70-71, 217`), measured against JSON in
   LLP 1027.003 §9 and not selected.
 
 ## 4. Order of work
@@ -277,13 +277,13 @@ Before and after each step, on the web host with the agent:
 - P5 and P6 need no admission: P5 changes no exact2 code, and P6's in-repo
   consumers are Caltrain and RealWorld.
 - **Taken off:** `touching` is withdrawn, not added. `formatClockTime`
-  leaves the core. No NOT-DOING entry is reversed.
+  leaves the core. No DEFERRED entry is reversed.
 
 ## 7. Open questions for Charlie
 
 1. Admit the Bluesky port as a named consumer for P1–P3?
 2. P6's `asks`/`rows` in `state`: acceptable as an answer from `state`, or is
-   that the "perf" NOT-DOING refuses?
+   that the "perf" DEFERRED refuses?
 3. Should Caltrain move its board filtering into the view (LLP 1004 D4's own
    recommendation), or keep re-asking every second as the cheap Rust it is?
 

@@ -40,7 +40,7 @@ The kernel model is consistent: `Image` is a measured leaf, the arena column is 
 
 12. **LOW —** `kernel/src/node.rs` `rules_cover_every_type` (~159–174) never calls `is_measured_leaf()`, and never asserts `NodeType::Image` is a measured leaf that cannot hold children. Cheap to add.
 
-13. **LOW —** FLAG on items this set cannot close: rehydration/layout-equality (the intrinsic column is live arena state; a rehydrated kernel is 0×0 until the host reports again; apple only reports from `loadImage`, not from an already-held `NSImage`); `host/web/src/css.rs` default when `object_fit` is unset; LLP 1001 §1 / 1007 / 1008 §5 / `rules/NOT-DOING.md` text. The current shape also has no `srcset`, cache, `URLSession` cancellation, load/error events to the app, `object-position`, or `tint_color` — fine if NOT-DOING says so, but `object-position` other than 50% 50% cannot be added without changing the draw math in finding 6.
+13. **LOW —** FLAG on items this set cannot close: rehydration/layout-equality (the intrinsic column is live arena state; a rehydrated kernel is 0×0 until the host reports again; apple only reports from `loadImage`, not from an already-held `NSImage`); `host/web/src/css.rs` default when `object_fit` is unset; LLP 1001 §1 / 1007 / 1008 §5 / `rules/DEFERRED.md` text. The current shape also has no `srcset`, cache, `URLSession` cancellation, load/error events to the app, `object-position`, or `tint_color` — fine if DEFERRED says so, but `object-position` other than 50% 50% cannot be added without changing the draw math in finding 6.
 
 ## Verdict
 NOT READY

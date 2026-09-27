@@ -18,7 +18,7 @@ design documents, 675 checks, 450 scripts, a 956 ms JS boot — and because the
 design that repository converged on (the Refresh program, LLP 0478–0566) is worth
 building without the compatibility debt it accumulated getting there.
 
-The rules are in `rules/RULES.md` and `rules/NOT-DOING.md`; those two files bind
+The rules are in `rules/RULES.md` and `rules/DEFERRED.md`; those two files bind
 and this one does not. Read them first.
 
 ## How the corpus is laid out

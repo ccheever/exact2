@@ -418,7 +418,7 @@ the smoke holds; Ghostty-on-Metal vs xterm is not a kernel fixture.
 
 **Precondition:** a named consumer and a named implementer, and the v1 bar
 does not move. Fixture-first is the order of work, not the authorization
-for it (`rules/NOT-DOING.md` §The bar; LLP 1001 left a module registry out
+for it (`rules/DEFERRED.md` §The bar; LLP 1001 left a module registry out
 of the kernel “until a consumer exists”).
 
 1. Compiler D1: the PCEN grammar, the fixed `display:block` row, leftover
@@ -473,7 +473,7 @@ Caltrain and Weird Castle’s v1 bar do not depend on it.
 | Live add / swap on iOS device | AMFI, store 2.5.2, signed bundle | Apple ships a supported in-app native plugin API |
 | Native code on the LAN | LLP 1023; iOS will not load it | Never for dylibs; the web module is page fetch graph, not envelope |
 | Unhyphenated or uppercase open tags; reserved SVG/MathML names | `texxt` and `Ghostty-Terminal` would compile; the web is the oracle | Never |
-| Identity-matching the tree on reload | NOT-DOING §Runtime; LLP 1007 §6 | A measured need to keep focus/scroll across a *plan* reload, separate RFC |
+| Identity-matching the tree on reload | DEFERRED §Runtime; LLP 1007 §6 | A measured need to keep focus/scroll across a *plan* reload, separate RFC |
 | Ninth agent op | LLP 1012; iframe already joins as eight | A question `tree` / `state` / `screenshot` cannot answer |
 | Eval into the module | Iframe needs it for a guest DOM; a native view does not | A module that is itself a document |
 | Module-rebuild ping (`fs.watch` / SSE) | Restart-shaped iteration needs none | Live-swap’s return; then a typed module-generation event on the existing SSE, never a code URL |
@@ -509,7 +509,7 @@ example app whose main surface is a module tag (§9).
 
 ## 7. Trade
 
-`rules/NOT-DOING.md` §Components does not lose a line. This RFC does not
+`rules/DEFERRED.md` §Components does not lose a line. This RFC does not
 add `terminal` as a built-in tag; it adds a seam so a *non*-built-in does
 not become one. The v1 bar (Caltrain, Weird Castle’s wordmark) does not
 depend on the landing, and the landing does not start until a consumer and

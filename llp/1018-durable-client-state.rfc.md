@@ -5,7 +5,7 @@
 **Systems:** Runner (the `Store`: snapshot in, writes out; the data seam), Contract compiler (bake: no compiled value for a resource that read the store), Web host (`exact_store`; the `store` op over `localStorage`), Apple host (`ibex2::host::Secrets` → the Keychain; the store read before boot and written after commit, never through Swift), Linux host (memory until ibex2 lands there), Agent API (`state` lists store names; agent mode never touches a real store), ibex2 (LLP 0069: the `Secrets` binding and the `secret.keep` grant), Weird Castle (the first consumer: the Castle session token), `host/apple/build.mjs` (macOS signed with the team identity)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-30
-**Related:** LLP 1016 (asynchronous data settlement — D1 "the runner never does I/O", amended here; D6 grants; §5 named this document: "secure storage of a token across launches (Weird Castle's next ask)"); LLP 1005 §5 (settlement), §6/`Runner::boot_carrying` (the dev reload's carry — the mechanism this reuses across launches), §7 (the seam); LLP 1004 D4 (app data logic lives in a Rust data crate); LLP 1007 §6 (the dev loop carries slots and resources; scroll and focus do not survive); LLP 1012 (the agent API: `state`, `settle`, determinism); ibex LLP 0067 (grants: authority is carried, never inferred), LLP 0068 (`Host`, `endow`, `Bindings`; §2 "synchronous, and why"), LLP 0069 (`Secrets`); Weird Castle `llp/0000` §Authentication and session boundary ("session tokens use Exact's native secure store where the host provides it and browser storage on web"); `rules/NOT-DOING.md` §Runtime (a dev reload carries state; no Aquifer data tier; no durable capability grants), §Process (written because it is being built); `rules/RULES.md` §Scope ("the web is the standard")
+**Related:** LLP 1016 (asynchronous data settlement — D1 "the runner never does I/O", amended here; D6 grants; §5 named this document: "secure storage of a token across launches (Weird Castle's next ask)"); LLP 1005 §5 (settlement), §6/`Runner::boot_carrying` (the dev reload's carry — the mechanism this reuses across launches), §7 (the seam); LLP 1004 D4 (app data logic lives in a Rust data crate); LLP 1007 §6 (the dev loop carries slots and resources; scroll and focus do not survive); LLP 1012 (the agent API: `state`, `settle`, determinism); ibex LLP 0067 (grants: authority is carried, never inferred), LLP 0068 (`Host`, `endow`, `Bindings`; §2 "synchronous, and why"), LLP 0069 (`Secrets`); Weird Castle `llp/0000` §Authentication and session boundary ("session tokens use Exact's native secure store where the host provides it and browser storage on web"); `rules/DEFERRED.md` §Runtime (a dev reload carries state; no Aquifer data tier; no durable capability grants), §Process (written because it is being built); `rules/RULES.md` §Scope ("the web is the standard")
 
 ## Summary
 
@@ -149,7 +149,7 @@ tiers are honest because the platforms are: the Keychain is not for bulk
 preferences (it survives app deletion, it is slower, it is for small
 secrets) and a preference file is not for a token (on macOS every process
 running as the user can read `~/Library`). Flattening them would make the
-token permanently worse than native on macOS; NOT-DOING's "deliberately
+token permanently worse than native on macOS; DEFERRED's "deliberately
 worse" list is explicit, and this would not belong on it.
 
 The web's single backend for both is the declared deviation: the web has no
@@ -366,7 +366,7 @@ constant is its seed).
 
 ## 6. Process note
 
-No panel: NOT-DOING §Process says no refine loops, and the decisions here
+No panel: DEFERRED §Process says no refine loops, and the decisions here
 follow from rules already accepted (the web is the standard; the runner never
 does I/O; capabilities are carried). Charlie chose the shape in conversation
 on 2026-08-30 after two alternatives (storage as a request; the persisted

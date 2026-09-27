@@ -5,7 +5,7 @@
 **Systems:** Build (bake as the producer of every artifact, its digest, and the build receipt; the change classifier), Delivery (the update bundle, the store, the compatibility id and its streams, the two levels — generalized from LLP 1026 to every layer), Web dev loop (`dev.mjs` as the first carrier), Apple host and Linux host (what a binary embeds, what it can take from the wire, the host metadata bake now owns), Runner (what a reload carries, what an update restarts; the `delivery` resource and command), Plan format (the compatibility id as a derived key), Native modules (LLP 1024: the roster in the binary), Contract (one resource and one command, D7), Agent API (`state.delivery` mirrors them)
 **Author:** Claude (Fable 5.1) for Charlie Cheever
 **Date:** 2026-09-03
-**Related:** LLP 1030.000 (the implementation: the dev server classifies, a separate verb publishes, one URL, policies), LLP 1026 D4/D5/D9/D10/D11/D12 (the embedded-plus-update model, grants pinned by the client, the store, the runtime version, digest identity, the update economy, Level A/B — this document is that model stated for every layer; §6 says what it amends), LLP 1029 D2/D3/D4 (engines named per app; the wasm executor; identity per source — the layers this document places), LLP 1027 D5/D7 (TypeScript to bytecode; the module card carries bytecode), LLP 1023 D1/D2/D3/D6/D10 (the URL contract, the envelope, the transactional swap, identity is not trust, one plan is the invariant), LLP 1007 §6/§7 (what a dev reload carries; a native Rust change is a new binary), LLP 1018 D4/D5/D7 (bake sees an empty store; the token below the seam; the platform facts — signing, keychains), LLP 1019 (declared fonts as assets), LLP 1020 (the webview), LLP 1024 D3/D7 (one app artifact; the roster ships in the binary), LLP 1009 D5 (shaders validated at build, compiled at first use — from the crate, D8), LLP 1012 (`state` is the agent's; the carrier stays off the network), `rules/RULES.md` §Scope and §Budgets, `rules/NOT-DOING.md` §Runtime ("Snapback / update economy" is still on the list — 1026 D11 opened it on Charlie's ask and the trade is 1026's to make at its acceptance; nothing here presumes it) and §Process. External precedent: Expo Updates and EAS, Shorebird, Apple's App Store Connect, TestFlight, notarization, `BGAppRefreshTask`, universal links (`apple-app-site-association`) and Android `assetlinks.json`. Predecessor, research never authority: exact1 LLP 0347, 0421, 0524, `docs/hosting-ssr-ota.md`.
+**Related:** LLP 1030.000 (the implementation: the dev server classifies, a separate verb publishes, one URL, policies), LLP 1026 D4/D5/D9/D10/D11/D12 (the embedded-plus-update model, grants pinned by the client, the store, the runtime version, digest identity, the update economy, Level A/B — this document is that model stated for every layer; §6 says what it amends), LLP 1029 D2/D3/D4 (engines named per app; the wasm executor; identity per source — the layers this document places), LLP 1027 D5/D7 (TypeScript to bytecode; the module card carries bytecode), LLP 1023 D1/D2/D3/D6/D10 (the URL contract, the envelope, the transactional swap, identity is not trust, one plan is the invariant), LLP 1007 §6/§7 (what a dev reload carries; a native Rust change is a new binary), LLP 1018 D4/D5/D7 (bake sees an empty store; the token below the seam; the platform facts — signing, keychains), LLP 1019 (declared fonts as assets), LLP 1020 (the webview), LLP 1024 D3/D7 (one app artifact; the roster ships in the binary), LLP 1009 D5 (shaders validated at build, compiled at first use — from the crate, D8), LLP 1012 (`state` is the agent's; the carrier stays off the network), `rules/RULES.md` §Scope and §Budgets, `rules/DEFERRED.md` §Runtime ("Snapback / update economy" is still on the list — 1026 D11 opened it on Charlie's ask and the trade is 1026's to make at its acceptance; nothing here presumes it) and §Process. External precedent: Expo Updates and EAS, Shorebird, Apple's App Store Connect, TestFlight, notarization, `BGAppRefreshTask`, universal links (`apple-app-site-association`) and Android `assetlinks.json`. Predecessor, research never authority: exact1 LLP 0347, 0421, 0524, `docs/hosting-ssr-ota.md`.
 
 ## Summary
 
@@ -59,7 +59,7 @@ a foundation that is mostly not built. The honest table:
 | The dev loop: restart with carry over SSE, `{rebuilt}` reloads | LLP 1007 §6, `dev.mjs` | **built** |
 | The URL contract, the envelope, the transactional swap, Stage 1 | LLP 1023 D1–D3, 1023.001 | **built** (Stage 1); the launcher (Stage 3) and the asset slice (D4) unbuilt |
 | TypeScript logic as bytecode behind the seam, `fetch`, kept answers | LLP 1027 stages 1–4 | **built**; delivery of bytecode (D7) unbuilt |
-| The embedded-plus-update model: store, selection, signing, anti-rollback, crash fallback, assets by digest, Level A/B | LLP 1026 D9–D12 | **Draft, unbuilt** — "Snapback / update economy" **left `NOT-DOING.md` 2026-09-03** on Charlie's ruling, in 1026 D11's minimal form, with the take 1026 §8 named; the service half stays refused |
+| The embedded-plus-update model: store, selection, signing, anti-rollback, crash fallback, assets by digest, Level A/B | LLP 1026 D9–D12 | **Draft, unbuilt** — "Snapback / update economy" **left `DEFERRED.md` 2026-09-03** on Charlie's ruling, in 1026 D11's minimal form, with the take 1026 §8 named; the service half stays refused |
 | Native modules, the roster in the binary | LLP 1024 | Draft, unbuilt |
 | The wasm executor on wasmtime, engines per app, identity per source | LLP 1029 | Draft, unbuilt; 1028 measured on this Mac only |
 | Everything this document adds | here | proposed |
@@ -67,7 +67,7 @@ a foundation that is mostly not built. The honest table:
 So this document is a theory written ahead of most of its mechanisms,
 which `rules/RULES.md` permits for an RFC and forbids for a spec. It
 depends on 1026 landing; it amends 1026 where §6 says; it does not
-move anything off `NOT-DOING.md` itself.
+move anything off `DEFERRED.md` itself.
 
 ## 2. Design
 
@@ -497,7 +497,7 @@ the runner answers itself, on every host the same way:
 `state.delivery` **mirrors** the resource for smoke tests, `metrics.
 mjs`, and a developer's eyes, and adds what the agent alone needs —
 the compatibility id, `L` and `E`, the entry-zero digest. No ninth
-agent operation (LLP 1012's eight, and `rules/NOT-DOING.md`). An
+agent operation (LLP 1012's eight, and `rules/DEFERRED.md`). An
 `L = 0` client answers
 `delivery` with its embedded entry and nothing staged, which is the
 honest statement that it cannot be told anything.
@@ -568,7 +568,7 @@ Charlie's second addition: the developer upgrades exact2 and everything
 that comes with it. This touches every row of D1 at once, and the
 theory has to say what it promises — no more than the mechanisms give.
 
-**What may change** on an exact2 upgrade, pre-1.0 (`rules/NOT-DOING.
+**What may change** on an exact2 upgrade, pre-1.0 (`rules/DEFERRED.
 md` §Deliberately worse: no backwards compatibility, no API stability,
 names change): the kernel schema, the plan format, the Contract
 language and its compiler, the runner's semantics, the host presenters,
@@ -689,7 +689,7 @@ Two consequences the theory owes:
   shows the same truth: an icon edit hot-reloads the web page's favicon
   and tells the iOS dev client "rebuild the native host." One source,
   one manifest, per-platform carriers, no override files
-  (`rules/NOT-DOING.md` §Authoring models).
+  (`rules/DEFERRED.md` §Authoring models).
 
 ## 3. Costs and budgets
 
@@ -769,7 +769,7 @@ can read, the `delivery` resource and its two commands with
   bundle carries bytecode because Hermes ∈ `E`."
 - **LLP 1029 D4** — per-source identity waits for a closure algorithm
   and provenance metadata; whole-module first (D3a).
-- **`rules/NOT-DOING.md`** — the update-economy line was struck
+- **`rules/DEFERRED.md`** — the update-economy line was struck
   2026-09-03 on Charlie's ruling, with 1026 §8's reason and take; this
   document moves nothing further.
 
@@ -777,7 +777,7 @@ can read, the `delivery` resource and its two commands with
 
 - **A service.** No per-user targeting, no cohorts by identity, no
   update console, no analytics beyond a log the developer owns
-  (1026 §7, `rules/NOT-DOING.md`).
+  (1026 §7, `rules/DEFERRED.md`).
 - **Native machine code to iOS**, by any carrier. Pulley or wasm
   bytecode only; bake refuses the artifact.
 - **Pretending a platform can take a change live when it cannot**
@@ -814,7 +814,7 @@ carry both rounds verbatim. What each catch did to this document:
 | Native `cwasm` never to iOS; macOS store risk | grok M9, sol #10 | yes | D1, §7 |
 | Missing D1 rows (entitlements, privacy manifest, symbols, sandbox, icon appearances, localized names, groups, version, grant ceiling, updater codec, distribution artifacts, external control plane) | grok M14, sol #17 | yes, as rows or D6 entries | D1, D6 |
 | Doubled host-metadata rows | grok M14 | yes | D1 |
-| r1 §1 "none of that changes" over unbuilt foundations; NOT-DOING still lists the update economy | sol #1 | yes | §1, §6 |
+| r1 §1 "none of that changes" over unbuilt foundations; DEFERRED still lists the update economy | sol #1 | yes | §1, §6 |
 | Summary promised a §7 that did not exist | grok m1 | yes | §7 |
 | The tail is unbounded, not weeks; TestFlight "an hour" is internal only | grok m3/m4 | yes | D5, 1030.000 |
 | Widgets/extensions as separate targets; Android as a whole lane | sol #16/#17 | yes | D6, 1030.000 |
@@ -855,7 +855,7 @@ app, channel, stream, `seq`, and key id, which 1026 D11 does not (D3a,
 mid-publish case again, so the publisher reads the blobs back before
 writing the head and a client that misses a blob keeps its last good
 head (1030.000 D3); the agent-operation count is LLP 1012's and
-`NOT-DOING.md`'s, not 1024's (D7); the privacy manifest is derived
+`DEFERRED.md`'s, not 1024's (D7); the privacy manifest is derived
 from the APIs used, not a fixed row (D1); symbols are release outputs
 in 1030.000, not a client layer (D1 says so); shader fixtures run on
 the three real backends (D8).
@@ -872,7 +872,7 @@ citation in D9, the one-`V`-three-levels example, `state` being agent-
 only, the grant-ceiling row, the wasm-versus-native identity, four
 lanes, the debounce and TOCTOU, the icon alert, request-weighted reach,
 the launcher's domain, installed-shell metadata, the host descriptor,
-snapback still on `NOT-DOING.md`.
+snapback still on `DEFERRED.md`.
 
 Both recommend: revise and stay Draft; do not gather another family;
 Charlie answers `release`'s default, freeze-only, and the process
@@ -888,5 +888,5 @@ complete as the panel and the author could make it, and is not called
 complete: a layer missing from D1 is a bug in this document. Nothing
 measured beyond LLP 1028; nothing in the repo changes until Charlie
 answers §5 and an implementer and a date are named against 1030.000's
-stages. The update economy left `rules/NOT-DOING.md` 2026-09-03, in
+stages. The update economy left `rules/DEFERRED.md` 2026-09-03, in
 its minimal static form, on Charlie's ruling.

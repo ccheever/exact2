@@ -5,7 +5,7 @@
 **Systems:** Kernel (`Canvas` holds children), Contract (`canvas` children; corpus), Web host (a wrapper element), Apple host (the overlay, capture, the hook list), GPU module (one export, two trait methods), Linux host (the painter decision this informs)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-29
-**Related:** LLP 1009 (the canvas — D3 "a leaf with a kernel-owned box" is what this amends; D4 the host owns the frame; "a GPU paint stage for ordinary subtrees" was deliberately not decided there and is decided here in its smallest form), LLP 1001 §1 (the web is the standard; deviations declared), LLP 1002 (one representation, two executors — the shape D2 repeats), LLP 1007 §1 (the web host's elements), LLP 1008 §1 (one `NSView` per node) and §7 (accessibility beyond `testId`), LLP 1010 (scroll nodes — D4's third source), LLP 1012 (`screenshot`, `type`, `tap` — the fixtures' instruments), `rules/NOT-DOING.md` §Components and §Runtime. The design this maps, never a dependency: WICG HTML-in-Canvas — `layoutsubtree`, `drawable`, the `paint` event, `drawElementImageToTexture`, `updateElementGeometry` (Chrome origin trial 148–150; Mozilla Negative; WebKit no signal).
+**Related:** LLP 1009 (the canvas — D3 "a leaf with a kernel-owned box" is what this amends; D4 the host owns the frame; "a GPU paint stage for ordinary subtrees" was deliberately not decided there and is decided here in its smallest form), LLP 1001 §1 (the web is the standard; deviations declared), LLP 1002 (one representation, two executors — the shape D2 repeats), LLP 1007 §1 (the web host's elements), LLP 1008 §1 (one `NSView` per node) and §7 (accessibility beyond `testId`), LLP 1010 (scroll nodes — D4's third source), LLP 1012 (`screenshot`, `type`, `tap` — the fixtures' instruments), `rules/DEFERRED.md` §Components and §Runtime. The design this maps, never a dependency: WICG HTML-in-Canvas — `layoutsubtree`, `drawable`, the `paint` event, `drawElementImageToTexture`, `updateElementGeometry` (Chrome origin trial 148–150; Mozilla Negative; WebKit no signal).
 
 ## Summary
 
@@ -171,7 +171,7 @@ The spec (1014.000) transcribes the landing.
    compiler reads — on the trait until a second consumer wants it at compile
    time.
 
-## 5. The NOT-DOING trades this RFC owes (Charlie's, before Acceptance)
+## 5. The DEFERRED trades this RFC owes (Charlie's, before Acceptance)
 
 The rule: name what it unblocks, and take something off the doing-list in the
 same PR.

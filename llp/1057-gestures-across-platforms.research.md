@@ -5,7 +5,7 @@
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-09-26
 **Systems:** Contract (handler attributes, `touch-action`), Plan (`EventKind`), Runner (event dispatch), Motion (holds, springs, velocity), Web host (`glue.js`, `input-glue.js`, `motion-glue.js`, `collection-glue.js`), Apple host (UIKit/AppKit recognizers), Linux host (evdev contact), Agent API (forms of `tap`)
-**Related:** LLP 1002 D4/D5/D6 (the platform recognizes; the engine follows; the arena deleted), LLP 1003, LLP 1010 (scrolling), LLP 1012 (agent API), LLP 1035.001 (native interaction ownership), LLP 1035.003 (reproducible native gestures), LLP 1041 §8.5/§8.7/§8.13 (the four-interaction campaign), LLP 1043.000 D8 (`pan` commits state), LLP 1047 stage 3 (motion and drag linked by use), LLP 1050 (fill and fling), LLP 1054 X2 (pull to refresh), LLP 0559 F1 (the bug annuity; research), `rules/NOT-DOING.md` §Motion, §Agent API
+**Related:** LLP 1002 D4/D5/D6 (the platform recognizes; the engine follows; the arena deleted), LLP 1003, LLP 1010 (scrolling), LLP 1012 (agent API), LLP 1035.001 (native interaction ownership), LLP 1035.003 (reproducible native gestures), LLP 1041 §8.5/§8.7/§8.13 (the four-interaction campaign), LLP 1043.000 D8 (`pan` commits state), LLP 1047 stage 3 (motion and drag linked by use), LLP 1050 (fill and fling), LLP 1054 X2 (pull to refresh), LLP 0559 F1 (the bug annuity; research), `rules/DEFERRED.md` §Motion, §Agent API
 
 ## Summary
 
@@ -56,7 +56,7 @@ it is the one exact2 should keep.
   composition.
 - Keep follow-and-release holds for presentation.
 - Phase 1 is pinch on the existing transform binding. Its consumer is already
-  admitted (NOT-DOING.md:64-71). The generic arena, authorable composition,
+  admitted (DEFERRED.md:64-71). The generic arena, authorable composition,
   per-frame callbacks and owned scroll physics all stay refused. §10.7 names the
   trigger that would reopen them.
 
@@ -222,7 +222,7 @@ Rust (presenter/swipe.rs:8-22).
 
 ### 1.5 The agent
 
-A new input is a form of `tap` (NOT-DOING.md:295-302; llp/1012:314-317).
+A new input is a form of `tap` (DEFERRED.md:295-302; llp/1012:314-317).
 LLP 1035.003 added contact phases, `down / move / hold / up / cancel`,
 with one contact per session. It explicitly leaves out "a second contact,
 multitouch and recording" (llp/1035.003, D1). Every reply names its
@@ -238,17 +238,17 @@ delivery: `platform`, `recognized`, `activation` or `unsupported`
 
 ### 1.6 What the rules say
 
-- NOT-DOING.md:258-261 refuses "A gesture arena, claims, leases,
+- DEFERRED.md:258-261 refuses "A gesture arena, claims, leases,
   compositions, or an interactive-navigation model. Recognition,
   hit-testing, and scroll-vs-pan arbitration are the platform's
   (`touch-action`, `UIGestureRecognizer`) … Scroll always wins."
-- NOT-DOING.md:64-71 expanded the campaign to "continuously interactive
+- DEFERRED.md:64-71 expanded the campaign to "continuously interactive
   Messages, photo zoom, virtualized reorder and a draggable sheet". It kept
   "a generic gesture arena" out and admitted "the bounded geometry/motion
   work those consumers need".
-- NOT-DOING.md:275-276 refuses decay drivers: "A spring carries release
+- DEFERRED.md:275-276 refuses decay drivers: "A spring carries release
   velocity."
-- NOT-DOING.md:291 says `runOnJS` and runtime graph admission never existed.
+- DEFERRED.md:291 says `runOnJS` and runtime graph admission never existed.
 - LLP 1002 D5 deleted 11K lines of exact1's Flutter-style arena
   (llp/1002:55-60, :189-193). LLP 1035.001 §6 again refuses "an Exact
   gesture arena … per-frame application callbacks".
@@ -522,7 +522,7 @@ unification goes.
   - `withSpring({ velocity })` and `withDecay` finish the release.
   - `runOnJS` hops back to JS.
   - This is exactly the "second value graph" and "`runOnJS`" that
-    NOT-DOING.md:262-263 and :291 refuse.
+    DEFERRED.md:262-263 and :291 refuse.
 
 ## 7. Games and engines
 
@@ -616,7 +616,7 @@ WCAG asks for.
 | rotate | `UIRotationGestureRecognizer` | **none**; transform binding requires no rotation | llp/1002:151-157 |
 | multi-touch | per-touch identity | **canvas only** | CanvasInputIOS.swift:14-15 |
 | simultaneous / require-to-fail | delegate, `require(toFail:)` | not authorable; hard-coded per host | NodeViewIOS.swift:177-196; NodeViewMac.swift:1363-1368; contact.rs:236-241 |
-| velocity / fling | `velocity(in:)`; scroll deceleration | release velocity on the three drag bindings and swipe; scroll fling is native; no fling for app content (refused: NOT-DOING.md:275-276) | event.rs:182-213 |
+| velocity / fling | `velocity(in:)`; scroll deceleration | release velocity on the three drag bindings and swipe; scroll fling is native; no fling for app content (refused: DEFERRED.md:275-276) | event.rs:182-213 |
 | edge pan | `UIScreenEdgePanGestureRecognizer`, deferral | system back only; swipe yields the first 20 pt; no authored edge pan or deferral | NodeViewIOS.swift:192; NavigationIOS.swift:347-371 |
 | hover / pointer | `UIHoverGestureRecognizer`, `UIPointerInteraction` | `hover` bool; no position, no `cursor`, no pointer effects | event.rs:146-148; schema.json (no `cursor`) |
 | stylus | `UITouch.type`, force, tilt, Pencil interactions | none outside the canvas | gpu-glue.js:448 |
@@ -656,21 +656,21 @@ These matter more than the feature count:
 ### 9.3 Constraints any design must respect
 
 - **Native-first.** The platform recognizes. Scroll always wins
-  (NOT-DOING.md:258-261; llp/1002:102-106).
+  (DEFERRED.md:258-261; llp/1002:102-106).
 - **The web is the oracle.** Use web names and semantics where they exist,
   and declare deviations otherwise (AGENTS.md "The web is the standard";
   RULES.md Scope).
 - **The agent drives it.** Every new input is a form of `tap` or `type`,
-  with a truthful `delivery` (NOT-DOING.md:295-302; llp/1035.003 D2/D3).
+  with a truthful `delivery` (DEFERRED.md:295-302; llp/1035.003 D2/D3).
 - **No JS before first pixel.** Gesture glue loads after paint, linked by use
   (RULES.md time budgets; llp/1047:564-577, :799-812).
 - **No arena, claims, leases or compositions; no second value graph; no
-  per-frame app callbacks** (NOT-DOING.md:258-263, :291; llp/1035.001 §6).
+  per-frame app callbacks** (DEFERRED.md:258-263, :291; llp/1035.001 §6).
   The trigger that moves an item off: one line naming what it unblocks, and
   something taken off the doing-list in the same PR
-  (NOT-DOING.md:348-351).
+  (DEFERRED.md:348-351).
 - **Consumers.** Photo zoom, the sheet, reorder and Messages are admitted
-  (NOT-DOING.md:64-71). Anything else needs its own.
+  (DEFERRED.md:64-71). Anything else needs its own.
 
 ## 10. Recommendation
 
@@ -686,7 +686,7 @@ arbitration model**. It uses three pieces, none of them a runtime arena:
    web capture, the Linux candidate chain.
 
 Presentation stays follow-and-release. The authorable composition that
-UIKit, SwiftUI and RNGH expose is exactly what NOT-DOING refuses, and it's
+UIKit, SwiftUI and RNGH expose is exactly what DEFERRED refuses, and it's
 the part that doesn't port.
 
 ### 10.1 Contract
@@ -782,11 +782,11 @@ and the rows, so it's a rule, not a composition. Proposed:
   - Add `pinch-zoom` to `TouchAction`.
   - Use one velocity estimator and one threshold table.
 
-  This takes apparatus away, so it needs no NOT-DOING trade.
+  This takes apparatus away, so it needs no DEFERRED trade.
 - **Phase 1: pinch on transform bindings.**
   - Hosts: iOS, macOS and web. Linux is declared as not having it.
   - Add the agent's `pinch` form.
-  - The consumer is admitted: photo zoom (NOT-DOING.md:64-71; llp/1041:517).
+  - The consumer is admitted: photo zoom (DEFERRED.md:64-71; llp/1041:517).
     LLP 1041 §8.13 records the missing piece as "physical pinch"
     (llp/1041:1588).
   - This is "bounded geometry/motion work those consumers need", so it
@@ -804,13 +804,13 @@ and the rows, so it's a rule, not a composition. Proposed:
 
 ### 10.7 What stays refused
 
-- A runtime gesture arena, claims or leases (NOT-DOING.md:258-261).
+- A runtime gesture arena, claims or leases (DEFERRED.md:258-261).
 - Authorable composition: simultaneous, exclusive, sequenced,
   require-to-fail, `highPriorityGesture` equivalents.
-- Per-frame app callbacks, worklets and shared values (NOT-DOING.md:262-263,
+- Per-frame app callbacks, worklets and shared values (DEFERRED.md:262-263,
   :291).
 - Owned scroll physics or fling shaping.
-- Decay drivers (NOT-DOING.md:275-276).
+- Decay drivers (DEFERRED.md:275-276).
 - Custom recognizers written in Contract.
 - A generic drag-and-drop system.
 

@@ -1,6 +1,6 @@
 //! The agent API's read operations, once, for every host.
 //!
-//! @ref LLP 1012 (agent API v1); `rules/NOT-DOING.md` §Agent API
+//! @ref LLP 1012 (agent API v1); `rules/DEFERRED.md` §Agent API
 //!
 //! `tree`, `state`, and `logs` are answered here from the runner and its
 //! kernel — never from a host's mirror of them (a projection that is a

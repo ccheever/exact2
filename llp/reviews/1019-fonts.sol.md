@@ -1,7 +1,7 @@
 # Panel: LLP 1019 Fonts — declared, not loaded (sol)
 
 - **Family:** OpenAI: `codex exec --json -m gpt-5.6-sol -c model_reasoning_effort=ultra -s read-only --skip-git-repo-check -`. Verified against the rollout `~/.codex/sessions/2026/08/30/rollout-2026-08-30T09-04-54-01a0536a-….jsonl`: `"model":"gpt-5.6-sol"`, `"effort":"ultra"` — requested and reported agree.
-- **Method:** a panel at Charlie's request, 2026-08-30 — LLP 1016 §6's sense: not a refine loop, no verdict binds, no approval given or withheld. Two rounds. **Round 1 blind** (neither panelist saw the other's answer); **round 2 mutually visible** (each read the other's round-1 answer in full and was asked to write only where they differ). Workdir = a read-only panel capsule, no network: LLP 1019 r1, the panel brief, exact2's four host text paths (`host-web-css.rs`, `host-apple-Text.swift`, `host-apple-measure.rs`, `host-linux-text.rs`), the kernel text IR and its style rows, `contract-lower-tags.rs`, LLP 1005 and 1011, both app contracts (Caltrain and Weird Castle), the rules (`RULES.md`, `NOT-DOING.md`, `CLAUDE.md`), and exact1's whole font system (`fonts-and-assets.md`, `assets-fonts-{state,registry}.ts`, the Apple and Windows registries, the 2026-07-02 Apple text-stack audit, the LLP 0470 limitations excerpt).
+- **Method:** a panel at Charlie's request, 2026-08-30 — LLP 1016 §6's sense: not a refine loop, no verdict binds, no approval given or withheld. Two rounds. **Round 1 blind** (neither panelist saw the other's answer); **round 2 mutually visible** (each read the other's round-1 answer in full and was asked to write only where they differ). Workdir = a read-only panel capsule, no network: LLP 1019 r1, the panel brief, exact2's four host text paths (`host-web-css.rs`, `host-apple-Text.swift`, `host-apple-measure.rs`, `host-linux-text.rs`), the kernel text IR and its style rows, `contract-lower-tags.rs`, LLP 1005 and 1011, both app contracts (Caltrain and Weird Castle), the rules (`RULES.md`, `DEFERRED.md`, `CLAUDE.md`), and exact1's whole font system (`fonts-and-assets.md`, `assets-fonts-{state,registry}.ts`, the Apple and Windows registries, the 2026-07-02 Apple text-stack audit, the LLP 0470 limitations excerpt).
 - **Gates:** LLP 1019 r1 sha256 `159cfed094e038dc70abc700684df34cc75dc9c3c247f9041ee8afb8574a48a1`; round-1 brief sha256 `36c3e6bf507284200fe1320011a2e1d2e03b13ef7c26fd78b57faf5e087ac3b0`; round-2 brief sha256 `941d016f69d4ee6defcc9c7888e5380168ef63593bcb2934e4d55750af1f5774`; capsule (evidence files, panel answers excluded) sha256 `2e8c5c8e28bc43be56856c3a82671bd61df66c67e8ce3b81dffb349983bac5b9`. No capsule file was modified while either panelist was in flight.
 - **Runs:** round 1 2026-08-30T16:04:53Z → T16:17:08Z; round 2 → T16:25:52Z.
 - **Disposition:** folded into LLP 1019 r2 §11. The panel's factual catches against the live repo were re-verified by the author before folding — see §11 for which held.
@@ -18,7 +18,7 @@
 
 Compile-time declarations and compiler-assigned IDs are the right v1 boundary. Delete the stronger claim that “nothing resolves at runtime.” The compiler should freeze identity; hosts still resolve asset paths, parse/register faces, match styles and weights, and perform glyph fallback.
 
-This does not foreclose an OTA release that atomically replaces the plan and its asset root. It intentionally forecloses a font arriving independently as runtime data, which is appropriate while the update economy is explicitly out of v1 (`exact2/NOT-DOING.md:36-51`).
+This does not foreclose an OTA release that atomically replaces the plan and its asset root. It intentionally forecloses a font arriving independently as runtime data, which is appropriate while the update economy is explicitly out of v1 (`exact2/DEFERRED.md:36-51`).
 
 **Reason**
 
@@ -149,7 +149,7 @@ Do not implement LLP 1019 as written. Implement a narrower bundled-font slice on
 
 **Reason**
 
-The binding scope defines v1 by one real app, currently recommends Caltrain, and excludes features that app does not require (`exact2/NOT-DOING.md:5-12`). Moving work into scope requires naming what it unblocks and removing something else (`exact2/NOT-DOING.md:141-144`). Weird Castle is a legitimate reason, but that trade has not been recorded.
+The binding scope defines v1 by one real app, currently recommends Caltrain, and excludes features that app does not require (`exact2/DEFERRED.md:5-12`). Moving work into scope requires naming what it unblocks and removing something else (`exact2/DEFERRED.md:141-144`). Weird Castle is a legitimate reason, but that trade has not been recorded.
 
 The RFC also incorrectly says Weird Castle needs D1–D5 and nothing beyond (`1019-fonts.rfc.md:247-254`). The app requests 600, 700, and 800 (`exact2/weird-castle.app.contract:83,104-106,122-145`), so using the brand family requires D6. It contains no italic requirement, so D7—not D6—is the unevidenced scope addition.
 
@@ -193,9 +193,9 @@ Weird Castle’s literal 800-weight wordmark should ship a real 800 face or vari
 
 Neither round-one statement was exact. I was right about the scope gate but too strict about its sequencing.
 
-The binding scope still has one unnamed v1 app, recommends Caltrain, and says everything unnecessary to that app does not exist (`exact2/NOT-DOING.md:5-12`). Weird Castle being an external consumer (`exact2/CLAUDE.md:27-29`) does not authorize font work; that file explicitly says it is nonbinding (`:3`).
+The binding scope still has one unnamed v1 app, recommends Caltrain, and says everything unnecessary to that app does not exist (`exact2/DEFERRED.md:5-12`). Weird Castle being an external consumer (`exact2/CLAUDE.md:27-29`) does not authorize font work; that file explicitly says it is nonbinding (`:3`).
 
-However, the trade need not precede coding: `NOT-DOING.md:141-144` requires it in the same PR. A thin prototype is permissible, but font support cannot be authorized or landed as v1 work until Charlie records what it unblocks and what leaves scope. An agent also needs explicit human approval to add the registry (`exact2/RULES.md:64-67`).
+However, the trade need not precede coding: `DEFERRED.md:141-144` requires it in the same PR. A thin prototype is permissible, but font support cannot be authorized or landed as v1 work until Charlie records what it unblocks and what leaves scope. An agent also needs explicit human approval to add the registry (`exact2/RULES.md:64-67`).
 
 ## 3
 

@@ -8,7 +8,7 @@
 **Date:** 2026-08-29
 **Implementer:** Claude (Fable 5); the macOS behavior landed 2026-08-29 (this document transcribes it)
 **Windowing work:** Codex, started 2026-09-14 at Charlie's direction ("ok do what you think" after the list-memory assessment). §6 records the staged implementation; fixed-height runner/web landed 2026-09-17, measured heights and Apple geometry 2026-09-18 through Markdown. Linux geometry, image budgets and Messages acceptance remain open.
-**Related:** LLP 1001 §1 (the `ScrollView`/`List` default — the only per-tag default — and the root-width rule), LLP 1002 D4 ("scroll always wins": the platform recognizes and scrolls; the engine follows), LLP 1007 §1 (the web host's `<div data-scroll>`), LLP 1008 §1, §5 (the window as a viewport over a document; the chaining scroll view), `rules/RULES.md` §The web is the standard, `rules/NOT-DOING.md` §Components (no virtualList v2) and §Motion (scroll-vs-pan arbitration is the platform's)
+**Related:** LLP 1001 §1 (the `ScrollView`/`List` default — the only per-tag default — and the root-width rule), LLP 1002 D4 ("scroll always wins": the platform recognizes and scrolls; the engine follows), LLP 1007 §1 (the web host's `<div data-scroll>`), LLP 1008 §1, §5 (the window as a viewport over a document; the chaining scroll view), `rules/RULES.md` §The web is the standard, `rules/DEFERRED.md` §Components (no virtualList v2) and §Motion (scroll-vs-pan arbitration is the platform's)
 
 ## Summary
 

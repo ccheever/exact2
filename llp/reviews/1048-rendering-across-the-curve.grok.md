@@ -27,7 +27,7 @@ Change: the checkpoint is its own channel, big enough for a question, not writte
 
 **3. HIGH — Nothing in either repo is allowed to host this, and a late render is an indexable blank.**
 
-Interview still excludes production hosting and anonymous or public access (`interview/rules/NOT-DOING.md`). 1048 §9.5 asks which fields are public and does not mention the hosting ban. LLP 1030's deploy is a signed static bundle and a pointer flip. A long-running binary that must match the client plan digest is a second production system, with no story for the moment seeding is refused. On a 2-second deadline the server paints placeholders (1048.000 D9) and returns 200 (D11). Google may render JavaScript later, and incompletely. Link unfurlers (Slack, iMessage, X, Discord, LinkedIn) and typical AI crawlers will not run this wasm, and they will keep the placeholder. Search and the feeds are in the phase 1 table, so the server is also an open render fan-out. The answers island is user-authored content inside HTML, and the plan never requires that JSON to be safe inside a script. A source marked public publishes its whole value: labels do not redact fields. The module's grants include SQLite and network fetch.
+Interview still excludes production hosting and anonymous or public access (`interview/rules/DEFERRED.md`). 1048 §9.5 asks which fields are public and does not mention the hosting ban. LLP 1030's deploy is a signed static bundle and a pointer flip. A long-running binary that must match the client plan digest is a second production system, with no story for the moment seeding is refused. On a 2-second deadline the server paints placeholders (1048.000 D9) and returns 200 (D11). Google may render JavaScript later, and incompletely. Link unfurlers (Slack, iMessage, X, Discord, LinkedIn) and typical AI crawlers will not run this wasm, and they will keep the placeholder. Search and the feeds are in the phase 1 table, so the server is also an open render fan-out. The answers island is user-authored content inside HTML, and the plan never requires that JSON to be safe inside a script. A source marked public publishes its whole value: labels do not redact fields. The module's grants include SQLite and network fetch.
 
 Change: before any server, name the public fields and take static hosting off Interview's not-doing list. Unsettled indexable URLs are 503 with `Retry-After`. Unknown items are 404. Search is `noindex`. No SQLite and no credentials on the public render. Escape the checkpoint. Keep the clock out of cache keys. D3 marks it request-time and public, and 1048.002 §5 keys on every such read, so a relative timestamp makes the cache miss forever. Stale HTML is what a cache is for.
 
@@ -73,13 +73,13 @@ They converge on five major changes:
    - sized for a page;
    - not asked again until their freshness lapses;
    - kept when a refresh fails.
-2. **The first slice.** Phase 1 aimed the most expensive point on the curve at a consumer whose own rules exclude public access and production hosting (all three; `interview/rules/NOT-DOING.md` ~16–18). That point is a per-request server with no cache, a wasm boot that starts at once, and a DOM replacement.
+2. **The first slice.** Phase 1 aimed the most expensive point on the curve at a consumer whose own rules exclude public access and production hosting (all three; `interview/rules/DEFERRED.md` ~16–18). That point is a per-request server with no cache, a wasm boot that starts at once, and a DOM replacement.
 3. **Caching.** A render that sees no cookies and an empty store depends only on its URL and public data. It is cached from the start (Claude, Grok), not served `no-store`.
 4. **An anonymous server.** The server renders the public document, and the device renders the person (Fable, Claude, and Grok's "no credentials on the public render"). With no credentials and no private data on the render path, confidentiality labels, runtime read tracking and an inferred `Vary` protect nothing. Grok would keep the confidentiality label, but on such a server "private" can only mean "rendered on the device", and stage already says that.
 5. **The Contract surface.** Phase 1's is too large (all three):
    - Tags with HTML defaults are kernel work on four hosts: `em` lengths, `list-item`, and classes at runtime.
    - Anonymous readers never see Interview's rail (`app.contract:413`, `when data.authenticated and wide`).
-   - NOT-DOING says "roughly 15 built-in tags, not 40".
+   - DEFERRED says "roughly 15 built-in tags, not 40".
 
 This reverses three r2 acceptances of Astra's review: rows 5 (confidentiality labels and a tracked `Vary`), 7 (tags with HTML defaults in phase 1) and 8 (width variants in phase 1). The problems those rows found still stand. What changes is the answer: nothing on the server can leak, and the tags and variants wait for a consumer.
 
@@ -90,7 +90,7 @@ The code claims I spot-checked hold:
 - the Linux executor sharing `executor_core.rs` by `#[path]` (`host/linux/src/executor.rs:9`);
 - `renderMarkup`'s spans and `<br>` (`host/web/navigation.js:1420`);
 - `readWebRequest` negotiating on `Accept` (`host/web/serve.mjs:591`);
-- Interview's NOT-DOING.
+- Interview's DEFERRED.
 
 One claim is misplaced. The global `h1`…`h6` reset is the web lane's commit, now on main as `44f8643c`; it isn't a `core/fixes` commit.
 
@@ -104,7 +104,7 @@ One claim is misplaced. The global `h1`…`h6` reset is the web lane's commit, n
 - **1b: Interview.**
   - **Gated on:**
     - ★ which content is public, including content written while Interview was invitation-only (§9.5);
-    - ★ Interview's NOT-DOING lifting its public-access and production-hosting lines;
+    - ★ Interview's DEFERRED lifting its public-access and production-hosting lines;
     - ★ a hosting target.
   - **Proposed topology:**
     - the Linux host in a serve mode, a native Rust binary (ruling 4), updated through delivery;
@@ -135,7 +135,7 @@ One claim is misplaced. The global `h1`…`h6` reset is the web lane's commit, n
 |---|---|---|---|
 | 1 | Public pages are server renders with no cache, which the client then throws away | **Accepted, except the static-only answer for Interview.**<br>• 1a writes documents at build for the static host.<br>• Nothing preloads the wasm; the runtime loads when the page is idle or at the first interaction.<br>• One boot path adopts the document instead of replacing it.<br>• For Interview, 1b proposes rendering on request behind a CDN rather than writing files when content changes (see the topology above; ★ Charlie). | 1048 §7; 1048.000 D3, D6, D11 (r3) |
 | 2 | Kept answers can't carry the page, and the client's second ask turns it into the welcome screen | **Accepted** (change 1).<br>• The anonymous page is the replica's own view: the public source returns the rows the replica's queries return.<br>• On the server, it reads a read-only replica of the public partition.<br>• There is no second public interface. | 1048.000 D6; 1048 §10 (r3) |
-| 3 | Nothing may host this; a late render is an indexable blank; escaping; a public source publishes its whole value; the clock gets into cache keys | **Accepted.**<br>• ★ Charlie names the public fields and lifts Interview's NOT-DOING lines.<br>• A render that doesn't settle answers 503 with `Retry-After`; an unknown item answers 404; search is `noindex`.<br>• The render carries no credentials, and its server holds only the public partition.<br>• The checkpoint uses an encoding that can't contain `</script` or `<!--`.<br>• The checkpoint carries its render time, and no cache is keyed on the clock. | 1048.000 D5, D9–D11 (r3) |
+| 3 | Nothing may host this; a late render is an indexable blank; escaping; a public source publishes its whole value; the clock gets into cache keys | **Accepted.**<br>• ★ Charlie names the public fields and lifts Interview's DEFERRED lines.<br>• A render that doesn't settle answers 503 with `Retry-After`; an unknown item answers 404; search is `noindex`.<br>• The render carries no credentials, and its server holds only the public partition.<br>• The checkpoint uses an encoding that can't contain `</script` or `<!--`.<br>• The checkpoint carries its render time, and no cache is keyed on the clock. | 1048.000 D5, D9–D11 (r3) |
 | 4 | The tree is checked at one viewport width, and the new elements are a kernel change on four hosts | **Accepted.**<br>• Width variants leave phase 1: Interview's anonymous routes have no branch on width.<br>• Until variants exist, a route whose tree branches on width keeps r2's D4 rule: it renders at the page viewport (mobile-first), the runtime renders it fresh at a wider width, and parity is claimed only at that viewport.<br>• When variants come, the inactive branch is `display: none`, and native hosts may drop it.<br>• Phase 1's elements are the title plus roles lowered to HTML: headings, paragraphs, lists and links. | 1048.003 (r3) |
 | 5 | Replace-then-adopt is a migration path; the dev loop is unspecified; the working set is full | **Accepted.**<br>• One boot path.<br>• The dev server makes documents with the same projection.<br>• 1048.001 and 1048.002 leave the working set. | 1048, 1048.000 (r3) |
 
@@ -149,7 +149,7 @@ No further review round is needed to settle the direction. Status stays Draft; C
 
 **Update, 2026-09-23: after Charlie's rulings (r3).** Each item marked ★ is now resolved:
 - **Public content:** "questions, answers, posts, profiles — but all at the preference of the user". Each author chooses, and the choice is off by default (LLP 1048 §9.5).
-- **Hosting:** "for now just hosted locally, eventually on a CDN/hosting provider" (§9.6). Interview's NOT-DOING records public reading at the author's choice, and still keeps production hosting out.
+- **Hosting:** "for now just hosted locally, eventually on a CDN/hosting provider" (§9.6). Interview's DEFERRED records public reading at the author's choice, and still keeps production hosting out.
 - **The server's shape:** Charlie wasn't sure and asked the author to decide. It renders on request from a serve mode of the Linux host, on loopback, with headers ready for a cache (§9.7).
 - **Pages for signed-in readers:** Charlie asked "why not server render the personal stuff?" They are now rendered on the server in a simple form: the whole page for that reader, `private, no-store`, never shared (§9.8, LLP 1048.002).
   - This reverses the disposition's "anonymous forever".

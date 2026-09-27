@@ -65,7 +65,7 @@ The thesis holds up against the code: the runner is sound, but the defaults are 
 **Rules and order**
 - **MATERIAL: the working set is over its cap.** `llp/current/` has 19 entries against the cap of 15 (`rules/RULES.md:12`, a **[check]** rule). This lane took it from 15 at `HEAD~2` to 17 and then to 19. `caps` should fail at this commit. I couldn't run it because `bun` isn't installed here.
 - **MATERIAL: §4's order causes two format bumps.** P2 lands in step 1 and P1 in step 3, which means two `FORMAT_DIGEST` bumps. The digest covers the whole `format.json`, stdlib table included (`plan/build.rs:250-265`). That contradicts §4 step 3 and .005 §Costs.
-- **MINOR: §6 names no real take.** Withdrawing `touching`, an unaccepted draft, and renaming `formatClockTime` are not takes (`rules/NOT-DOING.md:348-351`). Admitting Bluesky is a consumer expansion and needs a real one.
+- **MINOR: §6 names no real take.** Withdrawing `touching`, an unaccepted draft, and renaming `formatClockTime` are not takes (`rules/DEFERRED.md:348-351`). Admitting Bluesky is a consumer expansion and needs a real one.
 
 ### Suggestions
 - Add to §1: the polling `settle`, Messages' `now()` argument, and view state passed as arguments.
@@ -194,8 +194,8 @@ Land it together with P4's decided feed design and a working pattern for a windo
 - **Fixture rule for roster entries.** See .003 above: relative time, the short date and two duration styles fail it.
 - **Apparatus.** None of the plan adds a check, script, registry or config file. The new design documents need Charlie's approval, which he apparently gave on 2026-09-26. The working set at 19 against 15 breaks a [check] rule.
 - **Syntax freeze.** No new syntax. P3 relaxes an arity rule, and D9 is a type diagnostic.
-- **One in, one out.** Nothing is moved off NOT-DOING. Admitting Bluesky is an expansion and needs a named take, and §6's takes don't count.
-- **NOT-DOING's "dataflow" and "perf", and the eight operations.** The static line isn't the refused dataflow explorer as long as it stays one line with no "why" chain. Counts in `state` are not the refused `perf` operation: there are precedents in `pending` (LLP 1012:327) and the game's `world.perf` (`host/web/gpu-glue.js:572`), and no ninth operation is added. The counters are simply unnecessary, as shown under P6.
+- **One in, one out.** Nothing is moved off DEFERRED. Admitting Bluesky is an expansion and needs a named take, and §6's takes don't count.
+- **DEFERRED's "dataflow" and "perf", and the eight operations.** The static line isn't the refused dataflow explorer as long as it stays one line with no "why" chain. Counts in `state` are not the refused `perf` operation: there are precedents in `pending` (LLP 1012:327) and the game's `world.perf` (`host/web/gpu-glue.js:572`), and no ninth operation is added. The counters are simply unnecessary, as shown under P6.
 
 ## Order and scope
 §4's order is wrong on four points:

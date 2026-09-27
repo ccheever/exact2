@@ -30,7 +30,7 @@ pub struct Viewport {
 /// CSS's user-preference media features (Media Queries 5 §11) a host reads
 /// from the platform: `prefers-reduced-motion: reduce` and
 /// `prefers-reduced-transparency: reduce`. The runner has no policy of its
-/// own (`rules/NOT-DOING.md` §Motion): the app reads these and chooses.
+/// own (`rules/DEFERRED.md` §Motion): the app reads these and chooses.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Preferences {
     /// The user asked for less motion.

@@ -5,7 +5,7 @@
 **Systems:** GPU module (`gpu/`, the `Surface` trait), Runner (the clock, the data seam), Agent API (the eight operations), Delivery, the hosts' input paths; a proposed add-on workspace outside the core
 **Author:** Claude (Fable 5.1) for Charlie Cheever
 **Date:** 2026-09-17
-**Related:** `rules/NOT-DOING.md` §Runtime (the GPU door), §Agent API (eight; a ninth replaces one; record/replay refused), §Motion (no gesture arena); `CLAUDE.md` (optional capability is a separate artifact, never a cargo feature on a core crate); LLP 1009 (the canvas, `Surface`, wgpu on every host), LLP 1014 (canvas children; D5 placements), LLP 1012 (the agent API; §2 the clock), LLP 1027.000 (explicit time and randomness), LLP 1027.002 (worker placement), LLP 1029.000 (the replaceable module), LLP 1030 (delivery), LLP 1035.003 (contact phases). Sub-documents: LLP 1046.000 (the test game), LLP 1046.001 (the agent interface), LLP 1046.002 (what the two engines can share)
+**Related:** `rules/DEFERRED.md` §Runtime (the GPU door), §Agent API (eight; a ninth replaces one; record/replay refused), §Motion (no gesture arena); `CLAUDE.md` (optional capability is a separate artifact, never a cargo feature on a core crate); LLP 1009 (the canvas, `Surface`, wgpu on every host), LLP 1014 (canvas children; D5 placements), LLP 1012 (the agent API; §2 the clock), LLP 1027.000 (explicit time and randomness), LLP 1027.002 (worker placement), LLP 1029.000 (the replaceable module), LLP 1030 (delivery), LLP 1035.003 (contact phases). Sub-documents: LLP 1046.000 (the test game), LLP 1046.001 (the agent interface), LLP 1046.002 (what the two engines can share)
 
 ## Summary
 
@@ -81,7 +81,7 @@ The test of "agent-native": an agent closes the loop without a human's eyes.
   script. The smoke script then *is* the replay — reproducible bugs, golden
   traces, bisecting, thousands of headless ticks per second for balance and
   fuzzing — with no ninth operation and without the record/replay
-  `NOT-DOING.md` refuses.
+  `DEFERRED.md` refuses.
 - **F14. A world hash**: one number that says four hosts simulated the same
   game. Simulation state is held bit-exact; pixels are held to a band.
 - **F15. Save states are save games**: world serialization the game needs
@@ -123,7 +123,7 @@ The test of "agent-native": an agent closes the loop without a human's eyes.
   tests as numbers; Khronos's glTF sample assets and viewer for materials.
   The path tracer doubles as the lightmap baker.
 - **F23. What stays expensive:** the device long tail (shrunk by
-  `NOT-DOING.md` excluding Android and Windows — which also shrinks the
+  `DEFERRED.md` excluding Android and Windows — which also shrinks the
   audience); performance at scale (culling, LOD, streaming, GPU-driven
   draws — measurable, so iterable); build-time shader enumeration
   (LLP 1009 D5 — a constraint on the material system, and the cure for
@@ -165,7 +165,7 @@ the precedent. Read concretely:
 
 ## 6. Where the rules stand
 
-`NOT-DOING.md` binds and none of this is on the doing-list. The GPU door is
+`DEFERRED.md` binds and none of this is on the doing-list. The GPU door is
 open in a declared shape (LLP 1009, LLP 1014); a game engine walks further
 through it. The rules' own pattern is the next step if there is one: **no
 engine spec — one real small game as the consumer** (LLP 1046.000), with
@@ -177,7 +177,7 @@ because he asked for them.
 
 1. **Is this a lane, and what is the take?** Probably a lane. The take is
    unnamed — he asked what should come off; §8 is the recommendation, and
-   until he names one nothing moves in `NOT-DOING.md` and nothing is built.
+   until he names one nothing moves in `DEFERRED.md` and nothing is built.
 2. **Where it lives: "separate directory here."** A directory in this
    repository with its own `[workspace]`, outside the root `members` list,
    so `cargo build --workspace` and `cargo test --workspace` never see it.
@@ -245,7 +245,7 @@ No number in this document was measured.
 [LLP 1046.010](1046.010-unreal-comparison.research.md) records the same comparison against Unreal
 at Charlie's request: the rendering and content gap widens sharply, the agent-facing gap reverses,
 and the lane's oracle stays Godot. Desk research only; it proposes no work and moves nothing on
-`rules/NOT-DOING.md`.
+`rules/DEFERRED.md`.
 [LLP 1046.011](1046.011-cheap-distance-on-unreals-lead.research.md) follows it with the opposite
 question — which parts of that lead are cheaper to close than they look — and extracts one
 prioritization rule (its O6): implementation is cheap now, so the binding cost is the oracle.

@@ -6,7 +6,7 @@
 **Author:** Claude (Fable 5.1) for Charlie Cheever
 **Date:** 2026-09-02
 **Revised:** 2026-09-02 (r2, the same day: Charlie asked for "the best of both worlds — everything compiled in and distributed efficiently up front, but with stuff dynamically swapped in during development or when deploying updates," and then why GPU Rust and native modules could not move. r2 answers both: D9–D12 are the embedded-plus-update model with native-by-digest-identity; D6 moves wgpu to the host so surfaces travel as wasm; D7 is the native-module boundary stated honestly instead of a flat no. §7's refusal of release fetch is withdrawn on his ask; §8 names the trades.)
-**Related:** LLP 1023 (one URL per app — the base this extends; §8 is the set of doors this document walks through, one by one, with the reason for each; D1/D2 the URL contract and the envelope, D3 the transactional reload, D6 the registry and its "identity is not trust", D10 one plan is the invariant), LLP 1023.001 (Stage 1 as landed; its incident is D5's motivating case), LLP 1004 D4 (app computation is a Rust data crate — kept: the crate moves, the language does not change), LLP 1005 §3 (canonical value bytes, plan/src/value.rs:117–174 — the ABI's encoding, already declared), LLP 1016 D1/D6 (the runner never does I/O; grants — the properties that make a wire-delivered crate sandboxable, here enforced by the executor rather than by discipline), LLP 1018 D4/D5/D7 (bake sees an empty store; the token stays below the seam; store scoping), LLP 1007 §6 (what a reload carries — amended for a module change) and §7 (a native Rust change is a new binary — narrowed), LLP 1008 §9 + the dev menu (17350d0), LLP 1009 D1/D2/D4/D5 (wgpu is the one GPU API; the GPU module after first pixel; shaders compiled at first use — D6 keeps D1 and repackages D2), LLP 1024 D3/D5/D6 (one app artifact after the paint gate; no `dlclose`; live-swap cut — all kept), LLP 1012 (the agent carrier stays off the network — kept; the cloud has its own eyes), LLP 1015 (the headless Linux host: the cloud's verifier), `rules/RULES.md` §Scope (the boot path executes and compiles nothing; modules ship as bytecode — a wasm module is bytecode) and §Agents, `rules/NOT-DOING.md` §Runtime (hot revision surfaces; the update economy — §8 says what moves and what it costs), the 2026-08-29 ibex2 decision (an engine only at a measured call site, as another `DataSource` after first pixel — this RFC's executor slot is that slot). External precedent: Expo Updates (embedded update, `runtimeVersion`, launch policy, roll-back-to-embedded, code signing — the model D9–D12 imports, with D10 as the improvement a JavaScript runtime cannot make); the WebGPU C header (`webgpu-headers`, implemented by Dawn and wgpu-native) and the wasi-gfx proposal (WebGPU for wasm outside a browser) — D6's import surface has owners; wgpu 29.0.4's `custom` backend (`src/backend/custom.rs`, `dispatch.rs` — the hook D6 uses so surface code stays written against wgpu types). Predecessor, research never authority: exact1 LLP 0524 (native code hot reload: F1 "the portable mechanism is worker replacement", F2 the dylib's real price, F6 "fast native restart is the measured floor"), LLP 0421 (remote and OTA app admission: the eleven retrofit-hostile invariants — D5 inherits five), LLP 0347 (native payload delivery, skew, caching, integrity — D11 is its minimal form), LLP 0331 (`embedded-release`), `docs/hosting-ssr-ota.md` ("your web host is your update server" — kept, as static files), weird-castle `archive/exact1/server/sim-core/wasmtime-host` (a wasm host the predecessor already ran).
+**Related:** LLP 1023 (one URL per app — the base this extends; §8 is the set of doors this document walks through, one by one, with the reason for each; D1/D2 the URL contract and the envelope, D3 the transactional reload, D6 the registry and its "identity is not trust", D10 one plan is the invariant), LLP 1023.001 (Stage 1 as landed; its incident is D5's motivating case), LLP 1004 D4 (app computation is a Rust data crate — kept: the crate moves, the language does not change), LLP 1005 §3 (canonical value bytes, plan/src/value.rs:117–174 — the ABI's encoding, already declared), LLP 1016 D1/D6 (the runner never does I/O; grants — the properties that make a wire-delivered crate sandboxable, here enforced by the executor rather than by discipline), LLP 1018 D4/D5/D7 (bake sees an empty store; the token stays below the seam; store scoping), LLP 1007 §6 (what a reload carries — amended for a module change) and §7 (a native Rust change is a new binary — narrowed), LLP 1008 §9 + the dev menu (17350d0), LLP 1009 D1/D2/D4/D5 (wgpu is the one GPU API; the GPU module after first pixel; shaders compiled at first use — D6 keeps D1 and repackages D2), LLP 1024 D3/D5/D6 (one app artifact after the paint gate; no `dlclose`; live-swap cut — all kept), LLP 1012 (the agent carrier stays off the network — kept; the cloud has its own eyes), LLP 1015 (the headless Linux host: the cloud's verifier), `rules/RULES.md` §Scope (the boot path executes and compiles nothing; modules ship as bytecode — a wasm module is bytecode) and §Agents, `rules/DEFERRED.md` §Runtime (hot revision surfaces; the update economy — §8 says what moves and what it costs), the 2026-08-29 ibex2 decision (an engine only at a measured call site, as another `DataSource` after first pixel — this RFC's executor slot is that slot). External precedent: Expo Updates (embedded update, `runtimeVersion`, launch policy, roll-back-to-embedded, code signing — the model D9–D12 imports, with D10 as the improvement a JavaScript runtime cannot make); the WebGPU C header (`webgpu-headers`, implemented by Dawn and wgpu-native) and the wasi-gfx proposal (WebGPU for wasm outside a browser) — D6's import surface has owners; wgpu 29.0.4's `custom` backend (`src/backend/custom.rs`, `dispatch.rs` — the hook D6 uses so surface code stays written against wgpu types). Predecessor, research never authority: exact1 LLP 0524 (native code hot reload: F1 "the portable mechanism is worker replacement", F2 the dylib's real price, F6 "fast native restart is the measured floor"), LLP 0421 (remote and OTA app admission: the eleven retrofit-hostile invariants — D5 inherits five), LLP 0347 (native payload delivery, skew, caching, integrity — D11 is its minimal form), LLP 0331 (`embedded-release`), `docs/hosting-ssr-ota.md` ("your web host is your update server" — kept, as static files), weird-castle `archive/exact1/server/sim-core/wasmtime-host` (a wasm host the predecessor already ran).
 
 ## Summary
 
@@ -422,7 +422,7 @@ unchanged, the browser is the oracle. D2's *packaging* changes:
   compiler checks against (1009 D2) — is read from the module at load
   as `app_id` and `grants` are.
 - **Shaders are assets.** A surface's WGSL is text the driver compiles
-  at first use (LLP 1009 D5 asks NOT-DOING to say so). Read from the
+  at first use (LLP 1009 D5 asks DEFERRED to say so). Read from the
   asset path at `bind` instead of the crate's source, a shader edit
   rides the asset rung (D11) and needs no module rebuild at all.
 
@@ -455,7 +455,7 @@ code: `UIView`s, MapKit, a PTY, CoreText. There is no computation to
 move into a wasm module; what a wasm "controller" could do is drive
 such a view through a per-module import table, and designing that
 table per module kind is building React Native's bridge, which this
-repository exists to not do (`rules/NOT-DOING.md` §Authoring models).
+repository exists to not do (`rules/DEFERRED.md` §Authoring models).
 So:
 
 - The tag → factory roster is frozen at `codesign` (1024 D3) and is
@@ -491,7 +491,7 @@ naming both versions: Expo Go's version-skew problem, restated, with
 the refusal machinery 1023 D10 already inherits. The cloud pins exact2
 to the launcher's version or the launcher updates; nothing negotiates.
 
-**Windows and Android** stay on NOT-DOING; nothing here forecloses them.
+**Windows and Android** stay on DEFERRED; nothing here forecloses them.
 The module is neutral, and an interpreter is the shape Play's
 downloaded-code exception is written around too.
 
@@ -561,7 +561,7 @@ tension.
 
 ### D11 — The update economy, minimal
 
-This is the door `rules/NOT-DOING.md` §Runtime and LLP 1023 §8 keep
+This is the door `rules/DEFERRED.md` §Runtime and LLP 1023 §8 keep
 closed, opened on Charlie's ask (2026-09-02). exact1 LLP 0347 is the
 long form; this is the least that is honest, and each item is stated
 because it is retrofit-hostile:
@@ -755,12 +755,12 @@ dev client.
 - **Withdrawn in r2:** r1's refusal of release binaries that fetch —
   replaced by D9–D12 on Charlie's ask, at the cost §8 names.
 
-## 8. The NOT-DOING and 1023 §8 trades this RFC owes (Charlie's, before Acceptance)
+## 8. The DEFERRED and 1023 §8 trades this RFC owes (Charlie's, before Acceptance)
 
 The rule: name what it unblocks, and take something off the doing-list
 in the same PR.
 
-- **`rules/NOT-DOING.md` §Runtime "Snapback / update economy"** →
+- **`rules/DEFERRED.md` §Runtime "Snapback / update economy"** →
   D9–D12, minimal and static. **Ruled 2026-09-03: moved** (Charlie, on
   the LLP 1030 panel's finding that the line still stood: "you can pull
   out snapback for now if necessary"); the line is struck with the
@@ -791,13 +791,13 @@ in the same PR.
   URL over HTTPS for dev (D1), a signature for production (D11). Take:
   none needed — it removes a limitation; `--loopback` stays the
   embargo switch.
-- **`rules/NOT-DOING.md` §Runtime "HBC compilation, hot revision
+- **`rules/DEFERRED.md` §Runtime "HBC compilation, hot revision
   surfaces, staged reload"** — not moved. A module change is not a hot
   revision surface: no patch format, no generations, a restart carrying
   state exactly as the parenthetical Charlie ruled (LLP 1007 §6,
   2026-08-28). This document asks the parenthetical to say "a plan or
   module reload."
-- **`rules/NOT-DOING.md` §Runtime "GPU / WebGPU substrate … compiles no
+- **`rules/DEFERRED.md` §Runtime "GPU / WebGPU substrate … compiles no
   shaders at runtime"** — LLP 1009 §5's amendment, which D6 rides.
 - **LLP 1009 D2 "the GPU is a separate module per app"** → "wgpu is a
   host module; the app's surfaces are in the app module" (D6). The

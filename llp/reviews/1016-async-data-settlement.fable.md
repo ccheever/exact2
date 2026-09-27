@@ -138,7 +138,7 @@ position unchanged: A — `mutation name as shape T` (an `option<T>` slot, `none
 
 ## 4. The strongest thing either said
 
-Grok's: NOT-DOING binds one authoring model, and A is a second way to fill a value. If I am wrong, Exact carries a `mutation` row and a `send` opcode that `refresh` plus discipline could have covered, and every app has two kinds of remote value. If grok is wrong, the first ledger debit in LLP 0004 — "generate my avatar", a fixed brick price against a signed receipt — is spelled as a resource and re-runs on a shape edit, a carry, or a token change; and passwords live in state. A's mistake costs a table row; B's costs a charge. The asymmetry decides it.
+Grok's: DEFERRED binds one authoring model, and A is a second way to fill a value. If I am wrong, Exact carries a `mutation` row and a `send` opcode that `refresh` plus discipline could have covered, and every app has two kinds of remote value. If grok is wrong, the first ledger debit in LLP 0004 — "generate my avatar", a fixed brick price against a signed receipt — is spelled as a resource and re-runs on a shape edit, a carry, or a token change; and passwords live in state. A's mistake costs a table row; B's costs a charge. The asymmetry decides it.
 
 ## 5. Final
 

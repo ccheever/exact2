@@ -1,5 +1,5 @@
 //! The v1 app end to end: `app.contract` → plan → bake → runner → kernel.
-//! `rules/NOT-DOING.md`'s bar, on the one surface that exists so far.
+//! `rules/DEFERRED.md`'s bar, on the one surface that exists so far.
 
 use exact_kernel::{Kernel, PropId};
 use exact_plan::{Plan, Value};

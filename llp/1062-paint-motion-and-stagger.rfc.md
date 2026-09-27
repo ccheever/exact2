@@ -5,7 +5,7 @@
 **Systems:** Motion (`exact-motion`), Kernel (motion seam, wire), Contract (syntax, types, lowering), Plan (`LoadIndex`), Runner, Web, Apple (UIKit, AppKit), Linux
 **Author:** Claude (Opus 5.5) for Seth Webster
 **Date:** 2026-09-26
-**Related:** LLP 1002 (motion v1: one representation, two executors), LLP 1003 (motion as built), LLP 1055 D5–D7 (keyframes and `animation`), LLP 1055.000 D6 (SVG colour motion, which this shares), LLP 1034 (`light-dark()`), LLP 1064 (`box-shadow`), `rules/NOT-DOING.md` §Motion
+**Related:** LLP 1002 (motion v1: one representation, two executors), LLP 1003 (motion as built), LLP 1055 D5–D7 (keyframes and `animation`), LLP 1055.000 D6 (SVG colour motion, which this shares), LLP 1034 (`light-dark()`), LLP 1064 (`box-shadow`), `rules/DEFERRED.md` §Motion
 
 ## Summary
 

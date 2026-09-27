@@ -5,7 +5,7 @@
 **Systems:** Runner and the data seam (how Rust and TypeScript hold and share values), Motion and the hosts' gesture recognition, Kernel (hypothetical layout)
 **Author:** Charlie Cheever (the notes); Claude (Opus 5.5) (the write-up)
 **Date:** 2026-09-24 (the conversation); written up 2026-09-25
-**Related:** LLP 1051 and LLP 1051.000 (hypothetical layout: the follow-up to the third point); LLP 1027.003 and LLP 1027.004 (value transfer measured; bounded answers); LLP 1002 D4 and D5, LLP 1035.001, LLP 1041 §8.5 (gestures); `rules/NOT-DOING.md` §Motion
+**Related:** LLP 1051 and LLP 1051.000 (hypothetical layout: the follow-up to the third point); LLP 1027.003 and LLP 1027.004 (value transfer measured; bounded answers); LLP 1002 D4 and D5, LLP 1035.001, LLP 1041 §8.5 (gestures); `rules/DEFERRED.md` §Motion
 
 ## The notes, as written that afternoon
 
@@ -79,7 +79,7 @@ something that went wrong in exact1.
     reporting began, changed and ended, with velocity, to Contract actions on
     the main thread. iOS keeps UIKit; one shared Rust core replaces the other
     hosts' recognizers; authors declare arbitration. It needs an RFC, and it
-    moves NOT-DOING's gesture-arena line.
+    moves DEFERRED's gesture-arena line.
 - **Hypothetical layout: exact2 offered none to apps.** The one what-if pass
   (`measure_height_targets`) is native only, host only and returns heights
   only. The follow-up is LLP 1051 (the research, with a ball flung against a

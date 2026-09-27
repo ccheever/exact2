@@ -12,7 +12,7 @@
 
 # LLP 1024 round-1 position (Fable): the shape is right; harden the seam where plan bytes meet dlopen, and fix the one CSS claim that is false
 
-Panel round 1, blind. Judged against `rules-RULES.md`, `rules-NOT-DOING.md`, the cited exact2
+Panel round 1, blind. Judged against `rules-RULES.md`, `rules-DEFERRED.md`, the cited exact2
 LLPs, and the code as it stands.
 
 ## 1. Overall position

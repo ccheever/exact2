@@ -24,7 +24,7 @@ What I'd do differently is narrow it: **the server renders the public document, 
 **Major issues**
 
 1. **HIGH: phase 1 is gated on Interview decisions and infrastructure that don't exist.**
-   - **Evidence:** Interview's `rules/NOT-DOING.md` rules out public access *and* production hosting ("this is local development"). Its README says there is "no production hosting or identity service yet", and §9.5 is still open. Every signed-in screen reads a local Snapback4 replica, so each public page needs a new backend projection. Link previews can't be observed without a public URL.
+   - **Evidence:** Interview's `rules/DEFERRED.md` rules out public access *and* production hosting ("this is local development"). Its README says there is "no production hosting or identity service yet", and §9.5 is still open. Every signed-in screen reads a local Snapback4 replica, so each public page needs a new backend projection. Link previews can't be observed without a public URL.
    - **Change:** split phase 1.
      - 1a: build-time documents, head, `dist/` and parity for the in-repo apps, with no server and no Hermes (the plan's own steps 1–2). It ships on its own.
      - 1b: the server and Interview, gated on the §9.5 ruling and a named hosting target.
@@ -117,13 +117,13 @@ They converge on five major changes:
    - sized for a page;
    - not asked again until their freshness lapses;
    - kept when a refresh fails.
-2. **The first slice.** Phase 1 aimed the most expensive point on the curve at a consumer whose own rules exclude public access and production hosting (all three; `interview/rules/NOT-DOING.md` ~16–18). That point is a per-request server with no cache, a wasm boot that starts at once, and a DOM replacement.
+2. **The first slice.** Phase 1 aimed the most expensive point on the curve at a consumer whose own rules exclude public access and production hosting (all three; `interview/rules/DEFERRED.md` ~16–18). That point is a per-request server with no cache, a wasm boot that starts at once, and a DOM replacement.
 3. **Caching.** A render that sees no cookies and an empty store depends only on its URL and public data. It is cached from the start (Claude, Grok), not served `no-store`.
 4. **An anonymous server.** The server renders the public document, and the device renders the person (Fable, Claude, and Grok's "no credentials on the public render"). With no credentials and no private data on the render path, confidentiality labels, runtime read tracking and an inferred `Vary` protect nothing. Grok would keep the confidentiality label, but on such a server "private" can only mean "rendered on the device", and stage already says that.
 5. **The Contract surface.** Phase 1's is too large (all three):
    - Tags with HTML defaults are kernel work on four hosts: `em` lengths, `list-item`, and classes at runtime.
    - Anonymous readers never see Interview's rail (`app.contract:413`, `when data.authenticated and wide`).
-   - NOT-DOING says "roughly 15 built-in tags, not 40".
+   - DEFERRED says "roughly 15 built-in tags, not 40".
 
 This reverses three r2 acceptances of Astra's review: rows 5 (confidentiality labels and a tracked `Vary`), 7 (tags with HTML defaults in phase 1) and 8 (width variants in phase 1). The problems those rows found still stand. What changes is the answer: nothing on the server can leak, and the tags and variants wait for a consumer.
 
@@ -134,7 +134,7 @@ The code claims I spot-checked hold:
 - the Linux executor sharing `executor_core.rs` by `#[path]` (`host/linux/src/executor.rs:9`);
 - `renderMarkup`'s spans and `<br>` (`host/web/navigation.js:1420`);
 - `readWebRequest` negotiating on `Accept` (`host/web/serve.mjs:591`);
-- Interview's NOT-DOING.
+- Interview's DEFERRED.
 
 One claim is misplaced. The global `h1`…`h6` reset is the web lane's commit, now on main as `44f8643c`; it isn't a `core/fixes` commit.
 
@@ -148,7 +148,7 @@ One claim is misplaced. The global `h1`…`h6` reset is the web lane's commit, n
 - **1b: Interview.**
   - **Gated on:**
     - ★ which content is public, including content written while Interview was invitation-only (§9.5);
-    - ★ Interview's NOT-DOING lifting its public-access and production-hosting lines;
+    - ★ Interview's DEFERRED lifting its public-access and production-hosting lines;
     - ★ a hosting target.
   - **Proposed topology:**
     - the Linux host in a serve mode, a native Rust binary (ruling 4), updated through delivery;
@@ -196,7 +196,7 @@ No further review round is needed to settle the direction. Status stays Draft; C
 
 **Update, 2026-09-23: after Charlie's rulings (r3).** Each item marked ★ is now resolved:
 - **Public content:** "questions, answers, posts, profiles — but all at the preference of the user". Each author chooses, and the choice is off by default (LLP 1048 §9.5).
-- **Hosting:** "for now just hosted locally, eventually on a CDN/hosting provider" (§9.6). Interview's NOT-DOING records public reading at the author's choice, and still keeps production hosting out.
+- **Hosting:** "for now just hosted locally, eventually on a CDN/hosting provider" (§9.6). Interview's DEFERRED records public reading at the author's choice, and still keeps production hosting out.
 - **The server's shape:** Charlie wasn't sure and asked the author to decide. It renders on request from a serve mode of the Linux host, on loopback, with headers ready for a cache (§9.7).
 - **Pages for signed-in readers:** Charlie asked "why not server render the personal stuff?" They are now rendered on the server in a simple form: the whole page for that reader, `private, no-store`, never shared (§9.8, LLP 1048.002).
   - This reverses the disposition's "anonymous forever".

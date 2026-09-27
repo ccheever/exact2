@@ -5,7 +5,7 @@
 **Systems:** Plan format (an app identity in the header, declared in `format.json` with a `formatVersion` bump), Runner (no change — `boot_plan` already takes bytes), Web dev loop (`host/web/dev.mjs`: the bind, the envelope, the SSE hello; `host/web/build.mjs`: emitting `exact.json` and the discovery link), Apple host (the URL locator: fetch + subscribe; a typed URL in the existing dev menu), Linux host (same), Contract ABI macro (one compiled-in `DataSource` becomes a `BundleEntry` registry — native multi-app shells only; the web `host!` stays monomorphic), a new `apps/launcher/` (the Expo-Go-like Contract app, Stage 3)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-30
-**Related:** LLP 1017 P8 (the inliner: a plan is one self-contained file — the fact this whole design leans on); LLP 1018 D4 (bake sees an empty store — a served plan carries no one's session, by construction), D5 (the token stays below the seam, on the device — why the data seam never goes on the wire), D7 (the web store is origin-scoped; the native store is bundle-scoped and does not retarget when a plan arrives from a URL); LLP 1005 (the plan format and its digest gates: `Runner::boot` refuses a mismatched `kernel_schema_digest`, runner/src/runner.rs:374; `FORMAT_DIGEST` is the first 8 bytes of a domain-separated SHA-256 over the canonical `format.json` text, plan/build.rs:210–226 — a *format* identity, not a payload integrity hash); LLP 1007 §6 (the dev loop this rides: SSE `{seq}`, re-fetch, `exact_boot_plan` carrying state; §7: a native Rust change is a new binary); LLP 1012 (the agent API — its carrier stays off the network, always); LLP 1008 §9 + the dev menu (17350d0) (`--device` passes no environment; the phone needs a URL typed into the host, not an env var); LLP 1015 §VNC (the one bind-all precedent, defended for the same LAN reason); LLP 1004 D4 (app data logic lives in a Rust data crate — the constraint §5 states instead of fighting); `rules/NOT-DOING.md` §Runtime (no server generation, no update economy — §8 closes those doors normatively), §Process (written because it is being built, §9); exact1 `docs/app-runtime-and-dev-server.md` D2, `docs/hosting-ssr-ota.md`, LLP 0109, LLP 0268, LLP 0282, LLP 0331, LLP 0003 §905 (research, never authority — none were imported into `llp/research/`; cited from the exact1 checkout)
+**Related:** LLP 1017 P8 (the inliner: a plan is one self-contained file — the fact this whole design leans on); LLP 1018 D4 (bake sees an empty store — a served plan carries no one's session, by construction), D5 (the token stays below the seam, on the device — why the data seam never goes on the wire), D7 (the web store is origin-scoped; the native store is bundle-scoped and does not retarget when a plan arrives from a URL); LLP 1005 (the plan format and its digest gates: `Runner::boot` refuses a mismatched `kernel_schema_digest`, runner/src/runner.rs:374; `FORMAT_DIGEST` is the first 8 bytes of a domain-separated SHA-256 over the canonical `format.json` text, plan/build.rs:210–226 — a *format* identity, not a payload integrity hash); LLP 1007 §6 (the dev loop this rides: SSE `{seq}`, re-fetch, `exact_boot_plan` carrying state; §7: a native Rust change is a new binary); LLP 1012 (the agent API — its carrier stays off the network, always); LLP 1008 §9 + the dev menu (17350d0) (`--device` passes no environment; the phone needs a URL typed into the host, not an env var); LLP 1015 §VNC (the one bind-all precedent, defended for the same LAN reason); LLP 1004 D4 (app data logic lives in a Rust data crate — the constraint §5 states instead of fighting); `rules/DEFERRED.md` §Runtime (no server generation, no update economy — §8 closes those doors normatively), §Process (written because it is being built, §9); exact1 `docs/app-runtime-and-dev-server.md` D2, `docs/hosting-ssr-ota.md`, LLP 0109, LLP 0268, LLP 0282, LLP 0331, LLP 0003 §905 (research, never authority — none were imported into `llp/research/`; cited from the exact1 checkout)
 
 ## Summary
 
@@ -263,7 +263,7 @@ component versions.) Divergence lands, in order:
    digest) while a static host serves the fat one. Same source, same
    semantics; no contract change.
 4. **Per-platform sources, never.** `.native`/`.mac` forks are the
-   four-disagreeing-layers world (`rules/NOT-DOING.md` §Authoring models),
+   four-disagreeing-layers world (`rules/DEFERRED.md` §Authoring models),
    and this document adds the serving-side reason: they would make the
    plan platform-specific and the URL a lie.
 
@@ -460,7 +460,7 @@ fallback is an HTTP concern, never a fallback in origin artifact reads.
 
 - **No update economy, and release binaries never fetch.** Fetching a newer
   plan at production launch — exact1's "your web host is your update
-  server" — stays on `rules/NOT-DOING.md` §Runtime. The door closes
+  server" — stays on `rules/DEFERRED.md` §Runtime. The door closes
   normatively, not rhetorically: **network plan loading is compiled only
   into dev-capable hosts.** A release / embedded binary (exact1 0331's
   `embedded-release`, the shape our store builds take) boots

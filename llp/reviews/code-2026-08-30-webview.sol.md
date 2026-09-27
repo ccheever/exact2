@@ -35,7 +35,7 @@ Overall, the schema/codec extension is orderly—new ordinals are appended, sand
 
 ### LOW
 
-1. **The required NOT-DOING trade was not applied in this change.** The binding file still says that v1 has no `webview`, despite the RFC explicitly requiring that line to come off in the M1 PR. This leaves the implementation and governing rules contradictory. [rules-NOT-DOING.md:57](/private/tmp/claude-501/-Users-ccheever-projects-exact2/124f062c-3b20-4a04-898c-5060240e13f7/scratchpad/capsule/rules-NOT-DOING.md:57), [llp-1020-webview.rfc.md:317](/private/tmp/claude-501/-Users-ccheever-projects-exact2/124f062c-3b20-4a04-898c-5060240e13f7/scratchpad/capsule/llp-1020-webview.rfc.md:317)
+1. **The required DEFERRED trade was not applied in this change.** The binding file still says that v1 has no `webview`, despite the RFC explicitly requiring that line to come off in the M1 PR. This leaves the implementation and governing rules contradictory. [rules-DEFERRED.md:57](/private/tmp/claude-501/-Users-ccheever-projects-exact2/124f062c-3b20-4a04-898c-5060240e13f7/scratchpad/capsule/rules-DEFERRED.md:57), [llp-1020-webview.rfc.md:317](/private/tmp/claude-501/-Users-ccheever-projects-exact2/124f062c-3b20-4a04-898c-5060240e13f7/scratchpad/capsule/llp-1020-webview.rfc.md:317)
 Overall, the schema/codec extension is orderly—new ordinals are appended, sandbox presence including `sandbox=""` is preserved, payload narrowing is consistent, and WebKit stays outside the presenter binary. The change is not ready to ship, however: Apple teardown contains a likely use-after-free, and several lifecycle, agent-parity, containment, and screenshot paths are not exercised by the green fixture smoke.
 
 ### HIGH
@@ -60,7 +60,7 @@ Overall, the schema/codec extension is orderly—new ordinals are appended, sand
 
 ### LOW
 
-1. **The required NOT-DOING trade was not applied in this change.** The binding file still says that v1 has no `webview`, despite the RFC explicitly requiring that line to come off in the M1 PR. This leaves the implementation and governing rules contradictory. [rules-NOT-DOING.md:57](/private/tmp/claude-501/-Users-ccheever-projects-exact2/124f062c-3b20-4a04-898c-5060240e13f7/scratchpad/capsule/rules-NOT-DOING.md:57), [llp-1020-webview.rfc.md:317](/private/tmp/claude-501/-Users-ccheever-projects-exact2/124f062c-3b20-4a04-898c-5060240e13f7/scratchpad/capsule/llp-1020-webview.rfc.md:317)
+1. **The required DEFERRED trade was not applied in this change.** The binding file still says that v1 has no `webview`, despite the RFC explicitly requiring that line to come off in the M1 PR. This leaves the implementation and governing rules contradictory. [rules-DEFERRED.md:57](/private/tmp/claude-501/-Users-ccheever-projects-exact2/124f062c-3b20-4a04-898c-5060240e13f7/scratchpad/capsule/rules-DEFERRED.md:57), [llp-1020-webview.rfc.md:317](/private/tmp/claude-501/-Users-ccheever-projects-exact2/124f062c-3b20-4a04-898c-5060240e13f7/scratchpad/capsule/llp-1020-webview.rfc.md:317)
 
 ---
 
@@ -99,7 +99,7 @@ Every finding was verified against the live tree before folding; all held. Appli
   `{unavailable: true}`.
 - **grok FLAG (leaf)** — confirmed already-false by omission; asserted in the kernel
   node tests.
-- **sol LOW 1 / grok M5 (the NOT-DOING trade)** — applied by the orchestrator:
+- **sol LOW 1 / grok M5 (the DEFERRED trade)** — applied by the orchestrator:
   `webview` off §Components with LLP 1020 §6's line and take; QUEUE §5 reordered.
 - **grok RFC 3/4** — the RFC is amended as built (srcdoc materialization declared
   with its multi-file limit; the error document restated for frame topology).

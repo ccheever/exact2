@@ -10,7 +10,7 @@
 
 ## Summary
 
-`kernel/` is RFC 0491's end state built fresh, scoped by `rules/NOT-DOING.md`: a
+`kernel/` is RFC 0491's end state built fresh, scoped by `rules/DEFERRED.md`: a
 copied-in, borrow-parsed binary command stream with transactional apply, Taffy
 layout, and columnar binary exports. Nine workstreams in exact1; here they are the
 shape of one small crate. This document records the decisions the code embodies so
@@ -606,7 +606,7 @@ capsules, a module registry, virtualized lists, portals, choice layout (0487's
 operator — the corpus stays research until a producer needs it), the direction
 truth table (RTL box layout), the 0507 raw-address namespace, EXWF extension
 chunks, event frames, the wasm host interface. Each is either on
-`rules/NOT-DOING.md` or waits for the consumer that would make its spec
+`rules/DEFERRED.md` or waits for the consumer that would make its spec
 transcription rather than speculation. (The C ABI found its consumer on
 2026-08-29: the Apple host, LLP 1008 §4.)
 

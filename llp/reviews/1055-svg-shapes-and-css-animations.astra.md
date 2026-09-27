@@ -196,7 +196,7 @@ This is a static audit of `d357a7c4` over `0fd40388`. I used no skills or agents
 
 11. **D11 — Agree with producer-owned reduced-motion policy; this does not establish the preference plumbing.**
 
-    Keeping the policy outside the engine matches LLP 1002 and NOT-DOING. Switching to `animation:none` should cancel effects and reveal the authored static values.
+    Keeping the policy outside the engine matches LLP 1002 and DEFERRED. Switching to `animation:none` should cancel effects and reveal the authored static values.
 
     The RFC should name the actual preference input and update path. I found the policy statements, but no reduced-motion reporting implementation in the inspected kernel, motion, runner, Contract, and host paths. Treat that as an integration requirement or explicitly unimplemented behavior, rather than implying the producer can already receive it.
 
@@ -213,7 +213,7 @@ This is a static audit of `d357a7c4` over `0fd40388`. I used no skills or agents
 
 **The §9 take is not substantive.** The dead `svgSource` claim is supported: the schema declares it, web fallback would expose it as inert data, and there is no corresponding rendering consumer in the inspected paths. Deleting it is good cleanup. It does not retire an implemented feature or active commitment, and the purported “Svg-as-markup path” supplies no functioning path to remove. [kernel/tables/schema.json:107](/Users/ccheever/projects/exact2-wt-svg-review/kernel/tables/schema.json:107), [host/web/src/element.rs:98](/Users/ccheever/projects/exact2-wt-svg-review/host/web/src/element.rs:98)
 
-The binding rule requires taking something off the doing-list in the same PR. Keeping already-refused decay, sequence, color motion, and SMIL off the list is not another take. The proposal also needs to admit the new benchmark consumer against the existing restriction on additional benchmark/showcase apps. [rules/NOT-DOING.md:136](/Users/ccheever/projects/exact2-wt-svg-review/rules/NOT-DOING.md:136), [rules/NOT-DOING.md:338](/Users/ccheever/projects/exact2-wt-svg-review/rules/NOT-DOING.md:338)
+The binding rule requires taking something off the doing-list in the same PR. Keeping already-refused decay, sequence, color motion, and SMIL off the list is not another take. The proposal also needs to admit the new benchmark consumer against the existing restriction on additional benchmark/showcase apps. [rules/DEFERRED.md:136](/Users/ccheever/projects/exact2-wt-svg-review/rules/DEFERRED.md:136), [rules/DEFERRED.md:338](/Users/ccheever/projects/exact2-wt-svg-review/rules/DEFERRED.md:338)
 
 The remaining rules fit is mixed:
 
@@ -231,4 +231,4 @@ The remaining rules fit is mixed:
 4. Correct SVG property classification, value domains, intrinsic sizing, path-length behavior, and web CSS/namespace lowering.
 5. Make clock seeking, authored pause, actual remount lifetime, and iOS pooling agree across hosts.
 6. Cover retained-region and canvas-capture paths; add parity cases at intermediate times and discontinuity boundaries.
-7. Obtain a real NOT-DOING trade and explicit approval for the new consumer/fixture, while keeping verification within the existing five-check and async structure.
+7. Obtain a real DEFERRED trade and explicit approval for the new consumer/fixture, while keeping verification within the existing five-check and async structure.

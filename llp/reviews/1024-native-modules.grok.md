@@ -75,7 +75,7 @@ Yes. They are currently refused on anything but `iframe` (`contract-lower-lib.rs
 
 Handler arity already treats `message` as supplying a payload (`contract-lower-lib.rs` 1340–1351). Keep that.
 
-`load` as “I am ready” is Exact’s closed event set, not HTML’s `load` on custom elements. That is fine. The set is closed (`rules-NOT-DOING.md` §Agent API; the handler table in `contract-lower-tags.rs` 160–169). Do not add a `ready` event.
+`load` as “I am ready” is Exact’s closed event set, not HTML’s `load` on custom elements. That is fine. The set is closed (`rules-DEFERRED.md` §Agent API; the handler table in `contract-lower-tags.rs` 160–169). Do not add a `ready` event.
 
 ### Leftover attrs → `nativeViewProps`
 
@@ -172,7 +172,7 @@ Do not `dlclose` a Swift/ObjC image: **keep** as the host rule. Ghostty is Swift
 
 ### D6 — introduce vs replace
 
-**Introduce a tag via plan reload:** correct, and it is already the loop. `exact_boot_plan` + `Runner::carry` keeps slots, matching resources, clock, store; tears down the tree; does not keep scroll/focus/springs (LLP 1007 §6; `rules-NOT-DOING.md` §Runtime; `host-apple-host.rs` 88–90). The new create `dlopen`s. Do not reopen identity matching. The terminal is new, which is correct.
+**Introduce a tag via plan reload:** correct, and it is already the loop. `exact_boot_plan` + `Runner::carry` keeps slots, matching resources, clock, store; tears down the tree; does not keep scroll/focus/springs (LLP 1007 §6; `rules-DEFERRED.md` §Runtime; `host-apple-host.rs` 88–90). The new create `dlopen`s. Do not reopen identity matching. The terminal is new, which is correct.
 
 **Replace the module in process without a plan reload:** this is new apparatus GPU and iframe do not have. GPU-crate edits reload the **page** (LLP 1007 §6; RFC D7 cites this). Native GPU/iframe rebuilds are a new process (`build.mjs --run`) or a new binary. Generationed inodes exist so the next process’s `dlopen` is not SIGKILL, not so a running presenter swaps `NSView`s.
 
@@ -200,7 +200,7 @@ Parity of Ghostty-on-Metal vs xterm is the module author’s, not the kernel’s
 
 ## 5. The landing (D8) and the cuts (§5)
 
-Fixture-first is right. Ghostty is a consumer of the ABI, not the proof. Caltrain and Weird Castle’s v1 bar do not depend on it (`rules-NOT-DOING.md` §The bar). The RFC is a proposal with no implementer, which is allowed for an RFC (it says so in §1); it must not pretend to be a spec (`rules-RULES.md` §Scope).
+Fixture-first is right. Ghostty is a consumer of the ABI, not the proof. Caltrain and Weird Castle’s v1 bar do not depend on it (`rules-DEFERRED.md` §The bar). The RFC is a proposal with no implementer, which is allowed for an RFC (it says so in §1); it must not pretend to be a spec (`rules-RULES.md` §Scope).
 
 Landing order in D8 is the right four steps, with these amendments:
 

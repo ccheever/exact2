@@ -6,7 +6,7 @@
 **Author:** Charlie Cheever / Codex (r1); Claude (Fable 5.1) for Charlie Cheever (r2, the fold)
 **Implementer:** Claude (Fable 5.1), from 2026-09-03 — this is the document the landing transcribes into, stage by stage (§4)
 **Date:** 2026-09-03
-**Related:** LLP 1000 (the layered crate graph and the optional-artifact rule), LLP 1005 (runner and `DataSource`), LLP 1008 (the Apple host as built; §4 the C ABI this instances), LLP 1009 D2/D4 (the GPU module as a separate on-demand artifact, loaded once), LLP 1010 (scrolling; nested chaining), LLP 1012 (the eight-operation agent API), LLP 1016 D1/D2/D5/D6 (requests as values, the ticketed queue, forgotten tickets, grants), LLP 1018 D1/D4/D6/D7 (the store: snapshot in, writes out; the Keychain's own scope), LLP 1019 (declared fonts; the catalog per plan), LLP 1023 D1–D3/D5/D10 (the envelope, the transactional swap, the identity gate, one plan), LLP 1024 (native content inside an Exact tree — the one mechanism), LLP 1026 D9–D12 (the update store, two policies), LLP 1027 D3/D4 (Hermes as an optional executor after first pixel), LLP 1029 D2/D6 (the composition names the executors), LLP 1030 D1/D3a/D4 and its brownfield-host row, LLP 1030.000 §6 (the host descriptor, pulled forward here), `rules/RULES.md` §Scope, §Budgets, §Agents, `rules/NOT-DOING.md` §Surfaces and §Process
+**Related:** LLP 1000 (the layered crate graph and the optional-artifact rule), LLP 1005 (runner and `DataSource`), LLP 1008 (the Apple host as built; §4 the C ABI this instances), LLP 1009 D2/D4 (the GPU module as a separate on-demand artifact, loaded once), LLP 1010 (scrolling; nested chaining), LLP 1012 (the eight-operation agent API), LLP 1016 D1/D2/D5/D6 (requests as values, the ticketed queue, forgotten tickets, grants), LLP 1018 D1/D4/D6/D7 (the store: snapshot in, writes out; the Keychain's own scope), LLP 1019 (declared fonts; the catalog per plan), LLP 1023 D1–D3/D5/D10 (the envelope, the transactional swap, the identity gate, one plan), LLP 1024 (native content inside an Exact tree — the one mechanism), LLP 1026 D9–D12 (the update store, two policies), LLP 1027 D3/D4 (Hermes as an optional executor after first pixel), LLP 1029 D2/D6 (the composition names the executors), LLP 1030 D1/D3a/D4 and its brownfield-host row, LLP 1030.000 §6 (the host descriptor, pulled forward here), `rules/RULES.md` §Scope, §Budgets, §Agents, `rules/DEFERRED.md` §Surfaces and §Process
 
 ## Summary
 
@@ -341,7 +341,7 @@ performer already honors every grant the day the handle is instanced.
   at its boot, its own writes after, and a peer's only at its next boot
   or `data_ready`; the last persisted write per name wins; there is no
   cross-session notification (a reactive store would be the shared heap
-  `rules/NOT-DOING.md` refuses). Said loudly: a login in one session is
+  `rules/DEFERRED.md` refuses). Said loudly: a login in one session is
   invisible to a running peer. The fixture (D10) drives an allowed and a
   Rust-refused request through this path.
 
@@ -516,7 +516,7 @@ its view's. Coordinates convert through `ExactView` to window and screen
 space, so a native carrier synthesizes the tap at the right place. The
 standalone carrier targets its one session; a sample-host carrier routes
 by a host-owned label in the request — carrier routing, not an
-operation (LLP 1012; `rules/NOT-DOING.md`). Logs carry the session's
+operation (LLP 1012; `rules/DEFERRED.md`). Logs carry the session's
 label and generation. Agent mode's memory store is per process, as
 today: a drive starts from nothing.
 
@@ -616,7 +616,7 @@ session-local routing state.
 - No type-erased core, no prebuilt app-agnostic binary, no two apps in a
   process in v1 (D6, with the trigger).
 - No content-height containment in this landing (D3, with the guard).
-- No Android implementation in v1. `rules/NOT-DOING.md` binds; a proven
+- No Android implementation in v1. `rules/DEFERRED.md` binds; a proven
   Apple `ExactSession`/`ExactView` plus a real adopter requiring mobile
   parity is the return trigger, with the named trade.
 - No public compatibility promise before 1.0, no size-versioned ABI, no
@@ -624,7 +624,7 @@ session-local routing state.
 - No new packaging manifest, registry, check, devtools UI, or harness
   beyond the sample host the smoke drives.
 
-This RFC requires no `NOT-DOING` trade: it changes ownership and
+This RFC requires no `DEFERRED` trade: it changes ownership and
 packaging of systems already in v1 and adds no platform or runtime
 feature.
 

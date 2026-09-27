@@ -27,7 +27,7 @@ Later phases are assigned at their kickoffs.
 **Date:** 2026-09-23
 **Related:**
 - LLPs: 1007 (web host), 1023 (one URL per app), 1038 (router), 1039 (viewport facts), 1016 (async settlement), 1018 (the store), 1027 (data sources), 1030 (delivery), 1047 (pay for what you use), 1005 §8 (the dependency table).
-- `rules/NOT-DOING.md` (the 2026-09-23 entry).
+- `rules/DEFERRED.md` (the 2026-09-23 entry).
 - Sub-LLPs:
   - 1048.000: pages at build and per request (phase 1);
   - 1048.001: activation and navigation (phase 2, RFC);
@@ -166,7 +166,7 @@ data, but code separation waits for server-only artifacts.
 - the edge (7);
 - server-only artifacts (10's code separation).
 
-**Refused** (NOT-DOING): server actions that work without the runtime (9), and
+**Refused** (DEFERRED): server actions that work without the runtime (9), and
 server-driven UI (8).
 
 **Never:** bot-only rendering. Every page is real HTML.
@@ -342,9 +342,9 @@ precompressed files. It deploys to any static host.
 - The server's startup is counted the same way. Per render, it counts the module
   graph it loads, the source calls it makes, and the time to first byte.
 
-## 5. NOT-DOING (recorded 2026-09-23)
+## 5. DEFERRED (recorded 2026-09-23)
 
-`rules/NOT-DOING.md` used to refuse "Server generation in every form: SSR,
+`rules/DEFERRED.md` used to refuse "Server generation in every form: SSR,
 streaming, static export, progressive forms, hydration, route payloads, response
 caching."
 
@@ -462,7 +462,7 @@ answers them after it takes over.
 
 ## 9. Rulings (Charlie, 2026-09-23)
 
-1. **The NOT-DOING take (§5): Messages as the Snapback4 consumer.** It comes off
+1. **The DEFERRED take (§5): Messages as the Snapback4 consumer.** It comes off
    the doing-list ("We don't need that on the list"), and Interview is the
    Snapback4 consumer. The game engine stays (Charlie is working on it).
 2. **The Contract surface in LLP 1048.003: approved.** That was the `head`
@@ -485,7 +485,7 @@ answers them after it takes over.
    provider."**
    - Phase 1's server binds loopback.
    - Its headers are already what a CDN needs (D11).
-   - Interview's NOT-DOING keeps production hosting out.
+   - Interview's DEFERRED keeps production hosting out.
 7. **The server's shape.** Charlie: "hmmm I'm not sure", then "make the best
    decisions you can".
    - **The author's decision:** render on request, from a serve mode of the

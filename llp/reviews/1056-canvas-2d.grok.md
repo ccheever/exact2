@@ -189,7 +189,7 @@ The conclusion “not in the GPU canvas cost class; SVG still better for a pulse
 
 ---
 
-## 6. §3 subset, §4 parity, §5 agent, §8 staging, §9 NOT-DOING, §10 questions
+## 6. §3 subset, §4 parity, §5 agent, §8 staging, §9 DEFERRED, §10 questions
 
 **§3 — agree** on refusing readback, `ctx.filter` until islands, focus rings, hit regions, `ctx.canvas` / app-visible `OffscreenCanvas`, `drawImage` of canvas/video/element, `display-p3`. v1 including `reset`, `roundRect`, clip, gradients, blend modes, and text is **large** relative to the Caltrain map (line + quad, `apps/caltrain/gpu/src/lib.rs:91–99`, `render` returns `false` at `:194`). That is OK if the gallery is the real stage-1 bar; say that Caltrain does not need text/`putImageData`.
 
@@ -205,9 +205,9 @@ The conclusion “not in the GPU canvas cost class; SVG still better for a pulse
 
 **Change:** stage 1 “text on all three hosts” is the long pole; Caltrain map as take does not require it. Either shrink stage 1 to what the take needs plus gallery shapes, or admit stage 1 is a full 2D subset and will not ship quickly.
 
-**§9 — agree** that Canvas 2D is not admitted today (`rules/NOT-DOING.md` SVG expansion is 2026-09-26; no canvas-2d line). The drafted Components paragraph is in the house style. **Take 1 is the only take that meets the rule:** Caltrain defines v1 (`rules/NOT-DOING.md:10–14`); the map is a 2D line drawing with children for names (`apps/caltrain/app.contract:257–268`; `apps/caltrain/gpu/src/lib.rs:1–15, 104–195`); `render` returns `false` and motion is `nowMs` on a 1 s `task ticker` (`app.contract:70–71, 118–119`) — so D4 reason 2 (args changed) is enough, no rAF. Deleting `map` from the GPU registry (`lib.rs:242–248`) leaves aurora/glass/stack. That is “fewer GPU paths after than before”.
+**§9 — agree** that Canvas 2D is not admitted today (`rules/DEFERRED.md` SVG expansion is 2026-09-26; no canvas-2d line). The drafted Components paragraph is in the house style. **Take 1 is the only take that meets the rule:** Caltrain defines v1 (`rules/DEFERRED.md:10–14`); the map is a 2D line drawing with children for names (`apps/caltrain/app.contract:257–268`; `apps/caltrain/gpu/src/lib.rs:1–15, 104–195`); `render` returns `false` and motion is `nowMs` on a 1 s `task ticker` (`app.contract:70–71, 118–119`) — so D4 reason 2 (args changed) is enough, no rAF. Deleting `map` from the GPU registry (`lib.rs:242–248`) leaves aurora/glass/stack. That is “fewer GPU paths after than before”.
 
-**Disagree on takes 2 and 3 as NOT-DOING takes.** `Custom(u16)` is decided-unbuilt in 1009 and still queued “when a surface needs it” (`QUEUE.md:507–508`; also LLP 1013 / 1046.002). It is not a doing-list line you can take off, and GPU surfaces may still want it. Pooling GPU rows is already a queue item; the RFC itself says it doesn’t meet the rule (`:345`). Don’t pretend they do. Recommend take 1 only.
+**Disagree on takes 2 and 3 as DEFERRED takes.** `Custom(u16)` is decided-unbuilt in 1009 and still queued “when a surface needs it” (`QUEUE.md:507–508`; also LLP 1013 / 1046.002). It is not a doing-list line you can take off, and GPU surfaces may still want it. Pooling GPU rows is already a queue item; the RFC itself says it doesn’t meet the rule (`:345`). Don’t pretend they do. Recommend take 1 only.
 
 **§10 — agree** with the four questions and the leanings: admit with take 1; CG on Apple; refuse readback/`filter` in v1; yes to gallery apparatus if Charlie says so.
 

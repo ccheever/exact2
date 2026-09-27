@@ -5,8 +5,8 @@
 **Systems:** Contract (compiler), Plan, Runner, Dev loop
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-28
-**Revised:** 2026-08-28 (r3 — round-2 fold; dispositions in `llp/reviews/1004-contract-compiler.{codex,grok}.md`. D4: app data logic is a Rust data source with arguments from state, a request/response seam, and build-time evaluation of constant resources; the 0517 alternative costed per branch. D5: dev reload is a full teardown and reset — no state migration, no generations. D3: the refusal tuple binds every table the plan encodes. §4: the NOT-DOING trade for this loop recorded as Charlie's obligation.) 2026-08-28 (r2 — round-1 fold: kernel-schema edge, roster/encoder owners, call-site inventory, "the v1 app".)
-**Related:** LLP 1000 (the map; lane order), LLP 1001 (kernel v1 — `schema.json` and `SCHEMA_DIGEST`, the vocabulary the compiler emits), LLP 1002 (the RFC/build/spec shape this lane follows), LLP 0508 (Contract v1 Edition 1 — the language basis; research), LLP 0485 (the flat plan — the output's shape; research), LLP 0517 (the wasm host interface and its TypeScript provider seam — the alternative D4 rejects; research), LLP 0518 (the three island lanes — D4 takes Lane 2's shape; research), LLP 0500 / LLP 0553 (state-preserving reload — not taken in v1, §2 D5; research), LLP 0542 (resident checker; research), `rules/RULES.md` §Time budgets, `rules/NOT-DOING.md` §Process, §Runtime, §Authoring models
+**Revised:** 2026-08-28 (r3 — round-2 fold; dispositions in `llp/reviews/1004-contract-compiler.{codex,grok}.md`. D4: app data logic is a Rust data source with arguments from state, a request/response seam, and build-time evaluation of constant resources; the 0517 alternative costed per branch. D5: dev reload is a full teardown and reset — no state migration, no generations. D3: the refusal tuple binds every table the plan encodes. §4: the DEFERRED trade for this loop recorded as Charlie's obligation.) 2026-08-28 (r2 — round-1 fold: kernel-schema edge, roster/encoder owners, call-site inventory, "the v1 app".)
+**Related:** LLP 1000 (the map; lane order), LLP 1001 (kernel v1 — `schema.json` and `SCHEMA_DIGEST`, the vocabulary the compiler emits), LLP 1002 (the RFC/build/spec shape this lane follows), LLP 0508 (Contract v1 Edition 1 — the language basis; research), LLP 0485 (the flat plan — the output's shape; research), LLP 0517 (the wasm host interface and its TypeScript provider seam — the alternative D4 rejects; research), LLP 0518 (the three island lanes — D4 takes Lane 2's shape; research), LLP 0500 / LLP 0553 (state-preserving reload — not taken in v1, §2 D5; research), LLP 0542 (resident checker; research), `rules/RULES.md` §Time budgets, `rules/DEFERRED.md` §Process, §Runtime, §Authoring models
 
 ## Summary
 
@@ -116,7 +116,7 @@ from an expression into JavaScript. In its place, four fates for app logic:
   re-requests when arguments change; a value arrives as a settlement event
   (0508 §7.1). This is 0518 Lane 2's provider shape, admitted deliberately:
   it is the one place computation enters, it is Rust, and it is the app's.
-  It is not a Rust UI root and needs no ABI generator (`rules/NOT-DOING.md`
+  It is not a Rust UI root and needs no ABI generator (`rules/DEFERRED.md`
   §Authoring models): one trait, implemented by the app.
 - **Constant resources are compiled data.** `contract-lower` links the same
   data crate and evaluates every resource whose arguments are constant at
@@ -133,7 +133,7 @@ from an expression into JavaScript. In its place, four fates for app logic:
 Lane 1) keeps `data.ts`. Its web branch (`wasm-page-js`) has no native
 counterpart, so native needs either its Hermes branch — a JavaScript engine in
 every native host, not on the doing-list, plus a baked first frame and a
-staleness window whose staged-reload machinery NOT-DOING excludes — or a
+staleness window whose staged-reload machinery DEFERRED excludes — or a
 second implementation of every helper. Rejected on that fork, not on
 `RULES.md`'s first-pixel rule, which a baked frame satisfies literally.
 (ii) **Schedule math in Contract:** honest, but grows the language (sorting,
@@ -146,7 +146,7 @@ is a restart.** `RULES.md`'s row is "dev restart, request to present, 100 ms
 p50," and v1 takes it literally: an edit yields a new plan; the runner tears
 the old one down — in-flight tasks and requests cancelled, late settlements
 dropped — and boots the new one from initial state. No state migration, no
-patch format, no generations, no identity matching: `rules/NOT-DOING.md`
+patch format, no generations, no identity matching: `rules/DEFERRED.md`
 §Runtime excludes hot revision surfaces and staged reload, and v1 needs
 neither. State-preserving reload (LLP 0500/0553's shape) is a later trade
 against that list, never a silent extension of this one. The compiler's
@@ -182,7 +182,7 @@ outputs, so the compiler's exit, evaluated once that corpus exists, is
 - Roster entries beyond the v1 app's — grown by fixture, never by speculation.
 - Whether the compiler also runs in the browser as wasm — plausible under D1,
   unneeded until the web host exists.
-- **Which app is the v1 app.** `rules/NOT-DOING.md` leaves it open with
+- **Which app is the v1 app.** `rules/DEFERRED.md` leaves it open with
   Caltrain recommended. Naming it, and re-running the Appendix's census on
   it, is a prerequisite of the runner lane; this RFC's scope, roster, budget,
   and exit bind to whichever is named.
@@ -195,7 +195,7 @@ the surface the loop runs on), before the Apple and Linux hosts — LLP 1000's
 order as revised 2026-08-28. The lane starts when an implementer and a date
 are on the spec. Charlie authorized this document ahead of its lane, and the
 review loop on it, because D4 is consumed by the runner lane, which is next.
-**Obligation (Charlie, before Acceptance):** `rules/NOT-DOING.md` §Process
+**Obligation (Charlie, before Acceptance):** `rules/DEFERRED.md` §Process
 forbids refine loops and its move-off rule asks for a recorded trade; either
 record the trade (the proposed line: loops only for a document whose lane has
 an implementer and a date, capped at three rounds) or record this loop as a

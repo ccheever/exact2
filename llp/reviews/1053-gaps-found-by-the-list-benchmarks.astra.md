@@ -226,4 +226,4 @@ My priority order would be:
 
 **Build now:** G3, G2, corrected G1, G4, coherent G5, and constrained G7. **Defer:** G6 and G11. **Do not build yet:** a generic keyed-patch protocol, a mount action, or external-input capture infrastructure. Keep G10’s boundary and fix its documentation.
 
-That selection follows the repository’s existing preference for bounded answers over generic arrival-time reconciliation, while preserving the first-pixel constraint. The relevant scope rule already names that trade; it should remain explicit if the eventual G8 design changes it. [NOT-DOING.md:213](/Users/ccheever/projects/exact2-wt-fill-policy/rules/NOT-DOING.md:213)
+That selection follows the repository’s existing preference for bounded answers over generic arrival-time reconciliation, while preserving the first-pixel constraint. The relevant scope rule already names that trade; it should remain explicit if the eventual G8 design changes it. [DEFERRED.md:213](/Users/ccheever/projects/exact2-wt-fill-policy/rules/DEFERRED.md:213)

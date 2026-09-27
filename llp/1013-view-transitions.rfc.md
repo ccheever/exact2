@@ -5,7 +5,7 @@
 **Systems:** Kernel (one style row), Contract (an attribute, an action keyword), Plan (a flag on actions), Runner (the flag on a commit), Web host, Apple host, Motion (the ghost's properties)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-29
-**Related:** LLP 1002 D1/D2 (one representation, two executors, the browser as oracle) and §4 (layout-affecting transitions not decided), LLP 1003 §9, LLP 1001 §3 (`SetChildren` reparents; roots) and §9 (portals not in v1), LLP 1005 §6 (`when`/`match` arms destroy and create; `each` keeps rows by key), LLP 1007 §3–§4 (springs lowered, the glue, the agent clock seeking `getAnimations()`), LLP 1008 §1 (one `NSView` per node; transforms from presentation values), LLP 1010 (clipping at scroll views), CSS View Transitions Module Level 1, `rules/NOT-DOING.md` §Motion
+**Related:** LLP 1002 D1/D2 (one representation, two executors, the browser as oracle) and §4 (layout-affecting transitions not decided), LLP 1003 §9, LLP 1001 §3 (`SetChildren` reparents; roots) and §9 (portals not in v1), LLP 1005 §6 (`when`/`match` arms destroy and create; `each` keeps rows by key), LLP 1007 §3–§4 (springs lowered, the glue, the agent clock seeking `getAnimations()`), LLP 1008 §1 (one `NSView` per node; transforms from presentation values), LLP 1010 (clipping at scroll views), CSS View Transitions Module Level 1, `rules/DEFERRED.md` §Motion
 
 ## Summary
 
@@ -135,7 +135,7 @@ one fixture. A lane the size of scrolling (LLP 1010). Support: Chrome 111+,
 Safari 18+, Firefox 144+; where absent, `startViewTransition` is a plain apply
 and the commit cuts — the same page, no motion bytes either way.
 
-`rules/NOT-DOING.md` names nothing this crosses: layout transitions stay out
+`rules/DEFERRED.md` names nothing this crosses: layout transitions stay out
 (D4), `@keyframes` stays out (the browser's keyframes are the browser's), and
 the ghost is host-owned. Nothing has to come off the doing-list; if one does,
 the candidate is the RN-style reparent-to-overlay this RFC declines to build.

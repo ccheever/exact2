@@ -186,7 +186,7 @@ app's compatibility identity (`contract/cli/src/compat.rs`), and LLP 1030's
 own inventory classifies a kernel change as one that needs a **new binary** —
 a rebaked bundle cannot update an installed native decoder. So adoption is
 rebuild-and-reinstall for every native host, Caltrain included, not only the
-two readers that author pairs. `rules/NOT-DOING.md` §Deliberately worse admits
+two readers that author pairs. `rules/DEFERRED.md` §Deliberately worse admits
 exactly this —
 "no backwards compatibility, at all, before 1.0" — and the generated decoder
 follows from `kernel/tables/schema.json` because `kernel/build.rs` generates

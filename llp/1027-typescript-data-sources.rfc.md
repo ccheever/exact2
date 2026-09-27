@@ -5,7 +5,7 @@
 **Systems:** Runner (a second `DataSource` executor: the app's logic as a TypeScript module, compiled to Hermes bytecode, run by the lean VM), Contract (unchanged above the seam; a generated `app.d.ts` below it), Build (bake compiles TypeScript to bytecode and to page JavaScript, and evaluates constant resources through the same engine), Web host (the browser is the executor; the module loads after first paint through one wasm import), Apple host and Linux host (link `exact-js`, a separate crate, after first pixel), Delivery (LLP 1026's `module` card carries bytecode; the runtime version gains the bytecode version), ibex (what exact2 links from it, and what it never links — Charlie's "split it in two" question, answered as three)
 **Author:** Claude (Fable 5.1) for Charlie Cheever
 **Date:** 2026-09-03
-**Related:** LLP 1004 D4 (app computation is a Rust data crate — the costing this document reverses, and the seam it keeps: "expressions call the roster; data comes from a data source; nothing else crosses"; its alternative (i), LLP 0517's TypeScript provider seam, rejected 2026-08-28 "on that fork, not on `RULES.md`'s first-pixel rule"), LLP 1005 §3 (canonical value bytes; `Value::conforms`, the shape check at the seam — value.rs:88), LLP 1006 §2 (what Contract is, scoped — §2 here says what it cannot do, by design), LLP 1016 D1/D2/D6 (the runner never does I/O; a request is a value the host runs; grants — the properties that make a module with no globals safe), LLP 1017.000 P5 ("the first `fn` that wants a loop is evidence for the data crate" — this document is where that evidence goes), LLP 1018 D4/D5 (bake sees an empty store; the token stays below the seam — both kept, in TypeScript), LLP 1023 D5 (`app_id` in the plan header), LLP 1024 D3 (one app artifact after the paint gate — the placement rule D4 copies), LLP 1026 D2/D3/D4/D10/D12 (the executor slot, the bytes-only ABI, pairing, digest identity, Level A/B — this is the second executor in that slot; §7's "A JS engine" refusal is withdrawn here; §10 Q6 and Q7 are answered by construction), LLP 1007 §6 (what a reload carries), the 2026-08-29 ibex2 decision (`QUEUE.md` §Later: `ibex2::host` at the first out-of-process resource — landed, LLP 1016/1018; "the engine only at a measured call site, after v1, as another `DataSource` loaded on demand after first pixel … on the web the browser is the executor, so one module runs under two loaders; design that first" — this is that design), `rules/RULES.md` §Scope (no app JS before first pixel; the boot path executes and compiles nothing; modules ship as bytecode — every one kept, D4/D5) and §Agents, `rules/NOT-DOING.md` §Authoring models (one authoring model for the UI — kept; a second language *below* the seam is the trade §8 names) and §Runtime ("HBC compilation" — moved for the bake, §8), ibex LLP 0057 §5.2 (Exact 2 "only where the plan and Rust are not sufficient" — this names where), LLP 0068 (`ibex2::host`, the no-engine standard library exact2's hosts already link — host/apple/Cargo.toml:27, host/linux/Cargo.toml:30), ibex2 `src/bytecode.rs` (bytecode is version-coupled to the engine; the compiler's identity is in the cache key), `metrics/ibex2-speed.jsonl` (the engine's floor and the 45 ns synchronous host call). External: Hermes (`facebook/hermes` 260318099.0.0-stable, the vanilla build in `~/projects/ibex/ios/Frameworks-vanilla/`, receipt `hermes-input-receipt.json`; `hermesvmlean` is the bytecode-only VM), the App Store's interpreted-code clause (the one Expo Updates lives under; a JIT is impossible on iOS and Hermes has none). Predecessor, research never authority: exact1 LLP 0517 (the wasm host interface and its TypeScript provider seam: `callSync`, one argument envelope, "a provider adapter MUST NOT construct/evaluate source text per call" — the same shape, reached from the other side), LLP 0508 §9 (`resource` in Contract), exact1's `data.ts` (202 lines — what LLP 1004 §4 rewrote into Rust; §3 here says why it can come back).
+**Related:** LLP 1004 D4 (app computation is a Rust data crate — the costing this document reverses, and the seam it keeps: "expressions call the roster; data comes from a data source; nothing else crosses"; its alternative (i), LLP 0517's TypeScript provider seam, rejected 2026-08-28 "on that fork, not on `RULES.md`'s first-pixel rule"), LLP 1005 §3 (canonical value bytes; `Value::conforms`, the shape check at the seam — value.rs:88), LLP 1006 §2 (what Contract is, scoped — §2 here says what it cannot do, by design), LLP 1016 D1/D2/D6 (the runner never does I/O; a request is a value the host runs; grants — the properties that make a module with no globals safe), LLP 1017.000 P5 ("the first `fn` that wants a loop is evidence for the data crate" — this document is where that evidence goes), LLP 1018 D4/D5 (bake sees an empty store; the token stays below the seam — both kept, in TypeScript), LLP 1023 D5 (`app_id` in the plan header), LLP 1024 D3 (one app artifact after the paint gate — the placement rule D4 copies), LLP 1026 D2/D3/D4/D10/D12 (the executor slot, the bytes-only ABI, pairing, digest identity, Level A/B — this is the second executor in that slot; §7's "A JS engine" refusal is withdrawn here; §10 Q6 and Q7 are answered by construction), LLP 1007 §6 (what a reload carries), the 2026-08-29 ibex2 decision (`QUEUE.md` §Later: `ibex2::host` at the first out-of-process resource — landed, LLP 1016/1018; "the engine only at a measured call site, after v1, as another `DataSource` loaded on demand after first pixel … on the web the browser is the executor, so one module runs under two loaders; design that first" — this is that design), `rules/RULES.md` §Scope (no app JS before first pixel; the boot path executes and compiles nothing; modules ship as bytecode — every one kept, D4/D5) and §Agents, `rules/DEFERRED.md` §Authoring models (one authoring model for the UI — kept; a second language *below* the seam is the trade §8 names) and §Runtime ("HBC compilation" — moved for the bake, §8), ibex LLP 0057 §5.2 (Exact 2 "only where the plan and Rust are not sufficient" — this names where), LLP 0068 (`ibex2::host`, the no-engine standard library exact2's hosts already link — host/apple/Cargo.toml:27, host/linux/Cargo.toml:30), ibex2 `src/bytecode.rs` (bytecode is version-coupled to the engine; the compiler's identity is in the cache key), `metrics/ibex2-speed.jsonl` (the engine's floor and the 45 ns synchronous host call). External: Hermes (`facebook/hermes` 260318099.0.0-stable, the vanilla build in `~/projects/ibex/ios/Frameworks-vanilla/`, receipt `hermes-input-receipt.json`; `hermesvmlean` is the bytecode-only VM), the App Store's interpreted-code clause (the one Expo Updates lives under; a JIT is impossible on iOS and Hermes has none). Predecessor, research never authority: exact1 LLP 0517 (the wasm host interface and its TypeScript provider seam: `callSync`, one argument envelope, "a provider adapter MUST NOT construct/evaluate source text per call" — the same shape, reached from the other side), LLP 0508 §9 (`resource` in Contract), exact1's `data.ts` (202 lines — what LLP 1004 §4 rewrote into Rust; §3 here says why it can come back).
 
 **Accepted amendment (2026-09-04):** [LLP 1027.000](1027.000-explicit-time-and-randomness.rfc.md)
 addresses the stage-3 clock gap and implicit randomness, including bake and
@@ -1014,7 +1014,7 @@ This is how "optional" and "paved path" coexist without a mode: the
 paved path is `app.ts` alone; the hot source moves to Rust one name at
 a time, the fixture (D5) holding both to the same bytes; a Rust-only
 app never links the engine (D3). There is no per-platform override
-(`rules/NOT-DOING.md` §Authoring models), because the seam is the
+(`rules/DEFERRED.md` §Authoring models), because the seam is the
 same on every host.
 
 **Messages native consumer (Codex, 2026-09-12; Charlie's Snapback4 issue):**
@@ -1336,7 +1336,7 @@ reads only).
   plan's. The module answers questions; it does not touch what is on
   screen. Trigger: none.
 - **A JavaScript UI tier.** The React door stays open as
-  `rules/NOT-DOING.md` has it — designed against, not built. This
+  `rules/DEFERRED.md` has it — designed against, not built. This
   document makes it neither closer nor farther: the seam is below the
   UI, and a React tier would be above it.
 - **ibex2's runtime layer in the process** — the ESM loader, `fetch`,
@@ -1358,7 +1358,7 @@ reads only).
 
 ## 8. The trades this RFC owes (Charlie's, before Acceptance)
 
-The rule (`rules/NOT-DOING.md` §Moving something off this list): name
+The rule (`rules/DEFERRED.md` §Moving something off this list): name
 what it unblocks, and take something off the doing-list in the same PR.
 
 - **LLP 1004 D4 "the source is app code in Rust"** → "the source is
@@ -1372,13 +1372,13 @@ what it unblocks, and take something off the doing-list in the same PR.
   at most **one** interpreter, chosen by the app's language. wasmi
   returns only if LLP 1026 D6 (surfaces as wasm) is ever built, and
   then for surfaces. One executor slot, one engine per app, not two.
-- **`rules/NOT-DOING.md` §Runtime "HBC compilation"** → moved, for
+- **`rules/DEFERRED.md` §Runtime "HBC compilation"** → moved, for
   the *bake* only: `hermesc` runs at build, in the same step that
   compiles `app.contract`; nothing compiles at runtime, which is what
   the line was guarding (the parenthetical about reload is untouched;
   a module change is a restart with carry). Unblocks: D5. Take:
   covered above. **Ruled 2026-09-03: moved.**
-- **`rules/NOT-DOING.md` §Authoring models "One authoring model, one
+- **`rules/DEFERRED.md` §Authoring models "One authoring model, one
   set of bugs"** → stays, with one added sentence proposed: *"Logic
   below the data seam is TypeScript by default or Rust; nothing runs
   JavaScript above it."* It is the honest statement of the second
