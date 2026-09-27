@@ -150,6 +150,42 @@ pub fn node_targets(
 }
 
 impl Kernel {
+    /// The box a node's `layout-transition` animates (LLP 1063), when it
+    /// declares one: its laid-out origin and size, relative to the box it is
+    /// placed in. That is its parent, except for the root of a windowed
+    /// list's row: its wrapper (the node carrying `listItemKey`) exists only
+    /// to position it, so the row is placed in the list content and a wrapper
+    /// moving is the row moving. `None` too while it or an ancestor is
+    /// `display: none`: it has no box, and one shown again is first seen, as
+    /// CSS starts no transition from `display: none`.
+    pub fn layout_box(&self, key: NodeKey) -> Option<Value> {
+        let node = self.node_by_key(key)?;
+        node.style.layout_transition.matching(Property::Layout)?;
+        let arena = self.arena();
+        let mut slot = Some(key.index);
+        while let Some(s) = slot {
+            if arena.style(s).display == Display::None {
+                return None;
+            }
+            slot = arena.parent(s);
+        }
+        let mut parent = node.parent.and_then(|p| self.node(p));
+        if parent
+            .as_ref()
+            .is_some_and(|p| p.props.str(PropId::ListItemKey).is_some())
+        {
+            parent = parent.and_then(|p| p.parent).and_then(|p| self.node(p));
+        }
+        let (px, py) = parent.map_or((0.0, 0.0), |p| (p.frame.x, p.frame.y));
+        let f = node.frame;
+        Some(Value::four(
+            (f.x - px) as f64,
+            (f.y - py) as f64,
+            f.width as f64,
+            f.height as f64,
+        ))
+    }
+
     /// Resolve an authored `heightDragFor` to its unique strict ancestor `id`.
     /// The complete handle-to-root path must be attached, displayed, enabled
     /// and non-inert. The target must be a numeric border-box height owner.

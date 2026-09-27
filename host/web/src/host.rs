@@ -809,7 +809,7 @@ impl<D: DataSource> Host<D> {
             // the leaving view's geometry before any op of the batch moves it.
             for exit in &r.exits {
                 if let Some(id) = self.keys.get(&exit.key) {
-                    batch.exit(*id);
+                    batch.exit(*id, &css::animations_css(&exit.animations));
                 }
             }
             for key in &r.destroyed {

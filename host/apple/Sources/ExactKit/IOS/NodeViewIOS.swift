@@ -268,7 +268,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         presenter?.dblclick(id)
     }
     var hoverRecognizer: UIHoverGestureRecognizer?
-    var translate = CGPoint.zero, layoutOffset = CGPoint.zero // layoutOffset: where layout moved it from (LLP 1063)
+    var translate = CGPoint.zero, layoutOffset = CGPoint.zero, layoutScale = CGPoint(x: 1, y: 1) // layout*: the box layout moved it from (LLP 1063)
     var scale: CGFloat = 1
     var rotate: CGFloat = 0
     var contextTransform = CGAffineTransform.identity {
@@ -1256,12 +1256,6 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // enclosing page scroll. Keep elastic feedback for vertical content,
         // including short vertical lists that have no horizontal overflow.
         sv.alwaysBounceVertical = sv.scrollsY && (size.height > sv.bounds.height + 0.5 || size.width <= sv.bounds.width + 0.5)
-    }
-
-    func applyTransform() {
-        // CSS's individual transforms: translate, then rotate, then scale,
-        // about the center (UIKit's anchor); a press folds into the scale.
-        transform = CGAffineTransform(translationX: translate.x + layoutOffset.x, y: translate.y + layoutOffset.y).rotated(by: rotate * .pi / 180).scaledBy(x: scale * pressFactor, y: scale * pressFactor).concatenating(contextTransform)
     }
 
     override func layoutSubviews() {

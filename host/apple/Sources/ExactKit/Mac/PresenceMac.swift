@@ -2,13 +2,33 @@
 // leaving view and everything under it leave the presenter's maps but stay
 // in the window where they were, above their old siblings, inert to the
 // pointer and hidden from accessibility, until the host's `destroy` of the
-// leaving view ends its exit.
+// leaving view ends its exit. A view's transform is here too: its own
+// transforms, and outermost a layout transition's box.
 #if os(macOS)
 import AppKit
 
 struct Leaving {
     let view: NodeView
     let members: [NodeView]
+}
+
+extension NodeView {
+    func applyTransform() {
+        // A lifted Arrange row moves by its frame: AppKit paints and culls a
+        // view where its frame is, never where its layer was moved.
+        let shift = presenter?.reorder?.lifts(id) == true ? translate : .zero
+        if shift != arrangeShift {
+            setFrameOrigin(NSPoint(x: frame.minX - arrangeShift.x + shift.x, y: frame.minY - arrangeShift.y + shift.y))
+            arrangeShift = shift
+        }
+        let b = bounds
+        var t = CGAffineTransform(translationX: translate.x - shift.x, y: translate.y - shift.y)
+        t = t.translatedBy(x: b.midX, y: b.midY).rotated(by: rotate * .pi / 180).scaledBy(x: scale, y: scale).translatedBy(x: -b.midX, y: -b.midY)
+        // Outermost, a layout transition's offset and scale from the box's
+        // top-left corner, as a web FLIP places it (LLP 1063).
+        let flip = CGAffineTransform(translationX: layoutOffset.x + b.minX, y: layoutOffset.y + b.minY).scaledBy(x: layoutScale.x, y: layoutScale.y).translatedBy(x: -b.minX, y: -b.minY)
+        layer?.setAffineTransform(t.concatenating(flip))
+    }
 }
 
 extension Presenter {

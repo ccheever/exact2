@@ -565,6 +565,7 @@ impl<'a> Replay<'a> {
                                 || !p.translate.1.is_finite()
                                 || p.scale != 1.
                                 || p.rotate != 0.
+                                || p.layout != Presented::IDENTITY.layout
                                 || p.opacity != n.opacity
                             {
                                 return Err(

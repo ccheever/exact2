@@ -544,6 +544,9 @@ impl ListWindow {
             .zip(std::mem::take(&mut self.placed))
         {
             if index == usize::MAX {
+                if let Some(wrapper) = row.wrapper {
+                    super::collection::views::item_left(u, wrapper);
+                }
                 gone.push(row);
             } else {
                 old.insert(index, (row, top, of));

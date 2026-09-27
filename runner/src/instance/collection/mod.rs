@@ -8,7 +8,7 @@ mod reorder_api;
 #[cfg(test)]
 mod tests;
 mod traversal;
-mod views;
+pub(crate) mod views;
 use super::*;
 pub use api::*;
 use exact_kernel::PropId;
@@ -565,9 +565,14 @@ impl Collection {
                 (Some((_, (top, end))), Some(p)) => {
                     leaving.push((self.distance(p, top, end).1, text, mounted))
                 }
-                _ => u.ops.push(Op::DestroyView {
-                    id: mounted.wrapper,
-                }),
+                (_, position) => {
+                    if position.is_none() {
+                        views::item_left(u, mounted.wrapper);
+                    }
+                    u.ops.push(Op::DestroyView {
+                        id: mounted.wrapper,
+                    })
+                }
             }
         }
         if let Some((limit, _)) = limited {

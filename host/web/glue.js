@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, scrollFollowers, renderMarkup, keyframes, navigableURL, navigates, refuseURL, devFirst } from "./navigation.js";
+import { focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, scrollFollowers, renderMarkup, keyframes, navigableURL, navigates, refuseURL, devFirst } from "./navigation.js";
 let httpModule;
 function httpHelpers() {
   return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
@@ -17,7 +17,7 @@ const pieces = afterPaintPieces(loadAfterPaint, { root, views, applyBatch, inert
   replayed() { motion.commit(); arrange.commit(); if (agentMode) { register(agentClock); seek(agentClock); } },
   wasm(name, bytes) { if (!wasm) return null; new Uint8Array(memory.buffer, wasm.exact_in(bytes.length), bytes.length).set(bytes); return JSON.parse(readOut(wasm[name](bytes.length))); } });
 const { collections, motion, arrange } = pieces, retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
-let presence = null, presenceLoad = null; // exit-animation and layout-transition, after paint at first use (LLP 1063)
+const presence = presenceLoader(loadAfterPaint, root, batch => applyBatch(batch)); // exit-animation and layout-transition, after paint at first use (LLP 1063)
 let mediaModule;
 function syncMedia(el, set = {}, clear = []) {
   if (!(el instanceof HTMLVideoElement)) return;
@@ -540,9 +540,8 @@ function apply(batch) {
   // Retire dispatch before children ops can synchronously blur removed views; a leaving view's box is read before any op moves it (LLP 1063).
   for (const op of batch.ops ?? []) {
     if (op.op === "destroy") { const el = views.get(op.id); if (el) retiredViews.add(el); }
-    else if (!presence && (op.op === "exit" || op.css?.includes("--exact-"))) presenceLoad ??= loadAfterPaint('./presence-glue.js', 'presence').then(create => { presence = create(root); });
   }
-  presence?.before(batch, views);
+  presence.live?.before(batch, views);
   listSelection?.before();
   prepareContexts(batch);
   for (const s of followedScrolls.values()) s.scrolled();
@@ -749,7 +748,7 @@ function apply(batch) {
       case "destroy": {
         arrange.destroy(op.id);
         motion.destroy(op.id);
-        const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactMarkup?.destroy(); if (el instanceof HTMLVideoElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); if (!presence?.keeps(el)) el.remove(); }
+        const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactMarkup?.destroy(); if (el instanceof HTMLVideoElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); if (!presence.live?.keeps(el)) el.remove(); }
         views.delete(op.id); messageViews.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break;
       }
       case "roots": {
@@ -802,11 +801,11 @@ function apply(batch) {
   // committed before its focus handler runs.
   runFocusCommands(focusCommands, { root, ready: inputReady, inertAncestor, log });
   focusAutofocus();
-  positionContexts(); presence?.after(batch, views);
+  positionContexts(); presence.live?.after(batch, views);
   return batch.timers;
 }
 function applyBatch(batch) {
-  if (page?.hold(batch)) return { timers: batch.timers, batch }; textflow?.beforeBatch(batch);
+  if (page?.hold(batch) || presence.hold(batch)) return { timers: batch.timers, batch }; textflow?.beforeBatch(batch);
   globalThis.exact.applyDepth = (globalThis.exact.applyDepth ?? 0) + 1; try {
   const timers = apply(batch);
   motion.commit(); arrange.commit();

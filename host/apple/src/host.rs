@@ -1171,6 +1171,7 @@ impl<D: DataSource> Host<D> {
             let applied = sync.apply(&mut self.engine);
             debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
             self.play_exits();
+            self.seed_layout(&t.receipt);
             self.sync_paint(&t.receipt, &mut batch);
             self.reconcile_height_handles(&mut batch, true);
             let synced = self.sync_height_owner();
