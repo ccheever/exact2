@@ -1,0 +1,52 @@
+<!doctype html>
+<!-- The direct-API page (LLP 1056 §4): the gallery's fixtures run on Chrome's
+     own CanvasRenderingContext2D, with no recorder and no glue — the API
+     oracle the recorded path on the web is held to. `scripts/canvasparity.mjs`
+     serves it beside `fixtures.js` (fixtures.ts, built by Bun) and reads the
+     result: every fixture's pixels as a PNG data URL, at `?scale=` backing
+     pixels per CSS px, for each `?steps=` of the sequences. Development only. -->
+<meta charset="utf-8">
+<pre id="out"></pre>
+<script type="module">
+import { fixtures, sequences } from "./fixtures.js";
+const q = new URLSearchParams(location.search);
+const scale = Number(q.get("scale") ?? 1), steps = Number(q.get("steps") ?? 4);
+// The Contract's sizes: every tile 150 × 100, the resizing one 90 + 20 × step
+// wide, the explicit bitmap 40 × 25 pixels.
+const size = (name, step) => [name === "resize" ? 90 + 20 * step : 150, 100];
+const out = {};
+const errors = [];
+function draw(name, canvas, ctx, step) {
+  const [w, h] = size(name, step), bitmap = name === "bitmap";
+  const frame = Object.freeze({ time: 0, mounted: 0, cause: step ? "args" : "mount", causes: [step ? "args" : "mount"],
+    width: bitmap ? 40 : w, height: bitmap ? 25 : h, pixelWidth: canvas.width, pixelHeight: canvas.height, scale: bitmap ? 1 : scale });
+  try { fixtures[name](ctx, frame, sequences.includes(name) ? [step] : []); }
+  catch (e) { errors.push(`${name} step ${step}: ${e.name}: ${e.message}`); }
+}
+for (const name of Object.keys(fixtures)) {
+  const sequence = sequences.includes(name);
+  const canvas = document.createElement("canvas");
+  let ctx, last = null;
+  for (let step = 0; step < (sequence ? steps : 1); step++) {
+    const [w, h] = size(name, step), bitmap = name === "bitmap";
+    const pw = bitmap ? 40 : Math.round(w * scale), ph = bitmap ? 25 : Math.round(h * scale);
+    // A new size is a new generation: assigning it clears the bitmap and
+    // resets the context, as the runner's generation does (LLP 1056 D4).
+    if (!ctx || pw !== last?.[0] || ph !== last?.[1]) {
+      canvas.width = pw; canvas.height = ph;
+      ctx = canvas.getContext("2d");
+      if (!bitmap) ctx.setTransform(scale, 0, 0, scale, 0, 0);
+      last = [pw, ph];
+    }
+    draw(name, canvas, ctx, step);
+    // The canvas is shown in its box: stretched when its bitmap is explicit.
+    const shown = document.createElement("canvas");
+    shown.width = Math.round(w * scale); shown.height = Math.round(h * scale);
+    const s = shown.getContext("2d");
+    s.imageSmoothingQuality = "low";
+    s.drawImage(canvas, 0, 0, shown.width, shown.height);
+    out[`fx-${name}${sequence ? `@${step}` : ""}`] = shown.toDataURL("image/png");
+  }
+}
+document.getElementById("out").textContent = JSON.stringify({ scale, errors, images: out });
+</script>

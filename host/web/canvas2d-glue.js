@@ -115,8 +115,10 @@ globalThis.exact.canvas2dGlue = function canvas2dGlue(o) {
     // The bitmap sits in the content box, clipped to the box's curve.
     const surface = surfaceOf(el), cs = getComputedStyle(el);
     if (surface) {
-      surface.style.inset = `${cs.paddingTop} ${cs.paddingRight} ${cs.paddingBottom} ${cs.paddingLeft}`;
-      surface.style.width = surface.style.height = "auto";
+      // A replaced element takes its bitmap's size unless told the box's:
+      // an explicit bitmap is stretched to it (LLP 1056 D6).
+      surface.style.inset = `${cs.paddingTop} auto auto ${cs.paddingLeft}`;
+      surface.style.width = `${width}px`; surface.style.height = `${height}px`;
       surface.style.borderRadius = "inherit";
     }
     exact.send(exact.wasm.exact_canvas_geometry(id, width, height, scale));
