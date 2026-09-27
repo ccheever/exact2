@@ -160,6 +160,13 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: Some(PropId::ImageSource),
         },
+        // @ref LLP 1065 D1 — one vector path in a box: `<svg viewBox><path d>`.
+        "path" => Tag {
+            node_type: NodeType::Path,
+            fixed_styles: &[],
+            fixed_props: &[],
+            positional: None,
+        },
         // @ref LLP 1048.003 D1 — the document's metadata: no space, no children.
         "head" => Tag {
             node_type: NodeType::Head,
@@ -373,7 +380,19 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-selected" => AttrTarget::Prop(p("accessibilitySelected")),
         "aria-expanded" => AttrTarget::Prop(p("accessibilityExpanded")),
         "aria-hidden" => AttrTarget::Prop(p("accessibilityElementsHidden")),
+        // @ref LLP 1065 — a `path`'s data and coordinate system, SVG's names.
+        "d" => AttrTarget::Prop(p("pathData")),
+        "viewBox" => AttrTarget::Prop(p("viewBox")),
         // style rows, by their CSS property names
+        // @ref LLP 1065 D3/D4 — SVG's painting properties, and the stroke's
+        // visible fraction of the path's length.
+        "fill" => styles(&[StyleId::Fill]),
+        "stroke" => styles(&[StyleId::Stroke]),
+        "stroke-width" => styles(&[StyleId::StrokeWidth]),
+        "stroke-linecap" => styles(&[StyleId::StrokeLinecap]),
+        "stroke-linejoin" => styles(&[StyleId::StrokeLinejoin]),
+        "stroke-start" => styles(&[StyleId::StrokeStart]),
+        "stroke-end" => styles(&[StyleId::StrokeEnd]),
         "white-space" => styles(&[StyleId::WhiteSpace]),
         "overflow-wrap" => styles(&[StyleId::OverflowWrap]),
         "field-sizing" => styles(&[StyleId::FieldSizing]),
@@ -670,6 +689,53 @@ pub(crate) fn validate_list(
         );
     }
     Ok(())
+}
+
+/// The attributes only `path` takes (LLP 1065 D1): its data, its coordinate
+/// system, and how much of its stroke shows. The painting properties
+/// (`fill`, `stroke`, …) inherit, as SVG's do, so any box may set them.
+pub const PATH_FIELDS: &[&str] = &["d", "viewBox", "stroke-start", "stroke-end"];
+
+/// Refuse a path field off a `path`, and literal path data or a literal
+/// `viewBox` a browser would not draw in full.
+pub(crate) fn check_path_attr(
+    tag: &str,
+    a: &contract_syntax::Attr,
+) -> Result<(), super::LowerError> {
+    use contract_syntax::Expr;
+    if !PATH_FIELDS.contains(&a.name.as_str()) {
+        return Ok(());
+    }
+    if tag != "path" {
+        return super::err(
+            "lower-attr-tag",
+            format!("`{}` belongs to `path`, not `{tag}`", a.name),
+            a.span,
+        );
+    }
+    let Expr::Str(text, _) = &a.value else {
+        return Ok(());
+    };
+    match a.name.as_str() {
+        "d" => match exact_kernel::vector::PathData::parse(text).error() {
+            Some(e) => super::err(
+                "lower-attr-value",
+                format!(
+                    "`d` is not SVG path data from byte {}: {:?}; a browser draws only what comes before it",
+                    e.at,
+                    text.get(e.at..).unwrap_or("").chars().take(24).collect::<String>()
+                ),
+                a.span,
+            ),
+            None => Ok(()),
+        },
+        "viewBox" if exact_kernel::vector::parse_view_box(text).is_none() => super::err(
+            "lower-attr-value",
+            format!("`viewBox=\"{text}\"` is not `min-x min-y width height` with a positive width and height"),
+            a.span,
+        ),
+        _ => Ok(()),
+    }
 }
 
 /// The attributes `head` takes, and only `head` (LLP 1048.003 D1).

@@ -632,6 +632,7 @@ final class Presenter {
                 v.applyStyle(op.style)
                 v.applyProps(set: op.props, clear: [])
                 if reused != nil { v.finishReuse() }
+                PathView.sync(v)
                 views[id] = v
                 if v.kind == "list" { listViews[id] = v }
                 if v.isParagraph { textViews[id] = v }
@@ -639,10 +640,12 @@ final class Presenter {
                 applyParagraph(id, op.runs)
             case .props:
                 views[id]?.applyProps(set: op.props, clear: op.clear)
+                if let v = views[id] { PathView.sync(v) }
             case .flow:
                 views[id]?.applyFlow(op.payload["shapes"] as? [[String: Any]] ?? [])
             case .style:
                 views[id]?.applyStyle(op.style)
+                if let v = views[id] { PathView.sync(v) }
             case .children:
                 guard let parent = views[id] else { continue }
                 let want = op.ids.compactMap { views[UInt32($0)] }
@@ -686,6 +689,7 @@ final class Presenter {
                 case "scale": v.scale = x; v.applyTransform()
                 case "rotate": v.rotate = x; v.applyTransform()
                 case "opacity": v.alpha = x
+                case "stroke-start", "stroke-end": PathView.of(v)?.present(op.property, x)
                 default: break
                 }
             default: break
@@ -771,6 +775,7 @@ final class Presenter {
             v.metal?.frame = v.bounds
             v.overlay?.frame = v.bounds
             v.web?.frame = v.bounds
+            PathView.of(v)?.place()
             v.fitScroll()
             v.applyTransform()
         case .content:

@@ -12,7 +12,7 @@
 //! and the only copy.
 
 use crate::paint::Presented;
-use exact_kernel::motion::{motion_node, targets, MotionSync};
+use exact_kernel::motion::{motion_node, node_targets, MotionSync};
 use exact_kernel::{Kernel, NodeKey, TextMeasurer, ViewId};
 use exact_motion::{Change, Engine, Property};
 use exact_plan::Plan;
@@ -182,7 +182,7 @@ impl<D: DataSource> Host<D> {
                 let n = motion_node(node.key);
                 sync.transitions.push((n, node.style.transition.clone()));
                 sync.animations.push((n, node.style.animation.clone()));
-                for (property, value) in targets(node.style) {
+                for (property, value) in node_targets(node.node_type, node.style) {
                     sync.changes.push(Change {
                         node: n,
                         property,
@@ -885,6 +885,8 @@ impl<D: DataSource> Host<D> {
                 Property::Rotate => entry.rotate = p.value.x as f32,
                 Property::Opacity => entry.opacity = p.value.x as f32,
                 Property::Height => unreachable!("height is projected through layout"),
+                Property::StrokeStart => entry.stroke.0 = p.value.x as f32,
+                Property::StrokeEnd => entry.stroke.1 = p.value.x as f32,
             }
             changed = true;
         }

@@ -195,6 +195,7 @@ impl<D: DataSource> Walk<'_, D> {
         let mut attrs: Vec<(String, Option<String>)> = Vec::new();
         let mut content: Option<String> = None;
         let mut markup: Option<String> = None;
+        let mut vector: Option<String> = None;
         for (name, value) in &props {
             match name.as_str() {
                 // Browser-owned state the glue keeps in JavaScript.
@@ -210,6 +211,8 @@ impl<D: DataSource> Walk<'_, D> {
                     }
                 }
                 "markupPieces" => markup = Some(value.clone()),
+                // `glue.js` sets it as `innerHTML`: kernel-made SVG (LLP 1065 D5).
+                "pathMarkup" => vector = Some(value.clone()),
                 "data-action" => {
                     attrs.push((name.clone(), Some(value.clone())));
                     style.push_str("touch-action:none;");
@@ -299,7 +302,9 @@ impl<D: DataSource> Walk<'_, D> {
         if tag == "canvas" {
             self.out.push_str(SURFACE);
         }
-        if let (Some(json), true) = (&markup, children.is_empty()) {
+        if let Some(svg) = &vector {
+            self.out.push_str(svg);
+        } else if let (Some(json), true) = (&markup, children.is_empty()) {
             // `renderMarkup`; a node's children replace its pieces.
             self.markup(id, json)?;
         } else if let Some(text) = &content {

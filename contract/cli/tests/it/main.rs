@@ -48,4 +48,5 @@ mod time;
 mod transform_binding;
 mod typescript;
 mod r#use;
+mod vector_path;
 mod viewport;

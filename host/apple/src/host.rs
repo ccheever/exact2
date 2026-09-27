@@ -13,7 +13,7 @@
 
 use crate::batch::Batch;
 use crate::style;
-use exact_kernel::motion::{motion_node, targets, MotionSync};
+use exact_kernel::motion::{motion_node, node_targets, targets, MotionSync};
 use exact_kernel::{
     Env, Frame, Kernel, NodeKey, NodeRef, NodeType, Offer, Overflow, PropId, PropValue,
     TextMeasurer, ViewId,
@@ -405,7 +405,7 @@ impl<D: DataSource> Host<D> {
                 let n = motion_node(node.key);
                 sync.transitions.push((n, node.style.transition.clone()));
                 sync.animations.push((n, node.style.animation.clone()));
-                for (property, value) in targets(node.style) {
+                for (property, value) in node_targets(node.node_type, node.style) {
                     sync.changes.push(Change {
                         node: n,
                         property,
@@ -1289,7 +1289,7 @@ fn kind_for(node: &NodeRef<'_>) -> &'static str {
         NodeType::View => "view",
         NodeType::List => "list",
         NodeType::NativeView => "native",
-        NodeType::Svg => "svg",
+        NodeType::Path => "path",
         NodeType::ScrollView => "scroll",
         NodeType::Text => "text",
         NodeType::Image => "image",
@@ -1332,6 +1332,9 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
         if let Some(value) = node.spellcheck() {
             out.insert("spellcheck".into(), value.to_string());
         }
+    }
+    if node.node_type == NodeType::Path {
+        crate::vector::props(node, &mut out);
     }
     if node.node_type == NodeType::Image {
         if let Some(role) = node

@@ -48,6 +48,7 @@ pub mod style;
 pub mod text;
 pub mod transform;
 pub mod txn;
+pub mod vector;
 pub mod wire;
 
 pub use error::{

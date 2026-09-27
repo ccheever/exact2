@@ -369,7 +369,7 @@ function applyProps(el, set, clear) {
     else if (name === "scrollTop" || name === "scrollLeft") {
       const pending = pendingScrolls.get(el); if (pending) delete pending[name];
     }
-    else if (name === "text") el.textContent = "";
+    else if (name === "text" || name === "pathMarkup") el.textContent = "";
     else if (name === "value") writeValue(el, "");
     else if (name === "checked") el.checked = false;
     else if (name === "data-action") { el.removeAttribute(name); el.style.touchAction = ""; }
@@ -385,7 +385,7 @@ function applyProps(el, set, clear) {
       const offset = Number(value);
       if (Number.isFinite(offset)) pendingScrolls.set(el, { ...pendingScrolls.get(el), [name]: offset });
     } else if (name === "text") { if (el.childElementCount === 0 && el.textContent !== value) el.textContent = value;
-    } else if (name === "markupPieces") { renderMarkup(el, value);
+    } else if (name === "markupPieces") { renderMarkup(el, value); } else if (name === "pathMarkup") { el.innerHTML = value; // kernel-made numbers only (LLP 1065 D5)
     } else if (name === "data-action") {
       el.setAttribute(name, value); el.style.touchAction = "none";
     } else if (name === "value") {

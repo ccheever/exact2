@@ -31,6 +31,8 @@ fn parse_codec(s: &str) -> Codec {
         "color" => Codec::ColorValue,
         "auto-color" => Codec::KeywordColor("auto"),
         "current-color" => Codec::KeywordColor("currentcolor"),
+        // @ref LLP 1065 D3 — SVG paint: `none` or a colour.
+        "paint" => Codec::KeywordColor("none"),
         "vec2" => Codec::Vec2,
         "color2" => Codec::Color2,
         "tracks" => Codec::Tracks,
@@ -129,6 +131,11 @@ impl Codec {
             Codec::Rgba8 => format!("Color({}u32)", int(value, 0.0, u32::MAX as f64)),
             Codec::ColorValue => format!(
                 "ColorValue::Fixed(Color({}u32))",
+                int(value, 0.0, u32::MAX as f64)
+            ),
+            // SVG's `fill` starts black, not at its keyword.
+            Codec::KeywordColor(_) if value.is_number() => format!(
+                "Some(ColorValue::Fixed(Color({}u32)))",
                 int(value, 0.0, u32::MAX as f64)
             ),
             Codec::KeywordColor(keyword) => {

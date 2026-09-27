@@ -16,7 +16,7 @@
 //! [`Motion`], which is [`Still`] unless the app's entry registered
 //! [`springs`], so an app that uses no spring or hold carries no engine.
 
-use exact_kernel::motion::{motion_node, targets, MotionSync};
+use exact_kernel::motion::{motion_node, node_targets, targets, MotionSync};
 use exact_kernel::{CommitReceipt, Kernel, NodeKey, ViewId};
 use exact_motion::{
     Change, Engine, EngineError, HoldEnd, HoldStart, HoldToken, Property, SpringDescriptor,
@@ -489,7 +489,7 @@ impl Motion for Springs {
             };
             let n = motion_node(node.key);
             sync.transitions.push((n, node.style.transition.clone()));
-            for (property, value) in targets(node.style) {
+            for (property, value) in node_targets(node.node_type, node.style) {
                 sync.changes.push(Change {
                     node: n,
                     property,

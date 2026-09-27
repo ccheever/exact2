@@ -19,10 +19,13 @@ pub(super) fn host_css(node: &NodeRef<'_>, mut css: String, tag: &str) -> String
     {
         css.push_str("display:block;");
     }
+    // A path's `<svg>` covers its box (`vector.rs`) and never sizes it.
+    if matches!(node.node_type, NodeType::Canvas | NodeType::Path)
+        && !(css.starts_with("position:") || css.contains(";position:"))
+    {
+        css.push_str("position:relative;");
+    }
     if node.node_type == NodeType::Canvas {
-        if !(css.starts_with("position:") || css.contains(";position:")) {
-            css.push_str("position:relative;");
-        }
         css.push_str("isolation:isolate;");
     }
     // A root is a block formatting context in the kernel, as CSS's root
@@ -95,7 +98,7 @@ fn element(node: &NodeRef<'_>) -> &'static str {
         }
     }
     match node.node_type {
-        NodeType::View | NodeType::List | NodeType::NativeView | NodeType::Svg => "div",
+        NodeType::View | NodeType::List | NodeType::NativeView | NodeType::Path => "div",
         NodeType::ScrollView => "div",
         NodeType::Text => {
             if node.is_inline_run() {
@@ -169,8 +172,13 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
     if let (Some(pieces), Some(source)) = (markup, node.props.str(PropId::Text)) {
         out.insert("markupPieces".into(), pieces(source));
     }
+    if node.node_type == NodeType::Path {
+        super::vector::props(node, &mut out);
+    }
     for (id, value) in node.props.iter() {
-        if markup.is_some() && id == PropId::Text {
+        if (markup.is_some() && id == PropId::Text)
+            || matches!(id, PropId::PathData | PropId::ViewBox)
+        {
             continue;
         }
         if id == PropId::Editable {

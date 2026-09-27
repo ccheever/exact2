@@ -15,7 +15,7 @@
 //! reused slot never inherits its predecessor's motion.
 
 use crate::generated::{
-    BoxSizing, Display, InterpolateSize, PropId, StyleId, StyleMask, StyleProps,
+    BoxSizing, Display, InterpolateSize, NodeType, PropId, StyleId, StyleMask, StyleProps,
 };
 use crate::id::NodeKey;
 use crate::kernel::Kernel;
@@ -85,6 +85,31 @@ pub fn targets(style: &StyleProps) -> [(Property, Value); 4] {
         (Property::Rotate, Value::scalar(style.rotate as f64)),
         (Property::Opacity, Value::scalar(style.opacity as f64)),
     ]
+}
+
+/// A `path` node's stroke fractions, as engine values (LLP 1065 D4). Only
+/// a path's are synced: no other node draws a stroke, so no other node
+/// spends engine slots on them.
+pub fn stroke_targets(style: &StyleProps) -> [(Property, Value); 2] {
+    [
+        (
+            Property::StrokeStart,
+            Value::scalar(style.stroke_start as f64),
+        ),
+        (Property::StrokeEnd, Value::scalar(style.stroke_end as f64)),
+    ]
+}
+
+/// Every target the engine hears for one node: the four compositor rows,
+/// and a path's stroke fractions. What a commit and a host's boot both sync.
+pub fn node_targets(
+    node_type: NodeType,
+    style: &StyleProps,
+) -> impl Iterator<Item = (Property, Value)> {
+    let strokes = (node_type == NodeType::Path).then(|| stroke_targets(style));
+    targets(style)
+        .into_iter()
+        .chain(strokes.into_iter().flatten())
 }
 
 impl Kernel {
@@ -242,7 +267,7 @@ impl Kernel {
             let id = motion_node(*key);
             sync.transitions.push((id, node.style.transition.clone()));
             sync.animations.push((id, node.style.animation.clone()));
-            for (property, value) in targets(node.style) {
+            for (property, value) in node_targets(node.node_type, node.style) {
                 sync.changes.push(Change {
                     node: id,
                     property,

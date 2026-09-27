@@ -12,7 +12,7 @@
 
 use crate::{err, tags, values, LowerError};
 use contract_syntax::{Attr, Expr, File};
-use exact_kernel::motion::targets;
+use exact_kernel::motion::{stroke_targets, targets};
 use exact_kernel::{StyleId, StyleProps, StyleValue};
 use exact_motion::{Animations, Easing, KeyframeBlock, Keyframes, ParseError};
 use std::collections::BTreeMap;
@@ -112,12 +112,17 @@ fn value(a: &Attr) -> Result<Setting, LowerError> {
     }
     let row = match tags::attr(&a.name) {
         Some(tags::AttrTarget::Styles(
-            [row @ (StyleId::Translate | StyleId::Scale | StyleId::Rotate | StyleId::Opacity)],
+            [row @ (StyleId::Translate
+            | StyleId::Scale
+            | StyleId::Rotate
+            | StyleId::Opacity
+            | StyleId::StrokeStart
+            | StyleId::StrokeEnd)],
         )) => *row,
         Some(_) => {
             return err(
                 "lower-keyframes",
-                format!("`{}` cannot be in a keyframe: keyframes animate `translate`, `scale`, `rotate` and `opacity`, the properties motion runs without layout (LLP 1002)", a.name),
+                format!("`{}` cannot be in a keyframe: keyframes animate `translate`, `scale`, `rotate` and `opacity`, the properties motion runs without layout (LLP 1002), and a path's `stroke-start` and `stroke-end` (LLP 1065)", a.name),
                 a.span,
             )
         }
@@ -161,6 +166,7 @@ fn value(a: &Attr) -> Result<Setting, LowerError> {
     let property = exact_motion::Property::from_name(&a.name).expect("a motion row");
     let (_, value) = targets(&style)
         .into_iter()
+        .chain(stroke_targets(&style))
         .find(|(p, _)| *p == property)
         .expect("targets name every compositor row");
     Ok(Setting::Value(property, value))

@@ -38,43 +38,10 @@ mod region;
 mod shadow;
 use inline::{text_backgrounds, text_palette};
 pub(crate) use region::{ActionNode, ActionSlot, RegionActions, ScrollBounds};
-
-/// A node's presentation values: what the motion engine says to paint.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Presented {
-    /// Points.
-    pub translate: (f32, f32),
-    /// Uniform.
-    pub scale: f32,
-    /// Degrees.
-    pub rotate: f32,
-    /// Zero to one.
-    pub opacity: f32,
-}
-
-impl Presented {
-    /// Nothing moved.
-    pub const IDENTITY: Presented = Presented {
-        translate: (0.0, 0.0),
-        scale: 1.0,
-        rotate: 0.0,
-        opacity: 1.0,
-    };
-
-    /// The committed style's values (what the engine starts from).
-    pub fn from_style(s: &StyleProps) -> Presented {
-        Presented {
-            translate: (s.translate.x, s.translate.y),
-            scale: s.scale,
-            rotate: s.rotate,
-            opacity: s.opacity,
-        }
-    }
-
-    fn moves(&self) -> bool {
-        self.translate != (0.0, 0.0) || self.scale != 1.0 || self.rotate != 0.0
-    }
-}
+mod presented;
+pub use presented::Presented;
+mod vector;
+pub use vector::VectorPaint;
 
 /// A rectangle as (x, y, w, h).
 pub type Rect4 = (f32, f32, f32, f32);
@@ -373,6 +340,9 @@ pub trait Backend {
     fn push_css_clip(&mut self, _path: &exact_kernel::clip::ClipPath, _ts: Transform) -> bool {
         false
     }
+    /// Fill and stroke a `path` node (LLP 1065 D7); a backend that draws no
+    /// vectors draws nothing.
+    fn vector(&mut self, _path: &VectorPaint, _ts: Transform) {}
     /// End a clip.
     fn pop_clip(&mut self);
     /// Composite everything until the matching pop at an opacity.
@@ -1005,6 +975,7 @@ impl Painter {
                     );
                 }
             }
+            NodeType::Path => self.vector(walk, node, content, ts),
             _ => {}
         }
         // Children: clipped by this box when its overflow is not visible,

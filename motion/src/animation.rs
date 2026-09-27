@@ -269,7 +269,7 @@ impl Keyframes {
             css_number(&mut out, block.offset * 100.0);
             out.push_str("%{");
             for (property, value) in &block.values {
-                out.push_str(property.name());
+                out.push_str(property.css_name());
                 out.push(':');
                 match property {
                     Property::Translate => {

@@ -328,6 +328,22 @@ fn bez(ops: &[PathOp]) -> BezPath {
     b
 }
 
+/// A `path` node's normalized commands as a kurbo path (LLP 1065 D7).
+fn vector_path(commands: &[exact_kernel::vector::Command]) -> BezPath {
+    use exact_kernel::vector::Command;
+    let p = |[x, y]: [f32; 2]| (f64::from(x), f64::from(y));
+    let mut b = BezPath::new();
+    for command in commands {
+        match *command {
+            Command::Move(a) => b.move_to(p(a)),
+            Command::Line(a) => b.line_to(p(a)),
+            Command::Cubic(c1, c2, a) => b.curve_to(p(c1), p(c2), p(a)),
+            Command::Close => b.close_path(),
+        }
+    }
+    b
+}
+
 fn color(c: [u8; 4]) -> Color {
     Color::from_rgba8(c[0], c[1], c[2], c[3])
 }
@@ -354,6 +370,32 @@ impl Backend for Gpu {
         }
         let a = self.affine(ts);
         self.scene.fill(Fill::NonZero, a, color(c), None, &shape(s));
+    }
+
+    fn vector(&mut self, v: &crate::paint::VectorPaint, ts: Transform) {
+        use exact_kernel::{StrokeLinecap, StrokeLinejoin};
+        use vello::kurbo::{Cap, Join};
+        let a = self.affine(ts.pre_concat(v.fit));
+        if let Some((c, d)) = &v.fill {
+            self.scene
+                .fill(Fill::NonZero, a, color(*c), None, &vector_path(d));
+        }
+        if let Some((c, d)) = v.stroke.as_ref().filter(|_| v.width > 0.0) {
+            let stroke = Stroke::new(f64::from(v.width))
+                .with_caps(match v.cap {
+                    StrokeLinecap::Butt => Cap::Butt,
+                    StrokeLinecap::Round => Cap::Round,
+                    StrokeLinecap::Square => Cap::Square,
+                })
+                .with_join(match v.join {
+                    StrokeLinejoin::Miter => Join::Miter,
+                    StrokeLinejoin::Round => Join::Round,
+                    StrokeLinejoin::Bevel => Join::Bevel,
+                })
+                .with_miter_limit(4.0);
+            self.scene
+                .stroke(&stroke, a, color(*c), None, &vector_path(d));
+        }
     }
 
     fn fill_gradient(&mut self, s: &Shape, g: &GradientPaint, ts: Transform) {

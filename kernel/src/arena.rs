@@ -845,6 +845,12 @@ mod tests {
             (StyleId::OverflowWrap, text("anywhere")),
             (StyleId::InterpolateSize, text("allow-keywords")),
             (StyleId::TextTransform, text("uppercase")),
+            // @ref LLP 1065 D3 — SVG's painting properties inherit.
+            (StyleId::Fill, text("none")),
+            (StyleId::Stroke, text("light-dark(#112233, #ffffff)")),
+            (StyleId::StrokeWidth, number(4.0)),
+            (StyleId::StrokeLinecap, text("round")),
+            (StyleId::StrokeLinejoin, text("bevel")),
         ];
         let mut covered = StyleMask::EMPTY;
         for (id, value) in samples {

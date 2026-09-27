@@ -8,9 +8,10 @@
 //! points, and a change of the insets re-sends the dictionary), `"auto"`, or
 //! `{"pct": n}` (`{"pct": n, "px": m}` for a `calc()` of both); colors as
 //! `[r,g,b,a]` bytes; enums as their CSS spelling;
-//! `vec2` as `[x,y]`; numbers as numbers. The four motion targets
-//! (`translate`, `scale`, `rotate`, `opacity`) are left out: a presenter
-//! applies their *presentation* values from `present` ops, never the style.
+//! `vec2` as `[x,y]`; numbers as numbers. The motion targets
+//! (`translate`, `scale`, `rotate`, `opacity`, and a path's `stroke-start`
+//! and `stroke-end`) are left out: a presenter applies their
+//! *presentation* values from `present` ops, never the style.
 //! Rows a presenter cannot use yet are named, not guessed.
 
 use exact_kernel::style::ColorValue;
@@ -106,7 +107,10 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
                 continue;
             }
         };
-        if matches!(name, "translate" | "scale" | "rotate" | "opacity") {
+        if matches!(
+            name,
+            "translate" | "scale" | "rotate" | "opacity" | "stroke_start" | "stroke_end"
+        ) {
             continue;
         }
         if !first {
@@ -159,9 +163,10 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
 /// the descendants an inherited change reaches (LLP 1035.000 D4), so this is
 /// re-sent by the ordinary update path, never re-derived per frame.
 pub fn style_json_for(node: &NodeRef<'_>, env: &Env) -> (String, Vec<Skipped>) {
+    // A path paints with SVG's inherited `fill` and `stroke` rows.
     let rows = if matches!(
         node.node_type,
-        NodeType::Text | NodeType::TextInput | NodeType::Image
+        NodeType::Text | NodeType::TextInput | NodeType::Image | NodeType::Path
     ) {
         StyleMask::INHERITED
     } else {

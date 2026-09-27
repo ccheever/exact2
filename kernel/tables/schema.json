@@ -32,7 +32,8 @@
     },
     {
       "id": 7,
-      "name": "Svg"
+      "name": "Path",
+      "_comment": "@ref LLP 1065 D1: one vector path, its data fitted into the box by its viewBox; a leaf."
     },
     {
       "id": 8,
@@ -106,8 +107,9 @@
     },
     {
       "id": 8,
-      "name": "svgSource",
-      "kind": "str"
+      "name": "pathData",
+      "kind": "str",
+      "_comment": "@ref LLP 1065 D2: SVG path data, the `d` attribute."
     },
     {
       "id": 9,
@@ -671,6 +673,12 @@
       "id": 121,
       "name": "refreshing",
       "kind": "bool"
+    },
+    {
+      "id": 122,
+      "name": "viewBox",
+      "kind": "str",
+      "_comment": "@ref LLP 1065 D2: SVG `viewBox`, the path's coordinate system fitted into the content box (xMidYMid meet)."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
@@ -955,9 +963,25 @@
         "allow-keywords"
       ],
       "default": "numeric-only"
+    },
+    "StrokeLinecap": {
+      "values": [
+        "butt",
+        "round",
+        "square"
+      ],
+      "default": "butt"
+    },
+    "StrokeLinejoin": {
+      "values": [
+        "miter",
+        "round",
+        "bevel"
+      ],
+      "default": "miter"
     }
   },
-  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (grid track list) | placement (grid line placement) | aspect-ratio (CSS text: auto, a ratio, or both) | background-image (CSS text: none or one gradient, LLP 1056) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance \u2014 a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard).",
+  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | paint (the same, 0 `none`; its default a keyword or a colour, LLP 1065) | color2 (rgba8 rgba8) | tracks (grid track list) | placement (grid line placement) | aspect-ratio (CSS text: auto, a ratio, or both) | background-image (CSS text: none or one gradient, LLP 1056) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance \u2014 a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard).",
   "styles": [
     {
       "bit": 0,
@@ -1658,10 +1682,60 @@
       "field": "animation",
       "codec": "animations",
       "_comment": "@ref LLP 1057: CSS `animation`, its @keyframes resolved by the compiler. Grammar: `_animations`."
+    },
+    {
+      "bit": 103,
+      "field": "fill",
+      "codec": "paint",
+      "inherited": true,
+      "default": 255,
+      "_comment": "@ref LLP 1065 D3: SVG `fill` — `none` or a colour; SVG's initial value is black."
+    },
+    {
+      "bit": 104,
+      "field": "stroke",
+      "codec": "paint",
+      "inherited": true,
+      "default": "none",
+      "_comment": "@ref LLP 1065 D3: SVG `stroke` — `none` (the initial value) or a colour."
+    },
+    {
+      "bit": 105,
+      "field": "stroke_width",
+      "codec": "f32",
+      "inherited": true,
+      "default": 1,
+      "_comment": "@ref LLP 1065 D3: in the path's own units, so it scales with the view box as SVG's does."
+    },
+    {
+      "bit": 106,
+      "field": "stroke_linecap",
+      "codec": "enum:StrokeLinecap",
+      "inherited": true
+    },
+    {
+      "bit": 107,
+      "field": "stroke_linejoin",
+      "codec": "enum:StrokeLinejoin",
+      "inherited": true
+    },
+    {
+      "bit": 108,
+      "field": "stroke_start",
+      "codec": "f32",
+      "default": 0,
+      "_comment": "@ref LLP 1065 D4: where the visible stroke starts, as a fraction of the whole path's length in subpath order. Animatable."
+    },
+    {
+      "bit": 109,
+      "field": "stroke_end",
+      "codec": "f32",
+      "default": 1,
+      "_comment": "@ref LLP 1065 D4: where the visible stroke ends, as a fraction of the whole path's length in subpath order. Animatable."
     }
   ],
-  "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, 1 translate, 2 scale, 3 rotate, 4 opacity), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
-  "_animations": "The `animation` row is CSS `animation` with its keyframes resolved (LLP 1057): count u8 (\u22648), then per animation name string, duration f32 s, delay f32 s, easing (the `_transitions` easing, spring refused), iterations f32 (+inf is `infinite`), direction u8 (0 normal, 1 reverse, 2 alternate, 3 alternate-reverse), fill u8 (0 none, 1 forwards, 2 backwards, 3 both), play-state u8 (0 running, 1 paused), keyframe count u8 (\u226432), then per keyframe offset f32, easing flag u8 (0 the animation's, 1 an easing follows), value count u8, then per value property u8 (0 translate, 1 scale, 2 rotate, 3 opacity), x f32, y f32. Its Rust type lives in exact-motion; the kernel owns the bytes.",
+  "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-start, 7 stroke-end), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
+  "_animations": "The `animation` row is CSS `animation` with its keyframes resolved (LLP 1057): count u8 (\u22648), then per animation name string, duration f32 s, delay f32 s, easing (the `_transitions` easing, spring refused), iterations f32 (+inf is `infinite`), direction u8 (0 normal, 1 reverse, 2 alternate, 3 alternate-reverse), fill u8 (0 none, 1 forwards, 2 backwards, 3 both), play-state u8 (0 running, 1 paused), keyframe count u8 (\u226432), then per keyframe offset f32, easing flag u8 (0 the animation's, 1 an easing follows), value count u8, then per value property u8 (0 translate, 1 scale, 2 rotate, 3 opacity, 5 stroke-start, 6 stroke-end; 4, height, is refused), x f32, y f32. Its Rust type lives in exact-motion; the kernel owns the bytes.",
   "_opcodes": "The closed wire-visible op list for EXWF frame revision 1. There is no op count on the wire; consumers iterate by validated lengths.",
   "opcodes": [
     {

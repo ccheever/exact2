@@ -1201,6 +1201,7 @@ impl<'a> Lowerer<'a> {
                 a.span,
             );
         }
+        tags::check_path_attr(tag, a)?;
         // @ref LLP 1048.003 D1 — a document's metadata, and nothing else.
         let head_field = tags::HEAD_FIELDS.contains(&a.name.as_str());
         if head_field != (tag == "head") {

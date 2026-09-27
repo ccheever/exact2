@@ -20,4 +20,5 @@ mod request_refusal;
 mod springs;
 mod surface_record;
 mod transform_drag;
+mod vector_path;
 mod video;

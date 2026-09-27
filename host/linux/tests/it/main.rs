@@ -10,4 +10,5 @@ mod holds;
 mod image;
 mod transform_binding;
 mod transform_contact;
+mod vector_path;
 mod viewport;

@@ -246,6 +246,9 @@ fn property(out: &mut String, id: StyleId) {
         StyleId::TintColor => return out.push_str("--exact-tint"),
         StyleId::PositionType => return out.push_str("position"),
         StyleId::BackdropBlur => return out.push_str("backdrop-filter"),
+        // @ref LLP 1065 D5 — registered by the path's own markup.
+        StyleId::StrokeStart => return out.push_str("--exact-stroke-start"),
+        StyleId::StrokeEnd => return out.push_str("--exact-stroke-end"),
         id => id.name(),
     };
     for (prefix, suffix) in [
@@ -311,7 +314,9 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             | StyleId::ZIndex
             | StyleId::FontWeight
             | StyleId::Scale
-            | StyleId::ShadowOpacity => num_into(out, *n as f32),
+            | StyleId::ShadowOpacity
+            | StyleId::StrokeStart
+            | StyleId::StrokeEnd => num_into(out, *n as f32),
             StyleId::Rotate => {
                 num_into(out, *n as f32);
                 out.push_str("deg");
@@ -362,7 +367,7 @@ pub fn transition_css(t: &Transitions) -> (String, bool) {
 fn transition_property(tr: &Transition) -> &'static str {
     match tr.property {
         TransitionProperty::All => "all",
-        TransitionProperty::Property(p) => p.name(),
+        TransitionProperty::Property(p) => p.css_name(),
     }
 }
 

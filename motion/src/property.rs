@@ -10,6 +10,9 @@
 //! linearly (CSS Transitions §4, "animation type: by computed value"). The
 //! numeric `height` trial adds a scalar in pixels, with host-owned admission
 //! and layout (LLP 1041 §8.12). Its CSS initial `auto` has no numeric value.
+//! A `path` node's `stroke-start` and `stroke-end` are fractions of its
+//! length a vector layer trims its stroke to (LLP 1065); on the web they are
+//! the registered custom properties [`Property::css_name`] names.
 
 /// One animatable property.
 #[repr(u8)]
@@ -25,16 +28,22 @@ pub enum Property {
     Opacity = 3,
     /// Numeric CSS `height`, in logical pixels; host admission is explicit.
     Height = 4,
+    /// A path's `stroke-start`: the fraction of its length the visible stroke starts at.
+    StrokeStart = 5,
+    /// A path's `stroke-end`: the fraction of its length the visible stroke ends at.
+    StrokeEnd = 6,
 }
 
 impl Property {
     /// Every property, in wire order.
-    pub const ALL: [Property; 5] = [
+    pub const ALL: [Property; 7] = [
         Property::Translate,
         Property::Scale,
         Property::Rotate,
         Property::Opacity,
         Property::Height,
+        Property::StrokeStart,
+        Property::StrokeEnd,
     ];
 
     /// The CSS property name.
@@ -45,12 +54,26 @@ impl Property {
             Property::Rotate => "rotate",
             Property::Opacity => "opacity",
             Property::Height => "height",
+            Property::StrokeStart => "stroke-start",
+            Property::StrokeEnd => "stroke-end",
         }
     }
 
-    /// From the CSS property name.
+    /// The property a browser animates: the name, except for the stroke
+    /// fractions, which CSS lacks and the web host registers as numbers.
+    pub fn css_name(self) -> &'static str {
+        match self {
+            Property::StrokeStart => "--exact-stroke-start",
+            Property::StrokeEnd => "--exact-stroke-end",
+            other => other.name(),
+        }
+    }
+
+    /// From the property name or its [`Property::css_name`].
     pub fn from_name(name: &str) -> Option<Property> {
-        Property::ALL.into_iter().find(|p| p.name() == name)
+        Property::ALL
+            .into_iter()
+            .find(|p| p.name() == name || p.css_name() == name)
     }
 
     /// From the wire discriminant.
@@ -62,7 +85,12 @@ impl Property {
     pub fn components(self) -> usize {
         match self {
             Property::Translate => 2,
-            Property::Scale | Property::Rotate | Property::Opacity | Property::Height => 1,
+            Property::Scale
+            | Property::Rotate
+            | Property::Opacity
+            | Property::Height
+            | Property::StrokeStart
+            | Property::StrokeEnd => 1,
         }
     }
 
@@ -71,8 +99,8 @@ impl Property {
     pub fn identity(self) -> Option<Value> {
         match self {
             Property::Translate => Some(Value::ZERO),
-            Property::Scale | Property::Opacity => Some(Value::scalar(1.0)),
-            Property::Rotate => Some(Value::scalar(0.0)),
+            Property::Scale | Property::Opacity | Property::StrokeEnd => Some(Value::scalar(1.0)),
+            Property::Rotate | Property::StrokeStart => Some(Value::scalar(0.0)),
             Property::Height => None,
         }
     }

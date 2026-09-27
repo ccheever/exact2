@@ -17,6 +17,21 @@ use tiny_skia::{
     Pixmap, PixmapPaint, Point, RadialGradient, Rect, SpreadMode, Stroke, Transform,
 };
 
+/// A `path` node's normalized commands as a tiny-skia path (LLP 1065 D7).
+fn vector_path(commands: &[exact_kernel::vector::Command]) -> Option<Path> {
+    use exact_kernel::vector::Command;
+    let mut b = PathBuilder::new();
+    for command in commands {
+        match *command {
+            Command::Move([x, y]) => b.move_to(x, y),
+            Command::Line([x, y]) => b.line_to(x, y),
+            Command::Cubic([ax, ay], [bx, by], [x, y]) => b.cubic_to(ax, ay, bx, by, x, y),
+            Command::Close => b.close(),
+        }
+    }
+    b.finish()
+}
+
 // One optional CPU coverage mask, never a source, picture or node owner.
 const CLIP_CACHE_BYTES: usize = 1024 * 1024;
 
@@ -628,6 +643,47 @@ impl Backend for Raster {
                 dev,
                 mask.as_deref(),
             );
+        }
+    }
+
+    fn vector(&mut self, v: &crate::paint::VectorPaint, ts: Transform) {
+        use exact_kernel::{StrokeLinecap, StrokeLinejoin};
+        let dev = self.device(ts).pre_concat(v.fit);
+        let mask = self.clips.last().cloned();
+        let Some(target) = self.target.as_mut() else {
+            return;
+        };
+        if let Some((color, path)) = v
+            .fill
+            .as_ref()
+            .and_then(|(c, d)| Some((c, vector_path(d)?)))
+        {
+            target.fill_path(
+                &path,
+                &solid(*color),
+                FillRule::Winding,
+                dev,
+                mask.as_deref(),
+            );
+        }
+        let stroked = v.stroke.as_ref().filter(|_| v.width > 0.0);
+        if let Some((color, path)) = stroked.and_then(|(c, d)| Some((c, vector_path(d)?))) {
+            let stroke = Stroke {
+                width: v.width,
+                miter_limit: 4.0,
+                line_cap: match v.cap {
+                    StrokeLinecap::Butt => tiny_skia::LineCap::Butt,
+                    StrokeLinecap::Round => tiny_skia::LineCap::Round,
+                    StrokeLinecap::Square => tiny_skia::LineCap::Square,
+                },
+                line_join: match v.join {
+                    StrokeLinejoin::Miter => tiny_skia::LineJoin::Miter,
+                    StrokeLinejoin::Round => tiny_skia::LineJoin::Round,
+                    StrokeLinejoin::Bevel => tiny_skia::LineJoin::Bevel,
+                },
+                dash: None,
+            };
+            target.stroke_path(&path, &solid(*color), &stroke, dev, mask.as_deref());
         }
     }
 

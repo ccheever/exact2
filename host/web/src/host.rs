@@ -24,6 +24,8 @@ use exact_runner::{
 pub mod document;
 #[path = "element.rs"]
 mod element;
+#[path = "vector.rs"]
+mod vector;
 use element::{host_css, in_button, props_for, tag_for};
 #[path = "height_drag.rs"]
 mod height_drag;

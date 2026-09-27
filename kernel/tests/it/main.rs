@@ -28,5 +28,6 @@ mod review_fixes;
 mod style_dynamic;
 mod text_measurement_cache;
 mod transform_binding;
+mod vector_path;
 mod video;
 mod wire;
