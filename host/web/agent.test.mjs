@@ -248,6 +248,7 @@ function fixture(agentMode = true) {
     innerWidth: 300, innerHeight: 200, devicePixelRatio: 1, scrollX: 0, scrollY: 0,
     INHERITED_CSS: {}, getComputedStyle: () => ({}), inertAncestor: () => false,
     navigation: { observation: () => ({ location: '/' }), reset() {} },
+    presence: { live: null },
     ask: req => req.op === 'state' ? state : req.op === 'logs' ? logs : req.op === 'node' ? { id: req.id, type: 'Text' }
       : req.op === 'tags' ? { epoch: 2, incarnation: 1, clock: 0 } : { error: 'unknown op' },
     tree: () => outline, now: () => 0, environment: () => ({}),

@@ -551,3 +551,84 @@ export function reportPlace() {
   pagePlace ??= placeReporter(new URL(location.href).searchParams);
   return pagePlace();
 }
+
+// A same-origin guest joins `tree` as a compact, bounded outline. Access to
+// a sandboxed or cross-origin document is simply absent (@ref LLP 1020 D4).
+export function guestOutline(frame) {
+  let doc;
+  try { doc = frame.contentDocument; } catch { return null; }
+  if (!doc) return null;
+  const outline = [];
+  const visit = (el, depth) => {
+    if (depth > 4 || outline.length >= 32) return;
+    const id = el.id || undefined;
+    const testId = el.getAttribute("data-testid") ?? el.getAttribute("testId") ?? undefined;
+    const text = [...el.childNodes]
+      .filter((n) => n.nodeType === Node.TEXT_NODE)
+      .map((n) => n.textContent.trim())
+      .filter(Boolean)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .slice(0, 160) || undefined;
+    if (id || testId || text) {
+      outline.push({ guest: true, depth, tag: el.localName, ...(id ? { id } : {}), ...(testId ? { testId } : {}), ...(text ? { text } : {}) });
+    }
+    for (const child of el.children) visit(child, depth + 1);
+  };
+  for (const child of doc.body?.children ?? []) visit(child, 0);
+  return outline;
+}
+function guestDocument(frame) {
+  try {
+    const document = frame.contentDocument;
+    return document ? { document } : { error: "guest is cross-origin" };
+  } catch {
+    return { error: "guest is cross-origin" };
+  }
+}
+export function guestTap(frame, request) {
+  const access = guestDocument(frame);
+  if (access.error) return { guest: true, error: access.error };
+  const { document } = access;
+  const guest = document.defaultView;
+  const x = Number.isFinite(request.x) ? request.x : guest.innerWidth / 2;
+  const y = Number.isFinite(request.y) ? request.y : guest.innerHeight / 2;
+  let target;
+  try { target = request.selector ? document.querySelector(request.selector) : null; }
+  catch { return { guest: true, error: "guest tap has an invalid selector" }; }
+  target ||= document.elementFromPoint(x, y) || document.body;
+  if (!target) return { guest: true, error: "guest tap found no target" };
+  // Script input is intentionally untrusted (@ref LLP 1020 D4;
+  // exact1 20260806-webview-frame-guest-click-delivery).
+  target.dispatchEvent(new guest.PointerEvent("pointerdown", { bubbles: true, composed: true, clientX: x, clientY: y, button: 0, buttons: 1 }));
+  target.dispatchEvent(new guest.PointerEvent("pointerup", { bubbles: true, composed: true, clientX: x, clientY: y, button: 0, buttons: 0 }));
+  target.dispatchEvent(new guest.MouseEvent("click", { bubbles: true, composed: true, clientX: x, clientY: y, button: 0 }));
+  return { tapped: request.id, guest: true };
+}
+export function guestType(frame, request) {
+  const access = guestDocument(frame);
+  if (access.error) return { guest: true, error: access.error };
+  const { document } = access;
+  const guest = document.defaultView;
+  const active = document.activeElement;
+  const editable = active?.matches?.("input,textarea,[contenteditable]") ? active : null;
+  let target;
+  try { target = request.selector ? document.querySelector(request.selector) : null; }
+  catch { return { guest: true, error: "guest type has an invalid selector" }; }
+  target ||= editable || document.querySelector("input,textarea,[contenteditable]");
+  if (!target) return { guest: true, error: "guest type found no target" };
+  // These are the Apple guest script's event shapes, including focus and
+  // isTrusted:false (@ref LLP 1020 D4).
+  target.focus();
+  if (request.key != null) {
+    const key = String(request.key);
+    target.dispatchEvent(new guest.KeyboardEvent("keydown", { key, bubbles: true, composed: true }));
+    target.dispatchEvent(new guest.KeyboardEvent("keyup", { key, bubbles: true, composed: true }));
+    return { typed: request.id, guest: true, key, value: "value" in target ? target.value : target.textContent };
+  }
+  const text = String(request.text ?? "");
+  if ("value" in target) target.value = text; else target.textContent = text;
+  target.dispatchEvent(new guest.InputEvent("input", { data: text, inputType: "insertText", bubbles: true, composed: true }));
+  target.dispatchEvent(new guest.Event("change", { bubbles: true, composed: true }));
+  return { typed: request.id, guest: true, value: "value" in target ? target.value : target.textContent };
+}

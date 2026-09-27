@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace } from "./navigation.js";
+import { guestOutline, guestTap, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace } from "./navigation.js";
 let httpModule;
 function httpHelpers() {
   return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
@@ -39,8 +39,26 @@ function afterNativePaint() {
     requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(done, 250)));
   });
 }
-let nativeHost = null; function nativeCreate(el, id) { const st = el.exactNative = { id, name: el.localName, state: "loading", status() { return { name: this.name, state: this.state, ...(this.error ? { error: this.error } : {}) }; }, destroy() { this.destroyed = true; nativeHost?.then(h => h.destroy(el)); } };
-  (nativeHost ??= afterNativePaint().then(() => loadAfterPaint('./native-glue.js', 'nativeHost')).then(make => make({ log, dispatch(el, kind, text) { const id = Number(el.dataset.view); if (inputReady && views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, kind, text == null ? 0 : writeIn(text), now())); } }))).then(h => h.attach(el), e => { nativeHost = null; st.state = "unavailable"; st.error = String(e?.message ?? e); log(`native ${st.name} #${id}: unavailable: ${st.error}`); }); }
+let nativeHost = null;
+function nativeCreate(el, id) {
+  const st = el.exactNative = {
+    id, name: el.localName, state: "loading",
+    status() { return { name: this.name, state: this.state, ...(this.error ? { error: this.error } : {}) }; },
+    destroy() { this.destroyed = true; nativeHost?.then(h => h.destroy(el)); },
+  };
+  (nativeHost ??= afterNativePaint()
+    .then(() => loadAfterPaint('./native-glue.js', 'nativeHost'))
+    .then(make => make({ log, dispatch(el, kind, text) {
+      const id = Number(el.dataset.view);
+      if (inputReady && views.get(id) === el && !retiredViews.has(el))
+        send(wasm.exact_dispatch(id, kind, text == null ? 0 : writeIn(text), now()));
+    } }))).then(h => h.attach(el), e => {
+      nativeHost = null;
+      st.state = "unavailable";
+      st.error = String(e?.message ?? e);
+      log(`native ${st.name} #${id}: unavailable: ${st.error}`);
+    });
+}
 const authoredDisabled = new WeakMap();
 let logicInfo = null, moduleLoader = null, activeModule = null, moduleResponse = new Uint8Array();
 const pageNative = Boolean(document.querySelector('meta[name="exact-native"]'));
@@ -56,9 +74,13 @@ const rustImports = Object.fromEntries(['load', 'call', 'read', 'drop'].map(name
   return rustLoader[name](...args);
 }]));
 function loadAfterPaint(file, exported) {
-  return new Promise((resolve,reject)=>{
-    const script=document.createElement('script');script.type='module';script.src=new URL(file,import.meta.url).href;
-    script.onload=()=>resolve(globalThis.exact[exported]);script.onerror=()=>reject(new Error('host module loader failed: '+file));document.head.append(script);
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.type = 'module';
+    script.src = new URL(file, import.meta.url).href;
+    script.onload = () => resolve(globalThis.exact[exported]);
+    script.onerror = () => reject(new Error('host module loader failed: ' + file));
+    document.head.append(script);
   });
 }
 async function loadRust() {
@@ -320,7 +342,17 @@ visualViewport?.addEventListener("resize", () => requestAnimationFrame(positionC
 const symbolStyle = document.createElement("style"); document.head.append(symbolStyle);
 symbolStyle.textContent = '@property --exact-tint{syntax:"<color>";inherits:false;initial-value:#000}img[data-symbol-path]{background-color:var(--exact-tint)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,100% 100%);mask-origin:content-box;mask-clip:content-box}';
 // A tinted raster's `scale-down` (element.rs `host_css`, LLP 1011 §3): `contain` unless its natural size fits the content box, known once it loads.
-function tintFit(el) { if (!el.style.getPropertyValue("mask-size").includes("--exact-tint-fit")) return; if (!el.complete) { el.addEventListener("load", () => tintFit(el), { once: true }); return; } const cs = getComputedStyle(el); el.style.setProperty("--exact-tint-fit", el.naturalWidth <= el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) && el.naturalHeight <= el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) ? "auto" : "contain"); }
+function tintFit(el) {
+  if (!el.style.getPropertyValue("mask-size").includes("--exact-tint-fit")) return;
+  if (!el.complete) {
+    el.addEventListener("load", () => tintFit(el), { once: true });
+    return;
+  }
+  const cs = getComputedStyle(el);
+  const fits = el.naturalWidth <= el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
+    && el.naturalHeight <= el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+  el.style.setProperty("--exact-tint-fit", fits ? "auto" : "contain");
+}
 function refreshSymbols() {
   for (const el of views.values()) {
     if (!(el instanceof HTMLImageElement)) continue; if (!el.hasAttribute("data-symbol-path")) { tintFit(el); continue; }
@@ -998,37 +1030,13 @@ function nodeDetail(id, plan = false) {
   node.observed = { clock: now(), wall: Date.now() };
   return node;
 }
-// A same-origin guest joins `tree` as a compact, bounded outline. Access to
-// a sandboxed or cross-origin document is simply absent (@ref LLP 1020 D4).
-function guestOutline(frame) {
-  let doc;
-  try { doc = frame.contentDocument; } catch { return null; }
-  if (!doc) return null;
-  const outline = [];
-  const visit = (el, depth) => {
-    if (depth > 4 || outline.length >= 32) return;
-    const id = el.id || undefined;
-    const testId = el.getAttribute("data-testid") ?? el.getAttribute("testId") ?? undefined;
-    const text = [...el.childNodes]
-      .filter((n) => n.nodeType === Node.TEXT_NODE)
-      .map((n) => n.textContent.trim())
-      .filter(Boolean)
-      .join(" ")
-      .replace(/\s+/g, " ")
-      .slice(0, 160) || undefined;
-    if (id || testId || text) {
-      outline.push({ guest: true, depth, tag: el.localName, ...(id ? { id } : {}), ...(testId ? { testId } : {}), ...(text ? { text } : {}) });
-    }
-    for (const child of el.children) visit(child, depth + 1);
-  };
-  for (const child of doc.body?.children ?? []) visit(child, 0);
-  return outline;
-}
 function tree(request) {
   const reply = ask(request);
   for (const node of reply.nodes ?? []) {
     const el = views.get(node.id);
-    node.focused = el === document.activeElement; if (el?.matches("button, a, [role=button]")) node.accessibleName = el.getAttribute("aria-label") ?? el.textContent.trim(); if (el?.exactNative) node.module = el.exactNative.status();
+    node.focused = el === document.activeElement;
+    if (el?.matches("button, a, [role=button]")) node.accessibleName = el.getAttribute("aria-label") ?? el.textContent.trim();
+    if (el?.exactNative) node.module = el.exactNative.status();
     if (!(el instanceof HTMLIFrameElement)) continue;
     node.url = el.getAttribute("src") ?? "";
     node.loading = iframeLoading.get(el) !== false;
@@ -1036,60 +1044,6 @@ function tree(request) {
     if (guest !== null) node.guest = guest;
   }
   return reply;
-}
-function guestDocument(frame) {
-  try {
-    const document = frame.contentDocument;
-    return document ? { document } : { error: "guest is cross-origin" };
-  } catch {
-    return { error: "guest is cross-origin" };
-  }
-}
-function guestTap(frame, request) {
-  const access = guestDocument(frame);
-  if (access.error) return { guest: true, error: access.error };
-  const { document } = access;
-  const guest = document.defaultView;
-  const x = Number.isFinite(request.x) ? request.x : guest.innerWidth / 2;
-  const y = Number.isFinite(request.y) ? request.y : guest.innerHeight / 2;
-  let target;
-  try { target = request.selector ? document.querySelector(request.selector) : null; }
-  catch { return { guest: true, error: "guest tap has an invalid selector" }; }
-  target ||= document.elementFromPoint(x, y) || document.body;
-  if (!target) return { guest: true, error: "guest tap found no target" };
-  // Script input is intentionally untrusted (@ref LLP 1020 D4;
-  // exact1 20260806-webview-frame-guest-click-delivery).
-  target.dispatchEvent(new guest.PointerEvent("pointerdown", { bubbles: true, composed: true, clientX: x, clientY: y, button: 0, buttons: 1 }));
-  target.dispatchEvent(new guest.PointerEvent("pointerup", { bubbles: true, composed: true, clientX: x, clientY: y, button: 0, buttons: 0 }));
-  target.dispatchEvent(new guest.MouseEvent("click", { bubbles: true, composed: true, clientX: x, clientY: y, button: 0 }));
-  return { tapped: request.id, guest: true };
-}
-function guestType(frame, request) {
-  const access = guestDocument(frame);
-  if (access.error) return { guest: true, error: access.error };
-  const { document } = access;
-  const guest = document.defaultView;
-  const active = document.activeElement;
-  const editable = active?.matches?.("input,textarea,[contenteditable]") ? active : null;
-  let target;
-  try { target = request.selector ? document.querySelector(request.selector) : null; }
-  catch { return { guest: true, error: "guest type has an invalid selector" }; }
-  target ||= editable || document.querySelector("input,textarea,[contenteditable]");
-  if (!target) return { guest: true, error: "guest type found no target" };
-  // These are the Apple guest script's event shapes, including focus and
-  // isTrusted:false (@ref LLP 1020 D4).
-  target.focus();
-  if (request.key != null) {
-    const key = String(request.key);
-    target.dispatchEvent(new guest.KeyboardEvent("keydown", { key, bubbles: true, composed: true }));
-    target.dispatchEvent(new guest.KeyboardEvent("keyup", { key, bubbles: true, composed: true }));
-    return { typed: request.id, guest: true, key, value: "value" in target ? target.value : target.textContent };
-  }
-  const text = String(request.text ?? "");
-  if ("value" in target) target.value = text; else target.textContent = text;
-  target.dispatchEvent(new guest.InputEvent("input", { data: text, inputType: "insertText", bubbles: true, composed: true }));
-  target.dispatchEvent(new guest.Event("change", { bubbles: true, composed: true }));
-  return { typed: request.id, guest: true, value: "value" in target ? target.value : target.textContent };
 }
 const SETTLE_DEADLINE_MS = 20_000;
 async function waitForInflight(deadline) {
