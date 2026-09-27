@@ -15,6 +15,25 @@ import CExact
 import Foundation
 import QuartzCore
 
+/// Supplied once per session launch and reused by every replacement runner.
+struct LaunchPlace: Equatable {
+    let locale: String
+    let timeZone: String
+    let seed: UInt64
+
+    init(environment: [String: String] = ExactEnv.environment) {
+        if environment["EXACT_AGENT"] == "1" {
+            locale = environment["EXACT_AGENT_LOCALE"] ?? "en-US"
+            timeZone = environment["EXACT_AGENT_TIME_ZONE"] ?? "UTC"
+            seed = UInt64(environment["EXACT_AGENT_SEED"] ?? "0") ?? 0
+        } else {
+            locale = Locale.preferredLanguages.first ?? Locale.current.identifier(.bcp47)
+            timeZone = TimeZone.current.identifier
+            seed = UInt64.random(in: 0..<(1 << 53))
+        }
+    }
+}
+
 /// The process facts every session reads: the agent drives the app
 /// (LLP 1012 — the driver owns the clock), a smoke run prints and exits.
 public enum ExactEnv {
@@ -811,15 +830,12 @@ public final class ExactSession {
     }
 
     /// Drawn once per launch; the same across a dev reload's new runner.
-    private let launchSeed = UInt64.random(in: 0..<(1 << 53))
+    let launchPlace = LaunchPlace()
     /// @ref LLP 1027.000.000 — the date, against the clock `now()` reads.
     func tellTime() {
         let offset = Double(TimeZone.current.secondsFromGMT()) / 60
         apply(runtime.setTime(epochAtZero: Date().timeIntervalSince1970 * 1000 - now(), utcOffset: offset))
-        // The first preferred language, as the device formats dates and numbers.
-        let locale = Locale.preferredLanguages.first ?? Locale.current.identifier(.bcp47)
-        // The launch's seed: explicit entropy for ids, from the system's secure source.
-        apply(runtime.setPlace(locale: locale, timeZone: TimeZone.current.identifier, seed: launchSeed))
+        apply(runtime.setPlace(locale: launchPlace.locale, timeZone: launchPlace.timeZone, seed: launchPlace.seed))
         tellPreferences()
     }
     /// @ref LLP 1061 D5 — told after every boot, as the date is, and on each

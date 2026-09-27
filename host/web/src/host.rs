@@ -740,22 +740,17 @@ impl<D: DataSource> Host<D> {
 
     /// The viewer's locale and zone, beside the date.
     pub fn set_place(&mut self, locale: &str, time_zone: &str, seed: Option<f64>) -> String {
-        let mut receipts = Vec::new();
-        let mut error = None;
-        let place = self.runner.set_place(locale, time_zone);
-        let seeded = seed
-            .map(|seed| self.runner.set_seed(seed))
-            .unwrap_or(Ok(None));
-        for result in [place, seeded] {
-            match result {
-                Ok(Some(receipt)) => receipts.push(Timed {
+        let (receipts, error) = match self.runner.set_place(locale, time_zone, seed) {
+            Ok(Some(receipt)) => (
+                vec![Timed {
                     at_ms: self.now_ms,
                     receipt,
-                }),
-                Ok(None) => {}
-                Err(e) => error = Some(format!("place: {e:?}")),
-            }
-        }
+                }],
+                None,
+            ),
+            Ok(None) => (vec![], None),
+            Err(e) => (vec![], Some(format!("place: {e:?}"))),
+        };
         self.batch_for(&receipts, error.as_deref())
     }
 

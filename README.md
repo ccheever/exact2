@@ -200,6 +200,22 @@ the same URL with `bun scripts/agent.mjs macos --url http://127.0.0.1:8765/ tree
 The Go/custom-client sequence
 is in [LLP 1030.000 §7](llp/1030.000-dev-server-as-deployer.rfc.md#7-exact2-go-and-custom-development-clients--implementation-direction).
 
+Agent sessions use `exactTime()` launch facts `seed: 0`, `locale: "en-US"`,
+`timeZone: "UTC"` on every host. Override them at session setup with
+`bun scripts/agent.mjs web --seed 42 --locale fr-CA --time-zone America/Toronto tree`
+or `open({host, seed: 42, locale: "fr-CA", timeZone: "America/Toronto"})`.
+Seeds are integers from 0 through 2^53 − 1. Native carriers pass
+`EXACT_AGENT_SEED`, `EXACT_AGENT_LOCALE`, and `EXACT_AGENT_TIME_ZONE`; direct
+agent launches can set these too. Web agent pages accept `?agent=1&seed=42&locale=fr-CA&timeZone=America/Toronto`.
+The driver supplies its own defaults unless an option (or `open({env: ...})`)
+overrides them. These settings cover place and entropy; the existing wall-date
+report and elapsed `clock` are separate. Before the first host report, the runner
+also supplies usable `en-US`/`UTC` and seed 0. Ordinary launches draw their seed
+from secure platform entropy. A development reload retains that launch's seed.
+Linux takes its locale from the first nonempty `LC_ALL`, `LC_MESSAGES`, or `LANG`,
+normalizes POSIX names to BCP 47 (`C`/`POSIX` use `en-US`), and reads the zone from
+`TZ` when it names a zoneinfo entry, otherwise the system's IANA zone (UTC fallback).
+
 ## Generate TypeScript data-source types
 
 The compiler can derive the logic interface from a Contract's source signatures:

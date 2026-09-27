@@ -780,6 +780,34 @@ try {
 // A paired module client cannot boot unrelated bare plans. --app-only keeps
 // the complete app drive and its Contract tests, excluding host-only fixtures.
 if (!argv.includes('--app-only')) {
+// Launch facts reach a real runner on every carrier, including Linux's t() table.
+{
+  const tmp = mkdtempSync(resolve(tmpdir(), 'exact-place-'));
+  const source = resolve(tmp, 'app.contract'), plan = resolve(tmp, 'app.plan');
+  mkdirSync(resolve(tmp, 'strings'));
+  writeFileSync(resolve(tmp, 'strings/en.json'), '{"greeting":"Hello"}');
+  writeFileSync(resolve(tmp, 'strings/fr.json'), '{"greeting":"Bonjour"}');
+  writeFileSync(source, 'shape Time\n  locale: string\n  timeZone: string\n  seed: number\ncomponent App\n  resource time = exactTime() as shape Time\n  view\n    column\n      text `${time.locale}|${time.timeZone}|${time.seed}` testId="place"\n      text t("greeting") testId="greeting"\n');
+  const compiled = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', source, '-o', plan], {cwd:ROOT, encoding:'utf8'});
+  check(compiled.status === 0, 'launch facts fixture compiles: ' + compiled.stderr);
+  if (compiled.status === 0) for (const options of [{}, {}, {seed:42, locale:'fr-CA', timeZone:'America/Toronto'}]) {
+    const f = await open({host, plan, ...options});
+    try {
+      const expected = options.locale ? 'fr-CA|America/Toronto|42' : 'en-US|UTC|0';
+      const tree = await f.tree();
+      check(byTestId(tree, 'place')?.props.text === expected, `launch facts: expected ${expected}, got ${byTestId(tree, 'place')?.props.text}`);
+      check(byTestId(tree, 'greeting')?.props.text === (options.locale ? 'Bonjour' : 'Hello'), 'launch locale selects the translation table');
+      if (host === 'web') {
+        await f.carrier.evaluate('fetch("/__plan").then(r => r.arrayBuffer()).then(b => exact.reload(new Uint8Array(b)))');
+        check(byTestId(await f.tree(), 'place')?.props.text === expected, 'web reload retains launch facts');
+      }
+    } catch (error) { check(false, `launch facts fixture: ${error.message}`); }
+    finally { await f.close(); }
+  }
+  rmSync(tmp, {recursive:true, force:true});
+  console.log(`${host} launch facts: defaults, repeated drive, overrides, translation${host === 'web' ? ', reload' : ''}`);
+}
+
 const tmp = mkdtempSync(resolve(tmpdir(), 'exact-smoke-'));
 const plan = resolve(tmp, 'scroll.plan');
 const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/scroll.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });

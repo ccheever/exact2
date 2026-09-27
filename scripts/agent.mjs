@@ -12,6 +12,7 @@
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
 // only); `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
+import { parseFlags, launchFacts, launchEnvironment } from './agent-launch.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
@@ -201,10 +202,13 @@ export async function assertWebDistApp(dist, app) {
   if (!await builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, ".exact-build.json")}; run EXACT_APP_DIR=${shellQuote(app.dir)} EXACT_WEB_DIST=${shellQuote(resolve(dist))} bun host/web/build.mjs ${app.crate('web')}`);
 }
 
-async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webDist, onProcess, reuse, storage }) {
+async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webDist, onProcess, reuse, storage, facts }) {
   if (reuse) {
-    try { await reuse.reset(); return reuse; }
-    catch (error) { await reuse.close(); throw error; }
+    if (JSON.stringify(reuse.launchFacts) === JSON.stringify(facts)) {
+      try { await reuse.reset(); return reuse; }
+      catch (error) { await reuse.close(); throw error; }
+    }
+    await reuse.close();
   }
   const selected = resolveApp(app);
   const dist = resolve(webDist ?? defaultWebDist());
@@ -294,6 +298,7 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
     // named — the dev server, so a drive can watch an edit arrive.
     const page = pageURL ? new URL(pageURL) : new URL(`http://127.0.0.1:${port}/`);
     page.searchParams.set('agent', '1');
+    for (const [key, value] of Object.entries(facts)) page.searchParams.set(key, value);
     if (storage !== undefined) page.searchParams.set('storage', storage);
     await call('Page.navigate', { url: page.href });
     // The first frame: the glue stamps the root when it is in the DOM. A fresh profile's first launch can be slow.
@@ -317,7 +322,7 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
     let contact = null, emulated = {};
     const ask = async (req) => JSON.parse(await evaluate(`exact.agentSettled(${JSON.stringify(req)}).then((r) => JSON.stringify(r))`));
     return {
-      host: 'web', boot: Number(boot), hostLines, evaluate,
+      host: 'web', boot: Number(boot), hostLines, evaluate, launchFacts: facts,
       async gpuMs() {
         const ms = await evaluate("document.getElementById('exact-root')?.dataset.gpuMs ?? null");
         return ms == null ? null : Number(ms);
@@ -915,7 +920,9 @@ export async function tapRefusal(session, target, error) {
 /** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `url` opens
  * the same app address on each host; `plan` boots a local compiled contract;
  * `env` adds to a native host's environment. @ref LLP 1030.000 §7 */
-export async function open({onProcess,  host = 'web', plan, world, size, env, app, session, url, webDist, reuse, device = false, phone: pick, timing = 'agent', storage } = {}) {
+export async function open({onProcess,  host = 'web', plan, world, size, env, app, session, url, webDist, reuse, device = false, phone: pick, timing = 'agent', storage, seed, locale, timeZone } = {}) {
+  const facts = launchFacts({seed, locale, timeZone, env});
+  env = {...env, ...launchEnvironment(facts)};
   if (world && !['web','mac','macos','ios','linux'].includes(host)) throw new Error(`world restore unavailable on this host yet: ${host}`);
   if (world && statSync(world).size > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit; inspect `state world:*` and reduce saved entities before `screenshot checkpoint.world world save`');
   if (world && host !== 'web' && !device) env = {...env, EXACT_WORLD:resolve(world)};
@@ -937,7 +944,7 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
       env = developmentLaunchEnvironment(['--run', '--url', url], env ?? {});
     } else env = { ...(env ?? {}), EXACT_LAUNCH_URL: url };
   }
-  const carrier = device ? await openStdio({ host: 'ios', plan, world, size, env, app, device, phone: pick, onProcess }) : host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, size, env, app, onProcess }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session, onProcess }) : host === 'host-ios' ? await openIOS({ plan, app, env, session, hostFixture: true, onProcess }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app, onProcess }) : host === 'ios' ? await openIOS({ plan, env, app, size, onProcess }) : await openWeb({ plan, world, size, url, app, webDist, onProcess, reuse, storage });
+  const carrier = device ? await openStdio({ host: 'ios', plan, world, size, env, app, device, phone: pick, onProcess }) : host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, size, env, app, onProcess }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session, onProcess }) : host === 'host-ios' ? await openIOS({ plan, app, env, session, hostFixture: true, onProcess }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app, onProcess }) : host === 'ios' ? await openIOS({ plan, env, app, size, onProcess }) : await openWeb({ plan, world, size, url, app, webDist, onProcess, reuse, storage, facts });
   const mapLocator = plan ?? (url && /^https?:\/\//i.test(url) ? url : env?.EXACT_DEV_PLAN ?? process.env.EXACT_DEV_PLAN)
     ?? (carrier.host === 'web' ? resolve(webDist ?? resolve(ROOT, 'host/web/dist'), 'app.plan') : null);
   const sourceMaps = sourceMapReader(mapLocator);
@@ -1357,7 +1364,7 @@ function renderNode(n) {
  * operations use. One session per file; a failed expect names the test, the
  * line, and what was seen. Returns `{ passed, failed, results }`.
  */
-export async function runTests({ host, file, plan, app, size, env, webDist, device = false, phone, url } = {}) {
+export async function runTests({ host, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone } = {}) {
   const root = resolve(new URL('..', import.meta.url).pathname);
   // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
   const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'test', resolve(file)], { cwd: root, encoding: 'utf8' });
@@ -1367,7 +1374,7 @@ export async function runTests({ host, file, plan, app, size, env, webDist, devi
   // Every test starts from the first frame: a session of its own.
   for (const t of tests) {
     const failures = [];
-    const s = await open({ host, plan, size, env, app, webDist, device, phone, url });
+    const s = await open({ host, plan, size, env, app, webDist, device, phone, url, seed, locale, timeZone });
     try {
       for (const st of t.steps) {
         const at = `${t.name}: line ${st.line}`;
@@ -1417,26 +1424,10 @@ export async function runTests({ host, file, plan, app, size, env, webDist, devi
 }
 
 async function main(argv) {
-  const flags = { json: false };
-  const rest = [];
-  for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === '--json') flags.json = true;
-    else if (argv[i] === '--world') flags.world = resolve(argv[++i]);
-    else if (argv[i] === '--plan') flags.plan = resolve(argv[++i]);
-    else if (argv[i] === '--app') flags.app = argv[++i];
-    else if (argv[i] === '--size') flags.size = argv[++i].split('x').map(Number);
-    else if (argv[i] === '--test') flags.test = argv[++i];
-    else if (argv[i] === '--session') flags.session = argv[++i];
-    else if (argv[i] === '--url') flags.url = argv[++i];
-    else if (argv[i] === '--device') flags.device = true;
-    else if (argv[i] === '--timing') flags.timing = argv[++i];
-    else if (argv[i] === '--phone') flags.phone = argv[++i];
-    else if (argv[i] === '--storage') flags.storage = argv[++i];
-    else rest.push(argv[i]);
-  }
+  const { flags, rest } = parseFlags(argv);
   const [host, ...ops] = rest;
   if (host && flags.test) {
-    const r = await runTests({ host, file: flags.test, plan: flags.plan, app: flags.app, size: flags.size, device: flags.device, phone: flags.phone, url: flags.url });
+    const r = await runTests({ host, file: flags.test, plan: flags.plan, app: flags.app, size: flags.size, device: flags.device, phone: flags.phone, url: flags.url, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone });
     for (const t of r.results) {
       console.log(`test "${t.name}": ${t.failures.length ? 'FAIL' : 'ok'}`);
       for (const f of t.failures) console.error('  ' + f);
@@ -1445,10 +1436,10 @@ async function main(argv) {
     return r.failed ? 1 : 0;
   }
   if (!host || !ops.length) {
-    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--storage <name>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name> [for <ms>] | clock <ms|+ms|settle> | prefer <media feature> <value> […]\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name> [for <ms>] | clock <ms|+ms|settle> | prefer <media feature> <value> […]\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
-  const s = await open({ host, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, storage: flags.storage });
+  const s = await open({ host, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone });
   let at = 0;
   try {
     for (const [k, line] of ops.entries()) {

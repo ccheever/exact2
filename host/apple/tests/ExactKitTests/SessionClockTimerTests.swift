@@ -24,6 +24,26 @@ private final class ClockTicks: @unchecked Sendable {
 }
 
 final class SessionClockTimerTests: XCTestCase {
+    func testAgentLaunchPlaceDefaultsAndOverrides() {
+        let defaults = LaunchPlace(environment: ["EXACT_AGENT": "1"])
+        XCTAssertEqual(defaults.locale, "en-US")
+        XCTAssertEqual(defaults.timeZone, "UTC")
+        XCTAssertEqual(defaults.seed, 0)
+        let custom = LaunchPlace(environment: ["EXACT_AGENT": "1",
+            "EXACT_AGENT_LOCALE": "fr-CA", "EXACT_AGENT_TIME_ZONE": "America/Toronto",
+            "EXACT_AGENT_SEED": "9007199254740991"])
+        XCTAssertEqual(custom.locale, "fr-CA")
+        XCTAssertEqual(custom.timeZone, "America/Toronto")
+        XCTAssertEqual(custom.seed, (1 << 53) - 1)
+        let session = ExactApp.shared.makeSession()
+        defer { session.destroy() }
+        let launch = session.launchPlace
+        XCTAssertNil(session.boot(size: CGSize(width: 390, height: 844)).error)
+        session.tellTime()
+        session.tellTime()
+        XCTAssertEqual(session.launchPlace, launch)
+    }
+
     func testTargetedLayoutDigestStaysWithEachSessionsNode() throws {
         #if os(macOS)
         let a = ExactApp.shared.makeSession(), b = ExactApp.shared.makeSession()

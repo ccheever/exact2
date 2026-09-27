@@ -44,29 +44,34 @@ impl<D: DataSource> Runner<D> {
         result
     }
 
+    /// What the host last said about the viewer and this launch.
+    pub fn place(&self) -> &Place {
+        &self.place
+    }
+
     /// Re-answer every `exactTime` resource with the viewer's locale and
     /// zone, and write the table that locale resolves to into the plan's
     /// locale slot, in one commit; the same fact again commits nothing.
+    /// The launch seed arrives with them; `None` keeps the current seed.
     pub fn set_place(
         &mut self,
         locale: &str,
         time_zone: &str,
+        seed: Option<f64>,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
         let place = Place {
             locale: locale.into(),
             time_zone: time_zone.into(),
-            seed: self.place.seed,
+            seed: seed.unwrap_or(self.place.seed),
         };
         if let Err(error) = place.validate() {
             self.log(format!("place refused: {error:?}"));
             return Err(error);
         }
-        if place == self.place {
-            return Ok(None);
-        }
+        let changed = place != self.place;
         let previous = std::mem::replace(&mut self.place, place);
         let which: Vec<usize> = (0..self.plan.resources.len())
-            .filter(|i| self.plan.str(self.plan.resources[*i].source) == SOURCE)
+            .filter(|i| changed && self.plan.str(self.plan.resources[*i].source) == SOURCE)
             .collect();
         // @ref LLP 1060 D4 — an ordinary slot write, so dependency tracking
         // re-renders exactly the `t(...)` readers. The checkpoint the commit
@@ -141,33 +146,6 @@ impl<D: DataSource> Runner<D> {
             .filter(|i| self.watching[*i].iter().any(|t| t == topic))
             .collect();
         self.recommit(which, "changed")
-    }
-
-    /// The launch's seed ([`Place::seed`]), from the host's secure random
-    /// source once per launch: every `exactTime` resource re-answers. The
-    /// runner draws none itself, so a test or the agent supplies its own.
-    pub fn set_seed(&mut self, seed: f64) -> Result<Option<CommitReceipt>, RunnerError> {
-        if !(seed.is_finite()
-            && seed >= 0.0
-            && seed.fract() == 0.0
-            && seed < 9_007_199_254_740_992.0)
-        {
-            self.log("seed refused: InvalidPlace".to_string());
-            return Err(RunnerError::InvalidPlace);
-        }
-        if seed == self.place.seed {
-            return Ok(None);
-        }
-        let previous = self.place.seed;
-        self.place.seed = seed;
-        let which = (0..self.plan.resources.len())
-            .filter(|i| self.plan.str(self.plan.resources[*i].source) == SOURCE)
-            .collect();
-        let result = self.recommit(which, "seed");
-        if result.is_err() {
-            self.place.seed = previous;
-        }
-        result
     }
 
     pub(super) fn time_answer(&self, i: usize) -> Result<Value, DataError> {

@@ -46,6 +46,8 @@ cosmic-text = { version = "0.19", features = ["peniko"] }
 # Scratch reservation is audited against this decoder's row-buffer growth.
 png = "=0.18.1"
 libc = "0.2"
+getrandom = "0.3"
+iana-time-zone = "0.1"
 # The GPU painter: vello over wgpu, rendering the same display list into a
 # texture the host reads back. vello 0.10 pins wgpu 29; the on-demand GPU
 # module (`gpu/`) is on 30 — two builds of wgpu until vello moves, never one

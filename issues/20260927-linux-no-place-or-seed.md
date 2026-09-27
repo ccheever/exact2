@@ -1,6 +1,6 @@
 # The Linux host never reports locale, time zone or launch seed, so `t()` stays on the base table and the documented `Intl` idiom throws
 
-**Status:** Open
+**Status:** Fixed: Linux reports normalized locale, IANA zone and a secure launch seed and retains them on reload; usable runner defaults and one place-plus-seed commit are verified by Contract/Linux regressions and Linux smoke (broader host-suite failures noted below).
 **Systems:** Linux host (`host/linux/src/app.rs`), runner time facts (`runner/src/runner/time.rs`, `runner/src/time.rs`)
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -21,3 +21,34 @@
 - Set both facts in one runner call so launch commits once, not twice (the web and Apple currently commit twice, `host/web/src/host.rs:742-759`).
 
 Found in the 2026-09-27 review of Seth's PR #47 (`seth/grnl-port-and-motion`, merge 240b418f), reviewed at `c74615a3`. Reviewers: Opus 5.5 max, Grok 4.7 xhigh, Astra max (design). Verification: confirmed by reading; `set_place`/`set_seed` have no caller on Linux.
+
+Implementation and verification (2026-09-27, Astra):
+
+- `host/linux/src/zone.rs` reads `LC_ALL`/`LC_MESSAGES`/`LANG`, normalizes
+  POSIX locales, resolves `TZ`/the system IANA zone, and uses `getrandom`.
+  `app.rs` reports place and seed together; the presenter restores its launch
+  facts to replacement runners. Agent mode uses the drive's explicit facts.
+- `runner/src/time.rs` defaults to `en-US`/`UTC`; `Runner::set_place` takes
+  the optional seed, validates the whole fact and commits once. Web and Apple
+  use that call. The obsolete separate seed setter is removed.
+- Reproduced empty defaults in `contract/cli/tests/it/time.rs` (2 failures
+  before the fix); its 3 tests now pass, including atomic commit and refusal.
+  Added a regional-table regression in `strings.rs` for an unchanged default
+  place; it failed before the equality fix and now passes.
+- Linux zone tests: `3 passed; 0 failed`. Reload regression:
+  `1 passed; 0 failed`. `linux smoke: ok in 94.1 s`, including fixed defaults,
+  repeated drives, override facts and the translated `t()` table.
+- Root build, test, Clippy and fmt pass: `1715 passed; 0 failed; 8 ignored`
+  across 71 test binaries. Host Clippy also passes. Caps and boot checked
+  with the final staged change.
+- Web launch-facts assertions pass, but the full web smoke reports Chrome
+  keychain/encryption and paint-metrics diagnostics. macOS XCTest ran twice:
+  `Executed 443 tests, with 1 failure`; the unchanged raster test
+  `RasterLoaderTests.testTwentyGroupsOfDistinctReplacementsBoundSourceMaps`
+  fails at line 157 (`seen.count` 1, expected 240). These are outside these
+  tickets; no design ruling remains for the launch-facts fixes.
+- Final web rerun: `web smoke: 1 failure(s) in 43.1 s`; all functional
+  assertions, including launch facts, pass. Only Chrome's macOS keychain
+  (`errSecInteractionNotAllowed`) and unavailable password encryption remain.
+  Stopped after the third web attempt (first: missing offline dependency;
+  fetched the locked dependency, then two completed functional sweeps).

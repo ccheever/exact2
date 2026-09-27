@@ -494,3 +494,27 @@ let preferenceQueries;
 const queries = () => (preferenceQueries ??= ["(prefers-reduced-motion: reduce)", "(prefers-reduced-transparency: reduce)"].map((q) => matchMedia(q)));
 export const preferences = () => queries().reduce((bits, q, i) => bits | (q.matches ? 1 << i : 0), 0);
 export const onPreferences = (changed) => queries().forEach((q) => q.addEventListener("change", changed));
+
+// The page launch owns its seed; a new runner during development reuses it.
+// Agent facts are supplied by the drive, never by the browser's environment.
+export function placeReporter(params, platform = globalThis) {
+  let seed;
+  return () => {
+    if (params.has('agent')) {
+      const value = Number(params.get('seed') ?? 0);
+      if (!Number.isSafeInteger(value) || value < 0) throw new Error('seed: an integer from 0 through 2^53 - 1');
+      return [params.get('locale') ?? 'en-US', params.get('timeZone') ?? 'UTC', value].join('\0');
+    }
+    if (seed === undefined) {
+      const words = platform.crypto.getRandomValues(new Uint32Array(2));
+      seed = (words[0] & 0x1fffff) * 4294967296 + words[1];
+    }
+    return [platform.navigator.language, platform.Intl.DateTimeFormat().resolvedOptions().timeZone, seed].join('\0');
+  };
+}
+
+let pagePlace;
+export function reportPlace() {
+  pagePlace ??= placeReporter(new URL(location.href).searchParams);
+  return pagePlace();
+}

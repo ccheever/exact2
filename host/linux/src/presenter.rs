@@ -479,7 +479,7 @@ impl<D: DataSource> Presenter<D> {
             validation
                 .activate_for_validation()
                 .map_err(|e| HostError::Asset(format!("candidate module: {e:?}")))?;
-            let (host, error) = Host::boot_with(
+            let (mut host, error) = Host::boot_with(
                 plan,
                 validation,
                 Box::new(Measurer(text.clone())),
@@ -491,6 +491,7 @@ impl<D: DataSource> Presenter<D> {
             if let Some(error) = error {
                 return Err(HostError::Layout(error));
             }
+            self.restore_time(&mut host)?;
             let mut validated = host.carry();
             validated.store = carried.store.clone();
             *carried = validated;
@@ -579,7 +580,7 @@ impl<D: DataSource> Presenter<D> {
             &mut carried,
             &delivery,
         )?;
-        let (host, error) = Host::boot_with(
+        let (mut host, error) = Host::boot_with(
             &candidate.plan,
             data,
             Box::new(Measurer(text.clone())),
@@ -591,6 +592,7 @@ impl<D: DataSource> Presenter<D> {
         if let Some(error) = error {
             return Err(HostError::Layout(error));
         }
+        self.restore_time(&mut host)?;
         let mut images = self.images.candidate(assets.clone());
         if !images.prepare_metadata(host.kernel(), &host.preorder(), Duration::from_secs(1)) {
             return Err(HostError::Layout(
@@ -739,7 +741,7 @@ impl<D: DataSource> Presenter<D> {
             &mut carried,
             self.host.runner().delivery(),
         )?;
-        let (host, error) = Host::boot_with(
+        let (mut host, error) = Host::boot_with(
             plan,
             data,
             Box::new(Measurer(candidate_text.clone())),
@@ -751,6 +753,7 @@ impl<D: DataSource> Presenter<D> {
         if let Some(error) = error {
             return Err(HostError::Layout(error));
         }
+        self.restore_time(&mut host)?;
         self.host = host;
         if self.display.new_session() {
             self.painted = false;

@@ -277,6 +277,7 @@ pub fn boot_presenter<D: DataSource + Default>(
         }
         delivery
     };
+    let place = crate::zone::launch_place(|key| std::env::var(key).ok())?;
     let dev_url = config.dev_url.clone();
     let dev_identity = config.dev_identity.clone();
     let delivered = |mut booted: (Presenter<D>, Option<String>),
@@ -284,6 +285,9 @@ pub fn boot_presenter<D: DataSource + Default>(
         // The accepted runner already has the complete facts. Attaching the
         // adapter must never reintroduce intermediate embedded answers.
         booted.0.set_updates(updates);
+        if let Some(e) = booted.0.set_place(&place) {
+            eprintln!("exact: {e}");
+        }
         // @ref LLP 1027.000.000 — the date, at the clock's zero (now: boot).
         let epoch = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

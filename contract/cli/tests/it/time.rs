@@ -61,11 +61,17 @@ fn the_locale_and_zone_arrive_beside_the_date_and_bad_ones_are_refused() {
         "/",
     )
     .unwrap();
-    // Unknown until the host says, as the date is.
-    assert_eq!(text(&r), "||0");
-    assert!(r.set_place("en-GB", "Europe/London").unwrap().is_some());
+    // Usable by Intl even before the host reports its place.
+    assert_eq!(text(&r), "en-US|UTC|0");
+    assert!(r
+        .set_place("en-GB", "Europe/London", None)
+        .unwrap()
+        .is_some());
     assert_eq!(text(&r), "en-GB|Europe/London|0");
-    assert!(r.set_place("en-GB", "Europe/London").unwrap().is_none());
+    assert!(r
+        .set_place("en-GB", "Europe/London", None)
+        .unwrap()
+        .is_none());
     assert!(r.set_time(1_790_000_000_000.0, 60.0).unwrap().is_some());
     assert_eq!(text(&r), "en-GB|Europe/London|1790000000000");
     for (locale, zone) in [
@@ -75,11 +81,14 @@ fn the_locale_and_zone_arrive_beside_the_date_and_bad_ones_are_refused() {
         ("en", "Europe/London; rm"),
     ] {
         assert!(matches!(
-            r.set_place(locale, zone),
+            r.set_place(locale, zone, None),
             Err(RunnerError::InvalidPlace)
         ));
     }
-    assert!(r.set_place("pt-BR", "America/Sao_Paulo").unwrap().is_some());
+    assert!(r
+        .set_place("pt-BR", "America/Sao_Paulo", None)
+        .unwrap()
+        .is_some());
     assert_eq!(text(&r), "pt-BR|America/Sao_Paulo|1790000000000");
 }
 
@@ -95,12 +104,32 @@ fn the_launch_seed_arrives_as_a_host_fact_and_nothing_else_is_one() {
         "/",
     )
     .unwrap();
-    assert_eq!(text(&r), "0|", "zero until the host says");
-    assert!(r.set_seed(123_456_789.0).unwrap().is_some());
-    assert!(r.set_place("en-GB", "Europe/London").unwrap().is_some());
+    assert_eq!(text(&r), "0|en-US", "zero seed until the host says");
+    let epoch = r.kernel().epoch();
+    let receipt = r
+        .set_place("fr-FR", "Europe/Paris", Some(123_456_789.0))
+        .unwrap()
+        .unwrap();
+    assert_eq!(receipt.epoch, epoch + 1, "place and seed commit together");
+    assert_eq!(text(&r), "123456789|fr-FR");
+    assert!(r
+        .set_place("en-GB", "Europe/London", None)
+        .unwrap()
+        .is_some());
     assert_eq!(text(&r), "123456789|en-GB", "a place keeps the seed");
-    assert!(r.set_seed(123_456_789.0).unwrap().is_none());
+    assert!(r
+        .set_place("en-GB", "Europe/London", Some(123_456_789.0))
+        .unwrap()
+        .is_none());
     for bad in [-1.0, 0.5, f64::NAN, 9_007_199_254_740_992.0] {
-        assert!(matches!(r.set_seed(bad), Err(RunnerError::InvalidPlace)));
+        assert!(matches!(
+            r.set_place("fr-FR", "Europe/Paris", Some(bad)),
+            Err(RunnerError::InvalidPlace)
+        ));
+        assert_eq!(
+            text(&r),
+            "123456789|en-GB",
+            "bad seed refuses the whole place"
+        );
     }
 }

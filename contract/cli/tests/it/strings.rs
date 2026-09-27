@@ -125,7 +125,10 @@ fn the_base_shows_until_the_host_says_and_a_switch_rerenders_only_t_texts() {
     assert_eq!(text(&r, "title"), "Journal");
     assert_eq!(text(&r, "greeting"), "Hi Ada, 2 entries");
     // Language-only fallback, then the base for a key the table lacks.
-    let receipt = r.set_place("fr-CA", "America/Toronto").unwrap().unwrap();
+    let receipt = r
+        .set_place("fr-CA", "America/Toronto", None)
+        .unwrap()
+        .unwrap();
     assert_eq!(text(&r, "title"), "Journal intime");
     assert_eq!(text(&r, "greeting"), "2 entrées, Ada");
     assert_eq!(text(&r, "only"), "Base only");
@@ -142,14 +145,21 @@ fn the_base_shows_until_the_host_says_and_a_switch_rerenders_only_t_texts() {
     r.act("more", vec![]).unwrap();
     assert_eq!(text(&r, "greeting"), "3 entrées, Ada");
     // An exact match beats the language; a key it lacks falls to the base.
-    r.set_place("en-GB", "Europe/London").unwrap().unwrap();
+    r.set_place("en-GB", "Europe/London", None)
+        .unwrap()
+        .unwrap();
     assert_eq!(text(&r, "title"), "Diary");
     assert_eq!(text(&r, "greeting"), "Hi Ada, 3 entries");
     // A locale that resolves to the same table commits nothing.
-    assert!(r.set_place("EN-gb", "Europe/London").unwrap().is_none());
+    assert!(r
+        .set_place("EN-gb", "Europe/London", None)
+        .unwrap()
+        .is_none());
     assert_eq!(r.slot("#locale"), Some(&Value::str("en-GB")));
     // No table for the language: the base.
-    r.set_place("de-DE", "Europe/Berlin").unwrap().unwrap();
+    r.set_place("de-DE", "Europe/Berlin", None)
+        .unwrap()
+        .unwrap();
     assert_eq!(text(&r, "title"), "Journal");
 }
 
@@ -158,7 +168,10 @@ fn a_changed_place_that_resolves_to_the_same_table_rerenders_nothing() {
     let app = AppDir::new(APP, &tables());
     let mut r = boot(app.compile().unwrap());
     // No exactTime resource and the same table: no commit at all.
-    assert!(r.set_place("en-US", "America/New_York").unwrap().is_none());
+    assert!(r
+        .set_place("en-US", "America/New_York", None)
+        .unwrap()
+        .is_none());
     assert_eq!(text(&r, "title"), "Journal");
 }
 
@@ -310,4 +323,20 @@ fn a_loop_variable_named_t_leaves_t_callable_in_a_child() {
         &[("strings/en.json", r#"{"hi": "Hello"}"#)],
     );
     assert!(app.compile().is_ok(), "{:?}", app.refusals());
+}
+
+#[test]
+fn the_default_agent_place_still_selects_its_table_when_the_base_differs() {
+    let app = AppDir::new(
+        "component App\n  view\n    text t(\"title\") testId=\"title\"\n",
+        &[
+            ("strings/en.json", r#"{"title":"Base journal"}"#),
+            ("strings/en-US.json", r#"{"title":"Journal"}"#),
+        ],
+    );
+    let mut r = boot(app.compile().unwrap());
+    assert_eq!(text(&r, "title"), "Base journal");
+    assert!(r.set_place("en-US", "UTC", Some(0.0)).unwrap().is_some());
+    assert_eq!(text(&r, "title"), "Journal");
+    assert!(r.set_place("en-US", "UTC", Some(0.0)).unwrap().is_none());
 }

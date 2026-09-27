@@ -9,9 +9,10 @@ import { createHash } from 'node:crypto';
 import vm from 'node:vm';
 import { render, sourceMapReader, identifyInspectedNode } from '../../scripts/agent.mjs';
 import { retainDevGeneration, readDevGeneration, readDevGenerationAsync } from './serve.mjs';
-import { focusController } from './navigation.js';
+import { focusController, placeReporter } from './navigation.js';
 import { storageKey } from './storage-environment.js';
 import { open } from '../../scripts/agent.mjs';
+import { launchFacts, launchEnvironment, parseFlags } from '../../scripts/agent-launch.mjs';
 
 const mapAt = (digest, line = 12) => ({digest, nodes: [{file: '/app/ui/bubble.contract', line, col: 3, end_col: 9, component: 'Bubble',
   chain: [{file: '/app/app.contract', line: 45, col: 5, end_col: 11, component: 'App'}],
@@ -276,6 +277,7 @@ function fixture(agentMode = true) {
     preferences: () => '{}',
   });
   vm.runInContext(source.match(/^let gpuLoading = .*$/m)[0] + '\n' + ['nodeDetail', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
+  context.reportPlace = placeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
   return context;
 }
 function plain(reply) {
@@ -447,6 +449,48 @@ test('a timer whose request never lands cannot hold the clock: past the deadline
   timedRequests(f, { stuck: true });
   expect(await f.exact.agent({ op: 'clock', to: 1000 })).toEqual({ clock: 1000, epoch: 2, incarnation: 1 });
   expect(f.events).toEqual(['advance 1000 until a request → 300', 'advance 1000 → 1000']);
+});
+
+test('launch setup supplies fixed defaults and carries CLI overrides to every host', () => {
+  expect(launchFacts({})).toEqual({seed:0, locale:'en-US', timeZone:'UTC'});
+  const {flags, rest} = parseFlags(['web', '--seed', '9007199254740991', '--locale', 'fr-ca', '--time-zone', 'America/Toronto', 'tree']);
+  expect(rest).toEqual(['web', 'tree']);
+  const facts = launchFacts(flags);
+  expect(facts).toEqual({seed:9007199254740991, locale:'fr-CA', timeZone:'America/Toronto'});
+  expect(launchFacts({env:launchEnvironment(facts)})).toEqual(facts);
+  const params = new URLSearchParams({agent:'1', ...facts});
+  const report = placeReporter(params, new Proxy({}, {get() { throw new Error('agent read the platform'); }}));
+  expect(report()).toBe(['fr-CA', 'America/Toronto', 9007199254740991].join('\0'));
+  expect(report()).toBe(report());
+  for (const seed of [-1, 0.5, NaN, Infinity, 9007199254740992]) expect(() => launchFacts({seed})).toThrow('seed:');
+  expect(() => launchFacts({locale:'en_US'})).toThrow();
+  expect(() => launchFacts({timeZone:'Not/AZone'})).toThrow();
+});
+
+test('agent launch facts never read the platform locale, zone or entropy', async () => {
+  const f = fixture(), reported = [];
+  f.navigator = { language: 'fr-FR' };
+  f.Intl = { DateTimeFormat: () => ({ resolvedOptions: () => ({timeZone:'Europe/Paris'}) }) };
+  let draws = 0;
+  f.crypto = { getRandomValues: bytes => { draws++; bytes.set([1, 7]); return bytes; } };
+  f.wasm.exact_set_place = wire => { reported.push(wire); return '{"ops":[]}'; };
+  await f.boot(null);
+  await f.boot(new Uint8Array([1]));
+  expect(reported).toEqual([['en-US', 'UTC', 0].join('\0'), ['en-US', 'UTC', 0].join('\0')]);
+  expect(draws).toBe(0);
+});
+
+test('ordinary web reloads keep the launch seed', async () => {
+  const f = fixture(false), reported = [];
+  f.navigator = { language: 'fr-FR' };
+  f.Intl = { DateTimeFormat: () => ({ resolvedOptions: () => ({timeZone:'Europe/Paris'}) }) };
+  let draws = 0;
+  f.crypto = { getRandomValues: bytes => { bytes.set([0, ++draws]); return bytes; } };
+  f.wasm.exact_set_place = wire => { reported.push(wire); return '{"ops":[]}'; };
+  await f.boot(null);
+  await f.boot(new Uint8Array([1]));
+  expect(reported).toEqual([['fr-FR', 'Europe/Paris', 1].join('\0'), ['fr-FR', 'Europe/Paris', 1].join('\0')]);
+  expect(draws).toBe(1);
 });
 
 test('ordinary boot and restart do not yield between DOM commit and ticker startup', async () => {

@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst } from "./navigation.js";
+import { focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace } from "./navigation.js";
 let httpModule;
 function httpHelpers() {
   return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
@@ -1359,7 +1359,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   focus.restart(kept, () => applyBatch(batch), () => ask({ op: "tree" }), id => views.get(id));
   // @ref LLP 1027.000.000 — the date, as the clock the runner already reads.
   if (wasm.exact_set_time) applyBatch(JSON.parse(readOut(wasm.exact_set_time(Date.now() - now(), -new Date().getTimezoneOffset()))));
-  if (wasm.exact_set_place) { const seed = crypto.getRandomValues(new Uint32Array(2)); applyBatch(JSON.parse(readOut(wasm.exact_set_place(writeIn(`${navigator.language}\0${Intl.DateTimeFormat().resolvedOptions().timeZone}\0${(seed[0] & 0x1fffff) * 4294967296 + seed[1]}`))))); } // the place, and the launch's seed: explicit entropy for ids, from the platform's secure source
+  if (wasm.exact_set_place) applyBatch(JSON.parse(readOut(wasm.exact_set_place(writeIn(reportPlace())))));
   globalThis.exact?.gpu?.finishRestart();
   if (bytes && !module && (inputReady || root.dataset.error)) activateData(); // A restart after the first activation.
   if (oldAssets !== assets) releaseAssets(oldAssets);

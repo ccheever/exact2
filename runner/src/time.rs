@@ -48,8 +48,8 @@ impl WallTime {
 }
 
 /// Where the viewer is: a BCP 47 locale (`en-GB`) and an IANA zone
-/// (`Europe/London`). Empty until the host says, as the date is zero.
-#[derive(Debug, Clone, PartialEq, Default)]
+/// (`Europe/London`). Usable by `Intl` before the host reports: `en-US`/`UTC`.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Place {
     /// BCP 47, the device's first preferred language.
     pub locale: String,
@@ -62,6 +62,16 @@ pub struct Place {
     pub seed: f64,
 }
 
+impl Default for Place {
+    fn default() -> Self {
+        Self {
+            locale: "en-US".into(),
+            time_zone: "UTC".into(),
+            seed: 0.0,
+        }
+    }
+}
+
 impl Place {
     /// Refuse what no host would report: a fact that is empty, long, or has
     /// characters neither form uses. The engine's `Intl` judges the rest.
@@ -72,7 +82,13 @@ impl Place {
                 && s.chars()
                     .all(|c| c.is_ascii_alphanumeric() || c == '-' || extra.contains(&c))
         };
-        if fine(&self.locale, &[]) && fine(&self.time_zone, &['/', '_', '+']) {
+        if fine(&self.locale, &[])
+            && fine(&self.time_zone, &['/', '_', '+'])
+            && self.seed.is_finite()
+            && self.seed >= 0.0
+            && self.seed.fract() == 0.0
+            && self.seed < 9_007_199_254_740_992.0
+        {
             Ok(())
         } else {
             Err(crate::RunnerError::InvalidPlace)

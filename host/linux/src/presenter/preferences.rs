@@ -4,6 +4,26 @@
 use super::*;
 
 impl<D: DataSource> Presenter<D> {
+    /// Report the place and seed together, including on the first frame.
+    pub fn set_place(&mut self, place: &exact_runner::time::Place) -> Option<String> {
+        if let Some(error) = self.host.set_place(place) {
+            return Some(error);
+        }
+        self.after_commit()
+    }
+
+    /// A candidate has a new runner, but belongs to the same launch.
+    pub(super) fn restore_time(&self, host: &mut Host<D>) -> Result<(), HostError> {
+        let time = self.host.runner().wall_time();
+        if let Some(error) = host.set_place(self.host.runner().place()) {
+            return Err(HostError::Layout(error));
+        }
+        if let Some(error) = host.set_time(time.epoch_at_zero, time.utc_offset) {
+            return Err(HostError::Layout(error));
+        }
+        Ok(())
+    }
+
     /// The date, as the clock `now()` reads: Unix ms at clock zero (the
     /// runner's clock starts at boot) and the local zone's offset, in
     /// minutes east of UTC, as Apple and the web read theirs (LLP 1054 R12).

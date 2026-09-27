@@ -505,6 +505,13 @@ fn the_agent_tree_declares_iframes_unavailable() {
 #[test]
 fn a_reload_carries_state_and_starts_the_pictures_over() {
     let mut p = boot();
+    let place = exact_runner::time::Place {
+        locale: "fr-CA".into(),
+        time_zone: "America/Toronto".into(),
+        seed: 123_456_789.0,
+    };
+    assert!(p.set_place(&place).is_none());
+    assert!(p.set_time(1_790_000_000_000.0, -240.0).is_none());
     let _ = p.tap(view(&p, "change-station"));
     let _ = p.wheel(view(&p, "station-search"), 0.0, 50.0);
     let plan = caltrain::build().unwrap().encode();
@@ -512,6 +519,11 @@ fn a_reload_carries_state_and_starts_the_pictures_over() {
     assert!(error.is_none(), "{error:?}");
     assert!(has(&p, "stations-screen"), "the screen slot carried");
     assert_eq!(p.page(), (0.0, 0.0), "scroll does not survive a restart");
+    assert_eq!(p.host().runner().place(), &place);
+    assert_eq!(
+        p.host().runner().wall_time().epoch_at_zero,
+        1_790_000_000_000.0
+    );
     p.wait_images(Duration::from_secs(2));
     assert_eq!(
         boxed(&mut p, "logo").rect.3.round(),

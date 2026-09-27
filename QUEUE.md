@@ -775,3 +775,14 @@ and the Linux headless CPU renderer without claiming display frame timing.
   [render clock initialization](issues/20260924-render-clock-zero.md).
 
 - LLP 1024 §9 guardrails (Charlie, 2026-09-27): enforce the prop update size budget (a named refusal status) and flag per-frame prop churn in the journal. Neither is enforced yet.
+
+- macOS raster replacement XCTest (2026-09-27, review-time): two full
+  `bun host/apple/build.mjs --test` runs failed only
+  `RasterLoaderTests.testTwentyGroupsOfDistinctReplacementsBoundSourceMaps`
+  at line 157 (`seen.count` was 1, expected 240; 442 other tests passed).
+  Investigate the pixel-identity oracle independently of the launch-facts fixes.
+
+- Headless Chrome smoke on this Mac (2026-09-27, review-time): completed
+  functional sweeps fail the host-error assertion on macOS keychain
+  `errSecInteractionNotAllowed` and unavailable password encryption. Keep the
+  browser diagnostics fix separate from app behavior; launch-facts assertions pass.

@@ -778,6 +778,24 @@ impl<D: DataSource> Host<D> {
         error
     }
 
+    /// The viewer's place and launch seed, together in one commit.
+    pub fn set_place(&mut self, place: &exact_runner::time::Place) -> Option<String> {
+        match self
+            .runner
+            .set_place(&place.locale, &place.time_zone, Some(place.seed))
+        {
+            Ok(Some(receipt)) => self.commit(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => None,
+            Err(e) => Some(format!("place: {e:?}")),
+        }
+    }
+
     /// The date (LLP 1027.000.000): re-answer `exactTime` in one commit.
     pub fn set_time(&mut self, epoch_at_zero: f64, utc_offset: f64) -> Option<String> {
         match self.runner.set_time(epoch_at_zero, utc_offset) {
