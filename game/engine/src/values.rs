@@ -108,7 +108,7 @@ impl Data for Value {
                     }
                     w.end_option();
                 }
-                Self::List(values) | Self::Record(values) => values.as_ref().write(w),
+                Self::List(values) | Self::Record(values) => values.to_vec().write(w),
             }
             w.end_seq();
         }
