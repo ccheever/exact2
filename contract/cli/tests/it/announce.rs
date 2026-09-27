@@ -172,3 +172,92 @@ fn a_topic_watched_before_a_yield_is_kept() {
     assert_eq!(receipts.len(), 1);
     assert_eq!(r.data().asks, asks + 1, "the announcement asked again");
 }
+
+#[test]
+fn a_refused_answer_restores_the_standing_answers_topics() {
+    use exact_runner::{Outcome, Request, Response};
+    struct Watching {
+        later: bool,
+        asks: usize,
+        native: Native,
+    }
+    impl DataSource for Watching {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            unreachable!()
+        }
+        fn answer(
+            &mut self,
+            store: &mut Store,
+            _: &str,
+            args: &[Value],
+        ) -> Result<Answer, DataError> {
+            self.asks += 1;
+            if args[0].as_bool() == Some(true) {
+                if self.later {
+                    return Ok(Answer::Later(Request::get("https://meter.test/")));
+                }
+                store.observe_topic("B");
+                return Ok(Answer::Now(Value::Bool(false)));
+            }
+            store.observe_topic("A");
+            Ok(Answer::Now(Value::record(vec![Value::str("standing")])))
+        }
+        fn parse(
+            &mut self,
+            store: &mut Store,
+            _: &str,
+            _: &[Value],
+            _: Outcome,
+        ) -> Result<Answer, DataError> {
+            store.observe_topic("B");
+            Ok(Answer::Now(Value::Bool(false)))
+        }
+        fn native(&self) -> Option<Native> {
+            Some(self.native.clone())
+        }
+    }
+    let src = "shape Line\n  text: string\ncomponent App\n  state changed = false\n  resource meter = meter(changed) as shape Line\n  action change writes changed\n    changed = true\n  view\n    text meter.text\n";
+    for later in [false, true] {
+        let native = Native::default();
+        let mut r = Runner::boot(
+            contract::compile(src).unwrap(),
+            Watching {
+                later,
+                asks: 0,
+                native: native.clone(),
+            },
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        r.listen(Arc::new(|| {}));
+        if later {
+            r.act("change", vec![]).unwrap();
+            let ticket = r.take_requests()[0].ticket;
+            r.fulfill(
+                ticket,
+                Outcome::Response(Response {
+                    status: 200,
+                    headers: vec![],
+                    body: vec![],
+                }),
+            )
+            .unwrap();
+            // The failed parse's topic must not join the pending answer's topics.
+            native.changed("B");
+            assert!(r.apply_announced().0.is_empty());
+        } else {
+            assert!(r.act("change", vec![]).is_err());
+            assert_eq!(r.slot("changed"), Some(&Value::Bool(false)));
+            let asks = r.data().asks;
+            native.changed("A");
+            let (receipts, error) = r.apply_announced();
+            assert!(error.is_none());
+            assert_eq!(receipts.len(), 1);
+            assert_eq!(r.data().asks, asks + 1);
+            native.changed("B");
+            assert!(r.apply_announced().0.is_empty());
+        }
+    }
+}

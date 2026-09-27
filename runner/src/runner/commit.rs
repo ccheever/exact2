@@ -19,6 +19,7 @@ pub(super) struct Checkpoint {
     resources: Option<Vec<Option<ResourceState>>>,
     stale: Vec<bool>,
     store_readers: Vec<bool>,
+    watching: Vec<Vec<String>>,
     refresh_next: Vec<usize>,
     reread_next: Vec<usize>,
     pending: Vec<PendingReq>,
@@ -37,6 +38,7 @@ impl<D: DataSource> Runner<D> {
             resources: resources.then(|| self.resources.clone()),
             stale: self.stale.clone(),
             store_readers: self.store_readers.clone(),
+            watching: self.watching.clone(),
             refresh_next: self.refresh_next.clone(),
             reread_next: self.reread_next.clone(),
             pending: self.pending.clone(),
@@ -66,6 +68,7 @@ impl<D: DataSource> Runner<D> {
                 }
                 self.stale = c.stale;
                 self.store_readers = c.store_readers;
+                self.watching = c.watching;
                 self.refresh_next = c.refresh_next;
                 self.reread_next = c.reread_next;
                 self.pending = c.pending;
