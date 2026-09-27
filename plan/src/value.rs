@@ -179,7 +179,7 @@ impl Value {
     /// Decode one value from `r`, bounded in depth so a hostile payload cannot
     /// exhaust the stack.
     pub fn decode(r: &mut Reader<'_>) -> Result<Value, PlanError> {
-        Self::decode_depth(r, 0, &mut Strings::default())
+        Self::decode_depth(r, 0, &mut Pool::default())
     }
 
     /// Decode exactly one value from `bytes`; trailing bytes are a refusal.
@@ -192,15 +192,11 @@ impl Value {
         Ok(v)
     }
 
-    fn decode_depth(
-        r: &mut Reader<'_>,
-        depth: u32,
-        strings: &mut Strings,
-    ) -> Result<Value, PlanError> {
+    fn decode_depth(r: &mut Reader<'_>, depth: u32, pool: &mut Pool) -> Result<Value, PlanError> {
         if depth > 64 {
             return Err(PlanError::ValueTooDeep);
         }
-        Ok(match r.u8()? {
+        let value = match r.u8()? {
             0 => {
                 let n = r.f64()?;
                 if !n.is_finite() {
@@ -209,29 +205,56 @@ impl Value {
                 Value::Number(n)
             }
             1 => Value::Bool(r.u8()? != 0),
-            2 => Value::Str(strings.get(r.str()?)),
+            2 => {
+                let s = r.str()?;
+                pool.unique = s.len() > Strings::SHORT;
+                return Ok(Value::Str(pool.strings.get(s)));
+            }
             3 => Value::Unit,
             4 => Value::Option(None),
-            5 => Value::Option(Some(Rc::new(Self::decode_depth(r, depth + 1, strings)?))),
-            6 => {
+            5 => {
+                let inner = Rc::new(Self::decode_depth(r, depth + 1, pool)?);
+                pool.unique = true;
+                return Ok(Value::Option(Some(inner)));
+            }
+            tag @ (6 | 7) => {
                 let n = r.count()?;
                 let mut items = Vec::with_capacity(n.min(crate::bytes::RESERVE));
+                let mut unique = false;
                 for _ in 0..n {
-                    items.push(Self::decode_depth(r, depth + 1, strings)?);
+                    items.push(Self::decode_depth(r, depth + 1, pool)?);
+                    unique |= pool.unique;
                 }
-                Value::List(Rc::from(items))
-            }
-            7 => {
-                let n = r.count()?;
-                let mut fields = Vec::with_capacity(n.min(crate::bytes::RESERVE));
-                for _ in 0..n {
-                    fields.push(Self::decode_depth(r, depth + 1, strings)?);
-                }
-                Value::Record(Rc::from(fields))
+                let record = tag == 7;
+                let items = pool.objects.get(record, items, unique);
+                pool.unique = unique || items.len() > Objects::LONGEST;
+                return Ok(if record {
+                    Value::Record(items)
+                } else {
+                    Value::List(items)
+                });
             }
             tag => return Err(PlanError::UnknownValueTag(tag)),
-        })
+        };
+        pool.unique = false;
+        Ok(value)
     }
+}
+
+/// What one decode shares: equal short strings, then equal small objects.
+#[derive(Default)]
+struct Pool {
+    strings: Strings,
+    objects: Objects,
+    /// The value just decoded is a part no other object can share by
+    /// allocation (a long string, an option's box, or an object holding
+    /// one), so an object holding it is not looked up: it cannot repeat.
+    unique: bool,
+}
+
+/// One FxHash step.
+fn mix(h: u64, x: u64) -> u64 {
+    (h.rotate_left(5) ^ x).wrapping_mul(0x517c_c1b7_2722_0a95)
 }
 
 /// Identical short strings in one decoded value share one allocation: a
@@ -266,11 +289,7 @@ impl Strings {
             self.slots = vec![None; Self::SLOTS];
         }
         // FxHash over the bytes; the high bits pick the slot.
-        let mut h: u64 = 0;
-        for &b in s.as_bytes() {
-            h = (h.rotate_left(5) ^ b as u64).wrapping_mul(0x517c_c1b7_2722_0a95);
-        }
-        let slot = &mut self.slots[(h >> 52) as usize % Self::SLOTS];
+        let slot = &mut self.slots[(text_hash(s) >> 52) as usize % Self::SLOTS];
         match slot {
             Some(rc) if **rc == *s => rc.clone(),
             _ => {
@@ -279,6 +298,98 @@ impl Strings {
                 rc
             }
         }
+    }
+}
+
+fn text_hash(s: &str) -> u64 {
+    s.as_bytes().iter().fold(0, |h, &b| mix(h, b as u64))
+}
+
+/// Equal records and short lists in one decoded value share one
+/// allocation, as equal short strings do: a baked list repeats small
+/// objects (a reaction, a plain styled run, an empty list), and each copy's
+/// allocation is most of what it costs. Sound for the same reason: equal
+/// values are indistinguishable, so `compare::same` may hold of them. The
+/// key is shallow: scalars by content, a string or a nested object by its
+/// allocation, so strings and children shared first let their parents
+/// match; an object holding a part that is never shared is not looked up
+/// (`Pool::unique`). Direct-mapped and bounded; a collision keeps the later
+/// object. A small value never makes a table.
+#[derive(Default)]
+struct Objects {
+    slots: Vec<Option<(u64, Rc<[Value]>)>>,
+    seen: u32,
+}
+
+impl Objects {
+    const SLOTS: usize = 8192;
+    /// Objects a value decodes before it gets a table.
+    const AFTER: u32 = 64;
+    /// Longest object shared: a long list is rarely repeated whole, and
+    /// each of its items would cost a hash.
+    const LONGEST: usize = 32;
+
+    fn get(&mut self, record: bool, items: Vec<Value>, unique: bool) -> Rc<[Value]> {
+        if unique || items.len() > Self::LONGEST {
+            return Rc::from(items);
+        }
+        if self.slots.is_empty() {
+            self.seen += 1;
+            if self.seen < Self::AFTER {
+                return Rc::from(items);
+            }
+            self.slots = vec![None; Self::SLOTS];
+        }
+        // The kind and the length are in the hash, so a stored object
+        // with the same hash is compared field by field, and only then.
+        let h = items
+            .iter()
+            .fold(mix(record as u64, items.len() as u64), |h, v| {
+                mix(h, shallow_hash(v))
+            });
+        let slot = &mut self.slots[(h >> 51) as usize % Self::SLOTS];
+        match slot {
+            Some((stored, rc))
+                if *stored == h
+                    && rc.len() == items.len()
+                    && rc.iter().zip(&items).all(|(a, b)| shallow_eq(a, b)) =>
+            {
+                rc.clone()
+            }
+            _ => {
+                let rc: Rc<[Value]> = Rc::from(items);
+                *slot = Some((h, rc.clone()));
+                rc
+            }
+        }
+    }
+}
+
+/// A field's part of an object's key (see `Objects`).
+fn shallow_hash(v: &Value) -> u64 {
+    match v {
+        Value::Number(n) => mix(1, n.to_bits()),
+        Value::Bool(b) => 2 + *b as u64,
+        Value::Str(s) => mix(3, s.as_ptr() as usize as u64),
+        Value::Unit => 4,
+        Value::Option(None) => 5,
+        Value::Option(Some(v)) => mix(6, Rc::as_ptr(v) as usize as u64),
+        Value::List(items) => mix(7, items.as_ptr() as usize as u64),
+        Value::Record(fields) => mix(8, fields.as_ptr() as usize as u64),
+    }
+}
+
+/// Whether two fields are the same part of a key: what `shallow_hash`
+/// reads, compared the way it reads it.
+fn shallow_eq(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Number(a), Value::Number(b)) => a.to_bits() == b.to_bits(),
+        (Value::Bool(a), Value::Bool(b)) => a == b,
+        (Value::Str(a), Value::Str(b)) => Rc::ptr_eq(a, b),
+        (Value::Unit, Value::Unit) | (Value::Option(None), Value::Option(None)) => true,
+        (Value::Option(Some(a)), Value::Option(Some(b))) => Rc::ptr_eq(a, b),
+        (Value::List(a), Value::List(b)) | (Value::Record(a), Value::Record(b)) => Rc::ptr_eq(a, b),
+        _ => false,
     }
 }
 
@@ -394,5 +505,65 @@ mod decode_tests {
         let small = Value::List(Rc::from(vec![Value::str("bold"), Value::str("bold")]));
         let s = strs(&Value::from_bytes(&small.to_bytes()).unwrap());
         assert!(!Rc::ptr_eq(&s[0], &s[1]), "a small value makes no table");
+    }
+
+    fn objects(v: &Value) -> Vec<Rc<[Value]>> {
+        let Value::List(items) = v else {
+            panic!("a list")
+        };
+        items
+            .iter()
+            .map(|v| match v {
+                Value::Record(f) | Value::List(f) => f.clone(),
+                _ => panic!("an object"),
+            })
+            .collect()
+    }
+
+    /// A large value shares its repeated small objects, keyed by their
+    /// fields (a nested object by its own shared allocation); an object
+    /// holding a long string, an option or a longer object is not looked
+    /// up, a record never stands for a list, and every object decodes to
+    /// what was encoded.
+    #[test]
+    fn repeated_small_objects_share_one_allocation() {
+        let long = "y".repeat(25);
+        let items: Vec<Value> = (0..400)
+            .map(|i| match i % 4 {
+                0 => Value::record(vec![Value::str("👍"), Value::Number(3.0)]),
+                1 => Value::list(vec![Value::str("👍"), Value::Number(3.0)]),
+                2 => Value::record(vec![Value::str(&long), Value::list(vec![])]),
+                _ => Value::record(vec![Value::some(Value::Bool(true))]),
+            })
+            .collect();
+        let big = Value::List(Rc::from(items));
+        let decoded = Value::from_bytes(&big.to_bytes()).unwrap();
+        assert_eq!(decoded, big);
+        let o = objects(&decoded);
+        assert!(Rc::ptr_eq(&o[396], &o[392]), "late repeats share");
+        assert!(Rc::ptr_eq(&o[397], &o[393]), "lists too");
+        assert!(!Rc::ptr_eq(&o[396], &o[397]), "a record is not a list");
+        assert!(
+            Rc::ptr_eq(&list_of(&o[398][1]), &list_of(&o[394][1])),
+            "empty lists share"
+        );
+        assert!(
+            !Rc::ptr_eq(&o[398], &o[394]),
+            "an object with a long string stays separate"
+        );
+        assert!(
+            !Rc::ptr_eq(&o[399], &o[395]),
+            "an object with an option stays separate"
+        );
+        let small = Value::List(Rc::from(vec![Value::list(vec![]), Value::list(vec![])]));
+        let o = objects(&Value::from_bytes(&small.to_bytes()).unwrap());
+        assert!(!Rc::ptr_eq(&o[0], &o[1]), "a small value makes no table");
+    }
+
+    fn list_of(v: &Value) -> Rc<[Value]> {
+        match v {
+            Value::List(items) => items.clone(),
+            _ => panic!("a list"),
+        }
     }
 }
