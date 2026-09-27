@@ -14,6 +14,25 @@ final class TextCSSTests: XCTestCase {
         Spec(runs: runs, align: 0, lineClamp: 0, color: [0, 0, 0, 255], whiteSpace: whiteSpace)
     }
 
+    /// At rest (`ExactSession.rest`) cold shaped text goes; what a view
+    /// holds and the cold measurements stay.
+    func testRestDropsColdShapedTextButKeepsMeasurements() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let held = engine.paragraph(spec([run("held by a view")]), width: 180)
+        engine.accepted(held)
+        let input = spec([run("measured, then passed")])
+        let width = engine.minContentWidth(input)
+        _ = engine.paragraph(input, width: 180)
+        for i in 0..<16 { _ = engine.paragraph(spec([run("cold \(i)")]), width: 180) }
+        XCTAssertGreaterThan(engine.residencyStats.coldCoreTextEstimateBytes, 0)
+        engine.dropColdShaped()
+        XCTAssertEqual(engine.residencyStats.coldEntries, 1, "the measurement stays")
+        XCTAssertEqual(engine.residencyStats.coldCoreTextEstimateBytes, 0)
+        XCTAssertEqual(engine.minContentWidth(input), width)
+        XCTAssertEqual(engine.residencyStats.coldEntries, 1, "answered by the kept measurement")
+        XCTAssertTrue(engine.paragraph(spec([run("held by a view")]), width: 180) === held)
+    }
+
     func testCollapsingIsTheMeasurersAndMapsBackToTheSource() {
         // Chrome's innerText for each source under `white-space: normal`.
         for (source, rendered) in [("a\r\nb", "a b"), ("  lead", "lead"), ("trail  ", "trail"), ("\t a\t\tb ", "a b"),

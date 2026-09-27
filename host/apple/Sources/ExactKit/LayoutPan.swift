@@ -5,9 +5,9 @@
 import AppKit
 final class MouseLayoutPan {
     weak var presenter: Presenter?
-    private weak var candidate: NodeView?
+    private(set) weak var candidate: NodeView?
     private var last = CGPoint.zero
-    private var active = false
+    private(set) var active = false
     private var escape: Any?
     private var inactive: NSObjectProtocol?
     init(_ presenter: Presenter) {
@@ -48,16 +48,18 @@ final class MouseLayoutPan {
               view.handlers.contains("pan"), SwipeInput.allows(view) else { cancel(); return false }
         let point = presenter.viewport.convert(event.locationInWindow, from: nil)
         let dx = point.x - last.x, dy = point.y - last.y
-        if !active && max(abs(dx), abs(dy)) <= 4 { return true }
+        if !active && max(abs(dx), abs(dy)) <= Gesture.slop { return true }
         active = true; last = point
         presenter.selection.clear()
         if dx != 0 || dy != 0 { presenter.pan(view.id, Double(dx), Double(dy)) }
         return true
     }
+    /// Taken only when the pan began: a contact that never left the slop is
+    /// still the node's press (rule 4, as on the web and Linux).
     func up(_ event: NSEvent) -> Bool {
-        let owned = candidate != nil
-        if owned { _ = drag(event) }
-        cancel(); return owned
+        if candidate != nil { _ = drag(event) }
+        let took = active
+        cancel(); return took
     }
     func cancel() { candidate = nil; active = false }
     func retire(_ id: UInt32) { if candidate?.id == id { cancel() } }

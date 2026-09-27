@@ -1,0 +1,41 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Sparkline",
+  "short_name": "Sparkline",
+  "id": "com.exact.sparkline",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#ffffff",
+  "background_color": "#ffffff",
+  "app": {
+    "id": "com.exact.sparkline",
+    "name": "Sparkline"
+  },
+  "host": {
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone",
+        "ipad"
+      ]
+    },
+    "macos": {
+      "minimumOS": "14.0",
+      "window": {
+        "width": 402,
+        "height": 700,
+        "minWidth": 320,
+        "minHeight": 420
+      }
+    },
+    "web": {}
+  },
+  "deploy": {
+    "store": {
+      "web": "0",
+      "macos": "0",
+      "ios": "0",
+      "linux": "0"
+    }
+  }
+}

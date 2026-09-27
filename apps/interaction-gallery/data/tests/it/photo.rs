@@ -100,7 +100,7 @@ fn close_to(actual: [f64; 3], expected: [f64; 3]) {
     }
 }
 
-fn rows(r: &Runner<CountedGallery>) -> Rc<Vec<Value>> {
+fn rows(r: &Runner<CountedGallery>) -> Rc<[Value]> {
     let Value::List(rows) = r.resource("rows").unwrap() else {
         panic!("row resource")
     };
@@ -163,7 +163,7 @@ fn authored_binding_resolves_full_size_target_and_actual_direct_clip() {
         assert_eq!(target_frame.height, clip_frame.height);
         geometry(&mut r, clip_frame.width as f64, clip_frame.height as f64);
         press(&mut r, "viewer-zoom-detail");
-        release(&mut r, 9999., -9999., 1.);
+        release(&mut r, 9999., -9999., 2.);
         let width = clip_frame.width as f64;
         let height = clip_frame.height as f64;
         let fit = (width / 1448.).min(height / 1086.);
@@ -192,19 +192,19 @@ fn contain_bounds_cover_letterboxing_signed_edges_and_incoming_resize_values() {
         (100., -150., [100., -150., 2.]),
         (400. / 3., 200., [400. / 3., 200., 2.]),
     ] {
-        release(&mut r, x, y, 1.4);
+        release(&mut r, x, y, 2.);
         close_to(targets(&r), expected);
     }
     // The action must clamp using its NEW dimensions, not pre-action slot reads.
     geometry(&mut r, 300., 600.);
     close_to(targets(&r), [400. / 3., 0., 2.]);
-    release(&mut r, -1000., 1000., 1.);
+    release(&mut r, -1000., 1000., 2.);
     close_to(targets(&r), [-150., 0., 2.]);
     // Choosing fit must use the NEW zoom argument in the same transaction.
     press(&mut r, "viewer-zoom-fit");
     close_to(targets(&r), [0., 0., 1.]);
     press(&mut r, "viewer-zoom-detail");
-    release(&mut r, 100., 20., 1.);
+    release(&mut r, 100., 20., 2.);
     press(&mut r, "viewer-reset");
     close_to(targets(&r), [0., 0., 1.]);
     assert_eq!(r.data_ref().calls, calls, "no per-gesture data actions");
@@ -216,10 +216,10 @@ fn zero_geometry_is_neutral_and_equal_geometry_does_not_touch_target() {
     let mut r = boot();
     press(&mut r, "open-photo-00000");
     press(&mut r, "viewer-zoom-detail");
-    release(&mut r, 999., -999., 1.2);
+    release(&mut r, 999., -999., 2.);
     close_to(targets(&r), [0., 0., 2.]);
     geometry(&mut r, 800., 400.);
-    release(&mut r, 100., -100., 1.2);
+    release(&mut r, 100., -100., 2.);
     let target = key(&r, "viewer-transform");
     let same = geometry(&mut r, 800., 400.);
     assert!(!same.touched.contains(&target));
@@ -238,7 +238,7 @@ fn fresh_metadata_rank_and_typing_keep_child_state_but_new_source_resets_it() {
     press(&mut r, "open-photo-00000");
     geometry(&mut r, 800., 400.);
     press(&mut r, "viewer-zoom-detail");
-    release(&mut r, 100., -120., 1.);
+    release(&mut r, 100., -120., 2.);
     let original = key(&r, "viewer-transform");
     r.act("edit", vec![Value::str("retained draft")]).unwrap();
     for (op, id, n) in [
@@ -256,7 +256,7 @@ fn fresh_metadata_rank_and_typing_keep_child_state_but_new_source_resets_it() {
     close_to(targets(&r), [0., 0., 1.]);
     // The fresh child has no inherited geometry even before host feedback.
     press(&mut r, "viewer-zoom-detail");
-    release(&mut r, 200., 200., 1.);
+    release(&mut r, 200., 200., 2.);
     close_to(targets(&r), [0., 0., 2.]);
     assert_eq!(r.slot("draft"), Some(&Value::str("retained draft")));
 }
@@ -274,7 +274,7 @@ fn navigation_reset_delete_and_lift_end_the_keyed_viewer_lifetime() {
         press(&mut r, "open-photo-00000");
         geometry(&mut r, 800., 400.);
         press(&mut r, "viewer-zoom-detail");
-        release(&mut r, 100., 100., 1.);
+        release(&mut r, 100., 100., 2.);
         let old = key(&r, "viewer-transform");
         let old_handle = key(&r, "viewer-handle");
         if action == "lift" {
@@ -322,7 +322,7 @@ fn latest_authored_zoom_and_pan_land_while_both_real_engine_holds_remain_live() 
     ] {
         let chosen = press(&mut r, control);
         r.kernel().motion_sync(&chosen).apply(&mut engine).unwrap();
-        let released = release(&mut r, 1000., -1000., 1.3);
+        let released = release(&mut r, 1000., -1000., expected[2]);
         r.kernel()
             .motion_sync(&released)
             .apply(&mut engine)
@@ -402,4 +402,26 @@ fn viewer_dimensions_match_each_immutable_png_and_its_provenance_record() {
         assert!(entry.contains("\"width\": 1448"));
         assert!(entry.contains("\"height\": 1086"));
     }
+}
+
+/// LLP 1057.001 §4: a pinch's release adopts its scale, within Fit and 4×,
+/// and pan is clamped against that new zoom in the same transaction.
+#[test]
+fn a_pinch_release_adopts_its_scale_within_fit_and_four_times() {
+    let mut r = boot();
+    press(&mut r, "open-photo-00000");
+    geometry(&mut r, 800., 400.);
+    let fit = (800f64 / 1448.).min(400. / 1086.);
+    let bound = |side: f64, port: f64, zoom: f64| ((side * fit * zoom - port) / 2.).max(0.);
+    release(&mut r, 9999., -9999., 3.);
+    close_to(
+        targets(&r),
+        [bound(1448., 800., 3.), -bound(1086., 400., 3.), 3.],
+    );
+    release(&mut r, 0., 0., 9.);
+    close_to(targets(&r), [0., 0., 4.]);
+    release(&mut r, 9999., 9999., 0.5);
+    close_to(targets(&r), [0., 0., 1.]);
+    press(&mut r, "viewer-zoom-detail");
+    close_to(targets(&r), [0., 0., 2.]);
 }

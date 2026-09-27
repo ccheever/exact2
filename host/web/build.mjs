@@ -8,13 +8,14 @@
 // Developer builds bake development trust; EXACT_UPDATE_TRUST=production
 // requires signing keys, and the deploy verb always selects production.
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { relative, resolve } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { rolldown } from 'rolldown';
 import { minifySync } from 'rolldown/experimental';
 import { writeInstallPages } from '../../scripts/install-page.mjs';
-import { gpuModules, rustPolicy, webHostFiles } from '../../scripts/app.mjs';
+import { checkModuleRoster, gpuModules, rustPolicy, webHostFiles } from '../../scripts/app.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
 import { webDist, copyShaders, bakeOutput, buildBake, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp, wasmRemapFlags, WEB_STD, WEB_TOOLCHAIN, webToolchainEnv } from '../../scripts/app.mjs';
 import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
@@ -231,10 +232,9 @@ function minifyCss(css) {
   }
   return out;
 }
-// The app's page module (`host.web.native`): `native.later` answered on the
-// page, beside the glue, which finds it by the meta tag below.
-const pageNative = app.manifest.host?.web?.native;
-if (pageNative) writeFileSync(resolve(stage, 'native.js'), readFileSync(resolve(app.dir, pageNative)));
+// The app's module artifact answers `native.later` on the page too (LLP
+// 1067 D5): the glue finds it by the meta tag below.
+const pageNative = app.modules.web;
 // The page in the app's first-frame background from its first paint (the
 // manifest's `launch`, as the iOS launch screen), so nothing lighter or
 // darker shows before the first frame.
@@ -247,8 +247,19 @@ writeFileSync(resolve(stage, 'index.html'), readFileSync(resolve(stage, 'index.h
   .replace('<title>Exact</title>', `<title>${escapeHtml(webManifest.name)}</title>`)
   .replace(
     '<script type="module" src="./glue.js"></script>',
-    `<link rel="alternate" type="application/vnd.exact.envelope+json" href="./exact.json">\n<link rel="manifest" href="./manifest.json">\n${icon ? `<link rel="icon" type="${escapeHtml(icon.type ?? 'image/png')}" href="./${escapeHtml(icon.src)}">\n` : ''}${webManifest.theme_color ? `<meta name="theme-color" content="${escapeHtml(webManifest.theme_color)}">\n` : ''}${pageNative ? '<meta name="exact-native" content="./native.js">\n' : ''}<script type="module" src="./glue.js"></script>`,
+    `<link rel="alternate" type="application/vnd.exact.envelope+json" href="./exact.json">\n<link rel="manifest" href="./manifest.json">\n${icon ? `<link rel="icon" type="${escapeHtml(icon.type ?? 'image/png')}" href="./${escapeHtml(icon.src)}">\n` : ''}${webManifest.theme_color ? `<meta name="theme-color" content="${escapeHtml(webManifest.theme_color)}">\n` : ''}${pageNative ? '<meta name="exact-native" content="./modules/index.js">\n' : ''}<script type="module" src="./glue.js"></script>`,
   ));
+// app.wasm's URL names its build (LLP 1047.000 §9): `./app.wasm?v=` and
+// the first 16 hex digits of its SHA-256, in the shell's preload, which the
+// capture script and the glue fetch (and a document's checkpoint, when it
+// drops the preload). A URL that names its content caches for good, so a
+// browser keeps the build as the dictionary the render server sends the next
+// one against (`--generations`). The file keeps its name, and the glue stays
+// the same across builds: a deploy that changes only the wasm leaves it cached.
+const wasmUrl = `./app.wasm?v=${createHash('sha256').update(readFileSync(out)).digest('hex').slice(0, 16)}`;
+const shellText = readFileSync(resolve(stage, 'index.html'), 'utf8');
+if (!shellText.includes('href="./app.wasm"')) throw new Error('index.html no longer preloads ./app.wasm');
+writeFileSync(resolve(stage, 'index.html'), shellText.replace('href="./app.wasm"', `href="${wasmUrl}"`));
 // Documents (LLP 1048.000 D3, D7, D9): every route the plan declares
 // `render=build`, rendered by the app's native render entry (`<app>-render`,
 // exact_render::main; looked up in its Linux crate beside its native data
@@ -337,6 +348,21 @@ if (gpuArtifacts.length && !gpuNote.startsWith('wasm-bindgen')) {
   if (gpuModules(app.manifest).length) copyHostFiles('gpuModules');
   gpuNote += ', on demand';
 }
+// @ref LLP 1024 D3/D5 — the app's module table, beside the page only when the
+// app has modules (the GPU gate): its web executor under `modules/`, fetched
+// after first paint by the host's adapter.
+let moduleNote = 'no native modules';
+if (app.modules.tags.length || app.modules.web) {
+  const release = buildEnv.EXACT_UPDATE_TRUST === 'production';
+  let provided = [];
+  if (app.modules.web) {
+    copyStaticTreeIfPresent(dirname(app.modules.web), resolve(stage, 'modules'));
+    provided = Object.keys((await import(app.modules.web)).roster ?? {});
+  }
+  checkModuleRoster(app, provided, 'web', release);
+  copyHostFiles('native');
+  moduleNote = `modules/ (${provided.join(', ') || 'none'}), on demand`;
+}
 // Written last inside the private stage. Dev startup trusts a dist only when
 // this marker and the public plan card agree, so a partial/corrupt directory
 // can never be mistaken for a completed build of the requested app.
@@ -356,4 +382,4 @@ try {
 rmSync(previous, { recursive: true, force: true });
 const textFlowWasm = readFileSync(resolve(dist, 'textflow.wasm'));
 const markdownEditor = readFileSync(resolve(dist, 'markup-editor.wasm'));
-console.log(`${relative(process.cwd(), dist) || "."}: app.wasm ${kib(wasm.length)} (${kib(gzipSync(wasm, { level: 9 }).length)} gzip; ${optNote}), index.html, glue.js, app.plan ${kib(planBytes.length)}, exact.json; documents: ${documentNote}; GPU: ${gpuNote}; markup-editor.wasm ${kib(markdownEditor.length)} (${kib(gzipSync(markdownEditor, { level: 9 }).length)} gzip), on demand; textflow.wasm ${kib(textFlowWasm.length)} (${kib(gzipSync(textFlowWasm, { level: 9 }).length)} gzip), on demand`);
+console.log(`${relative(process.cwd(), dist) || "."}: app.wasm ${kib(wasm.length)} (${kib(gzipSync(wasm, { level: 9 }).length)} gzip; ${optNote}), index.html, glue.js, app.plan ${kib(planBytes.length)}, exact.json; documents: ${documentNote}; GPU: ${gpuNote}; modules: ${moduleNote}; markup-editor.wasm ${kib(markdownEditor.length)} (${kib(gzipSync(markdownEditor, { level: 9 }).length)} gzip), on demand; textflow.wasm ${kib(textFlowWasm.length)} (${kib(gzipSync(textFlowWasm, { level: 9 }).length)} gzip), on demand`);

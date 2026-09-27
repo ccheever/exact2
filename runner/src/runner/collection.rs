@@ -102,7 +102,7 @@ impl<D: DataSource> Runner<D> {
         if changed || !ops.is_empty() {
             match self.apply(ops) {
                 Ok(receipt) => {
-                    self.surfaces.extend(surfaces);
+                    self.publish_surfaces(surfaces);
                     result.receipts.push(Timed {
                         at_ms: self.now_ms,
                         receipt,
@@ -238,7 +238,8 @@ impl EdgeState {
                 .any(|(a, b)| match (a, b) {
                     (None, None) => false,
                     (Some(a), Some(b)) => {
-                        !equivalent_all(&a.args, &b.args) || !equivalent(&a.value, &b.value)
+                        !equivalent_all(&a.args, &b.args)
+                            || !crate::held::Held::equivalent(&a.value, &b.value)
                     }
                     _ => true,
                 })

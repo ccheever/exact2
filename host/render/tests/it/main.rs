@@ -352,8 +352,14 @@ fn a_page_is_the_shell_around_the_document() {
     assert!(html.contains("data-activate=\"interaction\""));
     assert!(html.contains("src=\"./document-glue.js\""));
     assert!(!html.contains("src=\"./glue.js\""));
-    // Only the capture script's own code names the wasm, for an idle page.
-    let rest = html.replace(exact_render::capture(), "");
+    // Nothing fetches the wasm before intent: the checkpoint names the build
+    // for document-glue.js, and the capture script's own code names it for
+    // an idle page.
+    let named = " data-activate=\"interaction\" data-wasm=\"./app.wasm\">";
+    assert!(html.contains(named), "{html}");
+    let rest = html
+        .replace(exact_render::capture(), "")
+        .replace(" data-wasm=\"./app.wasm\"", "");
     assert!(!rest.contains("app.wasm"));
     assert!(!rest.contains("navigation.js"));
 }

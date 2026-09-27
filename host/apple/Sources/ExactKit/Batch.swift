@@ -50,8 +50,10 @@ typealias NodeStyle = [String: BatchValue]
 
 public struct BatchOp {
     enum Kind: String {
-        case create, props, style, children, paragraph, frame, content, present, unpresent, roots, destroy
+        case create, props, style, children, paragraph, frame, content, present, roots, destroy
         case flow, surface, surfaceWork, command, hold, collections, region, router, title, unknown
+        case svg, animations // LLP 1055 D4/D7: an `svg`'s scene; a view's CSS animations
+        case canvas2d // LLP 1056 D7: a 2D canvas's stamped lists
         case heightDrag = "height-drag", transformDrag = "transform-drag", retireMotion = "retire-motion", reorder, exit
     }
     let op: Kind
@@ -66,8 +68,6 @@ public struct BatchOp {
     var runs: [InlineText] = []
     var x = 0.0, y = 0.0, w = 0.0, h = 0.0
     var property = ""
-    /// A `present`/`unpresent` for an inline run its paragraph (`id`) paints.
-    var run: UInt32?
     // Rare adapters retain their existing input shape. Common ops never build it.
     var payload: [String: Any] = [:]
 

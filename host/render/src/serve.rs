@@ -54,6 +54,9 @@ pub struct Serve {
     /// A rendered route's shared-cache lifetime (`s-maxage`), until routes
     /// declare their own.
     pub lifetime: Duration,
+    /// Where the builds of `app.wasm` it has served are kept, so a browser
+    /// holding one gets the next as a delta against it (LLP 1047.000 §9).
+    pub generations: Option<PathBuf>,
 }
 
 /// A bound server, not yet serving.
@@ -82,6 +85,7 @@ struct Shared {
     csp: String,
     pages: Mutex<VecDeque<CachedPage>>,
     variants: Variants,
+    generations: Option<crate::generations::Generations>,
 }
 
 struct CachedPage {
@@ -135,6 +139,13 @@ impl Server {
         drop(crate::Executor::start(grants));
         let variants = Variants::default();
         variants.warm(encode::files(&serve.dist));
+        let generations = match &serve.generations {
+            Some(dir) => Some(crate::generations::Generations::open(
+                dir,
+                &std::fs::read(serve.dist.join("app.wasm"))?,
+            )?),
+            None => None,
+        };
         Ok(Server {
             listener,
             stop: Arc::new(AtomicBool::new(false)),
@@ -145,6 +156,7 @@ impl Server {
                 csp,
                 pages: Mutex::new(VecDeque::new()),
                 variants,
+                generations,
             },
         })
     }
@@ -604,23 +616,54 @@ fn respond<D: DataSource>(request: &Request, shared: &Shared, data: fn() -> D) -
         let Some(served) = shared.variants.serve(&file, request.accepts, compressible) else {
             return Response::text(404, "not found\n");
         };
+        let tag = served
+            .etag
+            .trim_matches('"')
+            .split('-')
+            .next()
+            .unwrap_or("");
+        let named = path == "/app.wasm" && named_build(&request.target, tag);
+        let delta = shared
+            .generations
+            .as_ref()
+            .filter(|generations| named && generations.tag == tag)
+            .zip(request.dictionary.as_deref())
+            .filter(|_| !request.cdn && request.accepts.dcb())
+            .and_then(|(generations, hash)| generations.delta(hash));
+        let etag = match delta {
+            Some(_) => format!("\"{tag}-dcb\""),
+            None => served.etag.clone(),
+        };
+        // Other files aren't content-addressed yet (D10): revalidated, by
+        // their ETags.
+        let cache = match named {
+            true => "public, max-age=31536000, immutable",
+            false => "no-cache",
+        };
         let mut headers = vec![
             ("Content-Type", kind.into()),
-            // Not content-addressed yet (D10): revalidated, by its ETag.
-            ("Cache-Control", "no-cache".into()),
-            ("ETag", served.etag.clone()),
+            ("Cache-Control", cache.into()),
+            ("ETag", etag.clone()),
         ];
-        if compressible {
-            headers.push(("Vary", "Accept-Encoding".into()));
+        if named && !request.cdn {
+            // The next build is sent against this one (crate::generations).
+            headers.push(("Use-As-Dictionary", "match=\"/app.wasm\"".into()));
         }
-        if let Some(encoding) = served.encoding {
-            headers.push(("Content-Encoding", encoding.name().into()));
+        match delta {
+            Some(_) => headers.push(("Vary", "Accept-Encoding, Available-Dictionary".into())),
+            None if compressible => headers.push(("Vary", "Accept-Encoding".into())),
+            None => {}
         }
-        let fresh = encode::none_match(request.if_none_match.as_deref(), &served.etag);
+        match (delta, served.encoding) {
+            (Some(_), _) => headers.push(("Content-Encoding", "dcb".into())),
+            (None, Some(encoding)) => headers.push(("Content-Encoding", encoding.name().into())),
+            (None, None) => {}
+        }
+        let fresh = encode::none_match(request.if_none_match.as_deref(), &etag);
         return Response {
             status: if fresh { 304 } else { 200 },
             headers,
-            body: served.body.to_vec(),
+            body: delta.map_or_else(|| served.body.to_vec(), <[u8]>::to_vec),
             file: None,
         };
     }
@@ -1105,6 +1148,18 @@ fn hex(bytes: &[u8]) -> String {
 
 /// A file `dist` serves as it is: anything under `/.exact/`, and any other
 /// file but a page (`.html`), which is rendered. Never outside `dist`.
+/// Whether `target` names the build whose ETag is `tag`: the web build asks
+/// for `app.wasm?v=` and the first 16 hex digits of its SHA-256, and a URL
+/// that names its content may be cached for good.
+fn named_build(target: &str, tag: &str) -> bool {
+    target.split_once('?').is_some_and(|(_, query)| {
+        query.split('&').any(|pair| {
+            pair.strip_prefix("v=")
+                .is_some_and(|v| v.len() == 16 && tag.starts_with(v))
+        })
+    })
+}
+
 fn static_file(dist: &Path, path: &str) -> Option<(PathBuf, &'static str)> {
     let decoded = percent_decode(path, false)?;
     if decoded.split('/').any(|part| part == ".." || part == ".") || decoded.contains('\\') {

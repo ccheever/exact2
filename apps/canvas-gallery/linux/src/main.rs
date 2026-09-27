@@ -1,0 +1,18 @@
+//! The Canvas gallery on Linux: its TypeScript data module draws every
+//! canvas (LLP 1056), replayed into tiny-skia.
+
+include!(concat!(env!("OUT_DIR"), "/module.rs"));
+const PLAN: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"));
+const COMPAT: &str = include_str!(concat!(env!("OUT_DIR"), "/compat.json"));
+const BYTECODE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc"));
+
+type ExactEmbeddedData = exact_js::Placed<exact_js::Module>;
+fn embedded_data() -> ExactEmbeddedData {
+    exact_js::Module::new(BYTECODE.to_vec(), APP, GRANTS)
+        .with_canvas_surfaces(CANVAS_SURFACES)
+        .placed(TYPESCRIPT_PLACEMENT)
+}
+include!(concat!(env!("OUT_DIR"), "/logic.rs"));
+fn main() {
+    std::process::exit(exact_linux::run::<AppData>(PLAN, COMPAT));
+}

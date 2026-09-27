@@ -499,7 +499,7 @@ fn paragraph_batches_preserve_inline_identity_and_replace_the_complete_run_table
     assert_eq!(count(&host.resize(420.0, 800.0), "paragraph"), 0);
 }
 
-/// LLP 1055: Swift paints a run from its `text` prop, so the prop crosses as
+/// LLP 1064: Swift paints a run from its `text` prop, so the prop crosses as
 /// the string the kernel measured — `text-transform` applied, a word split
 /// across runs one word, a field's value as typed — and an ancestor's change
 /// re-sends it. `box-shadow` crosses as its four rows.

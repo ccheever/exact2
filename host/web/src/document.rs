@@ -53,7 +53,7 @@ pub struct Document {
     /// head node has no element in the root.
     pub head: exact_runner::Head,
     /// Every `@keyframes` rule an element's `animation` names, once each
-    /// (LLP 1057 D5), for the head: a reader without JavaScript sees it play.
+    /// (LLP 1055 D7), for the head: a reader without JavaScript sees it play.
     pub keyframes: String,
 }
 
@@ -146,7 +146,7 @@ struct Route {
 /// would compute again for the same views of the same tree (`Host::create`).
 /// Last visited first: the first batch creates views in the order the
 /// projection visits them, and takes each from the end.
-pub(crate) type Computed = Vec<(ViewId, &'static str, SortedMap<String, String>, String)>;
+pub(crate) type Computed = Vec<(ViewId, String, SortedMap<String, String>, String)>;
 
 struct Walk<'r, D: DataSource> {
     runner: &'r Runner<D>,
@@ -181,10 +181,22 @@ impl<D: DataSource> Walk<'_, D> {
             "button" if self.buttons > 0 => return Err(refuse("a button inside a button")),
             _ => {}
         }
-        let props = props_for(&node);
-        let (text, _) = css::css_text(node.style, &self.fonts);
-        for (name, rule) in css::keyframes_rules(node.style) {
-            self.keyframes.insert(name, rule);
+        let mut props = props_for(&node);
+        super::svg_props(kernel, &node, &mut props);
+        let (text, _) = css::css_text(&super::css_style(kernel, &node), &self.fonts);
+        // The rules its animations name, for the head: a reader without
+        // JavaScript sees them play (LLP 1055 D7).
+        for a in node
+            .style
+            .animation
+            .0
+            .iter()
+            .chain(&node.style.exit_animation.0)
+        {
+            if self.keyframes.get(&a.name).is_none() {
+                let rule = format!("@keyframes {}{{{}}}", a.name, a.keyframes.css());
+                self.keyframes.insert(a.name.clone(), rule);
+            }
         }
         let mut style = host_css(&node, text, tag);
         let kept = self.computed.is_some().then(|| style.clone());
@@ -195,7 +207,6 @@ impl<D: DataSource> Walk<'_, D> {
         let mut attrs: Vec<(String, Option<String>)> = Vec::new();
         let mut content: Option<String> = None;
         let mut markup: Option<String> = None;
-        let mut vector: Option<String> = None;
         for (name, value) in &props {
             match name.as_str() {
                 // Browser-owned state the glue keeps in JavaScript.
@@ -211,8 +222,6 @@ impl<D: DataSource> Walk<'_, D> {
                     }
                 }
                 "markupPieces" => markup = Some(value.clone()),
-                // `glue.js` sets it as `innerHTML`: kernel-made SVG (LLP 1065 D5).
-                "pathMarkup" => vector = Some(value.clone()),
                 "data-action" => {
                     attrs.push((name.clone(), Some(value.clone())));
                     style.push_str("touch-action:none;");
@@ -252,7 +261,7 @@ impl<D: DataSource> Walk<'_, D> {
             }
         }
         if let (Some(computed), Some(css)) = (self.computed.as_mut(), kept) {
-            computed.push((id, tag, props, css));
+            computed.push((id, tag.into(), props, css));
         }
         // `navigation.project`: routes other than the selected one (and the
         // one under a selected modal) are hidden; every route but the
@@ -302,9 +311,7 @@ impl<D: DataSource> Walk<'_, D> {
         if tag == "canvas" {
             self.out.push_str(SURFACE);
         }
-        if let Some(svg) = &vector {
-            self.out.push_str(svg);
-        } else if let (Some(json), true) = (&markup, children.is_empty()) {
+        if let (Some(json), true) = (&markup, children.is_empty()) {
             // `renderMarkup`; a node's children replace its pieces.
             self.markup(id, json)?;
         } else if let Some(text) = &content {

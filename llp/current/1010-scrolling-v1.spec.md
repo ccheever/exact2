@@ -1,1 +1,0 @@
-../1010-scrolling-v1.spec.md

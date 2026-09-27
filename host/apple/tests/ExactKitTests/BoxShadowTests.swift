@@ -6,7 +6,7 @@ import UIKit
 import AppKit
 #endif
 
-/// CSS `box-shadow` (LLP 1055 D2): the rows cast through one contentless
+/// CSS `box-shadow` (LLP 1064 D2): the rows cast through one contentless
 /// layer at the bottom of the node's own, from the rounded border box and
 /// masked to outside it; a node that clips its overflow clips its children
 /// in a box of their own, so the shadow still falls outside it. AppKit runs

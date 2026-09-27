@@ -1,0 +1,17 @@
+# Sparkline's data source (LLP 1055): deterministic coins whose price series
+# arrive as the polyline a web developer would compute, scaled to the chart.
+[package]
+name = "sparkline-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Sparkline's data source: deterministic coins with chart points"
+publish = false
+
+[lib]
+name = "sparkline_data"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }

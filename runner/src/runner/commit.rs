@@ -20,6 +20,7 @@ pub(super) struct Checkpoint {
     stale: Vec<bool>,
     store_readers: Vec<bool>,
     refresh_next: Vec<usize>,
+    reread_next: Vec<usize>,
     pending: Vec<PendingReq>,
     commands: usize,
 }
@@ -37,6 +38,7 @@ impl<D: DataSource> Runner<D> {
             stale: self.stale.clone(),
             store_readers: self.store_readers.clone(),
             refresh_next: self.refresh_next.clone(),
+            reread_next: self.reread_next.clone(),
             pending: self.pending.clone(),
             commands: self.commands.len(),
         }
@@ -65,6 +67,7 @@ impl<D: DataSource> Runner<D> {
                 self.stale = c.stale;
                 self.store_readers = c.store_readers;
                 self.refresh_next = c.refresh_next;
+                self.reread_next = c.reread_next;
                 self.pending = c.pending;
                 self.sync_pending_flags();
                 self.commands.truncate(c.commands);
@@ -474,7 +477,17 @@ impl<D: DataSource> Runner<D> {
                 self.pending_mut[*m] = true;
             }
         }
-        self.refresh_next = outcome.refreshes.iter().map(|r| *r as usize).collect();
+        // What the action refreshes, added to what is already waiting
+        // (LLP 1054.000.000 D2); and what each mutation it sent to declares
+        // it changes, read again now that every send has asked its source.
+        for r in outcome.refreshes.iter() {
+            self.force_refresh(*r as usize);
+        }
+        self.reread_next = outcome
+            .sends
+            .iter()
+            .flat_map(|(m, _, _)| self.declared_refreshes(*m as usize))
+            .collect();
         // A refusal from here is put back by the checkpoint (run_action);
         // row slots live in the tree, so they are undone here.
         if let Err(e) = self.router_change().and_then(|_| self.settle(false)) {
@@ -568,8 +581,27 @@ impl<D: DataSource> Runner<D> {
         self.sync_pending_flags();
     }
 
+    /// The resources mutation `m` declares it refreshes.
+    pub(super) fn declared_refreshes(&self, m: usize) -> Vec<usize> {
+        let range = self.plan.mutations[m].refreshes;
+        self.plan.mutation_refreshes[range.start as usize..(range.start + range.len) as usize]
+            .iter()
+            .map(|row| row.resource.0 as usize)
+            .collect()
+    }
+
+    /// Ask resource `r` again, forced, at the next settlement that can.
+    pub(super) fn force_refresh(&mut self, r: usize) {
+        if !self.refresh_next.contains(&r) {
+            self.refresh_next.push(r);
+        }
+    }
+
     /// Hand `request` to the host under a fresh ticket, replacing any
-    /// request in flight for the same target.
+    /// request in flight for the same target — unless only the arguments
+    /// moved and the request is the one already in flight (LLP 1054.000.000
+    /// D3, amending LLP 1016 D5): then that ticket is kept, to be parsed
+    /// with the newer arguments, and nothing is sent.
     pub(super) fn enqueue(
         &mut self,
         target: Target,
@@ -578,6 +610,27 @@ impl<D: DataSource> Runner<D> {
         request: Request,
         forced: bool,
     ) {
+        let keepable = matches!(target, Target::Resource(_))
+            && request.continuation.is_none()
+            && request.storage.is_none()
+            && request.surface.is_none();
+        if keepable && !forced {
+            if let Some(p) = self.pending.iter_mut().find(|p| {
+                p.target == target
+                    && !p.refused
+                    && p.refusal.is_none()
+                    && p.args != args
+                    && p.keepable.as_ref() == Some(&request)
+            }) {
+                p.args = args;
+                let ticket = p.ticket;
+                // A source that parks calls hears the kept ticket's newer
+                // arguments and drops the call parked under the old ones.
+                self.forgot = true;
+                self.log(super::lines::kept(ticket, &self.target_name(target)));
+                return;
+            }
+        }
         if let Some(pos) = self.pending.iter().position(|p| p.target == target) {
             let t = self.pending.remove(pos).ticket;
             self.forgot = true;
@@ -595,6 +648,7 @@ impl<D: DataSource> Runner<D> {
             source,
             args,
             continuation: request.continuation,
+            keepable: keepable.then(|| request.clone()),
         });
         self.requests.push(RequestOut {
             ticket,
@@ -778,14 +832,20 @@ impl<D: DataSource> Runner<D> {
                 self.keep_answer(i, &p.args, &value);
                 self.resources[i] = Some(ResourceState {
                     args: p.args,
-                    value,
+                    value: crate::held::Held::new(value),
                     store_revision: self.store.revision(),
+                    placeholder: false,
                 });
             }
             Target::Mutation(m) => {
                 let slot = self.mutation_slot(m)?;
                 self.slots[slot] = Value::some(value);
                 self.landed.push(m);
+                // The reply landed: what the mutation changed is asked again
+                // in this commit (LLP 1054.000.000 D1).
+                for r in self.declared_refreshes(m) {
+                    self.force_refresh(r);
+                }
             }
         }
         self.router_change().and_then(|_| self.settle(false))?;

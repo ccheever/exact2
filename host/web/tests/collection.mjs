@@ -89,7 +89,7 @@ const cdp = new Cdp(child.stdio[3], child.stdio[4]), errors = [];
 const exited = new Promise(r => child.on('exit', () => { cdp.fail('Chrome closed'); r(); }));
 try {
   const { targetInfos } = await cdp.send('Target.getTargets');
-  const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: targetInfos.find(t => t.type === 'page').targetId, flatten: true });
+  const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: (targetInfos.find(t => t.type === 'page') ?? await cdp.send('Target.createTarget', { url: 'about:blank' })).targetId, flatten: true });
   const call = (method, params) => cdp.send(method, params, sessionId);
   cdp.listeners.push(msg => {
     if (msg.sessionId !== sessionId) return;

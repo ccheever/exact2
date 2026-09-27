@@ -450,7 +450,7 @@ fn transparent_is_a_colour() {
     );
 }
 
-/// LLP 1056: `background-image` takes `none` or one gradient — as an
+/// LLP 1066: `background-image` takes `none` or one gradient — as an
 /// attribute, in a `style`, and in a conditional — and what no host draws
 /// is refused at compile time, by name.
 #[test]

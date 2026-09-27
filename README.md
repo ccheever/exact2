@@ -72,7 +72,10 @@ Links work without the runtime, which loads when the page is idle; a press
 made before it is ready is replayed once it is. Login and editing routes
 start the client normally. The renderer compresses what it sends (brotli, else
 gzip, by `Accept-Encoding`), and SIGTERM drains it. Reading-page transfer and
-the later runtime download are separate costs.
+the later runtime download are separate costs. With `--generations <dir>` it
+keeps the builds of `app.wasm` it has served, and a browser holding an earlier
+one gets the new build as a delta against it (LLP 1047.000 §9): after a
+one-line app change, 9.5 KB instead of 238.6.
 
 ## Inspect and format Contract
 

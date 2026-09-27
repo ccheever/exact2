@@ -287,10 +287,6 @@ impl<'a> Resolver<'a> {
                 None,
             );
         }
-        for marker in &self.file.markers {
-            self.graph
-                .define("marker", &marker.name, names.name(marker.span), None, None);
-        }
         for f in &self.file.fns {
             self.graph
                 .define("fn", &f.name, names.name(f.span), None, None);
@@ -509,7 +505,13 @@ impl<'a> Resolver<'a> {
                 for arg in &r.args {
                     self.expr(arg);
                 }
-                if let Some(p) = &r.placeholder {
+                // `empty(…)` is the compiler's constant, not a source
+                // (LLP 1054.000.002 D2).
+                if let Some(p) = r
+                    .placeholder
+                    .as_ref()
+                    .filter(|p| p.source != contract_types::placeholder::EMPTY)
+                {
                     self.graph
                         .source(&p.source, self.file.names.sources[&p.span]);
                     for arg in &p.args {

@@ -754,6 +754,40 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
         self.javascript.ready() && self.rust.ready()
     }
 
+    /// Both halves' rosters (LLP 1056 D1); a name in both is the bake's
+    /// refusal, and the TypeScript half's here.
+    fn canvas_surfaces(&self) -> Vec<(String, usize)> {
+        let mut all = self.javascript.canvas_surfaces();
+        for s in self.rust.canvas_surfaces() {
+            if !all.iter().any(|(n, _)| *n == s.0) {
+                all.push(s);
+            }
+        }
+        all
+    }
+
+    fn draw(
+        &mut self,
+        request: &exact_runner::DrawRequest<'_>,
+        ctx: &exact_runner::exact_canvas::Context2d,
+    ) -> exact_runner::Drawn {
+        let javascript = self
+            .javascript
+            .canvas_surfaces()
+            .iter()
+            .any(|(n, _)| n == request.surface);
+        if javascript {
+            self.javascript.draw(request, ctx)
+        } else {
+            self.rust.draw(request, ctx)
+        }
+    }
+
+    fn canvases_retired(&mut self, retired: &[(u64, u32)]) {
+        self.javascript.canvases_retired(retired);
+        self.rust.canvases_retired(retired);
+    }
+
     /// Stops whichever child is running a call.
     /// Only TypeScript calls `native.later`; a Rust source calls its own code.
     fn native(&self) -> Option<exact_runner::Native> {
@@ -773,6 +807,14 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
     fn bind(&mut self, plan: &Plan) {
         self.javascript.bind(plan);
         self.rust.bind(plan);
+    }
+
+    fn adopt(&mut self, source: &str, args: &[Value], value: &Value) {
+        match self.owner(source) {
+            Ok(true) => self.rust.adopt(source, args, value),
+            Ok(false) => self.javascript.adopt(source, args, value),
+            Err(_) => {}
+        }
     }
 
     fn activate(&mut self) -> Result<(), DataError> {

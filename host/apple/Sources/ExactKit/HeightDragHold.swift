@@ -14,7 +14,10 @@ final class HeightDragHold {
     private var finishing = false
     private var pin: UInt64?
     private var lastDisplacement = 0.0
-    private var samples: HeightDragVelocity
+    /// The newest shown height and its time; the release velocity is the
+    /// engine's, over the heights shown (LLP 1057.001 §3).
+    private var shown: Double
+    private var time: Double
     private var queued = false
     private var pendingMove: (Double, Double)?
     private var pendingEnd: (Double, Double, Bool)?
@@ -32,7 +35,7 @@ final class HeightDragHold {
             session.apply(batch); return nil
         }
         primary = hold; self.mapping = mapping
-        samples = HeightDragVelocity(height: hold.x, time: time)
+        shown = hold.x; self.time = time
         let previous = session.heightInputHold
         session.heightInputHold = self
         session.apply(batch)
@@ -66,8 +69,8 @@ final class HeightDragHold {
             else if let move { _ = self.move(downward: move.0, time: move.1) }
         }
     }
-    @discardableResult func move(downward: Double, time: Double, ending: Bool = false) -> Bool {
-        guard !ended, pendingEnd == nil, time.isFinite, time >= samples.time,
+    @discardableResult func move(downward: Double, time: Double) -> Bool {
+        guard !ended, pendingEnd == nil, time.isFinite, time >= self.time,
               let height = mapping.value(downward: downward), let session else { return false }
         if session.isApplyingPresentation || queued {
             pendingMove = (downward, time); schedule(); return true
@@ -76,9 +79,7 @@ final class HeightDragHold {
         let batch = session.runtime.heightDragUpdate(primary.token, height: height, now: session.now())
         session.apply(batch)
         guard batch.error == nil, live, eligible, let target else { return false }
-        let displayed = Double(target.bounds.height)
-        // Derivative follows actual constrained presentation, including min/max.
-        samples.record(height: displayed, time: time, ending: ending)
+        shown = Double(target.bounds.height); self.time = time
         lastDisplacement = downward
         return true
     }
@@ -88,21 +89,17 @@ final class HeightDragHold {
             pendingEnd = (downward, time, cancel); schedule(); return
         }
         finishing = true
-        let updated = !cancel && move(downward: downward, time: time, ending: true)
-        let velocity = samples.velocity
+        let updated = !cancel && move(downward: downward, time: time)
         guard let session else { ended = true; return }
-        if updated, live, eligible, velocity.isFinite {
-            session.apply(session.runtime.heightDragRelease(primary.token,
-                height: samples.height, velocity: velocity, now: session.now()))
+        if updated, live, eligible {
+            session.apply(session.runtime.heightDragRelease(primary.token, height: shown, now: session.now()))
         }
         ended = true
         if session.heightInputHold === self { session.heightInputHold = nil }
         if incarnationLive {
-            session.apply(session.runtime.holdEnd(primary.token,
-                cancel: cancel || !updated || !velocity.isFinite,
-                vx: velocity.isFinite ? velocity : 0, now: session.now()))
+            session.apply(session.runtime.holdEnd(primary.token, cancel: cancel || !updated, measured: true, now: session.now()))
             session.presenter.collections.releaseInteractionLater(ifCurrent: pin)
         }
     }
-    func cancel() { finish(downward: lastDisplacement, time: samples.time, cancel: true) }
+    func cancel() { finish(downward: lastDisplacement, time: time, cancel: true) }
 }

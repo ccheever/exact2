@@ -1,6 +1,7 @@
-//! Keyframe animations on the web (LLP 1057 D5): the browser plays them. The
-//! host sends each `@keyframes` rule once, named by its content, ahead of the
-//! `animation` declaration that uses it; nothing runs per frame.
+//! Keyframe animations on the web (LLP 1055 D7): the browser plays them. The
+//! host sends each `@keyframes` rule once, by its name, ahead of the
+//! `animation` declaration that uses it; nothing runs per frame. A projected
+//! document carries the rules in its head.
 
 use exact_runner::{DataError, DataSource, Event, Value};
 use exact_web::Host;
@@ -44,25 +45,23 @@ fn each_rule_reaches_the_page_once_before_the_declaration_naming_it() {
     let [(breathe, breathe_rule), (appear, appear_rule)] = sent.as_slice() else {
         panic!("{first}")
     };
-    assert!(breathe.starts_with("breathe-") && breathe.len() == "breathe-".len() + 8);
+    // By the authored name: keyframes are global by name (LLP 1055 D5, D7).
+    assert_eq!((breathe.as_str(), appear.as_str()), ("breathe", "appear"));
     assert_eq!(
         breathe_rule,
-        &format!("@keyframes {breathe}{{0%{{opacity:0.4;scale:0.9;}}50%{{opacity:1;}}100%{{opacity:0.4;}}}}")
+        "0%{opacity:0.4;scale:0.9;}50%{opacity:1;}100%{opacity:0.4;}"
     );
     assert_eq!(
         appear_rule,
-        &format!("@keyframes {appear}{{0%{{opacity:0;translate:0px 8px;animation-timing-function:ease-out;}}}}")
+        "0%{animation-timing-function:ease-out;opacity:0;translate:0px 8px;}"
     );
-    let declaration =
-        format!("animation:{breathe} 1.6s ease-in-out 0s infinite normal none running;");
-    assert!(first.contains(&declaration), "{first}");
+    let declaration = "animation:1.6s ease-in-out 0s infinite normal none running breathe;";
+    assert!(first.contains(declaration), "{first}");
     assert!(
-        first.find(breathe_rule.as_str()) < first.find(&declaration),
+        first.find(breathe_rule.as_str()) < first.find(declaration),
         "the rule precedes its first use"
     );
-    assert!(first.contains(&format!(
-        "animation:{appear} 0.3s ease 0s 1 normal both running;"
-    )));
+    assert!(first.contains("animation:0.3s ease 0s 1 normal both running appear;"));
     assert!(
         !first.contains("\"op\":\"animate\""),
         "the browser plays it; no frames"
@@ -70,16 +69,19 @@ fn each_rule_reaches_the_page_once_before_the_declaration_naming_it() {
 
     // A projected document carries the same rules in its head.
     let document = host.document().unwrap();
-    assert_eq!(document.keyframes, format!("{appear_rule}{breathe_rule}"));
-    assert!(document.root.contains(&declaration));
+    assert_eq!(
+        document.keyframes,
+        format!("@keyframes appear{{{appear_rule}}}@keyframes breathe{{{breathe_rule}}}")
+    );
+    assert!(document.root.contains(declaration));
 
     // `none` takes the declaration away; back again, the rule is already there.
     let k = host.runner().kernel();
     let toggle = k.node_by_key(k.find_by_test_id("toggle")[0]).unwrap().id;
     let off = host.dispatch_at(toggle, Event::Press, 100.0);
-    assert!(!off.contains(&declaration), "{off}");
+    assert!(!off.contains(declaration), "{off}");
     assert!(rules(&off).is_empty());
     let on = host.dispatch_at(toggle, Event::Press, 200.0);
-    assert!(on.contains(&declaration), "{on}");
+    assert!(on.contains(declaration), "{on}");
     assert!(rules(&on).is_empty(), "sent once: {on}");
 }

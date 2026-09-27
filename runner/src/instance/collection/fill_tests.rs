@@ -34,13 +34,13 @@ fn a_limited_report_builds_what_it_owes_then_leads_in_travel_order() {
         [130, 131]
     );
     assert_eq!(
-        settled.iter().filter(|i| !now.contains(i)).count(),
-        4,
-        "retirement is bounded"
-    );
-    assert!(
-        !now.contains(&90) && now.contains(&94),
-        "the farthest rows retire first"
+        settled
+            .iter()
+            .copied()
+            .filter(|i| !now.contains(i))
+            .collect::<Vec<_>>(),
+        (90..99).collect::<Vec<_>>(),
+        "rows two viewports past what shows retire at once, past the cap"
     );
     assert!(h.snapshot().pending);
     assert!(
@@ -126,4 +126,67 @@ fn travel_inside_the_realized_window_moves_only_the_geometry() {
             .collect::<Vec<_>>()
     };
     assert_eq!(rows(h.snapshot()), rows(fresh.snapshot()));
+}
+
+#[test]
+fn a_limited_report_retires_nearer_rows_at_its_cap() {
+    let mut h = Harness::new(1_000, false, false);
+    let rows = |h: &Harness| {
+        h.snapshot()
+            .rows
+            .iter()
+            .map(|r| r.index)
+            .collect::<Vec<_>>()
+    };
+    h.send(h.feedback(3200.0));
+    let settled = rows(&h);
+    // One viewport down: rows 90..99 leave the window, none of them two
+    // viewports away, so a report that may build two retires four.
+    let down = CollectionFill {
+        velocity: 1_600.0,
+        limit: Some(2),
+    };
+    h.send_filled(h.feedback(3520.0), down);
+    let now = rows(&h);
+    assert_eq!(
+        settled.iter().filter(|i| !now.contains(i)).count(),
+        4,
+        "retirement is bounded"
+    );
+    assert!(
+        !now.contains(&90) && now.contains(&94),
+        "the farthest rows retire first"
+    );
+    assert!(h.snapshot().pending);
+}
+
+#[test]
+fn rows_kept_past_the_window_never_outnumber_the_window() {
+    let mut h = Harness::new(5_000, false, false);
+    h.send(h.feedback(3200.0));
+    let settled = h.snapshot().rows.len();
+    // Travel that outruns the fill: every report is a rescue (limit 0),
+    // and each lands a viewport and more past the last.
+    let rescue = CollectionFill {
+        velocity: 48_000.0,
+        limit: Some(0),
+    };
+    for step in 1..=40 {
+        let top = 3200.0 + 400.0 * step as f64;
+        h.send_filled(h.feedback(top), rescue);
+        let rows: Vec<usize> = h.snapshot().rows.iter().map(|r| r.index).collect();
+        let first = (top / 32.0) as usize;
+        assert!(
+            (first..first + 10).all(|i| rows.contains(&i)),
+            "the visible rows are owed: {rows:?}"
+        );
+        assert!(
+            rows.len() <= 2 * settled,
+            "report {step}: {} rows mounted, the window settled at {settled}",
+            rows.len()
+        );
+    }
+    // At rest an unlimited report retires everything past the window.
+    h.send(h.feedback(3200.0 + 400.0 * 40.0));
+    assert_eq!(h.snapshot().rows.len(), settled);
 }

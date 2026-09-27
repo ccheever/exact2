@@ -700,11 +700,11 @@ fn a_refused_initial_layout_releases_no_network_requests() {
             plan.resources[1].initial.offset = plan.data.len() as u32;
             plan.resources[1].initial.len = initial.len() as u32;
             plan.resources[1].reader = seed.resources[1].reader;
-            plan.data.extend_from_slice(initial);
+            plan.data.to_mut().extend_from_slice(initial);
             let initial_args = seed.bytes(seed.resources[1].initial_args);
             plan.resources[1].initial_args.offset = plan.data.len() as u32;
             plan.resources[1].initial_args.len = initial_args.len() as u32;
-            plan.data.extend_from_slice(initial_args);
+            plan.data.to_mut().extend_from_slice(initial_args);
             let plan = plan.encode();
             let client = stage(&root, &baked, &plan, &[]);
             let mut config = selected_config(&root, &baked, client);

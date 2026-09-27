@@ -24,6 +24,9 @@ struct TextRasterImage {
     let surface: IOSurface
     #endif
     let frame: CGRect
+    /// The part of the box these pixels answer for: the box and any ink past
+    /// it, within a band's clip. `frame` is the same unless the job crops.
+    let covered: CGRect
 }
 
 struct TextRasterJob {
@@ -35,11 +38,17 @@ struct TextRasterJob {
     let size: CGSize
     let scale: CGFloat
     var clip: CGRect? = nil
+    /// CSS `text-overflow: ellipsis`: a line wider than the box ends in "…"
+    /// as it paints (`Paragraph.ellipsized`, the draw path's).
+    var ellipsis = false
+    /// Pixels only where lines paint (their ink and line boxes), not the
+    /// whole box: a label stretched across a row keeps a bitmap of its text.
+    var crop = false
 
     static let maxInkOverflow: CGFloat = 256
     private static let space = CGColorSpace(name: CGColorSpace.sRGB)!
     func render(lines reused: [CTLine]? = nil) -> TextRasterImage? {
-        let lines: [CTLine]
+        var lines: [CTLine]
         if let reused {
             precondition(Thread.isMainThread, "cached lines stay on their owning thread")
             lines = reused
@@ -51,25 +60,46 @@ struct TextRasterJob {
             CGPoint(x: box.minX + CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(box.width))),
                     y: box.minY + baseline.rounded())
         }
+        if ellipsis {
+            lines = lines.map { line in
+                guard CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) - CTLineGetTrailingWhitespaceWidth(line) > box.width + 0.5 else { return line }
+                let range = CTLineGetStringRange(line)
+                return TextEngine.ellipsis(line, range: NSRange(location: range.location, length: range.length),
+                                           width: Double(box.width), source: source) ?? line
+            }
+        }
         // CSS line boxes size layout, not ink. Tight line heights and italic
         // overhang can paint beyond any edge; include that ink in the bitmap.
         let bounds = CGRect(origin: .zero, size: size)
-        var frame = bounds
+        var painted = CGRect.null
         for (line, position) in zip(lines, positions) {
             let ink = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
             if !ink.isNull, !ink.isEmpty {
-                frame = frame.union(CGRect(x: position.x + ink.minX, y: position.y - ink.maxY,
-                                           width: ink.width, height: ink.height).insetBy(dx: -1 / scale, dy: -1 / scale))
+                painted = painted.union(CGRect(x: position.x + ink.minX, y: position.y - ink.maxY,
+                                               width: ink.width, height: ink.height).insetBy(dx: -1 / scale, dy: -1 / scale))
             }
-            for (fill, _) in TextLinePaint.backgrounds(line, at: position) { frame = frame.union(fill) }
+            if crop {
+                // The line box too: decorations paint in it, outside the glyphs.
+                var ascent: CGFloat = 0, descent: CGFloat = 0
+                let width = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, nil))
+                if width > 0 { painted = painted.union(CGRect(x: position.x, y: position.y - ascent, width: width, height: ascent + descent)) }
+            }
+            for (fill, _) in TextLinePaint.backgrounds(line, at: position) { painted = painted.union(fill) }
         }
-        frame = frame.intersection(bounds.insetBy(dx: -Self.maxInkOverflow, dy: -Self.maxInkOverflow))
-        if let clip { frame = frame.intersection(clip) }
-        if frame != bounds {
-            let left = floor(frame.minX * scale) / scale
-            let top = floor(frame.minY * scale) / scale
-            frame = CGRect(x: left, y: top, width: ceil(frame.maxX * scale) / scale - left,
-                           height: ceil(frame.maxY * scale) / scale - top)
+        func aligned(_ r: CGRect) -> CGRect {
+            var r = r.intersection(bounds.insetBy(dx: -Self.maxInkOverflow, dy: -Self.maxInkOverflow))
+            if let clip { r = r.intersection(clip) }
+            guard r != bounds, !r.isNull else { return r }
+            let left = floor(r.minX * scale) / scale
+            let top = floor(r.minY * scale) / scale
+            return CGRect(x: left, y: top, width: ceil(r.maxX * scale) / scale - left,
+                          height: ceil(r.maxY * scale) / scale - top)
+        }
+        let covered = aligned(painted.isNull ? bounds : bounds.union(painted))
+        var frame = covered
+        if crop, !painted.isNull {
+            let ink = aligned(painted)
+            if !ink.isNull, !ink.isEmpty { frame = ink }
         }
         let pixelWidth = (frame.width * scale).rounded(.up)
         let pixelHeight = (frame.height * scale).rounded(.up)
@@ -92,24 +122,37 @@ struct TextRasterJob {
                                   bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
         else { return nil }
         #else
-        // UIKit accepts a CGImage. Let Core Graphics own its storage; an image
-        // made from an externally backed IOSurface must not outlive that surface.
-        guard let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
-                                  bytesPerRow: width * 4, space: Self.space,
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
-        else { return nil }
+        // UIKit accepts a CGImage. Paint into a scratch bitmap and keep Core
+        // Graphics' copy of it (`makeImage`), as ImageIO does for a decoded
+        // image: Core Animation shares that memory with the render server as
+        // it is. A context's own buffer would stay the image's copy-on-write
+        // storage, and be copied again at the layer's first commit.
+        // Rows padded to 64 bytes, as Core Animation needs to take them as they are.
+        let (row, rowOverflow) = (width * 4).addingReportingOverflow(63)
+        let (bytes, overflow) = (row & ~63).multipliedReportingOverflow(by: height)
+        guard !rowOverflow, !overflow else { return nil }
+        return withScratch(bytes) { scratch -> TextRasterImage? in
+            guard let ctx = CGContext(data: scratch, width: width, height: height, bitsPerComponent: 8,
+                                      bytesPerRow: row & ~63, space: Self.space,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+            else { return nil }
+            paint(lines, positions, frame: frame, height: height, scale: scale, into: ctx)
+            guard let image = ctx.makeImage() else { return nil }
+            return TextRasterImage(image: image, frame: frame, covered: covered)
+        }
         #endif
+        #if os(macOS)
+        paint(lines, positions, frame: frame, height: height, scale: scale, into: ctx)
+        return TextRasterImage(surface: surface, frame: frame, covered: covered)
+        #endif
+    }
+
+    private func paint(_ lines: [CTLine], _ positions: [CGPoint], frame: CGRect, height: Int, scale: CGFloat, into ctx: CGContext) {
         ctx.translateBy(x: 0, y: CGFloat(height))
         ctx.scaleBy(x: scale, y: -scale)
         ctx.translateBy(x: -frame.minX, y: -frame.minY)
         ctx.setShouldSmoothFonts(true)
         for (line, position) in zip(lines, positions) { TextLinePaint.draw(line, at: position, in: ctx) }
         ctx.flush()
-        #if os(iOS)
-        guard let image = ctx.makeImage() else { return nil }
-        return TextRasterImage(image: image, frame: frame)
-        #else
-        return TextRasterImage(surface: surface, frame: frame)
-        #endif
     }
 }

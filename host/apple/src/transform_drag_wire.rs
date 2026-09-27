@@ -1,4 +1,5 @@
-//! The frozen120-byte v2 transform packet.
+//! The frozen 120-byte v2 transform packet; op 13's velocities are measured
+//! by the engine, so the packet's three velocity slots must be zero.
 use exact_kernel::{NodeKey, TransformDragBinding};
 use exact_motion::Value;
 use exact_runner::Event;
@@ -86,8 +87,7 @@ impl Input {
         }
         let unused = match self.op {
             10 => 4,
-            11 | 12 => 3,
-            13 => 6,
+            11..=13 => 3,
             _ => 0,
         };
         if self.values[unused..].iter().any(|v| *v != 0.0) {

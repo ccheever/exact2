@@ -413,8 +413,26 @@ fn zoom_action_changes_latest_target_but_not_pair_presentation_and_release_fires
     p.op = 13;
     p.values = [23.75, -8.25, 1.375, 30.0, -10.0, 0.0];
     p.now = 110.0;
+    assert!(
+        p.send(&mut host)
+            .contains("unused transform values must be zero"),
+        "op 13's velocities are the engine's, never the packet's"
+    );
+    p.values = [23.75, -8.25, 1.375, 0.0, 0.0, 0.0];
     let reply = p.send(&mut host);
     accepted(&reply);
+    let measured: Vec<f64> = reply
+        .split("\"velocity\":[")
+        .nth(1)
+        .and_then(|v| v.split(']').next())
+        .unwrap_or_else(|| panic!("{reply}"))
+        .split(',')
+        .map(|v| v.parse().unwrap())
+        .collect();
+    // LLP 1057.001 §3: begin at 100 ms, terminal at 110 ms.
+    assert!((measured[0] - 1050.0).abs() < 1e-6, "{measured:?}");
+    assert!((measured[1] + 75.0).abs() < 1e-6, "{measured:?}");
+    assert_eq!(measured[2], 0.0);
     assert!(reply.contains("\"dispatched\":true"), "{reply}");
     assert!(reply.contains("\"committed\":true"), "{reply}");
     assert_eq!(count(&host, "released"), 1.0);

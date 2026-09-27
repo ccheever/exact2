@@ -65,6 +65,9 @@ pub struct CommitReceipt {
     pub layout_invalidated: bool,
     /// The destroyed nodes that play an exit before a host removes them.
     pub exits: Vec<Exit>,
+    /// Live nodes whose `display` changed: their descendants' animations
+    /// are cancelled or restarted (LLP 1055.000 D15; CSS Animations 1 §3).
+    pub display_changed: Vec<NodeKey>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -373,20 +376,22 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                         });
                     }
                     let child_type = staged.require(op_index, *child)?;
-                    if node_type == NodeType::Path && child_type != NodeType::Path {
-                        return Err(ApplyError::PathChildNotPath {
-                            op_index,
-                            parent: *id,
-                            child: *child,
-                            node_type: child_type,
-                        });
-                    }
                     if node_type == NodeType::Text && child_type != NodeType::Text {
                         return Err(ApplyError::InlineRunNotText {
                             op_index,
                             parent: *id,
                             child: *child,
                             node_type: child_type,
+                        });
+                    }
+                    // @ref LLP 1055 D3 — an `svg` or `g` holds SVG elements
+                    // and nothing else; an SVG element lives only there.
+                    let svg_parent = node_type.is_svg_container();
+                    if svg_parent != child_type.is_svg_element() {
+                        return Err(ApplyError::SvgContent {
+                            op_index,
+                            parent: *id,
+                            child: *child,
                         });
                     }
                     if staged.is_root(*child) {
@@ -534,6 +539,9 @@ pub fn apply(
                         if let Some(test_id) = arena.props(s).str(PropId::TestId) {
                             detach.selectors.push((test_id.to_string(), s));
                         }
+                        if let Some(id) = arena.props(s).str(PropId::Id) {
+                            detach.selectors.push((SelectorIndex::id_key(id), s));
+                        }
                         if let Some(node) = arena.taffy(s) {
                             detach.nodes.push(node);
                         }
@@ -556,7 +564,15 @@ pub fn apply(
                             value.as_str(),
                         );
                     }
+                    if *prop == PropId::Id {
+                        selectors.update_id(
+                            slot,
+                            old.as_ref().and_then(|v| v.as_str()),
+                            value.as_str(),
+                        );
+                    }
                     arena.flags_mut(slot).insert(NodeFlags::PROPS_DIRTY);
+                    view_box_changed(arena, layout, slot, *prop, &mut receipt);
                     if prop.affects_measure() {
                         invalidate_text(arena, layout, slot);
                         receipt.layout_invalidated = true;
@@ -567,7 +583,6 @@ pub fn apply(
                         }
                     }
                     touched.push(arena.key(slot));
-                    group_changed(arena, layout, slot, &mut touched);
                 }
                 Op::ClearProp { id, prop } => {
                     let slot = live_slot(arena, op_index, *id)?;
@@ -575,7 +590,11 @@ pub fn apply(
                         if *prop == PropId::TestId {
                             selectors.update(slot, old.as_str(), None);
                         }
+                        if *prop == PropId::Id {
+                            selectors.update_id(slot, old.as_str(), None);
+                        }
                         arena.flags_mut(slot).insert(NodeFlags::PROPS_DIRTY);
+                        view_box_changed(arena, layout, slot, *prop, &mut receipt);
                         if prop.affects_measure() {
                             invalidate_text(arena, layout, slot);
                             receipt.layout_invalidated = true;
@@ -586,7 +605,6 @@ pub fn apply(
                             }
                         }
                         touched.push(arena.key(slot));
-                        group_changed(arena, layout, slot, &mut touched);
                     }
                 }
                 Op::SetStyle { id, patch } => {
@@ -598,10 +616,12 @@ pub fn apply(
                     let excluded = crate::flow::is_exclusion(arena, slot);
                     arena.style_mut(slot).apply_patch(patch);
                     arena.update_exclusion_count(slot, excluded);
+                    if changed.has(crate::StyleId::Display) {
+                        receipt.display_changed.push(arena.key(slot));
+                    }
                     style_changed(arena, layout, slot, changed, &mut receipt);
                     touched.push(arena.key(slot));
                     propagate_inherited(arena, layout, slot, changed, &mut touched, &mut receipt);
-                    group_changed(arena, layout, slot, &mut touched);
                 }
                 Op::ClearStyle { id, mask } => {
                     let slot = live_slot(arena, op_index, *id)?;
@@ -612,10 +632,12 @@ pub fn apply(
                     let excluded = crate::flow::is_exclusion(arena, slot);
                     arena.style_mut(slot).clear(*mask);
                     arena.update_exclusion_count(slot, excluded);
+                    if changed.has(crate::StyleId::Display) {
+                        receipt.display_changed.push(arena.key(slot));
+                    }
                     style_changed(arena, layout, slot, changed, &mut receipt);
                     touched.push(arena.key(slot));
                     propagate_inherited(arena, layout, slot, changed, &mut touched, &mut receipt);
-                    group_changed(arena, layout, slot, &mut touched);
                 }
                 Op::SetChildren { id, children } => {
                     let slot = live_slot(arena, op_index, *id)?;
@@ -684,14 +706,6 @@ pub fn apply(
                         sync_children(arena, layout, p);
                         arena.flags_mut(p).insert(NodeFlags::CHILDREN_DIRTY);
                         touched.push(arena.key(p));
-                    }
-                    // A path that arrives in or leaves a path is laid out anew.
-                    for n in new.iter().chain(&old) {
-                        if arena.node_type(*n) == NodeType::Path {
-                            if let Some(node) = arena.taffy(*n) {
-                                layout.restyle(arena, *n, node);
-                            }
-                        }
                     }
                     arena.set_children(slot, new);
                     sync_children(arena, layout, slot);
@@ -954,6 +968,26 @@ fn inherited_after_move(
     }
 }
 
+/// An `svg`'s `viewBox` is its natural aspect ratio (LLP 1055.000 D4): a
+/// change restyles and re-measures the box.
+fn view_box_changed(
+    arena: &mut NodeArena,
+    layout: &mut dyn LayoutMirror,
+    slot: u32,
+    prop: PropId,
+    receipt: &mut CommitReceipt,
+) {
+    if prop != PropId::ViewBox || arena.node_type(slot) != NodeType::Svg {
+        return;
+    }
+    arena.flags_mut(slot).insert(NodeFlags::STYLE_DIRTY);
+    if let Some(node) = arena.taffy(slot) {
+        layout.restyle(arena, slot, node);
+        layout.mark_dirty(node);
+    }
+    receipt.layout_invalidated = true;
+}
+
 fn style_changed(
     arena: &mut NodeArena,
     layout: &mut dyn LayoutMirror,
@@ -977,28 +1011,6 @@ fn style_changed(
         if !mask.intersects(StyleMask::TEXT) {
             arena.revise_text(slot, false);
         }
-    }
-}
-
-/// A path's paths draw in its coordinate system over its content box (LLP
-/// 1065 D12): a change to it (its view box, its padding) re-derives theirs
-/// and touches them, so each host redraws them from the kernel.
-fn group_changed(
-    arena: &NodeArena,
-    layout: &mut dyn LayoutMirror,
-    slot: u32,
-    touched: &mut Vec<NodeKey>,
-) {
-    if arena.node_type(slot) != NodeType::Path {
-        return;
-    }
-    let mut stack = arena.children(slot).to_vec();
-    while let Some(s) = stack.pop() {
-        if let Some(node) = arena.taffy(s) {
-            layout.restyle(arena, s, node);
-        }
-        touched.push(arena.key(s));
-        stack.extend_from_slice(arena.children(s));
     }
 }
 

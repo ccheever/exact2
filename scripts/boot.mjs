@@ -18,7 +18,7 @@ const ALLOWED = new Set(['host/web/glue.js', 'host/web/navigation.js']);
 // app logic. Pinned by hash and byte-capped; changing it means changing this
 // hash, in review.
 const CAPTURE = { path: 'host/web/capture.js', maxBytes: 1024,
-  sha256: '223895fb3e0f2d2b166548bce23e69853c9d8d8090ff6d38bd63cf3f92f79a47' };
+  sha256: '9f2f1e8ebbc83b2c2f928627384bceb66d94dc174a8a284360765cdf30d10a55' };
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 
 // The page is deliberately small, so a fail-closed tokenizer is preferable

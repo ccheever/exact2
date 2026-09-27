@@ -1,4 +1,4 @@
-//! CSS `box-shadow`, one outer shadow (LLP 1055 D2): the border box's outline,
+//! CSS `box-shadow`, one outer shadow (LLP 1064 D2): the border box's outline,
 //! offset and blurred, painted only outside the border box, under the box.
 //!
 //! Neither backend has a blur, and a blurred picture per node would be a

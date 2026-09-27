@@ -1,316 +1,193 @@
-//! Keyframe animations: the row's text, CSS's timing model, and the engine
-//! under the seekable clock (LLP 1057).
+//! CSS animations in the engine (LLP 1055 D5, D7, D10): start on first sight,
+//! restart only when the name comes back, re-time in place, pause and resume,
+//! lowered hosts never sampled, and infinite animations never settle.
 
-use exact_motion::{
-    AnimationError, Animations, Change, Direction, Easing, Engine, EngineError, FillMode,
-    Keyframes, ParseError, PlayState, Property, TimingFunction, Transition, TransitionProperty,
-    Transitions, Value,
-};
+use exact_motion::{Animations, Change, Engine, Keyframes, Property, Value};
 
-const NODE: u64 = 9;
-const BREATHE: &str =
-    "@keyframes breathe{from{opacity:0.4;scale:0.9}50%{opacity:1;animation-timing-function:linear}to{opacity:0.4}}";
+const NODE: u64 = 3;
 
-fn animations(shorthand: &str) -> Animations {
-    Animations::parse(&format!("{shorthand} {BREATHE}")).unwrap()
+fn row(text: &str) -> Animations {
+    let fade = Keyframes::parse("from{opacity:0}to{opacity:1}").unwrap();
+    let grow = Keyframes::parse("from{r:3}to{r:9}").unwrap();
+    let mut a = Animations::parse(text).unwrap();
+    a.resolve(|name| match name {
+        "fade" => Some(&fade),
+        "grow" => Some(&grow),
+        _ => None,
+    });
+    a
 }
 
-fn close(actual: f64, expected: f64) {
-    assert!(
-        (actual - expected).abs() < 1e-9,
-        "expected {expected}, got {actual}"
-    );
+fn opacity(e: &mut Engine) -> Option<f64> {
+    e.frame()
+        .into_iter()
+        .find(|p| p.node == NODE && p.property == Property::Opacity)
+        .map(|p| p.value.x)
 }
 
-fn opacity(engine: &Engine) -> f64 {
-    engine.value(NODE, Property::Opacity).unwrap().x
-}
-
-/// An engine that knows the node's four rows at their CSS initial values.
-fn engine() -> Engine {
-    let mut engine = Engine::new();
-    for property in [
-        Property::Translate,
-        Property::Scale,
-        Property::Rotate,
-        Property::Opacity,
-    ] {
-        engine
-            .observe(Change {
-                node: NODE,
-                property,
-                value: property.identity().unwrap(),
-                velocity: None,
-            })
-            .unwrap();
-    }
-    engine.frame();
-    engine
-}
-
-#[test]
-fn the_shorthand_takes_every_longhand_in_any_order() {
-    let a = animations("infinite 250ms breathe alternate ease-in both 1s paused");
-    let a = &a.0[0];
-    assert_eq!(a.keyframes.name, "breathe");
-    close(a.duration, 0.25);
-    close(a.delay, 1.0);
-    assert_eq!(a.easing, Easing::EaseIn);
-    assert!(a.iterations.is_infinite());
-    assert_eq!(a.direction, Direction::Alternate);
-    assert_eq!(a.fill, FillMode::Both);
-    assert_eq!(a.play_state, PlayState::Paused);
-    // CSS's defaults: 0s, ease, 0s, 1, normal, none, running.
-    let a = &animations("breathe").0[0];
-    assert_eq!(
-        (a.duration, a.easing.clone(), a.delay, a.iterations),
-        (0.0, Easing::Ease, 0.0, 1.0)
-    );
-    assert_eq!(
-        (a.direction, a.fill, a.play_state),
-        (Direction::Normal, FillMode::None, PlayState::Running)
-    );
-    // The first `none` is the fill mode; only a second is the name.
-    assert_eq!(animations("none breathe 1s").0[0].fill, FillMode::None);
-    assert_eq!(animations("none none").0.len(), 0);
-    assert_eq!(Animations::parse("none").unwrap(), Animations::NONE);
-    assert_eq!(animations("breathe 1s, breathe 2s 1").0.len(), 2);
-}
-
-#[test]
-fn keyframes_sort_merge_and_name_their_blocks() {
-    let k = Keyframes::parse(
-        "@keyframes k{to{opacity:1}0%,50%{opacity:0;translate:4px}50%{translate:1px 2px;rotate:90deg}}",
-    )
+fn observe(e: &mut Engine, property: Property, value: f64) {
+    e.observe(Change {
+        node: NODE,
+        property,
+        value: Value::scalar(value),
+        velocity: None,
+    })
     .unwrap();
-    let offsets: Vec<f64> = k.blocks.iter().map(|b| b.offset).collect();
-    assert_eq!(offsets, [0.0, 0.5, 1.0]);
-    assert_eq!(
-        k.blocks[1].values,
-        [
-            (Property::Opacity, Value::scalar(0.0)),
-            (Property::Translate, Value::new(1.0, 2.0)),
-            (Property::Rotate, Value::scalar(90.0)),
-        ]
-    );
-    assert_eq!(
-        k.blocks[0].values[1],
-        (Property::Translate, Value::new(4.0, 0.0))
-    );
 }
 
 #[test]
-fn the_row_text_reads_back_as_the_same_row() {
-    for shorthand in [
-        "breathe 1.6s ease-in-out infinite",
-        "breathe 300ms cubic-bezier(0.4, 0, 0.2, 1) -100ms 2.5 alternate-reverse forwards",
-        "breathe 1s steps(4, jump-both), breathe 2s linear(0, 0.7 20%, 1) paused",
-    ] {
-        let a = animations(shorthand);
-        assert_eq!(Animations::parse(&a.text()).unwrap(), a, "{}", a.text());
-    }
-    assert_eq!(
-        animations("breathe 1.6s ease-in-out infinite").text(),
-        "breathe 1.6s ease-in-out 0s infinite normal none running \
-         @keyframes breathe{0%{opacity:0.4;scale:0.9;}50%{opacity:1;animation-timing-function:linear;}100%{opacity:0.4;}}"
-    );
-}
-
-#[test]
-fn what_css_refuses_is_refused_by_name() {
-    assert_eq!(
-        Animations::parse("pulse 1s"),
-        Err(ParseError::UnknownKeyframes("pulse".into()))
-    );
-    assert_eq!(
-        Animations::parse(&format!("breathe 1s spring(100, 10, 1) {BREATHE}")),
-        Err(ParseError::SpringInAnimation)
-    );
-    assert!(matches!(
-        Animations::parse(&format!("breathe 1s 2s 3s {BREATHE}")),
-        Err(ParseError::BadShape(_))
-    ));
-    assert_eq!(
-        Animations::parse(&format!("breathe -1s {BREATHE}")),
-        Err(ParseError::InvalidAnimation(
-            AnimationError::NegativeDuration
-        ))
-    );
-    assert_eq!(
-        Keyframes::parse("@keyframes k{0%{width:1}}"),
-        Err(ParseError::UnknownProperty("width".into()))
-    );
-    assert_eq!(
-        Keyframes::parse("@keyframes k{0%{height:1}}"),
-        Err(ParseError::InvalidAnimation(AnimationError::NotAnimatable(
-            Property::Height
-        )))
-    );
-    assert_eq!(
-        Keyframes::parse("@keyframes k{150%{opacity:1}}"),
-        Err(ParseError::InvalidAnimation(
-            AnimationError::OffsetOutOfRange
-        ))
-    );
-}
-
-#[test]
-fn the_timing_function_eases_each_interval_and_a_keyframe_may_name_its_own() {
-    // `ease-in` over 0%→50%, the 50% keyframe's `linear` over 50%→100%.
-    let a = &animations("breathe 2s ease-in").0[0];
-    let under = Value::scalar(1.0);
-    let at = |p| a.value(Property::Opacity, p, under, false).unwrap().x;
-    close(at(0.0), 0.4);
-    close(at(0.25), 0.4 + 0.6 * Easing::EaseIn.progress(0.5));
-    close(at(0.5), 1.0);
-    close(at(0.75), 0.7);
-    close(at(1.0), 0.4);
-    // `scale` is set only at 0%: 100% is the underlying value.
-    close(
-        a.value(Property::Scale, 0.5, under, false).unwrap().x,
-        0.9 + 0.1 * Easing::EaseIn.progress(0.5),
-    );
-    close(
-        a.value(Property::Scale, 1.0, Value::scalar(2.0), false)
-            .unwrap()
-            .x,
-        2.0,
-    );
-    // A property no keyframe sets is not the animation's.
-    assert_eq!(a.value(Property::Rotate, 0.5, under, false), None);
-}
-
-#[test]
-fn delay_fill_count_and_direction_follow_the_web_animations_timing_model() {
-    let progress = |shorthand: &str, local: f64| animations(shorthand).0[0].progress(local);
-    // Delay: nothing applies before it unless filling backwards.
-    assert_eq!(progress("breathe 1s 1s", 0.5), None);
-    assert_eq!(progress("breathe 1s 1s backwards", 0.5), Some(0.0));
-    // After the end: nothing, unless filling forwards, where the last
-    // iteration's end holds.
-    assert_eq!(progress("breathe 1s", 1.0), None);
-    assert_eq!(progress("breathe 1s forwards", 5.0), Some(1.0));
-    assert_eq!(progress("breathe 1s 2.5 forwards", 9.0), Some(0.5));
-    // Alternate plays odd iterations backwards; reverse all of them.
-    assert_eq!(progress("breathe 1s 3 alternate", 1.25), Some(0.75));
-    assert_eq!(progress("breathe 1s 3 alternate-reverse", 1.25), Some(0.25));
-    assert_eq!(progress("breathe 1s reverse", 0.25), Some(0.75));
-    // A negative delay starts partway through.
-    assert_eq!(progress("breathe 1s -0.25s", 0.0), Some(0.25));
-    // Endless: never after.
-    assert_eq!(progress("breathe 1s infinite", 1000.5), Some(0.5));
-}
-
-#[test]
-fn an_animation_plays_over_the_row_and_the_clock_is_a_seek() {
-    let mut stepped = engine();
-    let mut jumped = engine();
-    for e in [&mut stepped, &mut jumped] {
-        e.set_animations(NODE, animations("breathe 2s linear infinite"))
-            .unwrap();
-    }
-    close(opacity(&stepped), 0.4);
-    for n in 1..=20 {
-        stepped.advance(n as f64 * 0.125).unwrap();
-    }
-    jumped.advance(2.5).unwrap();
-    close(opacity(&stepped), 0.7);
-    assert_eq!(opacity(&stepped).to_bits(), opacity(&jumped).to_bits());
-    // The frame carries the animated properties, never an untouched one.
-    let frame = jumped.frame();
-    assert!(frame
-        .iter()
-        .any(|p| p.property == Property::Opacity && p.value.x == opacity(&stepped)));
-    assert!(frame.iter().all(|p| p.property != Property::Rotate));
-    // Endless: the host keeps its frames running, but settling never waits.
-    assert!(!jumped.quiescent());
-    assert_eq!(jumped.settle_time(), None);
-}
-
-#[test]
-fn an_unchanged_row_never_restarts_and_a_new_name_does() {
-    let mut e = engine();
-    e.set_animations(NODE, animations("breathe 2s linear infinite"))
-        .unwrap();
-    e.advance(0.5).unwrap();
-    close(opacity(&e), 0.7);
-    // A re-render with the same value: nothing restarts, nothing is dirty.
-    e.frame();
-    e.set_animations(NODE, animations("breathe 2s linear infinite"))
-        .unwrap();
-    assert!(e.frame().is_empty());
-    close(opacity(&e), 0.7);
-    // CSS: a new duration on the same keyframes applies as if it always had
-    // it, from the original start.
-    e.set_animations(NODE, animations("breathe 4s linear infinite"))
-        .unwrap();
-    close(opacity(&e), 0.4 + 0.6 * 0.25);
-    // Other keyframes are another animation: it starts now.
-    let other = Animations::parse("pulse 1s linear @keyframes pulse{from{opacity:0}to{opacity:1}}")
-        .unwrap();
-    e.set_animations(NODE, other).unwrap();
-    close(opacity(&e), 0.0);
-    e.advance(1.0).unwrap();
-    close(opacity(&e), 0.5);
-}
-
-#[test]
-fn removing_an_animation_returns_the_row_to_its_own_value() {
-    let mut e = engine();
-    e.set_animations(NODE, animations("breathe 2s linear infinite"))
-        .unwrap();
-    e.advance(0.5).unwrap();
-    e.frame();
-    e.set_animations(NODE, Animations::NONE).unwrap();
-    let frame = e.frame();
-    assert!(frame
-        .iter()
-        .any(|p| p.property == Property::Opacity && p.value == Value::scalar(1.0)));
-    close(opacity(&e), 1.0);
+fn an_animation_starts_when_first_seen_and_samples_as_a_seek() {
+    let mut e = Engine::new();
+    e.advance(10.0).unwrap();
+    observe(&mut e, Property::Opacity, 1.0);
+    e.set_animations(NODE, &row("fade 1s linear")).unwrap();
+    assert!(!e.quiescent());
+    assert_eq!(opacity(&mut e), Some(0.0));
+    e.advance(10.5).unwrap();
+    assert_eq!(opacity(&mut e), Some(0.5));
+    assert_eq!(e.settle_time(), Some(11.0));
+    // After the end without a fill the property shows its own value again.
+    e.advance(11.2).unwrap();
+    assert_eq!(opacity(&mut e), Some(1.0));
     assert!(e.quiescent());
+    assert_eq!(e.settle_time(), None);
 }
 
 #[test]
-fn a_finite_animation_settles_and_fill_decides_what_remains() {
-    let mut e = engine();
+fn re_timing_keeps_the_start_and_only_a_new_name_restarts() {
+    let mut e = Engine::new();
+    e.set_animations(NODE, &row("fade 2s linear")).unwrap();
     e.advance(1.0).unwrap();
-    e.set_animations(NODE, animations("breathe 1s linear 0.5s 2"))
-        .unwrap();
-    assert_eq!(e.settle_time(), Some(3.5));
-    // In the delay without backwards fill: the row's own value.
-    close(opacity(&e), 1.0);
-    e.advance(e.settle_time().unwrap()).unwrap();
-    assert!(e.quiescent());
-    close(opacity(&e), 1.0);
-    // Forwards fill keeps the final keyframe once it ends.
-    let mut e = engine();
-    e.set_animations(NODE, animations("breathe 1s linear forwards"))
+    // A longer duration re-times the running animation: same start.
+    e.set_animations(NODE, &row("fade 4s linear")).unwrap();
+    assert_eq!(e.animation_plays(NODE)[0].start, 0.0);
+    assert_eq!(opacity(&mut e), Some(0.25));
+    // The name leaves and comes back: a restart.
+    e.set_animations(NODE, &Animations::NONE).unwrap();
+    assert!(e.animation_plays(NODE).is_empty());
+    e.set_animations(NODE, &row("fade 4s linear")).unwrap();
+    assert_eq!(e.animation_plays(NODE)[0].start, 1.0);
+    // A destroyed node forgets its animations.
+    e.remove(NODE);
+    assert!(e.animation_plays(NODE).is_empty());
+}
+
+#[test]
+fn pause_holds_local_time_and_resume_continues() {
+    let mut e = Engine::new();
+    e.set_animations(NODE, &row("fade 2s linear")).unwrap();
+    e.advance(0.5).unwrap();
+    e.set_animations(NODE, &row("fade 2s linear paused"))
         .unwrap();
     e.advance(5.0).unwrap();
-    assert!(e.quiescent());
-    close(opacity(&e), 0.4);
+    assert_eq!(opacity(&mut e), Some(0.25));
+    assert!(e.quiescent(), "a paused animation keeps nothing busy");
+    e.set_animations(NODE, &row("fade 2s linear running"))
+        .unwrap();
+    e.advance(5.5).unwrap();
+    assert_eq!(opacity(&mut e), Some(0.5));
+    // Created paused with a negative delay: a fixed phase (BENCH_FREEZE).
+    let mut f = Engine::new();
+    f.set_animations(NODE, &row("fade 2s linear -1s paused"))
+        .unwrap();
+    f.advance(100.0).unwrap();
+    assert_eq!(opacity(&mut f), Some(0.5));
 }
 
 #[test]
-fn a_paused_animation_holds_and_resumes_where_it_stopped() {
-    let mut e = engine();
-    e.set_animations(NODE, animations("breathe 2s linear infinite"))
+fn infinite_animations_never_settle_but_finite_ones_do() {
+    let mut e = Engine::new();
+    e.set_animations(
+        NODE,
+        &row("fade 1s linear 0.5s both, grow 1.2s ease-out 0.6s infinite"),
+    )
+    .unwrap();
+    assert_eq!(e.settle_time(), Some(1.5));
+    e.advance(1.5).unwrap();
+    assert_eq!(e.settle_time(), None);
+    assert!(!e.quiescent(), "the pulse still runs");
+    // Mid-iteration, 800 iterations in: the same value as the first's middle.
+    e.advance(0.6 + 1.2 * 800.0 + 0.6).unwrap();
+    let r = e
+        .frame()
+        .into_iter()
+        .find(|p| p.property == Property::R)
         .unwrap();
+    let mid = 3.0 + 6.0 * exact_motion::Easing::EaseOut.progress(0.5);
+    assert!((r.value.x - mid).abs() < 1e-6, "{}", r.value.x);
+}
+
+#[test]
+fn a_lowered_engine_tracks_starts_but_never_samples() {
+    let mut e = Engine::new();
+    e.set_lowered(true);
+    observe(&mut e, Property::Opacity, 1.0);
+    e.frame();
+    e.advance(2.0).unwrap();
+    e.set_animations(NODE, &row("fade 1s linear infinite"))
+        .unwrap();
+    assert!(e.quiescent());
+    assert_eq!(e.animation_plays(NODE)[0].start, 2.0);
+    e.advance(2.5).unwrap();
+    // The host's compositor plays it; the frame carries the property's own value.
+    assert_eq!(opacity(&mut e), Some(1.0));
+    assert_eq!(
+        e.animated(NODE, Property::Opacity, Value::scalar(1.0)),
+        Some(Value::scalar(0.5))
+    );
+}
+
+#[test]
+fn an_unknown_name_starts_nothing() {
+    let mut e = Engine::new();
+    e.set_animations(NODE, &row("nosuch 1s, fade 2s")).unwrap();
+    assert_eq!(e.animation_plays(NODE).len(), 1);
+    assert_eq!(e.animation_plays(NODE)[0].animation.name, "fade");
+}
+
+#[test]
+fn per_property_lowering_samples_only_the_rest() {
+    let mut e = Engine::new();
+    e.set_lowered_properties(&[Property::Opacity]);
+    e.set_animations(NODE, &row("fade 1s linear infinite"))
+        .unwrap();
+    assert!(e.quiescent(), "opacity is the compositor's");
+    e.set_animations(
+        NODE,
+        &row("fade 1s linear infinite, grow 1s linear infinite"),
+    )
+    .unwrap();
+    assert!(!e.quiescent(), "r is sampled");
     e.advance(0.5).unwrap();
-    e.set_animations(NODE, animations("breathe 2s linear infinite paused"))
-        .unwrap();
-    assert!(e.quiescent());
-    e.advance(10.0).unwrap();
-    close(opacity(&e), 0.7);
-    e.set_animations(NODE, animations("breathe 2s linear infinite running"))
-        .unwrap();
-    e.advance(10.5).unwrap();
-    close(opacity(&e), 1.0);
+    let frame = e.frame();
+    assert!(frame.iter().any(|p| p.property == Property::R));
+    assert!(frame.iter().all(|p| p.property != Property::Opacity));
 }
 
 #[test]
-fn an_animation_wins_over_a_transition_on_the_same_property_while_it_runs() {
-    let mut e = engine();
+fn duplicate_names_are_two_animations_and_a_reorder_restarts_none() {
+    let mut e = Engine::new();
+    e.set_animations(NODE, &row("fade 1s, grow 1s")).unwrap();
+    e.advance(0.5).unwrap();
+    // Reordered: both keep their starts.
+    e.set_animations(NODE, &row("grow 1s, fade 1s")).unwrap();
+    assert!(e.animation_plays(NODE).iter().all(|p| p.start == 0.0));
+    // A second `fade` is a new animation; the old one keeps its place.
+    e.set_animations(NODE, &row("grow 1s, fade 1s, fade 1s"))
+        .unwrap();
+    let starts: Vec<f64> = e.animation_plays(NODE).iter().map(|p| p.start).collect();
+    assert_eq!(
+        starts,
+        vec![0.0, 0.5, 0.0],
+        "the last `fade` pairs with the old one"
+    );
+}
+
+#[test]
+fn a_running_transition_wins_over_an_animation() {
+    use exact_motion::{Easing, TimingFunction, Transition, TransitionProperty, Transitions};
+    let mut e = Engine::new();
+    observe(&mut e, Property::Opacity, 1.0);
     e.set_transitions(
         NODE,
         Transitions(vec![Transition::new(
@@ -320,31 +197,245 @@ fn an_animation_wins_over_a_transition_on_the_same_property_while_it_runs() {
         )]),
     )
     .unwrap();
-    e.set_animations(NODE, animations("breathe 2s linear"))
-        .unwrap();
-    e.observe(Change {
-        node: NODE,
-        property: Property::Opacity,
-        value: Value::scalar(0.0),
-        velocity: None,
-    })
-    .unwrap();
+    e.set_animations(NODE, &row("fade 10s linear")).unwrap();
+    e.frame();
+    observe(&mut e, Property::Opacity, 0.0);
     e.advance(0.5).unwrap();
-    close(opacity(&e), 0.7);
-    // The transition ran underneath and has ended; the animation's end
-    // uncovers the row's own value.
-    e.advance(2.0).unwrap();
-    close(opacity(&e), 0.0);
+    assert_eq!(
+        opacity(&mut e),
+        Some(0.5),
+        "the transition's value, not the animation's 0.05"
+    );
+    e.advance(1.5).unwrap();
+    assert_eq!(
+        opacity(&mut e),
+        Some(0.15),
+        "the transition ended: the animation shows"
+    );
 }
 
+/// Held to the browser (LLP 1002 D2, LLP 1055 §8): values read with
+/// `getComputedStyle` in headless Chrome 154 from paused CSS animations at
+/// a set `currentTime` (local time, delay included), rounded as Chrome prints.
 #[test]
-fn an_invalid_row_is_refused_and_changes_nothing() {
-    let mut e = engine();
-    let mut bad = animations("breathe 1s");
-    bad.0[0].iterations = -1.0;
-    assert_eq!(
-        e.set_animations(NODE, bad),
-        Err(EngineError::Animation(AnimationError::NegativeIterations))
-    );
-    close(opacity(&e), 1.0);
+fn samples_match_chrome() {
+    let breathe = Keyframes::parse("0%{r:3;opacity:0.5}100%{r:9;opacity:0}").unwrap();
+    let k3 = Keyframes::parse(
+        "0%{opacity:0}50%{opacity:1;animation-timing-function:linear}100%{opacity:0}",
+    )
+    .unwrap();
+    let cases: [(&str, &Keyframes, f64, Property, f64); 17] = [
+        (
+            "k3 2s steps(4, jump-start) -500ms",
+            &k3,
+            0.0,
+            Property::Opacity,
+            0.75,
+        ),
+        (
+            "breathe 1200ms ease-out 600ms infinite",
+            &breathe,
+            0.0,
+            Property::R,
+            3.0,
+        ),
+        (
+            "breathe 1200ms ease-out 600ms infinite",
+            &breathe,
+            300.0,
+            Property::R,
+            3.0,
+        ),
+        (
+            "breathe 1200ms ease-out 600ms infinite",
+            &breathe,
+            600.0,
+            Property::R,
+            3.0,
+        ),
+        (
+            "breathe 1200ms ease-out 600ms infinite",
+            &breathe,
+            900.0,
+            Property::R,
+            5.26883,
+        ),
+        (
+            "breathe 1200ms ease-out 600ms infinite",
+            &breathe,
+            1500.0,
+            Property::R,
+            8.43921,
+        ),
+        (
+            "breathe 1200ms ease-out 600ms infinite",
+            &breathe,
+            2100.0,
+            Property::R,
+            5.26883,
+        ),
+        (
+            "breathe 1200ms ease-out 600ms infinite",
+            &breathe,
+            900.0,
+            Property::Opacity,
+            0.310931,
+        ),
+        (
+            "k3 2s ease-in 3 alternate both",
+            &k3,
+            250.0,
+            Property::Opacity,
+            0.0934647,
+        ),
+        (
+            "k3 2s ease-in 3 alternate both",
+            &k3,
+            1000.0,
+            Property::Opacity,
+            1.0,
+        ),
+        (
+            "k3 2s ease-in 3 alternate both",
+            &k3,
+            1500.0,
+            Property::Opacity,
+            0.5,
+        ),
+        (
+            "k3 2s ease-in 3 alternate both",
+            &k3,
+            2500.0,
+            Property::Opacity,
+            0.5,
+        ),
+        (
+            "k3 2s ease-in 3 alternate both",
+            &k3,
+            3500.0,
+            Property::Opacity,
+            0.315357,
+        ),
+        (
+            "k3 2s ease-in 3 alternate both",
+            &k3,
+            7000.0,
+            Property::Opacity,
+            0.0,
+        ),
+        (
+            "k3 2s ease-in 1.5 reverse forwards",
+            &k3,
+            500.0,
+            Property::Opacity,
+            0.5,
+        ),
+        (
+            "k3 2s ease-in 1.5 reverse forwards",
+            &k3,
+            5000.0,
+            Property::Opacity,
+            1.0,
+        ),
+        (
+            "k3 2s steps(4, jump-start) -500ms",
+            &k3,
+            300.0,
+            Property::Opacity,
+            1.0,
+        ),
+    ];
+    for (text, rule, ms, property, chrome) in cases {
+        let mut a = Animations::parse(text).unwrap();
+        a.resolve(|_| Some(rule));
+        let underlying = match property {
+            Property::R => Value::scalar(3.0),
+            _ => Value::scalar(1.0),
+        };
+        let v = a.0[0]
+            .sample(ms / 1000.0, property, underlying)
+            .map_or(underlying.x, |v| v.x);
+        assert!(
+            (v - chrome).abs() < 5e-6,
+            "{text} at {ms} ms: {v} vs Chrome {chrome}"
+        );
+    }
+}
+
+/// Colour animations interpolate premultiplied sRGB (LLP 1055.000 D6),
+/// pinned to headless Chrome 154's `getComputedStyle` at a paused
+/// `currentTime` (alpha to Chrome's 8-bit rounding).
+#[test]
+fn colour_samples_match_chrome() {
+    let c1 = Keyframes::parse("from{color:#ff0000}to{color:rgba(0,0,255,0.5)}").unwrap();
+    let c2 =
+        Keyframes::parse("from{background-color:#16a34a}to{background-color:#000000}").unwrap();
+    let c3 = Keyframes::parse("from{fill:#ff0000}to{fill:transparent}").unwrap();
+    let cases: [(&str, &Keyframes, Property, f64, [u8; 4]); 8] = [
+        (
+            "c 1s linear",
+            &c1,
+            Property::Color,
+            250.0,
+            [218, 0, 37, 223],
+        ),
+        (
+            "c 1s linear",
+            &c1,
+            Property::Color,
+            500.0,
+            [170, 0, 85, 192],
+        ),
+        (
+            "c 1s linear",
+            &c1,
+            Property::Color,
+            750.0,
+            [102, 0, 153, 160],
+        ),
+        (
+            "c 400ms ease",
+            &c2,
+            Property::BackgroundColor,
+            0.0,
+            [22, 163, 74, 255],
+        ),
+        (
+            "c 400ms ease",
+            &c2,
+            Property::BackgroundColor,
+            100.0,
+            [13, 96, 44, 255],
+        ),
+        (
+            "c 400ms ease",
+            &c2,
+            Property::BackgroundColor,
+            200.0,
+            [4, 32, 15, 255],
+        ),
+        (
+            "c 400ms ease",
+            &c2,
+            Property::BackgroundColor,
+            300.0,
+            [1, 6, 3, 255],
+        ),
+        ("c 1s linear", &c3, Property::Fill, 500.0, [255, 0, 0, 128]),
+    ];
+    for (text, k, p, ms, want) in cases {
+        let mut a = Animations::parse(text).unwrap();
+        a.resolve(|_| Some(k));
+        let entry = &a.0[0];
+        let got = entry
+            .sample(ms / 1000.0, p, Value::ZERO)
+            .unwrap()
+            .to_rgba8();
+        for c in 0..4 {
+            assert!(
+                (got[c] as i32 - want[c] as i32).abs() <= 1,
+                "{text} at {ms} ms: {got:?} != Chrome {want:?}"
+            );
+        }
+    }
 }

@@ -16,7 +16,7 @@
 //! [`Motion`], which is [`Still`] unless the app's entry registered
 //! [`springs`], so an app that uses no spring or hold carries no engine.
 
-use exact_kernel::motion::{motion_node, node_targets, targets, MotionSync};
+use exact_kernel::motion::{motion_node, targets, MotionSync};
 use exact_kernel::{CommitReceipt, Kernel, NodeKey, ViewId};
 use exact_motion::{
     Change, Engine, EngineError, HoldEnd, HoldStart, HoldToken, Property, SpringDescriptor,
@@ -85,6 +85,10 @@ pub trait Motion {
     ) -> Result<Vec<Lowered>, &'static str>;
     /// A live hold's token.
     fn token(&self, serial: u64) -> Option<HoldToken>;
+    /// A live hold's measured velocity at `now` (LLP 1057.001 §3).
+    fn hold_velocity(&self, serial: u64, now: f64) -> Option<Value>;
+    /// Record the value a constrained display actually shows for a hold.
+    fn track_hold(&mut self, serial: u64, now: f64, shown: Value) -> bool;
     /// Capture a presented value.
     fn begin_hold(
         &mut self,
@@ -180,6 +184,14 @@ impl Motion for Still {
         view.map_or(Ok(Vec::new()), |_| Err("motion is not linked"))
     }
 
+    fn hold_velocity(&self, _: u64, _: f64) -> Option<Value> {
+        None
+    }
+
+    fn track_hold(&mut self, _: u64, _: f64, _: Value) -> bool {
+        false
+    }
+
     fn token(&self, _: u64) -> Option<HoldToken> {
         None
     }
@@ -265,9 +277,12 @@ pub struct Springs {
 }
 
 impl Springs {
-    /// Empty, at clock zero.
+    /// Empty, at clock zero. The browser runs every CSS animation from the
+    /// page's `@keyframes` (LLP 1055 D7), so the engine only tracks them.
     pub fn new() -> Springs {
-        Springs::default()
+        let mut springs = Springs::default();
+        springs.engine.set_lowered(true);
+        springs
     }
 
     fn retire_height(&mut self, key: NodeKey, view: ViewId, out: &mut Vec<Lowered>) {
@@ -364,6 +379,15 @@ impl Motion for Springs {
         self.reconcile_height(kernel, &mut out);
         self.holds.retain(|_, token| self.engine.has_hold(*token));
         Ok(out)
+    }
+
+    fn hold_velocity(&self, serial: u64, now: f64) -> Option<Value> {
+        self.engine.hold_velocity(self.token(serial)?, now)
+    }
+
+    fn track_hold(&mut self, serial: u64, now: f64, shown: Value) -> bool {
+        self.token(serial)
+            .is_some_and(|token| self.engine.track_hold(token, now, shown))
     }
 
     fn token(&self, serial: u64) -> Option<HoldToken> {
@@ -489,7 +513,7 @@ impl Motion for Springs {
             };
             let n = motion_node(node.key);
             sync.transitions.push((n, node.style.transition.clone()));
-            for (property, value) in node_targets(node.node_type, node.style) {
+            for (property, value) in targets(node.style) {
                 sync.changes.push(Change {
                     node: n,
                     property,
@@ -515,10 +539,7 @@ impl Motion for Springs {
         let seek = self.engine.advance(now);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
         for receipt in receipts {
-            let mut sync = kernel.motion_sync(receipt);
-            // The browser plays `animation` from CSS (LLP 1057 D5); this
-            // engine only lowers springs and holds.
-            sync.animations.clear();
+            let sync = kernel.motion_sync(receipt);
             // Engine::remove also erases dirty entries, so frame() will never
             // mention these nodes again. Retire ownership directly, without
             // scanning springs belonging to other mounted rows.

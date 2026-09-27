@@ -1,6 +1,7 @@
 //! What the motion engine says to paint over a node's style rows: the four
-//! compositor values, paint motion's colours and shadow while they move
-//! (LLP 1062), and a path's stroke fractions (LLP 1065).
+//! compositor values, an SVG shape's geometry (LLP 1055.000 D15), paint
+//! motion's colours and shadow while they move (LLP 1055.000 D6, LLP 1062),
+//! and a layout transition's box (LLP 1063).
 
 use super::shadow::ShadowPaint;
 use super::BoxPaint;
@@ -19,10 +20,11 @@ pub struct Presented {
     pub rotate: f32,
     /// Zero to one.
     pub opacity: f32,
-    /// Paint motion's values, each while it differs from its row.
-    pub paint: PaintValues,
-    /// A path's `stroke-start` and `stroke-end` (LLP 1065 D4).
-    pub stroke: (f32, f32),
+    /// An SVG shape's presented `r`, `stroke-dashoffset`, `cx`, `cy`, `x`, `y`, `rx`, `ry`.
+    pub svg: [Option<f32>; 8],
+    /// Presented paint while it moves (LLP 1055.000 D6, LLP 1062): one slot
+    /// per [`Property::PAINT`]; `None` paints the row.
+    pub colors: PaintValues,
     /// A layout transition's offset from the laid-out origin and scale of
     /// the laid-out size, `[dx, dy, sx, sy]` (LLP 1063).
     pub layout: [f32; 4],
@@ -35,8 +37,8 @@ impl Presented {
         scale: 1.0,
         rotate: 0.0,
         opacity: 1.0,
-        paint: PaintValues::NONE,
-        stroke: (0.0, 1.0),
+        svg: [None; 8],
+        colors: PaintValues::NONE,
         layout: [0.0, 0.0, 1.0, 1.0],
     };
 
@@ -47,8 +49,8 @@ impl Presented {
             scale: s.scale,
             rotate: s.rotate,
             opacity: s.opacity,
-            paint: PaintValues::NONE,
-            stroke: (s.stroke_start, s.stroke_end),
+            svg: [None; 8],
+            colors: PaintValues::NONE,
             layout: Presented::IDENTITY.layout,
         }
     }
@@ -119,7 +121,7 @@ impl PaintValues {
 
     /// A presented colour, straight 8-bit channels.
     pub fn color(&self, property: Property) -> Option<[u8; 4]> {
-        self.0[Self::slot(property)].map(|v| v.straight().map(|c| (c * 255.0).round() as u8))
+        self.0[Self::slot(property)].map(Value::to_rgba8)
     }
 }
 

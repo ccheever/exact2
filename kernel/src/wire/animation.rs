@@ -1,0 +1,151 @@
+//! The `animation` row's bytes (grammar: `schema.json` `_animations`).
+//!
+//! @ref LLP 1055 D5 — each entry travels with its resolved keyframes, so a
+//! decoded row is complete without the plan.
+
+use super::codec::{Reader, Writer};
+use crate::error::DecodeError;
+use exact_motion::animation::Keyframe;
+use exact_motion::{
+    Animation, Animations, Direction, FillMode, Keyframes, Property, TimingFunction, Value,
+    MAX_ANIMATIONS, MAX_KEYFRAMES,
+};
+
+impl Reader<'_> {
+    /// Read an `animation` row and validate it as the sampler will.
+    pub fn animations(&mut self) -> Result<Animations, DecodeError> {
+        let count = self.u8()? as usize;
+        if count > MAX_ANIMATIONS {
+            return Err(DecodeError::BadAnimation);
+        }
+        let mut out = Vec::with_capacity(count);
+        for _ in 0..count {
+            let name = self.string()?.to_string();
+            let duration = self.f32()? as f64;
+            let delay = self.f32()? as f64;
+            let TimingFunction::Easing(easing) = self.timing_function()? else {
+                return Err(DecodeError::BadAnimation);
+            };
+            let iterations = self.f32()? as f64;
+            let direction = Direction::from_wire(self.u8()?).ok_or(DecodeError::BadAnimation)?;
+            let fill = FillMode::from_wire(self.u8()?).ok_or(DecodeError::BadAnimation)?;
+            let paused = self.u8()? != 0;
+            let frames = self.u8()? as usize;
+            if frames > MAX_KEYFRAMES {
+                return Err(DecodeError::BadAnimation);
+            }
+            let mut keyframes = Vec::with_capacity(frames);
+            for _ in 0..frames {
+                let offset = self.f32()? as f64;
+                let easing = match self.u8()? {
+                    0 => None,
+                    1 => match self.timing_function()? {
+                        TimingFunction::Easing(e) => Some(e),
+                        TimingFunction::Spring(_) => return Err(DecodeError::BadAnimation),
+                    },
+                    _ => return Err(DecodeError::BadAnimation),
+                };
+                let n = self.u8()? as usize;
+                if n > Property::ALL.len() {
+                    return Err(DecodeError::BadAnimation);
+                }
+                let mut values = Vec::with_capacity(n);
+                let mut dark = Vec::new();
+                for _ in 0..n {
+                    let p = Property::from_wire(self.u8()?).ok_or(DecodeError::BadAnimation)?;
+                    // Each value carries its property's components: one,
+                    // two for `translate`, four for a colour.
+                    let mut c = [0.0f64; 4];
+                    for slot in c.iter_mut().take(p.components()) {
+                        *slot = self.f32()? as f64;
+                    }
+                    values.push((p, Value::four(c[0], c[1], c[2], c[3])));
+                    // A colour then says whether a `light-dark()` pair's dark
+                    // value follows (LLP 1062 D9).
+                    if p.is_color() {
+                        match self.u8()? {
+                            0 => {}
+                            1 => {
+                                let mut d = [0.0f64; 4];
+                                for slot in &mut d {
+                                    *slot = self.f32()? as f64;
+                                }
+                                dark.push((p, Value::four(d[0], d[1], d[2], d[3])));
+                            }
+                            _ => return Err(DecodeError::BadAnimation),
+                        }
+                    }
+                }
+                keyframes.push(Keyframe {
+                    offset,
+                    easing,
+                    values,
+                    dark,
+                });
+            }
+            out.push(Animation {
+                name,
+                duration,
+                delay,
+                easing,
+                iterations,
+                direction,
+                fill,
+                paused,
+                keyframes: Keyframes(keyframes),
+            });
+        }
+        let animations = Animations(out);
+        animations
+            .validate()
+            .map_err(DecodeError::InvalidAnimation)?;
+        Ok(animations)
+    }
+}
+
+impl Writer {
+    /// Append an `animation` row.
+    pub fn animations(&mut self, a: &Animations) {
+        debug_assert!(a.0.len() <= MAX_ANIMATIONS);
+        self.u8(a.0.len() as u8);
+        for entry in &a.0 {
+            self.string(&entry.name);
+            self.f32(entry.duration as f32);
+            self.f32(entry.delay as f32);
+            self.timing_function(&TimingFunction::Easing(entry.easing.clone()));
+            self.f32(entry.iterations as f32);
+            self.u8(entry.direction as u8);
+            self.u8(entry.fill as u8);
+            self.u8(entry.paused as u8);
+            self.u8(entry.keyframes.0.len() as u8);
+            for frame in &entry.keyframes.0 {
+                self.f32(frame.offset as f32);
+                match &frame.easing {
+                    None => self.u8(0),
+                    Some(e) => {
+                        self.u8(1);
+                        self.timing_function(&TimingFunction::Easing(e.clone()));
+                    }
+                }
+                self.u8(frame.values.len() as u8);
+                for (p, v) in &frame.values {
+                    self.u8(*p as u8);
+                    for c in [v.x, v.y, v.z, v.w].into_iter().take(p.components()) {
+                        self.f32(c as f32);
+                    }
+                    if p.is_color() {
+                        match frame.dark.iter().find(|(q, _)| q == p) {
+                            Some((_, night)) => {
+                                self.u8(1);
+                                for c in night.components() {
+                                    self.f32(c as f32);
+                                }
+                            }
+                            None => self.u8(0),
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

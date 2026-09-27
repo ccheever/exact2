@@ -90,7 +90,7 @@ pub struct Env<'a> {
     /// Derives by index; `None` while not yet settled this update.
     pub derives: &'a [Option<Value>],
     /// Resource values by index; `None` while not yet settled this update.
-    pub resources: &'a [Option<Value>],
+    pub resources: &'a [Option<crate::held::Held>],
     /// Action parameters (empty outside an action).
     pub params: &'a [Value],
     /// Enclosing instance scopes, innermost last.
@@ -225,7 +225,9 @@ struct Extents(exact_kernel::id::IdMap<usize, (Value, Extent)>);
 impl Extents {
     fn key(v: &Value) -> Option<usize> {
         match v {
-            Value::List(items) | Value::Record(items) => Some(Rc::as_ptr(items) as usize),
+            Value::List(items) | Value::Record(items) => {
+                Some(Rc::as_ptr(items).cast::<()>() as usize)
+            }
             Value::Option(Some(inner)) => Some(Rc::as_ptr(inner) as usize),
             _ => None,
         }
@@ -475,8 +477,9 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                     .resources
                     .get(resource)
                     .ok_or(malformed(pc))?
-                    .clone()
-                    .ok_or(Trap::Pending { pc })?;
+                    .as_ref()
+                    .ok_or(Trap::Pending { pc })?
+                    .read(env.plan);
                 out.store_dependent |= env
                     .store_dependent_resources
                     .get(resource)
@@ -559,6 +562,19 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                 let v = Value::list(items);
                 extents.remember(&v, e);
                 stack.push(v);
+            }
+            // @ref LLP 1024 D1 — the leftover attributes, one replaced object.
+            Opcode::NativeProps => {
+                let n = args[0] as usize * 2;
+                if stack.len() < n {
+                    return Err(Trap::StackUnderflow { pc });
+                }
+                let pairs = stack.split_off(stack.len() - n);
+                let json = stdlib::native_props(&pairs).ok_or(Trap::TypeMismatch { pc, op })?;
+                if json.len() > MAX_STRING {
+                    return Err(Trap::StringTooLong { pc });
+                }
+                stack.push(Value::Str(Rc::from(json)));
             }
             Opcode::Add => num2!(pc, op, |a, b| Value::Number(a + b)),
             Opcode::Sub => num2!(pc, op, |a, b| Value::Number(a - b)),

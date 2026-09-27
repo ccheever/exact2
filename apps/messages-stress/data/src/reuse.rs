@@ -94,7 +94,7 @@ fn bad_arguments(message: &str) -> DataError {
     DataError::BadArguments(message.into())
 }
 
-fn record(value: &Value) -> &Rc<Vec<Value>> {
+fn record(value: &Value) -> &Rc<[Value]> {
     let Value::Record(fields) = value else {
         unreachable!("only this source's canonical records enter its cache")
     };
@@ -155,7 +155,7 @@ impl ReusableMessagesStress {
                 let old_body = old_row[2].as_str().expect("canonical body");
                 if old_body != body {
                     body_bytes = body_bytes - old_body.len() + body.len();
-                    let mut fields = old_row.as_ref().clone();
+                    let mut fields = old_row.to_vec();
                     fields[2] = Value::str(body);
                     rows[position] = Value::record(fields);
                 }

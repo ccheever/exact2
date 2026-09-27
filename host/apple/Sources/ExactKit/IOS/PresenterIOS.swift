@@ -5,6 +5,7 @@
 // web views, and menus through it.
 #if os(iOS)
 import UIKit
+import CoreText
 import os
 
 final class Presenter {
@@ -46,6 +47,9 @@ final class Presenter {
     lazy var segments = SegmentHost(self)
     lazy var navigation = NavigationHost(presenter: self)
     lazy var modals = ModalHost(presenter: self)
+    /// SVG scenes and CSS animations (LLP 1055 D4, D7).
+    let svg = SvgHost()
+    let canvas2d = Canvas2DHost()
     /// The input being edited, if any (UIKit exposes no first responder):
     /// what a canvas painted through its surface captures every frame for
     /// (LLP 1014 D4 d), and what the keyboard reveals.
@@ -565,6 +569,13 @@ final class Presenter {
         navigation.prepare(batch)
         for id in scrollers where !collections.owns(id) { views[id]?.captureScrollPosition() }
         if let e = batch.error { FileHandle.standardError.write(Data("exact: \(e)\n".utf8)) }
+        if let text = session?.text {
+            // SVG text shapes with the session's fonts (LLP 1055.000 D11).
+            svg.fonts = { [weak text] size, weight, family, italic in
+                (text?.font(size: size, weight: weight, family: family, italic: italic)).map { $0 as CTFont } ?? SvgScene.systemFonts(size, weight, family, italic)
+            }
+        }
+        svg.seek(clock: session?.clock)
         let outermost = !applying
         applying = true
         defer {
@@ -637,7 +648,6 @@ final class Presenter {
                 v.applyStyle(op.style)
                 v.applyProps(set: op.props, clear: [])
                 if reused != nil { v.finishReuse() }
-                PathView.sync(v)
                 views[id] = v
                 if v.kind == "list" { listViews[id] = v }
                 if v.isParagraph { textViews[id] = v }
@@ -645,12 +655,22 @@ final class Presenter {
                 applyParagraph(id, op.runs)
             case .props:
                 views[id]?.applyProps(set: op.props, clear: op.clear)
-                if let v = views[id] { PathView.sync(v) }
             case .flow:
                 views[id]?.applyFlow(op.payload["shapes"] as? [[String: Any]] ?? [])
             case .style:
-                views[id]?.applyStyle(op.style)
-                if let v = views[id] { PathView.sync(v); if v.surface != nil { v.applySurface() } }
+                guard let v = views[id] ?? leaving[id]?.view else { continue }
+                let color = v.style["text_color"]
+                v.applyStyle(op.style)
+                if v.surface != nil { v.applySurface() }
+                // Paint motion re-sends a style per frame (LLP 1055.000 D6):
+                // a paragraph's pixels carry their colour, so a new one is
+                // painted as the batch ends, not on a worker a frame later
+                // (LLP 1062 D6); and a view that paints in an appearance of
+                // its own says so (D4).
+                if v.style["text_color"] != color {
+                    if v.isParagraph { presentedText.insert(id) }
+                    session?.noteAppearance(v)
+                }
             case .children:
                 guard let parent = views[id] else { continue }
                 let want = op.ids.compactMap { views[UInt32($0)] }
@@ -669,10 +689,11 @@ final class Presenter {
                     container.insertSubview(child, at: i)
                     current = container.subviews
                 }
-                // A path's own drawing lies under its paths (LLP 1065 D12).
-                if let path = PathView.of(parent) { container.sendSubviewToBack(path) }
             case .surface:
                 if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] ?? []) }
+            case .canvas2d: if let v = views[id] { canvas2d.apply(id, op.payload, layer: v.layer) }
+            case .svg: if let v = views[id] { svg.scene(id, op.payload, layer: v.layer, dark: v.drawsDark, clock: session?.clock) }
+            case .animations: svg.animations(id, op.payload, layer: views[id]?.layer, clock: session?.clock)
             case .command:
                 onCommand?(op.payload["name"] as? String ?? "", op.payload["args"] as? [Any] ?? [])
             case .exit: beginExit(id)
@@ -699,12 +720,8 @@ final class Presenter {
                 case "scale": v.scale = x; v.applyTransform()
                 case "rotate": v.rotate = x; v.applyTransform()
                 case "opacity": v.alpha = x
-                case "stroke-start", "stroke-end": PathView.of(v)?.present(op.property, x)
-                default:
-                    v.present(paint: op.paintKey, [op.x, op.y, op.w, op.h])
-                    session?.noteAppearance(v)
+                default: break
                 }
-            case .unpresent: (views[id] ?? leaving[id]?.view)?.present(paint: op.paintKey, nil)
             default: break
             }
         }
@@ -744,6 +761,8 @@ final class Presenter {
     @discardableResult
     func release(_ id: UInt32, _ leaving: (NodeView) -> Void) -> NodeView? {
         session?.canvases.destroy(view: id)
+        svg.forget(id)
+        canvas2d.forget(id)
         if let view = views[id] { autofocusProcessed.remove(ObjectIdentifier(view)); leaving(view) }
         listViews.removeValue(forKey: id)
         textViews.removeValue(forKey: id)
@@ -788,7 +807,6 @@ final class Presenter {
             v.metal?.frame = v.bounds
             v.overlay?.frame = v.bounds
             v.web?.frame = v.bounds
-            PathView.of(v)?.place()
             v.fitScroll()
             v.applyTransform()
         case .content:

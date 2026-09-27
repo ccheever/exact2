@@ -1,0 +1,160 @@
+# The recorder's rules, case by case (LLP 1056 §4's WPT subset). Each line
+# is one call on a fresh context per case; `?` lines read a getter and
+# `=>` is Chrome's answer (recorded from headless Chrome; `bun
+# canvas/tests/cases.mjs --chrome` prints what Chrome says today). A call
+# that throws is followed by `!` and the exception's name. The Rust and
+# TypeScript recorders both run this file.
+
+## lineWidth ignores non-positive and non-finite values
+lineWidth = 3
+lineWidth = 0
+lineWidth = -1
+lineWidth = NaN
+lineWidth = Infinity
+? lineWidth => 3
+
+## miterLimit ignores non-positive values
+miterLimit = 4
+miterLimit = 0
+miterLimit = -2
+? miterLimit => 4
+
+## lineCap and lineJoin ignore unknown values
+lineCap = "round"
+lineCap = "blunt"
+lineJoin = "bevel"
+lineJoin = "ROUND"
+? lineCap => round
+? lineJoin => bevel
+
+## setLineDash doubles an odd list and ignores a bad one
+setLineDash([1, 2, 3])
+? getLineDash() => 1,2,3,1,2,3
+setLineDash([4, -1])
+? getLineDash() => 1,2,3,1,2,3
+setLineDash([NaN])
+? getLineDash() => 1,2,3,1,2,3
+setLineDash([])
+? getLineDash() =>
+lineDashOffset = 2.5
+lineDashOffset = NaN
+? lineDashOffset => 2.5
+
+## globalAlpha ignores values outside [0, 1]
+globalAlpha = 0.5
+globalAlpha = 1.5
+globalAlpha = -0.1
+globalAlpha = NaN
+? globalAlpha => 0.5
+
+## globalCompositeOperation ignores unknown values
+globalCompositeOperation = "multiply"
+globalCompositeOperation = "plus"
+? globalCompositeOperation => multiply
+
+## fillStyle serialises and ignores what does not parse
+fillStyle = "red"
+? fillStyle => #ff0000
+fillStyle = "not a colour"
+? fillStyle => #ff0000
+fillStyle = "rgba(10, 20, 30, 0.25)"
+? fillStyle => rgba(10, 20, 30, 0.25)
+strokeStyle = "hsl(120 100% 50% / 50%)"
+? strokeStyle => rgba(0, 255, 0, 0.5)
+strokeStyle = "#0000"
+? strokeStyle => rgba(0, 0, 0, 0)
+
+## the transform composes and is reported detached
+translate(10, 20)
+scale(2, 3)
+? getTransform() => 2,0,0,3,10,20
+rotate(NaN)
+? getTransform() => 2,0,0,3,10,20
+setTransform(1, 0, 0, 1, 5, 6)
+? getTransform() => 1,0,0,1,5,6
+transform(2, 0, 0, 2, 1, 1)
+? getTransform() => 2,0,0,2,6,7
+resetTransform()
+? getTransform() => 1,0,0,1,0,0
+
+## save and restore carry every attribute, and an extra restore does nothing
+lineWidth = 5
+save()
+lineWidth = 7
+fillStyle = "blue"
+translate(3, 4)
+restore()
+restore()
+? lineWidth => 5
+? fillStyle => #000000
+? getTransform() => 1,0,0,1,0,0
+
+## reset returns every attribute to its default
+lineWidth = 5
+globalAlpha = 0.25
+save()
+reset()
+? lineWidth => 1
+? globalAlpha => 1
+
+## negative radii throw IndexSizeError, non-finite arguments do nothing
+arc(0, 0, -1, 0, 1) ! IndexSizeError
+ellipse(0, 0, 1, -1, 0, 0, 1) ! IndexSizeError
+arcTo(0, 0, 1, 1, -1) ! IndexSizeError
+arc(NaN, 0, -1, 0, 1)
+arc(0, 0, 5, 0, 1)
+
+## roundRect's radii list is checked
+roundRect(0, 0, 10, 10, [-1]) ! RangeError
+roundRect(0, 0, 10, 10, [1, 2, 3, 4, 5]) ! RangeError
+roundRect(0, 0, 10, 10, []) ! RangeError
+roundRect(0, 0, 10, 10, [NaN])
+roundRect(0, 0, 10, 10, [1, {x: 2, y: 3}])
+
+## gradients throw by the IDL and the spec
+g = createLinearGradient(0, 0, NaN, 1) ! TypeError
+g = createRadialGradient(0, 0, -1, 0, 0, 1) ! IndexSizeError
+g = createLinearGradient(0, 0, 10, 0)
+g.addColorStop(1.5, "red") ! IndexSizeError
+g.addColorStop(0.5, "blurple") ! SyntaxError
+g.addColorStop(NaN, "red") ! TypeError
+g.addColorStop(0, "red")
+fillStyle = g
+? fillStyle => [object CanvasGradient]
+
+## geometry resolves the same in both languages
+translate(5, 7)
+rotate(0.3)
+scale(2, 1.5)
+beginPath()
+moveTo(1, 2)
+lineTo(30, 4)
+quadraticCurveTo(10, 20, 3, 9)
+bezierCurveTo(1, 2, 3, 4, 5, 6)
+arc(20, 20, 10, 0.5, 5.5, true)
+arc(20, 20, 10, -1, 1)
+ellipse(40, 10, 12, 4, 0.7, 0, 3, false)
+arcTo(60, 10, 60, 40, 8)
+arcTo(60, 40, 60, 80, 8)
+closePath()
+rect(2, 3, 10, -4)
+roundRect(10, 10, -30, 20, [4, {x: 6, y: 2}, 8])
+roundRect(0, 0, 10, 10, 50)
+fill("evenodd")
+stroke()
+clip()
+fillRect(1, 1, 2, 2)
+strokeRect(0, 0, 5, 0)
+clearRect(0, 0, 4, 4)
+setTransform(0, 0, 0, 1, 0, 0)
+lineTo(9, 9)
+fill()
+resetTransform()
+setLineDash([1, 2, 3])
+lineDashOffset = 1
+g = createRadialGradient(5, 5, 1, 9, 9, 6)
+g.addColorStop(0.25, "hsl(30 80% 50%)")
+g.addColorStop(0.25, "#0f08")
+strokeStyle = g
+globalCompositeOperation = "copy"
+globalCompositeOperation = "xor"

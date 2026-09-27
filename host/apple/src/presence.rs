@@ -32,6 +32,8 @@ struct Leaving {
     key: NodeKey,
     parent: ViewId,
     animations: exact_motion::Animations,
+    /// The style it last showed: its paint moves over it.
+    style: String,
     /// The view and everything under it the presenter knew.
     members: Vec<ViewId>,
     /// The clock time its exit ends, once the engine has heard it.
@@ -79,6 +81,7 @@ impl<D: DataSource> Host<D> {
                 key: exit.key,
                 parent,
                 animations: exit.animations.clone(),
+                style: self.mirror.get(&view).map_or("{}", |m| &m.style).to_owned(),
                 members,
                 end: None,
             });
@@ -113,15 +116,28 @@ impl<D: DataSource> Host<D> {
     }
 
     /// Start every exit the engine has not heard, at the engine's clock.
-    pub(super) fn play_exits(&mut self) {
+    /// A leaving node's animations are the engine's to sample from here on:
+    /// the presenter has no mirror for it, so no Core Animation spec (LLP
+    /// 1055 D7) follows it, and the ones it had come off.
+    pub(super) fn play_exits(&mut self, batch: &mut Batch) {
         for leaving in &mut self.presence.leaving {
             if leaving.end.is_none() {
-                let end = self
-                    .engine
-                    .play_exit(motion_node(leaving.key), leaving.animations.clone());
+                let node = motion_node(leaving.key);
+                self.engine.set_node_sampled(node, true);
+                batch.animations(leaving.view, "[]");
+                let end = self.engine.play_exit(node, &leaving.animations);
                 debug_assert!(end.is_ok(), "the kernel validated the row");
                 leaving.end = Some(end.unwrap_or(0.0));
             }
+        }
+    }
+
+    /// A leaving view's last style with its presented paint over it.
+    pub(super) fn restyle_leaving(&self, view: ViewId, batch: &mut Batch) {
+        if let Some(l) = self.presence.leaving.iter().find(|l| l.view == view) {
+            let shown = self.shown_paint(motion_node(l.key));
+            let env = self.runner.kernel().env();
+            batch.style(view, &style::restyle_presented(&l.style, &env, &shown));
         }
     }
 
@@ -208,7 +224,10 @@ impl<D: DataSource> Host<D> {
             .layout
             .retain(|key| self.keys.contains_key(key));
         self.holds.retain(|_, token| self.engine.has_hold(*token));
-        for p in self.engine.frame() {
+        let mut colored: Vec<ViewId> = Vec::new();
+        let frame = self.engine.frame();
+
+        for p in frame {
             if p.property == Property::Height {
                 continue;
             }
@@ -226,7 +245,11 @@ impl<D: DataSource> Host<D> {
                 continue;
             };
             if Property::PAINT.contains(&p.property) {
-                self.present_paint(p, view, batch);
+                // @ref LLP 1055.000 D6 — an `svg`'s scene shows its colours;
+                // a box's are its style, re-sent with the presented values.
+                if !self.svg.touch(self.runner.kernel(), view) && !colored.contains(&view) {
+                    colored.push(view);
+                }
                 continue;
             }
             // A layout box is presented as its offset from the laid-out
@@ -256,7 +279,7 @@ impl<D: DataSource> Host<D> {
             if (boot && identity) || (identity && batch.creates(view)) {
                 continue;
             }
-            if self.inline_runs.contains_key(&view) {
+            if self.inline_runs.contains_key(&view) || self.svg.presented(view) {
                 continue;
             }
             if self.native_protected_id(view) && !self.native_current() {
@@ -268,5 +291,9 @@ impl<D: DataSource> Host<D> {
                 batch.present(view, p.property.name(), values[0], values[1]);
             }
         }
+        for view in colored {
+            self.present_colors(view, batch);
+        }
+        self.svg.emit(self.runner.kernel(), &self.engine, batch);
     }
 }

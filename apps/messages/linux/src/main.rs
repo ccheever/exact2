@@ -57,6 +57,9 @@ impl DataSource for Messages {
     fn bind(&mut self, plan: &Plan) {
         self.0.bind(plan);
     }
+    fn adopt(&mut self, source: &str, args: &[Value], value: &Value) {
+        self.0.adopt(source, args, value);
+    }
     fn app_id(&self) -> &str {
         APP
     }

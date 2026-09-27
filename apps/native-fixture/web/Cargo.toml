@@ -1,0 +1,23 @@
+[package]
+name = "native-fixture-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The native-module fixture on the web: one wasm with the runner, the kernel, and the baked plan"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "native_fixture_web"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-web = { path = "../../../host/web" }
+exact-web-capabilities = { path = "../../../host/web-capabilities" }
+native-fixture-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }
+native-fixture-data = { path = "../data" }

@@ -1,4 +1,4 @@
-//! An app's native module written in Swift (LLP 1058): the C seam
+//! An app's native module written in Swift (LLP 1067): the C seam
 //! `js/native/ExactNative.swift` exports, as a [`NativeModule`]. An app's
 //! crate names it with [`swift_native_module!`], which declares the four
 //! symbols there — so nothing references them unless the app links Swift —

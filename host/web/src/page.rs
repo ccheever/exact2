@@ -279,7 +279,7 @@ pub fn read_checkpoint(text: &str) -> Result<Checkpoint, String> {
                 };
                 for item in items.iter() {
                     let answer = match item {
-                        Value::Record(fields) => match fields.as_slice() {
+                        Value::Record(fields) => match &fields[..] {
                             [Value::Str(name), Value::Str(source), Value::List(args), value] => (
                                 String::from(&**name),
                                 String::from(&**source),

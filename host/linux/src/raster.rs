@@ -17,21 +17,6 @@ use tiny_skia::{
     Pixmap, PixmapPaint, Point, RadialGradient, Rect, SpreadMode, Stroke, Transform,
 };
 
-/// A `path` node's normalized commands as a tiny-skia path (LLP 1065 D7).
-fn vector_path(commands: &[exact_kernel::vector::Command]) -> Option<Path> {
-    use exact_kernel::vector::Command;
-    let mut b = PathBuilder::new();
-    for command in commands {
-        match *command {
-            Command::Move([x, y]) => b.move_to(x, y),
-            Command::Line([x, y]) => b.line_to(x, y),
-            Command::Cubic([ax, ay], [bx, by], [x, y]) => b.cubic_to(ax, ay, bx, by, x, y),
-            Command::Close => b.close(),
-        }
-    }
-    b.finish()
-}
-
 // One optional CPU coverage mask, never a source, picture or node owner.
 const CLIP_CACHE_BYTES: usize = 1024 * 1024;
 
@@ -307,6 +292,13 @@ impl Raster {
 
 // A new path mask is zero outside its control bounds. Include AA slack;
 // tiny-skia tiles above 8191 pixels, so retain full-mask work beyond that range.
+/// `mask` times `other`, coverage by coverage: an intersection.
+fn multiply(mask: &mut Mask, other: &Mask) {
+    for (a, b) in mask.data_mut().iter_mut().zip(other.data()) {
+        *a = ((*a as u16 * *b as u16 + 127) / 255) as u8;
+    }
+}
+
 fn intersect_mask(mask: &mut Mask, parent: &Mask, path: &Path, dev: Transform) {
     let (width, height) = (mask.width() as usize, mask.height() as usize);
     let bounds = if width <= 8191 && height <= 8191 {
@@ -646,62 +638,137 @@ impl Backend for Raster {
         }
     }
 
-    fn vector(&mut self, v: &crate::paint::VectorPaint, ts: Transform) {
-        use exact_kernel::{FillRule as Rule, StrokeLinecap, StrokeLinejoin};
-        let (dev, stroke_dev) = (
-            self.device(ts).pre_concat(v.fit),
-            self.device(ts).pre_concat(v.stroke_fit),
-        );
-        let clip = self.clips.last().cloned();
-        let stroke = Stroke {
-            width: v.width,
-            miter_limit: v.miter,
-            line_cap: match v.cap {
-                StrokeLinecap::Butt => tiny_skia::LineCap::Butt,
-                StrokeLinecap::Round => tiny_skia::LineCap::Round,
-                StrokeLinecap::Square => tiny_skia::LineCap::Square,
-            },
-            line_join: match v.join {
-                StrokeLinejoin::Miter => tiny_skia::LineJoin::Miter,
-                StrokeLinejoin::Round => tiny_skia::LineJoin::Round,
-                StrokeLinejoin::Bevel => tiny_skia::LineJoin::Bevel,
-            },
-            dash: None,
-        };
-        // A dashed stroke shows through its trimmed, undashed stroke.
-        let reveal = v.reveal.as_deref().and_then(vector_path).and_then(|path| {
-            let outline = path.stroke(
-                &stroke,
-                tiny_skia::PathStroker::compute_resolution_scale(&stroke_dev),
-            )?;
-            let mut mask = self.new_clip_mask()?;
-            mask.fill_path(&outline, FillRule::Winding, true, stroke_dev);
-            if let Some(parent) = &clip {
-                intersect_mask(&mut mask, parent, &outline, stroke_dev);
+    // @ref LLP 1055 D4 — an SVG shape: fill under stroke, clipped as boxes are.
+    fn svg_path(&mut self, s: &crate::paint::SvgPaint<'_>, ts: Transform) {
+        let mut b = PathBuilder::new();
+        for seg in &s.path.0 {
+            match *seg {
+                exact_kernel::svg::Seg::Move(x, y) => b.move_to(x, y),
+                exact_kernel::svg::Seg::Line(x, y) => b.line_to(x, y),
+                exact_kernel::svg::Seg::Cubic(a, c, d, e, x, y) => b.cubic_to(a, c, d, e, x, y),
+                exact_kernel::svg::Seg::Close => b.close(),
             }
-            Some(mask)
-        });
-        let Some(target) = self.target.as_mut() else {
+        }
+        let Some(path) = b.finish() else {
             return;
         };
-        if let Some((color, path)) = v
-            .fill
-            .as_ref()
-            .and_then(|(c, d)| Some((c, vector_path(d)?)))
-        {
-            let rule = match v.rule {
-                Rule::Nonzero => FillRule::Winding,
-                Rule::Evenodd => FillRule::EvenOdd,
-            };
-            target.fill_path(&path, &solid(*color), rule, dev, clip.as_deref());
-        }
-        let stroked = v.stroke.as_ref().filter(|_| v.width > 0.0);
-        if let Some((color, path)) = stroked.and_then(|(c, d)| Some((c, vector_path(d)?))) {
-            if v.reveal.is_some() && reveal.is_none() {
-                return; // nothing of the trim is visible
+        let dev = self.device(ts);
+        let mask = self.clips.last().cloned();
+        let Some(t) = self.target.as_mut() else {
+            return;
+        };
+        // @ref LLP 1055.000 D7 — a gradient is a tiny-skia shader in the
+        // path's space (two circles, as SVG's focal radial).
+        fn paint<'a>(ink: &'a crate::paint::Ink<'_>) -> Option<tiny_skia::Paint<'a>> {
+            match ink {
+                crate::paint::Ink::Solid(c) => Some(solid(*c)),
+                // @ref LLP 1055.000 D7 — a pattern's tile, repeated.
+                crate::paint::Ink::Pattern {
+                    tile,
+                    transform: m,
+                    opacity,
+                } => Some(tiny_skia::Paint {
+                    shader: tiny_skia::Pattern::new(
+                        tile.as_ref().as_ref(),
+                        tiny_skia::SpreadMode::Repeat,
+                        tiny_skia::FilterQuality::Bilinear,
+                        *opacity,
+                        Transform::from_row(m[0], m[1], m[2], m[3], m[4], m[5]),
+                    ),
+                    anti_alias: true,
+                    ..Default::default()
+                }),
+                crate::paint::Ink::Gradient {
+                    server,
+                    stops,
+                    transform,
+                } => {
+                    use exact_kernel::svg::server::{ServerKind, Spread};
+                    use tiny_skia::{GradientStop, Point, SpreadMode};
+                    let stops: Vec<GradientStop> = stops
+                        .iter()
+                        .map(|(o, c)| {
+                            GradientStop::new(*o, Color::from_rgba8(c[0], c[1], c[2], c[3]))
+                        })
+                        .collect();
+                    let mode = match server.spread {
+                        Spread::Pad => SpreadMode::Pad,
+                        Spread::Reflect => SpreadMode::Reflect,
+                        Spread::Repeat => SpreadMode::Repeat,
+                    };
+                    let m = transform;
+                    let tr = Transform::from_row(m[0], m[1], m[2], m[3], m[4], m[5]);
+                    let shader = match server.kind {
+                        ServerKind::Linear { x1, y1, x2, y2 } => tiny_skia::LinearGradient::new(
+                            Point::from_xy(x1, y1),
+                            Point::from_xy(x2, y2),
+                            stops,
+                            mode,
+                            tr,
+                        ),
+                        ServerKind::Radial {
+                            cx,
+                            cy,
+                            r,
+                            fx,
+                            fy,
+                            fr,
+                        } => tiny_skia::RadialGradient::new(
+                            Point::from_xy(fx, fy),
+                            fr,
+                            Point::from_xy(cx, cy),
+                            r,
+                            stops,
+                            mode,
+                            tr,
+                        ),
+                    }?;
+                    Some(tiny_skia::Paint {
+                        shader,
+                        anti_alias: true,
+                        ..Default::default()
+                    })
+                }
             }
-            let mask = reveal.as_ref().or(clip.as_deref());
-            target.stroke_path(&path, &solid(*color), &stroke, stroke_dev, mask);
+        }
+        for part in s.order {
+            match part {
+                0 => {
+                    if let Some(p) = s.fill.as_ref().and_then(paint) {
+                        let rule = if s.even_odd {
+                            FillRule::EvenOdd
+                        } else {
+                            FillRule::Winding
+                        };
+                        t.fill_path(&path, &p, rule, dev, mask.as_deref());
+                    }
+                }
+                1 => {
+                    let Some(p) = s.stroke.as_ref().and_then(paint).filter(|_| s.width > 0.0)
+                    else {
+                        continue;
+                    };
+                    let stroke = Stroke {
+                        width: s.width,
+                        miter_limit: s.miter,
+                        line_cap: [
+                            tiny_skia::LineCap::Butt,
+                            tiny_skia::LineCap::Round,
+                            tiny_skia::LineCap::Square,
+                        ][s.cap.min(2) as usize],
+                        line_join: [
+                            tiny_skia::LineJoin::Miter,
+                            tiny_skia::LineJoin::Round,
+                            tiny_skia::LineJoin::Bevel,
+                        ][s.join.min(2) as usize],
+                        dash: (!s.dash.is_empty())
+                            .then(|| tiny_skia::StrokeDash::new(s.dash.clone(), s.phase))
+                            .flatten(),
+                    };
+                    t.stroke_path(&path, &p, &stroke, dev, mask.as_deref());
+                }
+                _ => {}
+            }
         }
     }
 
@@ -802,9 +869,51 @@ impl Backend for Raster {
         }
     }
 
+    // @ref LLP 1055.000 D14 — an island in its element's user space.
+    fn island_image(&mut self, image: Arc<Pixmap>, dst: Rect4, ts: Transform, mode: u8) {
+        let (nw, nh) = (image.width() as f32, image.height() as f32);
+        if nw <= 0.0 || nh <= 0.0 || dst.2 <= 0.0 || dst.3 <= 0.0 {
+            return;
+        }
+        let mask = self.clips.last().cloned();
+        let dev = self
+            .device(ts)
+            .pre_concat(Transform::from_translate(dst.0, dst.1).pre_scale(dst.2 / nw, dst.3 / nh));
+        // @ref LLP 1055.000 D19 — `mix-blend-mode`, in CSS's order.
+        use tiny_skia::BlendMode as B;
+        let blend_mode = [
+            B::SourceOver,
+            B::Multiply,
+            B::Screen,
+            B::Overlay,
+            B::Darken,
+            B::Lighten,
+            B::ColorDodge,
+            B::ColorBurn,
+            B::HardLight,
+            B::SoftLight,
+            B::Difference,
+            B::Exclusion,
+            B::Hue,
+            B::Saturation,
+            B::Color,
+            B::Luminosity,
+        ][mode.min(15) as usize];
+        let paint = PixmapPaint {
+            quality: FilterQuality::Bilinear,
+            blend_mode,
+            ..PixmapPaint::default()
+        };
+        if let Some(t) = self.target.as_mut() {
+            t.draw_pixmap(0, 0, image.as_ref().as_ref(), &paint, dev, mask.as_deref());
+        }
+    }
+
     fn surface_image(&mut self, image: Arc<Pixmap>, dst: Rect4) {
-        let clips: &[Shape] = &[];
-        let ts = Transform::identity();
+        self.canvas(&image, dst, &[], Transform::identity());
+    }
+
+    fn canvas(&mut self, image: &Arc<Pixmap>, dst: Rect4, clips: &[Shape], ts: Transform) {
         let (nw, nh) = (image.width() as f32, image.height() as f32);
         if nw <= 0.0 || nh <= 0.0 || dst.2 <= 0.0 || dst.3 <= 0.0 {
             return;
@@ -893,17 +1002,27 @@ impl Backend for Raster {
         }
     }
 
-    fn push_css_clip(&mut self, path: &exact_kernel::clip::ClipPath, ts: Transform) -> bool {
-        let path_rule = path.rule();
-        let Some(path) = vector_path(path.commands()) else {
+    fn push_css_clip(&mut self, css: &exact_kernel::clip::ClipPath, ts: Transform) -> bool {
+        let mut b = PathBuilder::new();
+        for (op, v) in css.commands() {
+            match op {
+                'M' => b.move_to(v[0], v[1]),
+                'L' => b.line_to(v[0], v[1]),
+                'Q' => b.quad_to(v[0], v[1], v[2], v[3]),
+                'C' => b.cubic_to(v[0], v[1], v[2], v[3], v[4], v[5]),
+                'Z' => b.close(),
+                _ => unreachable!("validated CSS path"),
+            }
+        }
+        let Some(path) = b.finish() else {
             return false;
         };
         let Some(mut mask) = Mask::new(self.width, self.height) else {
             return false;
         };
-        let rule = match path_rule {
-            exact_kernel::FillRule::Nonzero => FillRule::Winding,
+        let rule = match css.rule() {
             exact_kernel::FillRule::Evenodd => FillRule::EvenOdd,
+            exact_kernel::FillRule::Nonzero => FillRule::Winding,
         };
         mask.fill_path(&path, rule, true, self.device(ts));
         if let Some(parent) = self.clips.last() {
@@ -918,6 +1037,60 @@ impl Backend for Raster {
                 self.height as f32,
             )));
         true
+    }
+
+    // @ref LLP 1055.000 D10 — an SVG clip: the union of its shapes as one
+    // coverage mask, multiplied by its own clip's and the one in force.
+    fn push_svg_clip(&mut self, clip: &exact_kernel::svg::scene::Clip, ts: Transform) -> usize {
+        fn union(
+            r: &Raster,
+            clip: &exact_kernel::svg::scene::Clip,
+            dev: Transform,
+        ) -> Option<Mask> {
+            let mut mask = Mask::new(r.width, r.height)?;
+            for shape in &clip.shapes {
+                let mut b = PathBuilder::new();
+                for seg in &shape.path.0 {
+                    match *seg {
+                        exact_kernel::svg::Seg::Move(x, y) => b.move_to(x, y),
+                        exact_kernel::svg::Seg::Line(x, y) => b.line_to(x, y),
+                        exact_kernel::svg::Seg::Cubic(a, c, d, e, x, y) => {
+                            b.cubic_to(a, c, d, e, x, y)
+                        }
+                        exact_kernel::svg::Seg::Close => b.close(),
+                    }
+                }
+                if let Some(path) = b.finish() {
+                    let rule = if shape.even_odd {
+                        FillRule::EvenOdd
+                    } else {
+                        FillRule::Winding
+                    };
+                    mask.fill_path(&path, rule, true, dev);
+                }
+            }
+            if let Some(then) = &clip.then {
+                let inner = union(r, then, dev)?;
+                multiply(&mut mask, &inner);
+            }
+            Some(mask)
+        }
+        let dev = self.device(ts);
+        let Some(mut mask) = union(self, clip, dev) else {
+            return 0;
+        };
+        if let Some(parent) = self.clips.last() {
+            multiply(&mut mask, parent);
+        }
+        self.clips.push(Rc::new(mask));
+        self.text_clips
+            .push(self.text_clips.last().copied().unwrap_or((
+                0.,
+                0.,
+                self.width as f32,
+                self.height as f32,
+            )));
+        1
     }
 
     fn pop_clip(&mut self) {

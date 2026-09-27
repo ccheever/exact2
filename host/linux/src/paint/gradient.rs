@@ -1,4 +1,4 @@
-//! A box's `background-image` gradient (LLP 1056): captured for one
+//! A box's `background-image` gradient (LLP 1066): captured for one
 //! appearance with the box, placed in its padding box (CSS's gradient box
 //! under the initial `background-origin`), and filled over the border box
 //! with its radii, over the background colour and under the border.

@@ -84,7 +84,7 @@ impl Markdown {
             // nothing: losing the page you were on is the worse failure).
             Err(message) => match &self.open {
                 Some((path, Value::Record(fields))) => {
-                    let mut fields = fields.as_ref().clone();
+                    let mut fields = fields.to_vec();
                     fields[3] = Value::str(&message);
                     fields[4] = Value::Bool(!message.is_empty());
                     fields[7] = siblings(path);

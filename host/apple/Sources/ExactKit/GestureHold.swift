@@ -1,5 +1,15 @@
 // Values and native lifetime only. The platform retains recognition/arbitration.
+import CExact
 import Foundation
+
+/// The thresholds exact2 defines itself, read from `exact_motion::gesture`
+/// (LLP 1057.001 §3): the swipe knee, its resistance, the edge a swipe yields.
+enum Gesture {
+    static let knee = exact_gesture_constant(0)
+    static let resistance = exact_gesture_constant(1)
+    static let edge = exact_gesture_constant(2)
+    static let slop = exact_gesture_constant(3)
+}
 
 struct NativeHold {
     let token: UInt64
@@ -24,15 +34,15 @@ enum SwipeRecognition {
 struct SwipeDisplacement {
     let base: Double
     private var origin: Double {
-        abs(base) <= 64 ? base : (base < 0 ? -1 : 1) * (64 + (abs(base) - 64) / 0.2)
+        abs(base) <= Gesture.knee ? base : (base < 0 ? -1 : 1) * (Gesture.knee + (abs(base) - Gesture.knee) / Gesture.resistance)
     }
     func value(_ displacement: Double) -> Double {
         if displacement == 0 { return base }
         let position = origin + displacement
-        return abs(position) <= 64 ? position : (position < 0 ? -1 : 1) * (64 + (abs(position) - 64) * 0.2)
+        return abs(position) <= Gesture.knee ? position : (position < 0 ? -1 : 1) * (Gesture.knee + (abs(position) - Gesture.knee) * Gesture.resistance)
     }
     func velocity(displacement: Double, fingerVelocity: Double) -> Double {
-        fingerVelocity * (abs(origin + displacement) > 64 ? 0.2 : 1)
+        fingerVelocity * (abs(origin + displacement) > Gesture.knee ? Gesture.resistance : 1)
     }
 }
 
@@ -80,7 +90,7 @@ final class SwipeHold {
     private var pin: UInt64?
     private var deliveryQueued = false
     private var pendingMove: Double?
-    private var pendingEnd: (Double, Double, Bool)?
+    private var pendingEnd: (Double, Double?, Bool)?
 
     // A recognizer can cancel synchronously while UIKit reparents or disables
     // a view. One queued delivery per gesture crosses the *session* boundary,
@@ -149,14 +159,16 @@ final class SwipeHold {
         let batch = session.runtime.holdUpdate(primary.token, x: value, y: primary.y, now: session.now())
         session.apply(batch)
         guard batch.error == nil, live else { return false }
-        let progress = min(1, max(0, value / 64))
+        let progress = min(1, max(0, value / Gesture.knee))
         for (hold, base) in indicators {
-            session.apply(session.runtime.holdUpdate(hold.token, x: SwipeIndicator(base: base, progressAtCatch: min(1, max(0, primary.x / 64))).value(progress), y: 0, now: session.now()))
+            session.apply(session.runtime.holdUpdate(hold.token, x: SwipeIndicator(base: base, progressAtCatch: min(1, max(0, primary.x / Gesture.knee))).value(progress), y: 0, now: session.now()))
         }
         return live
     }
 
-    func finish(displacement: Double, fingerVelocity: Double, cancel: Bool) {
+    /// `fingerVelocity` nil: the platform measured none (a mouse), so the
+    /// engine's own estimate over the presented values releases it.
+    func finish(displacement: Double, fingerVelocity: Double?, cancel: Bool) {
         guard !ended, !finishing, pendingEnd == nil else { return }
         if session?.isApplyingPresentation == true || deliveryQueued {
             pendingEnd = (displacement, fingerVelocity, cancel)
@@ -166,7 +178,7 @@ final class SwipeHold {
         // Apply the last pointer sample before checking eligibility for action.
         let updated = move(displacement)
         guard let session else { ended = true; return }
-        if updated && !cancel && fingerVelocity.isFinite && mapping.value(displacement) >= 64,
+        if updated && !cancel && fingerVelocity?.isFinite != false && mapping.value(displacement) >= Gesture.knee,
            live, inputEligible, let view {
             session.apply(session.runtime.swiperight(view.id, now: session.now()))
         }
@@ -174,8 +186,13 @@ final class SwipeHold {
         session.retireInputHold(self)
         // An action may remove this view or reboot the runtime. Never end in a successor.
         if session.generation == generation && !session.runtime.destroyed {
-            let velocity = mapping.velocity(displacement: displacement, fingerVelocity: fingerVelocity)
-            session.apply(session.runtime.holdEnd(primary.token, cancel: cancel || !updated || !inputEligible || !velocity.isFinite, vx: velocity.isFinite ? velocity : 0, now: session.now()))
+            let refused = cancel || !updated || !inputEligible
+            if let fingerVelocity {
+                let velocity = mapping.velocity(displacement: displacement, fingerVelocity: fingerVelocity)
+                session.apply(session.runtime.holdEnd(primary.token, cancel: refused || !velocity.isFinite, vx: velocity.isFinite ? velocity : 0, now: session.now()))
+            } else {
+                session.apply(session.runtime.holdEnd(primary.token, cancel: refused, measured: true, now: session.now()))
+            }
             for (hold, _) in indicators {
                 session.apply(session.runtime.holdEnd(hold.token, cancel: true, now: session.now()))
             }

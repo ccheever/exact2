@@ -52,8 +52,9 @@ typealias OracleNodeStyle = [String: OracleBatchValue]
 
 struct OracleBatchOp: Decodable {
     enum Kind: String {
-        case create, props, style, children, paragraph, frame, content, present, unpresent, roots, destroy
+        case create, props, style, children, paragraph, frame, content, present, roots, destroy
         case flow, surface, command, hold, collections, region, router, title, unknown
+        case svg, animations, canvas2d, reorder, exit
         case heightDrag = "height-drag", transformDrag = "transform-drag", retireMotion = "retire-motion"
     }
     let op: Kind
@@ -68,12 +69,11 @@ struct OracleBatchOp: Decodable {
     var runs: [OracleInlineText] = []
     var x = 0.0, y = 0.0, w = 0.0, h = 0.0
     var property = ""
-    var run: UInt32?
     // Rare adapters retain their existing input shape. Common ops never build it.
     var payload: [String: Any] = [:]
 
     enum CodingKeys: String, CodingKey {
-        case op, id, kind, props, set, clear, style, handlers, ids, runs, x, y, w, h, property, run
+        case op, id, kind, props, set, clear, style, handlers, ids, runs, x, y, w, h, property
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -91,13 +91,12 @@ struct OracleBatchOp: Decodable {
         case .style: style = try c.decodeIfPresent(OracleNodeStyle.self, forKey: .style) ?? [:]
         case .paragraph: runs = try c.decodeIfPresent([OracleInlineText].self, forKey: .runs) ?? []
         case .children, .roots: ids = try c.decodeIfPresent([UInt32].self, forKey: .ids) ?? []
-        case .frame, .content, .present, .unpresent:
+        case .frame, .content, .present:
             x = try c.decodeIfPresent(Double.self, forKey: .x) ?? 0
             y = try c.decodeIfPresent(Double.self, forKey: .y) ?? 0
             w = try c.decodeIfPresent(Double.self, forKey: .w) ?? 0
             h = try c.decodeIfPresent(Double.self, forKey: .h) ?? 0
             property = try c.decodeIfPresent(String.self, forKey: .property) ?? ""
-            run = try c.decodeIfPresent(UInt32.self, forKey: .run)
         case .destroy: break
         default: payload = try [String: OracleBatchValue](from: decoder).mapValues(\.any)
         }

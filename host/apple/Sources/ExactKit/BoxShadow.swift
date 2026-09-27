@@ -1,4 +1,4 @@
-// CSS `box-shadow`, one outer shadow, on both Apple platforms (LLP 1055 D2).
+// CSS `box-shadow`, one outer shadow, on both Apple platforms (LLP 1064 D2).
 // A layer with no contents casts the border box's rounded outline through
 // `shadowPath` (no offscreen pass to find a shape), masked to what lies
 // outside that outline: CSS clips an outer shadow to outside the border box,
@@ -56,14 +56,13 @@ extension NodeView {
     /// view's appearance; nil when nothing would show.
     var shadowColor: CGColor? {
         // Paint motion's colour has the opacity in its alpha already (LLP 1062).
-        let opacity = paint["shadow_color"] == nil ? min(number("shadow_opacity"), 1) : 1
+        let opacity = min(number("shadow_opacity"), 1)
         guard opacity > 0, let c = channels("shadow_color"), c[3] > 0 else { return nil }
         return CGColor(srgbRed: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255 * opacity)
     }
 
-    /// The offset and CSS blur radius: paint motion's while it runs, else the rows'.
+    /// The offset and CSS blur radius.
     var shadowGeometry: (x: CGFloat, y: CGFloat, blur: CGFloat) {
-        if let g = paint["shadow_geometry"] { return (g[0], g[1], max(0, g[2])) }
         let o = style["shadow_offset"]?.numbers ?? []
         return (o.first ?? 0, o.count > 1 ? o[1] : 0, max(0, number("shadow_radius")))
     }

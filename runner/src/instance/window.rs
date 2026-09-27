@@ -42,7 +42,7 @@ pub(super) struct ListWindow {
     velocity: f64,
     port: f64,
     origin: f64,
-    items: Rc<Vec<Value>>,
+    items: Rc<[Value]>,
     keys: Vec<Value>,
     duplicates: Vec<u32>,
     positions: BTreeMap<String, usize>,
@@ -183,7 +183,7 @@ impl NodeInst {
                 // scrollport before paint, never a guessed screen height.
                 port: *height,
                 origin: 0.0,
-                items: Rc::new(Vec::new()),
+                items: Rc::from([]),
                 keys: Vec::new(),
                 duplicates: Vec::new(),
                 positions: BTreeMap::new(),
@@ -344,7 +344,7 @@ impl ListWindow {
         u: &mut Update<'_>,
         active: &mut Active,
         region: RegionsId,
-        items: Rc<Vec<Value>>,
+        items: Rc<[Value]>,
         frames: &[Frame],
     ) -> Result<(), InstanceError> {
         let mut keys = Vec::with_capacity(items.len());

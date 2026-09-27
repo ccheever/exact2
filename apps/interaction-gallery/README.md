@@ -117,7 +117,9 @@ gesture in the host before new feedback; seamless resize rebasing is not claimed
 
 Fit and 2× write the latest authored zoom synchronously and clamp pan using that
 new zoom. Reset centers and fits. `transformrelease(x,y,scale,vx,vy,vscale)` writes
-only pan, clamped against the **current authored zoom**, never the caught scale.
+the zoom as the released scale held between Fit (1) and 4×, and pan clamped
+against that new zoom (a pinch, LLP 1057.001 §4; a pan releases the scale it
+caught). Fit, 2× and Center stay the controls that need no gesture.
 The host validates the complete terminal tuple, applies the final paired sample,
 dispatches this action while both holds are live, then ends each surviving owned
 token once. Velocities go to the shared spring; the app does not project another

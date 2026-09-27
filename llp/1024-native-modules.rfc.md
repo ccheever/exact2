@@ -1,11 +1,11 @@
 # LLP 1024: Native modules — a tag that is not a host change
 
 **Type:** RFC
-**Status:** Draft
+**Status:** Accepted. Charlie Cheever approved implementing it on 2026-09-26, which ratifies §6 Q1 (one app-scoped module artifact with an inner tag → factory table). D8 landed 2026-09-27; §9 is what was built.
 **Systems:** Kernel (`NativeView` already in the schema — no new node type), Contract (hyphenated tags; leftover attrs as one literal JSON aggregate), Apple host (one NativeView arm; one app module artifact behind `dlopen`), Web host (the real custom-element tag; one injected sibling module), Linux host (unavailable in v1), Agent API (the eight operations; no ninth), GPU / iframe (stay first-party HTML tags)
 **Author:** Grok 4.6 for Charlie Cheever. r2 folded by Claude Fable from the three-model panel of 2026-08-31 (§8); the fold is an edit for Charlie to accept, not an approval.
 **Date:** 2026-08-31 (r1 and r2)
-**Revised:** 2026-08-31 (r2 folded from the three-model panel; no status change)
+**Revised:** 2026-08-31 (r2 folded from the three-model panel; no status change). 2026-09-27 (§9, as built: implementer Claude (Opus 5.5); consumer the photo editor, `apps/photo-editor`.)
 **Related:** `AGENTS.md` optional-capability rule (a separate artifact or another executor, never a cargo feature on a core crate); LLP 1000 (the crate graph; “an embedder links the crate they want”); LLP 1001 (`NativeView` is a kernel-owned box; the declared-deviations list); LLP 1007 §6 (a plan reload carries slots, matching resources, the clock, the store — not the tree, focus, or springs) and §8 (nothing imports before first pixel; `boot.mjs` counts); LLP 1008 (Apple host; the one-thread C ABI; the inode-replace rule in `host/apple/build.mjs`); LLP 1009 D2/D4 (the GPU module: one app artifact, an inner name → factory table, loaded after first pixel); LLP 1012 (the eight operations); LLP 1014 (canvas children — not this); LLP 1017 §8.1 and P1 (the words are the web’s; no quiet failures; the bake lint P1d); LLP 1020 D1/D3 (iframe is one HTML tag, not module dispatch; the on-demand dylib ABI this copies — including its reply callback); LLP 1023 (plans on the LAN; native code is never a network payload; a plan’s bytes are network bytes). Predecessor, research never authority: exact1 LLP 0149 (`NativeView` vs `NodeType`; `Terminal` is listed as a NativeView module) and LLP 0525 (ModuleIR — the generated-every-binding machine this RFC refuses).
 
 ## 1. Summary
@@ -502,6 +502,11 @@ recorded here as leanings for Charlie to ratify, not decisions:
 Still genuinely open, and Charlie’s: ratifying Q1’s shape, and naming the
 consumer + implementer that turn D8 from a proposal into work.
 
+**Ratified (Charlie Cheever, 2026-09-26).** His go-ahead to implement this
+LLP ratifies Q1: one app-scoped module artifact with an inner tag → factory
+table. The implementer is Claude (Opus 5.5); the consumer is a photo-editor
+example app whose main surface is a module tag (§9).
+
 ## 7. Trade
 
 `rules/NOT-DOING.md` §Components does not lose a line. This RFC does not
@@ -578,3 +583,151 @@ The editor re-verified every load-bearing factual claim against the live
 repository before folding; the per-claim results are in the three review
 artifacts’ Disposition lines. Nothing in this revision rests on a panel
 assertion that was not checked.
+
+## 9. As built (Claude (Opus 5.5), 2026-09-27)
+
+D1–D8 landed as written except where this section says otherwise. Every
+row below was verified by running it; the commands are at the end.
+
+**Compiler (D1).** `contract/lower/src/native.rs`: the lowercase PCEN
+grammar with the reserved names, the fixed `display: block` row, the
+known-attribute table first with `renamed()` spellings still refused, and
+`load`/`message` unlocked; `src`, `sandbox` and `surface` stay refused. The
+leftover attributes lower to one binding of `nativeViewProps` through a new
+plan opcode, `NativeProps(n)` — the “small plan/runner helper” — whose one
+implementation is `exact_runner::stdlib::native_props`: keys sorted, values
+carried as strings (numbers as JavaScript prints them), an option’s `none`
+leaves its key out, JSON escaping of `"`, `\` and C0 only.
+
+- **Deviation — computed leftovers are in.** §5 cut them until “a module prop
+  that is a function of state”. The photo editor is that consumer: its
+  Rotate 90° and Reset controls are state the module must see. A leftover
+  may be any string, number or bool expression, or an option of one; the
+  aggregate is still one object, replaced whole. Two guardrails come with it
+  (Charlie, 2026-09-27; not yet enforced, see QUEUE):
+  - **Props are not an animation channel.** A prop that changes every frame
+    is a defect. Continuous motion lives inside the module; props carry
+    state that changes at interaction boundaries (the photo editor's turn
+    count and reset counter, a map's pins).
+  - **One update has a size budget.** An aggregate over it is refused with a
+    named module status, the way rejected props already are. Per-key diffs
+    wait for a module whose updates measurably need them.
+- **Deviation — the roster is declared in `app.json`** (kept, Charlie,
+  2026-09-27), `"modules": ["tag", …]`, the shape GPU modules took in LLP 1009 D6, rather than emitted by the
+  module crate’s build. The compiler reads it where it reads the app’s
+  directory (`contract/cli/src/native.rs`, on every compile of an app path:
+  the dev loop and every host’s `build.rs`), so `bake-unknown-module` names
+  the tag, the roster and a one-edit suggestion before any plan exists;
+  `contract::bake` itself has no app directory. The artifact’s own roster
+  (its table) is checked against the declaration at build (below). The
+  roster and the table’s ABI are the compatibility id’s `nativeModules`
+  input (reserved as `null` until now), so a new tag is a binary change.
+
+**The module “crate” is Swift on Apple and JavaScript on the web.** A
+platform view is AppKit/UIKit: `modules/apple/*.swift` is compiled with the
+host’s `host/apple/modules/ExactNativeModule.swift` (the table, the event
+object, `ExactNativeInstance`, `ExactNativeFactory`) into one
+`libexact_modules.dylib`; `modules/web/index.js` exports the same names.
+The app declares its table as `let exactNativeModules: [String:
+ExactNativeFactory]`.
+
+**Presenters (D2–D5).** Apple: `Sources/ExactKit/NativeModule.swift`, one
+`native` arm reached from both NodeView files through `embedPlatformView`,
+`updateEmbedded` and `destroyEmbedded` (which also carry iframe’s lines, so
+the two NodeView files shrank). The artifact is `dlopen`ed once per process
+at the paint gate — the turn after first draw, beside the GPU module’s — and
+never closed. The table is D4’s: `major` 1, `size` 72, the roster as a JSON
+C string, `create`, `platform_view`, `set_props`, `snapshot`, `destroy`, and
+two reserved null slots; `create` and `set_props` return a refusal’s text
+through a caller buffer. Callbacks carry a host nonce, are copied, and
+always hop to the main queue before the presenter’s gate; a retired nonce is
+dropped and logged. The name is re-checked against the grammar on plan
+bytes, then used only as a table key. `EXACT_MODULES` names another
+artifact file only when the baked trust is not `production`. Capture merges
+the tokened snapshots of snapshot-bit tags into the iframe capture map
+(`Capture.web`) and hides those live views.
+
+**Web (D7).** The node is the custom element: `tag_for` returns the module
+name (re-checked). A shim in `glue.js` records each module element; after the
+browser’s first paint entry `native-glue.js` loads, defines each roster tag once
+as a bare `HTMLElement` subclass, and injects the app’s module as an inline
+module script with a static import (never an `import()`). Props arrive as
+the element’s `data-nativeviewprops` attribute and are observed; events are
+nonce-checked and dispatched after the batch. A plan reload destroys every
+instance before the DOM is cleared and reuses the definitions. The web
+never asks for a snapshot: the page capture already composites every
+element.
+
+**Linux.** `tree` shows `module: {name, state: "unavailable", error}`.
+
+**Build (D8.4).** `host/apple/build.mjs` compiles and copies the artifact only
+when the app’s roster is non-empty, signs it beside the web arm on macOS,
+and puts it in the iOS bundle’s `Frameworks`, where the embedded-dylib loop
+signs it (so the simulator run traverses `codesign`). It reads the
+artifact’s roster from its table (`bun:ffi`; for an iOS build, a macOS slice
+of the same sources); `host/web/build.mjs` reads the web module’s `roster`
+export. A roster tag the artifact lacks fails a production build, named, and
+warns in development.
+
+**The fixture (D8.3)** is `apps/native-fixture`, a fixture app rather than a
+product: `exact-fixture` (the snapshot bit; paints with a layer the ordinary
+capture cannot see; echoes accepted props; fires all nine events from a
+background thread; refuses `reject=true`; calls back after `destroy`),
+`exact-plain` (painted in `draw`, no snapshot bit) and `exact-absent` (in the
+roster, never in the artifact). `scripts/smoke-native.mjs`, which
+`smoke.mjs` runs for that app, asserts D8’s whole list. On Apple, the
+wrong-ABI artifact is a two-line C table the smoke builds; on the web, it is
+a copy of the build with its module skewed or removed.
+
+Verified (2026-09-27):
+
+- `bun scripts/smoke.mjs web --app native-fixture --app-only`: ok, 32 of 32
+  native checks, four runs in a row (Chrome for Testing 154). The web gate
+  was first two animation frames, as the GPU module’s is; the smoke caught
+  the adapter starting about 2 ms before Chrome’s first paint entry, so the
+  gate is now that entry (two frames and 250 ms where Chrome records none).
+- `bun scripts/smoke.mjs macos --app native-fixture --app-only`: ok, 33 of 33.
+- `bun scripts/smoke.mjs ios --app native-fixture --app-only`: ok, 33 of 33
+  (iPhone 18 Pro simulator, iOS 27; the artifact in `Frameworks`, ad-hoc
+  signed).
+- `EXACT_UPDATE_TRUST=production EXACT_UPDATE_GENESIS=1 bun host/web/build.mjs
+  native-fixture`, and the same for `host/apple/build.mjs`: both fail,
+  naming `exact-absent`.
+- `bun scripts/agent.mjs linux --plan …` on a module plan: `unavailable`.
+
+Not verified: an iPhone device run (AMFI, a team signature), and a plan
+reload on Apple hosts (the web smoke asserts it).
+
+**Consumers (2026-09-27).** `apps/photo-editor` is the named consumer:
+`<photo-editor>` is UIKit on iOS (pinch about the centroid, two-finger
+rotation, a rubber-band pan that flings with its release velocity, crop
+corner and edge handles, double-tap reset), AppKit on macOS (trackpad
+magnify and rotation, mouse drags, double click, wheel zoom; drawn in
+`draw(_:)`, so the ordinary capture sees it and no snapshot bit is needed)
+and Pointer Events on the web. It reports its resting state as `change` and
+`"edited"` as `message` when a gesture ends; the Contract shows the values,
+and its Rotate 90° and Reset buttons — the non-gesture path — reach the
+module only through the computed `turns` and `reset` props.
+`apps/map-demo` is a second: `<native-map>`, MKMapView with the snapshot
+bit (MKMapSnapshotter) on Apple and an OpenStreetMap tile map on the web.
+Both were driven through the agent on web, macOS and the iOS simulator.
+Agent-driven there: the buttons on every host; single-pointer drags (pan,
+fling to the bound, crop handle) on web and macOS; double click and pin
+presses on the web; a pin click on macOS. Two-pointer pinch and rotation ran
+on the web only as synthetic PointerEvents dispatched in the page, which is
+not one of the eight operations. Not verified: trackpad magnify and rotation
+on macOS, every UIKit gesture on iOS (the simulator carrier’s contact needs
+Accessibility permission this machine lacks), and double click on macOS (the
+carrier sends no double click).
+
+One lesson for module authors: an agent-mode host serves requests on the main
+thread back to back, so a module’s wall-clock easing hardly advances inside
+a burst of operations. The photo editor therefore reports where an edit will
+rest when the gesture ends, and eases there afterwards, on a timer in every
+run-loop mode.
+
+**Working set.** §7’s trade was spent on 2026-08-31 (88ccf8c5: 1022 left
+`llp/current/` and 1024 entered), and 1024’s link later left for the
+Markdown reader lane (6ece0180). `llp/current/` is at 15 of 15, so 1024 does
+not re-enter it here. That would take another archive, which is Charlie’s
+call.

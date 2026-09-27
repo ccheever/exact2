@@ -462,23 +462,51 @@ extension Agent {
             session.presenter.settlePump()
             return ["tapped": Int(v.id), "wheel": wheel, "gesture": gesture, "at": at]
         }
+        if let scale = req["pinch"] as? Double {
+            // A trackpad pinch: magnify events (began, changed…, ended) whose
+            // product is `scale`, to the view under the point, as the window
+            // routes a trackpad's (LLP 1057.001 §5). AppKit has no public
+            // constructor for them; a gesture CGEvent carries the zoom fields.
+            guard scale.isFinite, scale > 0 else { return ["error": "pinch: expected a positive finite scale"] }
+            let point = (req["at"] as? [Double]).map { v.convert(CGPoint(x: $0[0], y: $0[1]), to: nil) } ?? p
+            let screen = win.convertPoint(toScreen: point)
+            let target = win.contentView?.hitTest(point) ?? v
+            var previous = 1.0
+            for step in 0...9 {
+                let factor = step == 0 || step == 9 ? previous : 1 + (scale - 1) * Double(step) / 8
+                guard let cg = CGEvent(source: nil), let type = CGEventType(rawValue: 29) else { return ["error": "no gesture event"] }
+                cg.type = type
+                cg.location = CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.height ?? 0) - screen.y)
+                cg.setIntegerValueField(CGEventField(rawValue: 110)!, value: 8)   // gesture HID type: zoom
+                cg.setDoubleValueField(CGEventField(rawValue: 113)!, value: factor / previous - 1)
+                cg.setIntegerValueField(CGEventField(rawValue: 132)!, value: step == 0 ? 1 : step == 9 ? 4 : 2)
+                guard let e = NSEvent(cgEvent: cg), e.type == .magnify else { return ["error": "no magnify event"] }
+                target.magnify(with: e)
+                previous = factor
+            }
+            session.presenter.settlePump()
+            return ["tapped": Int(v.id), "pinch": scale, "at": at, "delivery": "platform"]
+        }
         if v.kind == "iframe" { return session.webviews.tap(v, request: req, at: at) }
-        let t = ProcessInfo.processInfo.systemUptime
-        let eventNumber = AgentMouseRelease.nextEventNumber()
-        guard let down = NSEvent.mouseEvent(with: .leftMouseDown, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: 1, pressure: 1),
-              let up = NSEvent.mouseEvent(with: .leftMouseUp, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: 1, pressure: 0),
-              let release = AgentMouseRelease(up)
-        else { return ["error": "no mouse event"] }
-        // NSTextView and AVKit controls may track synchronously inside mouseDown.
-        // Put this click's release in the queue before entering that loop.
-        NSApp.postEvent(up, atStart: true)
-        win.sendEvent(down)
-        // The queue's wrapper identifies the release, but its window location
-        // is re-derived from the window server's and lands elsewhere by the
-        // window's screen offset: a pointer tap pressed down and released
-        // outside its button. Send this click's own release.
-        if release.takeQueued(from: NSApp) != nil {
-            win.sendEvent(up)
+        // A double click is two real clicks, the second with clickCount 2.
+        for clicks in 1...(req["dblclick"] as? Bool == true ? 2 : 1) {
+            let t = ProcessInfo.processInfo.systemUptime
+            let eventNumber = AgentMouseRelease.nextEventNumber()
+            guard let down = NSEvent.mouseEvent(with: .leftMouseDown, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: clicks, pressure: 1),
+                  let up = NSEvent.mouseEvent(with: .leftMouseUp, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: clicks, pressure: 0),
+                  let release = AgentMouseRelease(up)
+            else { return ["error": "no mouse event"] }
+            // NSTextView and AVKit controls may track synchronously inside mouseDown.
+            // Put this click's release in the queue before entering that loop.
+            NSApp.postEvent(up, atStart: true)
+            win.sendEvent(down)
+            // The queue's wrapper identifies the release, but its window location
+            // is re-derived from the window server's and lands elsewhere by the
+            // window's screen offset: a pointer tap pressed down and released
+            // outside its button. Send this click's own release.
+            if release.takeQueued(from: NSApp) != nil {
+                win.sendEvent(up)
+            }
         }
         return ["tapped": Int(v.id), "at": at, "delivery": "platform"]
     }
@@ -616,8 +644,8 @@ extension Agent {
             return p.terminationStatus == 0 ? ["screenshot": path, "window": true, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height), "scale": Agent.r2(window.backingScaleFactor)] : ["error": "screencapture exited \(p.terminationStatus)"]
         }
         guard let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { return ["error": "no bitmap for the viewport"] }
-        Capture.web = session.webviews.snapshots()
-        let hidden = presenter.views.values.compactMap(\.web).map { ($0, $0.isHidden) }
+        Capture.web = session.webviews.snapshots().merging(session.natives.snapshots()) { web, _ in web }
+        let hidden = (presenter.views.values.compactMap(\.web) + session.natives.snapshotViews).map { ($0, $0.isHidden) }
         hidden.forEach { $0.0.isHidden = true }
         // As a capture: every canvas paints its picture, read back from the
         // module, and every iframe paints its arm snapshot at its node.

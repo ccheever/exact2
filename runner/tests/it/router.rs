@@ -343,7 +343,7 @@ fn malformed_shapes_and_fractional_ids_are_typed_refusals() {
     let mut r = boot(fixture::plan(&table()), "/");
     let before = r.slot("nav").unwrap().clone();
     let Value::Record(v) = &before else { panic!() };
-    let mut fields = v.as_ref().clone();
+    let mut fields = v.to_vec();
     fields[2] = Value::Number(0.5);
     assert!(matches!(
         r.act("set", vec![Value::record(fields)]),
@@ -439,16 +439,18 @@ fn a_deep_launch_answering_later_cannot_show_another_locations_compiled_value() 
     b.set_resource_initial_args(resource, &[Value::str("/")]);
     let plan = b.finish().unwrap();
     let calls = Rc::new(RefCell::new(0));
-    assert!(matches!(
-        Runner::boot(
-            plan.clone(),
-            Later(calls.clone()),
-            Kernel::with_monospace(),
-            Default::default(),
-            "/t/42"
-        ),
-        Err(RunnerError::Data { .. })
-    ));
+    // @ref LLP 1054.000.002 D1 — the deep launch shows the type's zero,
+    // pending, never another location's compiled value.
+    let mut deep = Runner::boot(
+        plan.clone(),
+        Later(calls.clone()),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/t/42",
+    )
+    .unwrap();
+    assert_eq!(deep.resource("page"), Some(&Value::str("")));
+    assert_eq!(deep.take_requests().len(), 1);
     assert_eq!(*calls.borrow(), 1);
     let mut r = Runner::boot(
         plan,
@@ -702,7 +704,7 @@ fn a_refused_navigation_does_not_carry_its_refresh_into_the_next_commit() {
     let Some(Value::Record(fields)) = r.slot("nav").cloned() else {
         panic!("router record")
     };
-    let mut forged = fields.as_ref().clone();
+    let mut forged = fields.to_vec();
     forged[2] = Value::Number(0.);
     assert!(matches!(
         r.act("refreshAndSet", vec![Value::record(forged)]),

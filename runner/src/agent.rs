@@ -384,6 +384,20 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
             num(node.content.1 as f64)
         );
     }
+    // LLP 1056 §5: a 2D canvas's last list, readable (bounded: 200 lines,
+    // 16 KiB), wherever inspection is linked.
+    {
+        if let Some(lines) = runner.canvas_describe(id) {
+            s.push_str(",\"canvasList\":[");
+            for (i, line) in lines.iter().enumerate() {
+                if i > 0 {
+                    s.push(',');
+                }
+                quote(line, &mut s);
+            }
+            s.push(']');
+        }
+    }
     s.push('}');
     s
 }
@@ -452,15 +466,18 @@ fn row_json(v: RowValue<'_>, out: &mut String) {
             let _ = write!(out, "[{},{}]", num(v.x as f64), num(v.y as f64));
         }
         RowValue::ClipPath(p) => quote(&p.css(), out),
-        RowValue::DashArray(d) => quote(&d.css(), out),
-        RowValue::Marker(m) => quote(&m.css(), out),
         RowValue::AspectRatio(r) => quote(&r.css(), out),
-        RowValue::TransformOrigin(o) => quote(&o.css(), out),
         RowValue::BackgroundImage(g) => quote(&g.css(), out),
         RowValue::ShapeOutside(p) => quote(&p.css(), out),
         RowValue::Transitions(_) => quote("(transition)", out),
-        // The row's own text, keyframes and all: what plays is readable.
-        RowValue::Animations(a) => quote(&a.text(), out),
+        RowValue::Paint(p) => quote(&p.css(), out),
+        RowValue::DashArray(d) => quote(&d.css(), out),
+        RowValue::Transform(t) => quote(&t.css(), out),
+        RowValue::TransformOrigin(t) => quote(&t.css(), out),
+        RowValue::PaintOrder(p) => quote(&p.css(), out),
+        RowValue::Marker(m) => quote(&m.css(), out),
+        RowValue::Filter(f) => quote(&f.css(), out),
+        RowValue::Animations(a) => quote(&a.css(), out),
         RowValue::Color2(_) | RowValue::Tracks(_) | RowValue::Placement(_) => quote("(grid)", out),
     }
 }
@@ -562,6 +579,8 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
     delivery(runner, &mut s);
     s.push_str(",\"logic\":");
     logic(runner, &mut s);
+    s.push_str(",\"canvas\":");
+    runner.canvas_state(&mut s);
     s.push('}');
     s
 }

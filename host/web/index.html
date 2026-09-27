@@ -37,7 +37,7 @@
   h1, h2, h3, h4, h5, h6 { margin: 0; font-size: inherit; font-weight: inherit; }
   #exact-root button:focus-visible { outline: revert; outline-offset: 2px; }
   /* The UA's own reset, which \`all: unset\` undid: a field shows what was
-     typed, as the kernel measures it and native fields draw it (LLP 1055 D6). */
+     typed, as the kernel measures it and native fields draw it (LLP 1064 D6). */
   input, textarea { cursor: text; -webkit-user-select: text; user-select: text; text-transform: none; }
   /* Keep the textarea's native long-word wrapping through the control reset. */
   textarea { overflow-wrap: revert; }
@@ -76,7 +76,8 @@
   /* LLP 1001 §1: the kernel has no `position: static`; every node is `relative`
      (an absolute node's inline style wins). */
   #exact-root * { position: relative; }
-  img, video { display: block; }
+  /* LLP 1055 D3: an `svg` is a block, as every node is (declared deviation from HTML's inline replaced svg). */
+  img, video, svg { display: block; }
   /* The kernel owns the iframe's declared 300×150 content box. Browser UA
      borders and inline baseline space must not enlarge or shift it. Scope
      this to presented nodes: the data module's hidden iframe is not UI. */

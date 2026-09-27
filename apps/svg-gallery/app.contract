@@ -1,0 +1,611 @@
+// SVG gallery — the LLP 1055.000 fixture: one page per stage, every picture
+// literal, so every host draws the same thing and Chrome (the web host) is the
+// reference. `bun scripts/smoke.mjs svg` crops each `fx-*` box on every host
+// and compares it with Chrome's.
+//
+// Each fixture is 120 × 80 with nothing animated, so a screenshot needs no
+// clock. A stage's page is chosen by the buttons along the top.
+
+routes nav
+  tab home "/"
+
+style Tile
+  width=120
+  height=80
+  flex-shrink=0
+  background-color="#f8fafc"
+
+// Stage 2's keyframes: colour and transform motion, each fixture paused at a
+// fixed phase by a negative delay, so a screenshot needs no clock.
+keyframes shift
+  from fill="#ef4444"
+  to fill="#2563eb"
+
+keyframes ink
+  from stroke="#16a34a"
+  to stroke="#f59e0b"
+
+keyframes fadeTo
+  from fill="#ef4444"
+  to fill="rgba(37, 99, 235, 0.2)"
+
+keyframes glow
+  from background-color="#16a34a"
+  to background-color="#000000"
+
+keyframes flash
+  from color="#16a34a"
+  to color="#000000"
+
+// Stage 10b's geometry keyframes (LLP 1055.000 D15).
+keyframes slide
+  from cx=20
+  to cx=100
+
+keyframes rise
+  from y=70
+  to y=20
+
+keyframes swell
+  from rx=4 ry=4
+  to rx=30 ry=16
+
+keyframes spin
+  from rotate=0
+  to rotate=90
+
+keyframes march
+  from stroke-dashoffset=0
+  to stroke-dashoffset=12
+
+keyframes tint
+  from color="#0891b2"
+  to color="#be185d"
+
+style Warm
+  fill="#f97316"
+  stroke="#7c2d12"
+  stroke-width=2
+
+component Gallery
+  state page = 1
+  action one writes page
+    page = 1
+  action two writes page
+    page = 2
+  action three writes page
+    page = 3
+  action four writes page
+    page = 4
+  action five writes page
+    page = 5
+  action six writes page
+    page = 6
+  action seven writes page
+    page = 7
+  action eight writes page
+    page = 8
+  action nine writes page
+    page = 9
+  action ten writes page
+    page = 10
+  view
+    main testId="gallery" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#0f172a" font-family="system-ui"
+      row flex-shrink=0 align-items="center" gap=8 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8
+        text "SVG" flex=1 font-size=17 font-weight=600
+        button press=one testId="page-1" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 1 ? "#e2e8f0" : "#f8fafc")
+          text "1" font-size=13
+        button press=two testId="page-2" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 2 ? "#e2e8f0" : "#f8fafc")
+          text "2" font-size=13
+        button press=three testId="page-3" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 3 ? "#e2e8f0" : "#f8fafc")
+          text "3" font-size=13
+        button press=four testId="page-4" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 4 ? "#e2e8f0" : "#f8fafc")
+          text "4" font-size=13
+        button press=five testId="page-5" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 5 ? "#e2e8f0" : "#f8fafc")
+          text "5" font-size=13
+        button press=six testId="page-6" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 6 ? "#e2e8f0" : "#f8fafc")
+          text "6" font-size=13
+        button press=seven testId="page-7" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 7 ? "#e2e8f0" : "#f8fafc")
+          text "7" font-size=13
+        button press=eight testId="page-8" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 8 ? "#e2e8f0" : "#f8fafc")
+          text "8" font-size=13
+        button press=nine testId="page-9" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 9 ? "#e2e8f0" : "#f8fafc")
+          text "9" font-size=13
+        button press=ten testId="page-10" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 10 ? "#e2e8f0" : "#f8fafc")
+          text "10" font-size=13
+      row flex-wrap="wrap" gap=8 padding-left=12 padding-right=12
+        when page == 1
+          StageOne()
+        when page == 2
+          StageTwo()
+        when page == 3
+          StageThree()
+        when page == 4
+          StageFour()
+        when page == 5
+          StageFive()
+        when page == 6
+          StageSix()
+        when page == 7
+          StageSeven()
+        when page == 8
+          StageEight()
+        when page == 9
+          StageNine()
+        when page == 10
+          StageTen()
+
+// Stage 1: geometry, units, transforms, nested viewports, classes.
+component StageOne
+  view
+    // Basic shapes, ellipse among them; `rx` alone rounds both corners.
+    svg testId="fx-shapes" class=Tile viewBox="0 0 120 80"
+      rect x=8 y=8 width=40 height=28 rx=6 fill="#0ea5e9"
+      ellipse cx=84 cy=22 rx=26 ry=14 fill="#a855f7"
+      circle cx=28 cy=58 r=14 fill="none" stroke="#16a34a" stroke-width=4
+      line x1=52 y1=46 x2=112 y2=72 stroke="#0f172a" stroke-width=3 stroke-linecap="round"
+      polygon points="60,72 72,48 84,72" fill="#ef4444" fill-rule="evenodd"
+    // Percentages of the viewport (no view box: the content box) and units.
+    svg testId="fx-units" class=Tile
+      rect x="10%" y="10%" width="80%" height="30%" fill="#f59e0b"
+      line x1="10%" y1="60%" x2="90%" y2="60%" stroke="#0f172a" stroke-width=2
+      circle cx="50%" cy="80%" r="10%" fill="#6366f1"
+      rect x="0.25in" y="46" width="12pt" height="4mm" fill="#10b981"
+    // The transform attribute's grammar: a centred rotate, lists, commas.
+    svg testId="fx-transform" class=Tile viewBox="0 0 120 80"
+      g transform="translate(20, 10) rotate(15)"
+        rect width=40 height=24 fill="#0ea5e9"
+        rect x=44 width=24 height=24 fill="#f43f5e" transform="rotate(45 56 12)"
+      rect x=70 y=44 width=30 height=20 fill="#84cc16" transform="skewX(-20) translate(10 0)"
+      rect x=10 y=50 width=30 height=20 fill="#a855f7" transform="matrix(1 0.2 0 1 0 -6)"
+    // CSS transforms on SVG elements: the fill box's centre, then the
+    // individual properties before the list.
+    svg testId="fx-origin" class=Tile viewBox="0 0 120 80"
+      rect x=15 y=25 width=30 height=30 fill="#cbd5e1"
+      rect x=15 y=25 width=30 height=30 fill="#0ea5e9" opacity=0.8 transform-box="fill-box" transform-origin="center" rotate=30
+      rect x=70 y=25 width=30 height=30 fill="#cbd5e1"
+      rect x=70 y=25 width=30 height=30 fill="#f97316" opacity=0.8 transform-box="fill-box" transform-origin="left top" scale=0.6 translate="8px 8px" transform="rotate(10deg)"
+    // A 24-unit icon scaled up by its view box.
+    svg testId="fx-icon" class=Tile viewBox="0 0 24 24"
+      path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" fill="#e11d48"
+    // Nested viewports: `slice` clips to the inner box; `visible` overflows.
+    svg testId="fx-nested" class=Tile viewBox="0 0 120 80"
+      svg x=6 y=6 width=50 height=68 viewBox="0 0 10 10" preserveAspectRatio="xMidYMid slice"
+        circle cx=5 cy=5 r=5 fill="#14b8a6"
+        rect width=5 height=5 fill="#0f766e"
+      svg x=64 y=20 width=40 height=40 viewBox="0 0 10 10" overflow="visible"
+        rect x=-2 y=-2 width=14 height=14 fill="none" stroke="#0f172a" stroke-width=1
+        circle cx=5 cy=5 r=4 fill="#eab308"
+    // A stretched chart whose stroke keeps its width.
+    svg testId="fx-nonscaling" class=Tile viewBox="0 0 10 10" preserveAspectRatio="none"
+      polyline points="0,8 2,6 4,7 6,3 8,4 10,1" fill="none" stroke="#2563eb" stroke-width=2 stroke-linejoin="round" vector-effect="non-scaling-stroke"
+      polyline points="0,9 2,8 4,9 6,6 8,7 10,5" fill="none" stroke="#94a3b8" stroke-width=0.3
+    // Classes, currentColor, visibility, display.
+    svg testId="fx-style" class=Tile viewBox="0 0 120 80" color="#0891b2"
+      rect x=8 y=8 width=30 height=30 class=Warm
+      g fill="currentcolor" visibility="hidden"
+        circle cx=60 cy=23 r=14
+        circle cx=96 cy=23 r=14 visibility="visible"
+      rect x=8 y=46 width=30 height=26 fill="currentcolor" stroke="#0f172a"
+      rect x=46 y=46 width=30 height=26 fill="#000000" display="none"
+      ellipse cx=96 cy=59 rx=16 ry=12 class=Warm stroke="currentcolor"
+    // The view box is the natural ratio: 120 wide gives 60 tall.
+    svg testId="fx-ratio" width=120 flex-shrink=0 background-color="#f8fafc" viewBox="0 0 40 20"
+      rect width=40 height=20 fill="#fde68a"
+      circle cx=20 cy=10 r=8 fill="#d97706"
+
+// Stage 2: colour and transform motion, paused mid-flight.
+component StageTwo
+  view
+    // A fill and a stroke colour between opaque colours (Core Animation on
+    // Apple), and a fill toward a translucent one (sampled there).
+    svg testId="fx-color" class=Tile viewBox="0 0 120 80"
+      rect x=8 y=8 width=48 height=30 animation="shift 1s linear -500ms paused"
+      polyline points="64,34 80,10 96,30 112,8" fill="none" stroke-width=4 animation="ink 1s linear -250ms paused"
+      rect x=8 y=44 width=48 height=30 animation="fadeTo 1s linear -500ms paused"
+      circle cx=88 cy=60 r=14 fill="#ef4444" animation="shift 1s ease -750ms paused"
+    // A box's background and a text's colour (the price flash).
+    column testId="fx-boxcolor" class=Tile align-items="center" justify-content="center" gap=6 animation="glow 400ms ease -100ms paused"
+      text "$1,234.56" font-size=16 font-weight=600 animation="flash 400ms ease -200ms paused"
+    // A spin about the fill box's centre, and a group whose `color` and
+    // dash offset move while its children inherit them.
+    svg testId="fx-spin" class=Tile viewBox="0 0 120 80"
+      rect x=20 y=20 width=40 height=40 fill="#0ea5e9" transform-box="fill-box" transform-origin="center" animation="spin 1s linear -500ms paused"
+      g color="#0891b2" fill="currentcolor" stroke="#0f172a" stroke-width=2 stroke-dasharray="4 4" animation="tint 1s linear -500ms paused, march 1s linear -500ms paused"
+        circle cx=90 cy=24 r=12
+        line x1=70 y1=60 x2=112 y2=60
+
+// Stage 3: references, gradients, `use` and `symbol`, paint order.
+component StageThree
+  view
+    // Linear and radial gradients on the object bounding box; a focal
+    // point and radius.
+    svg testId="fx-gradients" class=Tile viewBox="0 0 120 80"
+      defs
+        linearGradient id="sunrise"
+          stop offset=0 stop-color="#f59e0b"
+          stop offset="50%" stop-color="#ef4444"
+          stop offset=1 stop-color="#7c3aed"
+        radialGradient id="glow" fx="30%" fy="30%" fr="5%"
+          stop offset=0 stop-color="#ffffff"
+          stop offset=1 stop-color="#0ea5e9"
+      rect x=6 y=8 width=56 height=64 rx=6 fill="url(#sunrise)"
+      circle cx=90 cy=40 r=26 fill="url(#glow)" stroke="url(#sunrise)" stroke-width=4
+    // Spread: reflect and repeat, and a gradient transform in user space.
+    svg testId="fx-spread" class=Tile viewBox="0 0 120 80"
+      defs
+        linearGradient id="bands" x2="25%" spreadMethod="reflect"
+          stop offset=0 stop-color="#0f766e"
+          stop offset=1 stop-color="#99f6e4"
+        linearGradient id="stripes" x2="20%" spreadMethod="repeat"
+          stop offset=0 stop-color="#1d4ed8"
+          stop offset=1 stop-color="#bfdbfe"
+        linearGradient id="turned" gradientUnits="userSpaceOnUse" x1=0 y1=0 x2=20 y2=0 gradientTransform="rotate(45 60 60)" spreadMethod="repeat"
+          stop offset=0 stop-color="#be123c"
+          stop offset="50%" stop-color="#be123c"
+          stop offset="50%" stop-color="#fda4af"
+          stop offset=1 stop-color="#fda4af"
+      rect x=4 y=4 width=112 height=22 fill="url(#bands)"
+      rect x=4 y=30 width=112 height=20 fill="url(#stripes)"
+      rect x=4 y=54 width=112 height=22 fill="url(#turned)"
+    // The area chart: a translucent fill fading down under its line.
+    svg testId="fx-area" class=Tile viewBox="0 0 120 80"
+      defs
+        linearGradient id="area" x2=0 y2=1
+          stop offset=0 stop-color="#2563eb" stop-opacity=0.45
+          stop offset=1 stop-color="#2563eb" stop-opacity=0
+      polygon points="0,80 0,50 20,42 40,48 60,26 80,32 100,14 120,20 120,80" fill="url(#area)"
+      polyline points="0,50 20,42 40,48 60,26 80,32 100,14 120,20" fill="none" stroke="#2563eb" stroke-width=2 stroke-linejoin="round"
+    // An icon symbol, used three times: each instance inherits its `use`'s
+    // colour; a template gradient reached through `href`.
+    svg testId="fx-use" class=Tile viewBox="0 0 120 80"
+      defs
+        symbol id="star" viewBox="0 0 24 24"
+          path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" fill="currentcolor"
+        linearGradient id="base"
+          stop offset=0 stop-color="#fde047"
+          stop offset=1 stop-color="#ca8a04"
+        linearGradient id="tilted" href="#base" gradientTransform="rotate(90 0.5 0.5)"
+      use href="#star" x=4 y=6 width=34 height=34 color="#f59e0b"
+      use href="#star" x=43 y=6 width=34 height=34 color="#10b981"
+      use href="#star" x=82 y=6 width=34 height=34 color="#6366f1"
+      rect x=8 y=48 width=104 height=26 rx=13 fill="url(#tilted)"
+    // Paint order: the stroke under the fill; a missing server's fallback.
+    svg testId="fx-order" class=Tile viewBox="0 0 120 80"
+      rect x=14 y=16 width=40 height=48 fill="#fbbf24" stroke="#78350f" stroke-width=10 paint-order="stroke"
+      circle cx=88 cy=40 r=22 fill="url(#nowhere) #22c55e" stroke="url(#nowhere)" stroke-width=6
+    // One component twice, each declaring id="shade": each instance's
+    // own gradient (LLP 1055.000 D3), and a sprite from another svg.
+    Badge(tint="#f43f5e")
+    Badge(tint="#14b8a6")
+    svg testId="fx-sprite" class=Tile viewBox="0 0 120 80" color="#a855f7"
+      use href="#star" x=30 y=10 width=60 height=60
+
+component Badge
+  props
+    tint: string
+  view
+    svg testId=`fx-badge-${tint}` class=Tile viewBox="0 0 120 80"
+      defs
+        radialGradient id="shade"
+          stop offset=0 stop-color="#ffffff"
+          stop offset=1 stop-color=tint
+      circle cx=60 cy=40 r=32 fill="url(#shade)"
+
+// Stage 4: clipping.
+component StageFour
+  view
+    // A chart's plot area: lines that overshoot are clipped to it.
+    svg testId="fx-plot" class=Tile viewBox="0 0 120 80"
+      defs
+        clipPath id="plot"
+          rect x=10 y=10 width=100 height=60
+      rect x=10 y=10 width=100 height=60 fill="#f1f5f9"
+      g clip-path="url(#plot)"
+        polyline points="0,70 20,40 40,55 60,5 80,30 100,-10 130,40" fill="none" stroke="#2563eb" stroke-width=3
+        circle cx=112 cy=64 r=12 fill="#f97316"
+    // A clip on the object bounding box: a circle cut from each tile.
+    svg testId="fx-bbox" class=Tile viewBox="0 0 120 80"
+      defs
+        clipPath id="disc" clipPathUnits="objectBoundingBox"
+          circle cx=0.5 cy=0.5 r=0.5
+      rect x=8 y=10 width=60 height=60 fill="#16a34a" clip-path="url(#disc)"
+      rect x=74 y=24 width=40 height=40 fill="#a855f7" clip-path="url(#disc)" transform="rotate(20 94 44)"
+    // clip-rule: a ring; the union of two children; a clipPath that is
+    // itself clipped (an intersection).
+    svg testId="fx-rules" class=Tile viewBox="0 0 120 80"
+      defs
+        clipPath id="ring"
+          path d="M20 40a18 18 0 1 0 36 0a18 18 0 1 0 -36 0zM28 40a10 10 0 1 0 20 0a10 10 0 1 0 -20 0z" clip-rule="evenodd"
+        clipPath id="both" clip-path="url(#left)"
+          circle cx=78 cy=34 r=16
+          circle cx=98 cy=48 r=16
+        clipPath id="left"
+          rect x=60 y=0 width=40 height=80
+      rect width=120 height=80 fill="#0ea5e9" clip-path="url(#ring)"
+      rect width=120 height=80 fill="#ef4444" clip-path="url(#both)"
+
+// Stage 5: text. Chart labels, anchors and baselines, runs.
+component StageFive
+  view
+    // An axis: tick labels anchored under their ticks, and a title.
+    svg testId="fx-axis" class=Tile viewBox="0 0 120 80"
+      line x1=10 y1=56 x2=110 y2=56 stroke="#94a3b8"
+      line x1=10 y1=56 x2=10 y2=60 stroke="#94a3b8"
+      line x1=60 y1=56 x2=60 y2=60 stroke="#94a3b8"
+      line x1=110 y1=56 x2=110 y2=60 stroke="#94a3b8"
+      text "0" x=10 y=70 text-anchor="middle" font-size=9 fill="#475569"
+      text "50" x=60 y=70 text-anchor="middle" font-size=9 fill="#475569"
+      text "100" x=110 y=70 text-anchor="end" font-size=9 fill="#475569"
+      text "Revenue" x=60 y=30 text-anchor="middle" font-size=16 font-weight=600 fill="#0f172a"
+    // dominant-baseline against a guide at y=40.
+    svg testId="fx-baselines" class=Tile viewBox="0 0 120 80"
+      line x1=0 y1=40 x2=120 y2=40 stroke="#fda4af"
+      text "Ab" x=4 y=40 font-size=14 fill="#1e293b"
+      text "Ab" x=32 y=40 font-size=14 dominant-baseline="middle" fill="#1e293b"
+      text "Ab" x=60 y=40 font-size=14 dominant-baseline="central" fill="#1e293b"
+      text "Ab" x=88 y=40 font-size=14 dominant-baseline="hanging" fill="#1e293b"
+    // Runs: weights, colours and a shift in one line; a stroked word.
+    svg testId="fx-runs" class=Tile viewBox="0 0 120 80"
+      text x=6 y=30 font-size=13 fill="#334155"
+        tspan "BTC "
+        tspan "+4.88%" font-weight=700 fill="#16a34a"
+        tspan "↑" dx=2 dy=-3 fill="#16a34a"
+      text "SVG" x=60 y=66 text-anchor="middle" font-size=28 font-weight=800 fill="#fef3c7" stroke="#b45309" stroke-width=1.5
+
+// Stage 6: presses on SVG elements (LLP 1055.000 D17). A tap on a tile's
+// centre lands on the element there; the agent's `tap fx-hit` is that tap.
+component StageSix
+  state picked = "none"
+  action pick(which: string) writes picked
+    picked = which
+  view
+    // A disc under a veil that lets hits through, beside a backdrop.
+    svg testId="fx-hit" class=Tile viewBox="0 0 120 80"
+      rect width=120 height=80 fill="#e2e8f0" press=pick("back")
+      circle cx=60 cy=40 r=22 fill=(picked == "disc" ? "#16a34a" : "#64748b") press=pick("disc")
+      rect x=40 y=30 width=40 height=20 fill="#ffffff" fill-opacity=0.5 pointer-events="none"
+    // Bars in a group that takes the press; a stroke-only line.
+    svg testId="fx-bars" class=Tile viewBox="0 0 120 80"
+      g press=pick("bars") fill=(picked == "bars" ? "#f59e0b" : "#2563eb")
+        rect x=20 y=30 width=16 height=44
+        rect x=52 y=14 width=16 height=60
+        rect x=84 y=44 width=16 height=30
+      polyline points="10,70 60,20 110,60" fill="none" stroke="#0f172a" stroke-width=3 press=pick("line")
+    text picked testId="picked-label" font-size=13
+
+// Stage 7: markers (LLP 1055.000 D9).
+component StageSeven
+  view
+    // An arrowhead scaled by the stroke; dots at every vertex of a line
+    // chart, in user units.
+    svg testId="fx-arrows" class=Tile viewBox="0 0 120 80"
+      defs
+        marker id="arrow" viewBox="0 0 10 10" refX=8 refY=5 markerWidth=5 markerHeight=5 orient="auto"
+          path d="M0 0L10 5L0 10z" fill="#0f172a"
+        marker id="dot" markerUnits="userSpaceOnUse" markerWidth=8 markerHeight=8 refX=4 refY=4
+          circle cx=4 cy=4 r=3 fill="#ffffff" stroke="#2563eb" stroke-width=1.5
+      line x1=10 y1=18 x2=100 y2=18 stroke="#0f172a" stroke-width=2 marker-end="url(#arrow)"
+      polyline points="10,70 35,40 60,55 85,30 110,45" fill="none" stroke="#2563eb" stroke-width=2 marker="url(#dot)"
+    // auto-start-reverse on a curve; a closed polygon's vertices, turned
+    // by the bisector; a fixed angle.
+    svg testId="fx-orient" class=Tile viewBox="0 0 120 80"
+      defs
+        marker id="head" viewBox="0 0 10 10" refX=5 refY=5 markerWidth=4 markerHeight=4 orient="auto-start-reverse"
+          path d="M0 0L10 5L0 10z" fill="#dc2626"
+        marker id="tick" viewBox="0 0 6 6" refX=3 refY=3 markerWidth=6 markerHeight=6 markerUnits="userSpaceOnUse" orient="auto"
+          rect width=6 height=2 y=2 fill="#16a34a"
+        marker id="still" viewBox="0 0 4 4" refX=2 refY=2 markerWidth=6 markerHeight=6 markerUnits="userSpaceOnUse" orient="45deg"
+          rect width=4 height=4 fill="#a855f7"
+      path d="M12 34C30 4 60 4 70 24A14 14 0 0 1 100 30" fill="none" stroke="#dc2626" stroke-width=2 marker-start="url(#head)" marker-end="url(#head)"
+      polygon points="20,50 50,70 14,74" fill="#bbf7d0" stroke="#16a34a" marker-mid="url(#tick)" marker-start="url(#tick)"
+      polyline points="70,70 90,52 110,70" fill="none" stroke="#a855f7" marker="url(#still)"
+
+// Stage 8: masks and patterns (LLP 1055.000 D7, D10), islands on native hosts.
+component StageEight
+  view
+    // A luminance mask: a white disc with a black hole over a bar chart,
+    // and a gradient fading a line chart's area out.
+    svg testId="fx-mask-lum" class=Tile viewBox="0 0 120 80"
+      defs
+        mask id="hole"
+          circle cx=34 cy=40 r=26 fill="#ffffff"
+          circle cx=34 cy=40 r=10 fill="#000000"
+        linearGradient id="fade" x1=0 y1=0 x2=0 y2=1
+          stop offset=0 stop-color="#ffffff"
+          stop offset=1 stop-color="#000000"
+        mask id="fadeout" maskContentUnits="objectBoundingBox"
+          rect width=1 height=1 fill="url(#fade)"
+      rect x=4 y=10 width=60 height=60 fill="#2563eb" mask="url(#hole)"
+      path d="M68 70L68 40L80 30L92 44L104 20L116 32L116 70Z" fill="#16a34a" mask="url(#fadeout)"
+    // An alpha mask in the box's units, and a translucent grey that masks
+    // by luminance times alpha.
+    svg testId="fx-mask-alpha" class=Tile viewBox="0 0 120 80"
+      defs
+        mask id="corner" mask-type="alpha" maskContentUnits="objectBoundingBox"
+          polygon points="0,0 1,0 0,1" fill="#10b981"
+        mask id="veil" maskUnits="userSpaceOnUse" x=64 y=8 width=52 height=64
+          rect x=64 y=8 width=52 height=64 fill="#80808080"
+          rect x=76 y=20 width=28 height=40 fill="#ffffff"
+      rect x=8 y=8 width=48 height=64 fill="#f97316" mask="url(#corner)"
+      rect x=60 y=4 width=60 height=72 fill="#7c3aed" mask="url(#veil)"
+    // A pattern of dots in user space, and one tiled in the box's units.
+    svg testId="fx-pattern-dots" class=Tile viewBox="0 0 120 80"
+      defs
+        pattern id="dots" patternUnits="userSpaceOnUse" width=10 height=10
+          circle cx=5 cy=5 r=3 fill="#0ea5e9"
+        pattern id="checks" width="25%" height="50%"
+          rect width=6 height=6 fill="#f43f5e"
+          rect x=6 y=6 width=6 height=6 fill="#f43f5e"
+      rect x=4 y=4 width=52 height=72 fill="url(#dots)" stroke="#0f172a"
+      rect x=64 y=16 width=48 height=24 fill="url(#checks)"
+      circle cx=88 cy=62 r=14 fill="url(#dots)" stroke="#0ea5e9" stroke-width=1
+    // Hatching: a view box scaled into each tile, turned by
+    // patternTransform; a pattern stroke; a template by href.
+    svg testId="fx-pattern-hatch" class=Tile viewBox="0 0 120 80"
+      defs
+        pattern id="hatch" patternUnits="userSpaceOnUse" width=8 height=8 viewBox="0 0 4 4" patternTransform="rotate(45)"
+          rect width=2 height=4 fill="#334155"
+        pattern id="hatch2" href="#hatch" patternTransform="rotate(-30)"
+      rect x=6 y=6 width=50 height=68 fill="url(#hatch)"
+      ellipse cx=90 cy=40 rx=24 ry=30 fill="url(#hatch2)" stroke="url(#hatch)" stroke-width=6
+    // Not a parity fixture: `foreignObject` is the web's (LLP 1055.000 D13,
+    // §8 ruling 5); native hosts refuse it by name and draw the rest.
+    svg testId="web-foreign" class=Tile viewBox="0 0 120 80"
+      rect width=120 height=80 fill="#e0f2fe"
+      foreignObject x=10 y=10 width=100 height=60
+        column padding=6 background-color="#ffffff" border-radius=6
+          text "HTML in SVG" font-size=12 font-weight=600
+          text "a box, laid out by the page" font-size=9 color="#475569"
+
+// Stage 9: filters (LLP 1055.000 D14), islands on native hosts.
+component StageNine
+  view
+    // Gaussian blur: three box blurs past σ 2, a true kernel below it.
+    svg testId="fx-blur" class=Tile viewBox="0 0 120 80"
+      defs
+        filter id="soft"
+          feGaussianBlur stdDeviation=4
+        filter id="slight" x="-20%" y="-20%" width="140%" height="140%"
+          feGaussianBlur stdDeviation="1.5 0.5"
+      rect x=12 y=16 width=40 height=48 fill="#2563eb" filter="url(#soft)"
+      circle cx=88 cy=40 r=20 fill="#f97316" filter="url(#slight)"
+    // A drop shadow two ways: offset, blur, flood, composite and merge;
+    // and feDropShadow.
+    svg testId="fx-shadow" class=Tile viewBox="0 0 120 80"
+      defs
+        filter id="lift"
+          feOffset in="SourceAlpha" dx=3 dy=4 result="moved"
+          feGaussianBlur in="moved" stdDeviation=2.5 result="soft"
+          feFlood flood-color="#0f172a" flood-opacity=0.45
+          feComposite in2="soft" operator="in" result="shade"
+          feMerge
+            feMergeNode in="shade"
+            feMergeNode in="SourceGraphic"
+        filter id="drop"
+          feDropShadow dx=2 dy=3 stdDeviation=2 flood-color="#7c3aed" flood-opacity=0.6
+      rect x=10 y=14 width=44 height=44 rx=8 fill="#fbbf24" filter="url(#lift)"
+      circle cx=88 cy=36 r=20 fill="#34d399" filter="url(#drop)"
+    // Colour matrices on a gradient: grey, turned, and luminance to alpha.
+    svg testId="fx-matrix" class=Tile viewBox="0 0 120 80"
+      defs
+        linearGradient id="rainbow"
+          stop offset=0 stop-color="#ef4444"
+          stop offset=0.5 stop-color="#22c55e"
+          stop offset=1 stop-color="#3b82f6"
+        filter id="grey"
+          feColorMatrix type="saturate" values=0.2
+        filter id="turn"
+          feColorMatrix type="hueRotate" values=120
+        filter id="lum" color-interpolation-filters="sRGB"
+          feColorMatrix type="luminanceToAlpha"
+      rect x=6 y=6 width=108 height=20 fill="url(#rainbow)" filter="url(#grey)"
+      rect x=6 y=30 width=108 height=20 fill="url(#rainbow)" filter="url(#turn)"
+      rect x=6 y=54 width=108 height=20 fill="url(#rainbow)" filter="url(#lum)"
+    // Blend and arithmetic composite, in sRGB.
+    svg testId="fx-blend" class=Tile viewBox="0 0 120 80"
+      defs
+        filter id="multiply" x=0 y=0 width=1 height=1 color-interpolation-filters="sRGB"
+          feFlood flood-color="#38bdf8" result="sky"
+          feBlend in="SourceGraphic" in2="sky" mode="multiply"
+        filter id="screen" x=0 y=0 width=1 height=1 color-interpolation-filters="sRGB"
+          feFlood flood-color="#7c3aed" result="violet"
+          feBlend in="SourceGraphic" in2="violet" mode="screen"
+        filter id="mix" x=0 y=0 width=1 height=1 color-interpolation-filters="sRGB"
+          feFlood flood-color="#ef4444" result="red"
+          feComposite in="SourceGraphic" in2="red" operator="arithmetic" k2=0.5 k3=0.5
+      rect x=6 y=8 width=32 height=64 fill="#fde047" filter="url(#multiply)"
+      rect x=44 y=8 width=32 height=64 fill="#16a34a" filter="url(#screen)"
+      rect x=82 y=8 width=32 height=64 fill="#2563eb" filter="url(#mix)"
+    // CSS filter functions on SVG elements, and a list mixing both.
+    svg testId="fx-css" class=Tile viewBox="0 0 120 80"
+      defs
+        filter id="tint" color-interpolation-filters="sRGB"
+          feColorMatrix type="hueRotate" values=180
+      circle cx=20 cy=22 r=14 fill="#ef4444" filter="grayscale(1)"
+      circle cx=60 cy=22 r=14 fill="#ef4444" filter="sepia(0.8) brightness(1.2)"
+      circle cx=100 cy=22 r=14 fill="#ef4444" filter="hue-rotate(90deg) saturate(2)"
+      rect x=8 y=46 width=24 height=24 fill="#0ea5e9" filter="blur(2px)"
+      rect x=48 y=46 width=24 height=24 fill="#0ea5e9" filter="drop-shadow(3px 3px 2px #0f172a) invert(0.2)"
+      rect x=88 y=46 width=24 height=24 fill="#0ea5e9" filter="url(#tint) opacity(0.6) contrast(1.4)"
+    // Stage 9b: morphology, component transfer, tile.
+    svg testId="fx-shape-ops" class=Tile viewBox="0 0 120 80"
+      defs
+        filter id="fat"
+          feMorphology operator="dilate" radius=2
+        filter id="thin"
+          feMorphology operator="erode" radius="1.5 0.5"
+        filter id="posterize" color-interpolation-filters="sRGB"
+          feComponentTransfer
+            feFuncR type="discrete" tableValues="0 0.5 1"
+            feFuncG type="table" tableValues="1 0"
+            feFuncB type="gamma" amplitude=1 exponent=0.5 offset=0
+            feFuncA type="linear" slope=0.8 intercept=0
+        filter id="tiles" x=0 y=0 width=1 height=1
+          feFlood flood-color="#f43f5e" x=10 y=50 width=8 height=8 result="cell"
+          feTile in="cell"
+      path d="M10 40L26 14L42 40Z" fill="none" stroke="#1d4ed8" stroke-width=2 filter="url(#fat)"
+      rect x=50 y=12 width=24 height=30 fill="#1d4ed8" filter="url(#thin)"
+      rect x=82 y=12 width=32 height=30 fill="#a3e635" filter="url(#posterize)"
+      rect x=10 y=50 width=100 height=24 fill="#000000" filter="url(#tiles)"
+    // Noise, a displacement by it, and an emboss kernel.
+    svg testId="fx-noise" class=Tile viewBox="0 0 120 80"
+      defs
+        filter id="grain" x=0 y=0 width=1 height=1
+          feTurbulence type="fractalNoise" baseFrequency=0.08 numOctaves=2 seed=3
+        filter id="wave" x="-10%" y="-10%" width="120%" height="120%"
+          feTurbulence type="turbulence" baseFrequency=0.05 numOctaves=1 seed=1 result="n"
+          feDisplacementMap in="SourceGraphic" in2="n" scale=6 xChannelSelector="R" yChannelSelector="G"
+        filter id="emboss"
+          feConvolveMatrix order=3 kernelMatrix="-2 -1 0 -1 1 1 0 1 2"
+      rect x=4 y=4 width=36 height=72 fill="#ffffff" filter="url(#grain)"
+      rect x=48 y=14 width=28 height=52 fill="#0891b2" filter="url(#wave)"
+      circle cx=98 cy=40 r=16 fill="#f59e0b" filter="url(#emboss)"
+    // Stage 9c: diffuse and specular lighting.
+    svg testId="fx-light" class=Tile viewBox="0 0 120 80"
+      defs
+        filter id="matte" color-interpolation-filters="sRGB"
+          feGaussianBlur in="SourceAlpha" stdDeviation=3 result="bump"
+          feDiffuseLighting in="bump" surfaceScale=4 diffuseConstant=1 lighting-color="#fde68a" result="lit"
+            feDistantLight azimuth=225 elevation=45
+          feComposite in="lit" in2="SourceAlpha" operator="in"
+        filter id="shine" color-interpolation-filters="sRGB"
+          feGaussianBlur in="SourceAlpha" stdDeviation=2 result="bump"
+          feSpecularLighting in="bump" surfaceScale=3 specularConstant=1 specularExponent=16 lighting-color="#ffffff" result="spec"
+            fePointLight x=70 y=20 z=40
+          feComposite in="spec" in2="SourceAlpha" operator="in" result="glint"
+          feComposite in="SourceGraphic" in2="glint" operator="arithmetic" k2=1 k3=1
+      circle cx=30 cy=40 r=24 fill="#ffffff" filter="url(#matte)"
+      rect x=64 y=16 width=48 height=48 rx=10 fill="#be123c" filter="url(#shine)"
+
+// Stage 10c: mix-blend-mode and isolation (LLP 1055.000 D19). Not drawn
+// blended on iOS (§8 ruling 6), so the smoke leaves this tile to the other
+// hosts there.
+component StageTenBlend
+  view
+    svg testId="fx-mix" class=Tile viewBox="0 0 120 80"
+      rect width=120 height=80 fill="#f8fafc"
+      rect x=6 y=10 width=108 height=24 fill="#f59e0b"
+      circle cx=22 cy=22 r=14 fill="#2563eb" mix-blend-mode="multiply"
+      circle cx=50 cy=22 r=14 fill="#2563eb" mix-blend-mode="screen"
+      circle cx=78 cy=22 r=14 fill="#2563eb" mix-blend-mode="difference"
+      circle cx=104 cy=22 r=14 fill="#2563eb" mix-blend-mode="luminosity"
+      rect x=6 y=46 width=108 height=28 fill="#16a34a"
+      g isolation="isolate"
+        circle cx=40 cy=60 r=12 fill="#ef4444"
+        circle cx=52 cy=60 r=12 fill="#3b82f6" mix-blend-mode="overlay"
+      circle cx=84 cy=60 r=12 fill="#ef4444"
+      circle cx=96 cy=60 r=12 fill="#3b82f6" mix-blend-mode="overlay"
+
+// Stage 10: geometry animation (10b, paused mid-flight by a negative delay)
+// and blending (10c).
+component StageTen
+  view
+    svg testId="fx-geometry" class=Tile viewBox="0 0 120 80"
+      line x1=20 y1=16 x2=100 y2=16 stroke="#cbd5e1"
+      circle cx=20 cy=16 r=8 fill="#2563eb" animation="slide 2s linear -1s paused"
+      circle cx=20 cy=16 r=4 fill="#f59e0b" animation="slide 2s ease-in -500ms paused"
+      rect x=12 y=70 width=16 height=8 fill="#16a34a" animation="rise 1s linear -250ms paused"
+      rect x=36 y=70 width=16 height=8 fill="#16a34a" animation="rise 1s linear -750ms paused"
+      ellipse cx=90 cy=56 rx=4 ry=4 fill="#a855f7" animation="swell 1s linear -500ms paused"
+    StageTenBlend()

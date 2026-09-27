@@ -307,7 +307,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "use crate::error::{{DecodeError, StyleDomainError}};").unwrap();
     writeln!(
         w,
-        "use crate::error::StyleValueError;\nuse crate::style::{{Color, ColorValue, Dimension, Paint, LineHeight, GridPlacement, GridTracks, RowValue, StyleValue, Transitions, Animations, Vec2, MAX_GRID_TRACKS}};"
+        "use crate::error::StyleValueError;\nuse crate::style::{{Color, ColorValue, Dimension, LineHeight, GridPlacement, GridTracks, RowValue, StyleValue, Transitions, Animations, Vec2, MAX_GRID_TRACKS}};"
     )
     .unwrap();
     writeln!(w, "use crate::wire::codec::{{Reader, Writer}};").unwrap();
@@ -647,7 +647,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     // ---- StyleId / StyleCodec --------------------------------------------
     writeln!(w, "/// Wire codec of a style row.").unwrap();
     writeln!(w, "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]").unwrap();
-    writeln!(w, "pub enum StyleCodec {{ Dimension, LineHeight, F32, U8, U16, U32, I32, Rgba8, ColorValue, KeywordColor, Paint, DashArray, Marker, Vec2, Color2, Tracks, Placement, Transitions, Animations, ClipPath, ShapeOutside, AspectRatio, TransformOrigin, BackgroundImage, Enum }}").unwrap();
+    writeln!(w, "pub enum StyleCodec {{ Dimension, LineHeight, F32, U8, U16, U32, I32, Rgba8, ColorValue, KeywordColor, Vec2, Color2, Tracks, Placement, Transitions, Animations, ClipPath, ShapeOutside, AspectRatio, Paint, DashArray, Transform, TransformOrigin, PaintOrder, Marker, Filter, BackgroundImage, Enum }}").unwrap();
     writeln!(w, "/// One style row; the discriminant is the mask bit.").unwrap();
     writeln!(w, "#[repr(u8)]").unwrap();
     writeln!(
@@ -1201,7 +1201,8 @@ fn generate(schema: &Schema, digest: u64) -> String {
         "    pub fn check_finite(&self) -> Result<(), StyleId> {{"
     )
     .unwrap();
-    // Rows in bit (schema) order: the first failing row is a row-by-row check's.
+    // Rows in bit order, which is schema order: the first failing row is
+    // the one a row-by-row check would name.
     writeln!(
         w,
         "        match self.mask.iter().find(|&id| !self.get(id).is_finite()) {{ Some(id) => Err(id), None => Ok(()) }}"
@@ -1275,11 +1276,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
                 writeln!(w, "        if self.mask.has(StyleId::{id}) {{ self.{field}.validate().map_err(StyleDomainError::InvalidTransition)?; }}").unwrap();
             }
             Codec::Animations => {
-                let check = if row.ends {
-                    "validate_ending"
-                } else {
-                    "validate"
-                };
+                let check = ["validate", "validate_ending"][row.ends as usize];
                 writeln!(w, "        if self.mask.has(StyleId::{id}) {{ self.{field}.{check}().map_err(StyleDomainError::InvalidAnimation)?; }}").unwrap();
             }
             _ => {}
@@ -1299,7 +1296,8 @@ fn generate(schema: &Schema, digest: u64) -> String {
     .unwrap();
     writeln!(w, "    pub fn set_dynamic(&mut self, id: StyleId, value: &StyleValue) -> Result<(), StyleValueError> {{").unwrap();
     writeln!(w, "        match id {{").unwrap();
-    // Rows that convert alike share one conversion (and refusal), stored per row.
+    // Rows that convert alike share one conversion, then store by row: the
+    // conversion (and its refusal) is written once per codec, not per row.
     let mut groups: Vec<(String, Vec<(String, String)>)> = Vec::new();
     for row in &schema.styles {
         let id = pascal(&row.field);
@@ -1317,13 +1315,15 @@ fn generate(schema: &Schema, digest: u64) -> String {
             Codec::I32 => "value.int(id, i32::MIN as f64, i32::MAX as f64)? as i32".to_string(),
             Codec::Rgba8 => "value.color(id)?".to_string(),
             Codec::ColorValue => "value.color_value(id)?".to_string(),
-            Codec::Paint => "value.paint(id)?".to_string(),
             Codec::KeywordColor(keyword) => format!("value.keyword_color(id, {keyword:?})?"),
             Codec::Vec2 => "value.vec2(id)?".to_string(),
             Codec::Enum(name) => format!(
                 "{name}::from_name(value.text(id)?).ok_or(StyleValueError::UnknownEnumValue {{ style: id }})?"
             ),
             Codec::Transitions => "Transitions::parse(value.text(id)?).map_err(|_| StyleValueError::BadTransition { style: id })?".to_string(),
+            // Names resolve against the plan's `@keyframes` after this (LLP 1055 D5).
+            // An exit must end (LLP 1063 D2), refused here as on the wire.
+            Codec::Animations if row.ends => "Animations::parse(value.text(id)?).ok().filter(|a| a.validate_ending().is_ok()).ok_or(StyleValueError::BadAnimation { style: id })?".to_string(),
             Codec::Animations => "Animations::parse(value.text(id)?).map_err(|_| StyleValueError::BadAnimation { style: id })?".to_string(),
             Codec::CssValue { path, error, .. } => format!("{path}::parse(&value.css_text(id)?).ok_or(StyleValueError::{error} {{ style: id }})?"),
             Codec::Color2 | Codec::Tracks | Codec::Placement => String::new(),
@@ -1376,7 +1376,6 @@ fn generate(schema: &Schema, digest: u64) -> String {
                 format!("RowValue::Number(self.{f} as f64)")
             }
             Codec::Rgba8 => format!("RowValue::Color(self.{f})"),
-            Codec::Paint => format!("self.{f}.row()"),
             Codec::ColorValue => format!("RowValue::ColorValue(self.{f})"),
             Codec::KeywordColor(keyword) => {
                 format!("self.{f}.map(RowValue::ColorValue).unwrap_or(RowValue::Enum({keyword:?}))")

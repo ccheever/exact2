@@ -195,3 +195,36 @@ fn all_job_resources_belong_to_the_root_not_a_conditional_pane() {
         assert_eq!(r.derive("waveId"), Some(&Value::Number(0.)));
     }
 }
+
+/// LLP 1057.001 §4: a pinch's release adopts its scale between Fit and 4×.
+#[test]
+fn a_pinch_release_sets_the_photo_zoom_within_fit_and_four_times() {
+    let mut r = boot(390.);
+    r.act(
+        "command",
+        vec![
+            Value::str("open"),
+            Value::str("photo-00000"),
+            Value::Number(0.),
+        ],
+    )
+    .unwrap();
+    let key = r.kernel().find_by_test_id("viewer-handle")[0];
+    let handle = r.kernel().node_by_key(key).unwrap().id;
+    let zoom = |r: &Runner<Live>| {
+        let t = r.kernel().find_by_test_id("viewer-transform")[0];
+        r.kernel().node_by_key(t).unwrap().style.scale
+    };
+    for (scale, expected) in [(2.5, 2.5), (9., 4.), (0.4, 1.)] {
+        let release = exact_runner::Event::TransformRelease {
+            x: 0.,
+            y: 0.,
+            scale,
+            vx: 0.,
+            vy: 0.,
+            vscale: 1.5,
+        };
+        r.dispatch(handle, release).unwrap();
+        assert_eq!(zoom(&r), expected);
+    }
+}

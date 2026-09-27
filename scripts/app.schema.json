@@ -9,6 +9,14 @@
   ],
   "properties": {
     "launch": { "type": "object", "properties": { "background": { "type": "string" }, "backgroundDark": { "type": "string" } }, "additionalProperties": false, "description": "The app's first-frame background, light and dark (#RRGGBB): the iOS launch screen's colour and the web page's before the first frame, so an app opens with no fade. background defaults to background_color." },
+    "modules": {
+      "type": "array",
+      "description": "The native-module roster (LLP 1024 D1): the custom-element tags the app's module artifact serves (modules/apple/*.swift beside libexact_modules.dylib on Apple, modules/web/index.js on the web). A hyphenated tag in the Contract that this list lacks is bake-unknown-module.",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*(-[a-z][a-z0-9_]*)+$"
+      }
+    },
     "gpu": {
       "type": "object",
       "additionalProperties": false,
@@ -298,9 +306,6 @@
         },
         "web": {
           "type": "object",
-          "properties": {
-            "native": { "type": "string", "description": "The app's page module, relative to the app: an ES module exporting `later(request)` that answers `native.later` in the browser, on the page, where getUserMedia, speech and the built-in model are. Served beside the glue as native.js." }
-          },
           "additionalProperties": false
         }
       },

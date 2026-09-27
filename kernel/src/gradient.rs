@@ -1,5 +1,5 @@
 //! CSS `background-image`: `none`, or one `linear-gradient()` or
-//! `radial-gradient()` (CSS Images 3 §3). @ref LLP 1056
+//! `radial-gradient()` (CSS Images 3 §3). @ref LLP 1066
 //!
 //! Stops are resolved to percentages when parsed (CSS's fix-up), so the row
 //! holds what every host paints and `css()` is canonical. Geometry depends on

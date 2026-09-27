@@ -72,6 +72,24 @@ pub(crate) fn check_component(
     }
     for m in &c.mutations {
         ct.mutations.push(sink.keep(shapes.resolve(&m.shape)));
+        // @ref LLP 1054.000.000 D1 — what a send to this mutation refreshes.
+        for (i, (name, span)) in m.refreshes.iter().enumerate() {
+            if !c.resources.iter().any(|r| &r.name == name) {
+                sink.push(TypeError {
+                    id: "type-refreshes-not-resource",
+                    message: format!(
+                        "`{name}` is not a resource: `refreshes` names this component's resources"
+                    ),
+                    span: *span,
+                });
+            } else if m.refreshes[..i].iter().any(|(n, _)| n == name) {
+                sink.push(TypeError {
+                    id: "type-refreshes-duplicate",
+                    message: format!("`{name}` is already named in `refreshes`"),
+                    span: *span,
+                });
+            }
+        }
     }
     // Slots from initializers (may hold `?` inside an option).
     if !c.states.is_empty() {
@@ -217,6 +235,22 @@ pub(crate) fn check_component(
         // no state, and its answer is the resource's shape.
         for (i, r) in c.resources.iter().enumerate() {
             let Some(p) = &r.placeholder else { continue };
+            // @ref LLP 1054.000.002 D2 — `empty(field=value, …)` is the
+            // compiler's constant, not a source.
+            if p.source == crate::placeholder::EMPTY {
+                if let Err(errors) = crate::placeholder::materialize(
+                    &ct.resources[i],
+                    &p.args,
+                    shapes,
+                    &r.name,
+                    p.span,
+                ) {
+                    for e in errors {
+                        sink.push(e);
+                    }
+                }
+                continue;
+            }
             if let Some((name, span)) = p.args.iter().find_map(|a| reads_state(a, &scope)) {
                 sink.push(TypeError {
                     id: "type-placeholder-reads",

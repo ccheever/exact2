@@ -81,6 +81,9 @@ final class TextRasterizer {
         }
     }
 
+    /// Let go of the pixels no view shows.
+    func dropKept() { kept.removeAll(); keptBytes = 0 }
+
     private func key(_ node: NodeView) -> TextRasterKey {
         let scale = node.window?.screen.scale ?? node.traitCollection.displayScale
         var key = TextRasterKey(spec: node.paragraphSpec(), size: node.bounds.size,
@@ -129,7 +132,8 @@ final class TextRasterizer {
         let source = paragraph?.shape?.attributed ?? engine.attributed(key.spec)
         let job = TextRasterJob(source: source.copy() as! NSAttributedString, ranges: ranges, baselines: baselines,
             flush: key.spec.align == 1 ? 0.5 : key.spec.align == 2 ? 1 : 0,
-            box: key.box, size: key.size, scale: key.scale, clip: key.clip)
+            box: key.box, size: key.size, scale: key.scale, clip: key.clip,
+            ellipsis: key.spec.ellipsis, crop: true)
         // A job for the paragraph's previous text or box paints nothing now.
         if let pending { _ = pending.abandon() }
         node.textRasterKey = key; node.textRasterReady = false; node.textRasterFailed = false
@@ -217,13 +221,12 @@ final class TextRasterizer {
 extension NodeView {
     var canRasterText: Bool {
         if textRasterFailed && textRasterKey != nil { return false }
-        // `text-overflow` truncates as it paints (LLP 1053 G5). A paragraph
-        // that does is asked this every frame (the text scans): its cached
-        // spec answers first, without a copy.
-        if cachedTextSpec?.ellipsis == true { return false }
+        // `text-overflow: ellipsis` truncates in the raster job, as `draw(_:)`
+        // does (LLP 1053 G5): a label stretched across a row rasters its text,
+        // not a backing store of the row's width.
         guard isParagraph && flowShapes.isEmpty && !Capture.capturing && window != nil
             && bounds.width > 0 && bounds.height > 0 && number("line_clamp") == 0 else { return false }
-        return !(cachedTextSpec?.ellipsis ?? paragraphSpec().ellipsis) && canvasAbove == nil
+        return canvasAbove == nil
     }
     /// The whole paragraph's pixels are up for its current text and box: a
     /// refresh has nothing to do for it until a change clears its key
@@ -243,7 +246,7 @@ extension NodeView {
             setNeedsDisplay()
             return
         }
-        textRaster = result.image; textRasterFrame = result.frame; textRasterScale = key.scale
+        textRaster = result.image; textRasterFrame = result.covered; textRasterScale = key.scale
         textRasterReady = true; textRasterFailed = false
         // The ink layer never animates (`InkLayer`), so no transaction of
         // its own: a worker's result published between frames commits with

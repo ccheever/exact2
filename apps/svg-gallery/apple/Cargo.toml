@@ -1,0 +1,22 @@
+[package]
+name = "svg-gallery-apple"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "SVG Gallery on Apple platforms: the host's C exports over its baked plan"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "svg_gallery_apple"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-apple = { path = "../../../host/apple" }
+svg-gallery-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }
+svg-gallery-data = { path = "../data" }

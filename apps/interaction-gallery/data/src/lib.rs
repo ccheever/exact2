@@ -278,7 +278,7 @@ mod tests {
     use super::*;
     use std::rc::Rc;
 
-    fn list(value: Value) -> Rc<Vec<Value>> {
+    fn list(value: Value) -> Rc<[Value]> {
         let Value::List(rows) = value else {
             panic!("row list")
         };

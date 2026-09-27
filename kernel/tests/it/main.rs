@@ -28,8 +28,32 @@ mod support {
 }
 mod review_fixes;
 mod style_dynamic;
+mod svg;
+mod svg_scene;
 mod text_measurement_cache;
 mod transform_binding;
-mod vector_path;
 mod video;
 mod wire;
+
+/// A shorthand then the `@keyframes name{…}` rules it names, resolved as a
+/// runner resolves a row against its plan's table (LLP 1055 D5).
+pub fn keyframed(text: &str) -> exact_motion::Animations {
+    let (head, rules) = text.split_at(text.find("@keyframes").unwrap_or(text.len()));
+    let table: Vec<(String, exact_motion::Keyframes)> = rules
+        .split("@keyframes")
+        .skip(1)
+        .map(|rule| {
+            let open = rule.find('{').expect("a rule");
+            let body = rule[open + 1..]
+                .trim_end()
+                .strip_suffix('}')
+                .expect("a body");
+            let k = exact_motion::Keyframes::parse(body).expect("a valid rule");
+            (rule[..open].trim().to_string(), k)
+        })
+        .collect();
+    let mut a = exact_motion::Animations::parse(head).expect("a valid shorthand");
+    let dropped = a.resolve(|n| table.iter().find(|(m, _)| m == n).map(|(_, k)| k));
+    assert!(dropped.is_empty(), "{dropped:?}");
+    a
+}

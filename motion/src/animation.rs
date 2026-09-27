@@ -1,48 +1,120 @@
-//! `animation`: CSS keyframe animations over the compositor properties.
+//! CSS Animations: `@keyframes` and the `animation` row, sampled in closed form.
 //!
-//! @ref LLP 1057 (keyframe animation); CSS Animations Level 1; Web Animations
-//! Level 1 §4 (the timing model: phases, active time, iteration progress)
+//! @ref LLP 1055 D5 (CSS Animations Level 1 over the Web Animations timing
+//! model); LLP 1002 D1 (the style row is the binding)
 //!
-//! An [`Animations`] list is the value of a node's `animation` style row. The
-//! compiler resolves each `@keyframes` name before the row exists, so the row
-//! carries its keyframes, never a name to look up. The web host emits the row
-//! as a real `@keyframes` rule and `animation` declaration; every other host
-//! samples it here, under the engine's seekable clock. Each value is a
-//! closed-form function of local time, so a seek to `t` is the same bits
-//! however it was reached.
+//! An [`Animations`] list is the value of a node's `animation` style row. Each
+//! entry carries the keyframes its `animation-name` resolved to, so a host has
+//! everything it needs from the node's style: the web emits it as CSS, Apple
+//! lowers it to Core Animation, and the engine samples it everywhere else.
+//! Sampling is a pure function of local time, so a seek and sixty frames give
+//! the same bits.
 //!
-//! What a browser does, this does: the timing function applies per keyframe
-//! interval (not across the iteration); a keyframe may name its own
-//! `animation-timing-function`; a property missing from the `0%`/`100%`
-//! keyframes interpolates from and to its underlying value; later animations
-//! in the list replace earlier ones' values for a property they animate.
+//! A keyframe colour may be a `light-dark()` pair (LLP 1062 D9): the light
+//! value is the keyframe's, the dark one rides beside it, and which one plays
+//! is the appearance the animation started under, as Chrome resolves a rule
+//! once.
 
-use crate::easing::{css_number, Easing, EasingError};
+use crate::easing::{Easing, EasingError};
 use crate::property::{Property, Value};
+
+mod parse;
+pub use parse::{easing_css, value_css, LONGHANDS};
 
 /// Most animations one node may declare.
 pub const MAX_ANIMATIONS: usize = 8;
-
-/// Most keyframe blocks one `@keyframes` rule may carry on the wire.
+/// Most keyframes one `@keyframes` rule may hold.
 pub const MAX_KEYFRAMES: usize = 32;
 
-/// One keyframe block: an offset, an optional per-interval easing, and the
-/// values it sets.
+/// `animation-direction`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(u8)]
+pub enum Direction {
+    /// Every iteration plays forwards.
+    #[default]
+    Normal = 0,
+    /// Every iteration plays backwards.
+    Reverse = 1,
+    /// Even iterations forwards, odd backwards.
+    Alternate = 2,
+    /// Even iterations backwards, odd forwards.
+    AlternateReverse = 3,
+}
+
+/// `animation-fill-mode`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[repr(u8)]
+pub enum FillMode {
+    /// Nothing outside the active interval.
+    #[default]
+    None = 0,
+    /// The last value after the end.
+    Forwards = 1,
+    /// The first value during the delay.
+    Backwards = 2,
+    /// Both.
+    Both = 3,
+}
+
+impl Direction {
+    /// The CSS keyword.
+    pub fn name(self) -> &'static str {
+        ["normal", "reverse", "alternate", "alternate-reverse"][self as usize]
+    }
+    /// From the wire discriminant.
+    pub fn from_wire(v: u8) -> Option<Direction> {
+        [
+            Direction::Normal,
+            Direction::Reverse,
+            Direction::Alternate,
+            Direction::AlternateReverse,
+        ]
+        .get(v as usize)
+        .copied()
+    }
+}
+
+impl FillMode {
+    /// The CSS keyword.
+    pub fn name(self) -> &'static str {
+        ["none", "forwards", "backwards", "both"][self as usize]
+    }
+    /// From the wire discriminant.
+    pub fn from_wire(v: u8) -> Option<FillMode> {
+        [
+            FillMode::None,
+            FillMode::Forwards,
+            FillMode::Backwards,
+            FillMode::Both,
+        ]
+        .get(v as usize)
+        .copied()
+    }
+    fn backwards(self) -> bool {
+        matches!(self, FillMode::Backwards | FillMode::Both)
+    }
+    fn forwards(self) -> bool {
+        matches!(self, FillMode::Forwards | FillMode::Both)
+    }
+}
+
+/// One keyframe: an offset in `[0, 1]`, its own timing function if it set
+/// one, and the values it declares.
 #[derive(Debug, Clone, PartialEq)]
-pub struct KeyframeBlock {
-    /// Position in the iteration, `[0, 1]` (`from` is 0, `to` is 1).
+pub struct Keyframe {
+    /// The selector as a fraction (`from` is 0, `to` is 1).
     pub offset: f64,
-    /// `animation-timing-function` inside the block: the easing of the
-    /// interval that starts here. `None` takes the animation's.
+    /// This keyframe's `animation-timing-function`, applying to the interval
+    /// that starts here; `None` takes the animation's.
     pub easing: Option<Easing>,
-    /// The values this keyframe sets, one per property.
+    /// The declared values, one per property.
     pub values: Vec<(Property, Value)>,
     /// A `light-dark()` colour's value under a dark appearance, for each of
     /// `values` that has one; `values` holds the light one (LLP 1062 D9).
     pub dark: Vec<(Property, Value)>,
 }
 
-impl KeyframeBlock {
+impl Keyframe {
     /// A property's value under an appearance.
     fn get(&self, property: Property, dark: bool) -> Option<Value> {
         let own =
@@ -53,237 +125,159 @@ impl KeyframeBlock {
     }
 }
 
-/// A resolved `@keyframes` rule: its authored name and its blocks, sorted by
-/// offset with equal offsets merged.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Keyframes {
-    /// The authored name. Identity, and the web's rule name, derive from it.
-    pub name: String,
-    /// The blocks, in increasing offset.
-    pub blocks: Vec<KeyframeBlock>,
-}
+/// A resolved `@keyframes` rule: keyframes in offset order.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Keyframes(pub Vec<Keyframe>);
 
-/// `animation-direction`, in wire order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Direction {
-    /// `normal`.
-    #[default]
-    Normal,
-    /// `reverse`.
-    Reverse,
-    /// `alternate`.
-    Alternate,
-    /// `alternate-reverse`.
-    AlternateReverse,
-}
-
-/// `animation-fill-mode`, in wire order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum FillMode {
-    /// `none`.
-    #[default]
-    None,
-    /// `forwards`.
-    Forwards,
-    /// `backwards`.
-    Backwards,
-    /// `both`.
-    Both,
-}
-
-/// `animation-play-state`, in wire order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum PlayState {
-    /// `running`.
-    #[default]
-    Running,
-    /// `paused`: local time holds where it was.
-    Paused,
-}
-
-impl Direction {
-    /// Every value, in wire order.
-    pub const ALL: [Direction; 4] = [
-        Direction::Normal,
-        Direction::Reverse,
-        Direction::Alternate,
-        Direction::AlternateReverse,
-    ];
-    /// The CSS keyword.
-    pub fn name(self) -> &'static str {
-        ["normal", "reverse", "alternate", "alternate-reverse"][self as usize]
-    }
-}
-
-impl FillMode {
-    /// Every value, in wire order.
-    pub const ALL: [FillMode; 4] = [
-        FillMode::None,
-        FillMode::Forwards,
-        FillMode::Backwards,
-        FillMode::Both,
-    ];
-    /// The CSS keyword.
-    pub fn name(self) -> &'static str {
-        ["none", "forwards", "backwards", "both"][self as usize]
-    }
-}
-
-impl PlayState {
-    /// Every value, in wire order.
-    pub const ALL: [PlayState; 2] = [PlayState::Running, PlayState::Paused];
-    /// The CSS keyword.
-    pub fn name(self) -> &'static str {
-        ["running", "paused"][self as usize]
-    }
-}
-
-/// One entry of the `animation` shorthand, its name resolved.
+/// One entry of the `animation` row.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Animation {
-    /// The keyframes it plays.
-    pub keyframes: Keyframes,
-    /// `animation-duration`, seconds (one iteration).
+    /// `animation-name`, as authored.
+    pub name: String,
+    /// `animation-duration`, seconds.
     pub duration: f64,
-    /// `animation-timing-function`: each interval's easing unless its
-    /// keyframe names one.
-    pub easing: Easing,
     /// `animation-delay`, seconds; negative starts partway through.
     pub delay: f64,
+    /// `animation-timing-function`, per keyframe interval. Never a spring.
+    pub easing: Easing,
     /// `animation-iteration-count`; `f64::INFINITY` is `infinite`.
     pub iterations: f64,
     /// `animation-direction`.
     pub direction: Direction,
     /// `animation-fill-mode`.
     pub fill: FillMode,
-    /// `animation-play-state`.
-    pub play_state: PlayState,
+    /// `animation-play-state: paused`.
+    pub paused: bool,
+    /// The keyframes the name resolved to; empty when no rule has the name
+    /// (CSS keeps such an animation: it runs and animates nothing).
+    pub keyframes: Keyframes,
 }
 
-/// A node's `animation` row: zero to [`MAX_ANIMATIONS`] animations.
+/// The `animation` row: up to [`MAX_ANIMATIONS`] entries. Later entries win
+/// over earlier ones for a property both animate, as in CSS's composite order.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Animations(pub Vec<Animation>);
 
 /// Why an animation was refused.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnimationError {
-    /// More animations than [`MAX_ANIMATIONS`].
+    /// More than [`MAX_ANIMATIONS`] entries.
     TooMany,
-    /// More keyframe blocks than [`MAX_KEYFRAMES`].
+    /// More than [`MAX_KEYFRAMES`] keyframes, or more than one value per
+    /// property in one keyframe.
     TooManyKeyframes,
-    /// A keyframes rule with no name.
-    EmptyName,
-    /// A time, count, offset or value was NaN or infinite (a count may be
-    /// `infinite`, which is `+∞`).
+    /// A time, count, offset or value was not finite.
     NonFinite,
-    /// `animation-duration` was negative.
-    NegativeDuration,
-    /// `animation-iteration-count` was negative.
-    NegativeIterations,
-    /// A keyframe offset lay outside `[0, 1]`.
-    OffsetOutOfRange,
-    /// Keyframe offsets were not strictly increasing.
-    KeyframesNotSorted,
-    /// A keyframe named a property twice.
-    DuplicateProperty(Property),
-    /// A keyframe named a property keyframes do not animate (numeric
-    /// `height` is a transition-only trial, LLP 1002 D7), or half of a
-    /// `box-shadow` without the other.
-    NotAnimatable(Property),
+    /// A negative duration or iteration count, or an offset outside `[0, 1]`.
+    OutOfRange,
+    /// Keyframes out of offset order.
+    Unordered,
     /// A scalar property carried a second component.
-    InvalidValueShape,
-    /// An easing was invalid.
+    ValueShape,
+    /// The easing was invalid.
     Easing(EasingError),
+    /// A property keyframes do not animate: half of a `box-shadow` without
+    /// the other, or a dark value for no colour of the keyframe.
+    NotAnimatable(Property),
     /// An `exit-animation` that never ends — an `infinite` count, or
     /// `paused` — would keep its leaving node forever (LLP 1063).
     Endless,
 }
 
+impl Default for Animation {
+    fn default() -> Self {
+        Animation {
+            name: String::new(),
+            duration: 0.0,
+            delay: 0.0,
+            easing: Easing::Ease,
+            iterations: 1.0,
+            direction: Direction::Normal,
+            fill: FillMode::None,
+            paused: false,
+            keyframes: Keyframes::default(),
+        }
+    }
+}
+
+/// Where local time falls (Web Animations §4.5.8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Phase {
+    /// Before the delay ends.
+    Before,
+    /// Playing.
+    Active,
+    /// After the last iteration.
+    After,
+}
+
 impl Keyframes {
-    /// Keyframes from blocks in any order: sorted by offset, blocks at one
-    /// offset merged with the later value winning (CSS Animations §3:
-    /// keyframes at the same offset cascade), then validated.
-    pub fn new(name: &str, mut blocks: Vec<KeyframeBlock>) -> Result<Keyframes, AnimationError> {
-        blocks.sort_by(|a, b| a.offset.total_cmp(&b.offset));
-        let mut merged: Vec<KeyframeBlock> = Vec::with_capacity(blocks.len());
-        for block in blocks {
-            match merged.last_mut() {
-                Some(last) if last.offset == block.offset => {
-                    for (property, value) in block.values {
-                        last.values.retain(|(p, _)| *p != property);
-                        last.dark.retain(|(p, _)| *p != property);
-                        last.values.push((property, value));
-                    }
-                    last.dark.extend(block.dark);
-                    if block.easing.is_some() {
-                        last.easing = block.easing;
-                    }
+    /// Every property some keyframe declares, in wire order.
+    pub fn properties(&self) -> Vec<Property> {
+        let mut out: Vec<Property> = Vec::new();
+        for frame in &self.0 {
+            for (p, _) in &frame.values {
+                if !out.contains(p) {
+                    out.push(*p);
                 }
-                _ => merged.push(block),
             }
         }
-        let keyframes = Keyframes {
-            name: name.to_string(),
-            blocks: merged,
-        };
-        keyframes.validate()?;
-        Ok(keyframes)
+        out.sort();
+        out
     }
 
-    /// Check every rule the sampler relies on.
+    /// Check the rule's shape.
     pub fn validate(&self) -> Result<(), AnimationError> {
-        if self.name.is_empty() {
-            return Err(AnimationError::EmptyName);
-        }
-        if self.blocks.len() > MAX_KEYFRAMES {
+        if self.0.len() > MAX_KEYFRAMES {
             return Err(AnimationError::TooManyKeyframes);
         }
-        let mut last = None;
-        for block in &self.blocks {
-            if !block.offset.is_finite() {
+        let mut last = 0.0;
+        for frame in &self.0 {
+            if !frame.offset.is_finite() {
                 return Err(AnimationError::NonFinite);
             }
-            if !(0.0..=1.0).contains(&block.offset) {
-                return Err(AnimationError::OffsetOutOfRange);
+            if !(0.0..=1.0).contains(&frame.offset) {
+                return Err(AnimationError::OutOfRange);
             }
-            if last.is_some_and(|last| block.offset <= last) {
-                return Err(AnimationError::KeyframesNotSorted);
+            if frame.offset < last {
+                return Err(AnimationError::Unordered);
             }
-            last = Some(block.offset);
-            if let Some(easing) = &block.easing {
-                easing.validate().map_err(AnimationError::Easing)?;
+            last = frame.offset;
+            if let Some(e) = &frame.easing {
+                e.validate().map_err(AnimationError::Easing)?;
             }
-            for (i, (property, value)) in block.values.iter().enumerate() {
+            if frame.values.len() > Property::ALL.len() {
+                return Err(AnimationError::TooManyKeyframes);
+            }
+            for (i, (p, v)) in frame.values.iter().enumerate() {
+                if frame.values[..i].iter().any(|(q, _)| q == p) {
+                    return Err(AnimationError::TooManyKeyframes);
+                }
+                if !v.is_finite() {
+                    return Err(AnimationError::NonFinite);
+                }
+                if !v.fits(*p) {
+                    return Err(AnimationError::ValueShape);
+                }
                 // `box-shadow` is one declaration: its geometry and colour
-                // are set together or not at all.
-                let half = match property {
+                // are set together or not at all (LLP 1062 D9).
+                let half = match p {
                     Property::BoxShadow => Some(Property::ShadowColor),
                     Property::ShadowColor => Some(Property::BoxShadow),
                     _ => None,
                 };
-                if *property == Property::Height
-                    || half.is_some_and(|h| !block.values.iter().any(|(p, _)| *p == h))
-                {
-                    return Err(AnimationError::NotAnimatable(*property));
-                }
-                if block.values[..i].iter().any(|(p, _)| p == property) {
-                    return Err(AnimationError::DuplicateProperty(*property));
-                }
-                if !value.is_finite() {
-                    return Err(AnimationError::NonFinite);
-                }
-                if !value.fits(*property) {
-                    return Err(AnimationError::InvalidValueShape);
+                if half.is_some_and(|h| !frame.values.iter().any(|(q, _)| *q == h)) {
+                    return Err(AnimationError::NotAnimatable(*p));
                 }
             }
-            for (i, (property, value)) in block.dark.iter().enumerate() {
-                if !property.is_color() || !block.values.iter().any(|(p, _)| p == property) {
-                    return Err(AnimationError::NotAnimatable(*property));
+            for (i, (p, v)) in frame.dark.iter().enumerate() {
+                if !p.is_color() || !frame.values.iter().any(|(q, _)| q == p) {
+                    return Err(AnimationError::NotAnimatable(*p));
                 }
-                if block.dark[..i].iter().any(|(p, _)| p == property) {
-                    return Err(AnimationError::DuplicateProperty(*property));
+                if frame.dark[..i].iter().any(|(q, _)| q == p) {
+                    return Err(AnimationError::TooManyKeyframes);
                 }
-                if !value.is_finite() {
+                if !v.is_finite() {
                     return Err(AnimationError::NonFinite);
                 }
             }
@@ -291,103 +285,32 @@ impl Keyframes {
         Ok(())
     }
 
-    /// Whether any block sets `property`.
-    pub fn affects(&self, property: Property) -> bool {
-        self.blocks
+    /// The keyframes one property takes part in, as (offset, easing, value),
+    /// with CSS's implicit `0%` and `100%` from `underlying` where no
+    /// keyframe declares it (CSS Animations 1 §3). A `light-dark()` colour
+    /// takes its value under `dark`.
+    fn track(
+        &self,
+        property: Property,
+        underlying: Value,
+        dark: bool,
+    ) -> Vec<(f64, Option<&Easing>, Value)> {
+        let mut out: Vec<(f64, Option<&Easing>, Value)> = self
+            .0
             .iter()
-            .any(|b| b.values.iter().any(|(p, _)| *p == property))
-    }
-
-    /// The rule as CSS, under `name`: `@keyframes name{0%{opacity:0.4}…}`.
-    /// The web host names it uniquely per list; the compiler writes it under
-    /// the authored name into the row's text form.
-    pub fn rule(&self, name: &str) -> String {
-        let mut out = String::from("@keyframes ");
-        out.push_str(name);
-        out.push('{');
-        for block in &self.blocks {
-            css_number(&mut out, block.offset * 100.0);
-            out.push_str("%{");
-            let color = |out: &mut String, p: Property, value: Value| match block
-                .dark
-                .iter()
-                .find(|(q, _)| *q == p)
-            {
-                Some((_, night)) => {
-                    out.push_str("light-dark(");
-                    rgba_css(out, value);
-                    out.push(',');
-                    rgba_css(out, *night);
-                    out.push(')');
-                }
-                None => rgba_css(out, value),
-            };
-            // The shadow's colour is written in its `box-shadow`.
-            for (property, value) in block
-                .values
-                .iter()
-                .filter(|(p, _)| *p != Property::ShadowColor)
-            {
-                out.push_str(property.css_name());
-                out.push(':');
-                match property {
-                    p if p.is_color() => color(&mut out, *p, *value),
-                    Property::BoxShadow => {
-                        for c in [value.x, value.y, value.z] {
-                            css_number(&mut out, c);
-                            out.push_str("px ");
-                        }
-                        let shade = block.get(Property::ShadowColor, false);
-                        color(
-                            &mut out,
-                            Property::ShadowColor,
-                            shade.expect("validated pair"),
-                        );
-                    }
-                    Property::Translate => {
-                        css_number(&mut out, value.x);
-                        out.push_str("px ");
-                        css_number(&mut out, value.y);
-                        out.push_str("px");
-                    }
-                    Property::Rotate => {
-                        css_number(&mut out, value.x);
-                        out.push_str("deg");
-                    }
-                    _ => css_number(&mut out, value.x),
-                }
-                out.push(';');
-            }
-            if let Some(easing) = &block.easing {
-                out.push_str("animation-timing-function:");
-                out.push_str(&easing.css());
-                out.push(';');
-            }
-            out.push('}');
+            .filter_map(|f| {
+                f.get(property, dark)
+                    .map(|v| (f.offset, f.easing.as_ref(), v))
+            })
+            .collect();
+        if out.first().is_none_or(|f| f.0 > 0.0) {
+            out.insert(0, (0.0, None, underlying));
         }
-        out.push('}');
+        if out.last().is_none_or(|f| f.0 < 1.0) {
+            out.push((1.0, None, underlying));
+        }
         out
     }
-}
-
-/// A colour as the rule writes it: `rgba(r,g,b,a)`, channels 0–255.
-fn rgba_css(out: &mut String, value: Value) {
-    let [r, g, b, a] = value.straight();
-    out.push_str("rgba(");
-    for c in [r, g, b] {
-        css_number(out, (c * 255.0).round());
-        out.push(',');
-    }
-    css_number(out, a);
-    out.push(')');
-}
-
-/// Where local time falls (Web Animations §4.6.4).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Phase {
-    Before,
-    Active,
-    After,
 }
 
 impl Animation {
@@ -396,32 +319,20 @@ impl Animation {
         if !self.duration.is_finite() || !self.delay.is_finite() || self.iterations.is_nan() {
             return Err(AnimationError::NonFinite);
         }
-        if self.duration < 0.0 {
-            return Err(AnimationError::NegativeDuration);
-        }
-        if self.iterations < 0.0 {
-            return Err(AnimationError::NegativeIterations);
+        if self.duration < 0.0 || self.iterations < 0.0 {
+            return Err(AnimationError::OutOfRange);
         }
         self.easing.validate().map_err(AnimationError::Easing)?;
         self.keyframes.validate()
     }
 
-    /// Whether every number is finite, save an `infinite` iteration count.
+    /// Whether every number that must be finite is (`iterations` may be
+    /// infinite).
     pub fn is_finite(&self) -> bool {
-        self.duration.is_finite()
-            && self.delay.is_finite()
-            && !self.iterations.is_nan()
-            && self.easing.is_finite()
-            && self.keyframes.blocks.iter().all(|b| {
-                b.offset.is_finite()
-                    && b.easing.as_ref().is_none_or(Easing::is_finite)
-                    && b.values.iter().all(|(_, v)| v.is_finite())
-            })
+        !matches!(self.validate(), Err(AnimationError::NonFinite))
     }
 
-    /// Duration times iteration count; zero when either is (Web Animations
-    /// §4.8: a zero-length iteration has no active interval, even repeated
-    /// forever). Infinite for an endless animation.
+    /// The active duration: duration × iteration count (0 when either is 0).
     pub fn active_duration(&self) -> f64 {
         if self.duration == 0.0 || self.iterations == 0.0 {
             0.0
@@ -430,36 +341,46 @@ impl Animation {
         }
     }
 
-    /// Local time at which the animation ends: delay plus active duration,
-    /// never negative. Infinite for an endless animation.
+    /// Local time (seconds since the animation started, delay included) at
+    /// which it ends; infinite for an infinite iteration count.
     pub fn end_time(&self) -> f64 {
         (self.delay + self.active_duration()).max(0.0)
     }
 
-    /// The directed progress through the current iteration at `local`
-    /// seconds since the animation started, or `None` when it applies no
-    /// value there (outside its active interval and not filling).
-    pub fn progress(&self, local: f64) -> Option<f64> {
-        let active = self.active_duration();
+    /// The phase at local time `t` (Web Animations §4.5.8, positive rate).
+    pub fn phase(&self, t: f64) -> Phase {
         let end = self.end_time();
-        let before_active = self.delay.min(end).max(0.0);
-        let active_after = (self.delay + active).min(end).max(0.0);
-        let backwards = matches!(self.fill, FillMode::Backwards | FillMode::Both);
-        let forwards = matches!(self.fill, FillMode::Forwards | FillMode::Both);
-        let (phase, time) = if local < before_active {
-            (
-                Phase::Before,
-                backwards.then(|| (local - self.delay).max(0.0)),
-            )
-        } else if local >= active_after {
-            (
-                Phase::After,
-                forwards.then(|| (local - self.delay).min(active).max(0.0)),
-            )
+        let before = self.delay.min(end).max(0.0);
+        let after = (self.delay + self.active_duration()).min(end).max(0.0);
+        if t < before {
+            Phase::Before
+        } else if t >= after {
+            Phase::After
         } else {
-            (Phase::Active, Some(local - self.delay))
+            Phase::Active
+        }
+    }
+
+    /// The directed progress at local time `t`, or `None` when the animation
+    /// has no effect then (outside its active interval without a fill).
+    pub fn directed_progress(&self, t: f64) -> Option<f64> {
+        let ad = self.active_duration();
+        let phase = self.phase(t);
+        let active = match phase {
+            Phase::Before => {
+                if !self.fill.backwards() {
+                    return None;
+                }
+                (t - self.delay).max(0.0)
+            }
+            Phase::Active => t - self.delay,
+            Phase::After => {
+                if !self.fill.forwards() {
+                    return None;
+                }
+                (t - self.delay).min(ad).max(0.0)
+            }
         };
-        let time = time?;
         let overall = if self.duration == 0.0 {
             if phase == Phase::Before {
                 0.0
@@ -467,16 +388,14 @@ impl Animation {
                 self.iterations
             }
         } else {
-            time / self.duration
+            active / self.duration
         };
         let mut simple = if overall.is_infinite() {
             0.0
         } else {
             overall % 1.0
         };
-        // The end of a whole iteration is progress 1 of that iteration, not
-        // progress 0 of the next (§4.8.3.3).
-        if simple == 0.0 && phase != Phase::Before && time == active && self.iterations != 0.0 {
+        if simple == 0.0 && phase != Phase::Before && active == ad && self.iterations != 0.0 {
             simple = 1.0;
         }
         let iteration = if phase == Phase::After && self.iterations.is_infinite() {
@@ -486,91 +405,78 @@ impl Animation {
         } else {
             overall.floor()
         };
-        let odd = iteration.is_finite() && iteration % 2.0 != 0.0;
-        let reverse = match self.direction {
-            Direction::Normal => false,
-            Direction::Reverse => true,
-            Direction::Alternate => odd,
-            Direction::AlternateReverse => iteration.is_finite() && !odd,
+        let odd = iteration.is_finite() && (iteration as i64).rem_euclid(2) == 1;
+        let forwards = match self.direction {
+            Direction::Normal => true,
+            Direction::Reverse => false,
+            Direction::Alternate => !odd,
+            Direction::AlternateReverse => odd,
         };
-        Some(if reverse { 1.0 - simple } else { simple })
+        Some(if forwards { simple } else { 1.0 - simple })
     }
 
-    /// The value this animation gives `property` at directed progress `p`
-    /// over `underlying`, or `None` when no keyframe sets the property. A
-    /// missing `0%`/`100%` keyframe is the underlying value (CSS Animations
-    /// §3.3); the interval's easing is its start keyframe's, else the
-    /// animation's.
-    /// A `light-dark()` colour takes its value under `dark`.
-    pub fn value(
+    /// One property's animated value at local time `t` over `underlying` (the
+    /// value the property would have without this animation), or `None` when
+    /// the animation does not apply to it then.
+    pub fn sample(&self, t: f64, property: Property, underlying: Value) -> Option<Value> {
+        self.sample_in(t, property, underlying, false)
+    }
+
+    /// [`Animation::sample`] under an appearance: a keyframe's `light-dark()`
+    /// colour takes its dark value when `dark` (LLP 1062 D9).
+    pub fn sample_in(
         &self,
+        t: f64,
         property: Property,
-        p: f64,
         underlying: Value,
         dark: bool,
     ) -> Option<Value> {
-        let mut start = (0.0, underlying, &self.easing);
-        let mut end = None;
-        let mut any = false;
-        for block in &self.keyframes.blocks {
-            let Some(value) = block.get(property, dark) else {
-                continue;
-            };
-            any = true;
-            if block.offset <= p {
-                start = (
-                    block.offset,
-                    value,
-                    block.easing.as_ref().unwrap_or(&self.easing),
-                );
-            } else {
-                end = Some((block.offset, value));
-                break;
-            }
-        }
-        if !any {
+        if !self
+            .keyframes
+            .0
+            .iter()
+            .any(|f| f.values.iter().any(|(p, _)| *p == property))
+        {
             return None;
         }
-        let (end_offset, end_value) = end.unwrap_or((1.0, underlying));
-        if end_offset <= start.0 {
-            return Some(start.1);
-        }
-        let local = (p - start.0) / (end_offset - start.0);
-        Some(start.1.lerp(end_value, start.2.progress(local)))
+        let p = self.directed_progress(t)?;
+        Some(self.value_at(p, property, underlying, dark))
     }
 
-    /// The shorthand as CSS, the keyframes under `name`.
-    pub fn css(&self, name: &str) -> String {
-        let mut out = String::from(name);
-        out.push(' ');
-        css_number(&mut out, self.duration);
-        out.push_str("s ");
-        out.push_str(&self.easing.css());
-        out.push(' ');
-        css_number(&mut out, self.delay);
-        out.push_str("s ");
-        if self.iterations.is_infinite() {
-            out.push_str("infinite");
-        } else {
-            css_number(&mut out, self.iterations);
+    /// The keyframe effect at directed progress `p` for one property, a
+    /// `light-dark()` colour under `dark`.
+    pub fn value_at(&self, p: f64, property: Property, underlying: Value, dark: bool) -> Value {
+        let track = self.keyframes.track(property, underlying, dark);
+        // The interval: the last keyframe at or before p (the last of equal
+        // offsets), and the next one after it; at p = 1 the final interval.
+        let mut start = 0;
+        for (i, frame) in track.iter().enumerate() {
+            if frame.0 <= p && i + 1 < track.len() {
+                start = i;
+            }
         }
-        for word in [
-            self.direction.name(),
-            self.fill.name(),
-            self.play_state.name(),
-        ] {
-            out.push(' ');
-            out.push_str(word);
+        if p >= 1.0 {
+            start = track.len().saturating_sub(2);
+            while start > 0 && track[start].0 >= 1.0 {
+                start -= 1;
+            }
         }
-        out
+        let (a, b) = (&track[start], &track[(start + 1).min(track.len() - 1)]);
+        let span = b.0 - a.0;
+        if span <= 0.0 {
+            return if p >= b.0 { b.2 } else { a.2 };
+        }
+        let local = (p - a.0) / span;
+        let eased = a.1.unwrap_or(&self.easing).progress(local);
+        a.2.lerp(b.2, eased)
     }
 }
 
 impl Animations {
-    /// No animations: CSS's initial `animation: none`.
+    /// No animation (`animation: none`).
     pub const NONE: Animations = Animations(Vec::new());
 
-    /// Validate every animation and the count.
+    /// Check every entry.
     pub fn validate(&self) -> Result<(), AnimationError> {
         if self.0.len() > MAX_ANIMATIONS {
             return Err(AnimationError::TooMany);
@@ -578,51 +484,41 @@ impl Animations {
         self.0.iter().try_for_each(Animation::validate)
     }
 
-    /// Whether every number is finite, save `infinite` iteration counts.
+    /// Whether every number that must be finite is.
     pub fn is_finite(&self) -> bool {
         self.0.iter().all(Animation::is_finite)
     }
 
-    /// Local time at which the last animation ends; zero for none, infinite
-    /// when one is endless.
+    /// Local time at which the last entry ends; zero for none, infinite when
+    /// one is endless.
     pub fn end_time(&self) -> f64 {
         self.0.iter().map(Animation::end_time).fold(0.0, f64::max)
     }
 
-    /// [`Animations::validate`], and every animation runs to an end: the
-    /// rule for an `exit-animation`, whose node is removed when it ends.
+    /// [`Animations::validate`], and every entry runs to an end: the rule for
+    /// an `exit-animation`, whose node is removed when it ends (LLP 1063).
     pub fn validate_ending(&self) -> Result<(), AnimationError> {
         self.validate()?;
-        if self
-            .0
-            .iter()
-            .any(|a| a.play_state == PlayState::Paused || !a.end_time().is_finite())
-        {
+        if self.0.iter().any(|a| a.paused || !a.end_time().is_finite()) {
             return Err(AnimationError::Endless);
         }
         Ok(())
     }
 
-    /// The row as its self-contained text: the shorthand list, then each
-    /// distinct `@keyframes` rule it names. [`Animations::parse`] reads it
-    /// back; it is the form a compiled plan carries.
-    pub fn text(&self) -> String {
-        if self.0.is_empty() {
-            return "none".into();
-        }
-        let mut out = String::new();
-        for (i, a) in self.0.iter().enumerate() {
-            if i > 0 {
-                out.push_str(", ");
-            }
-            out.push_str(&a.css(&a.keyframes.name));
-        }
-        for (i, a) in self.0.iter().enumerate() {
-            if self.0[..i].iter().all(|b| b.keyframes != a.keyframes) {
-                out.push(' ');
-                out.push_str(&a.keyframes.rule(&a.keyframes.name));
+    /// Every property some entry animates, in wire order.
+    pub fn properties(&self) -> Vec<Property> {
+        let mut out: Vec<Property> = Vec::new();
+        for a in &self.0 {
+            for p in a.keyframes.properties() {
+                if !out.contains(&p) {
+                    out.push(p);
+                }
             }
         }
+        out.sort();
         out
     }
 }
+
+#[cfg(test)]
+mod tests;

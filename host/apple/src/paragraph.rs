@@ -118,7 +118,10 @@ impl<D: DataSource> Host<D> {
                     continue;
                 }
                 let props = props_for(&run);
-                let (style, _) = style::style_json_for(&run, &kernel.env());
+                // A run painting an inherited `color` that moves (LLP 1062 D5).
+                let mut shown = style::Shown::default();
+                shown.set(Property::Color, self.paint.runs.get(&id).copied());
+                let (style, _) = style::style_json_presented(&run, &kernel.env(), &shown);
                 let handlers: Vec<_> = self
                     .inline_runs
                     .get(&id)
@@ -153,6 +156,14 @@ impl<D: DataSource> Host<D> {
     }
 
     pub(super) fn create(&mut self, id: ViewId, events: &[EventKind], batch: &mut Batch) {
+        // @ref LLP 1055 D4 — an SVG element is in its `svg`'s scene, not a view.
+        if self.svg.element(self.runner.kernel(), id).is_some() {
+            let key = self.runner.kernel().node(id).expect("live").key;
+            self.keys.insert(key, id);
+            // @ref LLP 1055.000 D17 — the presenter hits it by `pointer-events`.
+            self.svg.handlers(id, events.contains(&EventKind::Press));
+            return;
+        }
         self.queue_layout(id);
         if let Some(owner) = self.paragraph_owner(id) {
             self.dirty_paragraphs.insert(owner);
@@ -172,7 +183,13 @@ impl<D: DataSource> Host<D> {
         }
         let node = self.runner.kernel().node(id).expect("live");
         let key = node.key;
-        let kind = kind_for(&node);
+        // @ref LLP 1056 D10 — a 2D canvas is a plain view: its bitmap is a
+        // layer's contents under ordinary children, with no Metal or overlay.
+        let kind = if self.runner.is_canvas_2d(id) {
+            "canvas2d"
+        } else {
+            kind_for(&node)
+        };
         let props = props_for(&node);
         let env = self.runner.kernel().env();
         let (style, _skipped) = style::style_json_for(&node, &env);
@@ -203,6 +220,9 @@ impl<D: DataSource> Host<D> {
     }
 
     pub(super) fn update(&mut self, id: ViewId, batch: &mut Batch) {
+        if self.svg.element(self.runner.kernel(), id).is_some() {
+            return;
+        }
         self.queue_layout(id);
         if self.reconcile_projection(id, batch) {
             return;
@@ -247,6 +267,12 @@ impl<D: DataSource> Host<D> {
     }
 
     pub(super) fn emit_children(&mut self, id: ViewId, batch: &mut Batch) {
+        // An `svg`'s and a `g`'s children are its scene's (LLP 1055 D4).
+        let node_type = self.runner.kernel().node(id).expect("live").node_type;
+        if node_type == NodeType::Svg || node_type.is_svg_element() {
+            self.svg.element(self.runner.kernel(), id);
+            return;
+        }
         let children = self.runner.kernel().node(id).expect("live").children();
         if self.mirror.get(&id).is_none_or(|m| m.children != children) {
             // Retained children still inherit from the same parent. Only an
@@ -281,6 +307,68 @@ impl<D: DataSource> Host<D> {
         if children != m.children {
             batch.children(id, &children);
             m.children = children;
+        }
+    }
+
+    /// A box whose paint is moving (LLP 1055.000 D6, LLP 1062): its style
+    /// with the presented values over its rows, and the style of every
+    /// descendant that inherits its `color` — an inline run's through its
+    /// paragraph, which paints it (LLP 1062 D5). A leaving view is no
+    /// mirror's, and still paints its exit's colours (LLP 1063). When the
+    /// motion ends the rows show again, re-sent the same way.
+    pub(super) fn present_colors(&mut self, view: ViewId, batch: &mut Batch) {
+        let kernel = self.runner.kernel();
+        let Some(node) = kernel.node(view) else {
+            return self.restyle_leaving(view, batch);
+        };
+        let key = motion_node(node.key);
+        let shown = self.shown_paint(key);
+        let color = shown.get(Property::Color);
+        let env = kernel.env();
+        let mut restyled = vec![(view, style::style_json_presented(&node, &env, &shown).0)];
+        let mut runs = Vec::new();
+        if self.engine.sampled_value(key, Property::Color).is_some() {
+            let mut inherited = style::Shown::default();
+            inherited.set(Property::Color, color);
+            let mut stack = node.children();
+            while let Some(child) = stack.pop() {
+                let Some(c) = kernel.node(child) else {
+                    continue;
+                };
+                if c.source_of(exact_kernel::StyleId::TextColor) != Some(view) {
+                    continue;
+                }
+                if let Some((owner, _)) = self.inline_runs.get(&child) {
+                    runs.push((child, *owner));
+                } else {
+                    restyled.push((child, style::style_json_presented(&c, &env, &inherited).0));
+                }
+                stack.extend(c.children());
+            }
+        }
+        for (run, owner) in runs {
+            let before = match color {
+                Some(c) => self.paint.runs.insert(run, c),
+                None => self.paint.runs.remove(&run),
+            };
+            if before != color {
+                self.dirty_paragraphs.insert(owner);
+            }
+        }
+        for (id, style) in restyled {
+            if self.svg.touch(self.runner.kernel(), id) {
+                continue;
+            }
+            let Some(m) = self.mirror.get_mut(&id) else {
+                continue;
+            };
+            if m.style != style {
+                batch.style(id, &style);
+                m.style = style;
+            }
+        }
+        if !self.dirty_paragraphs.is_empty() {
+            self.emit_paragraphs(batch);
         }
     }
 }

@@ -296,6 +296,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "canvas-gallery-apple"
+version = "0.1.0"
+dependencies = [
+ "exact-apple",
+ "exact-js",
+ "exact-js-bake",
+ "exact-logic",
+]
+
+[[package]]
+name = "canvas-gallery-linux"
+version = "0.1.0"
+dependencies = [
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+]
+
+[[package]]
+name = "canvas-gallery-web"
+version = "0.1.0"
+dependencies = [
+ "exact-js-bake",
+ "exact-js-web",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+]
+
+[[package]]
 name = "cc"
 version = "1.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -699,6 +730,7 @@ dependencies = [
  "exact-runner",
  "exact-textflow",
  "ibex2",
+ "serde_json",
 ]
 
 [[package]]
@@ -729,6 +761,10 @@ dependencies = [
  "serde_json",
  "sha2",
 ]
+
+[[package]]
+name = "exact-canvas"
+version = "0.1.0"
 
 [[package]]
 name = "exact-data"
@@ -864,6 +900,7 @@ dependencies = [
  "cosmic-text",
  "drm",
  "evdev",
+ "exact-canvas",
  "exact-data",
  "exact-kernel",
  "exact-motion",
@@ -871,6 +908,7 @@ dependencies = [
  "exact-raster",
  "exact-route",
  "exact-runner",
+ "exact-svg-raster",
  "exact-textflow",
  "ibex2",
  "libc",
@@ -1053,7 +1091,9 @@ name = "exact-runner"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-canvas",
  "exact-kernel",
+ "exact-motion",
  "exact-num",
  "exact-plan",
  "exact-route",
@@ -1071,6 +1111,13 @@ dependencies = [
  "snapback4-core",
  "snapback4-device",
  "snapback4-lang",
+]
+
+[[package]]
+name = "exact-svg-raster"
+version = "0.1.0"
+dependencies = [
+ "exact-kernel",
 ]
 
 [[package]]
@@ -1874,6 +1921,48 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
+name = "map-demo-apple"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-apple",
+ "exact-bake",
+ "exact-logic",
+ "map-demo-data",
+]
+
+[[package]]
+name = "map-demo-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "map-demo-linux"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "exact-logic",
+ "map-demo-data",
+]
+
+[[package]]
+name = "map-demo-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+ "map-demo-data",
+]
+
+[[package]]
 name = "markdown-apple"
 version = "0.1.0"
 dependencies = [
@@ -2147,6 +2236,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "native-fixture-apple"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-apple",
+ "exact-bake",
+ "exact-logic",
+ "native-fixture-data",
+]
+
+[[package]]
+name = "native-fixture-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "native-fixture-linux"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "exact-logic",
+ "native-fixture-data",
+]
+
+[[package]]
+name = "native-fixture-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+ "native-fixture-data",
+]
+
+[[package]]
 name = "ndk-sys"
 version = "0.6.0+11769913"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2337,6 +2468,48 @@ name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
+
+[[package]]
+name = "photo-editor-apple"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-apple",
+ "exact-bake",
+ "exact-logic",
+ "photo-editor-data",
+]
+
+[[package]]
+name = "photo-editor-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "photo-editor-linux"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "exact-logic",
+ "photo-editor-data",
+]
+
+[[package]]
+name = "photo-editor-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+ "photo-editor-data",
+]
 
 [[package]]
 name = "pin-project-lite"
@@ -2930,6 +3103,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "sparkline-apple"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-apple",
+ "exact-bake",
+ "exact-logic",
+ "sparkline-data",
+]
+
+[[package]]
+name = "sparkline-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "sparkline-linux"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "exact-logic",
+ "sparkline-data",
+]
+
+[[package]]
+name = "sparkline-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+ "sparkline-data",
+]
+
+[[package]]
 name = "spin"
 version = "0.9.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2989,6 +3204,48 @@ name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
+
+[[package]]
+name = "svg-gallery-apple"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-apple",
+ "exact-bake",
+ "exact-logic",
+ "svg-gallery-data",
+]
+
+[[package]]
+name = "svg-gallery-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "svg-gallery-linux"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "exact-logic",
+ "svg-gallery-data",
+]
+
+[[package]]
+name = "svg-gallery-web"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+ "svg-gallery-data",
+]
 
 [[package]]
 name = "svg_fmt"

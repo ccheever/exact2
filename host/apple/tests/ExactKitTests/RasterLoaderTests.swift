@@ -7,6 +7,17 @@ import CExact
 @testable import ExactKit
 
 final class RasterLoaderTests: XCTestCase {
+    /// One decoder while any owner's list travels fast; both once none does.
+    func testDecodesOneAtATimeWhileAnyListTravelsFast() {
+        let workers = RasterWorkers.shared, a = NSObject(), b = NSObject()
+        XCTAssertFalse(workers.single)
+        workers.travelling(a, true); workers.travelling(b, true)
+        XCTAssertTrue(workers.single)
+        workers.travelling(a, false)
+        XCTAssertTrue(workers.single, "another list still travels")
+        workers.travelling(b, false)
+        XCTAssertFalse(workers.single)
+    }
     /// A large WebP's size is read from its prefix (ImageIO reads WebP only
     /// whole): the Bluesky CDN's `VP8X`, and synthetic `VP8L` and `VP8 `.
     func testWebPSizeFromItsHeader() throws {

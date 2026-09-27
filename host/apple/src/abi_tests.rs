@@ -345,13 +345,13 @@ static DELIVERY: crate::delivery::Hooks = crate::delivery::Hooks {
 
 #[test]
 fn a_verified_selected_boot_is_counted_before_plan_refusal() {
-    let embedded = plan(None);
+    let embedded: &'static [u8] = plan(None).leak();
     for (selected, expected) in [
         (
             Some(b"verified bytes that are not a plan".to_vec()),
             vec!["started", "refused"],
         ),
-        (Some(embedded.clone()), vec!["started"]),
+        (Some(embedded.to_vec()), vec!["started"]),
         (None, vec![]),
     ] {
         SELECTED.with(|value| {
@@ -361,7 +361,7 @@ fn a_verified_selected_boot_is_counted_before_plan_refusal() {
         let mut bridge = Bridge::new();
         bridge.set_delivery(Some(&DELIVERY));
         let count = bridge.boot_selected(
-            &embedded,
+            embedded,
             || Returning {
                 name: "unused",
                 grants: "",
@@ -622,11 +622,11 @@ fn height_release_abi_separates_synthesis_from_generation_checked_pointer_comple
         .parse()
         .unwrap();
     bridge.height_drag_update(token, 300., 0.);
-    bridge.height_drag_release(token, 320., 200., 0.);
+    bridge.height_drag_release(token, 320., 0.);
     assert!(bridge.has_hold(token));
-    bridge.hold_end(token, false, 200., 0., 0.);
+    bridge.hold_end(token, 0, 200., 0., 0.);
     assert!(!bridge.has_hold(token));
-    let n = bridge.height_drag_release(token, f64::NAN, f64::NAN, f64::NAN);
+    let n = bridge.height_drag_release(token, f64::NAN, f64::NAN);
     let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
     assert!(out.contains("\"error\":null"), "{out}");
     assert_eq!(bridge.host.as_ref().unwrap().engine().now(), 0.);

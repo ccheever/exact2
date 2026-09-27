@@ -4,6 +4,7 @@
 //!
 //! @ref LLP 1007 §1 (a bare node is a bare `<div>`) / LLP 1048 D1
 
+use exact_kernel::svg::Paint;
 use exact_kernel::SortedMap;
 use exact_kernel::{Kernel, NodeRef, NodeType, ObjectFit, PropId, PropValue, StyleId};
 
@@ -19,38 +20,11 @@ pub(super) fn host_css(node: &NodeRef<'_>, mut css: String, tag: &str) -> String
     {
         css.push_str("display:block;");
     }
-    // A path's `<svg>` covers its box (`vector.rs`) and never sizes it.
-    if matches!(node.node_type, NodeType::Canvas | NodeType::Path)
-        && !(css.starts_with("position:") || css.contains(";position:"))
-    {
-        css.push_str("position:relative;");
-    }
     if node.node_type == NodeType::Canvas {
-        css.push_str("isolation:isolate;");
-    }
-    // A path in a path is no box: it covers its parent's content box, its
-    // own sizing undone (LLP 1065 D12), as the kernel lays it out.
-    if node.node_type == NodeType::Path {
-        let kernel_parent = node.parent_style().filter(|_| node.in_path());
-        if let Some(parent) = kernel_parent {
-            css.push_str("position:absolute;");
-            for (side, d) in [
-                ("top", parent.padding_top),
-                ("right", parent.padding_right),
-                ("bottom", parent.padding_bottom),
-                ("left", parent.padding_left),
-            ] {
-                css.push_str(side);
-                css.push(':');
-                super::css::dimension(&mut css, d);
-                css.push(';');
-            }
-            css.push_str("width:auto;height:auto;min-width:0;min-height:0;max-width:none;max-height:none;margin:0;padding:0;border:0;");
+        if !(css.starts_with("position:") || css.contains(";position:")) {
+            css.push_str("position:relative;");
         }
-    }
-    // A non-scaling stroke reads the box's size in container units (LLP 1065).
-    if node.node_type == NodeType::Path && super::vector::non_scaling(node) {
-        css.push_str("container-type:size;");
+        css.push_str("isolation:isolate;");
     }
     // A root is a block formatting context in the kernel, as CSS's root
     // element is: its first child's top margin stays inside it. On the web a
@@ -97,7 +71,16 @@ pub(super) fn host_css(node: &NodeRef<'_>, mut css: String, tag: &str) -> String
 /// The element for a node: its type, refined by `semanticTag`. A `<button>`
 /// holds only phrasing content, so there a container — a box, a paragraph,
 /// a heading, a landmark — is a `<span>` with the same style (LLP 1007 §1).
-pub(super) fn tag_for(node: &NodeRef<'_>, in_button: bool) -> &'static str {
+pub(super) fn tag_for<'a>(node: &NodeRef<'a>, in_button: bool) -> &'a str {
+    // @ref LLP 1024 D2 — a module node is its custom element, by the name
+    // the plan carries, checked again: plan bytes are network bytes.
+    if let Some(name) = node
+        .props
+        .str(PropId::NativeViewModuleName)
+        .filter(|n| node.node_type == NodeType::NativeView && module_name(n))
+    {
+        return name;
+    }
     match element(node) {
         "div" | "main" | "header" | "nav" | "section" | "footer" | "article" | "aside" | "h1"
         | "h2" | "h3" | "h4" | "h5" | "h6"
@@ -107,6 +90,27 @@ pub(super) fn tag_for(node: &NodeRef<'_>, in_button: bool) -> &'static str {
         }
         tag => tag,
     }
+}
+
+/// HTML's potential custom element name, lowercase (LLP 1024 D1): the
+/// compiler's admission, repeated where plan bytes become a DOM tag.
+pub(super) fn module_name(name: &str) -> bool {
+    const RESERVED: [&str; 8] = [
+        "annotation-xml",
+        "color-profile",
+        "font-face",
+        "font-face-src",
+        "font-face-uri",
+        "font-face-format",
+        "font-face-name",
+        "missing-glyph",
+    ];
+    let word = |w: &str| {
+        let mut chars = w.chars();
+        chars.next().is_some_and(|c| c.is_ascii_lowercase())
+            && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+    };
+    name.contains('-') && name.split('-').all(word) && !RESERVED.contains(&name)
 }
 
 /// Whether a `<button>` holds the node.
@@ -147,7 +151,41 @@ fn element(node: &NodeRef<'_>) -> &'static str {
         }
     }
     match node.node_type {
-        NodeType::View | NodeType::List | NodeType::NativeView | NodeType::Path => "div",
+        NodeType::View | NodeType::List | NodeType::NativeView => "div",
+        // @ref LLP 1055 D4 — real inline SVG, created in the SVG namespace.
+        NodeType::Svg => "svg",
+        NodeType::SvgGroup => "g",
+        NodeType::SvgPath => "path",
+        NodeType::SvgPolyline => "polyline",
+        NodeType::SvgPolygon => "polygon",
+        NodeType::SvgCircle => "circle",
+        NodeType::SvgLine => "line",
+        NodeType::SvgRect => "rect",
+        NodeType::SvgEllipse => "ellipse",
+        NodeType::SvgViewport => "svg",
+        NodeType::SvgDefs => "defs",
+        NodeType::SvgLinearGradient => "linearGradient",
+        NodeType::SvgRadialGradient => "radialGradient",
+        NodeType::SvgStop => "stop",
+        NodeType::SvgUse => "use",
+        NodeType::SvgSymbol => "symbol",
+        NodeType::SvgClipPath => "clipPath",
+        NodeType::SvgMarker => "marker",
+        NodeType::SvgMask => "mask",
+        NodeType::SvgPattern => "pattern",
+        NodeType::SvgForeignObject => "foreignObject",
+        NodeType::SvgFilter => "filter",
+        // @ref LLP 1055.000 D14 — a primitive's tag is its `fe` prop.
+        NodeType::SvgFe => {
+            let fe = node.props.str(PropId::Fe).unwrap_or("");
+            FE_TAGS
+                .iter()
+                .find(|t| **t == fe)
+                .copied()
+                .unwrap_or("feFlood")
+        }
+        NodeType::SvgText => "text",
+        NodeType::SvgTSpan => "tspan",
         NodeType::ScrollView => "div",
         NodeType::Text => {
             if node.is_inline_run() {
@@ -199,7 +237,175 @@ fn heading_level(node: &NodeRef<'_>) -> Option<i64> {
     }
 }
 
+/// The filter primitives' tags (LLP 1055.000 D14), as `fe` holds them.
+const FE_TAGS: [&str; 24] = [
+    "feBlend",
+    "feColorMatrix",
+    "feComponentTransfer",
+    "feComposite",
+    "feConvolveMatrix",
+    "feDiffuseLighting",
+    "feDisplacementMap",
+    "feDropShadow",
+    "feFlood",
+    "feFuncR",
+    "feFuncG",
+    "feFuncB",
+    "feFuncA",
+    "feGaussianBlur",
+    "feMerge",
+    "feMergeNode",
+    "feMorphology",
+    "feOffset",
+    "feSpecularLighting",
+    "feTile",
+    "feTurbulence",
+    "feDistantLight",
+    "fePointLight",
+    "feSpotLight",
+];
+
 /// Props as DOM attributes/properties. Names are the DOM's.
+/// The rows a node's `cssText` carries. A nested `svg` takes `x`, `y`,
+/// `width` and `height` as attributes instead ([`props_for`]): Chrome 154
+/// lays one out from its attributes and ignores those CSS properties
+/// (LLP 1055.000 D4).
+pub(super) fn css_style<'a>(
+    kernel: &Kernel,
+    node: &NodeRef<'a>,
+) -> std::borrow::Cow<'a, exact_kernel::StyleProps> {
+    let as_attributes = attribute_rows(node.node_type);
+    let url = |p: &Paint| matches!(p, Paint::Url(..));
+    if as_attributes.is_empty()
+        && !url(&node.style.fill)
+        && !url(&node.style.stroke)
+        && node.style.clip_path.url().is_none()
+        && node.style.svg_mask.url().is_none()
+        && node.style.filter.is_none()
+        && [
+            &node.style.marker_start,
+            &node.style.marker_mid,
+            &node.style.marker_end,
+        ]
+        .iter()
+        .all(|m| m.url().is_none())
+    {
+        return std::borrow::Cow::Borrowed(node.style);
+    }
+    let mut style = node.style.clone();
+    let mut mask = exact_kernel::StyleMask::EMPTY;
+    for row in as_attributes {
+        mask.set(row.0);
+    }
+    style.clear(mask);
+    // @ref LLP 1055.000 D10 — a clipPath by the id the page gives it.
+    if let Some(target) = style
+        .clip_path
+        .url()
+        .and_then(|id| kernel.resolve_id(node.id, id))
+    {
+        if let Some(c) = exact_kernel::clip::ClipPath::parse(&format!("url(#{})", dom_id(target))) {
+            style.clip_path = c;
+        }
+    }
+    // @ref LLP 1055.000 D14 — a filter by the id the page gives it.
+    for f in style.filter.0.iter_mut() {
+        if let exact_kernel::svg::filter::FilterFn::Url(id) = f {
+            if let Some(target) = kernel.resolve_id(node.id, id) {
+                *id = dom_id(target).into();
+            }
+        }
+    }
+    // @ref LLP 1055.000 D10 — a mask by the id the page gives it.
+    if let Some(target) = style
+        .svg_mask
+        .url()
+        .and_then(|id| kernel.resolve_id(node.id, id))
+    {
+        style.svg_mask = exact_kernel::svg::MarkerRef(Some(dom_id(target).into()));
+    }
+    // @ref LLP 1055.000 D9 — a marker by the id the page gives it.
+    for marker in [
+        &mut style.marker_start,
+        &mut style.marker_mid,
+        &mut style.marker_end,
+    ] {
+        if let Some(target) = marker.url().and_then(|id| kernel.resolve_id(node.id, id)) {
+            *marker = exact_kernel::svg::MarkerRef(Some(dom_id(target).into()));
+        }
+    }
+    // @ref LLP 1055.000 D3 — a paint server by the id the page gives it.
+    for paint in [&mut style.fill, &mut style.stroke] {
+        if let Paint::Url(id, fallback) = paint {
+            if let Some(target) = kernel.resolve_id(node.id, id) {
+                *paint = Paint::Url(dom_id(target).into(), *fallback);
+            }
+        }
+    }
+    std::borrow::Cow::Owned(style)
+}
+
+/// The DOM id of an SVG element: unique by construction, so forty
+/// instances of one component's `id="fade"` are forty ids (LLP 1055.000 D3).
+fn dom_id(view: exact_kernel::ViewId) -> String {
+    format!("x{view}")
+}
+
+/// Rows an element takes as attributes: Chrome 154 lays out a nested `svg`
+/// and places a `use` from their attributes and ignores those CSS
+/// properties; a `mask`'s and a `pattern`'s region is attributes only, as
+/// is a radial gradient's `cx`, `cy` and `r` are attributes
+/// only (LLP 1055.000 D4, D7).
+fn attribute_rows(t: NodeType) -> &'static [(exact_kernel::StyleId, &'static str)] {
+    use exact_kernel::StyleId::*;
+    match t {
+        NodeType::SvgViewport
+        | NodeType::SvgUse
+        | NodeType::SvgMask
+        | NodeType::SvgPattern
+        | NodeType::SvgForeignObject
+        | NodeType::SvgFilter
+        | NodeType::SvgFe => &[(X, "x"), (Y, "y"), (Width, "width"), (Height, "height")],
+        NodeType::SvgRadialGradient => &[(Cx, "cx"), (Cy, "cy"), (R, "r")],
+        _ => &[],
+    }
+}
+
+/// An SVG element's references and attribute rows as the page takes them:
+/// its `id` rewritten to its DOM id, `href` to its target's, and the rows
+/// of [`attribute_rows`] as attributes.
+pub(super) fn svg_props(kernel: &Kernel, node: &NodeRef<'_>, out: &mut SortedMap<String, String>) {
+    if !node.node_type.is_svg_element() {
+        return;
+    }
+    if node.props.str(PropId::Id).is_some() {
+        out.insert("id".into(), dom_id(node.id));
+    }
+    if let Some(target) = node
+        .props
+        .str(PropId::Href)
+        .and_then(|h| h.strip_prefix('#'))
+        .and_then(|h| kernel.resolve_id(node.id, h))
+    {
+        out.insert("href".into(), format!("#{}", dom_id(target)));
+    }
+    for (row, name) in attribute_rows(node.node_type) {
+        if !node.style.mask.has(*row) {
+            continue;
+        }
+        let text = match node.style.get(*row) {
+            exact_kernel::RowValue::Dimension(exact_kernel::Dimension::Points(v)) => {
+                exact_num::Shortest(v as f64).to_string()
+            }
+            exact_kernel::RowValue::Dimension(exact_kernel::Dimension::Percent(p)) => {
+                format!("{}%", exact_num::Shortest(p as f64))
+            }
+            _ => continue,
+        };
+        out.insert((*name).into(), text);
+    }
+}
+
 pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
     let mut out = SortedMap::new();
     if node.style.wrap_flow == exact_kernel::WrapFlow::Both {
@@ -221,16 +427,8 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
     if let (Some(pieces), Some(source)) = (markup, node.props.str(PropId::Text)) {
         out.insert("markupPieces".into(), pieces(source));
     }
-    if node.node_type == NodeType::Path {
-        super::vector::props(node, &mut out);
-    }
     for (id, value) in node.props.iter() {
-        if (markup.is_some() && id == PropId::Text)
-            || matches!(
-                id,
-                PropId::PathData | PropId::ViewBox | PropId::PreserveAspectRatio
-            )
-        {
+        if markup.is_some() && id == PropId::Text {
             continue;
         }
         if id == PropId::Editable {
@@ -346,6 +544,52 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
             PropId::AccessibilitySelected => "aria-selected",
             PropId::AccessibilityExpanded => "aria-expanded",
             PropId::AccessibilityElementsHidden => "aria-hidden",
+            // SVG 2 attributes by their exact (case-sensitive) names (LLP 1055 D1).
+            PropId::ViewBox => "viewBox",
+            PropId::PreserveAspectRatio => "preserveAspectRatio",
+            PropId::Points => "points",
+            PropId::D => "d",
+            PropId::PathLength => "pathLength",
+            PropId::X1 => "x1",
+            PropId::Y1 => "y1",
+            PropId::X2 => "x2",
+            PropId::Y2 => "y2",
+            PropId::Fx => "fx",
+            PropId::Fy => "fy",
+            PropId::Fr => "fr",
+            PropId::GradientUnits => "gradientUnits",
+            PropId::GradientTransform => "gradientTransform",
+            PropId::SpreadMethod => "spreadMethod",
+            PropId::Offset => "offset",
+            PropId::ClipPathUnits => "clipPathUnits",
+            PropId::MarkerWidth => "markerWidth",
+            PropId::MarkerHeight => "markerHeight",
+            PropId::RefX => "refX",
+            PropId::RefY => "refY",
+            PropId::Orient => "orient",
+            PropId::MarkerUnits => "markerUnits",
+            PropId::MaskUnits => "maskUnits",
+            PropId::MaskContentUnits => "maskContentUnits",
+            PropId::PatternUnits => "patternUnits",
+            PropId::PatternContentUnits => "patternContentUnits",
+            PropId::PatternTransform => "patternTransform",
+            PropId::TextX => "x",
+            PropId::TextY => "y",
+            PropId::TextDx => "dx",
+            PropId::TextDy => "dy",
+            // @ref LLP 1055.000 D14 — a primitive's attributes by their SVG
+            // names; `fe` is the tag itself.
+            PropId::Fe => continue,
+            PropId::FeDx => "dx",
+            PropId::FeDy => "dy",
+            PropId::FeScale => "scale",
+            PropId::FeRadius => "radius",
+            PropId::LightX => "x",
+            PropId::LightY => "y",
+            PropId::LightZ => "z",
+            other if matches!(node.node_type, NodeType::SvgFe | NodeType::SvgFilter) => {
+                other.name()
+            }
             other => {
                 // Every other prop rides as `data-<name>` so nothing is lost.
                 // Schema names are ASCII (`prop_names_are_ascii`), so ASCII

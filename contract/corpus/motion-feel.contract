@@ -3,9 +3,7 @@
 // reader who asked for less motion gets neither: the app reads the fact from
 // `exactViewport()` and chooses, as a stylesheet's media query would.
 keyframes rise
-  from
-    opacity=0
-    translate="0px 8px"
+  from opacity=0 translate="0px 8px"
 
 shape Media
   prefersReducedMotion: bool

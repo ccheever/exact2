@@ -22,7 +22,7 @@ use std::rc::Rc;
 /// The lists found conforming, by their type.
 #[derive(Debug, Default)]
 pub(crate) struct Conformed {
-    lists: BTreeMap<u32, Rc<Vec<Value>>>,
+    lists: BTreeMap<u32, Rc<[Value]>>,
     /// List items checked in full, for tests and measurement.
     pub(crate) items_checked: usize,
 }
@@ -53,7 +53,7 @@ impl Conformed {
         }
     }
 
-    fn list(&mut self, plan: &Plan, items: &Rc<Vec<Value>>, ty: TypesId, elem: TypesId) -> bool {
+    fn list(&mut self, plan: &Plan, items: &Rc<[Value]>, ty: TypesId, elem: TypesId) -> bool {
         let mut checked = 0;
         let mut check = |item: &Value| {
             checked += 1;
@@ -101,7 +101,7 @@ mod tests {
         Value::record(vec![Value::str(&format!("m{i}")), Value::Number(i as f64)])
     }
 
-    fn feed(rows: &Rc<Vec<Value>>) -> Value {
+    fn feed(rows: &Rc<[Value]>) -> Value {
         Value::record(vec![Value::List(rows.clone())])
     }
 
@@ -109,7 +109,7 @@ mod tests {
     fn a_shared_valid_list_is_checked_once() {
         let (plan, ty) = plan();
         let mut c = Conformed::default();
-        let rows = Rc::new((0..10_000).map(item).collect::<Vec<_>>());
+        let rows = Rc::<[Value]>::from((0..10_000).map(item).collect::<Vec<_>>());
         assert!(c.conforms(&plan, &feed(&rows), ty));
         assert_eq!(c.items_checked, 10_000);
         // The same answer again (the settle pass after the action's check).
@@ -119,11 +119,11 @@ mod tests {
         let mut next = rows.to_vec();
         next.insert(0, item(10_000));
         next[5_000] = item(4_999);
-        let next = Rc::new(next);
+        let next = Rc::<[Value]>::from(next);
         assert!(c.conforms(&plan, &feed(&next), ty));
         assert_eq!(c.items_checked, 10_002);
         // An equal list of new objects is checked in full.
-        let copy = Rc::new((0..10_000).map(item).collect::<Vec<_>>());
+        let copy = Rc::<[Value]>::from((0..10_000).map(item).collect::<Vec<_>>());
         assert!(c.conforms(&plan, &feed(&copy), ty));
         assert_eq!(c.items_checked, 20_002);
     }
@@ -132,7 +132,7 @@ mod tests {
     fn an_invalid_record_inside_a_shared_list_is_refused() {
         let (plan, ty) = plan();
         let mut c = Conformed::default();
-        let rows = Rc::new((0..1_000).map(item).collect::<Vec<_>>());
+        let rows = Rc::<[Value]>::from((0..1_000).map(item).collect::<Vec<_>>());
         assert!(c.conforms(&plan, &feed(&rows), ty));
         let bad = [
             Value::record(vec![Value::str("m1"), Value::str("one")]),
@@ -144,7 +144,7 @@ mod tests {
             let mut next = rows.to_vec();
             next.insert(0, item(1_000));
             next[500] = bad;
-            let next = Rc::new(next);
+            let next = Rc::<[Value]>::from(next);
             assert!(!c.conforms(&plan, &feed(&next), ty));
             // What was refused is not remembered; a full check agrees.
             assert!(!feed(&next).conforms(&plan, ty));

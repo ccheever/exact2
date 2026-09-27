@@ -256,16 +256,6 @@ private enum TextValue {
     }
 }
 
-private final class WeakTextValue {
-    private weak var object: AnyObject?
-    init(_ value: TextValue) { object = value.object }
-    var value: TextValue? {
-        if let p = object as? Paragraph { return .paragraph(p) }
-        if let s = object as? TextShape { return .shape(s) }
-        if let s = object as? TextScalar { return .scalar(s) }
-        return nil
-    }
-}
 
 struct TextResidencyStats {
     let metadataEntries: Int
@@ -310,13 +300,26 @@ struct TextResidency {
     private static let cleanupQuota = 1
     let softTargetBytes: Int
     private let catalog = TextCatalogIdentity()
+    /// One entry in `slab`. Its links are `links` at the same index: the
+    /// recency list of every entry and the list of cold ones. A key per link
+    /// cost four keys an entry, and plain indexes relink without copying an
+    /// entry (whose weak reference makes a copy a runtime call).
     private struct Entry {
-        let weak: WeakTextValue
+        let key: TextEntryKey
+        /// The value while a view or checkpoint owns it (weak lookup metadata).
+        weak var object: AnyObject?
         var cold: TextValue?
-        var previous: TextEntryKey?
-        var next: TextEntryKey?
-        var colder: TextEntryKey?
-        var warmer: TextEntryKey?
+        init(key: TextEntryKey, value: TextValue) {
+            self.key = key; object = value.object; cold = value
+        }
+        var owned: TextValue? {
+            if let p = object as? Paragraph { return .paragraph(p) }
+            if let s = object as? TextShape { return .shape(s) }
+            if let s = object as? TextScalar { return .scalar(s) }
+            return nil
+        }
+        var value: TextValue? { cold ?? owned }
+        var dead: Bool { cold == nil && object == nil }
     }
     private struct IdentityEntry {
         let hash: Int
@@ -329,9 +332,13 @@ struct TextResidency {
         let owned: Int
         let opaque: Int
     }
-    private var entries: [TextEntryKey: Entry] = [:]
-    private var first: TextEntryKey?, last: TextEntryKey?, sweepEntry: TextEntryKey?
-    private var coldFirst: TextEntryKey?, coldLast: TextEntryKey?
+    private var entries: [TextEntryKey: Int32] = [:]
+    private struct Links { var previous: Int32 = -1, next: Int32 = -1, colder: Int32 = -1, warmer: Int32 = -1 }
+    private var slab: [Entry?] = []
+    private var links: [Links] = []
+    private var vacant: [Int32] = []
+    private var first: Int32 = -1, last: Int32 = -1, sweepEntry: Int32 = -1
+    private var coldFirst: Int32 = -1, coldLast: Int32 = -1
     private var coldCount = 0
     // Retirement visits layouts only; saved scalar answers need no width retirement.
     private var coldLayouts: [TextIdentityToken: Set<TextEntryKey>] = [:]
@@ -402,10 +409,11 @@ struct TextResidency {
         identities[e.hash]?.remove(token)
         if identities[e.hash]?.isEmpty == true { identities.removeValue(forKey: e.hash) }
     }
+    private func entry(_ key: TextEntryKey) -> Entry? { entries[key].flatMap { slab[Int($0)] } }
     private mutating func get(_ key: TextEntryKey) -> TextValue? {
-        guard let entry = entries[key], let value = entry.cold ?? entry.weak.value else { return nil }
-        touch(key)
-        if entry.cold != nil { touchCold(key) }
+        guard let i = entries[key], let value = slab[Int(i)]?.value else { return nil }
+        touch(i)
+        if slab[Int(i)]?.cold != nil { touchCold(i) }
         return value
     }
     mutating func paragraph(_ key: TextParagraphKey) -> Paragraph? {
@@ -429,9 +437,9 @@ struct TextResidency {
         let key = TextGeometryKey(token: identity.token, widthBits: Double(width == 0 ? 0 : width).bitPattern)
         for entry in geometryIndex[key] ?? [] {
             maintenanceVisits &+= 1
-            if let value = entries[entry], case .paragraph(let p) = value.cold ?? value.weak.value {
-                touch(entry)
-                if value.cold != nil { touchCold(entry) }
+            if let i = entries[entry], case .paragraph(let p) = slab[Int(i)]?.value {
+                touch(i)
+                if slab[Int(i)]?.cold != nil { touchCold(i) }
                 return p
             }
         }
@@ -446,7 +454,7 @@ struct TextResidency {
                 // Layout can revisit an exploratory width after its CTLines
                 // were retired. Keep its tiny answer under the same bounded
                 // cold policy, without retaining another full paragraph.
-                if case .paragraph(let paragraph) = entries[old]?.weak.value {
+                if case .paragraph(let paragraph) = entry(old)?.owned {
                     let metrics = ExactMetrics(width: Float(paragraph.width), height: Float(paragraph.height),
                                                baseline: Float(paragraph.firstBaseline))
                     removeCold(old)
@@ -471,18 +479,25 @@ struct TextResidency {
     }
     private mutating func put(_ key: TextEntryKey, _ value: TextValue) {
         removeEntry(key)
-        entries[key] = Entry(weak: WeakTextValue(value), cold: value, previous: last, colder: coldLast)
-        if let last { entries[last]?.next = key } else { first = key }
-        last = key
-        if let coldLast { entries[coldLast]?.warmer = key } else { coldFirst = key }
-        coldLast = key; coldCount += 1
+        let i: Int32
+        let entry = Entry(key: key, value: value), link = Links(previous: last, colder: coldLast)
+        if let reused = vacant.popLast() {
+            i = reused; slab[Int(i)] = entry; links[Int(i)] = link
+        } else {
+            i = Int32(slab.count); slab.append(entry); links.append(link)
+        }
+        entries[key] = i
+        if last >= 0 { links[Int(last)].next = i } else { first = i }
+        last = i
+        if coldLast >= 0 { links[Int(coldLast)].warmer = i } else { coldFirst = i }
+        coldLast = i; coldCount += 1
         if value.shape != nil { coldLayouts[value.identity.token, default: []].insert(key) }
         if case .paragraph(let p) = key {
             geometryIndex[TextGeometryKey(token: p.shape.token, widthBits: p.widthBits), default: []].insert(key)
         }
         charge(value, adding: true)
         trim(incoming: 0, keeping: key)
-        while entries.count > Self.maxLookupEntries, let oldest = first { removeEntry(oldest) }
+        while entries.count > Self.maxLookupEntries, first >= 0 { removeEntry(at: first) }
     }
     /// Lazy walker storage becomes part of the resident shape's existing charge.
     mutating func refresh(_ shape: TextShape) {
@@ -499,7 +514,7 @@ struct TextResidency {
     /// Restore is exceptional; ordinary lookups never scan the cache.
     mutating func refreshAfterRestore() {
         var seen: Set<ObjectIdentifier> = []
-        for entry in entries.values {
+        for case let entry? in slab {
             guard let shape = entry.cold?.shape else { continue }
             let key = ObjectIdentifier(shape)
             guard seen.insert(key).inserted, let old = coldShapes[key] else { continue }
@@ -507,7 +522,36 @@ struct TextResidency {
             opaqueBudget += shape.opaqueEstimate - old.opaque
             coldShapes[key] = Charge(count: old.count, owned: shape.ownedBytes, opaque: shape.opaqueEstimate)
         }
-        trim(incoming: 0, keeping: coldLast)
+        trim(incoming: 0, keeping: coldLast >= 0 ? slab[Int(coldLast)]?.key : nil)
+    }
+    /// Memory pressure: every cold value goes; views keep what they show.
+    mutating func dropCold() {
+        while coldFirst >= 0 { removeCold(at: coldFirst) }
+        compact()
+    }
+    /// At rest: cold shaped text goes; cold measurements (a few bytes each,
+    /// what a row coming back needs first) stay.
+    mutating func dropColdShaped() {
+        var i = coldFirst
+        while i >= 0 {
+            let current = i
+            i = links[Int(i)].warmer
+            if case .scalar? = slab[Int(current)]?.cold { continue }
+            removeCold(at: current)
+        }
+        compact()
+    }
+    /// At rest or under pressure: the lookup metadata of values no one owns
+    /// any more goes too (a fling leaves thousands of entries, each with its
+    /// key's arrays). Their slots and buckets stay for the next admissions.
+    private mutating func compact() {
+        var i = first
+        while i >= 0 {
+            let current = i
+            i = links[Int(i)].next
+            if slab[Int(current)]?.dead == true { removeEntry(at: current) }
+        }
+        for (token, e) in identityEntries where e.weak.value == nil { removeIdentity(token) }
     }
     mutating func prepare(estimatedBytes: Int) {
         trim(incoming: estimatedBytes, keeping: nil)
@@ -517,32 +561,38 @@ struct TextResidency {
         // O(1) when no eviction is needed; O(evictions) under pressure. One
         // current oversize value is preserved, as before, and stats expose it.
         while ownedBudget + opaqueBudget > allowance || coldCount > Self.maxColdEntries {
-            guard let key = coldFirst, key != keeping else { break }
+            guard coldFirst >= 0, slab[Int(coldFirst)]?.key != keeping else { break }
             maintenanceVisits &+= 1
-            removeCold(key)
+            removeCold(at: coldFirst)
         }
     }
-    private mutating func touch(_ key: TextEntryKey) {
-        guard key != last, let e = entries[key] else { return }
-        if let p = e.previous { entries[p]?.next = e.next } else { first = e.next }
-        if let n = e.next { entries[n]?.previous = e.previous }
-        entries[key]?.previous = last; entries[key]?.next = nil
-        if let last { entries[last]?.next = key }
-        last = key
+    private mutating func touch(_ i: Int32) {
+        guard i != last else { return }
+        let e = links[Int(i)]
+        if e.previous >= 0 { links[Int(e.previous)].next = e.next } else { first = e.next }
+        if e.next >= 0 { links[Int(e.next)].previous = e.previous }
+        links[Int(i)].previous = last; links[Int(i)].next = -1
+        if last >= 0 { links[Int(last)].next = i }
+        last = i
     }
-    private mutating func touchCold(_ key: TextEntryKey) {
-        guard key != coldLast, let e = entries[key] else { return }
-        if let p = e.colder { entries[p]?.warmer = e.warmer } else { coldFirst = e.warmer }
-        if let n = e.warmer { entries[n]?.colder = e.colder }
-        entries[key]?.colder = coldLast; entries[key]?.warmer = nil
-        if let coldLast { entries[coldLast]?.warmer = key }
-        coldLast = key
+    private mutating func touchCold(_ i: Int32) {
+        guard i != coldLast else { return }
+        let e = links[Int(i)]
+        if e.colder >= 0 { links[Int(e.colder)].warmer = e.warmer } else { coldFirst = e.warmer }
+        if e.warmer >= 0 { links[Int(e.warmer)].colder = e.colder }
+        links[Int(i)].colder = coldLast; links[Int(i)].warmer = -1
+        if coldLast >= 0 { links[Int(coldLast)].warmer = i }
+        coldLast = i
     }
     private mutating func removeCold(_ key: TextEntryKey) {
-        guard let e = entries[key], let value = e.cold else { return }
-        if let p = e.colder { entries[p]?.warmer = e.warmer } else { coldFirst = e.warmer }
-        if let n = e.warmer { entries[n]?.colder = e.colder } else { coldLast = e.colder }
-        entries[key]?.cold = nil; entries[key]?.colder = nil; entries[key]?.warmer = nil
+        if let i = entries[key] { removeCold(at: i) }
+    }
+    private mutating func removeCold(at i: Int32) {
+        guard let value = slab[Int(i)]?.cold, let key = slab[Int(i)]?.key else { return }
+        let e = links[Int(i)]
+        if e.colder >= 0 { links[Int(e.colder)].warmer = e.warmer } else { coldFirst = e.warmer }
+        if e.warmer >= 0 { links[Int(e.warmer)].colder = e.colder } else { coldLast = e.colder }
+        slab[Int(i)]?.cold = nil; links[Int(i)].colder = -1; links[Int(i)].warmer = -1
         if value.shape != nil {
             coldLayouts[value.identity.token]?.remove(key)
             if coldLayouts[value.identity.token]?.isEmpty == true { coldLayouts.removeValue(forKey: value.identity.token) }
@@ -551,13 +601,18 @@ struct TextResidency {
         charge(value, adding: false)
     }
     private mutating func removeEntry(_ key: TextEntryKey) {
-        guard entries[key] != nil else { return }
-        removeCold(key)
-        guard let e = entries.removeValue(forKey: key) else { return }
+        if let i = entries[key] { removeEntry(at: i) }
+    }
+    private mutating func removeEntry(at i: Int32) {
+        removeCold(at: i)
+        guard let key = slab[Int(i)]?.key else { return }
+        let e = links[Int(i)]
+        entries.removeValue(forKey: key)
+        slab[Int(i)] = nil; links[Int(i)] = Links(); vacant.append(i)
         maintenanceVisits &+= 1
-        if let p = e.previous { entries[p]?.next = e.next } else { first = e.next }
-        if let n = e.next { entries[n]?.previous = e.previous } else { last = e.previous }
-        if sweepEntry == key { sweepEntry = e.next ?? first }
+        if e.previous >= 0 { links[Int(e.previous)].next = e.next } else { first = e.next }
+        if e.next >= 0 { links[Int(e.next)].previous = e.previous } else { last = e.previous }
+        if sweepEntry == i { sweepEntry = e.next >= 0 ? e.next : first }
         if case .paragraph(let p) = key {
             let geometry = TextGeometryKey(token: p.shape.token, widthBits: p.widthBits)
             geometryIndex[geometry]?.remove(key)
@@ -606,10 +661,11 @@ struct TextResidency {
         // Fixed work per new source. Hard caps above bound metadata even if
         // every observed weak value dies just after this incremental sweep.
         for _ in 0..<Self.cleanupQuota {
-            if let key = sweepEntry ?? first, let e = entries[key] {
+            let i = sweepEntry >= 0 ? sweepEntry : first
+            if i >= 0, slab[Int(i)] != nil {
                 maintenanceVisits &+= 1
-                sweepEntry = e.next ?? first
-                if e.cold == nil && e.weak.value == nil { removeEntry(key) }
+                sweepEntry = links[Int(i)].next >= 0 ? links[Int(i)].next : first
+                if slab[Int(i)]?.dead == true { removeEntry(at: i) }
             }
             if let key = sweepIdentity ?? firstIdentity, let e = identityEntries[key] {
                 maintenanceVisits &+= 1
@@ -622,8 +678,8 @@ struct TextResidency {
     /// charges, including possible lazy ink; reported payload uses actual ink.
     var stats: TextResidencyStats {
         var paragraphs = 0, shapes = 0, scalars = 0, inkSlack = 0
-        for entry in entries.values {
-            switch entry.weak.value {
+        for case let entry? in slab {
+            switch entry.owned {
             case .paragraph: paragraphs += 1
             case .shape: shapes += 1
             case .scalar: scalars += 1

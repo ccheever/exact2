@@ -77,8 +77,15 @@ use watch::{Watch, Watched};
 
 type NativeFactory = fn(&str) -> Box<dyn NativeModule>;
 
-/// The seam ABI this executor speaks; a module's `exact.abi` must equal it.
-pub const ABI: u32 = 1;
+/// The seam ABI this executor speaks. ABI 2 adds Canvas 2D's `draw` and
+/// `surfaces` (LLP 1056 D1); a module without them still reports 1, and
+/// this executor runs both.
+pub const ABI: u32 = 2;
+
+/// Whether a module's `exact.abi` is one this executor runs.
+pub fn abi_supported(abi: &str) -> bool {
+    matches!(abi, "1" | "2")
+}
 /// Authoritative Ibex2 storage declarations included by the TypeScript bake.
 pub const STORAGE_TYPES: &str = ibex2::bindings::TYPESCRIPT;
 /// The per-call wall-clock budget a module is held to, unless the host says otherwise.
@@ -167,6 +174,9 @@ pub struct Module {
     max_heap: u32,
     logs: Vec<String>,
     overruns: u32,
+    /// The Canvas 2D roster the bake read (LLP 1056 D1), known before the
+    /// engine loads.
+    canvas_surfaces: Vec<(String, usize)>,
 }
 
 impl std::fmt::Debug for Module {
@@ -417,7 +427,20 @@ impl Module {
             max_heap: DEFAULT_MAX_HEAP,
             logs: Vec::new(),
             overruns: 0,
+            canvas_surfaces: Vec::new(),
         }
+    }
+
+    /// This module's Canvas 2D roster, as the bake recorded it beside the
+    /// bytecode (`module.rs`'s `CANVAS_SURFACES`).
+    pub fn with_canvas_surfaces(mut self, surfaces: &[(&str, usize)]) -> Self {
+        self.canvas_surfaces = surfaces.iter().map(|(n, a)| (n.to_string(), *a)).collect();
+        self
+    }
+
+    /// The Canvas 2D roster: name and arity.
+    pub fn canvas_roster(&self) -> &[(String, usize)] {
+        &self.canvas_surfaces
     }
 
     /// Attach this app's separately linked native implementation. The factory
@@ -523,6 +546,21 @@ impl Module {
         let engine = module.load_engine()?;
         module.app_id = engine.string("appId")?;
         module.grants = engine.string("grants")?;
+        // The Canvas 2D roster (LLP 1056 D1): `{name: arity}`, read at build.
+        let roster = engine.string("surfacesJson")?;
+        if !roster.is_empty() {
+            let json: Json = serde_json::from_str(&roster)
+                .map_err(|e| format!("exact-js: app.ts `surfaces`: {e}"))?;
+            let object = json
+                .as_object()
+                .ok_or("exact-js: app.ts `surfaces` must map names to arities")?;
+            for (name, arity) in object {
+                let arity = arity
+                    .as_u64()
+                    .ok_or_else(|| format!("exact-js: surface `{name}`'s arity is not a count"))?;
+                module.canvas_surfaces.push((name.clone(), arity as usize));
+            }
+        }
         if module.app_id.is_empty() {
             return Err("exact-js: the module exports no appId".into());
         }
@@ -577,7 +615,7 @@ impl Module {
             .load(&self.bytecode)
             .map_err(|e| format!("exact-js: the module did not load: {e}"))?;
         let abi = engine.string("abi")?;
-        if abi != ABI.to_string() {
+        if !abi_supported(&abi) {
             return Err(format!(
                 "exact-js: the module speaks ABI {abi:?}; this executor speaks {ABI}"
             ));
@@ -1130,6 +1168,37 @@ impl DataSource for Module {
     /// store-reading resources from their kept answers meanwhile.
     fn ready(&self) -> bool {
         self.is_loaded()
+    }
+
+    fn canvas_surfaces(&self) -> Vec<(String, usize)> {
+        self.canvas_surfaces.clone()
+    }
+
+    /// Canvas 2D (LLP 1056 D1): the module's `draw` through the TypeScript
+    /// recorder, synchronously in this turn (native `main` placement).
+    fn draw(
+        &mut self,
+        request: &exact_runner::DrawRequest<'_>,
+        _ctx: &exact_runner::exact_canvas::Context2d,
+    ) -> exact_runner::Drawn {
+        let reply = match self.engine.as_mut() {
+            None => Err("the module is not loaded".to_string()),
+            Some(engine) => engine.call("__exact_draw", [&request.json(), "", ""]),
+        };
+        exact_runner::Drawn::Now(match reply {
+            Ok(json) => exact_runner::DrawReply::from_seam(&json),
+            Err(e) => exact_runner::DrawReply {
+                error: Some(e),
+                ..Default::default()
+            },
+        })
+    }
+
+    fn canvases_retired(&mut self, retired: &[(u64, u32)]) {
+        if let Some(engine) = self.engine.as_mut() {
+            let json = serde_json::to_string(retired).unwrap_or_default();
+            let _ = engine.call("__exact_retire", [&json, "", ""]);
+        }
     }
 
     /// The seam's signatures, from the plan's `sources` table (LLP 1027 D2).

@@ -1,9 +1,10 @@
 //! Exit animation and layout transition rows (LLP 1063): which destroyed
 //! nodes leave with an exit, and the seam that hands layout rows to motion.
 
+use crate::keyframed;
 use exact_kernel::{
-    motion_node, Animations, ApplyError, Kernel, KernelError, NodeType, Op, PropId, PropValue,
-    StyleId, StyleProps, Transitions,
+    motion_node, ApplyError, Kernel, KernelError, NodeType, Op, PropId, PropValue, StyleId,
+    StyleProps, Transitions,
 };
 use exact_motion::{AnimationError, Engine, Property, Value};
 
@@ -11,7 +12,7 @@ const FADE: &str = "@keyframes fade{from{opacity:1}to{opacity:0}}";
 
 fn exit(text: &str) -> Box<StyleProps> {
     let mut s = StyleProps::default();
-    s.exit_animation = Animations::parse(&format!("{text} {FADE}")).unwrap();
+    s.exit_animation = keyframed(&format!("{text} {FADE}"));
     s.mask.set(StyleId::ExitAnimation);
     Box::new(s)
 }

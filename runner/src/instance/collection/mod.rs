@@ -37,6 +37,9 @@ const BOOTSTRAP_ROWS: usize = 16;
 const ESTIMATED_HEIGHT: f64 = 32.0;
 /// Travel the window leads by, past its viewport of overscan.
 const LEAD_SECONDS: f64 = 0.25;
+/// A mounted row farther than this many viewports from what shows retires
+/// with any report, whatever its limit.
+const FAR_VIEWPORTS: f64 = 2.0;
 
 /// How far the window reaches past the viewport, before and after it: one
 /// viewport each side, and toward the side the list travels, a quarter
@@ -77,7 +80,7 @@ pub(crate) struct Collection {
     index: HeightIndex,
     estimated_height: f64,
     bootstrap_rows: usize,
-    items: Rc<Vec<Value>>,
+    items: Rc<[Value]>,
     keys: Vec<Value>,
     /// Positions whose key repeats an earlier one, and which repeat.
     dups: BTreeMap<usize, u32>,
@@ -215,7 +218,7 @@ impl Collection {
             bootstrap_rows: ((BOOTSTRAP_ROWS as f64 * ESTIMATED_HEIGHT / estimated_height)
                 .ceil()
                 .clamp(1.0, BOOTSTRAP_ROWS as f64)) as usize,
-            items: Rc::new(Vec::new()),
+            items: Rc::from([]),
             keys: Vec::new(),
             dups: BTreeMap::new(),
             string_keys: true,
@@ -260,14 +263,16 @@ impl Collection {
         // What an input actually changed, not the full evaluation's "all of
         // it", decides the protocol: ending a reorder preview, re-measuring
         // rows and the revision are the same in both modes.
-        let changed = fresh
-            || u.changed_outside(&deps.keys[index], 1)
-            || u.changed_outside(&deps.subjects[index], 0)
-            || u.changed_outside(&deps.bodies[index], 1);
+        let rows_changed =
+            u.changed_outside(&deps.keys[index], 1) || u.changed_outside(&deps.bodies[index], 1);
+        let changed = fresh || rows_changed || u.changed_outside(&deps.subjects[index], 0);
         if changed {
             self.end_preview(u)?;
         }
         let anchor = if changed { self.anchor()? } else { None };
+        // Items that changed in place: the same keys in the same order, and
+        // no input of the rows' bodies or keys changed (a live tick's prices).
+        let mut in_place: Option<Vec<usize>> = None;
         if data_changed {
             let descriptor = u.env.plan.region(self.region);
             let Value::List(items) = u.eval(descriptor.subject, frames)? else {
@@ -282,8 +287,9 @@ impl Collection {
                 && !keys_stale
                 && !compare_previous
                 && self.rekey_shared(u, frames, descriptor.key, &items)?;
+            let mut rekeyed = true;
             if !shared {
-                self.rekey_full(
+                rekeyed = self.rekey_full(
                     u,
                     frames,
                     descriptor.key,
@@ -292,11 +298,25 @@ impl Collection {
                     keys_stale,
                 )?;
             }
+            if compare_previous && !keys_stale && !rekeyed && !rows_changed {
+                in_place = Some(
+                    (0..items.len())
+                        .filter(|&p| !crate::compare::same(&items[p], &self.items[p]))
+                        .collect(),
+                );
+            }
             self.items = items;
         }
+        let previous = in_place.as_ref().map(|_| self.snapshot());
         if changed {
-            // O(1): old heights remain estimates; stale measurements cannot confirm them.
-            self.invalidate_height_estimates()?;
+            match &in_place {
+                // Only the changed rows' heights become estimates: the rows
+                // that show and did not change keep their measurements, so
+                // the host measures again only what changed.
+                Some(positions) => self.invalidate_rows(positions)?,
+                // O(1): old heights remain estimates; stale measurements cannot confirm them.
+                None => self.invalidate_height_estimates()?,
+            }
             if self.index.len() == 0 {
                 self.edge_armed = [true; 2];
             }
@@ -304,12 +324,37 @@ impl Collection {
         }
         self.realize_window(u, frames, true, CollectionFill::default())?;
         if changed {
-            advance(&mut self.revision)?;
+            let unchanged = previous.is_some_and(|mut before| {
+                let now = self.snapshot();
+                before.scroll_sequence = now.scroll_sequence;
+                before == now
+            });
+            if !unchanged {
+                advance(&mut self.revision)?;
+            }
+        }
+        Ok(())
+    }
+    /// Keyed invalidation of the rows at `positions` (O(k log N)); a
+    /// confirmed zero among them goes back to the estimate, as in
+    /// [`Self::invalidate_height_estimates`].
+    fn invalidate_rows(&mut self, positions: &[usize]) -> Result<(), InstanceError> {
+        for &p in positions {
+            let key = self.index.shared_key(p).unwrap().clone();
+            if self.zero_heights.remove(&*key) {
+                if let Some(token) = self.index.measurement_token(&key) {
+                    self.index
+                        .set_measured_height(&key, token, self.estimated_height)
+                        .map_err(index_error)?;
+                }
+            }
+            self.index.invalidate_row(&key).map_err(index_error)?;
         }
         Ok(())
     }
     /// Key every item, reusing a key only where the list kept its length and
     /// an item its position ([`Self::rekey_shared`] handles the rest).
+    /// Whether any key changed.
     fn rekey_full(
         &mut self,
         u: &mut Update<'_>,
@@ -318,7 +363,7 @@ impl Collection {
         items: &[Value],
         compare_previous: bool,
         keys_stale: bool,
-    ) -> Result<(), InstanceError> {
+    ) -> Result<bool, InstanceError> {
         let reuse_items = compare_previous && !keys_stale;
         // No candidate N-vector or canonical strings until an actual key
         // mismatch. All equal results reuse the existing uniqueness proof.
@@ -385,7 +430,7 @@ impl Collection {
             self.keys = keys;
             self.dups = dups;
         }
-        Ok(())
+        Ok(changed)
     }
     fn anchor(&self) -> Result<Option<index::Anchor>, InstanceError> {
         self.geometry
@@ -457,9 +502,11 @@ impl Collection {
     /// Realize the window: every row it owes (visible and pinned), then, on
     /// a limited report, at most `fill.limit` more, nearest the viewport on
     /// the side of travel first, retiring at most `max(2·limit, 4)` rows past
-    /// the window (none for a limit of zero), farthest first (@ref LLP
-    /// 1050.000 §6). A data update
-    /// realizes the whole window. What a limit leaves undone is `pending`.
+    /// the window (none for a limit of zero), farthest first, more when the
+    /// rows kept past the window would outnumber the window's own, and every
+    /// row more than two viewports from what shows (@ref LLP 1050.000 §6). A
+    /// data update realizes the whole window. What a limit leaves undone is
+    /// `pending`.
     fn realize_window(
         &mut self,
         u: &mut Update<'_>,
@@ -575,15 +622,25 @@ impl Collection {
                 }
             }
         }
-        if let Some((limit, _)) = limited {
-            // A rescue (no limit past what shows) only builds; slices retire.
+        if let Some((limit, (top, end))) = limited {
+            // A rescue (no limit past what shows) only builds; slices retire,
+            // but a row two viewports past what shows always goes: travel
+            // faster than slices retire must not keep every row it passed.
             let cap = if limit == 0 {
                 0
             } else {
                 (2 * limit as usize).max(4)
             };
+            // Rows kept past the window never outnumber the window's own.
+            // Travel that outruns the fill makes every report a rescue, and
+            // a rescue retires nothing: without this bound each one added a
+            // viewport of rows (a thousand on an iPad at 48,000 pt/s, each
+            // with its canvas's Metal layer and surface) until the list
+            // stopped, and every report and frame walked them all.
+            let cap = cap.max(leaving.len().saturating_sub(self.mounted.len()));
             leaving.sort_by(|a, b| b.0.total_cmp(&a.0));
-            let kept = leaving.split_off(cap.min(leaving.len()));
+            let far = leaving.partition_point(|row| row.0 > FAR_VIEWPORTS * (end - top));
+            let kept = leaving.split_off(far.max(cap).min(leaving.len()));
             for (_, _, gone) in leaving {
                 u.ops.push(Op::DestroyView { id: gone.wrapper });
             }

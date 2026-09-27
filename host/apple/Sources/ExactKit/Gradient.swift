@@ -1,4 +1,4 @@
-// CSS `background-image` gradients (LLP 1056), shared by UIKit and AppKit.
+// CSS `background-image` gradients (LLP 1066), shared by UIKit and AppKit.
 // The host's Rust side sends the shape and stops (`style.rs` gradient_json),
 // stops already expanded to mix as CSS's premultiplied ones do; placement
 // needs the box, so it is computed here — the kernel's

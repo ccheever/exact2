@@ -38,6 +38,7 @@ mod collection;
 mod contact;
 mod display_frame;
 mod events;
+mod svg_hit;
 #[cfg(target_os = "linux")]
 pub(crate) use display_frame::SubmittedFrame;
 #[path = "content_region/presenter.rs"]
@@ -1222,7 +1223,7 @@ impl<D: DataSource> Presenter<D> {
                     && !self.host.route_visibility(b.id).1
                     && self.display.allows(self.host.kernel(), b.id)
             })
-            .map(|b| b.id)
+            .map(|b| self.svg_hit(b, x, y))
     }
 
     /// The agent's `tap`: a press at the node's center through the same
@@ -1255,6 +1256,7 @@ impl<D: DataSource> Presenter<D> {
         });
         if let Some(actual) = actual.filter(|actual| {
             *actual != id
+                && !self.drawn_in(*actual, id)
                 && self
                     .control_target(id)
                     .or_else(|| self.handler_target(id, EventKind::Press))

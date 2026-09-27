@@ -294,7 +294,7 @@ pub trait DataSource {
     }
 
     /// What the app may reach and keep (LLP 1016 D6, LLP 1018 D3; ibex LLP
-    /// 0067): one grant per line — `net.fetch <origin>` (matched whole), `secret.keep
+    /// 0067): one grant per line — `net.fetch <origin>` (matched whole, or `scheme://*.domain` for every host under one domain), `secret.keep
     /// <name>`. A request outside them fails as `Refused` on every host
     /// before any executor sees it; a secret outside them reads as absent
     /// and refuses a write. Empty: nothing.
@@ -315,6 +315,18 @@ pub trait DataSource {
     /// crate has nothing to learn and ignores it.
     fn bind(&mut self, plan: &Plan) {
         let _ = plan;
+    }
+
+    /// A value the runner holds for `source(args)` that this instance did
+    /// not answer: the plan's compiled value, which a resource takes at
+    /// boot instead of asking (LLP 1027 D11). It is the bake's answer to
+    /// the same query, so a source that keeps its own copy of what it
+    /// answers may keep this one — cloning shares its allocations — instead
+    /// of building it again. Told once per resource that takes it, after
+    /// the settlement that published it. Nothing the runner does depends on
+    /// whether a source adopts; the default forgets it.
+    fn adopt(&mut self, source: &str, args: &[Value], value: &Value) {
+        let _ = (source, args, value);
     }
 
     /// After a commit that let requests go, the ones still in flight. A
@@ -353,6 +365,60 @@ pub trait DataSource {
     /// and asks again at [`super::Runner::data_ready`] (LLP 1038 D5).
     fn ready(&self) -> bool {
         true
+    }
+
+    /// The Canvas 2D surfaces this source draws, name and arity (LLP 1056
+    /// D1): known without running app code — a Rust crate's is a constant,
+    /// a TypeScript module's is what the bake read. A `canvas surface=`
+    /// naming one of these is a 2D canvas the runner draws; any other is the
+    /// GPU module's (LLP 1009). A source that forwards forwards this too.
+    fn canvas_surfaces(&self) -> Vec<(String, usize)> {
+        Vec::new()
+    }
+
+    /// Draw one 2D surface with the Rust recorder `ctx` (LLP 1056 D1):
+    /// `Ok(true)` asks for another frame. A throw keeps every call made
+    /// before it (D4, r3). The default draws nothing, by name.
+    fn draw_2d(
+        &mut self,
+        surface: &str,
+        args: &[Value],
+        ctx: &exact_canvas::Context2d,
+        frame: &exact_canvas::Frame,
+    ) -> Result<bool, exact_canvas::DrawError> {
+        let _ = (args, ctx, frame);
+        Err(exact_canvas::DrawError::Message(format!(
+            "this source draws no 2D surface `{surface}`"
+        )))
+    }
+
+    /// Run one draw request (LLP 1056 D4). The runner keeps one Rust
+    /// recorder per canvas generation and passes it as `ctx`; the default
+    /// draws with [`DataSource::draw_2d`] into it and answers now. A source
+    /// with its own recorders (TypeScript) records with its own, keyed by
+    /// the request's canvas and generation, and may answer
+    /// [`super::Drawn::Later`], delivering through
+    /// [`super::Runner::canvas_reply`]. A source that forwards forwards this
+    /// too.
+    fn draw(
+        &mut self,
+        request: &super::DrawRequest<'_>,
+        ctx: &exact_canvas::Context2d,
+    ) -> super::Drawn {
+        let result = self.draw_2d(request.surface, request.args, ctx, &request.frame);
+        super::Drawn::Now(super::DrawReply {
+            lists: ctx.take_lists(),
+            wants_frame: matches!(result, Ok(true)),
+            error: result.err().map(|e| e.to_string()),
+            notes: ctx.take_notes(),
+        })
+    }
+
+    /// The canvas generations a source keeps recorders for are gone: a
+    /// source with its own recorders drops them. The runner calls this for
+    /// canvases unmounted or superseded.
+    fn canvases_retired(&mut self, retired: &[(u64, u32)]) {
+        let _ = retired;
     }
 }
 

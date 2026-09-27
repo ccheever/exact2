@@ -5,13 +5,13 @@ use exact_runner::{Answer, DataSource, Outcome, Response, Store};
 use messages_stress_data::ReusableMessagesStress;
 use std::rc::Rc;
 
-fn fields(v: &Value) -> &Rc<Vec<Value>> {
+fn fields(v: &Value) -> &Rc<[Value]> {
     let Value::Record(v) = v else {
         panic!("record")
     };
     v
 }
-fn rows(v: &Value) -> &Rc<Vec<Value>> {
+fn rows(v: &Value) -> &Rc<[Value]> {
     let Value::List(v) = &fields(v)[0] else {
         panic!("rows")
     };

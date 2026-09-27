@@ -28,14 +28,14 @@ fn args(
     ]
 }
 
-fn record(value: &Value) -> &Rc<Vec<Value>> {
+fn record(value: &Value) -> &Rc<[Value]> {
     let Value::Record(fields) = value else {
         panic!("expected canonical record")
     };
     fields
 }
 
-fn rows(value: &Value) -> &Rc<Vec<Value>> {
+fn rows(value: &Value) -> &Rc<[Value]> {
     let Value::List(items) = &record(value)[0] else {
         panic!("expected canonical history rows")
     };

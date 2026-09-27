@@ -379,7 +379,7 @@ impl<D: DataSource> Presenter<D> {
     /// Existing display pump demand: held-only Arrange is quiescent except when
     /// the pointer's edge zone can advance this actual clamped scrollport.
     pub fn needs_animation_frame(&self) -> bool {
-        self.host.motion() || self.arrange_edge().is_some()
+        self.host.motion() || self.host.canvas_wants_frame() || self.arrange_edge().is_some()
     }
     fn arrange_edge(&self) -> Option<(ViewId, f32)> {
         let s = self.arrange.as_ref()?;

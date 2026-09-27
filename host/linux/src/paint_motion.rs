@@ -2,8 +2,9 @@
 //! the shadow like any property; the painter paints a presented value over
 //! its row while the two differ. An animating `color` also reaches the views
 //! and inline runs that inherit it, as a browser's inheriting element shows
-//! it, and each `currentcolor` border side among them; so do a path's
-//! inherited `fill` and `stroke` (LLP 1065).
+//! it, and each `currentcolor` border side among them. An SVG element's
+//! inherited `fill` and `stroke` reach its descendants through the scene's
+//! resolver (LLP 1055.000 D15).
 
 use super::Host;
 use exact_kernel::motion::{motion_node, MotionSync};
@@ -109,7 +110,7 @@ impl<D: DataSource> Host<D> {
                             .contains(&p.property)
                     });
                 let value = match follows {
-                    true => self.presented(view).paint.value(Property::Color),
+                    true => self.presented(view).colors.value(Property::Color),
                     false => value,
                 };
                 self.paint_over(view, p.property, value);
@@ -152,17 +153,14 @@ impl<D: DataSource> Host<D> {
     fn paint_over(&mut self, view: ViewId, property: Property, value: Option<Value>) {
         let base = self.presented(view);
         let entry = self.presented.entry(view).or_insert(base);
-        entry.paint.set(property, value);
+        entry.colors.set(property, value);
     }
 
-    /// The views below `node` whose `property` is `node`'s, when it is an
-    /// inherited one (`color`, `fill`, `stroke`): no own row on the way, and
-    /// no paint motion of their own.
+    /// The views below `node` whose `color` is `node`'s: no own row on the
+    /// way, and no paint motion of their own.
     fn inheritors_of(&self, node: u64, property: Property) -> Vec<ViewId> {
         let row = match property {
             Property::Color => StyleId::TextColor,
-            Property::Fill => StyleId::Fill,
-            Property::Stroke => StyleId::Stroke,
             _ => return Vec::new(),
         };
         let kernel = self.runner.kernel();

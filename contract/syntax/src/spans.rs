@@ -81,7 +81,9 @@ macro_rules! structs {
 }
 structs! {
     NameSpans { names, sources }
-    File { names, routes, uses, fonts, shapes, styles, keyframes, markers, fns, tests, components }
+    File { names, routes, uses, fonts, shapes, styles, keyframes, fns, tests, components }
+    KeyframesDecl { name, frames, span }
+    KeyframeDecl { selectors, attrs, span }
     RoutesDecl { slot, rows, span }
     RouteDecl { name, pattern, parent, tab, notfound, fields, span }
     FontDecl { name, faces, span }
@@ -90,10 +92,6 @@ structs! {
     FnDecl { name, params, ret, body, span }
     UseDecl { name, path, span }
     StyleDecl { name, attrs, span }
-    KeyframesDecl { name, blocks, span }
-    KeyframeDecl { offsets, attrs, span }
-    MarkerDecl { name, attrs, paths, span }
-    MarkerPathDecl { attrs, span }
     ShapeDecl { name, fields, span }
     Field { name, ty, span }
     Component { name, props, injects, slot, states, derives, resources, mutations,
@@ -101,7 +99,7 @@ structs! {
     Binding { name, expr, span }
     ResourceDecl { name, source, args, shape, placeholder, span }
     Placeholder { source, args, span }
-    MutationDecl { name, shape, then, span }
+    MutationDecl { name, shape, refreshes, then, span }
     Param { name, ty, span }
     Action { name, params, writes, body, span }
     Task { name, kind, timer, span }

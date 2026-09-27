@@ -51,6 +51,12 @@ fn p(name: &str) -> PropId {
 
 /// Look up a tag.
 pub fn tag(name: &str) -> Option<Tag> {
+    let fe = |fixed_props: &'static [(PropId, &'static str)]| Tag {
+        node_type: NodeType::SvgFe,
+        fixed_styles: &[],
+        fixed_props,
+        positional: None,
+    };
     let view = |fixed_styles: &'static [(StyleId, &'static str)],
                 fixed_props: &'static [(PropId, &'static str)]| Tag {
         node_type: NodeType::View,
@@ -160,9 +166,126 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: Some(PropId::ImageSource),
         },
-        // @ref LLP 1065 D1 — one vector path in a box: `<svg viewBox><path d>`.
-        "path" => Tag {
-            node_type: NodeType::Path,
+        // @ref LLP 1055 D1/D3 — inline SVG: a 300×150 replaced box that
+        // clips, as the UA's `svg:not(:root) { overflow: hidden }` does.
+        "svg" => Tag {
+            node_type: NodeType::Svg,
+            fixed_styles: &[
+                (StyleId::OverflowX, "hidden"),
+                (StyleId::OverflowY, "hidden"),
+            ],
+            fixed_props: &[],
+            positional: None,
+        },
+        // @ref LLP 1055.000 D7/D8 — definitions and references; a `symbol`
+        // clips, as the UA's `symbol { overflow: hidden }` does.
+        "symbol" => Tag {
+            node_type: NodeType::SvgSymbol,
+            fixed_styles: &[
+                (StyleId::OverflowX, "hidden"),
+                (StyleId::OverflowY, "hidden"),
+            ],
+            fixed_props: &[],
+            positional: None,
+        },
+        // @ref LLP 1055.000 D9 — a marker clips to its viewport, as the UA's
+        // `marker { overflow: hidden }` does.
+        "marker" => Tag {
+            node_type: NodeType::SvgMarker,
+            fixed_styles: &[
+                (StyleId::OverflowX, "hidden"),
+                (StyleId::OverflowY, "hidden"),
+            ],
+            fixed_props: &[],
+            positional: None,
+        },
+        // @ref LLP 1055.000 D7/D10 — a mask and a pattern render only where
+        // they are referenced; a pattern's tile clips its content, which
+        // the hosts do (no row says so).
+        "mask" => Tag {
+            node_type: NodeType::SvgMask,
+            fixed_styles: &[],
+            fixed_props: &[],
+            positional: None,
+        },
+        "pattern" => Tag {
+            node_type: NodeType::SvgPattern,
+            fixed_styles: &[],
+            fixed_props: &[],
+            positional: None,
+        },
+        // @ref LLP 1055.000 D13, §8 ruling 5 — HTML inside an `svg`: its
+        // children are boxes. The web draws it; native hosts refuse it by
+        // name at run time (one plan serves every host).
+        "foreignObject" => Tag {
+            node_type: NodeType::SvgForeignObject,
+            fixed_styles: &[],
+            fixed_props: &[],
+            positional: None,
+        },
+        // @ref LLP 1055.000 D14 — a filter and its primitives; a primitive's
+        // tag is its `fe` prop.
+        "filter" => Tag {
+            node_type: NodeType::SvgFilter,
+            fixed_styles: &[],
+            fixed_props: &[],
+            positional: None,
+        },
+        "feBlend" => fe(&[(PropId::Fe, "feBlend")]),
+        "feColorMatrix" => fe(&[(PropId::Fe, "feColorMatrix")]),
+        "feComponentTransfer" => fe(&[(PropId::Fe, "feComponentTransfer")]),
+        "feComposite" => fe(&[(PropId::Fe, "feComposite")]),
+        "feConvolveMatrix" => fe(&[(PropId::Fe, "feConvolveMatrix")]),
+        "feDiffuseLighting" => fe(&[(PropId::Fe, "feDiffuseLighting")]),
+        "feDisplacementMap" => fe(&[(PropId::Fe, "feDisplacementMap")]),
+        "feDropShadow" => fe(&[(PropId::Fe, "feDropShadow")]),
+        "feFlood" => fe(&[(PropId::Fe, "feFlood")]),
+        "feFuncR" => fe(&[(PropId::Fe, "feFuncR")]),
+        "feFuncG" => fe(&[(PropId::Fe, "feFuncG")]),
+        "feFuncB" => fe(&[(PropId::Fe, "feFuncB")]),
+        "feFuncA" => fe(&[(PropId::Fe, "feFuncA")]),
+        "feGaussianBlur" => fe(&[(PropId::Fe, "feGaussianBlur")]),
+        "feMerge" => fe(&[(PropId::Fe, "feMerge")]),
+        "feMergeNode" => fe(&[(PropId::Fe, "feMergeNode")]),
+        "feMorphology" => fe(&[(PropId::Fe, "feMorphology")]),
+        "feOffset" => fe(&[(PropId::Fe, "feOffset")]),
+        "feSpecularLighting" => fe(&[(PropId::Fe, "feSpecularLighting")]),
+        "feTile" => fe(&[(PropId::Fe, "feTile")]),
+        "feTurbulence" => fe(&[(PropId::Fe, "feTurbulence")]),
+        "feDistantLight" => fe(&[(PropId::Fe, "feDistantLight")]),
+        "fePointLight" => fe(&[(PropId::Fe, "fePointLight")]),
+        "feSpotLight" => fe(&[(PropId::Fe, "feSpotLight")]),
+        // @ref LLP 1055.000 D11 — a run of SVG text, its string positional.
+        "tspan" => Tag {
+            node_type: NodeType::SvgTSpan,
+            fixed_styles: &[],
+            fixed_props: &[],
+            positional: Some(PropId::Text),
+        },
+        "defs" | "linearGradient" | "radialGradient" | "stop" | "use" | "clipPath" => Tag {
+            node_type: match name {
+                "defs" => NodeType::SvgDefs,
+                "clipPath" => NodeType::SvgClipPath,
+                "linearGradient" => NodeType::SvgLinearGradient,
+                "radialGradient" => NodeType::SvgRadialGradient,
+                "stop" => NodeType::SvgStop,
+                _ => NodeType::SvgUse,
+            },
+            fixed_styles: &[],
+            fixed_props: &[],
+            positional: None,
+        },
+        "g" | "path" | "polyline" | "polygon" | "circle" | "ellipse" | "line" | "rect" => Tag {
+            node_type: match name {
+                "g" => NodeType::SvgGroup,
+                "path" => NodeType::SvgPath,
+                "polyline" => NodeType::SvgPolyline,
+                "polygon" => NodeType::SvgPolygon,
+                "circle" => NodeType::SvgCircle,
+                "ellipse" => NodeType::SvgEllipse,
+                "line" => NodeType::SvgLine,
+                _ => NodeType::SvgRect,
+            },
             fixed_styles: &[],
             fixed_props: &[],
             positional: None,
@@ -346,6 +469,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "value" => AttrTarget::Prop(p("value")),
         "item-height" => AttrTarget::Prop(p("itemHeight")),
         "estimated-item-height" => AttrTarget::Prop(p("estimatedItemHeight")),
+        // @ref LLP 1056 D6 (r3): a canvas's explicit bitmap size, HTML's
+        // `width`/`height` content attributes (Contract's are the CSS box).
+        "bitmap-width" => AttrTarget::Prop(p("bitmapWidth")),
+        "bitmap-height" => AttrTarget::Prop(p("bitmapHeight")),
         "scrollTop" => AttrTarget::Prop(p("scrollTop")),
         "scrollLeft" => AttrTarget::Prop(p("scrollLeft")),
         "swipeContent" => AttrTarget::Prop(p("swipeContent")),
@@ -380,13 +507,111 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-selected" => AttrTarget::Prop(p("accessibilitySelected")),
         "aria-expanded" => AttrTarget::Prop(p("accessibilityExpanded")),
         "aria-hidden" => AttrTarget::Prop(p("accessibilityElementsHidden")),
-        // @ref LLP 1065 — a `path`'s data and coordinate system, SVG's names.
-        "d" => AttrTarget::Prop(p("pathData")),
+        // SVG 2 attributes CSS cannot set (LLP 1055 D1/D2), by their SVG names.
         "viewBox" => AttrTarget::Prop(p("viewBox")),
         "preserveAspectRatio" => AttrTarget::Prop(p("preserveAspectRatio")),
-        // style rows, by their CSS property names
-        // @ref LLP 1065 D3/D4 — SVG's painting properties, and the stroke's
-        // visible fraction of the path's length.
+        "points" => AttrTarget::Prop(p("points")),
+        "d" => AttrTarget::Prop(p("d")),
+        "pathLength" => AttrTarget::Prop(p("pathLength")),
+        "fx" => AttrTarget::Prop(p("fx")),
+        "fy" => AttrTarget::Prop(p("fy")),
+        "fr" => AttrTarget::Prop(p("fr")),
+        "gradientUnits" => AttrTarget::Prop(p("gradientUnits")),
+        "gradientTransform" => AttrTarget::Prop(p("gradientTransform")),
+        "spreadMethod" => AttrTarget::Prop(p("spreadMethod")),
+        "offset" => AttrTarget::Prop(p("offset")),
+        "clipPathUnits" => AttrTarget::Prop(p("clipPathUnits")),
+        "maskUnits" => AttrTarget::Prop(p("maskUnits")),
+        "maskContentUnits" => AttrTarget::Prop(p("maskContentUnits")),
+        "patternUnits" => AttrTarget::Prop(p("patternUnits")),
+        "patternContentUnits" => AttrTarget::Prop(p("patternContentUnits")),
+        "patternTransform" => AttrTarget::Prop(p("patternTransform")),
+        "filterUnits" => AttrTarget::Prop(p("filterUnits")),
+        "primitiveUnits" => AttrTarget::Prop(p("primitiveUnits")),
+        "in" => AttrTarget::Prop(p("in")),
+        "in2" => AttrTarget::Prop(p("in2")),
+        "result" => AttrTarget::Prop(p("result")),
+        "stdDeviation" => AttrTarget::Prop(p("stdDeviation")),
+        "feDx" => AttrTarget::Prop(p("feDx")),
+        "feDy" => AttrTarget::Prop(p("feDy")),
+        "operator" => AttrTarget::Prop(p("operator")),
+        "k1" => AttrTarget::Prop(p("k1")),
+        "k2" => AttrTarget::Prop(p("k2")),
+        "k3" => AttrTarget::Prop(p("k3")),
+        "k4" => AttrTarget::Prop(p("k4")),
+        "mode" => AttrTarget::Prop(p("mode")),
+        "values" => AttrTarget::Prop(p("values")),
+        "edgeMode" => AttrTarget::Prop(p("edgeMode")),
+        "feRadius" => AttrTarget::Prop(p("feRadius")),
+        "tableValues" => AttrTarget::Prop(p("tableValues")),
+        "slope" => AttrTarget::Prop(p("slope")),
+        "intercept" => AttrTarget::Prop(p("intercept")),
+        "amplitude" => AttrTarget::Prop(p("amplitude")),
+        "exponent" => AttrTarget::Prop(p("exponent")),
+        "baseFrequency" => AttrTarget::Prop(p("baseFrequency")),
+        "numOctaves" => AttrTarget::Prop(p("numOctaves")),
+        "seed" => AttrTarget::Prop(p("seed")),
+        "stitchTiles" => AttrTarget::Prop(p("stitchTiles")),
+        "feScale" => AttrTarget::Prop(p("feScale")),
+        "xChannelSelector" => AttrTarget::Prop(p("xChannelSelector")),
+        "yChannelSelector" => AttrTarget::Prop(p("yChannelSelector")),
+        "order" => AttrTarget::Prop(p("order")),
+        "kernelMatrix" => AttrTarget::Prop(p("kernelMatrix")),
+        "divisor" => AttrTarget::Prop(p("divisor")),
+        "bias" => AttrTarget::Prop(p("bias")),
+        "targetX" => AttrTarget::Prop(p("targetX")),
+        "targetY" => AttrTarget::Prop(p("targetY")),
+        "preserveAlpha" => AttrTarget::Prop(p("preserveAlpha")),
+        "surfaceScale" => AttrTarget::Prop(p("surfaceScale")),
+        "diffuseConstant" => AttrTarget::Prop(p("diffuseConstant")),
+        "specularConstant" => AttrTarget::Prop(p("specularConstant")),
+        "specularExponent" => AttrTarget::Prop(p("specularExponent")),
+        "azimuth" => AttrTarget::Prop(p("azimuth")),
+        "elevation" => AttrTarget::Prop(p("elevation")),
+        "lightX" => AttrTarget::Prop(p("lightX")),
+        "lightY" => AttrTarget::Prop(p("lightY")),
+        "lightZ" => AttrTarget::Prop(p("lightZ")),
+        "pointsAtX" => AttrTarget::Prop(p("pointsAtX")),
+        "pointsAtY" => AttrTarget::Prop(p("pointsAtY")),
+        "pointsAtZ" => AttrTarget::Prop(p("pointsAtZ")),
+        "limitingConeAngle" => AttrTarget::Prop(p("limitingConeAngle")),
+        "filter" => styles(&[StyleId::Filter]),
+        "mix-blend-mode" => styles(&[StyleId::MixBlendMode]),
+        "isolation" => styles(&[StyleId::Isolation]),
+        "flood-color" => styles(&[StyleId::FloodColor]),
+        "flood-opacity" => styles(&[StyleId::FloodOpacity]),
+        "lighting-color" => styles(&[StyleId::LightingColor]),
+        "color-interpolation-filters" => styles(&[StyleId::ColorInterpolationFilters]),
+        "mask" => styles(&[StyleId::SvgMask]),
+        "mask-type" => styles(&[StyleId::MaskType]),
+        "markerWidth" => AttrTarget::Prop(p("markerWidth")),
+        "markerHeight" => AttrTarget::Prop(p("markerHeight")),
+        "refX" => AttrTarget::Prop(p("refX")),
+        "refY" => AttrTarget::Prop(p("refY")),
+        "orient" => AttrTarget::Prop(p("orient")),
+        "markerUnits" => AttrTarget::Prop(p("markerUnits")),
+        "marker-start" => styles(&[StyleId::MarkerStart]),
+        "marker-mid" => styles(&[StyleId::MarkerMid]),
+        "marker-end" => styles(&[StyleId::MarkerEnd]),
+        "marker" => styles(&[StyleId::MarkerStart, StyleId::MarkerMid, StyleId::MarkerEnd]),
+        // @ref LLP 1055.000 D11 — SVG text's positions (`x`, `y`, `dx`,
+        // `dy` on `text`/`tspan` lower to these) and its alignment.
+        "textX" => AttrTarget::Prop(p("textX")),
+        "textY" => AttrTarget::Prop(p("textY")),
+        "textDx" => AttrTarget::Prop(p("textDx")),
+        "textDy" => AttrTarget::Prop(p("textDy")),
+        "text-anchor" => styles(&[StyleId::TextAnchor]),
+        "dominant-baseline" => styles(&[StyleId::DominantBaseline]),
+        "pointer-events" => styles(&[StyleId::PointerEvents]),
+        "clip-rule" => styles(&[StyleId::ClipRule]),
+        "stop-color" => styles(&[StyleId::StopColor]),
+        "stop-opacity" => styles(&[StyleId::StopOpacity]),
+        "paint-order" => styles(&[StyleId::PaintOrder]),
+        "x1" => AttrTarget::Prop(p("x1")),
+        "y1" => AttrTarget::Prop(p("y1")),
+        "x2" => AttrTarget::Prop(p("x2")),
+        "y2" => AttrTarget::Prop(p("y2")),
+        // SVG 2 presentation and geometry properties: CSS rows (LLP 1055 D2).
         "fill" => styles(&[StyleId::Fill]),
         "stroke" => styles(&[StyleId::Stroke]),
         "stroke-width" => styles(&[StyleId::StrokeWidth]),
@@ -395,14 +620,34 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "stroke-miterlimit" => styles(&[StyleId::StrokeMiterlimit]),
         "stroke-dasharray" => styles(&[StyleId::StrokeDasharray]),
         "stroke-dashoffset" => styles(&[StyleId::StrokeDashoffset]),
+        "fill-opacity" => styles(&[StyleId::FillOpacity]),
+        "stroke-opacity" => styles(&[StyleId::StrokeOpacity]),
         "fill-rule" => styles(&[StyleId::FillRule]),
+        "x" => styles(&[StyleId::X]),
+        "y" => styles(&[StyleId::Y]),
+        "rx" => styles(&[StyleId::Rx]),
+        "ry" => styles(&[StyleId::Ry]),
+        // @ref LLP 1055.000 D5 — transforms on SVG elements.
+        "transform" => styles(&[StyleId::Transform]),
+        "transform-origin" => styles(&[StyleId::TransformOrigin]),
+        "transform-box" => styles(&[StyleId::TransformBox]),
         "vector-effect" => styles(&[StyleId::VectorEffect]),
-        "marker-start" => styles(&[StyleId::MarkerStart]),
-        "marker-mid" => styles(&[StyleId::MarkerMid]),
-        "marker-end" => styles(&[StyleId::MarkerEnd]),
-        "marker" => styles(MARKERS),
-        "stroke-start" => styles(&[StyleId::StrokeStart]),
-        "stroke-end" => styles(&[StyleId::StrokeEnd]),
+        "visibility" => styles(&[StyleId::Visibility]),
+        "cx" => styles(&[StyleId::Cx]),
+        "cy" => styles(&[StyleId::Cy]),
+        "r" => styles(&[StyleId::R]),
+        // CSS Animations (LLP 1055 D5): the shorthand is the row; the
+        // longhands compose into it before lowering (`svg::compose_animation`).
+        "animation"
+        | "animation-name"
+        | "animation-duration"
+        | "animation-timing-function"
+        | "animation-delay"
+        | "animation-iteration-count"
+        | "animation-direction"
+        | "animation-fill-mode"
+        | "animation-play-state" => styles(&[StyleId::Animation]),
+        // style rows, by their CSS property names
         "white-space" => styles(&[StyleId::WhiteSpace]),
         "overflow-wrap" => styles(&[StyleId::OverflowWrap]),
         "field-sizing" => styles(&[StyleId::FieldSizing]),
@@ -420,7 +665,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // @ref LLP 1053 §0 G4 — `normal` and `tabular-nums`; others refused by name.
         "font-variant-numeric" => styles(&[StyleId::FontVariantNumeric]),
         "text-decoration-line" => styles(&[StyleId::TextDecorationLine]),
-        // @ref LLP 1055 D5
+        // @ref LLP 1064 D5
         "text-transform" => styles(&[StyleId::TextTransform]),
         "font-size" => styles(&[StyleId::FontSize]),
         "font-weight" => styles(&[StyleId::FontWeight]),
@@ -428,12 +673,12 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "font-family" => styles(&[StyleId::FontFamily]),
         "color" => styles(&[StyleId::TextColor]),
         "background-color" => styles(&[StyleId::BackgroundColor]),
-        // @ref LLP 1056 — `none` or one linear/radial gradient.
+        // @ref LLP 1066 — `none` or one linear/radial gradient.
         "background-image" => styles(&[StyleId::BackgroundImage]),
         "caret-color" => styles(&[StyleId::CaretColor]),
         "tint-color" => styles(&[StyleId::TintColor]),
         "opacity" => styles(&[StyleId::Opacity]),
-        // @ref LLP 1055 D1 — one value, each row takes its part of the parse.
+        // @ref LLP 1064 D1 — one value, each row takes its part of the parse.
         "box-shadow" => styles(&[
             StyleId::ShadowColor,
             StyleId::ShadowOffset,
@@ -546,9 +791,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "scroll-behavior" => styles(&[StyleId::ScrollBehavior]),
         "z-index" => styles(&[StyleId::ZIndex]),
         "transition" => styles(&[StyleId::Transition]),
-        // @ref LLP 1057 — its keyframes resolve at compile time (`keyframes.rs`).
-        "animation" => styles(&[StyleId::Animation]),
-        // @ref LLP 1063 — played as the node leaves; resolved like `animation`.
+        // @ref LLP 1063 — played as the node leaves; its names resolve against
+        // the plan's keyframes as `animation`'s do (LLP 1055 D5).
         "exit-animation" => styles(&[StyleId::ExitAnimation]),
         // @ref LLP 1063 — how the laid-out box moves when layout moves it.
         "layout-transition" => styles(&[StyleId::LayoutTransition]),
@@ -556,8 +800,6 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "translate" => styles(&[StyleId::Translate]),
         "scale" => styles(&[StyleId::Scale]),
         "rotate" => styles(&[StyleId::Rotate]),
-        // @ref LLP 1061 D6 — the point the three turn about.
-        "transform-origin" => styles(&[StyleId::TransformOrigin]),
         // @ref LLP 1061 D1 — host-owned press feedback; not a motion target.
         "press-scale" => styles(&[StyleId::PressScale]),
         _ => return None,
@@ -706,140 +948,6 @@ pub(crate) fn validate_list(
             "`list` needs a constrained scrollport: height, max-height, or flex",
             span,
         );
-    }
-    Ok(())
-}
-
-/// `marker`'s three rows, SVG's shorthand (LLP 1065 D11).
-const MARKERS: &[StyleId] = &[StyleId::MarkerStart, StyleId::MarkerMid, StyleId::MarkerEnd];
-
-/// Whether `rows` are `marker-*` rows, whose value names a declaration.
-pub(crate) fn is_marker(rows: &[StyleId]) -> bool {
-    !rows.is_empty() && rows.iter().all(|r| MARKERS.contains(r))
-}
-
-/// The attributes only `path` takes (LLP 1065 D1): its data, its coordinate
-/// system, and how much of its stroke shows. The painting properties
-/// (`fill`, `stroke`, …) inherit, as SVG's do, so any box may set them.
-pub const PATH_FIELDS: &[&str] = &[
-    "d",
-    "viewBox",
-    "preserveAspectRatio",
-    "stroke-start",
-    "stroke-end",
-];
-
-/// Refuse a path field off a `path`, and literal path data, a literal
-/// `viewBox` or `preserveAspectRatio` a browser would not draw in full, or a
-/// literal miter limit SVG calls invalid.
-pub(crate) fn check_path_attr(
-    tag: &str,
-    a: &contract_syntax::Attr,
-) -> Result<(), super::LowerError> {
-    use contract_syntax::Expr;
-    if a.name == "stroke-miterlimit" {
-        return match crate::values::numeric_literal(&a.value) {
-            Some(n) if n < 1.0 => super::err(
-                "lower-attr-value",
-                format!("`stroke-miterlimit={n}` is below 1, which SVG refuses"),
-                a.span,
-            ),
-            _ => Ok(()),
-        };
-    }
-    if !PATH_FIELDS.contains(&a.name.as_str()) {
-        return Ok(());
-    }
-    if tag != "path" {
-        return super::err(
-            "lower-attr-tag",
-            format!("`{}` belongs to `path`, not `{tag}`", a.name),
-            a.span,
-        );
-    }
-    let Expr::Str(text, _) = &a.value else {
-        return Ok(());
-    };
-    match a.name.as_str() {
-        "d" => match exact_kernel::vector::PathData::parse(text).error() {
-            Some(e) => super::err(
-                "lower-attr-value",
-                format!(
-                    "`d` is not SVG path data from byte {}: {:?}; a browser draws only what comes before it",
-                    e.at,
-                    text.get(e.at..).unwrap_or("").chars().take(24).collect::<String>()
-                ),
-                a.span,
-            ),
-            None => Ok(()),
-        },
-        "preserveAspectRatio"
-            if exact_kernel::vector::PreserveAspectRatio::parse(text).is_none() =>
-        {
-            super::err(
-                "lower-attr-value",
-                format!("`preserveAspectRatio=\"{text}\"` is not `none` or an alignment like `xMidYMid`, then `meet` or `slice`"),
-                a.span,
-            )
-        }
-        "viewBox" if exact_kernel::vector::parse_view_box(text).is_none() => super::err(
-            "lower-attr-value",
-            format!("`viewBox=\"{text}\"` is not `min-x min-y width height` with a positive width and height"),
-            a.span,
-        ),
-        _ => Ok(()),
-    }
-}
-
-/// A `path`'s children are paths that draw in its coordinate system (LLP
-/// 1065 D12): SVG's several `<path>`s in one `<svg>`. Only the outermost
-/// path has a view box.
-pub(crate) fn check_path_children(
-    children: &[contract_syntax::Node],
-) -> Result<(), super::LowerError> {
-    use contract_syntax::Node;
-    for child in children {
-        match child {
-            Node::Element {
-                tag, attrs, span, ..
-            } => {
-                if tag != "path" {
-                    return super::err(
-                        "lower-leaf-children",
-                        format!("`path` holds only `path`s, not `{tag}`"),
-                        *span,
-                    );
-                }
-                if let Some(a) = attrs
-                    .iter()
-                    .find(|a| matches!(a.name.as_str(), "viewBox" | "preserveAspectRatio"))
-                {
-                    return super::err(
-                        "lower-attr-tag",
-                        format!("`{}` belongs to the outermost `path`: a path in a path draws in its coordinate system", a.name),
-                        a.span,
-                    );
-                }
-            }
-            Node::Each { body, .. } => check_path_children(body)?,
-            Node::When {
-                then, otherwise, ..
-            } => {
-                check_path_children(then)?;
-                check_path_children(otherwise)?;
-            }
-            Node::Match { some, none, .. } => {
-                check_path_children(&some.1)?;
-                check_path_children(none)?;
-            }
-            other => {
-                return super::err(
-                    "lower-leaf-children",
-                    "`path` holds only `path`s",
-                    other.span(),
-                )
-            }
-        }
     }
     Ok(())
 }

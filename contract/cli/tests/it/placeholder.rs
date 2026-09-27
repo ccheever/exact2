@@ -192,18 +192,22 @@ fn a_source_that_answers_later_at_build_is_asked_at_launch() {
 }
 
 #[test]
-fn without_a_placeholder_a_record_that_answers_later_still_refuses_and_says_how() {
+fn without_a_placeholder_a_record_that_answers_later_shows_its_zero_pending() {
+    // @ref LLP 1054.000.002 D1 — where boot used to refuse.
     let src = corpus().replace(" else emptyPost()", "");
     let plan = contract::bake(contract::compile(&src).unwrap(), Blog::default()).unwrap();
-    let Err(RunnerError::Data {
-        resource,
-        error: DataError::Unavailable(message),
-    }) = boot(&plan, Blog::default(), "/post/7")
-    else {
-        panic!("a record with nothing to show refuses");
-    };
-    assert_eq!(resource, "post");
-    assert!(message.contains("declare a placeholder"), "{message}");
+    let mut r = boot(&plan, Blog::default(), "/post/7").unwrap();
+    assert_eq!(text_of(&r, "title"), "");
+    assert_eq!(text_of(&r, "state"), "loading");
+    let ticket = r
+        .take_requests()
+        .into_iter()
+        .find(|q| q.target == "post")
+        .unwrap()
+        .ticket;
+    r.fulfill(ticket, ok()).unwrap();
+    assert_eq!(text_of(&r, "title"), "Hello");
+    assert_eq!(text_of(&r, "state"), "ready");
 
     // A placeholder answers now: one that answers later names its resource.
     let data = Blog {
@@ -317,5 +321,84 @@ fn asks_refused_admission_are_asked_again_once_the_last_refusal_settles() {
             .filter(|l| l.contains("was refused admission: asked again"))
             .count(),
         2
+    );
+}
+
+#[test]
+fn empty_gives_the_zero_with_named_fields_replaced() {
+    // @ref LLP 1054.000.002 D2/D3 — no source, and nothing at the bake.
+    let src = corpus().replace("else emptyPost()", "else empty(title=\"Untitled\")");
+    let plan = contract::bake(contract::compile(&src).unwrap(), Blog::default()).unwrap();
+    assert!(!plan.sources.iter().any(|s| plan.str(s.name) == "empty"));
+    assert!(!plan
+        .resources
+        .iter()
+        .any(|r| plan.str(r.name) == "post#else"));
+    let r = boot(&plan, Blog::default(), "/post/7").unwrap();
+    assert_eq!(text_of(&r, "title"), "Untitled");
+    assert_eq!(text_of(&r, "state"), "loading");
+    // Every mistake is named, together.
+    for (placeholder, id) in [
+        ("empty(titel=\"x\")", "type-placeholder-field"),
+        (
+            "empty(title=\"x\", title=\"y\")",
+            "type-placeholder-duplicate",
+        ),
+        ("empty(\"x\")", "type-placeholder-fields"),
+        ("empty(title=3)", "type-placeholder-type"),
+        (
+            "empty(title=params(nav, \"post\"))",
+            "type-placeholder-value",
+        ),
+    ] {
+        let e = contract::compile(&corpus().replace("emptyPost()", placeholder)).unwrap_err();
+        assert!(format!("{e}").contains(id), "{placeholder}: {e}");
+    }
+}
+
+#[test]
+fn a_placeholder_shown_before_the_source_is_ready_is_never_compiled_as_its_answer() {
+    // @ref LLP 1054.000.002 D4 — no ticket, and still not an answer.
+    let not_loaded = std::rc::Rc::new(std::cell::Cell::new(true));
+    let data = Blog {
+        not_loaded: not_loaded.clone(),
+        ..Blog::default()
+    };
+    let src = corpus().replace(" else emptyPost()", "");
+    let plan = contract::bake(contract::compile(&src).unwrap(), data).unwrap();
+    let row = plan
+        .resources
+        .iter()
+        .find(|r| plan.str(r.name) == "post")
+        .unwrap();
+    assert_eq!(
+        row.initial.len, 0,
+        "the zero shown at the bake is not compiled"
+    );
+}
+
+#[test]
+fn empty_nests_and_every_other_field_is_its_zero() {
+    let src = "shape Author\n  name: string\n  found: bool\n  image: option<string>\nshape Article\n  title: string\n  author: Author\n  count: number\n  tags: list<string>\ncomponent App\n  resource post = article() as shape Article else empty(title=\"…\", count=-1, author=empty(found=true, image=some(\"/a.svg\")))\n  view\n    column\n      text post.author.name\n";
+    let plan = contract::compile(src).unwrap();
+    let row = plan
+        .resources
+        .iter()
+        .find(|r| plan.str(r.name) == "post")
+        .unwrap();
+    let value = Value::from_bytes(plan.bytes(row.placeholder_value)).unwrap();
+    let author = Value::record(vec![
+        Value::str(""),
+        Value::Bool(true),
+        Value::some(Value::str("/a.svg")),
+    ]);
+    assert_eq!(
+        value,
+        Value::record(vec![
+            Value::str("…"),
+            author,
+            Value::Number(-1.0),
+            Value::list(vec![])
+        ])
     );
 }

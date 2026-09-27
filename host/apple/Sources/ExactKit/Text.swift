@@ -386,6 +386,11 @@ final class TextEngine {
     /// The NodeView's existing cachedTextLayout is the accepted lease. The
     /// cache keeps only a weak lookup once that view owns the paragraph.
     func accepted(_ paragraph: Paragraph) { residency.accepted(paragraph) }
+    /// Under memory pressure, shaped text no view holds is dropped, as the
+    /// raster loader drops its cold images.
+    func dropCold() { residency.dropCold() }
+    /// At rest (`ExactSession.rest`): shaped text no view holds goes.
+    func dropColdShaped() { residency.dropColdShaped() }
     private var catalog: [Int: [RegisteredFace]] = [:]
     /// Where a declared face's relative source resolves: the app's resolver
     /// (LLP 1031 D1 — the committed complete generation, else the root).

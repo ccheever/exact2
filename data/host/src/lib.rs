@@ -182,8 +182,24 @@ impl<D: DataSource> DataSource for Storage<D> {
     fn bind(&mut self, plan: &Plan) {
         self.source.bind(plan)
     }
+    fn adopt(&mut self, source: &str, args: &[Value], value: &Value) {
+        self.source.adopt(source, args, value)
+    }
     fn ready(&self) -> bool {
         self.active && self.source.ready()
+    }
+    fn canvas_surfaces(&self) -> Vec<(String, usize)> {
+        self.source.canvas_surfaces()
+    }
+    fn draw(
+        &mut self,
+        request: &exact_runner::DrawRequest<'_>,
+        ctx: &exact_runner::exact_canvas::Context2d,
+    ) -> exact_runner::Drawn {
+        self.source.draw(request, ctx)
+    }
+    fn canvases_retired(&mut self, retired: &[(u64, u32)]) {
+        self.source.canvases_retired(retired)
     }
     fn configure_storage(
         &mut self,

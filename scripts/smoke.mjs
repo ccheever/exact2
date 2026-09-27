@@ -49,8 +49,8 @@ const transcript = () => {
 const pinned = resolve(ROOT, 'scripts/fixtures/transcript.txt');
 if (argv.includes('--record')) { writeFileSync(pinned, transcript()); console.log(`recorded ${pinned.replace(ROOT + '/', '')}`); process.exit(0); }
 
-const host = argv[0] === 'macos' || argv[0] === 'mac' ? 'macos' : argv[0] === 'web' ? 'web' : argv[0] === 'ios' ? 'ios' : argv[0] === 'linux' ? 'linux' : argv[0] === 'host' ? 'host' : argv[0] === 'host-ios' ? 'host-ios' : argv[0] === 'deploy' ? 'deploy' : null;
-if (!host) { console.error('usage: bun scripts/smoke.mjs <web|macos|ios|linux|host|host-ios|deploy> [--app <name>] [--shot <png>] | --record'); process.exit(2); }
+const host = argv[0] === 'macos' || argv[0] === 'mac' ? 'macos' : argv[0] === 'web' ? 'web' : argv[0] === 'ios' ? 'ios' : argv[0] === 'linux' ? 'linux' : argv[0] === 'host' ? 'host' : argv[0] === 'host-ios' ? 'host-ios' : argv[0] === 'deploy' ? 'deploy' : argv[0] === 'svg' ? 'svg' : argv[0] === 'canvas' ? 'canvas' : null;
+if (!host) { console.error('usage: bun scripts/smoke.mjs <web|macos|ios|linux|host|host-ios|deploy|svg|canvas> [--app <name>] [--shot <png>] [--hosts linux,macos,ios] | --record'); process.exit(2); }
 
 // The two Apple presenters share one Canvases: children captured through the
 // surface, placements (LLP 1014 D2, D5) — what the canvas steps below assert.
@@ -101,6 +101,29 @@ let appViewport;
 check(transcript() === readFileSync(pinned, 'utf8'), 'the transcript form drifted from scripts/fixtures/transcript.txt (a deliberate change: bun scripts/smoke.mjs --record)');
 check(browserDiagnosticNoise('CVDisplayLinkCreateWithCGDisplay failed. CVReturn: -6670'), 'the known headless display-service diagnostic is no longer classified as browser noise');
 check(!browserDiagnosticNoise('console.error: exact: failed'), 'page/runtime errors must not be classified as browser noise');
+
+// SVG parity (LLP 1055.000 §5): apps/svg-gallery on each native host against
+// Chrome's, fixture by fixture (scripts/svgparity.mjs).
+if (host === 'svg') {
+  const { svgParity } = await import('./svgparity.mjs');
+  const hosts = argv.includes('--hosts') ? argv[argv.indexOf('--hosts') + 1].split(',') : ['linux', ...(process.platform === 'darwin' ? ['macos', 'ios'] : [])];
+  await svgParity({ open: (o) => openAgent({ device, phone, ...o }), check, hosts });
+  console.log(`svg smoke: ${failures.length ? `${failures.length} failure(s)` : 'ok'} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+  if (failures.length) { for (const f of failures) console.error('  ' + f); process.exit(1); }
+  process.exit(0);
+}
+
+// Canvas 2D parity (LLP 1056 §4): apps/canvas-gallery on each native host
+// against Chrome's, and the web's recorded path against Chrome's own context
+// (scripts/canvasparity.mjs).
+if (host === 'canvas') {
+  const { canvasParity } = await import('./canvasparity.mjs');
+  const hosts = argv.includes('--hosts') ? argv[argv.indexOf('--hosts') + 1].split(',') : ['linux', ...(process.platform === 'darwin' ? ['macos', 'ios'] : [])];
+  await canvasParity({ open: (o) => openAgent({ device, phone, ...o }), check, hosts, only: argv.includes('--only') ? argv[argv.indexOf('--only') + 1] : null });
+  console.log(`canvas smoke: ${failures.length ? `${failures.length} failure(s)` : 'ok'} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+  if (failures.length) { for (const f of failures) console.error('  ' + f); process.exit(1); }
+  process.exit(0);
+}
 
 // The publisher (LLP 1030.000 D3–D5, D7): `exact deploy` driven end to end
 // against a directory origin with a throwaway key. The app and the scripts
@@ -1003,6 +1026,53 @@ if (deckFixture) {
   rmSync(tmp, { recursive: true, force: true });
 }
 
+// 11b. Gesture precedence (LLP 1057.001 §1; the phase-0 exit evidence of LLP
+// 1057.000, apparatus approved by Charlie, 2026-09-27): one contact on a
+// swipe row inside a panning surface. A horizontal drag is the inner swipe's
+// and the pan never fires; a vertical one falls to the pan; a drag that starts
+// on the row's button is neither's (rule 3's boundary); a tap presses it. The
+// same numbers on every host that can hold a contact; iOS without the desktop
+// pointer answers `unsupported`, said so, not faked.
+{
+  const tmp = mkdtempSync(resolve(tmpdir(), 'exact-smoke-'));
+  const plan = resolve(tmp, 'precedence.plan');
+  const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/precedence.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+  if (c.status !== 0) failures.push('the precedence fixture did not compile: ' + c.stderr);
+  else {
+    const g = await open({ host, plan });
+    try {
+      const slots = async () => { const { slots } = await g.state(); return `${slots.replies}/${slots.panned}/${slots.pressed}`; };
+      const drag = async (target, at, moves) => {
+        const down = await g.tap(target, { down: true, at });
+        if (down.delivery === 'unsupported') return false;
+        // A carrier may end a contact nothing took (Linux does): no more phases then.
+        for (const [dx, dy] of moves) if (g.contact) await g.pointer('move', { dx, dy });
+        if (g.contact) await g.pointer('up');
+        await g.clock('settle');
+        return true;
+      };
+      if (!await drag('row', [200, 50], [[20, 0], [100, 0]])) {
+        console.log(`${host} precedence: unsupported (this carrier holds no contact); unverified here`);
+      } else {
+        check(await slots() === '1/0/0', `a horizontal drag on the row: replies/panned/pressed ${await slots()}, expected the swipe alone (1/0/0)`);
+        await drag('row', [200, 50], [[0, 10], [0, 20]]);
+        check(await slots() === '1/30/0', `a vertical drag on the row: ${await slots()}, expected the surface's pan (1/30/0)`);
+        await drag('button', [40, 20], [[20, 0], [100, 0]]);
+        check(await slots() === '1/30/0', `a drag from the row's button: ${await slots()}, expected neither the swipe nor the pan (1/30/0)`);
+        await g.tap('button');
+        await g.clock('settle');
+        check(await slots() === '1/30/1', `a tap on the button: ${await slots()}, expected its press (1/30/1)`);
+        console.log(`${host} precedence: swipe inside pan ${await slots()} (replies/panned/pressed)`);
+      }
+    } catch (error) {
+      failures.push(`the precedence fixture stopped: ${error.message}`);
+    } finally {
+      await g.close();
+    }
+  }
+  rmSync(tmp, { recursive: true, force: true });
+}
+
 // 12. The page's environment (LLP 1008 §9, the insets fixture): a root that
 // says `viewport-fit="cover"` is laid out to the whole screen, its content
 // kept out of the safe areas by `env(safe-area-inset-*)` lengths — on a
@@ -1210,6 +1280,12 @@ if (existsSync(appTests)) {
   const t = await runTests({ host, file: appTests });
   for (const r of t.results) for (const f of r.failures) check(false, `test "${r.name}": ${f}`);
   console.log(`${host} tests: ${t.passed} passed, ${t.failed} failed (${app.name}/app.test.contract)`);
+}
+
+// 14. Native modules (LLP 1024 D8): the fixture's whole seam, when the app is it.
+if (app.modules.tags.includes('exact-fixture') && ['web', 'macos', 'ios'].includes(host)) {
+  const { nativeSmoke } = await import('./smoke-native.mjs');
+  await nativeSmoke({ host, open, check, webDist: selectedWebDist });
 }
 
 // The oracle sweep is explicit browser work, never an implicit Cargo pass.

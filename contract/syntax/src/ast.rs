@@ -36,10 +36,9 @@ pub struct File {
     pub shapes: Vec<ShapeDecl>,
     /// `style` declarations, in order (LLP 1017 P6).
     pub styles: Vec<StyleDecl>,
-    /// `keyframes` declarations, in order (LLP 1057).
+    /// `keyframes` declarations, in order (LLP 1055 D5): CSS `@keyframes`,
+    /// global by name as in CSS.
     pub keyframes: Vec<KeyframesDecl>,
-    /// `marker` declarations, in order (LLP 1065).
-    pub markers: Vec<MarkerDecl>,
     /// `fn` declarations, in order (LLP 1017 P5).
     pub fns: Vec<FnDecl>,
     /// `test` declarations, in order (LLP 1017 P7) — normally in a file of
@@ -253,48 +252,23 @@ pub struct StyleDecl {
     pub span: Span,
 }
 
-/// `keyframes Name` with its keyframe blocks — CSS's `@keyframes` rule, which
-/// an `animation` attribute names (LLP 1057).
+/// `keyframes Name`: CSS `@keyframes` (LLP 1055 D5).
 #[derive(Debug, Clone, PartialEq)]
 pub struct KeyframesDecl {
-    /// The name.
+    /// The name `animation-name` refers to.
     pub name: String,
-    /// The blocks, as written.
-    pub blocks: Vec<KeyframeDecl>,
+    /// The keyframes, in source order.
+    pub frames: Vec<KeyframeDecl>,
     /// Where.
     pub span: Span,
 }
 
-/// `marker Name` — SVG's `<marker>`: its own attributes (`viewBox`,
-/// `refX`, `orient`, …) and the paths it draws (LLP 1065 D11).
-#[derive(Debug, Clone, PartialEq)]
-pub struct MarkerDecl {
-    /// The name `url(#Name)` refers to.
-    pub name: String,
-    /// The marker's attributes, as literals.
-    pub attrs: Vec<Attr>,
-    /// Its paths, in order.
-    pub paths: Vec<MarkerPathDecl>,
-    /// Where.
-    pub span: Span,
-}
-
-/// One `path` line of a `marker`.
-#[derive(Debug, Clone, PartialEq)]
-pub struct MarkerPathDecl {
-    /// Its attributes (`d`, `fill`, …), as literals.
-    pub attrs: Vec<Attr>,
-    /// Where.
-    pub span: Span,
-}
-
-/// One keyframe block: its selectors (`from`, `to`, `50%`; several with
-/// commas) and lines of `attr=literal`.
+/// One line of a `keyframes` declaration.
 #[derive(Debug, Clone, PartialEq)]
 pub struct KeyframeDecl {
-    /// Each selector's offset in percent: `from` is 0, `to` is 100.
-    pub offsets: Vec<f64>,
-    /// The values, as attributes with literal values.
+    /// Selectors as percentages: `from` is 0, `to` is 100.
+    pub selectors: Vec<f64>,
+    /// The values, literal.
     pub attrs: Vec<Attr>,
     /// Where.
     pub span: Span,
@@ -438,6 +412,9 @@ pub struct MutationDecl {
     pub name: String,
     /// The reply's shape, `T`.
     pub shape: TypeExpr,
+    /// `refreshes a, b`: resources the runner re-asks, forced, when a send
+    /// to this mutation runs and when its reply lands (LLP 1054.000.000 D1).
+    pub refreshes: Vec<(String, Span)>,
     /// `then action`: run after each answer lands (LLP 1016.001), and where.
     pub then: Option<(String, Span)>,
     /// Where.

@@ -1,4 +1,4 @@
-// The Swift half of an app's native module (LLP 1027 D8; LLP 1058). An app's
+// The Swift half of an app's native module (LLP 1027 D8; LLP 1067). An app's
 // Swift conforms one type to `ExactNativeModule` and names it once:
 //
 //     func exactNativeModule() -> ExactNativeModule { MyNative() }

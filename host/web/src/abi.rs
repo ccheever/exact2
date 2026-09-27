@@ -622,6 +622,15 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// A 2D canvas's geometry from the page (LLP 1056 D4).
+    pub fn canvas_geometry(&mut self, view: u32, width: f64, height: f64, scale: f64) -> u32 {
+        let out = self.host.as_mut().map_or_else(
+            || crate::batch::Batch::new().finish(None, 0.0, Some("not booted")),
+            |host| host.canvas_geometry(view, width, height, scale),
+        );
+        self.emit(out)
+    }
+
     /// Re-answer viewport resources and return the resulting batch. The page
     /// reports the size and the display preferences together, on a change
     /// of either (LLP 1061 D4).
@@ -738,6 +747,13 @@ impl<D: DataSource> Bridge<D> {
         let out = (|| -> Result<String, String> {
             let (op, view, property, serial, value, now) =
                 decoded.map_err(|_| "malformed motion input".to_string())?;
+            if op == 11 {
+                // The thresholds exact2 defines itself (LLP 1057.001 §3).
+                let [knee, resistance, edge, slop] = exact_motion::gesture::CONSTANTS;
+                return Ok(format!(
+                    "{{\"knee\":{knee},\"resistance\":{resistance},\"edge\":{edge},\"slop\":{slop}}}"
+                ));
+            }
             let host = self.host.as_mut().ok_or("not booted")?;
             if op == 8 || op == 9 {
                 if property != Property::Height as u32 {
@@ -759,7 +775,8 @@ impl<D: DataSource> Bridge<D> {
                         None => Ok("{\"accepted\":false}".into()),
                     };
                 }
-                return Ok(match host.dispatch_height_held(serial, view, value.x, value.y, now).map_err(|e| format!("{e:?}"))? {
+                // The velocity is the engine's (LLP 1057.001 §3); y is unused.
+                return Ok(match host.dispatch_height_measured(serial, view, value.x, value.y, now)? {
                     Some(batch) => format!("{{\"accepted\":true,\"batch\":{batch}}}"),
                     None => "{\"accepted\":false}".into(),
                 });
@@ -794,6 +811,10 @@ impl<D: DataSource> Bridge<D> {
                 3 => host.end_hold(serial, HoldEnd::Cancel, now),
                 4 => return Ok(format!("{{\"accepted\":{}}}", host.has_hold(serial))),
                 5 => Ok(host.dispatch_held(serial, now)),
+                // Release at the engine's measured velocity (LLP 1057.001 §3).
+                10 => host.end_hold_measured(serial, now),
+                // The constrained value a display shows for the hold.
+                12 => return Ok(format!("{{\"accepted\":{}}}", host.track_hold(serial, value, now))),
                 _ => return Err("invalid motion operation".into()),
             }
             .map_err(|e| format!("{e:?}"))?;
@@ -1168,6 +1189,18 @@ macro_rules! surface_exports {
         #[no_mangle]
         pub extern "C" fn exact_request_active(ticket: f64) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow().request_active(ticket))
+        }
+
+        /// A 2D canvas's content box and device scale (LLP 1056 D4), from
+        /// the page's `ResizeObserver`; returns the batch length.
+        #[no_mangle]
+        pub extern "C" fn exact_canvas_geometry(
+            view: u32,
+            width: f64,
+            height: f64,
+            scale: f64,
+        ) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().canvas_geometry(view, width, height, scale))
         }
 
         /// Publish or clear a named surface record; returns the batch length.

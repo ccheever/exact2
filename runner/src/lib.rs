@@ -13,6 +13,8 @@
 //!   dispatch loop, typed traps, never UB.
 //! - [`stdlib`] — the roster's implementations, once.
 //! - [`compare`] — value identity, substitution and `==`, once.
+//! - [`held`] — a settled resource's value; a compiled one no one else
+//!   holds is released to the plan's bytes.
 //! - [`bridge`] — values to kernel props and style rows, through the kernel's
 //!   own `set_dynamic`.
 //! - [`delivery`] — what this binary and its update store know about
@@ -40,6 +42,7 @@ pub mod compare;
 mod conform;
 pub mod delivery;
 pub mod head;
+pub mod held;
 pub mod instance;
 pub mod request;
 pub mod runner;
@@ -52,6 +55,7 @@ pub mod viewport;
 pub mod vm;
 
 pub use delivery::Delivery;
+pub use exact_canvas;
 pub use exact_plan::Value;
 pub use head::Head;
 pub use instance::collection::{
@@ -65,10 +69,11 @@ pub use request::{
     RequestOut, Response, SurfaceOutcome, SurfaceRequest, Work, MAX_HOST_WORK_BYTES, NATIVE_URL,
 };
 pub use runner::{
-    routing, Advanced, Announce, Carried, Checkpoint, Command, DataError, DataSource, Event,
-    InFlight, Interrupt, ListStatus, ListTextPosition, ListViewport, Native, NativeHandler,
-    RouterChange, RouterLink, Routing, Runner, RunnerError, RunnerLinks, SurfaceAnswer, Target,
-    Timed, JOURNAL_RING, MAX_CLOCK_MS, TIMER_FIRE_LIMIT,
+    routing, Advanced, Announce, CanvasList, Carried, Checkpoint, Command, DataError, DataSource,
+    DrawReply, DrawRequest, Drawn, Event, Geometry, InFlight, Interrupt, Limits, ListStatus,
+    ListTextPosition, ListViewport, Native, NativeHandler, RouterChange, RouterLink, Routing,
+    Runner, RunnerError, RunnerLinks, SurfaceAnswer, Target, Timed, JOURNAL_RING, MAX_CLOCK_MS,
+    TIMER_FIRE_LIMIT,
 };
 pub use store::{Store, StoreError, StoreWrite};
 pub use uses::{uses, Capability, Uses};

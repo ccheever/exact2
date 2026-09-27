@@ -1,6 +1,7 @@
 //! Resource and derive settlement, split from the runner's commit shell.
 
 use super::{DataError, DataSource, ResourceState, Runner, RunnerError, Target};
+use crate::held::Held;
 use crate::request::{Answer, Request};
 use crate::vm::{self, Env, Trap};
 use exact_kernel::CommitReceipt;
@@ -79,14 +80,32 @@ impl<D: DataSource> Runner<D> {
     /// What a resource shows while its source hasn't answered and nothing
     /// is kept (LLP 1048.003 D6): its declared placeholder row's value this
     /// pass, or a list's or an option's empty value.
-    fn placeholder(&self, row: &ResourcesRow, resources: &[Option<Value>]) -> Option<Value> {
+    fn placeholder(
+        &self,
+        i: usize,
+        row: &ResourcesRow,
+        resources: &[Option<Held>],
+    ) -> Option<Value> {
         match row.placeholder {
-            Some(p) => resources[p.0 as usize].clone(),
-            None => match self.plan.type_(row.ty).kind {
-                TypeKind::List => Some(Value::list(Vec::new())),
-                TypeKind::Option => Some(Value::NONE),
-                _ => None,
-            },
+            Some(p) => resources[p.0 as usize]
+                .as_ref()
+                .map(|h| h.get(&self.plan).clone()),
+            // @ref LLP 1054.000.002 D1/D3 — a declared `else empty(…)`, or
+            // the type's zero.
+            None if row.placeholder_value.len > 0 => {
+                Value::from_bytes(self.plan.bytes(row.placeholder_value)).ok()
+            }
+            // A declared `else source()` row must answer now: no zero hides
+            // one that answers later (its owner is refused, by name).
+            None if self
+                .plan
+                .resources
+                .iter()
+                .any(|r| r.placeholder.is_some_and(|p| p.0 as usize == i)) =>
+            {
+                None
+            }
+            None => zero(&self.plan, row.ty),
         }
     }
 
@@ -190,11 +209,17 @@ impl<D: DataSource> Runner<D> {
         // pass hands the host, and the pending flags as they will be —
         // published with the rest only when the pass succeeds.
         let mut force = std::mem::take(&mut self.refresh_next);
+        // LLP 1054.000.000 D1: what a send changed, asked again for what the
+        // source knows now — a request it hands back is not sent.
+        let reread = std::mem::take(&mut self.reread_next);
         // Work on a copy of the committed resource states; publish only when
         // the whole pass succeeds, so a failure leaves every cache as it was.
         let mut states: Vec<Option<ResourceState>> = self.resources.clone();
         effects.clear();
         effects.resize_with(states.len(), || RequestEffect::None);
+        // Which resources took their compiled value in this settlement: each
+        // source is told once it is published (LLP 1027 D11).
+        let mut adopted = vec![false; states.len()];
         let mut passes = 0usize;
         loop {
             passes += 1;
@@ -203,7 +228,7 @@ impl<D: DataSource> Runner<D> {
             }
             let mut derives: Vec<Option<Value>> = vec![None; self.plan.derives.len()];
             let mut derive_store_dependent = vec![false; self.plan.derives.len()];
-            let mut resources: Vec<Option<Value>> = vec![None; self.plan.resources.len()];
+            let mut resources: Vec<Option<Held>> = vec![None; self.plan.resources.len()];
             let mut pending_res = self.pending_res.clone();
             let mut awaiting = self.awaiting.clone();
             for (i, effect) in effects.iter().enumerate() {
@@ -358,6 +383,10 @@ impl<D: DataSource> Runner<D> {
                     // resource is device data just like a direct reader.
                     self.store_readers[i] |= store_dependent;
                     let forced = force.contains(&i);
+                    // Only for the same arguments: new ones need their request.
+                    let reread = !forced
+                        && reread.contains(&i)
+                        && states[i].as_ref().is_some_and(|s| s.args == args);
                     // A store-reading resource is reusable only at the exact
                     // store revision it observed. `answer` and `parse` both
                     // write through Store, so this is the one dirtying point.
@@ -372,10 +401,17 @@ impl<D: DataSource> Runner<D> {
                                 && self.plan.str(row.source) != crate::time::SOURCE
                                 && self.plan.str(row.source) != crate::surface_record::SOURCE
                                 && !forced
+                                && !reread
                                 && (!self.store_readers[i]
                                     || s.store_revision == self.store.revision())
+                                // @ref LLP 1054.000.002 D4 — a placeholder stands
+                                // in only while its answer is on the way.
+                                && (!s.placeholder || pending_res[i] || awaiting[i])
                         })
                         .map(|s| s.value.clone());
+                    // Whether what shows is a stand-in, not an answer (D4).
+                    let mut placeholder =
+                        reuse.is_some() && states[i].as_ref().is_some_and(|s| s.placeholder);
                     // Every ResourceState was checked for this index in this
                     // Runner's immutable plan: settlement checks new values,
                     // boot rechecks carried/kept values, and fulfil checks replies.
@@ -383,6 +419,9 @@ impl<D: DataSource> Runner<D> {
                     // successful reuse skips validation; fresh/baked/fallback
                     // answers still cross the shape boundary below.
                     let reused = reuse.is_some();
+                    // A reused value keeps what an earlier pass recorded;
+                    // anything else is recorded by the branch that takes it.
+                    let compiled = std::mem::replace(&mut adopted[i], false);
                     let value = match reuse {
                         Some(v) => v,
                         None if (boot || !self.data.ready())
@@ -414,20 +453,25 @@ impl<D: DataSource> Runner<D> {
                                 self.stale[i] = true;
                             }
                             awaiting[i] = false;
-                            Value::from_bytes(self.plan.bytes(row.initial))
-                                .map_err(RunnerError::Plan)?
+                            adopted[i] = true;
+                            Held::compiled(
+                                Value::from_bytes(self.plan.bytes(row.initial))
+                                    .map_err(RunnerError::Plan)?,
+                                row.initial,
+                            )
                         }
                         // @ref LLP 1048.003 D6 — the source can't answer yet
                         // (its module isn't loaded) and nothing is compiled:
                         // the placeholder shows, pending; `data_ready` asks.
                         None if !self.data.ready()
                             && !exact_plan::runner_owned_source(self.plan.str(row.source))
-                            && self.placeholder(&row, &resources).is_some() =>
+                            && self.placeholder(i, &row, &resources).is_some() =>
                         {
                             self.stale[i] = true;
                             pending_res[i] = true;
                             awaiting[i] = true;
-                            self.placeholder(&row, &resources).expect("checked")
+                            placeholder = true;
+                            Held::new(self.placeholder(i, &row, &resources).expect("checked"))
                         }
                         None => {
                             awaiting[i] = false;
@@ -454,7 +498,9 @@ impl<D: DataSource> Runner<D> {
                             self.watching[i] = self.store.take_topics();
                             match answer {
                                 Answer::Now(v) => {
-                                    if pending_res[i] {
+                                    // A re-read shows the source's answer and
+                                    // leaves a request in flight to land.
+                                    if pending_res[i] && !reread {
                                         // Newer arguments answered now: the older
                                         // request's reply is no longer wanted.
                                         effects[i] = RequestEffect::Answered;
@@ -462,12 +508,24 @@ impl<D: DataSource> Runner<D> {
                                     }
                                     self.stale[i] = false;
                                     self.keep_answer(i, &args, &v);
-                                    v
+                                    Held::new(v)
+                                }
+                                Answer::Later(request) if reread => {
+                                    // Nothing newer to show before the write
+                                    // lands; the reply's refresh asks the host.
+                                    // A source that parks calls hears what is
+                                    // in flight and drops the one parked here.
+                                    self.discard_request(&request);
+                                    self.forgot = true;
+                                    let state = states[i].as_ref().expect("checked");
+                                    placeholder = state.placeholder;
+                                    state.value.clone()
                                 }
                                 Answer::Later(request) => {
                                     // The host will run it. Meanwhile the resource
                                     // keeps the value it had — its last answer, or
                                     // its compiled boot value (LLP 1016 D3).
+                                    placeholder = states[i].as_ref().is_some_and(|s| s.placeholder);
                                     let kept =
                                         states[i].as_ref().map(|s| s.value.clone()).or_else(|| {
                                             (row.initial.len > 0
@@ -477,13 +535,18 @@ impl<D: DataSource> Runner<D> {
                                                 .ok()
                                                     == Some(Value::list(args.clone())))
                                             .then(|| {
-                                                Value::from_bytes(self.plan.bytes(row.initial)).ok()
+                                                Value::from_bytes(self.plan.bytes(row.initial))
+                                                    .ok()
+                                                    .map(|v| Held::compiled(v, row.initial))
                                             })
                                             .flatten()
                                         });
                                     // @ref LLP 1048.003 D6 — nothing kept for these
                                     // arguments: the placeholder shows, pending.
-                                    let kept = kept.or_else(|| self.placeholder(&row, &resources));
+                                    let kept = kept.or_else(|| {
+                                        placeholder = true;
+                                        self.placeholder(i, &row, &resources).map(Held::new)
+                                    });
                                     let Some(kept) = kept else {
                                         return Err(self.unanswerable(i));
                                     };
@@ -499,26 +562,26 @@ impl<D: DataSource> Runner<D> {
                         }
                     };
                     let value = if reused {
+                        adopted[i] = compiled;
                         value
                     } else {
-                        self.check_shape(i, &value)?;
+                        self.check_shape(i, value.get(&self.plan))?;
                         // A fresh answer equal to the last keeps its object.
                         match &states[i] {
-                            Some(s) if crate::compare::equivalent(&s.value, &value) => {
-                                s.value.clone()
-                            }
+                            Some(s) if Held::equivalent(&s.value, &value) => s.value.clone(),
                             _ => value,
                         }
                     };
                     resource_changed[i] = !matches!(
                         &self.resource_values[i],
-                        Some(old) if crate::compare::same(old, &value)
+                        Some(old) if Held::same(old, &value)
                     );
                     resources[i] = Some(value.clone());
                     states[i] = Some(ResourceState {
                         args,
                         value,
                         store_revision: self.store.revision(),
+                        placeholder,
                     });
                     settled_res[i] = true;
                     progress = true;
@@ -558,6 +621,7 @@ impl<D: DataSource> Runner<D> {
             self.resource_values = resources;
             self.resources = states;
             self.awaiting = awaiting;
+            self.adopt(&adopted);
             for (i, effect) in effects.iter().enumerate() {
                 if matches!(effect, RequestEffect::Answered) {
                     self.forget(Target::Resource(i));
@@ -576,9 +640,85 @@ impl<D: DataSource> Runner<D> {
             }
             // The flags follow the tickets and what awaits its source.
             self.sync_pending_flags();
+            // A forced resource not asked in this settlement (an argument
+            // still pending, a source not ready) is forced at the next one
+            // that can ask it (LLP 1054.000.000 D2).
+            self.refresh_next = force;
             return Ok(());
         }
     }
+
+    /// Hand each source the compiled value its resource just took, with the
+    /// arguments the bake answered it for (LLP 1027 D11): the one decoded
+    /// copy, shared.
+    fn adopt(&mut self, adopted: &[bool]) {
+        for (i, _) in adopted.iter().enumerate().filter(|(_, a)| **a) {
+            let row = &self.plan.resources[i];
+            let (Ok(Value::List(args)), Some(state)) = (
+                Value::from_bytes(self.plan.bytes(row.initial_args)),
+                self.resources[i].as_ref(),
+            ) else {
+                continue;
+            };
+            self.data.adopt(
+                self.plan.str(row.source),
+                &args,
+                state.value.get(&self.plan),
+            );
+        }
+    }
+}
+
+impl<D: DataSource> Runner<D> {
+    /// Release each compiled resource value that nothing outside the
+    /// runner holds any more (`crate::held`): a live answer replaced it on
+    /// screen, or a source adopted it and answers its edits another way.
+    /// The plan's bytes stay; a later read decodes them again. After an
+    /// update, when what the tree shows is what it last saw.
+    pub(super) fn release_compiled(&mut self) {
+        for i in 0..self.resources.len() {
+            let (Some(state), Some(Some(read))) =
+                (self.resources[i].as_mut(), self.resource_values.get_mut(i))
+            else {
+                continue;
+            };
+            let Some(released) = state.value.released() else {
+                continue;
+            };
+            // Every copy must go, or the value stays: the settled state and
+            // what expressions read share one cell (settle_pass).
+            if !Held::same(read, &state.value) {
+                continue;
+            }
+            state.value = released.clone();
+            *read = released.clone();
+            if let Some(tree) = self.tree.as_mut() {
+                tree.release_resource(i, &released);
+            }
+        }
+    }
+}
+
+/// `ty`'s zero (LLP 1054.000.002 D1): `0`, `""`, `false`, `()`, `none`, `[]`,
+/// and a record's fields' zeros in order — the compiler's
+/// `contract_types::placeholder::zero`, over the plan's tables.
+pub(super) fn zero(plan: &exact_plan::Plan, ty: exact_plan::TypesId) -> Option<Value> {
+    let row = plan.types.get(ty.0 as usize)?;
+    Some(match row.kind {
+        TypeKind::Number => Value::Number(0.0),
+        TypeKind::String => Value::str(""),
+        TypeKind::Bool => Value::Bool(false),
+        TypeKind::Unit => Value::Unit,
+        TypeKind::Option => Value::NONE,
+        TypeKind::List => Value::list(Vec::new()),
+        TypeKind::Record => Value::record(
+            plan.fields
+                .get(row.fields.start as usize..(row.fields.start + row.fields.len) as usize)?
+                .iter()
+                .map(|f| zero(plan, f.ty))
+                .collect::<Option<Vec<_>>>()?,
+        ),
+    })
 }
 
 #[cfg(test)]
@@ -608,6 +748,7 @@ mod tests {
         write_on_parse: bool,
         read_store: bool,
         fail_parse: bool,
+        adopted: Vec<(String, Vec<Value>, Value)>,
     }
 
     impl Data {
@@ -621,6 +762,7 @@ mod tests {
                 write_on_parse: false,
                 read_store: false,
                 fail_parse: false,
+                adopted: Vec::new(),
             }
         }
     }
@@ -673,6 +815,10 @@ mod tests {
 
         fn ready(&self) -> bool {
             self.ready
+        }
+        fn adopt(&mut self, source: &str, args: &[Value], value: &Value) {
+            self.adopted
+                .push((source.to_string(), args.to_vec(), value.clone()));
         }
         fn grants(&self) -> &str {
             "secret.keep token\n"
@@ -872,6 +1018,39 @@ mod tests {
             ));
             assert_eq!(checks(), 1);
         }
+    }
+
+    #[test]
+    fn a_compiled_value_is_adopted_once_as_the_runner_holds_it() {
+        let baked = records(3);
+        let mut r = boot(
+            plan(TypeKind::Number, Some(&baked), false, false),
+            Data::new(records(5)),
+        );
+        assert_eq!(r.data().queries, 0, "the compiled value answers boot");
+        let adopted = std::mem::take(&mut r.data().adopted);
+        assert_eq!(adopted.len(), 1);
+        let (source, args, value) = &adopted[0];
+        assert_eq!(
+            (source.as_str(), args.as_slice()),
+            ("rows", &[Value::Number(0.)][..])
+        );
+        let (Value::List(given), Some(Value::List(held))) = (value, r.resource("rows")) else {
+            panic!()
+        };
+        assert!(Rc::ptr_eq(given, held), "the one decoded copy, shared");
+        tick(&mut r);
+        r.act("change", vec![Value::Number(1.)]).unwrap();
+        assert_eq!(r.data().queries, 1, "new arguments ask the source");
+        assert!(r.data().adopted.is_empty(), "an answer is never adopted");
+        let fresh = boot(
+            plan(TypeKind::Number, None, false, false),
+            Data::new(records(3)),
+        );
+        assert!(
+            fresh.data.adopted.is_empty(),
+            "nothing compiled, nothing adopted"
+        );
     }
 
     #[test]

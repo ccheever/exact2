@@ -3,8 +3,8 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// Paint motion on UIKit (LLP 1062): a presented colour's text is painted in
-/// the batch that carries it, not by a worker a frame later; an inline run
+/// Paint motion on UIKit (LLP 1062): a text re-styled with a presented colour
+/// is painted in the batch that carries it, not by a worker a frame later; an inline run
 /// paints the colour its paragraph is told it inherits; a view whose own
 /// appearance differs from the session's is noted for the host. UIKit, so a
 /// simulator runs it:
@@ -47,13 +47,13 @@ final class PaintMotionIOSTests: XCTestCase {
         XCTAssertTrue(node.textRasterReady, "the fixture's paragraph shows")
         // No worker may run: pixels that come a frame later cannot pass.
         RegionTextExecutor.queue.isSuspended = true
-        let grey = [127.5, 127.5, 127.5, 255.0]
-        p.apply(wireBatch([["op": "present", "id": 2, "property": "text_color",
-                            "x": grey[0], "y": grey[1], "w": grey[2], "h": grey[3]]]))
+        let grey = [128.0, 128.0, 128.0, 255.0]
+        // A frame of paint motion re-sends the style with the presented colour.
+        p.apply(wireBatch([["op": "style", "id": 2, "style": ["font_size": 16.0, "text_color": grey]]]))
         XCTAssertEqual(p.textRasters.inFlight, 0, "no worker job")
         XCTAssertTrue(node.textRasterReady, "painted as the batch ended")
         XCTAssertEqual(node.textRasterKey?.spec.runs.first?.color, grey)
-        p.apply(wireBatch([["op": "unpresent", "id": 2, "property": "text_color"]]))
+        p.apply(wireBatch([["op": "style", "id": 2, "style": ["font_size": 16.0, "text_color": [0.0, 0.0, 0.0, 255.0]]]]))
         XCTAssertTrue(node.textRasterReady)
         XCTAssertEqual(node.textRasterKey?.spec.runs.first?.color, [0, 0, 0, 255])
     }
@@ -63,12 +63,16 @@ final class PaintMotionIOSTests: XCTestCase {
         defer { session.destroy() }
         let p = session.presenter
         let node = try XCTUnwrap(p.views[3])
-        let grey = [127.5, 127.5, 127.5, 255.0]
-        p.apply(wireBatch([["op": "present", "id": 3, "run": 4, "property": "text_color",
-                            "x": grey[0], "y": grey[1], "w": grey[2], "h": grey[3]]]))
+        let grey = [128.0, 128.0, 128.0, 255.0]
+        // The host re-sends the paragraph with the run's presented colour.
+        let paragraph = { (c: [Double]) in wireBatch([["op": "paragraph", "id": 3, "runs": [
+            ["id": 4, "parent": 3, "paint": true, "props": ["text": "plain "], "style": ["text_color": c]],
+            ["id": 5, "parent": 3, "paint": true, "props": ["text": "red"], "style": ["text_color": [255.0, 0.0, 0.0, 255.0]]],
+        ]]]) }
+        p.apply(paragraph(grey))
         XCTAssertEqual(node.paragraphSpec().runs.map(\.color), [grey, [255, 0, 0, 255]])
         XCTAssertTrue(node.textRasterReady, "painted as the batch ended")
-        p.apply(wireBatch([["op": "unpresent", "id": 3, "run": 4, "property": "text_color"]]))
+        p.apply(paragraph([0.0, 0.0, 0.0, 255.0]))
         XCTAssertEqual(node.paragraphSpec().runs.map(\.color), [[0, 0, 0, 255], [255, 0, 0, 255]])
     }
 

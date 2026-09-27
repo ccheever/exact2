@@ -4,7 +4,7 @@ import Foundation
 
 extension BatchReader {
     mutating func batch() throws -> Batch {
-        var ops: [BatchOp] = [], timers = false, motion = false, pending = false, spatial = false
+        var ops: [BatchOp] = [], timers = false, motion = false, pending = false, spatial = false, canvas = false
         var clock: Double?, due: Double?, error: String?
         var seen: Set<String> = []
         try object { r, key in
@@ -14,6 +14,7 @@ extension BatchReader {
             case "ops": ops = try r.array { try $0.batchOp() }
             case "timers": timers = try r.bool()
             case "motion": motion = try r.bool()
+            case "canvas": canvas = try r.bool()
             case "pending": pending = try r.bool()
             case "spatial": spatial = try r.bool()
             case "clock": clock = try r.number()
@@ -24,6 +25,7 @@ extension BatchReader {
         }
         var batch = Batch(ops: ops, timers: timers, motion: motion, clock: clock, error: error, timerDueMs: due, pending: pending)
         batch.spatial = spatial
+        batch.canvas = canvas
         return batch
     }
 
@@ -75,8 +77,7 @@ extension BatchReader {
             case (.frame, "y"), (.content, "y"), (.present, "y"): op.y = try number()
             case (.frame, "w"), (.content, "w"), (.present, "w"): op.w = try number()
             case (.frame, "h"), (.content, "h"), (.present, "h"): op.h = try number()
-            case (.frame, "property"), (.content, "property"), (.present, "property"), (.unpresent, "property"): op.property = try string()
-            case (.present, "run"), (.unpresent, "run"): op.run = try id()
+            case (.frame, "property"), (.content, "property"), (.present, "property"): op.property = try string()
             default: try skip()
             }
         }
@@ -123,7 +124,7 @@ extension BatchReader {
 extension BatchOp {
     var isAdapter: Bool {
         switch op {
-        case .create, .props, .style, .children, .paragraph, .frame, .content, .present, .unpresent, .roots, .destroy: return false
+        case .create, .props, .style, .children, .paragraph, .frame, .content, .present, .roots, .destroy: return false
         default: return true
         }
     }
@@ -186,11 +187,10 @@ struct BatchFields {
         case .style: op.style = try object("style")
         case .paragraph: op.runs = try array("runs") { try Self(Self.object($0)).inline() }
         case .children, .roots: op.ids = try array("ids", Self.id)
-        case .frame, .content, .present, .unpresent:
+        case .frame, .content, .present:
             op.x = try number("x") ?? 0; op.y = try number("y") ?? 0
             op.w = try number("w") ?? 0; op.h = try number("h") ?? 0
             op.property = try string("property") ?? ""
-            op.run = try id("run")
         case .destroy: break
         default: op.payload = fields.mapValues(\.any)
         }

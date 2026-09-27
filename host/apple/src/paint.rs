@@ -1,13 +1,13 @@
-//! Paint motion (LLP 1062): colour and shadow transitions and keyframes,
-//! sampled by the engine like every other property and repainted by the
-//! presenter.
+//! Paint motion (LLP 1055.000 D6, LLP 1062): colour and shadow transitions
+//! and keyframes, sampled by the engine like every other property.
 //!
-//! Only a node whose `transition` or `animation` names a paint property owns
-//! one in the engine ([`Kernel::paint_sync`]); every other colour stays the
-//! style dictionary's. While an owned value differs from its target the
-//! presenter paints a `present` op's value in place of the style's; once it
-//! arrives the op is `unpresent` and the style shows again, so nothing is left
-//! to go stale when the row later changes without a transition.
+//! Only a node whose `transition`, `animation` or `exit-animation` names a
+//! paint property owns one in the engine ([`Kernel::paint_sync`]); every
+//! other colour stays the style dictionary's. A box whose paint moves is
+//! re-sent its style with the presented values over its rows
+//! ([`Host::present_colors`]); once a value arrives, the row shows again, so
+//! nothing is left to go stale when the row later changes without a
+//! transition.
 //!
 //! Colours are resolved here, not in the presenter: the engine interpolates
 //! concrete colours, so `light-dark()` is resolved by the appearance the
@@ -16,22 +16,14 @@
 //! whose own appearance differs from the session's (an override on a sheet,
 //! say) reports it ([`Host::set_view_scheme`]), and its node resolves by it.
 //!
-//! `color` is inherited: a view that inherits an animating node's colour
-//! paints the same presented value, as a browser's inheriting element does,
-//! and so does an inline run, whose colour its paragraph paints (a `present`
-//! op on the paragraph that names the run). A `currentcolor` border side
-//! paints the view's presented `color` frame by frame, as CSS's used value
-//! follows the animating `color` ([`Kernel::current_color_sides`]). A path's
-//! `fill` and `stroke` inherit too, and reach its paths the same way (LLP
-//! 1065).
-//!
-//! [`Kernel::current_color_sides`]: exact_kernel::Kernel::current_color_sides
+//! [`Kernel::paint_sync`]: exact_kernel::Kernel::paint_sync
 
 use super::Host;
 use crate::batch::Batch;
-use exact_kernel::motion::{MotionSync, PaintOwners};
-use exact_kernel::{CommitReceipt, NodeKey, StyleId, ViewId};
-use exact_motion::{Presentation, Property};
+use crate::style::Shown;
+use exact_kernel::motion::{motion_node, MotionSync, PaintOwners};
+use exact_kernel::{CommitReceipt, NodeKey, ViewId};
+use exact_motion::{Property, Value};
 use exact_runner::DataSource;
 use std::collections::BTreeMap;
 
@@ -42,52 +34,19 @@ pub(super) struct Paint {
     /// The appearance the presenter last reported; `None` before its first
     /// report, which snaps instead of transitioning.
     dark: Option<bool>,
-    /// Views painting an animating node's `color` they inherit, by that node.
-    inheritors: BTreeMap<u64, Vec<ViewId>>,
-    /// Paths painting an animating node's `fill` or `stroke` they inherit.
-    paths: BTreeMap<(u64, Property), Vec<ViewId>>,
-    /// Each view's `currentcolor` border sides painting its presented `color`.
-    sides: BTreeMap<ViewId, Vec<Property>>,
     /// Each owner's `currentcolor` sides at its last sync: a side that stays
     /// one takes a new `color` at once, and shows the presented one.
     current: BTreeMap<u64, Vec<Property>>,
     /// Nodes whose view's appearance differs from the session's, and theirs.
     views: BTreeMap<u64, bool>,
+    /// Inline runs painting an inherited `color` that moves, by run: their
+    /// paragraph paints them (LLP 1062 D5).
+    pub(super) runs: BTreeMap<ViewId, exact_motion::Value>,
 }
 
 /// The appearance `key`'s colours resolve by: its view's, else the session's.
 fn resolve(views: &BTreeMap<u64, bool>, session: bool, key: NodeKey) -> bool {
-    views
-        .get(&exact_kernel::motion::motion_node(key))
-        .copied()
-        .unwrap_or(session)
-}
-
-/// The presenter's style key for a paint property's presented value.
-fn style_key(property: Property) -> &'static str {
-    match property {
-        Property::BackgroundColor => "background_color",
-        Property::Color => "text_color",
-        Property::BorderTopColor => "border_color_top",
-        Property::BorderRightColor => "border_color_right",
-        Property::BorderBottomColor => "border_color_bottom",
-        Property::BorderLeftColor => "border_color_left",
-        Property::TintColor => "tint_color",
-        Property::BoxShadow => "shadow_geometry",
-        Property::Fill => "fill",
-        Property::Stroke => "stroke",
-        _ => "shadow_color",
-    }
-}
-
-/// A presented value in the style dictionary's units: a colour's straight
-/// channels 0–255, alpha too; a shadow's offset and blur in points.
-fn channels(p: &Presentation) -> [f64; 4] {
-    if p.property.is_color() {
-        p.value.straight().map(|c| c * 255.0)
-    } else {
-        p.value.components()
-    }
+    views.get(&motion_node(key)).copied().unwrap_or(session)
 }
 
 fn node_key(node: u64) -> NodeKey {
@@ -101,9 +60,7 @@ impl<D: DataSource> Host<D> {
     /// Adopt a commit's paint, after its `motion_sync` set the rows.
     pub(super) fn sync_paint(&mut self, receipt: &CommitReceipt, batch: &mut Batch) {
         for key in &receipt.destroyed {
-            let node = exact_kernel::motion::motion_node(*key);
-            self.paint.inheritors.remove(&node);
-            self.paint.paths.retain(|(n, _), _| *n != node);
+            let node = motion_node(*key);
             self.paint.views.remove(&node);
             self.paint.current.remove(&node);
         }
@@ -148,30 +105,52 @@ impl<D: DataSource> Host<D> {
                 self.paint.current.insert(node, now);
             }
         }
-        for (node, property) in &sync.retired {
+        let mut retired: Vec<ViewId> = Vec::new();
+        for (node, _) in &sync.retired {
             self.paint.current.remove(node);
             if let Some(view) = self.keys.get(&node_key(*node)).copied() {
-                match property {
-                    Property::Color => self.paint_color(view, None, batch),
-                    p => self.paint_view(view, style_key(*p), None, batch),
+                if !retired.contains(&view) {
+                    retired.push(view);
                 }
-            }
-            if *property == Property::Color {
-                for view in self.paint.inheritors.remove(node).unwrap_or_default() {
-                    self.paint_color(view, None, batch);
-                }
-            }
-            for view in self
-                .paint
-                .paths
-                .remove(&(*node, *property))
-                .unwrap_or_default()
-            {
-                self.paint_view(view, style_key(*property), None, batch);
             }
         }
         let applied = sync.apply(&mut self.engine);
         debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
+        // What no longer moves shows its row again.
+        for view in retired {
+            self.present_colors(view, batch);
+        }
+    }
+
+    /// What a node's paint shows now, over its rows: each owned property's
+    /// value while it differs from its target. A `currentcolor` side that
+    /// stays one follows the presented `color` through its row.
+    pub(super) fn shown_paint(&self, node: u64) -> Shown {
+        let mut shown = Shown::default();
+        for property in Property::PAINT {
+            // A leaving node's paint is no longer owned; its exit still plays.
+            let playing = self.engine.animated(node, property, Value::ZERO).is_some();
+            if !self.paint.owners.owns(node, property)
+                && !self.engine.is_active(node, property)
+                && !playing
+            {
+                continue;
+            }
+            let Some(value) = self.engine.sampled_value(node, property) else {
+                continue;
+            };
+            if self.engine.target(node, property) != Some(value) {
+                shown.set(property, Some(value));
+            }
+        }
+        if let Some(sides) = self.paint.current.get(&node) {
+            for side in sides {
+                if !self.engine.is_active(node, *side) {
+                    shown.set(*side, None);
+                }
+            }
+        }
+        shown
     }
 
     /// The presenter's appearance: a `light-dark()` colour an owner shows
@@ -211,7 +190,7 @@ impl<D: DataSource> Host<D> {
         let mut batch = Batch::new();
         let key = self.runner.kernel().node(view).map(|n| n.key);
         if let Some(key) = key {
-            let node = exact_kernel::motion::motion_node(key);
+            let node = motion_node(key);
             let own = (Some(dark) != self.paint.dark).then_some(dark);
             let before = self.paint.views.get(&node).copied();
             if own != before {
@@ -220,9 +199,6 @@ impl<D: DataSource> Host<D> {
                     Some(dark) => self.paint.views.insert(node, dark),
                     None => self.paint.views.remove(&node),
                 };
-                self.engine.set_node_dark(node, own, first);
-                let seek = self.engine.advance(self.now_ms / 1000.0);
-                debug_assert!(seek.is_ok(), "the clock never runs backwards here");
                 let sync = self
                     .runner
                     .kernel()
@@ -233,156 +209,14 @@ impl<D: DataSource> Host<D> {
                     }
                 }
                 self.apply_paint(sync, &mut batch);
+                // After the rows: dropping a slot drops its dirt, and the
+                // playing keyframes' colours must still be shown again.
+                self.engine.set_node_dark(node, own, first);
+                let seek = self.engine.advance(self.now_ms / 1000.0);
+                debug_assert!(seek.is_ok(), "the clock never runs backwards here");
                 self.present(&mut batch, false);
             }
         }
         self.finish(batch, None)
-    }
-
-    /// One paint presentation on `view` (a leaving one included): the value
-    /// while it differs from the target, else the style again. An animating
-    /// `color` also reaches the views and runs that inherit it, and every
-    /// `currentcolor` side among them.
-    pub(super) fn present_paint(&mut self, p: Presentation, view: ViewId, batch: &mut Batch) {
-        let settled = self.engine.target(p.node, p.property) == Some(p.value);
-        let value = (!settled).then(|| channels(&p));
-        let following = |paint: &Paint| {
-            paint
-                .sides
-                .get(&view)
-                .is_some_and(|s| s.contains(&p.property))
-        };
-        if matches!(p.property, Property::Fill | Property::Stroke) {
-            self.present_path_paint(p, view, value, batch);
-            return;
-        }
-        if p.property != Property::Color {
-            // A settled `currentcolor` side shows the presented `color`.
-            if !(settled && following(&self.paint)) {
-                self.paint_view(view, style_key(p.property), value, batch);
-            }
-            return;
-        }
-        self.paint_color(view, value, batch);
-        let now = if settled {
-            Vec::new()
-        } else {
-            self.inheritors_of(p.node, Property::Color, StyleId::TextColor)
-        };
-        let before = self.paint.inheritors.remove(&p.node).unwrap_or_default();
-        for view in before.into_iter().filter(|v| !now.contains(v)) {
-            self.paint_color(view, None, batch);
-        }
-        for view in &now {
-            self.paint_color(*view, value, batch);
-        }
-        if !now.is_empty() {
-            self.paint.inheritors.insert(p.node, now);
-        }
-    }
-
-    /// A path's `fill` or `stroke` on `view` and on the paths below it that
-    /// inherit it (LLP 1065).
-    fn present_path_paint(
-        &mut self,
-        p: Presentation,
-        view: ViewId,
-        value: Option<[f64; 4]>,
-        batch: &mut Batch,
-    ) {
-        let (key, row) = match p.property {
-            Property::Fill => ("fill", StyleId::Fill),
-            _ => ("stroke", StyleId::Stroke),
-        };
-        self.paint_view(view, key, value, batch);
-        let now = match value {
-            Some(_) => self.inheritors_of(p.node, p.property, row),
-            None => Vec::new(),
-        };
-        let before = self
-            .paint
-            .paths
-            .remove(&(p.node, p.property))
-            .unwrap_or_default();
-        for view in before.iter().filter(|v| !now.contains(v)) {
-            self.paint_view(*view, key, None, batch);
-        }
-        for view in &now {
-            self.paint_view(*view, key, value, batch);
-        }
-        if !now.is_empty() {
-            self.paint.paths.insert((p.node, p.property), now);
-        }
-    }
-
-    /// `color` on `view`, and on each of its `currentcolor` border sides.
-    fn paint_color(&mut self, view: ViewId, value: Option<[f64; 4]>, batch: &mut Batch) {
-        self.paint_view(view, "text_color", value, batch);
-        let kernel = self.runner.kernel();
-        // A side moving under its own row (to or from an explicit colour)
-        // shows its own value.
-        let now = match (value, kernel.node(view)) {
-            (Some(_), Some(node)) => kernel
-                .current_color_sides(node.key)
-                .into_iter()
-                .filter(|s| {
-                    !self
-                        .engine
-                        .is_active(exact_kernel::motion::motion_node(node.key), *s)
-                })
-                .collect(),
-            _ => Vec::new(),
-        };
-        let before = self.paint.sides.remove(&view).unwrap_or_default();
-        for side in before.iter().filter(|s| !now.contains(s)) {
-            self.paint_view(view, style_key(*side), None, batch);
-        }
-        for side in &now {
-            self.paint_view(view, style_key(*side), value, batch);
-        }
-        if !now.is_empty() {
-            self.paint.sides.insert(view, now);
-        }
-    }
-
-    /// Present `value` under `key` on `view`, or hand the row back. An
-    /// inline run is no view: its paragraph paints its colour.
-    fn paint_view(&self, view: ViewId, key: &str, value: Option<[f64; 4]>, batch: &mut Batch) {
-        if let Some((owner, _)) = self.inline_runs.get(&view) {
-            if key == "text_color" && !(value.is_none() && batch.creates(*owner)) {
-                batch.present_run(*owner, view, key, value);
-            }
-            return;
-        }
-        match value {
-            Some(v) => batch.present4(view, key, v),
-            // A view this batch creates has nothing to take back.
-            None if batch.creates(view) => {}
-            None => batch.unpresent(view, key),
-        }
-    }
-
-    /// The views below `node` whose inherited `property` is `node`'s: no own
-    /// `row` on the way, and no paint motion of their own.
-    fn inheritors_of(&self, node: u64, property: Property, row: StyleId) -> Vec<ViewId> {
-        let kernel = self.runner.kernel();
-        let Some(source) = kernel.node_by_key(node_key(node)) else {
-            return Vec::new();
-        };
-        let mut out = Vec::new();
-        let mut stack = source.children();
-        while let Some(id) = stack.pop() {
-            let Some(child) = kernel.node(id) else {
-                continue;
-            };
-            let n = exact_kernel::motion::motion_node(child.key);
-            if child.style.mask.has(row) || self.paint.owners.owns(n, property) {
-                continue;
-            }
-            out.push(id);
-            stack.extend(child.children());
-        }
-        out.sort_unstable();
-        out
     }
 }

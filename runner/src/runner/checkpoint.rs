@@ -109,7 +109,7 @@ impl<D: DataSource> Runner<D> {
                     name.to_string(),
                     source.to_string(),
                     state.args.clone(),
-                    state.value.clone(),
+                    state.value.get(&self.plan).clone(),
                 ));
             }
         }
@@ -149,8 +149,9 @@ impl<D: DataSource> Runner<D> {
             }
             self.resources[i] = Some(ResourceState {
                 args: args.clone(),
-                value: value.clone(),
+                value: crate::held::Held::new(value.clone()),
                 store_revision: self.store.revision(),
+                placeholder: false,
             });
             *seed = true;
         }

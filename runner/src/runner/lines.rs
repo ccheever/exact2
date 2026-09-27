@@ -48,6 +48,14 @@ pub(super) fn store_write(name: &str, kept: bool) -> String {
     text!("{} {}", if kept { "store" } else { "forget" }, name)
 }
 
+pub(super) fn kept(ticket: u64, name: &str) -> String {
+    text!(
+        "keep request {} ({}): the same request for newer arguments",
+        ticket,
+        name
+    )
+}
+
 pub(super) fn forgot(ticket: u64, name: &str) -> String {
     text!("forget request {} ({})", ticket, name)
 }

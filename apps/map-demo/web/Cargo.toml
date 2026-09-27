@@ -1,0 +1,23 @@
+[package]
+name = "map-demo-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The map demo on the web: one wasm with the runner, the kernel, and the baked plan"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "map_demo_web"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-web = { path = "../../../host/web" }
+exact-web-capabilities = { path = "../../../host/web-capabilities" }
+map-demo-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }
+map-demo-data = { path = "../data" }

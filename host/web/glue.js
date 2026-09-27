@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, scrollFollowers, renderMarkup, keyframes, navigableURL, navigates, refuseURL, devFirst } from "./navigation.js";
+import { focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst } from "./navigation.js";
 let httpModule;
 function httpHelpers() {
   return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
@@ -29,17 +29,16 @@ function syncMedia(el, set = {}, clear = []) {
 }
 const iframeLoading = new WeakMap(); // iframe -> true until its latest src load
 const iframeOrigins = new WeakMap(); // iframe -> authored/committed guest origin
-const messageViews = new Set();
-const messageFrames = new Set(); // iframes whose node handles `message`
+const messageViews = new Set(), messageFrames = new Set(); // the latter: iframes whose node handles `message`
 let messageListening = false;
-let wasm = null;
-let memory = null;
-let inputReady = false;
-let inputHandlers;
+let wasm = null, memory = null, inputReady = false, inputHandlers;
+// Native modules (LLP 1024 D3): a module node is its custom element, empty until the adapter and the app's module load after first paint (the browser's paint entry; two frames and a beat where it records none).
+let nativeHost = null; function nativeCreate(el, id) { const st = el.exactNative = { id, name: el.localName, state: "loading", status() { return { name: this.name, state: this.state, ...(this.error ? { error: this.error } : {}) }; }, destroy() { this.destroyed = true; nativeHost?.then(h => h.destroy(el)); } };
+  (nativeHost ??= new Promise(r => { try { new PerformanceObserver((l, o) => { o.disconnect(); requestAnimationFrame(r); }).observe({ type: 'paint', buffered: true }); } catch {} requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 250))); }).then(() => loadAfterPaint('./native-glue.js', 'nativeHost')).then(make => make({ log, dispatch(el, kind, text) { const id = Number(el.dataset.view); if (inputReady && views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, kind, text == null ? 0 : writeIn(text), now())); } }))).then(h => h.attach(el), e => { st.state = "unavailable"; st.error = String(e?.message ?? e); log(`native ${st.name} #${id}: unavailable: ${st.error}`); }); }
 const authoredDisabled = new WeakMap();
 let logicInfo = null, moduleLoader = null, activeModule = null, moduleResponse = new Uint8Array();
-const pageNative = document.querySelector('meta[name="exact-native"]')?.content; let pageNativeModule = null; // the app's page module (`host.web.native`) answers `native.later`, loaded after paint at first use (native-glue.js)
-const loadPageNative = () => pageNativeModule ??= loadAfterPaint('./native-glue.js', 'pageNative').then((load) => load(pageNative && new URL(pageNative, document.baseURI).href, (topic) => { if (inputReady && wasm.exact_changed) applyBatch(JSON.parse(readOut(wasm.exact_changed(writeIn(String(topic)))))); }));
+const pageNative = Boolean(document.querySelector('meta[name="exact-native"]')); let pageNativeModule = null; // the app's module artifact answers `native.later` too (LLP 1067 D5), loaded after paint at first use (native-glue.js)
+const loadPageNative = () => pageNativeModule ??= loadAfterPaint('./native-glue.js', 'pageNative').then((load) => load(pageNative, (topic) => { if (inputReady && wasm.exact_changed) applyBatch(JSON.parse(readOut(wasm.exact_changed(writeIn(String(topic)))))); }));
 let rustLoader = null, rustLoading = null;
 const rustImports = Object.fromEntries(['load', 'call', 'read', 'drop'].map(name => [name, (...args) => {
   if (!rustLoader) throw new Error('Rust module loader is not ready');
@@ -114,7 +113,7 @@ const decoder = new TextDecoder();
 const t0 = performance.now();
 const agentMode = new URL(location.href).searchParams.has("agent");
 let agentClock = agentMode ? 0 : null;
-const starts = new WeakMap(); // Animation -> the agent clock when it began
+const starts = new WeakMap(), held = new WeakSet(); // Animation -> the agent clock when it began; author-paused ones
 const now = () => agentClock ?? performance.now() - t0;
 let bootAttempt = 0;
 let devAssets = null;
@@ -305,10 +304,7 @@ function positionContexts() {
   }
 }
 // @ref LLP 1039 D2, LLP 1061 D4 — viewport facts and display preferences, on every change, without debounce.
-const mediaChanged = () => {
-  if (wasm && root.childElementCount) applyBatch(JSON.parse(readOut(wasm.exact_resize(innerWidth, innerHeight, now(), preferences()))));
-  requestAnimationFrame(positionContexts);
-}; addEventListener("resize", mediaChanged); onPreferences(mediaChanged);
+const mediaChanged = () => { if (wasm && root.childElementCount) applyBatch(JSON.parse(readOut(wasm.exact_resize(innerWidth, innerHeight, now(), preferences())))); requestAnimationFrame(positionContexts); }; addEventListener("resize", mediaChanged); onPreferences(mediaChanged);
 visualViewport?.addEventListener("resize", () => requestAnimationFrame(positionContexts));
 const symbolStyle = document.createElement("style"); document.head.append(symbolStyle);
 symbolStyle.textContent = '@property --exact-tint{syntax:"<color>";inherits:false;initial-value:#000}img[data-symbol-path]{background-color:var(--exact-tint)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,100% 100%);mask-origin:content-box;mask-clip:content-box}';
@@ -370,7 +366,7 @@ function applyProps(el, set, clear) {
     else if (name === "scrollTop" || name === "scrollLeft") {
       const pending = pendingScrolls.get(el); if (pending) delete pending[name];
     }
-    else if (name === "text") el.textContent = ""; else if (name === "pathMarkup") el.querySelector(":scope>svg[data-exact-path]")?.remove();
+    else if (name === "text") el.textContent = "";
     else if (name === "value") writeValue(el, "");
     else if (name === "checked") el.checked = false;
     else if (name === "data-action") { el.removeAttribute(name); el.style.touchAction = ""; }
@@ -386,7 +382,7 @@ function applyProps(el, set, clear) {
       const offset = Number(value);
       if (Number.isFinite(offset)) pendingScrolls.set(el, { ...pendingScrolls.get(el), [name]: offset });
     } else if (name === "text") { if (el.childElementCount === 0 && el.textContent !== value) el.textContent = value;
-    } else if (name === "markupPieces") { renderMarkup(el, value); } else if (name === "pathMarkup") { el.querySelector(":scope>svg[data-exact-path]")?.remove(); el.insertAdjacentHTML("afterbegin", value); // kernel-made numbers only, under its paths (LLP 1065 D5, D12)
+    } else if (name === "markupPieces") { renderMarkup(el, value);
     } else if (name === "data-action") {
       el.setAttribute(name, value); el.style.touchAction = "none";
     } else if (name === "value") {
@@ -552,12 +548,12 @@ function apply(batch) {
     try {
       switch (op.op) {
       case "textflow": break; // consumed once after the complete DOM batch
+      case "keyframes": motion.keyframes(op.name, op.css); break; // LLP 1055 D7: the page's @keyframes
       case "head": (headGlue ??= loadAfterPaint('./document-glue.js', 'documentHead')).then(head => head(op)); break;
       case "router": navigation.apply(op); break;
-      case "keyframes": keyframes(op); break;
       case "create": {
         // Canvas overlays use a div; data-surface is the host-owned drawing leaf.
-        const el = page?.adopting?.get(op.id) ?? document.createElement(op.tag === "canvas" ? "div" : op.tag); // an adopted document's element (LLP 1048.000 D6)
+        const el = page?.adopting?.get(op.id) ?? (op.ns ? document.createElementNS(op.ns, op.tag) : document.createElement(op.tag === "canvas" ? "div" : op.tag)); // an adopted document's element (LLP 1048.000 D6); SVG in its namespace (LLP 1055 D4)
         if (op.tag === "canvas" && el.firstElementChild?.dataset.surface === undefined) {
           const surface = document.createElement("canvas");
           surface.dataset.surface = "";
@@ -567,7 +563,7 @@ function apply(batch) {
         applyProps(el, op.props, []);
         const css = op.css + (el.hasAttribute("data-action") ? ";touch-action:none" : ""); if ((el.getAttribute("style") ?? "") !== css) el.style.cssText = css; // an adopted element's is already there
         attach(el, op.id, op.handlers);
-        views.set(op.id, el);
+        views.set(op.id, el); if (op.tag.includes("-") && !op.ns && !el.exactNative) nativeCreate(el, op.id);
         // Shared collections own geometry feedback, including authored estimates.
         listView(el, op.id, collectionOp?.items.some(item => item.view === op.id));
         break;
@@ -592,7 +588,7 @@ function apply(batch) {
         }
         // Reorder in place: keyed rows keep their elements (and their state).
         // A canvas's surface element is skipped: not a child, never removed.
-        const skip = (n) => { while (n?.hasAttribute("data-surface") || n?.hasAttribute("data-exiting") || n?.hasAttribute("data-exact-path")) n = n.nextElementSibling; return n; }; // a leaving view stays (LLP 1063), a path's drawing too
+        const skip = (n) => { while (n?.hasAttribute("data-surface") || n?.hasAttribute("data-exiting")) n = n.nextElementSibling; return n; }; // a leaving view stays (LLP 1063)
         let cursor = skip(el.firstElementChild);
         for (const child of want) {
           if (child === cursor) { cursor = skip(cursor.nextElementSibling); continue; }
@@ -607,6 +603,7 @@ function apply(batch) {
       case "transform-drag": { motion.transformBinding(op); break; }
       case "reorder-drag": { arrange.binding(op); break; }
       case "reorder-state": { arrange.state(op); break; }
+      case "canvas2d": { pieces.canvas2d(op); break; } // LLP 1056 D7
       case "surface": {
         // A canvas's inputs (LLP 1009 D2): to the GPU module when it is
         // loaded, queued until then. The module itself is fetched only
@@ -748,7 +745,7 @@ function apply(batch) {
       case "destroy": {
         arrange.destroy(op.id);
         motion.destroy(op.id);
-        const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactMarkup?.destroy(); if (el instanceof HTMLVideoElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); if (!presence.live?.keeps(el)) el.remove(); }
+        const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactMarkup?.destroy(); el.exactNative?.destroy(); if (el instanceof HTMLVideoElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); if (!presence.live?.keeps(el)) el.remove(); }
         views.delete(op.id); messageViews.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break;
       }
       case "roots": {
@@ -869,16 +866,21 @@ const inflight = new Set();
 const controllers = new Set();
 let incarnation = 0;
 const HOST_WORK_BYTES=16*1024*1024, HOST_WORK_BASE64=4*Math.ceil(HOST_WORK_BYTES/3);
+// A `net.fetch` grant: an origin matched whole, or `scheme://*.domain` (every host strictly under one
+// domain of 2+ labels), as ibex2 matches natively (its patch 1, LLP 1054.000 R5). Copied in module-glue.js.
+function grantAdmits(granted, url) {
+  const star = /^([a-z][a-z0-9+.-]*):\/\/\*\.([^*/?#]+)$/i.exec(granted);
+  try {
+    const target = new URL(url), grant = new URL(star ? `${star[1]}://${star[2]}` : granted), host = grant.hostname;
+    if (!star) return !granted.includes("*") && grant.origin === target.origin;
+    return grant.protocol === target.protocol && grant.port === target.port && !/^[\d.]+$|^\[/.test(host) && host.split(".").length >= 2
+      && !host.endsWith(".") && target.hostname.length > host.length + 1 && target.hostname.endsWith("." + host);
+  } catch { return false; }
+}
 function granted(url, scope = null) {
-  // A `net.fetch` grant is an origin — scheme, host, port — matched whole,
-  // as ibex2 matches it on the native hosts (LLP 0067): the same refusal
-  // everywhere. A URL that does not parse is outside every grant.
-  let origin;
-  try { origin = new URL(url).origin; } catch { return false; }
   return (scope == null ? grants : scope.split("\n")).map(g=>g.trim()).some((g) => {
     const [kind, granted] = g.split(/\s+/, 2);
-    if (kind !== "net.fetch" || !granted) return false;
-    try { return new URL(granted).origin === origin; } catch { return false; }
+    return kind === "net.fetch" && !!granted && grantAdmits(granted, url);
   });
 }
 function surfaceGranted(op) {
@@ -1021,7 +1023,7 @@ function tree(request) {
   const reply = ask(request);
   for (const node of reply.nodes ?? []) {
     const el = views.get(node.id);
-    node.focused = el === document.activeElement; if (el?.matches("button, a, [role=button]")) node.accessibleName = el.getAttribute("aria-label") ?? el.textContent.trim();
+    node.focused = el === document.activeElement; if (el?.matches("button, a, [role=button]")) node.accessibleName = el.getAttribute("aria-label") ?? el.textContent.trim(); if (el?.exactNative) node.module = el.exactNative.status();
     if (!(el instanceof HTMLIFrameElement)) continue;
     node.url = el.getAttribute("src") ?? "";
     node.loading = iframeLoading.get(el) !== false;
@@ -1084,15 +1086,15 @@ function guestType(frame, request) {
   target.dispatchEvent(new guest.Event("change", { bubbles: true, composed: true }));
   return { typed: request.id, guest: true, value: "value" in target ? target.value : target.textContent };
 }
-function register(t) {
-  for (const a of document.getAnimations()) if (!starts.has(a)) starts.set(a, t);
+function register(t) { // an author-paused CSS animation holds its own time (LLP 1055 D10)
+  for (const a of document.getAnimations()) if (!starts.has(a)) { starts.set(a, t); if (a.playState === "paused") held.add(a); }
 }
 function seek(to) {
   for (const a of document.getAnimations()) {
     const timing = a.effect?.getComputedTiming();
     if (!timing) continue;
     const t = to - (starts.get(a) ?? agentClock);
-    if (t >= timing.endTime) a.finish();
+    if (held.has(a)) continue; else if (t >= timing.endTime && timing.endTime !== Infinity) a.finish();
     else { a.pause(); a.currentTime = t; }
   }
 }
@@ -1102,9 +1104,9 @@ function settleCandidate() {
   let to = agentClock;
   const s = ask({ op: "settle" }).settle;
   if (s != null) to = Math.max(to, s);
-  for (const a of document.getAnimations()) { // an `infinite` one never ends and is not waited for (LLP 1057 D6)
+  for (const a of document.getAnimations()) {
     const timing = a.effect?.getComputedTiming();
-    if (timing && Number.isFinite(timing.endTime)) to = Math.max(to, (starts.get(a) ?? agentClock) + timing.endTime);
+    if (timing && timing.endTime !== Infinity && !held.has(a)) to = Math.max(to, (starts.get(a) ?? agentClock) + timing.endTime); // an infinite one never settles
   }
   return to;
 }
@@ -1345,7 +1347,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   collections.reset();
   for (const el of lists.keys()) forgetList(el);
   for (const el of views.values()) if (el instanceof HTMLVideoElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); }
-  for (const el of views.values()) el.exactMarkup?.destroy(); views.clear();
+  for (const el of views.values()) { el.exactMarkup?.destroy(); el.exactNative?.destroy(); } views.clear();
   messageFrames.clear(); messageViews.clear();
   if(storageRequests){storageRequests.then(s=>s.dispose()).catch(()=>{});storageRequests=null;}
   grants = [];
@@ -1357,8 +1359,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   focus.restart(kept, () => applyBatch(batch), () => ask({ op: "tree" }), id => views.get(id));
   // @ref LLP 1027.000.000 — the date, as the clock the runner already reads.
   if (wasm.exact_set_time) applyBatch(JSON.parse(readOut(wasm.exact_set_time(Date.now() - now(), -new Date().getTimezoneOffset()))));
-  // The place, and the launch's seed: explicit entropy for ids, from the platform's secure source.
-  if (wasm.exact_set_place) { const seed = crypto.getRandomValues(new Uint32Array(2)); applyBatch(JSON.parse(readOut(wasm.exact_set_place(writeIn(`${navigator.language}\0${Intl.DateTimeFormat().resolvedOptions().timeZone}\0${(seed[0] & 0x1fffff) * 4294967296 + seed[1]}`))))); }
+  if (wasm.exact_set_place) { const seed = crypto.getRandomValues(new Uint32Array(2)); applyBatch(JSON.parse(readOut(wasm.exact_set_place(writeIn(`${navigator.language}\0${Intl.DateTimeFormat().resolvedOptions().timeZone}\0${(seed[0] & 0x1fffff) * 4294967296 + seed[1]}`))))); } // the place, and the launch's seed: explicit entropy for ids, from the platform's secure source
   globalThis.exact?.gpu?.finishRestart();
   if (bytes && !module && (inputReady || root.dataset.error)) activateData(); // A restart after the first activation.
   if (oldAssets !== assets) releaseAssets(oldAssets);
@@ -1431,15 +1432,16 @@ async function main() {
   // preload, so the next document has the link. A page that stays downloads it
   // again: a task after Stop (`navigateerror`, fired mid-stop) or Back from the
   // bfcache (`pageshow`); a 204 or a download says nothing, so after a second.
-  const url = new URL("./app.wasm", import.meta.url), imports = { exact_js: { call: moduleCall }, exact_rust: rustImports }, aborted = e => e?.name === "AbortError";
-  const download = () => { const stop = new AbortController(); globalThis.navigation?.addEventListener("navigate", e => e.destination.sameDocument || e.downloadRequest != null || (stop.abort(), document.querySelector('link[href="./app.wasm"]')?.remove()), { signal: stop.signal }); return fetch(url, { signal: stop.signal }); };
+  // The page names the build in its preload (`./app.wasm?v=…`, LLP 1047.000 §9), so this file is the same across builds.
+  const preload = () => [...document.querySelectorAll('link[rel="preload"]')].find(l => new URL(l.href).pathname.endsWith("/app.wasm")), url = new URL(preload()?.href ?? "./app.wasm", import.meta.url), imports = { exact_js: { call: moduleCall }, exact_rust: rustImports }, aborted = e => e?.name === "AbortError";
+  const download = () => { const stop = new AbortController(); globalThis.navigation?.addEventListener("navigate", e => e.destination.sameDocument || e.downloadRequest != null || (stop.abort(), preload()?.remove()), { signal: stop.signal }); return fetch(url, { signal: stop.signal }); };
   const stayed = () => new Promise(done => { const later = () => setTimeout(done); globalThis.navigation?.addEventListener("navigateerror", later, { once: true }); addEventListener("pageshow", later, { once: true }); setTimeout(done, 1000); });
   let response = (globalThis.exact.runtime ??= download()).then(r => r.url === url.href ? r : download(), e => aborted(e) ? Promise.reject(e) : download()), instance;
   let compiled; for (;;) try { ({ instance, module: compiled } = await WebAssembly.instantiateStreaming(response, imports)); break; } catch (e) { if (!aborted(e)) throw e; await stayed(); response = download(); }
   wasm = instance.exports; const [staged] = WebAssembly.Module.customSections(compiled, 'exact.stages'); if (staged) stages = JSON.parse(new TextDecoder().decode(staged)).stages;
   memory = wasm.memory;
   globalThis.exact.compat = JSON.parse(readOut(wasm.exact_compat()));
-  logicInfo = typeof wasm.exact_module_artifact === 'function' && wasm.exact_logic ? { ...JSON.parse(readOut(wasm.exact_logic())), native: Boolean(pageNative) } : null;
+  logicInfo = typeof wasm.exact_module_artifact === 'function' && wasm.exact_logic ? { ...JSON.parse(readOut(wasm.exact_logic())), native: pageNative } : null;
   setInputReady(false); // Every data executor activates after the baked first pixel.
   // Restore granted secrets before the baked frame (LLP 1018 D6).
   if (!agentMode) {

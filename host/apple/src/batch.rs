@@ -15,6 +15,8 @@ pub struct Batch {
     /// What moves changes place or size (`Engine::spatial`): the display
     /// link asks for the panel's full rate (LLP 1061 D4).
     pub spatial: bool,
+    /// A 2D canvas asked for another frame (LLP 1056 D5).
+    canvas: bool,
 }
 
 pub use exact_runner::agent::quote;
@@ -262,6 +264,39 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// A 2D canvas's stamped lists (LLP 1056 D4): base64, in order, for
+    /// the Core Graphics replayer. `fresh` starts a new bitmap at `w`×`h`;
+    /// `box` is the content box in the view's border box, where it shows.
+    pub fn canvas2d(
+        &mut self,
+        c: &exact_runner::CanvasList,
+        content: (f32, f32, f32, f32),
+        radii: [f32; 4],
+    ) {
+        let mut s = String::new();
+        let _ = write!(
+            s,
+            "{{\"op\":\"canvas2d\",\"id\":{},\"lifetime\":{},\"generation\":{},\"seq\":{},\"fresh\":{},\"w\":{},\"h\":{},\"scale\":{},\"stretch\":{},\"box\":[{},{},{},{}],\"radii\":[{},{},{},{}],\"lists\":[",
+            c.view, c.lifetime, c.generation, c.seq, c.fresh, c.pixel_width, c.pixel_height, c.scale, c.stretch,
+            content.0, content.1, content.2, content.3, radii[0], radii[1], radii[2], radii[3]
+        );
+        for (i, l) in c.lists.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            s.push('"');
+            s.push_str(&exact_runner::agent::base64(l));
+            s.push('"');
+        }
+        s.push_str("]}");
+        self.ops.push(s);
+    }
+
+    /// Whether a 2D canvas wants the next display frame (LLP 1056 D5).
+    pub fn canvas_frames(&mut self, wants: bool) {
+        self.canvas = wants;
+    }
+
     /// A canvas binding, preserving positional values or authored argument names.
     pub fn surface(&mut self, update: &exact_runner::SurfaceUpdate) {
         let mut s = String::new();
@@ -395,33 +430,26 @@ impl Batch {
         ));
     }
 
-    /// `{"op":"present","id":…,"property":…,"x":…,"y":…,"w":…,"h":…}` — a
-    /// paint property's presented value in place of its style row (LLP
-    /// 1062): a colour's channels 0–255, or a shadow's offset and blur.
+    /// `{"op":"present","id":…,"property":"layout","x":…,"y":…,"w":…,"h":…}`
+    /// — a layout transition's offset and scale of the laid-out box (LLP
+    /// 1063).
     pub fn present4(&mut self, id: u32, property: &str, [x, y, w, h]: [f64; 4]) {
         self.ops.push(format!(
             "{{\"op\":\"present\",\"id\":{id},\"property\":\"{property}\",\"x\":{x},\"y\":{y},\"w\":{w},\"h\":{h}}}"
         ));
     }
 
-    /// A paragraph's inline run's presented value (`None`: its row again):
-    /// `{"op":"present","id":paragraph,"run":…,…}` (LLP 1062). A run is no
-    /// view; its paragraph paints it.
-    pub fn present_run(&mut self, id: u32, run: u32, property: &str, value: Option<[f64; 4]>) {
-        self.ops.push(match value {
-            Some([x, y, w, h]) => format!(
-                "{{\"op\":\"present\",\"id\":{id},\"run\":{run},\"property\":\"{property}\",\"x\":{x},\"y\":{y},\"w\":{w},\"h\":{h}}}"
-            ),
-            None => format!(
-                "{{\"op\":\"unpresent\",\"id\":{id},\"run\":{run},\"property\":\"{property}\"}}"
-            ),
-        });
+    /// `{"op":"svg","id":…,"scene":{…}}`: an `svg`'s whole scene (LLP 1055 D4).
+    pub fn svg(&mut self, id: u32, scene: &str) {
+        self.ops
+            .push(format!("{{\"op\":\"svg\",\"id\":{id},\"scene\":{scene}}}"));
     }
 
-    /// `{"op":"unpresent","id":…,"property":…}` — the style row shows again.
-    pub fn unpresent(&mut self, id: u32, property: &str) {
+    /// `{"op":"animations","id":…,"specs":[…]}`: a view's Core Animation
+    /// specs for its CSS animations (LLP 1055 D7); `[]` removes them.
+    pub fn animations(&mut self, id: u32, specs: &str) {
         self.ops.push(format!(
-            "{{\"op\":\"unpresent\",\"id\":{id},\"property\":\"{property}\"}}"
+            "{{\"op\":\"animations\",\"id\":{id},\"specs\":{specs}}}"
         ));
     }
 
@@ -453,7 +481,8 @@ impl Batch {
         }
         let _ = write!(
             s,
-            ",\"timers\":{timers},\"motion\":{motion},\"clock\":{clock_ms},\"error\":"
+            ",\"timers\":{timers},\"motion\":{motion},\"canvas\":{},\"clock\":{clock_ms},\"error\":",
+            self.canvas
         );
         match error {
             Some(e) => quote(e, &mut s),
@@ -517,7 +546,7 @@ mod finish_bytes_tests {
         s.push_str(&batch.ops.join(","));
         let _ = write!(
             s,
-            "],\"timers\":{timers},\"motion\":{motion},\"clock\":{clock_ms},\"error\":"
+            "],\"timers\":{timers},\"motion\":{motion},\"canvas\":false,\"clock\":{clock_ms},\"error\":"
         );
         match error {
             Some(e) => quote(e, &mut s),

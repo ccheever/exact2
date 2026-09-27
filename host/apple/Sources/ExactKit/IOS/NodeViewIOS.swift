@@ -94,17 +94,16 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     let kind: String
     var inlineText: [InlineText] = []
     var inlinePressed: UInt32?
+    /// An SVG element a touch in this `svg` went down on (LLP 1055.000 D17).
+    var svgPressed: UInt32?
     override class var layerClass: AnyClass { NodeLayer.self }
     /// The box is `draw(_:)`'s to paint: Core Animation cannot say it
     /// (`applyBoxLayer`).
     var boxDrawn = false
     /// A uniform border under the children, where they can reach it.
     var boxBorder: CALayer?
-    /// A `background-image` gradient Core Animation paints (LLP 1056).
-    var boxGradient: CAGradientLayer?
-    /// `box-shadow` (`BoxShadow.swift`); paint motion's values over the style's (`PaintMotion.swift`).
-    var shadowCaster: ShadowCaster?, paint: [String: [Double]] = [:]
-    var clipBox: PlainView?
+    var boxGradient: CAGradientLayer? // a `background-image` gradient Core Animation paints (LLP 1066)
+    var shadowCaster: ShadowCaster?, clipBox: PlainView? // `box-shadow` and the clip it casts outside (`BoxShadow.swift`)
     var textRasterKey: TextRasterKey? { didSet { textRasterWhole = textRasterKey.map { $0.clip == nil } ?? false } }
     /// The key is set and paints the whole paragraph (not a band of it).
     private(set) var textRasterWhole = false
@@ -153,7 +152,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var reorderHold: ReorderHold?, reorderOrigin = CGPoint.zero
     var transformRecognizer: UIPanGestureRecognizer?
     var transformHold: TransformDragHold?
-    var transformOrigin = CGPoint.zero
+    var transformContact: TransformContact?
     var swipeOrigin = 0.0
     lazy var swipeFeedback = UISelectionFeedbackGenerator()
     func allowsTouchPan(_ velocity: CGPoint) -> Bool {
@@ -182,9 +181,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     override func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
         if gesture === layoutPanRecognizer { return SwipeInput.allows(self) }
         if let reorder = reorderShouldBegin(gesture) { return reorder }
-        if gesture === transformRecognizer {
-            return SwipeInput.allows(self) && presenter?.transformBindings[id]?.target != nil
-        }
+        if let transform = transformShouldBegin(gesture) { return transform }
         if gesture === heightRecognizer, let pan = gesture as? UIPanGestureRecognizer {
             let velocity = pan.velocity(in: window), translation = pan.translation(in: window)
             return SwipeInput.allows(self) && HeightDragDirection.accepts(
@@ -195,7 +192,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if gesture === swipeRecognizer, let pan = gesture as? UIPanGestureRecognizer {
             let velocity = pan.velocity(in: window)
             let start = pan.location(in: window).x - pan.translation(in: window).x
-            return !disabled && start >= 20 && SwipeRecognition.accepts(x: Double(velocity.x), y: Double(velocity.y), presentedX: Double(translate.x)) && !allowsTouchPan(velocity)
+            return !disabled && start >= Gesture.edge && SwipeRecognition.accepts(x: Double(velocity.x), y: Double(velocity.y), presentedX: Double(translate.x)) && !allowsTouchPan(velocity)
         }
         return super.gestureRecognizerShouldBegin(gesture)
     }
@@ -210,7 +207,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             guard let hold = swipeHold else { return }
             let delta = translation - swipeOrigin
             guard hold.move(delta) else { hold.cancel(); swipeHold = nil; return }
-            let armed = hold.mapping.value(delta) >= 64
+            let armed = hold.mapping.value(delta) >= Gesture.knee
             if armed != swipeArmed { swipeFeedback.selectionChanged(); swipeArmed = armed }
         case .ended, .cancelled, .failed:
             let hold = swipeHold; swipeHold = nil; swipeArmed = false
@@ -223,12 +220,13 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var doubleRecognizer: UITapGestureRecognizer?
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         if CanvasInput.owns(touch.view) { return false }
+        if stopsAtPress(gestureRecognizer), pressBoundary(touch) { return false } // LLP 1057.001 rule 3
         // A nested editor owns its selection gestures, including read-only
         // text. A containing bubble's reply/Tapback recognizers must yield.
         var hit = touch.view
         while let current = hit, current !== self {
             if current is UITextView || current is UITextField { return false }
-            if (gestureRecognizer === heightRecognizer || gestureRecognizer === transformRecognizer), current is UIScrollView { return false }
+            if (gestureRecognizer === heightRecognizer || gestureRecognizer === transformRecognizer || gestureRecognizer === transformContact?.pinch), current is UIScrollView { return false }
             hit = current.superview
         }
         return true
@@ -249,8 +247,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if handlers.contains("dblclick"), doubleRecognizer == nil {
             let g = UITapGestureRecognizer(target: self, action: #selector(doubleClicked(_:)))
             g.delegate = self
-            g.numberOfTapsRequired = 2
-            g.delaysTouchesEnded = false
+            // The web's order (LLP 1057.001 §1 rule 5): the second tap still presses.
+            g.numberOfTapsRequired = 2; g.delaysTouchesEnded = false; g.cancelsTouchesInView = false
             addGestureRecognizer(g)
             doubleRecognizer = g
         }
@@ -264,8 +262,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         presenter?.contextmenu(id)
     }
     @objc func doubleClicked(_ gesture: UITapGestureRecognizer) {
-        guard gesture.state == .ended, !disabled else { return }
-        presenter?.dblclick(id)
+        guard gesture.state == .ended, !disabled else { return } // then after this touch's own press
+        DispatchQueue.main.async { [weak self] in if let self, !self.disabled, self.presenter?.views[self.id] === self { self.presenter?.dblclick(self.id) } }
     }
     var hoverRecognizer: UIHoverGestureRecognizer?
     var translate = CGPoint.zero, layoutOffset = CGPoint.zero, layoutScale = CGPoint(x: 1, y: 1) // layout*: the box layout moved it from (LLP 1063)
@@ -577,7 +575,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         clearSymbol()
         image = nil
         video?.invalidate(); video = nil
-        presenter?.session?.webviews.destroy(id: id)
+        destroyEmbedded()
         web = nil
         presenter = nil
     }
@@ -622,12 +620,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             field = f
         }
         if kind == "video" { video = VideoView(owner: self) }
-        if kind == "iframe", let w = presenter.session?.webviews.create(owner: self) {
-            w.frame = bounds
-            w.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-            addSubview(w)
-            web = w
-        }
+        embedPlatformView(presenter)
     }
     required init?(coder: NSCoder) { nil }
 
@@ -865,7 +858,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     // @ref LLP 1034 D1/D2
     var drawsDark: Bool { traitCollection.userInterfaceStyle == .dark }
     func channels(_ key: String, dark: Bool? = nil) -> [Double]? {
-        paint[key] ?? style[key]?.channels(dark: dark ?? drawsDark)
+        style[key]?.channels(dark: dark ?? drawsDark)
     }
     func color(_ key: String, _ fallback: UIColor) -> UIColor {
         guard let c = channels(key) else { return fallback }
@@ -1127,7 +1120,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
         if kind == "image", props["imageSource"] == nil, imageSource != nil { loadGeneration += 1; presenter?.session?.rasters.cancel(id); raster = nil; imageSource = nil; clearSymbol(); image = nil; presenter?.intrinsic(id, nil) }
-        if kind == "iframe" { presenter?.session?.webviews.update(self) }
+        updateEmbedded()
         video?.update()
         setNeedsDisplay()
     }
@@ -1386,6 +1379,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "down", source: self) == true { return }
         guard !disabled else { pressed = false; return }
+        if let touch = touches.first, let target = presenter?.svg.target(id, at: local(touch.location(in: nil))) {
+            svgPressed = target; return
+        }
         if let touch = touches.first, let run = inlineActivationTarget(at: local(touch.location(in: nil))) {
             inlinePressed = run.id; return
         }
@@ -1398,7 +1394,12 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "up", source: self) == true { finishPointerPress(); return }
-        guard !disabled else { pressed = false; inlinePressed = nil; return }
+        guard !disabled else { pressed = false; inlinePressed = nil; svgPressed = nil; return }
+        if let target = svgPressed {
+            svgPressed = nil
+            if let touch = touches.first, presenter?.svg.target(id, at: local(touch.location(in: nil))) == target { presenter?.press(target) }
+            return
+        }
         if let run = inlinePressed {
             inlinePressed = nil
             if let touch = touches.first, inlineActivationTarget(at: local(touch.location(in: nil)))?.id == run { _ = activateInline(run) }
@@ -1416,7 +1417,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if inside, presenter?.views[id] === self { presenter?.press(id); finishPointerPress() }
     }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        inlinePressed = nil
+        inlinePressed = nil; svgPressed = nil
         if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "cancel", source: self) == true { return }
         if pressed { pressed = false } else { super.touchesCancelled(touches, with: event) }
     }
@@ -1428,6 +1429,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// synthesis.
     @discardableResult
     func activate(at windowPoint: CGPoint) -> NodeView? {
+        // An SVG element under the point takes it (LLP 1055.000 D17).
+        if kind == "svg", let element = presenter?.svg.target(id, at: local(windowPoint)) { presenter?.press(element); return self }
         guard let target = activationTarget(at: windowPoint) else { return nil }
         if target.isSurfaceControl { return target.control("down") && target.control("up") ? target : nil }
         target.presenter?.press(target.id)

@@ -46,14 +46,27 @@ pub enum DecodeError {
     BadShapeOutside,
     /// Invalid CSS `aspect-ratio` value.
     BadAspectRatio,
-    /// Invalid CSS `transform-origin` value.
-    BadTransformOrigin,
-    /// Invalid or unsupported CSS `background-image` value (LLP 1056).
+    /// Invalid or unsupported CSS `background-image` value (LLP 1066).
     BadBackgroundImage,
-    /// Invalid SVG `stroke-dasharray` (LLP 1065).
+    /// Invalid SVG paint (LLP 1055 D2).
+    BadPaint,
+    /// Invalid SVG `stroke-dasharray` (LLP 1055 D2).
     BadDashArray,
-    /// Invalid `marker-*` text (LLP 1065).
+    /// Invalid CSS `transform` list (LLP 1055.000 D5).
+    BadTransform,
+    /// Invalid CSS `transform-origin` (LLP 1055.000 D5).
+    BadTransformOrigin,
+    /// Invalid SVG `paint-order` (LLP 1055.000 D7).
+    BadPaintOrder,
+    /// Invalid SVG `marker-start`/`-mid`/`-end` (LLP 1055.000 D9).
     BadMarker,
+    /// Invalid CSS `filter` (LLP 1055.000 D14).
+    BadFilter,
+    /// An `animation` row carried more entries or keyframes than the wire
+    /// admits, or a direction/fill byte outside the table (LLP 1055 D5).
+    BadAnimation,
+    /// An `animation` row decoded but failed the sampler's validation.
+    InvalidAnimation(exact_motion::AnimationError),
     /// The frame revision is not one this kernel reads.
     UnsupportedRevision(u16),
     /// The producer was generated from a different schema than this kernel.
@@ -108,14 +121,6 @@ pub enum DecodeError {
     TooManyEasingStops(u8),
     /// A `transition` row decoded but failed the evaluator's validation.
     InvalidTransition(exact_motion::TransitionError),
-    /// An `animation` row carried more animations or keyframes than the wire
-    /// admits.
-    TooManyAnimations(u8),
-    /// An `animation` row named a direction, fill mode, play state or
-    /// property discriminant its table lacks.
-    UnknownAnimationValue(u8),
-    /// An `animation` row decoded but failed the sampler's validation.
-    InvalidAnimation(exact_motion::AnimationError),
     /// A style mask set bits above the last row.
     ReservedMaskBits,
     /// A child list exceeds the bound.
@@ -218,13 +223,6 @@ pub enum ApplyError {
         id: ViewId,
         node_type: NodeType,
     },
-    /// A `Path` was given a child that is not a `Path` (LLP 1065 D12).
-    PathChildNotPath {
-        op_index: usize,
-        parent: ViewId,
-        child: ViewId,
-        node_type: NodeType,
-    },
     /// A `Text` was given a child that is not a `Text`. A text node's children
     /// are its inline runs; anything else has no place in a measured leaf.
     InlineRunNotText {
@@ -254,6 +252,13 @@ pub enum ApplyError {
     InvalidAnimation {
         op_index: usize,
         error: exact_motion::AnimationError,
+    },
+    /// An SVG element's parent is not an `svg` or `g`, or an `svg` or `g`
+    /// was given a child that is not an SVG element (LLP 1055 D3).
+    SvgContent {
+        op_index: usize,
+        parent: ViewId,
+        child: ViewId,
     },
     /// The batch would leave node `id` `depth` levels below the top of its
     /// tree, past [`MAX_DEPTH`](crate::MAX_DEPTH): layout recurses once per
@@ -417,10 +422,6 @@ pub enum StyleValueError {
     BadTransition {
         style: StyleId,
     },
-    /// An `animation` text was not CSS shorthand with its `@keyframes`.
-    BadAnimation {
-        style: StyleId,
-    },
     BadShapeOutside {
         style: StyleId,
     },
@@ -431,26 +432,46 @@ pub enum StyleValueError {
     BadAspectRatio {
         style: StyleId,
     },
-    /// Not a two-dimensional CSS `transform-origin`.
-    BadTransformOrigin {
-        style: StyleId,
-    },
-    /// Not `none` or one gradient this kernel draws (LLP 1056).
+    /// Not `none` or one gradient this kernel draws (LLP 1066).
     BadBackgroundImage {
-        style: StyleId,
-    },
-    /// Not SVG `stroke-dasharray`: `none` or nonnegative numbers (LLP 1065).
-    BadDashArray {
-        style: StyleId,
-    },
-    /// Not a marker the compiler wrote (LLP 1065).
-    BadMarker {
         style: StyleId,
     },
     /// Not one outer CSS `box-shadow` exact2 draws; `reason` names what.
     BadBoxShadow {
         style: StyleId,
         reason: &'static str,
+    },
+    /// Not SVG paint: `none`, `currentcolor`, or a colour.
+    BadPaint {
+        style: StyleId,
+    },
+    /// Not SVG `stroke-dasharray`: `none` or non-negative numbers.
+    BadDashArray {
+        style: StyleId,
+    },
+    /// Not a CSS or SVG transform list.
+    BadTransform {
+        style: StyleId,
+    },
+    /// Not CSS `transform-origin`.
+    BadTransformOrigin {
+        style: StyleId,
+    },
+    /// Not SVG `paint-order`.
+    BadPaintOrder {
+        style: StyleId,
+    },
+    /// Not `none` or `url(#id)`.
+    BadMarker {
+        style: StyleId,
+    },
+    /// Not `none`, `url(#id)` or filter functions.
+    BadFilter {
+        style: StyleId,
+    },
+    /// Not CSS `animation` shorthand.
+    BadAnimation {
+        style: StyleId,
     },
 }
 

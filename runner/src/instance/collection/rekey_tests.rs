@@ -263,3 +263,47 @@ fn an_answer_of_new_objects_takes_the_full_path() {
         N + 1
     );
 }
+
+/// Items changed in place (the same keys in the same order, as a live tick
+/// changes prices): only the changed rows lose their measurements. The rest
+/// keep heights and epochs, so the host measures again only what changed,
+/// and a change to no mounted row publishes nothing new.
+#[test]
+fn an_in_place_change_invalidates_only_the_changed_rows() {
+    let mut h = harness();
+    let before = h.snapshot();
+    assert!(before.rows.iter().all(|r| r.measured));
+    let shown = before.rows[3].index;
+    let mut next = items(&h);
+    next[N - 1] = bumped(N - 1);
+    h.slots[0] = Value::list(next);
+    h.update().unwrap();
+    assert_eq!(
+        h.snapshot(),
+        before,
+        "an unmounted row's change publishes nothing"
+    );
+    let mut next = items(&h);
+    next[shown] = bumped(shown);
+    h.slots[0] = Value::list(next);
+    h.update().unwrap();
+    let after = h.snapshot();
+    assert_eq!(before.rows.len(), after.rows.len());
+    for (a, b) in before.rows.iter().zip(&after.rows) {
+        assert_eq!((a.index, a.view, a.height), (b.index, b.view, b.height));
+        if a.index == shown {
+            assert!(
+                !b.measured && a.epoch != b.epoch,
+                "the changed row is measured again"
+            );
+        } else {
+            assert!(
+                b.measured && a.epoch == b.epoch,
+                "row {} keeps its measurement",
+                a.index
+            );
+        }
+    }
+    assert!(after.revision > before.revision);
+    assert_eq!(h.tree.last_work.rows_keyed, 1);
+}

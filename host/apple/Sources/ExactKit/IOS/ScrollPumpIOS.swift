@@ -41,9 +41,17 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     }
     deinit {
         link?.invalidate()
+        restTimer?.invalidate()
+        RasterWorkers.shared.travelling(self, false)
         if let turnObserver { CFRunLoopRemoveObserver(CFRunLoopGetMain(), turnObserver, .commonModes) }
     }
     var sliceBudget: TimeInterval { min(0.004, max(0.001, refreshInterval * 0.24)) }
+    /// Seconds a list must be still before what it cached for travel is
+    /// let go (`ExactSession.rest`).
+    static let restDelay = 2.0
+    private var restTimer: Timer?
+    /// Travel (points/s) past which images decode one at a time.
+    static let fastTravel = 20_000.0
 
     private struct Travel { var top: CGFloat, time: TimeInterval, velocity = 0.0 }
     private struct Cover {
@@ -98,6 +106,7 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         inScroll = true
         defer { inScroll = false }
         lastScroll = CACurrentMediaTime()
+        armRest(after: Self.restDelay)
         if let node, p.collections.owns(node.id) { sample(node, now: lastScroll) }
         if let node, isLegacy(node), let scroll = node.scroll {
             sample(node, now: lastScroll)
@@ -122,6 +131,10 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
 
     func batchApplied() {
         batchPending = true
+        // A list that never scrolls, or whose rows change in place (live
+        // prices), leaves launch's pixels and replaced labels in the caches
+        // just the same: rest after a change as after a scroll.
+        armRest(after: Self.restDelay)
         guard !reporting else { return }
         syncLists(limit: ExactEnv.agentFreezes ? 0 : 1)
     }
@@ -183,7 +196,21 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         value.add(to: .main, forMode: .common)
         link = value
     }
-    private func stop() { link?.invalidate(); link = nil }
+    /// Once scrolling has been still for `restDelay` after a scroll or a
+    /// batch, the session trims its caches to what shows, as a browser
+    /// discards the decoded images of content it scrolled past; what comes
+    /// back into view is made again.
+    private func armRest(after delay: TimeInterval) {
+        guard restTimer == nil else { return }
+        restTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            restTimer = nil
+            let still = CACurrentMediaTime() - lastScroll
+            if still < Self.restDelay { armRest(after: Self.restDelay - still); return }
+            presenter?.session?.rest()
+        }
+    }
+    private func stop() { link?.invalidate(); link = nil; RasterWorkers.shared.travelling(self, false) }
     private func scheduleAfterScroll() {
         guard !queued else { return }
         queued = true
@@ -225,6 +252,8 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
             textPending = p.refreshVisibleText(deadline: deadline, velocity: CGFloat(fastest), interval: refreshInterval)
             Presenter.signposts.endInterval("pump-text", post)
         }
+        // One image decode at a time while a list travels fast.
+        RasterWorkers.shared.travelling(self, p.listViews.keys.contains { abs(velocity($0)) > Self.fastTravel })
         if pending.isEmpty && !textPending && p.collections.fillPending.isEmpty { stop() }
     }
     /// Agent reads keep their settled contract, outside the scroll callback.
@@ -241,6 +270,7 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     }
     func reset() {
         stop(); epoch += 1; queued = false
+        restTimer?.invalidate(); restTimer = nil
         pending.removeAll(); geometry.removeAll(); covers.removeAll(); travel.removeAll(); costs.removeAll()
         textPending = false; batchPending = false
         lastScroll = -.infinity; lastSlice = -.infinity; finalizationCost = 0.0005

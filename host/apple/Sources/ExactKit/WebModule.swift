@@ -150,7 +150,7 @@ final class WebViews {
         #if os(macOS)
         return Bundle.main.executableURL!.deletingLastPathComponent().appendingPathComponent("libexact_web.dylib").path
         #else
-        return (Bundle.main.privateFrameworksPath ?? Bundle.main.bundlePath) + "/libexact_web.dylib"
+        return embeddedModule(framework: "ExactWeb", dylib: "libexact_web.dylib")
         #endif
     }
 

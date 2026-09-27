@@ -15,6 +15,7 @@
 mod logic;
 mod manifest;
 mod map;
+pub mod native;
 mod rust;
 mod sources;
 mod strings;
@@ -309,6 +310,11 @@ fn compile_path_output(
         related: Box::new([]),
     })?;
     let (file, sources) = sources::load(path, src, &app_root)?;
+    native::check(&file, &app_root).map_err(|all| {
+        all.into_iter()
+            .map(|e| sources.resolve(e))
+            .collect::<Vec<_>>()
+    })?;
     if let Some(declared) = surface::arguments(&app_root)? {
         contract_analyze::check_surface_arguments(&file, &declared)
             .map_err(|e| sources.resolve(e.into()))?;
@@ -545,7 +551,9 @@ pub fn bake<D: DataSource>(mut plan: Plan, data: D) -> Result<Plan, BakeError> {
         }
         // @ref LLP 1048.003 D6 — a source that answers later at build shows
         // its placeholder there; that is not its answer, so a launch asks it.
-        if pending.contains(&name) {
+        // @ref LLP 1054.000.002 D4 — nor is any placeholder, even one shown
+        // without a ticket (a source not ready).
+        if pending.contains(&name) || runner.resource_is_placeholder(&name) {
             continue;
         }
         if let Some(v) = runner.resource(&name) {

@@ -52,6 +52,9 @@ pub struct Gpu {
     /// Image brushes by the picture's address, each entry holding the
     /// picture so the address cannot be reused while the brush is cached.
     images: ImageCache,
+    /// 2D canvas snapshots as image brushes, by snapshot identity (LLP 1056
+    /// D7): a new revision is a new `Arc`, so a new upload.
+    canvas_brushes: std::collections::HashMap<usize, (Arc<Pixmap>, vello::peniko::ImageBrush)>,
     /// The adapter's name.
     pub adapter: String,
     /// The wgpu backend's name (`Vulkan`, `Metal`, …).
@@ -195,6 +198,7 @@ impl Gpu {
             height: 1.0,
             target: None,
             images: ImageCache::default(),
+            canvas_brushes: Default::default(),
             adapter: info.name.clone(),
             api: format!("{:?}", info.backend),
             device_ms,
@@ -328,22 +332,6 @@ fn bez(ops: &[PathOp]) -> BezPath {
     b
 }
 
-/// A `path` node's normalized commands as a kurbo path (LLP 1065 D7).
-fn vector_path(commands: &[exact_kernel::vector::Command]) -> BezPath {
-    use exact_kernel::vector::Command;
-    let p = |[x, y]: [f32; 2]| (f64::from(x), f64::from(y));
-    let mut b = BezPath::new();
-    for command in commands {
-        match *command {
-            Command::Move(a) => b.move_to(p(a)),
-            Command::Line(a) => b.line_to(p(a)),
-            Command::Cubic(c1, c2, a) => b.curve_to(p(c1), p(c2), p(a)),
-            Command::Close => b.close_path(),
-        }
-    }
-    b
-}
-
 fn color(c: [u8; 4]) -> Color {
     Color::from_rgba8(c[0], c[1], c[2], c[3])
 }
@@ -372,79 +360,124 @@ impl Backend for Gpu {
         self.scene.fill(Fill::NonZero, a, color(c), None, &shape(s));
     }
 
-    fn vector(&mut self, v: &crate::paint::VectorPaint, ts: Transform) {
-        use exact_kernel::{FillRule, StrokeLinecap, StrokeLinejoin};
-        use vello::kurbo::{Cap, Join, StrokeOpts};
-        let a = self.affine(ts.pre_concat(v.fit));
-        if let Some((c, d)) = &v.fill {
-            let rule = match v.rule {
-                FillRule::Nonzero => Fill::NonZero,
-                FillRule::Evenodd => Fill::EvenOdd,
-            };
-            self.scene.fill(rule, a, color(*c), None, &vector_path(d));
+    // @ref LLP 1055 D4 — an SVG shape: fill under stroke.
+    fn svg_path(&mut self, s: &crate::paint::SvgPaint<'_>, ts: Transform) {
+        let mut p = BezPath::new();
+        for seg in &s.path.0 {
+            match *seg {
+                exact_kernel::svg::Seg::Move(x, y) => p.move_to((x as f64, y as f64)),
+                exact_kernel::svg::Seg::Line(x, y) => p.line_to((x as f64, y as f64)),
+                exact_kernel::svg::Seg::Cubic(a, b, c, d, x, y) => p.curve_to(
+                    (a as f64, b as f64),
+                    (c as f64, d as f64),
+                    (x as f64, y as f64),
+                ),
+                exact_kernel::svg::Seg::Close => p.close_path(),
+            }
         }
-        let Some((c, d)) = v.stroke.as_ref().filter(|_| v.width > 0.0) else {
-            return;
+        let a = self.affine(ts);
+        // @ref LLP 1055.000 D7 — a gradient is a peniko brush in the path's
+        // space, interpolated unpremultiplied as Chrome's SVG gradients are.
+        let brush = |ink: &crate::paint::Ink<'_>| -> (vello::peniko::Brush, Option<Affine>) {
+            match ink {
+                crate::paint::Ink::Solid(c) => (color(*c).into(), None),
+                // @ref LLP 1055.000 D7 — a pattern's tile as a repeating image brush.
+                crate::paint::Ink::Pattern {
+                    tile,
+                    transform: t,
+                    opacity,
+                } => {
+                    struct Pixels(std::sync::Arc<tiny_skia::Pixmap>);
+                    impl AsRef<[u8]> for Pixels {
+                        fn as_ref(&self) -> &[u8] {
+                            self.0.data()
+                        }
+                    }
+                    let image = vello::peniko::ImageBrush::new(vello::peniko::ImageData {
+                        data: vello::peniko::Blob::new(std::sync::Arc::new(Pixels(tile.clone()))),
+                        format: vello::peniko::ImageFormat::Rgba8,
+                        alpha_type: vello::peniko::ImageAlphaType::AlphaPremultiplied,
+                        width: tile.width(),
+                        height: tile.height(),
+                    })
+                    .with_extend(vello::peniko::Extend::Repeat)
+                    .with_alpha(*opacity);
+                    let m = Affine::new([t[0], t[1], t[2], t[3], t[4], t[5]].map(|v| v as f64));
+                    (image.into(), Some(m))
+                }
+                crate::paint::Ink::Gradient {
+                    server,
+                    stops,
+                    transform,
+                } => {
+                    use exact_kernel::svg::server::{ServerKind, Spread};
+                    use vello::peniko::{Extend, Gradient, InterpolationAlphaSpace};
+                    let g = match server.kind {
+                        ServerKind::Linear { x1, y1, x2, y2 } => {
+                            Gradient::new_linear((x1 as f64, y1 as f64), (x2 as f64, y2 as f64))
+                        }
+                        ServerKind::Radial {
+                            cx,
+                            cy,
+                            r,
+                            fx,
+                            fy,
+                            fr,
+                        } => Gradient::new_two_point_radial(
+                            (fx as f64, fy as f64),
+                            fr,
+                            (cx as f64, cy as f64),
+                            r,
+                        ),
+                    };
+                    let stops: Vec<(f32, vello::peniko::color::DynamicColor)> =
+                        stops.iter().map(|(o, c)| (*o, color(*c).into())).collect();
+                    let mut g = g
+                        .with_extend(match server.spread {
+                            Spread::Pad => Extend::Pad,
+                            Spread::Reflect => Extend::Reflect,
+                            Spread::Repeat => Extend::Repeat,
+                        })
+                        .with_stops(stops.as_slice());
+                    g.interpolation_alpha_space = InterpolationAlphaSpace::Unpremultiplied;
+                    let t = transform;
+                    let m = Affine::new([t[0], t[1], t[2], t[3], t[4], t[5]].map(|v| v as f64));
+                    (g.into(), Some(m))
+                }
+            }
         };
-        let a = self.affine(ts.pre_concat(v.stroke_fit));
-        let stroke = Stroke::new(f64::from(v.width))
-            .with_caps(match v.cap {
-                StrokeLinecap::Butt => Cap::Butt,
-                StrokeLinecap::Round => Cap::Round,
-                StrokeLinecap::Square => Cap::Square,
-            })
-            .with_join(match v.join {
-                StrokeLinejoin::Miter => Join::Miter,
-                StrokeLinejoin::Round => Join::Round,
-                StrokeLinejoin::Bevel => Join::Bevel,
-            })
-            .with_miter_limit(f64::from(v.miter));
-        // A dashed stroke shows through its trimmed, undashed stroke: that
-        // stroke's outline, to a tenth of a device pixel, is the clip.
-        let reveal = v.reveal.as_deref().map(|trim| {
-            let tolerance = 0.1
-                / a.as_coeffs()[..4]
-                    .iter()
-                    .fold(1e-9f64, |m, c| m.max(c.abs()));
-            vello::kurbo::stroke(
-                vector_path(trim),
-                &stroke,
-                &StrokeOpts::default(),
-                tolerance,
-            )
-        });
-        if let Some(outline) = &reveal {
-            self.scene.push_clip_layer(Fill::NonZero, a, outline);
-        }
-        self.scene
-            .stroke(&stroke, a, color(*c), None, &vector_path(d));
-        // Vello caps no zero-length subpath: SVG's dot (LLP 1065 D9) is its
-        // cap, a disc or a square as wide as the stroke.
-        let r = f64::from(v.width) / 2.0;
-        for (i, pair) in d.windows(2).enumerate() {
-            use exact_kernel::vector::Command;
-            let [Command::Move(p), Command::Line(q)] = pair else {
-                continue;
-            };
-            // The whole subpath, not a first segment of no length.
-            if p != q || !matches!(d.get(i + 2), None | Some(Command::Move(_))) {
-                continue;
-            }
-            let (x, y) = (f64::from(p[0]), f64::from(p[1]));
-            match v.cap {
-                StrokeLinecap::Round => {
-                    let dot = vello::kurbo::Circle::new((x, y), r);
-                    self.scene.fill(Fill::NonZero, a, color(*c), None, &dot);
+        for part in s.order {
+            match part {
+                0 => {
+                    if let Some(ink) = &s.fill {
+                        let rule = if s.even_odd {
+                            Fill::EvenOdd
+                        } else {
+                            Fill::NonZero
+                        };
+                        let (b, m) = brush(ink);
+                        self.scene.fill(rule, a, &b, m, &p);
+                    }
                 }
-                StrokeLinecap::Square => {
-                    let dot = Rect::new(x - r, y - r, x + r, y + r);
-                    self.scene.fill(Fill::NonZero, a, color(*c), None, &dot);
+                1 => {
+                    if let (Some(ink), true) = (&s.stroke, s.width > 0.0) {
+                        use vello::kurbo::{Cap, Join};
+                        let mut stroke = Stroke::new(s.width as f64)
+                            .with_caps([Cap::Butt, Cap::Round, Cap::Square][s.cap.min(2) as usize])
+                            .with_join(
+                                [Join::Miter, Join::Round, Join::Bevel][s.join.min(2) as usize],
+                            )
+                            .with_miter_limit(s.miter as f64);
+                        if !s.dash.is_empty() {
+                            stroke = stroke
+                                .with_dashes(s.phase as f64, s.dash.iter().map(|d| *d as f64));
+                        }
+                        let (b, m) = brush(ink);
+                        self.scene.stroke(&stroke, a, &b, m, &p);
+                    }
                 }
-                StrokeLinecap::Butt => {}
+                _ => {}
             }
-        }
-        if reveal.is_some() {
-            self.scene.pop_layer();
         }
     }
 
@@ -522,9 +555,55 @@ impl Backend for Gpu {
         }
     }
 
+    fn canvas(&mut self, image: &Arc<Pixmap>, dst: Rect4, clips: &[Shape], ts: Transform) {
+        struct Pixels(Arc<Pixmap>);
+        impl AsRef<[u8]> for Pixels {
+            fn as_ref(&self) -> &[u8] {
+                self.0.data()
+            }
+        }
+        let (nw, nh) = (image.width() as f64, image.height() as f64);
+        if nw <= 0.0 || nh <= 0.0 || dst.2 <= 0.0 || dst.3 <= 0.0 {
+            return;
+        }
+        // A snapshot no painter holds any more is dropped with its brush.
+        self.canvas_brushes
+            .retain(|_, (pixels, _)| Arc::strong_count(pixels) > 1);
+        let brush = self
+            .canvas_brushes
+            .entry(Arc::as_ptr(image) as usize)
+            .or_insert_with(|| {
+                let brush = vello::peniko::ImageBrush::new(vello::peniko::ImageData {
+                    data: vello::peniko::Blob::new(Arc::new(Pixels(image.clone()))),
+                    format: vello::peniko::ImageFormat::Rgba8,
+                    alpha_type: vello::peniko::ImageAlphaType::AlphaPremultiplied,
+                    width: image.width(),
+                    height: image.height(),
+                });
+                (image.clone(), brush)
+            })
+            .1
+            .clone();
+        let a = self.affine(ts);
+        for c in clips {
+            self.scene.push_clip_layer(Fill::NonZero, a, &shape(c));
+        }
+        let place = a
+            * Affine::translate((dst.0 as f64, dst.1 as f64))
+            * Affine::scale_non_uniform(dst.2 as f64 / nw, dst.3 as f64 / nh);
+        self.scene.draw_image(&brush, place);
+        for _ in clips {
+            self.scene.pop_layer();
+        }
+    }
+
     fn surface_image(&mut self, image: Arc<Pixmap>, dst: Rect4) {
+        self.island_image(image, dst, Transform::identity(), 0);
+    }
+
+    // @ref LLP 1055.000 D14 — an island in its element's user space.
+    fn island_image(&mut self, image: Arc<Pixmap>, dst: Rect4, ts: Transform, mode: u8) {
         let clips: &[Shape] = &[];
-        let ts = Transform::identity();
         struct Pixels(Arc<Pixmap>);
         impl AsRef<[u8]> for Pixels {
             fn as_ref(&self) -> &[u8] {
@@ -549,7 +628,40 @@ impl Backend for Gpu {
         let place = a
             * Affine::translate((dst.0 as f64, dst.1 as f64))
             * Affine::scale_non_uniform(dst.2 as f64 / nw, dst.3 as f64 / nh);
+        // @ref LLP 1055.000 D19 — `mix-blend-mode`, as a blended layer.
+        if mode != 0 {
+            use vello::peniko::Mix as M;
+            let mix = [
+                M::Normal,
+                M::Multiply,
+                M::Screen,
+                M::Overlay,
+                M::Darken,
+                M::Lighten,
+                M::ColorDodge,
+                M::ColorBurn,
+                M::HardLight,
+                M::SoftLight,
+                M::Difference,
+                M::Exclusion,
+                M::Hue,
+                M::Saturation,
+                M::Color,
+                M::Luminosity,
+            ][mode.min(15) as usize];
+            let whole = Rect::new(
+                0.0,
+                0.0,
+                (self.width * self.scale) as f64,
+                (self.height * self.scale) as f64,
+            );
+            self.scene
+                .push_layer(Fill::NonZero, mix, 1.0, Affine::IDENTITY, &whole);
+        }
         self.scene.draw_image(&brush, place);
+        if mode != 0 {
+            self.scene.pop_layer();
+        }
         for _ in clips {
             self.scene.pop_layer();
         }
@@ -600,13 +712,58 @@ impl Backend for Gpu {
     }
 
     fn push_css_clip(&mut self, path: &exact_kernel::clip::ClipPath, ts: Transform) -> bool {
+        let mut b = BezPath::new();
+        for (op, v) in path.commands() {
+            let point = |i: usize| (v[i] as f64, v[i + 1] as f64);
+            match op {
+                'M' => b.move_to(point(0)),
+                'L' => b.line_to(point(0)),
+                'Q' => b.quad_to(point(0), point(2)),
+                'C' => b.curve_to(point(0), point(2), point(4)),
+                'Z' => b.close_path(),
+                _ => unreachable!("validated CSS path"),
+            }
+        }
         let rule = match path.rule() {
-            exact_kernel::FillRule::Nonzero => Fill::NonZero,
             exact_kernel::FillRule::Evenodd => Fill::EvenOdd,
+            exact_kernel::FillRule::Nonzero => Fill::NonZero,
         };
-        self.scene
-            .push_clip_layer(rule, self.affine(ts), &vector_path(path.commands()));
+        self.scene.push_clip_layer(rule, self.affine(ts), &b);
         true
+    }
+
+    // @ref LLP 1055.000 D10 — an SVG clip: its shapes as one clip layer
+    // (a union under one rule), its own clip a layer inside it.
+    fn push_svg_clip(&mut self, clip: &exact_kernel::svg::scene::Clip, ts: Transform) -> usize {
+        let a = self.affine(ts);
+        let mut pushed = 0;
+        let mut level = Some(clip);
+        while let Some(c) = level {
+            let mut b = BezPath::new();
+            for shape in &c.shapes {
+                for seg in &shape.path.0 {
+                    match *seg {
+                        exact_kernel::svg::Seg::Move(x, y) => b.move_to((x as f64, y as f64)),
+                        exact_kernel::svg::Seg::Line(x, y) => b.line_to((x as f64, y as f64)),
+                        exact_kernel::svg::Seg::Cubic(p, q, r, s, x, y) => b.curve_to(
+                            (p as f64, q as f64),
+                            (r as f64, s as f64),
+                            (x as f64, y as f64),
+                        ),
+                        exact_kernel::svg::Seg::Close => b.close_path(),
+                    }
+                }
+            }
+            let rule = if !c.shapes.is_empty() && c.shapes.iter().all(|s| s.even_odd) {
+                Fill::EvenOdd
+            } else {
+                Fill::NonZero
+            };
+            self.scene.push_clip_layer(rule, a, &b);
+            pushed += 1;
+            level = c.then.as_deref();
+        }
+        pushed
     }
 
     fn pop_clip(&mut self) {

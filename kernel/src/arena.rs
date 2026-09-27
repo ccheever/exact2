@@ -468,7 +468,7 @@ impl NodeArena {
     /// measures with its computed style: the rows it sets, else its
     /// paragraph's, else the initial values — as a `<span>` inside a `<div>`.
     /// Its text is `text-transform`ed here, once, for every measurer and
-    /// painter (LLP 1055 D5) — except a field's, which shows what was typed
+    /// painter (LLP 1064 D5) — except a field's, which shows what was typed
     /// (the web's form controls reset the row), and Markdown source, which a
     /// host expands itself.
     pub fn text_runs<'a>(&'a self, slot: u32, out: &mut Vec<TextRun<'a>>) {
@@ -845,21 +845,29 @@ mod tests {
             (StyleId::OverflowWrap, text("anywhere")),
             (StyleId::InterpolateSize, text("allow-keywords")),
             (StyleId::TextTransform, text("uppercase")),
-            // @ref LLP 1065 D3 — SVG's painting properties inherit.
-            (StyleId::Fill, text("none")),
-            (StyleId::Stroke, text("light-dark(#112233, #ffffff)")),
-            (StyleId::StrokeWidth, number(4.0)),
+            // SVG 2 presentation properties (LLP 1055 D2).
+            (StyleId::Fill, text("#16a34a")),
+            (StyleId::Stroke, text("currentcolor")),
+            (StyleId::StrokeWidth, number(1.5)),
             (StyleId::StrokeLinecap, text("round")),
-            (StyleId::StrokeLinejoin, text("bevel")),
+            (StyleId::StrokeLinejoin, text("round")),
+            (StyleId::StrokeMiterlimit, number(2.0)),
+            (StyleId::StrokeDasharray, text("1 2")),
+            (StyleId::StrokeDashoffset, number(1.0)),
+            (StyleId::FillOpacity, number(0.5)),
+            (StyleId::StrokeOpacity, number(0.5)),
             (StyleId::FillRule, text("evenodd")),
-            (StyleId::StrokeMiterlimit, number(9.0)),
-            (StyleId::StrokeDasharray, text("4 2")),
-            (StyleId::StrokeDashoffset, number(3.0)),
-            (StyleId::MarkerStart, text(MARK)),
-            (StyleId::MarkerMid, text(MARK)),
-            (StyleId::MarkerEnd, text(MARK)),
+            (StyleId::Visibility, text("hidden")),
+            (StyleId::PaintOrder, text("stroke")),
+            (StyleId::ClipRule, text("evenodd")),
+            (StyleId::TextAnchor, text("middle")),
+            (StyleId::DominantBaseline, text("central")),
+            (StyleId::PointerEvents, text("stroke")),
+            (StyleId::MarkerStart, text("url(#a)")),
+            (StyleId::MarkerMid, text("url(#a)")),
+            (StyleId::MarkerEnd, text("url(#a)")),
+            (StyleId::ColorInterpolationFilters, text("sRGB")),
         ];
-        const MARK: &str = "marker(m;none;xMidYMid meet;0 0;3 3;strokeWidth;auto)";
         let mut covered = StyleMask::EMPTY;
         for (id, value) in samples {
             covered.set(id);

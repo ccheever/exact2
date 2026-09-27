@@ -56,7 +56,6 @@ final class BatchDecodeTests: XCTestCase {
             XCTAssertEqual(a.handlers, b.handlers, file: file, line: line)
             XCTAssertEqual(a.ids, b.ids, file: file, line: line)
             XCTAssertEqual(a.property, b.property, file: file, line: line)
-            XCTAssertEqual(a.run, b.run, file: file, line: line)
             XCTAssertEqual([a.x, a.y, a.w, a.h].map(\.bitPattern), [b.x, b.y, b.w, b.h].map(\.bitPattern), file: file, line: line)
             XCTAssertEqual(a.style, b.style.mapValues(convert), file: file, line: line)
             XCTAssertTrue(NSDictionary(dictionary: a.payload).isEqual(to: b.payload), file: file, line: line)
@@ -100,8 +99,6 @@ final class BatchDecodeTests: XCTestCase {
             #"{"op":"frame","id":1,"x":-0,"y":0.1,"w":1e3,"h":1.7976931348623157e308}"#,
             #"{"op":"content","id":1,"w":2,"h":3}"#,
             #"{"op":"present","id":1,"property":"translate","x":-2.5,"y":0.125}"#,
-            #"{"op":"present","id":1,"run":7,"property":"text_color","x":127.5,"y":0,"w":255,"h":255}"#,
-            #"{"op":"unpresent","id":1,"run":7,"property":"text_color"}"#,
             #"{"op":"destroy","id":1,"ignored":{"deep":[null,true,"x"]}}"#,
             #"{"op":"flow","id":1,"shapes":[{"rect":[0,1,2,3]}]}"#,
             #"{"op":"surface","id":1,"name":"map","values":[1,true,null,["x"]]}"#,

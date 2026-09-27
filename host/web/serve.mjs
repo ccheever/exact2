@@ -22,15 +22,14 @@ const PUBLIC_FILES = new Set([
   ...Object.keys(webHostFiles()).map(name => '/' + name),
   '/app.js', '/app.hbc', '/app.module.json', '/app.plan', '/app.wasm', '/exact.json',
   '/gpu.js', '/gpu_bg.wasm', '/markup-editor.wasm', '/textflow.wasm', '/index.html', '/manifest.json',
-  // The app's page module (`host.web.native`), when it declares one.
-  '/native.js',
   // The one dot path a static origin serves: the deep-link association
   // file bake generates (LLP 1030 D1), read by Apple's CDN over HTTPS.
   '/.well-known/apple-app-site-association',
 ]);
 // `/gpu/`: each declared GPU module's wasm and its glue (LLP 1009 D6).
 // `/stages/`: the core's staged capabilities, named by digest (LLP 1047.000).
-const PUBLIC_TREES = ['/assets/', '/deck/', '/shaders/', '/rust/', '/gpu/', '/stages/'];
+// `/modules/`: the app's native-module web executor (LLP 1024 D3), page code.
+const PUBLIC_TREES = ['/assets/', '/deck/', '/shaders/', '/rust/', '/gpu/', '/stages/', '/modules/'];
 const REQUIRED_BUILD_FILES = ['app.plan', 'app.wasm', 'exact.json', 'glue.js', 'navigation.js', 'index.html', 'manifest.json'];
 // An origin's update streams (LLP 1030.000 D7; `scripts/origin.mjs`):
 // `.exact/blobs/<sha256>` and `.exact/<channel>/<compatibility id>/…` — the
@@ -79,7 +78,7 @@ export function moduleCards(files, appId) {
   const receipt = files.get(MODULE_FILES.receipt);
   if (!receipt || receipt.length > 1024 * 1024) throw new Error('missing or oversized module receipt');
   const meta = JSON.parse(receipt.toString('utf8'));
-  if (meta.version !== 1 || meta.abi !== 1 || meta.appId !== appId || typeof meta.grants !== 'string'
+  if (meta.version !== 1 || (meta.abi !== 1 && meta.abi !== 2) || meta.appId !== appId || typeof meta.grants !== 'string'
       || !Number.isSafeInteger(meta.bytecodeVersion) || meta.bytecodeVersion <= 0) throw new Error('incompatible module receipt');
   for (const [key, name] of [['plan', 'app.plan'], ['module', 'app.hbc'], ['web', 'app.js']]) {
     const bytes = files.get(name), card = meta[key];

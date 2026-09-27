@@ -41,14 +41,18 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::OutOfRange { .. } => "out of the row's range".into(),
         StyleValueError::BadColor { .. } => "a color is `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb(r, g, b)`, `rgba(r, g, b, a)`, or `transparent`".into(),
         StyleValueError::BadShapeOutside { .. } => "expected none, circle(), ellipse(), inset() with one round radius, or polygon() with at most 64 vertices; lengths are points/px or percentages".into(),
-        StyleValueError::BadClipPath { .. } => "expected none or path([nonzero | evenodd,] \"<SVG path data>\") with no error in the data".into(),
-        StyleValueError::BadMarker { .. } => "expected none or url(#name) naming a `marker` declaration".into(),
-        StyleValueError::BadDashArray { .. } => "expected none or nonnegative numbers separated by spaces or commas".into(),
+        StyleValueError::BadClipPath { .. } => "expected none or path() with explicit absolute M/L/Q/C/Z commands and separated finite coordinates".into(),
         StyleValueError::BadAspectRatio { .. } => "expected auto, a ratio (`16 / 9`, or a number), or both (`auto 4 / 3`); numbers are nonnegative".into(),
-        StyleValueError::BadTransformOrigin { .. } => "expected one or two of left, center, right, top, bottom, a px length or a percentage (`left top`, `50% 100%`), then an optional z length".into(),
         StyleValueError::BadBackgroundImage { .. } => "expected none, linear-gradient(…) or radial-gradient(…)".into(),
         StyleValueError::BadTransition { .. } => "not a CSS `transition` shorthand".into(),
-        StyleValueError::BadAnimation { .. } => "not a CSS `animation` shorthand".into(),
+        StyleValueError::BadPaint { .. } => "SVG paint is `none`, `currentcolor`, or a colour (`#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `light-dark()`); paint servers (`url(#…)`) are refused (LLP 1055 D12)".into(),
+        StyleValueError::BadDashArray { .. } => "`stroke-dasharray` is `none` or non-negative numbers separated by spaces or commas".into(),
+        StyleValueError::BadTransform { .. } => "`transform` is `none` or transform functions: matrix, translate, translateX/Y, scale, scaleX/Y, rotate (with SVG's optional centre), skew, skewX/Y; lengths in user units or px, angles in deg, rad, grad or turn".into(),
+        StyleValueError::BadMarker { .. } => "a marker or a mask is `none` or `url(#id)`, naming a `marker` or a `mask`".into(),
+        StyleValueError::BadFilter { .. } => "`filter` is `none`, or `url(#id)` naming a `filter` and the filter functions (blur, brightness, contrast, drop-shadow, grayscale, hue-rotate, invert, opacity, saturate, sepia), in order".into(),
+        StyleValueError::BadPaintOrder { .. } => "`paint-order` is `normal`, or `fill`, `stroke` and `markers` in the order they paint".into(),
+        StyleValueError::BadTransformOrigin { .. } => "`transform-origin` is one or two of left, center, right, top, bottom, a length or a percentage".into(),
+        StyleValueError::BadAnimation { .. } => "not a CSS `animation` shorthand: `<name> <duration> [<easing>] [<delay>] [<count>|infinite] [<direction>] [<fill-mode>] [<play-state>]`".into(),
         StyleValueError::Unsupported { .. } => "this row has no dynamic form".into(),
         StyleValueError::BadBoxShadow { reason, .. } => (*reason).into(),
     }
@@ -225,7 +229,7 @@ pub(crate) fn check_style_value(
                     return err("lower-attr-value", format!("`font-variant-numeric: {word}` is CSS, but exact2 implements only `normal` and `tabular-nums`"), span);
                 }
             }
-            // @ref LLP 1056 — the kernel's parse says why, by name.
+            // @ref LLP 1066 — the kernel's parse says why, by name.
             if rows.contains(&StyleId::BackgroundImage) {
                 if let Err(why) = exact_kernel::gradient::BackgroundImage::check(v) {
                     return err(
@@ -251,7 +255,7 @@ pub(crate) fn check_style_value(
                 span,
             );
         }
-        // @ref LLP 1055 D1 — a shadow is text; a number is no shadow.
+        // @ref LLP 1064 D1 — a shadow is text; a number is no shadow.
         if rows.contains(&StyleId::ShadowOffset)
             && (numeric_literal(value).is_some()
                 || (std::ptr::eq(value, &a.value) && matches!(ty, Ty::Number)))

@@ -1081,7 +1081,7 @@ fn a_preference_change_rides_the_resize_batch() {
         "/",
     )
     .unwrap();
-    assert!(first.contains("animation:rise-"), "{first}");
+    assert!(first.contains("running rise;"), "{first}");
     assert!(first.contains("--exact-press:0.97"), "{first}");
     let reduced = exact_runner::Viewport {
         preferences: exact_runner::Preferences::from_bits(1),
@@ -1089,7 +1089,7 @@ fn a_preference_change_rides_the_resize_batch() {
     };
     let batch = host.resize(reduced, 0.0);
     assert_eq!(host.runner().kernel().epoch(), 2);
-    assert!(!batch.contains("animation:rise-"), "{batch}");
+    assert!(!batch.contains("running rise;"), "{batch}");
     assert_eq!(host.resize(reduced, 0.0).matches("\"op\"").count(), 0);
 }
 

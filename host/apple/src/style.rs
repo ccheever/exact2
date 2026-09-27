@@ -8,10 +8,9 @@
 //! points, and a change of the insets re-sends the dictionary), `"auto"`, or
 //! `{"pct": n}` (`{"pct": n, "px": m}` for a `calc()` of both); colors as
 //! `[r,g,b,a]` bytes; enums as their CSS spelling;
-//! `vec2` as `[x,y]`; numbers as numbers. The motion targets
-//! (`translate`, `scale`, `rotate`, `opacity`, and a path's `stroke-start`
-//! and `stroke-end`) are left out: a presenter applies their
-//! *presentation* values from `present` ops, never the style.
+//! `vec2` as `[x,y]`; numbers as numbers. The four motion targets
+//! (`translate`, `scale`, `rotate`, `opacity`) are left out: a presenter
+//! applies their *presentation* values from `present` ops, never the style.
 //! Rows a presenter cannot use yet are named, not guessed.
 
 use exact_kernel::style::ColorValue;
@@ -19,6 +18,7 @@ use exact_kernel::{
     Dimension, Env, NodeRef, NodeType, Overflow, RowValue, StyleId, StyleMask, StyleProps,
     StyleValue,
 };
+use exact_motion::Property;
 use std::fmt::Write as _;
 
 /// A row this host does not lower (and why).
@@ -70,39 +70,24 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
                 d.b(),
                 d.a()
             ),
-            // The kernel's normalized commands (LLP 1065 D8) and CSS's fill rule.
             RowValue::ClipPath(p) => {
-                use exact_kernel::vector::Command;
                 let commands: Vec<_> = p
                     .commands()
                     .iter()
-                    .map(|command| {
-                        let (letter, points): (char, Vec<[f32; 2]>) = match *command {
-                            Command::Move(p) => ('M', vec![p]),
-                            Command::Line(p) => ('L', vec![p]),
-                            Command::Cubic(a, b, p) => ('C', vec![a, b, p]),
-                            Command::Close => ('Z', Vec::new()),
-                        };
-                        let values: Vec<String> = points
-                            .iter()
-                            .flat_map(|[x, y]| [num(*x), num(*y)])
-                            .collect();
-                        format!("[\"{letter}\",[{}]]", values.join(","))
+                    .map(|(command, values)| {
+                        let values = values.iter().map(|n| num(*n)).collect::<Vec<_>>().join(",");
+                        format!("[\"{command}\",[{values}]]")
                     })
                     .collect();
+                let rule = match p.rule() {
+                    exact_kernel::FillRule::Evenodd => "evenodd",
+                    exact_kernel::FillRule::Nonzero => "nonzero",
+                };
                 format!(
-                    "{{\"rule\":\"{}\",\"commands\":[{}]}}",
-                    p.rule().name(),
+                    "{{\"rule\":\"{rule}\",\"commands\":[{}]}}",
                     commands.join(",")
                 )
             }
-            // @ref LLP 1065 D11 — placed by the Rust host, a `markers` prop.
-            RowValue::Marker(_) => continue,
-            // @ref LLP 1065 — the dashes, in the path's units.
-            RowValue::DashArray(d) => format!(
-                "[{}]",
-                d.0.iter().map(|n| num(*n)).collect::<Vec<_>>().join(",")
-            ),
             RowValue::BackgroundImage(g) => match g.gradient() {
                 Some(g) => gradient_json(g),
                 None => continue, // `none`: nothing to paint
@@ -114,7 +99,15 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
                 _ => format!("\"{}\"", v.css()),
             },
             RowValue::Number(n) => num(n as f32),
-            RowValue::Transitions(_) | RowValue::Animations(_) => continue, // the engine's, not the presenter's
+            RowValue::Transitions(_) => continue, // the engine's, not the presenter's
+            // @ref LLP 1055 D4/D7 — the `svg` scene and CA specs carry these.
+            RowValue::Paint(_)
+            | RowValue::DashArray(_)
+            | RowValue::Transform(_)
+            | RowValue::PaintOrder(_)
+            | RowValue::Marker(_)
+            | RowValue::Filter(_)
+            | RowValue::Animations(_) => continue,
             RowValue::Color2(_) | RowValue::Tracks(_) | RowValue::Placement(_) => {
                 skipped.push(Skipped {
                     row: id,
@@ -123,10 +116,7 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
                 continue;
             }
         };
-        if matches!(
-            name,
-            "translate" | "scale" | "rotate" | "opacity" | "stroke_start" | "stroke_end"
-        ) {
+        if matches!(name, "translate" | "scale" | "rotate" | "opacity") {
             continue;
         }
         if !first {
@@ -189,10 +179,145 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
 /// the descendants an inherited change reaches (LLP 1035.000 D4), so this is
 /// re-sent by the ordinary update path, never re-derived per frame.
 pub fn style_json_for(node: &NodeRef<'_>, env: &Env) -> (String, Vec<Skipped>) {
-    // A path paints with SVG's inherited `fill` and `stroke` rows.
+    style_json_presented(node, env, &Shown::default())
+}
+
+/// Presented paint over the rows while it moves (LLP 1055.000 D6, LLP
+/// 1062): one slot per [`Property::PAINT`]; `None` shows the row.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Shown(pub [Option<exact_motion::Value>; Property::PAINT.len()]);
+
+impl Shown {
+    /// The presented value of one paint property.
+    pub fn get(&self, property: Property) -> Option<exact_motion::Value> {
+        let i = Property::PAINT.iter().position(|p| *p == property)?;
+        self.0[i]
+    }
+
+    /// Set one paint property's presented value.
+    pub fn set(&mut self, property: Property, value: Option<exact_motion::Value>) {
+        if let Some(i) = Property::PAINT.iter().position(|p| *p == property) {
+            self.0[i] = value;
+        }
+    }
+}
+
+fn fixed(v: exact_motion::Value) -> ColorValue {
+    let [r, g, b, a] = v.to_rgba8();
+    ColorValue::Fixed(exact_kernel::Color(u32::from_be_bytes([r, g, b, a])))
+}
+
+/// The presented colour, background, tint and shadow over `computed`'s rows.
+fn paint_over(computed: &mut StyleProps, shown: &Shown) {
+    if let Some(c) = shown.get(Property::Color) {
+        computed.text_color = fixed(c);
+    }
+    if let Some(c) = shown.get(Property::BackgroundColor) {
+        computed.background_color = fixed(c);
+        computed.mask.set(StyleId::BackgroundColor);
+    }
+    if let Some(c) = shown.get(Property::TintColor) {
+        computed.tint_color = fixed(c);
+        computed.mask.set(StyleId::TintColor);
+    }
+    // A shadow's opacity is folded into its presented colour's alpha.
+    if let Some(g) = shown.get(Property::BoxShadow) {
+        computed.shadow_offset = exact_kernel::Vec2 {
+            x: g.x as f32,
+            y: g.y as f32,
+        };
+        computed.shadow_radius = g.z as f32;
+        computed.mask.set(StyleId::ShadowOffset);
+        computed.mask.set(StyleId::ShadowRadius);
+    }
+    if let Some(c) = shown.get(Property::ShadowColor) {
+        computed.shadow_color = fixed(c);
+        computed.shadow_opacity = 1.0;
+        computed.mask.set(StyleId::ShadowColor);
+        computed.mask.set(StyleId::ShadowOpacity);
+    }
+}
+
+/// A leaving view's last style with its presented paint over it: its node
+/// is gone, so the rows are the ones it last showed (LLP 1063 D5).
+pub fn restyle_presented(last: &str, env: &Env, shown: &Shown) -> String {
+    let mut paint = StyleProps::default();
+    paint_over(&mut paint, shown);
+    let sides = [
+        (
+            Property::BorderTopColor,
+            StyleId::BorderColorTop,
+            &mut paint.border_color_top,
+        ),
+        (
+            Property::BorderRightColor,
+            StyleId::BorderColorRight,
+            &mut paint.border_color_right,
+        ),
+        (
+            Property::BorderBottomColor,
+            StyleId::BorderColorBottom,
+            &mut paint.border_color_bottom,
+        ),
+        (
+            Property::BorderLeftColor,
+            StyleId::BorderColorLeft,
+            &mut paint.border_color_left,
+        ),
+    ];
+    for (p, id, side) in sides {
+        if let Some(c) = shown.get(p) {
+            *side = Some(fixed(c));
+            paint.mask.set(id);
+        }
+    }
+    let over = style_json(&paint, env).0;
+    let over = entries(&over);
+    let key = |e: &str| e.split_once("\":").map(|(k, _)| k.to_owned());
+    let taken: Vec<_> = over.iter().map(|e| key(e)).collect();
+    let kept = entries(if last.is_empty() { "{}" } else { last })
+        .into_iter()
+        .filter(|e| !taken.contains(&key(e)));
+    format!("{{{}}}", kept.chain(over).collect::<Vec<_>>().join(","))
+}
+
+/// The top-level `"key":value` entries of a JSON object the host wrote.
+fn entries(json: &str) -> Vec<&str> {
+    let inner = &json[1..json.len() - 1];
+    let (mut out, mut start, mut depth) = (Vec::new(), 0, 0);
+    let (mut string, mut escaped) = (false, false);
+    for (i, c) in inner.char_indices() {
+        match c {
+            _ if escaped => escaped = false,
+            '\\' if string => escaped = true,
+            '"' => string = !string,
+            '[' | '{' if !string => depth += 1,
+            ']' | '}' if !string => depth -= 1,
+            ',' if !string && depth == 0 => {
+                out.push(&inner[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    if !inner.is_empty() {
+        out.push(&inner[start..]);
+    }
+    out
+}
+
+/// [`style_json_for`] with presented paint over the rows while a colour or
+/// shadow animation or transition moves them (LLP 1055.000 D6, LLP 1062):
+/// `color` (and the `currentcolor` border sides that follow it), the
+/// background, the border sides, a symbol's tint, and the shadow.
+pub fn style_json_presented(
+    node: &NodeRef<'_>,
+    env: &Env,
+    shown: &Shown,
+) -> (String, Vec<Skipped>) {
     let rows = if matches!(
         node.node_type,
-        NodeType::Text | NodeType::TextInput | NodeType::Image | NodeType::Path
+        NodeType::Text | NodeType::TextInput | NodeType::Image
     ) {
         StyleMask::INHERITED
     } else {
@@ -200,6 +325,7 @@ pub fn style_json_for(node: &NodeRef<'_>, env: &Env) -> (String, Vec<Skipped>) {
     };
     let mut computed = node.computed_style(rows);
     computed.mask.set(StyleId::TextColor);
+    paint_over(&mut computed, shown);
     // The presenter must inset editors/images and paint the same border area
     // that the kernel laid out. Authored widths survive separately in the node.
     let widths = computed.border_widths();
@@ -220,10 +346,11 @@ pub fn style_json_for(node: &NodeRef<'_>, env: &Env) -> (String, Vec<Skipped>) {
     }
     if widths.iter().any(|width| *width > 0.0) {
         let [top, right, bottom, left] = computed.border_colors(computed.text_color);
-        computed.border_color_top = Some(top);
-        computed.border_color_right = Some(right);
-        computed.border_color_bottom = Some(bottom);
-        computed.border_color_left = Some(left);
+        let side = |p: Property, c: ColorValue| Some(shown.get(p).map_or(c, fixed));
+        computed.border_color_top = side(Property::BorderTopColor, top);
+        computed.border_color_right = side(Property::BorderRightColor, right);
+        computed.border_color_bottom = side(Property::BorderBottomColor, bottom);
+        computed.border_color_left = side(Property::BorderLeftColor, left);
         for id in [
             StyleId::BorderColorTop,
             StyleId::BorderColorRight,
@@ -255,7 +382,7 @@ pub fn style_json_for(node: &NodeRef<'_>, env: &Env) -> (String, Vec<Skipped>) {
     (json, skipped)
 }
 
-/// A gradient for the presenter (LLP 1056): its shape — `linear` degrees,
+/// A gradient for the presenter (LLP 1066): its shape — `linear` degrees,
 /// a `to <corner>` as `[right, bottom]`, or `radial` as `[circle, extent,
 /// x%, xpx, y%, ypx]` (extent: closest-side, closest-corner, farthest-side,
 /// farthest-corner) — and `stops` flat as `t, r, g, b, a`, positions 0–1.
@@ -339,7 +466,7 @@ mod flow_tests {
         );
     }
 
-    /// LLP 1056: a gradient crosses as its shape and ready-to-mix stops; a
+    /// LLP 1066: a gradient crosses as its shape and ready-to-mix stops; a
     /// `light-dark()` one carries both appearances, and `none` nothing.
     #[test]
     fn a_gradient_crosses_as_shape_and_stops() {

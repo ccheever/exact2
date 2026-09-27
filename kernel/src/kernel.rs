@@ -185,7 +185,7 @@ pub struct Kernel {
     /// on the layout path, so a kernel that never lays out links no engine.
     layout: Option<Box<dyn LayoutMirror>>,
     measurer: Box<dyn TextMeasurer>,
-    selectors: SelectorIndex,
+    pub(crate) selectors: SelectorIndex,
     epoch: u64,
     incarnation: u64,
     receipts: VecDeque<CommitReceipt>,
@@ -914,9 +914,7 @@ impl Kernel {
         let layout: Option<Box<dyn LayoutMirror>> = Some(Box::new(LayoutTree::rebuild(&mut arena)));
         let mut selectors = SelectorIndex::new();
         for slot in arena.iter_live() {
-            if let Some(test_id) = arena.props(slot).str(crate::generated::PropId::TestId) {
-                selectors.update(slot, None, Some(test_id));
-            }
+            selectors.index(slot, arena.props(slot));
         }
         Kernel {
             arena,

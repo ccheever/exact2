@@ -34,14 +34,15 @@ pub(crate) mod damage;
 pub mod gradient;
 pub use gradient::GradientPaint;
 mod inline;
+mod placed;
 mod presented;
 mod region;
 mod shadow;
-use inline::{text_backgrounds, text_palette};
+mod svg;
+use inline::{presented_color, presented_text_colors, text_backgrounds, text_palette};
 pub use presented::{PaintValues, Presented};
 pub(crate) use region::{ActionNode, ActionSlot, RegionActions, ScrollBounds};
-mod vector;
-pub use vector::VectorPaint;
+pub use svg::{resolve_with, Ink, SvgPaint};
 
 /// A rectangle as (x, y, w, h).
 pub type Rect4 = (f32, f32, f32, f32);
@@ -189,7 +190,7 @@ impl BoxPaint {
             emit(outer, self.background);
         }
     }
-    /// The `box-shadow`, under everything else (LLP 1055 D2).
+    /// The `box-shadow`, under everything else (LLP 1064 D2).
     fn shadow_fills(&self, geometry: &BoxGeometry) -> Vec<border::BorderFill> {
         self.shadow
             .map_or_else(Vec::new, |s| s.fills(&geometry.outer))
@@ -300,8 +301,7 @@ pub trait Backend {
     fn damage(&mut self, _previous: &Pixmap, _rects: &[Rect4]) -> bool {
         false
     }
-    /// Begin with an accepted frame for clipped repainting. A false result
-    /// leaves a fresh white frame ready for a full repaint.
+    /// Begin from an accepted frame, clipped; false leaves a white frame to repaint.
     fn begin_damage(
         &mut self,
         width: f32,
@@ -315,15 +315,18 @@ pub trait Backend {
     }
     /// Fill a shape.
     fn fill(&mut self, shape: &Shape, color: [u8; 4], ts: Transform);
-    /// Fill a shape with a gradient placed in its coordinates (LLP 1056).
+    /// Fill a shape with a gradient placed in its coordinates (LLP 1066).
     fn fill_gradient(&mut self, shape: &Shape, gradient: &gradient::GradientPaint, ts: Transform);
-    /// Fill one colour's share of a border (LLP 1053 G2): its region
-    /// even-odd, inside its clip (non-zero) when it has one.
+    /// Fill one colour's share of a border (LLP 1053 G2): its region even-odd, clipped (non-zero).
     fn fill_border(&mut self, part: &border::BorderFill, ts: Transform);
     /// Draw a picture scaled into `dst`, clipped to every shape in `clips`.
     fn image(&mut self, image: &Arc<Bitmap>, dst: Rect4, clips: &[Shape], ts: Transform);
-    /// Composite an internally rendered canvas child, distinct from decoded image assets.
+    /// An SVG island's pixels over `dst` in `ts`'s space, blended by `mode`.
+    fn island_image(&mut self, _pixels: Arc<Pixmap>, _dst: Rect4, _ts: Transform, _mode: u8) {}
+    /// Composite a rendered canvas child (not a decoded image asset).
     fn surface_image(&mut self, _pixels: Arc<Pixmap>, _dst: Rect4) {}
+    /// Composite a 2D canvas's bitmap into `dst`, clipped (LLP 1056 D7).
+    fn canvas(&mut self, _pixels: &Arc<Pixmap>, _dst: Rect4, _clips: &[Shape], _ts: Transform) {}
     /// Paint a paragraph with its top-left at `origin`.
     fn text(
         &mut self,
@@ -333,6 +336,14 @@ pub trait Backend {
         origin: (f32, f32),
         ts: Transform,
     );
+    /// Paint one SVG shape in `ts`'s space (LLP 1055 D4).
+    fn svg_path(&mut self, _shape: &SvgPaint<'_>, _ts: Transform) {}
+    /// Clip to an SVG `clipPath` in `ts`'s space until as many pops as this
+    /// returns (LLP 1055.000 D10): the union of its shapes, intersected with
+    /// its own clip and with whatever clip is in force.
+    fn push_svg_clip(&mut self, _clip: &exact_kernel::svg::scene::Clip, _ts: Transform) -> usize {
+        0
+    }
     /// Clip everything until the matching pop to a shape.
     fn push_clip(&mut self, shape: &Shape, ts: Transform);
     /// Push the kernel's validated CSS path in border-box coordinates.
@@ -340,9 +351,6 @@ pub trait Backend {
     fn push_css_clip(&mut self, _path: &exact_kernel::clip::ClipPath, _ts: Transform) -> bool {
         false
     }
-    /// Fill and stroke a `path` node (LLP 1065 D7); a backend that draws no
-    /// vectors draws nothing.
-    fn vector(&mut self, _path: &VectorPaint, _ts: Transform) {}
     /// End a clip.
     fn pop_clip(&mut self);
     /// Composite everything until the matching pop at an opacity.
@@ -402,6 +410,8 @@ pub struct Painter {
     pub dark: bool,
     backend: Box<dyn Backend>,
     pub(crate) placements: BTreeMap<ViewId, crate::placement::Placement>,
+    /// Each 2D canvas's latest bitmap (LLP 1056).
+    pub(crate) canvases: BTreeMap<ViewId, crate::canvas2d::CanvasPaint>,
     viewport: (f32, f32),
     cpu_ms: Option<f64>,
     // One generational source, lifted only inside its existing List clip.
@@ -464,6 +474,7 @@ impl Painter {
             region_frame: None,
             damage: Default::default(),
             placements: BTreeMap::new(),
+            canvases: BTreeMap::new(),
             viewport: (0., 0.),
             cpu_ms: None,
         }
@@ -665,76 +676,6 @@ impl Painter {
         })
     }
 
-    fn placed(
-        &mut self,
-        walk: &mut Walk<'_, '_>,
-        id: ViewId,
-        ts: Transform,
-        offset: (f32, f32),
-        clip: Option<Rect4>,
-    ) -> bool {
-        use crate::placement::{self, Placement};
-        let Some(p) = self.placements.get(&id).copied() else {
-            return false;
-        };
-        let Placement::Visible {
-            h,
-            canvas,
-            clip_depth,
-            ..
-        } = p
-        else {
-            return true;
-        };
-        let Some(node) = walk.scene.kernel.node(id) else {
-            return true;
-        };
-        let Some(parent) = walk.scene.kernel.node(canvas) else {
-            return true;
-        };
-        let h = placement::compose(h, ts, parent.frame.x - offset.0, parent.frame.y - offset.1);
-        let Some(inv) = placement::inverse(h) else {
-            return true;
-        };
-        let f = node.frame;
-        if f.width <= 0. || f.height <= 0. {
-            return true;
-        }
-        let mut painter = Painter::new(
-            self.text.clone(),
-            self.scale,
-            Box::new(crate::raster::Raster::transparent()),
-        );
-        painter.dark = self.dark;
-        painter.placements = self.placements.clone();
-        painter.placements.remove(&id);
-        painter.viewport = (f.width, f.height);
-        painter.backend.begin(f.width, f.height, self.scale);
-        let mut child_walk = Walk {
-            scene: walk.scene,
-            boxes: Vec::new(),
-            text: BTreeMap::new(),
-            skip: None,
-            replay: None,
-        };
-        painter.node(&mut child_walk, id, Transform::identity(), (f.x, f.y), None);
-        walk.text.extend(child_walk.text);
-        if let Ok(source) = painter.backend.finish() {
-            if let Some((pixels, rect)) =
-                placement::warp_clipped(&source, h, clip_depth, self.scale, self.viewport)
-            {
-                self.backend.surface_image(Arc::new(pixels), rect);
-            }
-        }
-        for mut b in child_walk.boxes {
-            b.projective = Some((inv, b.rect, b.clip, clip_depth));
-            b.rect = placement::clipped_bounds(&h, clip_depth, b.rect);
-            b.clip = clip;
-            walk.boxes.push(b);
-        }
-        true
-    }
-
     fn node(
         &mut self,
         walk: &mut Walk<'_, '_>,
@@ -758,7 +699,8 @@ impl Painter {
         let Some(node) = walk.scene.kernel.node(id) else {
             return;
         };
-        if walk.skip == Some(node.key) {
+        // An SVG element is its `svg`'s content, painted there (LLP 1055 D4).
+        if walk.skip == Some(node.key) || node.node_type.is_svg_element() {
             return;
         }
         if (walk.scene.hidden)(id)
@@ -778,7 +720,7 @@ impl Painter {
             || p.opacity != 1.0
             || node.node_type == NodeType::Image
             || node.style.shadow_opacity > 0.0
-            || !p.paint.is_empty();
+            || !p.colors.is_empty();
         let ts = if p.moves() {
             // About `transform-origin`, the centre unless authored (LLP 1061 D6).
             ts.pre_concat(p.transform((x, y, w, h), node.style.transform_origin.resolve(w, h)))
@@ -831,9 +773,10 @@ impl Painter {
         clip_rect: Option<Rect4>,
     ) {
         let shown = (walk.scene.presented)(node.id);
-        let presented = shown.paint;
+        // Paint motion's values over the captured box (LLP 1055.000 D6,
+        // LLP 1062 D5): background, border sides and shadow.
         let paint =
-            BoxPaint::capture(node, walk.scene.kernel, self.dark, rect.2).presented(&presented);
+            BoxPaint::capture(node, walk.scene.kernel, self.dark, rect.2).presented(&shown.colors);
         let geometry = paint.geometry(rect);
         // @ref LLP 1063 — a layout transition's size is the surface's alone.
         let surface = paint.geometry(shown.surface(rect));
@@ -842,6 +785,13 @@ impl Painter {
         let content = geometry.content;
         let s = node.style;
         match node.node_type {
+            // @ref LLP 1056 D7 — a 2D canvas's kept bitmap fills its content box.
+            NodeType::Canvas => {
+                if let Some(c) = self.canvases.get(&node.id) {
+                    let clips = [Shape::rect(content), outer];
+                    self.backend.canvas(&c.pixels, content, &clips, ts);
+                }
+            }
             NodeType::Image => {
                 if let Some(img) = walk.scene.images.get(&node.id) {
                     if let Some(dst) = object_fit(img.natural(), s.object_fit, content) {
@@ -884,18 +834,7 @@ impl Painter {
                 if let Some(paragraph) = paragraph {
                     let mut palette = Vec::new();
                     text_palette(walk.scene.kernel, node, self.dark, &mut palette);
-                    // Paint motion's colour on each run it reaches: the
-                    // paragraph's own, and an inline run's (LLP 1062 D5).
-                    for r in &mut palette {
-                        let shown = if r.source == node.id {
-                            presented
-                        } else {
-                            (walk.scene.presented)(r.source).paint
-                        };
-                        if let Some(c) = shown.color(exact_motion::Property::Color) {
-                            r.color = c;
-                        }
-                    }
+                    presented_text_colors(walk, node, &mut palette);
                     walk.text.insert(node.key, paragraph.clone());
                     // CSS `text-overflow: ellipsis` in a clipping box: an
                     // over-wide line ends in "…" (LLP 1053 G5; paint only).
@@ -954,8 +893,7 @@ impl Painter {
                 let ink = if placeholder {
                     [0x75, 0x75, 0x75, 0xff]
                 } else {
-                    presented
-                        .color(exact_motion::Property::Color)
+                    presented_color(walk, node)
                         .unwrap_or_else(|| rgba(node.text_color().resolve(self.dark)))
                 };
                 {
@@ -990,7 +928,7 @@ impl Painter {
                     );
                 }
             }
-            NodeType::Path => self.vector(walk, node, content, ts),
+            NodeType::Svg => self.svg(walk, node, rect, content, ts),
             _ => {}
         }
         // Children: clipped by this box when its overflow is not visible,

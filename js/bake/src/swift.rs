@@ -1,4 +1,4 @@
-//! Build an app's Swift native module (LLP 1058) from its build script:
+//! Build an app's Swift native module (LLP 1067) from its build script:
 //!
 //! ```ignore
 //! exact_js_bake::swift_native(&["swift/Native.swift"]).expect("native module");

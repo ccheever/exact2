@@ -22,11 +22,15 @@ final class PaintMotionMacTests: XCTestCase {
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 40.0],
         ]))
         let node = try XCTUnwrap(p.views[1])
-        let grey = [127.5, 127.5, 127.5, 255.0]
-        p.apply(wireBatch([["op": "present", "id": 1, "run": 2, "property": "text_color",
-                            "x": grey[0], "y": grey[1], "w": grey[2], "h": grey[3]]]))
+        let grey = [128.0, 128.0, 128.0, 255.0]
+        // The host re-sends the paragraph with the run's presented colour.
+        let paragraph = { (c: [Double]) in wireBatch([["op": "paragraph", "id": 1, "runs": [
+            ["id": 2, "parent": 1, "paint": true, "props": ["text": "plain "], "style": ["text_color": c]],
+            ["id": 3, "parent": 1, "paint": true, "props": ["text": "red"], "style": ["text_color": [255.0, 0.0, 0.0, 255.0]]],
+        ]]]) }
+        p.apply(paragraph(grey))
         XCTAssertEqual(node.paragraphSpec().runs.map(\.color), [grey, [255, 0, 0, 255]])
-        p.apply(wireBatch([["op": "unpresent", "id": 1, "run": 2, "property": "text_color"]]))
+        p.apply(paragraph([0.0, 0.0, 0.0, 255.0]))
         XCTAssertEqual(node.paragraphSpec().runs.map(\.color), [[0, 0, 0, 255], [255, 0, 0, 255]])
     }
 

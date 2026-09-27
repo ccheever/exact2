@@ -14,7 +14,7 @@
 //! batch instead of trapping. [`host!`] exports one app's source and baked plan;
 //! each process links one app archive because the C names are fixed.
 
-use crate::host::Host;
+use crate::host::{Host, PlanBytes};
 use crate::measure::{install_fonts, CallbackMeasurer, FontsFn, MeasureFn};
 use crate::store::{endow, snapshot_of, Platform};
 use exact_kernel::{MonospaceMeasurer, TextMeasurer};
@@ -345,6 +345,17 @@ impl<D: DataSource> Bridge<D> {
     /// the monospace reference measurer when none is given) under a
     /// viewport; the output is the first batch.
     pub fn boot(&mut self, plan: &[u8], data: D, hooks: Hooks, width: f32, height: f32) -> u32 {
+        self.boot_bytes(PlanBytes::Copied(plan), data, hooks, width, height)
+    }
+
+    fn boot_bytes(
+        &mut self,
+        plan: PlanBytes<'_>,
+        data: D,
+        hooks: Hooks,
+        width: f32,
+        height: f32,
+    ) -> u32 {
         if let Some(refusal) = self.refuse_analysis() {
             return refusal;
         }
@@ -366,7 +377,7 @@ impl<D: DataSource> Bridge<D> {
     /// for each attempt.
     pub fn boot_selected(
         &mut self,
-        embedded: &[u8],
+        embedded: &'static [u8],
         mut data: impl FnMut() -> D,
         hooks: Hooks,
         width: f32,
@@ -376,7 +387,7 @@ impl<D: DataSource> Bridge<D> {
             return refusal;
         }
         let Some(delivery) = self.delivery else {
-            return self.boot(embedded, data(), hooks, width, height);
+            return self.boot_bytes(PlanBytes::Static(embedded), data(), hooks, width, height);
         };
         let selected = (delivery.selected_plan)();
         if let Some((entry, bytes)) = selected {
@@ -390,17 +401,19 @@ impl<D: DataSource> Bridge<D> {
                     .map_err(|e| format!("module generation: {e:?}")),
                 None => Ok(admitted),
             });
-            match source.and_then(|source| self.boot_fresh(&bytes, source, hooks, width, height)) {
+            match source.and_then(|source| {
+                self.boot_fresh(PlanBytes::Copied(&bytes), source, hooks, width, height)
+            }) {
                 Ok(batch) => return self.emit(batch),
                 Err(e) => (delivery.entry_refused)(&entry, &e),
             }
         }
-        self.boot(embedded, data(), hooks, width, height)
+        self.boot_bytes(PlanBytes::Static(embedded), data(), hooks, width, height)
     }
 
     fn boot_fresh(
         &mut self,
-        plan: &[u8],
+        plan: PlanBytes<'_>,
         data: D,
         hooks: Hooks,
         width: f32,
@@ -667,7 +680,7 @@ impl<D: DataSource> Bridge<D> {
         let fonts = self.fonts;
         let fonts_ctx = self.fonts_ctx;
         match Host::boot_stored_after_decode(
-            &plan,
+            PlanBytes::Copied(&plan),
             data,
             measurer,
             width,
@@ -912,15 +925,10 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
     /// Apply the final sample and typed release action while held.
-    pub fn height_drag_release(
-        &mut self,
-        token: u64,
-        height: f64,
-        velocity: f64,
-        now_ms: f64,
-    ) -> u32 {
+    /// At the engine's measured velocity (LLP 1057.001 §3).
+    pub fn height_drag_release(&mut self, token: u64, height: f64, now_ms: f64) -> u32 {
         let out = self.host.as_mut().map_or_else(not_booted, |h| {
-            h.dispatch_height_held(token, height, velocity, now_ms)
+            h.dispatch_height_measured(token, height, now_ms)
         });
         self.emit(out)
     }
@@ -972,13 +980,21 @@ impl<D: DataSource> Bridge<D> {
     }
 
     /// Release (or cancel) a live hold after its authored action.
-    pub fn hold_end(&mut self, token: u64, cancel: bool, vx: f64, vy: f64, now_ms: f64) -> u32 {
-        let end = if cancel {
-            exact_motion::HoldEnd::Cancel
-        } else {
-            exact_motion::HoldEnd::Release {
+    /// `cancel`: 0 releases at `vx, vy`, 1 cancels, 2 releases at the
+    /// engine's measured velocity (LLP 1057.001 §3).
+    pub fn hold_end(&mut self, token: u64, cancel: u32, vx: f64, vy: f64, now_ms: f64) -> u32 {
+        let end = match cancel {
+            0 => exact_motion::HoldEnd::Release {
                 velocity: exact_motion::Value::new(vx, vy),
+            },
+            2 => {
+                let out = self
+                    .host
+                    .as_mut()
+                    .map_or_else(not_booted, |h| h.hold_end_measured(token, now_ms));
+                return self.emit(out);
             }
+            _ => exact_motion::HoldEnd::Cancel,
         };
         let out = self
             .host
@@ -1122,6 +1138,17 @@ impl<D: DataSource> Bridge<D> {
             self.host
                 .as_mut()
                 .map_or_else(not_booted, |h| h.set_intrinsics(&sizes))
+        };
+        self.emit(out)
+    }
+
+    /// The display for Canvas 2D (LLP 1056 D4): its scale and memory, for
+    /// every session; a booted host redraws its canvases at the new scale.
+    pub fn canvas_display(&mut self, scale: f64, memory: f64) -> u32 {
+        crate::host::canvas2d::set_display(scale, memory);
+        let out = match self.host.as_mut() {
+            Some(h) => h.canvas_display(),
+            None => "{\"ops\":[],\"timers\":false,\"motion\":false}".to_string(),
         };
         self.emit(out)
     }
@@ -1342,3 +1369,11 @@ mod collection_tests;
 
 #[path = "abi_collections.rs"]
 mod collections;
+
+/// `exact_gesture_constant`: a threshold by index, NaN past the end.
+pub fn gesture_constant(which: u32) -> f64 {
+    exact_motion::gesture::CONSTANTS
+        .get(which as usize)
+        .copied()
+        .unwrap_or(f64::NAN)
+}

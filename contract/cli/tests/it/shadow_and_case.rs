@@ -1,4 +1,4 @@
-//! LLP 1055: `box-shadow` sets the four shadow rows; `text-transform` is
+//! LLP 1064: `box-shadow` sets the four shadow rows; `text-transform` is
 //! applied where the kernel produces runs, so what is measured is what a
 //! host paints.
 

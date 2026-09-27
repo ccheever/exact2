@@ -137,7 +137,7 @@ impl DataSource for Castle {
     }
 }
 
-fn text_of(r: &Runner<Castle>, test_id: &str) -> Option<String> {
+fn text_of<D: DataSource>(r: &Runner<D>, test_id: &str) -> Option<String> {
     let k = r.kernel();
     let key = k.find_by_test_id(test_id).into_iter().next()?;
     k.node_by_key(key)?
@@ -420,7 +420,7 @@ fn a_reload_carries_the_slot_and_never_resends() {
 }
 
 #[test]
-fn bake_refuses_a_resource_that_answers_later_at_boot() {
+fn a_record_that_answers_later_at_the_bake_is_not_compiled_and_shows_its_zero() {
     let src = SRC.replace(
         "resource balance = balance(token) as shape Balance",
         "resource balance = later(token) as shape Balance",
@@ -441,12 +441,25 @@ fn bake_refuses_a_resource_that_answers_later_at_boot() {
             )))
         }
     }
-    let plan = contract::compile(&src).unwrap();
-    let err = contract::bake(plan, Remote).unwrap_err();
-    assert!(
-        matches!(err, contract::BakeError::Runner(RunnerError::Data { ref resource, .. }) if resource == "balance"),
-        "{err:?}"
-    );
+    // @ref LLP 1054.000.002 D1/D4 — where the bake used to refuse: the
+    // resource shows its zero, pending, and the zero is not its answer.
+    let plan = contract::bake(contract::compile(&src).unwrap(), Remote).unwrap();
+    let row = plan
+        .resources
+        .iter()
+        .find(|r| plan.str(r.name) == "balance")
+        .unwrap();
+    assert_eq!(row.initial.len, 0);
+    let mut r = Runner::boot(
+        plan,
+        Remote,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(text_of(&r, "bricks").as_deref(), Some("0 bricks"));
+    assert!(r.take_requests().iter().any(|q| q.target == "balance"));
 }
 
 #[test]

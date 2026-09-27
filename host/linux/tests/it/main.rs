@@ -9,7 +9,7 @@ mod height_binding;
 mod holds;
 mod image;
 mod presence;
+mod svg;
 mod transform_binding;
 mod transform_contact;
-mod vector_path;
 mod viewport;

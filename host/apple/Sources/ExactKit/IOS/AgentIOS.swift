@@ -470,6 +470,18 @@ extension Agent {
             }
             return ["error": "no \(event) handler at view \(v.id)"]
         }
+        if let scale = req["pinch"] as? Double {
+            // UIKit synthesizes no pinch: the recognized scale (LLP 1057.001 §5).
+            var next: UIView? = v
+            while let view = next, !((view as? NodeView).map { presenter.transformBindings[$0.id]?.target != nil } ?? false) { next = view.superview }
+            guard let handle = next as? NodeView, let clipID = presenter.transformBindings[handle.id]?.clip, let clip = presenter.views[clipID] else {
+                return ["error": "no photo binding (transformDragFor) at view \(v.id)"]
+            }
+            let offset = (req["at"] as? [Double]).map { CGPoint(x: $0[0], y: $0[1]) } ?? CGPoint(x: handle.bounds.midX, y: handle.bounds.midY)
+            let point = handle.convert(offset, to: clip)
+            if let error = TransformDragHold.recognizedPinch(handle, scale: scale, focal: CGPoint(x: point.x - clip.bounds.midX, y: point.y - clip.bounds.midY)) { return ["error": error] }
+            return ["tapped": Int(handle.id), "pinch": scale, "at": at, "delivery": "recognized"]
+        }
         if req["hover"] as? Bool == true {
             // The pointer onto the target: the node with a hover handler at
             // the hit point enters, whatever was hovered leaves (UIKit
@@ -493,7 +505,9 @@ extension Agent {
         // responder chain): the nearest node that takes the focus takes it
         // — an input's field, a node with a focus/blur/key handler — and
         // whatever had it (a field, and the keyboard with it) lets go.
-        let action = (n as? NodeView)?.activationTarget(at: p)
+        // An SVG element under the finger takes the press (LLP 1055.000 D17).
+        let element = (n as? NodeView).flatMap { $0.kind == "svg" && !$0.inert ? presenter.svg.target($0.id, at: $0.local(p)) : nil }
+        let action = element == nil ? (n as? NodeView)?.activationTarget(at: p) : nil
         var f: UIView? = n
         var took = false
         while let cur = f {
@@ -512,6 +526,7 @@ extension Agent {
         // blurs its input on a click anywhere else), and the keyboard goes.
         if !took && !presenter.contextRetainsFocus(n ?? v) { presenter.viewport.endEditing(true) }
         var pressed: Any = NSNull()
+        if let element { presenter.press(element); pressed = Int(element) }
         if let action, presenter.views[action.id] === action { presenter.press(action.id); action.finishPointerPress(); pressed = Int(action.id) }
         var reply: [String: Any] = ["tapped": Int(v.id), "at": at, "pressed": pressed]
         if let away { reply["offscreen"] = away }
@@ -681,12 +696,12 @@ extension Agent {
         // (the flush), composed as the underlay, and the live view stays
         // visible on top with the real pixels (measured 2026-08-30; the
         // 0-guest-pixel failure returns if either half is dropped).
-        Capture.web = session.webviews.snapshots()
+        Capture.web = session.webviews.snapshots().merging(session.natives.snapshots()) { web, _ in web }
         #else
         // A device capture has the macOS shape: hide every live WKWebView
         // and compose only the arm's takeSnapshot at the owning node.
-        Capture.web = session.webviews.snapshots()
-        let hidden = presenter.views.values.compactMap(\.web).map { ($0, $0.isHidden) }
+        Capture.web = session.webviews.snapshots().merging(session.natives.snapshots()) { web, _ in web }
+        let hidden = (presenter.views.values.compactMap(\.web) + session.natives.snapshotViews).map { ($0, $0.isHidden) }
         hidden.forEach { $0.0.isHidden = true }
         #endif
         Capture.capturing = true

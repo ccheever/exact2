@@ -24,11 +24,11 @@ private final class VideoModule {
     }
     static let shared: VideoModule? = {
         #if os(macOS)
-        let directory = Bundle.main.executableURL!.deletingLastPathComponent().path
+        let path = Bundle.main.executableURL!.deletingLastPathComponent().path + "/libexact_video.dylib"
         #else
-        let directory = Bundle.main.privateFrameworksPath ?? Bundle.main.bundlePath
+        let path = embeddedModule(framework: "ExactVideo", dylib: "libexact_video.dylib")
         #endif
-        guard let library = dlopen(directory + "/libexact_video.dylib", RTLD_NOW | RTLD_LOCAL) else {
+        guard let library = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
             FileHandle.standardError.write(Data("exact video: \(String(cString: dlerror()))\n".utf8)); return nil
         }
         let exports = ["create", "view", "update", "destroy", "state"]
@@ -217,3 +217,15 @@ final class VideoVisibilityHost {
         return min(1, max(0, clipped.width * clipped.height / (box.width * box.height)))
     }
 }
+
+#if !os(macOS)
+/// An optional module in the app's Frameworks: wrapped as `<Name>.framework`
+/// when the bundle is built for distribution (the App Store refuses loose
+/// dylibs, ITMS-90171), otherwise the loose `lib….dylib` a development build
+/// places there.
+func embeddedModule(framework: String, dylib: String) -> String {
+    let directory = Bundle.main.privateFrameworksPath ?? Bundle.main.bundlePath
+    let wrapped = directory + "/" + framework + ".framework/" + framework
+    return FileManager.default.fileExists(atPath: wrapped) ? wrapped : directory + "/" + dylib
+}
+#endif

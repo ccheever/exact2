@@ -1,0 +1,17 @@
+# The map demo's data source: none. The pins are literal Contract; the map
+# is a native module (LLP 1024).
+[package]
+name = "map-demo-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The map demo's data source: answers nothing"
+publish = false
+
+[lib]
+name = "map_demo_data"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }

@@ -260,8 +260,8 @@ macro_rules! host {
         }
         /// Final sample then typed action; the caller ends the token afterward.
         #[no_mangle]
-        pub extern "C" fn exact_height_drag_release(rt: u32, token: u64, height: f64, velocity: f64, now_ms: f64) -> u32 {
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.height_drag_release(token, height, velocity, now_ms), |n| n)
+        pub extern "C" fn exact_height_drag_release(rt: u32, token: u64, height: f64, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.height_drag_release(token, height, now_ms), |n| n)
         }
         /// Arrange: catch a handle's row at the List's actual scrollTop.
         #[no_mangle]
@@ -291,7 +291,12 @@ macro_rules! host {
         /// End ownership once, with velocity in displayed units/second.
         #[no_mangle]
         pub extern "C" fn exact_hold_end(rt: u32, token: u64, cancel: u32, vx: f64, vy: f64, now_ms: f64) -> u32 {
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.hold_end(token, cancel != 0, vx, vy, now_ms), |n| n)
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.hold_end(token, cancel, vx, vy, now_ms), |n| n)
+        }
+        /// A threshold exact2 defines itself, by index (`exact_motion::gesture::CONSTANTS`); NaN past the end.
+        #[no_mangle]
+        pub extern "C" fn exact_gesture_constant(which: u32) -> f64 {
+            $crate::abi::gesture_constant(which)
         }
 
         /// Move the clock; nonzero `until_request` stops after a timer that
@@ -323,6 +328,13 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_set_place(rt: u32, len: usize) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_place(len), |n| n)
+        }
+
+        /// The display's scale and physical memory for Canvas 2D (LLP 1056
+        /// D4); callable before boot. Returns the batch length.
+        #[no_mangle]
+        pub extern "C" fn exact_canvas_display(rt: u32, scale: f64, memory: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.canvas_display(scale, memory), |n| n)
         }
 
         /// The viewport changed; returns the batch length.

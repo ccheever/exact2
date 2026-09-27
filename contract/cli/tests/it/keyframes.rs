@@ -1,9 +1,11 @@
-//! LLP 1057: `keyframes` declarations and `animation`, resolved at compile
-//! time into the kernel's row — proven on the rows after boot, and on what
-//! the compiler refuses.
+//! `keyframes` declarations and `animation` (LLP 1055 D5), with what the
+//! grnl port added on them (LLP 1062): palette functions of literal
+//! arguments in a keyframe, `light-dark()`, `box-shadow` and `border-color`
+//! keyframes, computed times and `each` positions — proven on the rows the
+//! runner resolves after boot, and on what the compiler refuses.
 
-use exact_kernel::{Animations, Kernel, StyleId};
-use exact_motion::{Direction, Easing, FillMode, Property, Value};
+use exact_kernel::{Kernel, StyleId};
+use exact_motion::{Animations, Direction, Easing, FillMode, Property, Value};
 use exact_plan::{Plan, Value as PlanValue};
 use exact_runner::{DataError, DataSource, Event, Runner};
 use std::path::Path;
@@ -45,14 +47,14 @@ fn a_named_animation_reaches_the_row_with_its_keyframes_and_a_condition_can_stop
     let [a] = row.0.as_slice() else {
         panic!("{row:?}")
     };
-    assert_eq!(a.keyframes.name, "breathe");
+    assert_eq!(a.name, "breathe");
     assert_eq!(a.easing, Easing::EaseInOut);
     assert!(a.iterations.is_infinite());
     assert!((a.duration - 1.6).abs() < 1e-6);
-    let offsets: Vec<f64> = a.keyframes.blocks.iter().map(|b| b.offset).collect();
+    let offsets: Vec<f64> = a.keyframes.0.iter().map(|b| b.offset).collect();
     assert_eq!(offsets, [0.0, 0.5, 1.0]);
     assert_eq!(
-        a.keyframes.blocks[0].values,
+        a.keyframes.0[0].values,
         [
             (Property::Opacity, Value::scalar(0.4)),
             (Property::Scale, Value::scalar(0.9)),
@@ -64,9 +66,9 @@ fn a_named_animation_reaches_the_row_with_its_keyframes_and_a_condition_can_stop
     let fresh = &fresh.0[0];
     assert_eq!(fresh.fill, FillMode::Both);
     assert_eq!(fresh.direction, Direction::Normal);
-    assert_eq!(fresh.keyframes.blocks[0].easing, Some(Easing::EaseOut));
+    assert_eq!(fresh.keyframes.0[0].easing, Some(Easing::EaseOut));
     assert_eq!(
-        fresh.keyframes.blocks[0].values[1],
+        fresh.keyframes.0[0].values[1],
         (Property::Translate, Value::new(0.0, 8.0))
     );
     // `none` is CSS's: no animation, the row still authored.
@@ -81,58 +83,45 @@ fn what_cannot_animate_or_resolve_is_refused_at_compile_time() {
     let app = |decls: &str, attr: &str| {
         format!("{decls}component App\n  state on = true\n  view\n    text \"a\" {attr}\n")
     };
-    let breathe = "keyframes breathe\n  from\n    opacity=0\n";
+    let breathe = "keyframes breathe\n  from opacity=0\n";
     for (source, id, says) in [
         (
             app(breathe, "animation=\"pulse 1s\""),
-            "lower-unknown-keyframes",
-            "no `keyframes pulse` is declared; declared: `breathe`",
+            "lower-animation-name",
+            "no `keyframes pulse` is declared",
         ),
         (
-            app(breathe, "animation=`${\"breathe\"} 1s`"),
-            "lower-animation-literal",
-            "resolved when the app compiles",
+            app("keyframes k\n  from height=10\n", ""),
+            "lower-keyframe-property",
+            "`height` cannot animate",
         ),
         (
-            app(breathe, "animation=\"breathe 1s spring(100, 10, 1)\""),
-            "lower-attr-value",
-            "`spring()` is a `transition` extension",
-        ),
-        (
-            app("keyframes k\n  from\n    height=10\n", ""),
+            app("keyframes k\n  to opacity=\"lots\"\n", ""),
             "lower-keyframes",
-            "`height` cannot be in a keyframe",
+            "`keyframes k`",
         ),
         (
-            app("keyframes k\n  to\n    opacity=\"lots\"\n", ""),
-            "lower-attr-value",
-            "`opacity` in a keyframe is not a valid `opacity`",
-        ),
-        (
-            app("keyframes k\n  120%\n    opacity=1\n", ""),
-            "lower-keyframes",
-            "outside 0%–100%",
+            app("keyframes k\n  120% opacity=1\n", ""),
+            "syntax-keyframe-selector",
+            "between 0% and 100%",
         ),
         (
             app(
-                "keyframes k\n  to\n    animation-timing-function=\"spring(1, 2, 3)\"\n",
+                "keyframes k\n  to animation-timing-function=\"spring(1, 2, 3)\"\n",
                 "",
             ),
             "lower-keyframes",
-            "is not a CSS easing",
+            "`keyframes k`",
         ),
         (
-            app(
-                "keyframes k\n  to\n    opacity=1\nkeyframes k\n  to\n    opacity=0\n",
-                "",
-            ),
-            "syntax-duplicate-declaration",
-            "keyframes `k` is declared twice",
-        ),
-        (
-            app("keyframes k\n  to\n    opacity=1 opacity=0\n", ""),
+            app("keyframes k\n  to opacity=1 opacity=0\n", ""),
             "syntax-duplicate-attr",
-            "appears twice in `keyframes k`",
+            "appears twice in one keyframe",
+        ),
+        (
+            app("keyframes k\n  to color=now()\n", ""),
+            "lower-keyframes",
+            "known when the app compiles",
         ),
     ] {
         let error = contract::compile(&source).unwrap_err();
@@ -149,10 +138,10 @@ fn what_cannot_animate_or_resolve_is_refused_at_compile_time() {
 
 #[test]
 fn keyframes_format_and_keep_their_percentages_whole() {
-    let source = "keyframes k\n  0%,   100%\n    opacity=0.4    scale=0.9\n  50%\n    opacity=1\ncomponent App\n  view\n    text \"a\" animation=\"k 1s\"\n";
+    let source = "keyframes k\n  0%,   100% opacity=0.4    scale=0.9\n  50% opacity=1\ncomponent App\n  view\n    text \"a\" animation=\"k 1s\"\n";
     assert_eq!(
         contract_syntax::fmt::format(source).unwrap(),
-        "keyframes k\n  0%, 100%\n    opacity=0.4 scale=0.9\n  50%\n    opacity=1\ncomponent App\n  view\n    text \"a\" animation=\"k 1s\"\n"
+        "keyframes k\n  0%, 100% opacity=0.4 scale=0.9\n  50% opacity=1\ncomponent App\n  view\n    text \"a\" animation=\"k 1s\"\n"
     );
 }
 
@@ -174,7 +163,7 @@ fn each_names_the_position_and_a_moved_row_reads_its_new_one() {
             ))
         }
     }
-    let source = "keyframes enter\n  from\n    opacity=0\ncomponent App\n  state moved = false\n  resource keys = keys(moved) as shape list<string>\n  action move writes moved\n    moved = true\n  view\n    column\n      button \"move\" press=move testId=\"move\"\n      each k, i in keys key=k\n        text `${i}:${k}` testId=`row-${k}` animation=`enter 300ms ${i * 40}ms both`\n";
+    let source = "keyframes enter\n  from opacity=0\ncomponent App\n  state moved = false\n  resource keys = keys(moved) as shape list<string>\n  action move writes moved\n    moved = true\n  view\n    column\n      button \"move\" press=move testId=\"move\"\n      each k, i in keys key=k\n        text `${i}:${k}` testId=`row-${k}` animation=`enter 300ms ${i * 40}ms both`\n";
     let plan = contract::compile(source).unwrap();
     let mut r = Runner::boot(
         plan,
@@ -210,7 +199,7 @@ fn each_names_the_position_and_a_moved_row_reads_its_new_one() {
     assert_eq!(text(&r, "row-b").1, "2:b");
     // A windowed list's rows read their positions too, and a row the window
     // keeps reads its new one when the list moves under it.
-    let list = "keyframes enter\n  from\n    opacity=0\ncomponent App\n  state moved = false\n  resource keys = keys(moved) as shape list<string>\n  action move writes moved\n    moved = true\n  view\n    column\n      button \"move\" press=move testId=\"move\"\n      list height=100 item-height=20 testId=\"list\"\n        each k, i in keys key=k\n          text `${i}:${k}` testId=`row-${k}` animation=`enter 300ms ${i * 40}ms both`\n";
+    let list = "keyframes enter\n  from opacity=0\ncomponent App\n  state moved = false\n  resource keys = keys(moved) as shape list<string>\n  action move writes moved\n    moved = true\n  view\n    column\n      button \"move\" press=move testId=\"move\"\n      list height=100 item-height=20 testId=\"list\"\n        each k, i in keys key=k\n          text `${i}:${k}` testId=`row-${k}` animation=`enter 300ms ${i * 40}ms both`\n";
     let virtualized = list.replace(
         "item-height=20",
         "virtualized=true estimated-item-height=20",
@@ -254,7 +243,7 @@ fn each_names_the_position_and_a_moved_row_reads_its_new_one() {
 /// colours may be keyframed, one fixed colour each.
 #[test]
 fn a_computed_delay_staggers_and_colours_keyframe() {
-    let source = "keyframes enter\n  from\n    opacity=0\n    background-color=\"#ff000080\"\n\ncomponent App\n  state step = 2\n  action next writes step\n    step = step + 1\n  view\n    column\n      button press=next testId=\"next\"\n        text \"Next\"\n      text \"a\" testId=\"row\" animation=`enter 320ms ease-out ${step * 70}ms both`\n";
+    let source = "keyframes enter\n  from opacity=0 background-color=\"#ff000080\"\n\ncomponent App\n  state step = 2\n  action next writes step\n    step = step + 1\n  view\n    column\n      button press=next testId=\"next\"\n        text \"Next\"\n      text \"a\" testId=\"row\" animation=`enter 320ms ease-out ${step * 70}ms both`\n";
     let plan = contract::compile(source).unwrap();
     let mut r = Runner::boot(
         Plan::decode(&plan.encode()).unwrap(),
@@ -266,10 +255,10 @@ fn a_computed_delay_staggers_and_colours_keyframe() {
     .unwrap();
     let (_, row) = animation(&r, "row");
     let a = &row.0[0];
-    assert_eq!(a.keyframes.name, "enter");
+    assert_eq!(a.name, "enter");
     assert!((a.delay - 0.14).abs() < 1e-6, "{}", a.delay);
     assert!((a.duration - 0.32).abs() < 1e-6);
-    let (property, value) = a.keyframes.blocks[0].values[1];
+    let (property, value) = a.keyframes.0[0].values[1];
     assert_eq!(property, Property::BackgroundColor);
     assert!((value.w - 128.0 / 255.0).abs() < 1e-6, "{value:?}");
     let k = r.kernel();
@@ -278,30 +267,9 @@ fn a_computed_delay_staggers_and_colours_keyframe() {
     let (_, row) = animation(&r, "row");
     assert!((row.0[0].delay - 0.21).abs() < 1e-6);
 
-    let app = |attr: &str| {
-        format!("keyframes enter\n  from\n    opacity=0\ncomponent App\n  state n = 1\n  view\n    text \"a\" {attr}\n")
-    };
-    for (attr, id, says) in [
-        (
-            "animation=`enter ${n}ms ${n}ms ${n}ms`",
-            "lower-attr-value",
-            "animation=",
-        ),
-        (
-            "animation=`enter 1s ${n}`",
-            "lower-animation-literal",
-            "interpolates only times",
-        ),
-        (
-            "animation=`nope ${n}ms`",
-            "lower-unknown-keyframes",
-            "no `keyframes nope`",
-        ),
-    ] {
-        let error = contract::compile(&app(attr)).unwrap_err();
-        assert_eq!(error.id, id, "{attr}\n{error}");
-        assert!(error.message.contains(says), "{error}");
-    }
+    // Which keyframes play may be computed too: the runner resolves the
+    // name, and a name no rule has starts nothing (LLP 1055 D5).
+    contract::compile("keyframes enter\n  from opacity=0\ncomponent App\n  state n = 1\n  view\n    text \"a\" animation=`nope ${n}ms`\n").unwrap();
 }
 
 /// LLP 1062 D9: a keyframe takes a `light-dark()` colour, written or
@@ -319,7 +287,7 @@ fn a_keyframe_takes_light_dark_through_a_palette_function() {
             ]))
         }
     }
-    let source = "fn accent(): string = \"light-dark(#4F6657, #B7C9AC)\"\nfn ink(): string = textTitle()\nfn textTitle(): string = \"light-dark(#171B17, #F5F5EC)\"\nkeyframes lit\n  from\n    color=accent()\n  to\n    color=ink()\ncomponent App\n  resource words = words() as shape list<string>\n  view\n    row\n      each w, i in words key=w\n        text w testId=`w-${w}` animation=`lit 900ms linear ${i * 120}ms both`\n";
+    let source = "fn accent(): string = \"light-dark(#4F6657, #B7C9AC)\"\nfn ink(): string = textTitle()\nfn textTitle(): string = \"light-dark(#171B17, #F5F5EC)\"\nkeyframes lit\n  from color=accent()\n  to color=ink()\ncomponent App\n  resource words = words() as shape list<string>\n  view\n    row\n      each w, i in words key=w\n        text w testId=`w-${w}` animation=`lit 900ms linear ${i * 120}ms both`\n";
     let plan = contract::compile(source).unwrap();
     let r = Runner::boot(
         Plan::decode(&plan.encode()).unwrap(),
@@ -352,13 +320,13 @@ fn a_keyframe_takes_light_dark_through_a_palette_function() {
             "{v:?} vs {want:?}"
         );
     };
-    close(&a.keyframes.blocks[0].values, color(0x4F, 0x66, 0x57));
-    close(&a.keyframes.blocks[0].dark, color(0xB7, 0xC9, 0xAC));
-    close(&a.keyframes.blocks[1].dark, color(0xF5, 0xF5, 0xEC));
+    close(&a.keyframes.0[0].values, color(0x4F, 0x66, 0x57));
+    close(&a.keyframes.0[0].dark, color(0xB7, 0xC9, 0xAC));
+    close(&a.keyframes.0[1].dark, color(0xF5, 0xF5, 0xEC));
     // Only what the app knows when it compiles.
-    let computed = "fn tone(): string = 1 > 0 ? \"#fff\" : \"#000\"\nkeyframes k\n  to\n    color=tone()\ncomponent App\n  view\n    text \"a\"\n";
+    let computed = "fn tone(): string = 1 > 0 ? \"#fff\" : \"#000\"\nkeyframes k\n  to color=tone()\ncomponent App\n  view\n    text \"a\"\n";
     contract::compile(computed).unwrap();
-    let unknown = "fn tone(x: number): string = x > 0 ? \"#fff\" : \"#000\"\nkeyframes k\n  to\n    color=tone(now())\ncomponent App\n  view\n    text \"a\"\n";
+    let unknown = "fn tone(x: number): string = x > 0 ? \"#fff\" : \"#000\"\nkeyframes k\n  to color=tone(now())\ncomponent App\n  view\n    text \"a\"\n";
     let error = contract::compile(unknown).unwrap_err();
     assert!(
         error.message.contains("known when the app compiles"),
@@ -384,10 +352,10 @@ fn booted(source: &str) -> Runner<NoData> {
 /// (LLP 1062).
 #[test]
 fn keyframes_fold_palette_arguments_and_animate_box_shadow() {
-    let source = "fn tone(level: string, alpha: number): string = level == \"strong\" ? `rgba(29, 78, 216, ${alpha})` : \"light-dark(#000000, #ffffff)\"\nfn accent(): string = tone(\"strong\", 0.5)\nfn glow(c: string): string = `0 16px 24px ${c}`\nkeyframes k\n  from\n    color=tone(\"soft\", 1)\n    box-shadow=\"none\"\n  to\n    color=accent()\n    box-shadow=glow(\"light-dark(#1d4ed8, #ffffff80)\")\ncomponent App\n  view\n    text \"a\" testId=\"a\" animation=\"k 1s\"\n";
+    let source = "fn tone(level: string, alpha: number): string = level == \"strong\" ? `rgba(29, 78, 216, ${alpha})` : \"light-dark(#000000, #ffffff)\"\nfn accent(): string = tone(\"strong\", 0.5)\nfn glow(c: string): string = `0 16px 24px ${c}`\nkeyframes k\n  from color=tone(\"soft\", 1) box-shadow=\"none\"\n  to color=accent() box-shadow=glow(\"light-dark(#1d4ed8, #ffffff80)\")\ncomponent App\n  view\n    text \"a\" testId=\"a\" animation=\"k 1s\"\n";
     let r = booted(source);
     let (_, row) = animation(&r, "a");
-    let blocks = &row.0[0].keyframes.blocks;
+    let blocks = &row.0[0].keyframes.0;
     let unit = |c: u8| c as f64 / 255.0;
     let get = |list: &[(Property, Value)], p: Property| {
         list.iter().find(|(q, _)| *q == p).map(|(_, v)| *v)
@@ -410,7 +378,7 @@ fn keyframes_fold_palette_arguments_and_animate_box_shadow() {
     );
     let lit = get(&blocks[1].values, Property::Color).unwrap();
     assert!(
-        (lit.w - unit(128)).abs() < 1e-6 && (lit.x - unit(29) * lit.w).abs() < 1e-6,
+        (lit.w - 0.5).abs() < 1e-6 && (lit.x - unit(29) * lit.w).abs() < 1e-6,
         "{lit:?}"
     );
     assert_eq!(
@@ -419,20 +387,23 @@ fn keyframes_fold_palette_arguments_and_animate_box_shadow() {
     );
     let night = get(&blocks[1].dark, Property::ShadowColor).unwrap();
     assert!((night.w - unit(0x80)).abs() < 1e-6, "{night:?}");
-    // The row round-trips its text, the shadow one declaration.
+    // The rule round-trips its CSS, the shadow one declaration.
+    let css = row.0[0].keyframes.css();
     assert!(
-        row.text().contains("box-shadow:0px 16px 24px light-dark("),
-        "{}",
-        row.text()
+        css.contains("box-shadow:0px 16px 24px light-dark("),
+        "{css}"
     );
-    assert_eq!(Animations::parse(&row.text()).unwrap(), row);
+    assert_eq!(
+        exact_motion::Keyframes::parse(&css).unwrap(),
+        row.0[0].keyframes
+    );
 }
 
 /// Computed times are not only `animation`'s: a `transition` and an
 /// `exit-animation` template compute theirs too (LLP 1062 D7).
 #[test]
 fn transition_and_exit_templates_compute_their_times() {
-    let source = "keyframes leave\n  to\n    opacity=0\ncomponent App\n  state n = 2\n  view\n    text \"a\" testId=\"a\" transition=`opacity ${n * 100}ms ease ${n}ms, color ${n}s` exit-animation=`leave ${n * 80}ms linear ${n * 10}ms both`\n";
+    let source = "keyframes leave\n  to opacity=0\ncomponent App\n  state n = 2\n  view\n    text \"a\" testId=\"a\" transition=`opacity ${n * 100}ms ease ${n}ms, color ${n}s` exit-animation=`leave ${n * 80}ms linear ${n * 10}ms both`\n";
     let r = booted(source);
     let k = r.kernel();
     let style = k.node_by_key(k.find_by_test_id("a")[0]).unwrap().style;
@@ -447,5 +418,5 @@ fn transition_and_exit_templates_compute_their_times() {
         (exit.duration - 0.16).abs() < 1e-6 && (exit.delay - 0.02).abs() < 1e-6,
         "{exit:?}"
     );
-    assert_eq!(exit.keyframes.name, "leave");
+    assert_eq!(exit.name, "leave");
 }

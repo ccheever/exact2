@@ -39,26 +39,6 @@ struct HeightDragPosition {
     }
 }
 
-/// Finite differences of accepted layout heights, never raw finger velocity.
-/// A duplicate lift sample retains a recent slope for at most the same 100ms
-/// freshness window used by motion's pointer velocity tracker.
-struct HeightDragVelocity {
-    private(set) var height: Double
-    private(set) var time: Double
-    private(set) var velocity = 0.0
-    init(height: Double, time: Double) { self.height = height; self.time = time }
-    @discardableResult mutating func record(height: Double, time: Double, ending: Bool = false) -> Bool {
-        guard height.isFinite, height >= 0, time.isFinite, time >= self.time else { return false }
-        let elapsed = time - self.time
-        if !(ending && height == self.height && elapsed <= 0.1) {
-            velocity = elapsed > 0 ? (height - self.height) / elapsed : 0
-            if !velocity.isFinite { velocity = 0 }
-        }
-        self.height = height; self.time = time
-        return true
-    }
-}
-
 /// Recognition may have displacement but zero instantaneous velocity (notably
 /// a coalesced iOS-on-Mac drag). Direction still belongs to the actual input.
 enum HeightDragDirection {

@@ -807,7 +807,7 @@ shape S
   a: string
 component A
   state id = "x"
-  resource s = s(id) as shape S else empty(id)
+  resource s = s(id) as shape S else blank(id)
   view
     text s.a
 ---
@@ -849,37 +849,28 @@ component App
   view
     Child(comment=post)
 ---
-== lower-unknown-keyframes
+== lower-animation-name
 component A
   view
     text "a" animation="pulse 1s infinite"
 ---
-== lower-animation-literal
-component A
-  state name = "pulse"
-  view
-    text "a" animation=`${name} 1s`
----
 == lower-exit-endless
 keyframes leave
-  to
-    opacity=0
+  to opacity=0
 component A
   view
     text "a" exit-animation="leave 1s infinite"
 ---
-== lower-keyframes
+== lower-keyframe-property
 keyframes grow
-  from
-    width=10
+  from width=10
 component A
   view
     text "a"
 ---
-== syntax-expected-keyframe
+== syntax-keyframe-selector
 keyframes grow
-  halfway
-    opacity=1
+  halfway opacity=1
 component A
   view
     text "a"
@@ -890,10 +881,9 @@ component A
     button press-scale=0
       text "a"
 ---
-== lower-keyframes
+== lower-keyframe-property
 keyframes give
-  to
-    press-scale=0.97
+  to press-scale=0.97
 component A
   view
     text "a"

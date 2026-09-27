@@ -1,4 +1,4 @@
-// LLP 1056's parity page: `background-image` gradients, the browser the oracle.
+// LLP 1066's parity page: `background-image` gradients, the browser the oracle.
 // Twelve 100×70 boxes on a 125×95 grid, no text: linear by the default
 // direction, an angle and a magic corner; `transparent` into a colour over
 // the page and over a background colour (CSS mixes premultiplied); a hard

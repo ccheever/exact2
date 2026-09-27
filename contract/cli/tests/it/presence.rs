@@ -51,10 +51,10 @@ fn a_removed_row_leaves_with_its_exit_and_its_sibling_declares_a_layout_transiti
     };
     assert_eq!(exit.key, first_key);
     let a = &exit.animations.0[0];
-    assert_eq!(a.keyframes.name, "leave");
+    assert_eq!(a.name, "leave");
     assert!((a.duration - 0.2).abs() < 1e-6);
     assert_eq!(
-        a.keyframes.blocks.last().unwrap().values,
+        a.keyframes.0.last().unwrap().values,
         [
             (Property::Opacity, Value::scalar(0.0)),
             (Property::Scale, Value::scalar(0.96)),
@@ -66,16 +66,13 @@ fn a_removed_row_leaves_with_its_exit_and_its_sibling_declares_a_layout_transiti
 #[test]
 fn an_endless_exit_is_refused_at_compile_time() {
     let error = contract::compile(
-        "keyframes k\n  to\n    opacity=0\ncomponent App\n  view\n    text \"a\" exit-animation=\"k 1s infinite\"\n",
+        "keyframes k\n  to opacity=0\ncomponent App\n  view\n    text \"a\" exit-animation=\"k 1s infinite\"\n",
     )
     .unwrap_err();
     assert_eq!(error.id, "lower-exit-endless", "{error}");
     let error =
         contract::compile("component App\n  view\n    text \"a\" exit-animation=\"gone 1s\"\n")
             .unwrap_err();
-    assert_eq!(error.id, "lower-unknown-keyframes");
-    assert!(
-        error.message.contains("`exit-animation=\"gone 1s\"`"),
-        "{error}"
-    );
+    assert_eq!(error.id, "lower-animation-name");
+    assert!(error.message.contains("no `keyframes gone`"), "{error}");
 }

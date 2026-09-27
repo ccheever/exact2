@@ -72,22 +72,14 @@ struct TransformDragPosition {
     func moved(dx: Double, dy: Double) -> [Double]? {
         TransformDragPosition(x: x + dx, y: y + dy, scale: scale)?.values
     }
-}
-
-struct TransformDragVelocity {
-    private(set) var value: [Double]
-    private(set) var time: Double
-    private(set) var velocity = [0.0, 0.0, 0.0]
-    init(value: [Double], time: Double) { self.value = value; self.time = time }
-    @discardableResult mutating func record(value: [Double], time: Double, ending: Bool = false) -> Bool {
-        guard TransformDragPosition(value) != nil, time.isFinite, time >= self.time else { return false }
-        let elapsed = time - self.time
-        if !(ending && value == self.value && elapsed <= 0.1) {
-            velocity = zip(value, self.value).map { elapsed > 0 ? ($0 - $1) / elapsed : 0 }
-            if !velocity.allSatisfy(\.isFinite) { velocity = [0, 0, 0] }
-        }
-        self.value = value; self.time = time
-        return true
+    /// Pinch anchored at its focal point (LLP 1057.001 §4): the content under
+    /// `from` stays under `to` while scale multiplies by `factor`, so translate
+    /// follows the centroid. Points are relative to the clip's centre, in the
+    /// translate's space (x right, y down); `factor` 1 is a pan by `to - from`.
+    func focused(from: CGPoint, to: CGPoint, factor: Double) -> TransformDragPosition? {
+        guard factor.isFinite, factor > 0 else { return nil }
+        return TransformDragPosition(x: Double(to.x) - factor * (Double(from.x) - x),
+                                     y: Double(to.y) - factor * (Double(from.y) - y), scale: scale * factor)
     }
 }
 

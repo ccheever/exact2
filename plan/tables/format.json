@@ -179,6 +179,11 @@
           "name": "placeholder",
           "codec": "opt:resources",
           "_comment": "@ref LLP 1048.003 D6: the row whose value shows while this one's source hasn't answered and nothing is kept for its arguments \u2014 a declared `else source(args)`, compiled as a row of its own (named `<name>#else`, arguments that read no state, the same type, no placeholder of its own). None: a list or an option shows its empty value, and anything else has none."
+        },
+        {
+          "name": "placeholder_value",
+          "codec": "bytes",
+          "_comment": "@ref LLP 1054.000.002 D3: a declared `else empty(field=value, …)`, the compiler's constant (a value), shown while nothing is kept and the source has not answered. Empty bytes: none — an undeclared placeholder is the type's zero, which the runner computes (D1)."
         }
       ]
     },
@@ -198,9 +203,23 @@
           "codec": "idx:types"
         },
         {
+          "name": "refreshes",
+          "codec": "range:mutation_refreshes",
+          "_comment": "@ref LLP 1054.000.000 D1: the resources a send to this mutation refreshes, forced, when it runs and when its reply lands (`mutation m as shape T refreshes a, b`)."
+        },
+        {
           "name": "then",
           "codec": "opt:actions",
           "_comment": "The action a `mutation … then action` runs after each answer lands, as its own commit (LLP 1016.001). None: nothing runs."
+        }
+      ]
+    },
+    {
+      "name": "mutation_refreshes",
+      "fields": [
+        {
+          "name": "resource",
+          "codec": "idx:resources"
         }
       ]
     },
@@ -477,6 +496,20 @@
           "name": "pages_args",
           "codec": "bytes",
           "_comment": "@ref LLP 1048.000 D2: that source's arguments, values (a list in the plan's value encoding); empty bytes without a source."
+        }
+      ]
+    },
+    {
+      "name": "keyframes",
+      "_comment": "@ref LLP 1055 D5: the app's `@keyframes` rules by name, each body as CSS text (`0%{r:3px;}100%{r:9px;}`); the runner resolves `animation-name` against them.",
+      "fields": [
+        {
+          "name": "name",
+          "codec": "str"
+        },
+        {
+          "name": "css",
+          "codec": "str"
         }
       ]
     },
@@ -813,6 +846,12 @@
       ]
     },
     {
+      "name": "NativeProps",
+      "operands": [
+        "u32"
+      ]
+    },
+    {
       "name": "LoadIndex",
       "operands": [
         "u16"
@@ -1002,6 +1041,12 @@
       "name": "contains",
       "params": ["string", "string"],
       "returns": "bool"
+    },
+    {
+      "name": "first",
+      "params": ["any"],
+      "returns": "any",
+      "_comment": "@ref LLP 1054.000 C4: a list's first item, `some(x)`, or `none` for an empty list; `any` is `list<T>` in and `option<T>` out (the type checker's)."
     },
     {
       "name": "t",

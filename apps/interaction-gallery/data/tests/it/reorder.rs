@@ -46,7 +46,7 @@ fn terminal(source: &mut Gallery, item: &str, before: Option<&str>, revision: u3
         .expect("typed domain refusal must return a GalleryState, not DataError")
 }
 
-fn rows(source: &mut Gallery, revision: u32) -> Rc<Vec<Value>> {
+fn rows(source: &mut Gallery, revision: u32) -> Rc<[Value]> {
     let Value::List(rows) = source
         .query(
             "galleryRows",
@@ -349,7 +349,7 @@ fn app_press(runner: &mut Runner<Counted>, name: &str) {
     runner.dispatch(id, exact_runner::Event::Press).unwrap();
 }
 
-fn app_rows(runner: &Runner<Counted>) -> Rc<Vec<Value>> {
+fn app_rows(runner: &Runner<Counted>) -> Rc<[Value]> {
     let Value::List(rows) = runner.resource("rows").unwrap() else {
         panic!("rows")
     };

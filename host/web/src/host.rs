@@ -20,13 +20,13 @@ use exact_runner::{
     RunnerError, SurfaceOutcome, Timed, Work,
 };
 
+#[path = "canvas2d.rs"]
+mod canvas2d;
 #[path = "document.rs"]
 pub mod document;
 #[path = "element.rs"]
 mod element;
-#[path = "vector.rs"]
-mod vector;
-use element::{host_css, in_button, props_for, tag_for};
+use element::{css_style, host_css, in_button, props_for, svg_props, tag_for};
 #[path = "height_drag.rs"]
 mod height_drag;
 pub use height_drag::HeightDragBinding;
@@ -273,8 +273,10 @@ pub struct Host<D: DataSource> {
     /// While the first batch is made: what a page's projection computed for
     /// each view (LLP 1048.000 D6), taken instead of computing it again.
     computed: document::Computed,
-    /// `@keyframes` rules the page was sent, by name (LLP 1057 D5).
+    /// `@keyframes` rules already in the page's stylesheet (LLP 1055 D7).
     keyframes: SortedSet<String>,
+    /// The 2D canvases the page watches (LLP 1056 D4).
+    canvas2d: canvas2d::Watch,
 }
 
 impl<D: DataSource> Host<D> {
@@ -427,6 +429,7 @@ impl<D: DataSource> Host<D> {
             head_dirty: false,
             computed,
             keyframes: Default::default(),
+            canvas2d: Default::default(),
         };
         // Everything live is new to the page.
         let roots = host.runner.roots();
@@ -459,6 +462,7 @@ impl<D: DataSource> Host<D> {
         for s in host.runner.take_surface_updates() {
             batch.surface(&s);
         }
+        host.canvas_turn(&mut batch);
         // @ref LLP 1038 D7 — drain once, after all commits in this batch.
         if let Some(change) = host.runner.take_router_change() {
             host.location = change.url.clone();
@@ -648,6 +652,8 @@ impl<D: DataSource> Host<D> {
 
     fn advanced(&mut self, a: exact_runner::Advanced) -> String {
         self.now_ms = a.now_ms.max(self.now_ms);
+        // LLP 1056 D5: a canvas that asked for a frame draws at the landed time.
+        self.runner.canvas_frame();
         let error = a.error.map(|e| format!("{e:?}"));
         self.batch_for(&a.receipts, error.as_deref())
     }
@@ -809,7 +815,7 @@ impl<D: DataSource> Host<D> {
             // the leaving view's geometry before any op of the batch moves it.
             for exit in &r.exits {
                 if let Some(id) = self.keys.get(&exit.key) {
-                    batch.exit(*id, &css::animations_css(&exit.animations));
+                    batch.exit(*id, &exit.animations.css());
                 }
             }
             for key in &r.destroyed {
@@ -886,6 +892,7 @@ impl<D: DataSource> Host<D> {
         for s in self.runner.take_surface_updates() {
             batch.surface(&s);
         }
+        self.canvas_turn(batch);
         // @ref LLP 1038 D7 — drain once, after all commits in this batch.
         if let Some(change) = self.runner.take_router_change() {
             self.location = change.url.clone();
@@ -1068,6 +1075,26 @@ impl<D: DataSource> Host<D> {
         Ok(Some(self.hold_batch(now_ms)))
     }
 
+    /// Record what the display shows for a live hold (LLP 1057.001 §3).
+    pub fn track_hold(&mut self, serial: u64, shown: exact_motion::Value, now_ms: f64) -> bool {
+        self.springs.track_hold(serial, now_ms / 1000.0, shown)
+    }
+
+    /// Release at the velocity the engine measured over the hold's values,
+    /// for input the platform gives no velocity (LLP 1057.001 §3).
+    pub fn end_hold_measured(
+        &mut self,
+        serial: u64,
+        now_ms: f64,
+    ) -> Result<Option<String>, EngineError> {
+        let velocity = self
+            .springs
+            .hold_velocity(serial, now_ms / 1000.0)
+            .filter(|v| v.x.is_finite() && v.y.is_finite())
+            .unwrap_or(exact_motion::Value::ZERO);
+        self.end_hold(serial, HoldEnd::Release { velocity }, now_ms)
+    }
+
     /// Return to the latest authored target, even without a kernel receipt.
     pub fn end_hold(
         &mut self,
@@ -1195,6 +1222,18 @@ impl<D: DataSource> Host<D> {
             (drag.created)(self, id, key, kinds);
         }
         let node = self.runner.kernel().node(id).expect("live");
+        // An exit's rules too, while its node lives (LLP 1063 D7).
+        for a in node
+            .style
+            .animation
+            .0
+            .iter()
+            .chain(&node.style.exit_animation.0)
+        {
+            if self.keyframes.insert(a.name.clone()) {
+                batch.keyframes(&a.name, &a.keyframes.css());
+            }
+        }
         let in_button = in_button(self.runner.kernel(), &node);
         let tag = tag_for(&node, in_button);
         let kept = match self.computed.last() {
@@ -1205,8 +1244,11 @@ impl<D: DataSource> Host<D> {
             // The projection's, for this view of this tree: the same values.
             Some((_, kept, props, css)) if kept == tag => (props, css),
             _ => {
-                let (css, _skipped) = css::css_text(node.style, &self.font_names);
-                (props_for(&node), host_css(&node, css, tag))
+                let kernel = self.runner.kernel();
+                let (css, _skipped) = css::css_text(&css_style(kernel, &node), &self.font_names);
+                let mut props = props_for(&node);
+                svg_props(kernel, &node, &mut props);
+                (props, host_css(&node, css, tag))
             }
         };
         let handlers: Vec<&str> = kinds
@@ -1216,7 +1258,6 @@ impl<D: DataSource> Host<D> {
             .collect();
         let pairs: Vec<(&str, String)> =
             props.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
-        self.emit_keyframes(id, batch);
         batch.create(id, tag, &pairs, &css, &handlers);
         self.mirror.insert(
             id,
@@ -1250,8 +1291,22 @@ impl<D: DataSource> Host<D> {
             (drag.updated)(self, id, key);
         }
         let node = self.runner.kernel().node(id).expect("live");
-        let props = props_for(&node);
-        let (css, _skipped) = css::css_text(node.style, &self.font_names);
+        // An exit's rules too, while its node lives (LLP 1063 D7).
+        for a in node
+            .style
+            .animation
+            .0
+            .iter()
+            .chain(&node.style.exit_animation.0)
+        {
+            if self.keyframes.insert(a.name.clone()) {
+                batch.keyframes(&a.name, &a.keyframes.css());
+            }
+        }
+        let mut props = props_for(&node);
+        svg_props(self.runner.kernel(), &node, &mut props);
+        let (css, _skipped) =
+            css::css_text(&css_style(self.runner.kernel(), &node), &self.font_names);
         let in_button = self.mirror.get(&id).is_some_and(|m| m.in_button);
         let css = host_css(&node, css, tag_for(&node, in_button));
         let m = self.mirror.entry(id).or_default();
@@ -1271,20 +1326,8 @@ impl<D: DataSource> Host<D> {
             m.props = props;
         }
         if css != m.css {
-            m.css = css.clone();
-            self.emit_keyframes(id, batch);
             batch.style(id, &css);
-        }
-    }
-
-    /// Each `@keyframes` rule the node's `animation` plays that the page has
-    /// not been sent, ahead of the declaration naming it.
-    fn emit_keyframes(&mut self, id: ViewId, batch: &mut Batch) {
-        let node = self.runner.kernel().node(id).expect("live");
-        for (name, rule) in css::keyframes_rules(node.style) {
-            if self.keyframes.insert(name.clone()) {
-                batch.keyframes(&name, &rule);
-            }
+            m.css = css;
         }
     }
 

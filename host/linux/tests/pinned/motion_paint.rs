@@ -51,7 +51,7 @@ fn a_colour_transition_paints_premultiplied_and_hands_its_row_back() {
     let (toggle, label) = (view(&p, "toggle"), view(&p, "label"));
     let _ = p.tap(toggle).unwrap();
     p.tick(500.0);
-    let shown = p.host().presented(toggle).paint;
+    let shown = p.host().presented(toggle).colors;
     // Red to transparent blue, halfway: red fading, never purple (Chrome's
     // premultiplied interpolation), painted over the white page.
     assert_eq!(
@@ -66,15 +66,15 @@ fn a_colour_transition_paints_premultiplied_and_hands_its_row_back() {
     );
     // The label inherits the button's colour and paints it as it moves.
     assert_eq!(
-        p.host().presented(label).paint.color(Property::Color),
+        p.host().presented(label).colors.color(Property::Color),
         Some([128, 128, 128, 255])
     );
     p.tick(1000.0);
     assert!(
-        p.host().presented(toggle).paint.is_empty(),
+        p.host().presented(toggle).colors.is_empty(),
         "arrived: the rows paint again"
     );
-    assert!(p.host().presented(label).paint.is_empty());
+    assert!(p.host().presented(label).colors.is_empty());
     assert_eq!(pixel(&mut p, 1, 20), [0, 255, 0, 255]);
 }
 
@@ -89,7 +89,7 @@ fn an_appearance_change_transitions_a_light_dark_colour() {
     assert_eq!(
         p.host()
             .presented(page)
-            .paint
+            .colors
             .color(Property::BackgroundColor),
         Some([191, 191, 191, 255])
     );
@@ -107,8 +107,7 @@ fn currentcolor_borders_and_inline_runs_follow_an_animating_color() {
     pin_font();
     let plan = contract::compile(
         r##"keyframes lit
-  to
-    box-shadow="0 16px 24px #1d4ed8"
+  to box-shadow="0 16px 24px #1d4ed8"
 component App
   state on = false
   action toggle writes on
@@ -143,19 +142,19 @@ component App
     assert_eq!(
         p.host()
             .presented(view(&p, "plain"))
-            .paint
+            .colors
             .color(Property::Color),
         grey
     );
     assert_eq!(
         p.host()
             .presented(view(&p, "red"))
-            .paint
+            .colors
             .color(Property::Color),
         None
     );
     // `box-shadow` keyframes, geometry and colour (LLP 1062 D9).
-    let glow = p.host().presented(view(&p, "glow")).paint;
+    let glow = p.host().presented(view(&p, "glow")).colors;
     assert_eq!(
         glow.value(Property::BoxShadow),
         Some(exact_motion::Value::four(0.0, 8.0, 12.0, 0.0))
@@ -163,5 +162,5 @@ component App
     assert_eq!(glow.color(Property::ShadowColor), Some([29, 78, 216, 128]));
     p.tick(1000.0);
     assert_eq!(pixel(&mut p, 1, 30), [255, 255, 255, 255]);
-    assert!(p.host().presented(view(&p, "box")).paint.is_empty());
+    assert!(p.host().presented(view(&p, "box")).colors.is_empty());
 }

@@ -1,0 +1,17 @@
+# The photo editor's data source: none. The photo, the gestures and the
+# edit state live in its native module (LLP 1024); the app is Contract.
+[package]
+name = "photo-editor-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The photo editor's data source: answers nothing"
+publish = false
+
+[lib]
+name = "photo_editor_data"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }

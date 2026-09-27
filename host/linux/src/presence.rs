@@ -15,6 +15,7 @@
 
 use super::*;
 use exact_kernel::id::IdSet;
+use exact_motion::Change;
 
 /// What the host keeps for layout transitions.
 #[derive(Debug, Default)]

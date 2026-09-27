@@ -12,9 +12,9 @@
 //! and the only copy.
 
 use crate::paint::Presented;
-use exact_kernel::motion::{motion_node, node_targets, MotionSync};
+use exact_kernel::motion::{motion_node, MotionSync};
 use exact_kernel::{Kernel, NodeKey, TextMeasurer, ViewId};
-use exact_motion::{Change, Engine, Property};
+use exact_motion::{Engine, Property};
 use exact_plan::Plan;
 use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, RunnerError, Timed};
 use std::collections::BTreeMap;
@@ -80,6 +80,8 @@ pub struct Host<D: DataSource> {
     router_op: Option<exact_runner::RouterChange>,
     navigation: crate::navigation::Navigation,
     presence: presence::Presence,
+    /// The 2D canvases' bitmaps (LLP 1056 D7).
+    canvas2d: crate::canvas2d::Canvases,
 }
 
 impl<D: DataSource> Host<D> {
@@ -180,7 +182,10 @@ impl<D: DataSource> Host<D> {
             router_op: None,
             navigation: Default::default(),
             presence: Default::default(),
+            canvas2d: Default::default(),
         };
+        host.runner
+            .set_canvas_limits(exact_runner::Limits::native(physical_memory(), false));
         // The engine hears the whole tree once: values, no transitions; an
         // `animation` starts now, as a browser starts one on a new element.
         let mut sync = MotionSync::default();
@@ -190,10 +195,6 @@ impl<D: DataSource> Host<D> {
             if let Some(node) = host.runner.kernel().node(id) {
                 let key = node.key;
                 host.keys.insert(key, id);
-                let n = motion_node(node.key);
-                sync.transitions.push((n, node.style.transition.clone()));
-                sync.layout.push((n, node.style.layout_transition.clone()));
-                sync.animations.push((n, node.style.animation.clone()));
                 if node
                     .style
                     .layout_transition
@@ -202,14 +203,7 @@ impl<D: DataSource> Host<D> {
                 {
                     host.presence.tracked.insert(key);
                 }
-                for (property, value) in node_targets(node.node_type, node.style) {
-                    sync.changes.push(Change {
-                        node: n,
-                        property,
-                        value,
-                        velocity: None,
-                    });
-                }
+                host.runner.kernel().motion_sync_node(key, &mut sync);
             }
         }
         let applied = sync.apply(&mut host.engine);
@@ -269,6 +263,38 @@ impl<D: DataSource> Host<D> {
     /// §3): `deliveryCheck`, `deliveryActivate`, `setScheme`.
     pub fn take_commands(&mut self) -> Vec<exact_runner::Command> {
         self.runner.take_commands()
+    }
+
+    /// Canvas 2D after this turn's layout (LLP 1056 D4): the kernel's
+    /// content boxes at `scale`, a presented frame for canvases that asked
+    /// (`frame`), the due draws, and their lists replayed. Whether any
+    /// bitmap changed.
+    pub(crate) fn sync_canvases(&mut self, scale: f64, frame: bool) -> bool {
+        if !self.runner.plan().surfaces.is_empty() {
+            self.runner.layout_canvases(scale);
+            if frame {
+                self.runner.canvas_frame();
+            }
+            self.runner.draw_canvases(&|_| true);
+        }
+        let lists = self.runner.take_canvas_lists();
+        let changed = !lists.is_empty();
+        for e in self.canvas2d.apply(lists) {
+            self.runner.log(e);
+        }
+        let live = self.runner.canvas_views();
+        self.canvas2d.retain(&live);
+        changed
+    }
+
+    /// Each 2D canvas's latest bitmap, for the painters.
+    pub(crate) fn canvas_snapshots(&self) -> BTreeMap<ViewId, crate::canvas2d::CanvasPaint> {
+        self.canvas2d.snapshots()
+    }
+
+    /// Whether a 2D canvas asked for another frame (LLP 1056 D5).
+    pub fn canvas_wants_frame(&self) -> bool {
+        self.runner.canvas_wants_frame()
     }
 
     /// The runner.
@@ -938,8 +964,15 @@ impl<D: DataSource> Host<D> {
                 Property::Scale => entry.scale = p.value.x as f32,
                 Property::Rotate => entry.rotate = p.value.x as f32,
                 Property::Opacity => entry.opacity = p.value.x as f32,
-                Property::StrokeStart => entry.stroke.0 = p.value.x as f32,
-                Property::StrokeEnd => entry.stroke.1 = p.value.x as f32,
+                Property::R => entry.svg[0] = Some(p.value.x as f32),
+                Property::StrokeDashoffset => entry.svg[1] = Some(p.value.x as f32),
+                // @ref LLP 1055.000 D15 — geometry, in `Presented::svg`'s order.
+                Property::Cx => entry.svg[2] = Some(p.value.x as f32),
+                Property::Cy => entry.svg[3] = Some(p.value.x as f32),
+                Property::X => entry.svg[4] = Some(p.value.x as f32),
+                Property::Y => entry.svg[5] = Some(p.value.x as f32),
+                Property::Rx => entry.svg[6] = Some(p.value.x as f32),
+                Property::Ry => entry.svg[7] = Some(p.value.x as f32),
                 _ => unreachable!("height is projected through layout; paint is above"),
             }
         }
@@ -983,4 +1016,18 @@ fn agent_scratch() -> Result<Option<String>, exact_runner::DataError> {
             "EXACT_AGENT_STORAGE: one name of letters, digits, '.', '-' or '_'".into(),
         )),
     }
+}
+
+/// Physical memory in bytes, for the canvas budget (LLP 1056 D4): a quarter
+/// of it, as WebKit charged on iOS. Linux reports it in `/proc/meminfo`;
+/// elsewhere (the host run on a Mac) 8 GiB is assumed.
+fn physical_memory() -> u64 {
+    std::fs::read_to_string("/proc/meminfo")
+        .ok()
+        .and_then(|m| {
+            let line = m.lines().find(|l| l.starts_with("MemTotal:"))?;
+            let kb: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+            Some(kb * 1024)
+        })
+        .unwrap_or(8 << 30)
 }

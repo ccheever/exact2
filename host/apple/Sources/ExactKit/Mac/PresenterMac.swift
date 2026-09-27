@@ -4,6 +4,7 @@
 // web views, and menus through it.
 #if os(macOS)
 import AppKit
+import CoreText
 import os
 
 /// The viewport: a click that reached it — on no node that takes the focus
@@ -162,6 +163,7 @@ final class Presenter {
     lazy var mouseHeightDrag = MouseHeightDrag(self)
     lazy var mouseTransformDrag = MouseTransformDrag(self)
     lazy var mouseReorder = MouseReorder(self)
+    lazy var mouseChain = MouseChain(self)
     /// The one Arrange contact, until its source settles; a test's calls.
     var reorder: ReorderHold?
     var reorderCalls: ReorderCalls?
@@ -171,6 +173,9 @@ final class Presenter {
     /// The native menu arm (LLP 1021 D3).
     lazy var menus = MenuHost(presenter: self)
     lazy var navigation = NavigationHost(presenter: self)
+    /// SVG scenes and CSS animations (LLP 1055 D4, D7).
+    let svg = SvgHost()
+    let canvas2d = Canvas2DHost()
     lazy var segments = SegmentHost(self)
     lazy var shortcuts = ShortcutHost(presenter: self)
     lazy var toolbar = WindowToolbarHost(self)
@@ -837,6 +842,8 @@ final class Presenter {
         mouseTransformDrag.retire(id)
         mouseReorder.retire(id)
         session?.canvases.destroy(view: id)
+        svg.forget(id)
+        canvas2d.forget(id)
         if forget { views[id]?.forget() }
         // Out of the map before out of the window: the editing-ended
         // notification removal fires finds no view to send for.
@@ -1045,6 +1052,13 @@ final class Presenter {
         toolbar.prepare()
         for id in scrollers where !collections.owns(id) { views[id]?.captureScrollPosition() }
         if let e = batch.error { FileHandle.standardError.write(Data("exact: \(e)\n".utf8)) }
+        if let text = session?.text {
+            // SVG text shapes with the session's fonts (LLP 1055.000 D11).
+            svg.fonts = { [weak text] size, weight, family, italic in
+                (text?.font(size: size, weight: weight, family: family, italic: italic)).map { $0 as CTFont } ?? SvgScene.systemFonts(size, weight, family, italic)
+            }
+        }
+        svg.seek(clock: session?.clock)
         let outermost = !applying
         applying = true
         defer {
@@ -1100,19 +1114,23 @@ final class Presenter {
                 v.handlers = op.handlers
                 v.applyStyle(op.style)
                 v.applyProps(set: op.props, clear: [])
-                PathView.sync(v)
                 views[id] = v
                 if v.kind == "list" { listViews[id] = v }
             case .paragraph:
                 applyParagraph(id, op.runs)
             case .props:
                 views[id]?.applyProps(set: op.props, clear: op.clear)
-                if let v = views[id] { PathView.sync(v) }
             case .flow:
                 views[id]?.applyFlow(op.payload["shapes"] as? [[String: Any]] ?? [])
             case .style:
-                views[id]?.applyStyle(op.style)
-                if let v = views[id] { PathView.sync(v); if v.surface != nil { v.applySurface() } }
+                guard let v = views[id] ?? leaving[id]?.view else { continue }
+                let color = v.style["text_color"]
+                v.applyStyle(op.style)
+                if v.surface != nil { v.applySurface() }
+                // Paint motion re-sends a style per frame (LLP 1055.000 D6);
+                // a view that paints in an appearance of its own says so
+                // (LLP 1062 D4).
+                if v.style["text_color"] != color { session?.noteAppearance(v) }
             case .children:
                 guard let parent = views[id] else { continue }
                 let want = op.ids.compactMap { views[UInt32($0)] }
@@ -1140,10 +1158,11 @@ final class Presenter {
                     }
                 }
                 if collections.owns(id) { collections.orderChildren(want, in: container) }
-                // A path's own drawing lies under its paths (LLP 1065 D12).
-                if let path = PathView.of(parent) { container.addSubview(path, positioned: .below, relativeTo: nil) }
             case .surface:
                 if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] ?? []) }
+            case .canvas2d: if let v = views[id] { canvas2d.apply(id, op.payload, layer: v.layer) }
+            case .svg: if let v = views[id] { svg.scene(id, op.payload, layer: v.layer, dark: v.drawsDark, clock: session?.clock) }
+            case .animations: svg.animations(id, op.payload, layer: views[id]?.layer, clock: session?.clock)
             case .command:
                 onCommand?(op.payload["name"] as? String ?? "", op.payload["args"] as? [Any] ?? [])
             case .exit: beginExit(id)
@@ -1167,7 +1186,6 @@ final class Presenter {
                 v.metal?.frame = v.bounds
                 v.overlay?.frame = v.bounds
                 v.web?.frame = v.bounds
-                PathView.of(v)?.place()
                 v.applyShadow()
                 v.fitScroll()
                 v.applyTransform()
@@ -1185,12 +1203,8 @@ final class Presenter {
                 case "scale": v.scale = x; v.applyTransform()
                 case "rotate": v.rotate = x; v.applyTransform()
                 case "opacity": v.alphaValue = x
-                case "stroke-start", "stroke-end": PathView.of(v)?.present(op.property, x)
-                default:
-                    v.present(paint: op.paintKey, [op.x, op.y, op.w, op.h])
-                    session?.noteAppearance(v)
+                default: break
                 }
-            case .unpresent: (views[id] ?? leaving[id]?.view)?.present(paint: op.paintKey, nil)
             default: break
             }
         }

@@ -39,17 +39,16 @@ pub mod kernel;
 pub mod layout;
 pub mod motion;
 pub mod node;
-pub mod origin;
 pub mod props;
 pub mod ratio;
 pub mod region;
 pub mod selector;
 pub mod sorted;
 pub mod style;
+pub mod svg;
 pub mod text;
 pub mod transform;
 pub mod txn;
-pub mod vector;
 pub mod wire;
 
 pub use error::{
@@ -62,10 +61,9 @@ pub use layout::LayoutReceipt;
 pub use motion::{motion_node, MotionSync};
 pub use props::{PropList, PropValue};
 pub use sorted::{SortedMap, SortedSet};
-pub use style::Animations;
 pub use style::{
     uses_env, BoxShadow, Color, ColorValue, Dimension, Edge, Env, GridLine, GridPlacement,
-    GridTrack, GridTracks, LineHeight, Paint, RowValue, StyleValue, Transitions, Vec2,
+    GridTrack, GridTracks, LineHeight, RowValue, StyleValue, Transitions, Vec2,
 };
 pub use text::{
     Markup, MonospaceMeasurer, ParagraphStamp, TextMeasureRequest, TextMeasurer, TextMetrics,

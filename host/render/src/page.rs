@@ -45,12 +45,23 @@ pub fn page(shell: &str, rendered: &Rendered) -> Result<String, String> {
     )?;
     cut(&mut html, "<!-- Fetched in parallel", "-->\n", "")?;
     let interaction = rendered.activate == exact_plan::ActivatePolicy::Interaction;
+    // The wasm's URL names its build (`./app.wasm?v=…`, build.mjs). An
+    // interaction page drops the preload, so its checkpoint names the build
+    // for document-glue.js.
     let navigation = "<link rel=\"modulepreload\" href=\"./navigation.js\">\n";
-    let wasm = "<link rel=\"preload\" href=\"./app.wasm\" as=\"fetch\" crossorigin>\n";
-    for preload in [navigation, wasm] {
-        if interaction {
-            cut(&mut html, preload, preload, "")?;
-        }
+    let preload = "<link rel=\"preload\" href=\"";
+    let wasm = &format!("{preload}./app.wasm");
+    let named = html.find(wasm).and_then(|at| {
+        let from = at + preload.len();
+        Some(&html[from..from + html[from..].find('"')?])
+    });
+    let build = match named {
+        Some(href) if interaction => format!(" data-wasm=\"{href}\""),
+        _ => String::new(),
+    };
+    if interaction {
+        cut(&mut html, navigation, navigation, "")?;
+        cut(&mut html, wasm, ">\n", "")?;
     }
     let root = "<div id=\"exact-root\"></div>";
     let document = format!("<div id=\"exact-root\">{}</div>", rendered.document.root);
@@ -62,14 +73,14 @@ pub fn page(shell: &str, rendered: &Rendered) -> Result<String, String> {
         glue
     };
     let checkpoint = format!(
-        "<script type=\"application/vnd.exact.checkpoint\" data-digest=\"{}\" data-activate=\"{}\">{}</script>\n{entry}",
+        "<script type=\"application/vnd.exact.checkpoint\" data-digest=\"{}\" data-activate=\"{}\"{build}>{}</script>\n{entry}",
         rendered.digest, rendered.activate.name(), rendered.checkpoint
     );
     cut(&mut html, glue, glue, &checkpoint)?;
     let viewports = html.matches("<meta name=\"viewport\"").count();
     let preloads = ["app.wasm", "navigation.js", "glue.js"]
         .iter()
-        .filter(|file| html.contains(&format!("preload\" href=\"./{file}\"")))
+        .filter(|file| html.contains(&format!("preload\" href=\"./{file}")))
         .count();
     let expected = if interaction { 0 } else { 2 };
     if viewports != 1 || preloads != expected || !html.contains(&rendered.head) {

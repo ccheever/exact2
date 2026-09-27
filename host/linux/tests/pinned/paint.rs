@@ -385,7 +385,7 @@ fn border_style_controls_pixels_and_layout_with_current_color() {
     }
 }
 
-/// LLP 1055 D2: a `box-shadow` falls outside the border box only — offset
+/// LLP 1064 D2: a `box-shadow` falls outside the border box only — offset
 /// hard, or blurred as a Gaussian of half the blur radius — on every painter,
 /// and a clipping node's shadow is not clipped by it.
 #[test]

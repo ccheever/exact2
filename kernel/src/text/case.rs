@@ -1,7 +1,7 @@
 //! CSS `text-transform` (CSS Text 3 §2.1): the case mapping a run's string
 //! takes before anything measures or paints it.
 //!
-//! @ref LLP 1055 D5 — applied once, where the kernel produces a paragraph's
+//! @ref LLP 1064 D5 — applied once, where the kernel produces a paragraph's
 //! runs ([`crate::arena::Arena::text_runs`]), so every measurer and every
 //! painter that reads runs reads the same string. Full Unicode mappings with
 //! no language tailoring, as a browser maps a page with no `lang`: `ß`

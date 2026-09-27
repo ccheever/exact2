@@ -1,6 +1,6 @@
 //! CSS `box-shadow`, one outer shadow, as the four shadow rows hold it.
 //!
-//! @ref LLP 1055 D1 — Contract's `box-shadow` binds its one value to all four
+//! @ref LLP 1064 D1 — Contract's `box-shadow` binds its one value to all four
 //! rows and each row takes its part of the parse, so a literal, a style block
 //! and a computed string all set them alike, and a refusal is the same text
 //! at compile time and at run time.

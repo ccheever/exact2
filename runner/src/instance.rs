@@ -237,6 +237,30 @@ impl Ids {
     }
 }
 
+/// A value as the JSON a surface's arguments cross in: numbers shortest,
+/// records and lists as arrays, `none` as `null`.
+pub fn value_json(value: &Value, out: &mut String) {
+    match value {
+        Value::Number(n) if n.is_finite() => {
+            exact_num::push_text!(out, "{}", exact_num::Shortest(*n))
+        }
+        Value::Number(_) | Value::Unit | Value::Option(None) => out.push_str("null"),
+        Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+        Value::Str(s) => crate::agent::quote(s, out),
+        Value::Option(Some(v)) => value_json(v, out),
+        Value::List(items) | Value::Record(items) => {
+            out.push('[');
+            for (i, value) in items.iter().enumerate() {
+                if i != 0 {
+                    out.push(',');
+                }
+                value_json(value, out);
+            }
+            out.push(']');
+        }
+    }
+}
+
 /// A canvas node's surface inputs, evaluated against state: the runner's
 /// side-output for the host's GPU module (LLP 1009 D2). Published only
 /// after the commit that produced it applied.
@@ -258,27 +282,6 @@ impl SurfaceUpdate {
     /// Positional JSON array or named JSON object consumed by the surface module.
     /// Host reserialization may reorder keys: transport bytes are never hash inputs.
     pub fn arguments_json(&self) -> String {
-        fn value_json(value: &Value, out: &mut String) {
-            match value {
-                Value::Number(n) if n.is_finite() => {
-                    exact_num::push_text!(out, "{}", exact_num::Shortest(*n))
-                }
-                Value::Number(_) | Value::Unit | Value::Option(None) => out.push_str("null"),
-                Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
-                Value::Str(s) => crate::agent::quote(s, out),
-                Value::Option(Some(v)) => value_json(v, out),
-                Value::List(items) | Value::Record(items) => {
-                    out.push('[');
-                    for (i, value) in items.iter().enumerate() {
-                        if i != 0 {
-                            out.push(',');
-                        }
-                        value_json(value, out);
-                    }
-                    out.push(']');
-                }
-            }
-        }
         let named = self.mode == exact_plan::SurfaceArgsMode::Named;
         let mut out = String::from(if named { "{" } else { "[" });
         for (i, value) in self.values.iter().enumerate() {
@@ -428,6 +431,8 @@ pub struct SiteIndex {
     sites: Vec<(u32, Site)>,
     /// What every binding and site reads.
     deps: Deps,
+    /// The plan's `@keyframes`, parsed once (LLP 1055 D5).
+    keyframes: bridge::KeyframesTable,
 }
 
 impl SiteIndex {
@@ -466,6 +471,7 @@ impl SiteIndex {
             groups,
             sites,
             deps: Deps::default(),
+            keyframes: bridge::keyframes(plan),
         };
         index.deps = Deps::new(plan, &index);
         index
@@ -746,6 +752,15 @@ impl NodeInst {
                 BindingKind::Style => {
                     let p = patch.get_or_insert_with(StyleProps::default);
                     match bridge::set_style(p, binding.id, &value, plan.stacks.len()) {
+                        Ok(exact_kernel::StyleId::Animation) => {
+                            let dropped = u.sites.keyframes.resolve(&mut p.animation);
+                            u.notes.extend(dropped);
+                        }
+                        // An exit names keyframes as `animation` does (LLP 1063).
+                        Ok(exact_kernel::StyleId::ExitAnimation) => {
+                            let dropped = u.sites.keyframes.resolve(&mut p.exit_animation);
+                            u.notes.extend(dropped);
+                        }
                         Ok(_) => {}
                         Err(
                             bridge::BridgeError::Style(_) | bridge::BridgeError::StyleKind { .. },
@@ -1286,6 +1301,12 @@ impl Tree {
             }
         }
         self.last_roots = roots;
+    }
+
+    /// Resource `i`'s value was released to the plan's bytes
+    /// ([`crate::held::Held::released`]): the last inputs hold it no more.
+    pub(crate) fn release_resource(&mut self, i: usize, held: &crate::held::Held) {
+        self.seen.release(i, held);
     }
 
     /// The current kernel roots.

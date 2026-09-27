@@ -1,0 +1,23 @@
+[package]
+name = "photo-editor-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The photo editor on the web: one wasm with the runner, the kernel, and the baked plan"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "photo_editor_web"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-web = { path = "../../../host/web" }
+exact-web-capabilities = { path = "../../../host/web-capabilities" }
+photo-editor-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }
+photo-editor-data = { path = "../data" }

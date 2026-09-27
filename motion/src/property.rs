@@ -10,25 +10,23 @@
 //! linearly (CSS Transitions §4, "animation type: by computed value"). The
 //! numeric `height` trial adds a scalar in pixels, with host-owned admission
 //! and layout (LLP 1041 §8.12). Its CSS initial `auto` has no numeric value.
+//! SVG 2's `stroke-dashoffset` and `r` are scalars in user units (LLP 1055 D6),
+//! as are the geometry rows `cx`, `cy`, `x`, `y`, `rx` and `ry` (LLP 1055.000 D15).
+//! Colours (`color`, `background-color`, `fill`, `stroke`) are four
+//! components, premultiplied sRGB red, green, blue and alpha in 0–1, so
+//! componentwise interpolation is CSS Color 4's premultiplied interpolation
+//! of legacy colours (LLP 1055.000 D6).
 //!
-//! Paint properties (LLP 1062) repaint without relayout: the colours
-//! (`background-color`, `color`, the four border sides, `tint-color`) and
-//! `box-shadow`. A colour is premultiplied sRGB, every channel 0–1, so
-//! componentwise interpolation is CSS Color 4 §12.3's for legacy colours.
-//! `box-shadow` is two engine properties: its geometry (offset and blur, in
-//! points) and its colour, the shadow's opacity folded into the alpha, so a
-//! shadow from `none` is CSS's transparent, zero-length padding.
+//! Paint motion (LLP 1062) adds the four border sides' colours, a symbol's
+//! `tint-color`, and `box-shadow` as two engine properties: its geometry
+//! (offset and blur, in points) and its colour, the shadow's opacity folded
+//! into the alpha, so a shadow from `none` is CSS's transparent, zero-length
+//! padding.
 //!
 //! `layout` is not a CSS property: it is a node's laid-out box in its parent
 //! (origin and size), which a `layout-transition` row animates (LLP 1063).
 //! It is never authored in `transition` or `@keyframes`, so it is outside
-//! [`Property::ALL`].
-//!
-//! A `path` node's `stroke-start` and `stroke-end` are fractions of its
-//! length a vector layer trims its stroke to (LLP 1065); on the web they are
-//! the registered custom properties [`Property::css_name`] names. Its `fill`
-//! and `stroke` are paint too: colours, when neither end is `none` (SVG's
-//! `<paint>` interpolates only colour to colour; a keyword is discrete).
+//! [`Property::ALL`] and never on the wire.
 
 /// One animatable property.
 #[repr(u8)]
@@ -44,54 +42,73 @@ pub enum Property {
     Opacity = 3,
     /// Numeric CSS `height`, in logical pixels; host admission is explicit.
     Height = 4,
-    /// `background-color`.
-    BackgroundColor = 5,
-    /// `color`, the text colour.
-    Color = 6,
-    /// `border-top-color`.
-    BorderTopColor = 7,
+    /// SVG 2 `stroke-dashoffset`, in user units (LLP 1055 D6).
+    StrokeDashoffset = 5,
+    /// SVG 2 `r`, a circle's radius in user units (LLP 1055 D6).
+    R = 6,
+    /// CSS `color` (LLP 1055.000 D6).
+    Color = 7,
+    /// CSS `background-color`.
+    BackgroundColor = 8,
+    /// SVG `fill`, when it is a colour.
+    Fill = 9,
+    /// SVG `stroke`, when it is a colour.
+    Stroke = 10,
+    /// SVG 2 `cx`, in user units (LLP 1055.000 D15).
+    Cx = 11,
+    /// SVG 2 `cy`.
+    Cy = 12,
+    /// SVG 2 `x`.
+    X = 13,
+    /// SVG 2 `y`.
+    Y = 14,
+    /// SVG 2 `rx`.
+    Rx = 15,
+    /// SVG 2 `ry`.
+    Ry = 16,
+    /// `border-top-color` (LLP 1062).
+    BorderTopColor = 17,
     /// `border-right-color`.
-    BorderRightColor = 8,
+    BorderRightColor = 18,
     /// `border-bottom-color`.
-    BorderBottomColor = 9,
+    BorderBottomColor = 19,
     /// `border-left-color`.
-    BorderLeftColor = 10,
+    BorderLeftColor = 20,
     /// `tint-color`, a symbol image's colour.
-    TintColor = 11,
+    TintColor = 21,
     /// `box-shadow`'s offset and blur radius, points (`x`, `y`, `z`).
-    BoxShadow = 12,
+    BoxShadow = 22,
     /// `box-shadow`'s colour, its opacity folded into the alpha. Named only
     /// by `box-shadow`, never on its own.
-    ShadowColor = 13,
+    ShadowColor = 23,
     /// The laid-out box in the parent, in points: origin (`x`, `y`) and size
     /// (`z` wide, `w` high) (LLP 1063). Its target is layout's answer,
     /// observed by a host after layout; only a node's `layout-transition` row
     /// moves it, never `transition`.
-    Layout = 14,
-    /// A path's `stroke-start`: the fraction of its length the visible
-    /// stroke starts at (LLP 1065).
-    StrokeStart = 15,
-    /// A path's `stroke-end`: the fraction of its length the visible stroke
-    /// ends at (LLP 1065).
-    StrokeEnd = 16,
-    /// SVG `fill`, a path's fill colour (LLP 1065).
-    Fill = 17,
-    /// SVG `stroke`, a path's stroke colour (LLP 1065).
-    Stroke = 18,
+    Layout = 24,
 }
 
 impl Property {
     /// Every authorable property, in wire order ([`Property::Layout`] is
-    /// the host's, not an author's). The wire carries a discriminant, never
-    /// an index here.
-    pub const ALL: [Property; 18] = [
+    /// the host's, not an author's, and never on the wire).
+    pub const ALL: [Property; 24] = [
         Property::Translate,
         Property::Scale,
         Property::Rotate,
         Property::Opacity,
         Property::Height,
-        Property::BackgroundColor,
+        Property::StrokeDashoffset,
+        Property::R,
         Property::Color,
+        Property::BackgroundColor,
+        Property::Fill,
+        Property::Stroke,
+        Property::Cx,
+        Property::Cy,
+        Property::X,
+        Property::Y,
+        Property::Rx,
+        Property::Ry,
         Property::BorderTopColor,
         Property::BorderRightColor,
         Property::BorderBottomColor,
@@ -99,17 +116,20 @@ impl Property {
         Property::TintColor,
         Property::BoxShadow,
         Property::ShadowColor,
-        Property::StrokeStart,
-        Property::StrokeEnd,
-        Property::Fill,
-        Property::Stroke,
     ];
 
-    /// The paint properties: repainted, never laid out (LLP 1062), a path's
-    /// `fill` and `stroke` among them (LLP 1065).
+    /// How many properties there are on the wire.
+    pub const COUNT: usize = 24;
+
+    /// The paint properties: repainted, never laid out. A native host's
+    /// paint pass owns them (LLP 1062 D2): CSS's box colours and
+    /// `box-shadow`, and an SVG element's `fill` and `stroke` (LLP 1055.000
+    /// D6).
     pub const PAINT: [Property; 11] = [
-        Property::BackgroundColor,
         Property::Color,
+        Property::BackgroundColor,
+        Property::Fill,
+        Property::Stroke,
         Property::BorderTopColor,
         Property::BorderRightColor,
         Property::BorderBottomColor,
@@ -117,8 +137,6 @@ impl Property {
         Property::TintColor,
         Property::BoxShadow,
         Property::ShadowColor,
-        Property::Fill,
-        Property::Stroke,
     ];
 
     /// The CSS property name (`box-shadow-color` is the engine's own name
@@ -130,8 +148,18 @@ impl Property {
             Property::Rotate => "rotate",
             Property::Opacity => "opacity",
             Property::Height => "height",
-            Property::BackgroundColor => "background-color",
+            Property::StrokeDashoffset => "stroke-dashoffset",
+            Property::R => "r",
             Property::Color => "color",
+            Property::BackgroundColor => "background-color",
+            Property::Fill => "fill",
+            Property::Stroke => "stroke",
+            Property::Cx => "cx",
+            Property::Cy => "cy",
+            Property::X => "x",
+            Property::Y => "y",
+            Property::Rx => "rx",
+            Property::Ry => "ry",
             Property::BorderTopColor => "border-top-color",
             Property::BorderRightColor => "border-right-color",
             Property::BorderBottomColor => "border-bottom-color",
@@ -140,64 +168,55 @@ impl Property {
             Property::BoxShadow => "box-shadow",
             Property::ShadowColor => "box-shadow-color",
             Property::Layout => "layout",
-            Property::StrokeStart => "stroke-start",
-            Property::StrokeEnd => "stroke-end",
-            Property::Fill => "fill",
-            Property::Stroke => "stroke",
         }
     }
 
     /// The name a browser knows the property by: [`Property::name`], but
-    /// `tint-color` and a path's stroke fractions, which the web host
-    /// carries as registered custom properties (LLP 1062 D6, LLP 1065 D5).
+    /// `tint-color`, which the web host carries as the registered custom
+    /// property `--exact-tint` (LLP 1062 D6).
     pub fn css_name(self) -> &'static str {
         match self {
             Property::TintColor => "--exact-tint",
-            Property::StrokeStart => "--exact-stroke-start",
-            Property::StrokeEnd => "--exact-stroke-end",
             p => p.name(),
         }
     }
 
     /// From an authorable CSS property name; `box-shadow`'s colour half has
-    /// none. A stroke fraction also answers to its [`Property::css_name`],
-    /// the name a keyframes rule carries it by.
+    /// none. `tint-color` also answers to its [`Property::css_name`], the
+    /// name a keyframes rule carries it by.
     pub fn from_name(name: &str) -> Option<Property> {
-        Property::ALL.into_iter().find(|p| {
-            *p != Property::ShadowColor
-                && (p.name() == name
-                    || matches!(p, Property::StrokeStart | Property::StrokeEnd)
-                        && p.css_name() == name)
-        })
+        Property::ALL
+            .into_iter()
+            .find(|p| *p != Property::ShadowColor && (p.name() == name || p.css_name() == name))
     }
 
     /// From the wire discriminant ([`Property::Layout`] is never on it).
     pub fn from_wire(value: u8) -> Option<Property> {
-        Property::ALL.into_iter().find(|p| *p as u8 == value)
+        Property::ALL.get(value as usize).copied()
     }
 
-    /// Whether the property is a colour: premultiplied, four channels.
+    /// Whether the value is a colour: premultiplied, four channels.
     pub fn is_color(self) -> bool {
         matches!(
             self,
-            Property::BackgroundColor
-                | Property::Color
+            Property::Color
+                | Property::BackgroundColor
+                | Property::Fill
+                | Property::Stroke
                 | Property::BorderTopColor
                 | Property::BorderRightColor
                 | Property::BorderBottomColor
                 | Property::BorderLeftColor
                 | Property::TintColor
                 | Property::ShadowColor
-                | Property::Fill
-                | Property::Stroke
         )
     }
 
     /// Whether a `spring()` drives the property as physics, carrying
     /// velocity across an interruption. The web lowers these springs to
-    /// frames; every other property (paint, a path's stroke and paint) plays a spring
-    /// as its curve from rest, a CSS `linear()` easing, on every host (LLP
-    /// 1062 D3).
+    /// frames; every other property (paint, SVG geometry and paint) plays a
+    /// spring as its curve from rest, a CSS `linear()` easing, on every host
+    /// (LLP 1062 D3).
     pub fn springs(self) -> bool {
         matches!(
             self,
@@ -223,15 +242,22 @@ impl Property {
         }
     }
 
-    /// The CSS initial value when numeric and not paint. Height initially is
-    /// `auto`, not zero: a host must adopt an eligible authored target
-    /// explicitly. Paint has no identity a host could skip: a colour row's
-    /// initial value is its own. A position has no identity.
+    /// The CSS initial value when numeric. Height initially is `auto`, not
+    /// zero: a host must adopt an eligible authored target explicitly. A
+    /// colour row's initial value is its own, and a position has none.
     pub fn identity(self) -> Option<Value> {
         match self {
             Property::Translate => Some(Value::ZERO),
-            Property::Scale | Property::Opacity | Property::StrokeEnd => Some(Value::scalar(1.0)),
-            Property::Rotate | Property::StrokeStart => Some(Value::scalar(0.0)),
+            Property::Scale | Property::Opacity => Some(Value::scalar(1.0)),
+            Property::Rotate
+            | Property::StrokeDashoffset
+            | Property::R
+            | Property::Cx
+            | Property::Cy
+            | Property::X
+            | Property::Y
+            | Property::Rx
+            | Property::Ry => Some(Value::scalar(0.0)),
             _ => None,
         }
     }
@@ -272,16 +298,26 @@ impl Value {
         Value { x, y, z, w }
     }
 
-    /// A colour from straight sRGB channels, each 0–1, premultiplied: the
-    /// form CSS interpolates a colour with alpha in (CSS Color 4 §12.3).
+    /// A colour from straight sRGB components in 0–1, stored premultiplied:
+    /// the form CSS interpolates a colour with alpha in (CSS Color 4 §12.3).
     pub fn rgba(r: f64, g: f64, b: f64, a: f64) -> Value {
         Value::four(r * a, g * a, b * a, a)
     }
 
-    /// A colour from 8-bit straight channels.
-    pub fn rgba8([r, g, b, a]: [u8; 4]) -> Value {
-        let unit = |c: u8| c as f64 / 255.0;
-        Value::rgba(unit(r), unit(g), unit(b), unit(a))
+    /// A colour from 8-bit straight RGBA.
+    pub fn rgba8(r: u8, g: u8, b: u8, a: u8) -> Value {
+        let c = |v: u8| v as f64 / 255.0;
+        Value::rgba(c(r), c(g), c(b), c(a))
+    }
+
+    /// A colour value as straight 8-bit RGBA (alpha 0 is transparent black).
+    pub fn to_rgba8(self) -> [u8; 4] {
+        let a = self.w.clamp(0.0, 1.0);
+        let q = |v: f64| (v * 255.0).round().clamp(0.0, 255.0) as u8;
+        if a <= 0.0 {
+            return [0, 0, 0, 0];
+        }
+        [q(self.x / a), q(self.y / a), q(self.z / a), q(a)]
     }
 
     /// A colour value back to straight channels, each clamped to 0–1 as CSS
@@ -301,16 +337,16 @@ impl Value {
         self.components().iter().all(|c| c.is_finite())
     }
 
-    /// Whether the components past the property's own are zero.
+    /// Componentwise linear interpolation at `progress`.
+    pub fn lerp(self, to: Value, progress: f64) -> Value {
+        self.zip(to, |a, b| a + (b - a) * progress)
+    }
+
+    /// Whether the value uses only the components `property` has.
     pub fn fits(self, property: Property) -> bool {
         self.components()[property.components()..]
             .iter()
             .all(|c| *c == 0.0)
-    }
-
-    /// Componentwise linear interpolation at `progress`.
-    pub fn lerp(self, to: Value, progress: f64) -> Value {
-        self.zip(to, |a, b| a + (b - a) * progress)
     }
 
     /// Each component through `f`.

@@ -494,7 +494,7 @@ function inputFixture() {
   let serial = 0;
   const el = { dataset: {}, inert: false, disabled: false, isConnected: true,
     addEventListener(kind, fn) { const list = listeners.get(kind) ?? []; list.push(fn); listeners.set(kind, list); },
-    closest() { return this.disabled ? this : null; }, setPointerCapture(id) { captured.push(id); } };
+    closest() { return this.disabled ? this : null; }, matches: () => false, contains: () => true, setPointerCapture(id) { captured.push(id); } };
   const buttons = [];
   // `page` is a built document being adopted (LLP 1048.000 D6); this page was not built.
   const f = vm.createContext({ inputReady: false, inputHandlers: null, page: null,
@@ -559,7 +559,7 @@ test('pan rejects foreign and editable contacts and drops cancelled or stale que
     h.pointer('pointermove', { clientX: 20 }); h.tick();
     expect(h.sent).toEqual([]);
   }
-  for (const cancel of [h => h.pointer('pointercancel'), h => h.pointer('lostpointercapture'),
+  for (const cancel of [h => h.pointer('pointercancel'), h => h.pointer('lostpointercapture', { target: h.el }),
     h => h.f.views.set(7, {}), h => h.f.retiredViews.add(h.el),
     h => { h.el.inert = true; }, h => { h.el.disabled = true; }, h => { h.f.inputReady = false; }]) {
     const h = inputFixture(); h.load(); h.pointer('pointerdown');
@@ -609,6 +609,7 @@ async function startupFixture(rustOnly = false) {
     inputReady: false, inputHandlers: null, wasm: null, memory: null, logicInfo: null,
     moduleLoader: null, activeModule: null, timerFactory: null, agentMode: false,
     performance: { now: () => 1 }, t0: 0, URL, localStorage: { length: 0 }, AbortController,
+    document: { querySelectorAll: () => [] }, // no preload: the glue fetches ./app.wasm
     fetch: async () => ({}), WebAssembly: { instantiateStreaming: async () => ({ instance: { exports } }), Module: { customSections: () => [] } },
     moduleCall() {}, rustImports: {}, readOut: value => value,
     boot: async () => events.push('boot'), loadGpuIfNeeded() {}, startClock() {}, httpHelpers() {}, pieces: { pending: () => null },

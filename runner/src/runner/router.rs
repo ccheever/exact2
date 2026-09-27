@@ -654,4 +654,15 @@ impl<D: DataSource> Runner<D> {
             .position(|r| self.plan.str(r.name) == name)?;
         self.resources[i].as_ref().map(|r| r.args.as_slice())
     }
+
+    /// Whether resource `name` shows a placeholder, not an answer (LLP
+    /// 1054.000.002 D4): the bake compiles no value for it.
+    pub fn resource_is_placeholder(&self, name: &str) -> bool {
+        self.plan
+            .resources
+            .iter()
+            .position(|r| self.plan.str(r.name) == name)
+            .and_then(|i| self.resources[i].as_ref())
+            .is_some_and(|r| r.placeholder)
+    }
 }

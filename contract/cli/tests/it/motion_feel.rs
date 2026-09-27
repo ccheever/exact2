@@ -114,7 +114,7 @@ fn a_preference_is_a_bool_and_the_boot_fact_is_the_first_answer() {
 /// expression; a lone percentage and a value ending in one both arrive.
 #[test]
 fn transform_origin_is_css_from_a_literal_or_an_expression() {
-    use exact_kernel::origin::TransformOrigin;
+    use exact_kernel::svg::TransformOrigin;
     use exact_kernel::Dimension::{Percent, Points};
     let mut r = boot(concat!(
         "component App\n  state low = false\n",

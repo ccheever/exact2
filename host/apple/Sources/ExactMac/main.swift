@@ -270,7 +270,8 @@ func finishLaunching() {
             DispatchQueue.main.async { ExactDevelopmentPlan(path).apply(to: exact) }
         }
         if let path, !ExactDevelopmentPlan(path).hasModule, let bytes = FileManager.default.contents(atPath: path) {
-            return session.boot(plan: bytes, size: size).error
+            planRefusal = session.boot(plan: bytes, size: size).error
+            return planRefusal
         }
         if session.booted { return session.bootError }
         return session.boot(size: size).error
@@ -345,10 +346,13 @@ func finishLaunching() {
     }
 }
 
+/// A refused EXACT_PLAN: attaching the view then boots the embedded plan,
+/// which clears the session's error, but the driver asked for this one.
+nonisolated(unsafe) var planRefusal: String?
 func agentReady() {
     guard agentReadable, !readySent else { return }
     readySent = true
-    Agent.reply(["ready": true, "boot": session.bootMs, "views": session.viewCount, "error": session.bootError ?? NSNull()])
+    Agent.reply(["ready": true, "boot": session.bootMs, "views": session.viewCount, "error": planRefusal ?? session.bootError ?? NSNull()])
     Agent.startStdio(sessions: [("main", session)])
 }
 app.run()

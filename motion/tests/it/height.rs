@@ -28,13 +28,9 @@ fn spring(delay: f64) -> Transitions {
 
 #[test]
 fn height_appends_wire_value_and_has_no_numeric_css_initial() {
-    // A path's stroke fractions follow Layout's 14 (LLP 1065 D4), then its
-    // paint.
-    assert_eq!(Property::ALL.len(), 18);
-    assert_eq!(Property::StrokeEnd as u8, 16);
-    assert_eq!(Property::Stroke as u8, 18);
-    for p in Property::ALL {
-        assert_eq!(Property::from_wire(p as u8), Some(p));
+    assert_eq!(Property::ALL.len(), Property::COUNT);
+    for (wire, p) in Property::ALL.into_iter().enumerate() {
+        assert_eq!(Property::from_wire(wire as u8), Some(p));
         assert_eq!(
             Property::from_name(p.name()),
             (p != Property::ShadowColor).then_some(p)
@@ -48,8 +44,8 @@ fn height_appends_wire_value_and_has_no_numeric_css_initial() {
     assert_eq!(Property::Scale.identity(), Some(Value::scalar(1.0)));
     assert_eq!(Property::Rotate.identity(), Some(Value::ZERO));
     assert_eq!(Property::Opacity.identity(), Some(Value::scalar(1.0)));
-    assert_eq!(Property::from_wire(14), None);
-    assert_eq!(Property::from_wire(19), None);
+    assert_eq!(Property::from_wire(Property::COUNT as u8), None);
+    assert_eq!(Property::from_wire(Property::Layout as u8), None);
     let parsed = Transitions::parse("height 200ms linear 50ms").unwrap();
     assert_eq!(parsed.0[0].property, TransitionProperty::Property(HEIGHT));
     let mut e = Engine::new();

@@ -181,22 +181,23 @@ impl<'a> Layout<'a> {
         for style in &file.styles {
             self.attributes.extend(style.attrs.iter().map(|a| a.span));
         }
-        for marker in &file.markers {
-            let paths = marker.paths.iter().flat_map(|p| &p.attrs);
-            self.attributes
-                .extend(marker.attrs.iter().chain(paths).map(|a| a.span));
-        }
-        for block in file.keyframes.iter().flat_map(|k| &k.blocks) {
-            self.attributes.extend(block.attrs.iter().map(|a| a.span));
-            let start = self.position(block.span).unwrap();
-            let selector = self.tokens[start..]
-                .iter()
-                .take_while(|t| !matches!(t.kind, TokenKind::Newline | TokenKind::Eof));
-            self.percents.extend(
-                selector
-                    .filter(|t| t.kind == TokenKind::Punct("%"))
-                    .map(|t| t.span),
-            );
+        for rule in &file.keyframes {
+            for frame in &rule.frames {
+                self.attributes.extend(frame.attrs.iter().map(|a| a.span));
+                // A selector's `%` stays against its number: `50%`.
+                let Some(start) = self.position(frame.span) else {
+                    continue;
+                };
+                let first = frame.attrs.first().map(|a| a.span);
+                let selector = self.tokens[start..].iter().take_while(|t| {
+                    !matches!(t.kind, TokenKind::Newline | TokenKind::Eof) && Some(t.span) != first
+                });
+                self.percents.extend(
+                    selector
+                        .filter(|t| t.kind == TokenKind::Punct("%"))
+                        .map(|t| t.span),
+                );
+            }
         }
         for component in &file.components {
             for ty in component

@@ -12,6 +12,8 @@ mod event;
 mod reorder;
 mod reorder_codec;
 pub use event::{ActionBinding, ActionBindingError, ActionBindingRefusal, Event};
+mod canvas2d;
+pub use canvas2d::{CanvasList, DrawReply, DrawRequest, Drawn, Geometry, Limits};
 mod carry;
 mod checkpoint;
 mod collection;
@@ -184,9 +186,12 @@ impl From<KernelError> for RunnerError {
 #[derive(Clone)]
 struct ResourceState {
     args: Vec<Value>,
-    value: Value,
+    value: crate::held::Held,
     /// Store revision this answer observed; checked only for known readers.
     store_revision: u64,
+    /// A placeholder shown while the answer is on the way, never an answer
+    /// to reuse, carry or compile (LLP 1054.000.002 D4).
+    placeholder: bool,
 }
 
 /// What a boot starts from besides the plan and the launch.
@@ -213,6 +218,9 @@ struct PendingReq {
     args: Vec<Value>,
     /// The source's continuation token, when the request is one.
     continuation: Option<u64>,
+    /// The request itself when a re-ask may keep it: a resource's plain
+    /// HTTP request (LLP 1054.000.000 D3).
+    keepable: Option<Request>,
 }
 
 struct Timer {
@@ -233,7 +241,7 @@ pub struct Runner<D: DataSource> {
     slots: Vec<Value>,
     derives: Vec<Option<Value>>,
     resources: Vec<Option<ResourceState>>,
-    resource_values: Vec<Option<Value>>,
+    resource_values: Vec<Option<crate::held::Held>>,
     tree: Option<Tree>,
     reorder_owner: Option<exact_kernel::NodeKey>,
     reorder_ops: Vec<exact_kernel::Op>,
@@ -243,6 +251,8 @@ pub struct Runner<D: DataSource> {
     batch: u64,
     commands: Vec<Command>,
     surfaces: Vec<SurfaceUpdate>,
+    /// The 2D canvases (LLP 1056 D4).
+    canvases: canvas2d::Canvases,
     /// Requests in flight (LLP 1016): at most one per resource or mutation.
     pending: Vec<PendingReq>,
     /// This commit let a request go: `conclude` tells the source what is
@@ -265,8 +275,12 @@ pub struct Runner<D: DataSource> {
     deferred_edges: Vec<(u32, Vec<Target>)>,
     /// Requests for the host, since the last take.
     requests: Vec<RequestOut>,
-    /// Resources an action asked to re-request; consumed by the next settle.
+    /// Resources an action asked to re-request; consumed by the next settle
+    /// that can ask them (LLP 1054.000.000 D2).
     refresh_next: Vec<usize>,
+    /// Resources a send declared it changes, to read again from the source
+    /// without sending anything (LLP 1054.000.000 D1); the next settle's.
+    reread_next: Vec<usize>,
     /// Durable client state (LLP 1018 D1): the host's snapshot, and the
     /// writes since for the host to persist.
     store: Store,
@@ -450,13 +464,14 @@ impl<D: DataSource> Runner<D> {
                 // A request in flight or a placeholder shown until the
                 // source is ready is not an answer to carry.
                 .filter(|(i, _)| !self.pending_res[*i] && !self.stale[*i])
+                .filter(|(_, (_, s))| s.as_ref().is_none_or(|s| !s.placeholder))
                 .filter_map(|(_, (r, s))| {
                     s.as_ref().map(|s| {
                         (
                             self.plan.str(r.name).to_string(),
                             self.plan.str(r.source).to_string(),
                             s.args.clone(),
-                            s.value.clone(),
+                            s.value.get(&self.plan).clone(),
                         )
                     })
                 })
@@ -616,6 +631,7 @@ impl<D: DataSource> Runner<D> {
             batch: 0,
             commands: Vec::new(),
             surfaces: Vec::new(),
+            canvases: Default::default(),
             pending: Vec::new(),
             pending_res: Vec::new(),
             pending_mut: Vec::new(),
@@ -629,6 +645,7 @@ impl<D: DataSource> Runner<D> {
             deferred_edges: Vec::new(),
             requests: Vec::new(),
             refresh_next: Vec::new(),
+            reread_next: Vec::new(),
             store,
             store_readers,
             stale: Vec::new(),
@@ -673,8 +690,9 @@ impl<D: DataSource> Runner<D> {
                     .filter(|(_, _, _, value)| runner.check_shape(i, value).is_ok())
                     .map(|(_, _, args, value)| ResourceState {
                         args: args.clone(),
-                        value: value.clone(),
+                        value: crate::held::Held::new(value.clone()),
                         store_revision: runner.store.revision(),
+                        placeholder: false,
                     })
             })
             .collect();
@@ -718,8 +736,9 @@ impl<D: DataSource> Runner<D> {
                 if let Some((args, value)) = seed {
                     runner.resources[i] = Some(ResourceState {
                         args,
-                        value,
+                        value: crate::held::Held::new(value),
                         store_revision: runner.store.revision(),
+                        placeholder: false,
                     });
                 }
             }
@@ -760,7 +779,7 @@ impl<D: DataSource> Runner<D> {
         runner.ids = ids;
         runner.tree = Some(tree);
         let receipt = runner.apply(ops)?;
-        runner.surfaces = surfaces;
+        runner.publish_surfaces(surfaces);
         let line = lines::boot(carried.is_some(), runner.kernel.live_count(), receipt.epoch);
         runner.log(line);
         if !note.is_empty() {
@@ -896,7 +915,7 @@ impl<D: DataSource> Runner<D> {
             .resources
             .iter()
             .position(|r| self.plan.str(r.name) == name)
-            .and_then(|i| self.resources[i].as_ref().map(|r| &r.value))
+            .and_then(|i| self.resources[i].as_ref().map(|r| r.value.get(&self.plan)))
     }
 
     /// The clock, in milliseconds.

@@ -5,10 +5,10 @@ import AppKit
 
 final class MouseReorder {
     weak var presenter: Presenter?
-    private weak var candidate: NodeView?
+    private(set) weak var candidate: NodeView?
     private var downEvent: NSEvent?
     private var origin = CGPoint.zero
-    private var hold: ReorderHold?
+    private(set) var hold: ReorderHold?
     private var escape: Any?
     private var inactive: NSObjectProtocol?
 
@@ -49,8 +49,8 @@ final class MouseReorder {
         let point = event.locationInWindow
         if hold == nil {
             let dx = point.x - origin.x, dy = point.y - origin.y
-            if abs(dx) > 4 && abs(dx) >= abs(dy) { self.candidate = nil; return false }
-            guard abs(dy) > 4, abs(dy) > abs(dx) else { return false }
+            if abs(dx) > Gesture.slop && abs(dx) >= abs(dy) { self.candidate = nil; return false }
+            guard abs(dy) > Gesture.slop, abs(dy) > abs(dx) else { return false }
             guard let started = ReorderHold(candidate, point: point, time: event.timestamp) else {
                 self.candidate = nil; return false
             }

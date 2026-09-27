@@ -188,6 +188,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     let kind: String
     var inlineText: [InlineText] = []
     var inlinePressed: UInt32?
+    /// An SVG element a click in this `svg` went down on (LLP 1055.000 D17).
+    var svgPressed: UInt32?
     var cachedTextSpec: Spec?
     var textLayoutValid = false
     /// The paragraph's text as a worker-painted surface (TextRasterMac.swift).
@@ -219,8 +221,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// A `value` that arrived mid-composition, applied when it ends.
     var pendingValue: String?
     var scroll: ChainingScrollView?
-    /// `box-shadow` (`BoxShadow.swift`); paint motion's values over the style's (`PaintMotion.swift`).
-    var shadowCaster: ShadowCaster?, paint: [String: [Double]] = [:]
+    /// `box-shadow` (`BoxShadow.swift`).
+    var shadowCaster: ShadowCaster?
     var clipBox: NSView?
     var materialView: NSView?
     private var materialContent: NSView?
@@ -589,7 +591,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         clearSymbol()
         image = nil
         video?.invalidate(); video = nil
-        presenter?.session?.webviews.destroy(id: id)
+        destroyEmbedded()
         web = nil
         presenter = nil
     }
@@ -620,13 +622,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             field = f
         }
         if kind == "video" { video = VideoView(owner: self) }
-        if kind == "iframe", let w = presenter.session?.webviews.create(owner: self) {
-            w.frame = bounds
-            w.autoresizingMask = [.width, .height]
-            w.wantsLayer = true
-            addSubview(w)
-            web = w
-        }
+        embedPlatformView(presenter)
     }
     required init?(coder: NSCoder) { nil }
     override var isFlipped: Bool { true }
@@ -854,7 +850,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// the four; a `light-dark()` pair is two fours and this picks one
     /// (LLP 1034 D1). Anything else is not a colour.
     func channels(_ key: String, dark: Bool? = nil) -> [Double]? {
-        paint[key] ?? style[key]?.channels(dark: dark ?? drawsDark)
+        style[key]?.channels(dark: dark ?? drawsDark)
     }
 
     /// Whether any colour on this node is a pair — what says an appearance
@@ -1053,7 +1049,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         updateRoleAccessibility()
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
         if kind == "image", props["imageSource"] == nil, imageSource != nil { loadGeneration += 1; presenter?.session?.rasters.cancel(id); raster = nil; imageSource = nil; clearSymbol(); image = nil; presenter?.intrinsic(id, nil) }
-        if kind == "iframe" { presenter?.session?.webviews.update(self) }
+        updateEmbedded()
         video?.update()
         updateMaterial()
         needsDisplay = true
@@ -1362,14 +1358,11 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if isSurfaceControl { _ = control("down", point: local(event.locationInWindow), timestamp: event.timestamp); return }
         if canvasInput?.pointer(event, phase: "down") == true { return }
         presenter?.collections.pointerDown(id, event: event)
-        if presenter?.mouseLayoutPan.down(self, event: event) == true { return }
-        presenter?.mouseHeightDrag.down(self, event: event)
-        presenter?.mouseReorder.down(self, event: event)
-        presenter?.mouseTransformDrag.down(self, event: event)
-        presenter?.mouseSwipe.down(self, event: event)
+        presenter?.mouseChain.down(self, event: event)
         guard !disabled else { pressed = false; return }
         presenter?.interacting = id
         presenter?.syncLists()
+        if let target = presenter?.svg.target(id, at: local(event.locationInWindow)) { svgPressed = target; return }
         if isParagraph, let run = inlineTarget(at: local(event.locationInWindow), handler: "press") {
             inlinePressed = run.id
             window?.makeFirstResponder(self)
@@ -1405,8 +1398,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if isSurfaceControl || ownsSurfaceControl { _ = control("move", point: local(event.locationInWindow), timestamp: event.timestamp); return }
         if canvasInput?.pointer(event, phase: "move") == true { return }
         inlinePressed = nil
-        // A drag a gesture takes ends the press, as a pan cancels a touch.
-        if let p = presenter, p.mouseLayoutPan.drag(event) || p.mouseTransformDrag.drag(event) || p.mouseReorder.drag(event) || p.mouseHeightDrag.drag(event) || p.mouseSwipe.drag(event) { pressed = false; return }
+        // A gesture that engages ends the press (the chain clears `pressed`).
+        if presenter?.mouseChain.drag(event) == true { return }
         pressFollows(inside: pressInside(event.locationInWindow))
         if isParagraph && !hasPressableAncestor { presenter?.selection.drag(event) }
         else { super.mouseDragged(with: event) }
@@ -1423,22 +1416,15 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             presenter?.interacting = 0
             presenter?.syncLists()
         }
-        if presenter?.mouseLayoutPan.up(event) == true { return }
-        if presenter?.mouseTransformDrag.up(event) == true { return }
-        if presenter?.mouseReorder.up(event) == true { return }
-        if presenter?.mouseHeightDrag.up(event) == true { return }
-        if presenter?.mouseSwipe.up(event) == true { return }
+        if presenter?.mouseChain.up(event) == true { return }
         presenter?.collections.releaseInteractionLater()
-        if event.clickCount == 2 {
-            var next: NSView? = self
-            while let view = next {
-                if let node = view as? NodeView, !node.disabled, node.handlers.contains("dblclick") {
-                    node.pressed = false
-                    node.presenter?.dblclick(node.id)
-                    return
-                }
-                next = view.superview
-            }
+        let double = dblclickTarget(event)
+        defer { dispatchDblclick(double) }
+        if let target = svgPressed {
+            svgPressed = nil
+            // The element has no view of its own: the `svg`'s view stands for it.
+            if !inert, presenter?.svg.target(id, at: local(event.locationInWindow)) == target { presenter?.onPress?(target) }
+            return
         }
         if let run = inlinePressed {
             inlinePressed = nil
@@ -1471,7 +1457,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if canvasInput?.pointer(event, phase: "up") != true { super.otherMouseUp(with: event) }
     }
     override func scrollWheel(with event: NSEvent) {
-        if canvasInput?.wheel(event) != true { super.scrollWheel(with: event) }
+        if canvasInput?.wheel(event) != true, presenter?.mouseTransformDrag.scroll(self, event: event) != true { super.scrollWheel(with: event) }
+    }
+    override func magnify(with event: NSEvent) {
+        if presenter?.mouseTransformDrag.magnify(self, event: event) != true { super.magnify(with: event) }
     }
     func controlTextDidChange(_ obj: Notification) {
         if let editor = field?.currentEditor() as? NSTextView, !editor.hasMarkedText(), let held = pendingValue { writeValue(held, into: editor) }

@@ -1,0 +1,22 @@
+[package]
+name = "photo-editor-apple"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The photo editor on Apple platforms: the host's C exports over its baked plan"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "photo_editor_apple"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-apple = { path = "../../../host/apple" }
+photo-editor-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }
+photo-editor-data = { path = "../data" }

@@ -1074,7 +1074,7 @@ fn key_reuse_items(h: &Harness) -> Vec<Value> {
     let Value::List(items) = &h.slots[0] else {
         panic!("list fixture")
     };
-    items.as_ref().clone()
+    items.to_vec()
 }
 
 #[test]
@@ -1329,11 +1329,13 @@ fn key_reads_track_derive_resource_and_pending_variants() {
         let slots = [Value::Number(0.)];
         let before = [Some(Value::Number(1.))];
         let after = [Some(Value::Number(2.))];
+        let held_before = [Some(crate::held::Held::new(Value::Number(1.)))];
+        let held_after = [Some(crate::held::Held::new(Value::Number(2.)))];
         let pending = [false];
         let changed_pending = [true];
         let mut input = env(&p, &slots);
         input.derives = &before;
-        input.resources = &before;
+        input.resources = &held_before;
         input.pending_resources = &pending;
         input.pending_mutations = &pending;
         let seen = crate::instance::deps::Seen::of(&input);
@@ -1341,7 +1343,7 @@ fn key_reads_track_derive_resource_and_pending_variants() {
         assert!(!sites.deps.changed(&seen, &input).intersects(&key.bits));
         match kind {
             0 => input.derives = &after,
-            1 => input.resources = &after,
+            1 => input.resources = &held_after,
             2 => input.pending_resources = &changed_pending,
             3 => input.pending_mutations = &changed_pending,
             _ => unreachable!(),

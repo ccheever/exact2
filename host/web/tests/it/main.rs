@@ -22,5 +22,4 @@ mod springs;
 mod surface_record;
 mod tint;
 mod transform_drag;
-mod vector_path;
 mod video;

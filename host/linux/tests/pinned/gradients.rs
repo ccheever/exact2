@@ -1,4 +1,4 @@
-//! LLP 1056: `background-image` gradients held to Chrome's pixels. The page
+//! LLP 1066: `background-image` gradients held to Chrome's pixels. The page
 //! is `scripts/fixtures/gradients.contract`; Chrome's pictures of it (the web
 //! host at 1×) are `gradients.web.png` as booted and `gradients.web-dark.png`
 //! after `dark`. Each case's box is compared within the border parity's band.

@@ -24,19 +24,25 @@ mod collection;
 pub mod expr;
 mod fonts;
 mod keyframes;
-mod markers;
+mod lint;
 mod media;
+mod native;
 mod routes;
 mod sites;
 mod strings;
+mod svg;
 pub mod tags;
 mod values;
+
+pub use lint::lint;
+use lint::{unknown_attr, unknown_tag};
+pub use native::{is_module_tag, module_tags};
 pub use sites::{Declared, NodeSite, Origin, Sites};
 
 use contract_analyze::Analysis;
 use contract_syntax::{Attr, Expr, File, FnDecl, Node, Span, Stmt, TaskKind};
 use contract_types::{Checked, Ref, Scope, Ty, Types};
-use exact_kernel::StyleId;
+use exact_kernel::{NodeType, StyleId};
 use exact_plan::asm::Asm;
 use exact_plan::builder::PlanBuilder;
 use exact_plan::{
@@ -61,118 +67,6 @@ impl std::fmt::Display for LowerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} [{}] {}", self.span, self.id, self.message)
     }
-}
-
-fn unknown_tag(tag: &str, span: Span) -> LowerError {
-    let hint = tags::html_tag(tag)
-        .map(|spelled| format!("; {spelled}"))
-        .or_else(|| tags::similar_tag(tag).map(|n| format!("; did you mean `{n}`?")))
-        .unwrap_or_default();
-    LowerError {
-        id: "lower-unknown-tag",
-        message: format!("unknown tag `{tag}`{hint}"),
-        span,
-    }
-}
-
-fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
-    let hint = match tags::renamed(&a.name) {
-        Some(new @ ("press" | "change")) => format!(
-            "; `{}` is `{new}` here: a handler is named for its event (LLP 1005 §3)",
-            a.name
-        ),
-        Some(new) => format!(
-            "; `{}` is spelled `{new}` here, the web's name (LLP 1017 §8.1)",
-            a.name
-        ),
-        None if a.name == "className" => {
-            "; `class` names a `style` declared in this file, as in `class=Card`".into()
-        }
-        None => tags::similar_attr(&a.name, false)
-            .map(|n| format!("; did you mean `{n}`?"))
-            .unwrap_or_default(),
-    };
-    LowerError {
-        id: "lower-unknown-attr",
-        message: format!("`{tag}` has no attribute `{}`{hint}", a.name),
-        span: a.span,
-    }
-}
-
-/// What an authored element can be refused for without any types: its
-/// tag, its attributes' names, and its literal style values against their
-/// rows. The driver runs this when an earlier pass refused, so a misspelled
-/// tag or a bad colour is reported in the same run as a type error.
-pub fn lint(file: &File) -> Vec<LowerError> {
-    type Tables = (keyframes::Table, markers::Table);
-    fn walk(nodes: &[Node], tables: &Tables, errors: &mut Vec<LowerError>) {
-        let (table, marks) = tables;
-        for n in nodes {
-            match n {
-                Node::Element {
-                    tag,
-                    attrs,
-                    children,
-                    span,
-                    ..
-                } => {
-                    if tags::tag(tag).is_none() {
-                        errors.push(unknown_tag(tag, *span));
-                    } else {
-                        for a in attrs.iter().filter(|a| a.name != "class") {
-                            let checked = match tags::attr(&a.name) {
-                                None => Err(unknown_attr(tag, a)),
-                                // A family is resolved against declared fonts.
-                                Some(tags::AttrTarget::Styles(
-                                    [row @ (StyleId::Animation | StyleId::ExitAnimation)],
-                                )) => keyframes::animation_value(&a.value, table, *row).map(|_| ()),
-                                Some(tags::AttrTarget::Styles(rows)) if tags::is_marker(rows) => {
-                                    markers::marker_value(&a.value, marks, &a.name).map(|_| ())
-                                }
-                                Some(tags::AttrTarget::Styles(rows))
-                                    if rows != [StyleId::FontFamily] =>
-                                {
-                                    values::check_style_value(a, rows, &Ty::Unknown, &[])
-                                }
-                                Some(tags::AttrTarget::Flex) => values::check_style_value(
-                                    a,
-                                    &[StyleId::FlexGrow],
-                                    &Ty::Unknown,
-                                    &[],
-                                ),
-                                Some(_) => Ok(()),
-                            };
-                            errors.extend(checked.err());
-                        }
-                    }
-                    walk(children, tables, errors);
-                }
-                Node::Use { children, .. } => walk(children, tables, errors),
-                Node::Provide { body, .. } => walk(body, tables, errors),
-                Node::When {
-                    then, otherwise, ..
-                } => {
-                    walk(then, tables, errors);
-                    walk(otherwise, tables, errors);
-                }
-                Node::Each { body, .. } => walk(body, tables, errors),
-                Node::Match { some, none, .. } => {
-                    walk(&some.1, tables, errors);
-                    walk(none, tables, errors);
-                }
-                Node::Children { .. } => {}
-            }
-        }
-    }
-    let (table, mut errors) = keyframes::resolve(file);
-    let (marks, refused) = markers::resolve(file);
-    errors.extend(refused);
-    let tables = (table, marks);
-    for c in &file.components {
-        walk(&c.view, &tables, &mut errors);
-    }
-    errors.truncate(MAX_REFUSALS);
-    errors
 }
 
 /// One refusal, as the plural result lowering returns.
@@ -222,9 +116,8 @@ pub(crate) struct Lowerer<'a> {
     pub actions: Vec<exact_plan::ActionsId>,
     /// The file's `style` declarations, by name (LLP 1017 P6).
     pub styles: BTreeMap<String, Vec<Attr>>,
-    /// The file's `keyframes` declarations, resolved (LLP 1057).
-    keyframes: keyframes::Table,
-    markers: markers::Table,
+    /// The `keyframes` declarations, by name, with what each animates (LLP 1055 D5).
+    pub keyframes: BTreeMap<String, Vec<exact_motion::Property>>,
     /// The file's `fn` declarations, by name, expanded inline at each call
     /// (LLP 1017 P5), each with its body's repeated calls bound once.
     pub fns: BTreeMap<&'a str, (&'a FnDecl, &'a Expr)>,
@@ -248,6 +141,9 @@ pub(crate) struct Lowerer<'a> {
     locale: Option<exact_plan::SlotsId>,
     /// Every key a `t` call names, the only ones baked.
     texts_used: std::collections::BTreeSet<String>,
+    /// How many `svg` elements enclose the node being lowered: `text`
+    /// inside one is SVG text, outside a box (LLP 1055.000 D11).
+    pub(crate) svg_depth: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -335,8 +231,7 @@ fn lower_with_sites(
         mutation_slots: Vec::new(),
         actions: Vec::new(),
         styles: BTreeMap::new(),
-        keyframes: keyframes::Table::default(),
-        markers: markers::Table::default(),
+        keyframes: BTreeMap::new(),
         fns: file
             .fns
             .iter()
@@ -344,6 +239,7 @@ fn lower_with_sites(
             .map(|(f, body)| (f.name.as_str(), (f, body)))
             .collect(),
         fn_depth: 0,
+        svg_depth: 0,
         each_regions: BTreeMap::new(),
         each_scopes: BTreeMap::new(),
         font_stacks: BTreeMap::new(),
@@ -354,12 +250,6 @@ fn lower_with_sites(
         texts_used: Default::default(),
     };
     l.declare_fonts(file, asset_root)?;
-    let (table, refused) = keyframes::resolve(file);
-    l.keyframes = table;
-    l.errors.extend(refused);
-    let (marks, refused) = markers::resolve(file);
-    l.markers = marks;
-    l.errors.extend(refused);
     // Styles: rows only, literal only (the parser holds the second), by name.
     for s in &file.styles {
         for a in &s.attrs {
@@ -394,6 +284,8 @@ fn lower_with_sites(
             });
         }
     }
+    let refused = l.declare_keyframes(file);
+    l.errors.extend(refused);
     // Shapes first, in declaration order, so type ids are stable.
     for s in &file.shapes {
         l.ty_id(&Ty::Record(s.name.clone()))?;
@@ -435,6 +327,17 @@ fn lower_with_sites(
         let id = l.b.mutation(&m.name, slot, t);
         l.mutation_slots.push(slot);
         l.mutations.push(id);
+        // @ref LLP 1054.000.000 D1 — the type check named only resources.
+        let refreshes: Vec<_> = m
+            .refreshes
+            .iter()
+            .map(|(name, _)| {
+                l.resources[root.resources.iter().position(|r| &r.name == name).unwrap()]
+            })
+            .collect();
+        if !refreshes.is_empty() {
+            l.b.mutation_refreshes(id, &refreshes);
+        }
     }
     for (i, a) in root.actions.iter().enumerate() {
         let params: Vec<(String, TypesId)> = a
@@ -484,6 +387,23 @@ fn lower_with_sites(
     // after every authored row; its arguments read no state.
     for (i, r) in root.resources.iter().enumerate() {
         let Some(p) = &r.placeholder else { continue };
+        // @ref LLP 1054.000.002 D3 — `empty(…)` rides the resource's row.
+        if p.source == contract_types::placeholder::EMPTY {
+            let value = contract_types::placeholder::materialize(
+                &root_types.resources[i],
+                &p.args,
+                &l.types.shapes,
+                &r.name,
+                p.span,
+            )
+            .map_err(|errors| LowerError {
+                id: errors[0].id,
+                message: errors[0].message.clone(),
+                span: errors[0].span,
+            })?;
+            l.b.set_resource_placeholder_value(l.resources[i], &value);
+            continue;
+        }
         let ty = l.ty_id(&root_types.resources[i])?;
         let mut args = Vec::new();
         for a in &p.args {
@@ -727,7 +647,7 @@ impl<'a> Lowerer<'a> {
                 span,
                 instance,
             } => {
-                let Some(t) = tags::tag(tag) else {
+                let Some(t) = tags::tag(tag).or_else(|| native::tag(tag)) else {
                     return Err(unknown_tag(tag, *span));
                 };
                 // Two layout refusals the compiler can make without measuring
@@ -764,6 +684,26 @@ impl<'a> Lowerer<'a> {
                         }
                     }
                 }
+                let composed = self.compose_animation(expanded)?;
+                let expanded = composed.as_deref().unwrap_or(expanded);
+                let lengths =
+                    svg::coerce_lengths(tag, svg::in_svg(self.svg_depth > 0, parent_tag), expanded);
+                let expanded = lengths.as_deref().unwrap_or(expanded);
+                self.check_svg(tag, parent_tag, expanded, *span)?;
+                // @ref LLP 1055.000 D4 — an `svg` inside an `svg` is a viewport.
+                // Inside an `svg`, `svg` is a viewport and `text` is SVG text
+                // (LLP 1055.000 D4, D11).
+                let t = match tag.as_str() {
+                    "svg" if svg::in_svg(self.svg_depth > 0, parent_tag) => tags::Tag {
+                        node_type: NodeType::SvgViewport,
+                        ..t
+                    },
+                    "text" if svg::in_svg(self.svg_depth > 0, parent_tag) => tags::Tag {
+                        node_type: NodeType::SvgText,
+                        ..t
+                    },
+                    _ => t,
+                };
                 tags::validate_list(tag, expanded, children, *span)?;
                 self.check_collection(tag, expanded, children, *span)?;
                 let has =
@@ -883,6 +823,9 @@ impl<'a> Lowerer<'a> {
                     .map(|_| vec![Origin::Tag; bindings.len()]);
                 let font = self.font_use(expanded)?;
                 for (index, a) in expanded.iter().enumerate() {
+                    if native::leftover(tag, a) {
+                        continue;
+                    }
                     if let Err(e) = self.attr(
                         tag,
                         a,
@@ -902,6 +845,18 @@ impl<'a> Lowerer<'a> {
                             Origin::Own
                         };
                         origins.resize(bindings.len(), origin);
+                    }
+                }
+                if t.node_type == NodeType::NativeView {
+                    let rest: Vec<&Attr> = expanded
+                        .iter()
+                        .filter(|a| native::leftover(tag, a))
+                        .collect();
+                    if let Err(e) = self.native_bindings(tag, &rest, scope, locals, &mut bindings) {
+                        self.errors.push(e);
+                    }
+                    if let Some(origins) = &mut origins {
+                        origins.resize(bindings.len(), Origin::Own);
                     }
                 }
                 // Two bindings for one row — a style's and the node's own, a
@@ -943,9 +898,6 @@ impl<'a> Lowerer<'a> {
                         children[0].span(),
                     );
                 }
-                if tag == "path" {
-                    tags::check_path_children(children)?;
-                }
                 if t.node_type.is_text_leaf() {
                     // Regions have no node of their own: a dynamic Markdown
                     // paragraph's each/when still produces only text runs.
@@ -985,7 +937,11 @@ impl<'a> Lowerer<'a> {
                         origins.as_deref().expect("site origins"),
                     ));
                 }
-                self.nodes(children, Some(id), arm, scope, locals, Some(tag))
+                let enters = tag == "svg";
+                self.svg_depth += enters as u32;
+                let lowered = self.nodes(children, Some(id), arm, scope, locals, Some(tag));
+                self.svg_depth -= enters as u32;
+                lowered
             }
             Node::Use { name, span, .. } => err(
                 "lower-uninlined-use",
@@ -1200,9 +1156,12 @@ impl<'a> Lowerer<'a> {
         let Some(target) = tags::attr(&a.name) else {
             return Err(unknown_attr(tag, a));
         };
+        // @ref LLP 1024 D1 — `load` and `message` are a module's too.
+        let module = native::is_module_tag(tag) && a.name != "sandbox";
         if (tag != "iframe"
             && matches!(a.name.as_str(), "sandbox" | "load" | "message")
-            && !(tag == "canvas" && a.name == "message"))
+            && !(tag == "canvas" && a.name == "message")
+            && !module)
             || (tag != "iframe" && tag != "video" && a.name == "src")
         {
             return err(
@@ -1219,7 +1178,6 @@ impl<'a> Lowerer<'a> {
                 a.span,
             );
         }
-        tags::check_path_attr(tag, a)?;
         // @ref LLP 1048.003 D1 — a document's metadata, and nothing else.
         let head_field = tags::HEAD_FIELDS.contains(&a.name.as_str());
         if head_field != (tag == "head") {
@@ -1256,7 +1214,7 @@ impl<'a> Lowerer<'a> {
                 a.span,
             );
         }
-        // @ref LLP 1055 D6 — a native field shows its value as typed.
+        // @ref LLP 1064 D6 — a native field shows its value as typed.
         if a.name == "text-transform" && matches!(tag, "input" | "textarea") {
             return err(
                 "lower-attr-tag",
@@ -1318,20 +1276,6 @@ impl<'a> Lowerer<'a> {
                         return Ok(());
                     }
                 }
-                // Keyframe names become the keyframes themselves (LLP 1057 D3).
-                let resolved;
-                let a = if let [row @ (StyleId::Animation | StyleId::ExitAnimation)] = rows {
-                    let value = keyframes::animation_value(&a.value, &self.keyframes, *row)?;
-                    resolved = Attr { value, ..a.clone() };
-                    &resolved
-                } else if tags::is_marker(rows) {
-                    // A marker's name becomes the marker (LLP 1065 D11).
-                    let value = markers::marker_value(&a.value, &self.markers, &a.name)?;
-                    resolved = Attr { value, ..a.clone() };
-                    &resolved
-                } else {
-                    a
-                };
                 let (code, ty) = self.typed_code(&a.value, scope, locals)?;
                 values::check_style_value(a, rows, &ty, font)?;
                 for &row in rows {

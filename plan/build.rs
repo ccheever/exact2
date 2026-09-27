@@ -492,8 +492,11 @@ fn main() {
     let _ = writeln!(w, "    pub strings: Vec<String>,");
     let _ = writeln!(w, "    /// Bytecode pool.");
     let _ = writeln!(w, "    pub code: Vec<u8>,");
-    let _ = writeln!(w, "    /// Data pool (compiled values).");
-    let _ = writeln!(w, "    pub data: Vec<u8>,");
+    let _ = writeln!(
+        w,
+        "    /// Data pool (compiled values): borrowed from a static plan's bytes, else owned."
+    );
+    let _ = writeln!(w, "    pub data: std::borrow::Cow<'static, [u8]>,");
     for t in &schema.tables {
         let _ = writeln!(w, "    /// `{}` rows.", t.name);
         let _ = writeln!(w, "    pub {}: Vec<{}Row>,", t.name, pascal(&t.name));
@@ -588,7 +591,16 @@ fn main() {
     let _ = writeln!(w, "    /// Decode and validate whole. Every index, range, code, and data reference is checked before the plan is returned; a failure names the row.");
     let _ = writeln!(
         w,
-        "    pub fn decode(bytes: &[u8]) -> Result<Plan, PlanError> {{"
+        "    pub fn decode(bytes: &[u8]) -> Result<Plan, PlanError> {{ Self::decode_from(bytes, None) }}"
+    );
+    let _ = writeln!(w, "    /// [`Plan::decode`] of bytes that live as long as the program (a plan linked into it): the data pool, a baked app's largest part, stays in those bytes instead of a copy.");
+    let _ = writeln!(
+        w,
+        "    pub fn decode_static(bytes: &'static [u8]) -> Result<Plan, PlanError> {{ Self::decode_from(bytes, Some(bytes)) }}"
+    );
+    let _ = writeln!(
+        w,
+        "    fn decode_from(bytes: &[u8], lent: Option<&'static [u8]>) -> Result<Plan, PlanError> {{"
     );
     let _ = writeln!(w, "        let mut r = Reader::new(bytes);");
     let _ = writeln!(
@@ -622,7 +634,7 @@ fn main() {
     );
     let _ = writeln!(
         w,
-        "        let n = r.count()?; let data = r.bytes(n)?.to_vec();"
+        "        let n = r.count()?; let at = bytes.len() - r.remaining(); let pool = r.bytes(n)?; let data: std::borrow::Cow<'static, [u8]> = match lent {{ Some(lent) => std::borrow::Cow::Borrowed(&lent[at..at + n]), None => std::borrow::Cow::Owned(pool.to_vec()) }};"
     );
     // The rows read through a sticky reader: no branch per field, and the
     // first failing read's error, as an early return would give it.

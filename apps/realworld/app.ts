@@ -16,8 +16,8 @@ type Article = Result<'article'>;
 type Profile = Result<'profile'>;
 type Author = Profile;
 
-// Every mutation's answer carries a fresh stamp; the resources that a
-// mutation could change take the stamp as an argument, so they refetch.
+// Every mutation's answer carries a fresh stamp, so the app notices each
+// reply; what a mutation changes is refetched by its `refreshes` declaration.
 let stamp = 0;
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 function date(iso: unknown): string {
@@ -142,10 +142,6 @@ async function change(kind: string, work: () => Promise<string>): Promise<Change
 const slugPath = (slug: string) => `/articles/${encodeURIComponent(slug)}`;
 
 const sources: Sources = {
-  anonymous: () => anonymous,
-  emptyFeed: () => emptyFeed,
-  emptyArticle: () => emptyArticle,
-  emptyProfile: () => emptyProfile,
   currentUser: (_, store) => currentUser(store),
   popularTags: async ([home], store) => {
     if (!home) return [];

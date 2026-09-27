@@ -13,7 +13,7 @@
 
 use crate::batch::Batch;
 use crate::style;
-use exact_kernel::motion::{motion_node, node_targets, targets, MotionSync};
+use exact_kernel::motion::{motion_node, targets, MotionSync};
 use exact_kernel::{
     Env, Frame, Kernel, NodeKey, NodeRef, NodeType, Offer, Overflow, PropId, PropValue,
     TextMeasurer, ViewId,
@@ -25,6 +25,8 @@ mod arrange;
 #[cfg(test)]
 #[path = "arrange_tests.rs"]
 mod arrange_tests;
+#[path = "canvas2d.rs"]
+pub(crate) mod canvas2d;
 #[path = "content_region/host.rs"]
 mod content_region_host;
 #[path = "height.rs"]
@@ -51,6 +53,16 @@ pub use height::{HeightOwnerChange, HeightOwnerDisposition, HeightOwnerError};
 use height_drag::{HeightDrag, HeightHandle};
 #[path = "layout.rs"]
 mod layout;
+#[cfg(test)]
+#[path = "storage_tests.rs"]
+mod storage_tests;
+#[path = "svg.rs"]
+mod svg;
+#[path = "svg_lower.rs"]
+mod svg_lower;
+#[cfg(test)]
+#[path = "svg_tests.rs"]
+mod svg_tests;
 #[path = "transform_drag.rs"]
 mod transform_drag;
 #[path = "transform_drag_wire.rs"]
@@ -102,6 +114,8 @@ pub struct Host<D: DataSource> {
     mirror: IdMap<ViewId, Mirror>,
     keys: IdMap<NodeKey, ViewId>,
     inline_runs: IdMap<ViewId, (ViewId, Vec<EventKind>)>,
+    /// SVG scenes and lowered CSS animations (LLP 1055 D4, D7).
+    svg: svg::SvgState,
     dirty_paragraphs: BTreeSet<ViewId>,
     pending_layout: IdSet<NodeKey>,
     roots: Vec<ViewId>,
@@ -144,6 +158,23 @@ pub struct Host<D: DataSource> {
     /// a check writes it once.
     update_line: Option<String>,
     delivery: Option<&'static crate::delivery::Hooks>,
+}
+
+/// A plan's bytes at boot: copied from while decoding, or linked into the
+/// program, whose data pool the decoded plan then keeps in place.
+#[derive(Clone, Copy)]
+pub(crate) enum PlanBytes<'a> {
+    Copied(&'a [u8]),
+    Static(&'static [u8]),
+}
+
+impl PlanBytes<'_> {
+    fn decode(self) -> Result<Plan, exact_plan::PlanError> {
+        match self {
+            PlanBytes::Copied(bytes) => Plan::decode(bytes),
+            PlanBytes::Static(bytes) => Plan::decode_static(bytes),
+        }
+    }
 }
 
 impl<D: DataSource> Host<D> {
@@ -208,7 +239,7 @@ impl<D: DataSource> Host<D> {
         secrets: Option<Platform>,
     ) -> Result<(Host<D>, String), HostError> {
         let (mut host, batch) = Host::boot_stored_after_decode(
-            plan_bytes,
+            PlanBytes::Copied(plan_bytes),
             data,
             measurer,
             width,
@@ -232,7 +263,7 @@ impl<D: DataSource> Host<D> {
     /// decoding the plan twice.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn boot_stored_after_decode(
-        plan_bytes: &[u8],
+        plan_bytes: PlanBytes<'_>,
         data: D,
         measurer: Box<dyn TextMeasurer>,
         width: f32,
@@ -268,7 +299,7 @@ impl<D: DataSource> Host<D> {
 
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn boot_stored_after_decode_mode(
-        plan_bytes: &[u8],
+        plan_bytes: PlanBytes<'_>,
         data: D,
         measurer: Box<dyn TextMeasurer>,
         width: f32,
@@ -292,7 +323,7 @@ impl<D: DataSource> Host<D> {
                 return Err(HostError::Delivery("the baked store level does not match the linked delivery adapter; regenerate the app entry".into()));
             }
         }
-        let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
+        let plan = plan_bytes.decode().map_err(HostError::Plan)?;
         let kernel = Kernel::new(measurer);
         let facts = candidate_delivery.unwrap_or_else(|| {
             let mut facts = exact_runner::Delivery::default();
@@ -345,11 +376,16 @@ impl<D: DataSource> Host<D> {
             mirror: IdMap::default(),
             keys: IdMap::default(),
             inline_runs: IdMap::default(),
+            svg: svg::SvgState::default(),
             dirty_paragraphs: BTreeSet::new(),
             pending_layout: IdSet::default(),
             roots: Vec::new(),
             collections_json: "[]".into(),
-            engine: Engine::new(),
+            engine: {
+                let mut engine = Engine::new();
+                engine.set_lowered_properties(&svg::LOWERED);
+                engine
+            },
             paint: paint::Paint::default(),
             holds: BTreeMap::new(),
             height_owner: None,
@@ -407,25 +443,17 @@ impl<D: DataSource> Host<D> {
         let mut sync = MotionSync::default();
         for id in &order {
             if let Some(node) = host.runner.kernel().node(*id) {
-                let n = motion_node(node.key);
-                sync.transitions.push((n, node.style.transition.clone()));
-                sync.layout.push((n, node.style.layout_transition.clone()));
-                sync.animations.push((n, node.style.animation.clone()));
-                for (property, value) in node_targets(node.node_type, node.style) {
-                    sync.changes.push(Change {
-                        node: n,
-                        property,
-                        value,
-                        velocity: None,
-                    });
-                }
+                host.runner.kernel().motion_sync_node(node.key, &mut sync);
             }
         }
         let applied = sync.apply(&mut host.engine);
         debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
+        svg_lower::eligibility(host.runner.kernel(), &mut host.engine, &sync);
         host.boot_paint(&order);
         host.reconcile_height_handles(&mut batch, true);
         host.layout(&mut batch).map_err(HostError::Layout)?;
+        host.canvas_limits();
+        host.canvas_turn(&mut batch);
         // A failed first layout is a refused boot, not a partially committed
         // host. In particular, no candidate secret writes escape before this
         // point on a dev reload.
@@ -746,6 +774,7 @@ impl<D: DataSource> Host<D> {
 
     fn advanced(&mut self, a: exact_runner::Advanced) -> String {
         self.now_ms = a.now_ms.max(self.now_ms);
+        self.runner.canvas_frame();
         let error = a.error.map(|e| format!("{e:?}"));
         self.commit(&a.receipts, error)
     }
@@ -1046,6 +1075,8 @@ impl<D: DataSource> Host<D> {
             return self.arrange_settle();
         }
         let error = self.height_layout_if_needed(&mut batch).err();
+        self.runner.canvas_frame();
+        self.canvas_turn(&mut batch);
         // Only suspended ancestor mappings need a settle recheck. Normal
         // photo Translate/Scale frames keep the existing cheap tick path.
         if self.transform_drags.mapping_pending {
@@ -1070,6 +1101,7 @@ impl<D: DataSource> Host<D> {
 
     fn finish(&self, mut batch: Batch, error: Option<String>) -> String {
         batch.spatial = self.engine.spatial();
+        batch.canvas_frames(self.runner.canvas_wants_frame());
         batch.finish(
             self.runner.timer_due_ms(),
             !self.engine.quiescent(),
@@ -1113,6 +1145,8 @@ impl<D: DataSource> Host<D> {
                 if let Some(id) = self.keys.remove(key) {
                     if let Some((owner, _)) = self.inline_runs.remove(&id) {
                         self.dirty_paragraphs.insert(owner);
+                    } else if self.svg.destroyed(id) {
+                        self.mirror.remove(&id);
                     } else if !self.native_selected_id(id) {
                         self.mirror.remove(&id);
                         if !self.exit_holds(id, &mut batch) {
@@ -1172,7 +1206,8 @@ impl<D: DataSource> Host<D> {
             self.spare_exits(&mut sync);
             let applied = sync.apply(&mut self.engine);
             debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
-            self.play_exits();
+            svg_lower::eligibility(self.runner.kernel(), &mut self.engine, &sync);
+            self.play_exits(&mut batch);
             self.seed_layout(&t.receipt);
             self.sync_paint(&t.receipt, &mut batch);
             self.reconcile_height_handles(&mut batch, true);
@@ -1195,6 +1230,7 @@ impl<D: DataSource> Host<D> {
         } else {
             self.layout(&mut batch).err()
         };
+        self.canvas_turn(&mut batch);
         for s in self.runner.take_surface_updates() {
             batch.surface(&s);
         }
@@ -1279,7 +1315,32 @@ fn kind_for(node: &NodeRef<'_>) -> &'static str {
         NodeType::View => "view",
         NodeType::List => "list",
         NodeType::NativeView => "native",
-        NodeType::Path => "path",
+        NodeType::Svg => "svg",
+        // Never a view: its `svg`'s scene draws it (LLP 1055 D4).
+        NodeType::SvgGroup
+        | NodeType::SvgPath
+        | NodeType::SvgPolyline
+        | NodeType::SvgPolygon
+        | NodeType::SvgCircle
+        | NodeType::SvgLine
+        | NodeType::SvgRect
+        | NodeType::SvgEllipse
+        | NodeType::SvgViewport
+        | NodeType::SvgDefs
+        | NodeType::SvgLinearGradient
+        | NodeType::SvgRadialGradient
+        | NodeType::SvgStop
+        | NodeType::SvgUse
+        | NodeType::SvgSymbol
+        | NodeType::SvgClipPath
+        | NodeType::SvgText
+        | NodeType::SvgTSpan
+        | NodeType::SvgMarker
+        | NodeType::SvgMask
+        | NodeType::SvgPattern
+        | NodeType::SvgForeignObject
+        | NodeType::SvgFilter
+        | NodeType::SvgFe => "svg-element",
         NodeType::ScrollView => "scroll",
         NodeType::Text => "text",
         NodeType::Image => "image",
@@ -1308,7 +1369,7 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
         out.insert(id.name().to_string(), text);
     }
     // Swift paints a paragraph from its runs' `text`: the string the kernel
-    // measured, `text-transform` applied (LLP 1055 D5).
+    // measured, `text-transform` applied (LLP 1064 D5).
     if let Some(std::borrow::Cow::Owned(shown)) = node.shown_text() {
         out.insert(PropId::Text.name().to_string(), shown);
     }
@@ -1322,9 +1383,6 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
         if let Some(value) = node.spellcheck() {
             out.insert("spellcheck".into(), value.to_string());
         }
-    }
-    if node.node_type == NodeType::Path {
-        crate::vector::props(node, &mut out);
     }
     if node.node_type == NodeType::Image {
         if let Some(role) = node
@@ -1370,110 +1428,5 @@ fn agent_scratch() -> Result<Option<String>, exact_runner::DataError> {
         _ => Err(exact_runner::DataError::Unavailable(
             "EXACT_AGENT_STORAGE: one name of letters, digits, '.', '-' or '_'".into(),
         )),
-    }
-}
-
-#[cfg(test)]
-mod storage_tests {
-    use super::*;
-    use exact_kernel::MonospaceMeasurer;
-    use exact_plan::{builder::PlanBuilder, Value};
-    use exact_runner::DataError;
-    use std::path::PathBuf;
-    use std::sync::{Arc, Mutex};
-
-    #[derive(Default)]
-    struct Seen {
-        paths: Option<[PathBuf; 3]>,
-        activations: usize,
-    }
-
-    struct Source(&'static str, Arc<Mutex<Seen>>);
-    impl DataSource for Source {
-        fn app_id(&self) -> &str {
-            self.0
-        }
-        fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
-            Err(DataError::UnknownSource(name.into()))
-        }
-        fn configure_storage(
-            &mut self,
-            data: PathBuf,
-            cache: PathBuf,
-            temporary: PathBuf,
-        ) -> Result<(), DataError> {
-            let mut seen = self.1.lock().unwrap();
-            assert_eq!(seen.activations, 0, "configuration precedes app activation");
-            seen.paths = Some([data, cache, temporary]);
-            Ok(())
-        }
-        fn activate(&mut self) -> Result<(), DataError> {
-            self.1.lock().unwrap().activations += 1;
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn storage_configuration_is_post_pixel_app_scoped_and_absent_in_agent_mode() {
-        const CHILD: &str = "EXACT_STORAGE_CONFIGURATION_TEST";
-        if std::env::var_os(CHILD).is_none() {
-            for agent in [false, true] {
-                let mut command = std::process::Command::new(std::env::current_exe().unwrap());
-                command.args(["--exact", "host::storage_tests::storage_configuration_is_post_pixel_app_scoped_and_absent_in_agent_mode"])
-                    .env(CHILD, "1").env_remove("EXACT_AGENT");
-                if agent {
-                    command.env("EXACT_AGENT", "1");
-                }
-                let output = command.output().unwrap();
-                assert!(
-                    output.status.success(),
-                    "{}\n{}",
-                    String::from_utf8_lossy(&output.stdout),
-                    String::from_utf8_lossy(&output.stderr)
-                );
-            }
-            return;
-        }
-        let mut builder = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
-        builder.node(NodeType::View as u8, None, None, 0, &[], &[], None);
-        let plan = builder.finish().unwrap().encode();
-        let mut paths = Vec::new();
-        for app_id in ["test.exact.storage.a", "test.exact.storage.b"] {
-            let seen = Arc::new(Mutex::new(Seen::default()));
-            let (mut host, _) = Host::boot(
-                &plan,
-                Source(app_id, seen.clone()),
-                Box::new(MonospaceMeasurer::default()),
-                10.0,
-                10.0,
-            )
-            .unwrap();
-            assert_eq!(seen.lock().unwrap().activations, 0);
-            assert!(
-                seen.lock().unwrap().paths.is_none(),
-                "boot cannot configure storage"
-            );
-            host.activate_data();
-            host.activate_data();
-            let seen = seen.lock().unwrap();
-            assert_eq!(seen.activations, 1);
-            if std::env::var_os("EXACT_AGENT").is_some() {
-                assert!(seen.paths.is_none());
-            } else {
-                let app_paths = seen.paths.as_ref().unwrap();
-                assert!(app_paths.iter().all(|p| p.is_absolute()));
-                for (index, path) in app_paths.iter().enumerate() {
-                    assert!(path.components().any(|part| part.as_os_str() == app_id));
-                    assert!(app_paths
-                        .iter()
-                        .enumerate()
-                        .all(|(other, p)| other == index || !p.starts_with(path)));
-                }
-                paths.push(app_paths.clone());
-            }
-        }
-        if paths.len() == 2 {
-            assert!(paths[0].iter().zip(&paths[1]).all(|(a, b)| a != b));
-        }
     }
 }

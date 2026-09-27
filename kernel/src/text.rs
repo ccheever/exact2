@@ -202,7 +202,7 @@ impl Paragraph {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextRun<'a> {
     /// The text as measured and painted: `text-transform` already applied
-    /// (LLP 1055 D5), borrowed from the node when it changes nothing.
+    /// (LLP 1064 D5), borrowed from the node when it changes nothing.
     pub text: Cow<'a, str>,
     /// Its style.
     pub style: TextStyle,

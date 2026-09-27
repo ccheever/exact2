@@ -53,39 +53,3 @@ final class HeightDragTests: XCTestCase {
         XCTAssertEqual(mapping.value(downward: -Double(Float.greatestFiniteMagnitude)), Double(Float.greatestFiniteMagnitude))
     }
 }
-
-extension HeightDragTests {
-    func testReleaseKeepsRecentDisplayedVelocityButAStationaryPauseExpiresIt() {
-        var samples = HeightDragVelocity(height: 180, time: 0)
-        XCTAssertEqual(samples.record(height: 200, time: 0.02), true)
-        XCTAssertEqual(samples.velocity, 1000)
-        XCTAssertEqual(samples.record(height: 200, time: 0.03, ending: true), true)
-        XCTAssertEqual(samples.velocity, 1000)
-        XCTAssertEqual(samples.record(height: 200, time: 0.2, ending: true), true)
-        XCTAssertEqual(samples.velocity, 0)
-    }
-    func testVelocityUsesConstrainedHeightsAndRejectsBadOrBackwardsSamples() {
-        var samples = HeightDragVelocity(height: 240, time: 0)
-        XCTAssertEqual(samples.record(height: 240, time: 0.02), true)
-        XCTAssertEqual(samples.velocity, 0) // pointer may move past max-height
-        XCTAssertEqual(samples.record(height: 220, time: 0.04), true)
-        XCTAssertEqual(samples.velocity, -1000)
-        XCTAssertEqual(samples.record(height: .nan, time: 0.05), false)
-        XCTAssertEqual(samples.record(height: 180, time: 0.01), false)
-        XCTAssertEqual(samples.height, 220)
-        XCTAssertEqual(samples.time, 0.04)
-        XCTAssertEqual(samples.velocity, -1000)
-    }
-}
-
-extension HeightDragTests {
-    func testCoalescedDragHasDirectionWithoutInstantaneousVelocity() {
-        XCTAssertTrue(HeightDragDirection.accepts(velocityX: 0, velocityY: 0, translationX: 0, translationY: -175.927875))
-        XCTAssertTrue(HeightDragDirection.accepts(velocityX: 0, velocityY: 0, translationX: 1, translationY: 176))
-        XCTAssertFalse(HeightDragDirection.accepts(velocityX: 0, velocityY: 0, translationX: 176, translationY: 1))
-        XCTAssertFalse(HeightDragDirection.accepts(velocityX: 0, velocityY: 0, translationX: 0, translationY: 0))
-        XCTAssertFalse(HeightDragDirection.accepts(velocityX: 100, velocityY: 1, translationX: 0, translationY: 176))
-        XCTAssertFalse(HeightDragDirection.accepts(velocityX: .nan, velocityY: 0, translationX: 0, translationY: 176))
-        XCTAssertFalse(HeightDragDirection.accepts(velocityX: 0, velocityY: 0, translationX: 0, translationY: .infinity))
-    }
-}

@@ -5,8 +5,6 @@
 //! that are not one CSS property each are listed here by hand)
 //! @ref LLP 1002 D2 (`transition` as CSS; a spring is the one declared
 //! deviation and is not emitted as CSS)
-//! @ref LLP 1057 D5 (`animation` as CSS: the declaration here, its
-//! `@keyframes` rule through [`keyframes_rules`] into the page's sheet)
 //!
 //! Every set row of a node becomes one declaration, read through the
 //! kernel's generated `StyleProps::get`, so a row added to `schema.json`
@@ -16,9 +14,7 @@
 
 use exact_kernel::style::ColorValue;
 use exact_kernel::{Color, Dimension, Display, Overflow, RowValue, StyleId, StyleProps};
-use exact_motion::{
-    Animations, Easing, Keyframes, TimingFunction, Transition, TransitionProperty, Transitions,
-};
+use exact_motion::{Easing, Property, TimingFunction, Transition, TransitionProperty, Transitions};
 use exact_num::{push_text, Piece, Shortest32};
 use std::fmt::Write as _;
 
@@ -78,9 +74,11 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                     });
                 }
             }
+            // @ref LLP 1055 D5/D7 — the browser runs it; the rule it names
+            // is in the page's stylesheet (`Batch::keyframes`).
             (StyleId::Animation, RowValue::Animations(a)) => {
                 if !a.0.is_empty() {
-                    push_text!(&mut out, "animation:{};", animations_css(a));
+                    push_text!(&mut out, "animation:{};", a.css());
                 }
             }
             // @ref LLP 1063 — not CSS properties: custom properties the page's
@@ -88,10 +86,11 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
             // it reads, since it reads only the element's own declaration. The
             // exit's own list also rides its `exit` op (a windowed row leaves
             // as its wrapper, which declares none); here it declares the row,
-            // so the module is fetched before the first exit needs it.
+            // so the module is fetched before the first exit needs it. The
+            // rules it names are in the page's stylesheet, as `animation`'s.
             (StyleId::ExitAnimation, RowValue::Animations(a)) => {
                 if !a.0.is_empty() {
-                    push_text!(&mut out, "--exact-exit-animation:{};", animations_css(a));
+                    push_text!(&mut out, "--exact-exit-animation:{};", a.css());
                 }
             }
             (StyleId::LayoutTransition, RowValue::Transitions(t)) => {
@@ -176,7 +175,7 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
     if let Some((x, y, radius, color, opacity)) = shadow {
         // The opacity row folds into each colour's alpha, both halves of a
         // `light-dark()` pair alike: the browser still resolves the pair per
-        // element (LLP 1034 D2, LLP 1055 D3).
+        // element (LLP 1034 D2, LLP 1064 D3).
         let fade = |c: Color| {
             Color::rgba(
                 c.r(),
@@ -264,9 +263,7 @@ pub(crate) fn css_string(value: &str) -> String {
 fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
     match value {
         RowValue::Vec2(_) => id == StyleId::Translate,
-        // @ref LLP 1065 D11 — a marker is the path's markup, not CSS.
         RowValue::Color2(_)
-        | RowValue::Marker(_)
         | RowValue::Tracks(_)
         | RowValue::Placement(_)
         | RowValue::Transitions(_)
@@ -283,9 +280,7 @@ fn property(out: &mut String, id: StyleId) {
         StyleId::TintColor => return out.push_str("--exact-tint"),
         StyleId::PositionType => return out.push_str("position"),
         StyleId::BackdropBlur => return out.push_str("backdrop-filter"),
-        // @ref LLP 1065 D5 — registered by the path's own markup.
-        StyleId::StrokeStart => return out.push_str("--exact-stroke-start"),
-        StyleId::StrokeEnd => return out.push_str("--exact-stroke-end"),
+        StyleId::SvgMask => return out.push_str("mask"),
         id => id.name(),
     };
     for (prefix, suffix) in [
@@ -332,13 +327,18 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         RowValue::LineHeight(v) => out.push_str(&v.css()),
         RowValue::Enum(e) => out.push_str(e),
         RowValue::ClipPath(p) => out.push_str(&p.css()),
-        RowValue::DashArray(d) => out.push_str(&d.css()),
         RowValue::ShapeOutside(p) => out.push_str(&p.css()),
         RowValue::AspectRatio(r) => out.push_str(&r.css()),
-        RowValue::TransformOrigin(o) => out.push_str(&o.css()),
+        RowValue::Paint(p) => out.push_str(&p.css()),
+        RowValue::DashArray(d) => out.push_str(&d.css()),
+        RowValue::Transform(t) => out.push_str(&t.css()),
+        RowValue::TransformOrigin(t) => out.push_str(&t.css()),
+        RowValue::PaintOrder(p) => out.push_str(&p.css()),
+        RowValue::Marker(m) => out.push_str(&m.css()),
+        RowValue::Filter(f) => out.push_str(&f.css()),
         // The kernel's canonical CSS: explicit stops, `#rrggbbaa` colours and
         // `light-dark()` pairs the browser resolves per element (LLP 1034
-        // D2); the browser mixes premultiplied, as CSS says (LLP 1056).
+        // D2); the browser mixes premultiplied, as CSS says (LLP 1066).
         RowValue::BackgroundImage(g) => out.push_str(&g.css()),
         RowValue::Vec2(v) => {
             num_into(out, v.x);
@@ -354,9 +354,14 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             | StyleId::FontWeight
             | StyleId::Scale
             | StyleId::ShadowOpacity
-            | StyleId::StrokeStart
-            | StyleId::StrokeEnd
-            | StyleId::StrokeMiterlimit => num_into(out, *n as f32),
+            // SVG's unitless numbers (LLP 1055 D2); `r`, `cx`, `cy` are lengths.
+            | StyleId::FillOpacity
+            | StyleId::StrokeOpacity
+            | StyleId::StrokeMiterlimit
+            | StyleId::StrokeWidth
+            | StyleId::StrokeDashoffset
+            | StyleId::StopOpacity
+            | StyleId::FloodOpacity => num_into(out, *n as f32),
             StyleId::Rotate => {
                 num_into(out, *n as f32);
                 out.push_str("deg");
@@ -372,7 +377,6 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             }
         },
         RowValue::Color2(_)
-        | RowValue::Marker(_)
         | RowValue::Tracks(_)
         | RowValue::Placement(_)
         | RowValue::Transitions(_)
@@ -382,7 +386,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
 
 /// A `transition` row as CSS; `true` when a spring was left out. A spring
 /// drives the compositor rows as physics, lowered to frames by the host; the
-/// properties it does not ([`exact_motion::Property::springs`]: paint, a path's stroke)
+/// properties it does not ([`Property::springs`]: paint, SVG geometry)
 /// play its curve from rest as `linear()`, as every native host does (LLP
 /// 1062 D3).
 pub fn transition_css(t: &Transitions) -> (String, bool) {
@@ -403,19 +407,21 @@ pub fn transition_css(t: &Transitions) -> (String, bool) {
     for tr in &t.0 {
         match &tr.timing {
             TimingFunction::Spring(config) => {
-                let names: &[&str] = match tr.property {
-                    TransitionProperty::All => &[
-                        "background-color",
-                        "color",
-                        "border-color",
-                        "--exact-tint",
-                        "box-shadow",
-                        "--exact-stroke-start",
-                        "--exact-stroke-end",
-                    ],
-                    TransitionProperty::BorderColor => &["border-color"],
-                    TransitionProperty::Property(p) if !p.springs() => &[p.css_name()],
-                    TransitionProperty::Property(_) => &[],
+                let names: Vec<&str> = match tr.property {
+                    // Every property no spring drives as physics, the four
+                    // sides as their shorthand.
+                    TransitionProperty::All => Property::ALL
+                        .into_iter()
+                        .filter(|p| !p.springs() && *p != Property::ShadowColor)
+                        .map(|p| match p {
+                            Property::BorderTopColor => "border-color",
+                            p => p.css_name(),
+                        })
+                        .filter(|n| !n.starts_with("border-") || *n == "border-color")
+                        .collect(),
+                    TransitionProperty::BorderColor => vec!["border-color"],
+                    TransitionProperty::Property(p) if !p.springs() => vec![p.css_name()],
+                    TransitionProperty::Property(_) => Vec::new(),
                 };
                 spring |= match tr.property {
                     TransitionProperty::All => true,
@@ -439,19 +445,6 @@ pub fn transition_css(t: &Transitions) -> (String, bool) {
 
 fn transition_property(tr: &Transition) -> &'static str {
     tr.property.css_name()
-}
-
-/// An `animation` list as CSS, each entry naming its keyframes as the page
-/// does.
-pub fn animations_css(a: &Animations) -> String {
-    let mut out = String::new();
-    for (i, animation) in a.0.iter().enumerate() {
-        if i > 0 {
-            out.push(',');
-        }
-        out.push_str(&animation.css(&keyframes_name(&animation.keyframes)));
-    }
-    out
 }
 
 /// A `layout-transition` row as the presence module reads it: duration and
@@ -481,46 +474,6 @@ pub fn layout_transition_css(t: &Transitions) -> Option<String> {
 /// A CSS `<easing-function>` from the motion crate's spelling.
 pub fn easing_css(e: &Easing) -> String {
     e.css()
-}
-
-/// The page's name for a keyframes list: the authored name and a hash of
-/// the rule, so two lists never share a name and one list always has the
-/// same one — the page inserts each rule once, and an unchanged list keeps
-/// its name, so its animation never restarts.
-pub fn keyframes_name(keyframes: &Keyframes) -> String {
-    // FNV-1a: stable across builds and platforms, unlike `DefaultHasher`.
-    let mut hash: u32 = 0x811c_9dc5;
-    for byte in keyframes.rule(&keyframes.name).bytes() {
-        hash = (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193);
-    }
-    let mut name = keyframes.name.clone();
-    name.push('-');
-    for shift in (0..8).rev() {
-        name.push(char::from(
-            b"0123456789abcdef"[(hash >> (shift * 4)) as usize & 15],
-        ));
-    }
-    name
-}
-
-/// Each `@keyframes` rule a style's `animation` and `exit-animation` rows play, as the page names
-/// it: `(name, rule)`. A host inserts each name's rule once, before the
-/// declaration that uses it.
-pub fn keyframes_rules(style: &StyleProps) -> Vec<(String, String)> {
-    let rows = [
-        (StyleId::Animation, &style.animation),
-        // Sent while the node lives, so the rule is there when it leaves.
-        (StyleId::ExitAnimation, &style.exit_animation),
-    ];
-    rows.into_iter()
-        .filter(|(id, _)| style.mask.has(*id))
-        .flat_map(|(_, Animations(list))| list)
-        .map(|a| {
-            let name = keyframes_name(&a.keyframes);
-            let rule = a.keyframes.rule(&name);
-            (name, rule)
-        })
-        .collect()
 }
 
 pub(crate) fn dimension(out: &mut String, d: Dimension) {
@@ -708,13 +661,21 @@ mod writer_tests {
         assert_eq!(
             names,
             [
-                "opacity 1s ease 0s,background-color",
+                "opacity 1s ease 0s,stroke-dashoffset",
+                "r",
                 "color",
+                "background-color",
+                "fill",
+                "stroke",
+                "cx",
+                "cy",
+                "x",
+                "y",
+                "rx",
+                "ry",
                 "border-color",
                 "--exact-tint",
                 "box-shadow",
-                "--exact-stroke-start",
-                "--exact-stroke-end",
                 ""
             ]
         );
@@ -777,7 +738,7 @@ mod declaration_tests {
                 ],
                 &[],
             ),
-            // LLP 1055: Contract's `box-shadow`, one value to the four rows.
+            // LLP 1064: Contract's `box-shadow`, one value to the four rows.
             css(
                 &[
                     (
@@ -903,7 +864,7 @@ mod declaration_tests {
         }
     }
 
-    /// LLP 1056: a gradient is one `background-image` declaration after the
+    /// LLP 1066: a gradient is one `background-image` declaration after the
     /// colour it paints over; a `light-dark()` stop is the browser's to
     /// resolve, and `none` clears.
     #[test]

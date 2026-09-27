@@ -200,7 +200,8 @@ impl Batch {
         self.ops.is_empty()
     }
 
-    /// `{"op":"create","id":…,"tag":…,"props":{…},"css":…,"handlers":[…]}`.
+    /// `{"op":"create","id":…,"tag":…,"props":{…},"css":…,"handlers":[…]}`,
+    /// plus `"ns":"http://www.w3.org/2000/svg"` for an SVG element (LLP 1055 D4).
     pub fn create(
         &mut self,
         id: u32,
@@ -211,6 +212,35 @@ impl Batch {
     ) {
         let mut s = text!("{{\"op\":\"create\",\"id\":{},\"tag\":", id);
         quote(tag, &mut s);
+        if matches!(
+            tag,
+            "svg"
+                | "g"
+                | "path"
+                | "polyline"
+                | "polygon"
+                | "circle"
+                | "ellipse"
+                | "line"
+                | "rect"
+                | "defs"
+                | "linearGradient"
+                | "radialGradient"
+                | "stop"
+                | "use"
+                | "symbol"
+                | "clipPath"
+                | "marker"
+                | "mask"
+                | "pattern"
+                | "foreignObject"
+                | "filter"
+                | "text"
+                | "tspan"
+        ) || tag.starts_with("fe")
+        {
+            s.push_str(",\"ns\":\"http://www.w3.org/2000/svg\"");
+        }
         s.push_str(",\"props\":");
         string_map(props, &mut s);
         s.push_str(",\"css\":");
@@ -261,20 +291,20 @@ impl Batch {
         self.ops.push(s);
     }
 
-    /// `{"op":"style","id":…,"css":…}` — the whole `cssText`.
-    pub fn style(&mut self, id: u32, css: &str) {
-        let mut s = text!("{{\"op\":\"style\",\"id\":{},\"css\":", id);
+    /// `{"op":"keyframes","name":…,"css":…}`: one `@keyframes` rule for the
+    /// page's stylesheet, sent once per name before a node names it (LLP 1055 D7).
+    pub fn keyframes(&mut self, name: &str, css: &str) {
+        let mut s = String::from("{\"op\":\"keyframes\",\"name\":");
+        quote(name, &mut s);
+        s.push_str(",\"css\":");
         quote(css, &mut s);
         s.push('}');
         self.ops.push(s);
     }
 
-    /// `{"op":"keyframes","name":…,"css":…}` — one `@keyframes` rule for the
-    /// page's sheet, sent once per name before a style that names it.
-    pub fn keyframes(&mut self, name: &str, css: &str) {
-        let mut s = String::from("{\"op\":\"keyframes\",\"name\":");
-        quote(name, &mut s);
-        s.push_str(",\"css\":");
+    /// `{"op":"style","id":…,"css":…}` — the whole `cssText`.
+    pub fn style(&mut self, id: u32, css: &str) {
+        let mut s = text!("{{\"op\":\"style\",\"id\":{},\"css\":", id);
         quote(css, &mut s);
         s.push('}');
         self.ops.push(s);
@@ -334,6 +364,47 @@ impl Batch {
         let mut s = text!("{{\"op\":\"retire-motion\",\"id\":{},\"property\":", id);
         quote(property, &mut s);
         s.push('}');
+        self.ops.push(s);
+    }
+
+    /// Watch a 2D canvas's box (LLP 1056 D4): the page reports its geometry.
+    pub fn canvas2d_watch(&mut self, view: u32) {
+        self.ops.push(text!(
+            "{{\"op\":\"canvas2d\",\"id\":{},\"watch\":true}}",
+            view
+        ));
+    }
+
+    /// Whether a 2D canvas wants the page's animation frames (LLP 1056 D5).
+    pub fn canvas2d_frames(&mut self, frames: bool) {
+        self.ops
+            .push(text!("{{\"op\":\"canvas2d\",\"frames\":{}}}", frames));
+    }
+
+    /// A 2D canvas's stamped lists (LLP 1056 D4), base64, in order; `fresh`
+    /// starts a new bitmap at `w`×`h`.
+    pub fn canvas2d(&mut self, c: &exact_runner::CanvasList) {
+        let mut s = text!(
+            "{{\"op\":\"canvas2d\",\"id\":{},\"lifetime\":{},\"generation\":{},\"seq\":{},\"fresh\":{},\"w\":{},\"h\":{},\"scale\":{},\"stretch\":{},\"lists\":[",
+            c.view,
+            Shortest(c.lifetime as f64),
+            c.generation,
+            Shortest(c.seq as f64),
+            c.fresh,
+            c.pixel_width,
+            c.pixel_height,
+            Shortest(c.scale),
+            c.stretch
+        );
+        for (i, l) in c.lists.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            s.push('"');
+            s.push_str(&exact_runner::agent::base64(l));
+            s.push('"');
+        }
+        s.push_str("]}");
         self.ops.push(s);
     }
 

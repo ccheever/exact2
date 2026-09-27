@@ -213,7 +213,7 @@ impl DataSource for Keys {
 #[test]
 fn a_windowed_row_whose_item_left_exits_and_the_rows_after_it_slide() {
     let plan = contract::compile(
-        "keyframes leave\n  to\n    opacity=0\n\nshape Item\n  id: string\n\ncomponent App\n  state short = false\n  action cut writes short\n    short = true\n  resource keys = keys(short) as shape list<Item>\n  view\n    column\n      button press=cut testId=\"cut\"\n        text \"Cut\"\n      list height=300 item-height=40 testId=\"list\"\n        each k in keys key=k.id\n          text k.id testId=`row-${k.id}` layout-transition=\"200ms linear\" exit-animation=\"leave 100ms linear both\"\n",
+        "keyframes leave\n  to opacity=0\n\nshape Item\n  id: string\n\ncomponent App\n  state short = false\n  action cut writes short\n    short = true\n  resource keys = keys(short) as shape list<Item>\n  view\n    column\n      button press=cut testId=\"cut\"\n        text \"Cut\"\n      list height=300 item-height=40 testId=\"list\"\n        each k in keys key=k.id\n          text k.id testId=`row-${k.id}` layout-transition=\"200ms linear\" exit-animation=\"leave 100ms linear both\"\n",
     )
     .unwrap();
     let (mut host, _) = Host::boot(

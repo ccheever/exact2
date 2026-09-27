@@ -405,8 +405,8 @@ pub(crate) fn projection_size(
             // price their storage before that clone, even if the wire skips them.
             match node.computed(id) {
                 RowValue::ClipPath(p) => {
-                    for _ in p.commands() {
-                        bytes = add_wire(bytes, 6, 96)?
+                    for (_, values) in p.commands() {
+                        bytes = add_wire(bytes, values.len(), 96)?
                             .checked_add(64)
                             .ok_or("native clip overflow")?;
                     }
@@ -414,7 +414,7 @@ pub(crate) fn projection_size(
                 RowValue::DashArray(d) => bytes = add_wire(bytes, d.0.len(), 16)?,
                 RowValue::Marker(m) => bytes = add_wire(bytes, m.css().len(), 6)?,
                 RowValue::Transitions(v) => bytes = add_wire(bytes, v.0.len(), 256)?,
-                RowValue::Animations(v) => bytes = add_wire(bytes, v.text().len(), 6)?,
+                RowValue::Animations(v) => bytes = add_wire(bytes, v.css().len(), 6)?,
                 RowValue::Tracks(v) => bytes = add_wire(bytes, v.0.len(), 128)?,
                 // Both appearances' stops, each up to eight after expansion.
                 RowValue::BackgroundImage(g) => {
@@ -439,8 +439,8 @@ pub(crate) fn projection_size(
             }
             match node.style.get(id) {
                 RowValue::ClipPath(p) => {
-                    for _ in p.commands() {
-                        bytes = add_wire(bytes, 6, 96)?
+                    for (_, values) in p.commands() {
+                        bytes = add_wire(bytes, values.len(), 96)?
                             .checked_add(64)
                             .ok_or("native clip overflow")?;
                     }
@@ -448,7 +448,7 @@ pub(crate) fn projection_size(
                 RowValue::DashArray(d) => bytes = add_wire(bytes, d.0.len(), 16)?,
                 RowValue::Marker(m) => bytes = add_wire(bytes, m.css().len(), 6)?,
                 RowValue::Transitions(v) => bytes = add_wire(bytes, v.0.len(), 256)?,
-                RowValue::Animations(v) => bytes = add_wire(bytes, v.text().len(), 6)?,
+                RowValue::Animations(v) => bytes = add_wire(bytes, v.css().len(), 6)?,
                 RowValue::Tracks(v) => bytes = add_wire(bytes, v.0.len(), 128)?,
                 // Both appearances' stops, each up to eight after expansion.
                 RowValue::BackgroundImage(g) => {

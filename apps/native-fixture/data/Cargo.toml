@@ -1,0 +1,17 @@
+# The native-module fixture's data source (LLP 1024 D8): none; the fixture is
+# literal Contract over the module seam.
+[package]
+name = "native-fixture-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The native-module fixture's data source: answers nothing"
+publish = false
+
+[lib]
+name = "native_fixture_data"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }

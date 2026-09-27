@@ -1,6 +1,7 @@
 //! What moves decides the rate a display runs it at (LLP 1061 D4): a change
 //! of place or size wants the panel's full rate; a fade does not.
 
+use crate::keyframed;
 use exact_motion::{Animations, Change, Engine, Property, Transitions, Value};
 
 fn engine() -> Engine {
@@ -23,17 +24,15 @@ fn engine() -> Engine {
 fn a_breathing_fade_is_motion_but_not_spatial() {
     let mut e = engine();
     let breathe = "breathe 4.2s ease-in-out infinite @keyframes breathe{from{opacity:0.6}50%{opacity:1}to{opacity:0.6}}";
-    e.set_animations(1, Animations::parse(breathe).unwrap())
-        .unwrap();
+    e.set_animations(1, &keyframed(breathe).unwrap()).unwrap();
     e.advance(1.0).unwrap();
     assert!(!e.quiescent(), "an endless loop keeps frames coming");
     assert!(!e.spatial(), "but a fade needs no more than 60 Hz");
     // A float of the same length moves the box: the panel's full rate.
     let float = "float 4.2s ease-in-out infinite @keyframes float{from{translate:0px 0px}to{translate:0px 8px}}";
-    e.set_animations(2, Animations::parse(float).unwrap())
-        .unwrap();
+    e.set_animations(2, &keyframed(float).unwrap()).unwrap();
     assert!(e.spatial());
-    e.set_animations(2, Animations::NONE).unwrap();
+    e.set_animations(2, &Animations::NONE).unwrap();
     assert!(!e.spatial());
 }
 

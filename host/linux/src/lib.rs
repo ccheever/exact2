@@ -39,6 +39,7 @@
 
 pub mod agent;
 pub mod app;
+mod canvas2d;
 pub mod content_region;
 pub mod delivery;
 #[cfg(target_os = "linux")]

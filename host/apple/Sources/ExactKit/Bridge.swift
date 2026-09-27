@@ -22,6 +22,8 @@ public struct Batch {
     public var pending = false
     /// What moves changes place or size: the panel's full rate (LLP 1061 D4).
     public var spatial = false
+    /// A 2D canvas wants the next display frame (LLP 1056 D5).
+    public var canvas = false
     init(ops: [BatchOp], timers: Bool, motion: Bool, clock: Double?, error: String?, timerDueMs: Double? = nil, pending: Bool = false) {
         self.ops = ops; self.timers = timers; self.motion = motion; self.clock = clock
         self.error = error; self.timerDueMs = timerDueMs; self.pending = pending
@@ -92,6 +94,8 @@ final class Runtime {
         return data.count
     }
     /// Boot the plan baked into the library under a viewport; the first batch.
+    /// The display's scale and memory for Canvas 2D (LLP 1056 D4).
+    func canvasDisplay(scale: CGFloat, memory: UInt64) -> Batch { read(exact_canvas_display(rt, Double(scale), Double(memory))) }
     func boot(width: CGFloat, height: CGFloat) -> Batch { read(exact_boot(rt, Float(width), Float(height))) }
     /// Boot from plan bytes (the dev loop's restart; LLP 1007 §6): state
     /// carried — transactional, so a refused candidate leaves the running
@@ -140,8 +144,8 @@ final class Runtime {
     func heightDragUpdate(_ token: UInt64, height: Double, now: Double) -> Batch {
         read(exact_height_drag_update(rt, token, height, now))
     }
-    func heightDragRelease(_ token: UInt64, height: Double, velocity: Double, now: Double) -> Batch {
-        read(exact_height_drag_release(rt, token, height, velocity, now))
+    func heightDragRelease(_ token: UInt64, height: Double, now: Double) -> Batch {
+        read(exact_height_drag_release(rt, token, height, now))
     }
     func reorderBegin(_ handle: UInt32, scrollTop: Double, now: Double) -> Batch {
         read(exact_reorder_begin(rt, handle, scrollTop, now))
@@ -156,8 +160,9 @@ final class Runtime {
     func holdUpdate(_ token: UInt64, x: Double, y: Double, now: Double) -> Batch {
         read(exact_hold_update(rt, token, x, y, now))
     }
-    func holdEnd(_ token: UInt64, cancel: Bool, vx: Double = 0, vy: Double = 0, now: Double) -> Batch {
-        read(exact_hold_end(rt, token, cancel ? 1 : 0, vx, vy, now))
+    /// `measured`: release at the engine's own velocity estimate (LLP 1057.001 §3).
+    func holdEnd(_ token: UInt64, cancel: Bool, measured: Bool = false, vx: Double = 0, vy: Double = 0, now: Double) -> Batch {
+        read(exact_hold_end(rt, token, cancel ? 1 : measured ? 2 : 0, vx, vy, now))
     }
     func swiperight(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 12, 0, now)) }
     func refresh(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 22, 0, now)) }

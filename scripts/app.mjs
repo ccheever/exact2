@@ -261,14 +261,26 @@ if (process.versions.bun && PINNED_BUN) {
 const WEB_HOST_GROUPS = {
   base: ['glue.js', 'navigation.js', 'textflow-glue.js', 'timer-glue.js', 'input-glue.js',
     'http-body.js', 'media-glue.js', 'list-selection.js', 'markup-editor.js', 'document-glue.js',
-    'motion-glue.js', 'collection-glue.js', 'native-glue.js', 'presence-glue.js'],
+    'motion-glue.js', 'collection-glue.js', 'canvas2d-glue.js', 'presence-glue.js'],
   module: ['module-glue.js', 'module-worker.js', 'module-prelude.js'],
   storage: ['storage-request.js', 'storage.js', 'storage-environment.js', 'storage-fs.js', 'storage-sqlite.js',
     'storage-worker.js', 'sqlite3.mjs', 'sqlite3.wasm'],
   rust: ['rust-glue.js'],
   gpu: ['gpu-glue.js', 'pace.js', 'gpu-assets.js'],
   gpuModules: ['gpu-modules.js'],
+  native: ['native-glue.js'],
 };
+
+/** A build's module artifact against the app's roster (LLP 1024 D1, D8.4):
+ * a roster tag the artifact has no factory for fails a release build, named,
+ * and is a warning in development, where the node reports its status. */
+export function checkModuleRoster(app, provided, where, release) {
+  const missing = app.modules.tags.filter((tag) => !provided.includes(tag));
+  if (!missing.length) return;
+  const message = `${where}: the roster (app.json modules) names ${missing.join(', ')}, which the module artifact lacks${provided.length ? ` (it serves ${provided.join(', ')})` : ''}`;
+  if (release) throw new Error(message);
+  console.warn(`warning: ${message}; the node reports "error" at runtime`);
+}
 /** Public filename -> repo-relative source; omit groups to inventory every host file. */
 export function webHostFiles(...groups) {
   return Object.fromEntries((groups.length ? groups : Object.keys(WEB_HOST_GROUPS))
@@ -374,6 +386,16 @@ export function resolveApp(nameOrCrate) {
       if (!existsSync(resolve(gpu, 'Cargo.toml'))) return false;
       const pkg = cargoPackage('gpu');
       return !!pkg && realpathSync(dirname(pkg.manifest_path)) === realpathSync(gpu);
+    },
+    /** The native-module roster (LLP 1024 D1) and its sources: the Swift under
+     * `modules/apple` that becomes `libexact_modules.dylib`, and the web
+     * executor `modules/web/index.js`. Empty tags: the app has no module
+     * views; its web executor may still answer `native.later` on the page
+     * (LLP 1067 D5). */
+    get modules() {
+      const tags = manifest.modules ?? [], apple = resolve(dir, 'modules/apple'), web = resolve(dir, 'modules/web/index.js');
+      return { tags, apple: tags.length && existsSync(apple) ? readdirSync(apple).filter(f => f.endsWith('.swift')).sort().map(f => resolve(apple, f)) : [],
+        web: existsSync(web) ? web : null };
     },
     /** The manifest, validated; the derived defaults when the app has none. */
     manifest,
@@ -550,7 +572,26 @@ function buildCommand(command, args, app, env, stderr = 'pipe') {
     const fetched = spawnSync('cargo', ['fetch', '--locked'], { cwd: app.workspace, env, stdio: ['ignore', 'inherit', 'inherit'] });
     if (fetched.status === 0) result = spawnSync(command, args, { cwd: app.workspace, env, stdio: ['ignore','pipe',stderr], encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 });
   }
-  if (result.error || result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed: ${result.error?.message ?? result.stderr ?? `exit ${result.signal ?? result.status} (see diagnostics above)`}\n${(result.stdout ?? '').slice(-4000)}`);
+  if (result.error || result.status !== 0) {
+    // A host crate's build script compiles the Contract and panics on its
+    // first error, somewhere in cargo's output. Ask the compiler for all of
+    // them and say those alone, last (LLP 1054 L9); only on a failure.
+    const source = resolve(app.dir, 'app.contract');
+    if (command === 'cargo' && existsSync(source)) {
+      const scratch = resolve(tmpdir(), `exact-contract-check-${process.pid}.plan`);
+      const checked = spawnSync('cargo', ['run', '-q', '--manifest-path', resolve(ROOT, 'Cargo.toml'), '-p', 'contract', '--', 'build', source, '-o', scratch],
+        { cwd: ROOT, env: process.env, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' });
+      rmSync(scratch, { force: true });
+      const found = (checked.stderr ?? '').split('\n').filter((line) => /\.contract:\d+:\d+ \[[a-z0-9-]+\]/.test(line))
+        .map((line) => line.replace(/^(\/\S+?\.contract)/, (file) => relative(process.cwd(), file) || file));
+      if (checked.status !== 0 && found.length) {
+        const error = new Error(`${app.name}: the Contract does not compile:\n  ${[...new Set(found)].join('\n  ')}`);
+        error.stack = error.message;
+        throw error;
+      }
+    }
+    throw new Error(`${command} ${args.join(' ')} failed: ${result.error?.message ?? result.stderr ?? `exit ${result.signal ?? result.status} (see diagnostics above)`}\n${(result.stdout ?? '').slice(-4000)}`);
+  }
   return result;
 }
 /** The lean iOS Hermes archives js/build.rs links: EXACT_HERMES_IOS_DIR's, or

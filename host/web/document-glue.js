@@ -240,8 +240,9 @@ if (checkpoint?.dataset.activate === "interaction" && !globalThis.exact.document
   // The presses the page's capture script took before this ran come first.
   const page = globalThis.exact.documentPage = documentBoot({ root, early: globalThis.exact.taps?.() });
   page.started.then(() => requestAnimationFrame(() => requestAnimationFrame(() => {
-    // The same parallel downloads as a client page, started only by intent.
-    for (const [file, rel] of [["./app.wasm", "preload"], ["./navigation.js", "modulepreload"]]) {
+    // The same parallel downloads as a client page, started only by intent;
+    // the checkpoint names the build (page.rs).
+    for (const [file, rel] of [[checkpoint.dataset.wasm ?? "./app.wasm", "preload"], ["./navigation.js", "modulepreload"]]) {
       const link = document.createElement("link"); link.rel = rel; link.href = new URL(file, import.meta.url).href;
       if (rel === "preload") { link.as = "fetch"; link.crossOrigin = ""; }
       document.head.append(link);

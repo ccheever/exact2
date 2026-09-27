@@ -7,6 +7,7 @@
 //   bun host/apple/build.mjs [crate] --test --ios [--sim <udid|name>]        the UIKit ones (*IOSTests) on a simulator
 //   bun host/apple/build.mjs --ios [crate] [--run] [--sim <udid|name>]        iOS, on a simulator
 //   bun host/apple/build.mjs --device [crate] [--run] [--phone <udid|name>]   iOS, on a phone
+//   bun host/apple/build.mjs --device [crate] --archive <out.ipa>            iOS, an .ipa to distribute
 // Add --url <http(s) app URL> to connect any of these clients to the same
 // address as the browser (LLP 1030.000 §7): with --run it is the launch
 // locator, and a development client (--bundle, --ios, --device) registers
@@ -21,7 +22,12 @@
 // this Mac that covers the phone and the bundle id (EXACT_IDENTITY, a
 // SHA-1, and EXACT_PROFILE, a path, override the automatic choice), then
 // devicectl to install and, with --run, launch — the phone connected,
-// unlocked, paired, Developer Mode on. The simulator helpers are exported
+// unlocked, paired, Developer Mode on. --archive is the same device build
+// with no phone: it signs with EXACT_IDENTITY and EXACT_PROFILE (both
+// required: an ad hoc or App Store profile and its distribution identity,
+// as a build service such as EAS supplies them), takes get-task-allow from
+// that profile, and writes the signed bundle as an .ipa instead of
+// installing it. The simulator helpers are exported
 // for scripts/agent.mjs, which launches the same bundle.
 // These developer builds explicitly allow unsigned updates. Set
 // EXACT_UPDATE_TRUST=production for a signed-update-only artifact.
@@ -31,7 +37,7 @@ import { homedir, networkInterfaces, tmpdir } from 'node:os';
 import { createServer as createTCPServer } from 'node:net';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { copyShaders, appleCargoClaims, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesIos, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
+import { checkModuleRoster, copyShaders, appleCargoClaims, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesIos, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
@@ -417,12 +423,13 @@ function openingLinks(app, platform, development) {
 }
 
 /** The entitlements a device build signs with (LLP 1030 D1's host-metadata row): the identity the profile grants, and what the manifest's `host.ios` claims — associated domains for the app's origin when it says so. Generated, never committed. */
-export const entitlements = (app, team) => {
+export const entitlements = (app, team, debuggable = true) => {
   const ios = app.manifest.host?.ios ?? {};
   const dict = {
     'application-identifier': `${team}.${app.id}`,
     'com.apple.developer.team-identifier': team,
-    'get-task-allow': true,
+    // A distribution profile grants no debugger; its entitlements must not ask.
+    'get-task-allow': debuggable,
   };
   // @ref LLP 1038 D8 — explicit applinks entries, or the declared origin.
   const domains = Array.isArray(ios.associatedDomains) ? ios.associatedDomains : ios.associatedDomains && app.origin ? [`applinks:${new URL(app.origin).host}`] : [];
@@ -444,8 +451,25 @@ export function useXcode() {
   }
 }
 
+/** A loose `Frameworks/lib….dylib` as `Frameworks/<name>.framework/<name>`,
+ * which is the only form App Store Connect accepts for an embedded library
+ * (ITMS-90171). The presenter loads either (`embeddedModule` in ExactKit). */
+function wrapFramework(frameworks, loose, name, app) {
+  const from = resolve(frameworks, loose);
+  if (!existsSync(from)) return;
+  const dir = resolve(frameworks, `${name}.framework`);
+  mkdirSync(dir, { recursive: true });
+  renameSync(from, resolve(dir, name));
+  run('install_name_tool', ['-id', `@rpath/${name}.framework/${name}`, resolve(dir, name)], { stdio: 'ignore' });
+  writeFileSync(resolve(dir, 'Info.plist'), plistFile({
+    CFBundleExecutable: name, CFBundleIdentifier: `${app.id}.${name.toLowerCase()}`, CFBundleName: name,
+    CFBundlePackageType: 'FMWK', CFBundleVersion: process.env.EXACT_BUILD_NUMBER ?? '1', CFBundleShortVersionString: process.env.EXACT_VERSION ?? '0.1.0',
+    CFBundleSupportedPlatforms: ['iPhoneOS'], MinimumOSVersion: app.manifest.host?.ios?.minimumOS ?? '17.0',
+  }));
+}
+
 /** The iOS `Info.plist` from the manifest (LLP 1030 D2: one declaration; `build.mjs` consumes what it generates). The dev client's local-networking permission is `host.ios.localNetworking` (a string: the prompt); the store-required version numbers are counters bake owns, not authored. */
-export const infoPlist = (app, device = false, { executable = 'ExactIOS', id = app.id, name = app.displayName, development = null, icon = {} } = {}) => {
+export const infoPlist = (app, device = false, { executable = 'ExactIOS', id = app.id, name = app.displayName, development = null, icon = {}, distribution = null } = {}) => {
   const ios = app.manifest.host?.ios ?? {};
   const families = (ios.deviceFamily ?? ['iphone', 'ipad']).map((f) => (f === 'ipad' ? 2 : 1));
   const dict = {
@@ -472,8 +496,41 @@ export const infoPlist = (app, device = false, { executable = 'ExactIOS', id = a
   Object.assign(dict, openingLinks(app, 'ios', development));
   for (const [key, text] of Object.entries(ios.permissions ?? {})) dict[key] = text;
   Object.assign(dict, icon);
+  if (distribution) Object.assign(dict, distribution);
   return plistFile(dict);
 };
+
+/** What App Store Connect reads from a distributed bundle and Xcode would
+ * have written (`--archive`): the build's toolchain (DT* keys) and the store's
+ * counters, EXACT_VERSION and EXACT_BUILD_NUMBER (the version and build
+ * numbers App Store Connect requires to rise). */
+export function distributionKeys() {
+  const xcode = read('xcodebuild', ['-version']).stdout ?? '';
+  const [major, minor = '0', patch = '0'] = (/Xcode (\d+)(?:\.(\d+))?(?:\.(\d+))?/.exec(xcode) ?? []).slice(1);
+  const sdk = (flag) => read('xcrun', ['--sdk', 'iphoneos', flag]).stdout.trim();
+  const sdkVersion = sdk('--show-sdk-version');
+  const sdkBuild = sdk('--show-sdk-build-version');
+  return {
+    CFBundleVersion: process.env.EXACT_BUILD_NUMBER ?? '1',
+    CFBundleShortVersionString: process.env.EXACT_VERSION ?? '0.1.0',
+    DTCompiler: 'com.apple.compilers.llvm.clang.1_0',
+    DTPlatformBuild: sdkBuild,
+    DTPlatformVersion: sdkVersion,
+    DTSDKBuild: sdkBuild,
+    DTSDKName: `iphoneos${sdkVersion}`,
+    DTXcode: `${major.padStart(2, '0')}${minor}${patch}`,
+    DTXcodeBuild: /Build version (\S+)/.exec(xcode)?.[1] ?? '',
+    BuildMachineOSBuild: read('sw_vers', ['-buildVersion']).stdout.trim(),
+    UIRequiredDeviceCapabilities: ['arm64'],
+    // What iOS assumes when the key is absent, written out: App Store Connect
+    // requires it (all four on iPad, for multitasking).
+    UISupportedInterfaceOrientations: ['UIInterfaceOrientationPortrait', 'UIInterfaceOrientationLandscapeLeft', 'UIInterfaceOrientationLandscapeRight'],
+    'UISupportedInterfaceOrientations~ipad': ['UIInterfaceOrientationPortrait', 'UIInterfaceOrientationPortraitUpsideDown', 'UIInterfaceOrientationLandscapeLeft', 'UIInterfaceOrientationLandscapeRight'],
+    // Export compliance is the developer's declaration, so it is written only
+    // when EXACT_NON_EXEMPT_ENCRYPTION says it (`false` for HTTPS alone).
+    ...(['true', 'false'].includes(process.env.EXACT_NON_EXEMPT_ENCRYPTION) ? { ITSAppUsesNonExemptEncryption: process.env.EXACT_NON_EXEMPT_ENCRYPTION === 'true' } : {}),
+  };
+}
 
 // The UTI each MIME type names on Apple platforms. `inode/directory` is the
 // one deviation from IANA's registry — freedesktop's spelling for a folder,
@@ -513,7 +570,7 @@ export function documentTypes(app) {
  * (`icons`, the web manifest's own field): loose PNGs named by
  * `CFBundleIcons` on iOS, an `.icns` built by `iconutil` on macOS. Returns
  * the plist keys to merge; nothing when the app declares no such icon. */
-export function appIcon(app, dir, platform) {
+export function appIcon(app, dir, platform, { catalog = false } = {}) {
   const icon = (app.manifest.icons ?? []).find((i) => { const m = /^(\d+)x(\d+)$/.exec(i.sizes ?? ''); return m && m[1] === m[2] && Number(m[1]) >= 512; });
   if (!icon) return {};
   const source = resolve(app.dir, icon.src);
@@ -521,6 +578,22 @@ export function appIcon(app, dir, platform) {
   const sized = (px, out) => run('sips', ['-z', String(px), String(px), source, '--out', out], { stdio: 'ignore' });
   if (platform === 'ios') {
     for (const [name, px] of [['AppIcon60x60@2x.png', 120], ['AppIcon60x60@3x.png', 180], ['AppIcon76x76@2x~ipad.png', 152], ['AppIcon83.5x83.5@2x~ipad.png', 167]]) sized(px, resolve(dir, name));
+    // A distributed build also compiles the icon into Assets.car: App Store
+    // Connect requires the asset catalog, not loose PNGs.
+    if (catalog) {
+      const work = mkdtempSync(resolve(tmpdir(), 'exact-icon-'));
+      const set = resolve(work, 'Assets.xcassets', 'AppIcon.appiconset');
+      mkdirSync(set, { recursive: true });
+      sized(1024, resolve(set, 'icon.png'));
+      writeFileSync(resolve(set, 'Contents.json'), JSON.stringify({ images: [{ filename: 'icon.png', idiom: 'universal', platform: 'ios', size: '1024x1024' }], info: { author: 'exact', version: 1 } }));
+      writeFileSync(resolve(work, 'Assets.xcassets', 'Contents.json'), JSON.stringify({ info: { author: 'exact', version: 1 } }));
+      const partial = resolve(work, 'partial.plist');
+      run('xcrun', ['actool', resolve(work, 'Assets.xcassets'), '--compile', dir, '--platform', 'iphoneos', '--minimum-deployment-target', app.manifest.host?.ios?.minimumOS ?? '17.0',
+        '--app-icon', 'AppIcon', '--target-device', 'iphone', '--target-device', 'ipad', '--output-partial-info-plist', partial, '--output-format', 'human-readable-text'], { stdio: 'ignore' });
+      const keys = JSON.parse(read('plutil', ['-convert', 'json', '-o', '-', partial]).stdout);
+      rmSync(work, { recursive: true, force: true });
+      return keys;
+    }
     const primary = (files) => ({ CFBundlePrimaryIcon: { CFBundleIconFiles: files, CFBundleIconName: 'AppIcon' } });
     return { CFBundleIcons: primary(['AppIcon60x60']), 'CFBundleIcons~ipad': primary(['AppIcon60x60', 'AppIcon76x76', 'AppIcon83.5x83.5']) };
   }
@@ -656,7 +729,12 @@ function main(args) {
   catch (e) { console.error(e.message); process.exitCode = 1; return; }
   const device = args.includes('--device');
   const ios = device || args.includes('--ios');
-  const app = resolveApp(args.find((a, i) => !a.startsWith('--') && !['--sim', '--phone', '--url'].includes(args[i - 1])));
+  const ipa = args.includes('--archive') ? resolve(process.cwd(), args[args.indexOf('--archive') + 1] ?? '') : null;
+  if (ipa && (!device || !process.env.EXACT_IDENTITY || !process.env.EXACT_PROFILE || args.includes('--run') || args.includes('--host'))) {
+    console.error('--archive needs --device and EXACT_IDENTITY and EXACT_PROFILE, and takes neither --run nor --host');
+    process.exitCode = 1; return;
+  }
+  const app = resolveApp(args.find((a, i) => !a.startsWith('--') && !['--sim', '--phone', '--url', '--archive'].includes(args[i - 1])));
   const release = appleBuildLock(app);
   const cleanup = [];
   try {
@@ -665,8 +743,8 @@ function main(args) {
   const hasGpu = app.hasGpu;
   let ph, prof;
   const sha1 = device ? (() => {
-    ph = phone(args.includes('--phone') ? args[args.indexOf('--phone') + 1] : undefined);
-    prof = profile(ph.udid, app.id);
+    ph = ipa ? null : phone(args.includes('--phone') ? args[args.indexOf('--phone') + 1] : undefined);
+    prof = profile(ph?.udid, app.id);
     return identity(prof.team);
   })() : ios ? '-' : macIdentity();
   const dylib = `lib${gpuCrate.replace(/-/g, '_')}.dylib`;
@@ -680,6 +758,7 @@ function main(args) {
     built: `lib${app.crate(`gpu-${name}`).replace(/-/g, '_')}.dylib`, load: `libexact_gpu_${name.replace(/-/g, '_')}.dylib` }));
   const webLoadName = 'libexact_web.dylib';
   const videoLoadName = 'libexact_video.dylib';
+  const svgLoadName = 'libexact_svg.dylib';
   const webBuildDir = mkdtempSync(resolve(tmpdir(), 'exact-webarm-'));
   cleanup.push(webBuildDir);
   const webBuilt = resolve(webBuildDir, webLoadName);
@@ -848,7 +927,7 @@ function main(args) {
   // two cost 93 s of every build at load 120.
   const swiftc = read('xcrun', ['--sdk', sdkName, 'swiftc', '--version']).stdout ?? '';
   const arm = (args, source, built) => {
-    const key = createHash('sha256').update(JSON.stringify([args.map(a => a === built ? '<out>' : a), readFileSync(source, 'utf8'), swiftc])).digest('hex').slice(0, 16);
+    const key = createHash('sha256').update(JSON.stringify([args.map(a => a === built ? '<out>' : a), [].concat(source).map(f => readFileSync(f, 'utf8')), swiftc])).digest('hex').slice(0, 16);
     const dir = resolve(swiftBuildRoot, 'arms'), cached = resolve(dir, `${key}-${basename(built)}`);
     if (!existsSync(cached)) {
       mkdirSync(dir, { recursive: true });
@@ -862,6 +941,39 @@ function main(args) {
   const videoBuilt = resolve(webBuildDir, videoLoadName);
   const videoArgs = webArgs.map(value => value === 'ExactWebArm' ? 'ExactVideoArm' : value === resolve(root, 'host/apple/webarm/WebArm.swift') ? resolve(root, 'host/apple/videoarm/VideoArm.swift') : value === webBuilt ? videoBuilt : value === 'WebKit' ? 'AVKit' : value);
   arm(videoArgs, resolve(root, 'host/apple/videoarm/VideoArm.swift'), videoBuilt);
+  // @ref LLP 1024 D3/D8.4 — the app's one module artifact, only when the app
+  // has modules (the GPU gate): the host's table glue and the app's own
+  // `modules/apple/*.swift`, one dylib under one load name. A release build
+  // whose roster names a tag the artifact lacks fails here, named.
+  const modulesLoadName = 'libexact_modules.dylib';
+  const moduleSources = app.modules.apple.length ? [resolve(root, 'host/apple/modules/ExactNativeModule.swift'), ...app.modules.apple] : [];
+  const modulesBuilt = moduleSources.length ? resolve(webBuildDir, modulesLoadName) : null;
+  const moduleArgs = (sdkFor, targetArgs, out) => ['--sdk', sdkFor, 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'modules-module-cache'), '-parse-as-library', '-emit-library', '-O', '-swift-version', '5', '-module-name', 'ExactAppModules', ...moduleSources, '-o', out, ...targetArgs];
+  const macTarget = ['-target', `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macos14.0`];
+  if (modulesBuilt) arm(moduleArgs(sdkName, ios ? ['-target', device ? 'arm64-apple-ios17.0' : iosTriple, '-sdk', sdk] : macTarget, modulesBuilt), moduleSources, modulesBuilt);
+  if (app.modules.tags.length) {
+    // The roster the artifact serves, read from its table: a macOS slice (the
+    // one this process can load) of the same sources for an iOS build.
+    let provided = [];
+    if (modulesBuilt && typeof Bun !== 'undefined') {
+      const probe = ios ? resolve(webBuildDir, 'probe-' + modulesLoadName) : modulesBuilt;
+      if (ios) arm(moduleArgs('macosx', macTarget, probe), moduleSources, probe);
+      const { dlopen, read, CString } = import.meta.require('bun:ffi');
+      const table = dlopen(probe, { exact_native_abi: { args: [], returns: 'ptr' } }).symbols.exact_native_abi();
+      provided = Object.keys(JSON.parse(new CString(read.ptr(table, 8)).toString()));
+    } else if (modulesBuilt) console.warn('host/apple: the module roster check needs Bun (bun:ffi); skipped');
+    checkModuleRoster(app, modulesBuilt && typeof Bun === 'undefined' ? app.modules.tags : provided, `host/apple ${ios ? 'iOS' : 'macOS'}`, cargoEnv.EXACT_UPDATE_TRUST === 'production');
+  }
+  // The SVG island module (@ref LLP 1055.000 §8 ruling 4): exact-svg-raster
+  // as its own dylib, never linked into the presenter; SvgIsland.swift
+  // dlopens it the first time a mask or filter needs pixel work.
+  const svgBuilt = resolve(webBuildDir, svgLoadName);
+  const svgTarget = process.env.CARGO_TARGET_DIR ?? resolve(root, 'target');
+  // Unstripped: Xcode 27's strip leaves this dylib with a mis-aligned
+  // LINKEDIT string pool that dyld refuses (as Cargo.toml says of build
+  // scripts), even at `strip = "debuginfo"`.
+  runApple('cargo', ['build', '--release', '-p', 'exact-svg-raster', '--lib', '--target', target, '--target-dir', svgTarget, '--manifest-path', resolve(root, 'Cargo.toml')], { cwd: root, env: { ...process.env, ...cargoEnv, CARGO_PROFILE_RELEASE_STRIP: 'false' } });
+  copyFileSync(resolve(svgTarget, target, 'release', 'libexact_svg_raster.dylib'), svgBuilt);
   const t2 = Date.now();
   const bin = resolve(binDir, product);
   const hostPaths = appleArtifacts(app, { destination: ios ? (device ? 'ios' : 'ios-simulator') : 'macos', composition, trust: cargoEnv.EXACT_UPDATE_TRUST, host: true });
@@ -895,6 +1007,10 @@ function main(args) {
     copyFileSync(webBuilt, webDest);
     rmSync(resolve(binDir, videoLoadName), { force: true });
     copyFileSync(videoBuilt, resolve(binDir, videoLoadName));
+    rmSync(resolve(binDir, modulesLoadName), { force: true });
+    if (modulesBuilt) copyFileSync(modulesBuilt, resolve(binDir, modulesLoadName));
+    rmSync(resolve(binDir, svgLoadName), { force: true });
+    copyFileSync(svgBuilt, resolve(binDir, svgLoadName));
     // The app's kept secrets live in the login keychain, whose ACL trusts the
     // creating app by its code signature (LLP 1018 D7): signed with the team's
     // identity a rebuild keeps them; ad-hoc, every rebuild is a new app and
@@ -912,6 +1028,8 @@ function main(args) {
     rmSync(resolve(binDir, '_CodeSignature'), { recursive: true, force: true });
     writeFileSync(resolve(binDir, `${products[0]}-Info.plist`), macInfoPlist(app, { development }));
     run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', webDest], { stdio: 'ignore' });
+    if (modulesBuilt) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(binDir, modulesLoadName)], { stdio: 'ignore' });
+    run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(binDir, svgLoadName)], { stdio: 'ignore' });
     run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', '--identifier', app.id, bin], { stdio: 'ignore' });
     for (const p of products.slice(1)) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', '--identifier', `${app.id}.${p.toLowerCase()}`, resolve(binDir, p)], { stdio: 'ignore' });
     // The receipt beside it (LLP 1030 D2).
@@ -933,7 +1051,7 @@ function main(args) {
       const executables = resolve(contents, 'MacOS'), resources = resolve(contents, 'Resources');
       mkdirSync(executables, { recursive: true });
       mkdirSync(resources);
-      for (const file of ['ExactMac', webLoadName, videoLoadName, ...(hasGpu ? [loadName] : []), ...moduleDylibs.map(m => m.load)]) copyFileSync(resolve(binDir, file), resolve(executables, file));
+      for (const file of ['ExactMac', webLoadName, videoLoadName, svgLoadName, ...(modulesBuilt ? [modulesLoadName] : []), ...(hasGpu ? [loadName] : []), ...moduleDylibs.map(m => m.load)]) copyFileSync(resolve(binDir, file), resolve(executables, file));
       writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development }));
       copyAppleStaticTrees(paths.capture, resources);
       verifyBakeFiles(bakedCompat, bakedPlan, listAssets(resources, true));
@@ -941,7 +1059,7 @@ function main(args) {
       copyFileSync(resolve(binDir, 'receipt.json'), resolve(resources, 'receipt.json'));
       // GPU artifacts were signed before their digests entered the baked receipt.
       // Preserve those exact bytes, as the iOS bundle assembly does below.
-      for (const file of [webLoadName, videoLoadName]) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(executables, file)], { stdio: 'ignore' });
+      for (const file of [webLoadName, videoLoadName, svgLoadName, ...(modulesBuilt ? [modulesLoadName] : [])]) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(executables, file)], { stdio: 'ignore' });
       run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', bundle], { stdio: 'ignore' });
       const placed = bundleDestination;
       assertAppleIdentity(app, resolve(executables, 'ExactMac'), bakedCompat.id);
@@ -953,7 +1071,7 @@ function main(args) {
     publishProducts();
     release();
     rmSync(webBuildDir, { recursive: true, force: true });
-    console.log(`host/apple: ${resolve(paths.products, product).replace(root + '/', '')} (cargo ${((t1 - t0) / 1000).toFixed(1)} s, swift ${((t2 - t1) / 1000).toFixed(1)} s; ${sha1 ? 'signed ' + sha1.slice(0, 8) : 'ad-hoc signed'}); GPU: ${gpuNote}; web arm: ${webLoadName}`);
+    console.log(`host/apple: ${resolve(paths.products, product).replace(root + '/', '')} (cargo ${((t1 - t0) / 1000).toFixed(1)} s, swift ${((t2 - t1) / 1000).toFixed(1)} s; ${sha1 ? 'signed ' + sha1.slice(0, 8) : 'ad-hoc signed'}); GPU: ${gpuNote}; web arm: ${webLoadName}${modulesBuilt ? `; modules: ${modulesLoadName}` : ''}`);
     // A live source is explicit (--url or EXACT_DEV_PLAN). The shared web
     // output may belong to another app, and TypeScript edits publish complete
     // URL generations rather than rewriting its initial app.plan.
@@ -973,11 +1091,13 @@ function main(args) {
   // with the module before a surface is created, never strings in the dylib.
   copyAppleStaticTrees(paths.capture, bundle);
   verifyBakeFiles(bakedCompat, bakedPlan, listAssets(bundle, true));
-  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, icon: { ...appIcon(app, bundle, 'ios'), ...launchScreen(app, bundle, device) } }));
+  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, icon: { ...appIcon(app, bundle, 'ios', { catalog: !!ipa }), ...launchScreen(app, bundle, device) }, distribution: ipa ? distributionKeys() : null }));
   if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(bundle, 'Frameworks', loadName));
   for (const m of moduleDylibs) copyFileSync(resolve(libDir, m.built), resolve(bundle, 'Frameworks', m.load));
   copyFileSync(webBuilt, resolve(bundle, 'Frameworks', webLoadName));
   copyFileSync(videoBuilt, resolve(bundle, 'Frameworks', videoLoadName));
+  if (modulesBuilt) copyFileSync(modulesBuilt, resolve(bundle, 'Frameworks', modulesLoadName));
+  copyFileSync(svgBuilt, resolve(bundle, 'Frameworks', svgLoadName));
   const bundles = [[bundle, false]];
   if (args.includes('--host')) {
     const hostBundle = resolve(binDir, 'ExactHostIOS.app');
@@ -996,7 +1116,7 @@ function main(args) {
     const ent = resolve(binDir, host ? 'host-entitlements.plist' : 'entitlements.plist');
     if (device) {
       copyFileSync(signingProfile.path, resolve(assembled, 'embedded.mobileprovision'));
-      writeFileSync(ent, entitlements({ ...app, id }, signingProfile.team));
+      writeFileSync(ent, entitlements({ ...app, id }, signingProfile.team, signingProfile.dev));
     }
     verifyBakeFiles(bakedCompat, bakedPlan, listAssets(assembled, true));
     assertAppleIdentity(app, resolve(assembled, host ? 'ExactHostIOS' : 'ExactIOS'), bakedCompat.id);
@@ -1004,11 +1124,22 @@ function main(args) {
       platform: device ? 'ios' : 'ios-simulator', target, sdk, identity: signingIdentity,
       profile: signingProfile ? { name: signingProfile.name, team: signingProfile.team, expires: signingProfile.expires } : null,
       entitlements: device ? readFileSync(ent, 'utf8') : null, gpu: hasGpu ? dylib : null, development: host ? null : development }));
+    if (ipa) for (const [loose, name] of [[webLoadName, 'ExactWeb'], [videoLoadName, 'ExactVideo']]) wrapFramework(resolve(assembled, 'Frameworks'), loose, name, app);
     for (const f of readdirSync(resolve(assembled, 'Frameworks')).filter(f => f !== loadName && !moduleDylibs.some(m => m.load === f))) run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', resolve(assembled, 'Frameworks', f)], { stdio: 'ignore' });
     run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', ...(device ? ['--entitlements', ent] : []), assembled], { stdio: 'ignore' });
   }
   publishProducts();
   release();
+  if (ipa) {
+    const payload = mkdtempSync(resolve(tmpdir(), 'exact-ipa-'));
+    cleanup.push(payload);
+    cpSync(paths.bundle, resolve(payload, 'Payload', basename(paths.bundle)), { recursive: true, verbatimSymlinks: true });
+    mkdirSync(dirname(ipa), { recursive: true });
+    rmSync(ipa, { force: true });
+    run('ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', resolve(payload, 'Payload'), ipa]);
+    console.log(`host/apple: ${ipa} (signed by ${prof.name}, cargo ${((t1 - t0) / 1000).toFixed(1)} s, swift ${((t2 - t1) / 1000).toFixed(1)} s)`);
+    return;
+  }
   const dev = device ? ph : simulator(args.includes('--sim') ? args[args.indexOf('--sim') + 1] : undefined);
   for (const [, host] of bundles) {
     const placed = host ? hostPaths.bundle : paths.bundle;
@@ -1017,7 +1148,7 @@ function main(args) {
       run('xcrun', ['devicectl', 'device', 'install', 'app', '--device', ph.udid, placed]);
     } else install(dev, placed, app, host);
   }
-  console.log(`host/apple: ${paths.bundle} on ${dev.name} (cargo ${((t1 - t0) / 1000).toFixed(1)} s, swift ${((t2 - t1) / 1000).toFixed(1)} s); GPU: ${gpuNote}; web arm: ${webLoadName}`);
+  console.log(`host/apple: ${paths.bundle} on ${dev.name} (cargo ${((t1 - t0) / 1000).toFixed(1)} s, swift ${((t2 - t1) / 1000).toFixed(1)} s); GPU: ${gpuNote}; web arm: ${webLoadName}${modulesBuilt ? `; modules: ${modulesLoadName} (Frameworks, signed)` : ''}`);
   if (args.includes('--run')) {
     if (device) run('xcrun', deviceLaunchArgs(ph.udid, app.id, launchEnv));
     else {

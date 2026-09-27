@@ -63,6 +63,9 @@ pub struct Swappable<D> {
     revision: Option<String>,
     plan: Option<Vec<u8>>,
     executor: Option<Box<dyn Executor>>,
+    /// The embedded crate's Canvas 2D roster (LLP 1056 D1), kept across a
+    /// replacement: the roster is part of the binary.
+    canvas_surfaces: Vec<(String, usize)>,
 }
 
 impl<D: DataSource> Swappable<D> {
@@ -70,6 +73,7 @@ impl<D: DataSource> Swappable<D> {
         Self {
             app_id: embedded.app_id().into(),
             grants: embedded.grants().into(),
+            canvas_surfaces: embedded.canvas_surfaces(),
             embedded: Some(embedded),
             mode,
             loader,
@@ -286,6 +290,12 @@ impl<D: DataSource> DataSource for Swappable<D> {
             self.plan = Some(plan.encode());
         }
     }
+    /// A replaced module is not told: its values cross as copies.
+    fn adopt(&mut self, source: &str, args: &[Value], value: &Value) {
+        if let Some(embedded) = &mut self.embedded {
+            embedded.adopt(source, args, value);
+        }
+    }
     fn activate(&mut self) -> Result<(), DataError> {
         if let Some(embedded) = &mut self.embedded {
             embedded.activate()
@@ -384,9 +394,33 @@ impl<D: DataSource> DataSource for Swappable<D> {
                 bytes: Some(module),
                 plan: Some(plan.to_vec()),
                 executor: None,
+                canvas_surfaces: self.canvas_surfaces.clone(),
             })
         };
         build().map_err(DataError::Unavailable)
+    }
+    fn canvas_surfaces(&self) -> Vec<(String, usize)> {
+        self.canvas_surfaces.clone()
+    }
+    /// A replaced Rust module does not draw yet: its canvases report the
+    /// error through `state` (LLP 1056 stage 1; QUEUE).
+    fn draw(
+        &mut self,
+        request: &exact_runner::DrawRequest<'_>,
+        ctx: &exact_runner::exact_canvas::Context2d,
+    ) -> exact_runner::Drawn {
+        match self.embedded.as_mut() {
+            Some(embedded) => embedded.draw(request, ctx),
+            None => exact_runner::Drawn::Now(exact_runner::DrawReply {
+                error: Some("a replaced Rust module does not draw Canvas 2D yet".into()),
+                ..Default::default()
+            }),
+        }
+    }
+    fn canvases_retired(&mut self, retired: &[(u64, u32)]) {
+        if let Some(embedded) = self.embedded.as_mut() {
+            embedded.canvases_retired(retired);
+        }
     }
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
         if let Some(embedded) = &mut self.embedded {

@@ -151,6 +151,9 @@ impl Engine {
                 value: values[i],
             }
         });
+        for start in [translate, scale] {
+            self.track(start.token, now_s, start.value);
+        }
         Ok(Some(TransformHold { translate, scale }))
     }
 
@@ -178,6 +181,7 @@ impl Engine {
             let key = (start.token.node, start.token.property);
             self.slots.get_mut(&key).expect("both live holds").presented = value;
             self.dirty.insert(key);
+            self.track(start.token, now_s, value);
         }
         Ok(true)
     }
@@ -213,14 +217,13 @@ impl Engine {
         self.running.remove(&key);
         slot.owner = Some(Owner::Held(serial));
         self.dirty.insert(key);
-        Ok(Some(HoldStart {
-            token: HoldToken {
-                node,
-                property,
-                serial,
-            },
-            value,
-        }))
+        let token = HoldToken {
+            node,
+            property,
+            serial,
+        };
+        self.track(token, now_s, value);
+        Ok(Some(HoldStart { token, value }))
     }
 
     /// Whether this exact token still owns presentation. Hosts can reject
@@ -267,7 +270,52 @@ impl Engine {
         let key = (token.node, token.property);
         self.slots.get_mut(&key).expect("live hold").presented = value;
         self.dirty.insert(key);
+        self.track(token, now_s, value);
         Ok(true)
+    }
+
+    /// The held presentation's velocity at `now_s`, in property units per
+    /// second: `VelocityTracker` over every value this hold was given. For a
+    /// host whose platform measures none (LLP 1057.001 §3). `None` for a stale
+    /// token or a non-finite time.
+    pub fn hold_velocity(&self, token: HoldToken, now_s: f64) -> Option<Value> {
+        if !self.has_hold(token) || !now_s.is_finite() {
+            return None;
+        }
+        Some(
+            self.held
+                .get(&token.serial)
+                .map_or(Value::ZERO, |t| t.estimate(now_s)),
+        )
+    }
+
+    /// Record what the host actually displays for a live hold when its
+    /// display constrains the held value (CSS `min`/`max` on a height), so
+    /// [`Engine::hold_velocity`] measures the shown motion. Presentation is
+    /// untouched. `false` for a stale token or a non-finite sample.
+    pub fn track_hold(&mut self, token: HoldToken, now_s: f64, shown: Value) -> bool {
+        if !self.has_hold(token) || !now_s.is_finite() || !shown.is_finite() {
+            return false;
+        }
+        self.track(token, now_s, shown);
+        true
+    }
+
+    fn track(&mut self, token: HoldToken, now_s: f64, value: Value) {
+        // A replaced or removed hold leaves its tracker; forget those here,
+        // among the few live holds, rather than on every removal path.
+        if !self.held.contains_key(&token.serial) {
+            let slots = &self.slots;
+            self.held.retain(|serial, _| {
+                slots
+                    .values()
+                    .any(|slot| slot.owner == Some(Owner::Held(*serial)))
+            });
+        }
+        self.held
+            .entry(token.serial)
+            .or_default()
+            .push(now_s, value);
     }
 
     /// Release to the newest authored target using the newest transition.
@@ -291,6 +339,7 @@ impl Engine {
         };
         validate_value(token.property, velocity)?;
         self.advance(now_s)?;
+        self.held.remove(&token.serial);
         let key = (token.node, token.property);
         let slot = self.slots.get_mut(&key).expect("live hold");
         let from = slot.presented;
@@ -307,7 +356,15 @@ impl Engine {
         // Do not use observe: its unchanged-target fast path deliberately
         // suppresses redundant commits, whereas this is a presentation release.
         slot.running = declaration.map(|declaration| {
-            Running::start(declaration, from, slot.target, velocity, now_s, from, 1.0)
+            Box::new(Running::start(
+                declaration,
+                from,
+                slot.target,
+                velocity,
+                now_s,
+                from,
+                1.0,
+            ))
         });
         slot.presented = if let Some(running) = &slot.running {
             let sample = running.sample(now_s);

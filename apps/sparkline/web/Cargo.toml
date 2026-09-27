@@ -1,0 +1,23 @@
+[package]
+name = "sparkline-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Sparkline on the web: one wasm with the runner, the kernel, and the baked plan"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "sparkline_web"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-web = { path = "../../../host/web" }
+exact-web-capabilities = { path = "../../../host/web-capabilities" }
+sparkline-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }
+sparkline-data = { path = "../data" }

@@ -85,6 +85,9 @@ enum Payload {
     Empty,
     Image(Arc<Bitmap>, ObjectFit),
     Text(Rc<Paragraph>, Vec<RunPaint>),
+    /// An `svg`'s scene as resolved at capture (LLP 1055.000 §4: SVG in a
+    /// retained region; the instant is the capture's).
+    Svg(Rc<exact_kernel::svg::Scene>),
 }
 struct NodePaint {
     ordinal: usize,
@@ -257,6 +260,11 @@ impl Picture {
                     NodeType::Image => scene.images.get(&id).map_or(Payload::Empty, |image| {
                         Payload::Image(image.clone(), node.style.object_fit)
                     }),
+                    NodeType::Svg => Payload::Svg(Rc::new(super::svg::resolve_svg(
+                        scene,
+                        &node,
+                        geometry.content,
+                    ))),
                     _ => Payload::Empty,
                 }
             };
@@ -270,6 +278,11 @@ impl Picture {
                 cost += match &payload {
                     Payload::Empty => 0,
                     Payload::Text(..) => 1,
+                    Payload::Svg(s) => {
+                        let mut n = 0;
+                        s.walk(&mut |_| n += 1);
+                        n
+                    }
                     Payload::Image(image, fit) => {
                         usize::from(object_fit(image.natural(), *fit, geometry.content).is_some())
                     }
@@ -324,7 +337,7 @@ impl Picture {
                 ))
             .then(|| {
                 (
-                    node.style.touch_action,
+                    node.style.touch_action.pans(),
                     node.style
                         .transition
                         .matching(exact_motion::Property::Translate)
@@ -357,7 +370,8 @@ impl Picture {
             });
             commands.push(Command::Enter(i));
             stack.push(Visit::Leave(i));
-            if opacity > 0. {
+            // An `svg`'s elements are its scene, not region nodes.
+            if opacity > 0. && node.node_type != NodeType::Svg {
                 stack.extend(node.children().into_iter().rev().map(Visit::Enter));
             }
         }
@@ -720,6 +734,9 @@ impl<'a> Replay<'a> {
                                     parent,
                                 );
                             }
+                        }
+                        Payload::Svg(s) => {
+                            painter.paint_svg(s, n.clips, g.outer.rect, g.content, parent);
                         }
                         Payload::Text(p, palette) => {
                             walk.text.insert(n.key, p.clone());

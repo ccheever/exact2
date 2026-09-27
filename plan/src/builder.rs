@@ -166,7 +166,7 @@ impl PlanBuilder {
     pub fn data(&mut self, v: &Value) -> Bytes {
         let bytes = v.to_bytes();
         let offset = self.plan.data.len() as u32;
-        self.plan.data.extend_from_slice(&bytes);
+        self.plan.data.to_mut().extend_from_slice(&bytes);
         Bytes {
             offset,
             len: bytes.len() as u32,
@@ -267,6 +267,13 @@ impl PlanBuilder {
             },
         });
         FamiliesId(self.plan.families.len() as u32 - 1)
+    }
+
+    /// A `@keyframes` rule, its body as CSS text (LLP 1055 D5).
+    pub fn keyframes(&mut self, name: &str, css: &str) -> KeyframesId {
+        let (name, css) = (self.str(name), self.str(css));
+        self.plan.keyframes.push(KeyframesRow { name, css });
+        KeyframesId(self.plan.keyframes.len() as u32 - 1)
     }
 
     /// An ordered font stack. v1's semantic validator accepts one member;
@@ -420,6 +427,7 @@ impl PlanBuilder {
             initial_args,
             reader: false,
             placeholder: None,
+            placeholder_value: self.no_data(),
         });
         ResourcesId(self.plan.resources.len() as u32 - 1)
     }
@@ -432,6 +440,7 @@ impl PlanBuilder {
             name,
             slot,
             ty,
+            refreshes: MutationRefreshesRange { start: 0, len: 0 },
             then: None,
         });
         MutationsId(self.plan.mutations.len() as u32 - 1)
@@ -440,6 +449,21 @@ impl PlanBuilder {
     /// The action run after each of `mutation`'s answers lands.
     pub fn set_mutation_then(&mut self, mutation: MutationsId, action: ActionsId) {
         self.plan.mutations[mutation.0 as usize].then = Some(action);
+    }
+
+    /// The resources a send to `mutation` refreshes (LLP 1054.000.000 D1),
+    /// once its resources exist.
+    pub fn mutation_refreshes(&mut self, mutation: MutationsId, resources: &[ResourcesId]) {
+        let start = self.plan.mutation_refreshes.len() as u32;
+        for r in resources {
+            self.plan
+                .mutation_refreshes
+                .push(MutationRefreshesRow { resource: *r });
+        }
+        self.plan.mutations[mutation.0 as usize].refreshes = MutationRefreshesRange {
+            start,
+            len: resources.len() as u32,
+        };
     }
 
     /// A data-source signature (LLP 1027 D2): the parameter types and the
@@ -641,6 +665,12 @@ impl PlanBuilder {
     /// Replace a resource's arguments.
     pub fn set_resource_args(&mut self, id: ResourcesId, args: ArgsRange) {
         self.plan.resources[id.0 as usize].args = args;
+    }
+
+    /// A declared `else empty(…)`'s constant (LLP 1054.000.002 D3).
+    pub fn set_resource_placeholder_value(&mut self, id: ResourcesId, v: &Value) {
+        let bytes = self.data(v);
+        self.plan.resources[id.0 as usize].placeholder_value = bytes;
     }
 
     /// Replace a resource's compiled initial value.

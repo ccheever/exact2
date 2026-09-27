@@ -228,13 +228,19 @@ export function afterPaintPieces(load, o) {
       o.replayed?.();
     })
     .catch(error => { loading = null; queue.length = 0; console.error('exact: after-paint pieces:', error); });
+  // @ref LLP 1055 D7: CSS animations need no piece — the browser runs them
+  // from one `@keyframes` rule per name in a stylesheet the page owns.
+  const keyframes = (name, body) => {
+    const sheet = (document.getElementById('exact-keyframes') ?? document.head.appendChild(Object.assign(document.createElement('style'), { id: 'exact-keyframes' }))).sheet;
+    sheet.insertRule(`@keyframes ${CSS.escape(name)}{${body}}`, sheet.cssRules.length);
+  };
   // `use`: the call needs its piece; otherwise it only reconciles what uses made.
   const call = (piece, name, use = true) => (...args) => {
     if (live) return live[piece][name](...args);
     if (!use && !loading) return;
     queue.push([piece, name, args]); start();
   };
-  const motion = { style(id, text) { if (live) return live.motion.style(id, text); const el = o.views.get(id); if (el) el.style.cssText = text; } };
+  const motion = { style(id, text) { if (live) return live.motion.style(id, text); const el = o.views.get(id); if (el) el.style.cssText = text; }, keyframes };
   for (const name of ['animate', 'retire', 'heightBinding', 'transformBinding', 'attachSwipe', 'attachHeightDrag', 'attachTransformDrag']) motion[name] = call('motion', name);
   const arrange = { binding: call('arrange', 'binding'), state: call('arrange', 'state') };
   for (const piece of [motion, arrange]) for (const name of ['commit', 'reset', 'destroy']) piece[name] = call(piece === motion ? 'motion' : 'arrange', name, false);
@@ -243,9 +249,24 @@ export function afterPaintPieces(load, o) {
   const collections = { commit: items => (items.length ? commit : reconcile)(items) };
   for (const name of ['reset', 'dataReady', 'releaseInteraction']) collections[name] = call('collections', name, false);
   collections.jump = call('collections', 'jump');
+  // @ref LLP 1056 D7 — Canvas 2D's replayer and ResizeObserver: its own
+  // piece, injected two animation frames after the first 2D canvas's op.
+  let c2d = null, c2dLoading = null; const c2dQueue = [];
+  const canvas2d = (op) => {
+    if (c2d) return c2d.op(op);
+    c2dQueue.push(op);
+    c2dLoading ??= new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
+      .then(() => load('./canvas2d-glue.js', 'canvas2dGlue'))
+      .then(make => { c2d = make({ views: o.views, now: o.now, applyBatch: o.applyBatch, generation: o.generation }); for (const q of c2dQueue.splice(0)) c2d.op(q); })
+      .catch(error => { c2dLoading = null; c2dQueue.length = 0; console.error('exact: canvas2d:', error); });
+  };
+  const c2dPending = () => (c2d ? c2d.settled() : c2dLoading?.then(() => c2d?.settled()));
   // `preload`: a plan that uses motion (its wasm exports `exact_motion`) needs
   // them before its first spring. `pending`: the load in flight, else null.
-  return { collections, motion, arrange, preload: start, pending: () => live || !loading ? null : loading };
+  return { collections, motion, arrange, canvas2d, preload: start, pending: () => {
+    const p = live || !loading ? null : loading, c = c2dPending();
+    return p && c ? Promise.all([p, c]) : (p ?? c ?? null);
+  } };
 }
 
 // @ref LLP 1063 — exit-animation and layout-transition play in
@@ -337,17 +358,6 @@ export function refuseURL(el, name, value) {
   console.warn(`exact: refused ${name} ${JSON.stringify(String(value).slice(0, 80))}: only http, https, mailto and tel navigate`);
   if (name === "src") el.setAttribute(name, "about:blank"); else el.removeAttribute(name);
 }
-// `@keyframes` named by content, each inserted once, kept across a restart (LLP 1057 D5).
-// The sheet is made at the first rule, not at import: this module is also imported where there is
-// no document (tests, workers).
-let keyframesSheet = null; const keyframeNames = new Set();
-export function keyframes(op) {
-  if (keyframeNames.has(op.name)) return;
-  keyframeNames.add(op.name);
-  keyframesSheet ??= document.head.appendChild(document.createElement("style"));
-  keyframesSheet.sheet.insertRule(op.css, keyframesSheet.sheet.cssRules.length);
-}
-
 export function renderMarkup(el, json) {
   let pieces;
   try { pieces = JSON.parse(json); } catch { pieces = []; }

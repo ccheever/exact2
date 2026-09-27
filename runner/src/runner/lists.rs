@@ -134,7 +134,9 @@ impl<D: DataSource> Runner<D> {
     /// instance tree and the kernel may disagree; the runner is poisoned and
     /// the host restarts it — never a half-applied frame.
     pub(super) fn update(&mut self) -> Result<CommitReceipt, RunnerError> {
-        self.update_tree(true, |tree, u| tree.update(u))
+        let receipt = self.update_tree(true, |tree, u| tree.update(u))?;
+        self.release_compiled();
+        Ok(receipt)
     }
 
     fn update_tree(
@@ -182,7 +184,7 @@ impl<D: DataSource> Runner<D> {
         }
         match self.apply(ops) {
             Ok(receipt) => {
-                self.surfaces.extend(surfaces);
+                self.publish_surfaces(surfaces);
                 Ok(receipt)
             }
             Err(e) => {

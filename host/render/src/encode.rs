@@ -143,8 +143,19 @@ fn compress(body: &[u8], encoding: Encoding, best: bool) -> Option<Vec<u8>> {
 /// copy from the dictionary as if it came first (a raw LZ77 prefix). Quality 5,
 /// as a page is compressed as it is sent; none when it doesn't shrink.
 pub(crate) fn against(body: &[u8], dictionary: &[u8], hash: &[u8; 32]) -> Option<Vec<u8>> {
+    against_at(body, dictionary, hash, 5)
+}
+
+/// [`against`] at `quality`: a build's delta to an earlier one is made once,
+/// off every request's path, at brotli's best ([`crate::generations`]).
+pub(crate) fn against_at(
+    body: &[u8],
+    dictionary: &[u8],
+    hash: &[u8; 32],
+    quality: i32,
+) -> Option<Vec<u8>> {
     let params = brotli::enc::BrotliEncoderParams {
-        quality: 5,
+        quality,
         lgwin: 22,
         size_hint: body.len(),
         ..Default::default()
@@ -251,7 +262,8 @@ fn stamp(file: &Path) -> Option<(u64, Option<SystemTime>)> {
     Some((meta.len(), meta.modified().ok()))
 }
 
-fn tag(body: &[u8]) -> String {
+/// A file's ETag: the first half of its SHA-256, in hex.
+pub(crate) fn tag(body: &[u8]) -> String {
     use sha2::{Digest, Sha256};
     Sha256::digest(body)[..16]
         .iter()

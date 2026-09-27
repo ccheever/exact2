@@ -221,6 +221,15 @@ recompute, resources whose arguments changed because of it request — so
 `resource me = me(session.token)` follows a login by itself — and the pass is
 transactional (LLP 1005 §5). Fulfilment runs no action; there is no callback.
 
+*Amended 2026-09-26 by LLP 1054.000.000 D3:* when only the arguments moved —
+not a `refresh`, a declared refresh, `data_ready` or a store-revision re-ask
+— and the source hands back a request equal to the one in flight (plain HTTP:
+no continuation, storage or surface operation), the ticket is **kept**. Its
+reply is parsed with the newest arguments and nothing new is sent. The newest
+arguments still win; the duplicate fetch is what goes. A mutation's request is
+never kept. LLP 1054.000.000 D1 adds the other half: `mutation m … refreshes
+r` re-asks `r`, forced, when `m` is sent and when its reply lands.
+
 A reload (`boot_carrying`, LLP 1005 §6) drops every ticket; the carried
 arguments re-request what has no compiled value. The agent's `clock settle`
 (LLP 1012 §2) waits for in-flight requests as it waits for motion and timers,
@@ -232,7 +241,10 @@ the network says how long it took.
 `ibex2::host` endows bindings from a `GrantSet` (LLP 0067; 0068 §1) and
 refuses the rest. A `net.fetch` grant is an **origin** — scheme, host, port —
 matched whole, never a prefix (as built: the web glue matches `URL.origin`
-the same way). The app's data crate declares its grants as one constant —
+the same way). *Amended 2026-09-26 (Charlie, LLP 1054.000 R5):* or
+`scheme://*.domain`, every host strictly under one domain of two labels or
+more, at that scheme and port; a cross-origin redirect drops the request's
+credentials (vendor/ibex2 patch 1). The app's data crate declares its grants as one constant —
 `pub const GRANTS: &str = "net.fetch https://api.castle.xyz\n";` — that the
 `host!` macros hand to `Host::endow` on Apple and that `glue.js` receives at
 boot (a string list) and checks before `fetch`, so a request outside the grant

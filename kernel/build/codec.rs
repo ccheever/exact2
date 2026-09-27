@@ -9,7 +9,6 @@ enum Codec {
     Rgba8,
     ColorValue,
     KeywordColor(&'static str),
-    Paint,
     Vec2,
     Color2,
     Tracks,
@@ -32,23 +31,26 @@ fn parse_codec(s: &str) -> Codec {
         "color" => Codec::ColorValue,
         "auto-color" => Codec::KeywordColor("auto"),
         "current-color" => Codec::KeywordColor("currentcolor"),
-        // @ref LLP 1065 D3 — SVG paint: `none`, `currentcolor` or a colour.
-        "paint" => Codec::Paint,
         "vec2" => Codec::Vec2,
         "color2" => Codec::Color2,
         "tracks" => Codec::Tracks,
         "placement" => Codec::Placement,
         "transitions" => Codec::Transitions,
         "animations" => Codec::Animations,
+        // @ref LLP 1055 D2 — SVG paint and dash lists travel as their CSS text.
+        "paint" => Codec::CssValue { path: "crate::svg::Paint", variant: "Paint", error: "BadPaint" },
+        "dasharray" => Codec::CssValue { path: "crate::svg::DashArray", variant: "DashArray", error: "BadDashArray" },
+        // @ref LLP 1055.000 D5 — CSS transforms on SVG elements, as CSS text.
+        "transform" => Codec::CssValue { path: "crate::svg::TransformList", variant: "Transform", error: "BadTransform" },
+        "transform-origin" => Codec::CssValue { path: "crate::svg::TransformOrigin", variant: "TransformOrigin", error: "BadTransformOrigin" },
+        "paint-order" => Codec::CssValue { path: "crate::svg::PaintOrder", variant: "PaintOrder", error: "BadPaintOrder" },
+        "marker" => Codec::CssValue { path: "crate::svg::MarkerRef", variant: "Marker", error: "BadMarker" },
+        "filter" => Codec::CssValue { path: "crate::svg::filter::FilterList", variant: "Filter", error: "BadFilter" },
         // @ref LLP 1043.000 §3 D1 — one parse/css/default codec for both shapes.
         "clip-path" => Codec::CssValue { path: "crate::clip::ClipPath", variant: "ClipPath", error: "BadClipPath" },
-        // @ref LLP 1065 — SVG `stroke-dasharray`.
-        "dash-array" => Codec::CssValue { path: "crate::vector::DashArray", variant: "DashArray", error: "BadDashArray" },
-        "marker" => Codec::CssValue { path: "crate::vector::Marker", variant: "Marker", error: "BadMarker" },
-        "transform-origin" => Codec::CssValue { path: "crate::origin::TransformOrigin", variant: "TransformOrigin", error: "BadTransformOrigin" },
         "aspect-ratio" => Codec::CssValue { path: "crate::ratio::AspectRatio", variant: "AspectRatio", error: "BadAspectRatio" },
         "shape-outside" => Codec::CssValue { path: "exact_textflow::ShapeOutside", variant: "ShapeOutside", error: "BadShapeOutside" },
-        // @ref LLP 1056 D1
+        // @ref LLP 1066 D1
         "background-image" => Codec::CssValue { path: "crate::gradient::BackgroundImage", variant: "BackgroundImage", error: "BadBackgroundImage" },
         other => match other.strip_prefix("enum:") {
             Some(name) => Codec::Enum(name.to_string()),
@@ -69,7 +71,6 @@ impl Codec {
             Codec::Rgba8 => "Color".into(),
             Codec::ColorValue => "ColorValue".into(),
             Codec::KeywordColor(_) => "Option<ColorValue>".into(),
-            Codec::Paint => "Paint".into(),
             Codec::Vec2 => "Vec2".into(),
             Codec::Color2 => "[Color; 2]".into(),
             Codec::Tracks => "GridTracks".into(),
@@ -92,7 +93,6 @@ impl Codec {
             Codec::Rgba8 => "Rgba8",
             Codec::ColorValue => "ColorValue",
             Codec::KeywordColor(_) => "KeywordColor",
-            Codec::Paint => "Paint",
             Codec::Vec2 => "Vec2",
             Codec::Color2 => "Color2",
             Codec::Tracks => "Tracks",
@@ -140,19 +140,6 @@ impl Codec {
                 "ColorValue::Fixed(Color({}u32))",
                 int(value, 0.0, u32::MAX as f64)
             ),
-            // SVG's `fill` starts black, `stroke` at `none`.
-            Codec::Paint if value.is_number() => format!(
-                "Paint::Color(ColorValue::Fixed(Color({}u32)))",
-                int(value, 0.0, u32::MAX as f64)
-            ),
-            Codec::Paint => {
-                assert_eq!(value.as_str(), Some("none"));
-                "Paint::None".into()
-            }
-            Codec::KeywordColor(_) if value.is_number() => format!(
-                "Some(ColorValue::Fixed(Color({}u32)))",
-                int(value, 0.0, u32::MAX as f64)
-            ),
             Codec::KeywordColor(keyword) => {
                 assert_eq!(value.as_str(), Some(*keyword));
                 "None".into()
@@ -180,6 +167,13 @@ impl Codec {
                 );
                 "GridTracks::default()".into()
             }
+            // Paint's initial value differs by row: `fill` black, `stroke` none.
+            Codec::CssValue { variant: "Paint", .. } => match value.as_str() {
+                Some("black") => "crate::svg::Paint::BLACK".into(),
+                Some("none") => "crate::svg::Paint::None".into(),
+                Some("white") => "crate::svg::Paint::WHITE".into(),
+                _ => panic!("schema: paint default on `{field}` must be black, white or none"),
+            },
             Codec::CssValue { path, .. } => format!("{path}::default()"),
             Codec::Transitions => {
                 assert!(
@@ -222,7 +216,6 @@ impl Codec {
             Codec::Rgba8 => "r.color()?".into(),
             Codec::ColorValue => "r.color_value()?".into(),
             Codec::KeywordColor(_) => "r.optional_color()?".into(),
-            Codec::Paint => "r.paint()?".into(),
             Codec::Vec2 => "r.vec2()?".into(),
             Codec::Color2 => "r.color2()?".into(),
             Codec::Tracks => "r.tracks_for_style()?".into(),
@@ -247,7 +240,6 @@ impl Codec {
             Codec::Rgba8 => format!("w.color({access});"),
             Codec::ColorValue => format!("w.color_value({access});"),
             Codec::KeywordColor(_) => format!("w.optional_color({access});"),
-            Codec::Paint => format!("w.paint({access});"),
             Codec::Vec2 => format!("w.vec2({access});"),
             Codec::Color2 => format!("w.color2({access});"),
             Codec::Tracks => format!("w.tracks(&{access});"),

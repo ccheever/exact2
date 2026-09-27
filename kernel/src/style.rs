@@ -17,10 +17,7 @@ use crate::generated::{
     StyleProps,
 };
 
-mod paint;
 mod shadow;
-pub use crate::vector::DashArray;
-pub use paint::Paint;
 pub use shadow::BoxShadow;
 
 /// Largest grid track list the closed grammar carries.
@@ -377,11 +374,7 @@ impl Color {
 /// The `transition` row's type: CSS `transition` declarations, owned by
 /// `exact-motion` so the evaluator and the kernel share one definition. The
 /// kernel owns the bytes (`wire::codec`); the engine owns the semantics.
-pub use exact_motion::Transitions;
-
-/// The `animation` row's type: CSS `animation` with its keyframes resolved,
-/// owned by `exact-motion` like [`Transitions`] (LLP 1057).
-pub use exact_motion::Animations;
+pub use exact_motion::{Animations, Transitions};
 
 /// An untyped style value from a producer that resolves rows by id — a plan
 /// runner, a compiler lowering a literal, a TypeScript encoder. Exactly one
@@ -424,7 +417,7 @@ impl StyleValue {
     }
 
     /// A `box-shadow` given to one of its four rows: that row's part.
-    /// @ref LLP 1055 D1
+    /// @ref LLP 1064 D1
     fn box_shadow(&self, style: StyleId) -> Option<Result<BoxShadow, StyleValueError>> {
         match self {
             StyleValue::Text(t) => Some(
@@ -532,6 +525,9 @@ impl StyleValue {
                     parse_pixel_length(t.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']))
                         .map(Dimension::Points)
                 })
+                // CSS's absolute units (96 px to the inch) and a percentage
+                // written as text (LLP 1055.000 D4).
+                .or_else(|| absolute_length(t.trim_matches(['\t', '\n', '\u{c}', '\r', ' '])))
                 .ok_or(StyleValueError::WrongKind {
                     style,
                     expected: "number, px length, percent, auto, calc(<percent> ± <px>), or env(safe-area-inset-*)",
@@ -559,17 +555,6 @@ impl StyleValue {
     }
 
     /// A colour keyword remains distinct from transparent paint.
-    /// SVG `<paint>`: `none`, `currentcolor` (any case), or a colour.
-    pub(crate) fn paint(&self, style: StyleId) -> Result<Paint, StyleValueError> {
-        match self {
-            StyleValue::Text(t) if t.trim().eq_ignore_ascii_case("none") => Ok(Paint::None),
-            StyleValue::Text(t) if t.trim().eq_ignore_ascii_case("currentcolor") => {
-                Ok(Paint::CurrentColor)
-            }
-            _ => self.color_value(style).map(Paint::Color),
-        }
-    }
-
     pub(crate) fn keyword_color(
         &self,
         style: StyleId,
@@ -618,6 +603,27 @@ impl StyleValue {
 }
 
 // CSS pixel length or unitless zero, shared by dimensions and translation.
+/// A CSS length in an absolute unit (96 px to the inch), or a percentage
+/// written as text, with the CSS number grammar `px` lengths use (LLP
+/// 1055.000 D4). Unitless text stays refused.
+fn absolute_length(token: &str) -> Option<Dimension> {
+    let number = |n: &str| parse_pixel_length(&format!("{n}px"));
+    if let Some(n) = token.strip_suffix('%') {
+        return number(n).map(Dimension::Percent);
+    }
+    let split = token.len().checked_sub(2)?;
+    let (n, unit) = (token.get(..split)?, token.get(split..)?);
+    let scale = match unit.to_ascii_lowercase().as_str() {
+        "in" => 96.0,
+        "cm" => 96.0 / 2.54,
+        "mm" => 96.0 / 25.4,
+        "pt" => 96.0 / 72.0,
+        "pc" => 16.0,
+        _ => return None,
+    };
+    number(n).map(|v| Dimension::Points(v * scale))
+}
+
 fn parse_pixel_length(token: &str) -> Option<f32> {
     let pixels = token
         .get(token.len().saturating_sub(2)..)
@@ -837,14 +843,22 @@ pub enum RowValue<'a> {
     ShapeOutside(&'a exact_textflow::ShapeOutside),
     /// CSS `aspect-ratio` as authored (LLP 1053 G1).
     AspectRatio(&'a crate::ratio::AspectRatio),
-    /// CSS `transform-origin` (LLP 1061 D6).
-    TransformOrigin(&'a crate::origin::TransformOrigin),
-    /// CSS `background-image`: `none` or one gradient (LLP 1056).
+    /// SVG paint (LLP 1055 D2).
+    Paint(&'a crate::svg::Paint),
+    /// SVG `stroke-dasharray` (LLP 1055 D2).
+    DashArray(&'a crate::svg::DashArray),
+    /// CSS `transform` on an SVG element (LLP 1055.000 D5).
+    Transform(&'a crate::svg::TransformList),
+    /// CSS `transform-origin` (LLP 1055.000 D5).
+    TransformOrigin(&'a crate::svg::TransformOrigin),
+    /// SVG `paint-order` (LLP 1055.000 D7).
+    PaintOrder(&'a crate::svg::PaintOrder),
+    /// SVG `marker-start`, `marker-mid`, `marker-end` (LLP 1055.000 D9).
+    Marker(&'a crate::svg::MarkerRef),
+    /// CSS `filter` on SVG elements (LLP 1055.000 D14).
+    Filter(&'a crate::svg::filter::FilterList),
+    /// CSS `background-image`: `none` or one gradient (LLP 1066).
     BackgroundImage(&'a crate::gradient::BackgroundImage),
-    /// SVG `stroke-dasharray` (LLP 1065).
-    DashArray(&'a crate::vector::DashArray),
-    /// SVG `marker-start`, `-mid` or `-end` (LLP 1065).
-    Marker(&'a crate::vector::Marker),
     /// A dimension.
     Dimension(Dimension),
     /// A number (`f32`, `u8`, `u16`, `u32`, `i32` rows).
@@ -866,7 +880,7 @@ pub enum RowValue<'a> {
     Placement(GridPlacement),
     /// The `transition` row.
     Transitions(&'a Transitions),
-    /// The `animation` row.
+    /// The `animation` row (LLP 1055 D5).
     Animations(&'a Animations),
 }
 
@@ -882,12 +896,16 @@ impl RowValue<'_> {
             RowValue::Tracks(v) => v.is_finite(),
             RowValue::Transitions(v) => v.is_finite(),
             RowValue::Animations(v) => v.is_finite(),
-            RowValue::ClipPath(_)
-            | RowValue::DashArray(_)
+            RowValue::DashArray(v) => v.0.iter().all(|n| n.is_finite()),
+            RowValue::Transform(v) => v.is_finite(),
+            RowValue::TransformOrigin(v) => v.is_finite(),
+            RowValue::Paint(_)
+            | RowValue::PaintOrder(_)
             | RowValue::Marker(_)
+            | RowValue::Filter(_)
+            | RowValue::ClipPath(_)
             | RowValue::ShapeOutside(_)
             | RowValue::AspectRatio(_)
-            | RowValue::TransformOrigin(_)
             | RowValue::BackgroundImage(_)
             | RowValue::Color(_)
             | RowValue::ColorValue(_)
@@ -1289,50 +1307,16 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     // (with or without a fallback ratio, or a degenerate one): CSS sizes an
     // `<img>` with one dimension given from the other by that ratio. Only a
     // plain `<ratio>` overrides it; natural ratios are of the content box.
-    // A path in a path is no CSS box: it draws in its parent's coordinate
-    // system, over the parent's content box, as SVG's several `<path>`s in
-    // one `<svg>` do (LLP 1065 D12). The box's own sizing rows do nothing.
-    if let Some(parent) = arena.parent(slot).filter(|p| {
-        arena.node_type(slot) == NodeType::Path && arena.node_type(*p) == NodeType::Path
-    }) {
-        let (p, env) = (arena.style(parent), arena.env());
-        let (zero, auto) = (
-            taffy::style::LengthPercentage::length(0.0),
-            taffy::style::Dimension::auto(),
-        );
-        s.position = taffy::style::Position::Absolute;
-        s.inset = taffy::geometry::Rect {
-            top: p.padding_top.to_lpa(env),
-            right: p.padding_right.to_lpa(env),
-            bottom: p.padding_bottom.to_lpa(env),
-            left: p.padding_left.to_lpa(env),
-        };
-        s.size = taffy::geometry::Size {
-            width: auto,
-            height: auto,
-        };
-        let open = taffy::style::LengthPercentageAuto::auto();
-        s.min_size = taffy::geometry::Size {
-            width: open,
-            height: open,
-        };
-        s.max_size = s.min_size;
-        s.aspect_ratio = None;
-        s.margin = taffy::geometry::Rect::zero();
-        s.padding = taffy::geometry::Rect {
-            top: zero,
-            right: zero,
-            bottom: zero,
-            left: zero,
-        };
-        s.border = s.padding;
-    }
     if arena.node_type(slot).is_replaced() && arena.style(slot).aspect_ratio.defers_to_natural() {
         if let Some((w, h)) = arena.intrinsic(slot) {
             if w > 0.0 && h > 0.0 {
                 s.aspect_ratio = Some(w / h);
                 s.aspect_ratio_content_box = true;
             }
+        } else if let Some(ratio) = crate::svg::natural_ratio(arena, slot) {
+            // @ref LLP 1055.000 D4 — an `svg`'s view box is its natural ratio.
+            s.aspect_ratio = Some(ratio);
+            s.aspect_ratio_content_box = true;
         }
     }
     if arena.is_root(slot)
@@ -1410,5 +1394,50 @@ mod finite_tests {
             assert_eq!(LineHeight::Length(n).css(), format!("{shown}px"));
         }
         assert_eq!(LineHeight::Normal.css(), "normal");
+    }
+}
+
+impl crate::generated::TouchAction {
+    /// Whether the value leaves pinch zoom to the platform: `auto`,
+    /// `manipulation` or any value naming `pinch-zoom` (LLP 1057.001 §2).
+    pub fn pinch_zoom(self) -> bool {
+        matches!(self, Self::Auto | Self::Manipulation) || self.name().ends_with("pinch-zoom")
+    }
+    /// The same value's pan axes alone: `pinch-zoom` dropped, which leaves
+    /// `none` when it named nothing else. What a pan decides by.
+    pub fn pans(self) -> Self {
+        match self.name().strip_suffix("pinch-zoom") {
+            Some("") => Self::None,
+            Some(rest) => Self::from_name(rest.trim_end()).unwrap_or(Self::None),
+            None => self,
+        }
+    }
+}
+
+#[cfg(test)]
+mod touch_action_tests {
+    use crate::generated::TouchAction;
+
+    #[test]
+    fn pinch_zoom_is_the_css_vocabulary_and_pans_drop_it() {
+        let parse = |s| TouchAction::from_name(s).unwrap();
+        assert_eq!(
+            TouchAction::ALL.len(),
+            34,
+            "CSS's whole grammar, canonical order"
+        );
+        assert!(parse("pinch-zoom").pinch_zoom() && parse("auto").pinch_zoom());
+        assert!(parse("manipulation").pinch_zoom());
+        assert!(!parse("none").pinch_zoom() && !parse("pan-x pan-y").pinch_zoom());
+        assert_eq!(parse("pinch-zoom").pans(), TouchAction::None);
+        assert_eq!(
+            parse("pan-left pan-y pinch-zoom").pans(),
+            parse("pan-left pan-y")
+        );
+        assert_eq!(parse("pan-y").pans(), TouchAction::PanY);
+        assert!(
+            TouchAction::from_name("pinch-zoom pan-y").is_none(),
+            "only CSS's canonical order"
+        );
     }
 }

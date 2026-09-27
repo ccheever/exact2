@@ -93,8 +93,12 @@ impl<D: DataSource> Runner<D> {
                 // The last value now stands for the arguments that failed, so
                 // settlement reuses it instead of asking again: a source that
                 // fails the same way every time would otherwise loop.
+                // A placeholder that stood in for the answer stands for it
+                // now (LLP 1054.000.002 D4 lets one stand only while an
+                // answer is on the way).
                 if let (Some(state), Some(args)) = (self.resources[i].as_mut(), failed_args) {
                     state.args = args;
+                    state.placeholder = false;
                 }
                 "it keeps its last value"
             }

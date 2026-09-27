@@ -33,9 +33,9 @@ fn the_rows_reach_the_page_as_custom_properties_and_an_exit_precedes_its_destroy
         .and_then(|op| op.split_once('"'))
         .map(|(name, _)| name.to_string())
         .expect("the exit's rule, sent while its node lives");
-    assert!(leave.starts_with("leave-"), "{leave}");
+    assert_eq!(leave, "leave", "the page's rule, by its name (LLP 1055 D7)");
     assert!(
-        first.contains(&format!("--exact-exit-animation:{leave} 0.2s cubic-bezier(0.32,0.72,0,1) 0s 1 normal both running;")),
+        first.contains("--exact-exit-animation:0.2s cubic-bezier(0.32, 0.72, 0, 1) 0s 1 normal both running leave;"),
         "{first}"
     );
     assert!(
@@ -50,7 +50,7 @@ fn the_rows_reach_the_page_as_custom_properties_and_an_exit_precedes_its_destroy
     let (gone, toggle) = (view("first"), view("toggle"));
     let off = host.dispatch_at(toggle, Event::Press, 100.0);
     let exit = off.find(&format!(
-        "{{\"op\":\"exit\",\"id\":{gone},\"css\":\"{leave} 0.2s cubic-bezier(0.32,0.72,0,1) 0s 1 normal both running\"}}"
+        "{{\"op\":\"exit\",\"id\":{gone},\"css\":\"0.2s cubic-bezier(0.32, 0.72, 0, 1) 0s 1 normal both running leave\"}}"
     ));
     let destroy = off.find(&format!("{{\"op\":\"destroy\",\"id\":{gone}}}"));
     assert!(exit.is_some() && exit < destroy, "{off}");

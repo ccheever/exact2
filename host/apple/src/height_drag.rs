@@ -147,13 +147,18 @@ impl<D: DataSource> Host<D> {
 
     /// Update only a live header/target/token triple; stale values are ignored.
     pub fn height_drag_update(&mut self, serial: u64, height: f64, now_ms: f64) -> String {
-        if !self
-            .live_height_drag(serial)
-            .is_some_and(|drag| !drag.released)
-        {
+        let Some(drag) = self.live_height_drag(serial).filter(|drag| !drag.released) else {
             return self.finish(Batch::new(), None);
+        };
+        let out = self.hold_update(serial, Value::scalar(height), now_ms);
+        // An accepted sample: record the constrained height shown, which the
+        // release velocity follows (LLP 1057.001 §3).
+        if self.engine.now() == now_ms / 1000. {
+            if let Some(shown) = self.height_catch(drag.target) {
+                self.engine.track_hold(drag.token, now_ms / 1000., shown);
+            }
         }
-        self.hold_update(serial, Value::scalar(height), now_ms)
+        out
     }
 
     /// Apply the final sample then the typed action while the token still owns Height.
@@ -165,12 +170,28 @@ impl<D: DataSource> Host<D> {
         velocity: f64,
         now_ms: f64,
     ) -> String {
+        self.dispatch_height(serial, height, Some(velocity), now_ms)
+    }
+
+    /// The same, at the velocity the engine measured over the heights shown
+    /// (LLP 1057.001 §3): what the native bridge sends.
+    pub fn dispatch_height_measured(&mut self, serial: u64, height: f64, now_ms: f64) -> String {
+        self.dispatch_height(serial, height, None, now_ms)
+    }
+
+    fn dispatch_height(
+        &mut self,
+        serial: u64,
+        height: f64,
+        velocity: Option<f64>,
+        now_ms: f64,
+    ) -> String {
         let Some(drag) = self.live_height_drag(serial).filter(|drag| !drag.released) else {
             return self.finish(Batch::new(), None);
         };
         if !height.is_finite()
             || !(0. ..=f32::MAX as f64).contains(&height)
-            || !velocity.is_finite()
+            || velocity.is_some_and(|v| !v.is_finite())
         {
             return self.hold_refusal("invalid height release coordinates");
         }
@@ -191,6 +212,14 @@ impl<D: DataSource> Host<D> {
         let Some(height) = self.height_catch(drag.target).map(|v| v.x) else {
             return self.finish(batch, None);
         };
+        // The shown (constrained) height is what the release velocity follows.
+        self.engine
+            .track_hold(drag.token, now_ms / 1000., Value::scalar(height));
+        let velocity = velocity.unwrap_or_else(|| {
+            self.engine
+                .hold_velocity(drag.token, now_ms / 1000.)
+                .map_or(0., |v| v.x)
+        });
         let Some(view) = self
             .runner
             .kernel()

@@ -1,0 +1,44 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Map Demo",
+  "short_name": "Map Demo",
+  "id": "com.exact.mapdemo",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#ffffff",
+  "background_color": "#ffffff",
+  "app": {
+    "id": "com.exact.mapdemo",
+    "name": "Map Demo"
+  },
+  "modules": [
+    "native-map"
+  ],
+  "host": {
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone",
+        "ipad"
+      ]
+    },
+    "macos": {
+      "minimumOS": "14.0",
+      "window": {
+        "width": 900,
+        "height": 700,
+        "minWidth": 480,
+        "minHeight": 480
+      }
+    },
+    "web": {}
+  },
+  "deploy": {
+    "store": {
+      "web": "0",
+      "macos": "0",
+      "ios": "0",
+      "linux": "0"
+    }
+  }
+}

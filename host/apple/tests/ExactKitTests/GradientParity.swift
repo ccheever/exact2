@@ -2,7 +2,7 @@ import CoreGraphics
 import XCTest
 @testable import ExactKit
 
-/// LLP 1056: `background-image` gradients as the node view paints them, held
+/// LLP 1066: `background-image` gradients as the node view paints them, held
 /// to Chrome's pictures of the parity page (`scripts/fixtures/gradients.contract`,
 /// the web host at 1×) within the border parity's band (`BorderParity`). The
 /// styles are what the host's Rust side sends for the page (`style.rs`

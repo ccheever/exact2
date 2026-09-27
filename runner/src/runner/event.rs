@@ -211,7 +211,7 @@ pub enum Event {
         vx: f64,
         /// Finite signed y velocity, logical pixels per second.
         vy: f64,
-        /// Finite signed scale units per second; primary pan supplies zero.
+        /// Finite signed scale units per second, measured by the engine (LLP 1057.001 §3).
         vscale: f64,
     },
 }

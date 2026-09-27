@@ -165,7 +165,7 @@ fn true_end_is_not_window_end_and_disabled_source_cannot_dispatch() {
 
 use std::rc::Rc;
 struct EditingRows {
-    order: Rc<Vec<Value>>,
+    order: Rc<[Value]>,
     calls: usize,
     mode: &'static str,
 }
@@ -174,7 +174,7 @@ impl DataSource for EditingRows {
         self.calls += 1;
         if name == "move" && self.mode != "refuse" {
             let item = args[0].as_str().unwrap();
-            let mut next = self.order.as_ref().clone();
+            let mut next = self.order.to_vec();
             let source = next.iter().position(|v| v.as_str() == Some(item)).unwrap();
             let value = next.remove(source);
             if self.mode != "delete" {
@@ -187,7 +187,7 @@ impl DataSource for EditingRows {
                     .unwrap_or(next.len());
                 next.insert(at, value);
             }
-            self.order = Rc::new(next);
+            self.order = Rc::<[Value]>::from(next);
         }
         Ok(Value::List(Rc::clone(&self.order)))
     }
@@ -200,7 +200,11 @@ fn editing(mode: &'static str) -> Runner<EditingRows> {
     Runner::boot(
         contract::compile(&source).unwrap(),
         EditingRows {
-            order: Rc::new((0..25_000).map(|i| Value::str(&i.to_string())).collect()),
+            order: Rc::<[Value]>::from(
+                (0..25_000)
+                    .map(|i| Value::str(&i.to_string()))
+                    .collect::<Vec<_>>(),
+            ),
             calls: 0,
             mode,
         },
