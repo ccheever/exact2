@@ -34,6 +34,68 @@ final class PresenceIOSTests: XCTestCase {
         return p
     }
 
+    func testResetRestoresTabBarMembersAndDropsTheProjection() throws {
+        let p = fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 10, "kind": "view", "props": ["accessibilityRole": "tablist"]],
+            ["op": "create", "id": 11, "kind": "button", "props": ["accessibilityRole": "tab"], "handlers": ["press"]],
+            ["op": "create", "id": 12, "kind": "button", "props": ["accessibilityRole": "tab"], "handlers": ["press"]],
+            ["op": "create", "id": 13, "kind": "image", "props": ["symbolName": "house"]],
+            ["op": "create", "id": 14, "kind": "text", "props": ["text": "Home"]],
+            ["op": "create", "id": 15, "kind": "image", "props": ["symbolName": "star"]],
+            ["op": "create", "id": 16, "kind": "text", "props": ["text": "Saved"]],
+            ["op": "children", "id": 11, "ids": [13, 14]],
+            ["op": "children", "id": 12, "ids": [15, 16]],
+            ["op": "children", "id": 10, "ids": [11, 12]],
+            ["op": "roots", "ids": [1, 10]],
+            ["op": "frame", "id": 10, "x": 0.0, "y": 0.0, "w": 400.0, "h": 60.0],
+        ]))
+        let owner = try XCTUnwrap(p.views[10])
+        let first = try XCTUnwrap(p.views[11])
+        let second = try XCTUnwrap(p.views[12])
+        let old = try XCTUnwrap(owner.subviews.first { $0 is UITabBar })
+        XCTAssertTrue(first.isHidden)
+        XCTAssertTrue(second.isHidden)
+        p.segments.reset()
+        XCTAssertNil(old.superview)
+        XCTAssertFalse(first.isHidden)
+        XCTAssertFalse(second.isHidden)
+        p.segments.sync()
+        let fresh = try XCTUnwrap(owner.subviews.first { $0 is UITabBar })
+        XCTAssertFalse(fresh === old)
+        p.reset()
+        XCTAssertNil(fresh.superview)
+    }
+
+    func testResetEndsExitsBeforeAnIDIsReused() throws {
+        let p = fixture()
+        let old = try XCTUnwrap(p.views[2])
+        let child = try XCTUnwrap(p.views[3])
+        p.apply(wireBatch([["op": "exit", "id": 2]]))
+        p.reset()
+        XCTAssertTrue(p.leaving.isEmpty)
+        XCTAssertNil(old.superview)
+        XCTAssertNil(child.superview?.superview)
+        p.apply(wireBatch([
+            ["op": "create", "id": 2, "kind": "view"],
+            ["op": "roots", "ids": [2]],
+        ]))
+        let fresh = try XCTUnwrap(p.views[2])
+        p.apply(wireBatch([["op": "destroy", "id": 2]]))
+        XCTAssertNil(p.views[2])
+        XCTAssertNil(fresh.superview)
+    }
+
+    func testALayoutSpringCannotGiveTheSurfaceANegativeSize() throws {
+        let p = fixture()
+        let v = try XCTUnwrap(p.views[3])
+        p.apply(wireBatch([["op": "present", "id": 3, "property": "layout", "x": 4.0, "y": 10.0, "w": -0.5, "h": -2.0]]))
+        let surface = try XCTUnwrap(v.surface)
+        XCTAssertEqual(surface.bounds.size, .zero)
+        XCTAssertEqual(surface.frame.origin, .zero)
+        XCTAssertEqual(v.bounds.size, CGSize(width: 100, height: 50))
+    }
+
     func testAnExitKeepsTheViewWhereItWasInertAndUnnamedUntilItsDestroy() throws {
         let p = fixture()
         let (parent, leaving, inner, sibling) = try (XCTUnwrap(p.views[1]), XCTUnwrap(p.views[2]), XCTUnwrap(p.views[3]), XCTUnwrap(p.views[4]))

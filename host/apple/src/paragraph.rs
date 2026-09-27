@@ -316,7 +316,7 @@ impl<D: DataSource> Host<D> {
     /// paragraph, which paints it (LLP 1062 D5). A leaving view is no
     /// mirror's, and still paints its exit's colours (LLP 1063). When the
     /// motion ends the rows show again, re-sent the same way.
-    pub(super) fn present_colors(&mut self, view: ViewId, batch: &mut Batch) {
+    pub(super) fn present_colors(&mut self, view: ViewId, batch: &mut Batch, inherits: bool) {
         let kernel = self.runner.kernel();
         let Some(node) = kernel.node(view) else {
             return self.restyle_leaving(view, batch);
@@ -327,7 +327,7 @@ impl<D: DataSource> Host<D> {
         let env = kernel.env();
         let mut restyled = vec![(view, style::style_json_presented(&node, &env, &shown).0)];
         let mut runs = Vec::new();
-        if self.engine.sampled_value(key, Property::Color).is_some() {
+        if inherits {
             let mut inherited = style::Shown::default();
             inherited.set(Property::Color, color);
             let mut stack = node.children();

@@ -167,7 +167,7 @@ impl<D: DataSource> Host<D> {
                 }
             }
             // @ref LLP 1063 — a moved box plays from where it was.
-            self.observe_layout(key);
+            self.observe_layout(key, batch);
         }
         self.presence.snap = false;
         // Layout/receipt work may change the live window. Motion-only ticks and

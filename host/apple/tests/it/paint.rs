@@ -356,3 +356,67 @@ fn an_svg_fill_moves_between_its_light_dark_pair() {
         .unwrap_or_else(|| panic!("{mid}"));
     assert!(scene.contains("\"f\":[128,128,128,255]"), "{scene}");
 }
+
+#[test]
+fn an_exit_presents_text_color_over_the_last_style() {
+    let mut host = boot(
+        "keyframes leave\n  to color=\"#0000ff\"\ncomponent App\n  state shown = true\n  action hide writes shown\n    shown = false\n  view\n    column\n      button \"Hide\" press=hide testId=\"hide\"\n      when shown\n        text \"Leaving\" testId=\"gone\" color=\"#ff0000\" exit-animation=\"leave 1s linear both\"\n",
+    );
+    let (hide, gone) = (view(&host, "hide"), view(&host, "gone"));
+    host.dispatch_at(hide, Event::Press, 0.0);
+    let mid = host.tick(500.0);
+    assert!(shows(&mid, gone, "text_color", "[128,0,128,255]"), "{mid}");
+}
+
+#[test]
+fn cancelling_color_motion_restores_inheriting_views_and_inline_runs() {
+    let source = INHERITING
+        .replace(
+            "  view\n",
+            "  state moving = true\n  action stop writes moving\n    moving = false\n  view\n",
+        )
+        .replace(
+            "transition=\"color 1s linear\"",
+            "transition=(moving ? \"color 1s linear\" : \"none\")",
+        )
+        .replace(
+            "      button press=toggle",
+            "      button \"Stop\" press=stop testId=\"stop\"\n      button press=toggle",
+        );
+    let mut host = boot(&source);
+    let (toggle, para, plain) = (
+        view(&host, "toggle"),
+        view(&host, "para"),
+        view(&host, "plain"),
+    );
+    host.dispatch_at(toggle, Event::Press, 0.0);
+    let mid = host.tick(500.0);
+    assert!(
+        shows(&mid, toggle, "text_color", "[128,128,128,255]"),
+        "{mid}"
+    );
+    let stopped = host.dispatch_at(view(&host, "stop"), Event::Press, 500.0);
+    assert!(
+        shows(&stopped, toggle, "text_color", "[255,255,255,255]"),
+        "{stopped}"
+    );
+    let batch: serde_json::Value = serde_json::from_str(&stopped).unwrap();
+    let paragraph = batch["ops"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .rev()
+        .find(|op| op["op"] == "paragraph" && op["id"] == para)
+        .expect("run repainted");
+    let run = paragraph["runs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|run| run["id"] == plain)
+        .unwrap();
+    assert_eq!(
+        run["style"]["text_color"],
+        serde_json::json!([255, 255, 255, 255]),
+        "{paragraph}"
+    );
+}

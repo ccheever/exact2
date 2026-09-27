@@ -250,3 +250,59 @@ fn a_windowed_row_whose_item_left_exits_and_the_rows_after_it_slide() {
     let ended = host.tick(201.0);
     assert!(op(&ended, "destroy", b_wrapper), "{ended}");
 }
+
+#[test]
+fn removing_a_layout_transition_presents_identity_mid_move() {
+    let mut host = boot_source(
+        "component App\n  state moved = false\n  state animate = true\n  action move writes moved\n    moved = true\n  action stop writes animate\n    animate = false\n  view\n    column\n      button \"Move\" press=move testId=\"move\"\n      button \"Stop\" press=stop testId=\"stop\"\n      view height=(moved ? 80 : 20)\n      view testId=\"box\" height=(moved ? 100 : 50) layout-transition=(animate ? \"1s linear\" : \"none\")\n",
+    );
+    let box_id = view(&host, "box").unwrap();
+    host.dispatch_at(view(&host, "move").unwrap(), Event::Press, 0.0);
+    let mid = layout(&host.tick(500.0), box_id).unwrap();
+    assert_ne!(mid[1], 0.0);
+    assert_ne!(mid[3], 1.0);
+    let stopped = host.dispatch_at(view(&host, "stop").unwrap(), Event::Press, 500.0);
+    assert_eq!(
+        layout(&stopped, box_id),
+        Some([0.0, 0.0, 1.0, 1.0]),
+        "{stopped}"
+    );
+    assert!(layout(&host.tick(1000.0), box_id).is_none());
+}
+
+#[test]
+fn hiding_an_ancestor_retires_a_descendants_layout_presentation() {
+    let mut host = boot_source(
+        "component App\n  state moved = false\n  state hidden = false\n  action move writes moved\n    moved = true\n  action toggle writes hidden\n    hidden = not hidden\n  view\n    column\n      button \"Move\" press=move testId=\"move\"\n      button \"Hide\" press=toggle testId=\"toggle\"\n      column display=(hidden ? \"none\" : \"flex\")\n        view height=(moved ? 80 : 20)\n        view testId=\"box\" height=(moved ? 100 : 50) layout-transition=\"1s linear\"\n",
+    );
+    let box_id = view(&host, "box").unwrap();
+    host.dispatch_at(view(&host, "move").unwrap(), Event::Press, 0.0);
+    assert_ne!(
+        layout(&host.tick(500.0), box_id).unwrap(),
+        [0.0, 0.0, 1.0, 1.0]
+    );
+    let hidden = host.dispatch_at(view(&host, "toggle").unwrap(), Event::Press, 500.0);
+    assert_eq!(
+        layout(&hidden, box_id),
+        Some([0.0, 0.0, 1.0, 1.0]),
+        "{hidden}"
+    );
+    let shown = host.dispatch_at(view(&host, "toggle").unwrap(), Event::Press, 600.0);
+    assert!(
+        layout(&shown, box_id).is_none_or(|v| v == [0.0, 0.0, 1.0, 1.0]),
+        "{shown}"
+    );
+    assert!(shown.contains("\"motion\":false"), "{shown}");
+}
+
+#[test]
+fn a_layout_springs_size_overshoot_is_clamped_to_zero() {
+    let mut host = boot_source(
+        "component App\n  state small = false\n  action shrink writes small\n    small = true\n  view\n    column\n      button \"Shrink\" press=shrink testId=\"shrink\"\n      view testId=\"box\" width=(small ? 10 : 200) height=(small ? 10 : 200) layout-transition=\"spring(100, 1, 1)\"\n",
+    );
+    let box_id = view(&host, "box").unwrap();
+    host.dispatch_at(view(&host, "shrink").unwrap(), Event::Press, 0.0);
+    let mid = host.tick(300.0);
+    let [_, _, sx, sy] = layout(&mid, box_id).unwrap();
+    assert_eq!((sx, sy), (0.0, 0.0), "{mid}");
+}

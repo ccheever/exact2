@@ -105,20 +105,18 @@ impl<D: DataSource> Host<D> {
                 self.paint.current.insert(node, now);
             }
         }
-        let mut retired: Vec<ViewId> = Vec::new();
-        for (node, _) in &sync.retired {
+        let mut retired: BTreeMap<ViewId, bool> = BTreeMap::new();
+        for (node, property) in &sync.retired {
             self.paint.current.remove(node);
             if let Some(view) = self.keys.get(&node_key(*node)).copied() {
-                if !retired.contains(&view) {
-                    retired.push(view);
-                }
+                *retired.entry(view).or_default() |= *property == Property::Color;
             }
         }
         let applied = sync.apply(&mut self.engine);
         debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
         // What no longer moves shows its row again.
-        for view in retired {
-            self.present_colors(view, batch);
+        for (view, inherits) in retired {
+            self.present_colors(view, batch, inherits);
         }
     }
 
@@ -218,5 +216,50 @@ impl<D: DataSource> Host<D> {
             }
         }
         self.finish(batch, None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use exact_runner::{DataError, Event};
+
+    struct NoData;
+    impl DataSource for NoData {
+        fn query(
+            &mut self,
+            name: &str,
+            _: &[exact_runner::Value],
+        ) -> Result<exact_runner::Value, DataError> {
+            Err(DataError::UnknownSource(name.into()))
+        }
+    }
+
+    #[test]
+    fn destroying_an_inline_run_releases_its_inherited_paint() {
+        let plan = contract::compile(
+            "component App\n  state on = false\n  state shown = true\n  action go writes on\n    on = true\n  action hide writes shown\n    shown = false\n  view\n    column color=(on ? \"#ffffff\" : \"#000000\") transition=\"color 1s linear\"\n      button \"Go\" testId=\"go\" press=go\n      button \"Hide\" testId=\"hide\" press=hide\n      text\n        when shown\n          text \"Run\" testId=\"run\"\n",
+        ).unwrap();
+        let (mut host, _) = Host::boot(
+            &plan.encode(),
+            NoData,
+            Box::new(exact_kernel::MonospaceMeasurer::default()),
+            390.0,
+            844.0,
+        )
+        .unwrap();
+        let view = |host: &Host<NoData>, name| {
+            let kernel = host.runner().kernel();
+            kernel
+                .node_by_key(kernel.find_by_test_id(name)[0])
+                .unwrap()
+                .id
+        };
+        let run = view(&host, "run");
+        host.dispatch_at(view(&host, "go"), Event::Press, 0.0);
+        host.tick(500.0);
+        assert!(host.paint.runs.contains_key(&run));
+        host.dispatch_at(view(&host, "hide"), Event::Press, 500.0);
+        assert!(!host.paint.runs.contains_key(&run));
     }
 }

@@ -85,7 +85,7 @@ impl Presented {
     /// geometry: a growing card reveals its title, never squashes it.
     pub(super) fn surface(&self, (x, y, w, h): (f32, f32, f32, f32)) -> (f32, f32, f32, f32) {
         let [.., sx, sy] = self.layout;
-        (x, y, w * sx, h * sy)
+        (x, y, (w * sx).max(0.0), (h * sy).max(0.0))
     }
 }
 
@@ -158,6 +158,18 @@ impl BoxPaint {
 mod tests {
     use super::*;
     use tiny_skia::Point;
+
+    #[test]
+    fn a_layout_springs_size_overshoot_is_clamped_to_zero() {
+        let shown = Presented {
+            layout: [5.0, -8.0, -0.5, -2.0],
+            ..Presented::IDENTITY
+        };
+        assert_eq!(
+            shown.surface((10.0, 20.0, 100.0, 40.0)),
+            (10.0, 20.0, 0.0, 0.0)
+        );
+    }
 
     #[test]
     fn a_layout_transition_moves_the_box_and_sizes_only_its_surface() {

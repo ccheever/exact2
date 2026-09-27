@@ -167,7 +167,7 @@ impl<D: DataSource> Host<D> {
     /// Observe a laid-out node's box when it declares a layout transition,
     /// and retire it when it no longer does. A windowed row's wrapper moving
     /// moves the row placed through it.
-    pub(super) fn observe_layout(&mut self, key: NodeKey) {
+    pub(super) fn observe_layout(&mut self, key: NodeKey, batch: &mut Batch) {
         let kernel = self.runner.kernel();
         let Some(node) = kernel.node_by_key(key) else {
             return;
@@ -185,6 +185,9 @@ impl<D: DataSource> Host<D> {
             let Some(value) = self.runner.kernel().layout_box(key) else {
                 if self.presence.layout.remove(&key) {
                     self.engine.remove_property(node, Property::Layout);
+                    if let Some(&view) = self.keys.get(&key) {
+                        batch.present4(view, "layout", [0.0, 0.0, 1.0, 1.0]);
+                    }
                 }
                 continue;
             };
@@ -224,7 +227,7 @@ impl<D: DataSource> Host<D> {
             .layout
             .retain(|key| self.keys.contains_key(key));
         self.holds.retain(|_, token| self.engine.has_hold(*token));
-        let mut colored: Vec<ViewId> = Vec::new();
+        let mut colored: Vec<(ViewId, bool)> = Vec::new();
         let frame = self.engine.frame();
 
         for p in frame {
@@ -247,8 +250,13 @@ impl<D: DataSource> Host<D> {
             if Property::PAINT.contains(&p.property) {
                 // @ref LLP 1055.000 D6 — an `svg`'s scene shows its colours;
                 // a box's are its style, re-sent with the presented values.
-                if !self.svg.touch(self.runner.kernel(), view) && !colored.contains(&view) {
-                    colored.push(view);
+                if !self.svg.touch(self.runner.kernel(), view) {
+                    let inherits = p.property == Property::Color;
+                    if let Some((_, changed)) = colored.iter_mut().find(|(id, _)| *id == view) {
+                        *changed |= inherits;
+                    } else {
+                        colored.push((view, inherits));
+                    }
                 }
                 continue;
             }
@@ -261,7 +269,13 @@ impl<D: DataSource> Host<D> {
                         .engine
                         .target(p.node, Property::Layout)
                         .unwrap_or(p.value);
-                    let scale = |shown: f64, laid: f64| if laid > 0.0 { shown / laid } else { 1.0 };
+                    let scale = |shown: f64, laid: f64| {
+                        if laid > 0.0 {
+                            shown.max(0.0) / laid
+                        } else {
+                            1.0
+                        }
+                    };
                     [
                         p.value.x - at.x,
                         p.value.y - at.y,
@@ -291,8 +305,8 @@ impl<D: DataSource> Host<D> {
                 batch.present(view, p.property.name(), values[0], values[1]);
             }
         }
-        for view in colored {
-            self.present_colors(view, batch);
+        for (view, inherits) in colored {
+            self.present_colors(view, batch, inherits);
         }
         self.svg.emit(self.runner.kernel(), &self.engine, batch);
     }

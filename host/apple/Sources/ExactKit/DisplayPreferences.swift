@@ -12,7 +12,17 @@ import UIKit
 
 enum DisplayPreferences {
     /// What an agent's `prefer` set, in place of the platform's settings.
-    nonisolated(unsafe) static var agent: (reducedMotion: Bool, reducedTransparency: Bool)?
+    nonisolated(unsafe) static var agent: (reducedMotion: Bool, reducedTransparency: Bool)? {
+        didSet { center.post(name: agentChanged, object: nil) }
+    }
+    private static let agentChanged = Notification.Name("ExactDisplayPreferencesChanged")
+    private static var center: NotificationCenter {
+        #if os(macOS)
+        return NSWorkspace.shared.notificationCenter
+        #else
+        return NotificationCenter.default
+        #endif
+    }
     static var reducedMotion: Bool {
         if let agent { return agent.reducedMotion }
         #if os(macOS)
@@ -37,20 +47,13 @@ enum DisplayPreferences {
     /// caller holds the tokens and removes them.
     static func observe(_ changed: @escaping () -> Void) -> [NSObjectProtocol] {
         #if os(macOS)
-        let center = NSWorkspace.shared.notificationCenter
-        let names = [NSWorkspace.accessibilityDisplayOptionsDidChangeNotification]
+        let names = [NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, agentChanged]
         #else
-        let center = NotificationCenter.default
-        let names = [UIAccessibility.reduceMotionStatusDidChangeNotification, UIAccessibility.reduceTransparencyStatusDidChangeNotification]
+        let names = [UIAccessibility.reduceMotionStatusDidChangeNotification, UIAccessibility.reduceTransparencyStatusDidChangeNotification, agentChanged]
         #endif
         return names.map { center.addObserver(forName: $0, object: nil, queue: .main) { _ in changed() } }
     }
     static func forget(_ tokens: [NSObjectProtocol]) {
-        #if os(macOS)
-        let center = NSWorkspace.shared.notificationCenter
-        #else
-        let center = NotificationCenter.default
-        #endif
         tokens.forEach(center.removeObserver)
     }
 }

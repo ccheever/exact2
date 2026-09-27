@@ -1150,6 +1150,7 @@ impl<D: DataSource> Host<D> {
             self.begin_exits(r, &mut batch);
             for key in &r.destroyed {
                 if let Some(id) = self.keys.remove(key) {
+                    self.paint.runs.remove(&id);
                     if let Some((owner, _)) = self.inline_runs.remove(&id) {
                         self.dirty_paragraphs.insert(owner);
                     } else if self.svg.destroyed(id) {

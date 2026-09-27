@@ -296,7 +296,8 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
     }
 
     func reset() {
-        for id in Array(controls.keys) { restore(owner: id) }
+        for id in Array(members.keys) { restore(owner: id) }
+        decisions.removeAll()
     }
 }
 #endif

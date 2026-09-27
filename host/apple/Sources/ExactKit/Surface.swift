@@ -55,7 +55,7 @@ extension NodeView {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         if host.sublayers?.first !== s { host.insertSublayer(s, at: 0) }
-        let box = CGRect(x: 0, y: 0, width: bounds.width * layoutScale.x, height: bounds.height * layoutScale.y)
+        let box = CGRect(x: 0, y: 0, width: max(0, bounds.width * layoutScale.x), height: max(0, bounds.height * layoutScale.y))
         if s.frame != box { s.frame = box }
         #if os(iOS)
         s.contentsScale = traitCollection.displayScale

@@ -51,6 +51,42 @@ final class SessionClockTimerTests: XCTestCase {
         #endif
     }
 
+    func testAgentPreferencesReachEveryLiveSession() throws {
+        #if os(macOS)
+        let before = DisplayPreferences.agent
+        defer { DisplayPreferences.agent = before }
+        DisplayPreferences.agent = (false, false)
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let source = "shape Preferences\n  prefersReducedMotion: bool\n  prefersReducedTransparency: bool\ncomponent App\n  resource prefs = exactViewport() as shape Preferences\n  view\n    column\n      text (prefs.prefersReducedMotion ? \"reduce motion\" : \"allow motion\")\n      text (prefs.prefersReducedTransparency ? \"reduce transparency\" : \"allow transparency\")\n"
+        try source.write(to: dir.appendingPathComponent("app.contract"), atomically: true, encoding: .utf8)
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let compiler = Process()
+        compiler.executableURL = root.appendingPathComponent("target/debug/contract")
+        compiler.arguments = ["build", dir.appendingPathComponent("app.contract").path, "-o", dir.appendingPathComponent("app.plan").path]
+        try compiler.run(); compiler.waitUntilExit()
+        XCTAssertEqual(compiler.terminationStatus, 0)
+        let plan = try Data(contentsOf: dir.appendingPathComponent("app.plan"))
+        let a = ExactApp.shared.makeSession(), b = ExactApp.shared.makeSession()
+        defer { a.destroy(); b.destroy() }
+        for session in [a, b] {
+            XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 390, height: 844)).error)
+        }
+        let reply = a.agentInstance.prefer(["media": ["prefers-reduced-motion": "reduce", "prefers-reduced-transparency": "reduce"]])
+        XCTAssertNil(reply["error"])
+        for session in [a, b] {
+            let words = session.presenter.views.values.compactMap { $0.props["text"] }
+            XCTAssertTrue(words.contains("reduce motion"), "\(session.label): \(words)")
+            XCTAssertTrue(words.contains("reduce transparency"), "\(session.label): \(words)")
+        }
+        let c = ExactApp.shared.makeSession()
+        defer { c.destroy() }
+        XCTAssertNil(c.boot(plan: plan, size: CGSize(width: 390, height: 844)).error)
+        XCTAssertTrue(c.presenter.views.values.contains { $0.props["text"] == "reduce motion" })
+        #endif
+    }
+
     private func run(_ mode: RunLoop.Mode, seconds: TimeInterval) {
         let end = Date(timeIntervalSinceNow: seconds)
         while Date() < end && RunLoop.main.run(mode: mode, before: end) {}

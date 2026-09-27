@@ -28,6 +28,35 @@ final class PresenceMacTests: XCTestCase {
         return p
     }
 
+    func testResetEndsExitsBeforeAnIDIsReused() throws {
+        let p = fixture()
+        let old = try XCTUnwrap(p.views[2])
+        let child = try XCTUnwrap(p.views[3])
+        p.apply(wireBatch([["op": "exit", "id": 2]]))
+        p.reset()
+        XCTAssertTrue(p.leaving.isEmpty)
+        XCTAssertNil(old.superview)
+        XCTAssertNil(child.superview?.superview)
+        p.apply(wireBatch([
+            ["op": "create", "id": 2, "kind": "view"],
+            ["op": "roots", "ids": [2]],
+        ]))
+        let fresh = try XCTUnwrap(p.views[2])
+        p.apply(wireBatch([["op": "destroy", "id": 2]]))
+        XCTAssertNil(p.views[2])
+        XCTAssertNil(fresh.superview)
+    }
+
+    func testALayoutSpringCannotGiveTheSurfaceANegativeSize() throws {
+        let p = fixture()
+        let v = try XCTUnwrap(p.views[3])
+        p.apply(wireBatch([["op": "present", "id": 3, "property": "layout", "x": 4.0, "y": 10.0, "w": -0.5, "h": -2.0]]))
+        let surface = try XCTUnwrap(v.surface)
+        XCTAssertEqual(surface.bounds.size, .zero)
+        XCTAssertEqual(surface.frame.origin, .zero)
+        XCTAssertEqual(v.bounds.size, CGSize(width: 100, height: 50))
+    }
+
     func testAnExitKeepsTheViewWhereItWasInertAndUnnamedUntilItsDestroy() throws {
         let p = fixture()
         let (parent, leaving, inner, sibling) = try (XCTUnwrap(p.views[1]), XCTUnwrap(p.views[2]), XCTUnwrap(p.views[3]), XCTUnwrap(p.views[4]))

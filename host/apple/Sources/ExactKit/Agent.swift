@@ -245,7 +245,6 @@ public final class Agent {
             }
         }
         DisplayPreferences.agent = (motion, transparency)
-        session.tellPreferences()
         if let dark { systemScheme(dark: dark) }
         let keyword = { (on: Bool) in on ? "reduce" : "no-preference" }
         return ["media": ["prefers-reduced-motion": keyword(DisplayPreferences.reducedMotion),

@@ -211,6 +211,7 @@ fn fixed(v: exact_motion::Value) -> ColorValue {
 fn paint_over(computed: &mut StyleProps, shown: &Shown) {
     if let Some(c) = shown.get(Property::Color) {
         computed.text_color = fixed(c);
+        computed.mask.set(StyleId::TextColor);
     }
     if let Some(c) = shown.get(Property::BackgroundColor) {
         computed.background_color = fixed(c);

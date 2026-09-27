@@ -282,6 +282,7 @@ final class Presenter {
         modals.reset()
         navigation.reset()
         session?.canvases.reset()
+        for id in Array(leaving.keys) { _ = endExit(id) }
         views.values.forEach { $0.forget() }
         root.subviews.forEach { $0.removeFromSuperview() }
         chrome = ChromeIndex()
