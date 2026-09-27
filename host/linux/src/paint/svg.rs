@@ -250,8 +250,14 @@ pub fn resolve_with(
                 Property::Translate => Value::new(v.translate.0 as f64, v.translate.1 as f64),
                 Property::Scale => Value::scalar(v.scale as f64),
                 Property::Rotate => Value::scalar(v.rotate as f64),
-                Property::R => Value::scalar(v.svg.0? as f64),
-                Property::StrokeDashoffset => Value::scalar(v.svg.1? as f64),
+                Property::R => Value::scalar(v.svg[0]? as f64),
+                Property::StrokeDashoffset => Value::scalar(v.svg[1]? as f64),
+                Property::Cx => Value::scalar(v.svg[2]? as f64),
+                Property::Cy => Value::scalar(v.svg[3]? as f64),
+                Property::X => Value::scalar(v.svg[4]? as f64),
+                Property::Y => Value::scalar(v.svg[5]? as f64),
+                Property::Rx => Value::scalar(v.svg[6]? as f64),
+                Property::Ry => Value::scalar(v.svg[7]? as f64),
                 Property::Color => rgba8(v.colors[0]?),
                 Property::BackgroundColor => rgba8(v.colors[1]?),
                 Property::Fill => rgba8(v.colors[2]?),
@@ -318,6 +324,29 @@ impl Painter {
         if item.opacity <= 0.0 {
             return;
         }
+        // @ref LLP 1055.000 D19 — a blended element is drawn alone into an
+        // island over the frame, then blended onto what is below it.
+        if item.blend != 0 {
+            let (vw, vh) = self.viewport;
+            let mut plain = item.clone();
+            plain.blend = 0;
+            if let Some(pixels) = self.island((0.0, 0.0, vw, vh), |p, shift| {
+                p.svg_item(&plain, shift.pre_concat(ts), shift.pre_concat(origin));
+            }) {
+                let rect = (0.0, 0.0, vw, vh);
+                self.backend.island_image(
+                    std::sync::Arc::new(pixels),
+                    rect,
+                    Transform::identity(),
+                    item.blend,
+                );
+            }
+            return;
+        }
+        let isolate = item.isolate && item.opacity >= 1.0;
+        if isolate {
+            self.backend.push_opacity(1.0);
+        }
         if item.opacity < 1.0 {
             self.backend.push_opacity(item.opacity);
         }
@@ -338,6 +367,9 @@ impl Painter {
             self.backend.pop_clip();
         }
         if item.opacity < 1.0 {
+            self.backend.pop_opacity();
+        }
+        if isolate {
             self.backend.pop_opacity();
         }
     }

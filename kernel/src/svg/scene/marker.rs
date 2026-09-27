@@ -338,6 +338,8 @@ impl Resolver<'_, '_> {
             clip: None,
             mask: None,
             filter: None,
+            blend: 0,
+            isolate: false,
             instance: true,
             kind: Kind::Viewport {
                 rect: (0.0, 0.0, w, h),

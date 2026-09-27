@@ -16,7 +16,12 @@ const MEAN = 4, OFF = 0.06, BAND = 32, SLOP = 3;
 // Linux paints text in its pinned font, not Chrome's system font, and does
 // not stroke text yet: its text fixtures are held to a looser bound.
 const TEXT = /^fx-(axis|baselines|runs|boxcolor)$/;
-const limits = (host, id) => (host === 'linux' && TEXT.test(id) ? { mean: 14, off: 0.16 } : { mean: MEAN, off: OFF });
+// A fixture a host declares unsupported is not compared there: iOS has no
+// public blend on a layer (LLP 1055.000 §8 ruling 6).
+const UNSUPPORTED = { ios: /^fx-mix$/ };
+// Core Animation blends in the display's colour space, CSS in sRGB (LLP
+// 1055.000 §0, stage 10): macOS's blend fixture is held to a looser share.
+const limits = (host, id) => (host === 'linux' && TEXT.test(id) ? { mean: 14, off: 0.16 } : host === 'macos' && id === 'fx-mix' ? { mean: MEAN, off: 0.16 } : { mean: MEAN, off: OFF });
 
 /** An RGBA image averaged down by an integer factor. */
 function shrink(img, k) {
@@ -106,6 +111,7 @@ export async function svgParity({ open, check, hosts }) {
     const got = await capture(open, host, dir, check);
     for (const [page, fixtures] of Object.entries(ref)) {
       for (const [id, a] of Object.entries(fixtures)) {
+        if (UNSUPPORTED[host]?.test(id)) { console.log(`svg parity ${host.padEnd(6)} ${page} ${id.padEnd(16)} declared unsupported`); continue; }
         const b = got[page]?.[id];
         if (!check(a && b && a.width === b.width && a.height === b.height, `${host} ${page} ${id}: no box to compare (off screen or missing)`)) continue;
         let best = null;

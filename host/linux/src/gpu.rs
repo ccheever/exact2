@@ -515,11 +515,11 @@ impl Backend for Gpu {
     }
 
     fn surface_image(&mut self, image: Arc<Pixmap>, dst: Rect4) {
-        self.island_image(image, dst, Transform::identity());
+        self.island_image(image, dst, Transform::identity(), 0);
     }
 
     // @ref LLP 1055.000 D14 — an island in its element's user space.
-    fn island_image(&mut self, image: Arc<Pixmap>, dst: Rect4, ts: Transform) {
+    fn island_image(&mut self, image: Arc<Pixmap>, dst: Rect4, ts: Transform, mode: u8) {
         let clips: &[Shape] = &[];
         struct Pixels(Arc<Pixmap>);
         impl AsRef<[u8]> for Pixels {
@@ -545,7 +545,40 @@ impl Backend for Gpu {
         let place = a
             * Affine::translate((dst.0 as f64, dst.1 as f64))
             * Affine::scale_non_uniform(dst.2 as f64 / nw, dst.3 as f64 / nh);
+        // @ref LLP 1055.000 D19 — `mix-blend-mode`, as a blended layer.
+        if mode != 0 {
+            use vello::peniko::Mix as M;
+            let mix = [
+                M::Normal,
+                M::Multiply,
+                M::Screen,
+                M::Overlay,
+                M::Darken,
+                M::Lighten,
+                M::ColorDodge,
+                M::ColorBurn,
+                M::HardLight,
+                M::SoftLight,
+                M::Difference,
+                M::Exclusion,
+                M::Hue,
+                M::Saturation,
+                M::Color,
+                M::Luminosity,
+            ][mode.min(15) as usize];
+            let whole = Rect::new(
+                0.0,
+                0.0,
+                (self.width * self.scale) as f64,
+                (self.height * self.scale) as f64,
+            );
+            self.scene
+                .push_layer(Fill::NonZero, mix, 1.0, Affine::IDENTITY, &whole);
+        }
         self.scene.draw_image(&brush, place);
+        if mode != 0 {
+            self.scene.pop_layer();
+        }
         for _ in clips {
             self.scene.pop_layer();
         }

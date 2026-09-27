@@ -269,7 +269,14 @@ pub fn value_css(property: Property, v: Value) -> String {
     match property {
         Property::Translate => format!("{}px {}px", Shortest(v.x), Shortest(v.y)),
         Property::Rotate => format!("{}deg", Shortest(v.x)),
-        Property::R | Property::Height => format!("{}px", Shortest(v.x)),
+        Property::R
+        | Property::Height
+        | Property::Cx
+        | Property::Cy
+        | Property::X
+        | Property::Y
+        | Property::Rx
+        | Property::Ry => format!("{}px", Shortest(v.x)),
         Property::Scale | Property::Opacity | Property::StrokeDashoffset => {
             format!("{}", Shortest(v.x))
         }
@@ -411,9 +418,15 @@ fn keyframe_value(property: Property, value: &str) -> Result<Value, ParseError> 
             };
             Value::scalar(v)
         }
-        Property::StrokeDashoffset | Property::R | Property::Height => {
-            Value::scalar(length(value).ok_or_else(bad)?)
-        }
+        Property::StrokeDashoffset
+        | Property::R
+        | Property::Height
+        | Property::Cx
+        | Property::Cy
+        | Property::X
+        | Property::Y
+        | Property::Rx
+        | Property::Ry => Value::scalar(length(value).ok_or_else(bad)?),
         Property::Color | Property::BackgroundColor | Property::Fill | Property::Stroke => {
             crate::color::parse(value).ok_or_else(bad)?
         }

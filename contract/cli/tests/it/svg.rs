@@ -392,3 +392,23 @@ fn stage_nine_filters() {
     assert!(refused(&svg("feFlood")).contains("lower-svg-content"));
     assert!(refused(&svg("rect filter=\"wobble(2)\"")).contains("lower-attr-value"));
 }
+
+// LLP 1055.000 stage 10: geometry keyframes and blending on SVG elements only.
+#[test]
+fn stage_ten_geometry_and_blend() {
+    let r = boot(
+        "keyframes slide\n  from cx=1\n  to cx=9\ncomponent A\n  view\n    svg width=10 height=10\n      circle testId=\"c\" r=1 animation=\"slide 1s\" mix-blend-mode=\"screen\" isolation=\"isolate\"\n",
+    );
+    let k = r.kernel();
+    let c = k.node_by_key(k.find_by_test_id("c")[0]).unwrap();
+    assert_eq!(c.style.mix_blend_mode, exact_kernel::MixBlendMode::Screen);
+    assert!(c
+        .style
+        .animation
+        .properties()
+        .contains(&exact_motion::Property::Cx));
+    assert!(
+        refused("component A\n  view\n    column mix-blend-mode=\"multiply\"\n")
+            .contains("lower-attr-tag")
+    );
+}

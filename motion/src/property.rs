@@ -10,7 +10,8 @@
 //! linearly (CSS Transitions §4, "animation type: by computed value"). The
 //! numeric `height` trial adds a scalar in pixels, with host-owned admission
 //! and layout (LLP 1041 §8.12). Its CSS initial `auto` has no numeric value.
-//! SVG 2's `stroke-dashoffset` and `r` are scalars in user units (LLP 1055 D6).
+//! SVG 2's `stroke-dashoffset` and `r` are scalars in user units (LLP 1055 D6),
+//! as are the geometry rows `cx`, `cy`, `x`, `y`, `rx` and `ry` (LLP 1055.000 D15).
 //! Colours (`color`, `background-color`, `fill`, `stroke`) are four
 //! components, premultiplied sRGB red, green, blue and alpha in 0–1, so
 //! componentwise interpolation is CSS Color 4's premultiplied interpolation
@@ -42,11 +43,23 @@ pub enum Property {
     Fill = 9,
     /// SVG `stroke`, when it is a colour.
     Stroke = 10,
+    /// SVG 2 `cx`, in user units (LLP 1055.000 D15).
+    Cx = 11,
+    /// SVG 2 `cy`.
+    Cy = 12,
+    /// SVG 2 `x`.
+    X = 13,
+    /// SVG 2 `y`.
+    Y = 14,
+    /// SVG 2 `rx`.
+    Rx = 15,
+    /// SVG 2 `ry`.
+    Ry = 16,
 }
 
 impl Property {
     /// Every property, in wire order.
-    pub const ALL: [Property; 11] = [
+    pub const ALL: [Property; 17] = [
         Property::Translate,
         Property::Scale,
         Property::Rotate,
@@ -58,10 +71,16 @@ impl Property {
         Property::BackgroundColor,
         Property::Fill,
         Property::Stroke,
+        Property::Cx,
+        Property::Cy,
+        Property::X,
+        Property::Y,
+        Property::Rx,
+        Property::Ry,
     ];
 
     /// How many properties there are.
-    pub const COUNT: usize = 11;
+    pub const COUNT: usize = 17;
 
     /// The CSS property name.
     pub fn name(self) -> &'static str {
@@ -77,6 +96,12 @@ impl Property {
             Property::BackgroundColor => "background-color",
             Property::Fill => "fill",
             Property::Stroke => "stroke",
+            Property::Cx => "cx",
+            Property::Cy => "cy",
+            Property::X => "x",
+            Property::Y => "y",
+            Property::Rx => "rx",
+            Property::Ry => "ry",
         }
     }
 
@@ -109,7 +134,13 @@ impl Property {
             | Property::Opacity
             | Property::Height
             | Property::StrokeDashoffset
-            | Property::R => 1,
+            | Property::R
+            | Property::Cx
+            | Property::Cy
+            | Property::X
+            | Property::Y
+            | Property::Rx
+            | Property::Ry => 1,
         }
     }
 
@@ -119,7 +150,15 @@ impl Property {
         match self {
             Property::Translate => Some(Value::ZERO),
             Property::Scale | Property::Opacity => Some(Value::scalar(1.0)),
-            Property::Rotate | Property::StrokeDashoffset | Property::R => Some(Value::scalar(0.0)),
+            Property::Rotate
+            | Property::StrokeDashoffset
+            | Property::R
+            | Property::Cx
+            | Property::Cy
+            | Property::X
+            | Property::Y
+            | Property::Rx
+            | Property::Ry => Some(Value::scalar(0.0)),
             Property::Height
             | Property::Color
             | Property::BackgroundColor

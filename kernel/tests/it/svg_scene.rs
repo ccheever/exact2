@@ -914,3 +914,58 @@ fn filters_resolve_into_one_chain() {
     // −10%/−10%/120%/120% of the box, grown by the blur's reach.
     assert!(f.region.0 <= 5.0 && f.region.2 >= 60.0, "{:?}", f.region);
 }
+
+/// LLP 1055.000 D15, D19: presented geometry moves the shape; blend and
+/// isolation reach the item.
+#[test]
+fn geometry_moves_and_blends_resolve() {
+    use exact_motion::{Property, Value};
+    use NodeType::*;
+    let mut d = Doc::new();
+    let svg = d.node(
+        Svg,
+        &[(StyleId::Width, "100"), (StyleId::Height, "100")],
+        &[],
+    );
+    let dot = d.node(
+        SvgCircle,
+        &[
+            (StyleId::Cx, "10"),
+            (StyleId::Cy, "10"),
+            (StyleId::R, "5"),
+            (StyleId::MixBlendMode, "multiply"),
+        ],
+        &[],
+    );
+    let bar = d.node(
+        SvgRect,
+        &[
+            (StyleId::Width, "10"),
+            (StyleId::Height, "10"),
+            (StyleId::Isolation, "isolate"),
+        ],
+        &[],
+    );
+    d.children(svg, &[dot, bar]);
+    let k = d.kernel(&[svg], 400.0);
+    let node = k.node(svg).unwrap();
+    let content = scene::content_box(&node);
+    let presented = |_: exact_kernel::NodeKey, p: Property| match p {
+        Property::Cx => Some(Value::scalar(40.0)),
+        Property::Y => Some(Value::scalar(30.0)),
+        _ => None,
+    };
+    let s = scene::resolve(&k, &node, content, &presented);
+    let d_item = find(&s.items, dot).unwrap();
+    match &d_item.kind {
+        Kind::Shape(sh) => assert_eq!(sh.circle.map(|c| (c.0, c.1)), Some((40.0, 10.0))),
+        _ => unreachable!(),
+    }
+    assert_eq!(d_item.blend, 1, "multiply");
+    let b = find(&s.items, bar).unwrap();
+    assert!(b.isolate);
+    match &b.kind {
+        Kind::Shape(sh) => assert_eq!(sh.path.bounds().map(|r| r.1), Some(30.0)),
+        _ => unreachable!(),
+    }
+}

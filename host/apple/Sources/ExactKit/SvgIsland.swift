@@ -147,6 +147,34 @@ enum SvgIsland {
         return layer
     }
 
+    /// Core Animation's names for `mix-blend-mode`, in CSS's order.
+    private static let blendFilters = ["", "multiplyBlendMode", "screenBlendMode", "overlayBlendMode", "darkenBlendMode",
+                                       "lightenBlendMode", "colorDodgeBlendMode", "colorBurnBlendMode", "hardLightBlendMode",
+                                       "softLightBlendMode", "differenceBlendMode", "exclusionBlendMode", "hueBlendMode",
+                                       "saturationBlendMode", "colorBlendMode", "luminosityBlendMode"]
+    private static var saidBlend = false
+
+    /// `mix-blend-mode` and `isolation` on an element's placed layer (LLP
+    /// 1055.000 D19): a compositing filter on macOS. iOS has no public
+    /// blend on a layer and declares it unsupported (§8 ruling 6): the
+    /// element draws unblended and the host says so once.
+    static func blend(_ layer: CALayer, mode: Int, isolate: Bool, scale: CGFloat) {
+        #if os(macOS)
+        let name = (1..<blendFilters.count).contains(mode) ? blendFilters[mode] : nil
+        if (layer.compositingFilter as? String) != name { layer.compositingFilter = name }
+        #else
+        if mode != 0, !saidBlend {
+            saidBlend = true
+            FileHandle.standardError.write(Data("exact svg: `mix-blend-mode` is not supported on iOS (LLP 1055.000 §8 ruling 6); the element draws unblended\n".utf8))
+        }
+        #endif
+        // An isolated group composites its content alone first.
+        if layer.shouldRasterize != isolate {
+            layer.shouldRasterize = isolate
+            layer.rasterizationScale = scale
+        }
+    }
+
     /// A pattern paint (LLP 1055.000 D7) drawn over `rect` (the shape's
     /// user units) at `scale` pixels per unit: its tile rendered once at
     /// the scale it shows at, then tiled by Core Graphics under the

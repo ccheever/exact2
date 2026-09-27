@@ -306,6 +306,8 @@ fn marked(
             clip: None,
             mask: None,
             filter: None,
+            blend: 0,
+            isolate: false,
             instance: false,
             kind: Kind::Shape(Box::new(sh)),
         }
@@ -354,6 +356,8 @@ fn filtered(
     };
     let inner = Item {
         uid: item.uid ^ (1 << 50),
+        blend: 0,
+        isolate: false,
         opacity: 1.0,
         transform: None,
         clip: None,
@@ -421,6 +425,13 @@ fn element(
     // @ref LLP 1055.000 D17 — the presenter hits it: its node, whether it
     // takes presses, and what `pointer-events` reads.
     let _ = write!(s, ",\"n\":{}", item.id);
+    // @ref LLP 1055.000 D19 — `mix-blend-mode` and `isolation`.
+    if item.blend != 0 {
+        let _ = write!(s, ",\"bl\":{}", item.blend);
+    }
+    if item.isolate {
+        s.push_str(",\"iso\":1");
+    }
     if press.contains(&item.id) {
         s.push_str(",\"h\":1");
     }

@@ -394,7 +394,9 @@ final class SvgScene {
             let list = e["a"] as? [[String: Any]] ?? []
             specs[id] = list
             CssAnimations.apply(list, to: layer, clock: clock, installed: &installed[id, default: [:]])
-            order.append(wrap(id, layer, e["tf"] as? [String: Any]))
+            let placed = wrap(id, layer, e["tf"] as? [String: Any])
+            SvgIsland.blend(placed, mode: Int(num(e["bl"])), isolate: e["iso"] != nil, scale: scale)
+            order.append(placed)
         }
         // Paint order is document order.
         if parent.sublayers?.map(ObjectIdentifier.init) != order.map(ObjectIdentifier.init) {

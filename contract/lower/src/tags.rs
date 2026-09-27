@@ -572,6 +572,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "pointsAtZ" => AttrTarget::Prop(p("pointsAtZ")),
         "limitingConeAngle" => AttrTarget::Prop(p("limitingConeAngle")),
         "filter" => styles(&[StyleId::Filter]),
+        "mix-blend-mode" => styles(&[StyleId::MixBlendMode]),
+        "isolation" => styles(&[StyleId::Isolation]),
         "flood-color" => styles(&[StyleId::FloodColor]),
         "flood-opacity" => styles(&[StyleId::FloodOpacity]),
         "lighting-color" => styles(&[StyleId::LightingColor]),

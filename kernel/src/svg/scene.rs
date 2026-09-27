@@ -89,6 +89,11 @@ pub struct Item {
     /// `filter`: the chain, in the element's user space (LLP 1055.000
     /// D14), applied before the clip and the mask.
     pub filter: Option<Box<super::filter::Filter>>,
+    /// `mix-blend-mode`, as an index into `filter::BLEND_MODES` (0 is
+    /// `normal`), and `isolation: isolate` (LLP 1055.000 D19).
+    pub blend: u8,
+    /// `isolation: isolate`: the element's content blends within it.
+    pub isolate: bool,
     /// A `use`: what it draws is an instance, and hits it as the `use`.
     pub instance: bool,
     /// What it draws.
@@ -452,6 +457,8 @@ impl Resolver<'_, '_> {
             clip,
             mask,
             filter,
+            blend: style.mix_blend_mode as u8,
+            isolate: style.isolation == crate::generated::Isolation::Isolate,
             instance: node.node_type == NodeType::SvgUse,
             key,
             opacity,
@@ -558,6 +565,32 @@ impl Resolver<'_, '_> {
         style: &StyleProps,
         vp: Viewport,
     ) -> Option<(Path, Option<Circle>)> {
+        // @ref LLP 1055.000 D15 — geometry rows moving under an animation
+        // or transition: their presented lengths, in user units.
+        const MOVING: [(Property, StyleId); 6] = [
+            (Property::Cx, StyleId::Cx),
+            (Property::Cy, StyleId::Cy),
+            (Property::X, StyleId::X),
+            (Property::Y, StyleId::Y),
+            (Property::Rx, StyleId::Rx),
+            (Property::Ry, StyleId::Ry),
+        ];
+        let mut moved: Option<StyleProps> = None;
+        for (p, row) in MOVING {
+            if let Some(v) = self.value(node.key, p) {
+                let s = moved.get_or_insert_with(|| style.clone());
+                let d = Dimension::Points(v.x as f32);
+                match row {
+                    StyleId::Cx => s.cx = d,
+                    StyleId::Cy => s.cy = d,
+                    StyleId::X => s.x = d,
+                    StyleId::Y => s.y = d,
+                    StyleId::Rx => s.rx = d,
+                    _ => s.ry = d,
+                }
+            }
+        }
+        let style = moved.as_ref().unwrap_or(style);
         if node.node_type == NodeType::SvgCircle {
             let r = self
                 .value(node.key, Property::R)

@@ -49,8 +49,8 @@ pub struct Presented {
     pub rotate: f32,
     /// Zero to one.
     pub opacity: f32,
-    /// An SVG shape's presented `r` and `stroke-dashoffset` (LLP 1055 D6).
-    pub svg: (Option<f32>, Option<f32>),
+    /// An SVG shape's presented `r`, `stroke-dashoffset`, `cx`, `cy`, `x`, `y`, `rx`, `ry`.
+    pub svg: [Option<f32>; 8],
     /// Presented colours while one animates (LLP 1055.000 D6): `color`,
     /// `background-color`, `fill`, `stroke`, straight RGBA; `None` paints
     /// the row.
@@ -64,7 +64,7 @@ impl Presented {
         scale: 1.0,
         rotate: 0.0,
         opacity: 1.0,
-        svg: (None, None),
+        svg: [None; 8],
         colors: [None; 4],
     };
 
@@ -75,7 +75,7 @@ impl Presented {
             scale: s.scale,
             rotate: s.rotate,
             opacity: s.opacity,
-            svg: (None, None),
+            svg: [None; 8],
             colors: [None; 4],
         }
     }
@@ -341,8 +341,8 @@ pub trait Backend {
     fn fill_border(&mut self, part: &border::BorderFill, ts: Transform);
     /// Draw a picture scaled into `dst`, clipped to every shape in `clips`.
     fn image(&mut self, image: &Arc<Bitmap>, dst: Rect4, clips: &[Shape], ts: Transform);
-    /// An SVG island's premultiplied pixels over `dst` in `ts`'s space.
-    fn island_image(&mut self, _pixels: Arc<Pixmap>, _dst: Rect4, _ts: Transform) {}
+    /// An SVG island's pixels over `dst` in `ts`'s space, blended by `mode`.
+    fn island_image(&mut self, _pixels: Arc<Pixmap>, _dst: Rect4, _ts: Transform, _mode: u8) {}
     /// Composite a rendered canvas child (not a decoded image asset).
     fn surface_image(&mut self, _pixels: Arc<Pixmap>, _dst: Rect4) {}
     /// Paint a paragraph with its top-left at `origin`.

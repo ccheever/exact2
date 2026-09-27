@@ -162,7 +162,7 @@ impl Painter {
             },
         );
         self.backend
-            .island_image(Arc::new(pixels), (rx, ry, rw, rh), own);
+            .island_image(Arc::new(pixels), (rx, ry, rw, rh), own, 0);
     }
 
     /// What an item draws, through its filter when it has one.

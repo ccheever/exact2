@@ -158,6 +158,31 @@ impl Kernel {
         if let (NodeType::SvgCircle, Dimension::Points(r)) = (node.node_type, node.style.r) {
             out.push((Property::R, Value::scalar(r as f64)));
         }
+        // @ref LLP 1055.000 D15 — the geometry rows a shape draws from,
+        // when they are lengths in user units; a percentage resolves at
+        // paint time and is not a target.
+        let s = node.style;
+        let rows: &[(Property, Dimension)] = match node.node_type {
+            NodeType::SvgCircle => &[(Property::Cx, s.cx), (Property::Cy, s.cy)],
+            NodeType::SvgEllipse => &[
+                (Property::Cx, s.cx),
+                (Property::Cy, s.cy),
+                (Property::Rx, s.rx),
+                (Property::Ry, s.ry),
+            ],
+            NodeType::SvgRect => &[
+                (Property::X, s.x),
+                (Property::Y, s.y),
+                (Property::Rx, s.rx),
+                (Property::Ry, s.ry),
+            ],
+            _ => &[],
+        };
+        for (p, d) in rows {
+            if let Dimension::Points(v) = d {
+                out.push((*p, Value::scalar(*v as f64)));
+            }
+        }
         out
     }
 

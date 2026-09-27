@@ -300,6 +300,8 @@ fn shared(attr: &str) -> bool {
             | "flood-opacity"
             | "lighting-color"
             | "color-interpolation-filters"
+            | "mix-blend-mode"
+            | "isolation"
             | "font-size"
             | "font-weight"
             | "font-style"
@@ -370,7 +372,7 @@ impl Lowerer<'_> {
                         errors.push(LowerError {
                             id: "lower-keyframe-property",
                             message: format!(
-                                "`{}` cannot animate: keyframes take opacity, translate, scale, rotate, stroke-dashoffset, r, color, background-color, fill, stroke and animation-timing-function (LLP 1055.000 D6)",
+                                "`{}` cannot animate: keyframes take opacity, translate, scale, rotate, stroke-dashoffset, r, cx, cy, x, y, rx, ry, color, background-color, fill, stroke and animation-timing-function (LLP 1055.000 D6, D15)",
                                 a.name
                             ),
                             span: a.span,
@@ -449,6 +451,18 @@ impl Lowerer<'_> {
                 return err(
                     "lower-svg-attr",
                     "per-glyph `rotate` on SVG text is a later stage (LLP 1055.000 §4); rotate the `text` with `transform`",
+                    a.span,
+                );
+            }
+            // @ref LLP 1055.000 D19 — blending is SVG elements' so far: a
+            // native box would draw it unblended.
+            if matches!(a.name.as_str(), "mix-blend-mode" | "isolation") && !element {
+                return err(
+                    "lower-attr-tag",
+                    format!(
+                        "`{}` applies to SVG elements (LLP 1055.000 D19); boxes do not blend yet",
+                        a.name
+                    ),
                     a.span,
                 );
             }
