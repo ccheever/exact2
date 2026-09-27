@@ -4,7 +4,7 @@
 - **Method:** Charlie asked for a one-round sanity check: is it directionally right, and is anything major missing, excluding nitpicks and underspecification that implementation settles. The shared brief (sha256 `032b327649f85ce5c49759f8d433014c0064defffafa04374240f54b21882372`) was given via `--prompt-file`, behind one added paragraph banning terminal commands (prompt file sha256 `bbbcf7d42ee0f832ca17bc9e82563635441d0e5c8974809100e8b820ba95d69f`). Blind to the Astra and Claude reviews. The text below is its final assistant message, verbatim.
 - **Reviewed revision:** LLP 1051 and LLP 1051.000 as committed at `e992cefe` (sha256 `5f2afcfe…c675` and `2e4edf25…0a0f`), read in a detached worktree of that commit.
 - **Redacted:** nothing.
-- **Disposition:** none yet. The author has not revised; see the author's summary to Charlie (2026-09-25).
+- **Disposition:** LLP 1051.000 §R, the revision of 2026-09-27 (each finding taken, not taken or overtaken, with the reason). The author's summary to Charlie (2026-09-25) came first.
 
 ---
 

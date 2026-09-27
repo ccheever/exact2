@@ -1,7 +1,7 @@
 # LLP 1051: Hypothetical layout — where things would be, before they are there
 
 **Type:** Research
-**Status:** Draft. A record of the follow-up to Charlie's 2026-09-24 conversation with Jordan Walke (LLP 1052). It decides nothing and names no implementer; LLP 1051.000 outlines an implementation. Not linked into `llp/current/`, which is at its cap of 15 on origin/main.
+**Status:** Draft. A record of the follow-up to Charlie's 2026-09-24 conversation with Jordan Walke (LLP 1052). It decides nothing and names no implementer; LLP 1051.000 outlines an implementation. Revised 2026-09-27 where three reviews showed it wrong (§2.5's closing claim, F5, F6; LLP 1051.000 §R). Not linked into `llp/current/`, which is at its cap of 15 on origin/main.
 **Systems:** Kernel (the layout engine; `measure_height_targets`, `compute_layout_presented`, the staged view in `txn`), Motion (`exact-motion`: closed-form timing, holds, the seekable clock), Runner (event handlers; timers), Web host (the browser lays out; DOM measurement), Apple and Linux hosts (the kernel lays out; CoreText and cosmic-text measure), Agent API (`layout`, `clock`)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-09-25
@@ -36,7 +36,7 @@ Code reads it; it is never presented.
 | Four shapes of exposure | Force a layout and read it (the web, UIKit). Ask a size question (SwiftUI, Flutter's dry layout, Compose intrinsics). Compute the next layout before committing it (Compose `LookaheadScope`, Texture, Fabric, exact1's layout islands). Project motion to where it stops (UIScrollView's `targetContentOffset`, `OverScroller.getFinalX`) (§2.2–§2.5) |
 | Four ways it fails | A second implementation drifts from the real one (Flutter's dry layout). Re-measurement compounds with depth (so Compose bans measuring twice). Geometry that feeds render-time state loops (exact1's container-size channel). An answer computed off the thread that needs it arrives a frame late (§2) |
 | exact2 today | No app-facing query. One what-if pass, native only, heights only, with the root offer as the only input that varies (`measure_height_targets`). Consumers compensate with per-feature code in each host, or with hard-coded numbers (§3) |
-| The web is the hard part | The browser lays out. The exact answer there is a forced layout of a temporary change. The fast answer is a second engine that predicts the browser and can disagree with it: Pretext's trade, and by its description Preflex's (§2.7) |
+| The web is the hard part | The browser lays out. The exact answer there is a forced layout of a temporary change, which leaves no trace only for a bounded class of changes (F6). The fast answer is a second engine that predicts the browser and can disagree with it: Pretext's trade, and by its description Preflex's (§2.7) |
 | Time is the axis nobody unifies | For the ball, per-frame stepping rests it 19 pt apart at 60 Hz and 120 Hz. It tunnels through a thin divider on 15% of releases at 60 Hz, and it breaks the seekable clock. Event-driven closed-form paths against layout at time t are exact at any step size and know the resting point at release (§5) |
 
 §4 lists the uses and the exact2 consumer each has today. §6 gives the
@@ -280,8 +280,11 @@ That is Jordan's point about the main thread.
   - LLP 1050 F6 would build the rows at a fling's landing point first.
 
 Knowing the destination at release lets an app commit it (the model) while the
-path is presented. What no platform offers is a projection that sees
-obstacles defined by layout. That is the ball.
+path is presented. Projection against targets that layout defines does exist:
+CSS Scroll Snap chooses among snap positions taken from layout, and exact2's
+iOS host projects against them. What no platform offers is a projection that
+sees obstacles defined by layout, with contacts and bounces. That is the ball.
+(Corrected 2026-09-27 after the Claude review; LLP 1051.000 §R7.)
 
 ### 2.6 Physics: the time of impact
 
@@ -656,14 +659,30 @@ what gives `clock settle` a meaning for a ball.
   it.** `measure_height_targets`, presented heights, the staged overlay and
   `rehydrate` are the parts. No app code can call them, so each consumer
   writes its own measurement per host or hard-codes numbers.
-- **F5. On native hosts a what-if is exact by construction.** It uses the same
-  engine and the same measurer, synchronously on the main thread (LLP 1001:
-  "hosts lay out on their main thread"). Its cost is the dirty paths it lays
-  out, plus re-breaking text at any new width (63–92 µs per long paragraph on
-  CoreText).
+- **F5. On native hosts a what-if is exact once its inputs have settled.** It
+  uses the same engine and the same measurer, synchronously on the main thread
+  (LLP 1001: "hosts lay out on their main thread"). Its cost is the dirty
+  paths it lays out, plus re-breaking text at any new width (63–92 µs per long
+  paragraph on CoreText). Two qualifications, from the reviews (LLP 1051.000
+  §R1, §R4):
+  - An input the host has not settled gives a provisional answer. An image
+    lays out at 0×0 until the host reports its size, and macOS estimates the
+    height of a paragraph of 64 KiB or more.
+  - Exactness does not make a what-if free to undo. Rolling edits back
+    through the kernel's one write path leaves new slot generations, a
+    different free list and advanced text revisions. A what-if that must
+    leave nothing behind has to run beside the committed tree, not on it.
 - **F6. On the web the only exact answer is the browser's.** It comes from
-  forcing a layout of a temporary change and reverting it within one task. A
-  second engine (Taffy plus text flow in wasm, Pretext- or Preflex-style) is
+  forcing a layout of a temporary change and reverting it within one task.
+  That leaves no trace only for a bounded class of changes (LLP 1051.000 §R3):
+  - a forced style after an inline write cancels a running CSS transition;
+  - shrinking content clamps scroll offsets, and scroll anchoring moves them;
+  - the web host's commit path has effects that an inverse cannot undo.
+
+  A style edit on an existing node that is not animating, with scroll
+  offsets and anchoring held, qualifies.
+
+  A second engine (Taffy plus text flow in wasm, Pretext- or Preflex-style) is
   faster and can disagree with the page. Under exact2's rule that the web is
   the standard, the browser's answer is the oracle either way.
 - **F7. Time is the least-served axis.** Per-frame stepping gives answers that
@@ -691,7 +710,7 @@ what gives `clock settle` a meaning for a ball.
    touches in subtrees during simultaneous recognition.
 2. **For Charlie:** is physics against layout a consumer, or only an
    illustration? A consumer moves DEFERRED's decay-driver line (LLP 1051.000
-   §9).
+   §4.2).
 3. **The web:** forced-layout what-ifs (exact, but a reflow each), or a second
    engine (fast, but it drifts)? LLP 1051.000 recommends the first and keeps
    the second as a fallback, to be adopted only if measurements call for it.

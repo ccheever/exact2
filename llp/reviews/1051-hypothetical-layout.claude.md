@@ -5,7 +5,7 @@
 - **Method:** Charlie asked for a one-round sanity check: is it directionally right, and is anything major missing, leaving out nitpicks and underspecification that implementation settles. The prompt was the shared brief (sha256 `032b327649f85ce5c49759f8d433014c0064defffafa04374240f54b21882372`), verbatim, after a preamble. The preamble named the worktree, forbade edits, builds and tests, and said the documents came from another session. The review was blind to the Astra and Grok reviews.
 - **Reviewed revision:** LLP 1051 and LLP 1051.000 as committed at `e992cefe` (sha256 `5f2afcfe…c675` and `2e4edf25…0a0f`), read in a detached worktree of that commit.
 - **Redacted:** nothing.
-- **Disposition:** none yet. The author has not revised; see the author's summary to Charlie (2026-09-25).
+- **Disposition:** LLP 1051.000 §R, the revision of 2026-09-27 (each finding taken, not taken or overtaken, with the reason). The author's summary to Charlie (2026-09-25) came first.
 
 ---
 
