@@ -347,6 +347,8 @@ final class RasterLoader {
         backend.release(interest.source.id)
     }
     func invalidate(_ source: String) { backend.invalidate(source) }
+    /// Drop every decoded image no view shows (as memory pressure does).
+    func trimCold() { backend.trim() }
     func resized(_ view: NodeView) {
         guard let interest = interests[view.id], interest.offeredPixel > 0 else { return }
         let pixel = requestedPixel(view, backend.metadata(interest.source).0)

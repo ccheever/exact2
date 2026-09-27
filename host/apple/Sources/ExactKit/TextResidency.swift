@@ -513,6 +513,16 @@ struct TextResidency {
     mutating func dropCold() {
         while let key = coldFirst { removeCold(key) }
     }
+    /// At rest: cold shaped text goes; cold measurements (a few bytes each,
+    /// what a row coming back needs first) stay.
+    mutating func dropColdShaped() {
+        var key = coldFirst
+        while let current = key, let entry = entries[current] {
+            key = entry.warmer
+            if case .scalar? = entry.cold { continue }
+            removeCold(current)
+        }
+    }
     mutating func prepare(estimatedBytes: Int) {
         trim(incoming: estimatedBytes, keeping: nil)
     }

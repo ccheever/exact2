@@ -81,6 +81,9 @@ final class TextRasterizer {
         }
     }
 
+    /// Let go of the pixels no view shows.
+    func dropKept() { kept.removeAll(); keptBytes = 0 }
+
     private func key(_ node: NodeView) -> TextRasterKey {
         let scale = node.window?.screen.scale ?? node.traitCollection.displayScale
         var key = TextRasterKey(spec: node.paragraphSpec(), size: node.bounds.size,

@@ -389,6 +389,8 @@ final class TextEngine {
     /// Under memory pressure, shaped text no view holds is dropped, as the
     /// raster loader drops its cold images.
     func dropCold() { residency.dropCold() }
+    /// At rest (`ExactSession.rest`): shaped text no view holds goes.
+    func dropColdShaped() { residency.dropColdShaped() }
     private var catalog: [Int: [RegisteredFace]] = [:]
     /// Where a declared face's relative source resolves: the app's resolver
     /// (LLP 1031 D1 — the committed complete generation, else the root).

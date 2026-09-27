@@ -399,6 +399,18 @@ public final class ExactSession {
 
     deinit { destroy() }
 
+    /// Scrolling has settled (iOS: `ScrollPump.restDelay`): the decoded
+    /// images, shaped text and text pixels no view shows go, and the
+    /// allocator returns the pages they leave. What shows keeps its own.
+    func rest() {
+        rasters.trimCold()
+        text.dropColdShaped()
+        #if os(iOS)
+        presenter.textRasters.dropKept()
+        #endif
+        DispatchQueue.global(qos: .utility).async { malloc_zone_pressure_relief(nil, 0) }
+    }
+
     /// A request's reply is in (LLP 1016 D2): the executor's thread says so;
     /// the pump runs on the main thread, where the runner lives. `ctx` is
     /// the handle; a session that is gone is a stranger, dropped.
