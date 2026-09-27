@@ -274,17 +274,17 @@ export function afterPaintPieces(load, o) {
 // with an exit that arrives before the module does waits for it, and every
 // batch after it waits behind it, so no exit is lost and order holds; the
 // caller hands them back through `apply`. `live` is the module, once loaded.
-export function presenceLoader(load, root, apply) {
-  let live = null, loading = null;
+export function presenceLoader(load, root, apply, log) {
+  let live = null, loading = null, unavailable = false;
   const held = [];
   const release = () => { for (const batch of held.splice(0)) apply(batch); };
   const start = () => loading ??= load('./presence-glue.js', 'presence')
     .then(create => { live = create(root); release(); })
-    .catch(error => { loading = null; console.error('exact: presence module:', error); release(); });
+    .catch(error => { unavailable = true; loading = null; log(`presence module: unavailable; motion skipped: ${error}`); release(); });
   return {
     get live() { return live; },
     hold(batch) {
-      if (live) return false;
+      if (live || unavailable) return false;
       const ops = batch.ops ?? [];
       if (ops.some(op => op.op === 'exit' || op.css?.includes('--exact-'))) start();
       if (!held.length && !(loading && ops.some(op => op.op === 'exit'))) return false;
