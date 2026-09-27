@@ -63,5 +63,42 @@ final class TextPaintIOSTests: XCTestCase {
         XCTAssertFalse(p.textIsVisible(text), "drawn while below the scrollport")
         XCTAssertGreaterThan(inkPixels(text), 50, "the bitmap it keeps when it scrolls in has the text")
     }
+
+    /// A one-line label stretched across a row: `text-overflow: ellipsis`
+    /// rasters (truncated in the job, as `draw(_:)` truncates), and the
+    /// raster is its ink, not the box. No backing store of the row's width.
+    func testAnEllipsizedLabelRastersItsInkNotItsBox() throws {
+        let session = ExactApp.shared.makeSession(label: "ellipsis-raster")
+        defer { session.destroy() }
+        let p = session.presenter
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        let label: [String: Any] = ["font_size": 16.0, "white_space": "nowrap", "overflow_x": "hidden", "text_overflow": "ellipsis"]
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "text", "props": ["text": "Voltaris"], "style": label],
+            ["op": "create", "id": 3, "kind": "text", "props": ["text": String(repeating: "Wide label ", count: 12)], "style": label],
+            ["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 360.0, "h": 20.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 40.0, "w": 200.0, "h": 20.0],
+        ]))
+        let short = try XCTUnwrap(p.views[2]), long = try XCTUnwrap(p.views[3])
+        for node in [short, long] {
+            XCTAssertTrue(node.canRasterText, "an ellipsized label rasters")
+            XCTAssertFalse(node.drawsPaint, "so its view keeps no bitmap")
+            p.textRasters.ensure(node, urgent: true)
+            XCTAssertNotNil(node.textRaster)
+            XCTAssertTrue(node.textRasterFrame.contains(node.bounds), "the raster answers for the whole box")
+        }
+        let shortInk = try XCTUnwrap(short.textRasterLayer).frame
+        XCTAssertLessThan(shortInk.width, 120, "a short name's pixels are its text's, not the box's 360 pt")
+        XCTAssertGreaterThan(shortInk.width, 30)
+        let longInk = try XCTUnwrap(long.textRasterLayer).frame
+        XCTAssertLessThanOrEqual(longInk.maxX, 201, "the overflowing line is cut at the box, with its ellipsis")
+        XCTAssertGreaterThan(longInk.maxX, 150)
+    }
 }
 #endif
