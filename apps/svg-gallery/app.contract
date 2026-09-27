@@ -37,6 +37,19 @@ keyframes flash
   from color="#16a34a"
   to color="#000000"
 
+// Stage 10b's geometry keyframes (LLP 1055.000 D15).
+keyframes slide
+  from cx=20
+  to cx=100
+
+keyframes rise
+  from y=70
+  to y=20
+
+keyframes swell
+  from rx=4 ry=4
+  to rx=30 ry=16
+
 keyframes spin
   from rotate=0
   to rotate=90
@@ -74,6 +87,8 @@ component Gallery
     page = 8
   action nine writes page
     page = 9
+  action ten writes page
+    page = 10
   view
     main testId="gallery" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#0f172a" font-family="system-ui"
       row flex-shrink=0 align-items="center" gap=8 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8
@@ -96,6 +111,8 @@ component Gallery
           text "8" font-size=13
         button press=nine testId="page-9" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 9 ? "#e2e8f0" : "#f8fafc")
           text "9" font-size=13
+        button press=ten testId="page-10" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 10 ? "#e2e8f0" : "#f8fafc")
+          text "10" font-size=13
       row flex-wrap="wrap" gap=8 padding-left=12 padding-right=12
         when page == 1
           StageOne()
@@ -115,6 +132,8 @@ component Gallery
           StageEight()
         when page == 9
           StageNine()
+        when page == 10
+          StageTen()
 
 // Stage 1: geometry, units, transforms, nested viewports, classes.
 component StageOne
@@ -558,3 +577,35 @@ component StageNine
           feComposite in="SourceGraphic" in2="glint" operator="arithmetic" k2=1 k3=1
       circle cx=30 cy=40 r=24 fill="#ffffff" filter="url(#matte)"
       rect x=64 y=16 width=48 height=48 rx=10 fill="#be123c" filter="url(#shine)"
+
+// Stage 10c: mix-blend-mode and isolation (LLP 1055.000 D19). Not drawn
+// blended on iOS (§8 ruling 6), so the smoke leaves this tile to the other
+// hosts there.
+component StageTenBlend
+  view
+    svg testId="fx-mix" class=Tile viewBox="0 0 120 80"
+      rect width=120 height=80 fill="#f8fafc"
+      rect x=6 y=10 width=108 height=24 fill="#f59e0b"
+      circle cx=22 cy=22 r=14 fill="#2563eb" mix-blend-mode="multiply"
+      circle cx=50 cy=22 r=14 fill="#2563eb" mix-blend-mode="screen"
+      circle cx=78 cy=22 r=14 fill="#2563eb" mix-blend-mode="difference"
+      circle cx=104 cy=22 r=14 fill="#2563eb" mix-blend-mode="luminosity"
+      rect x=6 y=46 width=108 height=28 fill="#16a34a"
+      g isolation="isolate"
+        circle cx=40 cy=60 r=12 fill="#ef4444"
+        circle cx=52 cy=60 r=12 fill="#3b82f6" mix-blend-mode="overlay"
+      circle cx=84 cy=60 r=12 fill="#ef4444"
+      circle cx=96 cy=60 r=12 fill="#3b82f6" mix-blend-mode="overlay"
+
+// Stage 10: geometry animation (10b, paused mid-flight by a negative delay)
+// and blending (10c).
+component StageTen
+  view
+    svg testId="fx-geometry" class=Tile viewBox="0 0 120 80"
+      line x1=20 y1=16 x2=100 y2=16 stroke="#cbd5e1"
+      circle cx=20 cy=16 r=8 fill="#2563eb" animation="slide 2s linear -1s paused"
+      circle cx=20 cy=16 r=4 fill="#f59e0b" animation="slide 2s ease-in -500ms paused"
+      rect x=12 y=70 width=16 height=8 fill="#16a34a" animation="rise 1s linear -250ms paused"
+      rect x=36 y=70 width=16 height=8 fill="#16a34a" animation="rise 1s linear -750ms paused"
+      ellipse cx=90 cy=56 rx=4 ry=4 fill="#a855f7" animation="swell 1s linear -500ms paused"
+    StageTenBlend()
