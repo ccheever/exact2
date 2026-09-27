@@ -1295,6 +1295,12 @@ impl Tree {
         self.last_roots = roots;
     }
 
+    /// Resource `i`'s value was released to the plan's bytes
+    /// ([`crate::held::Held::released`]): the last inputs hold it no more.
+    pub(crate) fn release_resource(&mut self, i: usize, held: &crate::held::Held) {
+        self.seen.release(i, held);
+    }
+
     /// The current kernel roots.
     pub fn roots(&self) -> Vec<ViewId> {
         roots_of(&self.children)

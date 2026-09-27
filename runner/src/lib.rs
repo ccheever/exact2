@@ -13,6 +13,8 @@
 //!   dispatch loop, typed traps, never UB.
 //! - [`stdlib`] — the roster's implementations, once.
 //! - [`compare`] — value identity, substitution and `==`, once.
+//! - [`held`] — a settled resource's value; a compiled one no one else
+//!   holds is released to the plan's bytes.
 //! - [`bridge`] — values to kernel props and style rows, through the kernel's
 //!   own `set_dynamic`.
 //! - [`delivery`] — what this binary and its update store know about
@@ -40,6 +42,7 @@ pub mod compare;
 mod conform;
 pub mod delivery;
 pub mod head;
+pub mod held;
 pub mod instance;
 pub mod request;
 pub mod runner;

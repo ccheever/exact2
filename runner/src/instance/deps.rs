@@ -12,6 +12,7 @@
 //! with frame masks shifted out of the scopes the subtree introduces, so an
 //! update can skip a site when nothing its subtree reads has changed.
 
+use crate::held::Held;
 use crate::vm::{self, Env, RowSlots};
 use exact_plan::{Code, Opcode, Plan, Stdlib, Value};
 
@@ -289,7 +290,12 @@ impl Deps {
             }
         }
         for (i, (old, new)) in seen.resources.iter().zip(env.resources).enumerate() {
-            if !same(old, new) {
+            let same = match (old, new) {
+                (Some(a), Some(b)) => Held::same(a, b),
+                (None, None) => true,
+                _ => false,
+            };
+            if !same {
                 bits.set(layout.resource(i));
             }
         }
@@ -368,13 +374,23 @@ fn scan(plan: &Plan, layout: Layout, code: Code) -> Reads {
 pub struct Seen {
     slots: Vec<Value>,
     derives: Vec<Option<Value>>,
-    resources: Vec<Option<Value>>,
+    resources: Vec<Option<Held>>,
     pending_resources: Vec<bool>,
     pending_mutations: Vec<bool>,
     now_ms: f64,
 }
 
 impl Seen {
+    /// Resource `i` is now `held`, the same value for every reader
+    /// ([`Held::released`]): what the tree showed holds it no more.
+    pub(crate) fn release(&mut self, i: usize, held: &Held) {
+        if let Some(Some(old)) = self.resources.get_mut(i) {
+            if Held::same(old, held) {
+                *old = held.clone();
+            }
+        }
+    }
+
     pub(crate) fn of(env: &Env<'_>) -> Self {
         Seen {
             slots: env.slots.to_vec(),

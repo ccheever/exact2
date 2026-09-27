@@ -182,7 +182,7 @@ impl From<KernelError> for RunnerError {
 #[derive(Clone)]
 struct ResourceState {
     args: Vec<Value>,
-    value: Value,
+    value: crate::held::Held,
     /// Store revision this answer observed; checked only for known readers.
     store_revision: u64,
     /// A placeholder shown while the answer is on the way, never an answer
@@ -237,7 +237,7 @@ pub struct Runner<D: DataSource> {
     slots: Vec<Value>,
     derives: Vec<Option<Value>>,
     resources: Vec<Option<ResourceState>>,
-    resource_values: Vec<Option<Value>>,
+    resource_values: Vec<Option<crate::held::Held>>,
     tree: Option<Tree>,
     reorder_owner: Option<exact_kernel::NodeKey>,
     reorder_ops: Vec<exact_kernel::Op>,
@@ -454,7 +454,7 @@ impl<D: DataSource> Runner<D> {
                             self.plan.str(r.name).to_string(),
                             self.plan.str(r.source).to_string(),
                             s.args.clone(),
-                            s.value.clone(),
+                            s.value.get(&self.plan).clone(),
                         )
                     })
                 })
@@ -668,7 +668,7 @@ impl<D: DataSource> Runner<D> {
                     .filter(|(_, _, _, value)| runner.check_shape(i, value).is_ok())
                     .map(|(_, _, args, value)| ResourceState {
                         args: args.clone(),
-                        value: value.clone(),
+                        value: crate::held::Held::new(value.clone()),
                         store_revision: runner.store.revision(),
                         placeholder: false,
                     })
@@ -714,7 +714,7 @@ impl<D: DataSource> Runner<D> {
                 if let Some((args, value)) = seed {
                     runner.resources[i] = Some(ResourceState {
                         args,
-                        value,
+                        value: crate::held::Held::new(value),
                         store_revision: runner.store.revision(),
                         placeholder: false,
                     });
@@ -887,7 +887,7 @@ impl<D: DataSource> Runner<D> {
             .resources
             .iter()
             .position(|r| self.plan.str(r.name) == name)
-            .and_then(|i| self.resources[i].as_ref().map(|r| &r.value))
+            .and_then(|i| self.resources[i].as_ref().map(|r| r.value.get(&self.plan)))
     }
 
     /// The clock, in milliseconds.

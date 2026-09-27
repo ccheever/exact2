@@ -1,6 +1,7 @@
 //! Resource and derive settlement, split from the runner's commit shell.
 
 use super::{DataError, DataSource, ResourceState, Runner, RunnerError, Target};
+use crate::held::Held;
 use crate::request::{Answer, Request};
 use crate::vm::{self, Env, Trap};
 use exact_kernel::CommitReceipt;
@@ -83,10 +84,12 @@ impl<D: DataSource> Runner<D> {
         &self,
         i: usize,
         row: &ResourcesRow,
-        resources: &[Option<Value>],
+        resources: &[Option<Held>],
     ) -> Option<Value> {
         match row.placeholder {
-            Some(p) => resources[p.0 as usize].clone(),
+            Some(p) => resources[p.0 as usize]
+                .as_ref()
+                .map(|h| h.get(&self.plan).clone()),
             // @ref LLP 1054.000.002 D1/D3 — a declared `else empty(…)`, or
             // the type's zero.
             None if row.placeholder_value.len > 0 => {
@@ -225,7 +228,7 @@ impl<D: DataSource> Runner<D> {
             }
             let mut derives: Vec<Option<Value>> = vec![None; self.plan.derives.len()];
             let mut derive_store_dependent = vec![false; self.plan.derives.len()];
-            let mut resources: Vec<Option<Value>> = vec![None; self.plan.resources.len()];
+            let mut resources: Vec<Option<Held>> = vec![None; self.plan.resources.len()];
             let mut pending_res = self.pending_res.clone();
             let mut awaiting = self.awaiting.clone();
             for (i, effect) in effects.iter().enumerate() {
@@ -451,8 +454,11 @@ impl<D: DataSource> Runner<D> {
                             }
                             awaiting[i] = false;
                             adopted[i] = true;
-                            Value::from_bytes(self.plan.bytes(row.initial))
-                                .map_err(RunnerError::Plan)?
+                            Held::compiled(
+                                Value::from_bytes(self.plan.bytes(row.initial))
+                                    .map_err(RunnerError::Plan)?,
+                                row.initial,
+                            )
                         }
                         // @ref LLP 1048.003 D6 — the source can't answer yet
                         // (its module isn't loaded) and nothing is compiled:
@@ -465,7 +471,7 @@ impl<D: DataSource> Runner<D> {
                             pending_res[i] = true;
                             awaiting[i] = true;
                             placeholder = true;
-                            self.placeholder(i, &row, &resources).expect("checked")
+                            Held::new(self.placeholder(i, &row, &resources).expect("checked"))
                         }
                         None => {
                             awaiting[i] = false;
@@ -498,7 +504,7 @@ impl<D: DataSource> Runner<D> {
                                     }
                                     self.stale[i] = false;
                                     self.keep_answer(i, &args, &v);
-                                    v
+                                    Held::new(v)
                                 }
                                 Answer::Later(request) if reread => {
                                     // Nothing newer to show before the write
@@ -525,7 +531,9 @@ impl<D: DataSource> Runner<D> {
                                                 .ok()
                                                     == Some(Value::list(args.clone())))
                                             .then(|| {
-                                                Value::from_bytes(self.plan.bytes(row.initial)).ok()
+                                                Value::from_bytes(self.plan.bytes(row.initial))
+                                                    .ok()
+                                                    .map(|v| Held::compiled(v, row.initial))
                                             })
                                             .flatten()
                                         });
@@ -533,7 +541,7 @@ impl<D: DataSource> Runner<D> {
                                     // arguments: the placeholder shows, pending.
                                     let kept = kept.or_else(|| {
                                         placeholder = true;
-                                        self.placeholder(i, &row, &resources)
+                                        self.placeholder(i, &row, &resources).map(Held::new)
                                     });
                                     let Some(kept) = kept else {
                                         return Err(self.unanswerable(i));
@@ -553,18 +561,16 @@ impl<D: DataSource> Runner<D> {
                         adopted[i] = compiled;
                         value
                     } else {
-                        self.check_shape(i, &value)?;
+                        self.check_shape(i, value.get(&self.plan))?;
                         // A fresh answer equal to the last keeps its object.
                         match &states[i] {
-                            Some(s) if crate::compare::equivalent(&s.value, &value) => {
-                                s.value.clone()
-                            }
+                            Some(s) if Held::equivalent(&s.value, &value) => s.value.clone(),
                             _ => value,
                         }
                     };
                     resource_changed[i] = !matches!(
                         &self.resource_values[i],
-                        Some(old) if crate::compare::same(old, &value)
+                        Some(old) if Held::same(old, &value)
                     );
                     resources[i] = Some(value.clone());
                     states[i] = Some(ResourceState {
@@ -650,8 +656,41 @@ impl<D: DataSource> Runner<D> {
             ) else {
                 continue;
             };
-            self.data
-                .adopt(self.plan.str(row.source), &args, &state.value);
+            self.data.adopt(
+                self.plan.str(row.source),
+                &args,
+                state.value.get(&self.plan),
+            );
+        }
+    }
+}
+
+impl<D: DataSource> Runner<D> {
+    /// Release each compiled resource value that nothing outside the
+    /// runner holds any more (`crate::held`): a live answer replaced it on
+    /// screen, or a source adopted it and answers its edits another way.
+    /// The plan's bytes stay; a later read decodes them again. After an
+    /// update, when what the tree shows is what it last saw.
+    pub(super) fn release_compiled(&mut self) {
+        for i in 0..self.resources.len() {
+            let (Some(state), Some(Some(read))) =
+                (self.resources[i].as_mut(), self.resource_values.get_mut(i))
+            else {
+                continue;
+            };
+            let Some(released) = state.value.released() else {
+                continue;
+            };
+            // Every copy must go, or the value stays: the settled state and
+            // what expressions read share one cell (settle_pass).
+            if !Held::same(read, &state.value) {
+                continue;
+            }
+            state.value = released.clone();
+            *read = released.clone();
+            if let Some(tree) = self.tree.as_mut() {
+                tree.release_resource(i, &released);
+            }
         }
     }
 }

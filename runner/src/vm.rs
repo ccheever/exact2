@@ -88,7 +88,7 @@ pub struct Env<'a> {
     /// Derives by index; `None` while not yet settled this update.
     pub derives: &'a [Option<Value>],
     /// Resource values by index; `None` while not yet settled this update.
-    pub resources: &'a [Option<Value>],
+    pub resources: &'a [Option<crate::held::Held>],
     /// Action parameters (empty outside an action).
     pub params: &'a [Value],
     /// Enclosing instance scopes, innermost last.
@@ -475,8 +475,9 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                     .resources
                     .get(resource)
                     .ok_or(malformed(pc))?
-                    .clone()
-                    .ok_or(Trap::Pending { pc })?;
+                    .as_ref()
+                    .ok_or(Trap::Pending { pc })?
+                    .read(env.plan);
                 out.store_dependent |= env
                     .store_dependent_resources
                     .get(resource)

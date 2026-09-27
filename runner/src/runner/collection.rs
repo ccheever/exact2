@@ -238,7 +238,8 @@ impl EdgeState {
                 .any(|(a, b)| match (a, b) {
                     (None, None) => false,
                     (Some(a), Some(b)) => {
-                        !equivalent_all(&a.args, &b.args) || !equivalent(&a.value, &b.value)
+                        !equivalent_all(&a.args, &b.args)
+                            || !crate::held::Held::equivalent(&a.value, &b.value)
                     }
                     _ => true,
                 })

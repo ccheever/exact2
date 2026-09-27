@@ -730,7 +730,7 @@ impl<D: DataSource> Runner<D> {
                 self.keep_answer(i, &p.args, &value);
                 self.resources[i] = Some(ResourceState {
                     args: p.args,
-                    value,
+                    value: crate::held::Held::new(value),
                     store_revision: self.store.revision(),
                     placeholder: false,
                 });
