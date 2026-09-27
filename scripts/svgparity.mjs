@@ -47,7 +47,7 @@ function compare(a, b, dx, dy) {
 }
 
 /** One host's fixtures on every page: `{page: {testId: RGBA crop at 1 px/pt}}`. */
-async function capture(open, host, dir) {
+async function capture(open, host, dir, check) {
   const s = await open({ host, app: 'svg-gallery', env: host === 'linux' ? { EXACT_PAINTER: 'cpu' } : undefined });
   try {
     const tree = await s.tree();
@@ -80,6 +80,17 @@ async function capture(open, host, dir) {
       }
       void reply;
     }
+    // LLP 1055.000 D17: a tap on a tile's centre presses the element there.
+    if (pages.includes('page-6')) {
+      await s.tap('page-6');
+      for (const [fixture, want] of [['fx-hit', 'disc'], ['fx-bars', 'bars']]) {
+        await s.tap(fixture);
+        await s.clock('settle');
+        const t = await s.tree();
+        const got = t.nodes.find((n) => n.props?.testId === 'picked-label')?.props.text;
+        check(got === want, `${host} tap ${fixture}: picked ${JSON.stringify(got)}, not ${JSON.stringify(want)}`);
+      }
+    }
     return out;
   } finally {
     await s.close?.();
@@ -89,10 +100,10 @@ async function capture(open, host, dir) {
 /** Run the comparison; `check(ok, what)` records a failure. */
 export async function svgParity({ open, check, hosts }) {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-svg-parity-'));
-  const ref = await capture(open, 'web', dir);
+  const ref = await capture(open, 'web', dir, check);
   const rows = [];
   for (const host of hosts) {
-    const got = await capture(open, host, dir);
+    const got = await capture(open, host, dir, check);
     for (const [page, fixtures] of Object.entries(ref)) {
       for (const [id, a] of Object.entries(fixtures)) {
         const b = got[page]?.[id];

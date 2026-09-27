@@ -66,6 +66,8 @@ component Gallery
     page = 4
   action five writes page
     page = 5
+  action six writes page
+    page = 6
   view
     main testId="gallery" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#0f172a" font-family="system-ui"
       row flex-shrink=0 align-items="center" gap=8 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8
@@ -80,6 +82,8 @@ component Gallery
           text "4" font-size=13
         button press=five testId="page-5" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 5 ? "#e2e8f0" : "#f8fafc")
           text "5" font-size=13
+        button press=six testId="page-6" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 6 ? "#e2e8f0" : "#f8fafc")
+          text "6" font-size=13
       row flex-wrap="wrap" gap=8 padding-left=12 padding-right=12
         when page == 1
           StageOne()
@@ -91,6 +95,8 @@ component Gallery
           StageFour()
         when page == 5
           StageFive()
+        when page == 6
+          StageSix()
 
 // Stage 1: geometry, units, transforms, nested viewports, classes.
 component StageOne
@@ -309,3 +315,24 @@ component StageFive
         tspan "+4.88%" font-weight=700 fill="#16a34a"
         tspan "↑" dx=2 dy=-3 fill="#16a34a"
       text "SVG" x=60 y=66 text-anchor="middle" font-size=28 font-weight=800 fill="#fef3c7" stroke="#b45309" stroke-width=1.5
+
+// Stage 6: presses on SVG elements (LLP 1055.000 D17). A tap on a tile's
+// centre lands on the element there; the agent's `tap fx-hit` is that tap.
+component StageSix
+  state picked = "none"
+  action pick(which: string) writes picked
+    picked = which
+  view
+    // A disc under a veil that lets hits through, beside a backdrop.
+    svg testId="fx-hit" class=Tile viewBox="0 0 120 80"
+      rect width=120 height=80 fill="#e2e8f0" press=pick("back")
+      circle cx=60 cy=40 r=22 fill=(picked == "disc" ? "#16a34a" : "#64748b") press=pick("disc")
+      rect x=40 y=30 width=40 height=20 fill="#ffffff" fill-opacity=0.5 pointer-events="none"
+    // Bars in a group that takes the press; a stroke-only line.
+    svg testId="fx-bars" class=Tile viewBox="0 0 120 80"
+      g press=pick("bars") fill=(picked == "bars" ? "#f59e0b" : "#2563eb")
+        rect x=20 y=30 width=16 height=44
+        rect x=52 y=14 width=16 height=60
+        rect x=84 y=44 width=16 height=30
+      polyline points="10,70 60,20 110,60" fill="none" stroke="#0f172a" stroke-width=3 press=pick("line")
+    text picked testId="picked-label" font-size=13
