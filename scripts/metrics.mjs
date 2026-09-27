@@ -748,6 +748,13 @@ if (long) {
   });
 }
 
+// The web core's ceilings, KiB of brotli-11 app.wasm as shipped (staged
+// capabilities apart). Over one is a VIOLATION, which the async lane files
+// against the commit: on 2026-09-27 RealWorld's core had grown 30% in a day
+// and nothing said so (LLP 1047.000 §9). Each is the size that day plus 2 KiB.
+// Raise one only on purpose, with the reason here; lower it when a cut lands.
+const WEB_CORE_KIB = { realworld: 295, 'video-player': 240, caltrain: 303 };
+
 // 8. Long: web bytes by capability (LLP 1047 D9), for the three apps the
 // size work tracks. Each app's app.wasm as shipped (raw, gzip, brotli-11),
 // then the same build with names kept (EXACT_WEB_NAMES: rustc keeps its name
@@ -906,7 +913,9 @@ if (long) {
   // LLP 1047 D9: each app's wasm, and its code by capability (KiB of code).
   for (const [name, m] of Object.entries(out.web_bytes ?? {})) {
     const parts = m.code ? Object.entries(m.code).filter(([, b]) => b >= 1024).sort((a, b) => b[1] - a[1]).map(([k, b]) => `${k} ${kib(b)}`).join(' · ') : 'names unavailable';
-    rows.push([`web bytes: ${name}`, m.failed ? 'FAILED' : kib(m.raw), m.failed ?? `${kib(m.brotli)} brotli-11, ${kib(m.gzip)} gzip; ${parts}`]);
+    const ceiling = WEB_CORE_KIB[name];
+    const graded = ceiling === undefined ? '' : `; budget ${ceiling} KiB, ${m.brotli <= ceiling * 1024 ? 'within' : 'VIOLATION'}`;
+    rows.push([`web bytes: ${name}`, m.failed ? 'FAILED' : kib(m.raw), m.failed ?? `${kib(m.brotli)} brotli-11${graded}, ${kib(m.gzip)} gzip; ${parts}`]);
   }
 }
 console.log(`web artifact sha256 ${out.web_artifact_id}; hardware ${out.identity.cpu}; commit ${out.identity.commit}`);
