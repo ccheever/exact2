@@ -1,19 +1,23 @@
 // RealWorld ("Conduit", docs.realworld.show): the Medium clone every frontend
 // framework implements, against the hosted API. The templates' markup and
 // Conduit Minimal CSS v4 are transcribed into rows and styles below. The data
-// is app.ts. Public routes arrive as anonymous HTML; their runtime loads when
-// the page is idle. Client routes show placeholders while loading.
+// is app.ts. Public routes arrive as anonymous HTML. A reading page's runtime
+// loads on the first press that needs it, or at once for a signed-in reader
+// (a kept token): its actions are links, so a signed-out reader reads, pages
+// and follows tags as documents and never downloads it. Sign-in pages load it
+// when idle, since their readers type. Client routes show placeholders while
+// loading.
 routes nav
-  tab home "/" render=cached
+  tab home "/" render=cached activate=interaction
     login "/login" render=cached
     register "/register" render=cached
     settings "/settings"
     editor "/editor"
     edit "/editor/:slug"
-    tag "/tag/:tag" render=cached
-    article "/article/:slug" render=cached
-    profile "/profile/:username" render=cached
-    favorites "/profile/:username/favorites" render=cached
+    tag "/tag/:tag" render=cached activate=interaction
+    article "/article/:slug" render=cached activate=interaction
+    profile "/profile/:username" render=cached activate=interaction
+    favorites "/profile/:username/favorites" render=cached activate=interaction
   notfound
 
 shape User
@@ -1121,7 +1125,7 @@ component ProfilePage
                   text `+ Follow ${person.username}`
       column class=Container max-width=950
         row class=Tabs margin-top=24
-          button press=go(`/profile/${encodeURIComponent(person.username)}`)
+          link href=`/profile/${encodeURIComponent(person.username)}` press=go(`/profile/${encodeURIComponent(person.username)}`)
             padding-top=8
             padding-bottom=8
             padding-left=16
@@ -1133,7 +1137,7 @@ component ProfilePage
             background-color="#ffffff"
             testId="tab-mine"
             text "My Articles"
-          button press=go(`/profile/${encodeURIComponent(person.username)}/favorites`)
+          link href=`/profile/${encodeURIComponent(person.username)}/favorites` press=go(`/profile/${encodeURIComponent(person.username)}/favorites`)
             padding-top=8
             padding-bottom=8
             padding-left=16
