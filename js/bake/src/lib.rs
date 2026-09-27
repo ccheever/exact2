@@ -506,67 +506,6 @@ fn mounts(root: &Path) -> Result<Vec<(String, PathBuf)>, String> {
     Ok(out)
 }
 
-/// Bare import specifiers the app's TypeScript resolves to a directory of the
-/// capture (`typescript.aliases`, `{"@/core": "core"}`): a shared source that
-/// imports through its own project's alias resolves the same way here. Each
-/// target is a mount's name or one of the app's own directories; nothing an
-/// alias names can lie outside the capture.
-fn aliases(root: &Path) -> Result<Vec<(String, String)>, String> {
-    let manifest = root.join("app.json");
-    if !manifest.exists() {
-        return Ok(Vec::new());
-    }
-    let json: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(&manifest).map_err(|e| format!("{}: {e}", manifest.display()))?,
-    )
-    .map_err(|e| format!("{}: {e}", manifest.display()))?;
-    let Some(declared) = json.pointer("/typescript/aliases") else {
-        return Ok(Vec::new());
-    };
-    let declared = declared
-        .as_object()
-        .ok_or("typescript.aliases: an object of specifier → directory")?;
-    let mounted = mounts(root)?;
-    let mut out = Vec::new();
-    for (specifier, target) in declared {
-        let bare = specifier
-            .chars()
-            .next()
-            .is_some_and(|c| c != '.' && c != '/')
-            && !specifier.contains('\\')
-            && !specifier.ends_with('/');
-        if !bare {
-            return Err(format!(
-                "typescript.aliases.{specifier}: a bare import specifier, like `@/core`"
-            ));
-        }
-        let target = target
-            .as_str()
-            .ok_or(format!("typescript.aliases.{specifier}: a directory"))?;
-        let inside = Path::new(target)
-            .components()
-            .all(|c| matches!(c, std::path::Component::Normal(_)));
-        let first = target.split('/').next().unwrap_or("");
-        let known = mounted.iter().any(|(name, _)| name == first) || root.join(target).is_dir();
-        if !inside || !known {
-            return Err(format!(
-                "typescript.aliases.{specifier}: {target} must be a mounted source's name or a directory of the app"
-            ));
-        }
-        out.push((specifier.clone(), target.to_owned()));
-    }
-    Ok(out)
-}
-
-/// The aliases as the stage's compilers read them (`__exact_aliases.json`).
-fn aliases_json(root: &Path) -> Result<String, String> {
-    let map: serde_json::Map<String, serde_json::Value> = aliases(root)?
-        .into_iter()
-        .map(|(specifier, target)| (specifier, serde_json::Value::String(target)))
-        .collect();
-    Ok(serde_json::Value::Object(map).to_string())
-}
-
 /// Where a captured source lives on disk: in the app, or in a mount.
 fn origin(root: &Path, mounts: &[(String, PathBuf)], name: &Path) -> PathBuf {
     let mut parts = name.components();
@@ -753,6 +692,8 @@ fn bake_in(
     if [
         "__exact_entry.ts",
         "__exact_tsconfig.json",
+        "__exact_config.mjs",
+        "__exact_paths.json",
         "__exact_canvas.js",
         "__exact_canvas.d.ts",
     ]
@@ -760,7 +701,7 @@ fn bake_in(
     .any(|name| captured.contains_key(Path::new(name)))
     {
         return Err(
-            "__exact_entry.ts, __exact_tsconfig.json and __exact_canvas.* are reserved for the producer"
+            "__exact_entry.ts, __exact_tsconfig.json, __exact_config.mjs, __exact_paths.json and __exact_canvas.* are reserved for the producer"
                 .into(),
         );
     }
@@ -832,8 +773,14 @@ fn bake_in(
     }
     write_changed(&stage.join("__exact_entry.ts"), entry.as_bytes())?;
     write_changed(
-        &stage.join("__exact_aliases.json"),
-        aliases_json(&app)?.as_bytes(),
+        &stage.join("__exact_config.mjs"),
+        resident::CONFIG.as_bytes(),
+    )?;
+    write_changed(
+        &stage.join("__exact_paths.json"),
+        serde_json::json!({"app": app, "mounts": mounts(&app)?})
+            .to_string()
+            .as_bytes(),
     )?;
     if let BakeMode::Development {
         compiler: Some(compiler),
@@ -998,51 +945,36 @@ fn write_changed(path: &Path, bytes: &[u8]) -> Result<(), String> {
 }
 
 fn compile_once(stage: &Path, tools: &Tools) -> Result<(), String> {
-    // The app's aliases (`typescript.aliases`) as TypeScript `paths` and a
-    // Rolldown alias, both into the stage: resolution never leaves the capture.
-    let aliases: serde_json::Map<String, serde_json::Value> = serde_json::from_str(
-        &std::fs::read_to_string(stage.join("__exact_aliases.json"))
-            .unwrap_or_else(|_| "{}".into()),
-    )
-    .map_err(|e| format!("__exact_aliases.json: {e}"))?;
-    let mut paths = serde_json::Map::new();
-    for (specifier, target) in &aliases {
-        let target = target.as_str().unwrap_or("");
-        paths.insert(
-            specifier.clone(),
-            serde_json::json!([format!("./{target}")]),
-        );
-        paths.insert(
-            format!("{specifier}/*"),
-            serde_json::json!([format!("./{target}/*")]),
-        );
+    write_changed(
+        &stage.join("__exact_config.mjs"),
+        resident::CONFIG.as_bytes(),
+    )?;
+    let configured = exact_bake::bun()
+        .args([
+            "--input-type=module",
+            "-e",
+            "import { configure } from './__exact_config.mjs'; configure(process.cwd());",
+        ])
+        .current_dir(stage)
+        .output()
+        .map_err(|e| format!("tsconfig: {e}"))?;
+    if !configured.status.success() {
+        return Err(String::from_utf8_lossy(&configured.stderr).into_owned());
     }
-    let config = serde_json::json!({
-        "compilerOptions": {
-            "noEmit": true, "strict": true, "target": "ES2020", "module": "ESNext",
-            "moduleResolution": "bundler", "lib": ["ES2020", "WebWorker"], "paths": paths,
-        },
-        "files": ["__exact_entry.ts"],
-    });
-    std::fs::write(stage.join("__exact_tsconfig.json"), config.to_string())
-        .map_err(|e| e.to_string())?;
     run(
         &tools.tsc,
         &["--project", "__exact_tsconfig.json", "--pretty", "false"],
         stage,
     )?;
-    // No absolute import or dependency may escape the captured graph, and an
-    // alias names only a directory inside it. This generated config is
+    // No absolute import or dependency may escape the captured graph, and a
+    // path mapping names only files inside it. This generated config is
     // producer-owned, not app configuration.
     std::fs::write(
         stage.join("__exact_bundle.mjs"),
         r#"
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-const aliases = JSON.parse(readFileSync('__exact_aliases.json', 'utf8'));
 export default {
   input: '__exact_entry.ts',
-  resolve: { alias: Object.fromEntries(Object.entries(aliases).map(([from, to]) => [from, resolve(process.cwd(), to)])) },
+  tsconfig: '__exact_tsconfig.json',
   plugins: [{ name: 'captured-sources', load(id) {
     if (!id.startsWith(process.cwd() + '/')) throw new Error('module outside captured app: ' + id);
     return null;

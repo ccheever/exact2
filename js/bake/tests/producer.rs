@@ -762,34 +762,44 @@ fn an_alias_resolves_a_mounted_source_alike_in_both_producers_and_names_only_the
         "import { word } from '@/lib/deep/word';\nexport const prefix = word + ': ';\n",
     );
     shared.write("deep/word.ts", "export const word = 'aliased';\n");
-    let manifest = |aliases: &str| {
-        format!(
-            r#"{{"app":{{"id":"test.exact.logic","name":"Logic"}},"typescript":{{"sources":{{"lib":"../{}"}},"aliases":{aliases}}}}}"#,
-            shared.0.file_name().unwrap().to_str().unwrap()
-        )
-    };
-    f.write("app.json", &manifest(r#"{"@/lib":"lib"}"#));
+    f.write("app.json", &format!(
+        r#"{{"app":{{"id":"test.exact.logic","name":"Logic"}},"typescript":{{"sources":{{"lib":"../{}"}}}}}}"#,
+        shared.0.file_name().unwrap().to_str().unwrap()
+    ));
+    f.write(
+        "tsconfig.json",
+        r#"{
+        // Editors and both producers share these paths.
+        "compilerOptions": {"baseUrl":".", "paths": {"@/lib/*":["missing/*", "lib/*"]}},
+    }"#,
+    );
     f.write("logic.ts", "export { prefix } from '@/lib/prefix';\n");
     let standalone = f.bake();
     assert!(String::from_utf8_lossy(&standalone.script).contains("aliased"));
     let mut producer = exact_js_bake::Producer::new(Tools::default()).unwrap();
     assert_eq!(producer.bake(&f.0, None).unwrap().script, standalone.script);
-    // Without the alias the same import is refused, by the checker, before bundling.
-    f.write("app.json", &manifest("{}"));
-    assert!(producer
-        .bake(&f.0, None)
-        .err()
-        .unwrap()
-        .contains("@/lib/prefix"));
-    // An alias names a mount or a directory of the app, and nothing outside it.
-    for (aliases, refusal) in [
-        (r#"{"@/lib":"../elsewhere"}"#, "must be a mounted source"),
-        (r#"{"@/lib":"missing"}"#, "must be a mounted source"),
-        (r#"{"./lib":"lib"}"#, "a bare import specifier"),
-        (r#"{"@/lib":1}"#, "a directory"),
+    // Removing paths invalidates the resident compiler too.
+    f.write("tsconfig.json", "{}");
+    for error in [
+        producer.bake(&f.0, None).err().unwrap(),
+        bake(&f.0, &Tools::default()).err().unwrap(),
     ] {
-        f.write("app.json", &manifest(aliases));
-        let error = bake(&f.0, &Tools::default()).err().unwrap();
-        assert!(error.contains(refusal), "{aliases}: {error}");
+        assert!(error.contains("@/lib/prefix"), "{error}");
+    }
+    // Neither compiler may resolve a path outside the captured source graph.
+    for paths in [
+        r#"{"@/lib/*":["../elsewhere/*"]}"#,
+        r#"{"@/lib/*":"lib/*"}"#,
+    ] {
+        f.write(
+            "tsconfig.json",
+            &format!(r#"{{"compilerOptions":{{"paths":{paths}}}}}"#),
+        );
+        for error in [
+            producer.bake(&f.0, None).err().unwrap(),
+            bake(&f.0, &Tools::default()).err().unwrap(),
+        ] {
+            assert!(error.contains("tsconfig"), "{error}");
+        }
     }
 }

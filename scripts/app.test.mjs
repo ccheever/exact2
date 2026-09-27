@@ -256,13 +256,14 @@ test('resolving a surviving game prunes a deleted game shell', () => fixture(({a
   assert.ok(!existsSync(shell));
 }));
 
-test('ordinary GPU ownership requires its own manifest and matching metadata directory', () => fixture(({app, dir, pkg, write}) => {
+test('ordinary GPU ownership requires its own manifest and matching metadata directory', () => fixture(({app, dir, pkg, write, run}) => {
   const manifest = JSON.parse(readFileSync(resolve(dir,'app.json'),'utf8')); delete manifest.game;
   // An ordinary app outside games/ sharing a workspace with an unrelated foo-gpu.
   process.env.EXACT_APP_DIR = resolve(dirname(dirname(dir)), 'ordinary/foo');
   pkg('game/ordinary/foo','foo-web');
   write('game/ordinary/foo/app.json',JSON.stringify(manifest)); write('game/ordinary/foo/app.contract','component App\n  view\n');
   pkg('game/ordinary/unrelated','foo-gpu');
+  run('cargo',['metadata','--offline','--format-version','1','--manifest-path','game/Cargo.toml']);
   assert.equal(app().hasGpu,false);
   write('game/ordinary/foo/gpu/Cargo.toml','[package]\nname="some-other-gpu"\nversion="0.1.0"\n');
   assert.equal(app().hasGpu,false);
@@ -637,13 +638,21 @@ test('without its own lock a game resolves only against the SDK lock, never a le
   assert.ok(app().cargoPackage('gpu'));
   assert.equal(existsSync(resolve(dir,'Cargo.lock')),false,'the SDK lock writes no lock into the game');
 }));
-test('R13 ordinary workspace without a lock resolves metadata',()=>fixture(({app,root,pkg,write})=>{
+test('ordinary resolution refuses missing and stale locks without writing them',()=>fixture(({app,root,pkg,write,run})=>{
   process.env.EXACT_APP_DIR=resolve(root,'game/ordinary/plain');
   pkg('game/ordinary/plain','plain-web');
   write('game/ordinary/plain/app.json',JSON.stringify({name:'Plain',app:{id:'com.exact.plain',name:'Plain'}}));
   write('game/ordinary/plain/app.contract','component App\n  view\n');
   rmSync(resolve(root,'game/Cargo.lock'),{force:true});
+  assert.throws(()=>app('plain').cargoPackage('web'),/update the lock explicitly.*cargo metadata --offline/s);
+  assert.equal(existsSync(resolve(root,'game/Cargo.lock')),false);
+  run('cargo',['metadata','--offline','--format-version','1','--manifest-path','game/Cargo.toml']);
+  const before=readFileSync(resolve(root,'game/Cargo.lock'),'utf8');
   assert.equal(app('plain').cargoPackage('web').name,'plain-web');
+  const path='game/ordinary/plain/Cargo.toml';
+  write(path,readFileSync(resolve(root,path),'utf8').replace('version="0.1.0"','version="0.2.0"'));
+  assert.throws(()=>app('plain').cargoPackage('web'),/update the lock explicitly.*cargo metadata --offline/s);
+  assert.equal(readFileSync(resolve(root,'game/Cargo.lock'),'utf8'),before);
 }));
 test('R13 explicit update-lock accepts a deliberate dependency change',()=>fixture(({app,dir,write,update})=>{
   app().cargoPackage('gpu');const before=readFileSync(resolve(dir,'Cargo.lock'),'utf8');
@@ -892,7 +901,7 @@ test.skipIf(process.platform !== 'darwin')('iOS distribution assets retain the i
     writeFileSync(resolve(dir, 'icon.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64'));
     const bundle = resolve(dir, 'Fixture.app');
     mkdirSync(bundle);
-    const app = { dir, name: 'fixture', manifest: { icons: [{ src: 'icon.png', sizes: '1024x1024' }], launch: { background: '#fff', backgroundDark: '#123456' } } };
+    const app = { dir, name: 'fixture', manifest: { icons: [{ src: 'icon.png', sizes: '1024x1024' }], background_color: '#fff', background_color_dark: '#123456' } };
     const keys = iosAssets(app, bundle, true, { catalog: true });
     assert.equal(keys.CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName, 'AppIcon');
     assert.equal(keys.UILaunchScreen.UIColorName, 'ExactLaunch');
@@ -903,3 +912,15 @@ test.skipIf(process.platform !== 'darwin')('iOS distribution assets retain the i
     assert.equal(assets.filter(asset => asset.Name === 'ExactLaunch').length, 2);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }, 60000);
+
+test('manifest colours follow the web and retired launch and alias keys are refused', async () => {
+  const { readManifest } = await import('./app.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-manifest-'));
+  const manifest = { name: 'Manifest', app: { id: 'test.manifest', name: 'Manifest' }, background_color: '#fff', background_color_dark: '#123456' };
+  const read = value => { writeFileSync(resolve(dir, 'app.json'), JSON.stringify(value)); return readManifest(dir, 'fixture'); };
+  try {
+    assert.equal(read(manifest).background_color_dark, '#123456');
+    assert.throws(() => read({ ...manifest, launch: { background: '#fff' } }), /launch/);
+    assert.throws(() => read({ ...manifest, typescript: { aliases: { '@/*': './*' } } }), /aliases/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

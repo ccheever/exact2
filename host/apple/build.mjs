@@ -626,24 +626,23 @@ export function iosAssets(app, dir, device, { catalog = false } = {}) {
 }
 
 /** The launch screen in the app's own background, light and dark
- * (`launch`, else the manifest's `background_color`): iOS crossfades
+ * (the manifest's `background_color` and `background_color_dark`): iOS crossfades
  * from the launch screen to the first frame, and between two screens of one
  * colour that crossfade is invisible, so the app opens on its first frame.
  * `UILaunchScreen` names colours only from an asset catalog, so this
  * writes its colour set for the shared compile. Returns the plist keys to merge. */
 function launchScreen(app, catalog) {
-  const launch = app.manifest.launch ?? {};
-  const light = launch.background ?? app.manifest.background_color;
+  const light = app.manifest.background_color, dark = app.manifest.background_color_dark;
   if (!light) return {};
   const components = (hex, field) => {
     const m = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(hex ?? '');
-    if (!m) throw new Error(`launch.${field} must be a #RGB, #RRGGBB or #RRGGBBAA colour, not ${JSON.stringify(hex)}`);
+    if (!m) throw new Error(`${field} must be a #RGB, #RRGGBB or #RRGGBBAA colour, not ${JSON.stringify(hex)}`);
     const h = m[1].length === 3 ? [...m[1]].map((c) => c + c).join('') : m[1];
     const a = h.length === 8 ? parseInt(h.slice(6), 16) : 255;
     return { 'color-space': 'srgb', components: { red: `0x${h.slice(0, 2)}`, green: `0x${h.slice(2, 4)}`, blue: `0x${h.slice(4, 6)}`, alpha: (a / 255).toFixed(3) } };
   };
-  const colors = [{ idiom: 'universal', color: components(light, 'background') }];
-  if (launch.backgroundDark) colors.push({ idiom: 'universal', appearances: [{ appearance: 'luminosity', value: 'dark' }], color: components(launch.backgroundDark, 'backgroundDark') });
+  const colors = [{ idiom: 'universal', color: components(light, 'background_color') }];
+  if (dark) colors.push({ idiom: 'universal', appearances: [{ appearance: 'luminosity', value: 'dark' }], color: components(dark, 'background_color_dark') });
   mkdirSync(resolve(catalog, 'ExactLaunch.colorset'), { recursive: true });
   writeFileSync(resolve(catalog, 'ExactLaunch.colorset', 'Contents.json'), JSON.stringify({ colors, info: { author: 'exact', version: 1 } }));
   return { UILaunchScreen: { UIColorName: 'ExactLaunch' } };

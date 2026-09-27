@@ -132,3 +132,27 @@ fn a_mounted_directory_is_captured_beside_app_ts_and_nothing_else_of_it() {
         );
     }
 }
+
+#[test]
+fn tsconfig_paths_reach_the_type_checker_and_bundler_without_hermes() {
+    let app = Scratch::new(&std::env::temp_dir()).unwrap();
+    std::fs::create_dir_all(app.0.join("lib")).unwrap();
+    std::fs::write(app.0.join("lib/word.ts"), "export const word = 'mapped';").unwrap();
+    std::fs::write(
+        app.0.join("__exact_entry.ts"),
+        "export { word } from '@/word';",
+    )
+    .unwrap();
+    std::fs::write(
+        app.0.join("tsconfig.json"),
+        r#"{
+        // The first candidate is absent; TypeScript tries the next one.
+        "compilerOptions": {"baseUrl":"lib", "paths":{"@/*":["absent/*", "*"]}},
+    }"#,
+    )
+    .unwrap();
+    super::compile_once(&app.0, &super::Tools::default()).unwrap();
+    assert!(std::fs::read_to_string(app.0.join("app.js"))
+        .unwrap()
+        .contains("mapped"));
+}

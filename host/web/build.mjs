@@ -236,11 +236,11 @@ function minifyCss(css) {
 // 1067 D5): the glue finds it by the meta tag below.
 const pageNative = app.modules.web;
 // The page in the app's first-frame background from its first paint (the
-// manifest's `launch`, as the iOS launch screen), so nothing lighter or
+// manifest's background colours, as the iOS launch screen), so nothing lighter or
 // darker shows before the first frame.
-const launch = app.manifest.launch ?? {}, launchLight = launch.background ?? app.manifest.background_color;
+const launchLight = app.manifest.background_color, launchDark = app.manifest.background_color_dark;
 const hex = (value) => /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value ?? '') ? value : null;
-const launchCss = hex(launchLight) ? `html{background-color:${launchLight}}${hex(launch.backgroundDark) ? `@media (prefers-color-scheme:dark){html{background-color:${launch.backgroundDark}}}` : ''}` : '';
+const launchCss = hex(launchLight) ? `html{background-color:${launchLight}}${hex(launchDark) ? `@media (prefers-color-scheme:dark){html{background-color:${launchDark}}}` : ''}` : '';
 writeFileSync(resolve(stage, 'index.html'), readFileSync(resolve(stage, 'index.html'), 'utf8')
   .replace(/<style>([\s\S]*?)<\/style>/, (_, css) => `<style>${minifyCss(css)}${launchCss}</style>`)
   .replace('<html lang="en">', `<html lang="${escapeHtml(webManifest.lang)}">`)

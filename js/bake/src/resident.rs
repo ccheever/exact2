@@ -150,18 +150,6 @@ const allowed = path => { path=resolve(path);return path === stage || path.start
 const config=resolve(stage,'__exact_tsconfig.json');
 // The native builder owns dependency and diagnostic invalidation, including
 // globals and standard libraries. Its cache never comes from the app capture.
-// The app's aliases (`typescript.aliases`): TypeScript `paths` and a Rolldown
-// alias into the stage, reread each compile since the manifest may change.
-const aliases=()=>{try{return JSON.parse(readFileSync(resolve(stage,'__exact_aliases.json'),'utf8'));}catch{return {};}};
-let configured='';
-function configure(){
-  const map=aliases(),key=JSON.stringify(map);
-  if(key===configured)return map;
-  const paths=Object.fromEntries(Object.entries(map).flatMap(([from,to])=>[[from,['./'+to]],[from+'/*',['./'+to+'/*']]]));
-  writeFileSync(config,JSON.stringify({compilerOptions:{noEmit:true,strict:true,target:'ES2020',module:'ESNext',moduleResolution:'bundler',lib:['ES2020','WebWorker'],paths,incremental:true,tsBuildInfoFile:resolve(stage,'__exact_build.tsbuildinfo')},files:['__exact_entry.ts']}));
-  configured=key;
-  return map;
-}
 async function check() {
   let files;
   try { ({stdout:files}=await execute(tsc,['--project',config,'--pretty','false','--listFiles'],{cwd:stage,env:checkEnv,encoding:'utf8',maxBuffer:4*1024*1024})); }
@@ -179,12 +167,13 @@ async function compile() {
   // Generated output is not a captured input. Remove it before resolution,
   // so an app's ./app.js import follows the same TS substitution as one-shot.
   rmSync(resolve(stage,'app.js'),{force:true});
-  const map=configure();
+  const { configure } = await import(resolve(stage,'__exact_config.mjs'));
+  configure(stage, true);
   const checking=check().then(()=>null,error=>error);
   let failed;
   try {
   const bundle=await rolldown({cwd:stage,input:resolve(stage,'__exact_entry.ts'),platform:'neutral',
-    resolve:{alias:Object.fromEntries(Object.entries(map).map(([from,to])=>[from,resolve(stage,to)]))},
+    tsconfig:config,
     plugins:[{name:'captured-sources',load(id){if(!id.startsWith(stage+sep))throw new Error('module outside captured app: '+id);return null;}}]});
   try { await bundle.write({file:resolve(stage,'app.js'),format:'iife',name:'exact'}); }
   finally { await bundle.close(); }
@@ -199,3 +188,164 @@ for await(const line of createInterface({input:process.stdin,crlfDelay:Infinity}
   catch(error){process.stdout.write(JSON.stringify({ok:false,error:String(error?.message??error).slice(0,65536)})+'\n');}
 }
 "#;
+
+// Shared by the one-shot and resident compilers. Read only captured configuration;
+// the producer still owns checking policy and the ambient library surface.
+pub(super) const CONFIG: &str = r#"
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { resolve, relative, dirname, sep, isAbsolute } from 'node:path';
+export function configure(stage, incremental=false) {
+  const inside = (path) => {
+    if (path !== stage && !path.startsWith(stage+sep)) throw new Error('tsconfig: path outside captured app: '+path);
+    return path;
+  };
+  const mapping=resolve(stage,'__exact_paths.json');
+  const roots=existsSync(mapping) ? JSON.parse(readFileSync(mapping,'utf8')) : {app:stage,mounts:[]};
+  const within=(path,root)=>path===root || path.startsWith(root+sep);
+  const origins=[...roots.mounts.map(([name,path])=>[resolve(stage,name),path]),[stage,roots.app]];
+  const source = path => {
+    const [at,from]=origins.find(([at])=>within(path,at));
+    return resolve(from,relative(at,path));
+  };
+  const captured = path => {
+    const match=[...origins].sort((a,b)=>b[1].length-a[1].length).find(([,from])=>within(path,from));
+    if (!match) throw new Error('tsconfig: path outside captured app: '+path);
+    return inside(resolve(match[0],relative(match[1],path)));
+  };
+  const local = path => './'+relative(stage,captured(path)).split(sep).join('/');
+  const object = (value, label) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('tsconfig: '+label+' must be an object');
+    return value;
+  };
+  const chain = new Set();
+  function read(path) {
+    inside(path);
+    if (chain.has(path)) throw new Error('tsconfig: cyclic extends: '+path);
+    chain.add(path);
+    const json=object(Bun.JSONC.parse(readFileSync(path,'utf8')),path), dir=source(dirname(path));
+    let inherited={};
+    for (const parent of json.extends === undefined ? [] : Array.isArray(json.extends) ? json.extends : [json.extends]) {
+      if (typeof parent !== 'string' || !parent.startsWith('.')) throw new Error('tsconfig: extends must name a captured relative config');
+      let target=captured(resolve(dir,parent));
+      if (!existsSync(target) && !target.endsWith('.json')) target+='.json';
+      inherited={...inherited,...read(target)};
+    }
+    const options=object(json.compilerOptions ?? {},'compilerOptions');
+    if (options.baseUrl !== undefined) {
+      if (typeof options.baseUrl !== 'string') throw new Error('tsconfig: baseUrl must be a string');
+      inherited.base=resolve(dir,options.baseUrl);
+      captured(inherited.base);
+    }
+    if (options.paths !== undefined) inherited.paths={map:object(options.paths,'paths'),dir};
+    chain.delete(path);
+    return inherited;
+  }
+  const entry=resolve(stage,'tsconfig.json');
+  const {base,paths:declared}=existsSync(entry) ? read(entry) : {};
+  const paths={};
+  for (const [key,values] of Object.entries(declared?.map ?? {})) {
+    if (key.split('*').length>2 || !Array.isArray(values) || !values.length || values.some(v=>typeof v!=='string' || v.split('*').length>2 || isAbsolute(v))) {
+      throw new Error('tsconfig: paths.'+key+' must name relative paths with at most one wildcard');
+    }
+    paths[key]=values.map(value=>local(resolve(base ?? declared.dir,value)));
+    // TypeScript 7 removed baseUrl. Lower its fallback to paths, shared with
+    // Rolldown, so existing editor configuration retains the same resolution.
+    if (base) paths[key].push(local(resolve(base,key)));
+  }
+  if (base && !paths['*']) paths['*']=[local(resolve(base,'*'))];
+  const config={compilerOptions:{noEmit:true,strict:true,target:'ES2020',module:'ESNext',moduleResolution:'bundler',lib:['ES2020','WebWorker'],paths,
+    ...(incremental ? {incremental:true,tsBuildInfoFile:resolve(stage,'__exact_build.tsbuildinfo')} : {})},files:['__exact_entry.ts']};
+  const path=resolve(stage,'__exact_tsconfig.json'), bytes=JSON.stringify(config);
+  if (!existsSync(path) || readFileSync(path,'utf8')!==bytes) writeFileSync(path,bytes);
+}
+"#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::compile_once;
+
+    #[test]
+    fn tsconfig_changes_resolve_alike_in_both_compilers_without_loading_hermes() {
+        let stage = Scratch::new(&std::env::temp_dir()).unwrap();
+        let write = |name: &str, bytes: &str| std::fs::write(stage.0.join(name), bytes).unwrap();
+        std::fs::create_dir(stage.0.join("lib")).unwrap();
+        std::fs::create_dir(stage.0.join("config")).unwrap();
+        write("lib/word.ts", "export const word = 'mapped';");
+        write("__exact_entry.ts", "export { word } from '@/word';");
+        write("__exact_config.mjs", CONFIG);
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let mut compiler = Compiler::new(&root, &stage.0).unwrap();
+        let tools = Tools::default();
+        let mut resident = || {
+            compiler.input.as_mut().unwrap().write_all(b"{}\n").unwrap();
+            let first = compiler.reply()?;
+            if first["phase"] != "bundled" {
+                return Err(first["error"].to_string());
+            }
+            let checked = compiler.reply()?;
+            if checked["ok"] != true {
+                return Err(checked["error"].to_string());
+            }
+            std::fs::read_to_string(stage.0.join("app.js")).map_err(|e| e.to_string())
+        };
+        for config in [
+            r#"{"compilerOptions":{"paths":{"@/*":["./missing/*","./lib/*"]}}}"#,
+            r#"{"compilerOptions":{"baseUrl":"lib","paths":{"@/word":["word.ts"]}}}"#,
+            r#"{"extends":"./config/base.json"}"#,
+        ] {
+            write(
+                "config/base.json",
+                r#"{
+                // Paths without baseUrl are relative to this config.
+                "compilerOptions":{"paths":{"@/*":["../lib/*"]}},
+            }"#,
+            );
+            write("tsconfig.json", config);
+            compile_once(&stage.0, &tools).unwrap();
+            let one = std::fs::read_to_string(stage.0.join("app.js")).unwrap();
+            assert!(one.contains("mapped"));
+            assert_eq!(resident().unwrap(), one);
+        }
+        // The resident process must reread extended configs as well as the root.
+        write("lib/next.ts", "export const word = 'changed';");
+        write(
+            "config/base.json",
+            r#"{"compilerOptions":{"paths":{"@/word":["../lib/next.ts"]}}}"#,
+        );
+        assert!(resident().unwrap().contains("changed"));
+        for config in [
+            "{}",
+            r#"{"compilerOptions":{"paths":{"@/*":["../uncaptured/*"]}}}"#,
+            r#"{"compilerOptions":{"baseUrl":"../uncaptured"}}"#,
+            r#"{"compilerOptions":{"paths":{"@/*":"./lib/*"}}}"#,
+            r#"{"extends":"../uncaptured.json"}"#,
+            r#"{"extends":"./tsconfig.json"}"#,
+        ] {
+            write("tsconfig.json", config);
+            assert!(compile_once(&stage.0, &tools).is_err(), "{config}");
+            assert!(resident().is_err(), "{config}");
+        }
+        // Editor paths into an external directory resolve to its declared mount.
+        write(
+            "__exact_paths.json",
+            &serde_json::json!({
+                "app": stage.0.join("original/app"),
+                "mounts": [["lib", stage.0.join("original/shared")]]
+            })
+            .to_string(),
+        );
+        write(
+            "tsconfig.json",
+            r#"{"compilerOptions":{"paths":{"@/*":["../shared/*"]}}}"#,
+        );
+        compile_once(&stage.0, &tools).unwrap();
+        assert!(resident().unwrap().contains("mapped"));
+        std::fs::remove_file(stage.0.join("__exact_paths.json")).unwrap();
+        // baseUrl also resolves bare imports without any paths entry.
+        write("tsconfig.json", r#"{"compilerOptions":{"baseUrl":"lib"}}"#);
+        write("__exact_entry.ts", "export { word } from 'word';");
+        compile_once(&stage.0, &tools).unwrap();
+        assert!(resident().unwrap().contains("mapped"));
+    }
+}

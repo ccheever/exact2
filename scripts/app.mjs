@@ -167,16 +167,10 @@ export function outsideWorkspaceProblems(workspace) {
   return problems;
 }
 
-/** A lock an outside workspace copied goes stale when exact2's own crates gain
- * a dependency, and every later `--locked` Cargo call refuses it. Resolving
- * once without --locked, offline, brings it up to date the way Cargo always
- * does: only the entries that changed. The root's lock stays binding. */
-function refreshOutsideLock(workspace) {
-  const lock = resolve(workspace, 'Cargo.lock');
-  const before = existsSync(lock) ? readFileSync(lock, 'utf8') : null;
-  const result = spawnSync('cargo', ['metadata', '--offline', '--format-version', '1'], { cwd: workspace, stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8', maxBuffer: 1 << 26 });
-  if (result.status !== 0) throw new Error(`cargo metadata --offline in ${workspace}:\n${result.stderr}`);
-  if (before !== null && before !== readFileSync(lock, 'utf8')) console.error(`${lock} was behind exact2's crates; updated it offline`);
+/** Finding an outside app never changes its lock. Dependency updates are explicit. */
+function checkOutsideLock(workspace) {
+  const result = spawnSync('cargo', ['metadata', '--locked', '--offline', '--format-version', '1'], { cwd: workspace, stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8', maxBuffer: 1 << 26 });
+  if (result.status !== 0) throw new Error(`cargo metadata --locked --offline in ${workspace}:\n${result.stderr || result.error?.message}\nTo update the lock explicitly, run \`cargo metadata --offline --format-version 1\` in ${workspace}.`);
 }
 
 export const runnerOwnedSource = name => ['exactDelivery', 'exactViewport', 'exactSurface'].includes(name);
@@ -338,6 +332,9 @@ export function resolveApp(nameOrCrate) {
   dir = realpathSync(dir);
   // Materialize defaults before Cargo inspects workspace members on a clean checkout.
   const manifest = readManifest(dir, name);
+  if (dirname(dir) === resolve(ROOT, 'game/games') && manifest.game === undefined) {
+    throw new Error(`${dir}/app.json: game is required for an app under game/games/`);
+  }
   let workspace = ROOT;
   if (outside && manifest.game === undefined) {
     // Ordinary external apps may belong to an enclosing Cargo workspace. Games
@@ -348,11 +345,8 @@ export function resolveApp(nameOrCrate) {
     if (workspace !== ROOT && existsSync(resolve(workspace, 'Cargo.toml'))) {
       const problems = outsideWorkspaceProblems(workspace);
       if (problems.length) throw new Error(problems.join('\n'));
-      refreshOutsideLock(workspace);
+      checkOutsideLock(workspace);
     }
-  }
-  if (dirname(dir) === resolve(ROOT, 'game/games') && manifest.game === undefined) {
-    throw new Error(`${dir}/app.json: game is required for an app under game/games/`);
   }
   if (manifest.game !== undefined) {
     name = manifest.game.crate.slice(0, -'-logic'.length);
@@ -371,7 +365,7 @@ export function resolveApp(nameOrCrate) {
   const cargoPackage = kind => {
     prepare();
     if (!packages) {
-      const result = spawnSync('cargo', ['metadata', ...cargoReproducibilityFlags({manifest, workspace}), '--no-deps', '--format-version', '1'], {cwd:workspace, encoding:'utf8', maxBuffer:32 * 1024 * 1024});
+      const result = spawnSync('cargo', ['metadata', '--locked', '--offline', '--no-deps', '--format-version', '1'], {cwd:workspace, encoding:'utf8', maxBuffer:32 * 1024 * 1024});
       if (result.status !== 0) throw new Error(`cargo metadata: ${result.stderr || result.error?.message}`);
       packages = JSON.parse(result.stdout).packages;
     }
