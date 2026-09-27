@@ -159,3 +159,34 @@ fn a_limited_report_retires_nearer_rows_at_its_cap() {
     );
     assert!(h.snapshot().pending);
 }
+
+#[test]
+fn rows_kept_past_the_window_never_outnumber_the_window() {
+    let mut h = Harness::new(5_000, false, false);
+    h.send(h.feedback(3200.0));
+    let settled = h.snapshot().rows.len();
+    // Travel that outruns the fill: every report is a rescue (limit 0),
+    // and each lands a viewport and more past the last.
+    let rescue = CollectionFill {
+        velocity: 48_000.0,
+        limit: Some(0),
+    };
+    for step in 1..=40 {
+        let top = 3200.0 + 400.0 * step as f64;
+        h.send_filled(h.feedback(top), rescue);
+        let rows: Vec<usize> = h.snapshot().rows.iter().map(|r| r.index).collect();
+        let first = (top / 32.0) as usize;
+        assert!(
+            (first..first + 10).all(|i| rows.contains(&i)),
+            "the visible rows are owed: {rows:?}"
+        );
+        assert!(
+            rows.len() <= 2 * settled,
+            "report {step}: {} rows mounted, the window settled at {settled}",
+            rows.len()
+        );
+    }
+    // At rest an unlimited report retires everything past the window.
+    h.send(h.feedback(3200.0 + 400.0 * 40.0));
+    assert_eq!(h.snapshot().rows.len(), settled);
+}

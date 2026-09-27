@@ -460,8 +460,9 @@ impl Collection {
     /// Realize the window: every row it owes (visible and pinned), then, on
     /// a limited report, at most `fill.limit` more, nearest the viewport on
     /// the side of travel first, retiring at most `max(2·limit, 4)` rows past
-    /// the window (none for a limit of zero), farthest first, and every row
-    /// more than two viewports from what shows (@ref LLP 1050.000 §6). A
+    /// the window (none for a limit of zero), farthest first, more when the
+    /// rows kept past the window would outnumber the window's own, and every
+    /// row more than two viewports from what shows (@ref LLP 1050.000 §6). A
     /// data update realizes the whole window. What a limit leaves undone is
     /// `pending`.
     fn realize_window(
@@ -583,6 +584,13 @@ impl Collection {
             } else {
                 (2 * limit as usize).max(4)
             };
+            // Rows kept past the window never outnumber the window's own.
+            // Travel that outruns the fill makes every report a rescue, and
+            // a rescue retires nothing: without this bound each one added a
+            // viewport of rows (a thousand on an iPad at 48,000 pt/s, each
+            // with its canvas's Metal layer and surface) until the list
+            // stopped, and every report and frame walked them all.
+            let cap = cap.max(leaving.len().saturating_sub(self.mounted.len()));
             leaving.sort_by(|a, b| b.0.total_cmp(&a.0));
             let far = leaving.partition_point(|row| row.0 > FAR_VIEWPORTS * (end - top));
             let kept = leaving.split_off(far.max(cap).min(leaving.len()));
