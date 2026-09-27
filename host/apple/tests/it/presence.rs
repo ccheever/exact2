@@ -204,7 +204,7 @@ impl DataSource for Keys {
         let keys: &[&str] = if short { &["a", "c"] } else { &["a", "b", "c"] };
         Ok(Value::list(
             keys.iter()
-                .map(|k| Value::record(vec![Value::str(*k)]))
+                .map(|k| Value::record(vec![Value::str(k)]))
                 .collect(),
         ))
     }
