@@ -404,14 +404,18 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       for(const animation of animations.values()) animation.cancel(); animations.clear();
       const ids=[...authored.keys()]; held.clear();raised.clear(); for(const id of ids) restore(id); authored.clear();
     },
+    // Pan and pinch on the photo pair (LLP 1057.001 §4): up to two pointers,
+    // a trackpad's ctrl+wheel, Safari's gesture events. Every sample is the
+    // pair anchored at its focal point, re-anchored whenever the contact set
+    // changes; one release while both tokens are live.
     attachTransformDrag(el,id,on) {
       let drag=null,suppressClick=false;
       const interactive=e=>e.target.closest('button,a,input,textarea,select,[contenteditable]');
       const pairLocal=d=>d.pair?.every(local)&&transformLocal(d.binding)&&d.binding.admitted&&d.sequence===d.binding.sequence;
       const finiteTerminal=v=>pixel(v[0])&&pixel(v[1])&&positiveScale(v[2])&&v.slice(3).every(Number.isFinite);
       function clearContact(d) {
-        if(el.hasPointerCapture(d.pointer))el.releasePointerCapture(d.pointer);
-        releaseInteraction(d.pointer);
+        for(const pointer of d.pointers.keys()){if(el.hasPointerCapture(pointer))el.releasePointerCapture(pointer);releaseInteraction(pointer);}
+        clearTimeout(d.idle);
       }
       function stop(defer=false) {
         const d=drag;drag=null;active.delete(id);
@@ -426,62 +430,69 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       stop.suspend=()=>stop(true);
       stop.valid=()=>!drag||transformLocal(drag.binding)&&drag.binding.admitted&&(!drag.pair||pairLocal(drag));
       drags.set(id,stop);
-      // Only time order is kept here; velocity is the engine's (LLP 1057.001 §3).
-      const track=(d,t)=>{d.t=t;};
-      const position=(d,e)=>[d.base[0]+e.clientX-d.x,d.base[1]+e.clientY-d.y,d.base[2]];
+      // The contact's focal point (client px) and, with two pointers, its spread.
+      const focal=d=>{
+        if(d.gesture)return d.gesture;
+        const points=[...d.pointers.values()],n=points.length;
+        return {x:points.reduce((a,p)=>a+p[0],0)/n,y:points.reduce((a,p)=>a+p[1],0)/n,
+          spread:n===2?Math.hypot(points[0][0]-points[1][0],points[0][1]-points[1][1]):0};
+      };
+      // Anchor at the pair's current value and the contact as it is now.
+      function anchor(d) {
+        const f=focal(d),r=d.binding.clipEl.getBoundingClientRect();
+        d.anchor={value:d.value,x:f.x,y:f.y,spread:f.spread,factor:d.factor??1,cx:r.x+r.width/2,cy:r.y+r.height/2};
+      }
+      // Content under the anchored focus stays under the current one; scale
+      // multiplies by the pinch, so translate follows the centroid.
+      function position(d) {
+        const a=d.anchor,f=focal(d);
+        const k=d.gesture||d.wheel?(d.factor??1)/a.factor:f.spread>0&&a.spread>0?f.spread/a.spread:1;
+        const from=[a.x-a.cx,a.y-a.cy],to=[f.x-a.cx,f.y-a.cy];
+        return [to[0]-k*(from[0]-a.value[0]),to[1]-k*(from[1]-a.value[1]),a.value[2]*k];
+      }
       function present(d,v) {
-        d.pair[0].value=v.slice(0,2);d.pair[1].value=[v[2],0];
+        d.value=v;d.pair[0].value=v.slice(0,2);d.pair[1].value=[v[2],0];
         for(const h of d.pair)if(local(h))h.el.style.setProperty(h.property,css(h.property,h.value));
       }
-      on('pointerdown',e=>{
-        if(!e.isPrimary||e.button!==0||interactive(e))return;
-        const b=transformBindings.get(id);if(!transformLocal(b))return;
+      function arm(e,extra) {
+        const b=transformBindings.get(id);if(!transformLocal(b))return null;
         stop();flushGeometry(b);
-        if(!transformLocal(b)||!b.admitted||!sameGeometry(b.facts,transformSnapshot(b)))return;
-        drag={pointer:e.pointerId,x:e.clientX,y:e.clientY,binding:b};active.set(id,stop);
-        el.setPointerCapture(e.pointerId);e.preventDefault();
-      });
-      const move=e=>{
-        const d=drag;if(!d||d.pointer!==e.pointerId)return false;
+        if(!transformLocal(b)||!b.admitted||!sameGeometry(b.facts,transformSnapshot(b)))return null;
+        drag={pointers:new Map(),binding:b,...extra};active.set(id,stop);
+        return drag;
+      }
+      function begin(d) {
+        flushGeometry(d.binding);
+        if(drag!==d||!d.binding.admitted)return false;
+        const snap=transformSnapshot(d.binding),t=now();
+        if(!snap||!sameGeometry(d.binding.facts,snap)||!Number.isFinite(t)){stop();return false;}
+        const reply=request(transformFacts(d.binding,'transform-begin',[...snap.value,0,0,0],null,t));
+        if(reply.accepted!==true){if(reply.batch)applyBatch(reply.batch);stop();return false;}
+        adoptPair(d.binding,reply,pair=>{d.pair=pair;d.sequence=d.binding.sequence;});
+        if(drag!==d)return false;
+        if(!pairLocal(d)){stop();return false;}
+        d.value=[...d.pair[0].value,d.pair[1].value[0]];d.t=t;anchor(d);
+        return true;
+      }
+      function follow(d) {
         checkGeometry(d.binding);
         if(drag!==d)return false;
         if(!stop.valid()){stop();return false;}
-        if(!d.pair) {
-          if(Math.hypot(e.clientX-d.x,e.clientY-d.y)<8)return false;
-          flushGeometry(d.binding);
-          if(drag!==d||!d.binding.admitted)return false;
-          const snap=transformSnapshot(d.binding),t=now();
-          if(!snap||!sameGeometry(d.binding.facts,snap)||!Number.isFinite(t)){stop();return false;}
-          const reply=request(transformFacts(d.binding,'transform-begin',[...snap.value,0,0,0],null,t));
-          if(reply.accepted!==true){if(reply.batch)applyBatch(reply.batch);stop();return false;}
-          adoptPair(d.binding,reply,pair=>{d.pair=pair;d.sequence=d.binding.sequence;});
-          if(drag!==d)return false;
-          if(!pairLocal(d)){stop();return false;}
-          d.x=e.clientX;d.y=e.clientY;d.base=[...d.pair[0].value,d.pair[1].value[0]];track(d,t);
-          e.preventDefault();e.stopPropagation();return true;
-        }
-        const value=position(d,e),t=now();
+        const value=position(d),t=now();
         if(!finiteTerminal([...value,0,0,0])||!Number.isFinite(t)||t<d.t){stop();return false;}
         const reply=request(transformFacts(d.binding,'transform-move',[...value,0,0,0],d.pair,t));
         if(reply.accepted===true)present(d,value);
         if(reply.batch)applyBatch(reply.batch);
         if(drag!==d)return false;
-        if(reply.accepted!==true||!pairLocal(d)){stop();return false;}
-        const shown=transformSample(getComputedStyle(d.binding.targetEl));
-        if(!shown){stop();return false;}track(d,t);
-        e.preventDefault();e.stopPropagation();return true;
-      };
-      on('pointermove',move);
-      const finish=e=>{
-        const d=drag;if(!d||d.pointer!==e.pointerId)return;
-        if(e.type!=='pointerup'||!d.pair){stop();return;}
+        if(reply.accepted!==true||!pairLocal(d)||!transformSample(getComputedStyle(d.binding.targetEl))){stop();return false;}
+        d.t=t;return true;
+      }
+      // Terminal preflight is whole: the final sample and time are checked
+      // before the action. The engine measures the release velocity.
+      function release(d) {
         checkGeometry(d.binding);if(drag!==d)return;
         if(!pairLocal(d)){stop();return;}
-        // Terminal preflight is whole: do NOT send an ordinary final move before
-        // the sample and time are known valid. Delta is parent-space, never
-        // divided by caught Scale. The engine measures the release velocity.
-        const v=position(d,e),t=now();
-        const values=[...v,0,0,0];
+        const v=position(d),t=now(),values=[...v,0,0,0];
         if(!finiteTerminal(values)||!Number.isFinite(t)||t<d.t){stop();return;}
         drag=null;active.delete(id);suppressClick=true;
         const reply=request(transformFacts(d.binding,'transform-action',values,d.pair,t));
@@ -493,9 +504,72 @@ export function motionController({views,now,generation,request,applyBatch,inert,
         // each original; local/token checks never retire its replacement.
         api.end(d.pair[0],velocity.slice(0,2),cancel);
         api.end(d.pair[1],[velocity[2],0],cancel);
-        clearContact(d);e.preventDefault();e.stopPropagation();
+        clearContact(d);
+      }
+      on('pointerdown',e=>{
+        if(e.button!==0||interactive(e))return;
+        const second=drag&&!drag.wheel&&!drag.gesture&&drag.pointers.size===1&&!drag.pointers.has(e.pointerId);
+        if(!second&&!e.isPrimary)return;
+        const d=second?drag:arm(e,{x:e.clientX,y:e.clientY});if(!d)return;
+        d.pointers.set(e.pointerId,[e.clientX,e.clientY]);
+        el.setPointerCapture(e.pointerId);e.preventDefault();
+        // A second finger is a pinch: recognized at once, then re-anchored.
+        if(second){if(!d.pair&&!begin(d))return;if(drag===d)anchor(d);}
+      });
+      const move=e=>{
+        const d=drag;if(!d||!d.pointers.has(e.pointerId))return false;
+        d.pointers.set(e.pointerId,[e.clientX,e.clientY]);
+        checkGeometry(d.binding);
+        if(drag!==d)return false;
+        if(!stop.valid()){stop();return false;}
+        if(!d.pair) {
+          if(Math.hypot(e.clientX-d.x,e.clientY-d.y)<8)return false;
+          if(!begin(d))return false;
+          e.preventDefault();e.stopPropagation();return true;
+        }
+        if(!follow(d))return false;
+        e.preventDefault();e.stopPropagation();return true;
+      };
+      on('pointermove',move);
+      const finish=e=>{
+        const d=drag;if(!d||!d.pointers.has(e.pointerId))return;
+        if(e.type!=='pointerup'||!d.pair){stop();return;}
+        d.pointers.set(e.pointerId,[e.clientX,e.clientY]);
+        if(d.pointers.size>1) {
+          // One finger lifts: its partner pans on from where the pinch left it.
+          if(!follow(d))return;
+          d.pointers.delete(e.pointerId);anchor(d);
+          if(el.hasPointerCapture(e.pointerId))el.releasePointerCapture(e.pointerId);
+          releaseInteraction(e.pointerId);
+        } else release(d);
+        e.preventDefault();e.stopPropagation();
       };
       for(const event of ['pointerup','pointercancel','lostpointercapture'])on(event,finish);
+      // A trackpad pinch: Chromium and Firefox send ctrl+wheel (the listener is
+      // not passive, so the page does not zoom too); it ends when it goes quiet.
+      on('wheel',e=>{
+        if(!e.ctrlKey||drag&&!drag.wheel)return;
+        const b=transformBindings.get(id);if(!transformLocal(b)||!b.admitted)return;
+        e.preventDefault();
+        let d=drag;
+        const dy=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?innerHeight:1);
+        if(!d){d=arm(e,{wheel:true,factor:1});if(!d)return;d.gesture={x:e.clientX,y:e.clientY,spread:0};if(!begin(d))return;}
+        d.factor*=Math.exp(-dy/100);d.gesture={x:e.clientX,y:e.clientY,spread:0};
+        if(!follow(d))return;
+        clearTimeout(d.idle);d.idle=setTimeout(()=>{if(drag===d)release(d);},150);
+      });
+      // Safari's trackpad and touch pinch: cumulative scale about the gesture.
+      on('gesturestart',e=>{
+        if(drag)return;e.preventDefault();
+        const d=arm(e,{factor:1});if(!d)return;
+        d.gesture={x:e.clientX,y:e.clientY,spread:0};begin(d);
+      });
+      on('gesturechange',e=>{
+        const d=drag;if(!d?.gesture)return;e.preventDefault();
+        if(!(e.scale>0))return;
+        d.factor=e.scale;d.gesture={x:e.clientX,y:e.clientY,spread:0};follow(d);
+      });
+      on('gestureend',e=>{const d=drag;if(!d?.gesture)return;e.preventDefault();release(d);});
       on('dragstart',e=>{if(transformLocal(transformBindings.get(id))&&!interactive(e))e.preventDefault();});
       on('click',e=>{if(suppressClick){suppressClick=false;e.preventDefault();e.stopPropagation();}});
     },
