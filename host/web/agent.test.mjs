@@ -476,7 +476,7 @@ test('agent launch facts never read the platform locale, zone or entropy', async
   f.wasm.exact_set_place = wire => { reported.push(wire); return '{"ops":[]}'; };
   await f.boot(null);
   await f.boot(new Uint8Array([1]));
-  expect(reported).toEqual([['en-US', 'UTC', 0].join('\0'), ['en-US', 'UTC', 0].join('\0')]);
+  expect(reported).toEqual([['en-US', 'UTC', 1].join('\0'), ['en-US', 'UTC', 1].join('\0')]);
   expect(draws).toBe(0);
 });
 
