@@ -521,10 +521,7 @@ pub fn bake<D: DataSource>(mut plan: Plan, data: D) -> Result<Plan, BakeError> {
         plan.clone(),
         data,
         Kernel::with_monospace(),
-        exact_runner::Viewport {
-            width: LINT_VIEWPORT.0 as f64,
-            height: LINT_VIEWPORT.1 as f64,
-        },
+        exact_runner::Viewport::sized(LINT_VIEWPORT.0 as f64, LINT_VIEWPORT.1 as f64),
         "/",
     )?;
     lint(&mut runner)?;

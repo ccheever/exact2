@@ -42,6 +42,10 @@ pub struct MotionSync {
     pub retired: Vec<(u64, Property)>,
     /// Each created or touched node's `transition` row.
     pub transitions: Vec<(u64, Transitions)>,
+    /// Each created or touched node's `layout-transition` row (LLP 1063).
+    /// Its targets are not here: a host observes `Property::Layout` after
+    /// layout, from the laid-out origin in the parent.
+    pub layout: Vec<(u64, Transitions)>,
     /// The sync's eligible targets; ordinary receipt sync has four per node.
     pub changes: Vec<Change>,
     /// Each created or touched node's `animation` row (LLP 1057). Applied
@@ -61,6 +65,9 @@ impl MotionSync {
         }
         for (node, transitions) in &self.transitions {
             engine.set_transitions(*node, transitions.clone())?;
+        }
+        for (node, transitions) in &self.layout {
+            engine.set_layout_transition(*node, transitions)?;
         }
         for change in &self.changes {
             engine.observe(*change)?;
@@ -396,6 +403,7 @@ impl Kernel {
             };
             let id = motion_node(*key);
             sync.transitions.push((id, node.style.transition.clone()));
+            sync.layout.push((id, node.style.layout_transition.clone()));
             sync.animations.push((id, node.style.animation.clone()));
             for (property, value) in targets(node.style) {
                 sync.changes.push(Change {

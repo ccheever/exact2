@@ -445,7 +445,7 @@ pub fn main<D: DataSource + 'static>(baked: &[u8], data: fn() -> D) -> std::proc
                 let Some((width, height)) = size else {
                     return usage();
                 };
-                viewport = exact_runner::Viewport { width, height };
+                viewport = exact_runner::Viewport::sized(width, height);
             }
             "--name" => match args.next() {
                 Some(value) => name = value,

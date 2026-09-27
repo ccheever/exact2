@@ -220,6 +220,7 @@ final class Runtime {
     func advance(now: Double, untilRequest: Bool = false) -> Batch { read(exact_advance(rt, now, untilRequest ? 1 : 0)) }
     func resize(width: CGFloat, height: CGFloat) -> Batch { read(exact_resize(rt, Float(width), Float(height))) }
     func setTime(epochAtZero: Double, utcOffset: Double) -> Batch { read(exact_set_time(rt, epochAtZero, utcOffset)) }
+    func setPreferences(_ bits: UInt32) -> Batch { read(exact_set_preferences(rt, bits)) }
     func setPlace(locale: String, timeZone: String, seed: UInt64) -> Batch { read(exact_set_place(rt, write(locale + "\0" + timeZone + "\0" + String(seed))) ) }
     /// `limit` rations the report (`exact.h`): 0 is the whole window.
     func list(_ view: UInt32, top: Double, height: Double, width: Double, origin: Double, focus: UInt32, interaction: UInt32, limit: UInt32 = 0, velocity: Double = 0) -> Batch {

@@ -20,6 +20,7 @@ mod motion;
 mod no_panic;
 mod paint;
 mod paragraph_stamp;
+mod presence;
 mod presented_height;
 mod reader;
 mod support {

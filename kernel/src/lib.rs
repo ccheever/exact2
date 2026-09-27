@@ -70,7 +70,7 @@ pub use text::{
     TextRun, TextStyle,
 };
 pub use transform::TransformDragBinding;
-pub use txn::{CommitReceipt, MAX_DEPTH};
+pub use txn::{CommitReceipt, Exit, MAX_DEPTH};
 pub use wire::{FrameBuilder, Op};
 
 pub use region::{

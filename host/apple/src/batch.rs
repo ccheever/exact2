@@ -334,6 +334,13 @@ impl Batch {
         self.ops.push(format!("{{\"op\":\"destroy\",\"id\":{id}}}"));
     }
 
+    /// `{"op":"exit","id":…}` — the view leaves with its `exit-animation`
+    /// (LLP 1063): the presenter keeps it and everything under it where they
+    /// are, without input or accessibility, until a `destroy` names it.
+    pub fn exit(&mut self, id: u32) {
+        self.ops.push(format!("{{\"op\":\"exit\",\"id\":{id}}}"));
+    }
+
     /// `{"op":"roots","ids":[…]}`.
     pub fn roots(&mut self, ids: &[u32]) {
         let mut s = String::from("{\"op\":\"roots\",\"ids\":");

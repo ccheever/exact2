@@ -139,19 +139,17 @@ impl<D: DataSource> Host<D> {
         self.finish(batch, None)
     }
 
-    /// One paint presentation: the value while it differs from the target,
-    /// else the style again. An animating `color` also reaches the views that
+    /// One paint presentation on `view` (a leaving one included): the value
+    /// while it differs from the target, else the style again. An animating `color` also reaches the views that
     /// inherit it.
-    pub(super) fn present_paint(&mut self, p: Presentation, batch: &mut Batch) {
+    pub(super) fn present_paint(&mut self, p: Presentation, view: ViewId, batch: &mut Batch) {
         let settled = self.engine.target(p.node, p.property) == Some(p.value);
-        if let Some(view) = self.keys.get(&node_key(p.node)).copied() {
-            if !self.inline_runs.contains_key(&view) {
-                match settled {
-                    // A view this batch creates has nothing to take back.
-                    true if batch.creates(view) => {}
-                    true => batch.unpresent(view, style_key(p.property)),
-                    false => batch.present4(view, style_key(p.property), channels(&p)),
-                }
+        if !self.inline_runs.contains_key(&view) {
+            match settled {
+                // A view this batch creates has nothing to take back.
+                true if batch.creates(view) => {}
+                true => batch.unpresent(view, style_key(p.property)),
+                false => batch.present4(view, style_key(p.property), channels(&p)),
             }
         }
         if p.property != Property::Color {

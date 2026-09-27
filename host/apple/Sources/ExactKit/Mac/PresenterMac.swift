@@ -137,6 +137,8 @@ final class Presenter {
     var views: [UInt32: NodeView] = [:]
     var inlineOwners: [UInt32: (owner: UInt32, index: Int)] = [:]
     private(set) var chrome = ChromeIndex()
+    /// Views leaving with their exit, by id (LLP 1063, `PresenceMac.swift`).
+    var leaving: [UInt32: Leaving] = [:]
     /// A view's props were written (`NodeView.props`' own observer).
     func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props) }
     /// Views carrying an indexed prop, in id order (the passes' old order was
@@ -823,6 +825,35 @@ final class Presenter {
     var interacting: UInt32 = 0
     private var listGeometry: [UInt32: [Double]] = [:]
     private var listViews: [UInt32: NodeView] = [:]
+
+    /// Everything kept for `id`, out of the maps (not out of the window);
+    /// `forget` releases its resources too, as a destroy does and a leaving
+    /// view (LLP 1063) does not until its exit ends.
+    @discardableResult
+    func release(_ id: UInt32, forget: Bool) -> NodeView? {
+        mouseSwipe.retire(id)
+        mouseLayoutPan.retire(id)
+        mouseHeightDrag.retire(id)
+        mouseTransformDrag.retire(id)
+        mouseReorder.retire(id)
+        session?.canvases.destroy(view: id)
+        if forget { views[id]?.forget() }
+        // Out of the map before out of the window: the editing-ended
+        // notification removal fires finds no view to send for.
+        heightBindings.removeValue(forKey: id)
+        transformBindings.removeValue(forKey: id)
+        transformGeometry.retire(id)
+        session?.text.readerParagraphs.removeValue(forKey: id)
+        let gone = views.removeValue(forKey: id)
+        chrome.forget(id)
+        scrollers.remove(id)
+        pendingScrolls.remove(id)
+        listPending.remove(id)
+        listViews.removeValue(forKey: id)
+        listTravel.removeValue(forKey: id)
+        listFillCosts.removeValue(forKey: id)
+        return gone
+    }
     private var listSyncDepth = 0
     private var listPending: Set<UInt32> = []
 
@@ -1084,7 +1115,7 @@ final class Presenter {
                 let want = op.ids.compactMap { views[UInt32($0)] }
                 let container = parent.container
                 let wanted = Set(want.map { ObjectIdentifier($0) })
-                for child in container.subviews where child is NodeView && !wanted.contains(ObjectIdentifier(child)) {
+                for child in container.subviews where child is NodeView && !wanted.contains(ObjectIdentifier(child)) && !isLeaving(child) {
                     if let node = child as? NodeView { reparented.insert(node.id) }
                     child.removeFromSuperview()
                 }
@@ -1110,29 +1141,10 @@ final class Presenter {
                 if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] ?? []) }
             case .command:
                 onCommand?(op.payload["name"] as? String ?? "", op.payload["args"] as? [Any] ?? [])
+            case .exit: beginExit(id)
             case .destroy:
-                mouseSwipe.retire(id)
-                mouseLayoutPan.retire(id)
-                mouseHeightDrag.retire(id)
-                mouseTransformDrag.retire(id)
-                mouseReorder.retire(id)
-                session?.canvases.destroy(view: id)
-                views[id]?.forget()
-                // Out of the map before out of the window: the editing-ended
-                // notification removal fires finds no view to send for.
-                heightBindings.removeValue(forKey: id)
-                transformBindings.removeValue(forKey: id)
-                transformGeometry.retire(id)
-                session?.text.readerParagraphs.removeValue(forKey: id)
-                let gone = views.removeValue(forKey: id)
-                chrome.forget(id)
-                scrollers.remove(id)
-                pendingScrolls.remove(id)
-                listPending.remove(id)
-                listViews.removeValue(forKey: id)
-                listTravel.removeValue(forKey: id)
-                listFillCosts.removeValue(forKey: id)
-                gone?.removeFromSuperview()
+                if endExit(id) { continue }
+                release(id, forget: true)?.removeFromSuperview()
             case .roots:
                 root.subviews.forEach { $0.removeFromSuperview() }
                 for r in op.ids.compactMap({ views[UInt32($0)] }) {
@@ -1159,16 +1171,17 @@ final class Presenter {
                     v.fitScroll()
                 }
             case .present:
-                guard let v = views[id] else { continue }
+                guard let v = views[id] ?? leaving[id]?.view else { continue }
                 let x = CGFloat(op.x)
                 switch op.property {
                 case "translate": v.translate = CGPoint(x: x, y: CGFloat(op.y)); v.applyTransform()
+                case "layout": v.layoutOffset = CGPoint(x: x, y: CGFloat(op.y)); v.applyTransform()
                 case "scale": v.scale = x; v.applyTransform()
                 case "rotate": v.rotate = x; v.applyTransform()
                 case "opacity": v.alphaValue = x
                 default: v.present(paint: op.property, [op.x, op.y, op.w, op.h])
                 }
-            case .unpresent: views[id]?.present(paint: op.property, nil)
+            case .unpresent: (views[id] ?? leaving[id]?.view)?.present(paint: op.property, nil)
             default: break
             }
         }

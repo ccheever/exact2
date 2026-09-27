@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { focusController, runFocusCommands, environment, inertAncestor, navigation, afterPaintPieces, scrollFollowers, renderMarkup, keyframes, navigableURL, navigates, refuseURL, devFirst } from "./navigation.js";
+import { focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, scrollFollowers, renderMarkup, keyframes, navigableURL, navigates, refuseURL, devFirst } from "./navigation.js";
 let httpModule;
 function httpHelpers() {
   return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
@@ -17,6 +17,7 @@ const pieces = afterPaintPieces(loadAfterPaint, { root, views, applyBatch, inert
   replayed() { motion.commit(); arrange.commit(); if (agentMode) { register(agentClock); seek(agentClock); } },
   wasm(name, bytes) { if (!wasm) return null; new Uint8Array(memory.buffer, wasm.exact_in(bytes.length), bytes.length).set(bytes); return JSON.parse(readOut(wasm[name](bytes.length))); } });
 const { collections, motion, arrange } = pieces, retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
+let presence = null, presenceLoad = null; // exit-animation and layout-transition, after paint at first use (LLP 1063)
 let mediaModule;
 function syncMedia(el, set = {}, clear = []) {
   if (!(el instanceof HTMLVideoElement)) return;
@@ -303,18 +304,19 @@ function positionContexts() {
     }
   }
 }
-// @ref LLP 1039 D2 — layout viewport facts, on every resize, without debounce.
-addEventListener("resize", () => {
-  if (wasm && root.childElementCount) applyBatch(JSON.parse(readOut(wasm.exact_resize(innerWidth, innerHeight, now()))));
+// @ref LLP 1039 D2, LLP 1061 D4 — viewport facts and display preferences, on every change, without debounce.
+const mediaChanged = () => {
+  if (wasm && root.childElementCount) applyBatch(JSON.parse(readOut(wasm.exact_resize(innerWidth, innerHeight, now(), preferences()))));
   requestAnimationFrame(positionContexts);
-});
+}; addEventListener("resize", mediaChanged); onPreferences(mediaChanged);
 visualViewport?.addEventListener("resize", () => requestAnimationFrame(positionContexts));
-const symbolStyle = document.createElement("style");
+const symbolStyle = document.createElement("style"); document.head.append(symbolStyle);
 symbolStyle.textContent = '@property --exact-tint{syntax:"<color>";inherits:false;initial-value:#000}img[data-symbol-path]{background-color:var(--exact-tint)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,100% 100%);mask-origin:content-box;mask-clip:content-box}';
-document.head.append(symbolStyle);
+// A tinted raster's `scale-down` (element.rs `host_css`, LLP 1011 §3): `contain` unless its natural size fits the content box, known once it loads.
+function tintFit(el) { if (!el.style.getPropertyValue("mask-size").includes("--exact-tint-fit")) return; if (!el.complete) { el.addEventListener("load", () => tintFit(el), { once: true }); return; } const cs = getComputedStyle(el); el.style.setProperty("--exact-tint-fit", el.naturalWidth <= el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) && el.naturalHeight <= el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) ? "auto" : "contain"); }
 function refreshSymbols() {
   for (const el of views.values()) {
-    if (!(el instanceof HTMLImageElement) || !el.hasAttribute("data-symbol-path")) continue;
+    if (!(el instanceof HTMLImageElement)) continue; if (!el.hasAttribute("data-symbol-path")) { tintFit(el); continue; }
     const cs = getComputedStyle(el), size = parseFloat(cs.fontSize), weight = Number(cs.fontWeight);
     const path = el.getAttribute("data-symbol-path"), filled = el.hasAttribute("data-symbol-fill"), key = `${path}:${filled}:${size}:${weight}`;
     if (!path && el.symbolRefusal !== el.symbolSource) {
@@ -535,13 +537,12 @@ function viewFor(op, id) {
   return el;
 }
 function apply(batch) {
-  // Retire dispatch before children ops can synchronously blur removed views.
+  // Retire dispatch before children ops can synchronously blur removed views; a leaving view's box is read before any op moves it (LLP 1063).
   for (const op of batch.ops ?? []) {
-    if (op.op === "destroy") {
-      const el = views.get(op.id);
-      if (el) retiredViews.add(el);
-    }
+    if (op.op === "destroy") { const el = views.get(op.id); if (el) retiredViews.add(el); }
+    else if (!presence && (op.op === "exit" || op.css?.includes("--exact-"))) presenceLoad ??= loadAfterPaint('./presence-glue.js', 'presence').then(create => { presence = create(root); });
   }
+  presence?.before(batch, views);
   listSelection?.before();
   prepareContexts(batch);
   for (const s of followedScrolls.values()) s.scrolled();
@@ -592,7 +593,7 @@ function apply(batch) {
         }
         // Reorder in place: keyed rows keep their elements (and their state).
         // A canvas's surface element is skipped: not a child, never removed.
-        const skip = (n) => { while (n?.hasAttribute("data-surface")) n = n.nextElementSibling; return n; };
+        const skip = (n) => { while (n?.hasAttribute("data-surface") || n?.hasAttribute("data-exiting")) n = n.nextElementSibling; return n; }; // a leaving view stays (LLP 1063)
         let cursor = skip(el.firstElementChild);
         for (const child of want) {
           if (child === cursor) { cursor = skip(cursor.nextElementSibling); continue; }
@@ -749,7 +750,7 @@ function apply(batch) {
       case "destroy": {
         arrange.destroy(op.id);
         motion.destroy(op.id);
-        const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactMarkup?.destroy(); if (el instanceof HTMLVideoElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); el.remove(); }
+        const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactMarkup?.destroy(); if (el instanceof HTMLVideoElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); if (!presence?.keeps(el)) el.remove(); }
         views.delete(op.id); messageViews.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break;
       }
       case "roots": {
@@ -802,7 +803,7 @@ function apply(batch) {
   // committed before its focus handler runs.
   runFocusCommands(focusCommands, { root, ready: inputReady, inertAncestor, log });
   focusAutofocus();
-  positionContexts();
+  positionContexts(); presence?.after(batch, views);
   return batch.timers;
 }
 function applyBatch(batch) {
@@ -1316,11 +1317,11 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
     ptr = wasm.exact_in(bytes.length + launch.length);
     const payload = new Uint8Array(memory.buffer, ptr, bytes.length + launch.length);
     payload.set(bytes); payload.set(launch, bytes.length);
-    len = wasm.exact_boot_plan(bytes.length, innerWidth, innerHeight, launch.length);
+    len = wasm.exact_boot_plan(bytes.length, innerWidth, innerHeight, launch.length, preferences());
   } else {
     if (page?.checkpoint) wasm.exact_checkpoint(writeIn(page.checkpoint)); ptr = wasm.exact_in(launch.length);
     new Uint8Array(memory.buffer, ptr, launch.length).set(launch);
-    len = wasm.exact_boot(innerWidth, innerHeight, launch.length);
+    len = wasm.exact_boot(innerWidth, innerHeight, launch.length, preferences());
   }
   const batch = JSON.parse(readOut(len));
   if (batch.error) throw new Error(batch.error);

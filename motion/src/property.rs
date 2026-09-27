@@ -18,6 +18,10 @@
 //! `box-shadow` is two engine properties: its geometry (offset and blur, in
 //! points) and its colour, the shadow's opacity folded into the alpha, so a
 //! shadow from `none` is CSS's transparent, zero-length padding.
+//!
+//! `layout` is not a CSS property: it is a node's laid-out origin in its
+//! parent, which a `layout-transition` row animates (LLP 1063). It is never
+//! authored in `transition` or `@keyframes`, so it is outside [`Property::ALL`].
 
 /// One animatable property.
 #[repr(u8)]
@@ -52,10 +56,16 @@ pub enum Property {
     /// `box-shadow`'s colour, its opacity folded into the alpha. Named only
     /// by `box-shadow`, never on its own.
     ShadowColor = 13,
+    /// The laid-out origin in the parent, in points (LLP 1063). Its target is
+    /// layout's answer, observed by a host after layout; only a node's
+    /// `layout-transition` row moves it, never `transition`. Last, so every
+    /// authorable property's discriminant is its index in [`Property::ALL`].
+    Layout = 14,
 }
 
 impl Property {
-    /// Every property, in wire order.
+    /// Every authorable property, in wire order ([`Property::Layout`] is
+    /// the host's, not an author's).
     pub const ALL: [Property; 14] = [
         Property::Translate,
         Property::Scale,
@@ -104,6 +114,7 @@ impl Property {
             Property::TintColor => "tint-color",
             Property::BoxShadow => "box-shadow",
             Property::ShadowColor => "box-shadow-color",
+            Property::Layout => "layout",
         }
     }
 
@@ -157,14 +168,16 @@ impl Property {
                 | Property::Rotate
                 | Property::Opacity
                 | Property::Height
+                | Property::Layout
         )
     }
 
-    /// How many components the value carries: two for `translate`, three
-    /// for `box-shadow`'s geometry, four for a colour, else one.
+    /// How many components the value carries: two for `translate` and
+    /// `layout`, three for `box-shadow`'s geometry, four for a colour, else
+    /// one.
     pub fn components(self) -> usize {
         match self {
-            Property::Translate => 2,
+            Property::Translate | Property::Layout => 2,
             Property::BoxShadow => 3,
             p if p.is_color() => 4,
             _ => 1,
@@ -174,7 +187,7 @@ impl Property {
     /// The CSS initial value when numeric and not paint. Height initially is
     /// `auto`, not zero: a host must adopt an eligible authored target
     /// explicitly. Paint has no identity a host could skip: a colour row's
-    /// initial value is its own.
+    /// initial value is its own. A position has no identity.
     pub fn identity(self) -> Option<Value> {
         match self {
             Property::Translate => Some(Value::ZERO),
