@@ -1,0 +1,18 @@
+// Raster alpha, every fit and natural axes; Chrome at 390×460, 1×.
+component Tint
+  state dark = false
+  action scheme writes dark
+    dark = not dark
+    setScheme(dark ? "light" : "dark")
+  view
+    main width=390 height=460 background-color="#ffffff"
+      image "assets/tint.png" testId="fill" position="absolute" left=15 top=15 width=80 height=48 object-fit="fill" padding=6 border-width=3 border-style="solid" border-color="#00aa00" background-color="#ffeedd" tint-color="light-dark(#e02040, #2070d080)"
+      image "assets/tint.png" testId="contain" position="absolute" left=140 top=15 width=80 height=48 object-fit="contain" padding=6 border-width=3 border-style="solid" border-color="#00aa00" background-color="#ffeedd" tint-color="light-dark(#e02040, #2070d080)"
+      image "assets/tint.png" testId="cover" position="absolute" left=265 top=15 width=80 height=48 object-fit="cover" padding=6 border-width=3 border-style="solid" border-color="#00aa00" background-color="#ffeedd" tint-color="light-dark(#e02040, #2070d080)"
+      image "assets/tint.png" testId="none" position="absolute" left=15 top=130 width=80 height=48 object-fit="none" padding=6 border-width=3 border-style="solid" border-color="#00aa00" background-color="#ffeedd" tint-color="light-dark(#e02040, #2070d080)"
+      image "assets/tint.png" testId="down" position="absolute" left=140 top=130 width=80 height=48 object-fit="scale-down" padding=6 border-width=3 border-style="solid" border-color="#00aa00" background-color="#ffeedd" tint-color="light-dark(#e02040, #2070d080)"
+      image "assets/tint.png" testId="small" position="absolute" left=265 top=130 width=24 height=24 object-fit="scale-down" padding=6 border-width=3 border-style="solid" border-color="#00aa00" background-color="#ffeedd" tint-color="light-dark(#e02040, #2070d080)"
+      image "assets/tint.png" testId="natural" position="absolute" left=15 top=245  padding=6 border-width=3 border-style="solid" border-color="#00aa00" background-color="#ffeedd" tint-color="light-dark(#e02040, #2070d080)"
+      image "assets/tint.png" testId="auto" position="absolute" left=140 top=245 height=24 padding=6 border-width=3 border-style="solid" border-color="#00aa00" background-color="#ffeedd" tint-color="light-dark(#e02040, #2070d080)"
+      image "assets/tint.png" testId="rounded" position="absolute" left=265 top=245 width=80 height=48 border-radius=18 padding=6 border-width=3 border-style="solid" border-color="#00aa00" background-color="#ffeedd" tint-color="light-dark(#e02040, #2070d080)"
+      button "Dark" testId="dark" press=scheme position="absolute" left=15 top=410

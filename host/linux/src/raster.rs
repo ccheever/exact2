@@ -851,7 +851,14 @@ impl Backend for Raster {
         }
     }
 
-    fn image(&mut self, image: &Arc<Bitmap>, dst: Rect4, clips: &[Shape], ts: Transform) {
+    fn image(
+        &mut self,
+        image: &Arc<Bitmap>,
+        dst: Rect4,
+        clips: &[Shape],
+        ts: Transform,
+        tint: Option<[u8; 4]>,
+    ) {
         let (nw, nh) = (image.width() as f32, image.height() as f32);
         if nw <= 0.0 || nh <= 0.0 || dst.2 <= 0.0 || dst.3 <= 0.0 {
             return;
@@ -864,8 +871,25 @@ impl Backend for Raster {
             quality: FilterQuality::Bilinear,
             ..PixmapPaint::default()
         };
+        // Tint in an isolated paint layer, never by copying the decoded asset.
+        let layers = self.layers.len();
+        if tint.is_some() {
+            self.push_opacity(1.0);
+            if self.layers.len() == layers {
+                return;
+            }
+        }
         if let Some(t) = self.target.as_mut() {
             t.draw_pixmap(0, 0, image.pixels(), &paint, dev, mask.as_ref());
+            if let Some(tint) = tint {
+                let mut ink = solid(tint);
+                ink.blend_mode = tiny_skia::BlendMode::SourceIn;
+                let rect = Rect::from_xywh(0., 0., t.width() as f32, t.height() as f32).unwrap();
+                t.fill_rect(rect, &ink, Transform::identity(), None);
+            }
+        }
+        if tint.is_some() {
+            self.pop_opacity();
         }
     }
 

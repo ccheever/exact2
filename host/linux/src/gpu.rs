@@ -533,7 +533,14 @@ impl Backend for Gpu {
         }
     }
 
-    fn image(&mut self, image: &Arc<Bitmap>, dst: Rect4, clips: &[Shape], ts: Transform) {
+    fn image(
+        &mut self,
+        image: &Arc<Bitmap>,
+        dst: Rect4,
+        clips: &[Shape],
+        ts: Transform,
+        tint: Option<[u8; 4]>,
+    ) {
         let (nw, nh) = (image.width() as f64, image.height() as f64);
         if nw <= 0.0 || nh <= 0.0 || dst.2 <= 0.0 || dst.3 <= 0.0 {
             return;
@@ -549,7 +556,34 @@ impl Backend for Gpu {
         let place = a
             * Affine::translate((dst.0 as f64, dst.1 as f64))
             * Affine::scale_non_uniform(dst.2 as f64 / nw, dst.3 as f64 / nh);
+        // Source-in replaces only the picture's RGB, retaining its alpha.
+        let bounds = Rect::new(
+            dst.0 as f64,
+            dst.1 as f64,
+            (dst.0 + dst.2) as f64,
+            (dst.1 + dst.3) as f64,
+        );
+        if tint.is_some() {
+            self.scene
+                .push_layer(Fill::NonZero, Mix::Normal, 1.0, a, &bounds);
+        }
         self.scene.draw_image(&brush, place);
+        if let Some(tint) = tint {
+            self.scene.push_layer(
+                Fill::NonZero,
+                vello::peniko::BlendMode {
+                    mix: Mix::Normal,
+                    compose: vello::peniko::Compose::SrcIn,
+                },
+                1.0,
+                a,
+                &bounds,
+            );
+            self.scene
+                .fill(Fill::NonZero, a, color(tint), None, &bounds);
+            self.scene.pop_layer();
+            self.scene.pop_layer();
+        }
         for _ in clips {
             self.scene.pop_layer();
         }

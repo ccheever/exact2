@@ -118,12 +118,14 @@ mod tests {
             (0., 0., 32., 64.),
             &[],
             tiny_skia::Transform::identity(),
+            None,
         );
         gpu.image(
             &b,
             (32., 0., 32., 64.),
             &[],
             tiny_skia::Transform::identity(),
+            None,
         );
         gpu.finish().unwrap();
         drop(a);
@@ -151,6 +153,7 @@ mod tests {
             (0., 0., 3., 2.),
             &[],
             tiny_skia::Transform::identity(),
+            None,
         );
         let painted = gpu.finish().unwrap();
         let expected = [

@@ -157,7 +157,13 @@ element's clip hides it. Deviations: the mask covers the whole element, so a
 tinted image's own background, border and shadow are masked to the picture
 (wrap it to give it a box); a cross-origin `mask-image` is a CORS request, so
 a remote tinted image whose origin sends no CORS headers paints nothing, and
-may be fetched a second time.
+may be fetched a second time. (Still open 2026-09-27: `issues/20260927-web-tint-masks-the-box.md`.)
+
+**Linux raster tint (2026-09-27).** The ordinary tree walk and the retained
+content-region picture carry an optional, appearance-resolved tint to both
+backends, including motion's presented tint. tiny-skia and Vello draw the
+picture in an isolated layer, then fill the tint source-in. The decoded
+bitmap stays shared and unchanged; no tinted asset enters the image cache.
 
 ## 4. The Apple host
 
@@ -290,9 +296,7 @@ cancellation. Remote-image API expansion, `srcset` and loading-state
 authoring remain outside that slice.
 
 `srcset`/density selection and `image-rendering`; `tint_color` on Linux
-(symbols and rasters: its two backends each draw a bitmap through one
-`image` call, with no mask or tint path, and `paint.rs` is at the line cap —
-a tinted raster paints its own pixels there); Linux symbols; loading states and errors visible to the app (the
+symbols (rasters are tinted since 2026-09-27); Linux symbols; loading states and errors visible to the app (the
 kernel measures an unknown axis as 0; macOS paints nothing and writes a
 line on stderr; the browser paints its own broken-image icon and the
 `alt` text — no `onError`, no placeholder); a size cap or a timeout of

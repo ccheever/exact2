@@ -83,7 +83,7 @@ enum Command {
 }
 enum Payload {
     Empty,
-    Image(Arc<Bitmap>, ObjectFit),
+    Image(Arc<Bitmap>, ObjectFit, Option<[u8; 4]>),
     Text(Rc<Paragraph>, Vec<RunPaint>),
     /// An `svg`'s scene as resolved at capture (LLP 1055.000 §4: SVG in a
     /// retained region; the instant is the capture's).
@@ -258,7 +258,11 @@ impl Picture {
                         Payload::Text(p.clone(), palette.clone())
                     }
                     NodeType::Image => scene.images.get(&id).map_or(Payload::Empty, |image| {
-                        Payload::Image(image.clone(), node.style.object_fit)
+                        Payload::Image(
+                            image.clone(),
+                            node.style.object_fit,
+                            super::image_tint(node.style, &(scene.presented)(id), painter.dark),
+                        )
                     }),
                     NodeType::Svg => Payload::Svg(Rc::new(super::svg::resolve_svg(
                         scene,
@@ -283,7 +287,7 @@ impl Picture {
                         s.walk(&mut |_| n += 1);
                         n
                     }
-                    Payload::Image(image, fit) => {
+                    Payload::Image(image, fit, _) => {
                         usize::from(object_fit(image.natural(), *fit, geometry.content).is_some())
                     }
                 };
@@ -621,7 +625,7 @@ impl<'a> Replay<'a> {
                         finite &=
                             finite_rect(shape.rect) && shape.radii.into_iter().all(f32::is_finite);
                     });
-                    if let Payload::Image(image, fit) = &n.payload {
+                    if let Payload::Image(image, fit, _) = &n.payload {
                         finite &= object_fit(image.natural(), *fit, c).is_none_or(finite_rect);
                     }
                     if !finite {
@@ -725,13 +729,14 @@ impl<'a> Replay<'a> {
                     n.paint.paint(painter.backend.as_mut(), g, parent);
                     match &n.payload {
                         Payload::Empty => {}
-                        Payload::Image(image, fit) => {
+                        Payload::Image(image, fit, tint) => {
                             if let Some(dst) = object_fit(image.natural(), *fit, g.content) {
                                 painter.backend.image(
                                     image,
                                     dst,
                                     &[Shape::rect(g.content), g.outer],
                                     parent,
+                                    *tint,
                                 );
                             }
                         }

@@ -110,8 +110,11 @@ on Apple and the web. Initially opaque black, not inherited, it accepts fixed
 and `light-dark()` colours. Computed inherited `font-size` and `font-weight`
 configure the symbol independently of its CSS box. The schema's `symbols` rows
 hold each portable role, its Apple name and its generic SVG path; the generator
-emits the compiler vocabulary and both host mappings. Raster-image tint and
-Linux symbol rendering remain unsupported. This is separate from `caret-color`.
+emits the compiler vocabulary and both host mappings. An explicitly set row also tints raster images on web, Apple and Linux
+(LLP 1011 §3–4; 2026-09-27): the image alpha masks the tint. On Apple and
+Linux the box's background and border still paint; on the web the mask still
+covers the whole element (declared below). Linux symbol rendering remains unsupported. This
+is separate from `caret-color`.
 
 `overflow-wrap` (bit 90; implementer Codex, 2026-09-11) is inherited text
 layout intent with CSS's `normal | break-word | anywhere` vocabulary and
@@ -273,6 +276,60 @@ entry and true for long-press entry, including their respective emoji pickers.
 macOS implements alignment without magnification; Linux currently retains the
 panel's authored position. Messages supplies its outside-dismiss backdrop as an
 ordinary press control.
+
+**Additional deviations as built (2026-09-27; recorded by Astra).** The
+following declarations collect the host carve-outs and non-CSS rows introduced
+with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
+`box-shadow` subset is still unruled.
+
+- **`press-scale`**, bit 147 ([LLP 1061 D1–D3](1061-press-feel-and-reduced-motion.rfc.md)),
+  is not CSS. It supplies platform press feedback without a runner round trip
+  or app-owned pressed state. Ruled 2026-09-27: it composes through CSS's
+  `scale` property and never writes `transform`, and it is kept under reduced
+  motion, as a native button's highlight is.
+- **`layout-transition`**, bit 146 ([LLP 1063 D1, D6](1063-presence-and-layout-motion.rfc.md)),
+  is not CSS. It moves the presentation after committed layout, sizing only
+  the box's surface while content keeps its final geometry. The separate row
+  prevents `transition: all` from silently starting to animate layout.
+  Ruled 2026-09-27 (with `exit-animation`, option a): the web runs it by FLIP,
+  as web layout-animation libraries do; no browser feature is its oracle, so
+  parity is one recorded timeline compared across hosts.
+- **`exit-animation`**, bit 145 ([LLP 1063 D1–D5, D8](1063-presence-and-layout-motion.rfc.md)),
+  is not CSS: it holds a destroyed view as an inert ghost until its finite
+  animation ends. CSS's `animation` does not itself defer destruction. Linux
+  refuses it and removes the node immediately, with a journal entry, because
+  its painter walks the live kernel tree and has no retained destroyed subtree.
+- **`box-shadow`** ([LLP 1064 D1](1064-box-shadow-and-text-transform.rfc.md))
+  accepts one outer shadow with zero spread, not `inset`, nonzero spread or a
+  list. A missing colour is refused instead of using CSS `currentcolor`.
+  The implementation reuses four scalar shadow rows and one native layer
+  shadow; those rows cannot store current colour, a spread or multiple shadows.
+  These are implementation limits awaiting Charlie's ruling, not CSS semantics.
+- **Gradient paint under borders** ([LLP 1066 D5](1066-gradients.rfc.md)):
+  native hosts extend end colours outside the padding box instead of repeating
+  the gradient image as CSS's initial `background-repeat` does. Their gradient
+  shaders/layers extend one gradient rather than tiling a padding-box image;
+  translucent borders expose the difference.
+- **Raster `tint-color`** ([LLP 1011 §3](1011-image-v1.spec.md)) is a template
+  image operation without a CSS property of that name. On the web the tint is
+  a `mask-image` on the `<img>` itself, so it also masks the element's own
+  background, border and shadow (open: `issues/20260927-web-tint-masks-the-box.md`),
+  and a remote source needs CORS or paints nothing, which is the browser's mask
+  security policy. Apple and both Linux painters apply a source-alpha tint to
+  the picture alone.
+- **Native `text-transform`** ([LLP 1064 D5 and “Not done”](1064-box-shadow-and-text-transform.rfc.md))
+  uses Unicode's root case mapping, without language tailoring: the native
+  paragraph path has no language-specific mapping input. Native Markdown
+  bypasses the transform because hosts expand the source themselves and
+  transforming that source would rewrite URLs; web CSS transforms rendered
+  Markdown. This is a native coverage gap, not CSS's behavior.
+- **Projected iOS tab-bar height** ([LLP 1059 D2, D2a](1059-tab-bar-projection.rfc.md)):
+  `UITabBar` uses at least `sizeThatFits` height, bottom-aligned in the kernel
+  box, so it can grow upward outside it. The reason is to avoid clipping the
+  selected title inside iOS's selection glass. Ruled 2026-09-27: the
+  projection stays automatic, and the bar's height is reported to layout
+  instead (`issues/20260927-tab-bar-height-to-layout.md`); until that lands,
+  this overflow is the deviation.
 
 Declared deviations, each because the engine cannot express the CSS value:
 `position` has no `static` (Taffy positions an absolute child against its parent,

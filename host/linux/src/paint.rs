@@ -44,6 +44,16 @@ pub use presented::{PaintValues, Presented};
 pub(crate) use region::{ActionNode, ActionSlot, RegionActions, ScrollBounds};
 pub use svg::{resolve_with, Ink, SvgPaint};
 
+// Only an explicit row makes a raster a template; motion may supply its ink.
+fn image_tint(style: &StyleProps, presented: &Presented, dark: bool) -> Option<[u8; 4]> {
+    style.mask.has(StyleId::TintColor).then(|| {
+        presented
+            .colors
+            .color(exact_motion::Property::TintColor)
+            .unwrap_or_else(|| rgba(style.tint_color.resolve(dark)))
+    })
+}
+
 /// A rectangle as (x, y, w, h).
 pub type Rect4 = (f32, f32, f32, f32);
 
@@ -320,7 +330,15 @@ pub trait Backend {
     /// Fill one colour's share of a border (LLP 1053 G2): its region even-odd, clipped (non-zero).
     fn fill_border(&mut self, part: &border::BorderFill, ts: Transform);
     /// Draw a picture scaled into `dst`, clipped to every shape in `clips`.
-    fn image(&mut self, image: &Arc<Bitmap>, dst: Rect4, clips: &[Shape], ts: Transform);
+    /// An explicit tint replaces its RGB through the picture's alpha alone.
+    fn image(
+        &mut self,
+        image: &Arc<Bitmap>,
+        dst: Rect4,
+        clips: &[Shape],
+        ts: Transform,
+        tint: Option<[u8; 4]>,
+    );
     /// An SVG island's pixels over `dst` in `ts`'s space, blended by `mode`.
     fn island_image(&mut self, _pixels: Arc<Pixmap>, _dst: Rect4, _ts: Transform, _mode: u8) {}
     /// Composite a rendered canvas child (not a decoded image asset).
@@ -378,7 +396,7 @@ impl Backend for Unpainted {
     fn fill(&mut self, _: &Shape, _: [u8; 4], _: Transform) {}
     fn fill_gradient(&mut self, _: &Shape, _: &gradient::GradientPaint, _: Transform) {}
     fn fill_border(&mut self, _: &border::BorderFill, _: Transform) {}
-    fn image(&mut self, _: &Arc<Bitmap>, _: Rect4, _: &[Shape], _: Transform) {}
+    fn image(&mut self, _: &Arc<Bitmap>, _: Rect4, _: &[Shape], _: Transform, _: Option<[u8; 4]>) {}
     fn text(
         &mut self,
         _: &mut TextEngine,
@@ -795,8 +813,13 @@ impl Painter {
             NodeType::Image => {
                 if let Some(img) = walk.scene.images.get(&node.id) {
                     if let Some(dst) = object_fit(img.natural(), s.object_fit, content) {
-                        self.backend
-                            .image(img, dst, &[Shape::rect(content), outer], ts);
+                        self.backend.image(
+                            img,
+                            dst,
+                            &[Shape::rect(content), outer],
+                            ts,
+                            image_tint(s, &shown, self.dark),
+                        );
                     }
                 }
             }

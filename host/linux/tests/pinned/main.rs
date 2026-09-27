@@ -7,6 +7,7 @@ mod host;
 mod motion_paint;
 mod paint;
 mod text;
+mod tint;
 
 /// The pinned font (LLP 1015 §3): the fixture directory and the family name
 /// the driver sets, so every number in these tests is the same on a Mac and

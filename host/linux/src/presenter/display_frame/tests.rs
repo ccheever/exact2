@@ -99,8 +99,15 @@ impl Backend for CountPaint {
     fn fill_border(&mut self, part: &crate::paint::border::BorderFill, t: Transform) {
         self.inner.fill_border(part, t);
     }
-    fn image(&mut self, b: &Arc<Bitmap>, r: Rect4, c: &[Shape], t: Transform) {
-        self.inner.image(b, r, c, t);
+    fn image(
+        &mut self,
+        b: &Arc<Bitmap>,
+        r: Rect4,
+        c: &[Shape],
+        t: Transform,
+        tint: Option<[u8; 4]>,
+    ) {
+        self.inner.image(b, r, c, t, tint);
     }
     fn text(
         &mut self,
