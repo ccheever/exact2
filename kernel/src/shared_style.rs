@@ -78,6 +78,15 @@ impl<T, K> Interner<T, K> {
         self.swept = self.entries;
     }
 
+    /// Sweep, then return the table's spare capacity when it holds more
+    /// than twice what it needs.
+    pub(crate) fn trim(&mut self) {
+        self.sweep();
+        if self.table.capacity() > 2 * self.table.len().max(64) {
+            self.table.shrink_to_fit();
+        }
+    }
+
     /// Distinct values held.
     pub(crate) fn len(&self) -> usize {
         self.entries
@@ -139,6 +148,11 @@ impl SharedStyles {
         self.table.insert(hash, bytes.into(), style)
     }
 
+    /// Sweep, then return spare capacity.
+    pub(crate) fn trim(&mut self) {
+        self.table.trim();
+    }
+
     /// Distinct styles held beyond the initial one.
     pub(crate) fn len(&self) -> usize {
         self.table.len()
@@ -178,7 +192,7 @@ mod tests {
         ));
         assert_eq!(shared.len(), 4);
         drop((x, y, z, c, d));
-        shared.table.sweep();
+        shared.trim();
         assert_eq!(shared.len(), 0);
     }
 }

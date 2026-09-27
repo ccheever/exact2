@@ -428,7 +428,7 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
     staged.check_depth(&arrivals)?;
     // Conservative: ignores free-slot reuse, so it only ever refuses a batch that
     // would have fit within a few slots of the four-billion-node ceiling.
-    if arena.slot_count() as u64 + creates > u32::MAX as u64 {
+    if arena.slot_space() as u64 + creates > u32::MAX as u64 {
         return Err(ApplyError::SlotSpaceExhausted);
     }
     Ok(())

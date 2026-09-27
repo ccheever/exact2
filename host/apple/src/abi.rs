@@ -774,6 +774,13 @@ impl<D: DataSource> Bridge<D> {
         self.prepared = None;
     }
 
+    /// Content has settled ([`Host::trim`]).
+    pub fn trim(&mut self) {
+        if let Some(host) = self.host.as_mut() {
+            host.trim();
+        }
+    }
+
     /// Dispatch an event at `now_ms`; `kind` is 0 = press, 1 = change,
     /// 2 = hover in, 3 = hover out, 4 = focus, 5 = blur, 6 = key, 7 = submit,
     /// 8 = load, 9 = message (the payload — a change's text, a key's name,

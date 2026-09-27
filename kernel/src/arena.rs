@@ -137,7 +137,7 @@ impl NodeArena {
         self.renew_text_namespace();
         self.flow.clear();
         self.exclusion_slots.clear();
-        for slot in 0..self.generations.len() {
+        for slot in 0..self.live.len() {
             self.live[slot] = false;
             self.parents[slot] = None;
             self.children[slot].clear();
@@ -150,15 +150,63 @@ impl NodeArena {
             self.taffy[slot] = None;
             self.is_root[slot] = false;
         }
-        self.free = (0..self.generations.len() as u32).rev().collect();
+        self.free = (0..self.live.len() as u32).rev().collect();
         self.roots.clear();
         self.by_local.clear();
         self.live_count = 0;
     }
 
-    /// Slots ever allocated (live plus free).
+    /// Slots the columns hold (live plus free).
     pub fn slot_count(&self) -> usize {
+        self.live.len()
+    }
+
+    /// Slots ever allocated: identities never repeat below this.
+    pub(crate) fn slot_space(&self) -> usize {
         self.generations.len()
+    }
+
+    /// Return what the columns hold beyond the live nodes, once they hold
+    /// more than twice as many slots: trailing free slots go (their
+    /// generations stay, so a stale key never names a later node), and each
+    /// column gives back its spare capacity. A list's columns grow to the
+    /// most rows a fling mounts; this is how they come back once it settles.
+    /// Below that, a trim changes nothing, so a steady tree never churns.
+    pub(crate) fn trim(&mut self) {
+        self.shared.trim();
+        if self.live.capacity() <= 2 * self.live_count.max(64) {
+            return;
+        }
+        let keep = self.live.iter().rposition(|l| *l).map_or(0, |s| s + 1);
+        self.free.retain(|s| (*s as usize) < keep);
+        self.free.shrink_to_fit();
+        macro_rules! fit {
+            ($($column:ident),*) => {$(
+                self.$column.truncate(keep);
+                self.$column.shrink_to_fit();
+            )*};
+        }
+        fit!(
+            live,
+            node_types,
+            local_ids,
+            parents,
+            children,
+            child_indices,
+            styles,
+            props,
+            flags,
+            layout_passes,
+            geometry_passes,
+            frames,
+            contents,
+            intrinsic,
+            taffy,
+            is_root,
+            text_revisions
+        );
+        self.flow.shrink_to_fit();
+        self.by_local.shrink_to_fit();
     }
 
     /// Whether `slot` holds a live node.
@@ -525,10 +573,14 @@ impl NodeArena {
         let slot = match self.free.pop() {
             Some(slot) => slot,
             None => {
-                if self.generations.len() >= u32::MAX as usize {
-                    return Err(ApplyError::SlotSpaceExhausted);
+                // A trimmed slot's generation outlives its columns.
+                let slot = self.live.len();
+                if slot == self.generations.len() {
+                    if slot >= u32::MAX as usize {
+                        return Err(ApplyError::SlotSpaceExhausted);
+                    }
+                    self.generations.push(0);
                 }
-                self.generations.push(0);
                 self.live.push(false);
                 self.node_types.push(node_type);
                 self.local_ids.push(0);
@@ -546,7 +598,7 @@ impl NodeArena {
                 self.taffy.push(None);
                 self.is_root.push(false);
                 self.text_revisions.push(TextRevisions::default());
-                (self.generations.len() - 1) as u32
+                slot as u32
             }
         };
         let s = slot as usize;

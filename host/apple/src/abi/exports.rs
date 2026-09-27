@@ -211,6 +211,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.discard_plan(), |_| ())
         }
 
+        /// Content has settled: give back storage beyond the live nodes.
+        #[no_mangle]
+        pub extern "C" fn exact_trim(rt: u32) {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.trim(), |_| ())
+        }
+
         /// Dispatch an event; returns the batch's length.
         #[no_mangle]
         pub extern "C" fn exact_dispatch(rt: u32, view: u32, kind: u32, len: usize, now_ms: f64) -> u32 {

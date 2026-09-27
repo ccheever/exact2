@@ -295,6 +295,20 @@ impl LayoutTree {
         }
     }
 
+    /// Return spare capacity: the shared styles no node holds and the
+    /// per-node maps' room. The engine's own node store keeps its capacity
+    /// (its handles are its slots, and a rebuild would drop every cached
+    /// measurement).
+    pub(crate) fn trim(&mut self) {
+        self.shared.trim();
+        if self.slots.capacity() > 2 * self.slots.len().max(64) {
+            self.slots.shrink_to_fit();
+            self.deferred.shrink_to_fit();
+            self.walks.shrink_to_fit();
+            self.offers.shrink_to_fit();
+        }
+    }
+
     /// One allocation for every engine style equal to `style`.
     fn share(&mut self, style: taffy::Style) -> Rc<taffy::Style> {
         let hash = engine_hash(&style);

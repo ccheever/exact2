@@ -25,6 +25,7 @@ use crate::text::{MonospaceMeasurer, TextMeasurer, TextRun, TextStyle};
 static INITIAL: LazyLock<StyleProps> = LazyLock::new(StyleProps::default);
 use crate::txn::{self, CommitReceipt, Target};
 use crate::wire::{self, Op};
+mod trim;
 
 /// How many receipts the kernel retains for late readers.
 pub const RECEIPT_RING: usize = 64;

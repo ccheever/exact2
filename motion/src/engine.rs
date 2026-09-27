@@ -180,6 +180,19 @@ impl Engine {
         self.now
     }
 
+    /// Return the tables' spare room: they grow to the most nodes ever
+    /// observed at once (a list mid-fling), and settle smaller. Only a table
+    /// holding more than twice what it needs shrinks, so a steady one never
+    /// churns.
+    pub fn trim(&mut self) {
+        if self.slots.capacity() > 2 * self.slots.len().max(256) {
+            self.slots.shrink_to_fit();
+        }
+        if self.dirty.capacity() > 2 * self.dirty.len().max(256) {
+            self.dirty.shrink_to_fit();
+        }
+    }
+
     /// Set a node's `transition` row. Governs changes observed from now on;
     /// a transition already running keeps its own declaration.
     pub fn set_transitions(
