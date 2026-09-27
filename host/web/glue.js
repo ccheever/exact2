@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace } from "./navigation.js";
+import { focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace } from "./navigation.js";
 let httpModule;
 function httpHelpers() {
   return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
@@ -113,7 +113,7 @@ const decoder = new TextDecoder();
 const t0 = performance.now();
 const agentMode = new URL(location.href).searchParams.has("agent");
 let agentClock = agentMode ? 0 : null;
-const starts = new WeakMap(), held = new WeakSet(); // Animation -> the agent clock when it began; author-paused ones
+const { register, seek, settle: settleCandidate } = animationClock(() => agentClock, () => ask({ op: "settle" }).settle, () => presence.live?.sync());
 const now = () => agentClock ?? performance.now() - t0;
 let bootAttempt = 0;
 let devAssets = null;
@@ -304,7 +304,7 @@ function positionContexts() {
   }
 }
 // @ref LLP 1039 D2, LLP 1061 D4 — viewport facts and display preferences, on every change, without debounce.
-const mediaChanged = () => { if (wasm && root.childElementCount) applyBatch(JSON.parse(readOut(wasm.exact_resize(innerWidth, innerHeight, now(), preferences())))); requestAnimationFrame(positionContexts); }; addEventListener("resize", mediaChanged); onPreferences(mediaChanged);
+const mediaChanged = () => { if (wasm && root.childElementCount) applyBatch(presence.resize(JSON.parse(readOut(wasm.exact_resize(innerWidth, innerHeight, now(), preferences()))))); requestAnimationFrame(positionContexts); }; addEventListener("resize", mediaChanged); onPreferences(mediaChanged);
 visualViewport?.addEventListener("resize", () => requestAnimationFrame(positionContexts));
 const symbolStyle = document.createElement("style"); document.head.append(symbolStyle);
 symbolStyle.textContent = '@property --exact-tint{syntax:"<color>";inherits:false;initial-value:#000}img[data-symbol-path]{background-color:var(--exact-tint)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,100% 100%);mask-origin:content-box;mask-clip:content-box}';
@@ -1085,30 +1085,6 @@ function guestType(frame, request) {
   target.dispatchEvent(new guest.InputEvent("input", { data: text, inputType: "insertText", bubbles: true, composed: true }));
   target.dispatchEvent(new guest.Event("change", { bubbles: true, composed: true }));
   return { typed: request.id, guest: true, value: "value" in target ? target.value : target.textContent };
-}
-function register(t) { // an author-paused CSS animation holds its own time (LLP 1055 D10)
-  for (const a of document.getAnimations()) if (!starts.has(a)) { starts.set(a, t); if (a.playState === "paused") held.add(a); }
-}
-function seek(to) {
-  for (const a of document.getAnimations()) {
-    const timing = a.effect?.getComputedTiming();
-    if (!timing) continue;
-    const t = to - (starts.get(a) ?? agentClock);
-    if (held.has(a)) continue; else if (t >= timing.endTime && timing.endTime !== Infinity) a.finish();
-    else { a.pause(); a.currentTime = t; }
-  }
-}
-// When the last thing in flight ends: the springs' engine knows its own
-// (`settle`), the browser's animations report theirs, never before now.
-function settleCandidate() {
-  let to = agentClock;
-  const s = ask({ op: "settle" }).settle;
-  if (s != null) to = Math.max(to, s);
-  for (const a of document.getAnimations()) {
-    const timing = a.effect?.getComputedTiming();
-    if (timing && timing.endTime !== Infinity && !held.has(a)) to = Math.max(to, (starts.get(a) ?? agentClock) + timing.endTime); // an infinite one never settles
-  }
-  return to;
 }
 const SETTLE_DEADLINE_MS = 20_000;
 async function waitForInflight(deadline) {

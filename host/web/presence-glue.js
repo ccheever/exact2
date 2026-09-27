@@ -23,6 +23,10 @@
 // on the grid and rest threshold the engine settles on natively
 // (`exact_motion::spring`).
 const LAYOUT = '--exact-layout-transition';
+const PAINT = ['backgroundColor', 'backgroundImage', 'backgroundSize', 'backgroundPosition', 'backgroundRepeat', 'backgroundOrigin', 'backgroundClip',
+  'borderTop', 'borderRight', 'borderBottom', 'borderLeft', 'borderRadius', 'boxShadow', 'opacity', 'translate', 'rotate', 'scale', 'transform', 'transformOrigin'];
+const CLEAR = { backgroundColor: 'transparent', backgroundImage: 'none', borderTopColor: 'transparent', borderRightColor: 'transparent',
+  borderBottomColor: 'transparent', borderLeftColor: 'transparent', boxShadow: 'none' };
 
 // A 2D matrix of an element's own transforms about its origin, from its
 // computed style: `translate`, `rotate`, `scale`, then `transform`.
@@ -114,10 +118,49 @@ function settle(config, d, v) {
 function createPresence(root) {
   // Every view that declared the row before this module arrived.
   const tracked = new Set([...root.querySelectorAll('[style*="--exact-layout-transition"]')]);
-  // element -> { animation, parts, stand, d, v, config, start }: the move,
+  // element -> { animation, parts, surface, d, v, config }: the move,
   // the animations that show its size, and the surface's stand-in.
   const flips = new WeakMap();
+  const surfaces = new Set();
+  let frame = null;
   let first = new Map();
+
+  // Read the element's presented paint without our transparent surface or
+  // layout offset. Paint animations keep their clocks: only their painted
+  // values are hidden while the stand-in draws them. This includes CSS
+  // transitions, which outrank the transparent Web Animation in the cascade.
+  function reveal(f) {
+    const sf = f.surface;
+    if (!sf) return;
+    sf.hide.effect.target = null;
+    for (const [a, frames] of sf.hidden) a.effect.setKeyframes(frames);
+    sf.hidden.clear();
+  }
+
+  function sync(placed = false) {
+    for (const el of surfaces) {
+      const f = flips.get(el), sf = f.surface;
+      if (!el.isConnected || ['idle', 'finished'].includes(f.animation.playState)) { stop(el); continue; }
+      reveal(f);
+      f.animation.effect.target = null;
+      const cs = getComputedStyle(el);
+      for (const k of PAINT) sf.box.style[k] = cs[k];
+      if (placed) {
+        const place = measure(), [x, y] = place(el, el.parentElement), [ax, ay] = place(sf.stand, el.parentElement);
+        sf.box.style.left = `${x - ax}px`; sf.box.style.top = `${y - ay}px`;
+      }
+      for (const a of el.getAnimations()) {
+        if (f.parts.includes(a)) continue;
+        const frames = a.effect.getKeyframes();
+        if (!frames.some(frame => Object.keys(CLEAR).some(k => k in frame))) continue;
+        sf.hidden.set(a, frames);
+        a.effect.setKeyframes(frames.map(frame => Object.fromEntries(Object.entries(frame).map(([k, v]) => [k, CLEAR[k] ?? v]))));
+      }
+      f.animation.effect.target = el;
+      sf.hide.effect.target = el;
+    }
+    if (surfaces.size && frame === null) frame = requestAnimationFrame(() => { frame = null; sync(); });
+  }
 
   // What a running move still has to go, `[dx, dy, dw, dh]` from the laid-out
   // box, and how fast it goes there (a spring's velocity; an easing has none,
@@ -126,7 +169,7 @@ function createPresence(root) {
     const f = flips.get(el), still = [[0, 0, 0, 0], [0, 0, 0, 0]];
     if (!f || f.animation.playState === 'finished' || f.animation.playState === 'idle') return still;
     if (f.config) {
-      const t = (document.timeline.currentTime - f.start) / 1000;
+      const t = ((f.animation.currentTime ?? 0) - f.animation.effect.getTiming().delay) / 1000;
       if (t < 0) return [f.d, f.v];
       const at = f.d.map((d, i) => spring(f.config, d, f.v[i], t));
       return [at.map(s => s[0]), at.map(s => s[1])];
@@ -139,8 +182,11 @@ function createPresence(root) {
     const f = flips.get(el);
     if (!f) return;
     flips.delete(el);
+    reveal(f);
     for (const a of [f.animation, ...f.parts]) a.cancel();
-    f.stand?.remove();
+    f.surface?.stand.remove();
+    surfaces.delete(el);
+    if (!surfaces.size && frame !== null) { cancelAnimationFrame(frame); frame = null; }
   }
 
   // The element's surface, standing in for it behind it while its size
@@ -155,12 +201,10 @@ function createPresence(root) {
     stand.style.cssText = 'position:absolute;width:0;height:0;margin:0;padding:0;border:0;z-index:-1;pointer-events:none';
     el.before(stand);
     const [x, y] = place(el, el.parentElement), [ax, ay] = place(stand, el.parentElement);
-    const copy = ['backgroundColor', 'backgroundImage', 'backgroundSize', 'backgroundPosition', 'backgroundRepeat', 'backgroundOrigin', 'backgroundClip',
-      'borderTop', 'borderRight', 'borderBottom', 'borderLeft', 'borderRadius', 'boxShadow', 'opacity', 'translate', 'rotate', 'scale', 'transform', 'transformOrigin'];
     box.style.cssText = `position:absolute;left:${x - ax}px;top:${y - ay}px;box-sizing:border-box;margin:0`;
-    for (const k of copy) box.style[k] = cs[k];
+    for (const k of PAINT) box.style[k] = cs[k];
     stand.append(box);
-    return { stand, box, clips: cs.overflowX !== 'visible' || cs.overflowY !== 'visible', clipPath: cs.clipPath, radius: cs.borderRadius };
+    return { stand, box, hidden: new Map(), clips: cs.overflowX !== 'visible' || cs.overflowY !== 'visible', clipPath: cs.clipPath, radius: cs.borderRadius };
   }
 
   // Play `el` back from `d` (and velocity `v`) to its laid-out box `w` × `h`.
@@ -186,34 +230,42 @@ function createPresence(root) {
     if (sf) {
       const size = ([, , dw, dh]) => [Math.max(0, w + dw), Math.max(0, h + dh)];
       const hold = { ...timing, fill: 'both' };
+      sf.hide = el.animate([CLEAR, CLEAR], hold);
       parts.push(
         sf.stand.animate(moved, timing),
         sf.box.animate(frames(s => { const [bw, bh] = size(s); return { width: `${bw}px`, height: `${bh}px` }; }), timing),
-        el.animate([0, 1].map(offset => ({ backgroundColor: 'transparent', backgroundImage: 'none', borderColor: 'transparent', boxShadow: 'none', offset })), hold),
+        sf.hide,
         el.parentElement.animate([0, 1].map(offset => ({ isolation: 'isolate', offset })), hold));
       // A box that clips its children clips them to the shown box.
       if (sf.clips && sf.clipPath === 'none') {
-        parts.push(el.animate(frames(s => { const [bw, bh] = size(s); return { clipPath: `inset(0 ${Math.max(0, w - bw)}px ${Math.max(0, h - bh)}px 0 round ${sf.radius})` }; }), timing));
+        parts.push(el.animate([{ overflow: 'visible' }, { overflow: 'visible' }], hold),
+          el.animate(frames(s => { const [bw, bh] = size(s); return { clipPath: `inset(0 ${w - bw}px ${h - bh}px 0 round ${sf.radius})` }; }), timing));
       }
+      surfaces.add(el);
     }
-    const f = { animation, parts, stand: sf?.stand, d, v, config, start: document.timeline.currentTime + Number(delay) };
+    const f = { animation, parts, surface: sf, d, v, config };
     flips.set(el, f);
     animation.finished.then(() => { if (flips.get(el) === f) stop(el); }, () => {});
   }
 
   return {
+    sync,
     // Before a batch's ops: the place of every view that declares the row or
     // gains it here, with what it has still to go (a view that gains the row
     // moves from where it was, as a CSS transition gained with its change
     // runs), then the leaving views, before any op moves them.
     before(batch, views) {
       first = new Map();
-      const place = measure();
-      const gains = (batch.ops ?? []).filter(op => op.op === 'style' && op.css?.includes(LAYOUT)).map(op => views.get(op.id));
-      for (const el of new Set([...tracked, ...gains])) {
-        if (!el?.isConnected) { tracked.delete(el); continue; }
-        const at = place(el);
-        if (at) first.set(el, [at, going(el)]);
+      for (const el of surfaces) reveal(flips.get(el));
+      if (batch.presenceSnap) { for (const el of tracked) stop(el); }
+      else {
+        const place = measure();
+        const gains = (batch.ops ?? []).filter(op => op.op === 'style' && op.css?.includes(LAYOUT)).map(op => views.get(op.id));
+        for (const el of new Set([...tracked, ...gains])) {
+          if (!el?.isConnected) { tracked.delete(el); continue; }
+          const at = place(el);
+          if (at) first.set(el, [at, going(el)]);
+        }
       }
       for (const op of batch.ops ?? []) if (op.op === 'exit') this.exit(views.get(op.id), op.css);
     },
@@ -266,6 +318,7 @@ function createPresence(root) {
       }
       for (const [el, d, v, at] of moves) move(el, d, v, at[2], at[3], measure());
       first = new Map();
+      sync(true);
     },
   };
 }

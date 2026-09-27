@@ -28,10 +28,11 @@ test('a loaded presence module releases the original batch order', async () => {
   const applied = [], live = {};
   const apply = batch => { if (!presence.hold(batch)) applied.push(batch); };
   const presence = presenceLoader(() => new Promise(resolve => { ready = resolve; }), {}, apply);
-  const batches = [{ ops: [{ op: 'exit', id: 1 }] }, { ops: [{ op: 'destroy', id: 1 }] }, { ops: [] }];
+  const batches = [{ ops: [{ op: 'exit', id: 1 }] }, presence.resize({ ops: [{ op: 'destroy', id: 1 }] }), { ops: [] }];
   for (const batch of batches) apply(batch);
   ready(() => live);
   await new Promise(resolve => setTimeout(resolve, 0));
   expect(applied).toEqual(batches);
   expect(presence.live).toBe(live);
+  expect(applied[1].presenceSnap).toBe(true);
 });

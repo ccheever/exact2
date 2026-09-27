@@ -283,6 +283,7 @@ export function presenceLoader(load, root, apply, log) {
     .catch(error => { unavailable = true; loading = null; log(`presence module: unavailable; motion skipped: ${error}`); release(); });
   return {
     get live() { return live; },
+    resize(batch) { return { ...batch, presenceSnap: true }; },
     hold(batch) {
       if (live || unavailable) return false;
       const ops = batch.ops ?? [];
@@ -290,6 +291,38 @@ export function presenceLoader(load, root, apply, log) {
       if (!held.length && !(loading && ops.some(op => op.op === 'exit'))) return false;
       held.push(batch);
       return true;
+    },
+  };
+}
+
+// The agent's browser clock (LLP 1012): author-paused animations keep their
+// own time (LLP 1055 D10); every other animation follows the runner's clock.
+export function animationClock(now, settled, synced) {
+  const starts = new WeakMap(), held = new WeakSet();
+  return {
+    register(t) {
+      for (const a of document.getAnimations()) if (!starts.has(a)) { starts.set(a, t); if (a.playState === 'paused') held.add(a); }
+    },
+    seek(to) {
+      for (const a of document.getAnimations()) {
+        const timing = a.effect?.getComputedTiming();
+        if (!timing) continue;
+        const t = to - (starts.get(a) ?? now());
+        if (held.has(a)) continue; else if (t >= timing.endTime && timing.endTime !== Infinity) a.finish();
+        else { a.pause(); a.currentTime = t; }
+      }
+      synced();
+    },
+    // The springs' engine knows its end; browser animations report theirs.
+    settle() {
+      let to = now();
+      const s = settled();
+      if (s != null) to = Math.max(to, s);
+      for (const a of document.getAnimations()) {
+        const timing = a.effect?.getComputedTiming();
+        if (timing && timing.endTime !== Infinity && !held.has(a)) to = Math.max(to, (starts.get(a) ?? now()) + timing.endTime);
+      }
+      return to;
     },
   };
 }
