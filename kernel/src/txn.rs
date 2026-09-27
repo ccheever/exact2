@@ -593,7 +593,9 @@ pub fn apply(
                         continue;
                     }
                     let excluded = crate::flow::is_exclusion(arena, slot);
-                    arena.style_mut(slot).apply_patch(patch);
+                    let mut next = arena.style(slot).clone();
+                    next.apply_patch(patch);
+                    arena.set_style(slot, next);
                     arena.update_exclusion_count(slot, excluded);
                     if changed.has(crate::StyleId::Display) {
                         receipt.display_changed.push(arena.key(slot));
@@ -609,7 +611,9 @@ pub fn apply(
                         continue;
                     }
                     let excluded = crate::flow::is_exclusion(arena, slot);
-                    arena.style_mut(slot).clear(*mask);
+                    let mut next = arena.style(slot).clone();
+                    next.clear(*mask);
+                    arena.set_style(slot, next);
                     arena.update_exclusion_count(slot, excluded);
                     if changed.has(crate::StyleId::Display) {
                         receipt.display_changed.push(arena.key(slot));

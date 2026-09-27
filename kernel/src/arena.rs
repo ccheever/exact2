@@ -9,7 +9,9 @@
 //! columns: rehydration is columns-plus-rebuild, never serialized engine state.
 
 use crate::id::IdMap;
+use crate::shared_style::SharedStyles;
 use crate::sorted::SlotSet;
+use std::rc::Rc;
 
 use taffy::NodeId;
 
@@ -36,7 +38,9 @@ pub struct NodeArena {
     // Sources whose pass flags need consuming. Geometry flags expire by pass,
     // so a small edit after a large layout never clears N prior changed nodes.
     pub(crate) layout_dirty: SlotSet,
-    styles: Vec<StyleProps>,
+    // Equal styles are one allocation (`shared_style`).
+    styles: Vec<Rc<StyleProps>>,
+    shared: SharedStyles,
     props: Vec<PropList>,
     flags: Vec<NodeFlags>,
     layout_passes: Vec<u64>,
@@ -78,6 +82,7 @@ impl Clone for NodeArena {
             child_indices: self.child_indices.clone(),
             layout_dirty: self.layout_dirty.clone(),
             styles: self.styles.clone(),
+            shared: self.shared.clone(),
             props: self.props.clone(),
             flags: self.flags.clone(),
             layout_passes: self.layout_passes.clone(),
@@ -136,7 +141,7 @@ impl NodeArena {
             self.live[slot] = false;
             self.parents[slot] = None;
             self.children[slot].clear();
-            self.styles[slot] = StyleProps::default();
+            self.styles[slot] = self.shared.default_style();
             self.props[slot].clear();
             self.flags[slot] = NodeFlags::default();
             self.frames[slot] = Frame::default();
@@ -399,7 +404,7 @@ impl NodeArena {
     /// initial value, unmarked. Rows outside `rows`, and rows the schema does
     /// not mark inherited, are the node's own. One walk, however many rows.
     pub fn computed_style(&self, slot: u32, rows: StyleMask) -> StyleProps {
-        let mut out = self.styles[slot as usize].clone();
+        let mut out = StyleProps::clone(&self.styles[slot as usize]);
         self.copy_inherited(slot, rows, |from, mask| out.copy_rows(from, mask));
         out
     }
@@ -426,7 +431,7 @@ impl NodeArena {
         let mut cur = self.parents[slot as usize];
         while !pending.is_empty() {
             let Some(p) = cur else { break };
-            let ancestor = &self.styles[p as usize];
+            let ancestor: &StyleProps = &self.styles[p as usize];
             let found = pending.intersect(ancestor.mask);
             if !found.is_empty() {
                 copy(ancestor, found);
@@ -530,7 +535,7 @@ impl NodeArena {
                 self.parents.push(None);
                 self.children.push(Vec::new());
                 self.child_indices.push(0);
-                self.styles.push(StyleProps::default());
+                self.styles.push(self.shared.default_style());
                 self.props.push(PropList::new());
                 self.flags.push(NodeFlags::default());
                 self.layout_passes.push(0);
@@ -552,7 +557,7 @@ impl NodeArena {
         self.local_ids[s] = id;
         self.parents[s] = None;
         self.children[s].clear();
-        self.styles[s] = StyleProps::default();
+        self.styles[s] = self.shared.default_style();
         self.props[s].clear();
         self.flags[s] = NodeFlags::CREATED;
         self.layout_dirty.insert(slot);
@@ -578,7 +583,7 @@ impl NodeArena {
         self.text_revisions[s] = TextRevisions::default();
         self.parents[s] = None;
         self.children[s] = Vec::new();
-        self.styles[s] = StyleProps::default();
+        self.styles[s] = self.shared.default_style();
         self.props[s] = PropList::new();
         self.flags[s] = NodeFlags::default();
         self.frames[s] = Frame::default();
@@ -650,8 +655,22 @@ impl NodeArena {
         }
     }
 
+    /// A test's write in place, copied first when shared. Production writes
+    /// go through [`set_style`](Self::set_style), which keeps an unset row
+    /// at its initial value, as sharing assumes.
+    #[cfg(test)]
     pub(crate) fn style_mut(&mut self, slot: u32) -> &mut StyleProps {
-        &mut self.styles[slot as usize]
+        Rc::make_mut(&mut self.styles[slot as usize])
+    }
+
+    /// Replace the slot's style, sharing an equal one's allocation.
+    pub(crate) fn set_style(&mut self, slot: u32, style: StyleProps) {
+        self.styles[slot as usize] = self.shared.intern(style);
+    }
+
+    /// Distinct styles the arena holds for its nodes, beyond the initial one.
+    pub fn shared_style_count(&self) -> usize {
+        self.shared.len()
     }
 
     pub(crate) fn props_mut(&mut self, slot: u32) -> &mut PropList {
