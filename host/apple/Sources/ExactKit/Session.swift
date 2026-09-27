@@ -643,6 +643,10 @@ public final class ExactSession {
                 let (name, json) = pendingSurfaceRecords.removeFirst()
                 apply(runtime.surfaceRecord(name, json))
             }
+            while !pendingViewDark.isEmpty {
+                let (id, dark) = pendingViewDark.removeFirst()
+                apply(runtime.viewScheme(id, dark: dark))
+            }
             presenter.collections.flush()
             // Route projection and all structural/style changes are now final.
             // Ineligible recognizers may never receive another mouse/touch event.
@@ -791,7 +795,21 @@ public final class ExactSession {
     public func resize(_ size: CGSize) { guard booted, state != .destroyed else { return }; apply(runtime.resize(width: size.width, height: size.height)) }
     public func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) { guard booted, state != .destroyed else { return }; apply(runtime.insets(top: top, right: right, bottom: bottom, left: left)) }
     /// The view's appearance, for paint motion's `light-dark()` (LLP 1062).
-    public func scheme(dark: Bool) { guard booted, state != .destroyed else { return }; apply(runtime.scheme(dark: dark)) }
+    public func scheme(dark: Bool) { guard booted, state != .destroyed else { return }; schemeDark = dark; apply(runtime.scheme(dark: dark)) }
+    /// The appearance last reported for the session, and each node view
+    /// found painting motion in another (a sheet's override, say), by id.
+    private(set) var schemeDark: Bool?
+    private(set) var viewDark: [UInt32: Bool] = [:]
+    private var pendingViewDark: [(UInt32, Bool)] = []
+    /// A view painting motion: when its own appearance is not the one its
+    /// node's colours resolve by, say so after the batch (LLP 1062 D4).
+    func noteAppearance(_ view: NodeView) {
+        guard let session = schemeDark else { return }
+        let dark = view.drawsDark
+        guard dark != viewDark[view.id] ?? session else { return }
+        viewDark[view.id] = dark == session ? nil : dark
+        pendingViewDark.append((view.id, dark))
+    }
     /// The agent API's runner half (LLP 1012): `tree`, `state`, `logs`, `settle`.
     public func agent(_ request: String) -> String { runtime.agent(request) }
     /// A line for the runner's journal (LLP 1012 §3; LLP 1035.001 D6): a

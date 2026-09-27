@@ -73,6 +73,7 @@ extension BatchReader {
             case (.frame, "w"), (.content, "w"), (.present, "w"): op.w = try number()
             case (.frame, "h"), (.content, "h"), (.present, "h"): op.h = try number()
             case (.frame, "property"), (.content, "property"), (.present, "property"), (.unpresent, "property"): op.property = try string()
+            case (.present, "run"), (.unpresent, "run"): op.run = try id()
             default: try skip()
             }
         }
@@ -186,6 +187,7 @@ struct BatchFields {
             op.x = try number("x") ?? 0; op.y = try number("y") ?? 0
             op.w = try number("w") ?? 0; op.h = try number("h") ?? 0
             op.property = try string("property") ?? ""
+            op.run = try id("run")
         case .destroy: break
         default: op.payload = fields.mapValues(\.any)
         }

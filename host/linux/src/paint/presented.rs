@@ -74,6 +74,11 @@ impl PaintValues {
         self.0.iter().all(Option::is_none)
     }
 
+    /// A presented value, if one is.
+    pub fn value(&self, property: Property) -> Option<Value> {
+        self.0[Self::slot(property)]
+    }
+
     /// A presented colour, straight 8-bit channels.
     pub fn color(&self, property: Property) -> Option<[u8; 4]> {
         self.0[Self::slot(property)].map(|v| v.straight().map(|c| (c * 255.0).round() as u8))

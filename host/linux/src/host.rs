@@ -62,6 +62,8 @@ pub struct Host<D: DataSource> {
     presented: BTreeMap<ViewId, Presented>,
     /// Paint motion's owners and the appearance they resolve by (LLP 1062).
     paint_owners: exact_kernel::motion::PaintOwners,
+    /// Each owner's `currentcolor` border sides at its last paint sync.
+    paint_current: std::collections::BTreeMap<u64, Vec<exact_motion::Property>>,
     dark: bool,
     viewport: (f32, f32),
     now_ms: f64,
@@ -161,6 +163,7 @@ impl<D: DataSource> Host<D> {
             keys: BTreeMap::new(),
             presented: BTreeMap::new(),
             paint_owners: Default::default(),
+            paint_current: Default::default(),
             dark: false,
             viewport: (width, height),
             now_ms: 0.0,
