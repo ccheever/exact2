@@ -404,6 +404,20 @@ impl Batch {
         ));
     }
 
+    /// A paragraph's inline run's presented value (`None`: its row again):
+    /// `{"op":"present","id":paragraph,"run":…,…}` (LLP 1062). A run is no
+    /// view; its paragraph paints it.
+    pub fn present_run(&mut self, id: u32, run: u32, property: &str, value: Option<[f64; 4]>) {
+        self.ops.push(match value {
+            Some([x, y, w, h]) => format!(
+                "{{\"op\":\"present\",\"id\":{id},\"run\":{run},\"property\":\"{property}\",\"x\":{x},\"y\":{y},\"w\":{w},\"h\":{h}}}"
+            ),
+            None => format!(
+                "{{\"op\":\"unpresent\",\"id\":{id},\"run\":{run},\"property\":\"{property}\"}}"
+            ),
+        });
+    }
+
     /// `{"op":"unpresent","id":…,"property":…}` — the style row shows again.
     pub fn unpresent(&mut self, id: u32, property: &str) {
         self.ops.push(format!(

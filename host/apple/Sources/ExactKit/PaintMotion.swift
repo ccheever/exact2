@@ -2,23 +2,32 @@
 // over the style row it will arrive at. `channels` reads `paint` first, so
 // every painter already in the view — the box layer, the border, the shadow
 // caster, the paragraph's runs, a symbol's tint — paints the presented value;
-// this only says which of them to ask again. `nil` hands the row back.
+// this only says which of them to ask again. `nil` hands the row back. An
+// inline run's colour is its paragraph's to paint, under `text_color#<run>`.
 #if os(iOS)
 import UIKit
 #else
 import AppKit
 #endif
 
+extension BatchOp {
+    /// The paint key a `present` sets: its property, or an inline run's
+    /// colour, which its paragraph keeps as `text_color#<run>`.
+    var paintKey: String { run.map { "\(property)#\($0)" } ?? property }
+}
+
 extension NodeView {
     func present(paint key: String, _ value: [Double]?) {
         guard paint[key] != value else { return }
         paint[key] = value
         switch key {
-        case "text_color":
-            // The paragraph's pixels carry their colour: a new raster.
+        case _ where key.hasPrefix("text_color"):
+            // The paragraph's pixels carry their colour: a new raster, painted
+            // in this frame, not a worker's next (LLP 1062 D6).
             invalidateText()
             field?.textColor = color("text_color", .black)
             #if os(iOS)
+            presenter?.presentedText.insert(id)
             setNeedsDisplay()
             #else
             needsDisplay = true

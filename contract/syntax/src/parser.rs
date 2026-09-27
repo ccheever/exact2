@@ -519,10 +519,10 @@ impl Parser {
                     }
                     other => other,
                 };
-                // A keyframe may name a palette function (`color=accent()`):
-                // lowering folds an argument-free one to its literal (LLP 1062 D9).
-                let palette = owner.starts_with("keyframes ")
-                    && matches!(&value, Expr::Call(_, args, _) if args.is_empty());
+                // A keyframe may call a palette function (`color=accent()`,
+                // `color=tone("strong")`): lowering folds it to its literal
+                // when its arguments are known (LLP 1062 D9).
+                let palette = owner.starts_with("keyframes ") && matches!(&value, Expr::Call(..));
                 if !palette && !matches!(value, Expr::Number(..) | Expr::Str(..) | Expr::Bool(..)) {
                     return Err(SyntaxError {
                         id: "contract-style-literal",

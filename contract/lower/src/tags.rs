@@ -638,17 +638,6 @@ pub(crate) fn validate_list(
         if heights.is_empty() {
             return Ok(());
         }
-        if children
-            .iter()
-            .any(|c| matches!(c, Node::Each { index: Some(_), .. }))
-        {
-            // A windowed row outlives its position (LLP 1062 D8).
-            return super::err(
-                "lower-list-rows",
-                "a windowed list's rows name no position: `each item in list`, with the position in the item if a row needs it",
-                span,
-            );
-        }
         if expanded
             .iter()
             .any(|a| a.name == "virtualized" && matches!(a.value, Expr::Bool(true, _)))

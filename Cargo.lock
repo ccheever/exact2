@@ -409,6 +409,7 @@ dependencies = [
  "contract-types",
  "exact-kernel",
  "exact-motion",
+ "exact-num",
  "exact-plan",
 ]
 

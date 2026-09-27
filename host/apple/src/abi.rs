@@ -1080,6 +1080,16 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// One view's own appearance, where the presenter finds it differs from
+    /// the session's (LLP 1062 D4).
+    pub fn view_scheme(&mut self, view: u32, dark: bool) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_view_scheme(view, dark));
+        self.emit(out)
+    }
+
     /// An image's intrinsic size (pixel counts, one-for-one as points); a
     /// finite width or height ≤ 0 clears it; a non-finite value is refused
     /// by the kernel and comes back as an error.

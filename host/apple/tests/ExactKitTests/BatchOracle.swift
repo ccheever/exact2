@@ -68,11 +68,12 @@ struct OracleBatchOp: Decodable {
     var runs: [OracleInlineText] = []
     var x = 0.0, y = 0.0, w = 0.0, h = 0.0
     var property = ""
+    var run: UInt32?
     // Rare adapters retain their existing input shape. Common ops never build it.
     var payload: [String: Any] = [:]
 
     enum CodingKeys: String, CodingKey {
-        case op, id, kind, props, set, clear, style, handlers, ids, runs, x, y, w, h, property
+        case op, id, kind, props, set, clear, style, handlers, ids, runs, x, y, w, h, property, run
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -96,6 +97,7 @@ struct OracleBatchOp: Decodable {
             w = try c.decodeIfPresent(Double.self, forKey: .w) ?? 0
             h = try c.decodeIfPresent(Double.self, forKey: .h) ?? 0
             property = try c.decodeIfPresent(String.self, forKey: .property) ?? ""
+            run = try c.decodeIfPresent(UInt32.self, forKey: .run)
         case .destroy: break
         default: payload = try [String: OracleBatchValue](from: decoder).mapValues(\.any)
         }

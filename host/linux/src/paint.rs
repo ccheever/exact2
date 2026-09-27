@@ -881,11 +881,17 @@ impl Painter {
                 if let Some(paragraph) = paragraph {
                     let mut palette = Vec::new();
                     text_palette(walk.scene.kernel, node, self.dark, &mut palette);
-                    if let Some(c) = presented.color(exact_motion::Property::Color) {
-                        palette
-                            .iter_mut()
-                            .filter(|r| r.source == node.id)
-                            .for_each(|r| r.color = c);
+                    // Paint motion's colour on each run it reaches: the
+                    // paragraph's own, and an inline run's (LLP 1062 D5).
+                    for r in &mut palette {
+                        let shown = if r.source == node.id {
+                            presented
+                        } else {
+                            (walk.scene.presented)(r.source).paint
+                        };
+                        if let Some(c) = shown.color(exact_motion::Property::Color) {
+                            r.color = c;
+                        }
                     }
                     walk.text.insert(node.key, paragraph.clone());
                     // CSS `text-overflow: ellipsis` in a clipping box: an

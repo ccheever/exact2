@@ -16,7 +16,9 @@
 
 use exact_kernel::style::ColorValue;
 use exact_kernel::{Color, Dimension, Display, Overflow, RowValue, StyleId, StyleProps};
-use exact_motion::{Animations, Easing, Keyframes, TimingFunction, Transition, Transitions};
+use exact_motion::{
+    Animations, Easing, Keyframes, TimingFunction, Transition, TransitionProperty, Transitions,
+};
 use exact_num::{push_text, Piece, Shortest32};
 use std::fmt::Write as _;
 
@@ -373,25 +375,57 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
     }
 }
 
-/// A `transition` row as CSS; `true` when a spring was left out.
+/// A `transition` row as CSS; `true` when a spring was left out. A spring
+/// drives the compositor rows as physics, lowered to frames by the host; the
+/// properties it does not ([`exact_motion::Property::springs`]: paint, a path's stroke)
+/// play its curve from rest as `linear()`, as every native host does (LLP
+/// 1062 D3).
 pub fn transition_css(t: &Transitions) -> (String, bool) {
     let mut text = String::new();
     let mut spring = false;
+    let mut push = |name: &str, duration: f64, easing: &Easing, delay: f64| {
+        if !text.is_empty() {
+            text.push(',');
+        }
+        let _ = write!(
+            text,
+            "{name} {}s {} {}s",
+            num(duration as f32),
+            easing_css(easing),
+            num(delay as f32)
+        );
+    };
     for tr in &t.0 {
         match &tr.timing {
-            TimingFunction::Spring(_) => spring = true,
-            TimingFunction::Easing(e) => {
-                if !text.is_empty() {
-                    text.push(',');
+            TimingFunction::Spring(config) => {
+                let names: &[&str] = match tr.property {
+                    TransitionProperty::All => &[
+                        "background-color",
+                        "color",
+                        "border-color",
+                        "--exact-tint",
+                        "box-shadow",
+                        "--exact-stroke-start",
+                        "--exact-stroke-end",
+                    ],
+                    TransitionProperty::BorderColor => &["border-color"],
+                    TransitionProperty::Property(p) if !p.springs() => &[p.css_name()],
+                    TransitionProperty::Property(_) => &[],
+                };
+                spring |= match tr.property {
+                    TransitionProperty::All => true,
+                    TransitionProperty::Property(p) => p.springs(),
+                    TransitionProperty::BorderColor => false,
+                };
+                if !names.is_empty() {
+                    let (duration, easing) = config.easing();
+                    for name in names {
+                        push(name, duration, &easing, tr.delay);
+                    }
                 }
-                let _ = write!(
-                    text,
-                    "{} {}s {} {}s",
-                    transition_property(tr),
-                    num(tr.duration as f32),
-                    easing_css(e),
-                    num(tr.delay as f32)
-                );
+            }
+            TimingFunction::Easing(e) => {
+                push(transition_property(tr), tr.duration, e, tr.delay);
             }
         }
     }
@@ -640,6 +674,45 @@ mod writer_tests {
             let t = Transitions::parse(text).unwrap();
             assert_eq!(transition_css(&t), transition_joined(&t), "{text}");
         }
+    }
+
+    /// LLP 1062 D3: a spring on paint is its curve from rest as `linear()`,
+    /// the easing the native engine plays; the compositor rows stay the
+    /// host's frames, and `all` names each property the spring does not drive.
+    #[test]
+    fn a_paint_spring_is_its_curve_as_linear() {
+        let config = exact_motion::SpringConfig {
+            stiffness: 180.0,
+            damping: 12.0,
+            mass: 1.0,
+        };
+        let (duration, easing) = config.easing();
+        let curve = format!("{}s {} 0.1s", num(duration as f32), easing.css());
+        let t = Transitions::parse("background-color spring(180, 12, 1) 0s 100ms").unwrap();
+        assert_eq!(
+            transition_css(&t),
+            (format!("background-color {curve}"), false)
+        );
+        let t = Transitions::parse("opacity 1s, all spring(180, 12, 1) 0s 100ms").unwrap();
+        let (text, skipped) = transition_css(&t);
+        assert!(skipped, "the compositor rows' spring is the host's");
+        let names: Vec<&str> = text
+            .split(&format!(" {curve}"))
+            .map(|n| n.trim_start_matches(','))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "opacity 1s ease 0s,background-color",
+                "color",
+                "border-color",
+                "--exact-tint",
+                "box-shadow",
+                "--exact-stroke-start",
+                "--exact-stroke-end",
+                ""
+            ]
+        );
     }
 }
 

@@ -371,6 +371,13 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.scheme(dark != 0), |n| n)
         }
 
+        /// One view's appearance (nonzero: dark), where it differs from the
+        /// session's (LLP 1062 D4); returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_view_scheme(rt: u32, view: u32, dark: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.view_scheme(view, dark != 0), |n| n)
+        }
+
         /// An image loaded (or failed: a size ≤ 0); returns the batch's length.
         #[no_mangle]
         pub extern "C" fn exact_intrinsic(rt: u32, view: u32, width: f32, height: f32) -> u32 {
