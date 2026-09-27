@@ -7,6 +7,9 @@
 **Date:** 2026-09-26
 **Related:** LLP 1035.001 D10 (tablists project to a segmented control); LLP 1035.006 07.03 (application tab bars); LLP 1038 (the router's tabs); grnl's FRICTION.md F12, M10
 
+
+**Ruled (Charlie, 2026-09-27, after the review of PR #47):** projecting to a native tab bar stays automatic, as the full platform. But the bar's own height (`sizeThatFits`) is reported back to layout, so the kernel reserves the room instead of letting the bar draw outside its box. D2a's overflow is removed once that lands. LLP 1035.001's projection table lists the three shapes (segmented control, tab bar, authored views) together.
+
 ## Summary
 
 A horizontal `role="tablist"` projects on iOS by the shape of its tabs:

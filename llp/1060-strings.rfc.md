@@ -7,6 +7,12 @@
 **Date:** 2026-09-26
 **Related:** LLP 1027.000.000 (`set_place`: the viewer's locale); LLP 1038 D2 (a compiler-made root slot the runner fills); LLP 1004 D4 (the roster); LLP 1005 §8 (dependency tracking); grnl's AGENTS.md §5 ("user-facing strings go through the string layer")
 
+
+**Ruled (Charlie, 2026-09-27, after the review of PR #47):**
+- Tables are written in **Unicode MessageFormat 2** syntax, the basis of the TC39 `Intl.MessageFormat` proposal. Only `{name}` placeholders are implemented at first. Every other MF2 construct (`.match`, plural and select, functions, markup) is refused at compile time by name until it is built, never treated as literal text, so no table accepted today changes meaning when plurals arrive.
+- The resolved table's locale sets `lang`, and its direction sets `dir`, on every host (the web's document element; the native accessibility language and layout direction).
+- `exactTime` carries the resolved locale, so a TypeScript source reads it instead of re-running the RFC 4647 lookup.
+
 ## Summary
 
 An app keeps its UI text in `strings/<locale>.json` beside `app.contract`.

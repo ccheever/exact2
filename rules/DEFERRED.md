@@ -87,7 +87,11 @@ and heights-before-layout from a data crate that measures with advances read
 out of the app's font files at build time and breaks lines with the hosts'
 own `exact-textflow` walker. Unblocks a public comparison on every host with
 no new kernel row and no app-side measurement seam. Take: no Pretext library,
-no runtime font parsing, and auto-height flow (LLP 1043.000 §8) stays owed;
+no runtime font parsing, and auto-height flow (LLP 1043.000 §8) stays owed
+(built 2026-09-26 as §8's Stage 2, a bounded re-layout restricted to block
+contexts; **accepted (Charlie, 2026-09-27)** on condition that `metrics.mjs`
+shows a still layout costs about nothing and names the worst case for a page
+with several shapes);
 the dragon is a polygon, not a `shape-outside: <image>`.
 
 **Expanded (Charlie, 2026-09-21: "design and build a markdown editor that works
@@ -261,7 +265,9 @@ reading. Nothing that isn't HTML is added by it.
   host earns them).~~ Moved 2026-09-26 (Seth Webster, for grnl; LLP 1066): one CSS
   `background-image` row, `linear-gradient()` and `radial-gradient()`, painted
   natively on every host and held to Chrome. Unblocks a protection gradient under a
-  floating control without a canvas. Take: none named yet; **Charlie to rule.**
+  floating control without a canvas. **Ratified (Charlie, 2026-09-27; take
+  waived):** CSS's own row, run natively by the browser and held to Chrome's
+  pixels elsewhere; kept as built.
 - No virtualList v2 (cert wires, extent demand, proxy lanes). **Admitted 2026-09-14
   (Charlie: "ok do what you think"):** a straightforward windowed list with bounded
   row/view lifetime and a separate decoded-image budget (LLP 1010 §6). Unblocks
@@ -305,9 +311,15 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   (a box's laid-out position and surface size, moved by the engine natively and by
   a measured offset on the web) and `exit-animation` (a removed node stays, out of
   layout, until its keyframes end). Unblocks siblings that slide when content
-  around them changes, and things that leave instead of vanishing. Take: none
-  named yet; **Charlie to rule.** Still out: animating any other layout
-  property, and laying out per frame.
+  around them changes, and things that leave instead of vanishing. **Ruled
+  (Charlie, 2026-09-27, "we can try (a) for now"; take waived):** both rows stay
+  as declared deviations (LLP 1001). No CSS feature animates a removed node or a
+  layout move without snapshots, so the web runs them by FLIP, the technique web
+  libraries use; there is no browser oracle for them, and parity is held by one
+  recorded timeline compared across hosts. If the emulation's bug rate stays
+  high, the fallback is dropping `layout-transition` and keeping
+  `exit-animation`. Still out: animating any other layout property, and laying
+  out per frame.
 - **Decay and sequence drivers.** A spring carries release velocity; nothing
   else needs a driver. (`@keyframes` and repeat came off; see below.)
 - **Reduced-motion policy in the engine.** The producer emits `transition: none`
@@ -353,7 +365,11 @@ motion and transparency preferences as `exactViewport` fields, which the app
 reads (still no engine policy, above). Unblocks grnl's design as drawn. Take:
 the branch's own `path` node, `marker` declaration and block keyframes syntax
 were removed at the merge for main's SVG and keyframes; nothing is off main's
-list. **Charlie to rule.**
+list. **Ratified (Charlie, 2026-09-27; take waived):** paint transitions as CSS
+names them. `press-scale` stays as a declared non-CSS host-feedback row (LLP
+1001): the press composes through CSS's `scale` property and never writes
+`transform`, and it is kept under reduced motion, as a native button's
+highlight is (a shrink is feedback, not motion).
 - **`runOnJS` and the escape hatch / runtime graph admission** — never existed here.
 
 **Tooling** — no Design Mode, no Guide system, no devtools UI, no TUI host, no blog/CMS.
@@ -420,7 +436,10 @@ This half matters more than the feature half.
 ## Moving something off this list
 
 Write one line naming what it unblocks, and take something off the doing-list in the
-same PR. If nothing can come off, the answer is no.
+same PR. If nothing can come off, Charlie may waive the take in writing; the waiver
+is recorded beside the entry, in his words. Without a take or a waiver, the answer
+is no. **Restated (Charlie, 2026-09-27):** the take stays the default; the waiver
+exists so that an exception is a visible act and not drift.
 
 **Install-page slice, 2026-09-12 (Charlie, LLP 1030.003 D6a/D6b):** bake a
 standard `/.exact/install/` page for web/iOS/macOS with configured installation

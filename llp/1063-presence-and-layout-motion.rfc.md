@@ -8,6 +8,9 @@
 measure, load, ghost and springs, first moves, XCTests)
 **Related:** LLP 1002/1003 (motion v1), LLP 1055 D5 (keyframes and `animation` — the grammar reused here), LLP 1041 §8.12 (the numeric-height trial, unchanged), `rules/DEFERRED.md` §Motion
 
+
+**Ruled (Charlie, 2026-09-27, after the review of PR #47: "we can try (a) for now"):** both rows stay, declared as deviations in LLP 1001. CSS has no way to animate a removed node, and View Transitions animate snapshots of the whole document one at a time, which a list whose rows move every few hundred milliseconds can't use. So the web runs these rows by FLIP, the technique web layout-animation libraries use. Chrome is not an oracle for them: parity is one recorded timeline compared across hosts. If the emulation's bug rate stays high after the 2026-09-27 fixes (`issues/20260927-web-presence-*`), the fallback is to drop `layout-transition` and keep `exit-animation`.
+
 ## Summary
 
 Two things a motion designer reaches for first were missing: a node that

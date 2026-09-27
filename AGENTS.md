@@ -1,6 +1,6 @@
 # Agent instructions
 
-Read `rules/RULES.md` first; it binds and this file does not.
+Read `rules/RULES.md` and `rules/DEFERRED.md` first; they bind and this file does not.
 `llp/1000-exact2-root.explainer.md` is the map. Design documents under `llp/research/`
 are the predecessor's — research, never authority.
 

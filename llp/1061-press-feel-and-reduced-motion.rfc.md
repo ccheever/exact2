@@ -7,6 +7,11 @@
 **Date:** 2026-09-26
 **Related:** LLP 1002 §4 and `rules/DEFERRED.md` §Motion (reduced motion is the app's choice, not the engine's); LLP 1055 D11 (animations inherit that); LLP 1039 (`exactViewport`, the fact this extends); LLP 1027.000.000 (a host fact told after boot, as the date is); LLP 1009 D4 (frames only while something moves)
 
+
+**Ruled (Charlie, 2026-09-27, after the review of PR #47):** `press-scale` stays a declared non-CSS host-feedback row (LLP 1001). This amends D3 and D5:
+- The press never writes CSS `transform`. On the web it composes through CSS's `scale` property (the row's scale × the press), as Apple already does, so an authored `transform` (on SVG today, and the owed HTML row) survives a press.
+- The press is kept under reduced motion. A native button's highlight isn't skipped under Reduce Motion, and a shrink under the finger is feedback, not motion.
+
 ## Summary
 
 grnl's design system asks three things of the platform a designer cannot
