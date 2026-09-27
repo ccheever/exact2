@@ -56,6 +56,7 @@ impl<D: DataSource> Host<D> {
             return;
         }
         self.dark = dark;
+        self.engine.set_dark(dark, false);
         let seek = self.engine.advance(self.now_ms / 1000.0);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
         let sync = self

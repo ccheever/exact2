@@ -159,7 +159,7 @@ fn the_timing_function_eases_each_interval_and_a_keyframe_may_name_its_own() {
     // `ease-in` over 0%→50%, the 50% keyframe's `linear` over 50%→100%.
     let a = &animations("breathe 2s ease-in").0[0];
     let under = Value::scalar(1.0);
-    let at = |p| a.value(Property::Opacity, p, under).unwrap().x;
+    let at = |p| a.value(Property::Opacity, p, under, false).unwrap().x;
     close(at(0.0), 0.4);
     close(at(0.25), 0.4 + 0.6 * Easing::EaseIn.progress(0.5));
     close(at(0.5), 1.0);
@@ -167,15 +167,17 @@ fn the_timing_function_eases_each_interval_and_a_keyframe_may_name_its_own() {
     close(at(1.0), 0.4);
     // `scale` is set only at 0%: 100% is the underlying value.
     close(
-        a.value(Property::Scale, 0.5, under).unwrap().x,
+        a.value(Property::Scale, 0.5, under, false).unwrap().x,
         0.9 + 0.1 * Easing::EaseIn.progress(0.5),
     );
     close(
-        a.value(Property::Scale, 1.0, Value::scalar(2.0)).unwrap().x,
+        a.value(Property::Scale, 1.0, Value::scalar(2.0), false)
+            .unwrap()
+            .x,
         2.0,
     );
     // A property no keyframe sets is not the animation's.
-    assert_eq!(a.value(Property::Rotate, 0.5, under), None);
+    assert_eq!(a.value(Property::Rotate, 0.5, under, false), None);
 }
 
 #[test]

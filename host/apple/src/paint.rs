@@ -121,6 +121,7 @@ impl<D: DataSource> Host<D> {
         if self.paint.dark != Some(dark) {
             let first = self.paint.dark.is_none();
             self.paint.dark = Some(dark);
+            self.engine.set_dark(dark, first);
             let seek = self.engine.advance(self.now_ms / 1000.0);
             debug_assert!(seek.is_ok(), "the clock never runs backwards here");
             let sync = self

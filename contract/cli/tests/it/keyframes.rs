@@ -277,7 +277,64 @@ fn a_computed_delay_staggers_and_colours_keyframe() {
         assert_eq!(error.id, id, "{attr}\n{error}");
         assert!(error.message.contains(says), "{error}");
     }
-    let dark = "keyframes k\n  to\n    color=\"light-dark(#fff, #000)\"\ncomponent App\n  view\n    text \"a\"\n";
-    let error = contract::compile(dark).unwrap_err();
-    assert!(error.message.contains("one colour"), "{error}");
+}
+
+/// LLP 1062 D9: a keyframe takes a `light-dark()` colour, written or
+/// returned by a palette function, and carries both; the host's appearance
+/// picks one. grnl's welcome: each word arrives lit in the accent and eases
+/// to ink, one after another.
+#[test]
+fn a_keyframe_takes_light_dark_through_a_palette_function() {
+    struct Words;
+    impl DataSource for Words {
+        fn query(&mut self, _: &str, _: &[PlanValue]) -> Result<PlanValue, DataError> {
+            Ok(PlanValue::list(vec![
+                PlanValue::str("Hello"),
+                PlanValue::str("there"),
+            ]))
+        }
+    }
+    let source = "fn accent(): string = \"light-dark(#4F6657, #B7C9AC)\"\nfn ink(): string = textTitle()\nfn textTitle(): string = \"light-dark(#171B17, #F5F5EC)\"\nkeyframes lit\n  from\n    color=accent()\n  to\n    color=ink()\ncomponent App\n  resource words = words() as shape list<string>\n  view\n    row\n      each w, i in words key=w\n        text w testId=`w-${w}` animation=`lit 900ms linear ${i * 120}ms both`\n";
+    let plan = contract::compile(source).unwrap();
+    let r = Runner::boot(
+        Plan::decode(&plan.encode()).unwrap(),
+        Words,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel();
+    let row = k
+        .node_by_key(k.find_by_test_id("w-there")[0])
+        .unwrap()
+        .style
+        .animation
+        .clone();
+    let a = &row.0[0];
+    assert!((a.delay - 0.12).abs() < 1e-6);
+    let unit = |c: u8| c as f64 / 255.0;
+    let color = |r: u8, g: u8, b: u8| Value::rgba(unit(r), unit(g), unit(b), 1.0);
+    let close = |got: &[(Property, Value)], want: Value| {
+        let [(Property::Color, v)] = got else {
+            panic!("{got:?}")
+        };
+        assert!(
+            v.components()
+                .iter()
+                .zip(want.components())
+                .all(|(a, b)| (a - b).abs() < 1e-6),
+            "{v:?} vs {want:?}"
+        );
+    };
+    close(&a.keyframes.blocks[0].values, color(0x4F, 0x66, 0x57));
+    close(&a.keyframes.blocks[0].dark, color(0xB7, 0xC9, 0xAC));
+    close(&a.keyframes.blocks[1].dark, color(0xF5, 0xF5, 0xEC));
+    // Only what the app knows when it compiles: a function of an argument is not.
+    let computed = "fn tone(): string = 1 > 0 ? \"#fff\" : \"#000\"\nkeyframes k\n  to\n    color=tone()\ncomponent App\n  view\n    text \"a\"\n";
+    let error = contract::compile(computed).unwrap_err();
+    assert!(
+        error.message.contains("function without parameters"),
+        "{error}"
+    );
 }

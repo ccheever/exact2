@@ -124,3 +124,42 @@ fn the_appearance_retargets_light_dark_first_quietly_then_moving() {
         "an unchanged report is nothing"
     );
 }
+
+/// LLP 1062 D9: a keyframe's `light-dark()` colour is the presenter's
+/// appearance when it starts; the first report corrects boot's light guess
+/// in place, and a later flip leaves a playing animation as Chrome does.
+#[test]
+fn a_light_dark_keyframe_follows_the_presenter_appearance() {
+    let plan = contract::compile(
+        "fn accent(): string = \"light-dark(#000000, #ffffff)\"\nkeyframes lit\n  from\n    color=accent()\n  to\n    color=\"light-dark(#ff0000, #0000ff)\"\ncomponent App\n  view\n    text \"lit\" testId=\"word\" animation=\"lit 1s linear both\"\n",
+    )
+    .unwrap();
+    let (mut host, _) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.0,
+        874.0,
+    )
+    .unwrap();
+    let word = view(&host, "word");
+    let dark = host.set_scheme(true);
+    let ink = paint(&dark, word, "text_color").unwrap();
+    assert!(
+        ink.contains("\"x\":255,\"y\":255,\"w\":255,\"h\":255"),
+        "{ink}"
+    );
+    let mid = host.tick(500.0);
+    let ink = paint(&mid, word, "text_color").unwrap();
+    assert!(
+        ink.contains("\"x\":127.5,\"y\":127.5,\"w\":255,\"h\":255"),
+        "{ink}"
+    );
+    let flipped = host.set_scheme(false);
+    if let Some(ink) = paint(&flipped, word, "text_color") {
+        assert!(
+            ink.contains("\"x\":127.5,\"y\":127.5,\"w\":255,\"h\":255"),
+            "{ink}"
+        );
+    }
+}

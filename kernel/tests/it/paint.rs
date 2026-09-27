@@ -157,7 +157,7 @@ fn paint_transition_names_and_colour_keyframes_round_trip_the_wire() {
     let t = Transitions::parse("border-color 1s, box-shadow 2s, tint-color 3s, color 4s").unwrap();
     assert_eq!(t.0[0].property, TransitionProperty::BorderColor);
     let a = exact_kernel::Animations::parse(
-        "k 1s @keyframes k{from{background-color:rgba(255,0,0,1)}to{--exact-tint:rgba(0,0,255,0.5)}}",
+        "k 1s @keyframes k{from{background-color:light-dark(rgba(255,0,0,1),rgba(0,128,0,1))}to{--exact-tint:rgba(0,0,255,0.5)}}",
     )
     .unwrap();
     let ops = vec![
@@ -189,4 +189,9 @@ fn paint_transition_names_and_colour_keyframes_round_trip_the_wire() {
         (to.1.w - 0.5).abs() < 1e-6 && (to.1.z - 0.5).abs() < 1e-6,
         "{to:?}"
     );
+    // A `light-dark()` colour carries its dark value (LLP 1062 D9).
+    let from = &style.animation.0[0].keyframes.blocks[0];
+    assert_eq!(from.values[0].1.x, 1.0);
+    assert_eq!(from.dark[0].0, Property::BackgroundColor);
+    assert!((from.dark[0].1.y - 128.0 / 255.0).abs() < 1e-6, "{from:?}");
 }

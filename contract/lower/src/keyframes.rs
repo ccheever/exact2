@@ -11,7 +11,7 @@
 //! nobody declared is refused here, at compile time.
 
 use crate::{err, tags, values, LowerError};
-use contract_syntax::{Attr, Expr, File, TemplatePart};
+use contract_syntax::{Attr, Expr, File, FnDecl, TemplatePart};
 use exact_kernel::motion::targets;
 use exact_kernel::style::ColorValue;
 use exact_kernel::{RowValue, StyleId, StyleProps, StyleValue};
@@ -39,11 +39,15 @@ pub(crate) fn resolve(file: &File) -> (Table, Vec<LowerError>) {
                 offset: 0.0,
                 easing: None,
                 values: Vec::new(),
+                dark: Vec::new(),
             };
             for a in &block.attrs {
-                match value(a) {
+                match value(a, &file.fns) {
                     Ok(Setting::Easing(easing)) => out.easing = Some(easing),
-                    Ok(Setting::Value(values)) => out.values.extend(values),
+                    Ok(Setting::Value(values, dark)) => {
+                        out.values.extend(values);
+                        out.dark.extend(dark);
+                    }
                     Err(e) => {
                         errors.push(e);
                         refused = true;
@@ -87,9 +91,28 @@ pub(crate) fn resolve(file: &File) -> (Table, Vec<LowerError>) {
     (table, errors)
 }
 
+type Values = Vec<(exact_motion::Property, exact_motion::Value)>;
+
 enum Setting {
     Easing(Easing),
-    Value(Vec<(exact_motion::Property, exact_motion::Value)>),
+    /// The values, and a `light-dark()` colour's dark ones.
+    Value(Values, Values),
+}
+
+/// A keyframe's value as written, through calls to argument-free functions
+/// (`color=accent()` where `fn accent(): string = "light-dark(…)"`): a
+/// palette is written once, and a keyframe is still known when the app
+/// compiles.
+fn constant<'a>(e: &'a Expr, fns: &'a [FnDecl]) -> &'a Expr {
+    let mut e = e;
+    for _ in 0..16 {
+        let Expr::Call(name, args, _) = e else { break };
+        match fns.iter().find(|f| &f.name == name && f.params.is_empty()) {
+            Some(f) if args.is_empty() => e = &f.body,
+            _ => break,
+        }
+    }
+    e
 }
 
 /// The motion property a keyframe row animates: the four compositor rows,
@@ -115,7 +138,7 @@ fn animated(row: StyleId) -> Option<exact_motion::Property> {
 /// One keyframe attribute: `animation-timing-function`, or a row motion
 /// animates — the four compositor rows or a colour — read by the kernel's
 /// parser for that row.
-fn value(a: &Attr) -> Result<Setting, LowerError> {
+fn value(a: &Attr, fns: &[FnDecl]) -> Result<Setting, LowerError> {
     if a.name == "animation-timing-function" {
         let Expr::Str(text, _) = &a.value else {
             return err(
@@ -154,20 +177,20 @@ fn value(a: &Attr) -> Result<Setting, LowerError> {
             );
         }
     };
-    let literal = match &a.value {
+    let literal = match constant(&a.value, fns) {
         Expr::Str(s, _) => StyleValue::Text(s.clone()),
         other => match values::numeric_literal(other) {
             Some(n) => StyleValue::Number(n),
             None => {
                 return err(
                     "lower-keyframes",
-                    format!("`{}` in a keyframe is a number or a string", a.name),
+                    format!("`{}` in a keyframe is a number or a string, written or returned by a function without parameters", a.name),
                     a.span,
                 )
             }
         },
     };
-    let mut out = Vec::new();
+    let (mut out, mut dark) = (Vec::new(), Vec::new());
     for row in rows {
         let mut style = StyleProps::default();
         if let Err(e) = style.set_dynamic(*row, &literal) {
@@ -187,12 +210,13 @@ fn value(a: &Attr) -> Result<Setting, LowerError> {
             RowValue::ColorValue(ColorValue::Fixed(c)) => {
                 exact_motion::Value::rgba8([c.r(), c.g(), c.b(), c.a()])
             }
-            RowValue::ColorValue(ColorValue::LightDark(..)) => {
-                return err(
-                    "lower-keyframes",
-                    format!("`{}` in a keyframe is one colour: a keyframe is resolved when the app compiles, and `light-dark()` only when it paints (LLP 1062)", a.name),
-                    a.span,
-                )
+            // The host's appearance picks one when it paints (LLP 1062 D9).
+            RowValue::ColorValue(ColorValue::LightDark(l, d)) => {
+                dark.push((
+                    property,
+                    exact_motion::Value::rgba8([d.r(), d.g(), d.b(), d.a()]),
+                ));
+                exact_motion::Value::rgba8([l.r(), l.g(), l.b(), l.a()])
             }
             _ => {
                 targets(&style)
@@ -204,7 +228,7 @@ fn value(a: &Attr) -> Result<Setting, LowerError> {
         };
         out.push((property, value));
     }
-    Ok(Setting::Value(out))
+    Ok(Setting::Value(out, dark))
 }
 
 /// An `animation` value with every literal resolved to the row's text. A

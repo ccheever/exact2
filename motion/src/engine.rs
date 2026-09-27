@@ -74,6 +74,9 @@ struct Playing {
     animation: Animation,
     start: f64,
     paused: Option<f64>,
+    // The appearance its `light-dark()` keyframes took when it started, as
+    // a browser resolves them once (LLP 1062 D9).
+    dark: bool,
 }
 
 impl Playing {
@@ -179,6 +182,8 @@ pub struct Engine {
     // Each node's `layout-transition` declaration (LLP 1063): the only thing
     // that moves `Property::Layout`, so `transition: all` never covers layout.
     layout: BTreeMap<u64, Transition>,
+    // The appearance a keyframe's `light-dark()` colour takes (LLP 1062 D9).
+    dark: bool,
 }
 
 impl Engine {
@@ -190,6 +195,28 @@ impl Engine {
     /// The clock.
     pub fn now(&self) -> f64 {
         self.now
+    }
+
+    /// The host's appearance, which a keyframe's `light-dark()` colour takes
+    /// when its animation starts (LLP 1062 D9): Chrome resolves the rule
+    /// once, and a playing animation keeps its colours across a flip. With
+    /// `playing`, those take it too, in place and keeping their start: a
+    /// host's first report correcting the appearance it booted under.
+    pub fn set_dark(&mut self, dark: bool, playing: bool) {
+        self.dark = dark;
+        if !playing {
+            return;
+        }
+        for (node, list) in &mut self.animations {
+            for p in list.iter_mut().filter(|p| p.dark != dark) {
+                p.dark = dark;
+                for block in &p.animation.keyframes.blocks {
+                    for (property, _) in &block.dark {
+                        self.dirty.insert((*node, *property));
+                    }
+                }
+            }
+        }
     }
 
     /// Set a node's `transition` row. Governs changes observed from now on;
@@ -256,12 +283,14 @@ impl Engine {
                                 p.start
                             },
                             paused: paused.then_some(local),
+                            dark: p.dark,
                         }
                     }
                     None => Playing {
                         animation,
                         start: now,
                         paused: paused.then_some(0.0),
+                        dark: self.dark,
                     },
                 }
             })
@@ -301,7 +330,7 @@ impl Engine {
         list.iter().fold(base, |under, p| {
             p.animation
                 .progress(p.local(self.now))
-                .and_then(|progress| p.animation.value(property, progress, under))
+                .and_then(|progress| p.animation.value(property, progress, under, p.dark))
                 .unwrap_or(under)
         })
     }

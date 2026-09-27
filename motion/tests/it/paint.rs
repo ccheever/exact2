@@ -178,3 +178,53 @@ fn keyframes_animate_colours_and_their_rule_reads_back() {
     // `box-shadow` stays a transition's.
     assert!(Animations::parse("k 1s @keyframes k{to{box-shadow:0}}").is_err());
 }
+
+/// LLP 1062 D9: a keyframe's `light-dark()` colour takes the appearance its
+/// animation starts under, as Chrome 153 resolves the rule once: a flip
+/// leaves a playing animation's colours, and a host correcting its boot
+/// guess re-resolves them in place, keeping the start.
+#[test]
+fn a_light_dark_keyframe_takes_the_appearance_it_starts_under() {
+    let text = "lit 1s linear both @keyframes lit{from{color:light-dark(rgba(79,102,87,1),rgba(183,201,172,1))}to{color:light-dark(rgba(23,27,23,1),rgba(245,245,236,1))}}";
+    let a = Animations::parse(text).unwrap();
+    let from = &a.0[0].keyframes.blocks[0];
+    assert_eq!(from.values, [(Property::Color, rgba(79, 102, 87, 1.0))]);
+    assert_eq!(from.dark, [(Property::Color, rgba(183, 201, 172, 1.0))]);
+    let rule = a.0[0].keyframes.rule("lit");
+    assert!(
+        rule.contains("color:light-dark(rgba(79,102,87,1),rgba(183,201,172,1))"),
+        "{rule}"
+    );
+    assert_eq!(Animations::parse(&a.text()).unwrap(), a);
+    let mut e = Engine::new();
+    set(&mut e, Property::Color, rgba(0, 0, 0, 1.0));
+    e.set_animations(NODE, a.clone()).unwrap();
+    e.advance(0.5).unwrap();
+    let light = [51.0, 64.5, 55.0, 1.0];
+    let dark = [214.0, 223.0, 204.0, 1.0];
+    assert_eq!(css(e.value(NODE, Property::Color).unwrap()), light);
+    e.frame();
+    // A flip: the playing animation keeps what it started with (Chrome).
+    e.set_dark(true, false);
+    assert!(e.frame().is_empty());
+    assert_eq!(css(e.value(NODE, Property::Color).unwrap()), light);
+    // Re-rendering the same row restarts nothing, so still light.
+    e.set_animations(NODE, a.clone()).unwrap();
+    assert_eq!(css(e.value(NODE, Property::Color).unwrap()), light);
+    // A correction of the boot guess: in place, at the same moment.
+    e.set_dark(true, true);
+    assert_eq!(e.frame().len(), 1, "the colour repaints");
+    assert_eq!(css(e.value(NODE, Property::Color).unwrap()), dark);
+    // An animation that starts under dark is dark.
+    let mut e = Engine::new();
+    e.set_dark(true, false);
+    set(&mut e, Property::Color, rgba(0, 0, 0, 1.0));
+    e.set_animations(NODE, a).unwrap();
+    e.advance(0.5).unwrap();
+    assert_eq!(css(e.value(NODE, Property::Color).unwrap()), dark);
+    // A dark value is a colour's, and only beside a light one.
+    assert!(Animations::parse(
+        "k 1s @keyframes k{to{opacity:light-dark(rgba(0,0,0,1),rgba(1,1,1,1))}}"
+    )
+    .is_err());
+}

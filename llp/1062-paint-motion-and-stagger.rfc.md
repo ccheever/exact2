@@ -107,11 +107,33 @@ still its key, so a stagger re-times without restarting. A windowed `list`
 (`item-height`, `virtualized`) refuses it at compile time: its rows outlive
 their positions; put the position in the item.
 
-**D9 — Keyframes take fixed colours.** `background-color`, `color`,
-`border-*-color` and `tint-color` in a keyframe, one fixed colour each;
-`light-dark()` there is refused (a keyframe is resolved at compile time, the
-appearance only at paint). `box-shadow` stays a transition's. The row's text
-writes a colour as `rgba(r,g,b,a)` under the browser's name (`--exact-tint`).
+**D9 — Keyframes take colours, `light-dark()` included.** `background-color`,
+`color`, `border-*-color` and `tint-color` in a keyframe, written or returned
+by an argument-free function (`color=accent()` where `fn accent(): string =
+"light-dark(#4F6657, #B7C9AC)"`), which lowering folds to its literal. A
+`light-dark()` pair keeps both values (`KeyframeBlock.dark`; on the wire a
+flag and four more floats); the row's text writes it as
+`light-dark(rgba(…),rgba(…))` under the browser's name (`--exact-tint`).
+Which one plays is the appearance the animation **starts** under: Chrome 153
+resolves a rule's `light-dark()` once, and a playing animation keeps its
+colours across a `color-scheme` flip (recorded: at 50% of `lit`, light
+`rgb(128,0,0)` before and after the flip; one started dark, `rgb(128,128,255)`).
+The engine does the same (`Engine::set_dark(dark, playing)`); only an Apple
+host's first appearance report, which corrects boot's light guess, re-resolves
+playing animations in place, keeping their start. `box-shadow` stays a
+transition's.
+
+```
+fn accent(): string = "light-dark(#4F6657, #B7C9AC)"
+fn textTitle(): string = "light-dark(#171B17, #F5F5EC)"
+keyframes lit
+  from
+    color=accent()
+  to
+    color=textTitle()
+each w, i in words key=w
+  text w animation=`lit 900ms linear ${i * 120}ms both`
+```
 
 ## Verification
 
@@ -129,7 +151,10 @@ writes a colour as `rgba(r,g,b,a)` under the browser's name (`--exact-tint`).
   exactly. Tests: `motion/tests/it/paint.rs`, `kernel/tests/it/paint.rs`,
   `host/apple/tests/it/paint.rs` (batch ops, scheme),
   `host/linux/tests/pinned/motion_paint.rs` (pixels),
-  `contract/cli/tests/it/keyframes.rs` (template, positions, refusals).
+  `contract/cli/tests/it/keyframes.rs` (template, positions, refusals,
+  `light-dark()` through palette functions). grnl's welcome shape (three
+  words, `lit` from `accent()` to `textTitle()`, 300 ms apart) driven on web
+  and iOS under dark: each word at its own point between the pairs' dark values.
 - **Cost (iPhone 17 Pro simulator on an Apple-silicon Mac, 61 real frames of a
   1 s `color` transition).** Worker raster per frame: a 314×24 pt label
   0.13 ms median (p95 0.21); a 354×308 pt, 14-line paragraph 0.57 ms median
@@ -141,8 +166,12 @@ writes a colour as `rgba(r,g,b,a)` under the browser's name (`--exact-tint`).
 - A `currentcolor` border follows its own transition of the computed `color`, not
   an animating `color` frame by frame; nor do inline runs inherit an ancestor's
   animating colour (their colour rides the paragraph op).
-- Colour keyframes take no `light-dark()`; `box-shadow` has no keyframes; paint
-  has no springs.
+- A flip mid-animation leaves a playing keyframe's colours as they started
+  (Chrome's behaviour, matched); only animations that start afterwards follow.
+- A keyframe function must take no arguments; `box-shadow` has no keyframes;
+  paint has no springs.
+- An exit animation (LLP 1063) animates a colour only if the leaving node
+  already owned it (its `transition` or `animation` named it).
 - A colour's text reaches the screen a frame after its value (worker raster).
 - `each item, i` is refused in windowed lists.
 - Apple resolves by the ExactView's appearance, one per session; a view whose own

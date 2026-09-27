@@ -261,6 +261,7 @@ fn keyframe_blocks(name: &str, inner: &str) -> Result<Keyframes, ParseError> {
             offset: 0.0,
             easing: None,
             values: Vec::new(),
+            dark: Vec::new(),
         };
         for decl in rest[open + 1..close].split(';') {
             let decl = decl.trim();
@@ -278,9 +279,22 @@ fn keyframe_blocks(name: &str, inner: &str) -> Result<Keyframes, ParseError> {
                 .into_iter()
                 .find(|p| *p != Property::ShadowColor && p.css_name() == property)
                 .ok_or_else(|| ParseError::UnknownProperty(property.to_string()))?;
-            let value = keyframe_value(property, value).ok_or_else(|| bad(decl))?;
+            let (light, night) = match value
+                .strip_prefix("light-dark(")
+                .and_then(|v| v.strip_suffix(')'))
+                .and_then(|v| v.find("),").map(|at| (&v[..at + 1], &v[at + 2..])))
+            {
+                Some((l, d)) if property.is_color() => (l, Some(d.trim())),
+                _ => (value, None),
+            };
+            let value = keyframe_value(property, light.trim()).ok_or_else(|| bad(decl))?;
             block.values.retain(|(p, _)| *p != property);
+            block.dark.retain(|(p, _)| *p != property);
             block.values.push((property, value));
+            if let Some(night) = night {
+                let night = keyframe_value(property, night).ok_or_else(|| bad(decl))?;
+                block.dark.push((property, night));
+            }
         }
         for selector in rest[..open].split(',') {
             let offset = match selector.trim() {

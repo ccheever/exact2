@@ -398,6 +398,7 @@ impl<'a> Reader<'a> {
                 };
                 let values = self.u8()?;
                 let mut set = Vec::with_capacity(values as usize);
+                let mut dark = Vec::new();
                 for _ in 0..values {
                     let p = self.u8()?;
                     let property = Property::from_wire(p).ok_or(keyword(p))?;
@@ -406,13 +407,27 @@ impl<'a> Reader<'a> {
                     for c in &mut c[..property.components()] {
                         *c = self.f32()? as f64;
                     }
-                    let value = Value::four(c[0], c[1], c[2], c[3]);
-                    set.push((property, value));
+                    set.push((property, Value::four(c[0], c[1], c[2], c[3])));
+                    // A colour then says whether a dark value follows (LLP 1062 D9).
+                    if property.is_color() {
+                        match self.u8()? {
+                            0 => {}
+                            1 => {
+                                let mut d = [0.0; 4];
+                                for d in &mut d {
+                                    *d = self.f32()? as f64;
+                                }
+                                dark.push((property, Value::four(d[0], d[1], d[2], d[3])));
+                            }
+                            other => return Err(keyword(other)),
+                        }
+                    }
                 }
                 list.push(KeyframeBlock {
                     offset,
                     easing,
                     values: set,
+                    dark,
                 });
             }
             out.push(Animation {
@@ -701,6 +716,17 @@ impl Writer {
                     self.u8(*property as u8);
                     for c in &value.components()[..property.components()] {
                         self.f32(*c as f32);
+                    }
+                    if property.is_color() {
+                        match block.dark.iter().find(|(p, _)| p == property) {
+                            Some((_, night)) => {
+                                self.u8(1);
+                                for c in night.components() {
+                                    self.f32(c as f32);
+                                }
+                            }
+                            None => self.u8(0),
+                        }
                     }
                 }
             }

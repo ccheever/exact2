@@ -519,7 +519,11 @@ impl Parser {
                     }
                     other => other,
                 };
-                if !matches!(value, Expr::Number(..) | Expr::Str(..) | Expr::Bool(..)) {
+                // A keyframe may name a palette function (`color=accent()`):
+                // lowering folds an argument-free one to its literal (LLP 1062 D9).
+                let palette = owner.starts_with("keyframes ")
+                    && matches!(&value, Expr::Call(_, args, _) if args.is_empty());
+                if !palette && !matches!(value, Expr::Number(..) | Expr::Str(..) | Expr::Bool(..)) {
                     return Err(SyntaxError {
                         id: "contract-style-literal",
                         message: format!("`{aname}` in `{owner}` must be a literal: a style is constant, and a node's own attribute may compute"),
