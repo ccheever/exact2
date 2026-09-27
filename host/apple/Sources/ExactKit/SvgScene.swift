@@ -76,7 +76,9 @@ enum CssAnimations {
         for spec in specs {
             guard let id = spec["id"] as? String else { continue }
             keep.insert(id)
-            let signature = spec.keys.sorted().map { "\($0)=\(spec[$0]!)" }.joined(separator: ";") + (clock.map { "@\($0)" } ?? "")
+            var h = Hasher()
+            digest(spec, into: &h)
+            let signature = String(h.finalize()) + (clock.map { "@\($0)" } ?? "")
             if installed[id] == signature { continue }
             installed[id] = signature
             layer.removeAnimation(forKey: id)
@@ -85,6 +87,19 @@ enum CssAnimations {
         for id in installed.keys where !keep.contains(id) {
             layer.removeAnimation(forKey: id)
             installed.removeValue(forKey: id)
+        }
+    }
+
+    /// A spec's values, hashed: describing them as text was most of a
+    /// scene's cost on a list's rows.
+    private static func digest(_ v: Any?, into h: inout Hasher) {
+        switch v {
+        case let n as Double: h.combine(n.bitPattern)
+        case let s as String: h.combine(s)
+        case let a as [Any]: h.combine(a.count); for x in a { digest(x, into: &h) }
+        case let d as [String: Any]: h.combine(d.count); for k in d.keys.sorted() { h.combine(k); digest(d[k], into: &h) }
+        case .none: h.combine(0 as UInt8)
+        case let .some(other): h.combine(String(describing: other))
         }
     }
 
