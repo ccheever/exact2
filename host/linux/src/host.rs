@@ -62,6 +62,8 @@ pub struct Host<D: DataSource> {
     presented: BTreeMap<ViewId, Presented>,
     /// Paint motion's owners and the appearance they resolve by (LLP 1062).
     paint_owners: exact_kernel::motion::PaintOwners,
+    /// Each owner's `currentcolor` border sides at its last paint sync.
+    paint_current: std::collections::BTreeMap<u64, Vec<exact_motion::Property>>,
     dark: bool,
     viewport: (f32, f32),
     now_ms: f64,
@@ -161,6 +163,7 @@ impl<D: DataSource> Host<D> {
             keys: BTreeMap::new(),
             presented: BTreeMap::new(),
             paint_owners: Default::default(),
+            paint_current: Default::default(),
             dark: false,
             viewport: (width, height),
             now_ms: 0.0,
@@ -764,6 +767,22 @@ impl<D: DataSource> Host<D> {
         }
     }
 
+    /// The display preferences (LLP 1061 D5): re-answer `exactViewport()`
+    /// in one commit.
+    pub fn set_preferences(&mut self, preferences: exact_runner::Preferences) -> Option<String> {
+        match self.runner.set_preferences(preferences) {
+            Ok(Some(receipt)) => self.commit(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => None,
+            Err(e) => Some(format!("preferences: {e:?}")),
+        }
+    }
+
     /// Seek presentation. Returns whether the registered Height changed layout;
     /// paint-only properties never trigger layout or text measurement.
     pub fn tick(&mut self, now_ms: f64) -> bool {
@@ -807,7 +826,6 @@ impl<D: DataSource> Host<D> {
                 self.forget_transform_handle(*key);
                 if let Some(id) = self.keys.remove(key) {
                     self.presented.remove(&id);
-                    self.presence.offsets.remove(&id);
                 }
             }
             for key in &r.created {
@@ -911,14 +929,12 @@ impl<D: DataSource> Host<D> {
                 self.present_paint(p);
                 continue;
             }
-            let translate = matches!(p.property, Property::Translate | Property::Layout)
-                .then(|| self.present_translate(view, p.node, p.property));
+            let layout = self.layout_presented(p.node, p.value);
             let base = self.presented(view);
             let entry = self.presented.entry(view).or_insert(base);
             match p.property {
-                Property::Translate | Property::Layout => {
-                    entry.translate = translate.expect("a translation")
-                }
+                Property::Translate => entry.translate = (p.value.x as f32, p.value.y as f32),
+                Property::Layout => entry.layout = layout,
                 Property::Scale => entry.scale = p.value.x as f32,
                 Property::Rotate => entry.rotate = p.value.x as f32,
                 Property::Opacity => entry.opacity = p.value.x as f32,

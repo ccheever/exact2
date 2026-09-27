@@ -164,6 +164,178 @@ fn a_light_dark_keyframe_follows_the_presenter_appearance() {
     }
 }
 
+const INHERITING: &str = r##"component App
+  state on = false
+  action toggle writes on
+    on = not on
+  view
+    column testId="box" color=(on ? "#ffffff" : "#000000") transition="color 1s linear" border-width=2 border-style="solid" border-left-color="#ff0000"
+      button press=toggle testId="toggle"
+        text "Go"
+      text testId="para"
+        text "plain " testId="plain"
+        text "red" color="#ff0000" testId="red"
+"##;
+
+fn boot(src: &str) -> Host<NoData> {
+    let plan = contract::compile(src).unwrap();
+    Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.0,
+        874.0,
+    )
+    .unwrap()
+    .0
+}
+
+/// A `currentcolor` border side paints the animating `color` frame by
+/// frame, as CSS's used value does; a side with its own colour keeps it.
+/// An inline run that inherits the colour follows it too, through its
+/// paragraph (LLP 1062 D5).
+#[test]
+fn currentcolor_borders_and_inline_runs_follow_an_animating_color() {
+    let mut host = boot(INHERITING);
+    let (boxed, toggle, para, plain, red) = (
+        view(&host, "box"),
+        view(&host, "toggle"),
+        view(&host, "para"),
+        view(&host, "plain"),
+        view(&host, "red"),
+    );
+    host.dispatch_at(toggle, Event::Press, 0.0);
+    let mid = host.tick(500.0);
+    let grey = "\"x\":127.5,\"y\":127.5,\"w\":127.5,\"h\":255";
+    for side in ["top", "right", "bottom"] {
+        let op = paint(&mid, boxed, &format!("border_color_{side}")).unwrap();
+        assert!(op.contains(grey), "{side}: {op}");
+    }
+    assert_eq!(
+        paint(&mid, boxed, "border_color_left"),
+        None,
+        "its own colour"
+    );
+    // The run is no view: its paragraph paints it.
+    let run = mid
+        .split("{\"op\":")
+        .find(|op| op.contains(&format!("\"id\":{para},\"run\":{plain},")))
+        .unwrap_or_else(|| panic!("{mid}"));
+    assert!(run.contains(grey), "{run}");
+    assert!(!mid.contains(&format!("\"run\":{red},")), "{mid}");
+    let done = host.tick(1000.0);
+    let op = paint(&done, boxed, "border_color_top").unwrap();
+    assert!(op.starts_with("\"unpresent\""), "{done}");
+    assert!(
+        done.contains(&format!(
+            "{{\"op\":\"unpresent\",\"id\":{para},\"run\":{plain},\"property\":\"text_color\"}}"
+        )),
+        "{done}"
+    );
+}
+
+/// An exit animation animates a colour its node never transitioned: the
+/// exit's keyframes own it while the node lives (LLP 1063).
+#[test]
+fn an_exit_animates_a_colour_the_node_never_transitioned() {
+    let mut host = boot(
+        "keyframes leave\n  to\n    background-color=\"#0000ff\"\ncomponent App\n  state shown = true\n  action hide writes shown\n    shown = false\n  view\n    column\n      button press=hide testId=\"hide\"\n        text \"Hide\"\n      when shown\n        column testId=\"gone\" height=40 background-color=\"#ff0000\" exit-animation=\"leave 1s linear both\"\n",
+    );
+    let (hide, gone) = (view(&host, "hide"), view(&host, "gone"));
+    let off = host.dispatch_at(hide, Event::Press, 0.0);
+    assert!(
+        off.contains(&format!("{{\"op\":\"exit\",\"id\":{gone}}}")),
+        "{off}"
+    );
+    let mid = host.tick(500.0);
+    let bg = paint(&mid, gone, "background_color").unwrap_or_else(|| panic!("{mid}"));
+    assert!(
+        bg.contains("\"x\":127.5,\"y\":0,\"w\":127.5,\"h\":255"),
+        "{bg}"
+    );
+}
+
+/// LLP 1062 D4: a view whose own appearance differs from the session's (a
+/// sheet with an override, say) reports it, and its node's `light-dark()`
+/// colours resolve by it: the first report corrects in place, keyframes
+/// included; one that agrees with the session again transitions back.
+#[test]
+fn a_view_in_its_own_appearance_resolves_by_it() {
+    let mut host = boot(
+        "keyframes lit\n  from\n    color=\"light-dark(#000000, #ffffff)\"\n  to\n    color=\"light-dark(#ff0000, #0000ff)\"\ncomponent App\n  view\n    column\n      text \"lit\" testId=\"word\" animation=\"lit 1s linear both\"\n      column testId=\"page\" height=10 background-color=\"light-dark(#ffffff, #000000)\" transition=\"background-color 1s linear\"\n",
+    );
+    let (word, page) = (view(&host, "word"), view(&host, "page"));
+    host.set_scheme(false);
+    host.tick(500.0);
+    // The word's view is dark: its playing keyframes take the dark pair now.
+    let own = host.set_view_scheme(word, true);
+    let ink = paint(&own, word, "text_color").unwrap_or_else(|| panic!("{own}"));
+    assert!(
+        ink.contains("\"x\":127.5,\"y\":127.5,\"w\":255,\"h\":255"),
+        "{ink}"
+    );
+    assert!(
+        host.set_view_scheme(word, true).contains("\"ops\":[]"),
+        "an unchanged report is nothing"
+    );
+    // The page's view reports dark too: its background is corrected, with
+    // no motion, and the style row it hands back resolves by the view.
+    let corrected = host.set_view_scheme(page, true);
+    assert!(
+        paint(&corrected, page, "background_color")
+            .is_none_or(|op| op.starts_with("\"unpresent\"")),
+        "{corrected}"
+    );
+    // Agreeing with the session again is an appearance change: it moves.
+    let back = host.set_view_scheme(page, false);
+    assert!(back.contains("\"motion\":true"), "{back}");
+    let mid = host.tick(750.0);
+    let bg = paint(&mid, page, "background_color").unwrap_or_else(|| panic!("{mid}"));
+    assert!(
+        bg.contains("\"x\":63.75,\"y\":63.75,\"w\":63.75,\"h\":255"),
+        "{bg}"
+    );
+}
+
+/// CSS: a side that stays `currentcolor` never transitions on its own — its
+/// computed value is the keyword — so it follows `color` even under a faster
+/// `border-color` transition; a side that becomes `currentcolor` from a
+/// colour moves there under its own row (Chrome 153: red to currentcolor
+/// with `color: blue` is `rgb(128, 0, 128)` halfway).
+#[test]
+fn a_side_that_stays_currentcolor_follows_color_and_one_that_becomes_it_moves() {
+    let mut host = boot(
+        r##"component App
+  state on = false
+  action toggle writes on
+    on = not on
+  view
+    column
+      button press=toggle testId="toggle"
+        text "Go"
+      column testId="stays" height=10 border-width=2 border-style="solid" color=(on ? "#ffffff" : "#000000") transition="color 1s linear, border-color 200ms linear"
+      column testId="becomes" height=10 border-width=2 border-style="solid" color="#0000ff" border-top-color=(on ? "currentcolor" : "#ff0000") transition="border-color 1s linear"
+"##,
+    );
+    let (toggle, stays, becomes) = (
+        view(&host, "toggle"),
+        view(&host, "stays"),
+        view(&host, "becomes"),
+    );
+    host.dispatch_at(toggle, Event::Press, 0.0);
+    let mid = host.tick(500.0);
+    let side = paint(&mid, stays, "border_color_top").unwrap_or_else(|| panic!("{mid}"));
+    assert!(
+        side.contains("\"x\":127.5,\"y\":127.5,\"w\":127.5,\"h\":255"),
+        "{side}"
+    );
+    let side = paint(&mid, becomes, "border_color_top").unwrap_or_else(|| panic!("{mid}"));
+    assert!(
+        side.contains("\"x\":127.5,\"y\":0,\"w\":127.5,\"h\":255"),
+        "{side}"
+    );
+}
+
 /// A path's `fill` and `stroke` are paint motion's (LLP 1065): presented
 /// over their rows under the dictionary's own keys, reaching a path that
 /// inherits them; `none` is discrete, so moving to it retires the motion.

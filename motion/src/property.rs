@@ -19,9 +19,10 @@
 //! points) and its colour, the shadow's opacity folded into the alpha, so a
 //! shadow from `none` is CSS's transparent, zero-length padding.
 //!
-//! `layout` is not a CSS property: it is a node's laid-out origin in its
-//! parent, which a `layout-transition` row animates (LLP 1063). It is never
-//! authored in `transition` or `@keyframes`, so it is outside [`Property::ALL`].
+//! `layout` is not a CSS property: it is a node's laid-out box in its parent
+//! (origin and size), which a `layout-transition` row animates (LLP 1063).
+//! It is never authored in `transition` or `@keyframes`, so it is outside
+//! [`Property::ALL`].
 //!
 //! A `path` node's `stroke-start` and `stroke-end` are fractions of its
 //! length a vector layer trims its stroke to (LLP 1065); on the web they are
@@ -62,9 +63,10 @@ pub enum Property {
     /// `box-shadow`'s colour, its opacity folded into the alpha. Named only
     /// by `box-shadow`, never on its own.
     ShadowColor = 13,
-    /// The laid-out origin in the parent, in points (LLP 1063). Its target is
-    /// layout's answer, observed by a host after layout; only a node's
-    /// `layout-transition` row moves it, never `transition`.
+    /// The laid-out box in the parent, in points: origin (`x`, `y`) and size
+    /// (`z` wide, `w` high) (LLP 1063). Its target is layout's answer,
+    /// observed by a host after layout; only a node's `layout-transition` row
+    /// moves it, never `transition`.
     Layout = 14,
     /// A path's `stroke-start`: the fraction of its length the visible
     /// stroke starts at (LLP 1065).
@@ -191,11 +193,11 @@ impl Property {
         )
     }
 
-    /// Whether a `spring()` may drive the property. The web lowers springs
-    /// for these alone and leaves every spring out of its CSS `transition`,
-    /// so no host lets a spring declaration drive a paint property (LLP
-    /// 1062 D3). A path's stroke fractions are numbers like `opacity`, and
-    /// spring like it (LLP 1065).
+    /// Whether a `spring()` drives the property as physics, carrying
+    /// velocity across an interruption. The web lowers these springs to
+    /// frames; every other property (paint, a path's stroke and paint) plays a spring
+    /// as its curve from rest, a CSS `linear()` easing, on every host (LLP
+    /// 1062 D3).
     pub fn springs(self) -> bool {
         matches!(
             self,
@@ -205,18 +207,17 @@ impl Property {
                 | Property::Opacity
                 | Property::Height
                 | Property::Layout
-                | Property::StrokeStart
-                | Property::StrokeEnd
         )
     }
 
-    /// How many components the value carries: two for `translate` and
-    /// `layout`, three for `box-shadow`'s geometry, four for a colour, else
-    /// one.
+    /// How many components the value carries: two for `translate`, three
+    /// for `box-shadow`'s geometry, four for a colour and for `layout`'s box,
+    /// else one.
     pub fn components(self) -> usize {
         match self {
-            Property::Translate | Property::Layout => 2,
+            Property::Translate => 2,
             Property::BoxShadow => 3,
+            Property::Layout => 4,
             p if p.is_color() => 4,
             _ => 1,
         }
@@ -245,9 +246,10 @@ pub struct Value {
     pub x: f64,
     /// Second component (`translate`'s y; premultiplied green).
     pub y: f64,
-    /// Third component (a shadow's blur; premultiplied blue).
+    /// Third component (a shadow's blur; premultiplied blue; a layout box's
+    /// width).
     pub z: f64,
-    /// Fourth component (a colour's alpha).
+    /// Fourth component (a colour's alpha; a layout box's height).
     pub w: f64,
 }
 

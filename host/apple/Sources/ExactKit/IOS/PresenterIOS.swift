@@ -479,6 +479,8 @@ final class Presenter {
     /// batch to finish, then goes if its view survived it.
     private(set) var applying = false
     private var waiting: [(UInt32?, () -> Void)] = []
+    /// Paragraphs whose presented colour a batch changed, painted as it ends.
+    var presentedText: Set<UInt32> = []
     private func send(_ id: UInt32, _ f: @escaping () -> Void) {
         guard textHost(id) != nil else { return }
         if applying { waiting.append((id, f)) } else { f() }
@@ -570,6 +572,7 @@ final class Presenter {
             pool.end()
             if outermost {
                 applying = false
+                paintPresentedText()
                 videoVisibility?.changed()
                 let q = waiting
                 waiting = []
@@ -690,14 +693,16 @@ final class Presenter {
                 let x = CGFloat(op.x)
                 switch op.property {
                 case "translate": v.translate = CGPoint(x: x, y: CGFloat(op.y)); v.applyTransform()
-                case "layout": v.layoutOffset = CGPoint(x: x, y: CGFloat(op.y)); v.applyTransform()
+                case "layout": v.layoutOffset = CGPoint(x: x, y: CGFloat(op.y)); v.layoutScale = CGPoint(x: CGFloat(op.w), y: CGFloat(op.h)); v.applyTransform()
                 case "scale": v.scale = x; v.applyTransform()
                 case "rotate": v.rotate = x; v.applyTransform()
                 case "opacity": v.alpha = x
                 case "stroke-start", "stroke-end": PathView.of(v)?.present(op.property, x)
-                default: v.present(paint: op.property, [op.x, op.y, op.w, op.h])
+                default:
+                    v.present(paint: op.paintKey, [op.x, op.y, op.w, op.h])
+                    session?.noteAppearance(v)
                 }
-            case .unpresent: (views[id] ?? leaving[id]?.view)?.present(paint: op.property, nil)
+            case .unpresent: (views[id] ?? leaving[id]?.view)?.present(paint: op.paintKey, nil)
             default: break
             }
         }

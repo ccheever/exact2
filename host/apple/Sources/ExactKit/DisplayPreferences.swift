@@ -1,9 +1,9 @@
 // The user's display preferences, as the platform's accessibility settings
-// hold them (LLP 1061 D4): what a browser reports as `prefers-reduced-motion`
+// hold them (LLP 1061 D5): what a browser reports as `prefers-reduced-motion`
 // and `prefers-reduced-transparency`. The runner answers them through
-// `exactViewport()`; the app decides what they mean (`rules/NOT-DOING.md`
-// §Motion). The host reads reduced motion itself only for the feedback it
-// owns: press scale (LLP 1061 D2).
+// `exactViewport()`; the app decides what they mean. The host reads reduced
+// motion itself only for the feedback it owns: press scale (LLP 1061 D2).
+// An agent's `prefer` stands in for the settings, for this process only.
 #if os(macOS)
 import AppKit
 #else
@@ -11,18 +11,22 @@ import UIKit
 #endif
 
 enum DisplayPreferences {
+    /// What an agent's `prefer` set, in place of the platform's settings.
+    nonisolated(unsafe) static var agent: (reducedMotion: Bool, reducedTransparency: Bool)?
     static var reducedMotion: Bool {
+        if let agent { return agent.reducedMotion }
         #if os(macOS)
-        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        return NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         #else
-        UIAccessibility.isReduceMotionEnabled
+        return UIAccessibility.isReduceMotionEnabled
         #endif
     }
     static var reducedTransparency: Bool {
+        if let agent { return agent.reducedTransparency }
         #if os(macOS)
-        NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+        return NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
         #else
-        UIAccessibility.isReduceTransparencyEnabled
+        return UIAccessibility.isReduceTransparencyEnabled
         #endif
     }
     /// The ABI's form (`exact_set_preferences`): bit 0 reduced motion, bit 1

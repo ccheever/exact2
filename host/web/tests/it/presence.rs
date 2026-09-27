@@ -49,21 +49,25 @@ fn the_rows_reach_the_page_as_custom_properties_and_an_exit_precedes_its_destroy
     };
     let (gone, toggle) = (view("first"), view("toggle"));
     let off = host.dispatch_at(toggle, Event::Press, 100.0);
-    let exit = off.find(&format!("{{\"op\":\"exit\",\"id\":{gone}}}"));
+    let exit = off.find(&format!(
+        "{{\"op\":\"exit\",\"id\":{gone},\"css\":\"{leave} 0.2s cubic-bezier(0.32,0.72,0,1) 0s 1 normal both running\"}}"
+    ));
     let destroy = off.find(&format!("{{\"op\":\"destroy\",\"id\":{gone}}}"));
     assert!(exit.is_some() && exit < destroy, "{off}");
 }
 
 #[test]
-fn a_spring_layout_transition_is_its_curve_as_linear() {
+fn a_spring_layout_transition_reaches_the_page_as_its_parameters() {
     let plan = contract::compile(
         "component App\n  view\n    column\n      text \"a\" layout-transition=\"spring(300, 30, 1)\"\n",
     )
     .unwrap();
     exact_web::link(exact_web_capabilities::ALL);
     let (_, first) = Host::boot(&plan.encode(), NoData, Default::default(), "/").unwrap();
-    let at = first.find("--exact-layout-transition:").expect("declared");
-    let value = &first[at..first[at..].find(';').unwrap() + at];
-    assert!(value.contains(" 0 linear(0 0%, "), "{value}");
-    assert!(value.ends_with("1 100%)"), "{value}");
+    // The page lowers each move from its own displacement, as the engine
+    // settles it natively: a curve for a unit move would rest too soon.
+    assert!(
+        first.contains("--exact-layout-transition:0 0 spring(300, 30, 1);"),
+        "{first}"
+    );
 }

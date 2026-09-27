@@ -230,8 +230,8 @@ fn stroke_end_plays_in_keyframes_from_creation() {
     );
 }
 
-/// A spring drives a stroke fraction as it drives `opacity`: both are plain
-/// numbers the web lowers to frames (LLP 1065).
+/// A spring drives a stroke fraction as its curve from rest, as it drives
+/// paint (LLP 1062 D3, LLP 1065): the value moves rather than jumps.
 #[test]
 fn a_spring_drives_the_stroke_fractions() {
     let (mut kernel, mut engine, node) = path_kernel(rows(&[
@@ -250,23 +250,21 @@ fn a_spring_drives_the_stroke_fractions() {
         )
         .unwrap();
     kernel.motion_sync(&receipt).apply(&mut engine).unwrap();
-    assert!(engine
-        .spring_descriptor(node, Property::StrokeEnd)
-        .is_some());
     engine.advance(0.1).unwrap();
     let x = engine.value(node, Property::StrokeEnd).unwrap().x;
     assert!(x > 0.0 && x < 1.0, "{x}");
 }
 
 /// `fill` and `stroke` are paint motion's (LLP 1062) when a path names them:
-/// computed colours, `currentcolor` as the computed `color`; `none` is no
-/// target, as SVG's `<paint>` interpolates only colour to colour.
+/// computed colours, `light-dark()` resolved; `none` and `currentcolor` are
+/// no target, as SVG's `<paint>` interpolates only colour to colour and a
+/// `currentcolor` paint's computed value is the keyword.
 #[test]
 fn fill_and_stroke_are_paint_targets_unless_none() {
     use exact_kernel::motion::PaintOwners;
     let (mut kernel, _, node) = path_kernel(rows(&[
         (StyleId::TextColor, text("#0000ff")),
-        (StyleId::Fill, text("currentcolor")),
+        (StyleId::Fill, text("#0000ff")),
         (StyleId::Stroke, text("light-dark(#ff0000, #00ff00)")),
         (StyleId::Transition, text("fill 1s, stroke 1s")),
     ]));
@@ -283,7 +281,7 @@ fn fill_and_stroke_are_paint_targets_unless_none() {
     let mut owners = PaintOwners::default();
     kernel.paint_adopt([key], false, &mut owners);
     assert!(owners.owns(node, Property::Fill) && owners.owns(node, Property::Stroke));
-    // To `none`: owning ends (the change is discrete), and it is retired.
+    // To `none` or `currentcolor`: owning ends (the change is discrete).
     let receipt = kernel
         .apply(
             0,
@@ -297,6 +295,18 @@ fn fill_and_stroke_are_paint_targets_unless_none() {
     let sync = kernel.paint_sync(&receipt, false, &mut owners);
     assert_eq!(sync.retired, [(node, Property::Fill)]);
     assert!(!owners.owns(node, Property::Fill) && owners.owns(node, Property::Stroke));
+    let receipt = kernel
+        .apply(
+            0,
+            3,
+            &[Op::SetStyle {
+                id: 2,
+                patch: Box::new(rows(&[(StyleId::Stroke, text("currentColor"))])),
+            }],
+        )
+        .unwrap();
+    let sync = kernel.paint_sync(&receipt, false, &mut owners);
+    assert_eq!(sync.retired, [(node, Property::Stroke)]);
     // `transition: all` covers them; the wire carries them after the strokes.
     let t = Transitions::parse("fill 1s, stroke 2s").unwrap();
     let mut w = Writer::new();

@@ -2,7 +2,8 @@
 // leaving view and everything under it leave the presenter's maps but stay
 // in the window where they were, above their old siblings, inert to the
 // pointer and hidden from accessibility, until the host's `destroy` of the
-// leaving view ends its exit.
+// leaving view ends its exit. A view's transform, with a layout transition's
+// box, is in `PressFeedback.swift`.
 #if os(macOS)
 import AppKit
 

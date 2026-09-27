@@ -1777,12 +1777,18 @@
     },
     {
       "bit": 113,
+      "field": "transform_origin",
+      "codec": "transform-origin",
+      "_comment": "@ref LLP 1061 D6: CSS `transform-origin` in two dimensions, the point `translate`, `rotate`, `scale` and a press turn about; initially the centre. Not animatable."
+    },
+    {
+      "bit": 114,
       "field": "fill_rule",
       "codec": "enum:FillRule",
       "inherited": true
     },
     {
-      "bit": 114,
+      "bit": 115,
       "field": "stroke_miterlimit",
       "codec": "f32",
       "inherited": true,
@@ -1790,27 +1796,27 @@
       "_comment": "@ref LLP 1065: SVG `stroke-miterlimit`, a ratio of at least 1."
     },
     {
-      "bit": 115,
+      "bit": 116,
       "field": "stroke_dasharray",
       "codec": "dash-array",
       "inherited": true,
       "_comment": "@ref LLP 1065: SVG `stroke-dasharray`, in the path's units; the trim reveals the dashed stroke, it does not move the dashes."
     },
     {
-      "bit": 116,
+      "bit": 117,
       "field": "stroke_dashoffset",
       "codec": "f32",
       "inherited": true,
       "default": 0
     },
     {
-      "bit": 117,
+      "bit": 118,
       "field": "vector_effect",
       "codec": "enum:VectorEffect"
     }
   ],
-  "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 background-color, 7 color, 8 border-top-color, 9 border-right-color, 10 border-bottom-color, 11 border-left-color, 12 tint-color, 13 box-shadow, 15 border-color — LLP 1062; 14 is refused; 16 stroke-start, 17 stroke-end — LLP 1065), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
-  "_animations": "The `animation` row is CSS `animation` with its keyframes resolved (LLP 1057): count u8 (\u22648), then per animation name string, duration f32 s, delay f32 s, easing (the `_transitions` easing, spring refused), iterations f32 (+inf is `infinite`), direction u8 (0 normal, 1 reverse, 2 alternate, 3 alternate-reverse), fill u8 (0 none, 1 forwards, 2 backwards, 3 both), play-state u8 (0 running, 1 paused), keyframe count u8 (\u226432), then per keyframe offset f32, easing flag u8 (0 the animation's, 1 an easing follows), value count u8, then per value property u8 (the `_transitions` property less one: 0 translate, 1 scale, 2 rotate, 3 opacity, 5–11 the colours, 15 stroke-start, 16 stroke-end), then its components as f32 (translate x y; a colour premultiplied r g b a, 0–1, then u8 1 and a dark value of four more for a `light-dark()` pair, else 0; else one — LLP 1062). Its Rust type lives in exact-motion; the kernel owns the bytes.",
+  "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 background-color, 7 color, 8 border-top-color, 9 border-right-color, 10 border-bottom-color, 11 border-left-color, 12 tint-color, 13 box-shadow, 15 border-color — LLP 1062; 14 is refused; 16 stroke-start, 17 stroke-end, 18 fill, 19 stroke — LLP 1065), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
+  "_animations": "The `animation` row is CSS `animation` with its keyframes resolved (LLP 1057): count u8 (\u22648), then per animation name string, duration f32 s, delay f32 s, easing (the `_transitions` easing, spring refused), iterations f32 (+inf is `infinite`), direction u8 (0 normal, 1 reverse, 2 alternate, 3 alternate-reverse), fill u8 (0 none, 1 forwards, 2 backwards, 3 both), play-state u8 (0 running, 1 paused), keyframe count u8 (\u226432), then per keyframe offset f32, easing flag u8 (0 the animation's, 1 an easing follows), value count u8, then per value property u8 (the `_transitions` property less one: 0 translate, 1 scale, 2 rotate, 3 opacity, 5–11 the colours, 15 stroke-start, 16 stroke-end, 17 fill, 18 stroke), then its components as f32 (translate x y; a colour premultiplied r g b a, 0–1, then u8 1 and a dark value of four more for a `light-dark()` pair, else 0; else one — LLP 1062). Its Rust type lives in exact-motion; the kernel owns the bytes.",
   "_opcodes": "The closed wire-visible op list for EXWF frame revision 1. There is no op count on the wire; consumers iterate by validated lengths.",
   "opcodes": [
     {

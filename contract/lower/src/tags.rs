@@ -552,6 +552,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "translate" => styles(&[StyleId::Translate]),
         "scale" => styles(&[StyleId::Scale]),
         "rotate" => styles(&[StyleId::Rotate]),
+        // @ref LLP 1061 D6 — the point the three turn about.
+        "transform-origin" => styles(&[StyleId::TransformOrigin]),
         // @ref LLP 1061 D1 — host-owned press feedback; not a motion target.
         "press-scale" => styles(&[StyleId::PressScale]),
         _ => return None,
@@ -602,6 +604,7 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "flexDirection" => "flex-direction",
         "flexGrow" => "flex-grow",
         "aspectRatio" => "aspect-ratio",
+        "transformOrigin" => "transform-origin",
         "align" | "alignItems" => "align-items",
         "alignSelf" => "align-self",
         "boxSizing" => "box-sizing",
@@ -640,17 +643,6 @@ pub(crate) fn validate_list(
             .collect();
         if heights.is_empty() {
             return Ok(());
-        }
-        if children
-            .iter()
-            .any(|c| matches!(c, Node::Each { index: Some(_), .. }))
-        {
-            // A windowed row outlives its position (LLP 1062 D8).
-            return super::err(
-                "lower-list-rows",
-                "a windowed list's rows name no position: `each item in list`, with the position in the item if a row needs it",
-                span,
-            );
         }
         if expanded
             .iter()

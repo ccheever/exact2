@@ -65,6 +65,8 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { resolveApp, buildBake, bakeTarget, pendingBuildInputs } from './app.mjs';
+import { hermesIos } from './app.mjs';
+import { HERMES_IOS_ARCHIVES, provisionHermesIos } from '../host/apple/build.mjs';
 import { snapshotOf, materializeSnapshot, disposeSnapshot } from './deploy.mjs';
 
 // Real Cargo units, no engine dependencies. Opt in with the other bake diagnostics.
@@ -856,4 +858,28 @@ test('a build env keeps the pinned toolchain and the checked Bun ahead of ambien
     assert.equal(env.PATH.split(delimiter)[0], dirname(process.execPath));
     assert.equal(env.EXACT_UPDATE_TRUST, process.env.EXACT_UPDATE_TRUST ?? 'development');
   } finally { if (previous === undefined) delete process.env.RUSTUP_TOOLCHAIN; else process.env.RUSTUP_TOOLCHAIN = previous; }
+});
+
+// @ref LLP 1036.001 D5 — no CMake here: the refusals and the no-op paths.
+test('lean iOS Hermes provisions into its per-pin cache, only from the pinned pristine source', () => {
+  const home = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-hermes-home-')));
+  try {
+    const env = { ...process.env, HOME: home }; delete env.EXACT_HERMES_IOS_DIR;
+    const { pin, root, cached } = hermesIos(env);
+    assert.equal(cached, true);
+    assert.equal(root, resolve(home, '.cache/exact/hermes', `${pin.slice(0, 12)}-lean-ios`));
+    assert.throws(() => provisionHermesIos('ios-simulator', env), /no Hermes source at .*build-hermes\.sh --vanilla/);
+    const source = resolve(home, '.cache/exact/hermes/hermes-src');
+    spawnSync('git', ['init', '-q', source]);
+    spawnSync('git', ['-C', source, '-c', 'user.name=t', '-c', 'user.email=t@t.invalid', 'commit', '-q', '--allow-empty', '-m', 'other']);
+    assert.throws(() => provisionHermesIos('ios-simulator', env), new RegExp(`is at [0-9a-f]{40}; js/build.rs pins ${pin}`));
+    // Complete archives are used as they are; the source is not consulted.
+    for (const archive of HERMES_IOS_ARCHIVES) { mkdirSync(dirname(resolve(root, 'ios', archive)), { recursive: true }); writeFileSync(resolve(root, 'ios', archive), ''); }
+    provisionHermesIos('ios', env);
+    // Archives an override names are provisioned elsewhere; js/build.rs refuses missing ones.
+    const elsewhere = resolve(home, 'elsewhere');
+    assert.deepEqual(hermesIos({ ...env, EXACT_HERMES_IOS_DIR: elsewhere }), { pin, root: elsewhere, cached: false });
+    provisionHermesIos('ios-simulator', { ...env, EXACT_HERMES_IOS_DIR: elsewhere });
+    assert.equal(existsSync(elsewhere), false);
+  } finally { rmSync(home, { recursive: true, force: true }); }
 });

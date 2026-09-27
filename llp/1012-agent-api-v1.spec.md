@@ -1,4 +1,4 @@
-# LLP 1012: Agent API v1 — eight operations, the clock in the agent's hands, as built
+# LLP 1012: Agent API v1 — nine operations, the clock in the agent's hands, as built
 
 **Type:** Spec
 **Status:** Draft (r2, unreviewed. r1 was reviewed by two families 2026-08-29 — `llp/reviews/1012-agent-api-v1.{codex,grok}.md`, both NOT READY — and the code by the same two — `llp/reviews/code-2026-08-29-agent-api.{codex,grok}.md`; r2 folds both, and the code they describe changed under them: §8.)
@@ -11,8 +11,8 @@
 
 ## Summary
 
-An agent drives the app through **eight operations** — `tree · screenshot ·
-tap · type · state · layout · logs · clock` — the same on every host, with
+An agent drives the app through **nine operations** — `tree · screenshot ·
+tap · type · state · layout · logs · clock · prefer` — the same on every host, with
 **time in its hands**: between two operations nothing the runner or the
 motion system owns moves, and instead of waiting the agent seeks the clock.
 `tree`, `state`, and `logs` are answered once in the runner behind one export
@@ -225,6 +225,7 @@ collection changes are observed afresh.
 | `type` | `{"op":"type","id":V,"text":…}` / `{…,"key":"Enter"}` | `typed` (+ `value` on macOS) / `key`; the driver adds `target`. On the navigation root, text is a location: `type <navigation root> "/post/42"` dispatches `navigate` once, with `delivery: recognized`, without focusing an editor (LLP 1038 D11); the same target resolution applies | host text or navigation event path |
 | `clock` | `{"op":"clock","to":ms}` / `{…,"settle":true}` | `clock` (where it landed), `settled` for `settle`; under `EXACT_AGENT_TIMING=platform` (2026-09-10, LLP 1035.003 D5 — `open({timing:'platform'})`, `--timing platform`: UIKit's push/pop, sheet and keyboard animations keep their natural timing while the driver still owns the runner's clock) `settle` also waits, bounded at two seconds, for the iOS navigation and modal hosts to leave a transition, and replies `settled: false, reason: "transition"` past the bound | host, both clocks |
 | `screenshot` | `{"op":"screenshot","path":…}` (+`"window":true` on macOS) | `screenshot`, `w`, `h` (viewport points / CSS px, not PNG pixels; `scale` for a window capture) | host |
+| `prefer` | `{"op":"prefer","media":{"prefers-reduced-motion":"reduce"}}` — CSS's media feature names: `prefers-reduced-motion` and `prefers-reduced-transparency` (`reduce`/`no-preference`), `prefers-color-scheme` (`dark`/`light`); an unnamed feature stays; CLI `prefer <feature> <value> […]` (2026-09-27, LLP 1061 D5) | `media{…}`: all three as the host now reports them | host (the web: `Emulation.setEmulatedMedia`; Apple: the accessibility settings replaced for the process, the window scene's style or, on macOS while the app follows the system, `NSApp.appearance`; Linux: the runner and the painter's system scheme). An unknown feature is refused and nothing applies |
 
 Errors are `{"error":"…"}` on the wire; the session throws `"<op>: <message>"`.
 
@@ -312,7 +313,10 @@ session setup, not a drive. `Runner::act` runs an action by name for **tests**
 (LLP 1005 §6 now says so); an agent never takes it.
 
 **Eight, and a wheel is a form of `tap`** (Charlie, 2026-08-29: "A"). A drag
-would be another form. `rules/NOT-DOING.md` §Agent API binds the count and
+would be another form. **Nine since 2026-09-27:** `rules/NOT-DOING.md` is
+retired, and a display preference is no input, so `prefer` is its own
+operation rather than a form of `tap` (LLP 1061 D5); a test that reads
+`exactViewport().prefersReducedMotion` needs it on every host. `rules/NOT-DOING.md` §Agent API binds the count and
 the trade — a ninth operation replaces one of the eight, same PR — and this
 document cites it rather than restating it as a second law.
 
@@ -494,7 +498,7 @@ open (§8).
   moves between operations.** No snapshot tokens, no refs, no identity
   envelope: `tree` carries `epoch` and `incarnation`, a stale id is a typed
   refusal in the journal. Host I/O (§2) is the declared exception.
-- **No tiers.** All eight on every host, or the host is incomplete.
+- **No tiers.** All nine on every host, or the host is incomplete.
 - **`clock` replaces `wait`.** `settle` is a bounded fixed point, one call.
 - **Reads from the substrate.** `tree`/`state`/`logs` from the runner and
   kernel; `layout` from what the host renders — its agreement across hosts

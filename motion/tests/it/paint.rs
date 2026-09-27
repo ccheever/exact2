@@ -2,8 +2,7 @@
 //! and `animation`, held to what a browser computes.
 
 use exact_motion::{
-    Animations, Change, Easing, Engine, Property, TimingFunction, TransitionProperty, Transitions,
-    Value,
+    Animations, Change, Engine, Property, TimingFunction, TransitionProperty, Transitions, Value,
 };
 
 const NODE: u64 = 7;
@@ -56,18 +55,62 @@ fn the_shorthand_names_every_paint_property_and_box_shadow_names_both_halves() {
     assert!(Transitions::parse("width 1s").is_err());
 }
 
+/// LLP 1062 D3: a spring on paint is its curve from rest, a `linear()`
+/// easing over its settle time — what the web's CSS plays — so it
+/// interrupts as CSS does, from where it is, and every host agrees.
 #[test]
-fn a_spring_never_drives_paint_as_the_web_leaves_it_out() {
+fn a_spring_on_paint_plays_its_curve_from_rest() {
     let t = Transitions::parse("background-color 200ms linear, all spring(180, 12, 1)").unwrap();
-    // The web's CSS omits the spring, so the easing before it governs.
-    let bg = t.matching(Property::BackgroundColor).unwrap();
-    assert_eq!(bg.timing, TimingFunction::Easing(Easing::Linear));
-    assert!(matches!(
-        t.matching(Property::Translate).unwrap().timing,
-        TimingFunction::Spring(_)
-    ));
-    let only = Transitions::parse("all spring(180, 12, 1)").unwrap();
-    assert!(only.matching(Property::Color).is_none());
+    let spring = t.matching(Property::BackgroundColor).unwrap();
+    assert!(matches!(spring.timing, TimingFunction::Spring(_)));
+    let config = exact_motion::SpringConfig {
+        stiffness: 180.0,
+        damping: 12.0,
+        mass: 1.0,
+    };
+    let (duration, easing) = config.easing();
+    let governed = spring.governing(Property::BackgroundColor);
+    assert_eq!(governed.duration, duration);
+    assert_eq!(governed.timing, TimingFunction::Easing(easing.clone()));
+    // A compositor row keeps its physics.
+    assert_eq!(spring.governing(Property::Translate), *spring);
+    // The curve overshoots and settles, as the spring does from rest.
+    let peak = (0..=100)
+        .map(|i| easing.progress(i as f64 / 100.0))
+        .fold(f64::MIN, f64::max);
+    assert!(peak > 1.05, "{peak}");
+    assert_eq!(easing.progress(1.0), 1.0);
+    let mut e = Engine::new();
+    e.set_transitions(NODE, t.clone()).unwrap();
+    let red = Value::rgba(1.0, 0.0, 0.0, 1.0);
+    let blue = Value::rgba(0.0, 0.0, 1.0, 1.0);
+    let change = |value| Change {
+        node: NODE,
+        property: Property::BackgroundColor,
+        value,
+        velocity: None,
+    };
+    e.observe(change(red)).unwrap();
+    e.observe(change(blue)).unwrap();
+    for at in [0.05, 0.1, 0.2] {
+        e.advance(at).unwrap();
+        let p = easing.progress(at / duration);
+        let want = red.lerp(blue, p);
+        let got = e.value(NODE, Property::BackgroundColor).unwrap();
+        assert!(
+            (got - want).components().iter().all(|c| c.abs() < 1e-9),
+            "{at}: {got:?} vs {want:?}"
+        );
+    }
+    // Interrupted, it starts again from where it is, with no velocity.
+    let here = e.value(NODE, Property::BackgroundColor).unwrap();
+    e.observe(change(red)).unwrap();
+    assert_eq!(e.value(NODE, Property::BackgroundColor), Some(here));
+    assert!(e
+        .spring_descriptor(NODE, Property::BackgroundColor)
+        .is_none());
+    e.advance(0.2 + duration).unwrap();
+    assert_eq!(e.value(NODE, Property::BackgroundColor), Some(red));
 }
 
 #[test]
@@ -227,4 +270,55 @@ fn a_light_dark_keyframe_takes_the_appearance_it_starts_under() {
         "k 1s @keyframes k{to{opacity:light-dark(rgba(0,0,0,1),rgba(1,1,1,1))}}"
     )
     .is_err());
+}
+
+/// `box-shadow` in a keyframe: its geometry and colour together, one
+/// declaration in the rule, a `light-dark()` colour kept (LLP 1062).
+#[test]
+fn box_shadow_keyframes_round_trip_and_play() {
+    let text = "glow 1s linear both @keyframes glow{from{box-shadow:0px 0px 0px rgba(0,0,0,0)}to{box-shadow:0px 16px 24px light-dark(rgba(29,78,216,1),rgba(255,255,255,0.5))}}";
+    let list = Animations::parse(text).unwrap();
+    let keyframes = &list.0[0].keyframes;
+    assert!(keyframes.affects(Property::BoxShadow) && keyframes.affects(Property::ShadowColor));
+    let to = &keyframes.blocks[1];
+    assert!(to
+        .values
+        .contains(&(Property::BoxShadow, Value::four(0.0, 16.0, 24.0, 0.0))));
+    assert_eq!(to.dark[0].0, Property::ShadowColor);
+    // The rule writes it back as one declaration, and reads back the same.
+    let rule = keyframes.rule("glow");
+    assert!(
+        rule.contains(
+            "box-shadow:0px 16px 24px light-dark(rgba(29,78,216,1),rgba(255,255,255,0.5))"
+        ),
+        "{rule}"
+    );
+    assert!(!rule.contains("box-shadow-color"), "{rule}");
+    assert_eq!(Animations::parse(&list.text()).unwrap(), list);
+    // Half a shadow is refused.
+    assert!(Animations::parse("k 1s @keyframes k{to{box-shadow-color:rgba(0,0,0,1)}}").is_err());
+    let mut e = Engine::new();
+    set(&mut e, Property::BoxShadow, Value::ZERO);
+    set(&mut e, Property::ShadowColor, Value::ZERO);
+    e.set_animations(NODE, list).unwrap();
+    e.advance(0.5).unwrap();
+    assert_eq!(
+        e.value(NODE, Property::BoxShadow),
+        Some(Value::four(0.0, 8.0, 12.0, 0.0))
+    );
+    let shade = css(e.value(NODE, Property::ShadowColor).unwrap());
+    assert!(
+        (shade[2] - 216.0).abs() < 0.5 && (shade[3] - 0.5).abs() < 1e-9,
+        "{shade:?}"
+    );
+    // Dark, from its start: the pair's other half.
+    let mut night = Engine::new();
+    night.set_dark(true, false);
+    set(&mut night, Property::ShadowColor, Value::ZERO);
+    night
+        .set_animations(NODE, Animations::parse(text).unwrap())
+        .unwrap();
+    night.advance(1.0).unwrap();
+    let shade = css(night.value(NODE, Property::ShadowColor).unwrap());
+    assert_eq!(shade, [255.0, 255.0, 255.0, 0.5]);
 }

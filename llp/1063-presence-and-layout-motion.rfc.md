@@ -4,7 +4,8 @@
 **Status:** Implemented 2026-09-26 (web, iOS, macOS; Linux layout only, exit refused)
 **Systems:** Kernel (style rows, receipt), Motion (`exact-motion`), Contract, Web, Apple, Linux
 **Author:** Claude (Opus 5.5) for Seth Webster
-**Date:** 2026-09-26
+**Date:** 2026-09-26 (gaps closed 2026-09-27: size, windowed rows, the web's
+measure, load, ghost and springs, first moves, XCTests)
 **Related:** LLP 1002/1003 (motion v1), LLP 1057 (keyframe animation — the grammar reused here), LLP 1041 §8.12 (the numeric-height trial, unchanged), `rules/NOT-DOING.md` §Motion
 
 ## Summary
@@ -41,7 +42,8 @@ component List
 
 Pressing Toggle removes "First" from the tree at once; it stays on screen,
 fading and shrinking in place for 200 ms, while "Second" slides up into its
-place over 320 ms. Pressing again creates a new "First" (no exit, no slide:
+place over 320 ms. A box that grows or shrinks (an accordion opening, a card
+whose row left) changes size under the same row. Pressing again creates a new "First" (no exit, no slide:
 first seen) and "Second" slides back down.
 
 ## Decisions
@@ -70,9 +72,13 @@ remembers the parent a detached exit-declaring child had) and its row as it
 was. Not listed: a node created in the same batch (never presented), a root
 or inline run (nowhere to stay), a node whose parent the same batch creates
 or destroys (it goes inside that parent; nested exits play only on the
-outermost), and any row under a `List` — the window destroys rows that scroll
-away and the kernel cannot tell that from a removal. A `when` arm turning
-false and an `each` row leaving both arrive this way.
+outermost). A `when` arm turning false and an `each` row leaving both arrive
+this way, inside a `list` row as anywhere. A windowed list destroys rows that
+scroll away as well as rows whose item left the data; the runner's window
+(and a virtualized collection) empties the row wrapper's `listItemKey` for
+the latter alone, before it detaches it. A wrapper with a key simply goes; an
+emptied one leaves as the row, where the window placed it, playing its one
+root's `exit-animation` (a row of several roots goes at once).
 
 **D4 — The leaving view is a ghost, out of layout.** Siblings take its place
 immediately; it keeps its last laid-out box and paints above its old siblings
@@ -85,74 +91,105 @@ attribute in its subtree. On Apple it and its descendants leave the
 presenter's maps, so focus-by-id and every other lookup find only the live
 node; a node re-created with the same key while the ghost leaves is a new
 view with a new id (runner ids never repeat). The ghost is removed when its
-animations end, or at once when its parent is destroyed.
+animations end, or at once when its parent is destroyed. On the web it also takes `transition: none` first, so an authored
+`transition: all` cannot animate its switch to an absolute box (a transition
+still running on it ends where it was going).
 
 **D5 — Native exits run on the engine.** The Apple host withholds the
 ghost's and its descendants' destroys, spares its motion node from the
-commit's removals, and calls `Engine::restart_animations` (which restarts
-even when the exit names the keyframes an entry animation was playing) at the
-commit's clock. The exit composites over the node's last transition values;
+commit's removals, and calls `Engine::play_exit` at the commit's clock. As a browser appends a
+list's entry, the exit follows the animations the node already plays, which
+keep running (a spinner fades while it spins), and composites over them; an
+exit naming keyframes the node already plays is a second entry and starts
+now. Only the exit's end is waited for. The web does the same: the exit's
+CSS `animation` list is appended to the element's own, and the ghost is
+removed when the appended animations end.
 `settle_time` includes its end, so `clock settle` waits for it; when the
 engine passes the end, one `destroy` of the ghost lets the presenter drop the
 whole subtree. The presenter needs one new op (`exit`) and one new `present`
 property (`layout`).
 
-**D6 — Layout is FLIP on a presentation offset.** Natively a node with the
-row has its laid-out origin *in its parent* observed as `Property::Layout`
-after each layout that moved it; the engine's transition rules give first
-seen, interruption from the current presentation and springs for free. The
-presenter gets `shown − laid-out` as an offset added to the view's
-translation, outermost, so it composes with authored `translate`/`scale`/
-`rotate`, a moving parent carries its children (only relative motion
-animates), and nothing is laid out per frame. On the web
-`presence-glue.js` measures transform-free offset positions of every
-declaring element before and after each batch and plays the difference as an
-additive (`composite: "add"`) `translate` animation, residual included on
-interrupt; a spring is its unit curve lowered to `linear()` over its settle
-time. A resize takes new positions without animating (native and web alike:
-the web never measures a resize).
+**D6 — Layout is FLIP on a presentation offset and scale.** Natively a node
+with the row has its laid-out box observed as `Property::Layout` (four
+components: origin in its parent, width, height; `Kernel::layout_box`) after
+each layout that moved or resized it; the engine's transition rules give
+first seen, interruption from the current presentation and springs (settling
+per axis in points) for free. The presenter gets `layout` as the shown box's
+offset from the laid-out origin and scale of the laid-out size, applied
+outermost from the box's top-left corner, so it composes with authored
+`translate`/`scale`/`rotate`, a moving parent carries its children (only
+relative motion animates), and nothing is laid out per frame. A growing box
+therefore grows as a web FLIP of size does: by a scale, its content scaled
+with it until it lands (no counter-scale of children). On the web
+`presence-glue.js` measures every declaring element before and after each
+batch, sub-pixel and transform-free: its bounding rect, its own transforms
+taken off through its computed style, its ancestors' scale divided out
+(ancestors are assumed unrotated), and plays the difference as additive
+(`composite: "add"`) `translate` and `scale` from its origin, residual and
+velocity included on interrupt. A spring is lowered by the module per move
+from its displacement and velocity in points, on the engine's 240 Hz grid and
+rest threshold, so both settle at the same time. A windowed list's row root
+is placed in the list content, not its wrapper (which only positions it), so
+rows slide when one leaves. A resize takes new boxes without animating
+(native and web alike: the web never measures a resize).
 
 **D7 — The web loads it after paint.** Rows travel as custom properties in
 the node's `cssText` (`--exact-exit-animation`, `--exact-layout-transition`);
 the exit's `@keyframes` rule is sent while its node lives. `glue.js` loads
 `presence-glue.js` the first time a batch carries either, so boot is
-unchanged (`boot.mjs` counts the same graph).
+unchanged (`boot.mjs` counts the same graph). A batch with an exit that
+arrives while it loads waits for it, with every batch after it in order
+(`presenceLoader`, navigation.js), so no exit is lost. An `exit` op carries
+the CSS list it plays: a windowed row's wrapper declares none.
 
-**D8 — Linux is honest.** Layout transitions run (the offset is folded into
-the painted translation). Exit animation is refused: the painter draws the
+**D8 — Linux is honest.** Layout transitions run (the offset and scale are
+painted outermost, as on Apple). Exit animation is refused: the painter draws the
 live kernel tree every frame, and keeping a destroyed subtree would need a
 retained paint list that does not exist. The node leaves at once and the
 journal records `exit-animation: refused on Linux (LLP 1063)` the first time.
 
+**D9 — A row gained is a transition gained.** A node that gains
+`layout-transition` in a commit starts from the box it had before that
+commit's layout, so its first move animates, as a CSS transition declared in
+the same style change runs (Apple and Linux seed the engine before layout; the
+web measures a node a batch's `style` op gives the row).
+
+**Not a gap — route and screen pops.** A popped screen leaves under its
+platform's transition: UIKit's pop slides the controller away (a button's pop
+over a frozen snapshot of its outgoing pixels, an interactive one over live
+views), and the web swaps route content as a history navigation. The route
+node is the destroyed subtree's root, so its content's exits are nested exits
+and do not play; playing them would be invisible under the snapshot or fight
+the slide. A route node's own `exit-animation` is the author's way to animate
+a leaving screen where the platform does not.
+
 ## Verified
 
 - `motion/tests/it/presence.rs`, `kernel/tests/it/presence.rs`,
-  `contract/cli/tests/it/presence.rs`, `host/{apple,linux,web}/tests/it/presence.rs`.
-- iOS simulator (UIKit presenter, `scripts/agent.mjs ios` against an outside
-  app with the rows): mid-exit screenshots show the ghost fading above the
-  sibling sliding into its place; re-adding mid-exit shows the ghost and the
-  new node together with one node in the tree; a text wrap slides the node
-  below it.
-- Headless Chrome (`scripts/agent.mjs web`, same app): the same sequence; the
-  ghost is `data-exiting`, `inert`, `aria-hidden`, above its siblings, and the
-  siblings carry additive `translate` animations that end at their laid-out
-  places.
-- macOS (`scripts/agent.mjs macos`, same app): the exit and slide mid-flight.
+  `contract/cli/tests/it/presence.rs`, `host/{apple,linux,web}/tests/it/presence.rs`,
+  `host/linux/src/paint/presented.rs` (the painted box), and the XCTests
+  `PresenceIOSTests`/`PresenceMacTests` (the presenters' `exit`, `destroy`,
+  and `layout` ops).
+- iOS simulator (UIKit presenter, `scripts/agent.mjs ios`, the same cases):
+  at 150 ms the exit plays over the node's still-running spin while the
+  accordion card grows from its old size and the node that gained the row
+  slides; `clock settle` lands at 720.83 ms, the spring's settle for its 18
+  point move, the same as the web's.
+- Headless Chrome (an outside app with every case, driven over CDP): an exit
+  appended after a spinning node's infinite `animation`, which keeps its time,
+  with `transition: all` and no transition started; a spring slide lowered to
+  721 ms for 18 points, as `SpringConfig::settle_time` gives natively; an
+  accordion card 34 → 154 points shown at 34, 94 at mid-time, 154 at the end; a
+  node gaining the row moving 37.39 points (sub-pixel) from its old place; a
+  windowed row leaving as its wrapper while the row below slides 40 points;
+  the presence module's fetch held while an exit arrives: the batch waits and
+  the exit plays when it lands.
+- macOS: `PresenceMacTests` only; the app was not driven after these changes.
 
 ## Known gaps
 
-- Size does not animate (position only); a growing box snaps to its new size
-  while following siblings slide.
-- Route/screen pops do not play exits (navigation owns that transition).
-- Windowed `list` rows never exit (D3).
-- Web: positions are CSSOM offsets (whole pixels) — a sub-pixel move does not
-  animate; the first exit can be lost if it happens before the lazy module
-  arrives; a ghost keeps authored `transition`s, so `transition: all` can
-  animate its switch to an absolute box; the exit is a CSS animation on the
-  element, so it replaces the element's own `animation` list.
-- Web springs settle at a unit displacement's rest threshold; native settles
-  in pixels, so native's tail can be a little longer.
-- A node that gains the row by a later style change animates only from its
-  second move.
-- No UIKit/AppKit XCTest covers the presenter ops; they were verified by
-  driving the app, not by a Swift test.
+- A size change scales its content until it lands (a web FLIP's look); no
+  child is counter-scaled.
+- Web: the measure assumes unrotated ancestors, and a size change's origin
+  ignores an authored `translate` on the same element (the error is that
+  translate times the change of scale).

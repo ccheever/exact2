@@ -109,3 +109,53 @@ fn a_preference_is_a_bool_and_the_boot_fact_is_the_first_answer() {
     let wrong = "shape M\n  prefersReducedMotion: number\ncomponent A\n  resource m = exactViewport() as shape M\n  view\n    text `${m.prefersReducedMotion}`\n";
     assert!(contract::bake(contract::compile(wrong).unwrap(), NoData).is_err());
 }
+
+/// LLP 1061 D6: `transform-origin` in CSS's grammar, from a literal or an
+/// expression; a lone percentage and a value ending in one both arrive.
+#[test]
+fn transform_origin_is_css_from_a_literal_or_an_expression() {
+    use exact_kernel::origin::TransformOrigin;
+    use exact_kernel::Dimension::{Percent, Points};
+    let mut r = boot(concat!(
+        "component App\n  state low = false\n",
+        "  action drop writes low\n    low = not low\n",
+        "  view\n    column testId=\"root\"\n",
+        "      view rotate=3 transform-origin=\"top left\" testId=\"a\"\n",
+        "      view scale=0.9 transform-origin=\"25%\" testId=\"b\"\n",
+        "      button press=drop transform-origin=(low ? \"0 100%\" : \"right 4px\") testId=\"c\"\n        text \"c\"\n",
+    ));
+    let origin = |r: &Runner<NoData>, id: &str| style(r, id).transform_origin;
+    assert_eq!(origin(&r, "root"), TransformOrigin::default());
+    assert!(!style(&r, "root").mask.has(StyleId::TransformOrigin));
+    assert_eq!(
+        origin(&r, "a"),
+        TransformOrigin {
+            x: Percent(0.0),
+            y: Percent(0.0)
+        }
+    );
+    assert_eq!(
+        origin(&r, "b"),
+        TransformOrigin {
+            x: Percent(25.0),
+            y: Percent(50.0)
+        }
+    );
+    assert_eq!(
+        origin(&r, "c"),
+        TransformOrigin {
+            x: Percent(100.0),
+            y: Points(4.0)
+        }
+    );
+    let k = r.kernel();
+    let id = k.node_by_key(k.find_by_test_id("c")[0]).unwrap().id;
+    r.dispatch(id, exact_runner::Event::Press).unwrap();
+    assert_eq!(
+        origin(&r, "c"),
+        TransformOrigin {
+            x: Points(0.0),
+            y: Percent(100.0)
+        }
+    );
+}

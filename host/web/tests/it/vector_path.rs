@@ -115,11 +115,11 @@ fn boot_source(src: &str) -> (Host<NoData>, String) {
     Host::boot(&plan.encode(), NoData, Default::default(), "/").unwrap()
 }
 
-/// A `spring()` on a stroke fraction is lowered to frames of its registered
-/// number, as one on `opacity` is (LLP 1002 D2, LLP 1065): the value no
-/// longer jumps on the web.
+/// A `spring()` on a stroke fraction plays as its curve from rest, a CSS
+/// `linear()` easing of the registered number (LLP 1062 D3, LLP 1065): the
+/// value no longer jumps on the web.
 #[test]
-fn a_spring_on_a_stroke_fraction_is_lowered_to_frames() {
+fn a_spring_on_a_stroke_fraction_is_a_linear_easing() {
     let (mut host, _) = boot_source(
         "component App\n  state on = false\n  action go writes on\n    on = true\n  view\n    column\n      button press=go testId=\"go\"\n        text \"Go\"\n      path testId=\"p\" d=\"M0 0 H10\" stroke=\"#000\" width=10 height=10 stroke-end=(on ? 1 : 0) transition=\"stroke-end spring(170, 26, 1)\"\n",
     );
@@ -127,12 +127,9 @@ fn a_spring_on_a_stroke_fraction_is_lowered_to_frames() {
     let go = k.node_by_key(k.find_by_test_id("go")[0]).unwrap().id;
     let batch = host.dispatch(go, Event::Press);
     assert!(
-        batch.contains("\"op\":\"animate\"")
-            && batch.contains("\"property\":\"--exact-stroke-end\""),
+        batch.contains("transition:--exact-stroke-end 0.9") && batch.contains("s linear(0 0%,"),
         "{batch}"
     );
-    // The spring is left out of the CSS `transition`, as every spring is.
-    assert!(!batch.contains("transition:--exact-stroke-end"), "{batch}");
 }
 
 /// SVG's painting vocabulary as CSS the browser applies, `fill` and

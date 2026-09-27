@@ -2,7 +2,7 @@
 
 **Type:** RFC
 **Status:** Implemented 2026-09-26
-**Systems:** Kernel (`schema.json` node type 7 `Path`, props 8 `pathData`, 122 `viewBox` and 123 `preserveAspectRatio`, style bits 106–117, codecs `paint` and `dash-array`; `kernel/src/vector.rs`, `clip.rs`, `style/paint.rs`; `motion::node_targets`, `paint_targets`), Motion (`Property::StrokeStart`/`StrokeEnd`/`Fill`/`Stroke`), Contract (`path`, `d`, `viewBox`, `preserveAspectRatio`, SVG's painting attributes, `stroke-start`/`stroke-end`, keyframes), Web host (`vector.rs`, `css.rs`, `element.rs`, spring lowering, one `glue.js` line), Apple host (`vector.rs`, `paint.rs`, `VectorPath.swift`, `PathViewIOS.swift`, `PathViewMac.swift`, `ClipPath.swift`), Linux host (`paint/vector.rs`, `paint_motion.rs`, both painters)
+**Systems:** Kernel (`schema.json` node type 7 `Path`, props 8 `pathData`, 122 `viewBox` and 123 `preserveAspectRatio`, style bits 106–112 and 114–118 (113 is `transform-origin`), codecs `paint` and `dash-array`; `kernel/src/vector.rs`, `clip.rs`, `style/paint.rs`; `motion::node_targets`, `paint_targets`), Motion (`Property::StrokeStart`/`StrokeEnd`/`Fill`/`Stroke`), Contract (`path`, `d`, `viewBox`, `preserveAspectRatio`, SVG's painting attributes, `stroke-start`/`stroke-end`, keyframes), Web host (`vector.rs`, `css.rs`, `element.rs`, one `glue.js` line), Apple host (`vector.rs`, `paint.rs`, `VectorPath.swift`, `PathViewIOS.swift`, `PathViewMac.swift`, `ClipPath.swift`), Linux host (`paint/vector.rs`, `paint_motion.rs`, both painters)
 **Author:** Claude (Opus 5.5) for Seth Webster
 **Date:** 2026-09-26
 **Related:** LLP 1002/1003 (motion: one representation, two executors), LLP 1057 (keyframes), LLP 1034 (`light-dark()`), LLP 1043.000 (`clip-path`, the other SVG path in the kernel)
@@ -55,10 +55,10 @@ overflows into the viewport's clip.
 
 **D3 — SVG's painting properties, inherited.** Rows `fill` (106), `stroke`
 (107), `stroke_width` (108), `stroke_linecap` (109), `stroke_linejoin` (110),
-`fill_rule` (113), `stroke_miterlimit` (114), `stroke_dasharray` (115) and
-`stroke_dashoffset` (116) are marked `inherited`, as CSS has them, so a
+`fill_rule` (114), `stroke_miterlimit` (115), `stroke_dasharray` (116) and
+`stroke_dashoffset` (117) are marked `inherited`, as CSS has them, so a
 `column stroke="#000"` paints the paths under it on every host (native hosts
-read the path's computed style; the web inherits). `vector_effect` (117) is
+read the path's computed style; the web inherits). `vector_effect` (118) is
 not inherited, as in CSS. `fill`/`stroke` use the codec `paint`, the kernel's
 `Paint`: `none`, `currentcolor` (any case; it stays a keyword through
 inheritance, so each path paints its own `color`), or a colour — a
@@ -82,7 +82,8 @@ identities 0 and 1), after `Layout = 14`, which no row carries; `from_wire`
 maps a discriminant, not an index into `Property::ALL`. On the wire:
 transition property codes 16 and 17 (15 stays `border-color`), keyframe
 property codes 15 and 16. `transition` and `keyframes` take them like the compositor rows,
-and a `spring()` drives them as it drives `opacity` (`Property::springs`);
+and a `spring()` plays on them as its curve from rest, a CSS `linear()`
+easing on every host, as it does on paint (LLP 1062 D3);
 the engine's first-seen, interruption and restart rules are unchanged. Only
 a `path` hands the engine its strokes (`motion::node_targets`, used by
 `motion_sync` and every host's boot adoption), so no other node spends
@@ -97,8 +98,10 @@ that inherit it, as an animating `color` reaches its inheritors. SVG's
 `<paint>` interpolates only colour to colour, so `none` is no target
 (`Kernel::paint_targets`): owning ends there, the change is discrete, and
 the next colour is taken as it is. A keyframe's paint must be a colour.
-`currentcolor` targets the computed `color`, and a path whose `fill` or
-`stroke` is `currentcolor` paints a moving `color` it inherits.
+`currentcolor` is no target either: its computed value is the keyword
+whatever `color` does, so CSS starts no transition on it; a path whose
+`fill` or `stroke` is `currentcolor` paints its presented `color` frame by
+frame, as a `currentcolor` border side does (LLP 1062).
 
 **D5 — The web: one `<path>` per subpath.** The node is a `div`
 (`position: relative` unless positioned) whose content the host builds from
@@ -131,9 +134,7 @@ line), so the pieces drop `pathLength` and scale their numbers by `--k`,
 the view box's pixels per unit — `min()` (or `max()` for a slice) of
 `100cqw / width` and `100cqh / height` divided by `1px`, the node's `div`
 becoming a size container. The markup depends on those two rows, which the
-kernel re-sends when they change. A `spring()` on a stroke fraction is
-lowered to frames of its registered number (`--exact-stroke-end`), as
-LLP 1002 D2 lowers one on `opacity`.
+kernel re-sends when they change.
 
 **D6 — Apple: shape layers, UIKit and AppKit alike.** Rust sends the
 kernel's normalized data (absolute `M L C Z`), the parsed view box and the
@@ -206,8 +207,7 @@ Animation's own behaviour): the dashes crawl as `stroke-start` moves.
   clock, `fill`/`stroke` paint targets (`kernel/tests/it/vector_path.rs`);
   compile and refusals, paint keyframes
   (`contract/cli/tests/it/vector_path.rs`, fixture
-  `contract/corpus/path.contract`); the web's markup, CSS and spring
-  lowering (`host/web/tests/it/vector_path.rs`); Linux pixels in pen order
+  `contract/corpus/path.contract`); the web's markup, CSS and a spring's `linear()` (`host/web/tests/it/vector_path.rs`); Linux pixels in pen order
   through a running transition, dots, revealed dashes, `fill-rule`,
   `preserveAspectRatio="none"`, a `fill` transition, a non-scaling stroke
   and an even-odd relative `clip-path` (`host/linux/tests/it/vector_path.rs`);

@@ -342,6 +342,10 @@ uint32_t exact_insets(ExactRuntime rt, float top, float right, float bottom, flo
 /* The presenter's appearance (nonzero: dark), which a light-dark() colour
  * under paint motion resolves by; a change transitions it (LLP 1062). */
 uint32_t exact_scheme(ExactRuntime rt, uint32_t dark);
+/* One view's appearance (nonzero: dark), where the presenter finds it
+ * differs from the session's: its node's light-dark() colours resolve by it
+ * (LLP 1062). */
+uint32_t exact_view_scheme(ExactRuntime rt, uint32_t view, uint32_t dark);
 uint32_t exact_tick(ExactRuntime rt, double now_ms);      /* a motion frame, only while "motion" is true */
 /* An image node loaded: its bitmap's pixel counts, taken one-for-one as
  * points (never divided by the backing scale — a 2× asset is not half its

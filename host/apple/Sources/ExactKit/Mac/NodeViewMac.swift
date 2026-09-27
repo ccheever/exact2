@@ -207,7 +207,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var style: NodeStyle = [:]
     var clipPath: CGPath?, clipRule = CGPathFillRule.winding
     var handlers: Set<String> = []
-    var translate = CGPoint.zero, layoutOffset = CGPoint.zero // layoutOffset: where layout moved it from (LLP 1063)
+    var translate = CGPoint.zero, layoutOffset = CGPoint.zero, layoutScale = CGPoint(x: 1, y: 1) // layout*: the box layout moved it from (LLP 1063)
     var arrangeShift = CGPoint.zero
     var scale: CGFloat = 1
     var rotate: CGFloat = 0
@@ -266,7 +266,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var raster: NativeRasterLease?
     var imageSource: String?
     var loadGeneration = 0
-    var pressed = false
+    var pressed = false { didSet { if pressed != oldValue { pressChanged() } } }
+    var press = PressFeedback() // LLP 1061: the feedback `pressed` drives
     // @ref LLP 1038 D6 — projection does not overwrite authored inert.
     var routeInert = false
     var inert: Bool {
@@ -1088,7 +1089,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     func applyStyle(_ s: NodeStyle) {
         defer { video?.update() }
+        let origin = style["transform_origin"]
         style = s
+        if s["transform_origin"] != origin { applyTransform() }
         let uniformBorder = number("border_width")
         hasBoxPaint = s["background_color"] != nil || s["background_image"] != nil
             || number("border_width_top", uniformBorder) > 0
@@ -1204,20 +1207,6 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         guard let document = scroll?.documentView else { return }
         let size = CGSize(width: max(content.width, bounds.width), height: max(content.height, bounds.height))
         if document.frame.size != size { document.setFrameSize(size) }
-    }
-
-    func applyTransform() {
-        // A lifted Arrange row moves by its frame: AppKit paints and culls a
-        // view where its frame is, never where its layer was moved.
-        let shift = presenter?.reorder?.lifts(id) == true ? translate : .zero
-        if shift != arrangeShift {
-            setFrameOrigin(NSPoint(x: frame.minX - arrangeShift.x + shift.x, y: frame.minY - arrangeShift.y + shift.y))
-            arrangeShift = shift
-        }
-        let b = bounds
-        var t = CGAffineTransform(translationX: translate.x + layoutOffset.x - shift.x, y: translate.y + layoutOffset.y - shift.y)
-        t = t.translatedBy(x: b.midX, y: b.midY).rotated(by: rotate * .pi / 180).scaledBy(x: scale, y: scale).translatedBy(x: -b.midX, y: -b.midY)
-        layer?.setAffineTransform(t)
     }
 
     override func viewDidMoveToWindow() {
@@ -1352,7 +1341,6 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
     }
 
-
     /// A click counts even when it is the one that activates the window —
     /// the web's rule (a click on an unfocused page still clicks). AppKit's
     /// default swallows it, which made a `tap` sent before the window became
@@ -1415,11 +1403,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if isSurfaceControl || ownsSurfaceControl { _ = control("move", point: local(event.locationInWindow), timestamp: event.timestamp); return }
         if canvasInput?.pointer(event, phase: "move") == true { return }
         inlinePressed = nil
-        if presenter?.mouseLayoutPan.drag(event) == true { return }
-        if presenter?.mouseTransformDrag.drag(event) == true { return }
-        if presenter?.mouseReorder.drag(event) == true { return }
-        if presenter?.mouseHeightDrag.drag(event) == true { return }
-        if presenter?.mouseSwipe.drag(event) == true { return }
+        // A drag a gesture takes ends the press, as a pan cancels a touch.
+        if let p = presenter, p.mouseLayoutPan.drag(event) || p.mouseTransformDrag.drag(event) || p.mouseReorder.drag(event) || p.mouseHeightDrag.drag(event) || p.mouseSwipe.drag(event) { pressed = false; return }
+        pressFollows(inside: pressInside(event.locationInWindow))
         if isParagraph && !hasPressableAncestor { presenter?.selection.drag(event) }
         else { super.mouseDragged(with: event) }
     }
@@ -1461,7 +1447,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         guard !disabled else { pressed = false; return }
         guard pressed else { return super.mouseUp(with: event) }
         pressed = false
-        if bounds.contains(local(event.locationInWindow)) {
+        if pressInside(event.locationInWindow) {
             let canvas = inputCanvas, ownerWindow = window
             presenter?.press(id)
             finishPress(canvas: canvas, window: ownerWindow, pointer: true)

@@ -46,6 +46,8 @@ pub enum DecodeError {
     BadShapeOutside,
     /// Invalid CSS `aspect-ratio` value.
     BadAspectRatio,
+    /// Invalid CSS `transform-origin` value.
+    BadTransformOrigin,
     /// Invalid or unsupported CSS `background-image` value (LLP 1056).
     BadBackgroundImage,
     /// Invalid SVG `stroke-dasharray` (LLP 1065).
@@ -418,6 +420,10 @@ pub enum StyleValueError {
     },
     /// Not CSS `aspect-ratio`: `auto`, a ratio, or both.
     BadAspectRatio {
+        style: StyleId,
+    },
+    /// Not a two-dimensional CSS `transform-origin`.
+    BadTransformOrigin {
         style: StyleId,
     },
     /// Not `none` or one gradient this kernel draws (LLP 1056).

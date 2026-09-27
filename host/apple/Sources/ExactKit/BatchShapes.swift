@@ -4,7 +4,7 @@ import Foundation
 
 extension BatchReader {
     mutating func batch() throws -> Batch {
-        var ops: [BatchOp] = [], timers = false, motion = false, pending = false
+        var ops: [BatchOp] = [], timers = false, motion = false, pending = false, spatial = false
         var clock: Double?, due: Double?, error: String?
         var seen: Set<String> = []
         try object { r, key in
@@ -15,13 +15,16 @@ extension BatchReader {
             case "timers": timers = try r.bool()
             case "motion": motion = try r.bool()
             case "pending": pending = try r.bool()
+            case "spatial": spatial = try r.bool()
             case "clock": clock = try r.number()
             case "timer_due_ms": due = try r.number()
             case "error": error = try r.string()
             default: try r.skip()
             }
         }
-        return Batch(ops: ops, timers: timers, motion: motion, clock: clock, error: error, timerDueMs: due, pending: pending)
+        var batch = Batch(ops: ops, timers: timers, motion: motion, clock: clock, error: error, timerDueMs: due, pending: pending)
+        batch.spatial = spatial
+        return batch
     }
 
     mutating func batchOp() throws -> BatchOp {
@@ -73,6 +76,7 @@ extension BatchReader {
             case (.frame, "w"), (.content, "w"), (.present, "w"): op.w = try number()
             case (.frame, "h"), (.content, "h"), (.present, "h"): op.h = try number()
             case (.frame, "property"), (.content, "property"), (.present, "property"), (.unpresent, "property"): op.property = try string()
+            case (.present, "run"), (.unpresent, "run"): op.run = try id()
             default: try skip()
             }
         }
@@ -186,6 +190,7 @@ struct BatchFields {
             op.x = try number("x") ?? 0; op.y = try number("y") ?? 0
             op.w = try number("w") ?? 0; op.h = try number("h") ?? 0
             op.property = try string("property") ?? ""
+            op.run = try id("run")
         case .destroy: break
         default: op.payload = fields.mapValues(\.any)
         }

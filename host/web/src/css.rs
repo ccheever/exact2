@@ -16,7 +16,9 @@
 
 use exact_kernel::style::ColorValue;
 use exact_kernel::{Color, Dimension, Display, Overflow, RowValue, StyleId, StyleProps};
-use exact_motion::{Animations, Easing, Keyframes, TimingFunction, Transition, Transitions};
+use exact_motion::{
+    Animations, Easing, Keyframes, TimingFunction, Transition, TransitionProperty, Transitions,
+};
 use exact_num::{push_text, Piece, Shortest32};
 use std::fmt::Write as _;
 
@@ -38,7 +40,7 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
     let unset = (0.0, 0.0, 0.0, ColorValue::Fixed(Color::TRANSPARENT), 0.0);
     // @ref LLP 1061 D3 — a press eases `transform`, which no row writes, so it
     // joins the node's own transitions instead of replacing them; the page's
-    // `:active` rule reads `--exact-press`.
+    // `[data-pressed]` rule reads `--exact-press`.
     let press = style.mask.has(StyleId::PressScale) && style.press_scale != 1.0;
     let mut press_pending = press;
     for id in style.mask.iter() {
@@ -78,29 +80,18 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
             }
             (StyleId::Animation, RowValue::Animations(a)) => {
                 if !a.0.is_empty() {
-                    out.push_str("animation:");
-                    for (i, animation) in a.0.iter().enumerate() {
-                        if i > 0 {
-                            out.push(',');
-                        }
-                        out.push_str(&animation.css(&keyframes_name(&animation.keyframes)));
-                    }
-                    out.push(';');
+                    push_text!(&mut out, "animation:{};", animations_css(a));
                 }
             }
             // @ref LLP 1063 — not CSS properties: custom properties the page's
             // presence module reads (`presence-glue.js`), inherited by nothing
-            // it reads, since it reads only the element's own declaration.
+            // it reads, since it reads only the element's own declaration. The
+            // exit's own list also rides its `exit` op (a windowed row leaves
+            // as its wrapper, which declares none); here it declares the row,
+            // so the module is fetched before the first exit needs it.
             (StyleId::ExitAnimation, RowValue::Animations(a)) => {
                 if !a.0.is_empty() {
-                    out.push_str("--exact-exit-animation:");
-                    for (i, animation) in a.0.iter().enumerate() {
-                        if i > 0 {
-                            out.push(',');
-                        }
-                        out.push_str(&animation.css(&keyframes_name(&animation.keyframes)));
-                    }
-                    out.push(';');
+                    push_text!(&mut out, "--exact-exit-animation:{};", animations_css(a));
                 }
             }
             (StyleId::LayoutTransition, RowValue::Transitions(t)) => {
@@ -342,6 +333,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         RowValue::DashArray(d) => out.push_str(&d.css()),
         RowValue::ShapeOutside(p) => out.push_str(&p.css()),
         RowValue::AspectRatio(r) => out.push_str(&r.css()),
+        RowValue::TransformOrigin(o) => out.push_str(&o.css()),
         // The kernel's canonical CSS: explicit stops, `#rrggbbaa` colours and
         // `light-dark()` pairs the browser resolves per element (LLP 1034
         // D2); the browser mixes premultiplied, as CSS says (LLP 1056).
@@ -385,25 +377,57 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
     }
 }
 
-/// A `transition` row as CSS; `true` when a spring was left out.
+/// A `transition` row as CSS; `true` when a spring was left out. A spring
+/// drives the compositor rows as physics, lowered to frames by the host; the
+/// properties it does not ([`exact_motion::Property::springs`]: paint, a path's stroke)
+/// play its curve from rest as `linear()`, as every native host does (LLP
+/// 1062 D3).
 pub fn transition_css(t: &Transitions) -> (String, bool) {
     let mut text = String::new();
     let mut spring = false;
+    let mut push = |name: &str, duration: f64, easing: &Easing, delay: f64| {
+        if !text.is_empty() {
+            text.push(',');
+        }
+        let _ = write!(
+            text,
+            "{name} {}s {} {}s",
+            num(duration as f32),
+            easing_css(easing),
+            num(delay as f32)
+        );
+    };
     for tr in &t.0 {
         match &tr.timing {
-            TimingFunction::Spring(_) => spring = true,
-            TimingFunction::Easing(e) => {
-                if !text.is_empty() {
-                    text.push(',');
+            TimingFunction::Spring(config) => {
+                let names: &[&str] = match tr.property {
+                    TransitionProperty::All => &[
+                        "background-color",
+                        "color",
+                        "border-color",
+                        "--exact-tint",
+                        "box-shadow",
+                        "--exact-stroke-start",
+                        "--exact-stroke-end",
+                    ],
+                    TransitionProperty::BorderColor => &["border-color"],
+                    TransitionProperty::Property(p) if !p.springs() => &[p.css_name()],
+                    TransitionProperty::Property(_) => &[],
+                };
+                spring |= match tr.property {
+                    TransitionProperty::All => true,
+                    TransitionProperty::Property(p) => p.springs(),
+                    TransitionProperty::BorderColor => false,
+                };
+                if !names.is_empty() {
+                    let (duration, easing) = config.easing();
+                    for name in names {
+                        push(name, duration, &easing, tr.delay);
+                    }
                 }
-                let _ = write!(
-                    text,
-                    "{} {}s {} {}s",
-                    transition_property(tr),
-                    num(tr.duration as f32),
-                    easing_css(e),
-                    num(tr.delay as f32)
-                );
+            }
+            TimingFunction::Easing(e) => {
+                push(transition_property(tr), tr.duration, e, tr.delay);
             }
         }
     }
@@ -414,44 +438,41 @@ fn transition_property(tr: &Transition) -> &'static str {
     tr.property.css_name()
 }
 
+/// An `animation` list as CSS, each entry naming its keyframes as the page
+/// does.
+pub fn animations_css(a: &Animations) -> String {
+    let mut out = String::new();
+    for (i, animation) in a.0.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        out.push_str(&animation.css(&keyframes_name(&animation.keyframes)));
+    }
+    out
+}
+
 /// A `layout-transition` row as the presence module reads it: duration and
-/// delay in milliseconds, then a CSS easing (LLP 1063). A spring is its curve
-/// from a unit displacement at rest, as `linear()` over its settle time.
-/// `None` when no declaration covers layout.
+/// delay in milliseconds, then a CSS easing (LLP 1063). A spring is
+/// `spring(stiffness, damping, mass)`: the module lowers each move itself,
+/// from its displacement and velocity in points, to the grid and rest
+/// threshold the engine settles on natively. `None` when no declaration
+/// covers layout.
 pub fn layout_transition_css(t: &Transitions) -> Option<String> {
     let tr = t.matching(exact_motion::Property::Layout)?;
-    Some(match &tr.timing {
-        TimingFunction::Easing(e) => format!(
-            "{} {} {}",
-            num((tr.duration * 1000.0) as f32),
-            num((tr.delay * 1000.0) as f32),
-            easing_css(e)
+    let easing = match &tr.timing {
+        TimingFunction::Easing(e) => easing_css(e),
+        TimingFunction::Spring(c) => format!(
+            "spring({}, {}, {})",
+            num(c.stiffness as f32),
+            num(c.damping as f32),
+            num(c.mass as f32)
         ),
-        TimingFunction::Spring(config) => {
-            let (duration, frames) = exact_motion::spring::keyframes(config, 1.0, 0.0, 0.0);
-            // Sixty stops a second: the browser interpolates between them.
-            let step = (frames.len() / (duration * 60.0).ceil().max(1.0) as usize).max(1);
-            let mut stops = String::new();
-            for (i, f) in frames.iter().enumerate() {
-                if i % step == 0 || i + 1 == frames.len() {
-                    if !stops.is_empty() {
-                        stops.push_str(", ");
-                    }
-                    let _ = write!(
-                        stops,
-                        "{} {}%",
-                        num((1.0 - f.value) as f32),
-                        num((f.offset * 100.0) as f32)
-                    );
-                }
-            }
-            format!(
-                "{} {} linear({stops})",
-                num((duration * 1000.0) as f32),
-                num((tr.delay * 1000.0) as f32)
-            )
-        }
-    })
+    };
+    Some(format!(
+        "{} {} {easing}",
+        num((tr.duration * 1000.0) as f32),
+        num((tr.delay * 1000.0) as f32)
+    ))
 }
 
 /// A CSS `<easing-function>` from the motion crate's spelling.
@@ -656,6 +677,45 @@ mod writer_tests {
             assert_eq!(transition_css(&t), transition_joined(&t), "{text}");
         }
     }
+
+    /// LLP 1062 D3: a spring on paint is its curve from rest as `linear()`,
+    /// the easing the native engine plays; the compositor rows stay the
+    /// host's frames, and `all` names each property the spring does not drive.
+    #[test]
+    fn a_paint_spring_is_its_curve_as_linear() {
+        let config = exact_motion::SpringConfig {
+            stiffness: 180.0,
+            damping: 12.0,
+            mass: 1.0,
+        };
+        let (duration, easing) = config.easing();
+        let curve = format!("{}s {} 0.1s", num(duration as f32), easing.css());
+        let t = Transitions::parse("background-color spring(180, 12, 1) 0s 100ms").unwrap();
+        assert_eq!(
+            transition_css(&t),
+            (format!("background-color {curve}"), false)
+        );
+        let t = Transitions::parse("opacity 1s, all spring(180, 12, 1) 0s 100ms").unwrap();
+        let (text, skipped) = transition_css(&t);
+        assert!(skipped, "the compositor rows' spring is the host's");
+        let names: Vec<&str> = text
+            .split(&format!(" {curve}"))
+            .map(|n| n.trim_start_matches(','))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "opacity 1s ease 0s,background-color",
+                "color",
+                "border-color",
+                "--exact-tint",
+                "box-shadow",
+                "--exact-stroke-start",
+                "--exact-stroke-end",
+                ""
+            ]
+        );
+    }
 }
 
 #[cfg(test)]
@@ -795,7 +855,8 @@ mod declaration_tests {
     }
 
     /// LLP 1053: `aspect-ratio` as authored (never a rounded float),
-    /// `direction`, and the `flex-grow` longhand reach the page as CSS.
+    /// `direction`, the `flex-grow` longhand and `transform-origin` reach
+    /// the page as CSS.
     #[test]
     fn layout_rows_keep_their_css() {
         let t = |s: &str| StyleValue::Text(s.into());
@@ -817,6 +878,19 @@ mod declaration_tests {
                 "aspect-ratio:auto;",
             ),
             (vec![(StyleId::Direction, t("rtl"))], "direction:rtl;"),
+            // LLP 1061 D6: canonical, each axis a percentage or px.
+            (
+                vec![(StyleId::TransformOrigin, t("top left"))],
+                "transform-origin:0% 0%;",
+            ),
+            (
+                vec![(StyleId::TransformOrigin, StyleValue::Percent(25.0))],
+                "transform-origin:25% 50%;",
+            ),
+            (
+                vec![(StyleId::TransformOrigin, t("right 4px 0"))],
+                "transform-origin:100% 4px;",
+            ),
             (
                 vec![(StyleId::FlexGrow, StyleValue::Number(1.0))],
                 "flex-grow:1;",
@@ -852,7 +926,7 @@ mod declaration_tests {
         );
     }
 
-    /// LLP 1061 D3: a press scale is `--exact-press` for the page's `:active`
+    /// LLP 1061 D3: a press scale is `--exact-press` for the page's pressed
     /// rule, plus a `transform` entry appended to the node's own transitions
     /// — never replacing them, and last so it wins over `all`. 1 is none.
     #[test]

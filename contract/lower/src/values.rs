@@ -44,6 +44,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadClipPath { .. } => "expected none or path([nonzero | evenodd,] \"<SVG path data>\") with no error in the data".into(),
         StyleValueError::BadDashArray { .. } => "expected none or nonnegative numbers separated by spaces or commas".into(),
         StyleValueError::BadAspectRatio { .. } => "expected auto, a ratio (`16 / 9`, or a number), or both (`auto 4 / 3`); numbers are nonnegative".into(),
+        StyleValueError::BadTransformOrigin { .. } => "expected one or two of left, center, right, top, bottom, a px length or a percentage (`left top`, `50% 100%`), then an optional z length".into(),
         StyleValueError::BadBackgroundImage { .. } => "expected none, linear-gradient(…) or radial-gradient(…)".into(),
         StyleValueError::BadTransition { .. } => "not a CSS `transition` shorthand".into(),
         StyleValueError::BadAnimation { .. } => "not a CSS `animation` shorthand".into(),

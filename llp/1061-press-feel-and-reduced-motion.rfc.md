@@ -1,8 +1,8 @@
 # LLP 1061: Press feedback, motion at the panel's rate, and the user's motion preference
 
 **Type:** RFC
-**Status:** Implemented 2026-09-26 (web and iOS verified; see §Verified)
-**Systems:** Kernel (style row bit 105, `press_scale`); Contract (`press-scale`); Runner (`Viewport.preferences`, `set_preferences`, two `exactViewport` fields); Apple host (`exact_set_preferences`, press feedback on UIKit, the display link's rate policy); Web host (`--exact-press`, the shell's `:active` rule, the page's media queries through `exact_boot`/`exact_resize`)
+**Status:** Implemented 2026-09-26; gaps closed 2026-09-27 (AppKit press, the web's pointer rule, the scroll view's quick tap, the rate by what moves, the agent's `prefer`, `transform-origin`; see §Verified)
+**Systems:** Kernel (style rows bit 105 `press_scale`, bit 113 `transform_origin`); Contract (`press-scale`, `transform-origin`); Motion (`Engine::spatial`); Runner (`Viewport.preferences`, `set_preferences`, two `exactViewport` fields); Apple host (`exact_set_preferences`, press feedback on UIKit and AppKit, the display link's rate policy, the batch's `spatial`); Web host (`--exact-press`, the input glue's `data-pressed`, the page's media queries through `exact_boot`/`exact_resize`); Linux host (`transform-origin` in the painter, `prefer`); agent driver (`prefer`, LLP 1012)
 **Author:** Claude (Opus 5.5) for Seth Webster
 **Date:** 2026-09-26
 **Related:** LLP 1002 §4 and `rules/NOT-DOING.md` §Motion (reduced motion is the app's choice, not the engine's); LLP 1057 D7 (animations inherit that); LLP 1039 (`exactViewport`, the fact this extends); LLP 1027.000.000 (a host fact told after boot, as the date is); LLP 1009 D4 (frames only while something moves)
@@ -52,10 +52,11 @@ block in `style` (a selector system for one property); a `transition` on the
 existing `scale` row driven by a runner state (a round trip per touch-down,
 and it would fight any authored `scale`).
 
-**D2 — On UIKit the host owns the press, folded into the engine's transform.**
+**D2 — On Apple the host owns the press, folded into the engine's transform.**
 `NodeView.pressed` (already the tap's own state) drives a `PressFeedback`: a
 factor eased from where it is to the target over 120 ms on
-`cubic-bezier(.16, 1, .3, 1)`, re-aimed without a jump when released mid-ease.
+`cubic-bezier(.16, 1, .3, 1)`, re-aimed without a jump when released mid-ease
+(`PressFeedback.swift`, one file for both platforms).
 `applyTransform` — the one function every writer of `UIView.transform` goes
 through, the Rust engine's `present` ops and the frame op's untransformed
 relayout included — multiplies the `scale` row's presentation value by the
@@ -68,7 +69,20 @@ The finger leaving the box releases the feedback and re-entering presses
 again, tested against the box as it stands unpressed so a finger resting
 between the pressed and unpressed edges cannot flicker; the tap's acceptance
 uses the same test. A pan still cancels the touch (`touchesCancelled`), which
-eases back. *Rejected:* a Core Animation animation on `transform` (it
+eases back. Inside a scroll view UIKit delays a touch (`delaysContentTouches`)
+and hands a quick tap its `touchesBegan` and `touchesEnded` in one turn, so
+the press would never reach the screen; a `UIButton` there still flashes its
+highlight, since its release fades. A release that comes before the press was
+ever presented (younger than one 60 Hz frame) is held until the press has
+eased in, then eases back: the quick tap shows. **AppKit** (2026-09-27) is
+the same state on the mouse: `mouseDown` presses, `mouseDragged` follows
+inside or out (AppKit's conversion ignores the layer's transform, so the test
+is already against the unpressed box), `mouseUp` releases, and a drag a
+gesture takes (layout pan, transform drag, reorder, height drag, swipe) ends
+the press as a pan cancels a touch. The layer's transform is composed about
+the origin explicitly, as before. Under the agent's clock (`agentFreezes`)
+the press lands without easing, as UIKit's animations are skipped, so a
+`layout` or screenshot between `tap X down` and `tap up` is deterministic. *Rejected:* a Core Animation animation on `transform` (it
 overrides the engine's model writes while it runs); `layer.sublayerTransform`
 (it does not scale the node's own background and border); a UIKit-private
 layer between the view and its content (every node would pay for it).
@@ -77,18 +91,32 @@ layer between the view and its content (every node would pay for it).
 `--exact-press:<n>` and a `transform 0.12s cubic-bezier(0.16,1,0.3,1)` entry
 appended to the node's own `transition` list (last, so it beats an authored
 `all`); the shell's stylesheet holds one rule,
-`[style*="--exact-press"]:active:not(:disabled) { transform: scale(var(--exact-press)) }`,
-inside `@media (prefers-reduced-motion: no-preference)`. `transform` is no
+`[data-pressed] { transform: scale(var(--exact-press)) }`,
+inside `@media (prefers-reduced-motion: no-preference)`. Which node is
+pressed is UIKit's rule, not `:active`'s (2026-09-27): the input glue marks
+`data-pressed` on the innermost node with a `press` handler under a primary
+`pointerdown` (never its pressable ancestors, which `:active` also matches;
+nothing when that innermost one has no row or is disabled), keeps it only
+while the pointer is inside the box it had when pressed (`:active` holds while
+the button is down anywhere), and drops it on `pointerup`, `pointercancel`
+or when a pan takes the contact. `transform` is no
 row's — the motion rows are CSS's individual `translate`/`scale`/`rotate`
 properties — so it composes with them and with the engine's animations of
 them.
 
-**D4 — Motion runs at the panel's full rate while it runs.** `Frames.run`
-already asked for `CAFrameRateRange(80, max, max)` for a canvas; motion now
-asks the same whenever `batch.motion` is true (a transition, an animation, a
-held or springing value). The link exists only while something wants frames,
-so an idle app drops to no link at all; a link kept only for a timer stays at
-`.default`. `CADisableMinimumFrameDurationOnPhone` was already set.
+**D4 — Motion that moves things runs at the panel's full rate.** `Frames.run`
+already asked for `CAFrameRateRange(80, max, max)` for a canvas; motion asks
+the same whenever what moves changes place or size — `Engine::spatial`: a
+running curve or live keyframe animation of `translate`, `scale`, `rotate`,
+`height`, layout or a stroke's trim — which the Apple batch says as
+`"spatial":true`. A fade or a colour change reads the same at 60 Hz, so
+paint-only motion (an `infinite` 4.2 s breathing opacity that runs for
+minutes) asks `CAFrameRateRange(30, 60, 60)` (2026-09-27). The link exists
+only while something wants frames, so an idle app drops to no link at all; a
+link kept only for a timer stays at `.default`.
+`CADisableMinimumFrameDurationOnPhone` was already set. *Rejected:* a rate
+from an animation's speed (the engine knows no box size, so no pixels per
+frame); a rate by iteration length (a slow spin still judders).
 
 **D5 — The preferences are `exactViewport()` fields.** `prefersReducedMotion`
 and `prefersReducedTransparency`, both `bool`, beside `width` and `height`:
@@ -113,7 +141,35 @@ policy: the app writes `none`, as a stylesheet would. Hosts:
   setting to read.
 
 UIKit's press feedback reads `UIAccessibility.isReduceMotionEnabled` itself
-at touch-down: it is host-owned feedback, so the host honours the setting.
+at touch-down (AppKit's, `NSWorkspace`'s): it is host-owned feedback, so the
+host honours the setting.
+
+An agent sets the preferences with `prefer` (LLP 1012, 2026-09-27), by CSS's
+media feature names — `prefers-reduced-motion` and
+`prefers-reduced-transparency` (`reduce`/`no-preference`) and
+`prefers-color-scheme` (`dark`/`light`, the system's appearance, beneath an
+app's own `setScheme`). The web emulates the media (`Emulation.setEmulatedMedia`),
+so the page's queries, its CSS and the glue's listeners all see it; Apple
+stands the agent's values in for the accessibility settings
+(`DisplayPreferences.agent`) and tells the runner, and sets the window
+scene's `traitOverrides.userInterfaceStyle` (iOS) or, while the app follows
+the system, `NSApp.appearance` (macOS, which has no layer beneath the app's
+own); Linux re-answers the runner and keeps a system scheme that
+`setScheme("system")` follows.
+
+**D6 — `transform-origin` is CSS's, in two dimensions** (2026-09-27). Bit 113,
+`crate::origin::TransformOrigin`: one or two of `left`/`center`/`right`/
+`top`/`bottom`, `px` lengths and percentages (keywords in either order), an
+optional `z` length accepted and dropped (it moves nothing a plane's
+transforms show); initially `50% 50%`. The web emits it canonical
+(`0% 0%`); UIKit composes the transform about the origin as an offset from
+the centre, its anchor (so `frame` keeps working); AppKit and the Linux
+painter move the origin to the layer's own and back. The press folds into
+`scale`, so it turns about the origin too. A transform drag (LLP 1041 §8)
+refuses a target whose origin is not the centre. Not animatable: no host
+moves it per frame, and no app asked. The runner reads a string ending in
+`%` as a percentage only when all of it is one, as the compiler does, so
+`"0 100%"` reaches the row.
 *Rejected:* a new `exactPreferences()` source (a second copy of the viewport's
 bake, TypeScript and receipt handling for two booleans); an engine-level
 reduced-motion switch (`NOT-DOING`).
@@ -156,22 +212,34 @@ reduced-motion app writes the condition where the motion is.
   at 0.114, and a relaunch booted reading it. macOS builds and answers
   `prefersReducedMotion: false`. The 120 Hz range is not measurable on a
   simulator (60 Hz); it is unverified on hardware.
+- 2026-09-27: `PressFeedbackMacTests` (a mouse down presses, a drag out
+  releases and back presses, the click still fires; the layer turns about
+  the origin, whose `top` is the screen's), `PressFeedbackIOSTests` (a release
+  before the press was seen waits for it; the transform about the origin);
+  `host/web/tests/press.test.mjs` in headless Chrome (only the innermost
+  pressable, only inside, none under reduced motion); `motion/tests/it/cadence.rs`
+  and `host/apple/tests/it/animation.rs` (a fade is motion, a slide is
+  spatial); `kernel/src/origin.rs`, `css.rs`, `motion_feel.rs`, a reject
+  fixture and the Linux painter's boxes (`transforms_turn_about_the_transform_origin`);
+  `agent.rs`'s `prefer`. Driven: the web and Linux lay a plan's rotated and
+  scaled boxes out identically (`20,40 106.6×84.64`, `90,160 50×20`); on the
+  web a held `tap reset down` read 44.64 of 46.02 wide and released when moved
+  away; `prefer prefers-reduced-motion reduce prefers-color-scheme dark`
+  changed the gallery's text in one commit on the web, Linux and an iOS 26.5
+  simulator (whose screenshot is dark), and the web's press then showed
+  nothing; a quick tap on a card in the simulator's scroll view still opens
+  it.
 
 ## Known gaps
 
-- **macOS and Linux show no press.** AppKit's `NodeView` has no press state to
-  drive it (a click is `mouseDown`/`mouseUp` there); Linux is headless.
-- **Web `:active` is not "still inside".** A browser keeps `:active` while the
-  button is held even after the pointer leaves; UIKit releases the feedback.
-  Nested nodes that both carry the row both scale on the web (`:active`
-  matches ancestors); on UIKit only the node that took the press does.
-- **Inside a scroll view, UIKit delays `touchesBegan`** (~150 ms,
-  `delaysContentTouches`) so a pan never flashes a press, as it does for
-  `UIButton`; a quick tap there shows almost no feedback.
-- **An `infinite` animation keeps the display link at 120 Hz** for as long as
-  it runs; the batch says "motion", not which kind.
-- **The agent's `tap`** activates without touches (LLP 1012), so it never
-  shows a press; only a real touch does.
-- **No agent operation sets a preference** (the eight operations are closed,
-  `NOT-DOING`); tests set it through the runner, and a device through its
-  accessibility settings.
+- **Not a gap: Linux shows no press.** It has no pointer: its `tap` is an
+  activation and a contact's phases answer `unsupported` (LLP 1012), so no
+  input ever holds a node down, and a pressed state would never be set.
+- **Not a gap: the agent's one-shot `tap` on iOS shows no press.** UIKit has
+  no public touch synthesis, so LLP 1012 declares it an activation
+  (`delivery: "activation"`), as VoiceOver's is; a press is a touch's. The
+  web's and macOS's `tap` are real input and now pass through the press, and
+  a held press is observable with the contact phases (`tap X down`, `layout`,
+  `tap up`) on the web, macOS and the simulator carrier.
+- **120 Hz is unmeasured on hardware**, and the Mac's frame link asks no
+  range for motion (QUEUE).

@@ -4,6 +4,7 @@
 // where they were, above their old siblings, taking no input, until the
 // host's `destroy` of the leaving view ends the exit and drops them all.
 // Its `present` ops keep coming until then: the engine animates it.
+// A view's transform, with a layout transition's box, is in `PressFeedback.swift`.
 #if os(iOS)
 import UIKit
 

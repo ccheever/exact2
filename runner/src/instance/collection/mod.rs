@@ -8,7 +8,7 @@ mod reorder_api;
 #[cfg(test)]
 mod tests;
 mod traversal;
-mod views;
+pub(crate) mod views;
 use super::*;
 pub use api::*;
 use exact_kernel::PropId;
@@ -565,9 +565,14 @@ impl Collection {
                 (Some((_, (top, end))), Some(p)) => {
                     leaving.push((self.distance(p, top, end).1, text, mounted))
                 }
-                _ => u.ops.push(Op::DestroyView {
-                    id: mounted.wrapper,
-                }),
+                (_, position) => {
+                    if position.is_none() {
+                        views::item_left(u, mounted.wrapper);
+                    }
+                    u.ops.push(Op::DestroyView {
+                        id: mounted.wrapper,
+                    })
+                }
             }
         }
         if let Some((limit, _)) = limited {
@@ -595,7 +600,8 @@ impl Collection {
         self.emit_preview(u)?;
         Ok(())
     }
-    /// Move a mounted row to `position`; whether its item changed. An
+    /// Move a mounted row to `position`; whether its item or its position
+    /// changed (a row that moved reads its new one, LLP 1062 D8). An
     /// equivalent item keeps its object for nested memos.
     fn reposition(&self, mounted: &mut Mounted, position: usize) -> bool {
         mounted.position = position;
@@ -604,7 +610,9 @@ impl Collection {
         if dirty {
             mounted.row.frame.item = item;
         }
-        dirty
+        let moved = mounted.row.frame.index != Some(position);
+        mounted.row.frame.index = Some(position);
+        dirty || moved
     }
     /// Publish a row's position and measurement epoch, and mount it.
     fn settle_mounted(
@@ -648,7 +656,7 @@ impl Collection {
         let slots: RowSlots = Rc::new(RefCell::new(BTreeMap::new()));
         let frame = Frame {
             item: Some(self.items[position].clone()),
-            index: None,
+            index: Some(position),
             bound: None,
             region: Some(self.region.0),
             row: Some(slots.clone()),

@@ -44,6 +44,7 @@ fn parse_codec(s: &str) -> Codec {
         "clip-path" => Codec::CssValue { path: "crate::clip::ClipPath", variant: "ClipPath", error: "BadClipPath" },
         // @ref LLP 1065 — SVG `stroke-dasharray`.
         "dash-array" => Codec::CssValue { path: "crate::vector::DashArray", variant: "DashArray", error: "BadDashArray" },
+        "transform-origin" => Codec::CssValue { path: "crate::origin::TransformOrigin", variant: "TransformOrigin", error: "BadTransformOrigin" },
         "aspect-ratio" => Codec::CssValue { path: "crate::ratio::AspectRatio", variant: "AspectRatio", error: "BadAspectRatio" },
         "shape-outside" => Codec::CssValue { path: "exact_textflow::ShapeOutside", variant: "ShapeOutside", error: "BadShapeOutside" },
         // @ref LLP 1056 D1

@@ -72,5 +72,41 @@ final class PressFeedbackIOSTests: XCTestCase {
         v.applyTransform()
         XCTAssertEqual(v.transform, CGAffineTransform(scaleX: 2, y: 2))
     }
+
+    /// D2: a quick tap in a scroll view arrives late, its down and up in one
+    /// turn (`delaysContentTouches`). The release waits until the press has
+    /// eased in, so the tap shows, as a UIButton's highlight does.
+    func testAReleaseBeforeThePressWasSeenWaitsForIt() throws {
+        try XCTSkipIf(UIAccessibility.isReduceMotionEnabled, "reduced motion shows no press")
+        let (_, v) = try fixture()
+        v.pressed = true
+        v.pressed = false
+        XCTAssertTrue(v.press.releaseHeld)
+        XCTAssertEqual(v.press.to, 0.97, "still pressing in")
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: PressFeedback.duration + 0.05))
+        XCTAssertFalse(v.press.releaseHeld)
+        XCTAssertEqual(v.press.to, 1, "then released")
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: PressFeedback.duration + 0.1))
+        XCTAssertTrue(v.press.idle)
+        XCTAssertTrue(v.transform.isIdentity)
+        // A press already on screen releases at once.
+        v.pressed = true
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        v.pressed = false
+        XCTAssertFalse(v.press.releaseHeld)
+        XCTAssertEqual(v.press.to, 1)
+    }
+
+    /// D6: every transform turns about `transform-origin`.
+    func testTheTransformTurnsAboutTheTransformOrigin() throws {
+        let (p, v) = try fixture(style: ["transform_origin": [["pct": 0], ["pct": 0]]])
+        p.apply(wireBatch([["op": "present", "id": 1, "property": "scale", "x": 0.5]]))
+        XCTAssertEqual(v.frame, CGRect(x: 50, y: 50, width: 100, height: 50), "the top-left corner stays put")
+        p.apply(wireBatch([["op": "present", "id": 1, "property": "rotate", "x": 90.0], ["op": "present", "id": 1, "property": "scale", "x": 1.0]]))
+        XCTAssertEqual(v.frame.minX, -50, accuracy: 1e-9, "a quarter turn about it swings the box to its left")
+        XCTAssertEqual(v.frame.minY, 50, accuracy: 1e-9)
+        p.apply(wireBatch([["op": "style", "id": 1, "style": [:] as [String: Any]]]))
+        XCTAssertEqual(v.frame.midX, 150, accuracy: 1e-9, "unset again: about the centre")
+    }
 }
 #endif
