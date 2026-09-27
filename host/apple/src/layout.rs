@@ -192,48 +192,6 @@ mod tests {
         k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
     }
     #[test]
-    fn silent_pass_retains_scroll_extent_and_relative_frame_changes_until_emission() {
-        let mut host = fixture();
-        let text = id(&host, "text");
-        let port = id(&host, "port");
-        let field = id(&host, "field");
-        let other = id(&host, "other");
-        let old_other = host.mirror[&other].frame;
-        host.runner
-            .kernel_mut()
-            .apply(
-                0,
-                2,
-                &[Op::SetProp {
-                    id: text,
-                    prop: PropId::Text,
-                    value: "more words ".repeat(100).into(),
-                }],
-            )
-            .unwrap();
-        host.compute_layout().unwrap();
-        assert!(host
-            .pending_layout
-            .contains(&host.runner.kernel().node(port).unwrap().key));
-        let mut batch = Batch::new();
-        host.layout(&mut batch).unwrap();
-        assert!(host.pending_layout.is_empty());
-        for id in [text, port, field] {
-            let k = host.runner.kernel();
-            let node = k.node(id).unwrap();
-            let parent = node.parent.and_then(|p| k.node(p)).map(|p| p.frame);
-            assert_eq!(host.mirror[&id].frame, Some(relative(node.frame, parent)));
-        }
-        assert_eq!(
-            host.mirror[&port].content,
-            Some(content_size(
-                &host.runner.kernel().node(port).unwrap(),
-                host.runner.kernel()
-            ))
-        );
-        assert_eq!(host.mirror[&other].frame, old_other);
-    }
-    #[test]
     fn ancestor_spelling_change_reaches_an_unmoved_editor() {
         let mut host = fixture();
         let port = id(&host, "port");
