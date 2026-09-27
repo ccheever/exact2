@@ -547,14 +547,20 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       for(const event of ['pointerup','pointercancel','lostpointercapture'])on(event,finish);
       // A trackpad pinch: Chromium and Firefox send ctrl+wheel (the listener is
       // not passive, so the page does not zoom too); it ends when it goes quiet.
+      // Without ctrl, a wheel over a zoomed photo pans it (two-finger scroll,
+      // as macOS and Preview); unzoomed it stays the page's scroll.
       on('wheel',e=>{
-        if(!e.ctrlKey||drag&&!drag.wheel)return;
+        if(drag&&!drag.wheel)return;
         const b=transformBindings.get(id);if(!transformLocal(b)||!b.admitted)return;
-        e.preventDefault();
+        const unit=e.deltaMode===1?16:e.deltaMode===2?innerHeight:1,dx=e.deltaX*unit,dy=e.deltaY*unit;
         let d=drag;
-        const dy=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?innerHeight:1);
-        if(!d){d=arm(e,{wheel:true,factor:1});if(!d)return;d.gesture={x:e.clientX,y:e.clientY,spread:0};if(!begin(d))return;}
-        d.factor*=Math.exp(-dy/100);d.gesture={x:e.clientX,y:e.clientY,spread:0};
+        if(!d&&!e.ctrlKey&&!(transformSample(getComputedStyle(b.targetEl))?.[2]>1.001))return;
+        e.preventDefault();
+        if(!d){d=arm(e,{wheel:true,factor:1,pan:[0,0]});if(!d)return;d.gesture={x:e.clientX,y:e.clientY,spread:0};if(!begin(d))return;}
+        // A switch between zooming and panning re-anchors where the pair is.
+        if(d.zooming!==e.ctrlKey){d.zooming=e.ctrlKey;anchor(d);d.pan=[0,0];}
+        if(e.ctrlKey){d.factor*=Math.exp(-dy/100);d.gesture={x:e.clientX,y:e.clientY,spread:0};}
+        else{d.pan[0]-=dx;d.pan[1]-=dy;d.gesture={x:d.anchor.x+d.pan[0],y:d.anchor.y+d.pan[1],spread:0};}
         if(!follow(d))return;
         clearTimeout(d.idle);d.idle=setTimeout(()=>{if(drag===d)release(d);},150);
       });
