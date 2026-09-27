@@ -686,8 +686,9 @@ final class Presenter {
                 case "scale": v.scale = x; v.applyTransform()
                 case "rotate": v.rotate = x; v.applyTransform()
                 case "opacity": v.alpha = x
-                default: break
+                default: v.present(paint: op.property, [op.x, op.y, op.w, op.h])
                 }
+            case .unpresent: views[id]?.present(paint: op.property, nil)
             default: break
             }
         }

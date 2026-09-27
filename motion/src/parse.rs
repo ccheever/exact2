@@ -74,14 +74,11 @@ impl Transitions {
                         _ => return Err(ParseError::BadShape(decl.trim().to_string())),
                     }
                     times += 1;
-                } else if *part == "all" || Property::from_name(part).is_some() {
+                } else if let Some(named) = TransitionProperty::from_name(part) {
                     if property.is_some() {
                         return Err(ParseError::BadShape(decl.trim().to_string()));
                     }
-                    property = Some(match *part {
-                        "all" => TransitionProperty::All,
-                        name => TransitionProperty::Property(Property::from_name(name).unwrap()),
-                    });
+                    property = Some(named);
                 } else {
                     match easing(part) {
                         Ok(value) if timing.is_none() => timing = Some(value),
@@ -276,7 +273,10 @@ fn keyframe_blocks(name: &str, inner: &str) -> Result<Keyframes, ParseError> {
                 block.easing = Some(Easing::parse(value)?);
                 continue;
             }
-            let property = Property::from_name(property)
+            // The name the browser knows, as `Keyframes::rule` writes it.
+            let property = Property::ALL
+                .into_iter()
+                .find(|p| *p != Property::ShadowColor && p.css_name() == property)
                 .ok_or_else(|| ParseError::UnknownProperty(property.to_string()))?;
             let value = keyframe_value(property, value).ok_or_else(|| bad(decl))?;
             block.values.retain(|(p, _)| *p != property);
@@ -304,9 +304,19 @@ fn keyframe_blocks(name: &str, inner: &str) -> Result<Keyframes, ParseError> {
 
 /// A keyframe's value in CSS's units: `translate` one or two lengths (`px`,
 /// or a unitless number), `rotate` an angle (`deg`, or a unitless number of
-/// degrees), `scale` and `opacity` numbers.
+/// degrees), `scale` and `opacity` numbers, a colour `rgba(r,g,b,a)` with
+/// channels 0–255 and alpha 0–1, as [`Keyframes::rule`] writes it.
 fn keyframe_value(property: Property, text: &str) -> Option<Value> {
     let number = |s: &str, unit: &str| exact_num::parse_f64(s.strip_suffix(unit).unwrap_or(s)).ok();
+    if property.is_color() {
+        let inner = text.strip_prefix("rgba(")?.strip_suffix(')')?;
+        let c: Vec<f64> = inner
+            .split(',')
+            .map(|c| exact_num::parse_f64(c.trim()).ok())
+            .collect::<Option<_>>()?;
+        let [r, g, b, a] = c[..] else { return None };
+        return Some(Value::rgba(r / 255.0, g / 255.0, b / 255.0, a));
+    }
     match property {
         Property::Translate => {
             let mut parts = text.split_whitespace();

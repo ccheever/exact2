@@ -16,9 +16,7 @@
 
 use exact_kernel::style::ColorValue;
 use exact_kernel::{Color, Dimension, Display, Overflow, RowValue, StyleId, StyleProps};
-use exact_motion::{
-    Animations, Easing, Keyframes, TimingFunction, Transition, TransitionProperty, Transitions,
-};
+use exact_motion::{Animations, Easing, Keyframes, TimingFunction, Transition, Transitions};
 use exact_num::{push_text, Piece, Shortest32};
 use std::fmt::Write as _;
 
@@ -360,10 +358,7 @@ pub fn transition_css(t: &Transitions) -> (String, bool) {
 }
 
 fn transition_property(tr: &Transition) -> &'static str {
-    match tr.property {
-        TransitionProperty::All => "all",
-        TransitionProperty::Property(p) => p.name(),
-    }
+    tr.property.css_name()
 }
 
 /// A CSS `<easing-function>` from the motion crate's spelling.

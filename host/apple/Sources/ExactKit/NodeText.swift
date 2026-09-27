@@ -95,7 +95,10 @@ extension NodeView {
             // expansion the measurer used (LLP 1045 D3).
             runs = MarkupRuns.expand(source, base: textRun(""), color: channels("text_color", dark: night))
         } else if let value = props["text"] {
-            runs.append(InlineText.run(value, style: style, href: props["href"] ?? "", dark: night))
+            // Paint motion's colour, while it runs, over the style's (LLP 1062).
+            var styled = style
+            if let c = paint["text_color"] { styled["text_color"] = .array(c.map(BatchValue.number)) }
+            runs.append(InlineText.run(value, style: styled, href: props["href"] ?? "", dark: night))
         } else {
             runs = inlineText.filter(\.paints).map { $0.run(dark: night) }
             // A container's background covers its descendants' fragments (CSS).

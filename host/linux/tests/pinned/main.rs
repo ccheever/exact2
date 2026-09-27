@@ -4,6 +4,7 @@
 mod borders;
 mod gradients;
 mod host;
+mod motion_paint;
 mod paint;
 mod text;
 

@@ -52,7 +52,7 @@ typealias OracleNodeStyle = [String: OracleBatchValue]
 
 struct OracleBatchOp: Decodable {
     enum Kind: String {
-        case create, props, style, children, paragraph, frame, content, present, roots, destroy
+        case create, props, style, children, paragraph, frame, content, present, unpresent, roots, destroy
         case flow, surface, command, hold, collections, region, router, title, unknown
         case heightDrag = "height-drag", transformDrag = "transform-drag", retireMotion = "retire-motion"
     }
@@ -90,7 +90,7 @@ struct OracleBatchOp: Decodable {
         case .style: style = try c.decodeIfPresent(OracleNodeStyle.self, forKey: .style) ?? [:]
         case .paragraph: runs = try c.decodeIfPresent([OracleInlineText].self, forKey: .runs) ?? []
         case .children, .roots: ids = try c.decodeIfPresent([UInt32].self, forKey: .ids) ?? []
-        case .frame, .content, .present:
+        case .frame, .content, .present, .unpresent:
             x = try c.decodeIfPresent(Double.self, forKey: .x) ?? 0
             y = try c.decodeIfPresent(Double.self, forKey: .y) ?? 0
             w = try c.decodeIfPresent(Double.self, forKey: .w) ?? 0

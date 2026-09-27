@@ -10,5 +10,6 @@ mod host;
 mod inherited;
 mod layout_refusal;
 mod lists;
+mod paint;
 mod textflow;
 mod viewport;

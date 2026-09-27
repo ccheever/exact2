@@ -43,6 +43,28 @@ impl ShadowPaint {
         )
     }
 
+    /// `base` with paint motion's geometry (offset, blur) and colour over it
+    /// (LLP 1062); none when nothing would show.
+    pub fn over(
+        base: Option<ShadowPaint>,
+        geometry: Option<exact_motion::Value>,
+        color: Option<[u8; 4]>,
+    ) -> Option<ShadowPaint> {
+        let mut s = base.unwrap_or(ShadowPaint {
+            color: [0; 4],
+            offset: (0.0, 0.0),
+            blur: 0.0,
+        });
+        if let Some(g) = geometry {
+            s.offset = (g.x as f32, g.y as f32);
+            s.blur = (g.z as f32).max(0.0);
+        }
+        if let Some(c) = color {
+            s.color = c;
+        }
+        (s.color[3] >= 1).then_some(s)
+    }
+
     /// The fills, outermost band first, around the border box `outer`.
     pub fn fills(&self, outer: &Shape) -> Vec<BorderFill> {
         let sigma = self.blur / 2.0;

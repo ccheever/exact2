@@ -373,6 +373,7 @@ impl<D: DataSource> Presenter<D> {
                 Value {
                     x: x as f64 - contact.origin.0 as f64,
                     y: y as f64 - contact.origin.1 as f64,
+                    ..Value::ZERO
                 },
                 now_ms,
             ),

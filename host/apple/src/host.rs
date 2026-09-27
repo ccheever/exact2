@@ -36,6 +36,8 @@ mod height_drag;
 mod height_tests;
 #[path = "holds.rs"]
 mod holds;
+#[path = "paint.rs"]
+mod paint;
 #[path = "paragraph.rs"]
 mod paragraph;
 #[cfg(test)]
@@ -104,6 +106,7 @@ pub struct Host<D: DataSource> {
     /// Last published common collection snapshot; refreshed only after layout.
     collections_json: String,
     engine: Engine,
+    paint: paint::Paint,
     holds: BTreeMap<u64, HoldToken>,
     height_owner: Option<NodeKey>,
     height_handles: BTreeMap<NodeKey, HeightHandle>,
@@ -347,6 +350,7 @@ impl<D: DataSource> Host<D> {
             roots: Vec::new(),
             collections_json: "[]".into(),
             engine: Engine::new(),
+            paint: paint::Paint::default(),
             holds: BTreeMap::new(),
             height_owner: None,
             height_handles: BTreeMap::new(),
@@ -417,6 +421,7 @@ impl<D: DataSource> Host<D> {
         }
         let applied = sync.apply(&mut host.engine);
         debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
+        host.boot_paint(&order);
         host.reconcile_height_handles(&mut batch, true);
         host.layout(&mut batch).map_err(HostError::Layout)?;
         // A failed first layout is a refused boot, not a partially committed
@@ -1145,6 +1150,7 @@ impl<D: DataSource> Host<D> {
                 .motion_sync(&t.receipt)
                 .apply(&mut self.engine);
             debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
+            self.sync_paint(&t.receipt, &mut batch);
             self.reconcile_height_handles(&mut batch, true);
             let synced = self.sync_height_owner();
             debug_assert!(synced.is_ok(), "validated height sync");
@@ -1196,6 +1202,10 @@ impl<D: DataSource> Host<D> {
     fn present(&mut self, batch: &mut Batch, boot: bool) {
         self.holds.retain(|_, token| self.engine.has_hold(*token));
         for p in self.engine.frame() {
+            if Property::PAINT.contains(&p.property) {
+                self.present_paint(p, batch);
+                continue;
+            }
             if p.property == Property::Height {
                 continue;
             }

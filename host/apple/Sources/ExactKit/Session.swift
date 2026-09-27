@@ -780,6 +780,8 @@ public final class ExactSession {
     }
     public func resize(_ size: CGSize) { guard booted, state != .destroyed else { return }; apply(runtime.resize(width: size.width, height: size.height)) }
     public func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) { guard booted, state != .destroyed else { return }; apply(runtime.insets(top: top, right: right, bottom: bottom, left: left)) }
+    /// The view's appearance, for paint motion's `light-dark()` (LLP 1062).
+    public func scheme(dark: Bool) { guard booted, state != .destroyed else { return }; apply(runtime.scheme(dark: dark)) }
     /// The agent API's runner half (LLP 1012): `tree`, `state`, `logs`, `settle`.
     public func agent(_ request: String) -> String { runtime.agent(request) }
     /// A line for the runner's journal (LLP 1012 §3; LLP 1035.001 D6): a

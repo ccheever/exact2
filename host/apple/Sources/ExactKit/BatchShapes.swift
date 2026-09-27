@@ -72,7 +72,7 @@ extension BatchReader {
             case (.frame, "y"), (.content, "y"), (.present, "y"): op.y = try number()
             case (.frame, "w"), (.content, "w"), (.present, "w"): op.w = try number()
             case (.frame, "h"), (.content, "h"), (.present, "h"): op.h = try number()
-            case (.frame, "property"), (.content, "property"), (.present, "property"): op.property = try string()
+            case (.frame, "property"), (.content, "property"), (.present, "property"), (.unpresent, "property"): op.property = try string()
             default: try skip()
             }
         }
@@ -119,7 +119,7 @@ extension BatchReader {
 extension BatchOp {
     var isAdapter: Bool {
         switch op {
-        case .create, .props, .style, .children, .paragraph, .frame, .content, .present, .roots, .destroy: return false
+        case .create, .props, .style, .children, .paragraph, .frame, .content, .present, .unpresent, .roots, .destroy: return false
         default: return true
         }
     }
@@ -182,7 +182,7 @@ struct BatchFields {
         case .style: op.style = try object("style")
         case .paragraph: op.runs = try array("runs") { try Self(Self.object($0)).inline() }
         case .children, .roots: op.ids = try array("ids", Self.id)
-        case .frame, .content, .present:
+        case .frame, .content, .present, .unpresent:
             op.x = try number("x") ?? 0; op.y = try number("y") ?? 0
             op.w = try number("w") ?? 0; op.h = try number("h") ?? 0
             op.property = try string("property") ?? ""

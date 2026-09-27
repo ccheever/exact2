@@ -161,6 +161,7 @@ impl<D: DataSource> Presenter<D> {
             Value {
                 x: base.x + primary.value.x,
                 y: base.y + primary.value.y,
+                ..Value::ZERO
             },
         );
         self.dirty = true;
@@ -189,6 +190,7 @@ impl<D: DataSource> Presenter<D> {
         let value = Value {
             x: held.primary.value.x,
             y: held.primary.value.y + dy + (self.scroll_of(list).1 - s.scroll) as f64,
+            ..Value::ZERO
         };
         if !finite(value) {
             return Err("Arrange position outside finite layout range".into());
@@ -211,6 +213,7 @@ impl<D: DataSource> Presenter<D> {
         let visual = Value {
             x: base.x + value.x,
             y: base.y + value.y,
+            ..Value::ZERO
         };
         held.velocity.push(now / 1000., visual);
         let s = self.arrange.as_mut().unwrap();
@@ -286,6 +289,7 @@ impl<D: DataSource> Presenter<D> {
                 let value = Value {
                     x: base.x + p.x,
                     y: base.y + p.y,
+                    ..Value::ZERO
                 };
                 Some((w.wrapper, value))
             })
@@ -321,6 +325,7 @@ impl<D: DataSource> Presenter<D> {
             let value = Value {
                 x: visual.x - base.x,
                 y: visual.y - base.y,
+                ..Value::ZERO
             };
             if !finite(value) {
                 error = error.or(Some("invalid Arrange rebase".into()));

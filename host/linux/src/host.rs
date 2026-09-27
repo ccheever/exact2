@@ -29,6 +29,8 @@ mod height;
 mod height_binding;
 #[path = "holds.rs"]
 mod holds;
+#[path = "paint_motion.rs"]
+mod paint_motion;
 #[path = "transform_binding.rs"]
 mod transform_binding;
 
@@ -56,6 +58,9 @@ pub struct Host<D: DataSource> {
     engine: Engine,
     keys: BTreeMap<NodeKey, ViewId>,
     presented: BTreeMap<ViewId, Presented>,
+    /// Paint motion's owners and the appearance they resolve by (LLP 1062).
+    paint_owners: exact_kernel::motion::PaintOwners,
+    dark: bool,
     viewport: (f32, f32),
     now_ms: f64,
     height_owner: Option<NodeKey>,
@@ -155,6 +160,8 @@ impl<D: DataSource> Host<D> {
             engine: Engine::new(),
             keys: BTreeMap::new(),
             presented: BTreeMap::new(),
+            paint_owners: Default::default(),
+            dark: false,
             viewport: (width, height),
             now_ms: 0.0,
             height_owner: None,
@@ -194,6 +201,7 @@ impl<D: DataSource> Host<D> {
         }
         let applied = sync.apply(&mut host.engine);
         debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
+        host.boot_paint();
         host.project_navigation();
         host.reconcile_height_bindings();
         host.reconcile_transform_bindings();
@@ -818,6 +826,7 @@ impl<D: DataSource> Host<D> {
                 .motion_sync(&t.receipt)
                 .apply(&mut self.engine);
             debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
+            self.sync_paint(&t.receipt);
             if let Err(error) = self.sync_height_owner() {
                 self.log(error);
                 paint = true;
@@ -877,6 +886,11 @@ impl<D: DataSource> Host<D> {
             if p.property == Property::Height {
                 continue;
             }
+            changed = true;
+            if Property::PAINT.contains(&p.property) {
+                self.present_paint(p);
+                continue;
+            }
             let base = self.presented(view);
             let entry = self.presented.entry(view).or_insert(base);
             match p.property {
@@ -884,9 +898,8 @@ impl<D: DataSource> Host<D> {
                 Property::Scale => entry.scale = p.value.x as f32,
                 Property::Rotate => entry.rotate = p.value.x as f32,
                 Property::Opacity => entry.opacity = p.value.x as f32,
-                Property::Height => unreachable!("height is projected through layout"),
+                _ => unreachable!("height is projected through layout; paint is above"),
             }
-            changed = true;
         }
         changed
     }

@@ -577,7 +577,7 @@ fn validate_value(property: Property, value: Value) -> Result<(), EngineError> {
     if !value.is_finite() {
         return Err(EngineError::NonFinite);
     }
-    if property.components() == 1 && value.y != 0.0 {
+    if !value.fits(property) {
         return Err(EngineError::InvalidValueShape);
     }
     Ok(())

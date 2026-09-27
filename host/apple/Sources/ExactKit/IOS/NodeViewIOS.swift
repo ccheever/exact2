@@ -102,8 +102,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var boxBorder: CALayer?
     /// A `background-image` gradient Core Animation paints (LLP 1056).
     var boxGradient: CAGradientLayer?
-    /// `box-shadow` (`BoxShadow.swift`).
-    var shadowCaster: ShadowCaster?
+    /// `box-shadow` (`BoxShadow.swift`); paint motion's values over the style's (`PaintMotion.swift`).
+    var shadowCaster: ShadowCaster?, paint: [String: [Double]] = [:]
     var clipBox: PlainView?
     var textRasterKey: TextRasterKey? { didSet { textRasterWhole = textRasterKey.map { $0.clip == nil } ?? false } }
     /// The key is set and paints the whole paragraph (not a band of it).
@@ -863,7 +863,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     // @ref LLP 1034 D1/D2
     var drawsDark: Bool { traitCollection.userInterfaceStyle == .dark }
     func channels(_ key: String, dark: Bool? = nil) -> [Double]? {
-        style[key]?.channels(dark: dark ?? drawsDark)
+        paint[key] ?? style[key]?.channels(dark: dark ?? drawsDark)
     }
     func color(_ key: String, _ fallback: UIColor) -> UIColor {
         guard let c = channels(key) else { return fallback }

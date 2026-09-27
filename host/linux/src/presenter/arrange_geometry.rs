@@ -17,6 +17,7 @@ impl<D: DataSource> Presenter<D> {
         let mut v = Value {
             x: node.frame.x as f64 - self.page.0 as f64,
             y: node.frame.y as f64 - self.page.1 as f64,
+            ..Value::ZERO
         };
         let mut at = node.parent;
         while let Some(id) = at {

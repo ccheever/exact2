@@ -385,6 +385,22 @@ impl Batch {
         ));
     }
 
+    /// `{"op":"present","id":…,"property":…,"x":…,"y":…,"w":…,"h":…}` — a
+    /// paint property's presented value in place of its style row (LLP
+    /// 1062): a colour's channels 0–255, or a shadow's offset and blur.
+    pub fn present4(&mut self, id: u32, property: &str, [x, y, w, h]: [f64; 4]) {
+        self.ops.push(format!(
+            "{{\"op\":\"present\",\"id\":{id},\"property\":\"{property}\",\"x\":{x},\"y\":{y},\"w\":{w},\"h\":{h}}}"
+        ));
+    }
+
+    /// `{"op":"unpresent","id":…,"property":…}` — the style row shows again.
+    pub fn unpresent(&mut self, id: u32, property: &str) {
+        self.ops.push(format!(
+            "{{\"op\":\"unpresent\",\"id\":{id},\"property\":\"{property}\"}}"
+        ));
+    }
+
     /// @ref LLP 1043.000 §3 D8 — carry the runner deadline, not a poll interval.
     /// The batch as one JSON document:
     /// `{"ops":[…],"timers":bool,"motion":bool,"error":null|"…"}`.

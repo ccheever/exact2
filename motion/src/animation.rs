@@ -173,7 +173,8 @@ pub enum AnimationError {
     /// A keyframe named a property twice.
     DuplicateProperty(Property),
     /// A keyframe named a property keyframes do not animate (numeric
-    /// `height` is a transition-only trial, LLP 1002 D7).
+    /// `height` is a transition-only trial, LLP 1002 D7; `box-shadow` is a
+    /// transition's, LLP 1062).
     NotAnimatable(Property),
     /// A scalar property carried a second component.
     InvalidValueShape,
@@ -234,7 +235,10 @@ impl Keyframes {
                 easing.validate().map_err(AnimationError::Easing)?;
             }
             for (i, (property, value)) in block.values.iter().enumerate() {
-                if *property == Property::Height {
+                if matches!(
+                    property,
+                    Property::Height | Property::BoxShadow | Property::ShadowColor
+                ) {
                     return Err(AnimationError::NotAnimatable(*property));
                 }
                 if block.values[..i].iter().any(|(p, _)| p == property) {
@@ -243,7 +247,7 @@ impl Keyframes {
                 if !value.is_finite() {
                     return Err(AnimationError::NonFinite);
                 }
-                if property.components() == 1 && value.y != 0.0 {
+                if !value.fits(*property) {
                     return Err(AnimationError::InvalidValueShape);
                 }
             }
@@ -269,9 +273,19 @@ impl Keyframes {
             css_number(&mut out, block.offset * 100.0);
             out.push_str("%{");
             for (property, value) in &block.values {
-                out.push_str(property.name());
+                out.push_str(property.css_name());
                 out.push(':');
                 match property {
+                    p if p.is_color() => {
+                        let [r, g, b, a] = value.straight();
+                        out.push_str("rgba(");
+                        for c in [r, g, b] {
+                            css_number(&mut out, (c * 255.0).round());
+                            out.push(',');
+                        }
+                        css_number(&mut out, a);
+                        out.push(')');
+                    }
                     Property::Translate => {
                         css_number(&mut out, value.x);
                         out.push_str("px ");

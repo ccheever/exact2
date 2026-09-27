@@ -18,6 +18,7 @@ mod image;
 mod layout_equality;
 mod motion;
 mod no_panic;
+mod paint;
 mod paragraph_stamp;
 mod presented_height;
 mod reader;

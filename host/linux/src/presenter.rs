@@ -667,6 +667,7 @@ impl<D: DataSource> Presenter<D> {
                     let dark =
                         matches!(c.args.first(), Some(exact_plan::Value::Str(s)) if &**s == "dark");
                     self.dirty |= self.brush.dark != dark;
+                    self.host.set_scheme(dark);
                     self.brush.dark = dark;
                     if let Some(error) = self.host.content_region_appearance(self.brush.dark) {
                         self.host.log(error);

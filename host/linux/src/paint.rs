@@ -34,47 +34,12 @@ pub(crate) mod damage;
 pub mod gradient;
 pub use gradient::GradientPaint;
 mod inline;
+mod presented;
 mod region;
 mod shadow;
 use inline::{text_backgrounds, text_palette};
+pub use presented::{PaintValues, Presented};
 pub(crate) use region::{ActionNode, ActionSlot, RegionActions, ScrollBounds};
-
-/// A node's presentation values: what the motion engine says to paint.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Presented {
-    /// Points.
-    pub translate: (f32, f32),
-    /// Uniform.
-    pub scale: f32,
-    /// Degrees.
-    pub rotate: f32,
-    /// Zero to one.
-    pub opacity: f32,
-}
-
-impl Presented {
-    /// Nothing moved.
-    pub const IDENTITY: Presented = Presented {
-        translate: (0.0, 0.0),
-        scale: 1.0,
-        rotate: 0.0,
-        opacity: 1.0,
-    };
-
-    /// The committed style's values (what the engine starts from).
-    pub fn from_style(s: &StyleProps) -> Presented {
-        Presented {
-            translate: (s.translate.x, s.translate.y),
-            scale: s.scale,
-            rotate: s.rotate,
-            opacity: s.opacity,
-        }
-    }
-
-    fn moves(&self) -> bool {
-        self.translate != (0.0, 0.0) || self.scale != 1.0 || self.rotate != 0.0
-    }
-}
 
 /// A rectangle as (x, y, w, h).
 pub type Rect4 = (f32, f32, f32, f32);
@@ -807,7 +772,8 @@ impl Painter {
         self.damage.unsupported |= p.moves()
             || p.opacity != 1.0
             || node.node_type == NodeType::Image
-            || node.style.shadow_opacity > 0.0;
+            || node.style.shadow_opacity > 0.0
+            || !p.paint.is_empty();
         let ts = if p.moves() {
             let (cx, cy) = (x + w / 2.0, y + h / 2.0);
             ts.pre_concat(
@@ -864,7 +830,9 @@ impl Painter {
         offset: (f32, f32),
         clip_rect: Option<Rect4>,
     ) {
-        let paint = BoxPaint::capture(node, walk.scene.kernel, self.dark, rect.2);
+        let presented = (walk.scene.presented)(node.id).paint;
+        let paint =
+            BoxPaint::capture(node, walk.scene.kernel, self.dark, rect.2).presented(&presented);
         let geometry = paint.geometry(rect);
         paint.paint(self.backend.as_mut(), &geometry, ts);
         let outer = geometry.outer;
@@ -913,6 +881,12 @@ impl Painter {
                 if let Some(paragraph) = paragraph {
                     let mut palette = Vec::new();
                     text_palette(walk.scene.kernel, node, self.dark, &mut palette);
+                    if let Some(c) = presented.color(exact_motion::Property::Color) {
+                        palette
+                            .iter_mut()
+                            .filter(|r| r.source == node.id)
+                            .for_each(|r| r.color = c);
+                    }
                     walk.text.insert(node.key, paragraph.clone());
                     // CSS `text-overflow: ellipsis` in a clipping box: an
                     // over-wide line ends in "…" (LLP 1053 G5; paint only).
@@ -971,7 +945,9 @@ impl Painter {
                 let ink = if placeholder {
                     [0x75, 0x75, 0x75, 0xff]
                 } else {
-                    rgba(node.text_color().resolve(self.dark))
+                    presented
+                        .color(exact_motion::Property::Color)
+                        .unwrap_or_else(|| rgba(node.text_color().resolve(self.dark)))
                 };
                 {
                     let mut engine = self.text.borrow_mut();

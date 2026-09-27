@@ -218,8 +218,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// A `value` that arrived mid-composition, applied when it ends.
     var pendingValue: String?
     var scroll: ChainingScrollView?
-    /// `box-shadow` (`BoxShadow.swift`).
-    var shadowCaster: ShadowCaster?
+    /// `box-shadow` (`BoxShadow.swift`); paint motion's values over the style's (`PaintMotion.swift`).
+    var shadowCaster: ShadowCaster?, paint: [String: [Double]] = [:]
     var clipBox: NSView?
     var materialView: NSView?
     private var materialContent: NSView?
@@ -852,7 +852,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// the four; a `light-dark()` pair is two fours and this picks one
     /// (LLP 1034 D1). Anything else is not a colour.
     func channels(_ key: String, dark: Bool? = nil) -> [Double]? {
-        style[key]?.channels(dark: dark ?? drawsDark)
+        paint[key] ?? style[key]?.channels(dark: dark ?? drawsDark)
     }
 
     /// Whether any colour on this node is a pair — what says an appearance

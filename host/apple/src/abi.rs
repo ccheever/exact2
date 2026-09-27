@@ -1060,6 +1060,15 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// The presenter's appearance, which `light-dark()` paint motion resolves by.
+    pub fn scheme(&mut self, dark: bool) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_scheme(dark));
+        self.emit(out)
+    }
+
     /// An image's intrinsic size (pixel counts, one-for-one as points); a
     /// finite width or height ≤ 0 clears it; a non-finite value is refused
     /// by the kernel and comes back as an error.
