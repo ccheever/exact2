@@ -1,0 +1,16 @@
+# The SVG gallery's data source (LLP 1055.000): none; every fixture is literal.
+[package]
+name = "svg-gallery-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The SVG gallery's data source: none"
+publish = false
+
+[lib]
+name = "svg_gallery_data"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }
