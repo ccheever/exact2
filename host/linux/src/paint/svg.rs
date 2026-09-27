@@ -211,9 +211,17 @@ pub(super) fn resolve_svg(
     node: &NodeRef<'_>,
     content: Rect4,
 ) -> exact_kernel::svg::Scene {
+    resolve_with(walk.kernel, node, content, walk.presented)
+}
+
+/// [`resolve_svg`] with the host's presented values by view.
+pub fn resolve_with(
+    kernel: &exact_kernel::Kernel,
+    node: &NodeRef<'_>,
+    content: Rect4,
+    presented: &dyn Fn(exact_kernel::ViewId) -> super::Presented,
+) -> exact_kernel::svg::Scene {
     {
-        let kernel = walk.kernel;
-        let presented = walk.presented;
         let value = |key: NodeKey, p: Property| -> Option<Value> {
             let id = kernel.node_by_key(key)?.id;
             let v = presented(id);

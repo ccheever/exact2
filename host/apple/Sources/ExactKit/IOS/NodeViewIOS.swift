@@ -94,6 +94,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     let kind: String
     var inlineText: [InlineText] = []
     var inlinePressed: UInt32?
+    /// An SVG element a touch in this `svg` went down on (LLP 1055.000 D17).
+    var svgPressed: UInt32?
     override class var layerClass: AnyClass { NodeLayer.self }
     /// The box is `draw(_:)`'s to paint: Core Animation cannot say it
     /// (`applyBoxLayer`).
@@ -1377,6 +1379,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "down", source: self) == true { return }
         guard !disabled else { pressed = false; return }
+        if let touch = touches.first, let target = presenter?.svg.target(id, at: local(touch.location(in: nil))) {
+            svgPressed = target; return
+        }
         if let touch = touches.first, let run = inlineActivationTarget(at: local(touch.location(in: nil))) {
             inlinePressed = run.id; return
         }
@@ -1389,7 +1394,12 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "up", source: self) == true { finishPointerPress(); return }
-        guard !disabled else { pressed = false; inlinePressed = nil; return }
+        guard !disabled else { pressed = false; inlinePressed = nil; svgPressed = nil; return }
+        if let target = svgPressed {
+            svgPressed = nil
+            if let touch = touches.first, presenter?.svg.target(id, at: local(touch.location(in: nil))) == target { presenter?.press(target) }
+            return
+        }
         if let run = inlinePressed {
             inlinePressed = nil
             if let touch = touches.first, inlineActivationTarget(at: local(touch.location(in: nil)))?.id == run { _ = activateInline(run) }
@@ -1407,7 +1417,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if inside, presenter?.views[id] === self { presenter?.press(id); finishPointerPress() }
     }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        inlinePressed = nil
+        inlinePressed = nil; svgPressed = nil
         if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "cancel", source: self) == true { return }
         if pressed { pressed = false } else { super.touchesCancelled(touches, with: event) }
     }
@@ -1419,6 +1429,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// synthesis.
     @discardableResult
     func activate(at windowPoint: CGPoint) -> NodeView? {
+        // An SVG element under the point takes it (LLP 1055.000 D17).
+        if kind == "svg", let element = presenter?.svg.target(id, at: local(windowPoint)) { presenter?.press(element); return self }
         guard let target = activationTarget(at: windowPoint) else { return nil }
         if target.isSurfaceControl { return target.control("down") && target.control("up") ? target : nil }
         target.presenter?.press(target.id)

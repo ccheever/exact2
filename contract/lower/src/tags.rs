@@ -452,6 +452,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "textDy" => AttrTarget::Prop(p("textDy")),
         "text-anchor" => styles(&[StyleId::TextAnchor]),
         "dominant-baseline" => styles(&[StyleId::DominantBaseline]),
+        "pointer-events" => styles(&[StyleId::PointerEvents]),
         "clip-rule" => styles(&[StyleId::ClipRule]),
         "stop-color" => styles(&[StyleId::StopColor]),
         "stop-opacity" => styles(&[StyleId::StopOpacity]),

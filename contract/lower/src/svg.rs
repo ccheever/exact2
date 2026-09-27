@@ -162,6 +162,7 @@ fn shared(attr: &str) -> bool {
             | "letter-spacing"
             | "text-anchor"
             | "dominant-baseline"
+            | "pointer-events"
             | "animation"
             | "transition"
             | "testId"
@@ -329,14 +330,26 @@ impl Lowerer<'_> {
                 }
             } else if element
                 && !shared(&a.name)
+                // @ref LLP 1055.000 D17 — an element that renders handles
+                // events: the host hits it by `pointer-events`.
+                && !(matches!(tags::attr(&a.name), Some(tags::AttrTarget::Handler("press")))
+                    && !matches!(
+                        tag,
+                        "defs" | "linearGradient" | "radialGradient" | "stop" | "symbol" | "clipPath" | "tspan"
+                    ))
                 && !(matches!(tag, "rect" | "svg" | "use")
                     && matches!(a.name.as_str(), "width" | "height"))
                 && !(matches!(tag, "use" | "linearGradient" | "radialGradient") && a.name == "href")
                 && !(tag == "svg"
                     && matches!(a.name.as_str(), "overflow" | "overflow-x" | "overflow-y"))
             {
-                let why = if matches!(tags::attr(&a.name), Some(tags::AttrTarget::Handler(_))) {
-                    "SVG elements are decorative in v1: the `svg` is the one hit and accessibility box (LLP 1055 D3)"
+                let why = if matches!(
+                    tags::attr(&a.name),
+                    Some(tags::AttrTarget::Handler("press"))
+                ) {
+                    "a definition handles no events: it renders only where it is referenced (LLP 1055.000 D17)"
+                } else if matches!(tags::attr(&a.name), Some(tags::AttrTarget::Handler(_))) {
+                    "an SVG element takes `press` so far; its other handlers are a later stage (LLP 1055.000 D17)"
                 } else {
                     "it does not apply to an SVG element"
                 };

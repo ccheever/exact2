@@ -7,6 +7,7 @@ mod height;
 mod height_binding;
 mod holds;
 mod image;
+mod svg;
 mod transform_binding;
 mod transform_contact;
 mod viewport;

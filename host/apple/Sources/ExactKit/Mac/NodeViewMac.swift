@@ -188,6 +188,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     let kind: String
     var inlineText: [InlineText] = []
     var inlinePressed: UInt32?
+    /// An SVG element a click in this `svg` went down on (LLP 1055.000 D17).
+    var svgPressed: UInt32?
     var cachedTextSpec: Spec?
     var textLayoutValid = false
     /// The paragraph's text as a worker-painted surface (TextRasterMac.swift).
@@ -1369,6 +1371,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         guard !disabled else { pressed = false; return }
         presenter?.interacting = id
         presenter?.syncLists()
+        if let target = presenter?.svg.target(id, at: local(event.locationInWindow)) { svgPressed = target; return }
         if isParagraph, let run = inlineTarget(at: local(event.locationInWindow), handler: "press") {
             inlinePressed = run.id
             window?.makeFirstResponder(self)
@@ -1440,6 +1443,12 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
                 }
                 next = view.superview
             }
+        }
+        if let target = svgPressed {
+            svgPressed = nil
+            // The element has no view of its own: the `svg`'s view stands for it.
+            if !inert, presenter?.svg.target(id, at: local(event.locationInWindow)) == target { presenter?.onPress?(target) }
+            return
         }
         if let run = inlinePressed {
             inlinePressed = nil

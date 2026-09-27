@@ -47,6 +47,8 @@ pub(crate) struct SvgState {
     /// Boxes whose lowered animations may have changed, and their last spec.
     boxes: IdSet<ViewId>,
     box_sent: IdMap<ViewId, String>,
+    /// SVG elements with a press handler (LLP 1055.000 D17).
+    pressable: IdSet<ViewId>,
 }
 
 impl SvgState {
@@ -89,8 +91,18 @@ impl SvgState {
         }
     }
 
+    /// Whether an SVG element handles presses; its scene says so.
+    pub(crate) fn handlers(&mut self, id: ViewId, press: bool) {
+        if press {
+            self.pressable.insert(id);
+        } else {
+            self.pressable.remove(&id);
+        }
+    }
+
     /// Forget a destroyed node; `true` when it was an SVG element (no view).
     pub(crate) fn destroyed(&mut self, id: ViewId) -> bool {
+        self.pressable.remove(&id);
         self.sent.remove(&id);
         self.box_sent.remove(&id);
         self.boxes.remove(&id);
@@ -132,7 +144,7 @@ impl SvgState {
                 continue;
             };
             let bx = content_box(&node);
-            let scene = scene(kernel, engine, &node, bx);
+            let scene = scene(kernel, engine, &self.pressable, &node, bx);
             if self.sent.get(&root).is_none_or(|(s, _)| *s != scene) {
                 batch.svg(root, &scene);
                 self.sent.insert(root, (scene, bx));
@@ -167,7 +179,13 @@ impl SvgState {
 /// nothing (a view box with no area). The scene is the kernel's resolved
 /// one (LLP 1055.000 D1); this only serializes it with the lowered
 /// animations of each item.
-fn scene(kernel: &Kernel, engine: &Engine, node: &NodeRef<'_>, bx: (f32, f32, f32, f32)) -> String {
+fn scene(
+    kernel: &Kernel,
+    engine: &Engine,
+    press: &IdSet<ViewId>,
+    node: &NodeRef<'_>,
+    bx: (f32, f32, f32, f32),
+) -> String {
     // A sampled animation's value now; a lowered one is Core Animation's,
     // so the scene carries its underlying value and the spec.
     let presented = |key: NodeKey, p: Property| engine.sampled_value(motion_node(key), p);
@@ -188,6 +206,7 @@ fn scene(kernel: &Kernel, engine: &Engine, node: &NodeRef<'_>, bx: (f32, f32, f3
     s.push_str(",\"els\":");
     items(
         engine,
+        press,
         &resolved.items,
         resolved.view.unwrap_or(tf::IDENTITY),
         &mut s,
@@ -209,13 +228,19 @@ fn affine_json(t: Affine, s: &mut String) {
     );
 }
 
-fn items(engine: &Engine, list: &[Item], parent_ctm: Affine, s: &mut String) {
+fn items(
+    engine: &Engine,
+    press: &IdSet<ViewId>,
+    list: &[Item],
+    parent_ctm: Affine,
+    s: &mut String,
+) {
     s.push('[');
     for (i, item) in list.iter().enumerate() {
         if i > 0 {
             s.push(',');
         }
-        element(engine, item, parent_ctm, s);
+        element(engine, press, item, parent_ctm, s);
     }
     s.push(']');
 }
@@ -223,10 +248,26 @@ fn items(engine: &Engine, list: &[Item], parent_ctm: Affine, s: &mut String) {
 /// One item: `id`, group opacity `o`, its transform `tf` (origin `o`, the
 /// individual properties `i`, the list `m`) when it has one, the lowered
 /// animations `a`, then what it draws.
-fn element(engine: &Engine, item: &Item, parent_ctm: Affine, s: &mut String) {
+fn element(
+    engine: &Engine,
+    press: &IdSet<ViewId>,
+    item: &Item,
+    parent_ctm: Affine,
+    s: &mut String,
+) {
     let key = motion_node(item.key);
     let opacity = item.opacity as f64;
     let _ = write!(s, "{{\"id\":{},\"o\":{}", item.uid, num(item.opacity));
+    // @ref LLP 1055.000 D17 — the presenter hits it: its node, whether it
+    // takes presses, and what `pointer-events` reads.
+    let _ = write!(s, ",\"n\":{}", item.id);
+    if press.contains(&item.id) {
+        s.push_str(",\"h\":1");
+    }
+    if matches!(&item.kind, Kind::Shape(sh) if sh.pointer_events == exact_kernel::PointerEvents::None)
+    {
+        s.push_str(",\"pn\":1");
+    }
     let shape = match &item.kind {
         Kind::Shape(shape) => Some(shape.as_ref()),
         _ => None,
@@ -274,7 +315,7 @@ fn element(engine: &Engine, item: &Item, parent_ctm: Affine, s: &mut String) {
                 (Value::scalar(opacity), 1.0)
             });
             let _ = write!(s, ",\"g\":1,\"a\":{specs},\"c\":");
-            items(engine, children, item.ctm, s);
+            items(engine, press, children, item.ctm, s);
         }
         Kind::Viewport {
             rect,
@@ -302,7 +343,7 @@ fn element(engine: &Engine, item: &Item, parent_ctm: Affine, s: &mut String) {
             }
             s.push_str(",\"c\":");
             match view {
-                Some(v) => items(engine, children, tf::mul(item.ctm, *v), s),
+                Some(v) => items(engine, press, children, tf::mul(item.ctm, *v), s),
                 None => s.push_str("[]"),
             }
         }

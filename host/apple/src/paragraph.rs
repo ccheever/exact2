@@ -157,6 +157,8 @@ impl<D: DataSource> Host<D> {
         if self.svg.element(self.runner.kernel(), id).is_some() {
             let key = self.runner.kernel().node(id).expect("live").key;
             self.keys.insert(key, id);
+            // @ref LLP 1055.000 D17 — the presenter hits it by `pointer-events`.
+            self.svg.handlers(id, events.contains(&EventKind::Press));
             return;
         }
         self.queue_layout(id);

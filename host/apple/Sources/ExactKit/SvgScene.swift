@@ -153,6 +153,13 @@ final class SvgScene {
     var scale: CGFloat = 2
     /// The presenter's fonts, for SVG text (LLP 1055.000 D11).
     var fonts: SvgText.Fonts?
+    /// For hit testing (LLP 1055.000 D17): each element layer's node and
+    /// parent element, whether it takes presses, whether hits pass it by.
+    private var node: [ObjectIdentifier: (uid: Int, node: UInt32)] = [:]
+    private var parentOf: [Int: Int] = [:]
+    private var nodeOf: [Int: UInt32] = [:]
+    private var pressable: Set<Int> = []
+    private var passes: Set<Int> = []
     /// A system font where no presenter's fonts are known.
     static let systemFonts: SvgText.Fonts = { size, _, _, _ in CTFontCreateUIFontForLanguage(.system, size, nil) ?? CTFontCreateWithName("Helvetica" as CFString, size, nil) }
 
@@ -174,6 +181,65 @@ final class SvgScene {
             layer.removeAllAnimations(); layer.removeFromSuperlayer()
             layers.removeValue(forKey: id); installed.removeValue(forKey: id); specs.removeValue(forKey: id)
             if let pair = wrappers.removeValue(forKey: id) { pair.outer.removeFromSuperlayer() }
+            node.removeValue(forKey: ObjectIdentifier(layer)); parentOf.removeValue(forKey: id)
+            nodeOf.removeValue(forKey: id); pressable.remove(id); passes.remove(id)
+        }
+    }
+
+    /// The node a press at `point` (the host view's coordinates) goes to:
+    /// the topmost element painted there (its fill, or its stroke's
+    /// outline), then up to the nearest one with a press handler
+    /// (LLP 1055.000 D17). `nil` when none takes it.
+    func target(at point: CGPoint) -> UInt32? {
+        guard let host = root.superlayer, !pressable.isEmpty else { return nil }
+        var hit = self.hit(root, root.convert(point, from: host))
+        while let uid = hit {
+            if pressable.contains(uid) { return nodeOf[uid] }
+            hit = parentOf[uid] ?? nil
+        }
+        return nil
+    }
+
+    /// The topmost element layer under `p` (in `layer`'s coordinates).
+    private func hit(_ layer: CALayer, _ p: CGPoint) -> Int? {
+        // Opacity does not change a hit (SVG 2 pointer-events); hiding does.
+        if layer.isHidden { return nil }
+        if let mask = layer.mask, !SvgScene.covers(mask, mask.convert(p, from: layer)) { return nil }
+        if layer.masksToBounds, !layer.bounds.contains(p) { return nil }
+        let mine = node[ObjectIdentifier(layer)]
+        if let mine, passes.contains(mine.uid) { return nil }
+        for sub in (layer.sublayers ?? []).reversed() where sub !== layer.mask {
+            // A part layer (a gradient's, a text run's) hits as its element.
+            if let found = hit(sub, sub.convert(p, from: layer)) { return found == -1 ? (mine?.uid ?? -1) : found }
+        }
+        if let shape = layer as? CAShapeLayer, SvgScene.paints(shape, at: p) {
+            return mine?.uid ?? -1
+        }
+        return nil
+    }
+
+    /// Whether a shape layer paints `p`: its fill, or its stroke's outline
+    /// (caps, joins and dashes as Core Graphics strokes them).
+    private static func paints(_ shape: CAShapeLayer, at p: CGPoint) -> Bool {
+        guard let path = shape.path else { return false }
+        if shape.fillColor != nil, path.contains(p, using: shape.fillRule == .evenOdd ? .evenOdd : .winding) { return true }
+        guard shape.strokeColor != nil, shape.lineWidth > 0 else { return false }
+        var line = path
+        if let dash = shape.lineDashPattern, !dash.isEmpty {
+            line = path.copy(dashingWithPhase: shape.lineDashPhase, lengths: dash.map { CGFloat($0.doubleValue) })
+        }
+        let cap: CGLineCap = shape.lineCap == .round ? .round : shape.lineCap == .square ? .square : .butt
+        let join: CGLineJoin = shape.lineJoin == .round ? .round : shape.lineJoin == .bevel ? .bevel : .miter
+        return line.copy(strokingWithWidth: shape.lineWidth, lineCap: cap, lineJoin: join, miterLimit: shape.miterLimit).contains(p)
+    }
+
+    /// Whether a clip mask covers `p`: any of its opaque shapes, inside its
+    /// own mask.
+    private static func covers(_ mask: CALayer, _ p: CGPoint) -> Bool {
+        if let inner = mask.mask, !covers(inner, inner.convert(p, from: mask)) { return false }
+        return (mask.sublayers ?? []).contains { sub in
+            guard let s = sub as? CAShapeLayer, let path = s.path else { return false }
+            return path.contains(sub.convert(p, from: mask), using: s.fillRule == .evenOdd ? .evenOdd : .winding)
         }
     }
 
@@ -187,6 +253,7 @@ final class SvgScene {
         for layer in layers.values { layer.removeAllAnimations() }
         root.sublayers?.forEach { $0.removeFromSuperlayer() }
         layers = [:]; installed = [:]; specs = [:]; wrappers = [:]
+        node = [:]; parentOf = [:]; nodeOf = [:]; pressable = []; passes = []
     }
 
     /// The layer to place for an element: itself, or the outer of its
@@ -209,11 +276,15 @@ final class SvgScene {
         return pair.outer
     }
 
-    private func attach(_ elements: [Any], to parent: CALayer, dark: Bool, clock: Double?, alive: inout Set<Int>) {
+    private func attach(_ elements: [Any], to parent: CALayer, dark: Bool, clock: Double?, alive: inout Set<Int>, owner: Int? = nil) {
         var order: [CALayer] = []
         for case let e as [String: Any] in elements {
             let id = Int(num(e["id"]))
             alive.insert(id)
+            parentOf[id] = owner
+            nodeOf[id] = UInt32(num(e["n"]))
+            if e["h"] != nil { pressable.insert(id) } else { pressable.remove(id) }
+            if e["pn"] != nil { passes.insert(id) } else { passes.remove(id) }
             let text = e["tx"] as? [Any]
             let group = e["g"] != nil || text != nil
             let layer: CALayer
@@ -238,7 +309,7 @@ final class SvgScene {
                     layer.isHidden = view == nil
                     layer.sublayerTransform = CATransform3DMakeAffineTransform(view ?? .identity)
                 }
-                attach(e["c"] as? [Any] ?? [], to: layer, dark: dark, clock: clock, alive: &alive)
+                attach(e["c"] as? [Any] ?? [], to: layer, dark: dark, clock: clock, alive: &alive, owner: id)
             } else if let shape = layer as? CAShapeLayer {
                 shape.path = path(e["p"])
                 let pos = nums(e["pos"])
@@ -268,6 +339,7 @@ final class SvgScene {
             }
             // @ref LLP 1055.000 D10 — a clip is the layer's mask.
             layer.mask = SvgPaint.clip(e["cl"]) { path($0) }
+            node[ObjectIdentifier(layer)] = (id, UInt32(num(e["n"])))
             let list = e["a"] as? [[String: Any]] ?? []
             specs[id] = list
             CssAnimations.apply(list, to: layer, clock: clock, installed: &installed[id, default: [:]])
@@ -314,6 +386,10 @@ final class SvgHost {
         for scene in scenes.values { scene.seek(clock: clock) }
         for (id, entry) in boxSpecs { CssAnimations.apply(entry.specs, to: entry.layer, clock: clock, installed: &boxInstalled[id, default: [:]]) }
     }
+
+    /// The SVG element a press at `point` (in `id`'s view) goes to, if any
+    /// takes it (LLP 1055.000 D17).
+    func target(_ id: UInt32, at point: CGPoint) -> UInt32? { scenes[id]?.target(at: point) }
 
     func forget(_ id: UInt32) {
         if let scene = scenes.removeValue(forKey: id) { scene.reset(); scene.root.removeFromSuperlayer() }

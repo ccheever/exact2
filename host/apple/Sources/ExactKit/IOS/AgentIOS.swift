@@ -493,7 +493,9 @@ extension Agent {
         // responder chain): the nearest node that takes the focus takes it
         // — an input's field, a node with a focus/blur/key handler — and
         // whatever had it (a field, and the keyboard with it) lets go.
-        let action = (n as? NodeView)?.activationTarget(at: p)
+        // An SVG element under the finger takes the press (LLP 1055.000 D17).
+        let element = (n as? NodeView).flatMap { $0.kind == "svg" && !$0.inert ? presenter.svg.target($0.id, at: $0.local(p)) : nil }
+        let action = element == nil ? (n as? NodeView)?.activationTarget(at: p) : nil
         var f: UIView? = n
         var took = false
         while let cur = f {
@@ -512,6 +514,7 @@ extension Agent {
         // blurs its input on a click anywhere else), and the keyboard goes.
         if !took && !presenter.contextRetainsFocus(n ?? v) { presenter.viewport.endEditing(true) }
         var pressed: Any = NSNull()
+        if let element { presenter.press(element); pressed = Int(element) }
         if let action, presenter.views[action.id] === action { presenter.press(action.id); action.finishPointerPress(); pressed = Int(action.id) }
         var reply: [String: Any] = ["tapped": Int(v.id), "at": at, "pressed": pressed]
         if let away { reply["offscreen"] = away }

@@ -799,6 +799,7 @@ mod tests {
             (StyleId::ClipRule, text("evenodd")),
             (StyleId::TextAnchor, text("middle")),
             (StyleId::DominantBaseline, text("central")),
+            (StyleId::PointerEvents, text("stroke")),
         ];
         let mut covered = StyleMask::EMPTY;
         for (id, value) in samples {

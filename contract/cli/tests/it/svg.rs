@@ -125,9 +125,10 @@ fn refusals_are_named() {
     assert!(refused(&svg("foreignObject")).contains("deferred"));
     assert!(refused(&svg("animate")).contains("SMIL is refused"));
     assert!(
-        refused(&svg("circle r=3 press=go")).contains("lower-svg-attr"),
-        "shapes handle no events"
+        refused(&svg("defs press=go")).contains("lower-svg-attr"),
+        "a definition handles no events"
     );
+    assert!(refused(&svg("circle r=3 dblclick=go")).contains("later stage"));
     assert!(refused(&svg("circle r=3 padding=4")).contains("lower-svg-attr"));
     assert!(refused(&svg("rect points=\"0,0\"")).contains("lower-attr-tag"));
     assert!(refused("component A\n  view\n    column points=\"0,0\"\n").contains("lower-attr-tag"));
@@ -297,4 +298,16 @@ fn stage_five_text() {
     let s = node("s");
     assert_eq!(s.node_type, NodeType::SvgTSpan);
     assert_eq!(s.props.str(PropId::TextDx), Some("2"));
+}
+
+// LLP 1055.000 stage 6: an element that renders takes events, and
+// `pointer-events` decides what of it is hit.
+#[test]
+fn stage_six_events() {
+    let r = boot(
+        "component A\n  state n = 0\n  action go writes n\n    n = 1\n  view\n    svg width=10 height=10\n      g press=go\n        circle r=3 testId=\"c\" press=go pointer-events=\"stroke\"\n",
+    );
+    let k = r.kernel();
+    let c = k.node_by_key(k.find_by_test_id("c")[0]).unwrap();
+    assert_eq!(c.style.pointer_events, exact_kernel::PointerEvents::Stroke);
 }

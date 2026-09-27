@@ -29,6 +29,7 @@ use exact_motion::{Property, Value};
 type Circle = (f32, f32, f32);
 
 mod clip;
+mod hit;
 mod text;
 pub use clip::{Clip, ClipShape};
 pub use text::{TextChunk, TextItem, TextRun};
@@ -72,6 +73,8 @@ pub struct Item {
     pub ctm: Affine,
     /// `clip-path: url(#…)`: the clip in the element's user space.
     pub clip: Option<Box<Clip>>,
+    /// A `use`: what it draws is an instance, and hits it as the `use`.
+    pub instance: bool,
     /// What it draws.
     pub kind: Kind,
 }
@@ -184,6 +187,13 @@ pub struct Shape {
     pub non_scaling: bool,
     /// `paint-order`: fill (0), stroke (1), markers (2), first to last.
     pub order: [u8; 3],
+    /// `pointer-events`, with what it reads: whether the shape is visible
+    /// and which of its paints are set (LLP 1055.000 D17).
+    pub pointer_events: crate::generated::PointerEvents,
+    /// `visibility: visible`.
+    pub visible: bool,
+    /// Whether `fill` and `stroke` are other than `none`.
+    pub painted: (bool, bool),
 }
 
 /// The content box inside a box's border box: x, y, width, height. A
@@ -381,6 +391,7 @@ impl Resolver<'_, '_> {
             id: node.id,
             uid: self.uid(node.id),
             clip,
+            instance: node.node_type == NodeType::SvgUse,
             key,
             opacity,
             transform,
@@ -563,6 +574,12 @@ impl Resolver<'_, '_> {
             dash_scale: scale,
             non_scaling: style.vector_effect == VectorEffect::NonScalingStroke,
             order: style.paint_order.0,
+            pointer_events: style.pointer_events,
+            visible: !hidden,
+            painted: (
+                !matches!(style.fill, Paint::None),
+                !matches!(style.stroke, Paint::None),
+            ),
             path,
             circle,
         })
