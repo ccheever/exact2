@@ -119,7 +119,7 @@ if (host === 'svg') {
 if (host === 'canvas') {
   const { canvasParity } = await import('./canvasparity.mjs');
   const hosts = argv.includes('--hosts') ? argv[argv.indexOf('--hosts') + 1].split(',') : ['linux', ...(process.platform === 'darwin' ? ['macos', 'ios'] : [])];
-  await canvasParity({ open: (o) => openAgent({ device, phone, ...o }), check, hosts });
+  await canvasParity({ open: (o) => openAgent({ device, phone, ...o }), check, hosts, only: argv.includes('--only') ? argv[argv.indexOf('--only') + 1] : null });
   console.log(`canvas smoke: ${failures.length ? `${failures.length} failure(s)` : 'ok'} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   if (failures.length) { for (const f of failures) console.error('  ' + f); process.exit(1); }
   process.exit(0);

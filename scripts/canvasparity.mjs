@@ -11,14 +11,17 @@
 //    (the backdrop shows the bitmap's alpha), on page 3 at every step of the
 //    sequences; Linux under both painters; and at native resolution against
 //    direct.html drawn at the host's scale.
-// 3. Probes: every canvas drew and none is pending; the throwing fixture
+// 3. Caltrain's line map (LLP 1056 §8, the take): with the sky off, the
+//    map's own pixels — the part of its canvas no child covers: background
+//    and the train — on each native host against Chrome's.
+// 4. Probes: every canvas drew and none is pending; the throwing fixture
 //    reports its error at odd steps and kept what it drew; the resizing one's
 //    generation is its step; the explicit bitmap is 40 × 25, stretched.
 //
 // Bands (provisional, §4): mean |Δ| ≤ 4/255 and ≤ 6% of pixels off by more
 // than 32. Failing crops are written out in pairs.
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -119,8 +122,89 @@ function over(img, rgb, pad) {
   return { width, height, data };
 }
 
-/** Run the smoke; `check(ok, what)` records a failure. */
-export async function canvasParity({ open, check, hosts }) {
+/** Caltrain's line map with the sky off: `{ crop, record }` of its canvas's
+ * left part, where no child is drawn. The web's is served from its own
+ * dist (`target/web-dist/caltrain`), built here if missing. */
+async function caltrainMap(open, host, dir, check, env) {
+  let webDist;
+  if (host === 'web') {
+    webDist = resolve(ROOT, 'target/web-dist/caltrain');
+    if (!existsSync(resolve(webDist, '.exact-build.json'))) {
+      mkdirSync(dirname(webDist), { recursive: true });
+      const b = spawnSync('bun', [resolve(ROOT, 'host/web/build.mjs'), 'caltrain-web'], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: webDist }, encoding: 'utf8', stdio: 'inherit' });
+      if (b.status !== 0) throw new Error('the Caltrain web build failed');
+    }
+  }
+  const s = await open({ host, app: 'caltrain', env, ...(webDist ? { webDist } : {}) });
+  try {
+    await s.tap('sky-toggle');
+    await s.clock('settle');
+    const view = await shot(s, host, dir, `${env?.EXACT_PAINTER ? `${host}-${env.EXACT_PAINTER}` : host}-caltrain`);
+    const map = boxes(view, { prefix: 'line-map', slop: SLOP })['line-map'];
+    const state = await s.state(), tree = await s.tree();
+    const id = tree.nodes.find((n) => n.props?.testId === 'line-map')?.id;
+    const record = (state.canvas ?? []).find((c) => c.view === id);
+    check(record && record.draws >= 1 && !record.error && !record.pending, `${host} Caltrain line-map: ${JSON.stringify(record)}`);
+    // The station dots and names start at the centre column; left of it is
+    // the map's background and the train alone. The map is as wide as the
+    // screen, so the strip is fixed to the centre, where the train is drawn.
+    return map && strip(map, Math.round(map.width / 2) - 45, 36);
+  } finally {
+    await s.close?.();
+  }
+}
+
+function strip(img, x, w) {
+  const data = new Uint8Array(w * img.height * 4);
+  for (let y = 0; y < img.height; y++) data.set(img.data.subarray((y * img.width + x) * 4, (y * img.width + x + w) * 4), y * w * 4);
+  return { width: w, height: img.height, data };
+}
+
+/** 1 and 2: the gallery through both oracles. */
+async function gallery({ open, check, dir, record, runs }) {
+  // 1. The API oracle: the rules, then the recorded path against the direct one.
+  const cases = spawnSync('bun', [resolve(ROOT, 'canvas/tests/cases.mjs'), '--chrome'], { encoding: 'utf8' });
+  check(cases.status === 0, `the recorder's rules disagree with Chrome: ${cases.stdout}${cases.stderr}`);
+  console.log(`canvas parity: ${cases.stdout.trim()}`);
+  const direct1 = direct(dir, 1, check);
+  const web = await capture(open, 'web', dir, check);
+  const keyed = (key) => {
+    const page = key.replace(/-(light|dark)$/, '');
+    return { backdrop: key.endsWith('dark') ? 'dark' : 'light', step: page.includes('@') ? page.split('@')[1] : null };
+  };
+  for (const [key, fixtures] of Object.entries(web.out)) {
+    const { backdrop, step } = keyed(key);
+    for (const [id, a] of Object.entries(fixtures)) {
+      const d = direct1[step !== null ? `${id}@${step}` : id];
+      if (d) record('direct', key, id, over(d, BACKDROPS[backdrop], SLOP), a);
+    }
+  }
+  // 2. The replay oracle: every native host against the web, and at its
+  // native resolution against direct.html drawn at its scale.
+  const scales = new Map();
+  for (const [host, env] of runs) {
+    const label = env?.EXACT_PAINTER ? `${host}-${env.EXACT_PAINTER}` : host;
+    let got;
+    try { got = await capture(open, host, dir, check, env); } catch (error) { check(false, `${label}: ${error.message}`); continue; }
+    for (const [key, fixtures] of Object.entries(web.out)) {
+      for (const [id, a] of Object.entries(fixtures)) record(label, key, id, a, got.out[key]?.[id]);
+    }
+    const k = Object.values(got.natives)[0]?.k ?? 1;
+    if (!scales.has(k)) scales.set(k, direct(dir, k, check));
+    const directK = scales.get(k);
+    for (const [key, { crops }] of Object.entries(got.natives)) {
+      const { backdrop, step } = keyed(key);
+      for (const [id, b] of Object.entries(crops)) {
+        const d = directK[step !== null ? `${id}@${step}` : id];
+        if (d && b) record(`${label}@${k}x`, key, id, over(d, BACKDROPS[backdrop], 0), b);
+      }
+    }
+  }
+}
+
+/** Run the smoke; `check(ok, what)` records a failure. `only: 'caltrain'`
+ * runs the Caltrain map alone. */
+export async function canvasParity({ open, check, hosts, only }) {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-canvas-parity-'));
   const rows = [];
   const record = (host, key, id, a, b, limits = { mean: MEAN, off: OFF }) => {
@@ -135,49 +219,19 @@ export async function canvasParity({ open, check, hosts }) {
       writeFileSync(resolve(pair, `ref-${key}-${id}.png`), encodePng(a));
     }
   };
-
-  // 1. The API oracle: the rules, then the recorded path against the direct one.
-  const cases = spawnSync('bun', [resolve(ROOT, 'canvas/tests/cases.mjs'), '--chrome'], { encoding: 'utf8' });
-  check(cases.status === 0, `the recorder's rules disagree with Chrome: ${cases.stdout}${cases.stderr}`);
-  console.log(`canvas parity: ${cases.stdout.trim()}`);
-  const direct1 = direct(dir, 1, check);
-  const web = await capture(open, 'web', dir, check);
-  for (const [key, fixtures] of Object.entries(web.out)) {
-    const [page, backdrop] = [key.replace(/-(light|dark)$/, ''), key.endsWith('dark') ? 'dark' : 'light'];
-    const step = page.includes('@') ? page.split('@')[1] : null;
-    for (const [id, a] of Object.entries(fixtures)) {
-      const d = direct1[step !== null ? `${id}@${step}` : id];
-      if (d) record('direct', key, id, over(d, BACKDROPS[backdrop], SLOP), a);
-    }
-  }
-
-  // 2. The replay oracle: every native host against the web.
   const runs = hosts.flatMap((host) => (host === 'linux' ? [['linux', { EXACT_PAINTER: 'cpu' }], ['linux', { EXACT_PAINTER: 'gpu' }]] : [[host, undefined]]));
-  const scales = new Map();
+  if (only !== 'caltrain') await gallery({ open, check, dir, record, runs });
+  // 3. Caltrain's line map against Chrome's.
+  let chromeMap = null;
+  try { chromeMap = await caltrainMap(open, 'web', dir, check); } catch (error) { check(false, `web Caltrain: ${error.message}`); }
   for (const [host, env] of runs) {
     const label = env?.EXACT_PAINTER ? `${host}-${env.EXACT_PAINTER}` : host;
-    let got;
-    try { got = await capture(open, host, dir, check, env); } catch (error) { check(false, `${label}: ${error.message}`); continue; }
-    for (const [key, fixtures] of Object.entries(web.out)) {
-      for (const [id, a] of Object.entries(fixtures)) record(label, key, id, a, got.out[key]?.[id]);
-    }
-    // Native resolution: the host's own pixels against direct.html at its scale.
-    const k = Object.values(got.natives)[0]?.k ?? 1;
-    if (!scales.has(k)) scales.set(k, direct(dir, k, check));
-    const directK = scales.get(k);
-    for (const [key, { crops }] of Object.entries(got.natives)) {
-      const [page, backdrop] = [key.replace(/-(light|dark)$/, ''), key.endsWith('dark') ? 'dark' : 'light'];
-      const step = page.includes('@') ? page.split('@')[1] : null;
-      for (const [id, b] of Object.entries(crops)) {
-        const d = directK[step !== null ? `${id}@${step}` : id];
-        if (d && b) record(`${label}@${k}x`, key, id, over(d, BACKDROPS[backdrop], 0), b);
-      }
-    }
+    try { record(label, 'caltrain', 'line-map', chromeMap, await caltrainMap(open, host, dir, check, env)); } catch (error) { check(false, `${label} Caltrain: ${error.message}`); }
   }
-
-  for (const r of rows.filter((r) => !r.ok || process.env.EXACT_PARITY_ALL)) console.log(`canvas parity ${r.host.padEnd(12)} ${r.key.padEnd(18)} ${r.id.padEnd(16)} mean ${r.mean.toFixed(2).padStart(5)}  off ${(r.off * 100).toFixed(2).padStart(5)}%  shift ${r.dx},${r.dy}${r.ok ? '' : '  FAIL'}`);
+  for (const r of rows.filter((r) => !r.ok || process.env.EXACT_PARITY_ALL || r.key === 'caltrain')) console.log(`canvas parity ${r.host.padEnd(12)} ${r.key.padEnd(18)} ${r.id.padEnd(16)} mean ${r.mean.toFixed(2).padStart(5)}  off ${(r.off * 100).toFixed(2).padStart(5)}%  shift ${r.dx},${r.dy}${r.ok ? '' : '  FAIL'}`);
   for (const host of [...new Set(rows.map((r) => r.host))]) {
-    const mine = rows.filter((r) => r.host === host);
+    const mine = rows.filter((r) => r.host === host && r.key !== 'caltrain');
+    if (!mine.length) continue;
     console.log(`canvas parity ${host}: ${mine.length} crops, mean |Δ| ${(mine.reduce((a, r) => a + r.mean, 0) / mine.length).toFixed(2)}/255, worst ${Math.max(...mine.map((r) => r.mean)).toFixed(2)}; pixels off by > ${BAND}: mean ${(100 * mine.reduce((a, r) => a + r.off, 0) / mine.length).toFixed(2)}%, worst ${(100 * Math.max(...mine.map((r) => r.off))).toFixed(2)}%`);
   }
   console.log(`canvas parity: crops in ${dir}`);
