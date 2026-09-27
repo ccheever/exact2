@@ -21,7 +21,7 @@
 // Bands (provisional, §4): mean |Δ| ≤ 4/255 and ≤ 6% of pixels off by more
 // than 32. Failing crops are written out in pairs.
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -58,7 +58,7 @@ async function capture(open, host, dir, check, env) {
       await both(`page-3@${step}`);
       await probe(s, host, step, check);
     }
-    for (const page of ['page-1', 'page-2']) {
+    for (const page of ['page-1', 'page-2', 'page-4', 'page-5']) {
       await s.tap(page);
       await both(page);
       await probe(s, host, null, check);
@@ -90,6 +90,7 @@ function direct(dir, scale, check) {
   const page = resolve(dir, `direct-${scale}`);
   mkdirSync(page, { recursive: true });
   copyFileSync(resolve(ROOT, 'apps/canvas-gallery/direct.html'), resolve(page, 'direct.html'));
+  cpSync(resolve(ROOT, 'apps/canvas-gallery/assets'), resolve(page, 'assets'), { recursive: true });
   // fixtures.ts imports its types only; Bun strips them.
   const b = spawnSync('bun', ['build', resolve(ROOT, 'apps/canvas-gallery/fixtures.ts'), '--target', 'browser', '--format', 'esm', '--outfile', resolve(page, 'fixtures.js')], { encoding: 'utf8' });
   if (b.status !== 0) throw new Error(`bun build fixtures.ts: ${b.stderr}`);
