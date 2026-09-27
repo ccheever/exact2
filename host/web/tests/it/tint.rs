@@ -70,3 +70,55 @@ fn a_tinted_raster_is_its_alpha_masking_the_tint() {
         "the mask follows object-fit: {wide}"
     );
 }
+
+#[test]
+fn untinted_rasters_with_box_paint_stay_bare_in_batches_and_documents() {
+    let plan = contract::compile(
+        r##"component App
+  view
+    row
+      image "assets/mark.png" testId="natural" aria-label="Mark" background-color="#ffeedd"
+      image "assets/mark.png" testId="auto" height=24 border-width=3 border-style="solid" border-color="#00aa00"
+      image "assets/mark.png" testId="sized" width=80 height=48 padding=6 box-shadow="2px 3px 4px #000000"
+"##,
+    )
+    .unwrap();
+    let (host, first) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let doc = host.document().unwrap().root;
+    // A host wrapper would replace the image's intrinsic sizing, including
+    // its auto axis and its flex-item sizing. Both projections stay bare.
+    assert_eq!(first.matches("\"op\":\"create\"").count(), 4);
+    assert_eq!(doc.matches('<').count(), 5); // row, three void images, /row
+    for name in ["natural", "auto", "sized"] {
+        let id = view_with_test_id(&host, name);
+        assert!(first.contains(&format!("\"id\":{id},\"tag\":\"img\"")));
+        let at = doc.find(&format!(" data-view=\"{id}\"")).unwrap();
+        let start = doc[..at].rfind('<').unwrap();
+        let end = at + doc[at..].find('>').unwrap();
+        let image = &doc[start..end];
+        assert!(image.starts_with("<img "), "{image}");
+        assert!(image.contains("src=\"assets/mark.png\""), "{image}");
+        assert!(!image.contains("mask-image"), "{image}");
+        assert!(!image.contains("object-position"), "{image}");
+        let css = image
+            .split("style=\"")
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .next()
+            .unwrap();
+        if name != "sized" {
+            assert!(!css.split(';').any(|d| d.starts_with("width:")), "{image}");
+        }
+        if name == "natural" {
+            assert!(!css.split(';').any(|d| d.starts_with("height:")), "{image}");
+            assert!(image.contains("alt=\"Mark\""), "{image}");
+        }
+    }
+}

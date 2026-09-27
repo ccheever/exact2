@@ -157,7 +157,17 @@ element's clip hides it. Deviations: the mask covers the whole element, so a
 tinted image's own background, border and shadow are masked to the picture
 (wrap it to give it a box); a cross-origin `mask-image` is a CORS request, so
 a remote tinted image whose origin sends no CORS headers paints nothing, and
-may be fetched a second time. (Still open 2026-09-27: `issues/20260927-web-tint-masks-the-box.md`.)
+may be fetched a second time. **Retained after review (2026-09-27):** the
+box-paint case remains the declared deviation in LLP 1001 §1. A loaded
+`<img>` does not generate `::before` or `::after` boxes; putting the mask on
+one cannot isolate the picture. A host wrapper would become the sizing and
+flex/grid item instead of the replaced element. No CSS-only replacement
+preserving those semantics was found; no wrapper or JS sizing is added.
+An author can put background, border, padding and shadow on a surrounding
+`view` and tint its child image. The reference pixels in
+`scripts/fixtures/tint.web.png` and `tint.web-dark.png` remain the target for
+paint on the image itself, not passing web-host snapshots. Investigation and
+verification: `issues/20260927-web-tint-masks-the-box.md`.
 
 **Linux raster tint (2026-09-27).** The ordinary tree walk and the retained
 content-region picture carry an optional, appearance-resolved tint to both

@@ -45,6 +45,8 @@ pub(super) fn host_css(node: &NodeRef<'_>, mut css: String, tag: &str) -> String
     // `object-fit` fits the picture, which moves out of the box, where the
     // replaced element's own clip hides it. `scale-down` needs the natural
     // size, which only the page knows: the glue sets `--exact-tint-fit`.
+    // This masks the box paint too (declared in LLP 1001 §1). An img cannot
+    // paint a ::before/::after layer; keep its replaced-element sizing.
     if node.node_type == NodeType::Image && node.style.mask.has(StyleId::TintColor) {
         if let Some(source) = node
             .props
