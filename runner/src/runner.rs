@@ -13,7 +13,10 @@ mod reorder;
 mod reorder_codec;
 pub use event::{ActionBinding, ActionBindingError, ActionBindingRefusal, Event};
 mod canvas2d;
-pub use canvas2d::{CanvasList, DrawReply, DrawRequest, Drawn, Geometry, Limits};
+pub use canvas2d::{
+    engine as canvas_engine, CanvasEngine, CanvasList, DrawReply, DrawRequest, Drawn, Geometry,
+    Limits,
+};
 mod carry;
 mod checkpoint;
 mod collection;
@@ -251,8 +254,8 @@ pub struct Runner<D: DataSource> {
     batch: u64,
     commands: Vec<Command>,
     surfaces: Vec<SurfaceUpdate>,
-    /// The 2D canvases (LLP 1056 D4).
-    canvases: canvas2d::Canvases,
+    /// The 2D canvases (LLP 1056 D4), when Canvas 2D is linked.
+    canvases: Option<Box<dyn canvas2d::CanvasEngine>>,
     /// Requests in flight (LLP 1016): at most one per resource or mutation.
     pending: Vec<PendingReq>,
     /// This commit let a request go: `conclude` tells the source what is
@@ -363,7 +366,12 @@ pub struct RunnerLinks {
     pub router: RouterLink,
     /// The list engines (LLP 1047.000 §9): [`crate::instance::LISTS`].
     pub lists: Option<&'static crate::instance::ListLinks>,
+    /// Canvas 2D (LLP 1056), with surfaces: [`canvas2d::engine`].
+    pub canvas: CanvasLink,
 }
+
+/// How a runner makes its Canvas 2D engine, when linked.
+pub type CanvasLink = Option<fn() -> Box<dyn canvas2d::CanvasEngine>>;
 
 /// How a host builds a plan's router: [`router::routing`], when linked.
 pub type RouterLink = Option<fn(&Plan) -> Result<Option<Box<dyn router::Routing>>, RunnerError>>;
@@ -379,6 +387,7 @@ impl RunnerLinks {
         surface_answer: Some(crate::surface_record::answer),
         router: Some(router::routing),
         lists: Some(&crate::instance::LISTS),
+        canvas: Some(canvas2d::engine),
     };
 
     /// The core alone.
@@ -386,6 +395,7 @@ impl RunnerLinks {
         surface_answer: None,
         router: None,
         lists: None,
+        canvas: None,
     };
 }
 
@@ -636,7 +646,7 @@ impl<D: DataSource> Runner<D> {
             batch: 0,
             commands: Vec::new(),
             surfaces: Vec::new(),
-            canvases: Default::default(),
+            canvases: links.canvas.map(|engine| engine()),
             pending: Vec::new(),
             pending_res: Vec::new(),
             pending_mut: Vec::new(),
