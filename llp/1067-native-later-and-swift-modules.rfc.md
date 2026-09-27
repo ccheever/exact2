@@ -111,6 +111,9 @@ moves its `later` export into `modules/web/index.js` and drops
 
 ### D6 — Swift without plumbing
 
+*Superseded 2026-09-27 by LLP 1067.000 (D1, D5): an app's Swift is its
+module artifact, and the static bridge below is deleted. Kept as history.*
+
 `js/native/ExactNative.swift` exports four C symbols over an
 `ExactNativeModule` protocol (`configure`, `call`, `later`). The app writes
 `func exactNativeModule() -> ExactNativeModule`.
@@ -124,6 +127,9 @@ moves its `later` export into `modules/web/index.js` and drops
   only what is stale and links the result.
 
 ### D7 — Apple: beside LLP 1024, not through it
+
+*Answered 2026-09-27 by LLP 1067.000: one artifact for both, through 1024's
+table at `major` 2.*
 
 LLP 1024's Apple artifact is a view module: a dylib whose
 `exact_native_abi()` table creates platform views for hyphenated tags. This

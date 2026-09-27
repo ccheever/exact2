@@ -2,6 +2,7 @@
 
 **Type:** RFC
 **Status:** Accepted. Charlie Cheever approved implementing it on 2026-09-26, which ratifies §6 Q1 (one app-scoped module artifact with an inner tag → factory table). D8 landed 2026-09-27; §9 is what was built.
+**Amended:** 2026-09-27 by LLP 1067.000 — the table is `major` 2: the module entries at offsets 72–88, and `create` receives the session's module instance; an app declares one `ExactModule` whose `views` is the roster.
 **Systems:** Kernel (`NativeView` already in the schema — no new node type), Contract (hyphenated tags; leftover attrs as one literal JSON aggregate), Apple host (one NativeView arm; one app module artifact behind `dlopen`), Web host (the real custom-element tag; one injected sibling module), Linux host (unavailable in v1), Agent API (the eight operations; no ninth), GPU / iframe (stay first-party HTML tags)
 **Author:** Grok 4.6 for Charlie Cheever. r2 folded by Claude Fable from the three-model panel of 2026-08-31 (§8); the fold is an edit for Charlie to accept, not an approval.
 **Date:** 2026-08-31 (r1 and r2)
