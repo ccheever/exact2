@@ -78,29 +78,18 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
             }
             (StyleId::Animation, RowValue::Animations(a)) => {
                 if !a.0.is_empty() {
-                    out.push_str("animation:");
-                    for (i, animation) in a.0.iter().enumerate() {
-                        if i > 0 {
-                            out.push(',');
-                        }
-                        out.push_str(&animation.css(&keyframes_name(&animation.keyframes)));
-                    }
-                    out.push(';');
+                    push_text!(&mut out, "animation:{};", animations_css(a));
                 }
             }
             // @ref LLP 1063 — not CSS properties: custom properties the page's
             // presence module reads (`presence-glue.js`), inherited by nothing
-            // it reads, since it reads only the element's own declaration.
+            // it reads, since it reads only the element's own declaration. The
+            // exit's own list also rides its `exit` op (a windowed row leaves
+            // as its wrapper, which declares none); here it declares the row,
+            // so the module is fetched before the first exit needs it.
             (StyleId::ExitAnimation, RowValue::Animations(a)) => {
                 if !a.0.is_empty() {
-                    out.push_str("--exact-exit-animation:");
-                    for (i, animation) in a.0.iter().enumerate() {
-                        if i > 0 {
-                            out.push(',');
-                        }
-                        out.push_str(&animation.css(&keyframes_name(&animation.keyframes)));
-                    }
-                    out.push(';');
+                    push_text!(&mut out, "--exact-exit-animation:{};", animations_css(a));
                 }
             }
             (StyleId::LayoutTransition, RowValue::Transitions(t)) => {
@@ -412,44 +401,41 @@ fn transition_property(tr: &Transition) -> &'static str {
     tr.property.css_name()
 }
 
+/// An `animation` list as CSS, each entry naming its keyframes as the page
+/// does.
+pub fn animations_css(a: &Animations) -> String {
+    let mut out = String::new();
+    for (i, animation) in a.0.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        out.push_str(&animation.css(&keyframes_name(&animation.keyframes)));
+    }
+    out
+}
+
 /// A `layout-transition` row as the presence module reads it: duration and
-/// delay in milliseconds, then a CSS easing (LLP 1063). A spring is its curve
-/// from a unit displacement at rest, as `linear()` over its settle time.
-/// `None` when no declaration covers layout.
+/// delay in milliseconds, then a CSS easing (LLP 1063). A spring is
+/// `spring(stiffness, damping, mass)`: the module lowers each move itself,
+/// from its displacement and velocity in points, to the grid and rest
+/// threshold the engine settles on natively. `None` when no declaration
+/// covers layout.
 pub fn layout_transition_css(t: &Transitions) -> Option<String> {
     let tr = t.matching(exact_motion::Property::Layout)?;
-    Some(match &tr.timing {
-        TimingFunction::Easing(e) => format!(
-            "{} {} {}",
-            num((tr.duration * 1000.0) as f32),
-            num((tr.delay * 1000.0) as f32),
-            easing_css(e)
+    let easing = match &tr.timing {
+        TimingFunction::Easing(e) => easing_css(e),
+        TimingFunction::Spring(c) => format!(
+            "spring({}, {}, {})",
+            num(c.stiffness as f32),
+            num(c.damping as f32),
+            num(c.mass as f32)
         ),
-        TimingFunction::Spring(config) => {
-            let (duration, frames) = exact_motion::spring::keyframes(config, 1.0, 0.0, 0.0);
-            // Sixty stops a second: the browser interpolates between them.
-            let step = (frames.len() / (duration * 60.0).ceil().max(1.0) as usize).max(1);
-            let mut stops = String::new();
-            for (i, f) in frames.iter().enumerate() {
-                if i % step == 0 || i + 1 == frames.len() {
-                    if !stops.is_empty() {
-                        stops.push_str(", ");
-                    }
-                    let _ = write!(
-                        stops,
-                        "{} {}%",
-                        num((1.0 - f.value) as f32),
-                        num((f.offset * 100.0) as f32)
-                    );
-                }
-            }
-            format!(
-                "{} {} linear({stops})",
-                num((duration * 1000.0) as f32),
-                num((tr.delay * 1000.0) as f32)
-            )
-        }
-    })
+    };
+    Some(format!(
+        "{} {} {easing}",
+        num((tr.duration * 1000.0) as f32),
+        num((tr.delay * 1000.0) as f32)
+    ))
 }
 
 /// A CSS `<easing-function>` from the motion crate's spelling.

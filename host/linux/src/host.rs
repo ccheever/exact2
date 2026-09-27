@@ -807,7 +807,6 @@ impl<D: DataSource> Host<D> {
                 self.forget_transform_handle(*key);
                 if let Some(id) = self.keys.remove(key) {
                     self.presented.remove(&id);
-                    self.presence.offsets.remove(&id);
                 }
             }
             for key in &r.created {
@@ -911,14 +910,12 @@ impl<D: DataSource> Host<D> {
                 self.present_paint(p);
                 continue;
             }
-            let translate = matches!(p.property, Property::Translate | Property::Layout)
-                .then(|| self.present_translate(view, p.node, p.property));
+            let layout = self.layout_presented(p.node, p.value);
             let base = self.presented(view);
             let entry = self.presented.entry(view).or_insert(base);
             match p.property {
-                Property::Translate | Property::Layout => {
-                    entry.translate = translate.expect("a translation")
-                }
+                Property::Translate => entry.translate = (p.value.x as f32, p.value.y as f32),
+                Property::Layout => entry.layout = layout,
                 Property::Scale => entry.scale = p.value.x as f32,
                 Property::Rotate => entry.rotate = p.value.x as f32,
                 Property::Opacity => entry.opacity = p.value.x as f32,

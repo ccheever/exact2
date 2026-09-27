@@ -780,13 +780,7 @@ impl Painter {
             || node.style.shadow_opacity > 0.0
             || !p.paint.is_empty();
         let ts = if p.moves() {
-            let (cx, cy) = (x + w / 2.0, y + h / 2.0);
-            ts.pre_concat(
-                Transform::from_translate(cx + p.translate.0, cy + p.translate.1)
-                    .pre_rotate(p.rotate)
-                    .pre_scale(p.scale, p.scale)
-                    .pre_translate(-cx, -cy),
-            )
+            ts.pre_concat(p.transform((x, y, w, h)))
         } else {
             ts
         };

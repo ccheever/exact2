@@ -6,6 +6,7 @@ use super::shadow::ShadowPaint;
 use super::BoxPaint;
 use exact_kernel::StyleProps;
 use exact_motion::{Property, Value};
+use tiny_skia::Transform;
 
 /// A node's presentation values.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -22,6 +23,9 @@ pub struct Presented {
     pub paint: PaintValues,
     /// A path's `stroke-start` and `stroke-end` (LLP 1065 D4).
     pub stroke: (f32, f32),
+    /// A layout transition's offset from the laid-out origin and scale of
+    /// the laid-out size, `[dx, dy, sx, sy]` (LLP 1063).
+    pub layout: [f32; 4],
 }
 
 impl Presented {
@@ -33,6 +37,7 @@ impl Presented {
         opacity: 1.0,
         paint: PaintValues::NONE,
         stroke: (0.0, 1.0),
+        layout: [0.0, 0.0, 1.0, 1.0],
     };
 
     /// The committed style's values (what the engine starts from).
@@ -44,11 +49,31 @@ impl Presented {
             opacity: s.opacity,
             paint: PaintValues::NONE,
             stroke: (s.stroke_start, s.stroke_end),
+            layout: Presented::IDENTITY.layout,
         }
     }
 
     pub(super) fn moves(&self) -> bool {
-        self.translate != (0.0, 0.0) || self.scale != 1.0 || self.rotate != 0.0
+        self.translate != (0.0, 0.0)
+            || self.scale != 1.0
+            || self.rotate != 0.0
+            || self.layout != Presented::IDENTITY.layout
+    }
+
+    /// The box `(x, y, w, h)` painted through its presentation: CSS's
+    /// individual transforms about its center, then outermost the layout
+    /// transition's offset and scale from its top-left corner, as a web FLIP
+    /// places it (LLP 1063).
+    pub(super) fn transform(&self, (x, y, w, h): (f32, f32, f32, f32)) -> Transform {
+        let (cx, cy) = (x + w / 2.0, y + h / 2.0);
+        let [dx, dy, sx, sy] = self.layout;
+        Transform::from_translate(x + dx, y + dy)
+            .pre_scale(sx, sy)
+            .pre_translate(-x, -y)
+            .pre_translate(cx + self.translate.0, cy + self.translate.1)
+            .pre_rotate(self.rotate)
+            .pre_scale(self.scale, self.scale)
+            .pre_translate(-cx, -cy)
     }
 }
 
@@ -106,5 +131,32 @@ impl BoxPaint {
             self.shadow = ShadowPaint::over(self.shadow, geometry, color);
         }
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tiny_skia::Point;
+
+    #[test]
+    fn a_layout_box_is_placed_from_its_top_left_outside_the_authored_transforms() {
+        let map = |p: &Presented, x: f32, y: f32| {
+            let mut point = [Point::from_xy(x, y)];
+            p.transform((10.0, 20.0, 100.0, 40.0))
+                .map_points(&mut point);
+            (point[0].x, point[0].y)
+        };
+        let grow = Presented {
+            layout: [5.0, -8.0, 1.0, 0.25],
+            ..Presented::IDENTITY
+        };
+        // Its top-left moves by the offset; its size is the scaled one.
+        assert_eq!(map(&grow, 10.0, 20.0), (15.0, 12.0));
+        assert_eq!(map(&grow, 110.0, 60.0), (115.0, 22.0));
+        // An authored scale stays about the center, inside the layout box.
+        let both = Presented { scale: 0.5, ..grow };
+        assert_eq!(map(&both, 60.0, 40.0), (65.0, 17.0));
+        assert_eq!(map(&both, 10.0, 20.0), (40.0, 14.5));
     }
 }

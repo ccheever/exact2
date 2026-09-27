@@ -207,7 +207,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var style: NodeStyle = [:]
     var clipPath: CGPath?
     var handlers: Set<String> = []
-    var translate = CGPoint.zero, layoutOffset = CGPoint.zero // layoutOffset: where layout moved it from (LLP 1063)
+    var translate = CGPoint.zero, layoutOffset = CGPoint.zero, layoutScale = CGPoint(x: 1, y: 1) // layout*: the box layout moved it from (LLP 1063)
     var arrangeShift = CGPoint.zero
     var scale: CGFloat = 1
     var rotate: CGFloat = 0
@@ -1206,20 +1206,6 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if document.frame.size != size { document.setFrameSize(size) }
     }
 
-    func applyTransform() {
-        // A lifted Arrange row moves by its frame: AppKit paints and culls a
-        // view where its frame is, never where its layer was moved.
-        let shift = presenter?.reorder?.lifts(id) == true ? translate : .zero
-        if shift != arrangeShift {
-            setFrameOrigin(NSPoint(x: frame.minX - arrangeShift.x + shift.x, y: frame.minY - arrangeShift.y + shift.y))
-            arrangeShift = shift
-        }
-        let b = bounds
-        var t = CGAffineTransform(translationX: translate.x + layoutOffset.x - shift.x, y: translate.y + layoutOffset.y - shift.y)
-        t = t.translatedBy(x: b.midX, y: b.midY).rotated(by: rotate * .pi / 180).scaledBy(x: scale, y: scale).translatedBy(x: -b.midX, y: -b.midY)
-        layer?.setAffineTransform(t)
-    }
-
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         presenter?.transformGeometry.changed()
@@ -1351,7 +1337,6 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             picture.draw(in: bounds, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
         }
     }
-
 
     /// A click counts even when it is the one that activates the window —
     /// the web's rule (a click on an unfocused page still clicks). AppKit's

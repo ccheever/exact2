@@ -1,10 +1,13 @@
 //! Layout transition on Linux, and its refusal of exit animation (LLP 1063).
 //!
-//! A node with a `layout-transition` has its laid-out origin in its parent
-//! observed as `Property::Layout` after every layout; the engine's transition
-//! rules apply. What it shows minus the laid-out origin is an offset the
-//! painter adds to the node's translation, so a moving parent carries its
-//! children and nothing is laid out per frame.
+//! A node with a `layout-transition` has its laid-out box in its parent
+//! (`Kernel::layout_box`) observed as `Property::Layout` after every layout;
+//! the engine's transition rules apply. What it shows against the laid-out
+//! box is an offset and scale the painter applies outermost, from the box's
+//! top-left corner (`Presented::layout`), so a moving parent carries its
+//! children and nothing is laid out per frame. A node that gains the row is
+//! seeded with the box it had before the commit's layout, so its first move
+//! after gaining it animates.
 //!
 //! Exit animation is refused here: this painter reads the live kernel tree
 //! every frame, and a destroyed node is not in it, so there is nothing to
@@ -18,8 +21,6 @@ use exact_kernel::id::IdSet;
 pub(super) struct Presence {
     /// Nodes declaring a layout transition.
     pub(super) tracked: IdSet<NodeKey>,
-    /// The offset each view is painted at, from where layout put it.
-    pub(super) offsets: BTreeMap<ViewId, (f32, f32)>,
     /// Whether the refusal of exit animation is in the journal.
     refused: bool,
     /// A resize lays out next: positions are taken, not animated.
@@ -27,8 +28,8 @@ pub(super) struct Presence {
 }
 
 impl<D: DataSource> Host<D> {
-    /// Which nodes declare a layout transition, after a commit; and the
-    /// refusal, the first time a node leaves with an exit.
+    /// Which nodes declare a layout transition, after a commit and before
+    /// its layout; and the refusal, the first time a node leaves with an exit.
     pub(super) fn track_presence(&mut self, receipts: &[Timed]) {
         for t in receipts {
             if !t.receipt.exits.is_empty() && !self.presence.refused {
@@ -36,88 +37,75 @@ impl<D: DataSource> Host<D> {
                 self.log("exit-animation: refused on Linux (LLP 1063): the painter reads the live tree, so a removed node leaves at once");
             }
             for key in t.receipt.created.iter().chain(&t.receipt.touched) {
-                let declared = self.runner.kernel().node_by_key(*key).is_some_and(|n| {
+                let kernel = self.runner.kernel();
+                let declares = kernel.node_by_key(*key).is_some_and(|n| {
                     n.style
                         .layout_transition
                         .matching(Property::Layout)
                         .is_some()
                 });
-                if declared {
-                    self.presence.tracked.insert(*key);
+                let node = motion_node(*key);
+                if declares {
+                    // Gained by a node already laid out: its box until now.
+                    let was = kernel.layout_box(*key);
+                    if self.presence.tracked.insert(*key) && !t.receipt.created.contains(key) {
+                        if let Some(value) = was {
+                            self.observe_box(node, value);
+                        }
+                    }
                 } else if self.presence.tracked.remove(key) {
-                    self.engine
-                        .remove_property(motion_node(*key), Property::Layout);
-                    if let Some(view) = self.keys.get(key) {
-                        self.presence.offsets.remove(view);
+                    self.engine.remove_property(node, Property::Layout);
+                    if let Some(p) = self.keys.get(key).and_then(|v| self.presented.get_mut(v)) {
+                        p.layout = Presented::IDENTITY.layout;
                     }
                 }
             }
         }
     }
 
-    /// Observe every tracked node's origin in its parent, after a layout.
+    /// Observe every tracked node's box, after a layout.
     pub(super) fn observe_layout(&mut self) {
-        let kernel = self.runner.kernel();
-        let mut gone = Vec::new();
-        let mut seen = Vec::new();
-        for key in &self.presence.tracked {
-            let Some(node) = kernel.node_by_key(*key) else {
-                gone.push(*key);
+        let snap = std::mem::take(&mut self.presence.snap);
+        let tracked: Vec<NodeKey> = self.presence.tracked.iter().copied().collect();
+        for key in tracked {
+            if self.runner.kernel().node_by_key(key).is_none() {
+                self.presence.tracked.remove(&key);
+                continue;
+            }
+            let Some(value) = self.runner.kernel().layout_box(key) else {
+                // No box while it is not displayed: shown again, first seen.
+                self.engine
+                    .remove_property(motion_node(key), Property::Layout);
                 continue;
             };
-            let parent = node.parent.and_then(|p| kernel.node(p)).map(|p| p.frame);
-            let (px, py) = parent.map_or((0.0, 0.0), |p| (p.x, p.y));
-            seen.push((*key, node.frame.x - px, node.frame.y - py));
-        }
-        for key in gone {
-            self.presence.tracked.remove(&key);
-        }
-        let snap = std::mem::take(&mut self.presence.snap);
-        for (key, x, y) in seen {
             if snap {
                 self.engine
                     .remove_property(motion_node(key), Property::Layout);
             }
-            let observed = self.engine.observe(Change {
-                node: motion_node(key),
-                property: Property::Layout,
-                value: exact_motion::Value::new(x as f64, y as f64),
-                velocity: None,
-            });
-            debug_assert!(observed.is_ok(), "layout is finite");
+            self.observe_box(motion_node(key), value);
         }
     }
 
-    /// The painted translation of `view`: the engine's `translate` and the
-    /// layout offset, when `property` changed either.
-    pub(super) fn present_translate(
-        &mut self,
-        view: ViewId,
-        node: u64,
-        property: Property,
-    ) -> (f32, f32) {
-        if property == Property::Layout {
-            let shown = self.engine.value(node, Property::Layout);
-            let at = self.engine.target(node, Property::Layout);
-            if let (Some(shown), Some(at)) = (shown, at) {
-                let offset = ((shown.x - at.x) as f32, (shown.y - at.y) as f32);
-                if offset == (0.0, 0.0) {
-                    self.presence.offsets.remove(&view);
-                } else {
-                    self.presence.offsets.insert(view, offset);
-                }
-            }
-        }
-        let authored = self
-            .engine
-            .value(node, Property::Translate)
-            .map_or((0.0, 0.0), |v| (v.x as f32, v.y as f32));
-        let offset = self
-            .presence
-            .offsets
-            .get(&view)
-            .copied()
-            .unwrap_or((0.0, 0.0));
-        (authored.0 + offset.0, authored.1 + offset.1)
+    fn observe_box(&mut self, node: u64, value: exact_motion::Value) {
+        let observed = self.engine.observe(Change {
+            node,
+            property: Property::Layout,
+            value,
+            velocity: None,
+        });
+        debug_assert!(observed.is_ok(), "layout is finite");
+    }
+
+    /// A shown layout box as the painter applies it: its offset from the
+    /// laid-out origin and scale of the laid-out size.
+    pub(super) fn layout_presented(&self, node: u64, shown: exact_motion::Value) -> [f32; 4] {
+        let at = self.engine.target(node, Property::Layout).unwrap_or(shown);
+        let scale = |shown: f64, laid: f64| if laid > 0.0 { shown / laid } else { 1.0 };
+        [
+            (shown.x - at.x) as f32,
+            (shown.y - at.y) as f32,
+            scale(shown.z, at.z) as f32,
+            scale(shown.w, at.w) as f32,
+        ]
     }
 }

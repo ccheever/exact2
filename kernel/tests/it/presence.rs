@@ -2,8 +2,8 @@
 //! nodes leave with an exit, and the seam that hands layout rows to motion.
 
 use exact_kernel::{
-    motion_node, Animations, ApplyError, Kernel, KernelError, NodeType, Op, StyleId, StyleProps,
-    Transitions,
+    motion_node, Animations, ApplyError, Kernel, KernelError, NodeType, Op, PropId, PropValue,
+    StyleId, StyleProps, Transitions,
 };
 use exact_motion::{AnimationError, Engine, Property, Value};
 
@@ -105,7 +105,7 @@ fn a_later_destroy_of_the_parent_takes_the_exit_with_it() {
 }
 
 #[test]
-fn nothing_exits_that_was_never_presented_or_has_no_row_or_lives_in_a_list() {
+fn nothing_exits_that_was_never_presented_or_has_no_row() {
     let mut k = kernel();
     // Created and destroyed in one batch.
     let r = k
@@ -129,33 +129,124 @@ fn nothing_exits_that_was_never_presented_or_has_no_row_or_lives_in_a_list() {
     assert!(r.exits.is_empty());
     let r = k.apply(0, 3, &[Op::DestroyView { id: 4 }]).unwrap();
     assert!(r.exits.is_empty(), "no row");
+}
 
-    k.apply(
-        0,
-        4,
-        &[
-            Op::CreateView {
-                id: 20,
-                node_type: NodeType::List,
-            },
-            view(21),
+fn key(id: u32, key: &str) -> Op {
+    Op::SetProp {
+        id,
+        prop: PropId::ListItemKey,
+        value: PropValue::Str(key.into()),
+    }
+}
+
+/// A windowed list, 20 → content 21 → wrappers 22 (→ 23) and 24 (→ 25),
+/// each wrapper's one root declaring an exit, as the runner's window builds.
+fn windowed() -> Kernel {
+    let mut k = kernel();
+    let mut ops = vec![
+        Op::CreateView {
+            id: 20,
+            node_type: NodeType::List,
+        },
+        view(21),
+    ];
+    for (wrapper, root) in [(22, 23), (24, 25)] {
+        ops.extend([
+            view(wrapper),
+            view(root),
             Op::SetStyle {
-                id: 21,
+                id: root,
                 patch: exit("fade 1s"),
             },
             Op::SetChildren {
-                id: 20,
-                children: vec![21],
+                id: wrapper,
+                children: vec![root],
+            },
+            key(wrapper, &format!("s:{wrapper}")),
+        ]);
+    }
+    ops.extend([
+        Op::SetChildren {
+            id: 21,
+            children: vec![22, 24],
+        },
+        Op::SetChildren {
+            id: 20,
+            children: vec![21],
+        },
+        Op::SetChildren {
+            id: 1,
+            children: vec![2, 4, 20],
+        },
+    ]);
+    k.apply(0, 2, &ops).unwrap();
+    k
+}
+
+#[test]
+fn a_windowed_row_exits_when_its_item_left_the_data_not_when_it_scrolled_away() {
+    let mut k = windowed();
+    let content = k.node(21).unwrap().key;
+    // Scrolled away: the window detaches and destroys it, key and all.
+    let r = k
+        .apply(
+            0,
+            3,
+            &[
+                Op::SetChildren {
+                    id: 21,
+                    children: vec![24],
+                },
+                Op::DestroyView { id: 22 },
+            ],
+        )
+        .unwrap();
+    assert!(r.exits.is_empty(), "{:?}", r.exits);
+    // Its item left the data: the window empties the key first. The wrapper
+    // leaves (it is where the window placed the row), with its root's exit.
+    let wrapper = k.node(24).unwrap().key;
+    let r = k
+        .apply(
+            0,
+            4,
+            &[
+                key(24, ""),
+                Op::SetChildren {
+                    id: 21,
+                    children: vec![],
+                },
+                Op::DestroyView { id: 24 },
+            ],
+        )
+        .unwrap();
+    assert_eq!(r.exits.len(), 1);
+    assert_eq!((r.exits[0].key, r.exits[0].parent), (wrapper, content));
+    assert!((r.exits[0].animations.end_time() - 1.0).abs() < 1e-6);
+}
+
+#[test]
+fn a_node_inside_a_list_row_exits_like_any_other() {
+    let mut k = windowed();
+    let root = k.node(23).unwrap().key;
+    k.apply(
+        0,
+        3,
+        &[
+            view(30),
+            Op::SetStyle {
+                id: 30,
+                patch: exit("fade 1s"),
             },
             Op::SetChildren {
-                id: 1,
-                children: vec![2, 20],
+                id: 23,
+                children: vec![30],
             },
         ],
     )
     .unwrap();
-    let r = k.apply(0, 5, &[Op::DestroyView { id: 21 }]).unwrap();
-    assert!(r.exits.is_empty(), "a windowed row");
+    let r = k.apply(0, 4, &[Op::DestroyView { id: 30 }]).unwrap();
+    assert_eq!(r.exits.len(), 1);
+    assert_eq!(r.exits[0].parent, root);
 }
 
 #[test]
@@ -210,7 +301,7 @@ fn the_seam_hands_layout_rows_to_the_engine_and_all_never_moves_a_box() {
             .observe(exact_motion::Change {
                 node: four,
                 property: Property::Layout,
-                value: Value::new(0.0, y),
+                value: Value::four(0.0, y, 10.0, 10.0),
                 velocity: None,
             })
             .unwrap()
@@ -220,7 +311,7 @@ fn the_seam_hands_layout_rows_to_the_engine_and_all_never_moves_a_box() {
     engine.advance(0.5).unwrap();
     assert_eq!(
         engine.value(four, Property::Layout),
-        Some(Value::new(0.0, 30.0)),
+        Some(Value::four(0.0, 30.0, 10.0, 10.0)),
         "the layout row's 1s, not transition's 5s"
     );
 }

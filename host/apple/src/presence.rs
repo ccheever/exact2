@@ -10,13 +10,17 @@
 //! the mirror, so no frame, style or children op reaches it: it keeps its
 //! last laid-out frame while its old siblings take its place.
 //!
-//! A node with a `layout-transition` has its laid-out origin in its parent
-//! observed as `Property::Layout` after every layout that moved it. The
-//! engine's transition rules apply (first seen takes the value, an interrupt
-//! starts from where it is); the presenter gets the difference between what
-//! the engine shows and the laid-out origin as a `layout` offset it adds to
-//! the view's translation, so a frame is never re-laid out per tick and a
-//! moving parent carries its children. A resize takes new positions at once.
+//! A node with a `layout-transition` has its laid-out box in its parent
+//! (`Kernel::layout_box`) observed as `Property::Layout` after every layout
+//! that moved or resized it. The engine's transition rules apply (first seen
+//! takes the value, an interrupt starts from where it is); the presenter gets
+//! what the engine shows against the laid-out box as a `layout` offset and
+//! scale, applied outermost from the box's top-left corner as a web FLIP
+//! is, so a frame is never re-laid out per tick and a moving parent carries
+//! its children. A resize takes new boxes at once. A node that gains the row
+//! is seeded with its box before the commit's layout, so its first move
+//! after gaining it animates, as a CSS transition gained in the same style
+//! change runs.
 
 use super::*;
 use exact_kernel::CommitReceipt;
@@ -114,7 +118,7 @@ impl<D: DataSource> Host<D> {
             if leaving.end.is_none() {
                 let end = self
                     .engine
-                    .restart_animations(motion_node(leaving.key), leaving.animations.clone());
+                    .play_exit(motion_node(leaving.key), leaving.animations.clone());
                 debug_assert!(end.is_ok(), "the kernel validated the row");
                 leaving.end = Some(end.unwrap_or(0.0));
             }
@@ -129,23 +133,57 @@ impl<D: DataSource> Host<D> {
         batch.destroy(leaving.view);
     }
 
-    /// Observe a laid-out node's origin in its parent, when it declares a
-    /// layout transition; retire it when it no longer does.
-    pub(super) fn observe_layout(&mut self, key: NodeKey, declared: bool, x: f32, y: f32) {
-        let node = motion_node(key);
-        if !declared {
-            if self.presence.layout.remove(&key) {
+    /// Before a commit's layout: each node the commit gave the row starts
+    /// from the box it had, which layout has not replaced yet. A node the
+    /// commit created has none; its first layout is first seen.
+    pub(super) fn seed_layout(&mut self, receipt: &CommitReceipt) {
+        for key in &receipt.touched {
+            if receipt.created.contains(key) || self.presence.layout.contains(key) {
+                continue;
+            }
+            if let Some(value) = self.runner.kernel().layout_box(*key) {
+                self.presence.layout.insert(*key);
+                self.observe_box(*key, value);
+            }
+        }
+    }
+
+    /// Observe a laid-out node's box when it declares a layout transition,
+    /// and retire it when it no longer does. A windowed row's wrapper moving
+    /// moves the row placed through it.
+    pub(super) fn observe_layout(&mut self, key: NodeKey) {
+        let kernel = self.runner.kernel();
+        let Some(node) = kernel.node_by_key(key) else {
+            return;
+        };
+        let mut keys = vec![key];
+        if node.props.str(PropId::ListItemKey).is_some() {
+            keys.extend(
+                node.children()
+                    .into_iter()
+                    .filter_map(|c| kernel.node(c).map(|n| n.key)),
+            );
+        }
+        for key in keys {
+            let node = motion_node(key);
+            let Some(value) = self.runner.kernel().layout_box(key) else {
+                if self.presence.layout.remove(&key) {
+                    self.engine.remove_property(node, Property::Layout);
+                }
+                continue;
+            };
+            if self.presence.snap || self.presence.layout.insert(key) {
                 self.engine.remove_property(node, Property::Layout);
             }
-            return;
+            self.observe_box(key, value);
         }
-        if self.presence.snap || self.presence.layout.insert(key) {
-            self.engine.remove_property(node, Property::Layout);
-        }
+    }
+
+    fn observe_box(&mut self, key: NodeKey, value: exact_motion::Value) {
         let observed = self.engine.observe(Change {
-            node,
+            node: motion_node(key),
             property: Property::Layout,
-            value: exact_motion::Value::new(x as f64, y as f64),
+            value,
             velocity: None,
         });
         debug_assert!(observed.is_ok(), "layout is finite");
@@ -191,21 +229,29 @@ impl<D: DataSource> Host<D> {
                 self.present_paint(p, view, batch);
                 continue;
             }
-            let (x, y) = match p.property {
-                // The offset from the laid-out origin; zero is its identity.
+            // A layout box is presented as its offset from the laid-out
+            // origin and its scale of the laid-out size; identity is
+            // `0 0 1 1`. The other three are one or two numbers.
+            let values = match p.property {
                 Property::Layout => {
                     let at = self
                         .engine
                         .target(p.node, Property::Layout)
                         .unwrap_or(p.value);
-                    (p.value.x - at.x, p.value.y - at.y)
+                    let scale = |shown: f64, laid: f64| if laid > 0.0 { shown / laid } else { 1.0 };
+                    [
+                        p.value.x - at.x,
+                        p.value.y - at.y,
+                        scale(p.value.z, at.z),
+                        scale(p.value.w, at.w),
+                    ]
                 }
-                Property::Translate => (p.value.x, p.value.y),
-                _ => (p.value.x, 0.0),
+                Property::Translate => [p.value.x, p.value.y, 0.0, 0.0],
+                _ => [p.value.x, 0.0, 0.0, 0.0],
             };
             let identity = match p.property.identity() {
                 Some(identity) => identity == p.value,
-                None => (x, y) == (0.0, 0.0),
+                None => values == [0.0, 0.0, 1.0, 1.0],
             };
             if (boot && identity) || (identity && batch.creates(view)) {
                 continue;
@@ -216,7 +262,11 @@ impl<D: DataSource> Host<D> {
             if self.native_protected_id(view) && !self.native_current() {
                 continue;
             }
-            batch.present(view, p.property.name(), x, y);
+            if p.property == Property::Layout {
+                batch.present4(view, "layout", values);
+            } else {
+                batch.present(view, p.property.name(), values[0], values[1]);
+            }
         }
     }
 }

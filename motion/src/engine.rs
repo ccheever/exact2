@@ -348,15 +348,30 @@ impl Engine {
         self.remove_property(node, Property::Layout);
     }
 
-    /// Replay a node's animations from the current clock: its `exit-animation`
-    /// as it leaves (LLP 1063), which restarts even when it names the
-    /// keyframes an entry animation was already playing. The end is the
-    /// clock time the last of them ends, infinite for an endless one.
-    pub fn restart_animations(&mut self, node: u64, list: Animations) -> Result<f64, EngineError> {
-        self.set_animations(node, Animations::NONE)?;
-        let end = list.end_time();
-        self.set_animations(node, list)?;
-        Ok(self.now + end)
+    /// Play a node's `exit-animation` as it leaves (LLP 1063), from the
+    /// current clock, after the animations it already plays: as a browser
+    /// appends the exit to the element's `animation` list, those keep
+    /// running and the exit composites over them. An exit naming keyframes
+    /// the node already plays starts again, as a second entry of that name
+    /// does. The end is the clock time the last exit animation ends.
+    pub fn play_exit(&mut self, node: u64, exit: Animations) -> Result<f64, EngineError> {
+        exit.validate_ending().map_err(EngineError::Animation)?;
+        let (now, dark) = (self.now, self.dark);
+        let end = now + exit.end_time();
+        for property in Property::ALL {
+            if exit.0.iter().any(|a| a.keyframes.affects(property)) {
+                self.dirty.insert((node, property));
+            }
+        }
+        let list = self.animations.entry(node).or_default();
+        list.extend(exit.0.into_iter().map(|animation| Playing {
+            animation,
+            start: now,
+            paused: None,
+            dark,
+        }));
+        self.animating.insert(node);
+        Ok(end)
     }
 
     /// Forget only this property's target, curve, hold and pending frame.

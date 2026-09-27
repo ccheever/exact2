@@ -33,8 +33,8 @@ pub const MAX_DEPTH: u32 = 128;
 
 /// A destroyed node that leaves with its `exit-animation` (LLP 1063): the
 /// root of a destroyed subtree whose parent survived the batch and that no
-/// earlier batch-local creation or windowed `list` owns. Its descendants go
-/// with it; their own exit rows never play.
+/// batch-local creation owns, or a windowed list's row whose item left the
+/// data. Its descendants go with it; their own exit rows never play.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Exit {
     /// The destroyed node; it resolves to nothing after the commit.
@@ -631,7 +631,7 @@ pub fn apply(
                             arena.set_parent(*o, None);
                             // A producer detaches before it destroys: the
                             // parent an exit leaves from is the one it had.
-                            if !arena.style(*o).exit_animation.0.is_empty() {
+                            if leaving_with(arena, *o).is_some() {
                                 left.insert(*o, slot);
                             }
                         }
@@ -745,16 +745,15 @@ pub fn apply(
 
 /// The exit a destroyed subtree root plays, if any (LLP 1063). Not for a
 /// node this batch created (nothing presented it), a root or inline run
-/// (nowhere to stay), or a windowed `list`'s row (the window destroys rows
-/// that scroll away; the kernel cannot tell that from a removal).
+/// (nowhere to stay), or a windowed list's row the window scrolled away
+/// ([`leaving_with`]).
 fn exit(
     arena: &NodeArena,
     created: &IdSet<u32>,
     left: &IdMap<u32, u32>,
     slot: u32,
 ) -> Option<Exit> {
-    let animations = &arena.style(slot).exit_animation;
-    if animations.0.is_empty() || created.contains(&slot) {
+    if created.contains(&slot) {
         return None;
     }
     let parent = arena
@@ -764,18 +763,28 @@ fn exit(
     if created.contains(&parent) || arena.node_type(parent) == NodeType::Text {
         return None;
     }
-    let mut ancestor = Some(parent);
-    while let Some(a) = ancestor {
-        if arena.node_type(a) == NodeType::List {
-            return None;
-        }
-        ancestor = arena.parent(a);
-    }
     Some(Exit {
         key: arena.key(slot),
         parent: arena.key(parent),
-        animations: animations.clone(),
+        animations: leaving_with(arena, slot)?.clone(),
     })
+}
+
+/// The `exit-animation` `slot` plays as it leaves: its own row, unless it
+/// is a windowed list's row wrapper (it carries `listItemKey`). The window
+/// destroys rows that scroll away as well as rows whose item left the data,
+/// and empties the key of the latter alone; such a wrapper leaves as the
+/// row, where the window placed it, with its one root's row.
+fn leaving_with(arena: &NodeArena, slot: u32) -> Option<&exact_motion::Animations> {
+    let own = match arena.props(slot).str(PropId::ListItemKey) {
+        None => slot,
+        Some("") => match arena.children(slot) {
+            [root] => *root,
+            _ => return None,
+        },
+        Some(_) => return None,
+    };
+    Some(&arena.style(own).exit_animation).filter(|a| !a.0.is_empty())
 }
 
 /// Push the arena's child list for `parent` into the layout engine. A `Text`

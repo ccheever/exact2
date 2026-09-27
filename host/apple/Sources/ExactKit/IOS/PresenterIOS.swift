@@ -690,7 +690,7 @@ final class Presenter {
                 let x = CGFloat(op.x)
                 switch op.property {
                 case "translate": v.translate = CGPoint(x: x, y: CGFloat(op.y)); v.applyTransform()
-                case "layout": v.layoutOffset = CGPoint(x: x, y: CGFloat(op.y)); v.applyTransform()
+                case "layout": v.layoutOffset = CGPoint(x: x, y: CGFloat(op.y)); v.layoutScale = CGPoint(x: CGFloat(op.w), y: CGFloat(op.h)); v.applyTransform()
                 case "scale": v.scale = x; v.applyTransform()
                 case "rotate": v.rotate = x; v.applyTransform()
                 case "opacity": v.alpha = x
