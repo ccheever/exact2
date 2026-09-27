@@ -44,7 +44,8 @@ export function motionBytes(facts) {
   return bytes;
 }
 export function motionController({views,now,generation,request,applyBatch,inert,releaseInteraction=()=>{},ready=()=>true}) {
-  const properties=['translate','scale','rotate','opacity','height'];
+  // A path's stroke fractions spring as registered numbers (LLP 1065).
+  const properties=['translate','scale','rotate','opacity','height','--exact-stroke-start','--exact-stroke-end'];
   const animations=new Map(), held=new Map(), authored=new Map(), drags=new Map();
   const raised=new Set();
   const active=new Map(), heightBindings=new Map(); let reconciling=false;

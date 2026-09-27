@@ -54,14 +54,17 @@ impl Presented {
 
 /// Paint motion's presented values, one slot per [`Property::PAINT`].
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct PaintValues([Option<Value>; 9]);
+pub struct PaintValues([Option<Value>; Property::PAINT.len()]);
 
 impl PaintValues {
     /// None: every paint property shows its row.
-    pub const NONE: PaintValues = PaintValues([None; 9]);
+    pub const NONE: PaintValues = PaintValues([None; Property::PAINT.len()]);
 
     fn slot(property: Property) -> usize {
-        property as usize - Property::BackgroundColor as usize
+        Property::PAINT
+            .iter()
+            .position(|p| *p == property)
+            .expect("a paint property")
     }
 
     /// Paint `value` over the property's row, or the row again.

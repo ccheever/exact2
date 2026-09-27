@@ -25,7 +25,9 @@
 //!
 //! A `path` node's `stroke-start` and `stroke-end` are fractions of its
 //! length a vector layer trims its stroke to (LLP 1065); on the web they are
-//! the registered custom properties [`Property::css_name`] names.
+//! the registered custom properties [`Property::css_name`] names. Its `fill`
+//! and `stroke` are paint too: colours, when neither end is `none` (SVG's
+//! `<paint>` interpolates only colour to colour; a keyword is discrete).
 
 /// One animatable property.
 #[repr(u8)]
@@ -70,13 +72,17 @@ pub enum Property {
     /// A path's `stroke-end`: the fraction of its length the visible stroke
     /// ends at (LLP 1065).
     StrokeEnd = 16,
+    /// SVG `fill`, a path's fill colour (LLP 1065).
+    Fill = 17,
+    /// SVG `stroke`, a path's stroke colour (LLP 1065).
+    Stroke = 18,
 }
 
 impl Property {
     /// Every authorable property, in wire order ([`Property::Layout`] is
     /// the host's, not an author's). The wire carries a discriminant, never
     /// an index here.
-    pub const ALL: [Property; 16] = [
+    pub const ALL: [Property; 18] = [
         Property::Translate,
         Property::Scale,
         Property::Rotate,
@@ -93,10 +99,13 @@ impl Property {
         Property::ShadowColor,
         Property::StrokeStart,
         Property::StrokeEnd,
+        Property::Fill,
+        Property::Stroke,
     ];
 
-    /// The paint properties: repainted, never laid out (LLP 1062).
-    pub const PAINT: [Property; 9] = [
+    /// The paint properties: repainted, never laid out (LLP 1062), a path's
+    /// `fill` and `stroke` among them (LLP 1065).
+    pub const PAINT: [Property; 11] = [
         Property::BackgroundColor,
         Property::Color,
         Property::BorderTopColor,
@@ -106,6 +115,8 @@ impl Property {
         Property::TintColor,
         Property::BoxShadow,
         Property::ShadowColor,
+        Property::Fill,
+        Property::Stroke,
     ];
 
     /// The CSS property name (`box-shadow-color` is the engine's own name
@@ -129,6 +140,8 @@ impl Property {
             Property::Layout => "layout",
             Property::StrokeStart => "stroke-start",
             Property::StrokeEnd => "stroke-end",
+            Property::Fill => "fill",
+            Property::Stroke => "stroke",
         }
     }
 
@@ -173,13 +186,16 @@ impl Property {
                 | Property::BorderLeftColor
                 | Property::TintColor
                 | Property::ShadowColor
+                | Property::Fill
+                | Property::Stroke
         )
     }
 
     /// Whether a `spring()` may drive the property. The web lowers springs
     /// for these alone and leaves every spring out of its CSS `transition`,
     /// so no host lets a spring declaration drive a paint property (LLP
-    /// 1062 D3).
+    /// 1062 D3). A path's stroke fractions are numbers like `opacity`, and
+    /// spring like it (LLP 1065).
     pub fn springs(self) -> bool {
         matches!(
             self,
@@ -189,6 +205,8 @@ impl Property {
                 | Property::Opacity
                 | Property::Height
                 | Property::Layout
+                | Property::StrokeStart
+                | Property::StrokeEnd
         )
     }
 

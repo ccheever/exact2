@@ -134,6 +134,8 @@ fn animated(row: StyleId) -> Option<exact_motion::Property> {
         // @ref LLP 1065 D4 — a path's stroke fractions.
         StyleId::StrokeStart => P::StrokeStart,
         StyleId::StrokeEnd => P::StrokeEnd,
+        StyleId::Fill => P::Fill,
+        StyleId::Stroke => P::Stroke,
         _ => return None,
     })
 }
@@ -220,6 +222,17 @@ fn value(a: &Attr, fns: &[FnDecl]) -> Result<Setting, LowerError> {
                     exact_motion::Value::rgba8([d.r(), d.g(), d.b(), d.a()]),
                 ));
                 exact_motion::Value::rgba8([l.r(), l.g(), l.b(), l.a()])
+            }
+            // `none` and `currentcolor` do not interpolate (SVG's `<paint>`).
+            RowValue::Enum(keyword) => {
+                return err(
+                    "lower-keyframes",
+                    format!(
+                    "`{}=\"{keyword}\"` cannot be in a keyframe: a keyframe's paint is a colour",
+                    a.name
+                ),
+                    a.span,
+                )
             }
             _ => {
                 targets(&style)

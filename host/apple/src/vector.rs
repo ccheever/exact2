@@ -1,8 +1,9 @@
 //! A `path` node's props for the presenter (LLP 1065 D6): its path data
 //! normalized by the kernel (absolute `M`, `L`, `C`, `Z`, which Core
-//! Graphics draws as is) and its view box validated, so Swift parses no SVG.
+//! Graphics draws as is), its view box validated and its
+//! `preserveAspectRatio` canonical, so Swift parses no SVG.
 
-use exact_kernel::vector::{parse_view_box, PathData};
+use exact_kernel::vector::{parse_view_box, PathData, PreserveAspectRatio};
 use exact_kernel::{NodeRef, PropId};
 use std::collections::BTreeMap;
 
@@ -22,4 +23,10 @@ pub(crate) fn props(node: &NodeRef<'_>, out: &mut BTreeMap<String, String>) {
             out.remove(PropId::ViewBox.name());
         }
     }
+    let aspect = node
+        .props
+        .str(PropId::PreserveAspectRatio)
+        .and_then(PreserveAspectRatio::parse)
+        .unwrap_or_default();
+    out.insert(PropId::PreserveAspectRatio.name().into(), aspect.css());
 }

@@ -28,6 +28,10 @@ pub(super) fn host_css(node: &NodeRef<'_>, mut css: String, tag: &str) -> String
     if node.node_type == NodeType::Canvas {
         css.push_str("isolation:isolate;");
     }
+    // A non-scaling stroke reads the box's size in container units (LLP 1065).
+    if node.node_type == NodeType::Path && super::vector::non_scaling(node) {
+        css.push_str("container-type:size;");
+    }
     // A root is a block formatting context in the kernel, as CSS's root
     // element is: its first child's top margin stays inside it. On the web a
     // root is an element inside `#exact-root`, and the margin would collapse
@@ -202,7 +206,10 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
     }
     for (id, value) in node.props.iter() {
         if (markup.is_some() && id == PropId::Text)
-            || matches!(id, PropId::PathData | PropId::ViewBox)
+            || matches!(
+                id,
+                PropId::PathData | PropId::ViewBox | PropId::PreserveAspectRatio
+            )
         {
             continue;
         }

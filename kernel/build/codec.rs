@@ -9,6 +9,7 @@ enum Codec {
     Rgba8,
     ColorValue,
     KeywordColor(&'static str),
+    Paint,
     Vec2,
     Color2,
     Tracks,
@@ -31,8 +32,8 @@ fn parse_codec(s: &str) -> Codec {
         "color" => Codec::ColorValue,
         "auto-color" => Codec::KeywordColor("auto"),
         "current-color" => Codec::KeywordColor("currentcolor"),
-        // @ref LLP 1065 D3 — SVG paint: `none` or a colour.
-        "paint" => Codec::KeywordColor("none"),
+        // @ref LLP 1065 D3 — SVG paint: `none`, `currentcolor` or a colour.
+        "paint" => Codec::Paint,
         "vec2" => Codec::Vec2,
         "color2" => Codec::Color2,
         "tracks" => Codec::Tracks,
@@ -41,6 +42,8 @@ fn parse_codec(s: &str) -> Codec {
         "animations" => Codec::Animations,
         // @ref LLP 1043.000 §3 D1 — one parse/css/default codec for both shapes.
         "clip-path" => Codec::CssValue { path: "crate::clip::ClipPath", variant: "ClipPath", error: "BadClipPath" },
+        // @ref LLP 1065 — SVG `stroke-dasharray`.
+        "dash-array" => Codec::CssValue { path: "crate::vector::DashArray", variant: "DashArray", error: "BadDashArray" },
         "aspect-ratio" => Codec::CssValue { path: "crate::ratio::AspectRatio", variant: "AspectRatio", error: "BadAspectRatio" },
         "shape-outside" => Codec::CssValue { path: "exact_textflow::ShapeOutside", variant: "ShapeOutside", error: "BadShapeOutside" },
         // @ref LLP 1056 D1
@@ -64,6 +67,7 @@ impl Codec {
             Codec::Rgba8 => "Color".into(),
             Codec::ColorValue => "ColorValue".into(),
             Codec::KeywordColor(_) => "Option<ColorValue>".into(),
+            Codec::Paint => "Paint".into(),
             Codec::Vec2 => "Vec2".into(),
             Codec::Color2 => "[Color; 2]".into(),
             Codec::Tracks => "GridTracks".into(),
@@ -86,6 +90,7 @@ impl Codec {
             Codec::Rgba8 => "Rgba8",
             Codec::ColorValue => "ColorValue",
             Codec::KeywordColor(_) => "KeywordColor",
+            Codec::Paint => "Paint",
             Codec::Vec2 => "Vec2",
             Codec::Color2 => "Color2",
             Codec::Tracks => "Tracks",
@@ -133,7 +138,15 @@ impl Codec {
                 "ColorValue::Fixed(Color({}u32))",
                 int(value, 0.0, u32::MAX as f64)
             ),
-            // SVG's `fill` starts black, not at its keyword.
+            // SVG's `fill` starts black, `stroke` at `none`.
+            Codec::Paint if value.is_number() => format!(
+                "Paint::Color(ColorValue::Fixed(Color({}u32)))",
+                int(value, 0.0, u32::MAX as f64)
+            ),
+            Codec::Paint => {
+                assert_eq!(value.as_str(), Some("none"));
+                "Paint::None".into()
+            }
             Codec::KeywordColor(_) if value.is_number() => format!(
                 "Some(ColorValue::Fixed(Color({}u32)))",
                 int(value, 0.0, u32::MAX as f64)
@@ -207,6 +220,7 @@ impl Codec {
             Codec::Rgba8 => "r.color()?".into(),
             Codec::ColorValue => "r.color_value()?".into(),
             Codec::KeywordColor(_) => "r.optional_color()?".into(),
+            Codec::Paint => "r.paint()?".into(),
             Codec::Vec2 => "r.vec2()?".into(),
             Codec::Color2 => "r.color2()?".into(),
             Codec::Tracks => "r.tracks_for_style()?".into(),
@@ -231,6 +245,7 @@ impl Codec {
             Codec::Rgba8 => format!("w.color({access});"),
             Codec::ColorValue => format!("w.color_value({access});"),
             Codec::KeywordColor(_) => format!("w.optional_color({access});"),
+            Codec::Paint => format!("w.paint({access});"),
             Codec::Vec2 => format!("w.vec2({access});"),
             Codec::Color2 => format!("w.color2({access});"),
             Codec::Tracks => format!("w.tracks(&{access});"),

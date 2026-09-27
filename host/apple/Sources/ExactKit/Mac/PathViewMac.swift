@@ -3,20 +3,16 @@ import AppKit
 import QuartzCore
 
 /// A `path` node's drawing on AppKit (LLP 1065 D6): the UIKit view's twin —
-/// a `CAShapeLayer` backing a flipped view over the node's content box, its
-/// `strokeStart`/`strokeEnd` set by the engine's `present` ops with
-/// implicit animation off.
+/// `VectorLayers` in a flipped view over the node's content box, the
+/// strokes set by the engine's `present` ops with implicit animation off.
 final class PathView: NSView {
-    private let shape = CAShapeLayer()
+    private let host = CALayer()
+    private(set) lazy var layers = VectorLayers(in: host)
     private weak var owner: NodeView?
     private var boundID: UInt32?
-    private var data: String?
-    private var unit: CGPath?
-    private var viewBox: CGRect?
-    private var width: CGFloat = 1
 
     override var isFlipped: Bool { true }
-    override func makeBackingLayer() -> CALayer { shape }
+    override func makeBackingLayer() -> CALayer { host }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     /// The node's path view, if it is a path.
@@ -31,15 +27,13 @@ final class PathView: NSView {
             let v = PathView(frame: .zero)
             v.wantsLayer = true
             v.owner = node
-            v.shape.masksToBounds = true // SVG clips a path to its viewport
             node.addSubview(v)
             return v
         }()
         view.still {
             if view.boundID != node.id {
                 view.boundID = node.id
-                view.shape.strokeStart = 0
-                view.shape.strokeEnd = 1
+                view.layers.reset()
             }
             view.restyle()
         }
@@ -54,10 +48,7 @@ final class PathView: NSView {
     }
 
     /// A `present` op: the engine's value for this frame.
-    func present(_ property: String, _ value: CGFloat) {
-        let v = min(max(value, 0), 1)
-        still { if property == "stroke-start" { shape.strokeStart = v } else { shape.strokeEnd = v } }
-    }
+    func present(_ property: String, _ value: CGFloat) { layers.present(property, value) }
 
     /// The node's content box, in the node's (flipped) coordinates.
     func place() {
@@ -68,14 +59,10 @@ final class PathView: NSView {
         fit()
     }
 
-    private func restyle() {
+    /// Paint again: the node's style, or a paint value moving over it.
+    func restyle() {
         guard let owner else { return }
-        if owner.props["pathData"] != data {
-            data = owner.props["pathData"]
-            unit = VectorPath.path(data)
-        }
-        viewBox = VectorPath.viewBox(owner.props["viewBox"])
-        width = VectorPath.paint(shape, owner.style, dark: owner.drawsDark)
+        still { layers.restyle(owner, dark: owner.drawsDark, props: owner.props) }
         let labelled = owner.props["accessibilityLabel"] != nil
         owner.setAccessibilityElement(labelled)
         if labelled { owner.setAccessibilityRole(.image) }
@@ -84,21 +71,21 @@ final class PathView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        still { restyle() }
+        restyle()
     }
 
     override func layout() {
         super.layout()
-        still { fit() }
+        fit()
     }
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
-        still { fit() }
+        fit()
     }
 
     private func fit() {
-        VectorPath.place(shape, unit, viewBox: viewBox, width: width, in: bounds.size)
+        still { layers.place(host, in: bounds.size) }
     }
 }
 #endif

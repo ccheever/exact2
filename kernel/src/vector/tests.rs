@@ -150,17 +150,136 @@ fn view_box_parses_and_fits_as_xmidymid_meet() {
     ] {
         assert_eq!(parse_view_box(bad), None, "{bad}");
     }
+    let meet = PreserveAspectRatio::default();
     // Wider than tall into a square: scale by width, centred vertically.
     assert_eq!(
-        fit(Some([0.0, 0.0, 100.0, 50.0]), 200.0, 200.0),
-        (2.0, 0.0, 50.0)
+        fit(Some([0.0, 0.0, 100.0, 50.0]), meet, 200.0, 200.0),
+        [2.0, 2.0, 0.0, 50.0]
     );
     // The view box's origin maps to the fitted rectangle's corner.
     assert_eq!(
-        fit(Some([10.0, 10.0, 10.0, 10.0]), 20.0, 40.0),
-        (2.0, -20.0, -10.0)
+        fit(Some([10.0, 10.0, 10.0, 10.0]), meet, 20.0, 40.0),
+        [2.0, 2.0, -20.0, -10.0]
     );
-    assert_eq!(fit(None, 20.0, 40.0), (1.0, 0.0, 0.0));
+    assert_eq!(fit(None, meet, 20.0, 40.0), [1.0, 1.0, 0.0, 0.0]);
+}
+
+#[test]
+fn preserve_aspect_ratio_aligns_meets_slices_or_stretches() {
+    let par = |t: &str| PreserveAspectRatio::parse(t).unwrap();
+    assert_eq!(par("xMidYMid"), PreserveAspectRatio::default());
+    assert_eq!(par("defer xMinYMax slice").css(), "xMinYMax slice");
+    assert_eq!(par(" none ").css(), "none");
+    for bad in [
+        "",
+        "xMidYmid",
+        "xMid",
+        "none meet slice",
+        "xMidYMid fit",
+        "slice",
+    ] {
+        assert_eq!(PreserveAspectRatio::parse(bad), None, "{bad}");
+    }
+    let wide = Some([0.0, 0.0, 100.0, 50.0]);
+    // Meet at the start or the end of the spare room.
+    assert_eq!(
+        fit(wide, par("xMinYMin"), 200.0, 200.0),
+        [2.0, 2.0, 0.0, 0.0]
+    );
+    assert_eq!(
+        fit(wide, par("xMaxYMax"), 200.0, 200.0),
+        [2.0, 2.0, 0.0, 100.0]
+    );
+    // Slice covers the box by the larger scale; the overflow is centred.
+    assert_eq!(
+        fit(wide, par("xMidYMid slice"), 200.0, 200.0),
+        [4.0, 4.0, -100.0, 0.0]
+    );
+    // `none` stretches each axis on its own.
+    assert_eq!(fit(wide, par("none"), 200.0, 200.0), [2.0, 4.0, 0.0, 0.0]);
+    assert_eq!(
+        fit(Some([10.0, 10.0, 10.0, 10.0]), par("none"), 20.0, 40.0),
+        [2.0, 4.0, -20.0, -40.0]
+    );
+}
+
+#[test]
+fn a_zero_length_subpath_is_a_dot_while_the_window_holds_it() {
+    // A dot at 0, a 40-long line, a dot at its end (SVG 2 §13.4.7), and a
+    // lone moveto, which draws nothing even untrimmed.
+    let data = PathData::parse("M5 5 Z M10 0 H50 M50 0 L50 0 M90 90");
+    assert_eq!(data.length(), 40.0);
+    let trim = |a, b| commands_css(&data.trimmed(a, b));
+    assert_eq!(trim(0.0, 1.0), "M 5 5 L 5 5 M 10 0 L 50 0 M 50 0 L 50 0");
+    // The first dot shows once the pen has started; the last only when it
+    // arrives — Core Animation's `strokeStart`/`strokeEnd` exactly.
+    assert_eq!(trim(0.0, 0.5), "M 5 5 L 5 5 M 10 0 L 30 0");
+    assert_eq!(trim(0.0, 0.0), "");
+    assert_eq!(trim(0.01, 1.0), "M 10.4 0 L 50 0 M 50 0 L 50 0");
+    assert_eq!(trim(0.5, 0.999), "M 30 0 L 49.96 0");
+    assert_eq!(trim(1.0, 1.0), "");
+    // With no length at all, any non-empty window shows every dot.
+    let dots = PathData::parse("M1 1 Z M2 2 L2 2");
+    assert_eq!(
+        commands_css(&dots.trimmed(0.5, 0.6)),
+        "M 1 1 L 1 1 M 2 2 L 2 2"
+    );
+}
+
+#[test]
+fn dashes_restart_at_each_subpath_and_zero_dashes_are_dots() {
+    let data = PathData::parse("M0 0 H25 M0 5 H40");
+    let dash = |p: &[f32], o| commands_css(&data.dashed(p, o));
+    assert_eq!(
+        dash(&[10.0, 5.0], 0.0),
+        "M 0 0 L 10 0 M 15 0 L 25 0 M 0 5 L 10 5 M 15 5 L 25 5 M 30 5 L 40 5"
+    );
+    // An odd list repeats; the offset shifts the pattern's start back.
+    assert_eq!(
+        dash(&[10.0], 5.0),
+        "M 0 0 L 5 0 M 15 0 L 25 0 M 0 5 L 5 5 M 15 5 L 25 5 M 35 5 L 40 5"
+    );
+    assert_eq!(dash(&[10.0], -5.0), dash(&[10.0], 15.0));
+    // A zero-length dash is a dot (round caps draw it); nothing sums to
+    // nothing, so it is the solid stroke.
+    let dots = PathData::parse("M0 0 H20");
+    assert_eq!(
+        commands_css(&dots.dashed(&[0.0, 10.0], 0.0)),
+        "M 0 0 L 0 0 M 10 0 L 10 0 M 20 0 L 20 0"
+    );
+    assert_eq!(commands_css(&dots.dashed(&[0.0, 0.0], 0.0)), "M 0 0 L 20 0");
+    // A closed subpath one dash covers keeps its closepath.
+    let square = PathData::parse("M0 0 H10 V10 H0 Z");
+    assert_eq!(
+        commands_css(&square.dashed(&[100.0, 1.0], 0.0)),
+        square.css()
+    );
+    // A cubic's dashes are cut by length.
+    let arch = PathData::parse("M0 0 C0 10 10 10 10 0");
+    let half = arch.length() / 2.0;
+    let dashed = PathData::parse(&commands_css(&arch.dashed(&[half as f32, 1000.0], 0.0)));
+    assert!(close(dashed.length(), half), "{}", dashed.length());
+}
+
+#[test]
+fn dash_arrays_parse_as_svg_writes_them() {
+    let parse = |t: &str| DashArray::parse(t).map(|d| d.css());
+    assert_eq!(parse("none").as_deref(), Some("none"));
+    assert_eq!(parse(" 5, 3 1 ").as_deref(), Some("5 3 1"));
+    assert_eq!(parse("0 4").as_deref(), Some("0 4"));
+    for bad in ["", "5,", "-1 2", "5 x", "5px"] {
+        assert_eq!(DashArray::parse(bad), None, "{bad}");
+    }
+    assert!(!DashArray::parse("0 0").unwrap().dashes());
+    assert!(DashArray::parse("0 1").unwrap().dashes());
+}
+
+#[test]
+fn a_transformed_path_is_measured_again() {
+    let data = PathData::parse("M0 0 H10 V10");
+    let t = data.transformed([2.0, 3.0, 1.0, 1.0]);
+    assert_eq!(t.css(), "M 1 1 L 21 1 L 21 31");
+    assert_eq!(t.length(), 50.0);
 }
 
 #[test]

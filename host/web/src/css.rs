@@ -339,6 +339,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         RowValue::LineHeight(v) => out.push_str(&v.css()),
         RowValue::Enum(e) => out.push_str(e),
         RowValue::ClipPath(p) => out.push_str(&p.css()),
+        RowValue::DashArray(d) => out.push_str(&d.css()),
         RowValue::ShapeOutside(p) => out.push_str(&p.css()),
         RowValue::AspectRatio(r) => out.push_str(&r.css()),
         // The kernel's canonical CSS: explicit stops, `#rrggbbaa` colours and
@@ -360,7 +361,8 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             | StyleId::Scale
             | StyleId::ShadowOpacity
             | StyleId::StrokeStart
-            | StyleId::StrokeEnd => num_into(out, *n as f32),
+            | StyleId::StrokeEnd
+            | StyleId::StrokeMiterlimit => num_into(out, *n as f32),
             StyleId::Rotate => {
                 num_into(out, *n as f32);
                 out.push_str("deg");

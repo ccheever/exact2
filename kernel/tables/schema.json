@@ -678,7 +678,13 @@
       "id": 122,
       "name": "viewBox",
       "kind": "str",
-      "_comment": "@ref LLP 1065 D2: SVG `viewBox`, the path's coordinate system fitted into the content box (xMidYMid meet)."
+      "_comment": "@ref LLP 1065 D2: SVG `viewBox`, the path's coordinate system fitted into the content box by `preserveAspectRatio`."
+    },
+    {
+      "id": 123,
+      "name": "preserveAspectRatio",
+      "kind": "str",
+      "_comment": "@ref LLP 1065: SVG `preserveAspectRatio`, how the view box fits the content box (initially xMidYMid meet)."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
@@ -979,6 +985,22 @@
         "bevel"
       ],
       "default": "miter"
+    },
+    "FillRule": {
+      "_comment": "@ref LLP 1065: SVG `fill-rule`, and CSS `path()`'s optional first argument.",
+      "values": [
+        "nonzero",
+        "evenodd"
+      ],
+      "default": "nonzero"
+    },
+    "VectorEffect": {
+      "_comment": "@ref LLP 1065: SVG `vector-effect`; non-scaling-stroke strokes in the box's pixels, not the view box's units.",
+      "values": [
+        "none",
+        "non-scaling-stroke"
+      ],
+      "default": "none"
     }
   },
   "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | paint (the same, 0 `none`; its default a keyword or a colour, LLP 1065) | color2 (rgba8 rgba8) | tracks (grid track list) | placement (grid line placement) | aspect-ratio (CSS text: auto, a ratio, or both) | background-image (CSS text: none or one gradient, LLP 1056) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance \u2014 a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard).",
@@ -1752,6 +1774,39 @@
       "codec": "f32",
       "default": 1,
       "_comment": "@ref LLP 1065 D4: where the visible stroke ends, as a fraction of the whole path's length in subpath order. Animatable."
+    },
+    {
+      "bit": 113,
+      "field": "fill_rule",
+      "codec": "enum:FillRule",
+      "inherited": true
+    },
+    {
+      "bit": 114,
+      "field": "stroke_miterlimit",
+      "codec": "f32",
+      "inherited": true,
+      "default": 4,
+      "_comment": "@ref LLP 1065: SVG `stroke-miterlimit`, a ratio of at least 1."
+    },
+    {
+      "bit": 115,
+      "field": "stroke_dasharray",
+      "codec": "dash-array",
+      "inherited": true,
+      "_comment": "@ref LLP 1065: SVG `stroke-dasharray`, in the path's units; the trim reveals the dashed stroke, it does not move the dashes."
+    },
+    {
+      "bit": 116,
+      "field": "stroke_dashoffset",
+      "codec": "f32",
+      "inherited": true,
+      "default": 0
+    },
+    {
+      "bit": 117,
+      "field": "vector_effect",
+      "codec": "enum:VectorEffect"
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 background-color, 7 color, 8 border-top-color, 9 border-right-color, 10 border-bottom-color, 11 border-left-color, 12 tint-color, 13 box-shadow, 15 border-color — LLP 1062; 14 is refused; 16 stroke-start, 17 stroke-end — LLP 1065), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

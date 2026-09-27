@@ -373,28 +373,53 @@ impl Backend for Gpu {
     }
 
     fn vector(&mut self, v: &crate::paint::VectorPaint, ts: Transform) {
-        use exact_kernel::{StrokeLinecap, StrokeLinejoin};
-        use vello::kurbo::{Cap, Join};
+        use exact_kernel::{FillRule, StrokeLinecap, StrokeLinejoin};
+        use vello::kurbo::{Cap, Join, StrokeOpts};
         let a = self.affine(ts.pre_concat(v.fit));
         if let Some((c, d)) = &v.fill {
-            self.scene
-                .fill(Fill::NonZero, a, color(*c), None, &vector_path(d));
+            let rule = match v.rule {
+                FillRule::Nonzero => Fill::NonZero,
+                FillRule::Evenodd => Fill::EvenOdd,
+            };
+            self.scene.fill(rule, a, color(*c), None, &vector_path(d));
         }
-        if let Some((c, d)) = v.stroke.as_ref().filter(|_| v.width > 0.0) {
-            let stroke = Stroke::new(f64::from(v.width))
-                .with_caps(match v.cap {
-                    StrokeLinecap::Butt => Cap::Butt,
-                    StrokeLinecap::Round => Cap::Round,
-                    StrokeLinecap::Square => Cap::Square,
-                })
-                .with_join(match v.join {
-                    StrokeLinejoin::Miter => Join::Miter,
-                    StrokeLinejoin::Round => Join::Round,
-                    StrokeLinejoin::Bevel => Join::Bevel,
-                })
-                .with_miter_limit(4.0);
-            self.scene
-                .stroke(&stroke, a, color(*c), None, &vector_path(d));
+        let Some((c, d)) = v.stroke.as_ref().filter(|_| v.width > 0.0) else {
+            return;
+        };
+        let a = self.affine(ts.pre_concat(v.stroke_fit));
+        let stroke = Stroke::new(f64::from(v.width))
+            .with_caps(match v.cap {
+                StrokeLinecap::Butt => Cap::Butt,
+                StrokeLinecap::Round => Cap::Round,
+                StrokeLinecap::Square => Cap::Square,
+            })
+            .with_join(match v.join {
+                StrokeLinejoin::Miter => Join::Miter,
+                StrokeLinejoin::Round => Join::Round,
+                StrokeLinejoin::Bevel => Join::Bevel,
+            })
+            .with_miter_limit(f64::from(v.miter));
+        // A dashed stroke shows through its trimmed, undashed stroke: that
+        // stroke's outline, to a tenth of a device pixel, is the clip.
+        let reveal = v.reveal.as_deref().map(|trim| {
+            let tolerance = 0.1
+                / a.as_coeffs()[..4]
+                    .iter()
+                    .fold(1e-9f64, |m, c| m.max(c.abs()));
+            vello::kurbo::stroke(
+                vector_path(trim),
+                &stroke,
+                &StrokeOpts::default(),
+                tolerance,
+            )
+        });
+        if let Some(outline) = &reveal {
+            self.scene.push_clip_layer(Fill::NonZero, a, outline);
+        }
+        self.scene
+            .stroke(&stroke, a, color(*c), None, &vector_path(d));
+        if reveal.is_some() {
+            self.scene.pop_layer();
         }
     }
 
@@ -550,20 +575,12 @@ impl Backend for Gpu {
     }
 
     fn push_css_clip(&mut self, path: &exact_kernel::clip::ClipPath, ts: Transform) -> bool {
-        let mut b = BezPath::new();
-        for (op, v) in path.commands() {
-            let point = |i: usize| (v[i] as f64, v[i + 1] as f64);
-            match op {
-                'M' => b.move_to(point(0)),
-                'L' => b.line_to(point(0)),
-                'Q' => b.quad_to(point(0), point(2)),
-                'C' => b.curve_to(point(0), point(2), point(4)),
-                'Z' => b.close_path(),
-                _ => unreachable!("validated CSS path"),
-            }
-        }
+        let rule = match path.rule() {
+            exact_kernel::FillRule::Nonzero => Fill::NonZero,
+            exact_kernel::FillRule::Evenodd => Fill::EvenOdd,
+        };
         self.scene
-            .push_clip_layer(Fill::NonZero, self.affine(ts), &b);
+            .push_clip_layer(rule, self.affine(ts), &vector_path(path.commands()));
         true
     }
 

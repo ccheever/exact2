@@ -108,64 +108,168 @@ impl PathData {
     /// geometry itself: fractions of the whole path's length, measured
     /// through the subpaths in order (LLP 1065 D4). A subpath the window cuts
     /// is an open piece; one it shows whole keeps its closepath, so its last
-    /// join is the untrimmed one.
+    /// join is the untrimmed one. A zero-length subpath (`M p Z`, `M p L p`)
+    /// is a dot — `M p L p`, which round and square caps draw — while the
+    /// window holds its place and is not empty, as Core Animation draws it; a
+    /// lone moveto draws nothing (SVG 2 §13.4.7).
     pub fn trimmed(&self, start: f64, end: f64) -> Vec<Command> {
         let total = self.length();
-        let from = start.clamp(0.0, 1.0) * total;
-        let to = end.clamp(0.0, 1.0) * total;
-        if from <= 0.0 && to >= total {
-            return self.commands.clone();
+        let (start, end) = (start.clamp(0.0, 1.0), end.clamp(0.0, 1.0));
+        let (from, to) = (start * total, end * total);
+        let mut at = 0.0;
+        let windows = self
+            .subpaths
+            .iter()
+            .map(|(_, length)| {
+                let (a, b) = ((from - at).max(0.0), (to - at).min(*length));
+                let window = if *length == 0.0 {
+                    let dot = from <= at && at <= to && start < end;
+                    if dot {
+                        vec![(0.0, 0.0)]
+                    } else {
+                        Vec::new()
+                    }
+                } else if a < b {
+                    vec![(a, b)]
+                } else {
+                    Vec::new()
+                };
+                at += length;
+                window
+            })
+            .collect::<Vec<_>>();
+        self.pieces(&windows)
+    }
+
+    /// SVG's dashing (§13.5.5): `pattern` (an odd count repeated to be even)
+    /// laid along each subpath from its start, restarting at every subpath,
+    /// shifted by `offset`. Each dash is an open piece; a zero-length dash
+    /// is a dot, which round and square caps draw. An empty or all-zero
+    /// pattern is the solid stroke. At most [`MAX_DASHES`] dashes are drawn.
+    pub fn dashed(&self, pattern: &[f32], offset: f32) -> Vec<Command> {
+        let mut pattern: Vec<f64> = pattern.iter().map(|n| f64::from(*n)).collect();
+        if pattern.len() % 2 == 1 {
+            pattern.extend_from_within(..);
         }
-        let mut out = Vec::new();
-        if to <= from {
-            return out;
+        let period: f64 = pattern.iter().sum();
+        if !(period > 0.0 && period.is_finite()) {
+            return self.pieces(
+                &self
+                    .subpaths
+                    .iter()
+                    .map(|(_, l)| vec![(0.0, *l)])
+                    .collect::<Vec<_>>(),
+            );
         }
-        let (mut walked, mut first, mut at) = (0.0, [0.0; 2], [0.0; 2]);
-        // `down`: the output ends where this subpath's pen is. `whole`: the
-        // subpath began inside the window, so it is drawn from its start.
-        let (mut down, mut whole) = (false, false);
-        for command in &self.commands {
-            let segment = match *command {
-                Command::Move(p) => {
-                    (first, at, down, whole) = (p, p, false, walked >= from);
-                    continue;
+        let mut budget = MAX_DASHES;
+        let windows = self
+            .subpaths
+            .iter()
+            .map(|(_, length)| {
+                let mut out = Vec::new();
+                let mut at = -f64::from(offset).rem_euclid(period);
+                for (i, dash) in pattern.iter().enumerate().cycle() {
+                    if at > *length || budget == 0 {
+                        break;
+                    }
+                    let (a, b) = (at.max(0.0), (at + dash).min(*length));
+                    if i % 2 == 0 && (a < b || (*dash == 0.0 && at >= 0.0)) {
+                        out.push((a, b));
+                        budget -= 1;
+                    }
+                    at += dash;
                 }
-                Command::Line(p) => Segment::Line(at, p),
-                Command::Cubic(a, b, p) => Segment::Cubic([at, a, b, p]),
-                Command::Close => Segment::Line(at, first),
-            };
-            let length = segment.length();
-            let (lo, hi) = (walked, walked + length);
-            walked = hi;
-            at = segment.end();
-            if hi <= from {
+                out
+            })
+            .collect::<Vec<_>>();
+        self.pieces(&windows)
+    }
+
+    /// The same drawing with every point mapped `p * (sx, sy) + (dx, dy)`,
+    /// measured again: what a host strokes in its own space
+    /// (`vector-effect: non-scaling-stroke`).
+    pub fn transformed(&self, [sx, sy, dx, dy]: [f32; 4]) -> PathData {
+        let m = |p: Point| [p[0] * sx + dx, p[1] * sy + dy];
+        let commands = self
+            .commands
+            .iter()
+            .map(|c| match *c {
+                Command::Move(p) => Command::Move(m(p)),
+                Command::Line(p) => Command::Line(m(p)),
+                Command::Cubic(a, b, p) => Command::Cubic(m(a), m(b), m(p)),
+                Command::Close => Command::Close,
+            })
+            .collect();
+        let mut data = PathData {
+            commands,
+            subpaths: Vec::new(),
+            error: self.error,
+        };
+        data.measure();
+        data
+    }
+
+    /// Each subpath's windows — `(from, to)` along it, sorted, disjoint —
+    /// as drawing: an open piece each, a closed subpath shown whole keeping
+    /// its closepath, and a zero-length window as a dot (`M p L p`) where the
+    /// subpath draws at all.
+    fn pieces(&self, windows: &[Vec<(f64, f64)>]) -> Vec<Command> {
+        let mut out = Vec::new();
+        for (commands, windows) in self.subpaths().zip(windows) {
+            let [Command::Move(first), rest @ ..] = commands else {
                 continue;
-            }
-            if lo >= to {
-                break;
-            }
-            let t0 = if from > lo {
-                segment.at_length(from - lo)
-            } else {
-                0.0
             };
-            let t1 = if to < hi {
-                segment.at_length(to - lo)
-            } else {
-                1.0
-            };
-            let piece = segment.between(t0, t1);
-            if !down {
-                out.push(Command::Move(piece.start()));
+            if rest.is_empty() {
+                continue; // a lone moveto draws nothing, not even a dot
             }
-            out.push(match piece {
-                _ if *command == Command::Close && whole && t1 >= 1.0 => Command::Close,
-                Segment::Line(_, p) => Command::Line(p),
-                Segment::Cubic([_, a, b, p]) => Command::Cubic(a, b, p),
-            });
-            down = t1 >= 1.0;
-            if !down {
-                break;
+            let (mut at, mut walked, mut down, mut next) = (*first, 0.0, false, 0);
+            for command in rest {
+                let segment = match *command {
+                    Command::Line(p) => Segment::Line(at, p),
+                    Command::Cubic(a, b, p) => Segment::Cubic([at, a, b, p]),
+                    Command::Close | Command::Move(_) => Segment::Line(at, *first),
+                };
+                let (lo, hi) = (walked, walked + segment.length());
+                walked = hi;
+                at = segment.end();
+                while let Some(&(a, b)) = windows.get(next) {
+                    if a == b {
+                        if a > hi {
+                            break;
+                        }
+                        let p = segment.between(0.0, segment.at_length(a - lo)).end();
+                        out.extend([Command::Move(p), Command::Line(p)]);
+                        next += 1;
+                        continue;
+                    }
+                    if a >= hi {
+                        break;
+                    }
+                    let t0 = if a > lo {
+                        segment.at_length(a - lo)
+                    } else {
+                        0.0
+                    };
+                    let t1 = if b < hi {
+                        segment.at_length(b - lo)
+                    } else {
+                        1.0
+                    };
+                    let piece = segment.between(t0, t1);
+                    if !down {
+                        out.push(Command::Move(piece.start()));
+                    }
+                    out.push(match piece {
+                        _ if *command == Command::Close && a <= 0.0 && t1 >= 1.0 => Command::Close,
+                        Segment::Line(_, p) => Command::Line(p),
+                        Segment::Cubic([_, a, b, p]) => Command::Cubic(a, b, p),
+                    });
+                    down = b > hi;
+                    if down {
+                        break;
+                    }
+                    next += 1;
+                }
             }
         }
         out
@@ -233,6 +337,62 @@ pub fn commands_css(commands: &[Command]) -> String {
     out
 }
 
+/// Most dashes [`PathData::dashed`] draws: a pattern far finer than its
+/// path stops there rather than build millions of pieces.
+pub const MAX_DASHES: usize = 1 << 16;
+
+/// SVG `stroke-dasharray` (§13.5.5): `none` (empty), or dash and gap lengths
+/// in the path's units, separated by whitespace and/or commas, each a
+/// nonnegative number. A negative one makes the whole value invalid, as SVG
+/// says; an odd count is repeated when dashing.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct DashArray(pub Vec<f32>);
+
+impl DashArray {
+    /// Parse `none` or the list.
+    pub fn parse(text: &str) -> Option<DashArray> {
+        let text = text.trim();
+        if text == "none" {
+            return Some(DashArray::default());
+        }
+        let mut parser = Parser::new(text);
+        let mut out = Vec::new();
+        loop {
+            let n = parser.number()?;
+            if n < 0.0 {
+                return None;
+            }
+            out.push(n as f32);
+            parser.whitespace();
+            if parser.at == text.len() {
+                break;
+            }
+            parser.separator();
+        }
+        Some(DashArray(out))
+    }
+
+    /// Canonical text: `none`, or the numbers separated by spaces.
+    pub fn css(&self) -> String {
+        if self.0.is_empty() {
+            return "none".into();
+        }
+        let mut out = String::new();
+        for (i, n) in self.0.iter().enumerate() {
+            if i > 0 {
+                out.push(' ');
+            }
+            let _ = write!(out, "{}", exact_num::Shortest32(*n));
+        }
+        out
+    }
+
+    /// Whether this dashes at all: a pattern whose sum is positive.
+    pub fn dashes(&self) -> bool {
+        self.0.iter().sum::<f32>() > 0.0
+    }
+}
+
 /// SVG `viewBox`: `min-x min-y width height`, separated by whitespace
 /// and/or a comma. A negative or zero width or height is refused (SVG
 /// disables rendering for zero; negative is an error).
@@ -254,20 +414,93 @@ pub fn parse_view_box(text: &str) -> Option<[f32; 4]> {
     .then_some(out)
 }
 
-/// The view box fitted into a box `width` × `height` as SVG's default
-/// `preserveAspectRatio="xMidYMid meet"` does: `(scale, dx, dy)`, mapping a
-/// path point `p` to `p * scale + (dx, dy)` in the box. No view box is the
-/// identity: path units are CSS pixels from the box's origin.
-pub fn fit(view_box: Option<[f32; 4]>, width: f32, height: f32) -> (f32, f32, f32) {
+/// SVG `preserveAspectRatio` (§8.2): how a view box fits its viewport.
+/// `align` is `None` for `none` (each axis stretched to fill), else where
+/// the view box sits on each axis — 0 min, 1 mid, 2 max; `slice` covers the
+/// viewport (and is clipped by it) where `meet` fits inside it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PreserveAspectRatio {
+    /// `(x, y)` alignment, each 0 min, 1 mid, 2 max; `None` is `none`.
+    pub align: Option<(u8, u8)>,
+    /// `slice`, else `meet`.
+    pub slice: bool,
+}
+
+impl Default for PreserveAspectRatio {
+    /// SVG's initial value, `xMidYMid meet`.
+    fn default() -> Self {
+        PreserveAspectRatio {
+            align: Some((1, 1)),
+            slice: false,
+        }
+    }
+}
+
+impl PreserveAspectRatio {
+    /// `[defer] <align> [meet | slice]`, SVG's grammar; `defer` applies only
+    /// to images and is accepted and ignored, as SVG says.
+    pub fn parse(text: &str) -> Option<PreserveAspectRatio> {
+        let mut words = text.split_ascii_whitespace().peekable();
+        if words.peek() == Some(&"defer") {
+            words.next();
+        }
+        let align = match words.next()? {
+            "none" => None,
+            word => {
+                let axis = |a: &str| ["Min", "Mid", "Max"].iter().position(|m| *m == a);
+                let rest = word.strip_prefix('x')?;
+                let (x, y) = (rest.get(..3)?, rest.get(3..)?.strip_prefix('Y')?);
+                Some((axis(x)? as u8, axis(y)? as u8))
+            }
+        };
+        let slice = match words.next() {
+            None | Some("meet") => false,
+            Some("slice") => true,
+            Some(_) => return None,
+        };
+        words
+            .next()
+            .is_none()
+            .then_some(PreserveAspectRatio { align, slice })
+    }
+
+    /// Canonical text, which [`PreserveAspectRatio::parse`] reads back.
+    pub fn css(self) -> String {
+        let Some((x, y)) = self.align else {
+            return "none".into();
+        };
+        let axis = ["Min", "Mid", "Max"];
+        let fit = if self.slice { "slice" } else { "meet" };
+        format!("x{}Y{} {fit}", axis[x as usize], axis[y as usize])
+    }
+}
+
+/// The view box fitted into a box `width` × `height` by `aspect`:
+/// `[sx, sy, dx, dy]`, mapping a path point `p` to `p * (sx, sy) + (dx, dy)`
+/// in the box. No view box is the identity: path units are CSS pixels from
+/// the box's origin.
+pub fn fit(
+    view_box: Option<[f32; 4]>,
+    aspect: PreserveAspectRatio,
+    width: f32,
+    height: f32,
+) -> [f32; 4] {
     let Some([x, y, w, h]) = view_box else {
-        return (1.0, 0.0, 0.0);
+        return [1.0, 1.0, 0.0, 0.0];
     };
-    let scale = (width / w).min(height / h).max(0.0);
-    (
-        scale,
-        (width - w * scale) / 2.0 - x * scale,
-        (height - h * scale) / 2.0 - y * scale,
-    )
+    let (mut sx, mut sy) = ((width / w).max(0.0), (height / h).max(0.0));
+    let Some((ax, ay)) = aspect.align else {
+        return [sx, sy, -x * sx, -y * sy];
+    };
+    let scale = if aspect.slice { sx.max(sy) } else { sx.min(sy) };
+    (sx, sy) = (scale, scale);
+    let place = |align: u8, room: f32| room * f32::from(align) / 2.0;
+    [
+        sx,
+        sy,
+        place(ax, width - w * sx) - x * sx,
+        place(ay, height - h * sy) - y * sy,
+    ]
 }
 
 /// One drawn segment, for trimming.

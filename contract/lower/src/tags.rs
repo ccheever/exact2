@@ -383,6 +383,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // @ref LLP 1065 — a `path`'s data and coordinate system, SVG's names.
         "d" => AttrTarget::Prop(p("pathData")),
         "viewBox" => AttrTarget::Prop(p("viewBox")),
+        "preserveAspectRatio" => AttrTarget::Prop(p("preserveAspectRatio")),
         // style rows, by their CSS property names
         // @ref LLP 1065 D3/D4 — SVG's painting properties, and the stroke's
         // visible fraction of the path's length.
@@ -391,6 +392,11 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "stroke-width" => styles(&[StyleId::StrokeWidth]),
         "stroke-linecap" => styles(&[StyleId::StrokeLinecap]),
         "stroke-linejoin" => styles(&[StyleId::StrokeLinejoin]),
+        "stroke-miterlimit" => styles(&[StyleId::StrokeMiterlimit]),
+        "stroke-dasharray" => styles(&[StyleId::StrokeDasharray]),
+        "stroke-dashoffset" => styles(&[StyleId::StrokeDashoffset]),
+        "fill-rule" => styles(&[StyleId::FillRule]),
+        "vector-effect" => styles(&[StyleId::VectorEffect]),
         "stroke-start" => styles(&[StyleId::StrokeStart]),
         "stroke-end" => styles(&[StyleId::StrokeEnd]),
         "white-space" => styles(&[StyleId::WhiteSpace]),
@@ -711,15 +717,32 @@ pub(crate) fn validate_list(
 /// The attributes only `path` takes (LLP 1065 D1): its data, its coordinate
 /// system, and how much of its stroke shows. The painting properties
 /// (`fill`, `stroke`, …) inherit, as SVG's do, so any box may set them.
-pub const PATH_FIELDS: &[&str] = &["d", "viewBox", "stroke-start", "stroke-end"];
+pub const PATH_FIELDS: &[&str] = &[
+    "d",
+    "viewBox",
+    "preserveAspectRatio",
+    "stroke-start",
+    "stroke-end",
+];
 
-/// Refuse a path field off a `path`, and literal path data or a literal
-/// `viewBox` a browser would not draw in full.
+/// Refuse a path field off a `path`, and literal path data, a literal
+/// `viewBox` or `preserveAspectRatio` a browser would not draw in full, or a
+/// literal miter limit SVG calls invalid.
 pub(crate) fn check_path_attr(
     tag: &str,
     a: &contract_syntax::Attr,
 ) -> Result<(), super::LowerError> {
     use contract_syntax::Expr;
+    if a.name == "stroke-miterlimit" {
+        return match crate::values::numeric_literal(&a.value) {
+            Some(n) if n < 1.0 => super::err(
+                "lower-attr-value",
+                format!("`stroke-miterlimit={n}` is below 1, which SVG refuses"),
+                a.span,
+            ),
+            _ => Ok(()),
+        };
+    }
     if !PATH_FIELDS.contains(&a.name.as_str()) {
         return Ok(());
     }
@@ -746,6 +769,15 @@ pub(crate) fn check_path_attr(
             ),
             None => Ok(()),
         },
+        "preserveAspectRatio"
+            if exact_kernel::vector::PreserveAspectRatio::parse(text).is_none() =>
+        {
+            super::err(
+                "lower-attr-value",
+                format!("`preserveAspectRatio=\"{text}\"` is not `none` or an alignment like `xMidYMid`, then `meet` or `slice`"),
+                a.span,
+            )
+        }
         "viewBox" if exact_kernel::vector::parse_view_box(text).is_none() => super::err(
             "lower-attr-value",
             format!("`viewBox=\"{text}\"` is not `min-x min-y width height` with a positive width and height"),

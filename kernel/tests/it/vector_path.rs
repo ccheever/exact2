@@ -4,8 +4,8 @@
 
 use exact_kernel::wire::codec::{Reader, Writer};
 use exact_kernel::{
-    motion_node, ColorValue, Kernel, NodeType, Op, PropId, PropValue, StyleId, StyleProps,
-    StyleValue,
+    motion_node, ColorValue, FillRule, Kernel, NodeType, Op, Paint, PropId, PropValue, StyleId,
+    StyleProps, StyleValue, VectorEffect,
 };
 use exact_motion::{Animations, Engine, Property, Transitions, Value};
 
@@ -65,9 +65,15 @@ fn painting_rows_follow_svg_and_cross_the_wire() {
     // SVG's initial values: fill black, stroke none, width 1, the whole stroke.
     assert_eq!(
         defaults.fill,
-        Some(ColorValue::Fixed(exact_kernel::Color(0xff)))
+        Paint::Color(ColorValue::Fixed(exact_kernel::Color(0xff)))
     );
-    assert_eq!(defaults.stroke, None);
+    assert_eq!(defaults.stroke, Paint::None);
+    assert_eq!(
+        (defaults.fill_rule, defaults.stroke_miterlimit),
+        (FillRule::Nonzero, 4.0)
+    );
+    assert_eq!(defaults.vector_effect, VectorEffect::None);
+    assert!(!defaults.stroke_dasharray.dashes());
     assert_eq!(
         (
             defaults.stroke_width,
@@ -84,12 +90,26 @@ fn painting_rows_follow_svg_and_cross_the_wire() {
         (StyleId::StrokeLinejoin, text("round")),
         (StyleId::StrokeStart, StyleValue::Number(0.25)),
         (StyleId::StrokeEnd, StyleValue::Number(0.5)),
+        (StyleId::FillRule, text("evenodd")),
+        (StyleId::StrokeMiterlimit, StyleValue::Number(10.0)),
+        (StyleId::StrokeDasharray, text("4, 2")),
+        (StyleId::StrokeDashoffset, StyleValue::Number(3.0)),
+        (StyleId::VectorEffect, text("non-scaling-stroke")),
     ]);
     assert_eq!(
-        style.fill, None,
+        style.fill,
+        Paint::None,
         "`none` is the keyword, not transparent paint"
     );
-    assert!(matches!(style.stroke, Some(ColorValue::LightDark(..))));
+    assert!(matches!(
+        style.stroke,
+        Paint::Color(ColorValue::LightDark(..))
+    ));
+    assert_eq!(style.stroke_dasharray.0, [4.0, 2.0]);
+    assert_eq!(
+        rows(&[(StyleId::Fill, text("currentColor"))]).fill,
+        Paint::CurrentColor
+    );
     let mut bytes = Writer::new();
     style.encode_patch(&mut bytes);
     assert_eq!(
@@ -98,8 +118,10 @@ fn painting_rows_follow_svg_and_cross_the_wire() {
     );
     for (row, bad) in [
         (StyleId::StrokeLinecap, "rounded"),
-        (StyleId::Fill, "currentcolor"),
         (StyleId::Stroke, "nothing"),
+        (StyleId::StrokeDasharray, "1 -2"),
+        (StyleId::FillRule, "odd"),
+        (StyleId::VectorEffect, "non-scaling-size"),
     ] {
         assert!(
             StyleProps::default().set_dynamic(row, &text(bad)).is_err(),
@@ -107,10 +129,19 @@ fn painting_rows_follow_svg_and_cross_the_wire() {
         );
     }
     // Paint rows inherit, as SVG's do; the stroke's fractions do not.
-    for row in [StyleId::Fill, StyleId::Stroke, StyleId::StrokeWidth] {
+    for row in [
+        StyleId::Fill,
+        StyleId::Stroke,
+        StyleId::StrokeWidth,
+        StyleId::FillRule,
+        StyleId::StrokeMiterlimit,
+        StyleId::StrokeDasharray,
+        StyleId::StrokeDashoffset,
+    ] {
         assert!(row.inherited(), "{row:?}");
     }
     assert!(!StyleId::StrokeEnd.inherited());
+    assert!(!StyleId::VectorEffect.inherited());
     assert!(!NodeType::Path.can_hold_children());
 }
 
@@ -197,4 +228,79 @@ fn stroke_end_plays_in_keyframes_from_creation() {
         Property::from_name("--exact-stroke-end"),
         Some(Property::StrokeEnd)
     );
+}
+
+/// A spring drives a stroke fraction as it drives `opacity`: both are plain
+/// numbers the web lowers to frames (LLP 1065).
+#[test]
+fn a_spring_drives_the_stroke_fractions() {
+    let (mut kernel, mut engine, node) = path_kernel(rows(&[
+        (StyleId::StrokeEnd, StyleValue::Number(0.0)),
+        (StyleId::Transition, text("stroke-end spring(170, 26, 1)")),
+    ]));
+    engine.frame();
+    let receipt = kernel
+        .apply(
+            0,
+            2,
+            &[Op::SetStyle {
+                id: 2,
+                patch: Box::new(rows(&[(StyleId::StrokeEnd, StyleValue::Number(1.0))])),
+            }],
+        )
+        .unwrap();
+    kernel.motion_sync(&receipt).apply(&mut engine).unwrap();
+    assert!(engine
+        .spring_descriptor(node, Property::StrokeEnd)
+        .is_some());
+    engine.advance(0.1).unwrap();
+    let x = engine.value(node, Property::StrokeEnd).unwrap().x;
+    assert!(x > 0.0 && x < 1.0, "{x}");
+}
+
+/// `fill` and `stroke` are paint motion's (LLP 1062) when a path names them:
+/// computed colours, `currentcolor` as the computed `color`; `none` is no
+/// target, as SVG's `<paint>` interpolates only colour to colour.
+#[test]
+fn fill_and_stroke_are_paint_targets_unless_none() {
+    use exact_kernel::motion::PaintOwners;
+    let (mut kernel, _, node) = path_kernel(rows(&[
+        (StyleId::TextColor, text("#0000ff")),
+        (StyleId::Fill, text("currentcolor")),
+        (StyleId::Stroke, text("light-dark(#ff0000, #00ff00)")),
+        (StyleId::Transition, text("fill 1s, stroke 1s")),
+    ]));
+    let key = kernel.node(2).unwrap().key;
+    let targets = |k: &Kernel, dark| k.paint_targets(key, dark);
+    assert_eq!(
+        targets(&kernel, false),
+        [
+            (Property::Fill, Value::rgba(0.0, 0.0, 1.0, 1.0)),
+            (Property::Stroke, Value::rgba(1.0, 0.0, 0.0, 1.0)),
+        ]
+    );
+    assert_eq!(targets(&kernel, true)[1].1, Value::rgba(0.0, 1.0, 0.0, 1.0));
+    let mut owners = PaintOwners::default();
+    kernel.paint_adopt([key], false, &mut owners);
+    assert!(owners.owns(node, Property::Fill) && owners.owns(node, Property::Stroke));
+    // To `none`: owning ends (the change is discrete), and it is retired.
+    let receipt = kernel
+        .apply(
+            0,
+            2,
+            &[Op::SetStyle {
+                id: 2,
+                patch: Box::new(rows(&[(StyleId::Fill, text("none"))])),
+            }],
+        )
+        .unwrap();
+    let sync = kernel.paint_sync(&receipt, false, &mut owners);
+    assert_eq!(sync.retired, [(node, Property::Fill)]);
+    assert!(!owners.owns(node, Property::Fill) && owners.owns(node, Property::Stroke));
+    // `transition: all` covers them; the wire carries them after the strokes.
+    let t = Transitions::parse("fill 1s, stroke 2s").unwrap();
+    let mut w = Writer::new();
+    w.transitions(&t);
+    assert_eq!(Reader::new(w.as_slice()).transitions().unwrap(), t);
+    assert_eq!(w.as_slice()[1], Property::Fill as u8 + 1);
 }

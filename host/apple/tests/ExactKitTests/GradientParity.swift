@@ -24,7 +24,7 @@ enum GradientParity {
             ("corner", ["background_image": g(("corner", n([1, 0])), [0, 229, 57, 53, 255, 0.5, 253, 216, 53, 255, 1, 30, 136, 229, 255])]),
             ("fade", ["background_image": g(linear(180), [0, 30, 136, 229, 0, 1, 30, 136, 229, 255])]),
             ("over", ["background_color": n([253, 216, 53, 255]), "background_image": g(linear(90), [0, 229, 57, 53, 0, 1, 229, 57, 53, 204])]),
-            ("clip", ["clip_path": .array([.array([.string("M"), n([50, 0])]), .array([.string("L"), n([100, 70])]), .array([.string("L"), n([0, 70])]), .array([.string("Z"), n([])])]),
+            ("clip", ["clip_path": .object(["rule": "nonzero", "commands": .array([.array([.string("M"), n([50, 0])]), .array([.string("L"), n([100, 70])]), .array([.string("L"), n([0, 70])]), .array([.string("Z"), n([])])])]),
                       "background_image": g(linear(90), [0, 229, 57, 53, 255, 0.5, 229, 57, 53, 255, 0.5, 30, 136, 229, 255, 1, 30, 136, 229, 255])]),
             ("radial", ["background_image": g(radial([0, 3, 50, 0, 50, 0]), [0, 253, 216, 53, 255, 1, 229, 57, 53, 255])]),
             ("circle", ["background_image": g(radial([1, 0, 30, 0, 40, 0]), [0, 255, 255, 255, 255, 0.8, 30, 136, 229, 255, 1, 0, 0, 0, 255])]),

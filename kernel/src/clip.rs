@@ -1,71 +1,62 @@
-//! CSS `clip-path`: `none` or an absolute SVG path, in CSS pixels.
-//! The parsed commands also cross the Apple batch, so presenters do not parse CSS.
+//! CSS `clip-path`: `none` or `path([<fill-rule>,]? <string>)`, in CSS
+//! pixels from the border box. The string is SVG path data in full, parsed
+//! by [`crate::vector`] (LLP 1065 D8), so presenters draw the kernel's
+//! normalized commands (absolute `M L C Z`) and parse no CSS.
+
+use crate::generated::FillRule;
+use crate::vector::{commands_css, Command, PathData};
 
 /// A validated clipping path. The initial value has no clipping.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ClipPath {
-    commands: Vec<(char, Vec<f32>)>,
+    commands: Vec<Command>,
+    rule: FillRule,
 }
 
 impl ClipPath {
-    /// Supported path commands: explicit absolute M, L, Q, C and Z.
-    /// Coordinates are finite; unsupported CSS shapes and SVG commands fail.
+    /// CSS's `path()`: an optional fill rule, then SVG path data in a quoted
+    /// string. Data with any error is refused whole, as CSS refuses the
+    /// declaration; so is data that draws nothing.
     pub fn parse(css: &str) -> Option<Self> {
         let css = css.trim();
         if css == "none" {
             return Some(Self::default());
         }
         let inner = css.strip_prefix("path(")?.strip_suffix(')')?.trim();
+        let (rule, inner) = match inner.split_once(',') {
+            Some((rule, rest)) if !rule.trim_start().starts_with(['"', '\'']) => {
+                (FillRule::from_name(rule.trim())?, rest.trim())
+            }
+            _ => (FillRule::Nonzero, inner),
+        };
         let quote = inner.chars().next()?;
         if quote != '\'' && quote != '"' {
             return None;
         }
         let data = inner.strip_prefix(quote)?.strip_suffix(quote)?;
-        let mut tokens = String::new();
-        for c in data.chars() {
-            if "MLQCZ".contains(c) {
-                tokens.push(' ');
-                tokens.push(c);
-                tokens.push(' ');
-            } else if c == ',' {
-                tokens.push(' ');
-            } else {
-                tokens.push(c);
-            }
-        }
-        let mut tokens = tokens.split_whitespace();
-        let mut commands = Vec::new();
-        while let Some(token) = tokens.next() {
-            let (command, count) = match token {
-                "M" => ('M', 2),
-                "L" => ('L', 2),
-                "Q" => ('Q', 4),
-                "C" => ('C', 6),
-                "Z" => ('Z', 0),
-                _ => return None,
-            };
-            if commands.is_empty() && command != 'M' {
-                return None;
-            }
-            let mut values = Vec::with_capacity(count);
-            for _ in 0..count {
-                let number = exact_num::parse_f32(tokens.next()?).ok()?;
-                if !number.is_finite() {
-                    return None;
-                }
-                values.push(number);
-            }
-            commands.push((command, values));
-        }
-        if commands.is_empty() {
+        if data.contains(quote) {
             return None;
         }
-        Some(Self { commands })
+        let path = PathData::parse(data);
+        if path.error().is_some() || path.commands().is_empty() {
+            return None;
+        }
+        Some(Self {
+            commands: path.commands().to_vec(),
+            rule,
+        })
     }
 
-    /// Empty for `none`; otherwise drawing commands in border-box coordinates.
-    pub fn commands(&self) -> &[(char, Vec<f32>)] {
+    /// Empty for `none`; otherwise normalized drawing commands in border-box
+    /// coordinates.
+    pub fn commands(&self) -> &[Command] {
         &self.commands
+    }
+
+    /// Which points are inside: CSS's `nonzero` unless the value said
+    /// `evenodd`.
+    pub fn rule(&self) -> FillRule {
+        self.rule
     }
 
     /// Canonical, validated CSS (also the wire representation).
@@ -73,19 +64,11 @@ impl ClipPath {
         if self.commands.is_empty() {
             return "none".into();
         }
-        use std::fmt::Write as _;
-        let mut text = String::from("path(\"");
-        for (i, (command, values)) in self.commands.iter().enumerate() {
-            if i > 0 {
-                text.push(' ');
-            }
-            text.push(*command);
-            for value in values {
-                let _ = write!(text, " {}", exact_num::Shortest32(*value));
-            }
-        }
-        text.push_str("\")");
-        text
+        let rule = match self.rule {
+            FillRule::Nonzero => "",
+            FillRule::Evenodd => "evenodd, ",
+        };
+        format!("path({rule}\"{}\")", commands_css(&self.commands))
     }
 }
 
@@ -125,9 +108,10 @@ mod tests {
     #[test]
     fn curves_round_trip_and_invalid_paths_are_refused() {
         let path = ClipPath::parse("path('M0,0 C0,10 5,18 20,18 Q14,15 14,0 Z')").unwrap();
+        // A quadratic is its exact cubic (LLP 1065 D8).
         assert_eq!(
             path.css(),
-            "path(\"M 0 0 C 0 10 5 18 20 18 Q 14 15 14 0 Z\")"
+            "path(\"M 0 0 C 0 10 5 18 20 18 C 16 16 14 10 14 0 Z\")"
         );
         assert_eq!(ClipPath::parse(&path.css()), Some(path));
         assert_eq!(ClipPath::default().css(), "none");
@@ -136,10 +120,36 @@ mod tests {
             "path('L 0 0')",
             "path('M 0 NaN')",
             "path('M 0 0 C 1 2')",
-            "path('M 0 0 z')",
+            "path('M 0 0 X')",
+            "path(inside, 'M 0 0 H 1')",
             "path('M 0 0');color:red",
         ] {
             assert!(ClipPath::parse(bad).is_none(), "{bad}");
         }
+    }
+
+    /// SVG's whole grammar, as the `path` node's `d` (LLP 1065 D8): relative
+    /// and shorthand commands, arcs, and CSS's optional fill rule.
+    #[test]
+    fn the_full_path_grammar_and_a_fill_rule() {
+        let relative = ClipPath::parse("path('m0 0 h10 v10 h-10 z')").unwrap();
+        assert_eq!(relative.css(), "path(\"M 0 0 L 10 0 L 10 10 L 0 10 Z\")");
+        assert_eq!(relative.rule(), crate::FillRule::Nonzero);
+        let arc = ClipPath::parse("path(evenodd, \"M0 10 A10 10 0 0 1 20 10 Z\")").unwrap();
+        assert_eq!(arc.rule(), crate::FillRule::Evenodd);
+        assert!(arc
+            .commands()
+            .iter()
+            .any(|c| matches!(c, crate::vector::Command::Cubic(..))));
+        assert!(
+            arc.css().starts_with("path(evenodd, \"M 0 10 C"),
+            "{}",
+            arc.css()
+        );
+        assert_eq!(ClipPath::parse(&arc.css()), Some(arc));
+        assert_eq!(
+            ClipPath::parse("path(nonzero, 'M0 0 L1 1')").unwrap().css(),
+            "path(\"M 0 0 L 1 1\")"
+        );
     }
 }

@@ -1160,9 +1160,10 @@ impl<D: DataSource> Host<D> {
                     values,
                 } => {
                     let pairs: Vec<(f64, f64)> = values.iter().map(|v| (v.x, v.y)).collect();
+                    // A stroke fraction plays as its registered number (LLP 1065).
                     batch.animate(
                         view,
-                        property.name(),
+                        property.css_name(),
                         delay * 1000.0,
                         duration * 1000.0,
                         &pairs,
@@ -1170,10 +1171,10 @@ impl<D: DataSource> Host<D> {
                     );
                 }
                 Lowered::Cancel { view, property } => {
-                    batch.animate(view, property.name(), 0.0, 0.0, &[], false);
+                    batch.animate(view, property.css_name(), 0.0, 0.0, &[], false);
                 }
                 Lowered::Retire { view, property } => {
-                    batch.retire_motion(view, property.name());
+                    batch.retire_motion(view, property.css_name());
                 }
             }
         }

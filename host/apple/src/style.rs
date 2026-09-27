@@ -76,17 +76,37 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
                 d.b(),
                 d.a()
             ),
+            // The kernel's normalized commands (LLP 1065 D8) and CSS's fill rule.
             RowValue::ClipPath(p) => {
+                use exact_kernel::vector::Command;
                 let commands: Vec<_> = p
                     .commands()
                     .iter()
-                    .map(|(command, values)| {
-                        let values = values.iter().map(|n| num(*n)).collect::<Vec<_>>().join(",");
-                        format!("[\"{command}\",[{values}]]")
+                    .map(|command| {
+                        let (letter, points): (char, Vec<[f32; 2]>) = match *command {
+                            Command::Move(p) => ('M', vec![p]),
+                            Command::Line(p) => ('L', vec![p]),
+                            Command::Cubic(a, b, p) => ('C', vec![a, b, p]),
+                            Command::Close => ('Z', Vec::new()),
+                        };
+                        let values: Vec<String> = points
+                            .iter()
+                            .flat_map(|[x, y]| [num(*x), num(*y)])
+                            .collect();
+                        format!("[\"{letter}\",[{}]]", values.join(","))
                     })
                     .collect();
-                format!("[{}]", commands.join(","))
+                format!(
+                    "{{\"rule\":\"{}\",\"commands\":[{}]}}",
+                    p.rule().name(),
+                    commands.join(",")
+                )
             }
+            // @ref LLP 1065 — the dashes, in the path's units.
+            RowValue::DashArray(d) => format!(
+                "[{}]",
+                d.0.iter().map(|n| num(*n)).collect::<Vec<_>>().join(",")
+            ),
             RowValue::BackgroundImage(g) => match g.gradient() {
                 Some(g) => gradient_json(g),
                 None => continue, // `none`: nothing to paint

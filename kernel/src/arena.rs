@@ -851,6 +851,10 @@ mod tests {
             (StyleId::StrokeWidth, number(4.0)),
             (StyleId::StrokeLinecap, text("round")),
             (StyleId::StrokeLinejoin, text("bevel")),
+            (StyleId::FillRule, text("evenodd")),
+            (StyleId::StrokeMiterlimit, number(9.0)),
+            (StyleId::StrokeDasharray, text("4 2")),
+            (StyleId::StrokeDashoffset, number(3.0)),
         ];
         let mut covered = StyleMask::EMPTY;
         for (id, value) in samples {

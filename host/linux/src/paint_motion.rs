@@ -1,7 +1,8 @@
 //! Paint motion on the Linux host (LLP 1062): the engine samples colours and
 //! the shadow like any property; the painter paints a presented value over
 //! its row while the two differ. An animating `color` also reaches the views
-//! that inherit it, as a browser's inheriting element shows it.
+//! that inherit it, as a browser's inheriting element shows it; so do a
+//! path's inherited `fill` and `stroke` (LLP 1065).
 
 use super::Host;
 use exact_kernel::motion::{motion_node, MotionSync};
@@ -36,10 +37,7 @@ impl<D: DataSource> Host<D> {
 
     fn apply_paint(&mut self, sync: MotionSync) {
         for (node, property) in &sync.retired {
-            let views = match *property {
-                Property::Color => self.inheritors_of(*node),
-                _ => Vec::new(),
-            };
+            let views = self.inheritors_of(*node, *property);
             let own = self.keys.get(&node_key(*node)).copied();
             for view in own.into_iter().chain(views) {
                 self.paint_over(view, *property, None);
@@ -76,9 +74,7 @@ impl<D: DataSource> Host<D> {
             .copied()
             .into_iter()
             .collect();
-        if p.property == Property::Color {
-            views.extend(self.inheritors_of(p.node));
-        }
+        views.extend(self.inheritors_of(p.node, p.property));
         for view in views {
             self.paint_over(view, p.property, value);
         }
@@ -90,9 +86,16 @@ impl<D: DataSource> Host<D> {
         entry.paint.set(property, value);
     }
 
-    /// The views below `node` whose `color` is `node`'s: no own row on the
-    /// way, and no paint motion of their own.
-    fn inheritors_of(&self, node: u64) -> Vec<ViewId> {
+    /// The views below `node` whose `property` is `node`'s, when it is an
+    /// inherited one (`color`, `fill`, `stroke`): no own row on the way, and
+    /// no paint motion of their own.
+    fn inheritors_of(&self, node: u64, property: Property) -> Vec<ViewId> {
+        let row = match property {
+            Property::Color => StyleId::TextColor,
+            Property::Fill => StyleId::Fill,
+            Property::Stroke => StyleId::Stroke,
+            _ => return Vec::new(),
+        };
         let kernel = self.runner.kernel();
         let Some(source) = kernel.node_by_key(node_key(node)) else {
             return Vec::new();
@@ -103,10 +106,7 @@ impl<D: DataSource> Host<D> {
             let Some(child) = kernel.node(id) else {
                 continue;
             };
-            if child.style.mask.has(StyleId::TextColor)
-                || self
-                    .paint_owners
-                    .owns(motion_node(child.key), Property::Color)
+            if child.style.mask.has(row) || self.paint_owners.owns(motion_node(child.key), property)
             {
                 continue;
             }

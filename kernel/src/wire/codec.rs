@@ -9,7 +9,7 @@ use crate::error::DecodeError;
 use crate::generated::{StyleId, StyleMask, STYLE_MASK_WORDS};
 use crate::style::{
     Animations, Color, ColorValue, Dimension, Edge, GridLine, GridPlacement, GridTrack, GridTracks,
-    Transitions, Vec2, MAX_GRID_TRACKS,
+    Paint, Transitions, Vec2, MAX_GRID_TRACKS,
 };
 use exact_motion::easing::MAX_LINEAR_STOPS;
 use exact_motion::{
@@ -214,6 +214,17 @@ impl<'a> Reader<'a> {
         match self.u8()? {
             0 => Ok(None),
             1 => self.color_value().map(Some),
+            other => Err(DecodeError::BadColorValue(other)),
+        }
+    }
+
+    /// Read SVG `<paint>` (LLP 1065): tag 0 `none`, 1 a colour follows,
+    /// 2 `currentcolor`.
+    pub fn paint(&mut self) -> Result<Paint, DecodeError> {
+        match self.u8()? {
+            0 => Ok(Paint::None),
+            1 => self.color_value().map(Paint::Color),
+            2 => Ok(Paint::CurrentColor),
             other => Err(DecodeError::BadColorValue(other)),
         }
     }
@@ -644,6 +655,18 @@ impl Writer {
         self.u8(u8::from(c.is_some()));
         if let Some(c) = c {
             self.color_value(c);
+        }
+    }
+
+    /// Append SVG `<paint>` ([`Reader::paint`]).
+    pub fn paint(&mut self, p: Paint) {
+        match p {
+            Paint::None => self.u8(0),
+            Paint::Color(c) => {
+                self.u8(1);
+                self.color_value(c);
+            }
+            Paint::CurrentColor => self.u8(2),
         }
     }
 

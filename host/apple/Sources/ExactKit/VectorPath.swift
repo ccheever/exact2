@@ -1,8 +1,123 @@
 // A `path` node's geometry and paint (LLP 1065), shared by UIKit and AppKit: the
 // kernel's normalized path data (absolute M, L, C, Z — the host parses no
-// SVG) and SVG's `xMidYMid meet` fit of a view box into a box.
+// SVG), SVG's `preserveAspectRatio` fit of a view box into a box, and the
+// shape layers that draw it.
 import CoreGraphics
 import QuartzCore
+
+/// A shape layer Core Animation never animates on its own: the engine is the
+/// only clock, and a sublayer (unlike a view's backing layer) would otherwise
+/// ease every change.
+final class StillShapeLayer: CAShapeLayer {
+    override func action(forKey event: String) -> CAAction? { nil }
+}
+
+/// A path's layers, hosted in its view's layer. `shape` fills, and strokes
+/// between `strokeStart` and `strokeEnd`, which Core Animation measures
+/// across the subpaths in order, as the web's split strokes do. A dashed
+/// stroke is `dashes` instead: the whole path dashed as SVG dashes it,
+/// masked by `reveal`, the trimmed undashed stroke, so the trim reveals the
+/// dashes and never moves them (Core Animation's own dashing of a trimmed
+/// path restarts at its start). The view box's fit is the layers'
+/// transform (the mask shares its layer's), so a stroke scales with it — unevenly under
+/// `preserveAspectRatio="none"`, as SVG's does; a non-scaling stroke's path
+/// is mapped into the box instead, and its width and dashes stay pixels.
+final class VectorLayers {
+    let shape = StillShapeLayer()
+    let dashes = StillShapeLayer()
+    let reveal = StillShapeLayer()
+    private var data: String?
+    private var unit: CGPath?
+    private var viewBox: CGRect?
+    private var aspect = "xMidYMid meet"
+    private var nonScaling = false
+
+    init(in host: CALayer) {
+        host.masksToBounds = true // SVG clips a path to its viewport
+        host.addSublayer(shape)
+        host.addSublayer(dashes)
+        dashes.fillColor = nil
+        dashes.mask = reveal
+        reveal.fillColor = nil
+        reveal.strokeColor = CGColor(gray: 0, alpha: 1)
+        for layer in [shape, dashes, reveal] { layer.anchorPoint = .zero }
+    }
+
+    /// A view taken for a new node starts at identity strokes, as every
+    /// presentation does (`NodePool.rebind`).
+    func reset() { for layer in [shape, reveal] { layer.strokeStart = 0; layer.strokeEnd = 1 } }
+
+    /// A `present` op: the engine's value for this frame.
+    func present(_ property: String, _ value: CGFloat) {
+        let v = min(max(value, 0), 1)
+        for layer in [shape, reveal] {
+            if property == "stroke-start" { layer.strokeStart = v } else { layer.strokeEnd = v }
+        }
+    }
+
+    /// SVG's painting rows onto the layers. Absent is the initial value (the
+    /// host sends only what differs): fill black, stroke none, nonzero, butt
+    /// caps, miter joins, miter limit 4, no dashes. `none` and
+    /// `currentcolor` cross as strings; a moving colour is `owner.paint`'s
+    /// (LLP 1062), which `channels` reads first.
+    func restyle(_ owner: NodeView, dark: Bool, props: [String: String]) {
+        let style = owner.style
+        if props["pathData"] != data {
+            data = props["pathData"]
+            unit = VectorPath.path(data)
+        }
+        viewBox = VectorPath.viewBox(props["viewBox"])
+        aspect = props["preserveAspectRatio"] ?? "xMidYMid meet"
+        nonScaling = style["vector_effect"]?.string == "non-scaling-stroke"
+        func paint(_ key: String, _ initial: CGColor?) -> CGColor? {
+            let color = { (c: [Double]) in TextEngine.color(c).cgColor }
+            if let moving = owner.paint[key] { return color(moving) }
+            switch style[key] {
+            case nil: return initial
+            case .string("currentcolor")?: return owner.channels("text_color", dark: dark).map(color)
+            case let value?: return value.channels(dark: dark).map(color) // `none` is no colour
+            }
+        }
+        shape.fillColor = paint("fill", CGColor(gray: 0, alpha: 1))
+        shape.fillRule = style["fill_rule"]?.string == "evenodd" ? .evenOdd : .nonZero
+        let pattern = (style["stroke_dasharray"]?.numbers ?? []).map { NSNumber(value: $0) }
+        let dashed = pattern.contains { $0.doubleValue > 0 }
+        let stroke = paint("stroke", nil)
+        shape.strokeColor = dashed ? nil : stroke
+        dashes.strokeColor = dashed ? stroke : nil
+        // An odd list repeats, as SVG's does.
+        dashes.lineDashPattern = dashed ? (pattern.count % 2 == 1 ? pattern + pattern : pattern) : nil
+        dashes.lineDashPhase = CGFloat(style["stroke_dashoffset"]?.number ?? 0)
+        let cap: CAShapeLayerLineCap = switch style["stroke_linecap"]?.string {
+        case "round": .round
+        case "square": .square
+        default: .butt
+        }
+        let join: CAShapeLayerLineJoin = switch style["stroke_linejoin"]?.string {
+        case "round": .round
+        case "bevel": .bevel
+        default: .miter
+        }
+        for layer in [shape, dashes, reveal] {
+            layer.lineCap = cap
+            layer.lineJoin = join
+            layer.miterLimit = CGFloat(style["stroke_miterlimit"]?.number ?? 4)
+            layer.lineWidth = CGFloat(style["stroke_width"]?.number ?? 1)
+        }
+    }
+
+    /// The view box fitted into `size`: the layers' transform, or for a
+    /// non-scaling stroke the path itself.
+    func place(_ host: CALayer, in size: CGSize) {
+        let fit = VectorPath.fit(viewBox, aspect: aspect, in: size)
+        var t = nonScaling ? fit : .identity
+        let path = unit?.copy(using: &t)
+        // About each layer's own origin (anchor zero): a host layer's
+        // `sublayerTransform` turns about its centre on UIKit.
+        for layer in [shape, dashes] { layer.setAffineTransform(nonScaling ? .identity : fit) }
+        for layer in [shape, dashes, reveal] { layer.path = path }
+    }
+}
 
 enum VectorPath {
     /// `M x y L x y C x1 y1 x2 y2 x y Z …`, as `exact_kernel::vector` writes it.
@@ -38,46 +153,23 @@ enum VectorPath {
         return CGRect(x: n[0], y: n[1], width: n[2], height: n[3])
     }
 
-    /// SVG's painting rows onto a shape layer. Absent is the initial value
-    /// (the host sends only what differs): fill black, stroke none, butt
-    /// caps, miter joins, miter limit 4. `none` crosses as a string. Returns
-    /// the stroke width, in path units.
-    static func paint(_ shape: CAShapeLayer, _ style: NodeStyle, dark: Bool) -> CGFloat {
-        func paint(_ key: String, _ initial: CGColor?) -> CGColor? {
-            guard let value = style[key] else { return initial }
-            return value.channels(dark: dark).map { TextEngine.color($0).cgColor }
-        }
-        shape.fillColor = paint("fill", CGColor(gray: 0, alpha: 1))
-        shape.strokeColor = paint("stroke", nil)
-        switch style["stroke_linecap"]?.string {
-        case "round": shape.lineCap = .round
-        case "square": shape.lineCap = .square
-        default: shape.lineCap = .butt
-        }
-        switch style["stroke_linejoin"]?.string {
-        case "round": shape.lineJoin = .round
-        case "bevel": shape.lineJoin = .bevel
-        default: shape.lineJoin = .miter
-        }
-        shape.miterLimit = 4
-        return CGFloat(style["stroke_width"]?.number ?? 1)
-    }
-
-    /// The path fitted into `size`, its stroke width scaled with it.
-    static func place(_ shape: CAShapeLayer, _ unit: CGPath?, viewBox: CGRect?, width: CGFloat, in size: CGSize) {
-        var t = fit(viewBox, in: size)
-        shape.path = unit?.copy(using: &t)
-        shape.lineWidth = width * sqrt(abs(t.a * t.d - t.b * t.c))
-    }
-
-    /// The view box's user space in a box of `size`: uniform scale, centred.
-    /// No view box is the identity — path units are points.
-    static func fit(_ viewBox: CGRect?, in size: CGSize) -> CGAffineTransform {
+    /// The view box's user space in a box of `size` by SVG's
+    /// `preserveAspectRatio` — `none`, or `x{Min,Mid,Max}Y{Min,Mid,Max}`
+    /// then `meet` or `slice`, as the Rust host writes it canonically. No
+    /// view box is the identity: path units are points.
+    static func fit(_ viewBox: CGRect?, aspect: String = "xMidYMid meet", in size: CGSize) -> CGAffineTransform {
         guard let v = viewBox else { return .identity }
-        let scale = max(0, min(size.width / v.width, size.height / v.height))
-        return CGAffineTransform(
-            translationX: (size.width - v.width * scale) / 2 - v.minX * scale,
-            y: (size.height - v.height * scale) / 2 - v.minY * scale
-        ).scaledBy(x: scale, y: scale)
+        var sx = max(0, size.width / v.width), sy = max(0, size.height / v.height)
+        let words = aspect.split(separator: " ")
+        guard let align = words.first, align != "none", align.count == 8 else {
+            return CGAffineTransform(a: sx, b: 0, c: 0, d: sy, tx: -v.minX * sx, ty: -v.minY * sy)
+        }
+        let scale = words.last == "slice" ? max(sx, sy) : min(sx, sy)
+        (sx, sy) = (scale, scale)
+        func at(_ name: Substring) -> CGFloat { name == "Min" ? 0 : name == "Mid" ? 0.5 : 1 }
+        let x = at(align.dropFirst(1).prefix(3)), y = at(align.dropFirst(5).prefix(3))
+        return CGAffineTransform(a: sx, b: 0, c: 0, d: sy,
+                                 tx: (size.width - v.width * sx) * x - v.minX * sx,
+                                 ty: (size.height - v.height * sy) * y - v.minY * sy)
     }
 }

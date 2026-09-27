@@ -294,6 +294,9 @@ impl Kernel {
     /// computed value — `light-dark()` resolved by `dark`, `currentcolor`
     /// borders as the computed `color`, the shadow's opacity in its alpha.
     /// A node that names none owns no paint motion: its host paints style.
+    /// A path's `fill` or `stroke` of `none` is no target: SVG's `<paint>`
+    /// interpolates only colour to colour, so owning it ends there and the
+    /// next colour is taken as it is (LLP 1065).
     pub fn paint_targets(&self, key: NodeKey, dark: bool) -> Vec<(Property, Value)> {
         let Some(node) = self.node_by_key(key) else {
             return Vec::new();
@@ -314,8 +317,10 @@ impl Kernel {
         Property::PAINT
             .into_iter()
             .filter(|p| named(*p))
-            .map(|p| {
+            .filter_map(|p| {
                 let value = match p {
+                    Property::Fill => color(node.paint(StyleId::Fill)?, dark),
+                    Property::Stroke => color(node.paint(StyleId::Stroke)?, dark),
                     Property::BackgroundColor => color(s.background_color, dark),
                     Property::Color => color(text, dark),
                     Property::BorderTopColor => color(top, dark),
@@ -331,7 +336,7 @@ impl Kernel {
                     ),
                     _ => Value::rgba(unit(shadow.r()), unit(shadow.g()), unit(shadow.b()), alpha),
                 };
-                (p, value)
+                Some((p, value))
             })
             .collect()
     }

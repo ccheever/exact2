@@ -48,6 +48,8 @@ pub enum DecodeError {
     BadAspectRatio,
     /// Invalid or unsupported CSS `background-image` value (LLP 1056).
     BadBackgroundImage,
+    /// Invalid SVG `stroke-dasharray` (LLP 1065).
+    BadDashArray,
     /// The frame revision is not one this kernel reads.
     UnsupportedRevision(u16),
     /// The producer was generated from a different schema than this kernel.
@@ -420,6 +422,10 @@ pub enum StyleValueError {
     },
     /// Not `none` or one gradient this kernel draws (LLP 1056).
     BadBackgroundImage {
+        style: StyleId,
+    },
+    /// Not SVG `stroke-dasharray`: `none` or nonnegative numbers (LLP 1065).
+    BadDashArray {
         style: StyleId,
     },
     /// Not one outer CSS `box-shadow` exact2 draws; `reason` names what.

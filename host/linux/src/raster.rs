@@ -647,9 +647,40 @@ impl Backend for Raster {
     }
 
     fn vector(&mut self, v: &crate::paint::VectorPaint, ts: Transform) {
-        use exact_kernel::{StrokeLinecap, StrokeLinejoin};
-        let dev = self.device(ts).pre_concat(v.fit);
-        let mask = self.clips.last().cloned();
+        use exact_kernel::{FillRule as Rule, StrokeLinecap, StrokeLinejoin};
+        let (dev, stroke_dev) = (
+            self.device(ts).pre_concat(v.fit),
+            self.device(ts).pre_concat(v.stroke_fit),
+        );
+        let clip = self.clips.last().cloned();
+        let stroke = Stroke {
+            width: v.width,
+            miter_limit: v.miter,
+            line_cap: match v.cap {
+                StrokeLinecap::Butt => tiny_skia::LineCap::Butt,
+                StrokeLinecap::Round => tiny_skia::LineCap::Round,
+                StrokeLinecap::Square => tiny_skia::LineCap::Square,
+            },
+            line_join: match v.join {
+                StrokeLinejoin::Miter => tiny_skia::LineJoin::Miter,
+                StrokeLinejoin::Round => tiny_skia::LineJoin::Round,
+                StrokeLinejoin::Bevel => tiny_skia::LineJoin::Bevel,
+            },
+            dash: None,
+        };
+        // A dashed stroke shows through its trimmed, undashed stroke.
+        let reveal = v.reveal.as_deref().and_then(vector_path).and_then(|path| {
+            let outline = path.stroke(
+                &stroke,
+                tiny_skia::PathStroker::compute_resolution_scale(&stroke_dev),
+            )?;
+            let mut mask = self.new_clip_mask()?;
+            mask.fill_path(&outline, FillRule::Winding, true, stroke_dev);
+            if let Some(parent) = &clip {
+                intersect_mask(&mut mask, parent, &outline, stroke_dev);
+            }
+            Some(mask)
+        });
         let Some(target) = self.target.as_mut() else {
             return;
         };
@@ -658,32 +689,19 @@ impl Backend for Raster {
             .as_ref()
             .and_then(|(c, d)| Some((c, vector_path(d)?)))
         {
-            target.fill_path(
-                &path,
-                &solid(*color),
-                FillRule::Winding,
-                dev,
-                mask.as_deref(),
-            );
+            let rule = match v.rule {
+                Rule::Nonzero => FillRule::Winding,
+                Rule::Evenodd => FillRule::EvenOdd,
+            };
+            target.fill_path(&path, &solid(*color), rule, dev, clip.as_deref());
         }
         let stroked = v.stroke.as_ref().filter(|_| v.width > 0.0);
         if let Some((color, path)) = stroked.and_then(|(c, d)| Some((c, vector_path(d)?))) {
-            let stroke = Stroke {
-                width: v.width,
-                miter_limit: 4.0,
-                line_cap: match v.cap {
-                    StrokeLinecap::Butt => tiny_skia::LineCap::Butt,
-                    StrokeLinecap::Round => tiny_skia::LineCap::Round,
-                    StrokeLinecap::Square => tiny_skia::LineCap::Square,
-                },
-                line_join: match v.join {
-                    StrokeLinejoin::Miter => tiny_skia::LineJoin::Miter,
-                    StrokeLinejoin::Round => tiny_skia::LineJoin::Round,
-                    StrokeLinejoin::Bevel => tiny_skia::LineJoin::Bevel,
-                },
-                dash: None,
-            };
-            target.stroke_path(&path, &solid(*color), &stroke, dev, mask.as_deref());
+            if v.reveal.is_some() && reveal.is_none() {
+                return; // nothing of the trim is visible
+            }
+            let mask = reveal.as_ref().or(clip.as_deref());
+            target.stroke_path(&path, &solid(*color), &stroke, stroke_dev, mask);
         }
     }
 
@@ -876,24 +894,18 @@ impl Backend for Raster {
     }
 
     fn push_css_clip(&mut self, path: &exact_kernel::clip::ClipPath, ts: Transform) -> bool {
-        let mut b = PathBuilder::new();
-        for (op, v) in path.commands() {
-            match op {
-                'M' => b.move_to(v[0], v[1]),
-                'L' => b.line_to(v[0], v[1]),
-                'Q' => b.quad_to(v[0], v[1], v[2], v[3]),
-                'C' => b.cubic_to(v[0], v[1], v[2], v[3], v[4], v[5]),
-                'Z' => b.close(),
-                _ => unreachable!("validated CSS path"),
-            }
-        }
-        let Some(path) = b.finish() else {
+        let path_rule = path.rule();
+        let Some(path) = vector_path(path.commands()) else {
             return false;
         };
         let Some(mut mask) = Mask::new(self.width, self.height) else {
             return false;
         };
-        mask.fill_path(&path, FillRule::Winding, true, self.device(ts));
+        let rule = match path_rule {
+            exact_kernel::FillRule::Nonzero => FillRule::Winding,
+            exact_kernel::FillRule::Evenodd => FillRule::EvenOdd,
+        };
+        mask.fill_path(&path, rule, true, self.device(ts));
         if let Some(parent) = self.clips.last() {
             intersect_mask(&mut mask, parent, &path, self.device(ts));
         }

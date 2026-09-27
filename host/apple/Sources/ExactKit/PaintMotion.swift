@@ -15,6 +15,8 @@ extension NodeView {
         paint[key] = value
         switch key {
         case "text_color":
+            // A path's `currentcolor` paint follows it (LLP 1065).
+            PathView.of(self)?.restyle()
             // The paragraph's pixels carry their colour: a new raster.
             invalidateText()
             field?.textColor = color("text_color", .black)
@@ -23,6 +25,9 @@ extension NodeView {
             #else
             needsDisplay = true
             #endif
+        case "fill", "stroke":
+            // A path's paint (LLP 1065): its layers, not the box.
+            PathView.of(self)?.restyle()
         case "tint_color":
             #if os(iOS)
             symbolView?.tintColor = color("tint_color", .black)

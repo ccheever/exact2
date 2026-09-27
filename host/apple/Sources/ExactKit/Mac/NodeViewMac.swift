@@ -205,7 +205,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var liveText: String?
     var props: [String: String] = [:] { didSet { presenter?.propsChanged(self) } }
     var style: NodeStyle = [:]
-    var clipPath: CGPath?
+    var clipPath: CGPath?, clipRule = CGPathFillRule.winding
     var handlers: Set<String> = []
     var translate = CGPoint.zero, layoutOffset = CGPoint.zero // layoutOffset: where layout moved it from (LLP 1063)
     var arrangeShift = CGPoint.zero
@@ -799,7 +799,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// without them, and then the canvas itself is the hit.
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !inert, !isHiddenOrHasHiddenAncestor, placedAncestor?.placementHidden != true else { return nil }
-        if let clipPath, !clipPath.contains(convert(point, from: superview)) { return nil }
+        if let clipPath, !clipPath.contains(convert(point, from: superview), using: clipRule) { return nil }
         if isSurfaceControl, bounds.contains(convert(point, from: superview)) { return self }
         func ordinary() -> NSView? {
             let hit = super.hitTest(point)
@@ -1097,11 +1097,11 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             || number("border_width_left", uniformBorder) > 0
         layerContentsRedrawPolicy = kind != "text" && wantsUpdateLayer ? .onSetNeedsDisplay : .duringViewResize
         updateSymbol()
-        clipPath = ClipPath.path(s["clip_path"])
+        (clipPath, clipRule) = (ClipPath.path(s["clip_path"]), ClipPath.rule(s["clip_path"]))
         // Inline text is unmounted run data. Its containing paragraph owns
         // the backing store; create this node's layer only when it mounts.
         if kind != "text" || superview != nil { wantsLayer = true }
-        layer?.mask = ClipPath.mask(clipPath)
+        layer?.mask = ClipPath.mask(clipPath, clipRule)
         // Scrolling and clipping come from the effective overflow the host
         // wrote in (never from the node's kind): `scroll` on an axis makes a
         // scroll container that scrolls that axis; `hidden` clips.
@@ -1195,7 +1195,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         guard kind == "text" else { return }
         wantsLayer = true
         applyShadow()
-        layer?.mask = ClipPath.mask(clipPath)
+        layer?.mask = ClipPath.mask(clipPath, clipRule)
         layer?.zPosition = number("z_index")
         applyTransform()
     }

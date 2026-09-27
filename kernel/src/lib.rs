@@ -64,7 +64,7 @@ pub use sorted::{SortedMap, SortedSet};
 pub use style::Animations;
 pub use style::{
     uses_env, BoxShadow, Color, ColorValue, Dimension, Edge, Env, GridLine, GridPlacement,
-    GridTrack, GridTracks, LineHeight, RowValue, StyleValue, Transitions, Vec2,
+    GridTrack, GridTracks, LineHeight, Paint, RowValue, StyleValue, Transitions, Vec2,
 };
 pub use text::{
     Markup, MonospaceMeasurer, ParagraphStamp, TextMeasureRequest, TextMeasurer, TextMetrics,

@@ -17,7 +17,10 @@ use crate::generated::{
     StyleProps,
 };
 
+mod paint;
 mod shadow;
+pub use crate::vector::DashArray;
+pub use paint::Paint;
 pub use shadow::BoxShadow;
 
 /// Largest grid track list the closed grammar carries.
@@ -555,6 +558,17 @@ impl StyleValue {
     }
 
     /// A colour keyword remains distinct from transparent paint.
+    /// SVG `<paint>`: `none`, `currentcolor` (any case), or a colour.
+    pub(crate) fn paint(&self, style: StyleId) -> Result<Paint, StyleValueError> {
+        match self {
+            StyleValue::Text(t) if t.trim().eq_ignore_ascii_case("none") => Ok(Paint::None),
+            StyleValue::Text(t) if t.trim().eq_ignore_ascii_case("currentcolor") => {
+                Ok(Paint::CurrentColor)
+            }
+            _ => self.color_value(style).map(Paint::Color),
+        }
+    }
+
     pub(crate) fn keyword_color(
         &self,
         style: StyleId,
@@ -824,6 +838,8 @@ pub enum RowValue<'a> {
     AspectRatio(&'a crate::ratio::AspectRatio),
     /// CSS `background-image`: `none` or one gradient (LLP 1056).
     BackgroundImage(&'a crate::gradient::BackgroundImage),
+    /// SVG `stroke-dasharray` (LLP 1065).
+    DashArray(&'a crate::vector::DashArray),
     /// A dimension.
     Dimension(Dimension),
     /// A number (`f32`, `u8`, `u16`, `u32`, `i32` rows).
@@ -862,6 +878,7 @@ impl RowValue<'_> {
             RowValue::Transitions(v) => v.is_finite(),
             RowValue::Animations(v) => v.is_finite(),
             RowValue::ClipPath(_)
+            | RowValue::DashArray(_)
             | RowValue::ShapeOutside(_)
             | RowValue::AspectRatio(_)
             | RowValue::BackgroundImage(_)

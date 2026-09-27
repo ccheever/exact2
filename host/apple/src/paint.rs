@@ -15,7 +15,8 @@
 //! every owner, which transitions as a browser's computed value does.
 //!
 //! `color` is inherited: a view that inherits an animating node's colour
-//! paints the same presented value, as a browser's inheriting element does.
+//! paints the same presented value, as a browser's inheriting element does;
+//! so are a path's `fill` and `stroke` (LLP 1065).
 //!
 //! [`Kernel::paint_sync`]: exact_kernel::Kernel::paint_sync
 
@@ -34,8 +35,9 @@ pub(super) struct Paint {
     /// The appearance the presenter last reported; `None` before its first
     /// report, which snaps instead of transitioning.
     dark: Option<bool>,
-    /// Views painting an animating node's `color` they inherit, by that node.
-    inheritors: BTreeMap<u64, Vec<ViewId>>,
+    /// Views painting an animating node's `color`, `fill` or `stroke` they
+    /// inherit, by that node and property.
+    inheritors: BTreeMap<(u64, Property), Vec<ViewId>>,
 }
 
 /// The presenter's style key for a paint property's presented value.
@@ -49,7 +51,20 @@ fn style_key(property: Property) -> &'static str {
         Property::BorderLeftColor => "border_color_left",
         Property::TintColor => "tint_color",
         Property::BoxShadow => "shadow_geometry",
+        Property::Fill => "fill",
+        Property::Stroke => "stroke",
         _ => "shadow_color",
+    }
+}
+
+/// The row an inherited paint property is set by: `color`, and a path's
+/// `fill` and `stroke` (LLP 1065). Others do not inherit.
+fn inherited_row(property: Property) -> Option<StyleId> {
+    match property {
+        Property::Color => Some(StyleId::TextColor),
+        Property::Fill => Some(StyleId::Fill),
+        Property::Stroke => Some(StyleId::Stroke),
+        _ => None,
     }
 }
 
@@ -79,9 +94,8 @@ impl<D: DataSource> Host<D> {
             .kernel()
             .paint_sync(receipt, dark, &mut self.paint.owners);
         for key in &receipt.destroyed {
-            self.paint
-                .inheritors
-                .remove(&exact_kernel::motion::motion_node(*key));
+            let node = exact_kernel::motion::motion_node(*key);
+            self.paint.inheritors.retain(|(n, _), _| *n != node);
         }
         self.apply_paint(sync, batch);
     }
@@ -103,10 +117,13 @@ impl<D: DataSource> Host<D> {
             if let Some(view) = self.keys.get(&node_key(*node)).copied() {
                 batch.unpresent(view, style_key(*property));
             }
-            if *property == Property::Color {
-                for view in self.paint.inheritors.remove(node).unwrap_or_default() {
-                    batch.unpresent(view, "text_color");
-                }
+            for view in self
+                .paint
+                .inheritors
+                .remove(&(*node, *property))
+                .unwrap_or_default()
+            {
+                batch.unpresent(view, style_key(*property));
             }
         }
         let applied = sync.apply(&mut self.engine);
@@ -153,29 +170,34 @@ impl<D: DataSource> Host<D> {
                 false => batch.present4(view, style_key(p.property), channels(&p)),
             }
         }
-        if p.property != Property::Color {
+        let Some(row) = inherited_row(p.property) else {
             return;
-        }
+        };
+        let key = style_key(p.property);
         let now = if settled {
             Vec::new()
         } else {
-            self.inheritors_of(p.node)
+            self.inheritors_of(p.node, p.property, row)
         };
-        let before = self.paint.inheritors.remove(&p.node).unwrap_or_default();
+        let before = self
+            .paint
+            .inheritors
+            .remove(&(p.node, p.property))
+            .unwrap_or_default();
         for view in before.iter().filter(|v| !now.contains(v)) {
-            batch.unpresent(*view, "text_color");
+            batch.unpresent(*view, key);
         }
         for view in &now {
-            batch.present4(*view, "text_color", channels(&p));
+            batch.present4(*view, key, channels(&p));
         }
         if !now.is_empty() {
-            self.paint.inheritors.insert(p.node, now);
+            self.paint.inheritors.insert((p.node, p.property), now);
         }
     }
 
-    /// The views below `node` whose `color` is `node`'s: no own row on the
-    /// way, and no paint motion of their own.
-    fn inheritors_of(&self, node: u64) -> Vec<ViewId> {
+    /// The views below `node` whose `property` is `node`'s: no own `row` on
+    /// the way, and no paint motion of their own.
+    fn inheritors_of(&self, node: u64, property: Property, row: StyleId) -> Vec<ViewId> {
         let kernel = self.runner.kernel();
         let Some(source) = kernel.node_by_key(node_key(node)) else {
             return Vec::new();
@@ -187,9 +209,7 @@ impl<D: DataSource> Host<D> {
                 continue;
             };
             let n = exact_kernel::motion::motion_node(child.key);
-            if child.style.mask.has(StyleId::TextColor)
-                || self.paint.owners.owns(n, Property::Color)
-            {
+            if child.style.mask.has(row) || self.paint.owners.owns(n, property) {
                 continue;
             }
             if !self.inline_runs.contains_key(&id) {

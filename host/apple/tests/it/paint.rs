@@ -163,3 +163,64 @@ fn a_light_dark_keyframe_follows_the_presenter_appearance() {
         );
     }
 }
+
+/// A path's `fill` and `stroke` are paint motion's (LLP 1065): presented
+/// over their rows under the dictionary's own keys, reaching a path that
+/// inherits them; `none` is discrete, so moving to it retires the motion.
+#[test]
+fn a_paths_fill_and_stroke_move_as_colours() {
+    let src = r##"component App
+  state on = false
+  action toggle writes on
+    on = not on
+  view
+    column
+      button press=toggle testId="toggle"
+        text "Go"
+      column testId="group" stroke=(on ? "#0000ff" : "#ff0000") transition="stroke 1s linear"
+        path testId="child" d="M0 0 H10" width=10 height=10
+      path testId="own" d="M0 0 H10" width=10 height=10 fill=(on ? "#00ff00" : "#000000") transition="fill 1s linear"
+      path testId="gone" d="M0 0 H10" width=10 height=10 fill=(on ? "none" : "#000000") transition="fill 1s linear"
+"##;
+    let plan = contract::compile(src).unwrap();
+    let (mut host, _) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.0,
+        874.0,
+    )
+    .unwrap();
+    let (toggle, group, child, own, gone) = (
+        view(&host, "toggle"),
+        view(&host, "group"),
+        view(&host, "child"),
+        view(&host, "own"),
+        view(&host, "gone"),
+    );
+    host.dispatch_at(toggle, Event::Press, 0.0);
+    let mid = host.tick(500.0);
+    let fill = paint(&mid, own, "fill").unwrap();
+    assert!(
+        fill.contains("\"x\":0,\"y\":127.5,\"w\":0,\"h\":255"),
+        "{fill}"
+    );
+    // The inheriting path paints the group's moving stroke.
+    for id in [group, child] {
+        let stroke = paint(&mid, id, "stroke").unwrap();
+        assert!(
+            stroke.contains("\"x\":127.5,\"y\":0,\"w\":127.5"),
+            "{stroke}"
+        );
+    }
+    assert_eq!(
+        paint(&mid, gone, "fill"),
+        None,
+        "to `none` is no transition"
+    );
+    let done = host.tick(1000.0);
+    for (id, key) in [(own, "fill"), (child, "stroke")] {
+        let op = paint(&done, id, key).unwrap();
+        assert!(op.starts_with("\"unpresent\""), "{op}");
+    }
+}

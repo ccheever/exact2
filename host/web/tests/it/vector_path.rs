@@ -108,3 +108,94 @@ fn painting_and_the_stroke_fractions_are_css_the_browser_animates() {
     // Only the style changed: the markup is not rebuilt.
     assert!(!signed.contains("pathMarkup"), "{signed}");
 }
+
+fn boot_source(src: &str) -> (Host<NoData>, String) {
+    let plan = contract::compile(src).unwrap();
+    exact_web::link(exact_web_capabilities::ALL);
+    Host::boot(&plan.encode(), NoData, Default::default(), "/").unwrap()
+}
+
+/// A `spring()` on a stroke fraction is lowered to frames of its registered
+/// number, as one on `opacity` is (LLP 1002 D2, LLP 1065): the value no
+/// longer jumps on the web.
+#[test]
+fn a_spring_on_a_stroke_fraction_is_lowered_to_frames() {
+    let (mut host, _) = boot_source(
+        "component App\n  state on = false\n  action go writes on\n    on = true\n  view\n    column\n      button press=go testId=\"go\"\n        text \"Go\"\n      path testId=\"p\" d=\"M0 0 H10\" stroke=\"#000\" width=10 height=10 stroke-end=(on ? 1 : 0) transition=\"stroke-end spring(170, 26, 1)\"\n",
+    );
+    let k = host.runner().kernel();
+    let go = k.node_by_key(k.find_by_test_id("go")[0]).unwrap().id;
+    let batch = host.dispatch(go, Event::Press);
+    assert!(
+        batch.contains("\"op\":\"animate\"")
+            && batch.contains("\"property\":\"--exact-stroke-end\""),
+        "{batch}"
+    );
+    // The spring is left out of the CSS `transition`, as every spring is.
+    assert!(!batch.contains("transition:--exact-stroke-end"), "{batch}");
+}
+
+/// SVG's painting vocabulary as CSS the browser applies, `fill` and
+/// `stroke` transitioning as colours (LLP 1065).
+#[test]
+fn the_rest_of_svg_painting_is_css() {
+    let (_, first) = boot_source(
+        "component App\n  view\n    path testId=\"p\" d=\"M0 0 H10\" width=10 height=10 fill=\"currentColor\" fill-rule=\"evenodd\" stroke=\"#000\" stroke-miterlimit=8 stroke-dasharray=\"4, 2\" stroke-dashoffset=1 transition=\"fill 1s, stroke 200ms\"\n",
+    );
+    let p = create(&first, "p");
+    for declaration in [
+        "fill:currentcolor;",
+        "fill-rule:evenodd;",
+        "stroke-miterlimit:8;",
+        "stroke-dasharray:4 2;",
+        "stroke-dashoffset:1px;",
+        "transition:fill 1s ease 0s,stroke 0.2s ease 0s",
+    ] {
+        assert!(p.contains(declaration), "{declaration}\n{p}");
+    }
+}
+
+/// The view box's fit, a zero-length subpath's dot, a dashed stroke masked
+/// by the trim, and a non-scaling stroke's pixels (LLP 1065).
+#[test]
+fn aspect_dots_dashes_and_non_scaling_strokes_in_the_markup() {
+    let (_, first) = boot_source(
+        "component App\n  view\n    column\n      path testId=\"plain\" d=\"M5 5 Z M0 0 H10 M20 20\" viewBox=\"0 0 10 20\" preserveAspectRatio=\"xMinYMax slice\" stroke=\"#000\" width=10 height=10\n      path testId=\"dashed\" d=\"M0 0 H10\" stroke=\"#000\" stroke-dasharray=\"2 1\" width=10 height=10\n      path testId=\"fixed\" d=\"M0 0 H10\" viewBox=\"0 0 10 20\" vector-effect=\"non-scaling-stroke\" stroke=\"#000\" width=10 height=10\n",
+    );
+    let plain = create(&first, "plain");
+    assert!(
+        plain.contains(r#"viewBox=\"0 0 10 20\" preserveAspectRatio=\"xMinYMax slice\""#),
+        "{plain}"
+    );
+    // The dot sits at its place in the whole; the lone moveto draws nothing.
+    assert!(
+        plain.contains(r#"<path data-dot d=\"M 5 5 L 5 5\" fill=\"none\" style=\"--a:0\"/>"#),
+        "{plain}"
+    );
+    assert!(!plain.contains("M 20 20\\\" pathLength"), "{plain}");
+    assert!(
+        plain.contains("--k:1") && !plain.contains("<mask"),
+        "{plain}"
+    );
+    let dashed = create(&first, "dashed");
+    assert!(dashed.contains("<mask id=\\\"exact-path-"), "{dashed}");
+    assert!(
+        dashed.contains(r##"pathLength=\"10\" fill=\"none\" stroke=\"#fff\""##),
+        "{dashed}"
+    );
+    assert!(
+        dashed.contains("fill=\\\"none\\\" mask=\\\"url(#exact-path-"),
+        "{dashed}"
+    );
+    let fixed = create(&first, "fixed");
+    assert!(
+        fixed.contains("--k:calc(min(100cqw / 10, 100cqh / 20) / 1px)"),
+        "{fixed}"
+    );
+    assert!(!fixed.contains("pathLength"), "{fixed}");
+    assert!(
+        fixed.contains("container-type:size;")
+            && fixed.contains("vector-effect:non-scaling-stroke;"),
+        "{fixed}"
+    );
+}

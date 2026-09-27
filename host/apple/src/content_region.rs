@@ -405,12 +405,13 @@ pub(crate) fn projection_size(
             // price their storage before that clone, even if the wire skips them.
             match node.computed(id) {
                 RowValue::ClipPath(p) => {
-                    for (_, values) in p.commands() {
-                        bytes = add_wire(bytes, values.len(), 96)?
+                    for _ in p.commands() {
+                        bytes = add_wire(bytes, 6, 96)?
                             .checked_add(64)
                             .ok_or("native clip overflow")?;
                     }
                 }
+                RowValue::DashArray(d) => bytes = add_wire(bytes, d.0.len(), 16)?,
                 RowValue::Transitions(v) => bytes = add_wire(bytes, v.0.len(), 256)?,
                 RowValue::Animations(v) => bytes = add_wire(bytes, v.text().len(), 6)?,
                 RowValue::Tracks(v) => bytes = add_wire(bytes, v.0.len(), 128)?,
@@ -425,6 +426,7 @@ pub(crate) fn projection_size(
         // dormant variable storage as well, rather than assuming clear() freed it.
         for id in [
             exact_kernel::StyleId::ClipPath,
+            exact_kernel::StyleId::StrokeDasharray,
             exact_kernel::StyleId::BackgroundImage,
             exact_kernel::StyleId::Transition,
             exact_kernel::StyleId::Animation,
@@ -436,12 +438,13 @@ pub(crate) fn projection_size(
             }
             match node.style.get(id) {
                 RowValue::ClipPath(p) => {
-                    for (_, values) in p.commands() {
-                        bytes = add_wire(bytes, values.len(), 96)?
+                    for _ in p.commands() {
+                        bytes = add_wire(bytes, 6, 96)?
                             .checked_add(64)
                             .ok_or("native clip overflow")?;
                     }
                 }
+                RowValue::DashArray(d) => bytes = add_wire(bytes, d.0.len(), 16)?,
                 RowValue::Transitions(v) => bytes = add_wire(bytes, v.0.len(), 256)?,
                 RowValue::Animations(v) => bytes = add_wire(bytes, v.text().len(), 6)?,
                 RowValue::Tracks(v) => bytes = add_wire(bytes, v.0.len(), 128)?,

@@ -121,7 +121,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var liveText: String?
     var props: [String: String] = [:] { didSet { presenter?.propsChanged(self) } }
     var style: NodeStyle = [:]
-    var clipPath: CGPath?
+    var clipPath: CGPath?, clipRule = CGPathFillRule.winding
     var handlers: Set<String> = [] {
         didSet {
             updateContextGestures()
@@ -793,7 +793,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// this view's own coordinates — UIKit's convention, not AppKit's.)
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         if placedAncestor?.placementHidden == true { return nil }
-        if let clipPath, !clipPath.contains(point) { return nil }
+        if let clipPath, !clipPath.contains(point, using: clipRule) { return nil }
         if props["swipeIndicator"] == "true" { return nil }
         if isSurfaceControl, !inert, !isHidden, isUserInteractionEnabled, bounds.contains(point) { return self }
         // A touch landing on a native swipe row: its cell mounts now, before
@@ -1142,8 +1142,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         defer { video?.update() }
         style = s
         updateSymbol()
-        clipPath = ClipPath.path(s["clip_path"])
-        layer.mask = ClipPath.mask(clipPath)
+        (clipPath, clipRule) = (ClipPath.path(s["clip_path"]), ClipPath.rule(s["clip_path"]))
+        layer.mask = ClipPath.mask(clipPath, clipRule)
         updateMaterial()
         syncScroll()
         styleTextArea()
