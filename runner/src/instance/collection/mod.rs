@@ -263,14 +263,16 @@ impl Collection {
         // What an input actually changed, not the full evaluation's "all of
         // it", decides the protocol: ending a reorder preview, re-measuring
         // rows and the revision are the same in both modes.
-        let changed = fresh
-            || u.changed_outside(&deps.keys[index], 1)
-            || u.changed_outside(&deps.subjects[index], 0)
-            || u.changed_outside(&deps.bodies[index], 1);
+        let rows_changed =
+            u.changed_outside(&deps.keys[index], 1) || u.changed_outside(&deps.bodies[index], 1);
+        let changed = fresh || rows_changed || u.changed_outside(&deps.subjects[index], 0);
         if changed {
             self.end_preview(u)?;
         }
         let anchor = if changed { self.anchor()? } else { None };
+        // Items that changed in place: the same keys in the same order, and
+        // no input of the rows' bodies or keys changed (a live tick's prices).
+        let mut in_place: Option<Vec<usize>> = None;
         if data_changed {
             let descriptor = u.env.plan.region(self.region);
             let Value::List(items) = u.eval(descriptor.subject, frames)? else {
@@ -285,8 +287,9 @@ impl Collection {
                 && !keys_stale
                 && !compare_previous
                 && self.rekey_shared(u, frames, descriptor.key, &items)?;
+            let mut rekeyed = true;
             if !shared {
-                self.rekey_full(
+                rekeyed = self.rekey_full(
                     u,
                     frames,
                     descriptor.key,
@@ -295,11 +298,25 @@ impl Collection {
                     keys_stale,
                 )?;
             }
+            if compare_previous && !keys_stale && !rekeyed && !rows_changed {
+                in_place = Some(
+                    (0..items.len())
+                        .filter(|&p| !crate::compare::same(&items[p], &self.items[p]))
+                        .collect(),
+                );
+            }
             self.items = items;
         }
+        let previous = in_place.as_ref().map(|_| self.snapshot());
         if changed {
-            // O(1): old heights remain estimates; stale measurements cannot confirm them.
-            self.invalidate_height_estimates()?;
+            match &in_place {
+                // Only the changed rows' heights become estimates: the rows
+                // that show and did not change keep their measurements, so
+                // the host measures again only what changed.
+                Some(positions) => self.invalidate_rows(positions)?,
+                // O(1): old heights remain estimates; stale measurements cannot confirm them.
+                None => self.invalidate_height_estimates()?,
+            }
             if self.index.len() == 0 {
                 self.edge_armed = [true; 2];
             }
@@ -307,12 +324,37 @@ impl Collection {
         }
         self.realize_window(u, frames, true, CollectionFill::default())?;
         if changed {
-            advance(&mut self.revision)?;
+            let unchanged = previous.is_some_and(|mut before| {
+                let now = self.snapshot();
+                before.scroll_sequence = now.scroll_sequence;
+                before == now
+            });
+            if !unchanged {
+                advance(&mut self.revision)?;
+            }
+        }
+        Ok(())
+    }
+    /// Keyed invalidation of the rows at `positions` (O(k log N)); a
+    /// confirmed zero among them goes back to the estimate, as in
+    /// [`Self::invalidate_height_estimates`].
+    fn invalidate_rows(&mut self, positions: &[usize]) -> Result<(), InstanceError> {
+        for &p in positions {
+            let key = self.index.shared_key(p).unwrap().clone();
+            if self.zero_heights.remove(&*key) {
+                if let Some(token) = self.index.measurement_token(&key) {
+                    self.index
+                        .set_measured_height(&key, token, self.estimated_height)
+                        .map_err(index_error)?;
+                }
+            }
+            self.index.invalidate_row(&key).map_err(index_error)?;
         }
         Ok(())
     }
     /// Key every item, reusing a key only where the list kept its length and
     /// an item its position ([`Self::rekey_shared`] handles the rest).
+    /// Whether any key changed.
     fn rekey_full(
         &mut self,
         u: &mut Update<'_>,
@@ -321,7 +363,7 @@ impl Collection {
         items: &[Value],
         compare_previous: bool,
         keys_stale: bool,
-    ) -> Result<(), InstanceError> {
+    ) -> Result<bool, InstanceError> {
         let reuse_items = compare_previous && !keys_stale;
         // No candidate N-vector or canonical strings until an actual key
         // mismatch. All equal results reuse the existing uniqueness proof.
@@ -388,7 +430,7 @@ impl Collection {
             self.keys = keys;
             self.dups = dups;
         }
-        Ok(())
+        Ok(changed)
     }
     fn anchor(&self) -> Result<Option<index::Anchor>, InstanceError> {
         self.geometry
