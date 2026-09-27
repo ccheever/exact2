@@ -256,7 +256,7 @@ extension NodeView {
     func finishReuse() {
         guard kind == "image" else { return }
         if imageSource?.hasPrefix("symbol:") != true { clearSymbol(); image = nil; return }
-        if symbolView != nil { presenter?.queueSymbolSize(self, generation: loadGeneration, image?.size) }
+        if symbolView != nil { presenter?.queueIntrinsicSize(self, generation: loadGeneration, image?.size) }
     }
 }
 #endif

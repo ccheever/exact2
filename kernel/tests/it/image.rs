@@ -383,3 +383,114 @@ fn a_size_is_refused_for_a_non_image_and_when_not_finite_and_positive() {
     }
     assert_eq!(frame(&mut kernel, image), (0.0, 0.0), "nothing was stored");
 }
+
+#[test]
+fn a_projected_tablist_reserves_its_native_height_and_releases_it() {
+    use exact_kernel::{PropId, PropValue};
+    let (mut kernel, _) = tree(None);
+    // A projection can disappear before its deferred measurement arrives.
+    kernel.set_intrinsic_size(1, None).unwrap();
+    kernel
+        .apply(
+            1,
+            2,
+            &[Op::SetProp {
+                id: 1,
+                prop: PropId::AccessibilityRole,
+                value: PropValue::Str("tablist".into()),
+            }],
+        )
+        .unwrap();
+    assert_eq!(frame(&mut kernel, 1).1, 0.0);
+    kernel.set_intrinsic_size(1, Some((390.0, 83.0))).unwrap();
+    assert_eq!(frame(&mut kernel, 1).1, 83.0);
+    let mut rebuilt = kernel.rehydrate(Box::new(MonospaceMeasurer::default()));
+    assert_eq!(frame(&mut rebuilt, 1), (390.0, 83.0));
+    kernel
+        .apply(
+            2,
+            3,
+            &[Op::SetStyle {
+                id: 1,
+                patch: Box::new(image_style(&[(StyleId::Height, 20.0)])),
+            }],
+        )
+        .unwrap();
+    assert_eq!(frame(&mut kernel, 1), (390.0, 83.0));
+    kernel.set_intrinsic_size(1, Some((200.0, 49.0))).unwrap();
+    assert_eq!(frame(&mut kernel, 1), (390.0, 49.0));
+    kernel
+        .apply(
+            3,
+            4,
+            &[Op::ClearProp {
+                id: 1,
+                prop: PropId::AccessibilityRole,
+            }],
+        )
+        .unwrap();
+    kernel.set_intrinsic_size(1, None).unwrap();
+    assert_eq!(frame(&mut kernel, 1).1, 20.0);
+}
+
+#[test]
+fn a_tab_bar_minimum_moves_siblings_without_overriding_explicit_css_min_height() {
+    use exact_kernel::{PropId, PropValue};
+    for display in [Display::Block, Display::Flex] {
+        let mut kernel = Kernel::with_monospace();
+        let mut root = StyleProps::default();
+        root.display = display;
+        root.mask.set(StyleId::Display);
+        root.flex_direction = FlexDirection::Column;
+        root.mask.set(StyleId::FlexDirection);
+        let mut ops: Vec<_> = (1..=3)
+            .map(|id| Op::CreateView {
+                id,
+                node_type: NodeType::View,
+            })
+            .collect();
+        ops.extend([
+            Op::SetStyle {
+                id: 1,
+                patch: Box::new(root),
+            },
+            Op::SetStyle {
+                id: 2,
+                patch: Box::new(image_style(&[(StyleId::Height, 20.0)])),
+            },
+            Op::SetStyle {
+                id: 3,
+                patch: Box::new(image_style(&[(StyleId::Height, 40.0)])),
+            },
+            Op::SetProp {
+                id: 2,
+                prop: PropId::AccessibilityRole,
+                value: PropValue::Str("tablist".into()),
+            },
+            Op::SetChildren {
+                id: 1,
+                children: vec![2, 3],
+            },
+            Op::AttachRoot { id: 1 },
+        ]);
+        kernel.apply(0, 1, &ops).unwrap();
+        kernel.set_intrinsic_size(2, Some((390.0, 83.0))).unwrap();
+        assert_eq!(frame(&mut kernel, 2), (390.0, 83.0));
+        assert_eq!(kernel.node(3).unwrap().frame.y, 83.0);
+        let mut explicit = StyleProps::default();
+        explicit.min_height = Dimension::Points(0.0);
+        explicit.mask.set(StyleId::MinHeight);
+        kernel
+            .apply(
+                1,
+                2,
+                &[Op::SetStyle {
+                    id: 2,
+                    patch: Box::new(explicit),
+                }],
+            )
+            .unwrap();
+        assert_eq!(frame(&mut kernel, 2), (390.0, 20.0));
+        assert_eq!(kernel.node(3).unwrap().frame.y, 20.0);
+    }
+}

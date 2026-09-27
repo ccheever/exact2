@@ -8,7 +8,7 @@
 **Related:** LLP 1035.001 D10 (tablists project to a segmented control); LLP 1035.006 07.03 (application tab bars); LLP 1038 (the router's tabs); grnl's FRICTION.md F12, M10
 
 
-**Ruled (Charlie, 2026-09-27, after the review of PR #47):** projecting to a native tab bar stays automatic, as the full platform. But the bar's own height (`sizeThatFits`) is reported back to layout, so the kernel reserves the room instead of letting the bar draw outside its box. D2a's overflow is removed once that lands. LLP 1035.001's projection table lists the three shapes (segmented control, tab bar, authored views) together.
+**Ruled (Charlie, 2026-09-27, after the review of PR #47):** projecting to a native tab bar stays automatic, as the full platform. But the bar's own height (`sizeThatFits`) is reported back to layout, so the kernel reserves the room instead of letting the bar draw outside its box. D2a's overflow is removed: the host reports the measured size through the intrinsic seam and the bar fills the kernel box. LLP 1035.001's projection table lists the three shapes (segmented control, tab bar, authored views) together.
 
 ## Summary
 
@@ -39,12 +39,13 @@ A tab bar item has exactly the second shape. A segment cannot show it.
 - **D3 — The app's accent, the platform's face.** The selected item takes
   the selected symbol's authored `tint-color`. Everything else is the bar's
   own look.
-- **D2a — At least the bar's own height.** The bar is sized to
-  `sizeThatFits` and sits on the bottom edge of the box, growing upward when
-  the box is shorter. An authored row sized for its own tabs is often
-  shorter than a tab bar. iOS 26 draws the selected item's title inside the
-  selection's glass, which is clipped to the bar's bounds, so a short frame
-  turned that title into a line of dots.
+- **D2a — The measured height belongs to layout.** The host reports
+  `sizeThatFits` through the existing intrinsic-size seam, after the creating
+  batch. Its height supplies the tablist's automatic minimum height, without
+  changing authored rows or introducing an aspect ratio. An explicit CSS
+  `min-height` remains authoritative. The bar's frame is exactly the kernel
+  box; it never grows upward outside it. Resizing remeasures; ending the
+  projection clears the measurement and restores authored layout.
 - **D4 — The journal says which.** The one-line journal per tablist
   (`tablist #N: …`) now also names `projected to UITabBar`, and the agent
   observation reports `view: UITabBar`. That makes F12's surprise

@@ -34,7 +34,7 @@ final class PresenceIOSTests: XCTestCase {
         return p
     }
 
-    func testResetRestoresTabBarMembersAndDropsTheProjection() throws {
+    private func tabBarFixture() -> Presenter {
         let p = fixture()
         p.apply(wireBatch([
             ["op": "create", "id": 10, "kind": "view", "props": ["accessibilityRole": "tablist"]],
@@ -48,8 +48,51 @@ final class PresenceIOSTests: XCTestCase {
             ["op": "children", "id": 12, "ids": [15, 16]],
             ["op": "children", "id": 10, "ids": [11, 12]],
             ["op": "roots", "ids": [1, 10]],
-            ["op": "frame", "id": 10, "x": 0.0, "y": 0.0, "w": 400.0, "h": 60.0],
+            ["op": "frame", "id": 10, "x": 0.0, "y": 0.0, "w": 400.0, "h": 20.0],
         ]))
+        return p
+    }
+
+    private func drainIntrinsicSizes() {
+        let delivered = expectation(description: "intrinsic size delivered after the batch")
+        DispatchQueue.main.async { delivered.fulfill() }
+        wait(for: [delivered], timeout: 2)
+    }
+
+    func testTabBarReportsItsHeightAndAlwaysFillsTheKernelBox() throws {
+        let p = tabBarFixture()
+        var reports: [CGSize?] = []
+        p.onIntrinsic = { sizes in
+            for (id, size) in sizes where id == 10 { reports.append(size) }
+        }
+        let owner = try XCTUnwrap(p.views[10])
+        let bar = try XCTUnwrap(owner.subviews.first { $0 is UITabBar })
+        XCTAssertEqual(bar.frame, owner.bounds, "the native bar never escapes the kernel box")
+        drainIntrinsicSizes()
+        let size = try XCTUnwrap(reports.last ?? nil)
+        XCTAssertGreaterThan(size.height, 20)
+        p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 0.0,
+                            "w": Double(size.width), "h": Double(size.height)]]))
+        XCTAssertEqual(bar.frame, owner.bounds)
+        drainIntrinsicSizes()
+        XCTAssertEqual(reports.count, 1, "applying the measured box does not remeasure forever")
+        p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 0.0,
+                            "w": 300.0, "h": Double(size.height)]]))
+        drainIntrinsicSizes()
+        XCTAssertEqual((reports.last ?? nil)?.width, 300)
+        XCTAssertEqual(bar.frame, owner.bounds)
+        p.apply(wireBatch([["op": "props", "id": 10,
+                            "set": ["accessibilityRole": "tablist", "accessibilityOrientation": "vertical"]]]))
+        drainIntrinsicSizes()
+        XCTAssertEqual(reports.count, 3)
+        XCTAssertNil(reports.last ?? nil, "leaving the projection clears its native minimum")
+        XCTAssertNil(bar.superview)
+        XCTAssertFalse(try XCTUnwrap(p.views[11]).isHidden)
+        p.reset()
+    }
+
+    func testResetRestoresTabBarMembersAndDropsTheProjection() throws {
+        let p = tabBarFixture()
         let owner = try XCTUnwrap(p.views[10])
         let first = try XCTUnwrap(p.views[11])
         let second = try XCTUnwrap(p.views[12])

@@ -18,6 +18,11 @@ private final class ExactSegmentedControl: UISegmentedControl {
 
 private final class ExactTabBar: UITabBar {
     let ownerID: UInt32
+    var onMeasure: (() -> Void)?
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        onMeasure?()
+    }
     init(ownerID: UInt32) {
         self.ownerID = ownerID
         super.init(frame: .zero)
@@ -48,6 +53,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
     unowned let presenter: Presenter
     private var controls: [UInt32: ExactSegmentedControl] = [:]
     private var bars: [UInt32: ExactTabBar] = [:]
+    private var sizes: [UInt32: CGSize] = [:]
     private var hidden: [UInt32: Bool] = [:]
     private var members: [UInt32: [UInt32]] = [:]
     /// The last projection decision journaled per tablist, so each is said once.
@@ -140,7 +146,25 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             else { hidden.removeValue(forKey: childID) }
         }
         controls.removeValue(forKey: id)?.removeFromSuperview()
+        removeBar(owner: id)
+    }
+
+    private func removeBar(owner id: UInt32) {
         bars.removeValue(forKey: id)?.removeFromSuperview()
+        if sizes.removeValue(forKey: id) != nil, let owner = presenter.views[id] {
+            presenter.queueIntrinsicSize(owner, generation: owner.loadGeneration, nil)
+        }
+    }
+
+    private func measure(_ owner: NodeView, _ bar: ExactTabBar) {
+        guard bars[owner.id] === bar, presenter.views[owner.id] === owner,
+              owner.bounds.width > 0 else { return }
+        let height = bar.sizeThatFits(CGSize(width: owner.bounds.width, height: 0)).height
+        guard height.isFinite, height > 0 else { return }
+        let size = CGSize(width: owner.bounds.width, height: height)
+        guard sizes[owner.id] != size else { return }
+        sizes[owner.id] = size
+        presenter.queueIntrinsicSize(owner, generation: owner.loadGeneration, size)
     }
 
     /// Hide the authored tabs the control stands in for, remembering how
@@ -165,19 +189,15 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         let bar = bars[owner.id] ?? {
             let value = ExactTabBar(ownerID: owner.id)
             value.delegate = self
+            value.onMeasure = { [weak self, weak owner, weak value] in
+                if let owner, let value { self?.measure(owner, value) }
+            }
             owner.addSubview(value)
             bars[owner.id] = value
             return value
         }()
         if bar.superview !== owner { owner.addSubview(bar) }
-        // At least the bar's own height, on the box's bottom edge: a box
-        // shorter than a tab bar (an authored row sized for its own tabs)
-        // would clip the selected item's title, which iOS 26 draws inside
-        // the selection's glass, to a line of dots.
-        let fit = bar.sizeThatFits(CGSize(width: owner.bounds.width, height: 0)).height
-        let height = max(owner.bounds.height, fit)
-        let frame = CGRect(x: 0, y: owner.bounds.height - height, width: owner.bounds.width, height: height)
-        if bar.frame != frame { bar.frame = frame }
+        if bar.frame != owner.bounds { bar.frame = owner.bounds }
         bar.isUserInteractionEnabled = available(owner)
         bar.accessibilityLabel = owner.props["accessibilityLabel"]
         let current = bar.items ?? []
@@ -197,6 +217,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         // replace the bar's own rendering of every title; not used.)
         if let selected, bar.tintColor != faces[selected].tint { bar.tintColor = faces[selected].tint }
         owner.bringSubviewToFront(bar)
+        measure(owner, bar)
     }
 
     func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
@@ -224,7 +245,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
                 project(owner, tabs, faces)
                 continue
             }
-            bars.removeValue(forKey: owner.id)?.removeFromSuperview()
+            removeBar(owner: owner.id)
             // Authored tabs a segment cannot show stay as authored, and the
             // tablist tells VoiceOver it is a tab bar (LLP 1035.001 D10).
             let unshown = tabs.first { $0.segmentFace == nil }

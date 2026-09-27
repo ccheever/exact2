@@ -52,8 +52,8 @@ pub struct NodeArena {
     /// Scrollable overflow from the last layout: the content's extent in the
     /// node's own space (width, height), Taffy's `content_size`.
     contents: Vec<(f32, f32)>,
-    /// A replaced element's intrinsic size (an image's natural pixels in
-    /// points), reported by the host once it has loaded; `None` until then.
+    /// Host intrinsic size: a replaced element's natural size or a projected
+    /// tablist's native control size; `None` before measurement or after removal.
     intrinsic: Vec<Option<(f32, f32)>>,
     taffy: Vec<Option<NodeId>>,
     is_root: Vec<bool>,
@@ -811,7 +811,7 @@ impl NodeArena {
         self.contents[slot as usize]
     }
 
-    /// A replaced element's intrinsic size, when the host has reported it.
+    /// An intrinsic size, when the host has reported it.
     pub fn intrinsic(&self, slot: u32) -> Option<(f32, f32)> {
         self.intrinsic[slot as usize]
     }

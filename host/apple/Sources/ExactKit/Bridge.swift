@@ -250,7 +250,7 @@ final class Runtime {
     func tick(now: Double) -> Batch { read(exact_tick(rt, now)) }
     func scheme(dark: Bool) -> Batch { read(exact_scheme(rt, dark ? 1 : 0)) }
     func viewScheme(_ view: UInt32, dark: Bool) -> Batch { read(exact_view_scheme(rt, view, dark ? 1 : 0)) }
-    /// Images' intrinsic sizes (nil clears one), under one layout.
+    /// Host intrinsic sizes (nil clears one), under one layout.
     func intrinsics(_ sizes: [(UInt32, CGSize?)]) -> Batch {
         var bytes = Data(capacity: sizes.count * 12)
         for (view, size) in sizes {

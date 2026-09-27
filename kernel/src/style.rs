@@ -1319,6 +1319,15 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
             s.aspect_ratio_content_box = true;
         }
     }
+    // A native tab bar fills the tablist's box. Its measured height supplies
+    // the automatic minimum, so even a short authored row reserves the bar.
+    // An explicit CSS min-height still owns that constraint; no natural ratio
+    // or preferred width is inferred from this container measurement.
+    if !arena.node_type(slot).is_replaced() && s.min_size.height.is_auto() {
+        if let Some((_, height)) = arena.intrinsic(slot) {
+            s.min_size.height = length(height);
+        }
+    }
     if arena.is_root(slot)
         && s.size.width.is_auto()
         && s.position != taffy::style::Position::Absolute
