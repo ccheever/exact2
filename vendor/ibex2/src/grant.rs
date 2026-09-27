@@ -21,9 +21,10 @@ use std::collections::BTreeSet;
 
 /// An origin, for the two network capabilities.
 ///
-/// Compared by exact tuple equality. Wildcards are deliberately absent: an
-/// origin pattern language is where per-origin grants quietly become
-/// all-origin grants.
+/// Compared by exact tuple equality. The one pattern is Exact's patch 1
+/// (`EXACT-PATCHES.md`): a `net.fetch` grant may name every host under one
+/// domain, `https://*.host.example`, and nothing wider. It is its own grant
+/// kind, `FetchSubdomains`, so an exact grant never matches as a pattern.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Origin {
     pub scheme: String,
@@ -126,6 +127,10 @@ pub enum Operation {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Grant {
     Fetch(Origin),
+    /// `net.fetch https://*.<suffix>`: every host strictly under `suffix`, at
+    /// the origin's scheme and port (Exact patch 1). The suffix is at least
+    /// two labels and not an address.
+    FetchSubdomains(Origin),
     WebSocket(Origin),
     FsRead(PathPrefix),
     FsWrite(PathPrefix),
@@ -139,6 +144,14 @@ impl Grant {
     fn admits(&self, operation: &Operation) -> bool {
         match (self, operation) {
             (Grant::Fetch(granted), Operation::Fetch { origin }) => granted == origin,
+            (Grant::FetchSubdomains(suffix), Operation::Fetch { origin }) => {
+                origin.scheme == suffix.scheme
+                    && origin.port == suffix.port
+                    && origin
+                        .host
+                        .strip_suffix(suffix.host.as_str())
+                        .is_some_and(|head| head.len() > 1 && head.ends_with('.'))
+            }
             (Grant::WebSocket(granted), Operation::WebSocket { origin }) => granted == origin,
             (Grant::FsRead(prefix), Operation::FsRead { path }) => prefix.covers(path),
             (Grant::FsWrite(prefix), Operation::FsWrite { path }) => prefix.covers(path),
@@ -280,7 +293,18 @@ impl GrantSet {
                 .next()
                 .ok_or_else(|| format!("line {}: `{capability}` needs a target", index + 1))?;
             let grant = match capability {
+                "net.fetch" if target.contains("://*.") => {
+                    Grant::FetchSubdomains(subdomains(target).map_err(|e| {
+                        format!("line {}: bad origin pattern `{target}`: {e}", index + 1)
+                    })?)
+                }
                 "net.fetch" | "net.websocket" => {
+                    if target.contains('*') {
+                        return Err(format!(
+                            "line {}: `{target}`: `*` is allowed only as `net.fetch scheme://*.domain`",
+                            index + 1
+                        ));
+                    }
                     let url = url::Url::parse(target)
                         .map_err(|e| format!("line {}: bad origin `{target}`: {e}", index + 1))?;
                     let host = url
@@ -345,6 +369,33 @@ impl GrantSet {
     }
 }
 
+/// The suffix origin of `scheme://*.suffix[:port]` (Exact patch 1): `*` is
+/// the whole leftmost label and appears nowhere else, the suffix is a domain
+/// of two labels or more (`*.com` would be every site), and nothing follows
+/// the origin.
+fn subdomains(target: &str) -> Result<Origin, String> {
+    let (scheme, rest) = target
+        .split_once("://*.")
+        .ok_or("expected `scheme://*.domain`")?;
+    if rest.contains('*') || scheme.contains('*') {
+        return Err("`*` is allowed only as the whole leftmost label".into());
+    }
+    let url = url::Url::parse(&format!("{scheme}://{rest}")).map_err(|e| e.to_string())?;
+    if !matches!(url.path(), "" | "/") || url.query().is_some() || url.fragment().is_some() {
+        return Err("an origin has no path, query or fragment".into());
+    }
+    let Some(url::Host::Domain(host)) = url.host() else {
+        return Err("the suffix must be a domain, not an address".into());
+    };
+    if host.split('.').filter(|label| !label.is_empty()).count() < 2 || host.ends_with('.') {
+        return Err("the suffix needs at least two labels (`*.example.com`, not `*.com`)".into());
+    }
+    let port = url
+        .port_or_known_default()
+        .ok_or_else(|| format!("no default port for `{}`", url.scheme()))?;
+    Ok(Origin::new(url.scheme(), host, port))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -392,6 +443,41 @@ mod tests {
         assert!(set.permits(&Operation::Fetch {
             origin: origin("api.example.com")
         }));
+    }
+
+    #[test]
+    fn a_subdomain_grant_admits_hosts_strictly_under_its_domain() {
+        let set = GrantSet::parse("net.fetch https://*.host.bsky.network").unwrap();
+        let fetch = |origin: Origin| set.permits(&Operation::Fetch { origin });
+        assert!(fetch(origin("morel.us-east.host.bsky.network")));
+        assert!(fetch(origin("a.host.bsky.network")));
+        assert!(fetch(origin("A.Host.Bsky.Network")));
+        // Not the domain itself, not a lookalike, not another scheme or port.
+        assert!(!fetch(origin("host.bsky.network")));
+        assert!(!fetch(origin("evilhost.bsky.network")));
+        assert!(!fetch(origin("a.host.bsky.network.evil.com")));
+        assert!(!fetch(Origin::new("http", "a.host.bsky.network", 443)));
+        assert!(!fetch(Origin::new("https", "a.host.bsky.network", 8443)));
+        // Fetch only.
+        assert!(!set.permits(&Operation::WebSocket {
+            origin: origin("a.host.bsky.network")
+        }));
+    }
+
+    #[test]
+    fn a_subdomain_pattern_is_refused_unless_it_names_one_domain() {
+        for bad in [
+            "net.fetch https://*.com",
+            "net.fetch https://a.*.example.com",
+            "net.fetch https://*.*.example.com",
+            "net.fetch https://*.127.0.0.1",
+            "net.fetch https://*.example.com/path",
+            "net.fetch https://*example.com",
+            "net.websocket wss://*.example.com",
+        ] {
+            assert!(GrantSet::parse(bad).is_err(), "{bad} parsed");
+        }
+        assert!(GrantSet::parse("net.fetch https://*.example.com:8443").is_ok());
     }
 
     #[test]

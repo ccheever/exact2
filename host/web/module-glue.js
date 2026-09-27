@@ -43,10 +43,25 @@ async function read(url, limit) {
 // the report was delivered is aborted a task later.
 const early = new Map(); // `GET url headers` -> [{ response, controller }]
 const earlyKey = (url, headers) => `GET ${url} ${JSON.stringify(headers ?? [])}`;
+// glue.js's `grantAdmits`, the one grant rule (an origin, or `scheme://*.domain`).
+function grantAdmits(granted, url) {
+  let target, grant;
+  try { target = new URL(url); } catch { return false; }
+  const star = /^([a-z][a-z0-9+.-]*):\/\/\*\.([^*/?#]+)$/i.exec(granted);
+  if (!star) {
+    if (granted.includes('*')) return false;
+    try { grant = new URL(granted); } catch { return false; }
+    return grant.origin === target.origin;
+  }
+  try { grant = new URL(`${star[1]}://${star[2]}`); } catch { return false; }
+  const suffix = grant.hostname;
+  return grant.protocol === target.protocol && grant.port === target.port
+    && !/^[\d.]+$|^\[/.test(suffix) && suffix.split('.').length >= 2 && !suffix.endsWith('.')
+    && target.hostname.length > suffix.length + 1 && target.hostname.endsWith('.' + suffix);
+}
 function fetchEarly(request, grants) {
-  let origin;
-  try { origin = new URL(request.url).origin; } catch { return null; } // a relative (asset) URL is the host's own
-  const admits = line => { const [kind, url] = line.trim().split(/\s+/, 2); try { return kind === 'net.fetch' && new URL(url).origin === origin; } catch { return false; } };
+  try { new URL(request.url); } catch { return null; } // a relative (asset) URL is the host's own
+  const admits = line => { const [kind, url] = line.trim().split(/\s+/, 2); return kind === 'net.fetch' && !!url && grantAdmits(url, request.url); };
   if (request.method !== 'GET' || request.body || !grants.split('\n').some(admits)) return null;
   const key = earlyKey(request.url, request.headers), controller = new AbortController();
   const entry = { controller, response: fetch(request.url, { method: 'GET', headers: request.headers, redirect: 'error', cache: 'default', signal: controller.signal }) };

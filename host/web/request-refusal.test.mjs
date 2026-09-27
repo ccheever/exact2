@@ -50,3 +50,28 @@ test('ordinary and early fetch refuse redirects before an ungranted POST destina
     expect(hits).toBe(0);
   } finally { origin.stop(true); destination.stop(true); }
 });
+
+// LLP 1054.000 R5: glue.js and module-glue.js apply ibex2's rule (vendor/ibex2
+// patch 1): an origin matched whole, or `scheme://*.domain`, every host
+// strictly under one domain of two labels or more.
+test('a subdomain grant admits hosts under its domain and nothing else, in both copies', () => {
+  const lift = (text, from, to) => Function(`${text.slice(text.indexOf(from), text.indexOf(to))}; return grantAdmits;`)();
+  const moduleSource = readFileSync(new URL('./module-glue.js', import.meta.url), 'utf8');
+  const copies = [lift(source, 'function grantAdmits', 'function granted('), lift(moduleSource, 'function grantAdmits', 'function fetchEarly')];
+  const cases = [
+    ['https://*.host.bsky.network', 'https://morel.us-east.host.bsky.network/xrpc/x', true],
+    ['https://*.host.bsky.network', 'https://A.Host.Bsky.Network/x', true],
+    ['https://*.host.bsky.network', 'https://host.bsky.network/x', false],
+    ['https://*.host.bsky.network', 'https://evilhost.bsky.network/x', false],
+    ['https://*.host.bsky.network', 'https://a.host.bsky.network.evil.com/x', false],
+    ['https://*.host.bsky.network', 'http://a.host.bsky.network/x', false],
+    ['https://*.host.bsky.network', 'https://a.host.bsky.network:8443/x', false],
+    ['https://*.com', 'https://a.com/', false],
+    ['https://a.*.example.com', 'https://a.b.example.com/', false],
+    ['https://*.127.0.0.1', 'https://1.127.0.0.1/', false],
+    ['https://bsky.social', 'https://bsky.social/x', true],
+    ['https://bsky.social', 'https://x.bsky.social/x', false],
+    ['https://*.example.com:8443', 'https://a.example.com:8443/', true],
+  ];
+  for (const admits of copies) for (const [grant, url, want] of cases) expect([grant, url, admits(grant, url)]).toEqual([grant, url, want]);
+});

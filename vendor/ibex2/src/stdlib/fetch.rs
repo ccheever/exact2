@@ -410,6 +410,15 @@ pub fn fetch_stream(
             current.method = "GET".into();
             current.body = None;
         }
+        // A redirect to another origin drops the credentials this request
+        // carried, as the Fetch standard does for `Authorization` (Exact
+        // patch 1: a subdomain grant admits sibling hosts, which must not
+        // receive a token meant for the first).
+        if origin_of(next.as_str())? != origin_of(&current.url)? {
+            for name in ["authorization", "cookie", "proxy-authorization"] {
+                current.headers.delete(name);
+            }
+        }
         current.url = next.to_string();
         redirected = true;
     }
@@ -476,6 +485,54 @@ mod tests {
 
     fn granted(host: &str) -> GrantSet {
         GrantSet::none().with(Grant::Fetch(Origin::new("https", host, 443)))
+    }
+
+    /// Records each request's `Authorization`, then redirects once.
+    struct Credentials(Mutex<Vec<(String, Option<String>)>>);
+    impl Transport for Credentials {
+        fn open(
+            &self,
+            request: &Request,
+            signal: &AbortSignal,
+        ) -> Result<StreamingResponse, HostError> {
+            let mut seen = self.0.lock().unwrap();
+            let first = seen.is_empty();
+            seen.push((
+                request.url.clone(),
+                request.headers.get("authorization").map(str::to_string),
+            ));
+            // `/start` redirects within its origin, `/cross` to a sibling.
+            let redirect = if request.url.ends_with("/cross") {
+                Some("https://b.host.example/next")
+            } else {
+                Some("/next")
+            };
+            let reply = if first {
+                response(302, redirect)
+            } else {
+                response(200, None)
+            };
+            Ok(reply.into_stream(request.body_limit(), signal.clone()))
+        }
+    }
+
+    #[test]
+    fn a_cross_origin_redirect_drops_credentials_and_a_same_origin_one_keeps_them() {
+        let grants = GrantSet::parse("net.fetch https://*.host.example").unwrap();
+        for (start, kept) in [
+            ("https://a.host.example/start", true),
+            ("https://a.host.example/cross", false),
+        ] {
+            let transport = Credentials(Mutex::new(Vec::new()));
+            let mut request = Request::get(start);
+            request.headers.set("Authorization", "Bearer secret");
+            request.headers.set("Cookie", "session=1");
+            fetch(&transport, &grants, request).unwrap();
+            let seen = transport.0.lock().unwrap();
+            assert_eq!(seen.len(), 2);
+            assert_eq!(seen[0].1.as_deref(), Some("Bearer secret"));
+            assert_eq!(seen[1].1.is_some(), kept, "{start} → {}", seen[1].0);
+        }
     }
 
     #[test]

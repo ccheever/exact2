@@ -867,16 +867,21 @@ const inflight = new Set();
 const controllers = new Set();
 let incarnation = 0;
 const HOST_WORK_BYTES=16*1024*1024, HOST_WORK_BASE64=4*Math.ceil(HOST_WORK_BYTES/3);
+// A `net.fetch` grant: an origin matched whole, or `scheme://*.domain` (every host strictly under one
+// domain of 2+ labels), as ibex2 matches natively (its patch 1, LLP 1054.000 R5). Copied in module-glue.js.
+function grantAdmits(granted, url) {
+  const star = /^([a-z][a-z0-9+.-]*):\/\/\*\.([^*/?#]+)$/i.exec(granted);
+  try {
+    const target = new URL(url), grant = new URL(star ? `${star[1]}://${star[2]}` : granted), host = grant.hostname;
+    if (!star) return !granted.includes("*") && grant.origin === target.origin;
+    return grant.protocol === target.protocol && grant.port === target.port && !/^[\d.]+$|^\[/.test(host) && host.split(".").length >= 2
+      && !host.endsWith(".") && target.hostname.length > host.length + 1 && target.hostname.endsWith("." + host);
+  } catch { return false; }
+}
 function granted(url, scope = null) {
-  // A `net.fetch` grant is an origin — scheme, host, port — matched whole,
-  // as ibex2 matches it on the native hosts (LLP 0067): the same refusal
-  // everywhere. A URL that does not parse is outside every grant.
-  let origin;
-  try { origin = new URL(url).origin; } catch { return false; }
   return (scope == null ? grants : scope.split("\n")).map(g=>g.trim()).some((g) => {
     const [kind, granted] = g.split(/\s+/, 2);
-    if (kind !== "net.fetch" || !granted) return false;
-    try { return new URL(granted).origin === origin; } catch { return false; }
+    return kind === "net.fetch" && !!granted && grantAdmits(granted, url);
   });
 }
 function surfaceGranted(op) {

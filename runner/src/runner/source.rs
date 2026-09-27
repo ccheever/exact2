@@ -235,7 +235,7 @@ pub trait DataSource {
     }
 
     /// What the app may reach and keep (LLP 1016 D6, LLP 1018 D3; ibex LLP
-    /// 0067): one grant per line — `net.fetch <origin>` (matched whole), `secret.keep
+    /// 0067): one grant per line — `net.fetch <origin>` (matched whole, or `scheme://*.domain` for every host under one domain), `secret.keep
     /// <name>`. A request outside them fails as `Refused` on every host
     /// before any executor sees it; a secret outside them reads as absent
     /// and refuses a write. Empty: nothing.
