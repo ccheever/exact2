@@ -246,8 +246,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if handlers.contains("dblclick"), doubleRecognizer == nil {
             let g = UITapGestureRecognizer(target: self, action: #selector(doubleClicked(_:)))
             g.delegate = self
-            g.numberOfTapsRequired = 2
-            g.delaysTouchesEnded = false
+            // The web's order (LLP 1057.001 §1 rule 5): the second tap still presses.
+            g.numberOfTapsRequired = 2; g.delaysTouchesEnded = false; g.cancelsTouchesInView = false
             addGestureRecognizer(g)
             doubleRecognizer = g
         }
@@ -261,8 +261,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         presenter?.contextmenu(id)
     }
     @objc func doubleClicked(_ gesture: UITapGestureRecognizer) {
-        guard gesture.state == .ended, !disabled else { return }
-        presenter?.dblclick(id)
+        guard gesture.state == .ended, !disabled else { return } // then after this touch's own press
+        DispatchQueue.main.async { [weak self] in if let self, !self.disabled, self.presenter?.views[self.id] === self { self.presenter?.dblclick(self.id) } }
     }
     var hoverRecognizer: UIHoverGestureRecognizer?
     var translate = CGPoint.zero
