@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { gameDefaults } from './app/shells.mjs';
 import { pathFrom, patchLines } from '../scripts/app.mjs';
@@ -64,9 +64,18 @@ export function createApp(destination, options = {}) {
   if (options.update) return updateApp(dir, name);
   if (existsSync(dir) && readdirSync(dir).length) throw new Error(`${dir} already exists and is not empty`);
   mkdirSync(dir, { recursive: true });
+  try { return writeApp(dir, name); }
+  catch (error) {
+    rmSync(dir, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function writeApp(dir, name) {
+  for (const host of ['apple', 'web']) mkdirSync(resolve(dir, host));
   const title = name.split('-').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
   const exact2 = pathFrom(dir, ROOT);
-  const dep = (path) => `{ path = ${JSON.stringify(pathFrom(dir, resolve(ROOT, path)))} }`;
+  const dep = (host, path) => `{ path = ${JSON.stringify(pathFrom(resolve(dir, host), resolve(ROOT, path)))} }`;
   const files = {
     'Cargo.toml': `# ${title}: an Exact2 app outside the exact2 checkout, which it uses by path
 # (${exact2}). Build profiles are injected by exact2's scripts; the patches
@@ -125,12 +134,12 @@ build = "build.rs"
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
-exact-logic = ${dep('logic')}
-exact-apple = ${dep('host/apple')}
-exact-js = ${dep('js')}
+exact-logic = ${dep('apple', 'logic')}
+exact-apple = ${dep('apple', 'host/apple')}
+exact-js = ${dep('apple', 'js')}
 
 [build-dependencies]
-exact-js-bake = ${dep('js/bake')}
+exact-js-bake = ${dep('apple', 'js/bake')}
 `,
     'apple/build.rs': `fn main() {
     let platform = match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
@@ -166,13 +175,13 @@ build = "build.rs"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-exact-logic = ${dep('logic')}
-exact-web = ${dep('host/web')}
-exact-web-capabilities = ${dep('host/web-capabilities')}
-exact-js-web = ${dep('js/web')}
+exact-logic = ${dep('web', 'logic')}
+exact-web = ${dep('web', 'host/web')}
+exact-web-capabilities = ${dep('web', 'host/web-capabilities')}
+exact-js-web = ${dep('web', 'js/web')}
 
 [build-dependencies]
-exact-js-bake = ${dep('js/bake')}
+exact-js-bake = ${dep('web', 'js/bake')}
 `,
     'web/build.rs': `fn main() {
     exact_js_bake::build(std::path::Path::new(".."), "web").expect("bake ${title}");

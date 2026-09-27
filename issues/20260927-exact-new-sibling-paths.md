@@ -1,6 +1,6 @@
 # `exact new` writes dependency paths one level short for an app beside the exact2 checkout
 
-**Status:** Open
+**Status:** Fixed: Host dependencies are relative to their containing manifests, and failed creation removes the partial app; sibling-app Cargo metadata and forced-failure cleanup regressions pass.
 **Systems:** Outside apps (`game/new.mjs`, `game/new-app.test.mjs`)
 **Severity:** P1
 **Author:** Claude (Opus 5.5) for Charlie Cheever
