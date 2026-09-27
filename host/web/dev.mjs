@@ -30,7 +30,7 @@ import { createServer } from 'node:http';
 import { canonicalBytes, classifyArtifacts, cohortReceipt } from '../../scripts/deploy.mjs';
 import { filesystem } from '../../scripts/filesystem.mjs';
 import { developmentGate, developmentInstallPage, installBrowserOrigins, installNetworkPage, localInstallURL, INSTALL_FILES, LOCAL_IOS_INSTALL_ENDPOINT } from '../../scripts/install-page.mjs';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, unwatchFile, watch, watchFile } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, unwatchFile, watch, watchFile } from 'node:fs';
 import { resolve } from 'node:path';
 import { rustPackage, rustOutput, rustInputs, rustCards } from '../../scripts/rust.mjs';
 import { gpuModules, shaderWatchRoots, rustPolicy, rebuildPolicy } from '../../scripts/app.mjs';
@@ -547,12 +547,19 @@ function startModuleCompiler() {
     console.error(`module producer exited ${code}: ${errors}`);
     killCompiler(); process.exit(code || 1);
   });
-  moduleWatch = watchModuleSources(app.dir, name => skipped.test(name) || /(^|\/)\./.test(name)
-    || assetTrees.some(([tree]) => resolve(app.dir,name) === tree || resolve(app.dir,name).startsWith(tree+'/')), error => {
+  const moduleChanged = error => {
     moduleRun++; moduleSaved = Date.now(); clearImmediate(moduleTimer);
     if (error) { console.error(error.message); push({error:error.message}); return; }
     if (rebuildOn.typescript === "save") moduleTimer = setImmediate(produce);
-  });
+  };
+  // The declarations the producer writes beside app.ts are its output, not a source.
+  const watches = [watchModuleSources(app.dir, name => name === 'app.contract.d.ts' || skipped.test(name) || /(^|\/)\./.test(name)
+    || assetTrees.some(([tree]) => resolve(app.dir,name) === tree || resolve(app.dir,name).startsWith(tree+'/')), moduleChanged)];
+  // Directories the manifest mounts beside app.ts (typescript.sources) are sources too.
+  for (const path of Object.values(app.manifest.typescript?.sources ?? {})) {
+    watches.push(watchModuleSources(realpathSync(resolve(app.dir, path)), name => skipped.test(name) || /(^|\/)\./.test(name), moduleChanged));
+  }
+  moduleWatch = { get error() { return watches.find(w => w.error)?.error ?? null; }, close() { for (const w of watches) w.close(); } };
   if (moduleWatch.error) { console.error(moduleWatch.error.message); push({error:moduleWatch.error.message}); }
 
   produce();
@@ -835,6 +842,8 @@ function classifyRebuild() {
 }
 const watched=new Map();
 let compilerInputFiles = new Set(), compilerInputTrees = [], compilerMissingInputs = [], swiftSourceDirectories = new Set();
+const optionalRoots = () => ['assets', 'deck', 'gpu', 'gpu/shaders'].map(root => existsSync(resolve(app.dir, root)) ? 1 : 0).join('');
+let optionalRootsSeen = optionalRoots();
 function watchCompilerInputs() {
   // Poll declared file metadata: saves and replacement survive directory-event
   // coalescing. Only open-ended source discovery needs a directory watch.
@@ -879,7 +888,13 @@ function watchCompilerInputs() {
     try {
       if(file){
         const listener=(now,previous)=>{
-          if(['dev','ino','size','mtimeNs','ctimeNs'].some(key=>now[key]!==previous[key]))changedPath();
+          if(!['dev','ino','size','mtimeNs','ctimeNs'].some(key=>now[key]!==previous[key]))return;
+          // The bake watches the app root only for an optional root it lacks
+          // (deck/, assets/, gpu/: receipt/watch.rs). Any save or stray file
+          // there changes the root's metadata; only such a root appearing or
+          // going away is an input change.
+          if(target===app.dir){const roots=optionalRoots();if(roots===optionalRootsSeen)return;optionalRootsSeen=roots;}
+          changedPath();
         };
         watchFile(target,{bigint:true,interval:100},listener);
         watched.set(target,{close:()=>unwatchFile(target,listener)});
@@ -1117,6 +1132,8 @@ const server = createServer(async (req, res) => {
   }
   const file = url.pathname === '/' ? '/index.html' : url.pathname;
   if (file === '/dev.js') { res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }); res.end(readFileSync(resolve(root, 'host/web/dev.js'))); return; }
+  // The module artifact as it is now, not as the last build copied it: a reload picks up an edit (LLP 1067 D5).
+  if (file.startsWith('/modules/') && app.modules.web && /^\/modules\/[\w./-]+\.js$/.test(file) && !file.includes('..')) { const path = resolve(app.dir, 'modules/web', file.slice('/modules/'.length)); if (existsSync(path)) { res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }); res.end(readFileSync(path)); return; } }
   try {
     if (!found) { res.writeHead(404); res.end(); return; }
     let body = found.body;

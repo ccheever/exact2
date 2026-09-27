@@ -1,10 +1,11 @@
-// CSS clip-path commands validated by the kernel, shared by UIKit and AppKit.
+// CSS clip-path commands validated by the kernel, shared by UIKit and AppKit:
+// `{"rule": "nonzero" | "evenodd", "commands": [["M", [x, y]], …]}`.
 import CoreGraphics
 import QuartzCore
 
 enum ClipPath {
     static func path(_ value: BatchValue?) -> CGPath? {
-        guard let commands = value?.array, !commands.isEmpty else { return nil }
+        guard let commands = field(value, "commands")?.array, !commands.isEmpty else { return nil }
         let path = CGMutablePath()
         for command in commands {
             guard let kind = command.array?.first?.string, let values = command.array?.last?.numbers else { continue }
@@ -21,10 +22,21 @@ enum ClipPath {
         return path
     }
 
-    static func mask(_ path: CGPath?) -> CALayer? {
+    /// Which points a clip holds: CSS's `nonzero` unless it said `evenodd`.
+    static func rule(_ value: BatchValue?) -> CGPathFillRule {
+        field(value, "rule")?.string == "evenodd" ? .evenOdd : .winding
+    }
+
+    private static func field(_ value: BatchValue?, _ key: String) -> BatchValue? {
+        if case .object(let o)? = value { return o[key] }
+        return nil
+    }
+
+    static func mask(_ path: CGPath?, _ rule: CGPathFillRule = .winding) -> CALayer? {
         guard let path else { return nil }
         let mask = CAShapeLayer()
         mask.path = path
+        mask.fillRule = rule == .evenOdd ? .evenOdd : .nonZero
         mask.fillColor = CGColor(gray: 1, alpha: 1)
         return mask
     }

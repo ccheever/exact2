@@ -7,6 +7,8 @@
 //! the oracle: `tests/easing.rs` pins outputs to the values a browser computes
 //! for the same inputs. Nothing here is a Reanimated or UIKit curve.
 
+use exact_num::Piece;
+
 /// Where `steps()` places its jumps (CSS `<step-position>`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum StepPosition {
@@ -172,6 +174,53 @@ impl Easing {
         !matches!(self.validate(), Err(EasingError::NonFinite))
     }
 
+    /// The CSS text: `ease-in`, `cubic-bezier(0.4,0,0.2,1)`, `steps(4,jump-end)`,
+    /// `linear(0 0%,1 100%)`. Numbers print as the f32 the wire carries.
+    pub fn css(&self) -> String {
+        let mut out = String::new();
+        match self {
+            Easing::Linear => out.push_str("linear"),
+            Easing::Ease => out.push_str("ease"),
+            Easing::EaseIn => out.push_str("ease-in"),
+            Easing::EaseOut => out.push_str("ease-out"),
+            Easing::EaseInOut => out.push_str("ease-in-out"),
+            Easing::CubicBezier { x1, y1, x2, y2 } => {
+                out.push_str("cubic-bezier(");
+                for (i, v) in [x1, y1, x2, y2].into_iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    css_number(&mut out, *v);
+                }
+                out.push(')');
+            }
+            Easing::Steps { count, position } => {
+                out.push_str("steps(");
+                (*count as i64).push_to(&mut out);
+                out.push_str(match position {
+                    StepPosition::JumpStart => ",jump-start)",
+                    StepPosition::JumpEnd => ",jump-end)",
+                    StepPosition::JumpNone => ",jump-none)",
+                    StepPosition::JumpBoth => ",jump-both)",
+                });
+            }
+            Easing::PiecewiseLinear(stops) => {
+                out.push_str("linear(");
+                for (i, s) in stops.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    css_number(&mut out, s.output);
+                    out.push(' ');
+                    css_number(&mut out, s.input * 100.0);
+                    out.push('%');
+                }
+                out.push(')');
+            }
+        }
+        out
+    }
+
     /// Output progress at `input` (clamped to `[0, 1]`).
     pub fn progress(&self, input: f64) -> f64 {
         let x = input.clamp(0.0, 1.0);
@@ -185,6 +234,16 @@ impl Easing {
             Easing::Steps { count, position } => steps(*count, *position, x),
             Easing::PiecewiseLinear(stops) => piecewise(stops, x),
         }
+    }
+}
+
+/// A number as CSS text at the wire's f32 precision: `24`, not `24.0`; `0.5`.
+pub(crate) fn css_number(out: &mut String, n: f64) {
+    let n = n as f32;
+    if n.fract() == 0.0 && n.abs() < 1e9 {
+        (n as i64).push_to(out);
+    } else {
+        exact_num::Shortest32(n).push_to(out);
     }
 }
 

@@ -317,6 +317,9 @@ fn inline_detached_and_reused_keys_are_ineligible_but_numeric_roots_are_allowed(
 #[test]
 fn height_transition_roundtrips_exwf_without_changing_previous_property_codes() {
     for (code, property) in Property::ALL.into_iter().enumerate() {
+        if property == Property::ShadowColor {
+            continue; // named only by `box-shadow`; refused on the wire (LLP 1062)
+        }
         assert_eq!(property as usize, code);
         let rows = Transitions(vec![Transition::new(
             TransitionProperty::Property(property),
@@ -452,11 +455,11 @@ fn a_created_node_takes_its_style_without_a_transition() {
     let (_, mut engine, node) = boot(linear_all(1.0));
     assert!(engine.quiescent());
     let painted = engine.frame();
-    // `transition: all` covers the colours too (LLP 1055.000 D6): `color`
-    // and `background-color` join the four; a box has no fill or stroke.
+    // The four; `transition: all` covers the colours too (LLP 1055.000
+    // D6), which the paint pass owns (LLP 1062 D2).
     assert_eq!(
         painted.len(),
-        6,
+        4,
         "every animatable property is presented once"
     );
     assert_eq!(

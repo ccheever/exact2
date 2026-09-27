@@ -441,11 +441,15 @@ fn refine_params_from_view(
                 refine_params_from_view(otherwise, scope, c, ct, shapes)?;
             }
             Node::Each {
-                var, list, body, ..
+                var,
+                index,
+                list,
+                body,
+                ..
             } => {
                 if let Ok(Ty::List(item)) = infer(list, scope, shapes) {
                     let mut inner = scope.clone();
-                    inner.push_region(Some((var.clone(), Ref::Item(0), *item)));
+                    inner.push_each(var, index.as_deref(), *item);
                     refine_params_from_view(body, &inner, c, ct, shapes)?;
                 }
             }

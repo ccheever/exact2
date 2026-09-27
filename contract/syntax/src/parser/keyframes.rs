@@ -53,11 +53,23 @@ impl Parser {
                     }
                 };
                 p.next();
-                let value = p.expr()?;
-                if !matches!(value, Expr::Number(..) | Expr::Str(..)) {
+                let value = match p.expr()? {
+                    // `-8` is a literal to anyone writing a keyframe.
+                    Expr::Unary(UnOp::Neg, inner, span) if matches!(*inner, Expr::Number(..)) => {
+                        let Expr::Number(n, _) = *inner else {
+                            unreachable!()
+                        };
+                        Expr::Number(-n, span)
+                    }
+                    other => other,
+                };
+                // A palette function (`color=accent()`, `color=tone("strong",
+                // 0.4)`) is constant too: lowering folds it to its literal
+                // from its arguments (LLP 1062 D9).
+                if !matches!(value, Expr::Number(..) | Expr::Str(..) | Expr::Call(..)) {
                     return Err(SyntaxError {
                         id: "contract-keyframe-literal",
-                        message: format!("`{aname}` in `keyframes {name}` must be a literal: keyframes are constant"),
+                        message: format!("`{aname}` in `keyframes {name}` must be a literal or a function of literals: keyframes are constant"),
                         span: aspan,
                     });
                 }

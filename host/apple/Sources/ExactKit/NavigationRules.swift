@@ -40,8 +40,14 @@ enum NavigationRules {
     /// programmatic transition has no interactive source; its completion
     /// must not dismiss a newer route selected while UIKit was animating.
     /// A cancelled swipe shows the same key. Sheets have their own path.
-    static func dispatchesBack(shownKey: String, rootKey: String, sourceKey: String?, modalActive: Bool) -> Bool {
-        !modalActive && sourceKey == rootKey && shownKey != rootKey
+    ///
+    /// One exception to "the source is still selected": the app replaced the
+    /// source in place while the finger was down (same depth, the source's
+    /// node gone — a finished screen giving way to its result). The person
+    /// swiped that position away, so the gesture applies to its replacement:
+    /// otherwise the replacement is pushed back in the moment the pop lands.
+    static func dispatchesBack(shownKey: String, rootKey: String, sourceKey: String?, sourceReplaced: Bool = false, modalActive: Bool) -> Bool {
+        !modalActive && shownKey != rootKey && (sourceKey == rootKey || sourceReplaced)
     }
 
     /// D1: the Back control is resolved at use, never captured at a

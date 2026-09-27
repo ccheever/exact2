@@ -1,0 +1,271 @@
+//! @ref LLP 1060 — `t("key", name=value)` against `strings/<locale>.json`:
+//! checked at compile, baked into the plan, the locale a slot the host's
+//! place writes, so a switch re-renders exactly the texts `t` produced.
+use exact_kernel::{Kernel, PropId};
+use exact_runner::{DataError, DataSource, Runner, Value};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+struct NoData;
+impl DataSource for NoData {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(source.into()))
+    }
+}
+
+struct AppDir(PathBuf);
+
+impl AppDir {
+    fn new(source: &str, tables: &[(&str, &str)]) -> AppDir {
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "exact-contract-strings-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(dir.join("strings")).unwrap();
+        std::fs::write(dir.join("app.contract"), source).unwrap();
+        for (name, json) in tables {
+            let path = dir.join(name);
+            std::fs::write(path, json).unwrap();
+        }
+        AppDir(dir)
+    }
+
+    fn compile(&self) -> Result<exact_plan::Plan, Vec<contract::CompileError>> {
+        contract::compile_path_all(&self.0.join("app.contract"), false).map(|(plan, _)| plan)
+    }
+
+    fn refusals(&self) -> Vec<String> {
+        self.compile()
+            .expect_err("refused")
+            .iter()
+            .map(|e| e.id.clone())
+            .collect()
+    }
+}
+
+impl Drop for AppDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+const APP: &str = "component App\n  state count = 2\n  action more writes count\n    count = count + 1\n  view\n    column\n      text t(\"title\") testId=\"title\"\n      text t(\"greeting\", name=\"Ada\", count=count) testId=\"greeting\"\n      text \"fixed\" testId=\"fixed\"\n      text t(\"only-base\") testId=\"only\"\n";
+
+const EN: &str = r#"{"title": "Journal", "greeting": "Hi {name}, {count} entries", "only-base": "Base only", "unused": "Never baked"}"#;
+const EN_GB: &str = r#"{"title": "Diary"}"#;
+const FR: &str = r#"{"title": "Journal intime", "greeting": "{count} entrées, {name}"}"#;
+
+fn tables() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("strings/en.json", EN),
+        ("strings/en-GB.json", EN_GB),
+        ("strings/fr.json", FR),
+    ]
+}
+
+fn text(r: &Runner<NoData>, id: &str) -> String {
+    let key = r.kernel().find_by_test_id(id)[0];
+    let node = r.kernel().node_by_key(key).unwrap();
+    node.props.str(PropId::Text).unwrap_or("").to_string()
+}
+
+fn boot(plan: exact_plan::Plan) -> Runner<NoData> {
+    let plan = contract::bake(plan, NoData).unwrap();
+    Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap()
+}
+
+#[test]
+fn tables_are_baked_base_first_with_only_the_keys_t_names() {
+    let app = AppDir::new(APP, &tables());
+    let plan = app.compile().unwrap();
+    let names: Vec<&str> = plan.locales.iter().map(|l| plan.str(l.name)).collect();
+    assert_eq!(names, ["en", "en-GB", "fr"]);
+    let base = &plan.locales[0];
+    let keys: Vec<&str> = base
+        .texts
+        .iter()
+        .map(|t| plan.str(plan.text(t).key))
+        .collect();
+    assert_eq!(keys, ["greeting", "only-base", "title"]);
+    let slot = plan.slot(plan.locale.expect("the locale slot"));
+    assert_eq!(plan.str(slot.name), "#locale");
+    // Encode and decode: the tables and the header field survive, canonically.
+    let bytes = plan.encode();
+    let decoded = exact_plan::Plan::decode(&bytes).unwrap();
+    assert_eq!(decoded, plan);
+    assert_eq!(decoded.encode(), bytes);
+    // Compiling twice is byte-identical.
+    assert_eq!(app.compile().unwrap().encode(), bytes);
+}
+
+#[test]
+fn an_app_without_t_has_no_tables_and_no_slot() {
+    let app = AppDir::new(
+        "component App\n  view\n    text \"plain\"\n",
+        &[("strings/en.json", EN)],
+    );
+    let plan = app.compile().unwrap();
+    assert!(plan.locales.is_empty() && plan.texts.is_empty());
+    assert!(plan.locale.is_none());
+}
+
+#[test]
+fn the_base_shows_until_the_host_says_and_a_switch_rerenders_only_t_texts() {
+    let app = AppDir::new(APP, &tables());
+    let mut r = boot(app.compile().unwrap());
+    assert_eq!(text(&r, "title"), "Journal");
+    assert_eq!(text(&r, "greeting"), "Hi Ada, 2 entries");
+    // Language-only fallback, then the base for a key the table lacks.
+    let receipt = r.set_place("fr-CA", "America/Toronto").unwrap().unwrap();
+    assert_eq!(text(&r, "title"), "Journal intime");
+    assert_eq!(text(&r, "greeting"), "2 entrées, Ada");
+    assert_eq!(text(&r, "only"), "Base only");
+    assert_eq!(text(&r, "fixed"), "fixed");
+    let mut touched = receipt.touched.clone();
+    touched.sort();
+    let mut t_texts: Vec<_> = ["title", "greeting"]
+        .iter()
+        .map(|id| r.kernel().find_by_test_id(id)[0])
+        .collect();
+    t_texts.sort();
+    assert_eq!(touched, t_texts);
+    // A placeholder's value is ordinary state.
+    r.act("more", vec![]).unwrap();
+    assert_eq!(text(&r, "greeting"), "3 entrées, Ada");
+    // An exact match beats the language; a key it lacks falls to the base.
+    r.set_place("en-GB", "Europe/London").unwrap().unwrap();
+    assert_eq!(text(&r, "title"), "Diary");
+    assert_eq!(text(&r, "greeting"), "Hi Ada, 3 entries");
+    // A locale that resolves to the same table commits nothing.
+    assert!(r.set_place("EN-gb", "Europe/London").unwrap().is_none());
+    assert_eq!(r.slot("#locale"), Some(&Value::str("en-GB")));
+    // No table for the language: the base.
+    r.set_place("de-DE", "Europe/Berlin").unwrap().unwrap();
+    assert_eq!(text(&r, "title"), "Journal");
+}
+
+#[test]
+fn a_changed_place_that_resolves_to_the_same_table_rerenders_nothing() {
+    let app = AppDir::new(APP, &tables());
+    let mut r = boot(app.compile().unwrap());
+    // No exactTime resource and the same table: no commit at all.
+    assert!(r.set_place("en-US", "America/New_York").unwrap().is_none());
+    assert_eq!(text(&r, "title"), "Journal");
+}
+
+#[test]
+fn an_initializer_may_call_t() {
+    let app = AppDir::new(
+        "component App\n  state label = t(\"title\")\n  view\n    text label testId=\"label\"\n",
+        &[("strings/en.json", EN)],
+    );
+    let r = boot(app.compile().unwrap());
+    assert_eq!(text(&r, "label"), "Journal");
+}
+
+#[test]
+fn the_manifest_names_the_base() {
+    let app = AppDir::new(
+        "component App\n  view\n    text t(\"title\") testId=\"title\"\n",
+        &[
+            (
+                "app.json",
+                r#"{"name":"S","app":{"id":"com.exact.s","name":"S"},"strings":{"base":"fr"}}"#,
+            ),
+            ("strings/fr.json", r#"{"title": "Journal intime"}"#),
+        ],
+    );
+    let r = boot(app.compile().unwrap());
+    assert_eq!(text(&r, "title"), "Journal intime");
+}
+
+#[test]
+fn each_call_site_refusal_has_its_id() {
+    let cases = [
+        ("text t(\"titel\")", "type-strings-unknown-key"),
+        (
+            "text t(\"greeting\", name=\"Ada\")",
+            "type-strings-placeholder",
+        ),
+        ("text t(\"title\", name=\"Ada\")", "type-strings-argument"),
+        ("text t(\"title\", \"Ada\")", "type-strings-argument"),
+        (
+            "text t(\"greeting\", name=\"Ada\", count=none)",
+            "type-strings-argument",
+        ),
+        ("text t(\"ti\" + \"tle\")", "type-strings-key"),
+    ];
+    for (line, id) in cases {
+        let app = AppDir::new(
+            &format!("component App\n  view\n    {line}\n"),
+            &[("strings/en.json", EN)],
+        );
+        assert_eq!(app.refusals(), [id], "{line}");
+    }
+    // A typo gets a suggestion.
+    let app = AppDir::new(
+        "component App\n  view\n    text t(\"titel\")\n",
+        &[("strings/en.json", EN)],
+    );
+    let message = app.compile().unwrap_err()[0].message.clone();
+    assert!(message.contains("did you mean \"title\""), "{message}");
+    // Text without a path has no tables.
+    assert_eq!(
+        contract::compile("component App\n  view\n    text t(\"title\")\n")
+            .unwrap_err()
+            .id,
+        "type-strings-missing"
+    );
+}
+
+#[test]
+fn every_table_refusal_is_reported_in_one_run() {
+    let app = AppDir::new(
+        "component App\n  view\n    text \"x\"\n",
+        &[
+            ("strings/en.json", EN),
+            (
+                "strings/fr.json",
+                r#"{"title": "{who} Journal", "gone": "Parti"}"#,
+            ),
+            ("strings/es.json", r#"{"title": 3}"#),
+            ("strings/en_US.json", "{}"),
+        ],
+    );
+    let mut ids = app.refusals();
+    ids.sort();
+    assert_eq!(
+        ids,
+        [
+            "strings-locale",
+            "strings-placeholder",
+            "strings-table",
+            "strings-unknown-key"
+        ]
+    );
+    let app = AppDir::new(
+        "component App\n  view\n    text \"x\"\n",
+        &[("strings/fr.json", FR)],
+    );
+    assert_eq!(app.refusals(), ["strings-base-missing"]);
+}
+
+/// A child component's loop variable named like the string function does not
+/// hide it: expansion renames the child's locals, never a call's name.
+#[test]
+fn a_loop_variable_named_t_leaves_t_callable_in_a_child() {
+    let app = AppDir::new(
+        "shape Row\n  id: string\ncomponent App\n  resource rows = rows() as shape list<Row>\n  view\n    Rows(rows=rows)\ncomponent Rows\n  props\n    rows: list<Row>\n  view\n    column\n      each t in rows key=t.id\n        text t(\"hi\") testId=t.id\n",
+        &[("strings/en.json", r#"{"hi": "Hello"}"#)],
+    );
+    assert!(app.compile().is_ok(), "{:?}", app.refusals());
+}

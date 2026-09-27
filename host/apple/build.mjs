@@ -37,7 +37,7 @@ import { homedir, networkInterfaces, tmpdir } from 'node:os';
 import { createServer as createTCPServer } from 'node:net';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { checkModuleRoster, copyShaders, appleCargoClaims, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
+import { checkModuleRoster, copyShaders, appleCargoClaims, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesIos, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
@@ -75,6 +75,20 @@ export const pkg = resolve(root, 'host/apple');
 /** The simulator's Rust target and Swift triple on this machine. */
 export const iosTarget = process.arch === 'arm64' ? 'aarch64-apple-ios-sim' : 'x86_64-apple-ios';
 export const iosTriple = `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-ios17.0-simulator`;
+const newer = (a, b) => (a.split('.').map(Number).reduce((x, n, i) => x || n - (b.split('.').map(Number)[i] ?? 0), 0) > 0 ? a : b);
+/** The deployment targets an app builds for: its manifest's `minimumOS`, never
+ * below the host's own floor (Package.swift's). Every Rust, Swift and linker
+ * step of one build uses the same pair, so an app's own native code may target
+ * the newer OS it asked for without a mixed-target refusal. */
+export function deploymentTargets(app) {
+  return {
+    ios: newer(String(app.manifest.host?.ios?.minimumOS ?? '17.0'), '17.0'),
+    macos: newer(String(app.manifest.host?.macos?.minimumOS ?? '14.0'), '14.0'),
+  };
+}
+/** The Swift triple for an app's iOS build. */
+export const iosTripleFor = (app, device) =>
+  device ? `arm64-apple-ios${deploymentTargets(app).ios}` : `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-ios${deploymentTargets(app).ios}-simulator`;
 export const macTriple = `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macosx`;
 
 /** App-owned Apple paths, shared by builder and launchers. @ref LLP 1036.000 §2 */
@@ -594,6 +608,38 @@ export function appIcon(app, dir, platform, { catalog = false } = {}) {
   return { CFBundleIconFile: 'AppIcon' };
 }
 
+/** The launch screen in the app's own background, light and dark
+ * (`launch`, else the manifest's `background_color`): iOS crossfades
+ * from the launch screen to the first frame, and between two screens of one
+ * colour that crossfade is invisible, so the app opens on its first frame.
+ * `UILaunchScreen` names colours only from an asset catalog, so this
+ * compiles one (`actool`) into the bundle. Returns the plist keys to merge. */
+export function launchScreen(app, dir, device) {
+  const launch = app.manifest.launch ?? {};
+  const light = launch.background ?? app.manifest.background_color;
+  if (!light) return {};
+  const components = (hex, field) => {
+    const m = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(hex ?? '');
+    if (!m) throw new Error(`launch.${field} must be a #RGB, #RRGGBB or #RRGGBBAA colour, not ${JSON.stringify(hex)}`);
+    const h = m[1].length === 3 ? [...m[1]].map((c) => c + c).join('') : m[1];
+    const a = h.length === 8 ? parseInt(h.slice(6), 16) : 255;
+    return { 'color-space': 'srgb', components: { red: `0x${h.slice(0, 2)}`, green: `0x${h.slice(2, 4)}`, blue: `0x${h.slice(4, 6)}`, alpha: (a / 255).toFixed(3) } };
+  };
+  const colors = [{ idiom: 'universal', color: components(light, 'background') }];
+  if (launch.backgroundDark) colors.push({ idiom: 'universal', appearances: [{ appearance: 'luminosity', value: 'dark' }], color: components(launch.backgroundDark, 'backgroundDark') });
+  const work = mkdtempSync(resolve(tmpdir(), 'exact-launch-'));
+  try {
+    const catalog = resolve(work, 'Launch.xcassets');
+    mkdirSync(resolve(catalog, 'ExactLaunch.colorset'), { recursive: true });
+    writeFileSync(resolve(catalog, 'Contents.json'), JSON.stringify({ info: { author: 'exact', version: 1 } }));
+    writeFileSync(resolve(catalog, 'ExactLaunch.colorset', 'Contents.json'), JSON.stringify({ colors, info: { author: 'exact', version: 1 } }));
+    run('xcrun', ['actool', catalog, '--compile', dir, '--platform', device ? 'iphoneos' : 'iphonesimulator',
+      '--minimum-deployment-target', app.manifest.host?.ios?.minimumOS ?? '17.0',
+      '--output-partial-info-plist', resolve(work, 'partial.plist')], { stdio: 'ignore' });
+  } finally { rmSync(work, { recursive: true, force: true }); }
+  return { UILaunchScreen: { UIColorName: 'ExactLaunch' } };
+}
+
 /** The macOS `Info.plist` for a bundled build, from the same manifest. */
 export const macInfoPlist = (app, { development = null, icon = {} } = {}) => plistFile({
   ...icon,
@@ -606,6 +652,9 @@ export const macInfoPlist = (app, { development = null, icon = {} } = {}) => pli
   CFBundleShortVersionString: '0.1.0',
   LSMinimumSystemVersion: app.manifest.host?.macos?.minimumOS ?? '14.0',
   NSHighResolutionCapable: true,
+  // Usage strings for protected resources (NSMicrophoneUsageDescription, …),
+  // as `host.ios.permissions` writes them for iOS.
+  ...(app.manifest.host?.macos?.permissions ?? {}),
   ...(app.manifest.host?.macos?.window ? { ExactWindow: app.manifest.host.macos.window } : {}),
   ...(documentTypes(app).length ? { CFBundleDocumentTypes: documentTypes(app) } : {}),
   ...openingLinks(app, 'macos', development),
@@ -620,6 +669,56 @@ export function receipt(app, fields) {
     toolchain: { rustc: version('rustc', ['--version']), swift: version('swift', ['--version']), xcode: version('xcodebuild', ['-version']) },
     ...fields,
   }, null, 2) + '\n';
+}
+
+// ---------------------------------------------------------------- the lean Hermes an iOS app links
+
+/** The archives js/build.rs links from each platform's CMake build. */
+export const HERMES_IOS_ARCHIVES = ['lib/libhermesvmlean_a.a', 'jsi/libjsi.a', 'external/boost/boost_1_86_0/libs/context/libboost_context.a'];
+// Checks the source, then builds and publishes one platform; ibex's lock is held throughout.
+const HERMES_IOS_SCRIPT = `set -eu
+src=$1 pin=$2 root=$3 platform=$4 sdk=$5 arch=$6; shift 6
+out=$root/$platform build=$root/.build-$platform
+fix="run ./scripts/build-hermes.sh --vanilla $pin in ibex"
+[ -d "$src/.git" ] || { echo "no Hermes source at $src: $fix" >&2; exit 1; }
+head=$(git -C "$src" rev-parse HEAD)
+[ "$head" = "$pin" ] || { echo "ibex's Hermes source $src is at $head; js/build.rs pins $pin: $fix" >&2; exit 1; }
+[ -z "$(git -C "$src" status --porcelain --untracked-files=no)" ] || { echo "ibex's Hermes source $src is patched; the lean VM is pristine upstream: $fix" >&2; exit 1; }
+[ -f "$src/build_host_hermesc/ImportHostCompilers.cmake" ] || { echo "no host compiler in $src/build_host_hermesc: $fix" >&2; exit 1; }
+if [ -e "$out" ]; then
+  for a; do [ -f "$out/$a" ] || { echo "$out lacks $a: remove it and build again" >&2; exit 1; }; done
+  exit 0
+fi
+cmake -S "$src" -B "$build" -DHERMES_APPLE_TARGET_PLATFORM="$sdk" -DCMAKE_OSX_ARCHITECTURES="$arch" \\
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=17.0 -DHERMES_ENABLE_DEBUGGER=OFF -DHERMES_ENABLE_INTL=ON \\
+  -DHERMES_ENABLE_TEST_SUITE=OFF -DHERMES_ENABLE_BITCODE=OFF -DHERMES_BUILD_APPLE_FRAMEWORK=OFF \\
+  -DHERMES_BUILD_SHARED_JSI=OFF -DIMPORT_HOST_COMPILERS="$src/build_host_hermesc/ImportHostCompilers.cmake" \\
+  -DCMAKE_BUILD_TYPE=MinSizeRel
+cmake --build "$build" --target hermesvmlean_a jsi boost_context -j "$(sysctl -n hw.ncpu)"
+stage=$(mktemp -d "$root/.stage-$platform.XXXXXX") && chmod 755 "$stage"
+for a; do mkdir -p "$stage/$(dirname "$a")"; cp "$build/$a" "$stage/$a"; done
+mv "$stage" "$out"
+rm -rf "$build"`;
+
+/** An iOS app with an `app.ts` links lean Hermes for its platform. Missing
+ * from the per-pin cache every checkout and outside app shares, it is built
+ * here, once per machine: only that platform's three CMake targets, from
+ * ibex's pristine source cache with ibex's host compiler, under ibex's own
+ * source-build lock, so neither build moves the checkout under the other.
+ * EXACT_HERMES_IOS_DIR's archives are provisioned elsewhere; js/build.rs
+ * refuses missing ones. @ref LLP 1036.001 D5 */
+export function provisionHermesIos(platform, env = process.env) {
+  const { pin, root, cached } = hermesIos(env), out = resolve(root, platform);
+  if (!cached || HERMES_IOS_ARCHIVES.every(a => existsSync(resolve(out, a)))) return;
+  const cache = resolve(env.HOME ?? homedir(), '.cache/exact');
+  console.error(`host/apple: building lean Hermes for ${platform} (facebook/hermes ${pin.slice(0, 12)}) into ${out}, once for this machine`);
+  mkdirSync(root, { recursive: true });
+  const { SDKROOT, ...clean } = env; // the platform names its own SDK
+  const sdk = platform === 'ios' ? 'iphoneos' : 'iphonesimulator', arch = platform === 'ios' || process.arch === 'arm64' ? 'arm64' : 'x86_64';
+  const r = spawnSync('perl', ['-MFcntl=:flock', '-e', 'open(my $l, ">>", shift) or die "lock: $!\\n"; flock($l, LOCK_EX) or die "flock: $!\\n"; exit(system(@ARGV) == 0 ? 0 : 1)',
+    resolve(cache, 'hermes-source-build.lock'), 'sh', '-c', HERMES_IOS_SCRIPT, 'hermes', resolve(cache, 'hermes/hermes-src'), pin, root, platform, sdk, arch, ...HERMES_IOS_ARCHIVES],
+    { env: clean, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  if (r.status !== 0) throw new Error(`lean Hermes for ${platform} did not build (${r.error?.message ?? `exit ${r.status}`}):\n${`${r.stdout ?? ''}${r.stderr ?? ''}`.trim().split('\n').slice(-30).join('\n')}`);
 }
 
 // ---------------------------------------------------------------- the build
@@ -667,12 +766,13 @@ function main(args) {
   const target = ios ? (device ? 'aarch64-apple-ios' : iosTarget) : bakeTarget('macos');
   const sdkName = ios ? (device ? 'iphoneos' : 'iphonesimulator') : 'macosx';
   const sdk = read('xcrun', ['--sdk', sdkName, '--show-sdk-path']).stdout.trim();
+  const targets = deploymentTargets(app);
   const cargoEnv = {
     ...developmentBuildEnv(),
     SDKROOT: sdk,
-    MACOSX_DEPLOYMENT_TARGET: '14.0',
+    MACOSX_DEPLOYMENT_TARGET: targets.macos,
     ...(ios ? {
-      IPHONEOS_DEPLOYMENT_TARGET: '17.0',
+      IPHONEOS_DEPLOYMENT_TARGET: targets.ios,
       // The bake's host dependencies compile Objective-C++ too. cc-rs
       // inherits SDKROOT; target the Mac SDK explicitly for those units.
       HOST_CXXFLAGS: `${process.env.HOST_CXXFLAGS ?? ''} -isysroot ${read('xcrun', ['--sdk', 'macosx', '--show-sdk-path']).stdout.trim()}`,
@@ -680,10 +780,9 @@ function main(args) {
   };
   // A production bake is `release`; any other builds `apple-dev` (Cargo.toml),
   // the same optimizations without whole-graph LTO, for the touch-one-line budget.
-  // An app's own workspace may not declare it yet: build `release` and say so.
-  // (A table-header match, not a TOML parse: Node runs this for apps outside the repo.)
-  const devProfile = /^\s*\[profile\.apple-dev\]/m.test(readFileSync(resolve(app.workspace, 'Cargo.toml'), 'utf8')) ? 'apple-dev' : 'release';
-  if (devProfile === 'release') console.log(`apple: ${app.workspace}/Cargo.toml has no [profile.apple-dev]; building release (copy exact2's [profile.apple-dev] and its build-override for faster rebuilds)`);
+  // An app outside this repo gets it with the root's other profiles, injected
+  // at build (injectedProfiles, LLP 1036.001 D1).
+  const devProfile = 'apple-dev';
   const cargoProfile = cargoEnv.EXACT_UPDATE_TRUST === 'production' ? 'release' : devProfile;
   const cargoLibDir = resolve(app.target, target, cargoProfile);
   // Named Cargo products can alias in external workspaces or two checkouts
@@ -691,6 +790,7 @@ function main(args) {
   let bakedPlan, paths;
   const development = cargoEnv.EXACT_UPDATE_TRUST === 'development' && args.includes('--url') ? developmentAdmission(app, launchEnv.EXACT_DEV_PLAN) : null;
   cargoEnv.EXACT_BAKE_OUTPUT = bakeOutput(app, cargoEnv);
+  if (ios && existsSync(resolve(app.dir, 'app.ts')) && cargoEnv.EXACT_JS_ENGINE !== 'stub') provisionHermesIos(device ? 'ios' : 'ios-simulator');
   const buildReceipt = buildBake(app, ios ? 'ios' : 'macos', target, { env: cargoEnv, profile: cargoProfile, prepareGpu(product) {
     // Cargo puts its own unsigned file back on every build, and a signature
     // carries its signing time: signing in place made the app's bake (which
@@ -763,7 +863,7 @@ function main(args) {
   // manifest compile. The target SDK stays in the explicit Swift arguments.
   const env = {
     ...process.env,
-    ...(ios ? { IPHONEOS_DEPLOYMENT_TARGET: '17.0' } : { MACOSX_DEPLOYMENT_TARGET: '14.0' }),
+    ...(ios ? { IPHONEOS_DEPLOYMENT_TARGET: targets.ios } : { MACOSX_DEPLOYMENT_TARGET: targets.macos }),
     EXACT_LIB_DIR: libDir,
     EXACT_LIB: crate.replace(/-/g, '_'),
     EXACT_APP_COMPOSITION: composition,
@@ -782,7 +882,7 @@ function main(args) {
   const swiftArgs = ['build', '-c', 'release', '--scratch-path', swiftBuildRoot];
   if (ios) {
     swiftArgs.push(
-      '--triple', device ? 'arm64-apple-ios17.0' : iosTriple,
+      '--triple', iosTripleFor(app, device),
       '--sdk', sdk,
       '-Xcc', '-isysroot', '-Xcc', sdk,
       '-Xlinker', '-syslibroot', '-Xlinker', sdk,
@@ -818,9 +918,9 @@ function main(args) {
   // Swift scratch while the completed dylib remains invocation-private.
   const webArgs = ['--sdk', sdkName, 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'webarm-module-cache'), '-parse-as-library', '-emit-library', '-O', '-module-name', 'ExactWebArm', resolve(root, 'host/apple/webarm/WebArm.swift'), '-o', webBuilt, '-framework', 'WebKit'];
   if (ios) {
-    webArgs.push('-target', device ? 'arm64-apple-ios17.0' : iosTriple, '-sdk', sdk);
+    webArgs.push('-target', iosTripleFor(app, device), '-sdk', sdk);
   } else {
-    webArgs.push('-target', `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macos14.0`);
+    webArgs.push('-target', `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macos${targets.macos}`);
   }
   // Each arm is one Swift file: compile it once per source, arguments and
   // compiler, kept in the scratch path. Rebuilt into a fresh directory, the
@@ -991,7 +1091,7 @@ function main(args) {
   // with the module before a surface is created, never strings in the dylib.
   copyAppleStaticTrees(paths.capture, bundle);
   verifyBakeFiles(bakedCompat, bakedPlan, listAssets(bundle, true));
-  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, icon: appIcon(app, bundle, 'ios', { catalog: !!ipa }), distribution: ipa ? distributionKeys() : null }));
+  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, icon: { ...appIcon(app, bundle, 'ios', { catalog: !!ipa }), ...launchScreen(app, bundle, device) }, distribution: ipa ? distributionKeys() : null }));
   if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(bundle, 'Frameworks', loadName));
   for (const m of moduleDylibs) copyFileSync(resolve(libDir, m.built), resolve(bundle, 'Frameworks', m.load));
   copyFileSync(webBuilt, resolve(bundle, 'Frameworks', webLoadName));

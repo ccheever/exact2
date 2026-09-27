@@ -5,6 +5,8 @@
 #![deny(missing_docs)]
 
 mod resident;
+mod swift;
+pub use swift::swift_native;
 #[cfg(test)]
 mod sources_tests;
 pub use resident::Producer;
@@ -339,7 +341,19 @@ fn build_sources(
         }
         std::fs::write(out.join("logic.rs"), entry).map_err(|e| e.to_string())?;
     }
-    println!("cargo:rerun-if-changed={}", app.display());
+    // Each captured source by name, not the app directory: Cargo scans a named
+    // directory recursively, and an app outside this repo keeps its `target/`
+    // (and a dev server's output) inside it, so every build dirtied the next
+    // and the dev loop rebuilt forever. A new file matters once a watched one
+    // names it, which is itself a change.
+    let root = app.canonicalize().map_err(|e| e.to_string())?;
+    let mounted = mounts(&root)?;
+    for name in sources(&root)?.keys() {
+        println!(
+            "cargo:rerun-if-changed={}",
+            origin(&root, &mounted, name).display()
+        );
+    }
     Ok(())
 }
 
@@ -424,15 +438,160 @@ impl Drop for Scratch {
     }
 }
 
-/// Capture the app-local source graph. External/npm imports intentionally fail
-/// in the private snapshot until dependency capture is implemented; they must
-/// not silently resolve to unrelated files on the producer machine.
+/// The generated declarations `app.ts` imports.
+const DECLARATIONS: &str = "app.contract.d.ts";
+
+/// Directories outside the app its TypeScript also imports, from the
+/// manifest's `typescript.sources` (`{"core": "../../src/core"}`): each is
+/// captured as if it sat beside `app.ts` under its name, so `./core/model`
+/// resolves the same in the bake as in an editor given a link of that name.
+/// A domain core shared with another app is imported, not copied.
+fn mounts(root: &Path) -> Result<Vec<(String, PathBuf)>, String> {
+    const RESERVED: &[&str] = &[
+        "assets",
+        "deck",
+        "gpu",
+        "fonts",
+        "node_modules",
+        "target",
+        "dist",
+        "web",
+        "apple",
+        "linux",
+    ];
+    let manifest = root.join("app.json");
+    if !manifest.exists() {
+        return Ok(Vec::new());
+    }
+    let json: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(&manifest).map_err(|e| format!("{}: {e}", manifest.display()))?,
+    )
+    .map_err(|e| format!("{}: {e}", manifest.display()))?;
+    let Some(declared) = json.pointer("/typescript/sources") else {
+        return Ok(Vec::new());
+    };
+    let declared = declared
+        .as_object()
+        .ok_or("typescript.sources: an object of name → directory")?;
+    let mut out = Vec::new();
+    for (name, path) in declared {
+        let fine = name.chars().next().is_some_and(|c| c.is_ascii_lowercase())
+            && name
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_');
+        if !fine || RESERVED.contains(&name.as_str()) {
+            return Err(format!(
+                "typescript.sources.{name}: a lowercase name that is not one of {}",
+                RESERVED.join(", ")
+            ));
+        }
+        let path = path
+            .as_str()
+            .filter(|p| !Path::new(p).is_absolute())
+            .ok_or(format!(
+                "typescript.sources.{name}: a path relative to the app"
+            ))?;
+        let dir = root
+            .join(path)
+            .canonicalize()
+            .map_err(|e| format!("typescript.sources.{name}: {path}: {e}"))?;
+        let app = root.canonicalize().map_err(|e| e.to_string())?;
+        if !dir.is_dir() || dir.starts_with(&app) || app.starts_with(&dir) {
+            return Err(format!(
+                "typescript.sources.{name}: {path} must be a directory outside the app that does not contain it"
+            ));
+        }
+        out.push((name.clone(), dir));
+    }
+    Ok(out)
+}
+
+/// Bare import specifiers the app's TypeScript resolves to a directory of the
+/// capture (`typescript.aliases`, `{"@/core": "core"}`): a shared source that
+/// imports through its own project's alias resolves the same way here. Each
+/// target is a mount's name or one of the app's own directories; nothing an
+/// alias names can lie outside the capture.
+fn aliases(root: &Path) -> Result<Vec<(String, String)>, String> {
+    let manifest = root.join("app.json");
+    if !manifest.exists() {
+        return Ok(Vec::new());
+    }
+    let json: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(&manifest).map_err(|e| format!("{}: {e}", manifest.display()))?,
+    )
+    .map_err(|e| format!("{}: {e}", manifest.display()))?;
+    let Some(declared) = json.pointer("/typescript/aliases") else {
+        return Ok(Vec::new());
+    };
+    let declared = declared
+        .as_object()
+        .ok_or("typescript.aliases: an object of specifier → directory")?;
+    let mounted = mounts(root)?;
+    let mut out = Vec::new();
+    for (specifier, target) in declared {
+        let bare = specifier
+            .chars()
+            .next()
+            .is_some_and(|c| c != '.' && c != '/')
+            && !specifier.contains('\\')
+            && !specifier.ends_with('/');
+        if !bare {
+            return Err(format!(
+                "typescript.aliases.{specifier}: a bare import specifier, like `@/core`"
+            ));
+        }
+        let target = target
+            .as_str()
+            .ok_or(format!("typescript.aliases.{specifier}: a directory"))?;
+        let inside = Path::new(target)
+            .components()
+            .all(|c| matches!(c, std::path::Component::Normal(_)));
+        let first = target.split('/').next().unwrap_or("");
+        let known = mounted.iter().any(|(name, _)| name == first) || root.join(target).is_dir();
+        if !inside || !known {
+            return Err(format!(
+                "typescript.aliases.{specifier}: {target} must be a mounted source's name or a directory of the app"
+            ));
+        }
+        out.push((specifier.clone(), target.to_owned()));
+    }
+    Ok(out)
+}
+
+/// The aliases as the stage's compilers read them (`__exact_aliases.json`).
+fn aliases_json(root: &Path) -> Result<String, String> {
+    let map: serde_json::Map<String, serde_json::Value> = aliases(root)?
+        .into_iter()
+        .map(|(specifier, target)| (specifier, serde_json::Value::String(target)))
+        .collect();
+    Ok(serde_json::Value::Object(map).to_string())
+}
+
+/// Where a captured source lives on disk: in the app, or in a mount.
+fn origin(root: &Path, mounts: &[(String, PathBuf)], name: &Path) -> PathBuf {
+    let mut parts = name.components();
+    let first = parts
+        .next()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned());
+    match mounts.iter().find(|(m, _)| Some(m) == first.as_ref()) {
+        Some((_, dir)) => dir.join(parts.as_path()),
+        None => root.join(name),
+    }
+}
+
+/// Capture the app-local source graph, and the directories the manifest
+/// mounts beside it. External/npm imports intentionally fail in the private
+/// snapshot until dependency capture is implemented; they must not silently
+/// resolve to unrelated files on the producer machine.
 fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
+    let mounts = mounts(root)?;
     fn walk(
         root: &Path,
         at: &Path,
         out: &mut BTreeMap<PathBuf, Vec<u8>>,
         total: &mut usize,
+        mounts: &[(String, PathBuf)],
+        prefix: &Path,
     ) -> Result<(), String> {
         for entry in std::fs::read_dir(at).map_err(|e| e.to_string())? {
             let entry = entry.map_err(|e| e.to_string())?;
@@ -443,17 +602,31 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
             }
             if matches!(&*name, ".git" | "node_modules" | "target" | "dist")
                 || name.starts_with(".exact-js-bake-")
+                // Written beside app.ts for an editor (below); the bake makes its own.
+                || (at == root && name == DECLARATIONS)
             {
                 continue;
             }
             let path = entry.path();
             let relative = path.strip_prefix(root).unwrap();
             let kind = entry.file_type().map_err(|e| e.to_string())?;
+            if let Some((_, dir)) = mounts.iter().find(|(m, _)| at == root && **m == *name) {
+                // An editor's link to the mounted directory is allowed and
+                // skipped: the mount itself is captured below. Anything else
+                // by that name would be two different files at one path.
+                if kind.is_symlink() && path.canonicalize().ok().as_ref() == Some(dir) {
+                    continue;
+                }
+                return Err(format!(
+                    "{} is mounted from typescript.sources; the app cannot also have one",
+                    path.display()
+                ));
+            }
             if kind.is_symlink() {
                 return Err(format!("source links are not captured: {}", path.display()));
             }
             if kind.is_dir() {
-                walk(root, &path, out, total)?;
+                walk(root, &path, out, total, mounts, prefix)?;
             } else if matches!(
                 path.extension().and_then(|s| s.to_str()),
                 Some("ts" | "json" | "contract" | "ttf" | "otf")
@@ -470,13 +643,25 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
                 }
                 let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
                 *total += bytes.len();
-                out.insert(path.strip_prefix(root).unwrap().to_path_buf(), bytes);
+                out.insert(prefix.join(relative), bytes);
             }
         }
         Ok(())
     }
     let mut result = BTreeMap::new();
-    walk(root, root, &mut result, &mut 0)?;
+    let mut total = 0;
+    walk(root, root, &mut result, &mut total, &mounts, Path::new(""))?;
+    for (name, dir) in &mounts {
+        // Only what TypeScript imports: a shared core's tests and fixtures
+        // stay behind (the bundle takes only what `app.ts` reaches anyway).
+        let mut mounted = BTreeMap::new();
+        walk(dir, dir, &mut mounted, &mut total, &[], Path::new(name))?;
+        result.extend(
+            mounted
+                .into_iter()
+                .filter(|(path, _)| path.extension().is_some_and(|e| e == "ts" || e == "json")),
+        );
+    }
     Ok(result)
 }
 
@@ -634,12 +819,22 @@ fn bake_in(
             RECORDER_TYPES.as_bytes(),
         )?;
     }
-    write_changed(&stage.join("app.contract.d.ts"), declarations.as_bytes())?;
+    write_changed(&stage.join(DECLARATIONS), declarations.as_bytes())?;
+    // And beside app.ts, so an editor type-checks the module against the plan
+    // it will run with. Never captured as a source, never committed; written
+    // only when it changes, so a watcher sees one event per contract change.
+    if development {
+        write_changed(&app.join(DECLARATIONS), declarations.as_bytes())?;
+    }
     let mut entry = format!("import * as app from './app';\nimport type {{ Answer }} from './app.contract.d.ts';\nexport const abi = {};\nexport const appId: string = app.appId;\nexport const grants: string = app.grants;\nexport const answer: Answer = app.answer;\n", if draws { 2 } else { 1 });
     if draws {
         entry.push_str(CANVAS_ENTRY);
     }
     write_changed(&stage.join("__exact_entry.ts"), entry.as_bytes())?;
+    write_changed(
+        &stage.join("__exact_aliases.json"),
+        aliases_json(&app)?.as_bytes(),
+    )?;
     if let BakeMode::Development {
         compiler: Some(compiler),
     } = mode
@@ -803,32 +998,51 @@ fn write_changed(path: &Path, bytes: &[u8]) -> Result<(), String> {
 }
 
 fn compile_once(stage: &Path, tools: &Tools) -> Result<(), String> {
+    // The app's aliases (`typescript.aliases`) as TypeScript `paths` and a
+    // Rolldown alias, both into the stage: resolution never leaves the capture.
+    let aliases: serde_json::Map<String, serde_json::Value> = serde_json::from_str(
+        &std::fs::read_to_string(stage.join("__exact_aliases.json"))
+            .unwrap_or_else(|_| "{}".into()),
+    )
+    .map_err(|e| format!("__exact_aliases.json: {e}"))?;
+    let mut paths = serde_json::Map::new();
+    for (specifier, target) in &aliases {
+        let target = target.as_str().unwrap_or("");
+        paths.insert(
+            specifier.clone(),
+            serde_json::json!([format!("./{target}")]),
+        );
+        paths.insert(
+            format!("{specifier}/*"),
+            serde_json::json!([format!("./{target}/*")]),
+        );
+    }
+    let config = serde_json::json!({
+        "compilerOptions": {
+            "noEmit": true, "strict": true, "target": "ES2020", "module": "ESNext",
+            "moduleResolution": "bundler", "lib": ["ES2020", "WebWorker"], "paths": paths,
+        },
+        "files": ["__exact_entry.ts"],
+    });
+    std::fs::write(stage.join("__exact_tsconfig.json"), config.to_string())
+        .map_err(|e| e.to_string())?;
     run(
         &tools.tsc,
-        &[
-            "--noEmit",
-            "--strict",
-            "--target",
-            "ES2020",
-            "--module",
-            "ESNext",
-            "--moduleResolution",
-            "bundler",
-            "--lib",
-            "ES2020,WebWorker",
-            "--pretty",
-            "false",
-            "__exact_entry.ts",
-        ],
+        &["--project", "__exact_tsconfig.json", "--pretty", "false"],
         stage,
     )?;
-    // No path alias, absolute import, or dependency may escape the captured
-    // graph. This generated config is producer-owned, not app configuration.
+    // No absolute import or dependency may escape the captured graph, and an
+    // alias names only a directory inside it. This generated config is
+    // producer-owned, not app configuration.
     std::fs::write(
         stage.join("__exact_bundle.mjs"),
         r#"
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+const aliases = JSON.parse(readFileSync('__exact_aliases.json', 'utf8'));
 export default {
   input: '__exact_entry.ts',
+  resolve: { alias: Object.fromEntries(Object.entries(aliases).map(([from, to]) => [from, resolve(process.cwd(), to)])) },
   plugins: [{ name: 'captured-sources', load(id) {
     if (!id.startsWith(process.cwd() + '/')) throw new Error('module outside captured app: ' + id);
     return null;

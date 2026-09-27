@@ -138,6 +138,8 @@ final class Presenter {
     var views: [UInt32: NodeView] = [:]
     var inlineOwners: [UInt32: (owner: UInt32, index: Int)] = [:]
     private(set) var chrome = ChromeIndex()
+    /// Views leaving with their exit, by id (LLP 1063, `PresenceMac.swift`).
+    var leaving: [UInt32: Leaving] = [:]
     /// A view's props were written (`NodeView.props`' own observer).
     func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props) }
     /// Views carrying an indexed prop, in id order (the passes' old order was
@@ -828,6 +830,37 @@ final class Presenter {
     var interacting: UInt32 = 0
     private var listGeometry: [UInt32: [Double]] = [:]
     private var listViews: [UInt32: NodeView] = [:]
+
+    /// Everything kept for `id`, out of the maps (not out of the window);
+    /// `forget` releases its resources too, as a destroy does and a leaving
+    /// view (LLP 1063) does not until its exit ends.
+    @discardableResult
+    func release(_ id: UInt32, forget: Bool) -> NodeView? {
+        mouseSwipe.retire(id)
+        mouseLayoutPan.retire(id)
+        mouseHeightDrag.retire(id)
+        mouseTransformDrag.retire(id)
+        mouseReorder.retire(id)
+        session?.canvases.destroy(view: id)
+        svg.forget(id)
+        canvas2d.forget(id)
+        if forget { views[id]?.forget() }
+        // Out of the map before out of the window: the editing-ended
+        // notification removal fires finds no view to send for.
+        heightBindings.removeValue(forKey: id)
+        transformBindings.removeValue(forKey: id)
+        transformGeometry.retire(id)
+        session?.text.readerParagraphs.removeValue(forKey: id)
+        let gone = views.removeValue(forKey: id)
+        chrome.forget(id)
+        scrollers.remove(id)
+        pendingScrolls.remove(id)
+        listPending.remove(id)
+        listViews.removeValue(forKey: id)
+        listTravel.removeValue(forKey: id)
+        listFillCosts.removeValue(forKey: id)
+        return gone
+    }
     private var listSyncDepth = 0
     private var listPending: Set<UInt32> = []
 
@@ -1090,13 +1123,20 @@ final class Presenter {
             case .flow:
                 views[id]?.applyFlow(op.payload["shapes"] as? [[String: Any]] ?? [])
             case .style:
-                views[id]?.applyStyle(op.style)
+                guard let v = views[id] ?? leaving[id]?.view else { continue }
+                let color = v.style["text_color"]
+                v.applyStyle(op.style)
+                if v.surface != nil { v.applySurface() }
+                // Paint motion re-sends a style per frame (LLP 1055.000 D6);
+                // a view that paints in an appearance of its own says so
+                // (LLP 1062 D4).
+                if v.style["text_color"] != color { session?.noteAppearance(v) }
             case .children:
                 guard let parent = views[id] else { continue }
                 let want = op.ids.compactMap { views[UInt32($0)] }
                 let container = parent.container
                 let wanted = Set(want.map { ObjectIdentifier($0) })
-                for child in container.subviews where child is NodeView && !wanted.contains(ObjectIdentifier(child)) {
+                for child in container.subviews where child is NodeView && !wanted.contains(ObjectIdentifier(child)) && !isLeaving(child) {
                     if let node = child as? NodeView { reparented.insert(node.id) }
                     child.removeFromSuperview()
                 }
@@ -1125,31 +1165,10 @@ final class Presenter {
             case .animations: svg.animations(id, op.payload, layer: views[id]?.layer, clock: session?.clock)
             case .command:
                 onCommand?(op.payload["name"] as? String ?? "", op.payload["args"] as? [Any] ?? [])
+            case .exit: beginExit(id)
             case .destroy:
-                mouseSwipe.retire(id)
-                mouseLayoutPan.retire(id)
-                mouseHeightDrag.retire(id)
-                mouseTransformDrag.retire(id)
-                mouseReorder.retire(id)
-                session?.canvases.destroy(view: id)
-                svg.forget(id)
-                canvas2d.forget(id)
-                views[id]?.forget()
-                // Out of the map before out of the window: the editing-ended
-                // notification removal fires finds no view to send for.
-                heightBindings.removeValue(forKey: id)
-                transformBindings.removeValue(forKey: id)
-                transformGeometry.retire(id)
-                session?.text.readerParagraphs.removeValue(forKey: id)
-                let gone = views.removeValue(forKey: id)
-                chrome.forget(id)
-                scrollers.remove(id)
-                pendingScrolls.remove(id)
-                listPending.remove(id)
-                listViews.removeValue(forKey: id)
-                listTravel.removeValue(forKey: id)
-                listFillCosts.removeValue(forKey: id)
-                gone?.removeFromSuperview()
+                if endExit(id) { continue }
+                release(id, forget: true)?.removeFromSuperview()
             case .roots:
                 root.subviews.forEach { $0.removeFromSuperview() }
                 for r in op.ids.compactMap({ views[UInt32($0)] }) {
@@ -1167,6 +1186,7 @@ final class Presenter {
                 v.metal?.frame = v.bounds
                 v.overlay?.frame = v.bounds
                 v.web?.frame = v.bounds
+                v.applyShadow()
                 v.fitScroll()
                 v.applyTransform()
             case .content:
@@ -1175,10 +1195,11 @@ final class Presenter {
                     v.fitScroll()
                 }
             case .present:
-                guard let v = views[id] else { continue }
+                guard let v = views[id] ?? leaving[id]?.view else { continue }
                 let x = CGFloat(op.x)
                 switch op.property {
                 case "translate": v.translate = CGPoint(x: x, y: CGFloat(op.y)); v.applyTransform()
+                case "layout": v.layoutOffset = CGPoint(x: x, y: CGFloat(op.y)); v.layoutScale = CGPoint(x: CGFloat(op.w), y: CGFloat(op.h)); v.applyTransform(); v.applySurface()
                 case "scale": v.scale = x; v.applyTransform()
                 case "rotate": v.rotate = x; v.applyTransform()
                 case "opacity": v.alphaValue = x

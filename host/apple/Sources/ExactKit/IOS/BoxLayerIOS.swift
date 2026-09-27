@@ -21,6 +21,7 @@ final class NodeLayer: CALayer {
         guard let node = delegate as? NodeView else { super.display(); return }
         node.applyBoxLayer()
         node.applyImageLayer()
+        node.applyGradientLayer()
         if node.drawsPaint { super.display(); return }
         contents = nil
         if node.isParagraph {
@@ -49,8 +50,12 @@ extension NodeView {
     /// of the fitted image, `contentsRect` selecting it; it can carry the
     /// radius only when it is the whole content box and that is the border
     /// box, or when no corner is rounded.
+    ///
+    /// A `tint-color` draws (LLP 1011 §4): a mask layer would say it, but a
+    /// canvas's capture (`render(in:)`) drops masks and would show the tint's
+    /// whole rectangle, so the template is `draw(_:)`'s, from the same pixels.
     func applyImageLayer() {
-        guard kind == "image", symbolView == nil, let bitmap = raster?.image else {
+        guard kind == "image", symbolView == nil, style["tint_color"] == nil, let bitmap = raster?.image else {
             imageLayer?.removeFromSuperlayer(); imageLayer = nil; return
         }
         let uniform = number("border_width")
@@ -92,6 +97,27 @@ extension NodeView {
         if l.masksToBounds != clips { l.masksToBounds = clips }
     }
 
+    /// A `background-image` gradient (LLP 1066) as a sublayer under
+    /// everything else the layer holds — over the layer's background, under
+    /// its border and children — with the box's one radius, which is all a
+    /// box `draw(_:)` does not paint can have. A view that paints through
+    /// `draw(_:)` paints the gradient there instead, in the same place.
+    func applyGradientLayer() {
+        guard !drawsPaint, surface == nil, let gradient = Gradient(style["background_image"]) else {
+            boxGradient?.removeFromSuperlayer(); boxGradient = nil; return
+        }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        let g = boxGradient ?? CAGradientLayer()
+        boxGradient = g
+        if layer.sublayers?.first !== g { layer.insertSublayer(g, at: 0) }
+        if g.frame != layer.bounds { g.frame = layer.bounds }
+        if g.cornerRadius != layer.cornerRadius { g.cornerRadius = layer.cornerRadius }
+        if g.maskedCorners != layer.maskedCorners { g.maskedCorners = layer.maskedCorners }
+        if g.masksToBounds != (layer.cornerRadius > 0) { g.masksToBounds = layer.cornerRadius > 0 }
+        gradient.apply(g, bounds: layer.bounds, box: gradientBox, dark: drawsDark)
+    }
+
     /// The box onto the layer, or `boxDrawn` when `draw(_:)` must paint it.
     /// The web's box: background and border inside the border box, a
     /// uniform border following the curve, the radius clipping children only
@@ -112,11 +138,14 @@ extension NodeView {
         let radius = radii.max() ?? 0
         let oneRadius = radii.allSatisfy { $0 == 0 || abs($0 - radius) < 0.01 }
             && radius <= min(bounds.width, bounds.height) / 2 + 0.01
+        let gradient = style["background_image"] != nil
+        // A layout transition's size shows the surface on its own layer.
+        let away = surface != nil
         // A border that draws is under the children, as the web paints it,
         // unless none can reach it: they are clipped, scrolled, or painted
         // through a surface. Then it is the layer's own, which Core Animation
         // paints over the sublayers.
-        let own = clipsToBounds || scroll != nil || overlay != nil
+        let own = clipsToBounds || clipBox != nil || scroll != nil || overlay != nil
         // Sides in one colour that differ only in width, square-cornered and
         // under the children (a row's `border-bottom` separator): each side
         // a rectangle of one shape layer. Where two sides meet, the web's
@@ -125,16 +154,21 @@ extension NodeView {
         let drawn = widths.indices.filter { widths[$0] > 0 }
         let sideColor = drawn.first.map { colors[$0] }
         let edges = !oneBorder && !own && radii.allSatisfy { $0 == 0 } && drawn.allSatisfy { colors[$0] == sideColor }
-        boxDrawn = !((oneBorder || edges) && oneRadius) && (fill != nil || widths.contains { $0 > 0 })
+        boxDrawn = !away && !((oneBorder || edges) && oneRadius) && (fill != nil || gradient || widths.contains { $0 > 0 })
         let onLayer = !boxDrawn
         var corners: CACornerMask = []
         let masks: [CACornerMask] = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
         for (r, mask) in zip(radii, masks) where r > 0 { corners.insert(mask) }
         let cornerRadius = onLayer && oneRadius ? radius : 0
-        let border = !onLayer ? nil : edges ? sideColor : width > 0 ? colors[0] : nil
+        let border = !onLayer || away ? nil : edges ? sideColor : width > 0 ? colors[0] : nil
+        applyShadow(outline: roundedPath(in: bounds).cgPath)
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        let bg = onLayer ? fill : nil
+        if let box = clipBox {
+            box.layer.cornerRadius = cornerRadius
+            box.layer.maskedCorners = corners
+        }
+        let bg = onLayer && !away ? fill : nil
         if layer.backgroundColor != bg { layer.backgroundColor = bg }
         if layer.cornerRadius != cornerRadius { layer.cornerRadius = cornerRadius }
         if cornerRadius > 0, layer.maskedCorners != corners { layer.maskedCorners = corners }

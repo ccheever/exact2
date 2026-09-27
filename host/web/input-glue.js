@@ -47,6 +47,32 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       return;
     }
   }, true);
+  // @ref LLP 1061 D3 — press feedback by UIKit's rule, not `:active`'s: the
+  // innermost node with a `press` handler takes the press (its pressable
+  // ancestors, which `:active` would also match, do not), and shows it only
+  // while the pointer is inside the box it had when pressed — leaving
+  // releases it, coming back presses again; a pan or a cancel ends it. The
+  // node carries `data-pressed`; the shell's rule scales it. Its box is read
+  // unpressed: a press re-taken while the last one still eases out is
+  // scaled back about its centre.
+  let press = null;
+  const release = () => { press?.el.removeAttribute("data-pressed"); press = null; };
+  root.addEventListener("pointerdown", e => {
+    if (e.button !== 0 || !e.isPrimary) return;
+    release(); // a press whose release never reached the page
+    const el = e.target.closest?.("[data-exact-on~=press]");
+    if (!el || !root.contains(el) || !el.style.getPropertyValue("--exact-press") || el.closest(":disabled,[disabled='true']")) return;
+    const r = el.getBoundingClientRect(), f = new DOMMatrix(getComputedStyle(el).transform).a || 1;
+    const [cx, cy, w, h] = [r.left + r.width / 2, r.top + r.height / 2, r.width / f, r.height / f];
+    press = { el, id: e.pointerId, box: [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2] };
+    el.setAttribute("data-pressed", "");
+  }, true);
+  document.addEventListener("pointermove", e => {
+    if (e.pointerId !== press?.id) return;
+    const [l, t, r, b] = press.box;
+    press.el.toggleAttribute("data-pressed", e.clientX >= l && e.clientX <= r && e.clientY >= t && e.clientY <= b);
+  }, true);
+  for (const type of ["pointerup", "pointercancel"]) document.addEventListener(type, e => { if (e.pointerId === press?.id) release(); }, true);
   return {
     pan(el, id, on) {
       // @ref LLP 1043.000 §3 D8: one coalesced action per display frame.
@@ -62,6 +88,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         const [x,y] = contact.to, [px,py] = contact.from;
         // exact_motion::gesture::SLOP; a pan-only plan links no motion export to ask.
         if (!contact.active && Math.max(Math.abs(x-px),Math.abs(y-py)) <= 4) return;
+        if (!contact.active) release(); // a pan ends a press, as it cancels a touch
         contact.active = true; contact.from = [x,y];
         if (x !== px || y !== py) dispatch(id, `${x-px},${y-py}`);
       };

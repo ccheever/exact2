@@ -45,7 +45,8 @@ pub struct LayoutReceipt {
     pub updated: Vec<NodeKey>,
     /// Leaves whose resolved exclusions changed bitwise, in preorder (LLP 1043.000 D4).
     pub flow_changed: Vec<NodeKey>,
-    /// Intersecting paragraphs whose height required measurement; M8 enables flow.
+    /// Intersecting auto-height paragraphs that auto-height flow refused, in
+    /// preorder; each names its `FlowRefusal` (LLP 1043.000 §8).
     pub flow_skipped: Vec<NodeKey>,
 }
 
@@ -77,6 +78,10 @@ struct MeasureContext {
     height_measured: bool,
     // At most LEAF_OFFERS per live leaf; text/style invalidation clears them.
     measurements: Vec<Measurement>,
+    // @ref LLP 1043.000 §8 — the shapes an admitted auto-height leaf is
+    // measured around (border-box coordinates), written only by settle_flow;
+    // changing them clears `measurements`, whose key does not include them.
+    flow: Vec<exact_textflow::FlowShape>,
 }
 
 #[derive(Clone, Copy)]
@@ -107,6 +112,10 @@ pub struct LayoutTree {
     pub(crate) boundary_replays: usize,
     // Derived heights only. Retain capacity across frames and owner changes.
     presented_heights: Vec<(NodeKey, NodeId, f32)>,
+    // Slots whose MeasureContext carries flow shapes, and leaves whose shapes
+    // did not reach a fixed point in the last settle (a defect, journalled).
+    flowing: IdSet<u32>,
+    pub(crate) unsettled: IdSet<u32>,
     // Equal engine styles are one allocation (`shared_style`).
     shared: Interner<taffy::Style, ()>,
 }
@@ -291,6 +300,8 @@ impl LayoutTree {
             #[cfg(test)]
             boundary_replays: 0,
             presented_heights: Vec::new(),
+            flowing: IdSet::default(),
+            unsettled: IdSet::default(),
             shared: Interner::default(),
         }
     }
@@ -369,7 +380,9 @@ impl LayoutTree {
     /// Remove a node.
     pub fn remove(&mut self, node: NodeId) {
         self.deferred.remove(&node);
-        self.slots.remove(&node);
+        if let Some(slot) = self.slots.remove(&node) {
+            self.flowing.remove(&slot);
+        }
         self.offers.remove(&node);
         self.presented_heights
             .retain(|(_, active, _)| *active != node);
@@ -775,6 +788,14 @@ impl LayoutTree {
                            context: Option<&mut MeasureContext>,
                            style: &taffy::Style| {
             let mut first_baseline = None;
+            // Patch 2's separate API is unnecessary: the upstream callback owns
+            // LayoutOutput, including baselines in border-box coordinates.
+            let inset = style
+                .padding
+                .resolve_or_zero(inputs.parent_size.width, |_, _| 0.0)
+                + style
+                    .border
+                    .resolve_or_zero(inputs.parent_size.width, |_, _| 0.0);
             // @ref LLP 1043.000 §3 D3 — upstream supplies the full layout input.
             // The proof is separate from the ordinary size-only callback offers.
             let height_known = match (inputs.run_mode, inputs.sizing_mode) {
@@ -878,8 +899,20 @@ impl LayoutTree {
                             // Direction and alignment inherit (a paragraph inside a
                             // centred column centres, as in CSS); the rest are its own.
                             let paragraph = arena.paragraph(slot);
+                            // @ref LLP 1043.000 §8 — an admitted auto-height leaf is
+                            // measured around its settled shapes, in content space as
+                            // the painters flow it. Intrinsic probes stay unobstructed:
+                            // a context's width never depends on what flows inside.
+                            let shapes: Vec<_> = match width {
+                                AxisOffer::Definite(_) => context
+                                    .flow
+                                    .iter()
+                                    .map(|s| s.translate(-inset.left, -inset.top))
+                                    .collect(),
+                                _ => Vec::new(),
+                            };
                             let request = TextMeasureRequest {
-                                exclusions: &[],
+                                exclusions: &shapes,
                                 runs: &runs,
                                 paragraph,
                                 width,
@@ -910,14 +943,6 @@ impl LayoutTree {
                         }
                     },
                 );
-            // Patch 2's separate API is unnecessary: the upstream callback owns
-            // LayoutOutput, including baselines in border-box coordinates.
-            let inset = style
-                .padding
-                .resolve_or_zero(inputs.parent_size.width, |_, _| 0.0)
-                + style
-                    .border
-                    .resolve_or_zero(inputs.parent_size.width, |_, _| 0.0);
             output.baselines = Baselines::from_first(first_baseline.map(|b| b + inset.top));
             output
         };
@@ -963,6 +988,128 @@ impl LayoutTree {
         self.taffy
             .get_node_context(node)
             .is_some_and(|c| c.height_measured)
+    }
+
+    // The absolute frame publication will write, computed the same way
+    // (a fold from the root's 0.0), so its bits match the published frame.
+    fn frame_of(&self, arena: &NodeArena, root: u32, slot: u32) -> Frame {
+        let mut path = Vec::new();
+        let mut at = slot;
+        loop {
+            path.push(at);
+            if at == root {
+                break;
+            }
+            match arena.parent(at) {
+                Some(parent) => at = parent,
+                None => return Frame::default(),
+            }
+        }
+        let mut frame = Frame::default();
+        for &s in path.iter().rev() {
+            let Some(node) = arena.taffy(s) else {
+                return Frame::default();
+            };
+            let l = self.layout(node);
+            frame = Frame {
+                x: frame.x + l.location.x,
+                y: frame.y + l.location.y,
+                width: l.size.width,
+                height: l.size.height,
+            };
+        }
+        frame
+    }
+
+    /// @ref LLP 1043.000 §8 — measure admitted auto-height leaves around the
+    /// shapes their settled frames resolve to. Each pass re-lays out only
+    /// leaves whose shapes changed (Taffy's caches keep the rest), so a still
+    /// layout costs one comparison and a moving shape one extra pass. Under
+    /// the admission rule a leaf's shapes depend only on content before it,
+    /// so pass k fixes the k-th admitted leaf in document order: the loop ends
+    /// within one pass per leaf (plus one per shape a leaf grows into), and
+    /// ends only when every leaf was measured around exactly the shapes the
+    /// frames now give it — the set publication writes, compared bitwise.
+    /// A fresh replay reaches the same point from no shapes at all.
+    fn settle_flow(
+        &mut self,
+        root: NodeId,
+        root_slot: u32,
+        offer: Offer,
+        arena: &NodeArena,
+        measurer: &mut dyn TextMeasurer,
+    ) -> Result<(), LayoutError> {
+        self.unsettled.clear();
+        if arena.exclusion_slots.is_empty() && self.flowing.is_empty() {
+            return Ok(());
+        }
+        let exclusions = crate::flow::visible_exclusions(arena, root_slot);
+        let contexts = crate::flow::contexts(arena, &exclusions);
+        let under_root = |slot: u32| {
+            let mut at = slot;
+            while at != root_slot {
+                match arena.parent(at) {
+                    Some(parent) => at = parent,
+                    None => return false,
+                }
+            }
+            true
+        };
+        let mut passes = 0;
+        let mut bound = 0;
+        loop {
+            let mut targets = crate::flow::targets(
+                arena,
+                &exclusions,
+                &contexts,
+                |s| self.frame_of(arena, root_slot, s),
+                |s| arena.taffy(s).is_some_and(|n| self.height_measured(n)),
+            );
+            let stored = |slot: u32| {
+                arena
+                    .taffy(slot)
+                    .and_then(|n| self.taffy.get_node_context(n))
+                    .map_or(&[][..], |c| c.flow.as_slice())
+            };
+            let mut changed: Vec<u32> = targets
+                .iter()
+                .filter(|(&slot, shapes)| !crate::flow::shapes_eq(stored(slot), shapes))
+                .map(|(&slot, _)| slot)
+                .collect();
+            changed.extend(
+                self.flowing
+                    .iter()
+                    .copied()
+                    .filter(|s| !targets.contains_key(s) && under_root(*s)),
+            );
+            if changed.is_empty() {
+                return Ok(());
+            }
+            bound = bound.max(targets.len() + exclusions.len() + 2);
+            if passes == bound {
+                debug_assert!(false, "wrap-flow did not settle in {passes} passes");
+                self.unsettled.extend(changed);
+                return Ok(());
+            }
+            for slot in changed {
+                let shapes = targets.remove(&slot).unwrap_or_default();
+                let Some(node) = arena.taffy(slot) else {
+                    self.flowing.remove(&slot);
+                    continue;
+                };
+                if shapes.is_empty() {
+                    self.flowing.remove(&slot);
+                } else {
+                    self.flowing.insert(slot);
+                }
+                if let Some(context) = self.taffy.get_node_context_mut(node) {
+                    context.flow = shapes;
+                }
+                self.mark_dirty(node);
+            }
+            self.compute(root, offer, arena, measurer)?;
+            passes += 1;
+        }
     }
 
     /// Reconstruct the whole engine tree from the arena's columns, writing the
@@ -1012,7 +1159,7 @@ pub fn compute(
         .taffy(root_slot)
         .ok_or_else(|| LayoutError::Engine("root has no engine node".into()))?;
     tree.compute(root, offer, arena, measurer)?;
-
+    tree.settle_flow(root, root_slot, offer, arena, measurer)?;
     Ok(publication::publish(arena, tree, root_slot))
 }
 

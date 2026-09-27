@@ -1,5 +1,5 @@
 # exact motion parity fixture — the browser's samples of the cases in host/web/src/parity.rs
-# recorded by host/web/parity.mjs: 2026-08-29, Chrome/151.0.0.0
+# recorded by host/web/parity.mjs: 2026-09-27, Chrome/153.0.0.0
 # `sample <case> <seconds> <x> <y>`; held by host/web/tests/it/parity.rs within 0.001
 sample linear 0.1 0.1 0
 sample linear 0.25 0.25 0
@@ -99,6 +99,40 @@ sample interrupt 0.75 0.4375 0
 sample interrupt 1 0.375 0
 sample interrupt 1.25 0.3125 0
 sample interrupt 1.6 0.25 0
+sample color-premultiplied 0.1 242 0 13 0.95
+sample color-premultiplied 0.25 218 0 37 0.875
+sample color-premultiplied 0.5 170 0 85 0.753
+sample color-premultiplied 0.75 102 0 153 0.627
+sample color-premultiplied 0.9 46 0 209 0.553
+sample color-from-transparent 0.1 255 0 0 0.094
+sample color-from-transparent 0.25 255 0 0 0.408
+sample color-from-transparent 0.5 255 0 0 0.804
+sample color-from-transparent 0.75 255 0 0 0.96
+sample color-from-transparent 0.9 255 0 0 0.996
+sample color-text 0.1 80 49 34 1
+sample color-text 0.25 198 95 26 1
+sample color-text 0.5 239 111 23 1
+sample color-text 0.75 247 114 22 1
+sample color-text 0.9 249 115 22 1
+sample color-border-shorthand 0.1 1 129 1 0.984
+sample color-border-shorthand 0.25 9 133 9 0.9
+sample color-border-shorthand 0.5 51 153 51 0.627
+sample color-border-shorthand 0.75 160 208 160 0.35
+sample color-border-shorthand 0.9 236 246 236 0.267
+sample color-spring 0.05 46 23 0 1
+sample color-spring 0.1 139 70 0 1
+sample color-spring 0.2 255 143 0 1
+sample color-spring 0.3 255 152 0 1
+sample color-spring 0.45 251 126 0 1
+sample kf-color 0.1 253 253 254 0.99
+sample kf-color 0.5 173 176 237 0.753
+sample kf-color 0.9 19 29 202 0.514
+sample kf-color 1.25 66 74 213 0.565
+sample color-reversing 0.1 5 5 5 1
+sample color-reversing 0.35 41 41 41 1
+sample color-reversing 0.5 0 0 0 1
+sample color-reversing 0.6 0 0 0 1
+sample color-reversing 1 0 0 0 1
 sample spring 0.05 1.08971 0
 sample spring 0.1 1.27269 0
 sample spring 0.1020833333 1.28065 0
@@ -106,3 +140,41 @@ sample spring 0.2 1.56019 0
 sample spring 0.35 1.5567 0
 sample spring 0.5 1.47958 0
 sample spring 0.8 1.50441 0
+sample kf-breathe 0.1 0.448996 0
+sample kf-breathe 0.25 0.7 0
+sample kf-breathe 0.4 0.951004 0
+sample kf-breathe 0.6 0.951004 0
+sample kf-breathe 1.1 0.448996 0
+sample kf-breathe 2.3 0.80087 0
+sample kf-keyframe-easing 0.1 0 0
+sample kf-keyframe-easing 0.2 0.3 0
+sample kf-keyframe-easing 0.3 0.6 0
+sample kf-keyframe-easing 0.5 0.634042 0
+sample kf-keyframe-easing 0.7 0.910224 0
+sample kf-keyframe-easing 0.9 0.993343 0
+sample kf-implicit 0.25 0.6 0
+sample kf-implicit 0.5 1 0
+sample kf-implicit 0.75 0.6 0
+sample kf-implicit 1.2 0.2 0
+sample kf-alternate-fill 0.2 0.1 0
+sample kf-alternate-fill 0.75 0.3 0
+sample kf-alternate-fill 1.25 0.7 0
+sample kf-alternate-fill 1.75 0.7 0
+sample kf-alternate-fill 3 0.1 0
+sample kf-reverse-negative-delay 0 1.94069 0
+sample kf-reverse-negative-delay 0.25 1.70361 0
+sample kf-reverse-negative-delay 0.5 1.11277 0
+sample kf-reverse-negative-delay 0.8 0.5 0
+sample kf-reverse-negative-delay 1.5 0.5 0
+sample kf-translate 0.1 37.5087 -7.00349
+sample kf-translate 0.3 22.8352 -1.13408
+sample kf-translate 0.6 12.3346 3.06614
+sample kf-translate 0.7 22.8352 -1.13408
+sample kf-translate 1 27.3857 -2.95429
+sample kf-rotate 0.15 36 0
+sample kf-rotate 0.3 72 0
+sample kf-rotate 0.65 81 0
+sample kf-rotate 1.15 36 0
+sample kf-rotate 2.5 0 0
+sample kf-zero-duration 0 0.5 0
+sample kf-zero-duration 0.5 0.5 0

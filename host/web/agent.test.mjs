@@ -10,6 +10,8 @@ import vm from 'node:vm';
 import { render, sourceMapReader, identifyInspectedNode } from '../../scripts/agent.mjs';
 import { retainDevGeneration, readDevGeneration, readDevGenerationAsync } from './serve.mjs';
 import { focusController } from './navigation.js';
+import { storageKey } from './storage-environment.js';
+import { open } from '../../scripts/agent.mjs';
 
 const mapAt = (digest, line = 12) => ({digest, nodes: [{file: '/app/ui/bubble.contract', line, col: 3, end_col: 9, component: 'Bubble',
   chain: [{file: '/app/app.contract', line: 45, col: 5, end_col: 11, component: 'App'}],
@@ -270,7 +272,8 @@ function fixture(agentMode = true) {
     requestAnimationFrame: () => events.push('raf'), clearInterval() {},
     ready: Promise.resolve(), moduleReady: Promise.resolve(), inputReady: true, logicInfo: null, activeModule: null,
     page: null, // a built document's boot (LLP 1048.000 D6); these pages have none
-    loadStage: () => Promise.resolve(), // every stage linked (LLP 1047.000 §9)
+    loadStage: () => Promise.resolve(), stageLoaded: () => true, // every stage linked (LLP 1047.000 §9)
+    preferences: () => '{}',
   });
   vm.runInContext(source.match(/^let gpuLoading = .*$/m)[0] + '\n' + ['nodeDetail', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
   return context;
@@ -316,6 +319,18 @@ test('ordinary reads and inputs are synchronous; the awaited entry returns the s
   await pending;
   f.wasm = null;
   expect(f.exact.agent({ op: 'state' })).toEqual({ error: 'not booted' });
+});
+
+test('only calls before the inspection stage arrives wait for it; later ones are synchronous again', async () => {
+  const f = fixture();
+  let loaded = false, loads = 0;
+  f.stageLoaded = () => loaded;
+  f.loadStage = () => { loads++; loaded = true; return Promise.resolve(); };
+  const first = f.exact.agent({ op: 'state' });
+  expect(typeof first.then).toBe('function');
+  expect((await first).slots.backPresses).toBe(3);
+  plain(f.exact.agent({ op: 'state' }));
+  expect(loads).toBe(1);
 });
 
 test('pending module and settlement leave synchronous reads usable with last settled facts', async () => {
@@ -479,13 +494,13 @@ function inputFixture() {
   let serial = 0;
   const el = { dataset: {}, inert: false, disabled: false, isConnected: true,
     addEventListener(kind, fn) { const list = listeners.get(kind) ?? []; list.push(fn); listeners.set(kind, list); },
-    closest() { return this.disabled ? this : null; }, setPointerCapture(id) { captured.push(id); } };
+    closest() { return this.disabled ? this : null; }, matches: () => false, contains: () => true, setPointerCapture(id) { captured.push(id); } };
   const buttons = [];
   // `page` is a built document being adopted (LLP 1048.000 D6); this page was not built.
   const f = vm.createContext({ inputReady: false, inputHandlers: null, page: null,
     views: new Map([[7, el]]), retiredViews: new WeakSet(), frames, sent, captured, el,
-    root: { querySelectorAll: () => buttons },
-    document: { addEventListener(kind, fn) { f.keydown = fn; }, activeElement: { closest: () => null } },
+    root: { querySelectorAll: () => buttons, addEventListener() {} }, // press feedback's listener: press.test.mjs drives it
+    document: { addEventListener(kind, fn) { if (kind === 'keydown') f.keydown = fn; }, activeElement: { closest: () => null } },
     HTMLIFrameElement: class {}, HTMLInputElement: class {}, HTMLTextAreaElement: class {}, HTMLButtonElement: class {},
     inertAncestor: node => node.inert, getComputedStyle: () => ({ visibility: 'visible' }),
     requestAnimationFrame(fn) { frames.set(++serial, fn); return serial; },
@@ -544,7 +559,7 @@ test('pan rejects foreign and editable contacts and drops cancelled or stale que
     h.pointer('pointermove', { clientX: 20 }); h.tick();
     expect(h.sent).toEqual([]);
   }
-  for (const cancel of [h => h.pointer('pointercancel'), h => h.pointer('lostpointercapture'),
+  for (const cancel of [h => h.pointer('pointercancel'), h => h.pointer('lostpointercapture', { target: h.el }),
     h => h.f.views.set(7, {}), h => h.f.retiredViews.add(h.el),
     h => { h.el.inert = true; }, h => { h.el.disabled = true; }, h => { h.f.inputReady = false; }]) {
     const h = inputFixture(); h.load(); h.pointer('pointerdown');
@@ -595,13 +610,13 @@ async function startupFixture(rustOnly = false) {
     moduleLoader: null, activeModule: null, timerFactory: null, agentMode: false,
     performance: { now: () => 1 }, t0: 0, URL, localStorage: { length: 0 }, AbortController,
     document: { querySelectorAll: () => [] }, // no preload: the glue fetches ./app.wasm
-    fetch: async () => ({}), WebAssembly: { instantiateStreaming: async () => ({ instance: { exports } }) },
+    fetch: async () => ({}), WebAssembly: { instantiateStreaming: async () => ({ instance: { exports } }), Module: { customSections: () => [] } },
     moduleCall() {}, rustImports: {}, readOut: value => value,
     boot: async () => events.push('boot'), loadGpuIfNeeded() {}, startClock() {}, httpHelpers() {}, pieces: { pending: () => null },
     requestAnimationFrame: fn => frames.push(fn), console: { error: error => errors.push(String(error)) },
     motion: { commit() {} }, collections: { dataReady: () => events.push('collections') },
     applyBatch: () => events.push('batch'), inertAncestor: () => false, focusAutofocus() {},
-    resolveModuleReady: () => events.push('ready'), page: null,
+    resolveModuleReady: () => events.push('ready'), page: null, pageNative: undefined,
     loadAfterPaint(file) {
       loads.push(file);
       if (file === './input-glue.js') return input.promise;
@@ -859,4 +874,13 @@ test('a virtualized list takes logical selection but never windowed feedback', (
   expect(f.reports).toHaveLength(0);
   expect(f.lists.get(el).observer).toBeUndefined();
   expect(f.listeners.has('copy')).toBe(true);
+});
+
+test("a drive's storage is only a scratch store it names, apart from the app's own", async () => {
+  expect(storageKey('com.example.app', 'http://127.0.0.1:1/')).toBe('com.example.app');
+  expect(storageKey('com.example.app', 'http://127.0.0.1:1/?agent=1')).toBeNull();
+  expect(storageKey('com.example.app', 'http://127.0.0.1:1/?agent=1&storage=run-2.a')).toBe('com.example.app/agent/run-2.a');
+  expect(storageKey('com.example.app', 'http://127.0.0.1:1/?storage=x')).toBe('com.example.app'); // only a drive's is scratch
+  for (const name of ['', '.', '..', 'a/b', '%2e%2e']) expect(() => storageKey('com.example.app', `http://127.0.0.1:1/?agent=1&storage=${name}`)).toThrow('storage: one name');
+  for (const host of ['web', 'linux']) await expect(open({ host, storage: '../x' })).rejects.toThrow('--storage: one name');
 });

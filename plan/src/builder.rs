@@ -363,6 +363,31 @@ impl PlanBuilder {
         self.plan.router = Some(slot);
     }
 
+    /// One locale's texts, `(key, text)` sorted by key; the first locale is
+    /// the base. @ref LLP 1060 D3.
+    pub fn locale(&mut self, name: &str, texts: &[(&str, &str)]) -> LocalesId {
+        let start = self.plan.texts.len() as u32;
+        for (key, text) in texts {
+            let key = self.str(key);
+            let text = self.str(text);
+            self.plan.texts.push(TextsRow { key, text });
+        }
+        let name = self.str(name);
+        self.plan.locales.push(LocalesRow {
+            name,
+            texts: TextsRange {
+                start,
+                len: texts.len() as u32,
+            },
+        });
+        LocalesId(self.plan.locales.len() as u32 - 1)
+    }
+
+    /// The root slot holding the resolved locale. @ref LLP 1060 D4.
+    pub fn set_locale(&mut self, slot: SlotsId) {
+        self.plan.locale = Some(slot);
+    }
+
     /// A derive.
     pub fn derive(&mut self, name: &str, ty: TypesId, body: Code) -> DerivesId {
         let name = self.str(name);
@@ -416,8 +441,14 @@ impl PlanBuilder {
             slot,
             ty,
             refreshes: MutationRefreshesRange { start: 0, len: 0 },
+            then: None,
         });
         MutationsId(self.plan.mutations.len() as u32 - 1)
+    }
+
+    /// The action run after each of `mutation`'s answers lands.
+    pub fn set_mutation_then(&mut self, mutation: MutationsId, action: ActionsId) {
+        self.plan.mutations[mutation.0 as usize].then = Some(action);
     }
 
     /// The resources a send to `mutation` refreshes (LLP 1054.000.000 D1),

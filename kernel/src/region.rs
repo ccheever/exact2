@@ -215,7 +215,7 @@ impl RegionTextRequest {
             .runs
             .iter()
             .map(|(text, style)| TextRun {
-                text,
+                text: (&**text).into(),
                 style: *style,
             })
             .collect();

@@ -70,8 +70,8 @@ pub struct NodeRef<'a> {
     pub content: (f32, f32),
     /// Whether the node is a root.
     pub is_root: bool,
-    arena: &'a NodeArena,
-    slot: u32,
+    pub(crate) arena: &'a NodeArena,
+    pub(crate) slot: u32,
 }
 
 impl<'a> NodeRef<'a> {
@@ -81,9 +81,9 @@ impl<'a> NodeRef<'a> {
         self.arena.flow_shapes(self.slot)
     }
 
-    /// Intersecting exclusions were skipped because Taffy measured this height.
-    pub fn flow_skipped(&self) -> bool {
-        self.arena.flow_skipped(self.slot)
+    /// Why this auto-height leaf keeps ordinary layout beside an exclusion.
+    pub fn flow_refusal(&self) -> Option<crate::FlowRefusal> {
+        self.arena.flow_refusal(self.slot)
     }
 
     /// Current input identity for an independent Text/TextInput paragraph.

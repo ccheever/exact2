@@ -152,10 +152,10 @@ fn the_spread_flows_every_column_around_the_obstacles_without_clipping() {
             continue;
         }
         let node = p.host().kernel().node(view).unwrap();
-        assert!(!node.flow_skipped(), "{name}: flow skipped");
+        assert!(!node.flow_refusal().is_some(), "{name}: flow skipped");
         shaped += usize::from(!node.flow_shapes().is_empty());
         let para = p.paragraph(view).unwrap();
-        let source: String = node.text_runs().iter().map(|r| r.text).collect();
+        let source: String = node.text_runs().iter().map(|r| &*r.text).collect();
         assert!(!para.fragments().is_empty(), "{name}: no fragments");
         let mut end = 0;
         let mut slots = Vec::new();

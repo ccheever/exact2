@@ -550,6 +550,7 @@ fn every_row_writes_its_own_field_and_no_other() {
         StyleValue::Text("circle(50%)".into()),
         StyleValue::Text("12px".into()),
         StyleValue::Text("path(\"M 0 0 L 10 0 L 10 10 Z\")".into()),
+        StyleValue::Text("linear-gradient(#000, #fff)".into()),
         StyleValue::Text("rotate(10deg)".into()),
         StyleValue::Text("stroke".into()),
         StyleValue::Text("url(#m)".into()),

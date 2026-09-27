@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use tiny_skia::Pixmap;
 
 #[derive(Default)]
-struct NoData;
+pub(crate) struct NoData;
 impl DataSource for NoData {
     fn query(&mut self, s: &str, _: &[Value]) -> Result<Value, DataError> {
         Err(DataError::UnknownSource(s.into()))
@@ -43,9 +43,10 @@ const CASES: [&str; 12] = [
     "hairline",
 ];
 
-fn boot(choice: PainterChoice) -> Presenter<NoData> {
+/// A parity page from `scripts/fixtures`, booted at 390×460 and 1×.
+pub(crate) fn boot(choice: PainterChoice, page: &str) -> Presenter<NoData> {
     pin_font();
-    let src = std::fs::read_to_string(fixtures().join("borders.contract")).unwrap();
+    let src = std::fs::read_to_string(fixtures().join(page)).unwrap();
     let plan = contract::compile(&src).unwrap();
     Presenter::boot_with(
         &plan.encode(),
@@ -59,7 +60,7 @@ fn boot(choice: PainterChoice) -> Presenter<NoData> {
     .0
 }
 
-fn view(p: &Presenter<NoData>, test_id: &str) -> u32 {
+pub(crate) fn view(p: &Presenter<NoData>, test_id: &str) -> u32 {
     let k = p.host().kernel();
     k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
 }
@@ -88,7 +89,13 @@ fn compare(ours: &Pixmap, chrome: &Pixmap, (x, y, w, h): (f32, f32, f32, f32)) -
     )
 }
 
-fn held_to_chrome(p: &mut Presenter<NoData>, reference: &str, painter: &str) -> Vec<String> {
+/// Each case's box against Chrome's picture; the failures, named.
+pub(crate) fn held_to_chrome(
+    p: &mut Presenter<NoData>,
+    reference: &str,
+    painter: &str,
+    cases: &[&str],
+) -> Vec<String> {
     let chrome = Pixmap::load_png(fixtures().join(reference)).unwrap();
     let frame = p.frame();
     assert_eq!(
@@ -96,7 +103,7 @@ fn held_to_chrome(p: &mut Presenter<NoData>, reference: &str, painter: &str) -> 
         (chrome.width(), chrome.height())
     );
     let mut failures = Vec::new();
-    for case in CASES {
+    for &case in cases {
         let id = view(p, case);
         let rect = p.boxes().iter().find(|b| b.id == id).unwrap().rect;
         let (mean, over) = compare(&frame, &chrome, rect);
@@ -122,15 +129,20 @@ fn every_border_case_matches_chrome_light_then_flipped_and_dark() {
     let mut failures = Vec::new();
     for choice in choices {
         let name = format!("{choice:?}");
-        let mut p = boot(choice);
-        failures.extend(held_to_chrome(&mut p, "borders.web.png", &name));
+        let mut p = boot(choice, "borders.contract");
+        failures.extend(held_to_chrome(&mut p, "borders.web.png", &name, &CASES));
         // `currentcolor` follows the new `color`; `light-dark()` the scheme.
         for target in ["flip", "dark"] {
             let id = view(&p, target);
             p.tap(id).unwrap();
         }
         p.run_commands(NoData::default);
-        failures.extend(held_to_chrome(&mut p, "borders.web-dark.png", &name));
+        failures.extend(held_to_chrome(
+            &mut p,
+            "borders.web-dark.png",
+            &name,
+            &CASES,
+        ));
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

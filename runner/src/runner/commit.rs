@@ -175,6 +175,57 @@ impl<D: DataSource> Runner<D> {
                     a.next_ms.partial_cmp(&b.next_ms).unwrap().then(ia.cmp(ib))
                 })
                 .map(|(i, t)| (i, t.next_ms));
+            // An answer's `then` goes before a timer due at the same time: the
+            // answer landed first.
+            let then = self
+                .then_due
+                .iter()
+                .enumerate()
+                .filter(|(_, at)| **at <= now_ms)
+                .min_by(|(ia, a), (ib, b)| a.partial_cmp(b).unwrap().then(ia.cmp(ib)))
+                .map(|(m, at)| (m, *at))
+                .filter(|(_, at)| due.is_none_or(|(_, timer)| *at <= timer));
+            if let Some((m, at)) = then {
+                if receipts.len() == TIMER_FIRE_LIMIT {
+                    return Advanced {
+                        receipts,
+                        now_ms: self.now_ms,
+                        error: Some(RunnerError::TimerFireLimit {
+                            limit: TIMER_FIRE_LIMIT,
+                        }),
+                    };
+                }
+                self.now_ms = self.now_ms.max(at);
+                self.then_due[m] = f64::INFINITY;
+                let action = self.plan.mutations[m].then.expect("armed only with a then");
+                let was_poisoned = self.poisoned;
+                let ticket = self.next_ticket;
+                match self.run_action(action, Vec::new(), &[]) {
+                    Ok(receipt) => receipts.push(Timed {
+                        at_ms: self.now_ms,
+                        receipt,
+                    }),
+                    Err(e) => {
+                        let what = format!(
+                            "{} then {}",
+                            self.plan.str(self.plan.mutations[m].name),
+                            self.plan.str(self.plan.action(action).name)
+                        );
+                        let failed = Err(e);
+                        self.log_outcome(&what, &failed, was_poisoned);
+                        return Advanced {
+                            receipts,
+                            now_ms: self.now_ms,
+                            error: failed.err(),
+                        };
+                    }
+                }
+                if until_request && self.next_ticket != ticket {
+                    landed = self.now_ms;
+                    break;
+                }
+                continue;
+            }
             let Some((i, at)) = due else { break };
             if receipts.len() == TIMER_FIRE_LIMIT {
                 return Advanced {
@@ -257,7 +308,21 @@ impl<D: DataSource> Runner<D> {
         let checkpoint = self.checkpoint(false);
         let result = self.run_action_inner(action, args, frames);
         self.conclude(checkpoint, &result, was_poisoned);
+        self.arm_then(result.is_ok());
         result
+    }
+
+    /// Arm the `then` action of each mutation answered in the commit just
+    /// made, if it stood. It runs as its own commit when the host next
+    /// advances the clock, which it does at once for a due time already
+    /// past (`timer_due_ms`): the answer's commit is never extended by
+    /// what it causes, and a refused `then` leaves the answer standing.
+    pub(super) fn arm_then(&mut self, stood: bool) {
+        for m in std::mem::take(&mut self.landed) {
+            if stood && self.plan.mutations[m].then.is_some() {
+                self.then_due[m] = self.now_ms;
+            }
+        }
     }
 
     /// Journal the store's writes from index `since`: the names, never the
@@ -350,6 +415,7 @@ impl<D: DataSource> Runner<D> {
                         }
                     };
                     answered.push((slot as u32, Value::some(v)));
+                    self.landed.push(m);
                 }
                 Answer::Later(request) => later.push((m, source.clone(), sargs.clone(), request)),
             }
@@ -620,6 +686,21 @@ impl<D: DataSource> Runner<D> {
         self.data.dispatch(token, &self.store)
     }
 
+    /// The work behind a long native call ([`Request::is_native`]): hand its
+    /// body to the source's native handler with the reply, on the host's
+    /// worker, which returns at once — the module's own thread answers.
+    pub fn native_work(&mut self, request: &Request) -> Dispatch {
+        let handler = self.data.native().and_then(|n| n.handler());
+        let body = request.body.clone();
+        Dispatch::Run(crate::Work::Later(Box::new(move |reply| match handler {
+            Some(handler) => handler(body, reply),
+            None => reply.send(crate::Outcome::Failed {
+                kind: crate::FailureKind::Unsupported,
+                message: "no native module here takes long calls".into(),
+            }),
+        })))
+    }
+
     /// Work the source held at dispatch and the last commit releases, in
     /// order; a host asks after every commit.
     pub fn release_work(&mut self) -> Vec<(u64, Dispatch)> {
@@ -684,9 +765,19 @@ impl<D: DataSource> Runner<D> {
         let (refused, target) = (p.refused, p.target);
         let result = self.fulfill_inner(p, outcome);
         self.conclude(checkpoint, &result, was_poisoned);
+        self.arm_then(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);
         if refused && result.is_err() && self.holds(ticket) {
             return self.release_refused(ticket, target);
+        }
+        if matches!(
+            result,
+            Err(RunnerError::Data { .. } | RunnerError::Shape { .. })
+        ) && self.holds(ticket)
+        {
+            // The failure is in the journal (above); what the host needs now
+            // is the commit that takes the target out of `pending`.
+            return self.release_failed(ticket, target);
         }
         result.map(Some)
     }
@@ -704,13 +795,24 @@ impl<D: DataSource> Runner<D> {
             Target::Resource(i) => self.plan.resources[i].ty,
             Target::Mutation(m) => self.plan.mutations[m].ty,
         };
-        let value = match self
+        self.store.take_topics();
+        let parsed = self
             .data
-            .parse_for(p.target, &mut self.store, &p.source, &p.args, outcome)
-            .map_err(|error| RunnerError::Data {
-                resource: name.clone(),
-                error,
-            })? {
+            .parse_for(p.target, &mut self.store, &p.source, &p.args, outcome);
+        // What this reply's turn watched joins the resource's topics whatever
+        // the reply says: a turn that yields another request (a long native
+        // call) watched them as much as the one that answers.
+        if let Target::Resource(i) = p.target {
+            for topic in self.store.take_topics() {
+                if !self.watching[i].contains(&topic) {
+                    self.watching[i].push(topic);
+                }
+            }
+        }
+        let value = match parsed.map_err(|error| RunnerError::Data {
+            resource: name.clone(),
+            error,
+        })? {
             Answer::Now(value) => value,
             Answer::Later(request) => {
                 // One more round (LLP 1027 D1a): the target keeps its value,
@@ -738,6 +840,7 @@ impl<D: DataSource> Runner<D> {
             Target::Mutation(m) => {
                 let slot = self.mutation_slot(m)?;
                 self.slots[slot] = Value::some(value);
+                self.landed.push(m);
                 // The reply landed: what the mutation changed is asked again
                 // in this commit (LLP 1054.000.000 D1).
                 for r in self.declared_refreshes(m) {

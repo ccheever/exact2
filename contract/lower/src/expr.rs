@@ -119,6 +119,10 @@ pub(crate) fn compile(
                 asm.load_item(d as u16);
                 t.clone()
             }
+            Some((Ref::Index(d), t)) => {
+                asm.load_index(d as u16);
+                t.clone()
+            }
             Some((Ref::Bound(d), t)) => {
                 asm.load_bound(d as u16);
                 t.clone()
@@ -169,6 +173,9 @@ pub(crate) fn compile(
             if name == "path" && !l.fns.contains_key(name.as_str()) {
                 let template = l.path_expr(args, *span, scope)?;
                 return compile(l, asm, &template, scope, locals);
+            }
+            if contract_types::strings::is_text_call(name, scope) {
+                return l.text_call(asm, args, *span, scope, locals);
             }
             if name == "pending" {
                 // Typed already: one name, a resource or a mutation.

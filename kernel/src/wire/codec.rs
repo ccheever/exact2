@@ -20,6 +20,10 @@ use exact_motion::{
 /// Bound on any string field on the wire.
 pub const MAX_STRING_BYTES: u32 = 1 << 24;
 
+/// A `transition` row's `border-color` shorthand (LLP 1062): the code after
+/// every property's (grammar: `schema.json` `_transitions`).
+const BORDER_COLOR: u8 = Property::COUNT as u8 + 1;
+
 /// Round `n` up to a multiple of 8.
 pub const fn align8(n: usize) -> usize {
     (n + 7) & !7
@@ -333,8 +337,11 @@ impl<'a> Reader<'a> {
         for _ in 0..count {
             let property = match self.u8()? {
                 0 => TransitionProperty::All,
+                BORDER_COLOR => TransitionProperty::BorderColor,
                 p => TransitionProperty::Property(
-                    Property::from_wire(p - 1).ok_or(DecodeError::UnknownTransitionProperty(p))?,
+                    Property::from_wire(p - 1)
+                        .filter(|p| *p != Property::ShadowColor)
+                        .ok_or(DecodeError::UnknownTransitionProperty(p))?,
                 ),
             };
             let duration = self.f32()? as f64;
@@ -621,6 +628,7 @@ impl Writer {
             self.u8(match transition.property {
                 TransitionProperty::All => 0,
                 TransitionProperty::Property(p) => p as u8 + 1,
+                TransitionProperty::BorderColor => BORDER_COLOR,
             });
             self.f32(transition.duration as f32);
             self.f32(transition.delay as f32);

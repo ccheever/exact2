@@ -1,5 +1,8 @@
 // @ref LLP 1035.001 D10 — standard tab semantics project to the platform's
-// segmented control. Contract remains the state owner; UIKit owns the control.
+// segmented control, or — when every tab is a symbol over its label, which is
+// a tab bar item's own shape — to a tab bar (LLP 1059). Contract remains the
+// state owner; UIKit owns the control. Layout stays authored: the control
+// fills the tablist's box.
 #if os(iOS)
 import UIKit
 
@@ -13,9 +16,38 @@ private final class ExactSegmentedControl: UISegmentedControl {
     required init?(coder: NSCoder) { nil }
 }
 
-final class SegmentHost: NSObject, UIGestureRecognizerDelegate {
+private final class ExactTabBar: UITabBar {
+    let ownerID: UInt32
+    init(ownerID: UInt32) {
+        self.ownerID = ownerID
+        super.init(frame: .zero)
+    }
+    required init?(coder: NSCoder) { nil }
+}
+
+/// A tab a tab bar item can show: one symbol and one label, nothing else.
+private struct TabBarFace: Equatable {
+    let symbol: String
+    let title: String
+    let tint: UIColor
+
+    init?(_ tab: NodeView) {
+        let children = tab.container.subviews.compactMap { $0 as? NodeView }
+        guard children.count == 2,
+              let image = children.first(where: { $0.kind == "image" }),
+              let symbol = image.props["symbolName"], !symbol.isEmpty,
+              let label = children.first(where: { $0 !== image }), label.isParagraph,
+              !label.accessibleText.isEmpty else { return nil }
+        self.symbol = symbol
+        title = label.accessibleText
+        tint = image.color("tint_color", .label)
+    }
+}
+
+final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate {
     unowned let presenter: Presenter
     private var controls: [UInt32: ExactSegmentedControl] = [:]
+    private var bars: [UInt32: ExactTabBar] = [:]
     private var hidden: [UInt32: Bool] = [:]
     private var members: [UInt32: [UInt32]] = [:]
     /// The last projection decision journaled per tablist, so each is said once.
@@ -108,6 +140,70 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate {
             else { hidden.removeValue(forKey: childID) }
         }
         controls.removeValue(forKey: id)?.removeFromSuperview()
+        bars.removeValue(forKey: id)?.removeFromSuperview()
+    }
+
+    /// Hide the authored tabs the control stands in for, remembering how
+    /// they were, once per membership.
+    private func adopt(_ owner: NodeView, _ tabs: [NodeView]) {
+        let ids = tabs.map(\.id)
+        if members[owner.id] != ids {
+            restore(owner: owner.id)
+            members[owner.id] = ids
+            for tab in tabs { hidden[tab.id] = tab.isHidden; tab.isHidden = true }
+        } else {
+            for tab in tabs { tab.isHidden = true }
+        }
+    }
+
+    /// Symbol-over-label tabs as a tab bar in the tablist's box. The tints
+    /// are the authored ones — a selected symbol's and an unselected one's —
+    /// so an app's accent is the tab bar's, never the platform's blue.
+    private func project(_ owner: NodeView, _ tabs: [NodeView], _ faces: [TabBarFace]) {
+        controls.removeValue(forKey: owner.id)?.removeFromSuperview()
+        adopt(owner, tabs)
+        let bar = bars[owner.id] ?? {
+            let value = ExactTabBar(ownerID: owner.id)
+            value.delegate = self
+            owner.addSubview(value)
+            bars[owner.id] = value
+            return value
+        }()
+        if bar.superview !== owner { owner.addSubview(bar) }
+        // At least the bar's own height, on the box's bottom edge: a box
+        // shorter than a tab bar (an authored row sized for its own tabs)
+        // would clip the selected item's title, which iOS 26 draws inside
+        // the selection's glass, to a line of dots.
+        let fit = bar.sizeThatFits(CGSize(width: owner.bounds.width, height: 0)).height
+        let height = max(owner.bounds.height, fit)
+        let frame = CGRect(x: 0, y: owner.bounds.height - height, width: owner.bounds.width, height: height)
+        if bar.frame != frame { bar.frame = frame }
+        bar.isUserInteractionEnabled = available(owner)
+        bar.accessibilityLabel = owner.props["accessibilityLabel"]
+        let current = bar.items ?? []
+        if current.count != faces.count || zip(current, faces).contains(where: { $0.title != $1.title || $0.accessibilityIdentifier != $1.symbol }) {
+            bar.setItems(faces.enumerated().map { index, face in
+                let item = UITabBarItem(title: face.title, image: UIImage(systemName: face.symbol), tag: index)
+                item.accessibilityIdentifier = face.symbol
+                return item
+            }, animated: false)
+        }
+        for (item, tab) in zip(bar.items ?? [], tabs) { item.isEnabled = !tab.disabled }
+        let selected = tabs.firstIndex { $0.props["accessibilitySelected"] == "true" }
+        let item = selected.flatMap { bar.items?[$0] }
+        if bar.selectedItem !== item { bar.selectedItem = item }
+        // The selected item takes the authored accent; the rest keep the
+        // bar's own face. (Title attributes through a UITabBarAppearance
+        // replace the bar's own rendering of every title; not used.)
+        if let selected, bar.tintColor != faces[selected].tint { bar.tintColor = faces[selected].tint }
+        owner.bringSubviewToFront(bar)
+    }
+
+    func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
+        guard let bar = tabBar as? ExactTabBar, let ids = members[bar.ownerID], ids.indices.contains(item.tag),
+              let tab = presenter.views[ids[item.tag]], !tab.disabled,
+              let owner = presenter.views[bar.ownerID], available(owner) else { sync(); return }
+        presenter.press(tab.id)
     }
 
     func sync() {
@@ -117,10 +213,18 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate {
                 $0.props["accessibilityOrientation"] != "vertical"
         }
         let live = Set(owners.map(\.id))
-        for id in Array(controls.keys) where !live.contains(id) { restore(owner: id) }
+        for id in Array(controls.keys) + Array(bars.keys) where !live.contains(id) { restore(owner: id) }
         for id in Array(decisions.keys) where !live.contains(id) { decisions.removeValue(forKey: id) }
         for owner in owners {
             let tabs = tabs(in: owner)
+            let faces = tabs.compactMap(TabBarFace.init)
+            if tabs.count > 1, faces.count == tabs.count {
+                owner.accessibilityTraits.remove(.tabBar)
+                decide(owner, "projected to UITabBar (\(tabs.count) items)")
+                project(owner, tabs, faces)
+                continue
+            }
+            bars.removeValue(forKey: owner.id)?.removeFromSuperview()
             // Authored tabs a segment cannot show stay as authored, and the
             // tablist tells VoiceOver it is a tab bar (LLP 1035.001 D10).
             let unshown = tabs.first { $0.segmentFace == nil }
@@ -132,14 +236,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate {
             }
             owner.accessibilityTraits.remove(.tabBar)
             decide(owner, "projected to UISegmentedControl (\(tabs.count) segments)")
-            let ids = tabs.map(\.id)
-            if members[owner.id] != ids {
-                restore(owner: owner.id)
-                members[owner.id] = ids
-                for tab in tabs { hidden[tab.id] = tab.isHidden; tab.isHidden = true }
-            } else {
-                for tab in tabs { tab.isHidden = true }
-            }
+            adopt(owner, tabs)
             let control = controls[owner.id] ?? {
                 let value = ExactSegmentedControl(ownerID: owner.id)
                 value.addTarget(self, action: #selector(changed(_:)), for: .valueChanged)
@@ -187,6 +284,11 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate {
     }
 
     func observation(_ node: NodeView) -> [String: Any]? {
+        if let entry = members.first(where: { $0.value.contains(node.id) }), let bar = bars[entry.key],
+           let index = entry.value.firstIndex(of: node.id) {
+            return ["view": "UITabBar", "item": index, "items": bar.items?.count ?? 0,
+                    "selected": bar.selectedItem.map(\.tag) ?? -1]
+        }
         guard let entry = members.first(where: { $0.value.contains(node.id) }),
               let control = controls[entry.key], let segment = entry.value.firstIndex(of: node.id) else { return nil }
         return ["view": "UISegmentedControl", "segment": segment,

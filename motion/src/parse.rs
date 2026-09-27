@@ -11,7 +11,7 @@
 //! by name.
 
 use crate::easing::{Easing, LinearStop, StepPosition};
-use crate::property::Property;
+
 use crate::spring::SpringConfig;
 use crate::transition::{
     TimingFunction, Transition, TransitionError, TransitionProperty, Transitions,
@@ -67,14 +67,11 @@ impl Transitions {
                         _ => return Err(ParseError::BadShape(decl.trim().to_string())),
                     }
                     times += 1;
-                } else if *part == "all" || Property::from_name(part).is_some() {
+                } else if let Some(named) = TransitionProperty::from_name(part) {
                     if property.is_some() {
                         return Err(ParseError::BadShape(decl.trim().to_string()));
                     }
-                    property = Some(match *part {
-                        "all" => TransitionProperty::All,
-                        name => TransitionProperty::Property(Property::from_name(name).unwrap()),
-                    });
+                    property = Some(named);
                 } else {
                     match easing(part) {
                         Ok(value) if timing.is_none() => timing = Some(value),
@@ -300,6 +297,7 @@ pub(crate) fn split_top_level(s: &str, sep: char) -> Vec<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::property::Property;
 
     #[test]
     fn css_shorthand_parses_and_bad_forms_are_refused_by_name() {

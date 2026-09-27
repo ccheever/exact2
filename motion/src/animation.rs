@@ -9,6 +9,11 @@
 //! lowers it to Core Animation, and the engine samples it everywhere else.
 //! Sampling is a pure function of local time, so a seek and sixty frames give
 //! the same bits.
+//!
+//! A keyframe colour may be a `light-dark()` pair (LLP 1062 D9): the light
+//! value is the keyframe's, the dark one rides beside it, and which one plays
+//! is the appearance the animation started under, as Chrome resolves a rule
+//! once.
 
 use crate::easing::{Easing, EasingError};
 use crate::property::{Property, Value};
@@ -104,6 +109,20 @@ pub struct Keyframe {
     pub easing: Option<Easing>,
     /// The declared values, one per property.
     pub values: Vec<(Property, Value)>,
+    /// A `light-dark()` colour's value under a dark appearance, for each of
+    /// `values` that has one; `values` holds the light one (LLP 1062 D9).
+    pub dark: Vec<(Property, Value)>,
+}
+
+impl Keyframe {
+    /// A property's value under an appearance.
+    fn get(&self, property: Property, dark: bool) -> Option<Value> {
+        let own =
+            |list: &[(Property, Value)]| list.iter().find(|(q, _)| *q == property).map(|(_, v)| *v);
+        dark.then(|| own(&self.dark))
+            .flatten()
+            .or_else(|| own(&self.values))
+    }
 }
 
 /// A resolved `@keyframes` rule: keyframes in offset order.
@@ -157,6 +176,12 @@ pub enum AnimationError {
     ValueShape,
     /// The easing was invalid.
     Easing(EasingError),
+    /// A property keyframes do not animate: half of a `box-shadow` without
+    /// the other, or a dark value for no colour of the keyframe.
+    NotAnimatable(Property),
+    /// An `exit-animation` that never ends — an `infinite` count, or
+    /// `paused` — would keep its leaving node forever (LLP 1063).
+    Endless,
 }
 
 impl Default for Animation {
@@ -234,6 +259,27 @@ impl Keyframes {
                 if !v.fits(*p) {
                     return Err(AnimationError::ValueShape);
                 }
+                // `box-shadow` is one declaration: its geometry and colour
+                // are set together or not at all (LLP 1062 D9).
+                let half = match p {
+                    Property::BoxShadow => Some(Property::ShadowColor),
+                    Property::ShadowColor => Some(Property::BoxShadow),
+                    _ => None,
+                };
+                if half.is_some_and(|h| !frame.values.iter().any(|(q, _)| *q == h)) {
+                    return Err(AnimationError::NotAnimatable(*p));
+                }
+            }
+            for (i, (p, v)) in frame.dark.iter().enumerate() {
+                if !p.is_color() || !frame.values.iter().any(|(q, _)| q == p) {
+                    return Err(AnimationError::NotAnimatable(*p));
+                }
+                if frame.dark[..i].iter().any(|(q, _)| q == p) {
+                    return Err(AnimationError::TooManyKeyframes);
+                }
+                if !v.is_finite() {
+                    return Err(AnimationError::NonFinite);
+                }
             }
         }
         Ok(())
@@ -241,16 +287,20 @@ impl Keyframes {
 
     /// The keyframes one property takes part in, as (offset, easing, value),
     /// with CSS's implicit `0%` and `100%` from `underlying` where no
-    /// keyframe declares it (CSS Animations 1 §3).
-    fn track(&self, property: Property, underlying: Value) -> Vec<(f64, Option<&Easing>, Value)> {
+    /// keyframe declares it (CSS Animations 1 §3). A `light-dark()` colour
+    /// takes its value under `dark`.
+    fn track(
+        &self,
+        property: Property,
+        underlying: Value,
+        dark: bool,
+    ) -> Vec<(f64, Option<&Easing>, Value)> {
         let mut out: Vec<(f64, Option<&Easing>, Value)> = self
             .0
             .iter()
             .filter_map(|f| {
-                f.values
-                    .iter()
-                    .find(|(p, _)| *p == property)
-                    .map(|(_, v)| (f.offset, f.easing.as_ref(), *v))
+                f.get(property, dark)
+                    .map(|v| (f.offset, f.easing.as_ref(), v))
             })
             .collect();
         if out.first().is_none_or(|f| f.0 > 0.0) {
@@ -369,6 +419,18 @@ impl Animation {
     /// value the property would have without this animation), or `None` when
     /// the animation does not apply to it then.
     pub fn sample(&self, t: f64, property: Property, underlying: Value) -> Option<Value> {
+        self.sample_in(t, property, underlying, false)
+    }
+
+    /// [`Animation::sample`] under an appearance: a keyframe's `light-dark()`
+    /// colour takes its dark value when `dark` (LLP 1062 D9).
+    pub fn sample_in(
+        &self,
+        t: f64,
+        property: Property,
+        underlying: Value,
+        dark: bool,
+    ) -> Option<Value> {
         if !self
             .keyframes
             .0
@@ -378,12 +440,13 @@ impl Animation {
             return None;
         }
         let p = self.directed_progress(t)?;
-        Some(self.value_at(p, property, underlying))
+        Some(self.value_at(p, property, underlying, dark))
     }
 
-    /// The keyframe effect at directed progress `p` for one property.
-    pub fn value_at(&self, p: f64, property: Property, underlying: Value) -> Value {
-        let track = self.keyframes.track(property, underlying);
+    /// The keyframe effect at directed progress `p` for one property, a
+    /// `light-dark()` colour under `dark`.
+    pub fn value_at(&self, p: f64, property: Property, underlying: Value, dark: bool) -> Value {
+        let track = self.keyframes.track(property, underlying, dark);
         // The interval: the last keyframe at or before p (the last of equal
         // offsets), and the next one after it; at p = 1 the final interval.
         let mut start = 0;
@@ -424,6 +487,22 @@ impl Animations {
     /// Whether every number that must be finite is.
     pub fn is_finite(&self) -> bool {
         self.0.iter().all(Animation::is_finite)
+    }
+
+    /// Local time at which the last entry ends; zero for none, infinite when
+    /// one is endless.
+    pub fn end_time(&self) -> f64 {
+        self.0.iter().map(Animation::end_time).fold(0.0, f64::max)
+    }
+
+    /// [`Animations::validate`], and every entry runs to an end: the rule for
+    /// an `exit-animation`, whose node is removed when it ends (LLP 1063).
+    pub fn validate_ending(&self) -> Result<(), AnimationError> {
+        self.validate()?;
+        if self.0.iter().any(|a| a.paused || !a.end_time().is_finite()) {
+            return Err(AnimationError::Endless);
+        }
+        Ok(())
     }
 
     /// Every property some entry animates, in wire order.

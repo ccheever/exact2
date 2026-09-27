@@ -9,11 +9,9 @@ use std::time::Instant;
 mod projection_discriminator {
     use super::*;
     use crate::image::Bitmap;
-    use crate::paint::Shape;
+    use crate::paint::{GradientPaint, Shape};
     use crate::text::{Paragraph, RunPaint};
-    use std::cell::RefCell;
-    use std::rc::Rc;
-    use std::sync::Arc;
+    use std::{cell::RefCell, rc::Rc, sync::Arc};
     use tiny_skia::{Point, Transform};
 
     #[derive(Clone, Debug, PartialEq, Eq)]
@@ -64,6 +62,9 @@ mod projection_discriminator {
         fn fill(&mut self, s: &Shape, c: [u8; 4], t: Transform) {
             self.shape("fill", s, t, &c.map(u32::from));
             self.raster.fill(s, c, t);
+        }
+        fn fill_gradient(&mut self, s: &Shape, g: &GradientPaint, t: Transform) {
+            self.raster.fill_gradient(s, g, t);
         }
         fn fill_border(&mut self, part: &crate::paint::border::BorderFill, t: Transform) {
             let mut bits: Vec<u32> = part.color.map(u32::from).to_vec();
@@ -430,7 +431,7 @@ mod projection_discriminator {
         let old_paragraph = old.paragraph as *const Paragraph;
         let old_source = old
             .request
-            .with_request(|r| r.runs.iter().map(|r| r.text).collect::<String>());
+            .with_request(|r| r.runs.iter().map(|r| &*r.text).collect::<String>());
         let old_frame = old.frame;
         let gate = crate::content_region::test_hooks::next_text();
         assert!(region
@@ -462,7 +463,7 @@ mod projection_discriminator {
         assert_eq!(old.paragraph as *const Paragraph, old_paragraph);
         assert_eq!(
             old.request
-                .with_request(|r| r.runs.iter().map(|r| r.text).collect::<String>()),
+                .with_request(|r| r.runs.iter().map(|r| &*r.text).collect::<String>()),
             old_source
         );
         assert_ne!(

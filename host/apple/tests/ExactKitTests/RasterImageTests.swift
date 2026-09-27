@@ -42,6 +42,23 @@ final class RasterImageTests: XCTestCase {
         XCTAssertEqual(RasterGeometry.rect(natural: image.naturalSize, content: box, fit: "scale-down").size, CGSize(width: 200, height: 100))
         XCTAssertEqual(RasterGeometry.rect(natural: image.naturalSize, content: box, fit: "cover").size, CGSize(width: 400, height: 200))
     }
+    /// A tint draws the bitmap as a template: every pixel takes the tint at
+    /// the pixel's own alpha; no tint draws the pixels themselves.
+    func testATintDrawsTheBitmapsAlphaInTheTint() throws {
+        let space = CGColorSpace(name: CGColorSpace.sRGB)!, info = CGImageAlphaInfo.premultipliedLast.rawValue
+        let art = try XCTUnwrap(CGContext(data: nil, width: 3, height: 1, bitsPerComponent: 8, bytesPerRow: 12, space: space, bitmapInfo: info))
+        art.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1)); art.fill(CGRect(x: 0, y: 0, width: 1, height: 1))
+        art.setFillColor(CGColor(srgbRed: 0, green: 1, blue: 0, alpha: 0.5)); art.fill(CGRect(x: 1, y: 0, width: 1, height: 1))
+        let image = try XCTUnwrap(art.makeImage())
+        func paint(_ tint: CGColor?) throws -> [UInt8] {
+            let ctx = try XCTUnwrap(CGContext(data: nil, width: 3, height: 1, bitsPerComponent: 8, bytesPerRow: 12, space: space, bitmapInfo: info))
+            RasterGeometry.draw(ctx, image, in: CGRect(x: 0, y: 0, width: 3, height: 1), tint: tint)
+            let bytes = try XCTUnwrap(ctx.data).assumingMemoryBound(to: UInt8.self)
+            return Array(UnsafeBufferPointer(start: bytes, count: 12))
+        }
+        XCTAssertEqual(try paint(CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 1)), [0, 0, 255, 255, 0, 0, 128, 128, 0, 0, 0, 0])
+        XCTAssertEqual(try paint(nil), [255, 0, 0, 255, 0, 128, 0, 128, 0, 0, 0, 0])
+    }
     func testOrientationAndSupportedFirstFrameFormats() throws {
         for type in ["public.png", "public.jpeg", "com.compuserve.gif", "public.tiff", "com.microsoft.bmp"] {
             let bytes = try fixture(120, 60, type: type)

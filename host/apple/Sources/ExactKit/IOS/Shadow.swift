@@ -290,6 +290,14 @@ final class Shadow {
         if b.contentsGravity != a.contentsGravity { b.contentsGravity = a.contentsGravity }
         if b.isOpaque != a.isOpaque { b.isOpaque = a.isOpaque }
         if b.zPosition != a.zPosition { b.zPosition = a.zPosition }
+        // A `box-shadow` (`BoxShadow.swift`): the shadow, and the mask that
+        // keeps it outside the box.
+        if a is ShadowCaster {
+            b.shadowPath = a.shadowPath; b.shadowColor = a.shadowColor; b.shadowOffset = a.shadowOffset
+            b.shadowRadius = a.shadowRadius; b.shadowOpacity = a.shadowOpacity
+            let mask = a.mask.map { mirror($0) }
+            if b.mask !== mask { b.mask = mask }
+        }
         if let s = a as? CAShapeLayer, let t = b as? CAShapeLayer {
             t.path = s.path; t.fillColor = s.fillColor; t.strokeColor = s.strokeColor; t.lineWidth = s.lineWidth
             t.lineCap = s.lineCap; t.lineJoin = s.lineJoin; t.fillRule = s.fillRule; t.strokeStart = s.strokeStart; t.strokeEnd = s.strokeEnd; t.lineDashPattern = s.lineDashPattern

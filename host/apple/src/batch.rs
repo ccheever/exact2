@@ -12,6 +12,9 @@ pub struct Batch {
     /// The views this batch creates: each starts at its presentation's
     /// identity (`Host::present`).
     created: std::collections::HashSet<u32>,
+    /// What moves changes place or size (`Engine::spatial`): the display
+    /// link asks for the panel's full rate (LLP 1061 D4).
+    pub spatial: bool,
     /// A 2D canvas asked for another frame (LLP 1056 D5).
     canvas: bool,
 }
@@ -369,6 +372,13 @@ impl Batch {
         self.ops.push(format!("{{\"op\":\"destroy\",\"id\":{id}}}"));
     }
 
+    /// `{"op":"exit","id":…}` — the view leaves with its `exit-animation`
+    /// (LLP 1063): the presenter keeps it and everything under it where they
+    /// are, without input or accessibility, until a `destroy` names it.
+    pub fn exit(&mut self, id: u32) {
+        self.ops.push(format!("{{\"op\":\"exit\",\"id\":{id}}}"));
+    }
+
     /// `{"op":"roots","ids":[…]}`.
     pub fn roots(&mut self, ids: &[u32]) {
         let mut s = String::from("{\"op\":\"roots\",\"ids\":");
@@ -420,6 +430,15 @@ impl Batch {
         ));
     }
 
+    /// `{"op":"present","id":…,"property":"layout","x":…,"y":…,"w":…,"h":…}`
+    /// — a layout transition's offset and scale of the laid-out box (LLP
+    /// 1063).
+    pub fn present4(&mut self, id: u32, property: &str, [x, y, w, h]: [f64; 4]) {
+        self.ops.push(format!(
+            "{{\"op\":\"present\",\"id\":{id},\"property\":\"{property}\",\"x\":{x},\"y\":{y},\"w\":{w},\"h\":{h}}}"
+        ));
+    }
+
     /// `{"op":"svg","id":…,"scene":{…}}`: an `svg`'s whole scene (LLP 1055 D4).
     pub fn svg(&mut self, id: u32, scene: &str) {
         self.ops
@@ -436,7 +455,8 @@ impl Batch {
 
     /// @ref LLP 1043.000 §3 D8 — carry the runner deadline, not a poll interval.
     /// The batch as one JSON document:
-    /// `{"ops":[…],"timers":bool,"motion":bool,"error":null|"…"}`.
+    /// `{"ops":[…],"timers":bool,"motion":bool,"error":null|"…"}`, with
+    /// `"spatial":true` before `timers` when what moves changes place or size.
     pub fn finish(
         self,
         timer_due_ms: Option<f64>,
@@ -455,6 +475,9 @@ impl Batch {
         s.push(']');
         if let Some(due) = timer_due_ms {
             let _ = write!(s, ",\"timer_due_ms\":{due}");
+        }
+        if self.spatial {
+            s.push_str(",\"spatial\":true");
         }
         let _ = write!(
             s,
@@ -523,7 +546,7 @@ mod finish_bytes_tests {
         s.push_str(&batch.ops.join(","));
         let _ = write!(
             s,
-            "],\"timers\":{timers},\"motion\":{motion},\"clock\":{clock_ms},\"error\":"
+            "],\"timers\":{timers},\"motion\":{motion},\"canvas\":false,\"clock\":{clock_ms},\"error\":"
         );
         match error {
             Some(e) => quote(e, &mut s),

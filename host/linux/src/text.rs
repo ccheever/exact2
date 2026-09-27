@@ -147,7 +147,7 @@ impl Spec {
             runs: request
                 .runs
                 .iter()
-                .map(|r| Run::from_style(r.text, r.style))
+                .map(|r| Run::from_style(&r.text, r.style))
                 .collect(),
             align: request.paragraph.text_align,
             line_clamp: request.paragraph.line_clamp,

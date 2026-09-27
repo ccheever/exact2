@@ -173,7 +173,9 @@ fn the_first_batch_creates_places_and_sizes_the_whole_tree() {
     let (host, batch) = boot();
     assert!(batch.starts_with("{\"ops\":["));
     assert!(
-        batch.ends_with(",\"timers\":true,\"motion\":false,\"clock\":0,\"error\":null}"),
+        batch.ends_with(
+            ",\"timers\":true,\"motion\":false,\"canvas\":false,\"clock\":0,\"error\":null}"
+        ),
         "{}",
         &batch[batch.len() - 80..]
     );

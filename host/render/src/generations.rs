@@ -47,7 +47,7 @@ impl Generations {
             })
             .filter(|(_, path)| *path != current)
             .collect();
-        kept.sort_by(|a, b| b.0.cmp(&a.0));
+        kept.sort_by_key(|k| std::cmp::Reverse(k.0));
         let mut deltas = HashMap::new();
         for (i, (_, path)) in kept.into_iter().enumerate() {
             if i + 1 >= KEEP {

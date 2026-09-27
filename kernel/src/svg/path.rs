@@ -118,6 +118,19 @@ pub fn parse_d(d: &str) -> Path {
 /// sits at the end of each command, so an arc drawn as several cubics is
 /// one vertex (LLP 1055.000 D9).
 pub fn parse_d_commands(d: &str) -> (Path, Vec<usize>) {
+    let (path, ends, _) = parse(d);
+    (path, ends)
+}
+
+/// `d` with no error in it, or `None`: CSS's `path()` refuses the whole
+/// declaration where an SVG `path` renders up to the error.
+pub fn parse_d_whole(d: &str) -> Option<Path> {
+    let (path, _, whole) = parse(d);
+    (whole && !path.0.is_empty()).then_some(path)
+}
+
+/// The path, its commands' ends, and whether every byte of `d` was read.
+fn parse(d: &str) -> (Path, Vec<usize>, bool) {
     let mut ends = Vec::new();
     let mut lx = Lexer {
         s: d.as_bytes(),
@@ -129,6 +142,7 @@ pub fn parse_d_commands(d: &str) -> (Path, Vec<usize>) {
     let mut last_ctrl: Option<(u8, f32, f32)> = None; // for S and T
     let mut open = false; // a subpath is started
     let mut cmd: Option<u8> = None;
+    let mut clean = false;
     loop {
         let c = if let Some(c) = lx.command() {
             c
@@ -140,6 +154,7 @@ pub fn parse_d_commands(d: &str) -> (Path, Vec<usize>) {
                 c => c,
             }
         } else {
+            clean = true; // between commands: every other `break` is an error
             break;
         };
         if out.is_empty() && !matches!(c, b'M' | b'm') {
@@ -233,7 +248,8 @@ pub fn parse_d_commands(d: &str) -> (Path, Vec<usize>) {
         cmd = Some(c);
         ends.push(out.len());
     }
-    (Path(out), ends)
+    let whole = clean && lx.i == lx.s.len() && !d.trim_end().ends_with(',');
+    (Path(out), ends, whole)
 }
 
 fn quad(x0: f32, y0: f32, qx: f32, qy: f32, x: f32, y: f32) -> Seg {

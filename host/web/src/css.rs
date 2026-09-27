@@ -14,9 +14,7 @@
 
 use exact_kernel::style::ColorValue;
 use exact_kernel::{Color, Dimension, Display, Overflow, RowValue, StyleId, StyleProps};
-use exact_motion::{
-    Easing, StepPosition, TimingFunction, Transition, TransitionProperty, Transitions,
-};
+use exact_motion::{Easing, Property, TimingFunction, Transition, TransitionProperty, Transitions};
 use exact_num::{push_text, Piece, Shortest32};
 use std::fmt::Write as _;
 
@@ -34,43 +32,38 @@ pub struct Skipped {
 pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipped>) {
     let mut out = String::new();
     let mut skipped = Vec::new();
-    let mut shadow: Option<(f32, f32, f32, Color, f32)> = None;
+    let mut shadow: Option<(f32, f32, f32, ColorValue, f32)> = None;
+    let unset = (0.0, 0.0, 0.0, ColorValue::Fixed(Color::TRANSPARENT), 0.0);
+    // @ref LLP 1061 D3 — a press eases `transform`, which no row writes, so it
+    // joins the node's own transitions instead of replacing them; the page's
+    // `[data-pressed]` rule reads `--exact-press`.
+    let press = style.mask.has(StyleId::PressScale) && style.press_scale != 1.0;
+    let mut press_pending = press;
     for id in style.mask.iter() {
         let value = style.get(id);
         match (id, &value) {
             // Rows that compose into one CSS property.
             (StyleId::ShadowOffset, RowValue::Vec2(v)) => {
-                let s = shadow.get_or_insert((0.0, 0.0, 0.0, Color::TRANSPARENT, 0.0));
+                let s = shadow.get_or_insert(unset);
                 s.0 = v.x;
                 s.1 = v.y;
             }
             (StyleId::ShadowRadius, RowValue::Number(n)) => {
-                shadow
-                    .get_or_insert((0.0, 0.0, 0.0, Color::TRANSPARENT, 0.0))
-                    .2 = *n as f32
+                shadow.get_or_insert(unset).2 = *n as f32
             }
-            // A shadow is composed into one `box-shadow` string here rather
-            // than emitted as its own declaration, so its colour is resolved
-            // rather than handed over: CSS has no way to say "this shadow's
-            // colour is scheme-aware" inside a composed value. A pair on a
-            // shadow takes its light half (LLP 1034 §5).
-            (StyleId::ShadowColor, RowValue::Color(c)) => {
-                shadow
-                    .get_or_insert((0.0, 0.0, 0.0, Color::TRANSPARENT, 0.0))
-                    .3 = *c
-            }
-            (StyleId::ShadowColor, RowValue::ColorValue(v)) => {
-                shadow
-                    .get_or_insert((0.0, 0.0, 0.0, Color::TRANSPARENT, 0.0))
-                    .3 = v.resolve(false)
-            }
+            (StyleId::ShadowColor, RowValue::ColorValue(v)) => shadow.get_or_insert(unset).3 = *v,
             (StyleId::ShadowOpacity, RowValue::Number(n)) => {
-                shadow
-                    .get_or_insert((0.0, 0.0, 0.0, Color::TRANSPARENT, 0.0))
-                    .4 = *n as f32
+                shadow.get_or_insert(unset).4 = *n as f32
             }
             (StyleId::Transition, RowValue::Transitions(t)) => {
-                let (text, spring_skipped) = transition_css(t);
+                let (mut text, spring_skipped) = transition_css(t);
+                if press {
+                    if !text.is_empty() {
+                        text.push(',');
+                    }
+                    text.push_str(PRESS_TRANSITION);
+                    press_pending = false;
+                }
                 if !text.is_empty() {
                     push_text!(&mut out, "transition:{};", text);
                 }
@@ -86,6 +79,30 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
             (StyleId::Animation, RowValue::Animations(a)) => {
                 if !a.0.is_empty() {
                     push_text!(&mut out, "animation:{};", a.css());
+                }
+            }
+            // @ref LLP 1063 — not CSS properties: custom properties the page's
+            // presence module reads (`presence-glue.js`), inherited by nothing
+            // it reads, since it reads only the element's own declaration. The
+            // exit's own list also rides its `exit` op (a windowed row leaves
+            // as its wrapper, which declares none); here it declares the row,
+            // so the module is fetched before the first exit needs it. The
+            // rules it names are in the page's stylesheet, as `animation`'s.
+            (StyleId::ExitAnimation, RowValue::Animations(a)) => {
+                if !a.0.is_empty() {
+                    push_text!(&mut out, "--exact-exit-animation:{};", a.css());
+                }
+            }
+            (StyleId::LayoutTransition, RowValue::Transitions(t)) => {
+                if let Some(text) = layout_transition_css(t) {
+                    push_text!(&mut out, "--exact-layout-transition:{};", text);
+                }
+            }
+            (StyleId::PressScale, RowValue::Number(n)) => {
+                if press {
+                    out.push_str("--exact-press:");
+                    num_into(&mut out, *n as f32);
+                    out.push(';');
                 }
             }
             (StyleId::FontFamily, RowValue::Number(index)) => {
@@ -152,23 +169,47 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
             }),
         }
     }
+    if press_pending {
+        push_text!(&mut out, "transition:{};", PRESS_TRANSITION);
+    }
     if let Some((x, y, radius, color, opacity)) = shadow {
-        let c = Color::rgba(
-            color.r(),
-            color.g(),
-            color.b(),
-            (color.a() as f32 * opacity.clamp(0.0, 1.0)) as u8,
-        );
+        // The opacity row folds into each colour's alpha, both halves of a
+        // `light-dark()` pair alike: the browser still resolves the pair per
+        // element (LLP 1034 D2, LLP 1064 D3).
+        let fade = |c: Color| {
+            Color::rgba(
+                c.r(),
+                c.g(),
+                c.b(),
+                (c.a() as f32 * opacity.clamp(0.0, 1.0)) as u8,
+            )
+        };
+        let color = match color {
+            ColorValue::Fixed(c) => ColorValue::Fixed(fade(c)),
+            ColorValue::LightDark(l, d) => ColorValue::LightDark(fade(l), fade(d)),
+        };
+        let visible = match color {
+            ColorValue::Fixed(c) => c.a() > 0,
+            ColorValue::LightDark(l, d) => l.a() > 0 || d.a() > 0,
+        };
         out.push_str("box-shadow:");
-        for n in [x, y, radius] {
-            num_into(&mut out, n);
-            out.push_str("px ");
+        if visible {
+            for n in [x, y, radius] {
+                num_into(&mut out, n);
+                out.push_str("px ");
+            }
+            declared(&mut out, StyleId::ShadowColor, &RowValue::ColorValue(color));
+        } else {
+            out.push_str("none");
         }
-        rgba_into(&mut out, c);
         out.push(';');
     }
     (out, skipped)
 }
+
+/// The press's ease in and back (LLP 1061 D2): 120 ms on a fast settle.
+/// Last in the list, so it wins over an authored `all` for `transform`.
+const PRESS_TRANSITION: &str = "transform 0.12s cubic-bezier(0.16,1,0.3,1) 0s";
 
 fn is_generic_family(value: &str) -> bool {
     matches!(
@@ -199,7 +240,7 @@ fn generic_stack(family: &str) -> &str {
     }
 }
 
-fn css_string(value: &str) -> String {
+pub(crate) fn css_string(value: &str) -> String {
     let mut out = String::from("\"");
     for c in value.chars() {
         match c {
@@ -295,6 +336,10 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         RowValue::PaintOrder(p) => out.push_str(&p.css()),
         RowValue::Marker(m) => out.push_str(&m.css()),
         RowValue::Filter(f) => out.push_str(&f.css()),
+        // The kernel's canonical CSS: explicit stops, `#rrggbbaa` colours and
+        // `light-dark()` pairs the browser resolves per element (LLP 1034
+        // D2); the browser mixes premultiplied, as CSS says (LLP 1066).
+        RowValue::BackgroundImage(g) => out.push_str(&g.css()),
         RowValue::Vec2(v) => {
             num_into(out, v.x);
             out.push_str("px ");
@@ -339,25 +384,59 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
     }
 }
 
-/// A `transition` row as CSS; `true` when a spring was left out.
+/// A `transition` row as CSS; `true` when a spring was left out. A spring
+/// drives the compositor rows as physics, lowered to frames by the host; the
+/// properties it does not ([`Property::springs`]: paint, SVG geometry)
+/// play its curve from rest as `linear()`, as every native host does (LLP
+/// 1062 D3).
 pub fn transition_css(t: &Transitions) -> (String, bool) {
     let mut text = String::new();
     let mut spring = false;
+    let mut push = |name: &str, duration: f64, easing: &Easing, delay: f64| {
+        if !text.is_empty() {
+            text.push(',');
+        }
+        let _ = write!(
+            text,
+            "{name} {}s {} {}s",
+            num(duration as f32),
+            easing_css(easing),
+            num(delay as f32)
+        );
+    };
     for tr in &t.0 {
         match &tr.timing {
-            TimingFunction::Spring(_) => spring = true,
-            TimingFunction::Easing(e) => {
-                if !text.is_empty() {
-                    text.push(',');
+            TimingFunction::Spring(config) => {
+                let names: Vec<&str> = match tr.property {
+                    // Every property no spring drives as physics, the four
+                    // sides as their shorthand.
+                    TransitionProperty::All => Property::ALL
+                        .into_iter()
+                        .filter(|p| !p.springs() && *p != Property::ShadowColor)
+                        .map(|p| match p {
+                            Property::BorderTopColor => "border-color",
+                            p => p.css_name(),
+                        })
+                        .filter(|n| !n.starts_with("border-") || *n == "border-color")
+                        .collect(),
+                    TransitionProperty::BorderColor => vec!["border-color"],
+                    TransitionProperty::Property(p) if !p.springs() => vec![p.css_name()],
+                    TransitionProperty::Property(_) => Vec::new(),
+                };
+                spring |= match tr.property {
+                    TransitionProperty::All => true,
+                    TransitionProperty::Property(p) => p.springs(),
+                    TransitionProperty::BorderColor => false,
+                };
+                if !names.is_empty() {
+                    let (duration, easing) = config.easing();
+                    for name in names {
+                        push(name, duration, &easing, tr.delay);
+                    }
                 }
-                let _ = write!(
-                    text,
-                    "{} {}s {} {}s",
-                    transition_property(tr),
-                    num(tr.duration as f32),
-                    easing_css(e),
-                    num(tr.delay as f32)
-                );
+            }
+            TimingFunction::Easing(e) => {
+                push(transition_property(tr), tr.duration, e, tr.delay);
             }
         }
     }
@@ -365,56 +444,39 @@ pub fn transition_css(t: &Transitions) -> (String, bool) {
 }
 
 fn transition_property(tr: &Transition) -> &'static str {
-    match tr.property {
-        TransitionProperty::All => "all",
-        TransitionProperty::Property(p) => p.name(),
-    }
+    tr.property.css_name()
+}
+
+/// A `layout-transition` row as the presence module reads it: duration and
+/// delay in milliseconds, then a CSS easing (LLP 1063). A spring is
+/// `spring(stiffness, damping, mass)`: the module lowers each move itself,
+/// from its displacement and velocity in points, to the grid and rest
+/// threshold the engine settles on natively. `None` when no declaration
+/// covers layout.
+pub fn layout_transition_css(t: &Transitions) -> Option<String> {
+    let tr = t.matching(exact_motion::Property::Layout)?;
+    let easing = match &tr.timing {
+        TimingFunction::Easing(e) => easing_css(e),
+        TimingFunction::Spring(c) => format!(
+            "spring({}, {}, {})",
+            num(c.stiffness as f32),
+            num(c.damping as f32),
+            num(c.mass as f32)
+        ),
+    };
+    Some(format!(
+        "{} {} {easing}",
+        num((tr.duration * 1000.0) as f32),
+        num((tr.delay * 1000.0) as f32)
+    ))
 }
 
 /// A CSS `<easing-function>` from the motion crate's spelling.
 pub fn easing_css(e: &Easing) -> String {
-    match e {
-        Easing::Linear => "linear".into(),
-        Easing::Ease => "ease".into(),
-        Easing::EaseIn => "ease-in".into(),
-        Easing::EaseOut => "ease-out".into(),
-        Easing::EaseInOut => "ease-in-out".into(),
-        Easing::CubicBezier { x1, y1, x2, y2 } => format!(
-            "cubic-bezier({},{},{},{})",
-            num(*x1 as f32),
-            num(*y1 as f32),
-            num(*x2 as f32),
-            num(*y2 as f32)
-        ),
-        Easing::Steps { count, position } => format!(
-            "steps({count},{})",
-            match position {
-                StepPosition::JumpStart => "jump-start",
-                StepPosition::JumpEnd => "jump-end",
-                StepPosition::JumpNone => "jump-none",
-                StepPosition::JumpBoth => "jump-both",
-            }
-        ),
-        Easing::PiecewiseLinear(stops) => {
-            let mut text = String::from("linear(");
-            for (i, s) in stops.iter().enumerate() {
-                if i > 0 {
-                    text.push(',');
-                }
-                let _ = write!(
-                    text,
-                    "{} {}%",
-                    num(s.output as f32),
-                    num((s.input * 100.0) as f32)
-                );
-            }
-            text.push(')');
-            text
-        }
-    }
+    e.css()
 }
 
-fn dimension(out: &mut String, d: Dimension) {
+pub(crate) fn dimension(out: &mut String, d: Dimension) {
     match d {
         Dimension::Auto => out.push_str("auto"),
         Dimension::Points(p) => {
@@ -571,6 +633,53 @@ mod writer_tests {
             assert_eq!(transition_css(&t), transition_joined(&t), "{text}");
         }
     }
+
+    /// LLP 1062 D3: a spring on paint is its curve from rest as `linear()`,
+    /// the easing the native engine plays; the compositor rows stay the
+    /// host's frames, and `all` names each property the spring does not drive.
+    #[test]
+    fn a_paint_spring_is_its_curve_as_linear() {
+        let config = exact_motion::SpringConfig {
+            stiffness: 180.0,
+            damping: 12.0,
+            mass: 1.0,
+        };
+        let (duration, easing) = config.easing();
+        let curve = format!("{}s {} 0.1s", num(duration as f32), easing.css());
+        let t = Transitions::parse("background-color spring(180, 12, 1) 0s 100ms").unwrap();
+        assert_eq!(
+            transition_css(&t),
+            (format!("background-color {curve}"), false)
+        );
+        let t = Transitions::parse("opacity 1s, all spring(180, 12, 1) 0s 100ms").unwrap();
+        let (text, skipped) = transition_css(&t);
+        assert!(skipped, "the compositor rows' spring is the host's");
+        let names: Vec<&str> = text
+            .split(&format!(" {curve}"))
+            .map(|n| n.trim_start_matches(','))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "opacity 1s ease 0s,stroke-dashoffset",
+                "r",
+                "color",
+                "background-color",
+                "fill",
+                "stroke",
+                "cx",
+                "cy",
+                "x",
+                "y",
+                "rx",
+                "ry",
+                "border-color",
+                "--exact-tint",
+                "box-shadow",
+                ""
+            ]
+        );
+    }
 }
 
 #[cfg(test)]
@@ -624,7 +733,42 @@ mod declaration_tests {
                 &[
                     (StyleId::ShadowOffset, StyleValue::Vec2(-1.0, 1e9)),
                     (StyleId::ShadowRadius, StyleValue::Number(0.1)),
+                    (StyleId::ShadowColor, StyleValue::Text("#000000".into())),
+                    (StyleId::ShadowOpacity, StyleValue::Number(1.0)),
                 ],
+                &[],
+            ),
+            // LLP 1064: Contract's `box-shadow`, one value to the four rows.
+            css(
+                &[
+                    (
+                        StyleId::ShadowColor,
+                        StyleValue::Text("0 1px 4px light-dark(#00000080, #ffffff)".into()),
+                    ),
+                    (
+                        StyleId::ShadowOffset,
+                        StyleValue::Text("0 1px 4px light-dark(#00000080, #ffffff)".into()),
+                    ),
+                    (
+                        StyleId::ShadowRadius,
+                        StyleValue::Text("0 1px 4px light-dark(#00000080, #ffffff)".into()),
+                    ),
+                    (
+                        StyleId::ShadowOpacity,
+                        StyleValue::Text("0 1px 4px light-dark(#00000080, #ffffff)".into()),
+                    ),
+                ],
+                &[],
+            ),
+            css(
+                &[
+                    (StyleId::ShadowColor, StyleValue::Text("none".into())),
+                    (StyleId::ShadowOpacity, StyleValue::Text("none".into())),
+                ],
+                &[],
+            ),
+            css(
+                &[(StyleId::TextTransform, StyleValue::Text("uppercase".into()))],
                 &[],
             ),
             css(
@@ -662,7 +806,10 @@ mod declaration_tests {
             "transition:opacity 0.25s ease-in-out 0s,all 0.5s cubic-bezier(0.4,0,0.2,1) 0.1s;",
             "display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;",
             "box-shadow:0px 2.5px 12px rgba(17,34,51,0.17254902);",
-            "box-shadow:-1px 1000000000px 0.1px rgba(0,0,0,0);",
+            "box-shadow:-1px 1000000000px 0.1px rgba(0,0,0,1);",
+            "box-shadow:0px 1px 4px light-dark(rgba(0,0,0,0.5019608), rgba(255,255,255,1));",
+            "box-shadow:none;",
+            "text-transform:uppercase;",
             "font-variant-numeric:tabular-nums;white-space:nowrap;",
             "font-variant-numeric:normal;",
             "white-space:pre-line;",
@@ -672,7 +819,8 @@ mod declaration_tests {
     }
 
     /// LLP 1053: `aspect-ratio` as authored (never a rounded float),
-    /// `direction`, and the `flex-grow` longhand reach the page as CSS.
+    /// `direction`, the `flex-grow` longhand and `transform-origin` reach
+    /// the page as CSS.
     #[test]
     fn layout_rows_keep_their_css() {
         let t = |s: &str| StyleValue::Text(s.into());
@@ -694,6 +842,19 @@ mod declaration_tests {
                 "aspect-ratio:auto;",
             ),
             (vec![(StyleId::Direction, t("rtl"))], "direction:rtl;"),
+            // LLP 1061 D6: canonical, each axis a percentage or px.
+            (
+                vec![(StyleId::TransformOrigin, t("top left"))],
+                "transform-origin:0% 0%;",
+            ),
+            (
+                vec![(StyleId::TransformOrigin, StyleValue::Percent(25.0))],
+                "transform-origin:25% 50%;",
+            ),
+            (
+                vec![(StyleId::TransformOrigin, t("right 4px 0"))],
+                "transform-origin:100% 4px;",
+            ),
             (
                 vec![(StyleId::FlexGrow, StyleValue::Number(1.0))],
                 "flex-grow:1;",
@@ -701,5 +862,66 @@ mod declaration_tests {
         ] {
             assert_eq!(css(&rows, &[]), want);
         }
+    }
+
+    /// LLP 1066: a gradient is one `background-image` declaration after the
+    /// colour it paints over; a `light-dark()` stop is the browser's to
+    /// resolve, and `none` clears.
+    #[test]
+    fn background_image_is_one_declaration_over_the_colour() {
+        let t = |s: &str| StyleValue::Text(s.into());
+        assert_eq!(
+            css(
+                &[
+                    (StyleId::BackgroundColor, t("#102030")),
+                    (StyleId::BackgroundImage, t("linear-gradient(to top, transparent, light-dark(#fff, #000) 40%)")),
+                ],
+                &[]
+            ),
+            "background-color:rgba(16,32,48,1);background-image:linear-gradient(0deg, #00000000 0%, light-dark(#ffffffff, #000000ff) 40%);"
+        );
+        assert_eq!(
+            css(&[(StyleId::BackgroundImage, t("radial-gradient(circle at 10px bottom, #000 25%, #fff)"))], &[]),
+            "background-image:radial-gradient(circle farthest-corner at 10px 100%, #000000ff 25%, #ffffffff 100%);"
+        );
+        assert_eq!(
+            css(&[(StyleId::BackgroundImage, t("none"))], &[]),
+            "background-image:none;"
+        );
+    }
+
+    /// LLP 1061 D3: a press scale is `--exact-press` for the page's pressed
+    /// rule, plus a `transform` entry appended to the node's own transitions
+    /// — never replacing them, and last so it wins over `all`. 1 is none.
+    #[test]
+    fn a_press_scale_joins_the_transitions_it_finds() {
+        let n = StyleValue::Number;
+        let t = |s: &str| StyleValue::Text(s.into());
+        assert_eq!(
+            css(&[(StyleId::PressScale, n(0.97))], &[]),
+            "--exact-press:0.97;transition:transform 0.12s cubic-bezier(0.16,1,0.3,1) 0s;"
+        );
+        assert_eq!(
+            css(
+                &[
+                    (StyleId::Scale, n(1.5)),
+                    (StyleId::Transition, t("all 200ms ease")),
+                    (StyleId::PressScale, n(0.994)),
+                ],
+                &[]
+            ),
+            "scale:1.5;transition:all 0.2s ease 0s,transform 0.12s cubic-bezier(0.16,1,0.3,1) 0s;--exact-press:0.994;"
+        );
+        assert_eq!(css(&[(StyleId::PressScale, n(1.0))], &[]), "");
+        assert_eq!(
+            css(
+                &[
+                    (StyleId::Transition, t("opacity 1s")),
+                    (StyleId::PressScale, n(1.0))
+                ],
+                &[]
+            ),
+            "transition:opacity 1s ease 0s;"
+        );
     }
 }

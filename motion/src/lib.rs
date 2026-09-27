@@ -14,6 +14,7 @@
 //! Everywhere the platform has no such engine, this crate is the executor:
 //!
 //! - [`property`] — compositor properties and the explicit numeric-height trial.
+//! - [`animation`] — CSS keyframe animations, their timing and their values.
 //! - [`easing`] — CSS easing functions, held to the browser's outputs.
 //! - [`spring`] — the one timing function CSS lacks, and its lowering to
 //!   keyframes so the web plays the same curve.

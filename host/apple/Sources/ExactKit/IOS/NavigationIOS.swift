@@ -48,6 +48,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     private var changing = false
     private var pendingSync = false
     private var interactiveSource: (node: NodeView, key: String)?
+    /// The stack's depth when the interactive pop began, source included.
+    private var interactiveDepth = 0
     /// The root key last journaled as matching no route, so a refusal is one
     /// line, not one per batch (LLP 1035.001 D6).
     private var refusedKey: String?
@@ -175,9 +177,13 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             let nav = owners[index], stack = Array(wanted[parts[index]])
             let same = nav.viewControllers.count == stack.count && zip(nav.viewControllers, stack).allSatisfy { $0 === $1 }
             if !same {
-                // @ref LLP 1038 D6 — replacements (tabs/open) swap immediately.
+                // @ref LLP 1038 D6 — a tab change swaps immediately. A replacement within one stack
+                // whose new top was not on it (a finished screen giving way to its result) arrives
+                // as UIKit's own push, rather than cutting.
                 let pushOrPop = NavigationRules.isPushOrPop(from: nav.viewControllers.map(ObjectIdentifier.init), to: stack.map(ObjectIdentifier.init))
-                nav.setViewControllers(stack, animated: pushOrPop && index == owners.count - 1 && mounted.count == boundaries.count && !ExactEnv.agentFreezes && nav.view.window != nil)
+                let arrives = stack.count > 1 && nav.viewControllers.first === stack.first
+                    && !nav.viewControllers.contains { $0 === stack.last }
+                nav.setViewControllers(stack, animated: (pushOrPop || arrives) && index == owners.count - 1 && mounted.count == boundaries.count && !ExactEnv.agentFreezes && nav.view.window != nil)
             }
             nav.view.layoutIfNeeded()
         }
@@ -387,6 +393,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         if interactiveTransition,
            let source = navigationController.transitionCoordinator?.viewController(forKey: .from) as? RouteController {
             interactiveSource = (source.node, source.key)
+            interactiveDepth = navigationController.viewControllers.count + 1
         }
     }
 
@@ -407,9 +414,14 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         let source = interactiveSource
         interactiveSource = nil
         let sourceKey = source.flatMap { presenter.views[$0.node.id] === $0.node ? $0.key : nil }
+        // Replaced in place while the finger was down: the source's node is gone and the app's
+        // stack is as deep as it was when the swipe began.
+        let sourceReplaced = source != nil && sourceKey == nil
+            && routeIDs.compactMap({ presenter.views[$0] }).filter({ $0.props["navigationKey"] != nil }).count == interactiveDepth
         let dispatches = (viewController as? RouteController).map {
             NavigationRules.dispatchesBack(shownKey: $0.key, rootKey: container?.props["navigationKey"] ?? "",
-                                           sourceKey: sourceKey, modalActive: presenter.modals.inTransition)
+                                           sourceKey: sourceKey, sourceReplaced: sourceReplaced,
+                                           modalActive: presenter.modals.inTransition)
         } ?? false
         let cancelled = interactiveTransition && (viewController as? RouteController)?.node === source?.node
         lastTransition = dispatches ? "completed" : (cancelled ? "cancelled" : "idle")

@@ -29,6 +29,10 @@ mod height;
 mod height_binding;
 #[path = "holds.rs"]
 mod holds;
+#[path = "paint_motion.rs"]
+mod paint_motion;
+#[path = "presence.rs"]
+mod presence;
 #[path = "transform_binding.rs"]
 mod transform_binding;
 
@@ -56,6 +60,11 @@ pub struct Host<D: DataSource> {
     engine: Engine,
     keys: BTreeMap<NodeKey, ViewId>,
     presented: BTreeMap<ViewId, Presented>,
+    /// Paint motion's owners and the appearance they resolve by (LLP 1062).
+    paint_owners: exact_kernel::motion::PaintOwners,
+    /// Each owner's `currentcolor` border sides at its last paint sync.
+    paint_current: std::collections::BTreeMap<u64, Vec<exact_motion::Property>>,
+    dark: bool,
     viewport: (f32, f32),
     now_ms: f64,
     height_owner: Option<NodeKey>,
@@ -70,6 +79,7 @@ pub struct Host<D: DataSource> {
     data_activated: bool,
     router_op: Option<exact_runner::RouterChange>,
     navigation: crate::navigation::Navigation,
+    presence: presence::Presence,
     /// The 2D canvases' bitmaps (LLP 1056 D7).
     canvas2d: crate::canvas2d::Canvases,
 }
@@ -142,10 +152,7 @@ impl<D: DataSource> Host<D> {
             carried,
             Vec::new(),
             delivery.unwrap_or_default(),
-            exact_runner::Viewport {
-                width: width as f64,
-                height: height as f64,
-            },
+            exact_runner::Viewport::sized(width as f64, height as f64),
             launch,
         )
         .map_err(HostError::Runner)?;
@@ -157,6 +164,9 @@ impl<D: DataSource> Host<D> {
             engine: Engine::new(),
             keys: BTreeMap::new(),
             presented: BTreeMap::new(),
+            paint_owners: Default::default(),
+            paint_current: Default::default(),
+            dark: false,
             viewport: (width, height),
             now_ms: 0.0,
             height_owner: None,
@@ -171,11 +181,13 @@ impl<D: DataSource> Host<D> {
             data_activated: false,
             router_op: None,
             navigation: Default::default(),
+            presence: Default::default(),
             canvas2d: Default::default(),
         };
         host.runner
             .set_canvas_limits(exact_runner::Limits::native(physical_memory(), false));
-        // The engine hears the whole tree once: values, no transitions.
+        // The engine hears the whole tree once: values, no transitions; an
+        // `animation` starts now, as a browser starts one on a new element.
         let mut sync = MotionSync::default();
         host.discover_height_handles();
         host.discover_transform_handles();
@@ -183,11 +195,20 @@ impl<D: DataSource> Host<D> {
             if let Some(node) = host.runner.kernel().node(id) {
                 let key = node.key;
                 host.keys.insert(key, id);
+                if node
+                    .style
+                    .layout_transition
+                    .matching(Property::Layout)
+                    .is_some()
+                {
+                    host.presence.tracked.insert(key);
+                }
                 host.runner.kernel().motion_sync_node(key, &mut sync);
             }
         }
         let applied = sync.apply(&mut host.engine);
         debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
+        host.boot_paint();
         host.project_navigation();
         host.reconcile_height_bindings();
         host.reconcile_transform_bindings();
@@ -203,6 +224,7 @@ impl<D: DataSource> Host<D> {
             );
         }
         let error = host.layout().err();
+        host.observe_layout();
         host.present();
         Ok((host, error))
     }
@@ -416,10 +438,15 @@ impl<D: DataSource> Host<D> {
     fn configure_storage(&mut self) -> Result<(), exact_runner::DataError> {
         use exact_runner::DataError;
         use std::path::PathBuf;
-        // Scripted drives must not read or write the developer's app files.
-        if std::env::var_os("EXACT_AGENT").is_some() {
-            return Ok(());
-        }
+        // Scripted drives must not read or write the developer's app files;
+        // one that names a scratch tree gets storage there instead.
+        let scratch = match std::env::var_os("EXACT_AGENT") {
+            Some(_) => match agent_scratch()? {
+                Some(name) => Some(name),
+                None => return Ok(()),
+            },
+            None => None,
+        };
         let app_id = self.runner.data().app_id().to_string();
         if app_id.is_empty() {
             return Ok(());
@@ -443,8 +470,12 @@ impl<D: DataSource> Host<D> {
                 .join("exact")
                 .join(&app_id)
         };
-        let data = base("XDG_DATA_HOME", ".local/share").join("data");
-        let cache = base("XDG_CACHE_HOME", ".cache");
+        let mut data = base("XDG_DATA_HOME", ".local/share").join("data");
+        let mut cache = base("XDG_CACHE_HOME", ".cache");
+        if let Some(name) = scratch {
+            cache = cache.join("agent").join(name);
+            data = cache.join("data");
+        }
         // Sibling roots keep app:/cache grants from implicitly reaching tmp.
         // The user's cache base avoids a predictable shared /tmp directory.
         let temporary = cache.join("temporary");
@@ -500,6 +531,24 @@ impl<D: DataSource> Host<D> {
         self.runner.dispatch_work(token)
     }
 
+    /// Whether the source announced a topic not yet applied.
+    pub fn has_announced(&self) -> bool {
+        self.runner.has_announced()
+    }
+
+    /// An executor for the app's grants, which the source's announced topics
+    /// also wake (LLP 1016.002).
+    pub fn executor(&mut self) -> crate::executor::Executor {
+        let executor = crate::executor::Executor::start(&self.grants());
+        self.runner.listen(executor.waker());
+        executor
+    }
+
+    /// A long native call's work: the source's native handler, off this thread.
+    pub fn native_work(&mut self, request: &exact_runner::Request) -> exact_runner::Dispatch {
+        self.runner.native_work(request)
+    }
+
     /// Work a source held at dispatch that the last commit released.
     pub fn release_work(&mut self) -> Vec<(u64, exact_runner::Dispatch)> {
         self.runner.release_work()
@@ -540,8 +589,16 @@ impl<D: DataSource> Host<D> {
     /// shape is the error, and the ones before it stand.
     pub fn fulfill_all(&mut self, outcomes: Vec<(u64, Outcome)>, now_ms: f64) -> Option<String> {
         self.now_ms = now_ms.max(self.now_ms);
-        let mut receipts = Vec::new();
-        let mut error = None;
+        // Announced topics first: what the device said before these replies.
+        let (announced, failed) = self.runner.apply_announced();
+        let mut error = failed.map(|e| format!("{e:?}"));
+        let mut receipts: Vec<Timed> = announced
+            .into_iter()
+            .map(|receipt| Timed {
+                at_ms: self.now_ms,
+                receipt,
+            })
+            .collect();
         for (ticket, outcome) in outcomes {
             match self.runner.fulfill(ticket, outcome) {
                 Ok(Some(receipt)) => receipts.push(Timed {
@@ -706,6 +763,7 @@ impl<D: DataSource> Host<D> {
             Err(e) => return Some(format!("viewport: {e:?}")),
         };
         self.viewport = (width, height);
+        self.presence.snap = true;
         if let Some(receipt) = receipt {
             return self.commit(
                 &[Timed {
@@ -715,7 +773,9 @@ impl<D: DataSource> Host<D> {
                 None,
             );
         }
-        self.layout().err()
+        let error = self.layout().err();
+        self.observe_layout();
+        error
     }
 
     /// The date (LLP 1027.000.000): re-answer `exactTime` in one commit.
@@ -733,6 +793,22 @@ impl<D: DataSource> Host<D> {
         }
     }
 
+    /// The display preferences (LLP 1061 D5): re-answer `exactViewport()`
+    /// in one commit.
+    pub fn set_preferences(&mut self, preferences: exact_runner::Preferences) -> Option<String> {
+        match self.runner.set_preferences(preferences) {
+            Ok(Some(receipt)) => self.commit(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => None,
+            Err(e) => Some(format!("preferences: {e:?}")),
+        }
+    }
+
     /// Seek presentation. Returns whether the registered Height changed layout;
     /// paint-only properties never trigger layout or text measurement.
     pub fn tick(&mut self, now_ms: f64) -> bool {
@@ -746,6 +822,9 @@ impl<D: DataSource> Host<D> {
                 false
             }
         };
+        if changed {
+            self.observe_layout();
+        }
         self.present();
         changed
     }
@@ -781,6 +860,7 @@ impl<D: DataSource> Host<D> {
                 }
             }
         }
+        self.track_presence(receipts);
         if receipts.iter().any(|t| !t.receipt.created.is_empty()) {
             self.discover_height_handles();
             self.discover_transform_handles();
@@ -809,6 +889,7 @@ impl<D: DataSource> Host<D> {
                 .motion_sync(&t.receipt)
                 .apply(&mut self.engine);
             debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
+            self.sync_paint(&t.receipt);
             if let Err(error) = self.sync_height_owner() {
                 self.log(error);
                 paint = true;
@@ -823,6 +904,7 @@ impl<D: DataSource> Host<D> {
         } else {
             self.layout()
         };
+        self.observe_layout();
         paint |= layout.as_ref().copied().unwrap_or(true);
         // Consume the final sample even when the seek has made motion quiescent.
         paint |= self.present();
@@ -868,10 +950,17 @@ impl<D: DataSource> Host<D> {
             if p.property == Property::Height {
                 continue;
             }
+            changed = true;
+            if Property::PAINT.contains(&p.property) {
+                self.present_paint(p);
+                continue;
+            }
+            let layout = self.layout_presented(p.node, p.value);
             let base = self.presented(view);
             let entry = self.presented.entry(view).or_insert(base);
             match p.property {
                 Property::Translate => entry.translate = (p.value.x as f32, p.value.y as f32),
+                Property::Layout => entry.layout = layout,
                 Property::Scale => entry.scale = p.value.x as f32,
                 Property::Rotate => entry.rotate = p.value.x as f32,
                 Property::Opacity => entry.opacity = p.value.x as f32,
@@ -884,13 +973,8 @@ impl<D: DataSource> Host<D> {
                 Property::Y => entry.svg[5] = Some(p.value.x as f32),
                 Property::Rx => entry.svg[6] = Some(p.value.x as f32),
                 Property::Ry => entry.svg[7] = Some(p.value.x as f32),
-                Property::Color => entry.colors[0] = Some(p.value.to_rgba8()),
-                Property::BackgroundColor => entry.colors[1] = Some(p.value.to_rgba8()),
-                Property::Fill => entry.colors[2] = Some(p.value.to_rgba8()),
-                Property::Stroke => entry.colors[3] = Some(p.value.to_rgba8()),
-                Property::Height => unreachable!("height is projected through layout"),
+                _ => unreachable!("height is projected through layout; paint is above"),
             }
-            changed = true;
         }
         changed
     }
@@ -909,6 +993,28 @@ impl<D: DataSource> Host<D> {
             }
         }
         order
+    }
+}
+
+/// A scripted drive's scratch storage (`EXACT_AGENT_STORAGE=<name>`): a tree
+/// of its own under the cache base, so a drive can exercise storage without
+/// touching the app's real files. Absent, a drive has no storage.
+fn agent_scratch() -> Result<Option<String>, exact_runner::DataError> {
+    let Some(name) = std::env::var_os("EXACT_AGENT_STORAGE") else {
+        return Ok(None);
+    };
+    match name.to_str() {
+        Some(name)
+            if !matches!(name, "" | "." | "..")
+                && name
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b".-_".contains(&b)) =>
+        {
+            Ok(Some(name.to_owned()))
+        }
+        _ => Err(exact_runner::DataError::Unavailable(
+            "EXACT_AGENT_STORAGE: one name of letters, digits, '.', '-' or '_'".into(),
+        )),
     }
 }
 

@@ -582,6 +582,17 @@ impl Batch {
         self.ops.push(text!("{{\"op\":\"destroy\",\"id\":{}}}", id));
     }
 
+    /// `{"op":"exit","id":…,"css":…}` — the view leaves with `css`, the CSS
+    /// `animation` list of its `exit-animation` (LLP 1063): the page keeps
+    /// it, inert, where it was until the exit ends. Its `destroy` ops follow
+    /// as usual.
+    pub fn exit(&mut self, id: u32, css: &str) {
+        let mut s = text!("{{\"op\":\"exit\",\"id\":{},\"css\":", id);
+        quote(css, &mut s);
+        s.push('}');
+        self.ops.push(s);
+    }
+
     /// `{"op":"at","ms":…}` — the clock at which the ops that follow were
     /// committed (a timer's due time inside one `advance`), so a page that
     /// owns time can attribute the transitions they start to that instant

@@ -1,6 +1,7 @@
 fn abs(n: number): number = n < 0 ? -n : n
 // @ref LLP 1043.000 §3 D1/D8, §6.5 — shapes move by commits, never transforms.
-// Original prose; system serif. Fixed boxes deliberately leave font-metric slack.
+// Original prose; system serif. Fixed boxes deliberately leave font-metric slack;
+// Article's paragraphs have none: auto-height flow sizes them (LLP 1043.000 §8).
 shape Viewport
   width: number
   height: number
@@ -82,6 +83,8 @@ component Textflow
             text "05 Editorial" font-size=12
           button press=choose("polygon") testId="scene-polygon" padding=(narrow ? 8 : 10) border-width=0 border-radius=20 background-color=(scene == "polygon" ? "light-dark(#294e46, #b6ccba)" : "light-dark(#e3e3d8, #293b36)") color=(scene == "polygon" ? "light-dark(#ffffff, #172d25)" : "light-dark(#42594f, #ced9d0)")
             text "06 Polygon" font-size=12
+          button press=choose("article") testId="scene-article" padding=(narrow ? 8 : 10) border-width=0 border-radius=20 background-color=(scene == "article" ? "light-dark(#294e46, #b6ccba)" : "light-dark(#e3e3d8, #293b36)") color=(scene == "article" ? "light-dark(#ffffff, #172d25)" : "light-dark(#42594f, #ced9d0)")
+            text "07 Article" font-size=12
         column width=pageWidth padding=inset padding-top=(narrow ? 20 : 24) padding-bottom=20 box-sizing="border-box" gap=24 background-color="light-dark(#fcfaf3, #213032)" border-radius=6
           when scene == "drag"
             column gap=9
@@ -141,6 +144,19 @@ component Textflow
                 text "Leave a little space for what comes next." font-family="serif" font-style="italic" font-size=(narrow ? 16 : 21) line-height=1.22 text-align="center"
               box position="absolute" left=(narrow ? 192 : 510) top=24 width=(68 * scale) height=(68 * scale) border-radius=40 background-color="light-dark(#cf8459, #cc946f)" wrap-flow="both" shape-outside="circle()" shape-margin=10
               box position="absolute" left=(narrow ? 26 : 92) top=(narrow ? 650 : 356) width=(60 * scale) height=(60 * scale) border-radius=40 background-color="light-dark(#8faaa0, #7d9f8b)" wrap-flow="both" shape-outside="circle()" shape-margin=9
+          when scene == "article"
+            column gap=9
+              text "07 / A LETTER, AT LENGTH" font-size=10 letter-spacing=2 color="light-dark(#a15e48, #dea388)"
+              text "Every paragraph its own height" font-family="serif" font-size=(narrow ? 33 : 44) line-height=1.08 letter-spacing=-0.6
+              text "A drop cap and a quotation. No paragraph is given a height; each takes the one its words need." font-size=12 line-height=1.4 color="light-dark(#738076, #aebdb3)"
+            box testId="article" width=proseWidth position="relative"
+              box testId="drop-cap" position="absolute" left=0 top=0 width=(narrow ? 46 : 66) height=(narrow ? 42 : 66) wrap-flow="both" shape-outside="inset(0)" shape-margin=6
+                text "W" font-family="serif" font-size=(narrow ? 44 : 64) line-height=1 color="light-dark(#a15d40, #e2aa88)"
+              text "e wrote to each other for eleven years before either of us owned a telephone. The letters came on thin blue paper, folded twice, and they always arrived a day later than the postmark promised. I kept them in a shoebox under the bed, and when the box was full I started another." testId="article-lede" font-family="serif" font-size=bodySize line-height=1.5 color="light-dark(#3d5149, #d5ddd3)"
+              text "What I remember is not what the letters said but how long they took. A question asked in March was answered in April, by which time the question had changed, and so had the person asking it. The delay was part of the conversation. It made room for second thoughts, and for the kind of sentence you only write when nobody is waiting." testId="article-second" margin-top=14 font-family="serif" font-size=bodySize line-height=1.5 color="light-dark(#3d5149, #d5ddd3)"
+              box testId="article-quote" position="absolute" left=(narrow ? proseWidth - 128 : proseWidth - 196) top=(narrow ? 300 : 170) width=(narrow ? 128 : 196) height=(narrow ? 104 : 96) padding=12 box-sizing="border-box" border-radius=8 background-color="light-dark(#e4e8d7, #344943)" wrap-flow="both" shape-outside="inset(0 round 8px)" shape-margin=10
+                text "The delay was part of the conversation." font-family="serif" font-style="italic" font-size=(narrow ? 15 : 19) line-height=1.22 text-align="center"
+              text "Now the answers arrive before the question has finished forming. That is a gift, mostly. But some evenings I take out the shoebox and read one of the old letters slowly, the way it was written, and let it take as long as it needs." testId="article-third" margin-top=14 font-family="serif" font-size=bodySize line-height=1.5 color="light-dark(#3d5149, #d5ddd3)"
         row width=pageWidth justify-content="space-between" align-items="center" flex-wrap="wrap" gap=8
           text "After Cheng Lou's Pretext demos." font-family="serif" font-style="italic" font-size=12 color="light-dark(#65766b, #b2c3b5)"
           row gap=6

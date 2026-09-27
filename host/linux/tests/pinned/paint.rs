@@ -231,6 +231,34 @@ fn motion_presents_as_a_transform_and_a_group_opacity() {
     }
 }
 
+/// LLP 1061 D6: `transform-origin` is the point the transforms turn about;
+/// the painted box (what `layout` reports and hit-testing reads) follows.
+#[test]
+fn transforms_turn_about_the_transform_origin() {
+    let src = "component Origin
+  view
+    column padding=20
+      view width=100 height=40 scale=0.5 transform-origin=\"50%\" testId=\"centre\"
+      view width=100 height=40 scale=0.5 transform-origin=\"left top\" testId=\"corner\"
+      view width=100 height=40 rotate=90 transform-origin=\"0 100%\" testId=\"turned\"
+";
+    for choice in painters() {
+        let mut p = compiled(src, 1.0, choice);
+        let close = |a: (f32, f32, f32, f32), b: (f32, f32, f32, f32)| {
+            let near = |x: f32, y: f32| (x - y).abs() < 0.01;
+            assert!(
+                near(a.0, b.0) && near(a.1, b.1) && near(a.2, b.2) && near(a.3, b.3),
+                "{a:?} vs {b:?} ({choice:?})"
+            );
+        };
+        close(rect(&mut p, "centre"), (45.0, 30.0, 50.0, 20.0));
+        close(rect(&mut p, "corner"), (20.0, 60.0, 50.0, 20.0));
+        // A quarter turn clockwise about the bottom-left corner (20, 140):
+        // the box now hangs below that corner.
+        close(rect(&mut p, "turned"), (20.0, 140.0, 40.0, 100.0));
+    }
+}
+
 #[test]
 fn a_scroll_container_clips_what_it_scrolled_out() {
     for choice in painters() {
@@ -354,6 +382,65 @@ fn border_style_controls_pixels_and_layout_with_current_color() {
         );
         let inset = if solid { 18.0 } else { 10.0 };
         assert_eq!(px(&frame, x + inset + 2.0, y + inset + 2.0), (0, 0, 0));
+    }
+}
+
+/// LLP 1064 D2: a `box-shadow` falls outside the border box only — offset
+/// hard, or blurred as a Gaussian of half the blur radius — on every painter,
+/// and a clipping node's shadow is not clipped by it.
+#[test]
+fn a_box_shadow_paints_outside_the_box_as_a_gaussian() {
+    let source = r##"component Shadows
+  view
+    column background-color="#ffffff" padding=40 gap=50 width="100%" height="100%"
+      view testId="hard" width=100 height=60 background-color="#eeeeee" box-shadow="10px 10px 0 #0000ff"
+      view testId="soft" width=100 height=60 border-radius=16 background-color="#eeeeee" box-shadow="0 0 20px #000000"
+      view testId="ghost" width=100 height=60 background-color="rgba(255, 255, 255, 0.5)" overflow="hidden" box-shadow="0 30px 0 #ff0000"
+"##;
+    for choice in painters() {
+        let mut p = compiled(source, 1.0, choice);
+        let (hard, soft, ghost) = (
+            rect(&mut p, "hard"),
+            rect(&mut p, "soft"),
+            rect(&mut p, "ghost"),
+        );
+        let frame = p.frame();
+        assert_eq!(
+            px(&frame, hard.0 + 105.0, hard.1 + 65.0),
+            (0, 0, 255),
+            "{choice:?}"
+        );
+        assert_eq!(
+            px(&frame, hard.0 + 50.0, hard.1 + 30.0),
+            (238, 238, 238),
+            "{choice:?}"
+        );
+        assert_eq!(
+            px(&frame, hard.0 + 5.0, hard.1 + 65.0),
+            (255, 255, 255),
+            "{choice:?}"
+        );
+        // σ = 10: Φ(-1) of black ten points out, Φ(-3.5) far out.
+        let (x, y) = (soft.0 - 10.0, soft.1 + soft.3 / 2.0);
+        let ten = px(&frame, x, y).0 as f32;
+        assert!(
+            (ten - 255.0 * (1.0 - 0.1587)).abs() < 12.0,
+            "{ten} ({choice:?})"
+        );
+        assert!(px(&frame, soft.0 - 35.0, y).0 >= 250, "{choice:?}");
+        assert!(px(&frame, soft.0 - 1.0, y).0 < 150, "{choice:?}");
+        // Never inside the box, even through a translucent background; a
+        // clipping node's shadow still falls outside it.
+        assert_eq!(
+            px(&frame, ghost.0 + 50.0, ghost.1 + 45.0),
+            (255, 255, 255),
+            "{choice:?}"
+        );
+        assert_eq!(
+            px(&frame, ghost.0 + 50.0, ghost.1 + 75.0),
+            (255, 0, 0),
+            "{choice:?}"
+        );
     }
 }
 

@@ -268,12 +268,20 @@ pub(crate) fn eligibility(kernel: &Kernel, engine: &mut Engine, sync: &MotionSyn
                 exact_kernel::RowValue::Paint(exact_kernel::svg::Paint::Url(..))
             )
         };
-        let sampled = if n.node_type.is_svg_shape()
-            && (served(exact_kernel::StyleId::Fill) || served(exact_kernel::StyleId::Stroke))
+        // A `light-dark()` keyframe plays the appearance its animation
+        // started under (LLP 1062 D9), which a lowered track cannot say.
+        let paired = animations
+            .0
+            .iter()
+            .any(|a| a.keyframes.0.iter().any(|f| !f.dark.is_empty()));
+        let sampled = if paired
+            || n.node_type.is_svg_shape()
+                && (served(exact_kernel::StyleId::Fill) || served(exact_kernel::StyleId::Stroke))
         {
             true
         } else if n.node_type.is_svg_shape() {
-            let targets: Vec<(Property, Option<Value>)> = exact_kernel::motion::color_targets(&n);
+            let targets: Vec<(Property, Option<Value>)> =
+                exact_kernel::motion::color_targets(&n, false);
             let mut alphas = animations
                 .0
                 .iter()

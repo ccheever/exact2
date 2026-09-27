@@ -194,7 +194,12 @@ impl Keyframes {
             let body = &rest[open + 1..close];
             let mut easing_here = None;
             let mut values: Vec<(Property, Value)> = Vec::new();
-            for decl in body.split(';').map(str::trim).filter(|d| !d.is_empty()) {
+            let mut dark: Vec<(Property, Value)> = Vec::new();
+            for decl in split_top_level(body, ';')
+                .into_iter()
+                .map(str::trim)
+                .filter(|d| !d.is_empty())
+            {
                 let (name, value) = decl
                     .split_once(':')
                     .ok_or_else(|| ParseError::BadShape(decl.to_string()))?;
@@ -206,9 +211,14 @@ impl Keyframes {
                 let property = Property::from_name(name)
                     .filter(|p| *p != Property::Height)
                     .ok_or_else(|| ParseError::UnknownProperty(name.to_string()))?;
-                let v = keyframe_value(property, value)?;
-                values.retain(|(p, _)| *p != property);
-                values.push((property, v));
+                for (property, light, night) in keyframe_values(property, value)? {
+                    values.retain(|(p, _)| *p != property);
+                    dark.retain(|(p, _)| *p != property);
+                    values.push((property, light));
+                    if let Some(night) = night {
+                        dark.push((property, night));
+                    }
+                }
             }
             for selector in selectors.split(',').map(str::trim) {
                 let offset = match selector {
@@ -228,13 +238,16 @@ impl Keyframes {
                     Some(frame) => {
                         for (p, v) in &values {
                             frame.values.retain(|(q, _)| q != p);
+                            frame.dark.retain(|(q, _)| q != p);
                             frame.values.push((*p, *v));
                         }
+                        frame.dark.extend(dark.iter().copied());
                     }
                     None => frames.push(Keyframe {
                         offset,
                         easing: easing_here.clone(),
                         values: values.clone(),
+                        dark: dark.clone(),
                     }),
                 }
             }
@@ -255,8 +268,38 @@ impl Keyframes {
             if let Some(e) = &frame.easing {
                 let _ = write!(out, "animation-timing-function:{};", easing_css(e));
             }
-            for (p, v) in &frame.values {
-                let _ = write!(out, "{}:{};", p.name(), value_css(*p, *v));
+            // The shadow's colour is written in its `box-shadow`.
+            for (p, v) in frame
+                .values
+                .iter()
+                .filter(|(p, _)| *p != Property::ShadowColor)
+            {
+                let colour = |p: Property, v: Value| match frame.dark.iter().find(|(q, _)| *q == p)
+                {
+                    Some((_, night)) => format!(
+                        "light-dark({}, {})",
+                        crate::color::css(v),
+                        crate::color::css(*night)
+                    ),
+                    None => crate::color::css(v),
+                };
+                let text = match p {
+                    p if p.is_color() => colour(*p, *v),
+                    Property::BoxShadow => {
+                        let shade = frame
+                            .values
+                            .iter()
+                            .find(|(q, _)| *q == Property::ShadowColor)
+                            .map_or(Value::ZERO, |(_, c)| *c);
+                        format!(
+                            "{} {}",
+                            value_css(*p, *v),
+                            colour(Property::ShadowColor, shade)
+                        )
+                    }
+                    _ => value_css(*p, *v),
+                };
+                let _ = write!(out, "{}:{};", p.css_name(), text);
             }
             out.push('}');
         }
@@ -280,9 +323,21 @@ pub fn value_css(property: Property, v: Value) -> String {
         Property::Scale | Property::Opacity | Property::StrokeDashoffset => {
             format!("{}", Shortest(v.x))
         }
-        Property::Color | Property::BackgroundColor | Property::Fill | Property::Stroke => {
-            crate::color::css(v)
-        }
+        // Offset and blur; the colour is `box-shadow`'s other half.
+        Property::BoxShadow => format!(
+            "{}px {}px {}px",
+            Shortest(v.x),
+            Shortest(v.y),
+            Shortest(v.z)
+        ),
+        Property::Layout => format!(
+            "{}px {}px {}px {}px",
+            Shortest(v.x),
+            Shortest(v.y),
+            Shortest(v.z),
+            Shortest(v.w)
+        ),
+        _ => crate::color::css(v),
     }
 }
 
@@ -396,6 +451,67 @@ fn length(value: &str) -> Option<f64> {
     exact_num::parse_f64(n.trim()).ok()
 }
 
+/// One declaration's values: usually one property's, a `light-dark()`
+/// colour's dark value beside it (LLP 1062 D9), and `box-shadow`'s two
+/// halves, its geometry and its colour.
+fn keyframe_values(
+    property: Property,
+    value: &str,
+) -> Result<Vec<(Property, Value, Option<Value>)>, ParseError> {
+    let bad = || ParseError::BadValue(format!("{}: {value}", property.name()));
+    let colour = |text: &str| -> Result<(Value, Option<Value>), ParseError> {
+        let text = text.trim();
+        if let Some(body) = text
+            .strip_prefix("light-dark(")
+            .and_then(|b| b.strip_suffix(')'))
+        {
+            let parts = split_top_level(body, ',');
+            let [light, night] = parts.as_slice() else {
+                return Err(bad());
+            };
+            let light = crate::color::parse(light).ok_or_else(bad)?;
+            let night = crate::color::parse(night).ok_or_else(bad)?;
+            return Ok((light, Some(night)));
+        }
+        Ok((crate::color::parse(text).ok_or_else(bad)?, None))
+    };
+    Ok(match property {
+        p if p.is_color() => {
+            let (light, night) = colour(value)?;
+            vec![(p, light, night)]
+        }
+        // `none` is CSS's transparent, zero-length shadow, which a shadow
+        // interpolates from and to.
+        Property::BoxShadow if value.trim() == "none" => vec![
+            (Property::BoxShadow, Value::ZERO, None),
+            (Property::ShadowColor, Value::ZERO, None),
+        ],
+        Property::BoxShadow => {
+            // `<x> <y> [<blur>] <colour>`, one outer shadow, the colour last.
+            let parts: Vec<&str> = split_top_level(value.trim(), ' ')
+                .into_iter()
+                .filter(|p| !p.is_empty())
+                .collect();
+            let (color, lengths) = parts.split_last().ok_or_else(bad)?;
+            let lengths: Vec<f64> = lengths
+                .iter()
+                .map(|l| length(l).ok_or_else(bad))
+                .collect::<Result<_, _>>()?;
+            let (x, y, blur) = match lengths.as_slice() {
+                [x, y] => (*x, *y, 0.0),
+                [x, y, blur] if *blur >= 0.0 => (*x, *y, *blur),
+                _ => return Err(bad()),
+            };
+            let (light, night) = colour(color)?;
+            vec![
+                (Property::BoxShadow, Value::four(x, y, blur, 0.0), None),
+                (Property::ShadowColor, light, night),
+            ]
+        }
+        p => vec![(p, keyframe_value(p, value)?, None)],
+    })
+}
+
 fn keyframe_value(property: Property, value: &str) -> Result<Value, ParseError> {
     let bad = || ParseError::BadValue(format!("{}: {value}", property.name()));
     Ok(match property {
@@ -427,8 +543,7 @@ fn keyframe_value(property: Property, value: &str) -> Result<Value, ParseError> 
         | Property::Y
         | Property::Rx
         | Property::Ry => Value::scalar(length(value).ok_or_else(bad)?),
-        Property::Color | Property::BackgroundColor | Property::Fill | Property::Stroke => {
-            crate::color::parse(value).ok_or_else(bad)?
-        }
+        p if p.is_color() => crate::color::parse(value).ok_or_else(bad)?,
+        _ => return Err(bad()),
     })
 }

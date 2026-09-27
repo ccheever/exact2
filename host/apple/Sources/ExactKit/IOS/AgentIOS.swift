@@ -350,7 +350,7 @@ extension Agent {
             if let n = s as? NodeView {
                 if let sv = n.scroll { chain.append(["id": Int(n.id), "sx": Agent.r2(sv.contentOffset.x), "sy": Agent.r2(sv.contentOffset.y)]) }
                 else if n.scrollDormant { chain.append(["id": Int(n.id), "sx": 0.0, "sy": 0.0]) }
-                if n.clipsToBounds { clippers.append((n, "overflow")) }
+                if n.clipsToBounds || n.clipBox != nil { clippers.append((n, "overflow")) }
                 if n.clipPath != nil { clippers.append((n, "clip-path")) }
             }
             above = s.superview
@@ -724,5 +724,16 @@ extension Agent {
         if req["window"] as? Bool == true { r["window"] = true }
         return r
     }
+
+    /// The system appearance (LLP 1061 D5): the window scene's trait, which
+    /// the window's own style — the app's `setScheme` — overrides, as the
+    /// Settings switch sits beneath an app's choice.
+    func systemScheme(dark: Bool) {
+        guard let window = session.presenter.viewport.window else { return }
+        window.windowScene?.traitOverrides.userInterfaceStyle = dark ? .dark : .light
+        window.updateTraitsIfNeeded()
+        session.view?.updateTraitsIfNeeded()
+    }
+    var systemDark: Bool { session.presenter.viewport.window?.windowScene?.traitCollection.userInterfaceStyle == .dark }
 }
 #endif

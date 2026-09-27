@@ -18,7 +18,9 @@ mod carry;
 mod checkpoint;
 mod collection;
 mod source;
-pub use source::{DataError, DataSource, InFlight, Interrupt, Target};
+pub use source::{
+    Announce, DataError, DataSource, InFlight, Interrupt, Native, NativeHandler, Target,
+};
 mod delivery;
 mod kept;
 mod lines;
@@ -124,6 +126,8 @@ pub enum RunnerError {
     InvalidViewport,
     /// A date fact is non-finite, negative, or its offset past ±18 hours.
     InvalidTime,
+    /// A locale or time zone is empty, over-long, or not in its form.
+    InvalidPlace,
     /// The declared router shapes, table, launch fallback or value is invalid.
     Router(String),
     /// A clock value exceeds the exact integer-millisecond domain.
@@ -260,6 +264,12 @@ pub struct Runner<D: DataSource> {
     /// `pending` as flags, by resource and by mutation, for expressions.
     pending_res: Vec<bool>,
     pending_mut: Vec<bool>,
+    /// Mutations whose answer landed in the commit being made; their `then`
+    /// actions are armed once it stands (LLP 1016.001).
+    landed: Vec<usize>,
+    /// When each mutation's `then` action is due, as a one-shot timer:
+    /// infinite until an answer lands.
+    then_due: Vec<f64>,
     next_ticket: u64,
     /// Second edges waiting for the first action's async targets to settle.
     deferred_edges: Vec<(u32, Vec<Target>)>,
@@ -277,6 +287,12 @@ pub struct Runner<D: DataSource> {
     /// Which resources consulted the store when they settled (bake gives
     /// them no compiled value, LLP 1018 D4).
     store_readers: Vec<bool>,
+    /// The device topics each resource's current answer watches (LLP
+    /// 1016.002): an announced topic asks exactly these again.
+    watching: Vec<Vec<String>>,
+    /// Topics the source's native module announced since the host last
+    /// applied them, from any thread ([`Runner::listen`]).
+    announced: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
     /// Deferred resources shown from a placeholder — a kept answer or
     /// the compiled empty-store value — to ask again at `data_ready`.
     stale: Vec<bool>,
@@ -311,6 +327,7 @@ pub struct Runner<D: DataSource> {
     viewport: crate::Viewport,
     // @ref LLP 1027.000.000 — the date, once the host says it.
     time: crate::time::WallTime,
+    place: crate::time::Place,
     surface_records: exact_kernel::SortedMap<String, String>,
     /// What the host links of the runner's own answers (LLP 1047 D3).
     links: RunnerLinks,
@@ -618,6 +635,10 @@ impl<D: DataSource> Runner<D> {
             pending: Vec::new(),
             pending_res: Vec::new(),
             pending_mut: Vec::new(),
+            announced: Default::default(),
+            watching: Vec::new(),
+            landed: Vec::new(),
+            then_due: Vec::new(),
             next_ticket: 1,
             forgot: false,
             refused_asks: Vec::new(),
@@ -633,6 +654,7 @@ impl<D: DataSource> Runner<D> {
             delivery,
             viewport,
             time: Default::default(),
+            place: Default::default(),
             surface_records: Default::default(),
             links,
             router,
@@ -731,6 +753,8 @@ impl<D: DataSource> Runner<D> {
         runner.resource_values = vec![None; runner.plan.resources.len()];
         runner.pending_res = vec![false; runner.plan.resources.len()];
         runner.pending_mut = vec![false; runner.plan.mutations.len()];
+        runner.watching = vec![Vec::new(); runner.plan.resources.len()];
+        runner.then_due = vec![f64::INFINITY; runner.plan.mutations.len()];
         runner.now_ms = now_ms;
         // A carried boot never takes compiled data: it was baked for the
         // initial state, and the carried state is not that.
@@ -782,7 +806,11 @@ impl<D: DataSource> Runner<D> {
         for &key in keys {
             if self.flow_warned.insert(key) {
                 if let Some(node) = self.kernel.node_by_key(key) {
-                    self.log(format!("wrap-flow: text #{} has auto height and is not flowed (LLP 1043.000 stage 2)", node.id));
+                    let why = node.flow_refusal().map_or("", |r| r.message());
+                    self.log(format!(
+                        "wrap-flow: text #{} has auto height and is not flowed: {why} (LLP 1043.000 §8)",
+                        node.id
+                    ));
                 }
             }
         }
@@ -955,7 +983,7 @@ impl<D: DataSource> Runner<D> {
 
     /// Whether the plan has timers (a host then drives `advance`).
     pub fn has_timers(&self) -> bool {
-        !self.plan.timers.is_empty()
+        !self.plan.timers.is_empty() || self.plan.mutations.iter().any(|m| m.then.is_some())
     }
 
     /// Soonest timer deadline in this runner's clock domain; no host polling.
@@ -964,6 +992,7 @@ impl<D: DataSource> Runner<D> {
         self.timers
             .iter()
             .map(|timer| timer.next_ms)
+            .chain(self.then_due.iter().copied())
             .filter(|ms| ms.is_finite())
             .reduce(f64::min)
     }

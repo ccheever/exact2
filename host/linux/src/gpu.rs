@@ -17,6 +17,8 @@ use crate::paint::border::{BorderFill, PathOp};
 use crate::paint::{Backend, Rect4, Shape, POINTER};
 use crate::text::{Paragraph, RunPaint, TextEngine};
 mod images;
+use crate::paint::GradientPaint;
+use exact_kernel::gradient::Geometry;
 use images::ImageCache;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
@@ -24,7 +26,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use tiny_skia::{IntSize, Pixmap, Transform};
 use vello::kurbo::{Affine, BezPath, Rect, Stroke};
-use vello::peniko::{Color, Fill, ImageBrush, Mix};
+use vello::peniko::{Color, Fill, Gradient, ImageBrush, Mix};
 use vello::{AaConfig, AaSupport, RenderParams, Renderer, RendererOptions};
 
 struct Target {
@@ -479,6 +481,41 @@ impl Backend for Gpu {
         }
     }
 
+    fn fill_gradient(&mut self, s: &Shape, g: &GradientPaint, ts: Transform) {
+        if s.rect.2 <= 0.0 || s.rect.3 <= 0.0 {
+            return;
+        }
+        // Vello mixes premultiplied by default, as CSS does: the stops as given.
+        let stops: Vec<(f32, Color)> = g
+            .stops
+            .iter()
+            .map(|&(at, c)| (at, color(crate::paint::rgba(c))))
+            .collect();
+        let (brush, placed) = match g.geometry {
+            Geometry::Linear { start, end } => (Gradient::new_linear(start, end), None),
+            // The unit circle, scaled to the ellipse.
+            Geometry::Radial { center, radii } => (
+                Gradient::new_radial((0.0, 0.0), 1.0),
+                Some(Affine::new([
+                    radii.0 as f64,
+                    0.0,
+                    0.0,
+                    radii.1 as f64,
+                    center.0 as f64,
+                    center.1 as f64,
+                ])),
+            ),
+        };
+        let a = self.affine(ts);
+        self.scene.fill(
+            Fill::NonZero,
+            a,
+            &brush.with_stops(stops.as_slice()),
+            placed,
+            &shape(s),
+        );
+    }
+
     fn fill_border(&mut self, part: &BorderFill, ts: Transform) {
         let a = self.affine(ts);
         if let Some(clip) = &part.clip {
@@ -687,8 +724,11 @@ impl Backend for Gpu {
                 _ => unreachable!("validated CSS path"),
             }
         }
-        self.scene
-            .push_clip_layer(Fill::NonZero, self.affine(ts), &b);
+        let rule = match path.rule() {
+            exact_kernel::FillRule::Evenodd => Fill::EvenOdd,
+            exact_kernel::FillRule::Nonzero => Fill::NonZero,
+        };
+        self.scene.push_clip_layer(rule, self.affine(ts), &b);
         true
     }
 

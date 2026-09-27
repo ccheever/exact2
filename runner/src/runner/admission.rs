@@ -66,6 +66,49 @@ impl<D: DataSource> Runner<D> {
         self.commit_again(which, "admission refusals").map(Some)
     }
 
+    /// A reply the source failed to take (it threw, ran over its budget, or
+    /// answered outside its shape). The refused commit's rollback restored
+    /// the request to the pending set, but the host has already delivered
+    /// its one reply: left there it would be pending forever, and a button
+    /// disabled on `pending(…)` with it. It is let go instead. A resource
+    /// keeps the value it had and is not asked again here (a source that
+    /// fails the same way every time would loop); `refresh` asks again. A
+    /// mutation ends unsent.
+    pub(super) fn release_failed(
+        &mut self,
+        ticket: u64,
+        target: Target,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        let failed_args = self
+            .pending
+            .iter()
+            .find(|p| p.ticket == ticket)
+            .map(|p| p.args.clone());
+        self.pending.retain(|p| p.ticket != ticket);
+        self.forgot = true;
+        self.sync_pending_flags();
+        let name = self.target_name(target);
+        let next = match target {
+            Target::Resource(i) => {
+                // The last value now stands for the arguments that failed, so
+                // settlement reuses it instead of asking again: a source that
+                // fails the same way every time would otherwise loop.
+                // A placeholder that stood in for the answer stands for it
+                // now (LLP 1054.000.002 D4 lets one stand only while an
+                // answer is on the way).
+                if let (Some(state), Some(args)) = (self.resources[i].as_mut(), failed_args) {
+                    state.args = args;
+                    state.placeholder = false;
+                }
+                "it keeps its last value"
+            }
+            Target::Mutation(_) => "it ends unsent",
+        };
+        let what = format!("request {ticket} ({name}) failed and is no longer pending: {next}");
+        self.log(what.clone());
+        self.commit_again(Vec::new(), "a failed request").map(Some)
+    }
+
     /// The host must keep later ordered admissions behind these refusals.
     pub fn has_ordered_request_refusals(&self) -> bool {
         self.pending

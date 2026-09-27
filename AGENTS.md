@@ -1,6 +1,6 @@
 # Agent instructions
 
-Read `rules/RULES.md` and `rules/NOT-DOING.md` first; they bind and this file does not.
+Read `rules/RULES.md` first; it binds and this file does not.
 `llp/1000-exact2-root.explainer.md` is the map. Design documents under `llp/research/`
 are the predecessor's — research, never authority.
 
@@ -62,7 +62,7 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
 - Verify by running, never by grepping. Fix loops get three rounds, then stop and say so.
 - To see a change work, drive the app: `bun scripts/agent.mjs <web|macos|ios|linux> tree
   "tap change-station" "type station-search Palo" "clock +60000" state logs "screenshot
-  out.png"` — the eight operations of LLP 1012, the same on every host, with the clock
+  out.png"` — the nine operations of LLP 1012, the same on every host, with the clock
   in your hands (`clock settle` instead of waiting). `bun scripts/smoke.mjs
   <web|macos|ios|linux|host>` is the whole app driven that way. The Linux host
   (`cargo build --release -p caltrain-linux`) runs headless anywhere, macOS included.

@@ -41,10 +41,7 @@ fn boot(width: f64) -> Runner<Counted> {
         baked,
         Counted::default(),
         Kernel::with_monospace(),
-        Viewport {
-            width,
-            height: 844.,
-        },
+        Viewport::sized(width, 844.),
         "/",
     )
     .unwrap()

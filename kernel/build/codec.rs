@@ -50,6 +50,8 @@ fn parse_codec(s: &str) -> Codec {
         "clip-path" => Codec::CssValue { path: "crate::clip::ClipPath", variant: "ClipPath", error: "BadClipPath" },
         "aspect-ratio" => Codec::CssValue { path: "crate::ratio::AspectRatio", variant: "AspectRatio", error: "BadAspectRatio" },
         "shape-outside" => Codec::CssValue { path: "exact_textflow::ShapeOutside", variant: "ShapeOutside", error: "BadShapeOutside" },
+        // @ref LLP 1066 D1
+        "background-image" => Codec::CssValue { path: "crate::gradient::BackgroundImage", variant: "BackgroundImage", error: "BadBackgroundImage" },
         other => match other.strip_prefix("enum:") {
             Some(name) => Codec::Enum(name.to_string()),
             None => panic!("schema: unknown codec `{other}`"),

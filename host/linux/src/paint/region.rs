@@ -273,7 +273,8 @@ impl Picture {
             let mut cost = 1usize; // hit, including opacity-zero nodes
             if opacity > 0. {
                 paint.emit(&geometry, |_, _| cost += 1);
-                cost += paint.borders(&geometry).len();
+                cost += usize::from(paint.gradient.is_some());
+                cost += paint.borders(&geometry).len() + paint.shadow_fills(&geometry).len();
                 cost += match &payload {
                     Payload::Empty => 0,
                     Payload::Text(..) => 1,
@@ -578,6 +579,7 @@ impl<'a> Replay<'a> {
                                 || !p.translate.1.is_finite()
                                 || p.scale != 1.
                                 || p.rotate != 0.
+                                || p.layout != Presented::IDENTITY.layout
                                 || p.opacity != n.opacity
                             {
                                 return Err(
@@ -587,7 +589,8 @@ impl<'a> Replay<'a> {
                             // EXACT ordinary node composition, including f32
                             // center association. Never translate baked pixels.
                             let (x, y, w, h) = paint_rect(f.frame, offset);
-                            let (cx, cy) = (x + w / 2., y + h / 2.);
+                            let (ox, oy) = node.style.transform_origin.resolve(w, h);
+                            let (cx, cy) = (x + ox, y + oy);
                             transform = parent.pre_concat(
                                 Transform::from_translate(cx + p.translate.0, cy + p.translate.1)
                                     .pre_rotate(p.rotate)

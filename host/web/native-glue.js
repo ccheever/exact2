@@ -1,5 +1,5 @@
-// Native modules on the web (@ref LLP 1024 D2–D5, D7): the host half of the
-// app's module table. Loaded after first paint, only when a plan names a
+// Native modules on the web (@ref LLP 1024 D2–D5, D7; LLP 1067 D5): the host
+// half of the app's module table. Loaded after first paint, only when a plan names a
 // module tag; it then injects the app's own module (`./modules/index.js`, the app's `modules/web/`), whose
 // exports are the table's names:
 //
@@ -24,24 +24,30 @@ const ABI = 1;
 const DISPATCH = [0, 1, 2, 4, 5, 6, 7, 8, 9];
 const NAMES = ['press', 'change', 'hover', 'focus', 'blur', 'key', 'submit', 'load', 'message'];
 
+// The app's module artifact, loaded once for the page: its views' table
+// here, and its `later(request)` for `native.later` (pageNative, below).
+const artifactUrl = () => new URL('./modules/index.js', document.baseURI).href;
+const artifact = () => globalThis.exact.nativeArtifact ??= new Promise((resolve, reject) => {
+  const url = artifactUrl();
+  // An injected module script, never an `import()` (LLP 1024 D3): the
+  // inline script's static import keeps the module's exports its names.
+  const script = document.createElement('script');
+  script.type = 'module';
+  globalThis.exact.nativeTable = resolve;
+  script.textContent = `import * as table from ${JSON.stringify(url)}; globalThis.exact.nativeTable(table);`;
+  script.onerror = () => reject(new Error(`the module artifact ${url} did not load`));
+  addEventListener('error', (e) => { if (e.filename === url) reject(new Error(`${url}: ${e.message}`)); }, { once: true });
+  setTimeout(() => reject(new Error(`the module artifact ${url} did not load in 10 s`)), 10000);
+  document.head.append(script);
+});
+
 globalThis.exact.nativeHost = ({ dispatch, log }) => {
   let table = null, failure = null, nonce = 0;
   const waiting = new Set();
   const defines = (globalThis.exact.nativeDefines ??= { count: 0 });
   const say = (line) => { log(`native ${line}`); };
-  const url = new URL('./modules/index.js', document.baseURI).href;
-  const loaded = new Promise((resolve, reject) => {
-    // An injected module script, never an `import()` (LLP 1024 D3): the
-    // inline script's static import keeps the module's exports its names.
-    const script = document.createElement('script');
-    script.type = 'module';
-    globalThis.exact.nativeTable = resolve;
-    script.textContent = `import * as table from ${JSON.stringify(url)}; globalThis.exact.nativeTable(table);`;
-    script.onerror = () => reject(new Error(`the module artifact ${url} did not load`));
-    addEventListener('error', (e) => { if (e.filename === url) reject(new Error(`${url}: ${e.message}`)); }, { once: true });
-    setTimeout(() => reject(new Error(`the module artifact ${url} did not load in 10 s`)), 10000);
-    document.head.append(script);
-  }).then((m) => {
+  const url = artifactUrl();
+  const loaded = artifact().then((m) => {
     if (m.abi !== ABI) throw Object.assign(new Error(`module ABI ${m.abi}, host ABI ${ABI}`), { state: 'unavailable' });
     if (!m.roster || typeof m.create !== 'function' || typeof m.setProps !== 'function' || typeof m.destroy !== 'function') {
       throw Object.assign(new Error(`${url} is not a module table (abi, roster, create, setProps, destroy)`), { state: 'unavailable' });
@@ -109,5 +115,28 @@ globalThis.exact.nativeHost = ({ dispatch, log }) => {
       say(`${st.name} #${st.id}: destroyed`);
     },
     loaded,
+  };
+};
+
+// The same artifact answers `native.later` on the page (LLP 1067 D5), where
+// the browser's own capabilities are: an optional export
+//
+//   export async function later(request) → reply   // JSON in, JSON out
+//   export function connect({ changed })           // optional: announce a
+//                                                   // device topic (LLP 1016.002)
+//
+// Loaded after first paint, at the first native request.
+globalThis.exact.pageNative = async (present, changed) => {
+  if (!present) throw new Error('this app has no module artifact (modules/web/index.js) to answer native.later');
+  const module = await artifact();
+  if (typeof module.later !== 'function') throw new Error('the module artifact exports no later(request)');
+  module.connect?.({ changed });
+  const decoder = new TextDecoder();
+  return {
+    // A request body (base64 JSON, as the kernel sends it) to the reply's JSON.
+    async later(body) {
+      const request = JSON.parse(decoder.decode(Uint8Array.from(atob(body ?? ''), (c) => c.charCodeAt(0))));
+      return JSON.stringify((await module.later(request)) ?? null);
+    },
   };
 };

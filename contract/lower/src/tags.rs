@@ -665,15 +665,26 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // @ref LLP 1053 §0 G4 — `normal` and `tabular-nums`; others refused by name.
         "font-variant-numeric" => styles(&[StyleId::FontVariantNumeric]),
         "text-decoration-line" => styles(&[StyleId::TextDecorationLine]),
+        // @ref LLP 1064 D5
+        "text-transform" => styles(&[StyleId::TextTransform]),
         "font-size" => styles(&[StyleId::FontSize]),
         "font-weight" => styles(&[StyleId::FontWeight]),
         "font-style" => styles(&[StyleId::FontStyle]),
         "font-family" => styles(&[StyleId::FontFamily]),
         "color" => styles(&[StyleId::TextColor]),
         "background-color" => styles(&[StyleId::BackgroundColor]),
+        // @ref LLP 1066 — `none` or one linear/radial gradient.
+        "background-image" => styles(&[StyleId::BackgroundImage]),
         "caret-color" => styles(&[StyleId::CaretColor]),
         "tint-color" => styles(&[StyleId::TintColor]),
         "opacity" => styles(&[StyleId::Opacity]),
+        // @ref LLP 1064 D1 — one value, each row takes its part of the parse.
+        "box-shadow" => styles(&[
+            StyleId::ShadowColor,
+            StyleId::ShadowOffset,
+            StyleId::ShadowRadius,
+            StyleId::ShadowOpacity,
+        ]),
         "letter-spacing" => styles(&[StyleId::LetterSpacing]),
         "line-height" => styles(&[StyleId::LineHeight]),
         "text-align" => styles(&[StyleId::TextAlign]),
@@ -780,10 +791,17 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "scroll-behavior" => styles(&[StyleId::ScrollBehavior]),
         "z-index" => styles(&[StyleId::ZIndex]),
         "transition" => styles(&[StyleId::Transition]),
+        // @ref LLP 1063 — played as the node leaves; its names resolve against
+        // the plan's keyframes as `animation`'s do (LLP 1055 D5).
+        "exit-animation" => styles(&[StyleId::ExitAnimation]),
+        // @ref LLP 1063 — how the laid-out box moves when layout moves it.
+        "layout-transition" => styles(&[StyleId::LayoutTransition]),
         "interpolate-size" => styles(&[StyleId::InterpolateSize]),
         "translate" => styles(&[StyleId::Translate]),
         "scale" => styles(&[StyleId::Scale]),
         "rotate" => styles(&[StyleId::Rotate]),
+        // @ref LLP 1061 D1 — host-owned press feedback; not a motion target.
+        "press-scale" => styles(&[StyleId::PressScale]),
         _ => return None,
     })
 }
@@ -832,6 +850,7 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "flexDirection" => "flex-direction",
         "flexGrow" => "flex-grow",
         "aspectRatio" => "aspect-ratio",
+        "transformOrigin" => "transform-origin",
         "align" | "alignItems" => "align-items",
         "alignSelf" => "align-self",
         "boxSizing" => "box-sizing",

@@ -4,7 +4,7 @@ import Foundation
 
 extension BatchReader {
     mutating func batch() throws -> Batch {
-        var ops: [BatchOp] = [], timers = false, motion = false, pending = false, canvas = false
+        var ops: [BatchOp] = [], timers = false, motion = false, pending = false, spatial = false, canvas = false
         var clock: Double?, due: Double?, error: String?
         var seen: Set<String> = []
         try object { r, key in
@@ -16,6 +16,7 @@ extension BatchReader {
             case "motion": motion = try r.bool()
             case "canvas": canvas = try r.bool()
             case "pending": pending = try r.bool()
+            case "spatial": spatial = try r.bool()
             case "clock": clock = try r.number()
             case "timer_due_ms": due = try r.number()
             case "error": error = try r.string()
@@ -23,6 +24,7 @@ extension BatchReader {
             }
         }
         var batch = Batch(ops: ops, timers: timers, motion: motion, clock: clock, error: error, timerDueMs: due, pending: pending)
+        batch.spatial = spatial
         batch.canvas = canvas
         return batch
     }

@@ -67,10 +67,14 @@ pub(super) fn presented_color(walk: &super::Walk<'_, '_>, node: &NodeRef<'_>) ->
         .properties()
         .contains(&exact_motion::Property::Color)
     {
-        return (walk.scene.presented)(node.id).colors[0];
+        return (walk.scene.presented)(node.id)
+            .colors
+            .color(exact_motion::Property::Color);
     }
     let source = node.source_of(StyleId::TextColor)?;
-    (walk.scene.presented)(source).colors[0]
+    (walk.scene.presented)(source)
+        .colors
+        .color(exact_motion::Property::Color)
 }
 
 /// The paragraph's run colours with presented ones applied, run by run.

@@ -30,7 +30,7 @@ fn whole_i64(n: f64) -> bool {
 }
 
 /// The kernel's refusal of a style value, in an author's words.
-fn describe(e: &StyleValueError) -> String {
+pub(crate) fn describe(e: &StyleValueError) -> String {
     match e {
         StyleValueError::WrongKind { expected, .. } => format!("expected {expected}"),
         StyleValueError::UnknownEnumValue { style } => format!(
@@ -43,6 +43,7 @@ fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadShapeOutside { .. } => "expected none, circle(), ellipse(), inset() with one round radius, or polygon() with at most 64 vertices; lengths are points/px or percentages".into(),
         StyleValueError::BadClipPath { .. } => "expected none or path() with explicit absolute M/L/Q/C/Z commands and separated finite coordinates".into(),
         StyleValueError::BadAspectRatio { .. } => "expected auto, a ratio (`16 / 9`, or a number), or both (`auto 4 / 3`); numbers are nonnegative".into(),
+        StyleValueError::BadBackgroundImage { .. } => "expected none, linear-gradient(…) or radial-gradient(…)".into(),
         StyleValueError::BadTransition { .. } => "not a CSS `transition` shorthand".into(),
         StyleValueError::BadPaint { .. } => "SVG paint is `none`, `currentcolor`, or a colour (`#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `light-dark()`); paint servers (`url(#…)`) are refused (LLP 1055 D12)".into(),
         StyleValueError::BadDashArray { .. } => "`stroke-dasharray` is `none` or non-negative numbers separated by spaces or commas".into(),
@@ -53,6 +54,7 @@ fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadTransformOrigin { .. } => "`transform-origin` is one or two of left, center, right, top, bottom, a length or a percentage".into(),
         StyleValueError::BadAnimation { .. } => "not a CSS `animation` shorthand: `<name> <duration> [<easing>] [<delay>] [<count>|infinite] [<direction>] [<fill-mode>] [<play-state>]`".into(),
         StyleValueError::Unsupported { .. } => "this row has no dynamic form".into(),
+        StyleValueError::BadBoxShadow { reason, .. } => (*reason).into(),
     }
 }
 
@@ -227,9 +229,42 @@ pub(crate) fn check_style_value(
                     return err("lower-attr-value", format!("`font-variant-numeric: {word}` is CSS, but exact2 implements only `normal` and `tabular-nums`"), span);
                 }
             }
+            // @ref LLP 1066 — the kernel's parse says why, by name.
+            if rows.contains(&StyleId::BackgroundImage) {
+                if let Err(why) = exact_kernel::gradient::BackgroundImage::check(v) {
+                    return err(
+                        "lower-attr-value",
+                        format!("`{}=\"{v}\"`: {why}", a.name),
+                        span,
+                    );
+                }
+            }
             if rows.contains(&StyleId::ShapeMargin) && v.trim().ends_with('%') {
                 return err("lower-attr-value", "percentage `shape-margin` is not implemented in exact2 v1; use a nonnegative length in points/px", span);
             }
+        }
+        // @ref LLP 1061 D1 — a press that makes a node vanish or flip is a
+        // typo, not a feel.
+        if rows.contains(&StyleId::PressScale) && numeric_literal(value).is_some_and(|n| n <= 0.0) {
+            return err(
+                "lower-attr-value",
+                format!(
+                    "`{}` takes a positive scale (0.97 is a button's, 1 is none)",
+                    a.name
+                ),
+                span,
+            );
+        }
+        // @ref LLP 1064 D1 — a shadow is text; a number is no shadow.
+        if rows.contains(&StyleId::ShadowOffset)
+            && (numeric_literal(value).is_some()
+                || (std::ptr::eq(value, &a.value) && matches!(ty, Ty::Number)))
+        {
+            return err(
+                "lower-attr-type",
+                format!("`{}` takes a string, as CSS writes a shadow", a.name),
+                span,
+            );
         }
         let literal = match value {
             expr if numeric_literal(expr).is_some() => {

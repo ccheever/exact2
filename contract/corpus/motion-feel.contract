@@ -1,0 +1,23 @@
+// Accept fixture: press feedback and the user's motion preference (LLP 1061).
+// A button gives under the finger (`press-scale`); an entry rises in, and a
+// reader who asked for less motion gets neither: the app reads the fact from
+// `exactViewport()` and chooses, as a stylesheet's media query would.
+keyframes rise
+  from opacity=0 translate="0px 8px"
+
+shape Media
+  prefersReducedMotion: bool
+  prefersReducedTransparency: bool
+
+component Feel
+  resource media = exactViewport() as shape Media
+  derive still = media.prefersReducedMotion
+  state count = 0
+  action tap writes count
+    count = count + 1
+  view
+    column testId="root" animation=(still ? "none" : "rise 320ms cubic-bezier(0.32, 0.72, 0, 1) both")
+      button press=tap testId="record" press-scale=0.97 transition=(still ? "none" : "opacity 120ms cubic-bezier(0.32, 0.72, 0, 1)")
+        text "Record"
+      button press=tap testId="card" press-scale=0.994 opacity=(media.prefersReducedTransparency ? 1 : 0.92)
+        text `Pressed ${count}` testId="count"

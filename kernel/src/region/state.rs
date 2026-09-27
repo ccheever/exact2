@@ -594,7 +594,7 @@ impl TextMeasurer for Candidate<'_> {
                             runs: r
                                 .runs
                                 .iter()
-                                .map(|r| (Box::<str>::from(r.text), r.style))
+                                .map(|r| (Box::<str>::from(&*r.text), r.style))
                                 .collect(),
                             bytes: bytes.unwrap(),
                         })

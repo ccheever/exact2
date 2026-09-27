@@ -23,13 +23,19 @@ mod class;
 mod collection;
 pub mod expr;
 mod fonts;
+mod keyframes;
+mod lint;
 mod media;
 mod native;
 mod routes;
 mod sites;
+mod strings;
 mod svg;
 pub mod tags;
 mod values;
+
+pub use lint::lint;
+use lint::{unknown_attr, unknown_tag};
 pub use native::{is_module_tag, module_tags};
 pub use sites::{Declared, NodeSite, Origin, Sites};
 
@@ -61,113 +67,6 @@ impl std::fmt::Display for LowerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} [{}] {}", self.span, self.id, self.message)
     }
-}
-
-fn unknown_tag(tag: &str, span: Span) -> LowerError {
-    let hint = tags::html_tag(tag)
-        .or_else(|| svg::refused_tag(tag))
-        .map(|spelled| format!("; {spelled}"))
-        .or_else(|| tags::similar_tag(tag).map(|n| format!("; did you mean `{n}`?")))
-        .unwrap_or_default();
-    LowerError {
-        id: "lower-unknown-tag",
-        message: format!("unknown tag `{tag}`{hint}"),
-        span,
-    }
-}
-
-fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
-    let hint = match tags::renamed(&a.name) {
-        Some(new @ ("press" | "change")) => format!(
-            "; `{}` is `{new}` here: a handler is named for its event (LLP 1005 §3)",
-            a.name
-        ),
-        Some(new) => format!(
-            "; `{}` is spelled `{new}` here, the web's name (LLP 1017 §8.1)",
-            a.name
-        ),
-        None if a.name == "className" => {
-            "; `class` names a `style` declared in this file, as in `class=Card`".into()
-        }
-        None => tags::similar_attr(&a.name, false)
-            .map(|n| format!("; did you mean `{n}`?"))
-            .unwrap_or_default(),
-    };
-    LowerError {
-        id: "lower-unknown-attr",
-        message: format!("`{tag}` has no attribute `{}`{hint}", a.name),
-        span: a.span,
-    }
-}
-
-/// What an authored element can be refused for without any types: its
-/// tag, its attributes' names, and its literal style values against their
-/// rows. The driver runs this when an earlier pass refused, so a misspelled
-/// tag or a bad colour is reported in the same run as a type error.
-pub fn lint(file: &File) -> Vec<LowerError> {
-    fn walk(nodes: &[Node], errors: &mut Vec<LowerError>) {
-        for n in nodes {
-            match n {
-                Node::Element {
-                    tag,
-                    attrs,
-                    children,
-                    span,
-                    ..
-                } => {
-                    if tags::tag(tag).is_none() && !native::is_module_tag(tag) {
-                        errors.push(unknown_tag(tag, *span));
-                    } else {
-                        let coerced = svg::coerce_lengths(tag, false, attrs);
-                        let attrs = coerced.as_deref().unwrap_or(attrs);
-                        for a in attrs
-                            .iter()
-                            .filter(|a| a.name != "class" && !native::leftover(tag, a))
-                        {
-                            let checked = match tags::attr(&a.name) {
-                                None => Err(unknown_attr(tag, a)),
-                                // A family is resolved against declared fonts.
-                                Some(tags::AttrTarget::Styles(rows))
-                                    if rows != [StyleId::FontFamily] =>
-                                {
-                                    values::check_style_value(a, rows, &Ty::Unknown, &[])
-                                }
-                                Some(tags::AttrTarget::Flex) => values::check_style_value(
-                                    a,
-                                    &[StyleId::FlexGrow],
-                                    &Ty::Unknown,
-                                    &[],
-                                ),
-                                Some(_) => Ok(()),
-                            };
-                            errors.extend(checked.err());
-                        }
-                    }
-                    walk(children, errors);
-                }
-                Node::Use { children, .. } => walk(children, errors),
-                Node::Provide { body, .. } => walk(body, errors),
-                Node::When {
-                    then, otherwise, ..
-                } => {
-                    walk(then, errors);
-                    walk(otherwise, errors);
-                }
-                Node::Each { body, .. } => walk(body, errors),
-                Node::Match { some, none, .. } => {
-                    walk(&some.1, errors);
-                    walk(none, errors);
-                }
-                Node::Children { .. } => {}
-            }
-        }
-    }
-    let mut errors = Vec::new();
-    for c in &file.components {
-        walk(&c.view, &mut errors);
-    }
-    errors.truncate(MAX_REFUSALS);
-    errors
 }
 
 /// One refusal, as the plural result lowering returns.
@@ -238,6 +137,10 @@ pub(crate) struct Lowerer<'a> {
     /// Refusals so far: an element or attribute that fails is recorded and
     /// its siblings are lowered anyway.
     errors: Vec<LowerError>,
+    /// The locale slot, once a `t` call made it (LLP 1060 D4).
+    locale: Option<exact_plan::SlotsId>,
+    /// Every key a `t` call names, the only ones baked.
+    texts_used: std::collections::BTreeSet<String>,
     /// How many `svg` elements enclose the node being lowered: `text`
     /// inside one is SVG text, outside a box (LLP 1055.000 D11).
     pub(crate) svg_depth: u32,
@@ -343,6 +246,8 @@ fn lower_with_sites(
         declared_fonts: BTreeMap::new(),
         fixed: BTreeMap::new(),
         errors: Vec::new(),
+        locale: None,
+        texts_used: Default::default(),
     };
     l.declare_fonts(file, asset_root)?;
     // Styles: rows only, literal only (the parser holds the second), by name.
@@ -533,6 +438,12 @@ fn lower_with_sites(
         let code = l.b.code(asm);
         l.b.set_action_body(l.actions[i], code);
     }
+    for (i, m) in root.mutations.iter().enumerate() {
+        if let Some((name, _)) = &m.then {
+            let action = l.actions[root.actions.iter().position(|a| &a.name == name).unwrap()];
+            l.b.set_mutation_then(l.mutations[i], action);
+        }
+    }
     for t in &root.tasks {
         let word = match t.kind {
             TaskKind::Every => "every",
@@ -609,6 +520,7 @@ fn lower_with_sites(
             l.b.set_slot_owner(l.slots[i], region);
         }
     }
+    l.bake_texts();
     let plan = l.b.finish().map_err(|e| LowerError {
         id: "lower-invalid-plan",
         message: format!("{e:?}"),
@@ -1060,6 +972,7 @@ impl<'a> Lowerer<'a> {
             Node::Each {
                 tag,
                 var,
+                index,
                 list,
                 key,
                 body,
@@ -1071,7 +984,7 @@ impl<'a> Lowerer<'a> {
                     _ => Ty::Unknown,
                 };
                 let mut inner = scope.clone();
-                inner.push_region(Some((var.clone(), Ref::Item(0), item_ty)));
+                inner.push_each(var, index.as_deref(), item_ty);
                 let key = self.expr_code(key, &inner, locals)?;
                 let (r, arms) =
                     self.b
@@ -1298,6 +1211,14 @@ impl<'a> Lowerer<'a> {
             return err(
                 "lower-attr-value",
                 "`status` is 404, 410 or 503, as a literal: the page answers with it",
+                a.span,
+            );
+        }
+        // @ref LLP 1064 D6 — a native field shows its value as typed.
+        if a.name == "text-transform" && matches!(tag, "input" | "textarea") {
+            return err(
+                "lower-attr-tag",
+                format!("`text-transform` does not apply to `{tag}`: a field shows what was typed on every host (the web's form controls reset it too); transform the value instead"),
                 a.span,
             );
         }

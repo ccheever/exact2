@@ -99,7 +99,7 @@ structs! {
     Binding { name, expr, span }
     ResourceDecl { name, source, args, shape, placeholder, span }
     Placeholder { source, args, span }
-    MutationDecl { name, shape, refreshes, span }
+    MutationDecl { name, shape, refreshes, then, span }
     Param { name, ty, span }
     Action { name, params, writes, body, span }
     Task { name, kind, timer, span }
@@ -135,7 +135,7 @@ record_variants! {
     Node {
         Element { tag, positional, attrs, children, span, instance }, Use { name, args, children, span },
         Provide { name, expr, body, span }, Children { span },
-        When { cond, then, otherwise, span }, Each { tag, var, list, key, body, span },
+        When { cond, then, otherwise, span }, Each { tag, var, index, list, key, body, span },
         Match { subject, some, none, span },
     }
 }

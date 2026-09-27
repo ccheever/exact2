@@ -317,8 +317,10 @@ compiler, run `cargo clean -p exact-js` before rebuilding native apps so a warm
 build cannot reuse captured archives or bytecode from the previous installation.
 
 iOS uses lean bytecode-only Hermes archives, not the compiler-containing
-framework. Provision matching device/simulator builds under `target/hermes-ios`
-(override with `EXACT_HERMES_IOS_DIR`); the recipe and archive layout are in
+framework. `bun host/apple/build.mjs --ios` (or `--device`) builds the one it
+needs from ibex's Hermes source, once per machine, into
+`~/.cache/exact/hermes/<pin>-lean-ios` (override with `EXACT_HERMES_IOS_DIR`,
+LLP 1036.001 D5); the recipe and archive layout are in
 [LLP 1027 D6](llp/1027-typescript-data-sources.rfc.md#d6--the-web-the-browser-is-the-executor-one-wasm-import-the-same-module-under-two-loaders).
 The normal Apple build captures the linked archives in its receipt. The iOS
 simulator executed an async module, fetched twice and followed a URL logic edit

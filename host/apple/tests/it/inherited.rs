@@ -498,3 +498,62 @@ fn paragraph_batches_preserve_inline_identity_and_replace_the_complete_run_table
     assert!(!removed.contains(&format!("\"op\":\"destroy\",\"id\":{added}}}")));
     assert_eq!(count(&host.resize(420.0, 800.0), "paragraph"), 0);
 }
+
+/// LLP 1064: Swift paints a run from its `text` prop, so the prop crosses as
+/// the string the kernel measured — `text-transform` applied, a word split
+/// across runs one word, a field's value as typed — and an ancestor's change
+/// re-sends it. `box-shadow` crosses as its four rows.
+#[test]
+fn text_transform_crosses_as_the_measured_string_and_box_shadow_as_its_rows() {
+    let plan = contract::compile(
+        r##"component Case
+  state caps = false
+  action toggle writes caps
+    caps = not caps
+  view
+    column text-transform=(caps ? "uppercase" : "capitalize") box-shadow="0 2px 12px rgba(0, 0, 0, 0.2)" testId="root"
+      button press=toggle testId="toggle"
+        text "toggle"
+      text "straße here" testId="own"
+      text testId="paragraph"
+        text "hel" testId="a"
+        text "lo world" testId="b"
+      input value="typed" testId="field"
+"##,
+    )
+    .unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.0,
+        874.0,
+    )
+    .unwrap();
+    assert!(
+        op(&first, view(&host, "own")).contains("\"text\":\"Straße Here\""),
+        "{first}"
+    );
+    assert!(
+        first.contains("\"text\":\"Hel\"") && first.contains("\"text\":\"lo World\""),
+        "{first}"
+    );
+    assert!(op(&first, view(&host, "field")).contains("\"value\":\"typed\""));
+    let root = op(&first, view(&host, "root"));
+    for row in [
+        "\"shadow_color\":[0,0,0,51]",
+        "\"shadow_offset\":[0,2]",
+        "\"shadow_radius\":12",
+        "\"shadow_opacity\":1",
+    ] {
+        assert!(root.contains(row), "{row} in {root}");
+    }
+    let changed = host.dispatch_at(view(&host, "toggle"), Event::Press, 0.0);
+    for text in ["STRASSE HERE", "HEL", "LO WORLD"] {
+        assert!(
+            changed.contains(&format!("\"text\":\"{text}\"")),
+            "{text}: {changed}"
+        );
+    }
+    assert!(!changed.contains("\"value\":\"TYPED\""), "{changed}");
+}

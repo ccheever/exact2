@@ -22,8 +22,10 @@ pub const MAX_TRANSITIONS: usize = 8;
 pub enum TransitionProperty {
     /// `all`.
     All,
-    /// One named property.
+    /// One named property; `box-shadow` names its colour half too.
     Property(Property),
+    /// `border-color`, CSS's shorthand for the four sides' colours.
+    BorderColor,
 }
 
 impl TransitionProperty {
@@ -31,7 +33,35 @@ impl TransitionProperty {
     pub fn covers(self, property: Property) -> bool {
         match self {
             TransitionProperty::All => true,
+            TransitionProperty::Property(Property::BoxShadow) => {
+                matches!(property, Property::BoxShadow | Property::ShadowColor)
+            }
             TransitionProperty::Property(p) => p == property,
+            TransitionProperty::BorderColor => matches!(
+                property,
+                Property::BorderTopColor
+                    | Property::BorderRightColor
+                    | Property::BorderBottomColor
+                    | Property::BorderLeftColor
+            ),
+        }
+    }
+
+    /// From a `transition-property` name.
+    pub fn from_name(name: &str) -> Option<TransitionProperty> {
+        match name {
+            "all" => Some(TransitionProperty::All),
+            "border-color" => Some(TransitionProperty::BorderColor),
+            name => Property::from_name(name).map(TransitionProperty::Property),
+        }
+    }
+
+    /// The name a browser knows it by ([`Property::css_name`]).
+    pub fn css_name(self) -> &'static str {
+        match self {
+            TransitionProperty::All => "all",
+            TransitionProperty::Property(p) => p.css_name(),
+            TransitionProperty::BorderColor => "border-color",
         }
     }
 }
@@ -121,6 +151,25 @@ impl Transition {
             }
     }
 
+    /// The declaration as it governs `property`. A spring on a property no
+    /// spring drives as physics ([`Property::springs`]: paint, a path's
+    /// stroke) is its curve from rest, a `linear()` easing over its settle
+    /// time: the web's CSS plays those properties itself, and CSS interrupts
+    /// an easing from where it is (LLP 1062 D3).
+    pub fn governing(&self, property: Property) -> Transition {
+        match &self.timing {
+            TimingFunction::Spring(config) if !property.springs() => {
+                let (duration, easing) = config.easing();
+                Transition {
+                    duration,
+                    timing: TimingFunction::Easing(easing),
+                    ..self.clone()
+                }
+            }
+            _ => self.clone(),
+        }
+    }
+
     /// Whether a change under this declaration starts a transition at all.
     /// CSS: the combined duration (`max(duration, 0) + delay`) must be
     /// positive. A spring's combined duration is its settle time, never zero.
@@ -142,7 +191,8 @@ impl Transitions {
     pub const NONE: Transitions = Transitions(Vec::new());
 
     /// The declaration governing `property`, if any. When several cover it,
-    /// the last wins (CSS Transitions §2.1: "the last one is used").
+    /// the last wins (CSS Transitions §2.1: "the last one is used"). A
+    /// spring on paint plays as [`Transition::governing`] says.
     pub fn matching(&self, property: Property) -> Option<&Transition> {
         self.0.iter().rev().find(|t| t.property.covers(property))
     }
@@ -286,7 +336,7 @@ impl Running {
                 let distance = self.to - self.from;
                 RunningSample {
                     value: self.from.lerp(self.to, progress),
-                    velocity: Value::new(distance.x * slope, distance.y * slope),
+                    velocity: distance.map(|d| d * slope),
                     done: false,
                 }
             }
@@ -300,9 +350,8 @@ impl Running {
                 }
                 let elapsed = now - self.start;
                 let displacement = self.from - self.to;
-                let x = config.sample(displacement.x, velocity.x, elapsed);
-                let y = config.sample(displacement.y, velocity.y, elapsed);
-                let at_rest = (x.at_rest() && y.at_rest()) || elapsed >= MAX_DURATION;
+                let (moved, speed, rest) = spring(config, displacement, *velocity, elapsed);
+                let at_rest = rest || elapsed >= MAX_DURATION;
                 if at_rest {
                     return RunningSample {
                         value: self.to,
@@ -311,8 +360,8 @@ impl Running {
                     };
                 }
                 RunningSample {
-                    value: self.to + Value::new(x.displacement, y.displacement),
-                    velocity: Value::new(x.velocity, y.velocity),
+                    value: self.to + moved,
+                    velocity: speed,
                     done: false,
                 }
             }
@@ -339,9 +388,7 @@ impl Running {
         let mut values = Vec::with_capacity(count + 1);
         for n in 0..count {
             let t = n as f64 / crate::spring::SAMPLE_RATE;
-            let x = config.sample(displacement.x, velocity.x, t);
-            let y = config.sample(displacement.y, velocity.y, t);
-            values.push(self.to + Value::new(x.displacement, y.displacement));
+            values.push(self.to + spring(config, displacement, *velocity, t).0);
         }
         values.push(self.to);
         Some((duration, values))
@@ -353,11 +400,37 @@ impl Running {
         match &self.curve {
             Curve::Easing { duration, .. } => self.start + duration.max(0.0),
             Curve::Spring { config, velocity } => {
-                let displacement = self.from - self.to;
-                let x = config.settle_time(displacement.x, velocity.x);
-                let y = config.settle_time(displacement.y, velocity.y);
-                self.start + x.max(y)
+                let d = (self.from - self.to).components();
+                let v = velocity.components();
+                self.start
+                    + (0..4)
+                        .filter(|&i| d[i] != 0.0 || v[i] != 0.0)
+                        .map(|i| config.settle_time(d[i], v[i]))
+                        .fold(0.0, f64::max)
             }
         }
     }
+}
+
+/// A spring's displacement and velocity per component at `t`, and whether
+/// every component is at rest. A component neither displaced nor moving
+/// stays exactly zero, and costs nothing.
+fn spring(
+    config: &SpringConfig,
+    displacement: Value,
+    velocity: Value,
+    t: f64,
+) -> (Value, Value, bool) {
+    let (d, v) = (displacement.components(), velocity.components());
+    let (mut moved, mut speed, mut rest) = ([0.0; 4], [0.0; 4], true);
+    for i in 0..4 {
+        if d[i] == 0.0 && v[i] == 0.0 {
+            continue;
+        }
+        let s = config.sample(d[i], v[i], t);
+        (moved[i], speed[i]) = (s.displacement, s.velocity);
+        rest &= s.at_rest();
+    }
+    let value = |c: [f64; 4]| Value::four(c[0], c[1], c[2], c[3]);
+    (value(moved), value(speed), rest)
 }

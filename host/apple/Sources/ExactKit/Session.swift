@@ -374,6 +374,7 @@ public final class ExactSession {
 
     /// Live sessions by handle: what a wake looks up (a stranger's is dropped).
     nonisolated(unsafe) private static var live: [ExactRuntime: WeakSession] = [:]
+    private var preferenceObservers: [NSObjectProtocol] = []
 
     init(app: ExactApp, label: String) {
         self.app = app
@@ -411,6 +412,7 @@ public final class ExactSession {
         pressure.setEventHandler { [weak self] in self?.text.dropCold() }
         pressure.resume(); textPressure = pressure
         wire()
+        preferenceObservers = DisplayPreferences.observe { [weak self] in self?.tellPreferences() }
     }
 
     deinit { destroy() }
@@ -451,7 +453,7 @@ public final class ExactSession {
             // moves that is most frames. Skip the presenter's finalization
             // pass for it, as the windowed list does (`onList`), unless the
             // clock or the motion it reports is news.
-            if batch.ops.isEmpty && batch.error == nil && batch.motion == frames.motion && batch.timerDueMs == timerDue { return }
+            if batch.ops.isEmpty && batch.error == nil && batch.motion == frames.motion && batch.spatial == frames.spatial && batch.timerDueMs == timerDue { return }
             apply(batch)
         }
         presenter.onPress = { [unowned self] id in apply(runtime.press(id, now: now())) }
@@ -663,6 +665,7 @@ public final class ExactSession {
         for op in batch.ops where op.op == .reorder { presenter.reorder?.observe(ReorderState(op.payload)) }
         presenter.reorder?.raiseLifted()
         frames.motion = batch.motion
+        frames.spatial = batch.spatial
         frames.canvas2d = batch.canvas
         // The GPU module: after the first painted frame, only when a canvas exists.
         if firstDrawMs != nil { canvases.loadIfNeeded(); natives.loadIfNeeded(); drainSurfaceWork() } else { DispatchQueue.main.async { [weak self] in guard let self else { return }; canvases.loadIfNeeded(); drainSurfaceWork(); frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames) } }
@@ -675,6 +678,10 @@ public final class ExactSession {
             while !pendingSurfaceRecords.isEmpty {
                 let (name, json) = pendingSurfaceRecords.removeFirst()
                 apply(runtime.surfaceRecord(name, json))
+            }
+            while !pendingViewDark.isEmpty {
+                let (id, dark) = pendingViewDark.removeFirst()
+                apply(runtime.viewScheme(id, dark: dark))
             }
             presenter.collections.flush()
             // Route projection and all structural/style changes are now final.
@@ -803,13 +810,43 @@ public final class ExactSession {
         frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
     }
 
+    /// Drawn once per launch; the same across a dev reload's new runner.
+    private let launchSeed = UInt64.random(in: 0..<(1 << 53))
     /// @ref LLP 1027.000.000 — the date, against the clock `now()` reads.
     func tellTime() {
         let offset = Double(TimeZone.current.secondsFromGMT()) / 60
         apply(runtime.setTime(epochAtZero: Date().timeIntervalSince1970 * 1000 - now(), utcOffset: offset))
+        // The first preferred language, as the device formats dates and numbers.
+        let locale = Locale.preferredLanguages.first ?? Locale.current.identifier(.bcp47)
+        // The launch's seed: explicit entropy for ids, from the system's secure source.
+        apply(runtime.setPlace(locale: locale, timeZone: TimeZone.current.identifier, seed: launchSeed))
+        tellPreferences()
+    }
+    /// @ref LLP 1061 D5 — told after every boot, as the date is, and on each
+    /// change: in the same main-thread turn as the boot batch, so the first
+    /// frame on screen already reads the user's preferences.
+    func tellPreferences() {
+        guard booted, state != .destroyed else { return }
+        apply(runtime.setPreferences(DisplayPreferences.bits))
     }
     public func resize(_ size: CGSize) { guard booted, state != .destroyed else { return }; apply(runtime.resize(width: size.width, height: size.height)) }
     public func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) { guard booted, state != .destroyed else { return }; apply(runtime.insets(top: top, right: right, bottom: bottom, left: left)) }
+    /// The view's appearance, for paint motion's `light-dark()` (LLP 1062).
+    public func scheme(dark: Bool) { guard booted, state != .destroyed else { return }; schemeDark = dark; apply(runtime.scheme(dark: dark)) }
+    /// The appearance last reported for the session, and each node view
+    /// found painting motion in another (a sheet's override, say), by id.
+    private(set) var schemeDark: Bool?
+    private(set) var viewDark: [UInt32: Bool] = [:]
+    private var pendingViewDark: [(UInt32, Bool)] = []
+    /// A view painting motion: when its own appearance is not the one its
+    /// node's colours resolve by, say so after the batch (LLP 1062 D4).
+    func noteAppearance(_ view: NodeView) {
+        guard let session = schemeDark else { return }
+        let dark = view.drawsDark
+        guard dark != viewDark[view.id] ?? session else { return }
+        viewDark[view.id] = dark == session ? nil : dark
+        pendingViewDark.append((view.id, dark))
+    }
     /// The agent API's runner half (LLP 1012): `tree`, `state`, `logs`, `settle`.
     public func agent(_ request: String) -> String { runtime.agent(request) }
     /// A line for the runner's journal (LLP 1012 §3; LLP 1035.001 D6): a
@@ -898,6 +935,7 @@ public final class ExactSession {
         clockTimer?.invalidate()
         clockTimer = nil
         frames.run(false)
+        DisplayPreferences.forget(preferenceObservers)
         presenter.reset()
         ExactSession.live.removeValue(forKey: runtime.rt)
         rasters.shutdown()
@@ -952,7 +990,7 @@ struct SessionTimerTrace {
 final class Frames: NSObject {
     weak var session: ExactSession?
     var link: CADisplayLink?
-    var motion = false
+    var motion = false, spatial = false
     /// A 2D canvas asked for a frame (LLP 1056 D5): ticks run while it does.
     var canvas2d = false
     var timerSoon = false
@@ -1046,9 +1084,17 @@ final class Frames: NSObject {
         }
         #if canImport(UIKit)
         if let link {
-            let fullRate = fpsMode || session?.canvases.wantsFrames == true
+            // Motion that changes place or size asks for the panel's full
+            // rate while it runs, as a canvas does: at `.default` a ProMotion
+            // iPhone presents a slide at 60 Hz. A fade or a colour change
+            // reads the same at 60, so paint-only motion — a breathing loop
+            // that runs for minutes — asks no more. The link exists only
+            // while something wants frames, so an idle app drops to no link
+            // at all (LLP 1061 D4).
+            let fullRate = fpsMode || (motion && spatial) || session?.canvases.wantsFrames == true
             let rate = Float(min(120, session?.presenter.viewport.window?.screen.maximumFramesPerSecond ?? 60))
-            link.preferredFrameRateRange = fullRate ? CAFrameRateRange(minimum: min(80, rate), maximum: rate, preferred: rate) : .default
+            link.preferredFrameRateRange = fullRate ? CAFrameRateRange(minimum: min(80, rate), maximum: rate, preferred: rate)
+                : motion ? CAFrameRateRange(minimum: min(30, rate), maximum: min(60, rate), preferred: min(60, rate)) : .default
         }
         #endif
     }

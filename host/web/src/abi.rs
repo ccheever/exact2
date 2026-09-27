@@ -31,6 +31,10 @@ pub struct Bridge<D: DataSource> {
     /// A rendered page's digest and checkpoint (LLP 1048.000 D6), handed in
     /// through `exact_checkpoint` before boot and taken by the next boot.
     checkpoint: Option<(String, String)>,
+    /// The user's display preferences as the page's media queries last
+    /// reported them (LLP 1061 D4): handed in with each boot and resize, so
+    /// a dev restart boots under the current ones.
+    preferences: exact_runner::Preferences,
     /// What the artifact links that is generic over `D` (LLP 1047 D3), from
     /// the `host!` invocation; the core alone until it says.
     links: crate::HostLinks<D>,
@@ -46,6 +50,10 @@ impl<D: DataSource> Bridge<D> {
             snapshot: Vec::new(),
             compat: None,
             checkpoint: None,
+            preferences: exact_runner::Preferences {
+                reduced_motion: false,
+                reduced_transparency: false,
+            },
             links: crate::HostLinks::CORE,
             input: Vec::new(),
             output: Vec::new(),
@@ -90,6 +98,12 @@ impl<D: DataSource> Bridge<D> {
         self.checkpoint = text
             .split_once('\n')
             .map(|(digest, page)| (digest.to_string(), page.to_string()));
+    }
+
+    /// The page's `prefers-reduced-motion`/`-transparency` as bits
+    /// ([`exact_runner::Preferences::from_bits`]), for the next boot.
+    pub fn set_preferences(&mut self, bits: u32) {
+        self.preferences = exact_runner::Preferences::from_bits(bits);
     }
 
     /// UTF-8 launch location carried after optional plan bytes.
@@ -249,7 +263,11 @@ impl<D: DataSource> Bridge<D> {
     /// output is the first batch.
     pub fn boot(&mut self, plan: &[u8], data: D, width: f64, height: f64, launch: &str) -> u32 {
         let snapshot = std::mem::take(&mut self.snapshot);
-        let viewport = exact_runner::Viewport { width, height };
+        let viewport = exact_runner::Viewport {
+            width,
+            height,
+            preferences: self.preferences,
+        };
         let booted = match self.checkpoint.take() {
             Some((digest, page)) => Host::boot_checkpoint_linked(
                 self.links,
@@ -299,7 +317,11 @@ impl<D: DataSource> Bridge<D> {
             carried.as_ref(),
             Vec::new(),
             self.compat,
-            exact_runner::Viewport { width, height },
+            exact_runner::Viewport {
+                width,
+                height,
+                preferences: self.preferences,
+            },
             launch,
         ) {
             Ok((host, batch)) => {
@@ -609,12 +631,20 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// Re-answer viewport resources and return the resulting batch.
+    /// Re-answer viewport resources and return the resulting batch. The page
+    /// reports the size and the display preferences together, on a change
+    /// of either (LLP 1061 D4).
     /// @ref LLP 1039 D2 — buffers remain host-owned, with no unsafe code.
-    pub fn resize(&mut self, width: f64, height: f64, now_ms: f64) -> u32 {
+    pub fn resize(&mut self, width: f64, height: f64, preferences: u32, now_ms: f64) -> u32 {
+        self.set_preferences(preferences);
+        let viewport = exact_runner::Viewport {
+            width,
+            height,
+            preferences: self.preferences,
+        };
         let out = self.host.as_mut().map_or_else(
             || exact_runner::agent::error("not booted"),
-            |h| h.resize(width, height, now_ms),
+            |h| h.resize(viewport, now_ms),
         );
         self.emit(out)
     }
@@ -624,6 +654,38 @@ impl<D: DataSource> Bridge<D> {
         let out = self.host.as_mut().map_or_else(
             || exact_runner::agent::error("not booted"),
             |h| h.set_time(epoch_at_zero, utc_offset),
+        );
+        self.emit(out)
+    }
+
+    /// A topic the page module announced, in the input buffer.
+    pub fn changed(&mut self, len: usize) -> u32 {
+        let Ok(topic) = std::str::from_utf8(&self.input[..len.min(self.input.len())]) else {
+            return self.emit(exact_runner::agent::error("changed: invalid UTF-8"));
+        };
+        let topic = topic.to_owned();
+        let out = self.host.as_mut().map_or_else(
+            || exact_runner::agent::error("not booted"),
+            |h| h.changed(&topic),
+        );
+        self.emit(out)
+    }
+
+    /// The locale and time zone, as `locale NUL timeZone` in the input buffer.
+    pub fn set_place(&mut self, len: usize) -> u32 {
+        // `locale NUL timeZone`, then `NUL seed` at launch.
+        let text = std::str::from_utf8(&self.input[..len.min(self.input.len())]).unwrap_or("");
+        let mut fields = text.split('\0');
+        let (Some(locale), Some(zone)) = (fields.next(), fields.next()) else {
+            return self.emit(exact_runner::agent::error(
+                "place: expected locale NUL timeZone",
+            ));
+        };
+        let seed = fields.next().and_then(|s| s.parse::<f64>().ok());
+        let (locale, zone) = (locale.to_owned(), zone.to_owned());
+        let out = self.host.as_mut().map_or_else(
+            || exact_runner::agent::error("not booted"),
+            |h| h.set_place(&locale, &zone, seed),
         );
         self.emit(out)
     }
@@ -892,11 +954,12 @@ macro_rules! host {
 
         /// Boot; returns the first batch's length.
         #[no_mangle]
-        pub extern "C" fn exact_boot(width: f64, height: f64, launch_len: u32) -> u32 {
+        pub extern "C" fn exact_boot(width: f64, height: f64, launch_len: u32, preferences: u32) -> u32 {
             $crate::link(EXACT_LINKED);
             EXACT_BRIDGE.with(|b| {
                 let mut b = b.borrow_mut();
                 b.set_compat($compat);
+                b.set_preferences(preferences);
                 b.set_links(EXACT_HOST_LINKS);
                 let launch = b.launch_input(0, launch_len as usize);
                 b.boot($plan, ($new)(), width, height, &launch)
@@ -905,11 +968,12 @@ macro_rules! host {
 
         /// Boot from plan bytes in the input buffer (the dev loop's restart).
         #[no_mangle]
-        pub extern "C" fn exact_boot_plan(len: u32, width: f64, height: f64, launch_len: u32) -> u32 {
+        pub extern "C" fn exact_boot_plan(len: u32, width: f64, height: f64, launch_len: u32, preferences: u32) -> u32 {
             $crate::link(EXACT_LINKED);
             EXACT_BRIDGE.with(|b| {
                 let mut b = b.borrow_mut();
                 b.set_compat($compat);
+                b.set_preferences(preferences);
                 b.set_links(EXACT_HOST_LINKS);
                 let launch = b.launch_input(len as usize, launch_len as usize);
                 b.boot_plan(len as usize, ($new)(), width, height, &launch)
@@ -976,16 +1040,29 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow_mut().fulfill(ticket, kind, status, hlen as usize, blen as usize, now_ms))
         }
 
-        /// The viewport changed; returns the batch length.
+        /// The viewport or the display preferences (bit 0 reduced motion,
+        /// bit 1 reduced transparency) changed; returns the batch length.
         #[no_mangle]
-        pub extern "C" fn exact_resize(width: f64, height: f64, now_ms: f64) -> u32 {
-            EXACT_BRIDGE.with(|b| b.borrow_mut().resize(width, height, now_ms))
+        pub extern "C" fn exact_resize(width: f64, height: f64, now_ms: f64, preferences: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().resize(width, height, preferences, now_ms))
         }
 
         /// The date: Unix ms at clock zero and minutes east of UTC.
         #[no_mangle]
         pub extern "C" fn exact_set_time(epoch_at_zero: f64, utc_offset: f64) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().set_time(epoch_at_zero, utc_offset))
+        }
+
+        /// A topic the page module announced, in the input buffer.
+        #[no_mangle]
+        pub extern "C" fn exact_changed(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().changed(len as usize))
+        }
+
+        /// The locale and time zone: `locale NUL timeZone` in the input buffer.
+        #[no_mangle]
+        pub extern "C" fn exact_set_place(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().set_place(len as usize))
         }
 
         /// Advance the runner clock; nonzero `until_request` stops after a

@@ -319,3 +319,55 @@ The price flash ("green at once, then back to the text colour over 400 ms") is a
 This unblocks the crypto-list benchmark's SVG port, the "what a web developer writes" case, and any list with inline icons or charts.
 
 **Take:** the `svgSource` prop and its dead `Svg`-as-markup path are deleted (no host reads it, and no tag writes it). Decay and sequence drivers stay out. Colour motion, SMIL and scroll-driven animations stay out, as do every refusal in D12.
+
+## Addendum A (2026-09-27): keyframes from the grnl branch, folded in
+
+A branch porting grnl (a voice journal) built CSS `@keyframes` and
+`animation` in parallel, as its own LLP 1057 (the number main gave gestures).
+When the branches merged, this RFC's implementation stood and that one was
+removed; its file is deleted and what it added lives here.
+
+**Kept, on this RFC's keyframes** (one-line declarations, the plan's
+`keyframes` table, run-time resolution, Core Animation lowering on Apple):
+- **Colours in keyframes** (LLP 1062 D9): `background-color`, `color`, the
+  four `border-*-color`s, `tint-color` and `box-shadow` (offset, blur and
+  colour as one declaration). A value may be `light-dark(a, b)`, whose pair
+  the keyframe keeps (`Keyframe.dark`; on the wire a flag and four more
+  floats), or a palette function of literal arguments (`color=accent()`),
+  which lowering folds to its literal (`keyframes::constant`). An animation
+  plays the appearance it started under, as Chrome resolves a rule's
+  `light-dark()` once. On Apple such an animation is sampled by the engine,
+  never lowered.
+- **Springs on paint** (LLP 1062 D3): a paint property, an SVG shape's `fill`
+  and `stroke` included, plays a spring as its curve from rest, a CSS
+  `linear()` over its settle time, on every host.
+- **`exit-animation`** (LLP 1063): the same shorthand, resolved against the
+  same table by the runner, played when its node leaves; it must end
+  (`lower-exit-endless`; `AnimationError::Endless` on both ingress paths).
+  An exit may animate any colour its node never transitioned.
+- **Computed times and positions** (LLP 1062 D7/D8): a template computes any
+  part, `each item, i` names the position, so a stagger is
+  `` `enter 320ms ${i * 70}ms both` ``.
+- **Parity:** the branch's eight keyframe cases (per-interval easing, a
+  keyframe's own `steps()`/`cubic-bezier()`, implicit keyframes, delay with
+  fill, alternate, alternate-reverse with a fractional count, reverse with a
+  negative delay, `linear()`, zero duration) and its colour cases join
+  `host/web/src/parity.rs`, held to Chrome 153's samples.
+
+**Dropped, for this RFC's forms:**
+- the block syntax (a selector line over indented `attr=value` lines); a
+  keyframe is one line, `  from opacity=0 scale=0.9`;
+- resolution at compile time, the row carrying its `@keyframes` rules as
+  text, and web rule names hashed from their content (`<name>-<FNV>`): a
+  name resolves at run time, a computed name included, and an unknown name
+  animates nothing, as CSS's does;
+- `keyframes` merged across `use`: a declaration is global by name.
+
+## Addendum B (2026-09-27): the D6 limit on colour, lifted
+
+D6 and §9 kept colour motion out. LLP 1055.000 D6 admitted it for SVG's
+`fill` and `stroke`; LLP 1062 (the grnl branch) admitted it for boxes —
+`background-color`, `color`, borders, `tint-color`, `box-shadow` — through
+the same kernel seam (`color_targets`, `Kernel::paint_sync`) and the same
+Apple mechanism (a restyle carrying the presented value). `rules/NOT-DOING.md`
+§Motion records it as pending Charlie's ruling on the take.

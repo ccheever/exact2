@@ -286,9 +286,16 @@ impl NodeArena {
         self.flow.get(&slot).map_or(&[], |s| s.shapes.as_slice())
     }
 
-    /// Whether intersecting exclusions were skipped because height was measured.
-    pub fn flow_skipped(&self, slot: u32) -> bool {
-        self.flow.get(&slot).is_some_and(|s| s.skipped)
+    /// Why an intersecting auto-height leaf keeps ordinary layout, if it does.
+    pub fn flow_refusal(&self, slot: u32) -> Option<crate::FlowRefusal> {
+        self.flow.get(&slot).and_then(|s| s.refusal)
+    }
+
+    /// Whether auto-height flow's admission rule refuses this text leaf, by
+    /// tree and style alone — what a host that lays out without the kernel's
+    /// engine (the web) applies. `flow_refusal` is the laid-out answer.
+    pub fn auto_flow_refusal(&self, slot: u32) -> Option<crate::FlowRefusal> {
+        crate::flow::structural_refusal(self, slot)
     }
 
     /// Number of entries in the sparse derived flow column (including skips).
@@ -513,9 +520,14 @@ impl NodeArena {
     /// Append the text runs of the leaf rooted at `slot`, in order. A run
     /// measures with its computed style: the rows it sets, else its
     /// paragraph's, else the initial values — as a `<span>` inside a `<div>`.
+    /// Its text is `text-transform`ed here, once, for every measurer and
+    /// painter (LLP 1064 D5) — except a field's, which shows what was typed
+    /// (the web's form controls reset the row), and Markdown source, which a
+    /// host expands itself.
     pub fn text_runs<'a>(&'a self, slot: u32, out: &mut Vec<TextRun<'a>>) {
         let s = slot as usize;
-        let style = TextStyle::from_style(&self.computed_style(slot, StyleMask::INHERITED));
+        let computed = self.computed_style(slot, StyleMask::INHERITED);
+        let style = TextStyle::from_style(&computed);
         match self.node_types[s] {
             NodeType::TextInput => {
                 // An input has a line box even when empty (the web's
@@ -538,7 +550,10 @@ impl NodeArena {
                         .or_else(|| props.str(PropId::Placeholder).filter(|p| !p.is_empty()))
                         .unwrap_or(" ")
                 };
-                out.push(TextRun { text, style });
+                out.push(TextRun {
+                    text: text.into(),
+                    style,
+                });
                 // A textarea's final Return creates a caret line. Paragraph
                 // shapers can omit a terminal break, so retain that line with
                 // zero-width measurement content, never in the field's value.
@@ -547,13 +562,19 @@ impl NodeArena {
                     && text.ends_with('\n')
                 {
                     out.push(TextRun {
-                        text: "\u{200b}",
+                        text: "\u{200b}".into(),
                         style,
                     });
                 }
             }
             _ => {
                 if let Some(text) = self.props[s].str(PropId::Text) {
+                    let text = if self.markup(slot) == crate::text::Markup::Markdown {
+                        text.into()
+                    } else {
+                        let before = out.last().map_or("", |r| &*r.text);
+                        computed.text_transform.apply(text, before)
+                    };
                     out.push(TextRun { text, style });
                 } else {
                     for child in &self.children[s] {
@@ -562,6 +583,47 @@ impl NodeArena {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /// The string the `Text` leaf at `slot` shows: its `text` prop as its
+    /// paragraph's runs carry it ([`Self::text_runs`]), for a host that
+    /// paints from props rather than from runs. `capitalize` reads the
+    /// runs before this one, so it asks the whole paragraph.
+    pub fn shown_text(&self, slot: u32) -> Option<std::borrow::Cow<'_, str>> {
+        let text = self.props[slot as usize].str(PropId::Text)?;
+        let transform = self
+            .computed_style(slot, StyleMask::of(StyleId::TextTransform))
+            .text_transform;
+        if self.node_types[slot as usize] != NodeType::Text
+            || transform == crate::TextTransform::None
+            || self.markup(slot) == crate::text::Markup::Markdown
+        {
+            return Some(text.into());
+        }
+        if transform != crate::TextTransform::Capitalize {
+            return Some(transform.apply(text, ""));
+        }
+        let mut owner = slot;
+        while self.is_inline_run(owner) {
+            owner = self.parents[owner as usize]?;
+        }
+        let (mut runs, mut leaves) = (Vec::new(), Vec::new());
+        self.text_runs(owner, &mut runs);
+        self.text_leaves(owner, &mut leaves);
+        let at = leaves.iter().position(|leaf| *leaf == slot)?;
+        runs.into_iter().nth(at).map(|run| run.text)
+    }
+
+    /// The leaves [`Self::text_runs`] makes a run of, in its order.
+    fn text_leaves(&self, slot: u32, out: &mut Vec<u32>) {
+        if self.props[slot as usize].str(PropId::Text).is_some() {
+            return out.push(slot);
+        }
+        for child in &self.children[slot as usize] {
+            if self.node_types[*child as usize] == NodeType::Text {
+                self.text_leaves(*child, out);
             }
         }
     }
@@ -853,6 +915,7 @@ mod tests {
             (StyleId::WhiteSpace, text("pre-wrap")),
             (StyleId::OverflowWrap, text("anywhere")),
             (StyleId::InterpolateSize, text("allow-keywords")),
+            (StyleId::TextTransform, text("uppercase")),
             // SVG 2 presentation properties (LLP 1055 D2).
             (StyleId::Fill, text("#16a34a")),
             (StyleId::Stroke, text("currentcolor")),

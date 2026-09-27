@@ -1,6 +1,9 @@
 //! The date as a host fact: the Unix time at which the runner's clock read
 //! zero, and the viewer's offset from UTC. `now()` stays elapsed time; the
-//! date now is `epochAtZero + now()`.
+//! date now is `epochAtZero + now()`. Beside it, where the viewer is: their
+//! locale and IANA time zone, so a source formats a date the way the device
+//! would (`new Intl.DateTimeFormat(time.locale, { timeZone: time.timeZone })`)
+//! without reading either from ambient state.
 //! @ref LLP 1027.000.000 (Draft; the Bluesky client is its consumer)
 
 use exact_plan::Value;
@@ -8,7 +11,7 @@ use exact_plan::Value;
 /// Reserved resource source, answered before the app data seam.
 pub const SOURCE: &str = "exactTime";
 /// Fields an app may declare, filled by name.
-pub const FIELDS: &[&str] = &["epochAtZero", "utcOffset"];
+pub const FIELDS: &[&str] = &["epochAtZero", "utcOffset", "locale", "timeZone", "seed"];
 
 /// What the host said about the date. Zero until it says: the bake, and a
 /// host that has not supplied it, answer an unknown date as `0`.
@@ -39,6 +42,49 @@ impl WallTime {
         match name {
             "epochAtZero" => Some(Value::Number(self.epoch_at_zero)),
             "utcOffset" => Some(Value::Number(self.utc_offset)),
+            _ => None,
+        }
+    }
+}
+
+/// Where the viewer is: a BCP 47 locale (`en-GB`) and an IANA zone
+/// (`Europe/London`). Empty until the host says, as the date is zero.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Place {
+    /// BCP 47, the device's first preferred language.
+    pub locale: String,
+    /// IANA, the device's current zone.
+    pub time_zone: String,
+    /// A whole number below 2^53 from the platform's secure random source,
+    /// drawn once per launch: the explicit entropy a source mixes with the
+    /// date and a counter for ids (LLP 1027.000's seed, supplied). Zero
+    /// until the host says.
+    pub seed: f64,
+}
+
+impl Place {
+    /// Refuse what no host would report: a fact that is empty, long, or has
+    /// characters neither form uses. The engine's `Intl` judges the rest.
+    pub fn validate(&self) -> Result<(), crate::RunnerError> {
+        let fine = |s: &str, extra: &[char]| {
+            !s.is_empty()
+                && s.len() <= 64
+                && s.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-' || extra.contains(&c))
+        };
+        if fine(&self.locale, &[]) && fine(&self.time_zone, &['/', '_', '+']) {
+            Ok(())
+        } else {
+            Err(crate::RunnerError::InvalidPlace)
+        }
+    }
+
+    /// Fill a declared field; the date's fields are [`WallTime`]'s.
+    pub fn field(&self, name: &str) -> Option<Value> {
+        match name {
+            "locale" => Some(Value::Str(self.locale.as_str().into())),
+            "timeZone" => Some(Value::Str(self.time_zone.as_str().into())),
+            "seed" => Some(Value::Number(self.seed)),
             _ => None,
         }
     }

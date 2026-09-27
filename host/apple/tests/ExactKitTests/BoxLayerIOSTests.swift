@@ -133,5 +133,60 @@ final class BoxLayerIOSTests: XCTestCase {
         XCTAssertNil(sub.superlayer)
         padded.raster = nil
     }
+
+    /// A `tint-color` draws the bitmap as a template from the same decoded
+    /// pixels, through `draw(_:)` (a canvas capture drops a mask layer): the
+    /// opaque half takes the tint, the transparent half stays clear, and a
+    /// `light-dark()` tint follows a live appearance change. Without the row
+    /// the pixels are the sublayer's contents again.
+    func testATintedImageIsItsAlphaInTheTint() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("exact-image-tint-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let context = try XCTUnwrap(CGContext(data: nil, width: 200, height: 100, bitsPerComponent: 8, bytesPerRow: 800,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(red: 0, green: 0, blue: 0, alpha: 1); context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithURL(root.appendingPathComponent("mark.png") as CFURL, "public.png" as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, try XCTUnwrap(context.makeImage()), nil)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+
+        let p = Presenter(), loader = RasterLoader(), resolver = AssetResolver(root: root)
+        defer { loader.shutdown(); withExtendedLifetime(resolver) {} }
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 300, height: 300))
+        p.viewport.frame = window.bounds; window.addSubview(p.viewport); window.makeKeyAndVisible()
+        let tint: BatchValue = [[0, 0, 0, 255], [255, 255, 255, 255]]
+        let mark = NodeView(id: 1, kind: "image", presenter: p)
+        p.views[1] = mark; p.viewport.addSubview(mark)
+        mark.frame = CGRect(x: 0, y: 0, width: 80, height: 40)
+        mark.applyStyle(["object_fit": .string("contain"), "tint_color": tint])
+        mark.loadGeneration = 1
+        loader.load(mark, source: "mark.png", resolver: resolver)
+        let end = Date(timeIntervalSinceNow: 5)
+        while mark.raster == nil && Date() < end { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
+        window.overrideUserInterfaceStyle = .light
+        window.layoutIfNeeded(); mark.layer.displayIfNeeded()
+
+        // The view's paint inside the opaque left half and the transparent right half.
+        func samples() throws -> [UInt8] {
+            let ctx = try XCTUnwrap(CGContext(data: nil, width: 80, height: 40, bitsPerComponent: 8, bytesPerRow: 320,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            mark.layer.render(in: ctx)
+            let bytes = try XCTUnwrap(ctx.data).assumingMemoryBound(to: UInt8.self)
+            return [20, 60].flatMap { x in (0..<4).map { bytes[20 * 320 + x * 4 + $0] } }
+        }
+        XCTAssertNil(mark.imageLayer, "the template is drawn")
+        XCTAssertTrue(mark.drawsPaint)
+        XCTAssertEqual(try samples(), [0, 0, 0, 255, 0, 0, 0, 0])
+
+        window.overrideUserInterfaceStyle = .dark
+        window.layoutIfNeeded(); mark.layer.displayIfNeeded()
+        XCTAssertEqual(try samples(), [255, 255, 255, 255, 0, 0, 0, 0], "light-dark() follows the appearance")
+
+        mark.applyStyle(["object_fit": .string("contain")])
+        mark.layer.displayIfNeeded()
+        let sub = try XCTUnwrap(mark.imageLayer)
+        XCTAssertTrue((sub.contents as AnyObject?) === mark.raster?.image.image)
+        mark.raster = nil
+    }
 }
 #endif

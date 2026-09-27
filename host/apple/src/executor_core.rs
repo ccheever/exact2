@@ -296,6 +296,13 @@ impl Core {
         wake(&mut self.shared.state.lock().unwrap());
     }
 
+    /// `notify`, as a handle another thread keeps (a native module's
+    /// announcements, LLP 1016.002).
+    pub(super) fn waker(&self) -> std::sync::Arc<dyn Fn() + Send + Sync> {
+        let shared = self.shared.clone();
+        std::sync::Arc::new(move || wake(&mut shared.state.lock().unwrap()))
+    }
+
     pub(super) fn begin_pump(&self) {
         let mut state = self.shared.state.lock().unwrap();
         state.notified = false;
@@ -407,9 +414,10 @@ fn complete(shared: &Shared, ticket: u64, outcome: Outcome) {
     }
 }
 
-/// A continuation a worker hands to the module's owner instead of running.
+/// A continuation a worker hands to the module's owner instead of running,
+/// and a long native call it hands to the app's native module.
 fn handoff(request: &Request) -> bool {
-    request.continuation.is_some() && request.storage.is_none()
+    (request.continuation.is_some() && request.storage.is_none()) || request.is_native()
 }
 
 fn handed_off(job: &Job) -> bool {

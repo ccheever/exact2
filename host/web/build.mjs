@@ -232,13 +232,22 @@ function minifyCss(css) {
   }
   return out;
 }
+// The app's module artifact answers `native.later` on the page too (LLP
+// 1067 D5): the glue finds it by the meta tag below.
+const pageNative = app.modules.web;
+// The page in the app's first-frame background from its first paint (the
+// manifest's `launch`, as the iOS launch screen), so nothing lighter or
+// darker shows before the first frame.
+const launch = app.manifest.launch ?? {}, launchLight = launch.background ?? app.manifest.background_color;
+const hex = (value) => /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value ?? '') ? value : null;
+const launchCss = hex(launchLight) ? `html{background-color:${launchLight}}${hex(launch.backgroundDark) ? `@media (prefers-color-scheme:dark){html{background-color:${launch.backgroundDark}}}` : ''}` : '';
 writeFileSync(resolve(stage, 'index.html'), readFileSync(resolve(stage, 'index.html'), 'utf8')
-  .replace(/<style>([\s\S]*?)<\/style>/, (_, css) => `<style>${minifyCss(css)}</style>`)
+  .replace(/<style>([\s\S]*?)<\/style>/, (_, css) => `<style>${minifyCss(css)}${launchCss}</style>`)
   .replace('<html lang="en">', `<html lang="${escapeHtml(webManifest.lang)}">`)
   .replace('<title>Exact</title>', `<title>${escapeHtml(webManifest.name)}</title>`)
   .replace(
     '<script type="module" src="./glue.js"></script>',
-    `<link rel="alternate" type="application/vnd.exact.envelope+json" href="./exact.json">\n<link rel="manifest" href="./manifest.json">\n${icon ? `<link rel="icon" type="${escapeHtml(icon.type ?? 'image/png')}" href="./${escapeHtml(icon.src)}">\n` : ''}${webManifest.theme_color ? `<meta name="theme-color" content="${escapeHtml(webManifest.theme_color)}">\n` : ''}<script type="module" src="./glue.js"></script>`,
+    `<link rel="alternate" type="application/vnd.exact.envelope+json" href="./exact.json">\n<link rel="manifest" href="./manifest.json">\n${icon ? `<link rel="icon" type="${escapeHtml(icon.type ?? 'image/png')}" href="./${escapeHtml(icon.src)}">\n` : ''}${webManifest.theme_color ? `<meta name="theme-color" content="${escapeHtml(webManifest.theme_color)}">\n` : ''}${pageNative ? '<meta name="exact-native" content="./modules/index.js">\n' : ''}<script type="module" src="./glue.js"></script>`,
   ));
 // app.wasm's URL names its build (LLP 1047.000 §9): `./app.wasm?v=` and
 // the first 16 hex digits of its SHA-256, in the shell's preload, which the
@@ -343,7 +352,7 @@ if (gpuArtifacts.length && !gpuNote.startsWith('wasm-bindgen')) {
 // app has modules (the GPU gate): its web executor under `modules/`, fetched
 // after first paint by the host's adapter.
 let moduleNote = 'no native modules';
-if (app.modules.tags.length) {
+if (app.modules.tags.length || app.modules.web) {
   const release = buildEnv.EXACT_UPDATE_TRUST === 'production';
   let provided = [];
   if (app.modules.web) {

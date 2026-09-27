@@ -51,19 +51,21 @@ mod native;
 mod paired;
 mod pure;
 mod storage;
+pub mod swift;
 mod watch;
 
 pub use engine::ENGINE_LINKED;
 pub use exact_data::Placed;
 pub use exact_js_value::{from_json, to_json, Shape};
 pub use exact_runner::Placement;
-pub use native::NativeModule;
+pub use native::{Changed, LaterHandler, NativeModule, NativeReply};
 pub use paired::Paired;
 
 use engine::{Engine, HostFn};
 use exact_plan::{Plan, Value};
 use exact_runner::{
-    Answer, DataError, DataSource, InFlight, Interrupt, Outcome, Request, Store, Target,
+    Answer, DataError, DataSource, Dispatch, InFlight, Interrupt, Outcome, Request, Response,
+    Store, Target, Work,
 };
 use serde_json::{json, Value as Json};
 use sha2::{Digest, Sha256};
@@ -124,6 +126,12 @@ struct Parked {
     work_taken: bool,
 }
 
+/// The ticket of an answer that has not begun: it arrived while another
+/// answer's storage turn was open, and waits for it to end (see `begin`).
+const DEFERRED: u64 = u64::MAX;
+/// Deferred answers' continuation tokens, clear of the prelude's call ids.
+const FIRST_DEFERRED_TOKEN: u64 = 1 << 53;
+
 /// What the host door reaches during one call: the store the seam handed
 /// `answer` or `parse` (none at bake — an empty store that refuses writes),
 /// and the requests `fetch` recorded, by the prelude's ticket. Boxed for the
@@ -133,6 +141,8 @@ struct HostState {
     store: Option<*mut Store>,
     requests: Vec<(u64, Request)>,
     native: Option<Box<dyn NativeModule>>,
+    /// The native module takes long calls off this thread (`native.later`).
+    later: bool,
 }
 
 /// A TypeScript data source: bytecode, its bake-time identity, and the
@@ -150,10 +160,16 @@ pub struct Module {
     directories: Option<storage::Directories>,
     host: Box<HostState>,
     native_factory: Option<NativeFactory>,
+    /// Where the host sends `native.later` requests; shared with an instance
+    /// built from this template, which fills it on its owner.
+    native_slot: exact_runner::Native,
     /// The bound plan, kept so an owner thread can bind its own instance.
     plan: Option<Plan>,
     sigs: HashMap<String, Sig>,
     parked: Vec<(Key, Parked)>,
+    /// Deferred answers whose dispatch was held, oldest first.
+    held: std::collections::VecDeque<u64>,
+    next_deferred: u64,
     budget_ms: f64,
     max_heap: u32,
     logs: Vec<String>,
@@ -225,8 +241,27 @@ unsafe extern "C" fn host_door(
             }
         }
         6 => {
-            if a == "available" {
+            if a == "kind" {
+                // A native executor can always link a module; no read.
                 Ok(Some("native".into()))
+            } else if a == "available" {
+                // Only a linked, configured module: `native.available` is false
+                // at bake, in agent mode, and when the app links none. Whether
+                // there is one is the device's fact, not the build's: an answer
+                // that asks is not compiled, and the host asks it again.
+                if let Some(store) = state.store {
+                    (*store).observe_external_read();
+                }
+                Ok(state.native.is_some().then(|| "native".into()))
+            } else if a == "watch" {
+                // The answer watches a device topic; its announcement asks
+                // the answer again (LLP 1016.002).
+                if let Some(store) = state.store {
+                    (*store).observe_topic(&b);
+                }
+                Ok(None)
+            } else if a == "later" {
+                Ok(state.later.then(|| "later".into()))
             } else {
                 if let Some(store) = state.store {
                     (*store).observe_external_read();
@@ -382,9 +417,12 @@ impl Module {
             directories: None,
             host: Box::default(),
             native_factory: None,
+            native_slot: Default::default(),
             plan: None,
             sigs: HashMap::new(),
             parked: Vec::new(),
+            held: std::collections::VecDeque::new(),
+            next_deferred: FIRST_DEFERRED_TOKEN,
             budget_ms: DEFAULT_BUDGET_MS,
             max_heap: DEFAULT_MAX_HEAP,
             logs: Vec::new(),
@@ -434,10 +472,13 @@ impl Module {
         let budget_ms = template.budget_ms;
         let max_heap = template.max_heap;
         let watch = template.watch.clone();
+        let native_slot = template.native_slot.clone();
         Box::new(move || {
             let mut module = Module::new(bytecode, app_id, grants);
-            // The template's interrupt reaches the instance on its owner.
+            // The template's interrupt reaches the instance on its owner, and
+            // its native handle finds the instance's long-call handler.
             module.watch = watch;
+            module.native_slot = native_slot;
             if let Some(factory) = native_factory {
                 module = module.with_native(factory);
             }
@@ -549,6 +590,20 @@ impl Module {
                     paths.cache.clone(),
                     paths.temporary.clone(),
                 )?;
+                let slot = self.native_slot.clone();
+                native.changes(Arc::new(move |topic: &str| slot.changed(topic)));
+                let later = native.later();
+                self.host.later = later.is_some();
+                self.native_slot
+                    .set(later.map(|handler| -> exact_runner::NativeHandler {
+                        std::sync::Arc::new(move |body: Vec<u8>, reply| {
+                            let reply = NativeReply::new(reply);
+                            match serde_json::from_slice(&body) {
+                                Ok(request) => handler(request, reply),
+                                Err(e) => reply.send(Err(format!("native.later: {e}"))),
+                            }
+                        })
+                    }));
                 self.host.native = Some(native);
             }
             self.storage = Some(storage::Session::open(paths, &self.grants)?);
@@ -577,6 +632,8 @@ impl Module {
         }
         self.storage = None;
         self.host.native = None;
+        self.host.later = false;
+        self.native_slot.set(None);
         self.parked.clear();
         self.host.requests.clear();
     }
@@ -699,6 +756,23 @@ impl Module {
         Some(self.host.requests.remove(pos).1)
     }
 
+    /// Whether an answer is between storage steps: parked on its storage
+    /// continuation rather than on a fetch the host runs.
+    fn turn_open(&self) -> bool {
+        self.parked.iter().any(|(_, p)| p.ticket == 0)
+    }
+
+    /// A deferred answer's work: nothing to run, only a turn to wait for.
+    fn deferred_work() -> Dispatch {
+        Dispatch::Run(Work::Now(Box::new(|| {
+            Outcome::Response(Response {
+                status: 200,
+                headers: Vec::new(),
+                body: Vec::new(),
+            })
+        })))
+    }
+
     fn key(target: Option<Target>, source: &str, args: &[Value]) -> Key {
         let mut bytes = Vec::new();
         for a in args {
@@ -708,7 +782,7 @@ impl Module {
     }
 
     /// Parked calls let go in the prelude too, with the fetches they wait on.
-    fn release(&mut self, calls: Vec<u64>) {
+    fn forget_calls(&mut self, calls: Vec<u64>) {
         if let Some(engine) = self.engine.as_mut() {
             for call in calls {
                 let _ = engine.call("__exact_forget", [&call.to_string(), "", ""]);
@@ -728,6 +802,27 @@ impl Module {
             return Err(DataError::Unavailable(
                 "exact-js: the engine is not loaded".into(),
             ));
+        }
+        // One storage turn at a time, as the browser's worker runs them (its
+        // `tail`) and as a worker placement's owner does: an answer that
+        // arrives while another is between storage steps waits for that turn
+        // to end before its JavaScript starts. Otherwise work an app chains
+        // behind the open turn's promise (a serialized database, say) would
+        // run inside the wrong answer, and this one would be pending on
+        // nothing. Its continuation is held at dispatch and released by the
+        // commit that ends the turn.
+        if self.turn_open() && self.sigs.contains_key(source) {
+            let token = self.next_deferred;
+            self.next_deferred += 1;
+            self.parked.push((
+                Module::key(target, source, args),
+                Parked {
+                    call: token,
+                    ticket: DEFERRED,
+                    work_taken: false,
+                },
+            ));
+            return Ok(Answer::Later(Request::continuation(token)));
         }
         let Some(sig) = self.sigs.get(source) else {
             return Err(DataError::UnknownSource(source.to_string()));
@@ -808,7 +903,7 @@ impl Module {
                     .map(|(_, parked)| parked.call)
                     .collect();
                 self.parked.retain(|(k, _)| *k != key);
-                self.release(replaced);
+                self.forget_calls(replaced);
                 self.parked.push((
                     key,
                     Parked {
@@ -843,6 +938,12 @@ impl Module {
             )));
         };
         let Parked { call, ticket, .. } = self.parked.remove(pos).1;
+        if ticket == DEFERRED {
+            if let Outcome::Failed { message, .. } = &outcome {
+                return Err(DataError::Unavailable(message.clone()));
+            }
+            return self.begin(Some(store), target, source, args);
+        }
         let outcome_text = outcome_to_json(&outcome).to_string();
         self.host.store = Some(store as *mut Store);
         let started = Instant::now();
@@ -940,7 +1041,59 @@ impl DataSource for Module {
         Ok(())
     }
 
+    fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {
+        let _ = store;
+        let deferred = self
+            .parked
+            .iter()
+            .any(|(_, p)| p.call == token && p.ticket == DEFERRED);
+        if !deferred {
+            return match self.continuation(token) {
+                Some(work) => Dispatch::Run(Work::Now(work)),
+                None => Dispatch::Missing,
+            };
+        }
+        if self.turn_open() {
+            self.held.push_back(token);
+            return Dispatch::Held;
+        }
+        Module::deferred_work()
+    }
+
+    fn release(&mut self, store: &Store) -> Vec<(u64, Dispatch)> {
+        let _ = store;
+        // Once the open turn has ended, the oldest held answer begins; the
+        // rest wait for the turn it may open in turn.
+        while !self.turn_open() {
+            let Some(token) = self.held.pop_front() else {
+                break;
+            };
+            if self
+                .parked
+                .iter()
+                .any(|(_, p)| p.call == token && p.ticket == DEFERRED)
+            {
+                return vec![(token, Module::deferred_work())];
+            }
+        }
+        Vec::new()
+    }
+
     fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
+        if self
+            .parked
+            .iter()
+            .any(|(_, p)| p.call == token && p.ticket == DEFERRED)
+        {
+            // The owner-thread and test paths run turns in order already.
+            return Some(Box::new(|| {
+                Outcome::Response(Response {
+                    status: 200,
+                    headers: Vec::new(),
+                    body: Vec::new(),
+                })
+            }));
+        }
         let (_, parked) = self
             .parked
             .iter_mut()
@@ -997,7 +1150,7 @@ impl DataSource for Module {
             .into_iter()
             .partition(|(key, _)| key.0.is_some() && !keep.contains(key));
         self.parked = kept;
-        self.release(gone.into_iter().map(|(_, parked)| parked.call).collect());
+        self.forget_calls(gone.into_iter().map(|(_, parked)| parked.call).collect());
     }
 
     /// Stops the running call, or the next one to start, from any thread:
@@ -1005,6 +1158,10 @@ impl DataSource for Module {
     fn interrupt(&self) -> Option<Interrupt> {
         let watch = self.watch.clone();
         Some(Interrupt::new(move || watch.trigger()))
+    }
+
+    fn native(&self) -> Option<exact_runner::Native> {
+        Some(self.native_slot.clone())
     }
 
     /// Not before the host loads it (LLP 1027 D4): the runner boots

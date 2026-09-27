@@ -9,7 +9,7 @@
 //! [`crate::text`]), an input's value or placeholder and caret, then the
 //! children — clipped when the node's effective overflow is not `visible`,
 //! offset by its scroll position. Motion presentation values become a
-//! transform about the box's center (CSS `translate` · `rotate` · `scale`)
+//! transform about its `transform-origin` (CSS `translate` · `rotate` · `scale`)
 //! and a group opacity (a layer, only when it is not 1). The walk also
 //! records every node's painted box — the transformed bounding box in
 //! viewport points and the clip it was painted under — which is what the
@@ -31,60 +31,18 @@ use std::sync::Arc;
 use tiny_skia::{Pixmap, Point, Transform};
 pub mod border;
 pub(crate) mod damage;
+pub mod gradient;
+pub use gradient::GradientPaint;
 mod inline;
 mod placed;
+mod presented;
 mod region;
+mod shadow;
 mod svg;
 use inline::{presented_color, presented_text_colors, text_backgrounds, text_palette};
+pub use presented::{PaintValues, Presented};
 pub(crate) use region::{ActionNode, ActionSlot, RegionActions, ScrollBounds};
 pub use svg::{resolve_with, Ink, SvgPaint};
-
-/// A node's presentation values: what the motion engine says to paint.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Presented {
-    /// Points.
-    pub translate: (f32, f32),
-    /// Uniform.
-    pub scale: f32,
-    /// Degrees.
-    pub rotate: f32,
-    /// Zero to one.
-    pub opacity: f32,
-    /// An SVG shape's presented `r`, `stroke-dashoffset`, `cx`, `cy`, `x`, `y`, `rx`, `ry`.
-    pub svg: [Option<f32>; 8],
-    /// Presented colours while one animates (LLP 1055.000 D6): `color`,
-    /// `background-color`, `fill`, `stroke`, straight RGBA; `None` paints
-    /// the row.
-    pub colors: [Option<[u8; 4]>; 4],
-}
-
-impl Presented {
-    /// Nothing moved.
-    pub const IDENTITY: Presented = Presented {
-        translate: (0.0, 0.0),
-        scale: 1.0,
-        rotate: 0.0,
-        opacity: 1.0,
-        svg: [None; 8],
-        colors: [None; 4],
-    };
-
-    /// The committed style's values (what the engine starts from).
-    pub fn from_style(s: &StyleProps) -> Presented {
-        Presented {
-            translate: (s.translate.x, s.translate.y),
-            scale: s.scale,
-            rotate: s.rotate,
-            opacity: s.opacity,
-            svg: [None; 8],
-            colors: [None; 4],
-        }
-    }
-
-    fn moves(&self) -> bool {
-        self.translate != (0.0, 0.0) || self.scale != 1.0 || self.rotate != 0.0
-    }
-}
 
 /// A rectangle as (x, y, w, h).
 pub type Rect4 = (f32, f32, f32, f32);
@@ -144,11 +102,16 @@ struct BoxPaint {
     widths: [f32; 4],
     colors: [[u8; 4]; 4],
     background: [u8; 4],
+    gradient: Option<gradient::Captured>,
     padding: [f32; 4],
+    shadow: Option<shadow::ShadowPaint>,
 }
 struct BoxGeometry {
     outer: Shape,
     content: Rect4,
+    // Left and top padding + border, summed as the kernel's measure closure
+    // sums them: flowed text is measured and painted around the same bits.
+    inset: (f32, f32),
 }
 fn paint_rect(frame: exact_kernel::Frame, offset: (f32, f32)) -> Rect4 {
     (
@@ -183,6 +146,8 @@ impl BoxPaint {
             widths,
             colors: colors.map(|c| rgba(c.resolve(dark))),
             background: rgba(s.background_color.resolve(dark)),
+            gradient: gradient::Captured::capture(s, dark),
+            shadow: shadow::ShadowPaint::capture(s, dark),
             padding: [
                 pad(s.padding_top),
                 pad(s.padding_right),
@@ -196,6 +161,7 @@ impl BoxPaint {
         let widths = self.widths;
         let pad = self.padding;
         BoxGeometry {
+            inset: (pad[3] + widths[3], pad[0] + widths[0]),
             outer: Shape::new(rect, self.radii),
             content: (
                 x + widths[3] + pad[3],
@@ -206,7 +172,13 @@ impl BoxPaint {
         }
     }
     fn paint(&self, backend: &mut dyn Backend, geometry: &BoxGeometry, ts: Transform) {
+        for band in self.shadow_fills(geometry) {
+            backend.fill_border(&band, ts);
+        }
         self.emit(geometry, |shape, color| backend.fill(&shape, color, ts));
+        if let Some(g) = &self.gradient {
+            gradient::paint(g, &geometry.outer, self.widths, backend, ts);
+        }
         for part in self.borders(geometry) {
             backend.fill_border(&part, ts);
         }
@@ -217,6 +189,11 @@ impl BoxPaint {
         if self.background[3] > 0 && outer.rect.2 > 0.0 && outer.rect.3 > 0.0 {
             emit(outer, self.background);
         }
+    }
+    /// The `box-shadow`, under everything else (LLP 1064 D2).
+    fn shadow_fills(&self, geometry: &BoxGeometry) -> Vec<border::BorderFill> {
+        self.shadow
+            .map_or_else(Vec::new, |s| s.fills(&geometry.outer))
     }
     /// The border, one fill per colour, joined as the web joins sides.
     fn borders(&self, geometry: &BoxGeometry) -> Vec<border::BorderFill> {
@@ -338,6 +315,8 @@ pub trait Backend {
     }
     /// Fill a shape.
     fn fill(&mut self, shape: &Shape, color: [u8; 4], ts: Transform);
+    /// Fill a shape with a gradient placed in its coordinates (LLP 1066).
+    fn fill_gradient(&mut self, shape: &Shape, gradient: &gradient::GradientPaint, ts: Transform);
     /// Fill one colour's share of a border (LLP 1053 G2): its region even-odd, clipped (non-zero).
     fn fill_border(&mut self, part: &border::BorderFill, ts: Transform);
     /// Draw a picture scaled into `dst`, clipped to every shape in `clips`.
@@ -397,6 +376,7 @@ impl Backend for Unpainted {
     }
     fn begin(&mut self, _: f32, _: f32, _: f32) {}
     fn fill(&mut self, _: &Shape, _: [u8; 4], _: Transform) {}
+    fn fill_gradient(&mut self, _: &Shape, _: &gradient::GradientPaint, _: Transform) {}
     fn fill_border(&mut self, _: &border::BorderFill, _: Transform) {}
     fn image(&mut self, _: &Arc<Bitmap>, _: Rect4, _: &[Shape], _: Transform) {}
     fn text(
@@ -735,16 +715,15 @@ impl Painter {
         let p = (walk.scene.presented)(id);
         // @ref LLP 1043.000 §3 D7 — collect damage eligibility during the
         // existing paint walk, not an extra whole-document walk per flow tick.
-        self.damage.unsupported |=
-            p.moves() || p.opacity != 1.0 || node.node_type == NodeType::Image;
+        // A shadow paints outside the node's box, where damage never looks.
+        self.damage.unsupported |= p.moves()
+            || p.opacity != 1.0
+            || node.node_type == NodeType::Image
+            || node.style.shadow_opacity > 0.0
+            || !p.colors.is_empty();
         let ts = if p.moves() {
-            let (cx, cy) = (x + w / 2.0, y + h / 2.0);
-            ts.pre_concat(
-                Transform::from_translate(cx + p.translate.0, cy + p.translate.1)
-                    .pre_rotate(p.rotate)
-                    .pre_scale(p.scale, p.scale)
-                    .pre_translate(-cx, -cy),
-            )
+            // About `transform-origin`, the centre unless authored (LLP 1061 D6).
+            ts.pre_concat(p.transform((x, y, w, h), node.style.transform_origin.resolve(w, h)))
         } else {
             ts
         };
@@ -793,13 +772,15 @@ impl Painter {
         offset: (f32, f32),
         clip_rect: Option<Rect4>,
     ) {
-        let mut paint = BoxPaint::capture(node, walk.scene.kernel, self.dark, rect.2);
-        let presented = (walk.scene.presented)(node.id);
-        if let Some(bg) = presented.colors[1] {
-            paint.background = bg;
-        }
+        let shown = (walk.scene.presented)(node.id);
+        // Paint motion's values over the captured box (LLP 1055.000 D6,
+        // LLP 1062 D5): background, border sides and shadow.
+        let paint =
+            BoxPaint::capture(node, walk.scene.kernel, self.dark, rect.2).presented(&shown.colors);
         let geometry = paint.geometry(rect);
-        paint.paint(self.backend.as_mut(), &geometry, ts);
+        // @ref LLP 1063 — a layout transition's size is the surface's alone.
+        let surface = paint.geometry(shown.surface(rect));
+        paint.paint(self.backend.as_mut(), &surface, ts);
         let outer = geometry.outer;
         let content = geometry.content;
         let s = node.style;
@@ -827,7 +808,7 @@ impl Painter {
                     spec.runs = node
                         .text_runs()
                         .iter()
-                        .map(|run| Run::from_style(run.text, run.style))
+                        .map(|run| Run::from_style(&run.text, run.style))
                         .collect();
                     spec.collapse_white_space()
                 };
@@ -840,7 +821,7 @@ impl Painter {
                         &node
                             .flow_shapes()
                             .iter()
-                            .map(|s| s.translate(-(content.0 - rect.0), -(content.1 - rect.1)))
+                            .map(|s| s.translate(-geometry.inset.0, -geometry.inset.1))
                             .collect::<Vec<_>>(),
                         self.accepted_text.get(&node.key),
                         build,
@@ -956,8 +937,8 @@ impl Painter {
         let clips = ox != Overflow::Visible || oy != Overflow::Visible;
         let mut child_rect = clip_rect;
         if clips {
-            self.backend.push_clip(&outer, ts);
-            let own = bbox(ts, rect);
+            self.backend.push_clip(&surface.outer, ts);
+            let own = bbox(ts, surface.outer.rect);
             child_rect = Some(match clip_rect {
                 Some(c) => intersect(c, own),
                 None => own,
@@ -1268,7 +1249,7 @@ mod paragraph_tests {
             let mut spec = text_spec(&node.computed_style(StyleMask::INHERITED), "");
             spec.runs = canonical
                 .iter()
-                .map(|r| Run::from_style(r.text, r.style))
+                .map(|r| Run::from_style(&r.text, r.style))
                 .collect();
             assert_eq!(spec.runs[0].weight, 700);
             assert!(spec.runs[1].italic);

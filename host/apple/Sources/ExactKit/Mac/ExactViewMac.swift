@@ -150,7 +150,14 @@ public final class ExactView: NSView {
     func rebooted() {
         let i = session.presenter.insets
         if i.top != 0 || i.left != 0 || i.bottom != 0 || i.right != 0 { session.insets(top: i.top, right: i.right, bottom: i.bottom, left: i.left) }
+        viewDidChangeEffectiveAppearance()
         needsLayout = true
+    }
+
+    /// Paint motion resolves `light-dark()` by this view's appearance (LLP 1062).
+    public override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        session.scheme(dark: effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
     }
 }
 #endif

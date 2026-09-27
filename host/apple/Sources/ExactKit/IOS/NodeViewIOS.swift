@@ -102,6 +102,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var boxDrawn = false
     /// A uniform border under the children, where they can reach it.
     var boxBorder: CALayer?
+    var boxGradient: CAGradientLayer? // a `background-image` gradient Core Animation paints (LLP 1066)
+    var shadowCaster: ShadowCaster?, clipBox: PlainView? // `box-shadow` and the clip it casts outside (`BoxShadow.swift`)
     var textRasterKey: TextRasterKey? { didSet { textRasterWhole = textRasterKey.map { $0.clip == nil } ?? false } }
     /// The key is set and paints the whole paragraph (not a band of it).
     private(set) var textRasterWhole = false
@@ -118,7 +120,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var liveText: String?
     var props: [String: String] = [:] { didSet { presenter?.propsChanged(self) } }
     var style: NodeStyle = [:]
-    var clipPath: CGPath?
+    var clipPath: CGPath?, clipRule = CGPathFillRule.winding
     var handlers: Set<String> = [] {
         didSet {
             updateContextGestures()
@@ -264,7 +266,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         DispatchQueue.main.async { [weak self] in if let self, !self.disabled, self.presenter?.views[self.id] === self { self.presenter?.dblclick(self.id) } }
     }
     var hoverRecognizer: UIHoverGestureRecognizer?
-    var translate = CGPoint.zero
+    var translate = CGPoint.zero, layoutOffset = CGPoint.zero, layoutScale = CGPoint(x: 1, y: 1) // layout*: the box layout moved it from (LLP 1063)
+    var surface: SurfaceLayer? // its surface at a layout transition's size (`Surface.swift`)
     var scale: CGFloat = 1
     var rotate: CGFloat = 0
     var contextTransform = CGAffineTransform.identity {
@@ -332,7 +335,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var imageLayer: CALayer?
     var imageSource: String?
     var loadGeneration = 0
-    var pressed = false
+    var pressed = false { didSet { if pressed != oldValue { pressChanged() } } }
+    var press = PressFeedback() // LLP 1061 D2: the feedback `pressed` drives
     var disabled: Bool { props["disabled"] == "true" }
     /// HTML inertness covers the subtree, including direct agent activation.
     var inert: Bool {
@@ -629,7 +633,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
 
     /// Glass content participates in UIKit's interactive effect. Other
     /// materials remain background siblings of the authored children.
-    var container: UIView { scroll ?? overlay ?? (materialKind == "glass" ? materialView?.contentView : nil) ?? self }
+    var container: UIView { scroll ?? overlay ?? (materialKind == "glass" ? materialView?.contentView : nil) ?? clipBox ?? self }
 
     /// The canvas this node is painted through, if any: the nearest canvas
     /// above whose overlay holds it.
@@ -783,7 +787,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// this view's own coordinates — UIKit's convention, not AppKit's.)
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         if placedAncestor?.placementHidden == true { return nil }
-        if let clipPath, !clipPath.contains(point) { return nil }
+        if let clipPath, !clipPath.contains(point, using: clipRule) { return nil }
         if props["swipeIndicator"] == "true" { return nil }
         if isSurfaceControl, !inert, !isHidden, isUserInteractionEnabled, bounds.contains(point) { return self }
         // A touch landing on a native swipe row: its cell mounts now, before
@@ -1130,10 +1134,11 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
     func applyStyle(_ s: NodeStyle) {
         defer { video?.update() }
+        let origin = style["transform_origin"]
         style = s
         updateSymbol()
-        clipPath = ClipPath.path(s["clip_path"])
-        layer.mask = ClipPath.mask(clipPath)
+        (clipPath, clipRule) = (ClipPath.path(s["clip_path"]), ClipPath.rule(s["clip_path"]))
+        layer.mask = ClipPath.mask(clipPath, clipRule)
         updateMaterial()
         syncScroll()
         styleTextArea()
@@ -1144,6 +1149,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             f.frame = contentBox()
         }
         layer.zPosition = number("z_index")
+        if s["transform_origin"] != origin { applyTransform() }
         setNeedsDisplay()
     }
 
@@ -1153,6 +1159,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     func syncScroll() {
         let ox = style["overflow_x"]?.string ?? "visible", oy = style["overflow_y"]?.string ?? "visible"
         let scrolls = ox == "scroll" || oy == "scroll"
+        if scrolls { syncClipBox(false) }
         if scrolls && scroll == nil && !scrollWaits {
             let sv = ScrollView(frame: bounds)
             sv.backgroundColor = .clear
@@ -1181,7 +1188,10 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         updateKeyboardDismissal()
         fitScroll()
         // A waiting scroll clips as its scroll view would.
-        clipsToBounds = ox == "hidden" || oy == "hidden" || scrollDormant
+        let clips = ox == "hidden" || oy == "hidden" || scrollDormant
+        // A paragraph paints its own text, which a box would not clip.
+        syncClipBox(clips && kind != "text" && shadowColor != nil && scroll == nil && overlay == nil && materialKind != "glass")
+        clipsToBounds = clips && clipBox == nil
     }
 
     /// A native swipe row's scroll container (`swipeContent`, LLP 1008 §9)
@@ -1242,12 +1252,6 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // enclosing page scroll. Keep elastic feedback for vertical content,
         // including short vertical lists that have no horizontal overflow.
         sv.alwaysBounceVertical = sv.scrollsY && (size.height > sv.bounds.height + 0.5 || size.width <= sv.bounds.width + 0.5)
-    }
-
-    func applyTransform() {
-        // CSS's individual transforms: translate, then rotate, then scale,
-        // about the center (UIKit's anchor).
-        transform = CGAffineTransform(translationX: translate.x, y: translate.y).rotated(by: rotate * .pi / 180).scaledBy(x: scale, y: scale).concatenating(contextTransform)
     }
 
     override func layoutSubviews() {
@@ -1313,6 +1317,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
                 bg.setFill()
                 path.fill()
             }
+        }
+        paintGradient(ctx, clip: path.cgPath)
+        if boxDrawn {
             // Sides that differ in colour or width, or a radius the layer
             // cannot say: each side in its colour, joined as the web joins
             // them (`BorderPaint`).
@@ -1340,7 +1347,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             UIBezierPath(rect: content).addClip()
             ctx.translateBy(x: rect.minX, y: rect.maxY)
             ctx.scaleBy(x: 1, y: -1)
-            ctx.draw(bitmap.image, in: CGRect(origin: .zero, size: rect.size))
+            RasterGeometry.draw(ctx, bitmap.image, in: CGRect(origin: .zero, size: rect.size), tint: channels("tint_color").map { TextEngine.color($0).cgColor })
             ctx.restoreGState()
         }
         if isParagraph {
@@ -1364,7 +1371,6 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
     }
 
-
     // Press: a touch down and up inside the bounds. A node without a
     // handler passes the touch up the responder chain (UIView's default),
     // so a touch on a button's text reaches the button, as a DOM click
@@ -1384,7 +1390,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         inlinePressed = nil
         if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "move", source: self) == true { return }
-        if !pressed { super.touchesMoved(touches, with: event) }
+        if pressed { pressFollows(inside: touches.first.map(pressInside) ?? false) } else { super.touchesMoved(touches, with: event) }
     }
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "up", source: self) == true { finishPointerPress(); return }
@@ -1406,7 +1412,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         pressed = false
         // A pressed node that did not take the focus: the field being edited
         // loses it, as a click on a button blurs a page's input.
-        let inside = touches.first.map { bounds.contains(local($0.location(in: nil))) } ?? false
+        let inside = touches.first.map(pressInside) ?? false
         if !isFirstResponder && presenter?.contextRetainsFocus(self) != true { presenter?.viewport.endEditing(true) }
         if inside, presenter?.views[id] === self { presenter?.press(id); finishPointerPress() }
     }

@@ -104,14 +104,15 @@ final class TextRasterizer {
 
     /// Pixels for `node`'s paragraph. `urgent`: what shows has none, so they
     /// are painted now — taken from its worker if that has finished or is
-    /// running, else rendered here. Otherwise a worker job at `priority`, if
-    /// there is room for one (false when there is not).
+    /// running, else rendered here. `now`: what shows is stale, and is
+    /// painted now too (a presented colour). Otherwise a worker job at
+    /// `priority`, if there is room for one (false when there is not).
     @discardableResult
-    func ensure(_ node: NodeView, urgent: Bool, priority: Operation.QueuePriority = .normal) -> Bool {
+    func ensure(_ node: NodeView, urgent: Bool, now: Bool = false, priority: Operation.QueuePriority = .normal) -> Bool {
         guard node.canRasterText else { return true }
         let key = key(node)
         let visible = node.presenter?.textUrgentRect(node) ?? .zero
-        let missingPixels = node.textRaster == nil || !node.textRasterFrame.contains(visible)
+        let missingPixels = node.textRaster == nil || !node.textRasterFrame.contains(visible) || now
         if node.textRasterKey == key && (node.textRasterReady || !urgent || !missingPixels) { return true }
         let firstPixels = urgent && missingPixels
         let pending = working.last { $0.node === node }
@@ -381,6 +382,19 @@ extension Presenter {
             let visible = textScrollportRect(node)
             guard !visible.isEmpty, node.textRaster == nil || !node.textRasterFrame.contains(visible) else { continue }
             textRasters.ensure(node, urgent: true)
+        }
+    }
+
+    /// Paint motion's colour reaches the screen with its value (LLP 1062
+    /// D6): a paragraph whose presented colour a batch changed is painted
+    /// as the batch ends, where it shows, not on a worker a frame later.
+    func paintPresentedText() {
+        guard !presentedText.isEmpty else { return }
+        let ids = presentedText
+        presentedText = []
+        for id in ids {
+            guard let node = views[id], node.canRasterText, !node.bounds.isEmpty, textIsVisible(node) else { continue }
+            textRasters.ensure(node, urgent: true, now: true)
         }
     }
 

@@ -282,6 +282,11 @@ impl Module {
             self.waiting.insert(key, true);
             return Ok(Answer::Later(Request::continuation(token)));
         }
+        if let Some(topics) = response["topics"].as_array() {
+            for topic in topics.iter().filter_map(|t| t.as_str()) {
+                store.observe_topic(topic);
+            }
+        }
         if response["externalRead"] == true {
             store.observe_external_read();
         }

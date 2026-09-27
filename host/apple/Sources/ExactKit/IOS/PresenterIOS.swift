@@ -21,6 +21,8 @@ final class Presenter {
     /// The viewport over it: the window's content, scrolling like a browser's.
     let viewport: ScrollView = Viewport(frame: .zero)
     var views: [UInt32: NodeView] = [:]
+    /// Views leaving with their exit, by id (LLP 1063, `PresenceIOS.swift`).
+    var leaving: [UInt32: Leaving] = [:]
     private(set) var chrome = ChromeIndex()
     func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props); view.updateReorderGesture(); view.updateRefresh() }
     func carrying(_ key: String) -> [NodeView] { chrome.ids(key).sorted().compactMap { views[$0] } }
@@ -481,6 +483,8 @@ final class Presenter {
     /// batch to finish, then goes if its view survived it.
     private(set) var applying = false
     private var waiting: [(UInt32?, () -> Void)] = []
+    /// Paragraphs whose presented colour a batch changed, painted as it ends.
+    var presentedText: Set<UInt32> = []
     private func send(_ id: UInt32, _ f: @escaping () -> Void) {
         guard textHost(id) != nil else { return }
         if applying { waiting.append((id, f)) } else { f() }
@@ -579,6 +583,7 @@ final class Presenter {
             pool.end()
             if outermost {
                 applying = false
+                paintPresentedText()
                 videoVisibility?.changed()
                 let q = waiting
                 waiting = []
@@ -653,14 +658,26 @@ final class Presenter {
             case .flow:
                 views[id]?.applyFlow(op.payload["shapes"] as? [[String: Any]] ?? [])
             case .style:
-                views[id]?.applyStyle(op.style)
+                guard let v = views[id] ?? leaving[id]?.view else { continue }
+                let color = v.style["text_color"]
+                v.applyStyle(op.style)
+                if v.surface != nil { v.applySurface() }
+                // Paint motion re-sends a style per frame (LLP 1055.000 D6):
+                // a paragraph's pixels carry their colour, so a new one is
+                // painted as the batch ends, not on a worker a frame later
+                // (LLP 1062 D6); and a view that paints in an appearance of
+                // its own says so (D4).
+                if v.style["text_color"] != color {
+                    if v.isParagraph { presentedText.insert(id) }
+                    session?.noteAppearance(v)
+                }
             case .children:
                 guard let parent = views[id] else { continue }
                 let want = op.ids.compactMap { views[UInt32($0)] }
                 let container = parent.container
                 let wanted = Set(want.map(ObjectIdentifier.init))
                 var current = container.subviews
-                for case let child as NodeView in current where !wanted.contains(ObjectIdentifier(child)) && !pool.isParked(child) {
+                for case let child as NodeView in current where !wanted.contains(ObjectIdentifier(child)) && !pool.isParked(child) && !isLeaving(child) {
                     if !modals.retainsRemovedView(child) { child.removeFromSuperview() }
                 }
                 // In order, below anything else in the container (a scroll
@@ -679,7 +696,9 @@ final class Presenter {
             case .animations: svg.animations(id, op.payload, layer: views[id]?.layer, clock: session?.clock)
             case .command:
                 onCommand?(op.payload["name"] as? String ?? "", op.payload["args"] as? [Any] ?? [])
+            case .exit: beginExit(id)
             case .destroy:
+                if endExit(id) { continue }
                 // A collection's retired row parks for the next of its shape.
                 if let view = views[id], pool.retire(view) { continue }
                 // Out of the map before out of the window: the editing-ended
@@ -693,10 +712,11 @@ final class Presenter {
                 if kind == .frame { pool.framed(id) }
                 if let node = views[id], !modals.deferGeometry(op, for: node) { applyGeometry(op) }
             case .present:
-                guard let v = views[id] else { continue }
+                guard let v = views[id] ?? leaving[id]?.view else { continue }
                 let x = CGFloat(op.x)
                 switch op.property {
                 case "translate": v.translate = CGPoint(x: x, y: CGFloat(op.y)); v.applyTransform()
+                case "layout": v.layoutOffset = CGPoint(x: x, y: CGFloat(op.y)); v.layoutScale = CGPoint(x: CGFloat(op.w), y: CGFloat(op.h)); v.applyTransform(); v.applySurface()
                 case "scale": v.scale = x; v.applyTransform()
                 case "rotate": v.rotate = x; v.applyTransform()
                 case "opacity": v.alpha = x

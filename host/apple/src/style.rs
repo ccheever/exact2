@@ -18,6 +18,7 @@ use exact_kernel::{
     Dimension, Env, NodeRef, NodeType, Overflow, RowValue, StyleId, StyleMask, StyleProps,
     StyleValue,
 };
+use exact_motion::Property;
 use std::fmt::Write as _;
 
 /// A row this host does not lower (and why).
@@ -45,15 +46,9 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
             RowValue::ShapeOutside(_) => continue, // LLP 1043.000 M3
             // Layout only (LLP 1053 G1): the kernel sizes the box.
             RowValue::AspectRatio(_) => continue,
-            RowValue::Dimension(d) => match d.resolve(env) {
-                Dimension::Auto => "\"auto\"".to_string(),
-                Dimension::Points(p) => num(p),
-                Dimension::Percent(p) => format!("{{\"pct\":{}}}", num(p)),
-                Dimension::Calc(p, x) => {
-                    format!("{{\"pct\":{},\"px\":{}}}", num(p), num(x))
-                }
-                Dimension::Env(..) => unreachable!("resolved"),
-            },
+            RowValue::Dimension(d) => dimension(d.resolve(env)),
+            // @ref LLP 1061 D6 — `[x, y]`, each points or `{"pct": n}`.
+            RowValue::TransformOrigin(o) => format!("[{},{}]", dimension(o.x), dimension(o.y)),
             RowValue::Color(c) => format!("[{},{},{},{}]", c.r(), c.g(), c.b(), c.a()),
             // A colour a row holds (LLP 1034 D1/D2). A fixed one crosses as
             // the four channels it always did; a `light-dark()` pair crosses
@@ -84,8 +79,19 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
                         format!("[\"{command}\",[{values}]]")
                     })
                     .collect();
-                format!("[{}]", commands.join(","))
+                let rule = match p.rule() {
+                    exact_kernel::FillRule::Evenodd => "evenodd",
+                    exact_kernel::FillRule::Nonzero => "nonzero",
+                };
+                format!(
+                    "{{\"rule\":\"{rule}\",\"commands\":[{}]}}",
+                    commands.join(",")
+                )
             }
+            RowValue::BackgroundImage(g) => match g.gradient() {
+                Some(g) => gradient_json(g),
+                None => continue, // `none`: nothing to paint
+            },
             RowValue::Enum(e) => format!("\"{e}\""),
             RowValue::Vec2(v) => format!("[{},{}]", num(v.x), num(v.y)),
             RowValue::LineHeight(v) => match v {
@@ -98,7 +104,6 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
             RowValue::Paint(_)
             | RowValue::DashArray(_)
             | RowValue::Transform(_)
-            | RowValue::TransformOrigin(_)
             | RowValue::PaintOrder(_)
             | RowValue::Marker(_)
             | RowValue::Filter(_)
@@ -122,6 +127,16 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
     }
     out.push('}');
     (out, skipped)
+}
+
+fn dimension(d: Dimension) -> String {
+    match d {
+        Dimension::Auto => "\"auto\"".to_string(),
+        Dimension::Points(p) => num(p),
+        Dimension::Percent(p) => format!("{{\"pct\":{}}}", num(p)),
+        Dimension::Calc(p, x) => format!("{{\"pct\":{},\"px\":{}}}", num(p), num(x)),
+        Dimension::Env(..) => unreachable!("resolved"),
+    }
 }
 
 /// A node's effective overflow per axis — the kernel's own rule
@@ -164,17 +179,141 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
 /// the descendants an inherited change reaches (LLP 1035.000 D4), so this is
 /// re-sent by the ordinary update path, never re-derived per frame.
 pub fn style_json_for(node: &NodeRef<'_>, env: &Env) -> (String, Vec<Skipped>) {
-    style_json_presented(node, env, None, None)
+    style_json_presented(node, env, &Shown::default())
 }
 
-/// [`style_json_for`] with presented `color` and `background-color` values
-/// over the rows while a colour animation or transition moves them (LLP
-/// 1055.000 D6).
+/// Presented paint over the rows while it moves (LLP 1055.000 D6, LLP
+/// 1062): one slot per [`Property::PAINT`]; `None` shows the row.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Shown(pub [Option<exact_motion::Value>; Property::PAINT.len()]);
+
+impl Shown {
+    /// The presented value of one paint property.
+    pub fn get(&self, property: Property) -> Option<exact_motion::Value> {
+        let i = Property::PAINT.iter().position(|p| *p == property)?;
+        self.0[i]
+    }
+
+    /// Set one paint property's presented value.
+    pub fn set(&mut self, property: Property, value: Option<exact_motion::Value>) {
+        if let Some(i) = Property::PAINT.iter().position(|p| *p == property) {
+            self.0[i] = value;
+        }
+    }
+}
+
+fn fixed(v: exact_motion::Value) -> ColorValue {
+    let [r, g, b, a] = v.to_rgba8();
+    ColorValue::Fixed(exact_kernel::Color(u32::from_be_bytes([r, g, b, a])))
+}
+
+/// The presented colour, background, tint and shadow over `computed`'s rows.
+fn paint_over(computed: &mut StyleProps, shown: &Shown) {
+    if let Some(c) = shown.get(Property::Color) {
+        computed.text_color = fixed(c);
+    }
+    if let Some(c) = shown.get(Property::BackgroundColor) {
+        computed.background_color = fixed(c);
+        computed.mask.set(StyleId::BackgroundColor);
+    }
+    if let Some(c) = shown.get(Property::TintColor) {
+        computed.tint_color = fixed(c);
+        computed.mask.set(StyleId::TintColor);
+    }
+    // A shadow's opacity is folded into its presented colour's alpha.
+    if let Some(g) = shown.get(Property::BoxShadow) {
+        computed.shadow_offset = exact_kernel::Vec2 {
+            x: g.x as f32,
+            y: g.y as f32,
+        };
+        computed.shadow_radius = g.z as f32;
+        computed.mask.set(StyleId::ShadowOffset);
+        computed.mask.set(StyleId::ShadowRadius);
+    }
+    if let Some(c) = shown.get(Property::ShadowColor) {
+        computed.shadow_color = fixed(c);
+        computed.shadow_opacity = 1.0;
+        computed.mask.set(StyleId::ShadowColor);
+        computed.mask.set(StyleId::ShadowOpacity);
+    }
+}
+
+/// A leaving view's last style with its presented paint over it: its node
+/// is gone, so the rows are the ones it last showed (LLP 1063 D5).
+pub fn restyle_presented(last: &str, env: &Env, shown: &Shown) -> String {
+    let mut paint = StyleProps::default();
+    paint_over(&mut paint, shown);
+    let sides = [
+        (
+            Property::BorderTopColor,
+            StyleId::BorderColorTop,
+            &mut paint.border_color_top,
+        ),
+        (
+            Property::BorderRightColor,
+            StyleId::BorderColorRight,
+            &mut paint.border_color_right,
+        ),
+        (
+            Property::BorderBottomColor,
+            StyleId::BorderColorBottom,
+            &mut paint.border_color_bottom,
+        ),
+        (
+            Property::BorderLeftColor,
+            StyleId::BorderColorLeft,
+            &mut paint.border_color_left,
+        ),
+    ];
+    for (p, id, side) in sides {
+        if let Some(c) = shown.get(p) {
+            *side = Some(fixed(c));
+            paint.mask.set(id);
+        }
+    }
+    let over = style_json(&paint, env).0;
+    let over = entries(&over);
+    let key = |e: &str| e.split_once("\":").map(|(k, _)| k.to_owned());
+    let taken: Vec<_> = over.iter().map(|e| key(e)).collect();
+    let kept = entries(if last.is_empty() { "{}" } else { last })
+        .into_iter()
+        .filter(|e| !taken.contains(&key(e)));
+    format!("{{{}}}", kept.chain(over).collect::<Vec<_>>().join(","))
+}
+
+/// The top-level `"key":value` entries of a JSON object the host wrote.
+fn entries(json: &str) -> Vec<&str> {
+    let inner = &json[1..json.len() - 1];
+    let (mut out, mut start, mut depth) = (Vec::new(), 0, 0);
+    let (mut string, mut escaped) = (false, false);
+    for (i, c) in inner.char_indices() {
+        match c {
+            _ if escaped => escaped = false,
+            '\\' if string => escaped = true,
+            '"' => string = !string,
+            '[' | '{' if !string => depth += 1,
+            ']' | '}' if !string => depth -= 1,
+            ',' if !string && depth == 0 => {
+                out.push(&inner[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    if !inner.is_empty() {
+        out.push(&inner[start..]);
+    }
+    out
+}
+
+/// [`style_json_for`] with presented paint over the rows while a colour or
+/// shadow animation or transition moves them (LLP 1055.000 D6, LLP 1062):
+/// `color` (and the `currentcolor` border sides that follow it), the
+/// background, the border sides, a symbol's tint, and the shadow.
 pub fn style_json_presented(
     node: &NodeRef<'_>,
     env: &Env,
-    color: Option<exact_motion::Value>,
-    background: Option<exact_motion::Value>,
+    shown: &Shown,
 ) -> (String, Vec<Skipped>) {
     let rows = if matches!(
         node.node_type,
@@ -186,17 +325,7 @@ pub fn style_json_presented(
     };
     let mut computed = node.computed_style(rows);
     computed.mask.set(StyleId::TextColor);
-    let fixed = |v: exact_motion::Value| {
-        let [r, g, b, a] = v.to_rgba8();
-        ColorValue::Fixed(exact_kernel::Color(u32::from_be_bytes([r, g, b, a])))
-    };
-    if let Some(c) = color {
-        computed.text_color = fixed(c);
-    }
-    if let Some(c) = background {
-        computed.background_color = fixed(c);
-        computed.mask.set(StyleId::BackgroundColor);
-    }
+    paint_over(&mut computed, shown);
     // The presenter must inset editors/images and paint the same border area
     // that the kernel laid out. Authored widths survive separately in the node.
     let widths = computed.border_widths();
@@ -217,10 +346,11 @@ pub fn style_json_presented(
     }
     if widths.iter().any(|width| *width > 0.0) {
         let [top, right, bottom, left] = computed.border_colors(computed.text_color);
-        computed.border_color_top = Some(top);
-        computed.border_color_right = Some(right);
-        computed.border_color_bottom = Some(bottom);
-        computed.border_color_left = Some(left);
+        let side = |p: Property, c: ColorValue| Some(shown.get(p).map_or(c, fixed));
+        computed.border_color_top = side(Property::BorderTopColor, top);
+        computed.border_color_right = side(Property::BorderRightColor, right);
+        computed.border_color_bottom = side(Property::BorderBottomColor, bottom);
+        computed.border_color_left = side(Property::BorderLeftColor, left);
         for id in [
             StyleId::BorderColorTop,
             StyleId::BorderColorRight,
@@ -252,6 +382,50 @@ pub fn style_json_presented(
     (json, skipped)
 }
 
+/// A gradient for the presenter (LLP 1066): its shape — `linear` degrees,
+/// a `to <corner>` as `[right, bottom]`, or `radial` as `[circle, extent,
+/// x%, xpx, y%, ypx]` (extent: closest-side, closest-corner, farthest-side,
+/// farthest-corner) — and `stops` flat as `t, r, g, b, a`, positions 0–1.
+/// The box, so the placement, is the presenter's. Stops are already expanded
+/// to mix as CSS's premultiplied ones do (Core Graphics and Core Animation
+/// mix unpremultiplied); a `light-dark()` gradient also carries `dark`, and
+/// the view picks by its own appearance (LLP 1034 D2).
+fn gradient_json(g: &exact_kernel::gradient::Gradient) -> String {
+    use exact_kernel::gradient::{premultiplied_ramp, Direction, GradientKind, Length};
+    let stops = |dark: bool| {
+        let parts: Vec<String> = premultiplied_ramp(&g.resolved(dark))
+            .into_iter()
+            .map(|(at, c)| format!("{},{},{},{},{}", num(at), c.r(), c.g(), c.b(), c.a()))
+            .collect();
+        format!("[{}]", parts.join(","))
+    };
+    let shape = match g.kind {
+        GradientKind::Linear(Direction::Angle(deg)) => format!("\"linear\":{}", num(deg)),
+        GradientKind::Linear(Direction::Corner { right, bottom }) => {
+            format!("\"corner\":[{},{}]", u8::from(right), u8::from(bottom))
+        }
+        GradientKind::Radial { circle, extent, at } => {
+            let axis = |l: Length| match l {
+                Length::Percent(p) => format!("{},0", num(p)),
+                Length::Px(px) => format!("0,{}", num(px)),
+            };
+            format!(
+                "\"radial\":[{},{},{},{}]",
+                u8::from(circle),
+                extent as u8,
+                axis(at[0]),
+                axis(at[1])
+            )
+        }
+    };
+    let dark = if g.is_scheme_aware() {
+        format!(",\"dark\":{}", stops(true))
+    } else {
+        String::new()
+    };
+    format!("{{{shape},\"stops\":{}{dark}}}", stops(false))
+}
+
 /// Shortest exact decimal for a number: `24`, not `24.0`; `0.5`.
 pub fn num(n: f32) -> String {
     if n.fract() == 0.0 && n.abs() < 1e9 {
@@ -275,5 +449,45 @@ mod flow_tests {
             s.set_dynamic(id, &StyleValue::Text(value.into())).unwrap();
         }
         assert_eq!(style_json(&s, &Env::default()), ("{}".into(), vec![]));
+    }
+
+    /// LLP 1061 D2: the press scale is the presenter's to show, so it crosses
+    /// as a number, where the engine's own `scale` never does.
+    #[test]
+    fn press_scale_crosses_and_the_motion_scale_does_not() {
+        let mut s = StyleProps::default();
+        s.set_dynamic(StyleId::PressScale, &StyleValue::Number(0.97))
+            .unwrap();
+        s.set_dynamic(StyleId::Scale, &StyleValue::Number(2.0))
+            .unwrap();
+        assert_eq!(
+            style_json(&s, &Env::default()),
+            (r#"{"press_scale":0.97}"#.into(), vec![])
+        );
+    }
+
+    /// LLP 1066: a gradient crosses as its shape and ready-to-mix stops; a
+    /// `light-dark()` one carries both appearances, and `none` nothing.
+    #[test]
+    fn a_gradient_crosses_as_shape_and_stops() {
+        let json = |css: &str| {
+            let mut s = StyleProps::default();
+            s.set_dynamic(StyleId::BackgroundImage, &StyleValue::Text(css.into()))
+                .unwrap();
+            style_json(&s, &Env::default()).0
+        };
+        assert_eq!(
+            json("linear-gradient(to right, transparent, #fff 40%)"),
+            r#"{"background_image":{"linear":90,"stops":[0,255,255,255,0,0.4,255,255,255,255,1,255,255,255,255]}}"#
+        );
+        assert_eq!(
+            json("linear-gradient(to top left, light-dark(#000, #fff), #f00)"),
+            r#"{"background_image":{"corner":[0,0],"stops":[0,0,0,0,255,1,255,0,0,255],"dark":[0,255,255,255,255,1,255,0,0,255]}}"#
+        );
+        assert_eq!(
+            json("radial-gradient(circle closest-side at 10px 25%, #000, #fff)"),
+            r#"{"background_image":{"radial":[1,0,0,10,25,0],"stops":[0,0,0,0,255,1,255,255,255,255]}}"#
+        );
+        assert_eq!(json("none"), "{}");
     }
 }

@@ -58,6 +58,18 @@ pub(super) fn row_wrapper(
     Ok(view)
 }
 
+/// A row whose item left the data, before the list detaches and destroys its
+/// wrapper: an empty `listItemKey` tells the kernel it leaves (and plays its
+/// root's `exit-animation`, LLP 1063), where a row that scrolled away simply
+/// goes.
+pub(crate) fn item_left(u: &mut Update<'_>, wrapper: ViewId) {
+    u.ops.push(Op::SetProp {
+        id: wrapper,
+        prop: PropId::ListItemKey,
+        value: PropValue::Str(String::new()),
+    });
+}
+
 /// A mounted row's place in the whole list, which moves as rows come and go.
 pub(super) fn publish_position(u: &mut Update<'_>, wrapper: ViewId, position: usize, count: usize) {
     u.ops.push(Op::SetProp {

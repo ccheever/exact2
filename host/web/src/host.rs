@@ -675,24 +675,31 @@ impl<D: DataSource> Host<D> {
         self.batch_for(&receipts, error.as_deref())
     }
 
-    /// @ref LLP 1039 D2
-    pub fn resize(&mut self, width: f64, height: f64, now_ms: f64) -> String {
+    /// The size and the display preferences, in one batch.
+    /// @ref LLP 1039 D2; LLP 1061 D4
+    pub fn resize(&mut self, viewport: exact_runner::Viewport, now_ms: f64) -> String {
         let a = self.runner.advance_timed(now_ms);
         self.now_ms = a.now_ms.max(self.now_ms);
         let mut receipts = a.receipts;
         let mut error = a.error.map(|e| format!("{e:?}"));
-        match self.runner.set_viewport(width, height) {
-            Ok(Some(receipt)) => receipts.push(Timed {
-                at_ms: self.now_ms,
-                receipt,
-            }),
-            Ok(None) => {}
-            Err(e) => {
-                let viewport_error = format!("viewport: {e:?}");
-                error = Some(match error {
-                    Some(timer_error) => format!("{timer_error}; {viewport_error}"),
-                    None => viewport_error,
-                });
+        let answers = [
+            self.runner.set_viewport(viewport.width, viewport.height),
+            self.runner.set_preferences(viewport.preferences),
+        ];
+        for answer in answers {
+            match answer {
+                Ok(Some(receipt)) => receipts.push(Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }),
+                Ok(None) => {}
+                Err(e) => {
+                    let viewport_error = format!("viewport: {e:?}");
+                    error = Some(match error {
+                        Some(timer_error) => format!("{timer_error}; {viewport_error}"),
+                        None => viewport_error,
+                    });
+                }
             }
         }
         self.batch_for(&receipts, error.as_deref())
@@ -711,6 +718,44 @@ impl<D: DataSource> Host<D> {
             Ok(None) => (vec![], None),
             Err(e) => (vec![], Some(format!("time: {e:?}"))),
         };
+        self.batch_for(&receipts, error.as_deref())
+    }
+
+    /// The page module says `topic` changed (LLP 1016.002): the resources
+    /// watching it are asked again, in one batch.
+    pub fn changed(&mut self, topic: &str) -> String {
+        let (receipts, error) = match self.runner.changed(topic) {
+            Ok(Some(receipt)) => (
+                vec![Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => (vec![], None),
+            Err(e) => (vec![], Some(format!("changed: {e:?}"))),
+        };
+        self.batch_for(&receipts, error.as_deref())
+    }
+
+    /// The viewer's locale and zone, beside the date.
+    pub fn set_place(&mut self, locale: &str, time_zone: &str, seed: Option<f64>) -> String {
+        let mut receipts = Vec::new();
+        let mut error = None;
+        let place = self.runner.set_place(locale, time_zone);
+        let seeded = seed
+            .map(|seed| self.runner.set_seed(seed))
+            .unwrap_or(Ok(None));
+        for result in [place, seeded] {
+            match result {
+                Ok(Some(receipt)) => receipts.push(Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }),
+                Ok(None) => {}
+                Err(e) => error = Some(format!("place: {e:?}")),
+            }
+        }
         self.batch_for(&receipts, error.as_deref())
     }
 
@@ -766,6 +811,13 @@ impl<D: DataSource> Host<D> {
         for t in receipts {
             let r = &t.receipt;
             batch.at(t.at_ms);
+            // Before the destroys that follow it (LLP 1063): the page reads
+            // the leaving view's geometry before any op of the batch moves it.
+            for exit in &r.exits {
+                if let Some(id) = self.keys.get(&exit.key) {
+                    batch.exit(*id, &exit.animations.css());
+                }
+            }
             for key in &r.destroyed {
                 if let Some(id) = self.keys.remove(key) {
                     if self.heads.remove(&id) {
@@ -1170,7 +1222,14 @@ impl<D: DataSource> Host<D> {
             (drag.created)(self, id, key, kinds);
         }
         let node = self.runner.kernel().node(id).expect("live");
-        for a in &node.style.animation.0 {
+        // An exit's rules too, while its node lives (LLP 1063 D7).
+        for a in node
+            .style
+            .animation
+            .0
+            .iter()
+            .chain(&node.style.exit_animation.0)
+        {
             if self.keyframes.insert(a.name.clone()) {
                 batch.keyframes(&a.name, &a.keyframes.css());
             }
@@ -1232,7 +1291,14 @@ impl<D: DataSource> Host<D> {
             (drag.updated)(self, id, key);
         }
         let node = self.runner.kernel().node(id).expect("live");
-        for a in &node.style.animation.0 {
+        // An exit's rules too, while its node lives (LLP 1063 D7).
+        for a in node
+            .style
+            .animation
+            .0
+            .iter()
+            .chain(&node.style.exit_animation.0)
+        {
             if self.keyframes.insert(a.name.clone()) {
                 batch.keyframes(&a.name, &a.keyframes.css());
             }

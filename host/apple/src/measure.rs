@@ -230,7 +230,7 @@ impl CallbackMeasurer {
         let text = |i: usize| -> &str {
             collapsed
                 .as_ref()
-                .map_or(request.runs[i].text, |c| c.runs[i].as_str())
+                .map_or(&*request.runs[i].text, |c| c.runs[i].as_str())
         };
         let single;
         let owned;

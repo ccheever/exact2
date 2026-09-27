@@ -236,9 +236,12 @@ change can break.
   exact1's webview: `top` topology, navigation policy, the controller ops, `allow`,
   author-facing `srcdoc` — each with its return trigger in LLP 1020 §5.)
 - No camera anything.
-- No gradient style rows. A gradient with anything on it is a canvas surface with
+- ~~No gradient style rows. A gradient with anything on it is a canvas surface with
   children (LLP 1014 §5 — the take for widening `canvas`; the three rows return when a
-  host earns them).
+  host earns them).~~ Moved 2026-09-26 (Seth Webster, for grnl; LLP 1066): one CSS
+  `background-image` row, `linear-gradient()` and `radial-gradient()`, painted
+  natively on every host and held to Chrome. Unblocks a protection gradient under a
+  floating control without a canvas. Take: none named yet; **Charlie to rule.**
 - No virtualList v2 (cert wires, extent demand, proxy lanes). **Admitted 2026-09-14
   (Charlie: "ok do what you think"):** a straightforward windowed list with bounded
   row/view lifetime and a separate decoded-image budget (LLP 1010 §6). Unblocks
@@ -278,6 +281,13 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   Take: other animated layout properties and decorative effects remain behind
   that consumer. The first increment accepts several numeric samples; automatic
   content-height measurement and host adoption remain unfinished.
+  **Expanded (Seth Webster, 2026-09-26, for grnl; LLP 1063):** `layout-transition`
+  (a box's laid-out position and surface size, moved by the engine natively and by
+  a measured offset on the web) and `exit-animation` (a removed node stays, out of
+  layout, until its keyframes end). Unblocks siblings that slide when content
+  around them changes, and things that leave instead of vanishing. Take: none
+  named yet; **Charlie to rule.** Still out: animating any other layout
+  property, and laying out per frame.
 - **Decay and sequence drivers.** A spring carries release velocity; nothing
   else needs a driver. (`@keyframes` and repeat came off; see below.)
 - **Reduced-motion policy in the engine.** The producer emits `transition: none`
@@ -314,6 +324,16 @@ it is redrawn as a Canvas 2D surface in Caltrain's data crate, so one fewer GPU
 path exists after than before. Still refused: a drawing language in Contract
 (SVG is the declarative one), readback (`getImageData`, `toDataURL`,
 `toBlob`), `ctx.filter`, and an app-visible `OffscreenCanvas`.
+**Expanded (Seth Webster, 2026-09-26, for grnl; LLP 1061–1064):** paint motion
+on boxes — `transition` and keyframes on `background-color`, `color`, borders,
+`tint-color` and `box-shadow`, `light-dark()` pairs moving with the appearance —
+through the kernel seam and Apple mechanism SVG's colours use (LLP 1055.000 D6);
+press feedback (`press-scale`) and motion at a ProMotion panel's rate; the user's
+motion and transparency preferences as `exactViewport` fields, which the app
+reads (still no engine policy, above). Unblocks grnl's design as drawn. Take:
+the branch's own `path` node, `marker` declaration and block keyframes syntax
+were removed at the merge for main's SVG and keyframes; nothing is off main's
+list. **Charlie to rule.**
 - **`runOnJS` and the escape hatch / runtime graph admission** — never existed here.
 
 **Tooling** — no Design Mode, no Guide system, no devtools UI, no TUI host, no blog/CMS.
@@ -321,6 +341,12 @@ path exists after than before. Still refused: a drawing language in Contract
 **Agent API** — 8 operations, not 90:
 
 `tree` · `screenshot` · `tap` · `type` · `state` · `layout` · `logs` · `clock`
+
+**Open (2026-09-27, LLP 1061 D5, LLP 1012 §1):** `prefer`, the user's display
+preferences by CSS's media feature names, was built as a ninth operation without
+taking one of the eight off, against the rule below. A display preference is no
+input, so it is not a form of `tap` or `type`. **Charlie to rule:** take it,
+fold it into another operation, or take it out.
 
 **A ninth operation replaces one of the eight, same PR.** A new input is a form of
 `tap` or `type` (a wheel is a `tap`; so would a drag be); a new question is answered

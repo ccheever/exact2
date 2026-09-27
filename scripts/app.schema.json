@@ -8,6 +8,7 @@
     "app"
   ],
   "properties": {
+    "launch": { "type": "object", "properties": { "background": { "type": "string" }, "backgroundDark": { "type": "string" } }, "additionalProperties": false, "description": "The app's first-frame background, light and dark (#RRGGBB): the iOS launch screen's colour and the web page's before the first frame, so an app opens with no fade. background defaults to background_color." },
     "modules": {
       "type": "array",
       "description": "The native-module roster (LLP 1024 D1): the custom-element tags the app's module artifact serves (modules/apple/*.swift beside libexact_modules.dylib on Apple, modules/web/index.js on the web). A hyphenated tag in the Contract that this list lacks is bake-unknown-module.",
@@ -253,6 +254,12 @@
             },
             "team": {
               "type": "string"
+            },
+            "permissions": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
             },
             "urlSchemes": {
               "type": "array",
@@ -548,11 +555,33 @@
       ],
       "description": "Rust live replacement, enabled by default in dev and prod. Resolve root, environment, platform, then platform environment. false/off removes replacement support at bake; true/auto uses browser Wasm, iOS Wasm interpreter, native desktop, Android native dev / Wasm prod. Android and Windows hosts remain future work."
     },
+    "strings": {
+      "type": "object",
+      "description": "The UI's string tables (LLP 1060): strings/<locale>.json beside app.contract, read by `t(\"key\", name=value)`.",
+      "additionalProperties": false,
+      "properties": {
+        "base": {
+          "type": "string",
+          "pattern": "^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$",
+          "description": "The locale every `t` is checked against and every other table falls back to; \"en\" when absent."
+        }
+      }
+    },
     "typescript": {
       "type": "object",
       "properties": {
         "placement": {
           "$ref": "#/$defs/placement"
+        },
+        "aliases": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Bare import specifiers resolved to a directory of the capture: {\"@/core\": \"core\"} makes `import … from '@/core'` resolve to the mounted core, the way a shared source's own project resolves it. Each target is a mounted source's name or a directory of the app."
+        },
+        "sources": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Directories outside the app its TypeScript imports, by the name they take beside app.ts: {\"core\": \"../../src/core\"} makes ./core/model resolve to ../../src/core/model.ts. Captured with the app; a link of that name, for an editor, is allowed."
         },
         "platforms": {
           "type": "object",
@@ -568,7 +597,7 @@
         }
       },
       "additionalProperties": false,
-      "description": "The TypeScript module's placement (LLP 1027.002), globally and per platform."
+      "description": "The TypeScript module's placement (LLP 1027.002), globally and per platform, and the directories it imports from outside the app."
     },
     "dev": {
       "type": "object",

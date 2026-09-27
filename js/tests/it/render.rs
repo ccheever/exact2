@@ -90,6 +90,7 @@ fn start(deadline: Duration) -> SocketAddr {
         queue: 4,
         viewport: Default::default(),
         lifetime: Duration::from_secs(120),
+        generations: None,
     };
     let plan = contract::compile(super::interrupt::SRC).unwrap();
     let server = Server::bind(serve, plan, "").unwrap();

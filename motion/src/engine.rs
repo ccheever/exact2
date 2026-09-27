@@ -16,7 +16,7 @@
 //! host's output is compared against.
 
 use crate::property::{Property, Value};
-use crate::transition::{Curve, Running, TransitionError, Transitions};
+use crate::transition::{Curve, Running, Transition, TransitionError, Transitions};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::{BuildHasherDefault, Hasher};
 
@@ -159,7 +159,9 @@ pub struct Engine {
     // must still advance: some animation running and not yet ended.
     animations: BTreeMap<u64, Vec<AnimationPlay>>,
     animating: BTreeSet<u64>,
-    lowered: [bool; Property::COUNT],
+    // Indexed by property; one past the wire's for `Property::Layout`,
+    // which no animation names and nothing lowers.
+    lowered: [bool; Property::COUNT + 1],
     // Nodes whose animations are sampled whatever `lowered` says: a host
     // decides per node what its compositor plays faithfully (LLP 1055.000
     // D15: eligibility is per effect, not per property name).
@@ -167,6 +169,13 @@ pub struct Engine {
     // Held presentations, by hold serial, for a release velocity where the
     // platform measures none (LLP 1057.001 §3). Only live holds keep one.
     held: BTreeMap<u64, crate::velocity::VelocityTracker>,
+    // Each node's `layout-transition` declaration (LLP 1063): the only thing
+    // that moves `Property::Layout`, so `transition: all` never covers layout.
+    layout: BTreeMap<u64, Transition>,
+    // The appearance a keyframe's `light-dark()` colour takes (LLP 1062 D9),
+    // and the nodes whose own appearance differs from it.
+    dark: bool,
+    node_dark: BTreeMap<u64, bool>,
 }
 
 impl Engine {
@@ -209,9 +218,28 @@ impl Engine {
         Ok(())
     }
 
+    /// Set a node's `layout-transition` row (LLP 1063): the last declaration
+    /// that covers every property governs [`Property::Layout`] changes
+    /// observed from now on. One that names a property governs nothing, as
+    /// `transition: opacity 1s` does not move a box.
+    pub fn set_layout_transition(
+        &mut self,
+        node: u64,
+        transitions: &Transitions,
+    ) -> Result<(), EngineError> {
+        transitions.validate().map_err(EngineError::Transition)?;
+        match transitions.matching(Property::Layout) {
+            Some(declaration) => self.layout.insert(node, declaration.clone()),
+            None => self.layout.remove(&node),
+        };
+        Ok(())
+    }
+
     /// Forget a node entirely.
     pub fn remove(&mut self, node: u64) {
         self.transitions.remove(&node);
+        self.layout.remove(&node);
+        self.node_dark.remove(&node);
         self.animations.remove(&node);
         self.animating.remove(&node);
         self.forced.remove(&node);
@@ -219,6 +247,7 @@ impl Engine {
         for property in Property::ALL {
             self.remove_property(node, property);
         }
+        self.remove_property(node, Property::Layout);
     }
 
     /// Forget only this property's target, curve, hold and pending frame.
@@ -252,12 +281,18 @@ impl Engine {
         }
         let key = (change.node, change.property);
         let now = self.now;
-        let declaration = self
-            .transitions
-            .get(&change.node)
-            .and_then(|t| t.matching(change.property))
-            .filter(|t| t.starts())
-            .cloned();
+        // Layout moves only under `layout-transition`; a spring on a
+        // property no spring drives as physics is its curve from rest (LLP
+        // 1062 D3).
+        let declaration = if change.property == Property::Layout {
+            self.layout.get(&change.node)
+        } else {
+            self.transitions
+                .get(&change.node)
+                .and_then(|t| t.matching(change.property))
+        }
+        .filter(|t| t.starts())
+        .map(|t| t.governing(change.property));
 
         let Some(slot) = self.slots.get_mut(&key) else {
             self.slots.insert(
@@ -483,6 +518,23 @@ impl Engine {
     /// Whether nothing is running.
     pub fn quiescent(&self) -> bool {
         self.running.is_empty() && self.animating.is_empty()
+    }
+
+    /// Whether anything moving changes where or how big something is —
+    /// `translate`, `scale`, `rotate`, `height`, layout, SVG geometry —
+    /// which a panel's full rate keeps from juddering (LLP 1061 D4). A fade
+    /// or a colour change reads the same at 60 Hz, so a slow breathing
+    /// opacity need not hold a 120 Hz display at 120 Hz.
+    pub fn spatial(&self) -> bool {
+        let spatial =
+            |p: Property| !p.is_color() && !matches!(p, Property::Opacity | Property::BoxShadow);
+        self.running.iter().any(|&(_, p)| spatial(p))
+            || self
+                .animating
+                .iter()
+                .flat_map(|node| &self.animations[node])
+                .filter(|p| p.hold.is_none() && p.local(self.now) <= p.animation.end_time())
+                .any(|p| p.animation.keyframes.properties().into_iter().any(spatial))
     }
 
     /// The clock time at which the last running transition or finite

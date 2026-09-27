@@ -118,6 +118,9 @@ impl<D: DataSource> DataSource for Anonymous<D> {
     fn interrupt(&self) -> Option<Interrupt> {
         self.inner.interrupt()
     }
+    fn native(&self) -> Option<exact_runner::Native> {
+        self.inner.native()
+    }
     fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
         self.inner.forgotten(in_flight);
     }

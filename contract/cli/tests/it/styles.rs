@@ -449,3 +449,53 @@ fn transparent_is_a_colour() {
         Color::parse_hex("#ff0000").unwrap().into()
     );
 }
+
+/// LLP 1066: `background-image` takes `none` or one gradient — as an
+/// attribute, in a `style`, and in a conditional — and what no host draws
+/// is refused at compile time, by name.
+#[test]
+fn background_image_takes_one_gradient_and_refuses_the_rest_by_name() {
+    use exact_kernel::gradient::BackgroundImage;
+    let fade = "linear-gradient(transparent, light-dark(#ffffff, #000000) 40%)";
+    let r = boot(&format!("style Veil\n  background-image=\"{fade}\"\n\ncomponent App\n  state on = true\n  view\n    column\n      view class=Veil testId=\"a\"\n      view background-image=(on ? \"radial-gradient(circle at top, #000, #fff)\" : \"none\") testId=\"b\"\n      view background-image=\"none\" testId=\"c\"\n"));
+    assert_eq!(
+        style_of(&r, "a").background_image,
+        BackgroundImage::parse(fade).unwrap()
+    );
+    assert!(style_of(&r, "a")
+        .background_image
+        .gradient()
+        .unwrap()
+        .is_scheme_aware());
+    assert_eq!(
+        style_of(&r, "b").background_image,
+        BackgroundImage::parse("radial-gradient(circle at top, #000, #fff)").unwrap()
+    );
+    assert_eq!(style_of(&r, "c").background_image.gradient(), None);
+    for (value, says) in [
+        (
+            "repeating-linear-gradient(#000, #fff 10%)",
+            "repeating-linear-gradient() is not implemented",
+        ),
+        (
+            "conic-gradient(#000, #fff)",
+            "conic gradients are not implemented",
+        ),
+        ("url(a.png)", "an image as a background is not implemented"),
+        (
+            "linear-gradient(#000, #fff), linear-gradient(#fff, #000)",
+            "several background layers",
+        ),
+        ("linear-gradient(red, blue)", "a stop's colour is"),
+        (
+            "linear-gradient(#000 10px, #fff)",
+            "a stop's position is a percentage",
+        ),
+    ] {
+        let e = refused(&format!("background-image=\"{value}\""));
+        assert_eq!(e.id, "lower-attr-value", "{value}: {e}");
+        assert!(e.message.contains(says), "{value}: {e}");
+    }
+    let e = refused("background-image=(true ? \"none\" : \"conic-gradient(#000, #fff)\")");
+    assert!(e.message.contains("conic"), "{e}");
+}

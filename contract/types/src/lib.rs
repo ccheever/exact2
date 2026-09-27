@@ -23,6 +23,8 @@ mod component;
 pub mod placeholder;
 pub mod routes;
 mod selection;
+/// The strings call and the tables it is checked against (LLP 1060).
+pub mod strings;
 mod uses;
 
 use contract_syntax::{BinOp, Component, Expr, File, Span, TemplatePart, TypeExpr, UnOp};
@@ -242,6 +244,8 @@ pub struct Shapes {
     /// Which attribute names set style rows (lowering's table): their
     /// branches may mix a number and a string, one CSS value space.
     pub style_attr: Option<fn(&str) -> bool>,
+    /// The app's strings tables, when it has them (LLP 1060 D1).
+    pub strings: Option<Arc<strings::Strings>>,
 }
 
 impl Shapes {
@@ -301,6 +305,8 @@ pub enum Ref {
     Param(u32),
     /// An `each` item, `depth` region frames out (0 = innermost).
     Item(u32),
+    /// An `each` item's position, `depth` region frames out (LLP 1062 D8).
+    Index(u32),
     /// A `match` binding, `depth` region frames out.
     Bound(u32),
     /// A name an inline `match` expression binds; the index is lowering's.
@@ -339,6 +345,16 @@ impl Scope {
         }));
     }
 
+    /// Push an `each` row's frame: its item, and its position when named.
+    pub fn push_each(&mut self, item: &str, index: Option<&str>, ty: Ty) {
+        let mut names = vec![(item.to_string(), Ref::Item(0), ty)];
+        names.extend(index.map(|i| (i.to_string(), Ref::Index(0), Ty::Number)));
+        self.frames.push(Arc::new(Frame {
+            names,
+            region: true,
+        }));
+    }
+
     /// The one value name in scope `name` most plausibly misspells. Actions
     /// are the driver's to suggest (it knows the handler's position), and a
     /// generated name (`count#2`, `x@1`) is never offered.
@@ -372,6 +388,7 @@ impl Scope {
                 if n == name {
                     let r = match r {
                         Ref::Item(_) => Ref::Item(depth),
+                        Ref::Index(_) => Ref::Index(depth),
                         Ref::Bound(_) => Ref::Bound(depth),
                         other => *other,
                     };
@@ -601,6 +618,9 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
             if name == "path" && !shapes.fns.contains_key(name) {
                 routes::expand_path(args, *span, scope, shapes)?;
                 return Ok(Ty::String);
+            }
+            if strings::is_text_call(name, scope) {
+                return strings::check_call(args, *span, scope, shapes);
             }
             if name == "pending" {
                 // `pending(x)`: whether resource or mutation `x` has a
@@ -961,24 +981,27 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
 /// Check a file: shared declarations, then every component. The first
 /// refusal, as [`check_all`] orders them.
 pub fn check(file: &File, style_attr: fn(&str) -> bool) -> Result<Checked<'_>, TypeError> {
-    check_with_sites(file, false, style_attr).map_err(|mut all| all.swap_remove(0))
+    check_with_sites(file, false, style_attr, None).map_err(|mut all| all.swap_remove(0))
 }
 
 /// Check a file and report every independent refusal (at most
 /// [`MAX_REFUSALS`]), call sites first; `mapped` retains source provenance.
-/// `style_attr` says which attribute names set style rows.
+/// `style_attr` says which attribute names set style rows; `strings` are the
+/// app's tables, which `t(...)` is checked against.
 pub fn check_all(
     file: &File,
     mapped: bool,
     style_attr: fn(&str) -> bool,
+    strings: Option<Arc<strings::Strings>>,
 ) -> Result<Checked<'_>, Vec<TypeError>> {
-    check_with_sites(file, mapped, style_attr)
+    check_with_sites(file, mapped, style_attr, strings)
 }
 
 fn check_with_sites(
     file: &File,
     capture_sites: bool,
     style_attr: fn(&str) -> bool,
+    strings: Option<Arc<strings::Strings>>,
 ) -> Result<Checked<'_>, Vec<TypeError>> {
     if file.components.is_empty() {
         return Err(vec![TypeError {
@@ -989,6 +1012,7 @@ fn check_with_sites(
     }
     let mut shapes = check_declarations(file).map_err(|e| vec![e])?;
     shapes.style_attr = Some(style_attr);
+    shapes.strings = strings;
     let mut types = Types {
         shapes,
         components: Vec::new(),

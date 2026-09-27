@@ -18,7 +18,14 @@ const key = r => JSON.stringify([r.target ?? null, r.source, r.args]);
 
 self.__exact_host = (op, name, value) => {
   if (!context) throw new Error('host call outside an answer');
-  if (op === 6) { if (name === 'available') return 'web'; throw new Error('native modules are unavailable in the browser'); }
+  if (op === 6) {
+    // A page module answers `native.later` on the page; nothing here can answer at once.
+    if (name === 'kind' || name === 'available') return admitted.native ? 'native' : '';
+    // A topic the page module announces asks this answer again (LLP 1016.002).
+    if (name === 'watch') { context.topics.push(String(value)); return; }
+    if (name === 'later') return admitted.native ? 'later' : '';
+    throw new Error('the browser answers no native call at once; use native.later');
+  }
   if (op === 1) { context.requests.set(Number(name), JSON.parse(value)); return; }
   if (op === 2) { context.reads.push(name); return context.store.get(name); }
   if (op === 5) { context.externalRead = true; return; }
@@ -37,7 +44,7 @@ function init(message) {
   for (const name of ['XMLHttpRequest', 'WebSocket', 'EventSource', 'setTimeout', 'setInterval', 'requestAnimationFrame']) {
     Object.defineProperty(self, name, { value: () => { throw new Error(`${name} is unavailable in data sources`); }, configurable: false });
   }
-  storage = createStorage(self, admitted, () => context.owner, message.agent);
+  storage = createStorage(self, admitted, () => context.owner, message.storage);
   evaluate(message.prelude);
   self.__exact_storage = storage.capability;
   self.__exact_install_storage();
@@ -46,7 +53,7 @@ function init(message) {
 }
 
 function begin(request) {
-  context = {owner:{}, store:new Map(request.store), grants:new Set(request.grants), reads:[], writes:[], externalRead:false, requests:new Map()};
+  context = {owner:{}, store:new Map(request.store), grants:new Set(request.grants), reads:[], writes:[], externalRead:false,topics:[], requests:new Map()};
   if (request.op === 'answer') return JSON.parse(self.__exact_call(request.source, JSON.stringify(request.args)));
   const parked = pending.get(key(request));
   if (!parked) throw new Error('reply for an answer not in flight');
@@ -58,7 +65,7 @@ function begin(request) {
 }
 
 function finish(answer, request) {
-  const result = {...answer, reads:context.reads, writes:context.writes, externalRead:context.externalRead};
+  const result = {...answer, reads:context.reads, writes:context.writes, externalRead:context.externalRead,topics:context.topics};
   if (answer.tag === 1) {
     result.request = context.requests.get(answer.ticket);
     if (!result.request) throw new Error('module awaits a fetch it never made');

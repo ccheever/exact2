@@ -46,6 +46,8 @@ pub enum DecodeError {
     BadShapeOutside,
     /// Invalid CSS `aspect-ratio` value.
     BadAspectRatio,
+    /// Invalid or unsupported CSS `background-image` value (LLP 1066).
+    BadBackgroundImage,
     /// Invalid SVG paint (LLP 1055 D2).
     BadPaint,
     /// Invalid SVG `stroke-dasharray` (LLP 1055 D2).
@@ -429,6 +431,15 @@ pub enum StyleValueError {
     /// Not CSS `aspect-ratio`: `auto`, a ratio, or both.
     BadAspectRatio {
         style: StyleId,
+    },
+    /// Not `none` or one gradient this kernel draws (LLP 1066).
+    BadBackgroundImage {
+        style: StyleId,
+    },
+    /// Not one outer CSS `box-shadow` exact2 draws; `reason` names what.
+    BadBoxShadow {
+        style: StyleId,
+        reason: &'static str,
     },
     /// Not SVG paint: `none`, `currentcolor`, or a colour.
     BadPaint {

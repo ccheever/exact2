@@ -21,7 +21,7 @@ mod subst;
 mod tests;
 
 use derives::resolved_derives;
-use subst::{subst_expr, subst_stmts, substituted, Subst};
+use subst::{renamed_locals, subst_expr, subst_stmts, substituted, Subst};
 
 fn err<T>(
     id: &'static str,
@@ -544,6 +544,7 @@ fn inline_nodes(
             }),
             Node::Each {
                 var,
+                index,
                 list,
                 key,
                 body,
@@ -558,6 +559,7 @@ fn inline_nodes(
                 out.push(Node::Each {
                     tag,
                     var: var.clone(),
+                    index: index.clone(),
                     list: subst_expr(list, subst),
                     key: subst_expr(key, subst),
                     body: body?,
@@ -596,12 +598,12 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                 instance,
             } => Node::Element {
                 tag: tag.clone(),
-                positional: positional.iter().map(|e| substituted(e, map)).collect(),
+                positional: positional.iter().map(|e| renamed_locals(e, map)).collect(),
                 attrs: attrs
                     .iter()
                     .map(|a| Attr {
                         name: a.name.clone(),
-                        value: substituted(&a.value, map),
+                        value: renamed_locals(&a.value, map),
                         span: a.span,
                     })
                     .collect(),
@@ -620,7 +622,7 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                     .iter()
                     .map(|a| Attr {
                         name: a.name.clone(),
-                        value: substituted(&a.value, map),
+                        value: renamed_locals(&a.value, map),
                         span: a.span,
                     })
                     .collect(),
@@ -634,7 +636,7 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                 span,
             } => Node::Provide {
                 name: name.clone(),
-                expr: substituted(expr, map),
+                expr: renamed_locals(expr, map),
                 body: rename_nodes(body, map, n),
                 span: *span,
             },
@@ -645,7 +647,7 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                 otherwise,
                 span,
             } => Node::When {
-                cond: substituted(cond, map),
+                cond: renamed_locals(cond, map),
                 then: rename_nodes(then, map, n),
                 otherwise: rename_nodes(otherwise, map, n),
                 span: *span,
@@ -653,6 +655,7 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
             Node::Each {
                 tag,
                 var,
+                index,
                 list,
                 key,
                 body,
@@ -661,11 +664,17 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                 let mut inner = map.clone();
                 let fresh = lifted(var, n);
                 inner.insert(var.clone(), fresh.clone());
+                let index = index.as_ref().map(|i| {
+                    let fresh = lifted(i, n);
+                    inner.insert(i.clone(), fresh.clone());
+                    fresh
+                });
                 Node::Each {
                     tag: *tag,
                     var: fresh,
-                    list: substituted(list, map),
-                    key: substituted(key, &inner),
+                    index,
+                    list: renamed_locals(list, map),
+                    key: renamed_locals(key, &inner),
                     body: rename_nodes(body, &inner, n),
                     span: *span,
                 }
@@ -680,7 +689,7 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
                 let fresh = lifted(&some.0, n);
                 inner.insert(some.0.clone(), fresh.clone());
                 Node::Match {
-                    subject: substituted(subject, map),
+                    subject: renamed_locals(subject, map),
                     some: (fresh, rename_nodes(&some.1, &inner, n)),
                     none: rename_nodes(none, map, n),
                     span: *span,

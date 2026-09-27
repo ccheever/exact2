@@ -17,6 +17,9 @@ use crate::generated::{
     StyleProps,
 };
 
+mod shadow;
+pub use shadow::BoxShadow;
+
 /// Largest grid track list the closed grammar carries.
 pub const MAX_GRID_TRACKS: usize = 32;
 
@@ -413,7 +416,29 @@ impl StyleValue {
             })
     }
 
+    /// A `box-shadow` given to one of its four rows: that row's part.
+    /// @ref LLP 1064 D1
+    fn box_shadow(&self, style: StyleId) -> Option<Result<BoxShadow, StyleValueError>> {
+        match self {
+            StyleValue::Text(t) => Some(
+                BoxShadow::parse(t)
+                    .map_err(|reason| StyleValueError::BadBoxShadow { style, reason }),
+            ),
+            _ => None,
+        }
+    }
+
     pub(crate) fn f32(&self, style: StyleId) -> Result<f32, StyleValueError> {
+        if matches!(style, StyleId::ShadowRadius | StyleId::ShadowOpacity) {
+            if let Some(shadow) = self.box_shadow(style) {
+                let shadow = shadow?;
+                return Ok(if style == StyleId::ShadowRadius {
+                    shadow.blur
+                } else {
+                    shadow.opacity
+                });
+            }
+        }
         // @ref LLP 1043.000 §3 D1 — shape-margin is a nonnegative CSS length.
         if style == StyleId::ShapeMargin {
             let value = match self {
@@ -463,11 +488,12 @@ impl StyleValue {
         }
     }
 
-    /// A CSS-valued row's text: text as given, a number (`aspect-ratio: 2`)
-    /// or `auto` as CSS spells it.
+    /// A CSS-valued row's text: text as given, a number (`aspect-ratio: 2`),
+    /// a percentage (`transform-origin: 25%`) or `auto` as CSS spells it.
     pub(crate) fn css_text(&self, style: StyleId) -> Result<String, StyleValueError> {
         match self {
             StyleValue::Number(n) => Ok(exact_num::Shortest(*n).to_string()),
+            StyleValue::Percent(p) => Ok(format!("{}%", exact_num::Shortest(*p))),
             StyleValue::Auto => Ok("auto".into()),
             _ => self.text(style).map(str::to_string),
         }
@@ -521,6 +547,9 @@ impl StyleValue {
             if let Some(pair) = ColorValue::parse_light_dark(t) {
                 return Ok(pair);
             }
+            if style == StyleId::ShadowColor && Color::parse(t).is_none() {
+                return self.box_shadow(style).expect("text").map(|s| s.color);
+            }
         }
         self.color(style).map(ColorValue::Fixed)
     }
@@ -556,6 +585,9 @@ impl StyleValue {
     pub(crate) fn vec2(&self, style: StyleId) -> Result<Vec2, StyleValueError> {
         match self {
             StyleValue::Vec2(x, y) if x.is_finite() && y.is_finite() => Ok(Vec2 { x: *x, y: *y }),
+            StyleValue::Text(_) if style == StyleId::ShadowOffset => {
+                self.box_shadow(style).expect("text").map(|s| s.offset)
+            }
             StyleValue::Text(t) if style == StyleId::Translate => {
                 parse_translate(t).ok_or(StyleValueError::WrongKind {
                     style,
@@ -825,6 +857,8 @@ pub enum RowValue<'a> {
     Marker(&'a crate::svg::MarkerRef),
     /// CSS `filter` on SVG elements (LLP 1055.000 D14).
     Filter(&'a crate::svg::filter::FilterList),
+    /// CSS `background-image`: `none` or one gradient (LLP 1066).
+    BackgroundImage(&'a crate::gradient::BackgroundImage),
     /// A dimension.
     Dimension(Dimension),
     /// A number (`f32`, `u8`, `u16`, `u32`, `i32` rows).
@@ -872,6 +906,7 @@ impl RowValue<'_> {
             | RowValue::ClipPath(_)
             | RowValue::ShapeOutside(_)
             | RowValue::AspectRatio(_)
+            | RowValue::BackgroundImage(_)
             | RowValue::Color(_)
             | RowValue::ColorValue(_)
             | RowValue::Color2(_)

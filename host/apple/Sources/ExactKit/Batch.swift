@@ -54,7 +54,7 @@ public struct BatchOp {
         case flow, surface, surfaceWork, command, hold, collections, region, router, title, unknown
         case svg, animations // LLP 1055 D4/D7: an `svg`'s scene; a view's CSS animations
         case canvas2d // LLP 1056 D7: a 2D canvas's stamped lists
-        case heightDrag = "height-drag", transformDrag = "transform-drag", retireMotion = "retire-motion", reorder
+        case heightDrag = "height-drag", transformDrag = "transform-drag", retireMotion = "retire-motion", reorder, exit
     }
     let op: Kind
     var nodeID: UInt32?

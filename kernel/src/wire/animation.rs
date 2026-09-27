@@ -50,6 +50,7 @@ impl Reader<'_> {
                     return Err(DecodeError::BadAnimation);
                 }
                 let mut values = Vec::with_capacity(n);
+                let mut dark = Vec::new();
                 for _ in 0..n {
                     let p = Property::from_wire(self.u8()?).ok_or(DecodeError::BadAnimation)?;
                     // Each value carries its property's components: one,
@@ -58,20 +59,28 @@ impl Reader<'_> {
                     for slot in c.iter_mut().take(p.components()) {
                         *slot = self.f32()? as f64;
                     }
-                    values.push((
-                        p,
-                        Value {
-                            x: c[0],
-                            y: c[1],
-                            z: c[2],
-                            w: c[3],
-                        },
-                    ));
+                    values.push((p, Value::four(c[0], c[1], c[2], c[3])));
+                    // A colour then says whether a `light-dark()` pair's dark
+                    // value follows (LLP 1062 D9).
+                    if p.is_color() {
+                        match self.u8()? {
+                            0 => {}
+                            1 => {
+                                let mut d = [0.0f64; 4];
+                                for slot in &mut d {
+                                    *slot = self.f32()? as f64;
+                                }
+                                dark.push((p, Value::four(d[0], d[1], d[2], d[3])));
+                            }
+                            _ => return Err(DecodeError::BadAnimation),
+                        }
+                    }
                 }
                 keyframes.push(Keyframe {
                     offset,
                     easing,
                     values,
+                    dark,
                 });
             }
             out.push(Animation {
@@ -123,6 +132,17 @@ impl Writer {
                     self.u8(*p as u8);
                     for c in [v.x, v.y, v.z, v.w].into_iter().take(p.components()) {
                         self.f32(c as f32);
+                    }
+                    if p.is_color() {
+                        match frame.dark.iter().find(|(q, _)| q == p) {
+                            Some((_, night)) => {
+                                self.u8(1);
+                                for c in night.components() {
+                                    self.f32(c as f32);
+                                }
+                            }
+                            None => self.u8(0),
+                        }
                     }
                 }
             }

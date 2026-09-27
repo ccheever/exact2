@@ -9,11 +9,14 @@
 <script type="module">
 const out = [];
 const stage = document.getElementById("stage");
-const css = (property, [x, y]) => property === "translate" ? `${x}px ${y}px` : property === "rotate" ? `${x}deg` : String(x);
+const css = (property, [x, y, z, w]) => w !== undefined ? `rgba(${x}, ${y}, ${z}, ${w})` : property === "translate" ? `${x}px ${y}px` : property === "rotate" ? `${x}deg` : String(x);
 const identity = { translate: [0, 0], scale: [1, 0], rotate: [0, 0], opacity: [1, 0] };
 function read(el, property) {
   const v = getComputedStyle(el)[property];
   if (v === "none") return identity[property];
+  // A colour (LLP 1062): `rgb(r, g, b)` or `rgba(r, g, b, a)`, four numbers.
+  const color = /^rgba?\(([^)]*)\)$/.exec(v);
+  if (color) { const c = color[1].split(",").map(parseFloat); return [c[0], c[1], c[2], c[3] ?? 1]; }
   const parts = v.split(/\s+/).map(parseFloat);
   return [parts[0], parts[1] ?? 0];
 }
@@ -37,7 +40,15 @@ try {
       }
       getComputedStyle(el)[c.property];
     };
-    if (c.frames) {
+    if (c.animation) {
+      // Keyframes: the host's rules and declaration, started at zero over
+      // the initial value.
+      const sheet = document.head.appendChild(document.createElement("style")).sheet;
+      for (const rule of c.rules) sheet.insertRule(rule, sheet.cssRules.length);
+      el.style.animation = c.animation;
+      getComputedStyle(el)[c.property];
+      for (const a of el.getAnimations()) { a.pause(); a.currentTime = 0; created.set(a, 0); }
+    } else if (c.frames) {
       // A spring: the frames the engine lowered, played as the glue plays them.
       const step = c.steps[0];
       const a = el.animate(c.frames.map((v) => ({ [c.property]: css(c.property, v) })), { duration: c.duration, easing: "linear", fill: "forwards" });
@@ -55,8 +66,8 @@ try {
         getComputedStyle(el)[c.property];
         for (const a of el.getAnimations()) if (!created.has(a)) { a.pause(); a.currentTime = 0; created.set(a, step.at); }
       } else {
-        const [x, y] = read(el, c.property);
-        out.push(`sample ${c.name} ${step.at} ${x} ${y}`);
+        const value = read(el, c.property);
+        out.push(`sample ${c.name} ${step.at} ${value.join(" ")}`);
       }
     }
   }

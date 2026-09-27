@@ -248,7 +248,7 @@ extension Agent {
         while let s = above {
             if let n = s as? NodeView {
                 if let sv = n.scroll { let o = sv.contentView.bounds.origin; chain.append(["id": Int(n.id), "sx": Agent.r2(o.x), "sy": Agent.r2(o.y)]) }
-                if n.clipsToBounds { clippers.append((n, "overflow")) }
+                if n.clipsToBounds || n.clipBox != nil { clippers.append((n, "overflow")) }
                 if n.clipPath != nil { clippers.append((n, "clip-path")) }
             }
             above = s.superview
@@ -658,5 +658,19 @@ extension Agent {
         do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
         return ["screenshot": path, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height)]
     }
+
+    /// The system appearance (LLP 1061 D5). AppKit has no layer beneath the
+    /// app's own appearance (`setScheme`'s `NSApp.appearance`): the agent's
+    /// stands in it while the app follows the system, and an app that
+    /// returns to `system` later shows the Mac's own again.
+    func systemScheme(dark: Bool) {
+        let following = NSApp.appearance == nil || NSApp.appearance === Agent.systemAppearance
+        Agent.systemAppearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        if following { NSApp.appearance = Agent.systemAppearance }
+    }
+    var systemDark: Bool {
+        (Agent.systemAppearance ?? NSApp.effectiveAppearance).bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+    }
+    nonisolated(unsafe) static var systemAppearance: NSAppearance?
 }
 #endif

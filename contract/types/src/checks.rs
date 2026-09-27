@@ -458,6 +458,7 @@ fn collect_owner_scopes(
             Node::Each {
                 tag,
                 var,
+                index,
                 list,
                 body,
                 ..
@@ -471,7 +472,7 @@ fn collect_owner_scopes(
                     );
                 };
                 let mut inner = scope.clone();
-                inner.push_region(Some((var.clone(), Ref::Item(0), *item)));
+                inner.push_each(var, index.as_deref(), *item);
                 scopes.insert(*tag, inner.clone());
                 collect_owner_scopes(body, &inner, shapes, scopes)?;
             }
@@ -620,7 +621,11 @@ fn check_inject_nodes(
                 check_inject_nodes(otherwise, scope, types, file, provides, fill, depth)?;
             }
             Node::Each {
-                var, list, body, ..
+                var,
+                index,
+                list,
+                body,
+                ..
             } => {
                 let ty = infer(list, scope, &types.shapes)?;
                 let Ty::List(item) = ty else {
@@ -631,7 +636,7 @@ fn check_inject_nodes(
                     );
                 };
                 let mut inner = scope.clone();
-                inner.push_region(Some((var.clone(), Ref::Item(0), *item)));
+                inner.push_each(var, index.as_deref(), *item);
                 check_inject_nodes(body, &inner, types, file, provides, fill, depth)?;
             }
             Node::Match {
@@ -890,6 +895,7 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes, sink: &
             }
             Node::Each {
                 var,
+                index,
                 list,
                 key,
                 body,
@@ -911,7 +917,7 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes, sink: &
                     }
                 };
                 let mut inner = scope.clone();
-                inner.push_region(Some((var.clone(), Ref::Item(0), item)));
+                inner.push_each(var, index.as_deref(), item);
                 match infer(key, &inner, shapes) {
                     Ok(Ty::String | Ty::Number | Ty::Bool) => {}
                     Ok(kt) => sink.push(TypeError {

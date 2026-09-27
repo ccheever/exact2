@@ -269,6 +269,31 @@ export function afterPaintPieces(load, o) {
   } };
 }
 
+// @ref LLP 1063 — exit-animation and layout-transition play in
+// `presence-glue.js`, fetched when a batch first carries either row. A batch
+// with an exit that arrives before the module does waits for it, and every
+// batch after it waits behind it, so no exit is lost and order holds; the
+// caller hands them back through `apply`. `live` is the module, once loaded.
+export function presenceLoader(load, root, apply) {
+  let live = null, loading = null;
+  const held = [];
+  const release = () => { for (const batch of held.splice(0)) apply(batch); };
+  const start = () => loading ??= load('./presence-glue.js', 'presence')
+    .then(create => { live = create(root); release(); })
+    .catch(error => { loading = null; console.error('exact: presence module:', error); release(); });
+  return {
+    get live() { return live; },
+    hold(batch) {
+      if (live) return false;
+      const ops = batch.ops ?? [];
+      if (ops.some(op => op.op === 'exit' || op.css?.includes('--exact-'))) start();
+      if (!held.length && !(loading && ops.some(op => op.op === 'exit'))) return false;
+      held.push(batch);
+      return true;
+    },
+  };
+}
+
 // The eager scrollFollowEnd projection also belongs to this DOM controller.
 export function scrollFollowers(positionContexts) {
 // An explicit chat/log policy, not CSS overflow anchoring: keep the end
@@ -460,3 +485,12 @@ export function environment() {
     "keyboard-inset-height": r2(Math.max(0, innerHeight - (visualViewport?.height ?? innerHeight))),
   };
 }
+
+// @ref LLP 1061 D4 — the user's display preferences as the page's media
+// queries report them: bit 0 `prefers-reduced-motion: reduce`, bit 1
+// `prefers-reduced-transparency: reduce` (a browser that does not know the
+// feature answers no preference, as CSS does). Told with each boot and resize.
+let preferenceQueries;
+const queries = () => (preferenceQueries ??= ["(prefers-reduced-motion: reduce)", "(prefers-reduced-transparency: reduce)"].map((q) => matchMedia(q)));
+export const preferences = () => queries().reduce((bits, q, i) => bits | (q.matches ? 1 << i : 0), 0);
+export const onPreferences = (changed) => queries().forEach((q) => q.addEventListener("change", changed));

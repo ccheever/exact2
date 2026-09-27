@@ -33,6 +33,7 @@ pub mod error;
 pub mod export;
 mod flow;
 pub mod generated;
+pub mod gradient;
 pub mod id;
 pub mod kernel;
 pub mod layout;
@@ -62,15 +63,15 @@ pub use motion::{motion_node, MotionSync};
 pub use props::{PropList, PropValue};
 pub use sorted::{SortedMap, SortedSet};
 pub use style::{
-    uses_env, Color, ColorValue, Dimension, Edge, Env, GridLine, GridPlacement, GridTrack,
-    GridTracks, LineHeight, RowValue, StyleValue, Transitions, Vec2,
+    uses_env, BoxShadow, Color, ColorValue, Dimension, Edge, Env, GridLine, GridPlacement,
+    GridTrack, GridTracks, LineHeight, RowValue, StyleValue, Transitions, Vec2,
 };
 pub use text::{
     Markup, MonospaceMeasurer, ParagraphStamp, TextMeasureRequest, TextMeasurer, TextMetrics,
     TextRun, TextStyle,
 };
 pub use transform::TransformDragBinding;
-pub use txn::{CommitReceipt, MAX_DEPTH};
+pub use txn::{CommitReceipt, Exit, MAX_DEPTH};
 pub use wire::{FrameBuilder, Op};
 
 pub use region::{
@@ -80,3 +81,4 @@ pub use region::{
 
 /// CSS authored and resolved exclusion geometry (LLP 1043.000).
 pub use exact_textflow::{FlowShape, ShapeOutside};
+pub use flow::FlowRefusal;

@@ -36,7 +36,9 @@
      weight go. The node's own style rows, inline, still win. */
   h1, h2, h3, h4, h5, h6 { margin: 0; font-size: inherit; font-weight: inherit; }
   #exact-root button:focus-visible { outline: revert; outline-offset: 2px; }
-  input, textarea { cursor: text; -webkit-user-select: text; user-select: text; }
+  /* The UA's own reset, which \`all: unset\` undid: a field shows what was
+     typed, as the kernel measures it and native fields draw it (LLP 1064 D6). */
+  input, textarea { cursor: text; -webkit-user-select: text; user-select: text; text-transform: none; }
   /* Keep the textarea's native long-word wrapping through the control reset. */
   textarea { overflow-wrap: revert; }
   /* Authored flex/grid display must not expose a closed native popover. */
@@ -52,6 +54,14 @@
   /* A platform material, distinct from the CSS blur-radius row. */
   [backgroundMaterial="ultra-thin"] { backdrop-filter: blur(20px) saturate(180%); background-color: light-dark(#ffffff80, #20202080); }
   [backgroundMaterial="glass"] { backdrop-filter: blur(20px) saturate(150%); background-color: light-dark(#ffffffb3, #262629b3); box-shadow: 0 8px 24px #0000000d, inset 0 0 1px light-dark(#ffffffcc, #ffffff33); }
+  /* LLP 1061 D3: press feedback. A node with a `press-scale` row carries
+     `--exact-press` and a `transform` transition inline; the input glue marks
+     the one a pointer holds pressed, inside its box. `transform` is no row's,
+     so it composes with the `translate`/`scale`/`rotate` rows and the
+     engine's animations of them. Reduced motion shows no press, as native. */
+  @media (prefers-reduced-motion: no-preference) {
+    [data-pressed] { transform: scale(var(--exact-press)); }
+  }
   [data-scroll="true"] { overflow: auto; }
   /* LLP 1048.003 D4: `scroll document` — the page scrolls, not an inner
      scroller. Body and root grow with the content and the marked scroller is

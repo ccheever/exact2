@@ -1,6 +1,7 @@
 //! The compiler's integration tests: one binary, so one link and one launch.
 
 mod action_related;
+mod announce;
 mod baked_release;
 mod borders;
 mod branch;
@@ -24,20 +25,26 @@ mod height_binding;
 mod insets;
 mod instance;
 mod instance_work;
+mod keyframes;
 mod lint;
 mod markdown_editing;
+mod motion_feel;
 mod mutation;
+mod names;
 mod negative_margin;
 mod pan;
 mod placeholder;
+mod presence;
 mod refreshes;
 mod reorder_binding;
 mod reorder_collection;
 mod routes;
 mod rust_shapes;
+mod shadow_and_case;
 mod shape_cycles;
 mod source_locations;
 mod source_map;
+mod strings;
 mod styles;
 mod surface;
 mod svg;

@@ -93,6 +93,9 @@ impl Backend for CountPaint {
     fn fill(&mut self, s: &Shape, c: [u8; 4], t: Transform) {
         self.inner.fill(s, c, t);
     }
+    fn fill_gradient(&mut self, s: &Shape, g: &crate::paint::GradientPaint, t: Transform) {
+        self.inner.fill_gradient(s, g, t);
+    }
     fn fill_border(&mut self, part: &crate::paint::border::BorderFill, t: Transform) {
         self.inner.fill_border(part, t);
     }
@@ -703,10 +706,7 @@ fn timer_demand_paused_due_receipt_does_not_repaint() {
         plan,
         Empty,
         exact_kernel::Kernel::new(Box::new(exact_kernel::MonospaceMeasurer::default())),
-        exact_runner::Viewport {
-            width: 320.,
-            height: 240.,
-        },
+        exact_runner::Viewport::sized(320., 240.),
         "/",
     )
     .unwrap();

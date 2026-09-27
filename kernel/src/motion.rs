@@ -3,9 +3,9 @@
 //! @ref LLP 1002 §3 (the frame); LLP 1003 §4 (the seam)
 //!
 //! Motion's inputs are style. After a commit, the animatable rows of every
-//! node the commit created or touched are the engine's new targets, and each
-//! node's `transition` row is how it gets there — exactly the two things a
-//! browser reads from computed style. Nothing else crosses: no bindings, no
+//! node the commit created or touched are the engine's new targets, each
+//! node's `transition` row is how it gets there, and its `animation` row is
+//! what plays over them — exactly what a browser reads from computed style. Nothing else crosses: no bindings, no
 //! shared values, no second graph. A destroyed node is forgotten. Numeric
 //! height is a separate, explicitly registered host trial: the ordinary seam
 //! and boot targets remain the four compositor properties.
@@ -13,6 +13,10 @@
 //! The engine keys nodes by a number the host chooses; here it is the
 //! generation-checked [`NodeKey`] packed into a `u64` ([`motion_node`]), so a
 //! reused slot never inherits its predecessor's motion.
+//!
+//! Colour is its own pass ([`Kernel::paint_sync`], LLP 1062 D2): a native
+//! host resolves `light-dark()` by an appearance the kernel does not know,
+//! and keeps the record of which nodes own paint motion.
 
 use crate::generated::{
     BoxSizing, Display, InterpolateSize, NodeType, PropId, StyleId, StyleMask, StyleProps,
@@ -22,6 +26,7 @@ use crate::kernel::Kernel;
 use crate::style::{ColorValue, Dimension};
 use crate::txn::CommitReceipt;
 use exact_motion::{Animations, Change, Engine, EngineError, Property, Transitions, Value};
+use std::collections::BTreeMap;
 
 /// The engine's node number for a kernel node.
 pub fn motion_node(key: NodeKey) -> u64 {
@@ -41,6 +46,10 @@ pub struct MotionSync {
     pub retired: Vec<(u64, Property)>,
     /// Each created or touched node's `transition` row.
     pub transitions: Vec<(u64, Transitions)>,
+    /// Each created or touched node's `layout-transition` row (LLP 1063).
+    /// Its targets are not here: a host observes `Property::Layout` after
+    /// layout, from the laid-out origin in the parent.
+    pub layout: Vec<(u64, Transitions)>,
     /// Each created or touched node's `animation` row (LLP 1055 D5).
     pub animations: Vec<(u64, Animations)>,
     /// The sync's eligible targets; ordinary receipt sync has four per node.
@@ -58,6 +67,9 @@ impl MotionSync {
         }
         for (node, transitions) in &self.transitions {
             engine.set_transitions(*node, transitions.clone())?;
+        }
+        for (node, transitions) in &self.layout {
+            engine.set_layout_transition(*node, transitions)?;
         }
         for change in &self.changes {
             engine.observe(*change)?;
@@ -85,56 +97,134 @@ pub fn targets(style: &StyleProps) -> [(Property, Value); 4] {
     ]
 }
 
-/// A node's colour targets (LLP 1055.000 D6), only for the colour
-/// properties its `transition` or `animation` row names, so a node that
-/// animates no colour costs nothing. `None` for a property that is not a
-/// colour now: paint `none` (CSS: a discrete pair, no transition) or a
-/// `light-dark()` pair, which native hosts do not interpolate yet.
-pub fn color_targets(node: &crate::kernel::NodeRef<'_>) -> Vec<(Property, Option<Value>)> {
-    const COLORS: [Property; 4] = [
-        Property::Color,
-        Property::BackgroundColor,
-        Property::Fill,
-        Property::Stroke,
-    ];
-    let animated = node.style.animation.properties();
+/// Which nodes own paint motion, and which paint properties each owns: the
+/// host's record (LLP 1062 D2), so a commit retires exactly what an earlier
+/// one adopted and an appearance change re-resolves exactly those.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PaintOwners(BTreeMap<u64, u16>);
+
+impl PaintOwners {
+    /// Whether `node` owns `property`.
+    pub fn owns(&self, node: u64, property: Property) -> bool {
+        self.0
+            .get(&node)
+            .is_some_and(|mask| mask & paint_bit(property) != 0)
+    }
+
+    /// Every owning node.
+    pub fn nodes(&self) -> impl Iterator<Item = u64> + '_ {
+        self.0.keys().copied()
+    }
+}
+
+/// The appearance a node's `light-dark()` colours resolve by: one for the
+/// whole tree (`bool`), or per node (a function of its key), for a host
+/// whose views each have their own (LLP 1062 D4).
+pub trait Appearance {
+    /// Whether `key` resolves dark.
+    fn dark(&self, key: NodeKey) -> bool;
+}
+
+impl Appearance for bool {
+    fn dark(&self, _: NodeKey) -> bool {
+        *self
+    }
+}
+
+impl<F: Fn(NodeKey) -> bool> Appearance for F {
+    fn dark(&self, key: NodeKey) -> bool {
+        self(key)
+    }
+}
+
+fn paint_bit(property: Property) -> u16 {
+    Property::PAINT
+        .iter()
+        .position(|p| *p == property)
+        .map_or(0, |i| 1 << i)
+}
+
+fn color(c: ColorValue, dark: bool) -> Value {
+    let c = c.resolve(dark);
+    Value::rgba8(c.r(), c.g(), c.b(), c.a())
+}
+
+/// A node's paint targets under an appearance (LLP 1055.000 D6, LLP 1062
+/// D2): only for the paint properties its `transition`, `animation` or
+/// `exit-animation` names, so a node that animates no colour costs nothing.
+/// `light-dark()` resolves by `dark`, `color` is inherited, and a shadow's
+/// opacity folds into its colour's alpha. `None` for a property that is not
+/// a colour now: paint `none` or a paint server (CSS: a discrete pair, no
+/// transition). An exit's colours are owned while the node lives, so the
+/// engine has the value its exit keyframes start over (LLP 1063).
+///
+/// A `currentcolor` border side's target is the computed `color`. Its
+/// computed value is the keyword whatever `color` does, so CSS starts no
+/// transition on it while it stays `currentcolor`, and paints it in the
+/// element's animating `color` frame by frame: a host settles such a side
+/// at once and paints it in the view's presented `color`
+/// ([`Kernel::current_color_sides`]); only a change to or from an explicit
+/// colour moves it.
+pub fn color_targets(
+    node: &crate::kernel::NodeRef<'_>,
+    dark: bool,
+) -> Vec<(Property, Option<Value>)> {
+    let s = node.style;
+    if s.transition.0.is_empty() && s.animation.0.is_empty() && s.exit_animation.0.is_empty() {
+        return Vec::new();
+    }
+    let animated: Vec<Property> = s
+        .animation
+        .properties()
+        .into_iter()
+        .chain(s.exit_animation.properties())
+        .collect();
     // `fill` and `stroke` paint only in an `svg`; a box's computed paint
     // is the initial one and moves nothing.
-    let svg = node.node_type == crate::generated::NodeType::Svg || node.node_type.is_svg_element();
-    let wanted: Vec<Property> = COLORS
+    let svg = node.node_type == NodeType::Svg || node.node_type.is_svg_element();
+    let wanted: Vec<Property> = Property::PAINT
         .into_iter()
         .filter(|p| svg || !matches!(p, Property::Fill | Property::Stroke))
-        .filter(|p| {
-            animated.contains(p)
-                || node
-                    .style
-                    .transition
-                    .0
-                    .iter()
-                    .any(|t| t.property.covers(*p))
-        })
+        .filter(|p| animated.contains(p) || s.transition.0.iter().any(|t| t.property.covers(*p)))
         .collect();
     if wanted.is_empty() {
         return Vec::new();
     }
-    let fixed = |c: ColorValue| match c {
-        ColorValue::Fixed(c) => Some(Value::rgba8(c.r(), c.g(), c.b(), c.a())),
-        ColorValue::LightDark(..) => None,
-    };
     let text = node.text_color();
     let paint = |id: StyleId| match node.computed(id) {
-        crate::style::RowValue::Paint(crate::svg::Paint::Color(c)) => fixed(*c),
-        crate::style::RowValue::Paint(crate::svg::Paint::CurrentColor) => fixed(text),
+        crate::style::RowValue::Paint(crate::svg::Paint::Color(c)) => Some(color(*c, dark)),
+        crate::style::RowValue::Paint(crate::svg::Paint::CurrentColor) => Some(color(text, dark)),
         _ => None,
     };
+    let [top, right, bottom, left] = s.border_colors(text);
+    let shadow = s.shadow_color.resolve(dark);
+    let alpha = shadow.a() as f64 / 255.0 * (s.shadow_opacity as f64).clamp(0.0, 1.0);
+    let unit = |c: u8| c as f64 / 255.0;
     wanted
         .into_iter()
         .map(|p| {
             let value = match p {
-                Property::Color => fixed(text),
-                Property::BackgroundColor => fixed(node.style.background_color),
+                Property::Color => Some(color(text, dark)),
+                Property::BackgroundColor => Some(color(s.background_color, dark)),
                 Property::Fill => paint(StyleId::Fill),
-                _ => paint(StyleId::Stroke),
+                Property::Stroke => paint(StyleId::Stroke),
+                Property::BorderTopColor => Some(color(top, dark)),
+                Property::BorderRightColor => Some(color(right, dark)),
+                Property::BorderBottomColor => Some(color(bottom, dark)),
+                Property::BorderLeftColor => Some(color(left, dark)),
+                Property::TintColor => Some(color(s.tint_color, dark)),
+                Property::BoxShadow => Some(Value::four(
+                    s.shadow_offset.x as f64,
+                    s.shadow_offset.y as f64,
+                    s.shadow_radius as f64,
+                    0.0,
+                )),
+                _ => Some(Value::rgba(
+                    unit(shadow.r()),
+                    unit(shadow.g()),
+                    unit(shadow.b()),
+                    alpha,
+                )),
             };
             (p, value)
         })
@@ -184,6 +274,156 @@ impl Kernel {
             }
         }
         out
+    }
+
+    /// The box a node's `layout-transition` animates (LLP 1063), when it
+    /// declares one: its laid-out origin and size, relative to the box it is
+    /// placed in. That is its parent, except for the root of a windowed
+    /// list's row: its wrapper (the node carrying `listItemKey`) exists only
+    /// to position it, so the row is placed in the list content and a wrapper
+    /// moving is the row moving. `None` too while it or an ancestor is
+    /// `display: none`: it has no box, and one shown again is first seen, as
+    /// CSS starts no transition from `display: none`.
+    pub fn layout_box(&self, key: NodeKey) -> Option<Value> {
+        let node = self.node_by_key(key)?;
+        node.style.layout_transition.matching(Property::Layout)?;
+        let arena = self.arena();
+        let mut slot = Some(key.index);
+        while let Some(s) = slot {
+            if arena.style(s).display == Display::None {
+                return None;
+            }
+            slot = arena.parent(s);
+        }
+        let mut parent = node.parent.and_then(|p| self.node(p));
+        if parent
+            .as_ref()
+            .is_some_and(|p| p.props.str(PropId::ListItemKey).is_some())
+        {
+            parent = parent.and_then(|p| p.parent).and_then(|p| self.node(p));
+        }
+        let (px, py) = parent.map_or((0.0, 0.0), |p| (p.frame.x, p.frame.y));
+        let f = node.frame;
+        Some(Value::four(
+            (f.x - px) as f64,
+            (f.y - py) as f64,
+            f.width as f64,
+            f.height as f64,
+        ))
+    }
+
+    /// The border sides a node paints in `currentcolor` (CSS's initial
+    /// `border-color`) and draws at all: a host paints them in the view's
+    /// presented `color` while that moves, own or inherited (LLP 1062 D1).
+    pub fn current_color_sides(&self, key: NodeKey) -> Vec<Property> {
+        let Some(node) = self.node_by_key(key) else {
+            return Vec::new();
+        };
+        let s = node.style;
+        let colors = [
+            s.border_color_top,
+            s.border_color_right,
+            s.border_color_bottom,
+            s.border_color_left,
+        ];
+        let sides = [
+            Property::BorderTopColor,
+            Property::BorderRightColor,
+            Property::BorderBottomColor,
+            Property::BorderLeftColor,
+        ];
+        sides
+            .into_iter()
+            .zip(colors)
+            .zip(s.border_widths())
+            .filter(|((_, c), w)| c.is_none() && *w > 0.0)
+            .map(|((side, _), _)| side)
+            .collect()
+    }
+
+    /// Restate a commit's paint for a native engine (LLP 1062 D2), after
+    /// [`Self::motion_sync`] has set the nodes' rows: each created or
+    /// touched node's [`color_targets`], and a retirement for each property
+    /// it owned and no longer has a colour for. The web never calls this;
+    /// the browser transitions paint itself.
+    pub fn paint_sync(
+        &self,
+        receipt: &CommitReceipt,
+        dark: impl Appearance,
+        owners: &mut PaintOwners,
+    ) -> MotionSync {
+        for key in &receipt.destroyed {
+            owners.0.remove(&motion_node(*key));
+        }
+        let keys = receipt.created.iter().chain(receipt.touched.iter());
+        self.paint_adopt(keys.copied(), dark, owners)
+    }
+
+    /// [`Self::paint_sync`] for chosen nodes: a host's boot, which hears the
+    /// whole tree, and [`Self::paint_resync`].
+    pub fn paint_adopt(
+        &self,
+        keys: impl IntoIterator<Item = NodeKey>,
+        dark: impl Appearance,
+        owners: &mut PaintOwners,
+    ) -> MotionSync {
+        let mut sync = MotionSync::default();
+        for key in keys {
+            self.adopt_paint(key, dark.dark(key), owners, &mut sync);
+        }
+        sync
+    }
+
+    /// Re-resolve every owner's paint under a new appearance. A `light-dark()`
+    /// target that changes transitions under the node's row, as a browser's
+    /// computed value does when `color-scheme` changes (LLP 1062 D4).
+    pub fn paint_resync(&self, dark: impl Appearance, owners: &mut PaintOwners) -> MotionSync {
+        let keys: Vec<NodeKey> = owners
+            .nodes()
+            .map(|node| NodeKey {
+                index: node as u32,
+                generation: (node >> 32) as u32,
+            })
+            .collect();
+        self.paint_adopt(keys, dark, owners)
+    }
+
+    fn adopt_paint(
+        &self,
+        key: NodeKey,
+        dark: bool,
+        owners: &mut PaintOwners,
+        sync: &mut MotionSync,
+    ) {
+        let id = motion_node(key);
+        let old = owners.0.get(&id).copied().unwrap_or(0);
+        let mut mask = 0;
+        if let Some(node) = self.node_by_key(key) {
+            for (property, value) in color_targets(&node, dark) {
+                // Not a colour now (`none`, a server): nothing interpolates,
+                // and the row shows as authored.
+                let Some(value) = value else {
+                    continue;
+                };
+                mask |= paint_bit(property);
+                sync.changes.push(Change {
+                    node: id,
+                    property,
+                    value,
+                    velocity: None,
+                });
+            }
+        }
+        for property in Property::PAINT {
+            if old & !mask & paint_bit(property) != 0 {
+                sync.retired.push((id, property));
+            }
+        }
+        if mask == 0 {
+            owners.0.remove(&id);
+        } else {
+            owners.0.insert(id, mask);
+        }
     }
 
     /// Resolve an authored `heightDragFor` to its unique strict ancestor `id`.
@@ -407,19 +647,7 @@ impl Kernel {
                     });
                 }
             }
-            for (property, value) in color_targets(&node) {
-                match value {
-                    Some(value) => sync.changes.push(Change {
-                        node: id,
-                        property,
-                        value,
-                        velocity: None,
-                    }),
-                    // Not a colour now (`none`, a scheme pair): nothing
-                    // interpolates, and the row shows as authored.
-                    None => sync.retired.push((id, property)),
-                }
-            }
+            sync.layout.push((id, node.style.layout_transition.clone()));
             // An empty row is how a removed animation reaches the engine; an
             // empty row on a node that never had one costs one map lookup.
             // A hidden node runs none (LLP 1055.000 D15).

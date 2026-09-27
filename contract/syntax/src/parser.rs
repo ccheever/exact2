@@ -227,6 +227,20 @@ impl Parser {
         }
     }
 
+    /// A name in a place the grammar can't mistake for syntax: a shape field,
+    /// a prop, a member after `.`, a named argument. A keyword that only
+    /// structures a file (`state`, `key`, `view`, …) is a name here; one that
+    /// shapes an expression or a block (`when`, `if`, `match`, …) never is.
+    fn field_name(&mut self) -> R<(String, Span)> {
+        match self.peek_kind().clone() {
+            TokenKind::Ident(w) if is_name_word(&w) => {
+                let t = self.next();
+                Ok((w, t.span))
+            }
+            _ => self.ident(),
+        }
+    }
+
     fn newline(&mut self) -> R<()> {
         match self.peek_kind() {
             TokenKind::Newline => {
@@ -477,47 +491,62 @@ impl Parser {
         let span = self.expect_word("style")?;
         let name = self.named_ident(span)?;
         self.newline()?;
-        let lines = self.block(|p| {
-            let mut attrs = Vec::new();
-            while !matches!(p.peek_kind(), TokenKind::Newline | TokenKind::Eof) {
-                let (aname, aspan) = match (p.peek_kind().clone(), p.peek2().clone()) {
-                    (TokenKind::Ident(n), TokenKind::Punct("=")) => (n, p.next().span),
-                    (other, _) => {
-                        return p.err(
-                            "syntax-expected-attr",
-                            format!("expected `attr=literal` in a style, found {}", describe(&other)),
-                        )
-                    }
-                };
-                p.next();
-                let value = p.expr()?;
-                if !matches!(value, Expr::Number(..) | Expr::Str(..) | Expr::Bool(..)) {
-                    return Err(SyntaxError {
-                        id: "contract-style-literal",
-                        message: format!("`{aname}` in `style {name}` must be a literal: a style is constant, and a node's own attribute may compute"),
-                        span: aspan,
-                    });
+        let attrs = self.literal_attrs(&format!("style {name}"))?;
+        Ok(StyleDecl { name, attrs, span })
+    }
+
+    /// An indented block of `attr=literal` lines, several to a line, each
+    /// name once: the body of a `style` or of a keyframe.
+    fn literal_attrs(&mut self, owner: &str) -> R<Vec<Attr>> {
+        let lines = self.block(|p| p.literal_line(owner))?;
+        let attrs: Vec<Attr> = lines.into_iter().flatten().collect();
+        unique_attrs(&attrs, owner)?;
+        Ok(attrs)
+    }
+
+    /// One line of `attr=literal` pairs, through its newline.
+    fn literal_line(&mut self, owner: &str) -> R<Vec<Attr>> {
+        let mut attrs = Vec::new();
+        while !matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Eof) {
+            let (aname, aspan) = match (self.peek_kind().clone(), self.peek2().clone()) {
+                (TokenKind::Ident(n), TokenKind::Punct("=")) => (n, self.next().span),
+                (other, _) => {
+                    return self.err(
+                        "syntax-expected-attr",
+                        format!(
+                            "expected `attr=literal` in `{owner}`, found {}",
+                            describe(&other)
+                        ),
+                    )
                 }
-                attrs.push(Attr {
-                    name: aname,
-                    value,
+            };
+            self.next();
+            let value = match self.expr()? {
+                // `-0.2` is a literal to anyone writing a style: fold it, so
+                // `letter-spacing=-0.2` is a constant like `0.2`.
+                Expr::Unary(UnOp::Neg, inner, span) if matches!(*inner, Expr::Number(..)) => {
+                    let Expr::Number(n, _) = *inner else {
+                        unreachable!()
+                    };
+                    Expr::Number(-n, span)
+                }
+                other => other,
+            };
+            if !matches!(value, Expr::Number(..) | Expr::Str(..) | Expr::Bool(..)) {
+                return Err(SyntaxError {
+                    id: "contract-style-literal",
+                    message: format!("`{aname}` in `{owner}` must be a literal: a style is constant, and a node's own attribute may compute"),
                     span: aspan,
                 });
             }
-            p.newline()?;
-            Ok(attrs)
-        })?;
-        let attrs: Vec<Attr> = lines.into_iter().flatten().collect();
-        for (index, attr) in attrs.iter().enumerate() {
-            if attrs[..index].iter().any(|prior| prior.name == attr.name) {
-                return Err(SyntaxError {
-                    id: "syntax-duplicate-attr",
-                    message: format!("attribute `{}` appears twice in `style {name}`", attr.name),
-                    span: attr.span,
-                });
-            }
+            attrs.push(Attr {
+                name: aname,
+                value,
+                span: aspan,
+            });
         }
-        Ok(StyleDecl { name, attrs, span })
+        self.newline()?;
+        Ok(attrs)
     }
 
     fn shape(&mut self) -> R<ShapeDecl> {
@@ -525,7 +554,7 @@ impl Parser {
         let name = self.named_ident(span)?;
         self.newline()?;
         let fields = self.block(|p| {
-            let (name, span) = p.ident()?;
+            let (name, span) = p.field_name()?;
             p.expect_punct(":")?;
             let ty = p.type_expr()?;
             p.newline()?;
@@ -614,7 +643,7 @@ impl Parser {
                             self.next();
                             self.newline()?;
                             let list = self.block(|p| {
-                                let (name, span) = p.ident()?;
+                                let (name, span) = p.field_name()?;
                                 p.expect_punct(":")?;
                                 let ty = p.type_expr()?;
                                 p.newline()?;
@@ -751,11 +780,18 @@ impl Parser {
                 }
             }
         }
+        let then = if self.at_ident("then") {
+            let then_span = self.next().span;
+            Some(self.named_ident(then_span).map(|name| (name, then_span))?)
+        } else {
+            None
+        };
         self.newline()?;
         Ok(MutationDecl {
             name,
             shape,
             refreshes,
+            then,
             span,
         })
     }
@@ -1032,6 +1068,12 @@ impl Parser {
             "each" => {
                 self.next();
                 let var = self.named_ident(span)?;
+                let index = if self.at_punct(",") {
+                    self.next();
+                    Some(self.named_ident(span)?)
+                } else {
+                    None
+                };
                 self.expect_word("in")?;
                 let list = self.expr()?;
                 self.expect_word("key")?;
@@ -1042,6 +1084,7 @@ impl Parser {
                 Ok(Node::Each {
                     tag: 0,
                     var,
+                    index,
                     list,
                     key,
                     body,
@@ -1242,7 +1285,7 @@ impl Parser {
     fn named_args(&mut self) -> R<Vec<Attr>> {
         let mut out = Vec::new();
         while !self.at_punct(")") {
-            let (name, span) = self.ident()?;
+            let (name, span) = self.field_name()?;
             self.expect_punct("=")?;
             let value = self.expr()?;
             out.push(Attr { name, value, span });
@@ -1260,7 +1303,7 @@ impl Parser {
             let arg = if matches!(self.peek_kind(), TokenKind::Ident(_))
                 && matches!(self.peek2(), TokenKind::Punct("=" | ":"))
             {
-                let (name, span) = self.ident()?;
+                let (name, span) = self.field_name()?;
                 if self.at_punct(":") {
                     return self.err(
                         "syntax-named-argument",
@@ -1284,6 +1327,16 @@ impl Parser {
         self.last = deepest;
         Ok(out)
     }
+}
+
+/// A keyword that may still be a name where one is expected: every keyword but
+/// those that begin or join an expression, a region, or a statement.
+fn is_name_word(w: &str) -> bool {
+    !is_keyword(w)
+        || !matches!(
+            w,
+            "when" | "if" | "else" | "each" | "in" | "match" | "case" | "as" | "fn" | "refresh"
+        )
 }
 
 fn is_keyword(w: &str) -> bool {
@@ -1339,4 +1392,18 @@ fn describe(k: &TokenKind) -> String {
         TokenKind::Dedent => "the end of a block".into(),
         TokenKind::Eof => "end of file".into(),
     }
+}
+
+/// Each attribute name once in `owner`.
+fn unique_attrs(attrs: &[Attr], owner: &str) -> R<()> {
+    for (index, attr) in attrs.iter().enumerate() {
+        if attrs[..index].iter().any(|prior| prior.name == attr.name) {
+            return Err(SyntaxError {
+                id: "syntax-duplicate-attr",
+                message: format!("attribute `{}` appears twice in `{owner}`", attr.name),
+                span: attr.span,
+            });
+        }
+    }
+    Ok(())
 }

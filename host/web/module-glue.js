@@ -2,6 +2,7 @@
 // LLP 1027.000 D3. Trusted app code, NOT a security sandbox. No page or
 // guest builtin is patched. Loaded only after the page's first pixel.
 import { createStorage } from './storage.js';
+import { storageKey } from './storage-environment.js';
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const realms = new Map();
 const turns = new Map();
@@ -111,7 +112,14 @@ export async function prepare(payload, admitted, id = nextId++) {
   win.addEventListener('error', event => { initializationError = event.message; event.preventDefault(); });
   win.__exact_host = (op, name, value) => {
     if (!context) throw new Error('host call outside an answer');
-    if (op === 6) { if (name === 'available') return 'web'; throw new Error('native modules are unavailable in the browser'); }
+    if (op === 6) {
+    // A page module answers `native.later` on the page; nothing here can answer at once.
+    if (name === 'kind' || name === 'available') return admitted.native ? 'native' : '';
+    // A topic the page module announces asks this answer again (LLP 1016.002).
+    if (name === 'watch') { context.topics.push(String(value)); return; }
+    if (name === 'later') return admitted.native ? 'later' : '';
+    throw new Error('the browser answers no native call at once; use native.later');
+  }
     if (op === 1) {
       const request = JSON.parse(value), drop = fetchEarly(request, admitted.grants);
       context.requests.set(Number(name), request); if (drop) context.early.set(Number(name), drop); return;
@@ -142,7 +150,7 @@ export async function prepare(payload, admitted, id = nextId++) {
     // arguments are two calls (LLP 1027 D1a).
     const key = r => JSON.stringify([r.target ?? null,r.source,r.args]);
     const finish = (answer, request) => {
-      const result = {...answer, reads:context.reads, writes:context.writes, externalRead:context.externalRead};
+      const result = {...answer, reads:context.reads, writes:context.writes, externalRead:context.externalRead,topics:context.topics};
       const reported = answer.tag === 1 ? context.early.get(answer.ticket) : null;
       for (const drop of context.early.values()) if (drop !== reported) drop();
       if (reported) setTimeout(reported, 0);
@@ -158,7 +166,7 @@ export async function prepare(payload, admitted, id = nextId++) {
     };
     const begin = request => {
       if (disposed) throw new Error('module environment disposed');
-      context = {owner:{},store:new Map(request.store),grants:new Set(request.grants),reads:[],writes:[],externalRead:false,requests:new Map(),early:new Map()};
+      context = {owner:{},store:new Map(request.store),grants:new Set(request.grants),reads:[],writes:[],externalRead:false,topics:[],requests:new Map(),early:new Map()};
       if (request.op === 'answer') return JSON.parse(win.__exact_call(request.source,JSON.stringify(request.args)));
       const parked = pending.get(key(request));
       if (!parked) throw new Error('reply for an answer not in flight');
@@ -241,7 +249,7 @@ async function prepareWorker(payload, admitted, id, before, meta) {
   worker.onmessageerror = () => fail('module worker message failed');
   const ready = new Promise((resolve, reject) => waiting.set(0, { resolve, reject }));
   worker.postMessage({ op: 'init', token: 0, prelude: before, script: decoder.decode(payload.script), admitted,
-    agent: new URL(location.href).searchParams.has('agent') });
+    storage: storageKey(admitted.appId, location.href) });
   try { await ready; } catch (error) { worker.terminate(); throw error; }
   const realm = { frame: null, meta, id, placement: 'worker',
     forget(inFlight) {

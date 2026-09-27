@@ -3,13 +3,37 @@ type Store = { get(name:string):string|null; set(name:string,value:string):void;
 const appId = "dev.exact.storage-test";
 const grants = "fs.read app:/data\nfs.write app:/data\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n";
 
-async function answer(_source:string, args:unknown[], store:Store, storage:Storage, native?:{call(request:Record<string,unknown>):Record<string,unknown>}|null) {
+// Work queued behind whatever the module started last, the way an app serializes its
+// database operations. The second answer's storage calls run in a later microtask.
+let tail: Promise<unknown> = Promise.resolve();
+
+async function answer(_source:string, args:unknown[], store:Store, storage:Storage, native:{available:boolean; call(request:Record<string,unknown>):Record<string,unknown>; later(request:Record<string,unknown>):Promise<Record<string,unknown>>}|null) {
   const op = String(args[0]), value = String(args[1]);
+  if (op === 'later') {
+    if (!native?.available) return {text: 'no native module'};
+    try { return {text:String((await native!.later({value})).text)}; }
+    catch(error:any) { return {text:'refused: ' + error.message}; }
+  }
   if (op === 'native' || op === 'native-fetch') {
+    if (!native?.available) return {text: 'no native module'};
     try {
       if(op === 'native-fetch') await fetch('https://example.test/native');
       return {text:String(native!.call({value}).text)};
     } catch(error:any) { return {text:error.message}; }
+  }
+  if (op === "placeholder") return {text: ""};
+  if (op === "serial") {
+    const run = tail.then(async () => {
+      const db = await storage.sqlite.open("app:/data/notes.db");
+      try {
+        await db.execute("CREATE TABLE IF NOT EXISTS notes (body TEXT UNIQUE)");
+        await db.execute("INSERT OR IGNORE INTO notes VALUES (?)", [value]);
+        const rows = await db.query("SELECT count(*) FROM notes");
+        return {text: value + ":" + String(rows.rows[0][0])};
+      } finally { await db.close(); }
+    });
+    tail = run.catch(() => {});
+    return run;
   }
   const path = storage.fs.directories.data + "/note";
   if (op === "file") {

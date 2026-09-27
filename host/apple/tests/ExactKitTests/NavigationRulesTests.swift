@@ -121,6 +121,18 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertFalse(NavigationRules.dispatchesBack(shownKey: "", rootKey: "compose", sourceKey: "compose", modalActive: true))
     }
 
+    /// D2's exception: the app replaced the swiped screen in place while the
+    /// finger was down (capture giving way to what it wrote). The gesture
+    /// applies to the replacement, so it is not pushed back in.
+    func testASourceReplacedInPlaceIsStillWhatTheSwipeDismissed() {
+        XCTAssertTrue(NavigationRules.dispatchesBack(shownKey: "journal", rootKey: "day", sourceKey: nil, sourceReplaced: true, modalActive: false))
+        // A cancelled swipe still dispatches nothing, replaced or not.
+        XCTAssertFalse(NavigationRules.dispatchesBack(shownKey: "day", rootKey: "day", sourceKey: nil, sourceReplaced: true, modalActive: false))
+        // A newly selected route that did not replace the source keeps D2's rule.
+        XCTAssertFalse(NavigationRules.dispatchesBack(shownKey: "journal", rootKey: "compose", sourceKey: nil, sourceReplaced: false, modalActive: false))
+        XCTAssertFalse(NavigationRules.dispatchesBack(shownKey: "journal", rootKey: "day", sourceKey: nil, sourceReplaced: true, modalActive: true))
+    }
+
     /// D1: the Back control is resolved by id among enabled, pressable, live
     /// controls, lowest view id first; a disabled one blocks nothing but
     /// resolves to nothing.

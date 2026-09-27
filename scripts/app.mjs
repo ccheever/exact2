@@ -110,6 +110,75 @@ function gpuModuleProblems(manifest) {
 export const cargoReproducibilityFlags = (app, workspace = app.workspace) =>
   (resolve(workspace) === ROOT || (app.manifest.game && resolve(workspace) === resolve(app.workspace)) || (existsSync(resolve(workspace, 'Cargo.toml')) && existsSync(resolve(workspace, 'Cargo.lock')))) ? ['--locked', '--offline'] : [];
 
+/** The root workspace's `[profile.*]` tables, for a build of an app outside it
+ * (LLP 1036.001 D1): passed as `--config` so nothing is copied and nothing can
+ * drift. Cargo ranks config above a manifest, so an app's own copy is
+ * overridden. A game's generated workspace carries its own. Empty for the root. */
+export function injectedProfiles(app, workspace = app.workspace) {
+  if (resolve(workspace) === ROOT || app.manifest?.game) return [];
+  const profiles = Bun.TOML.parse(readFileSync(resolve(ROOT, 'Cargo.toml'), 'utf8')).profile ?? {};
+  const value = v => typeof v === 'string' ? JSON.stringify(v) : String(v);
+  const key = k => /^[A-Za-z0-9_-]+$/.test(k) ? k : JSON.stringify(k);
+  const flags = [];
+  const walk = (path, table) => {
+    for (const [k, v] of Object.entries(table)) {
+      if (v && typeof v === 'object' && !Array.isArray(v)) walk([...path, key(k)], v);
+      else flags.push('--config', `${path.join('.')}.${key(k)}=${value(v)}`);
+    }
+  };
+  for (const [name, table] of Object.entries(profiles)) walk(['profile', key(name)], table);
+  return flags;
+}
+
+/** The root's crates.io patches as they must appear in an outside workspace
+ * at `from`: each vendored crate, by a path relative to it. Two copies of taffy
+ * or cosmic-text in one build fail far from the cause, so `exact new` writes
+ * these and every run checks them (LLP 1036.001 D2). */
+export function patchLines(from) {
+  const root = Bun.TOML.parse(readFileSync(resolve(ROOT, 'Cargo.toml'), 'utf8'));
+  return Object.entries(root.patch?.['crates-io'] ?? {}).map(([name, spec]) =>
+    `${name} = { path = ${JSON.stringify(pathFrom(from, resolve(ROOT, spec.path)))} }`);
+}
+
+/** How an outside workspace at `from` names a path in this checkout: relative
+ * when the two share a directory below the filesystem root (a checkout beside
+ * the app moves with it), absolute when they share nothing, where a relative
+ * path would only climb to / and break the moment either moved. `from` must
+ * exist; both are resolved through symlinks (macOS's /tmp is one). */
+export function pathFrom(from, to) {
+  const [a, b] = [realpathSync(from), existsSync(to) ? realpathSync(to) : resolve(to)];
+  const shared = a.split('/')[1] === b.split('/')[1] && a.split('/')[1] !== '';
+  return shared ? relative(a, b) || '.' : b;
+}
+
+/** An outside workspace's patches and toolchain, against this checkout's.
+ * Refuses with the exact text to paste rather than letting Cargo fail later
+ * on a duplicate crate or a missing wasm target. */
+export function outsideWorkspaceProblems(workspace) {
+  const problems = [];
+  const manifest = Bun.TOML.parse(readFileSync(resolve(workspace, 'Cargo.toml'), 'utf8'));
+  const theirs = manifest.patch?.['crates-io'] ?? {};
+  const root = Bun.TOML.parse(readFileSync(resolve(ROOT, 'Cargo.toml'), 'utf8')).patch?.['crates-io'] ?? {};
+  const wrong = Object.entries(root).filter(([name, spec]) => !theirs[name]?.path || resolve(workspace, theirs[name].path) !== resolve(ROOT, spec.path));
+  if (wrong.length) problems.push(`${workspace}/Cargo.toml: [patch.crates-io] must name exact2's vendored ${wrong.map(([name]) => name).join(', ')}. Use (or run \`bun exact.mjs update\` in an app \`exact new\` made):\n[patch.crates-io]\n${patchLines(workspace).join('\n')}`);
+  const toolchain = resolve(workspace, 'rust-toolchain.toml');
+  const channel = existsSync(toolchain) ? /^channel\s*=\s*"([^"]+)"/m.exec(readFileSync(toolchain, 'utf8'))?.[1] : null;
+  if (PINNED_RUST && channel !== PINNED_RUST) problems.push(`${toolchain}: ${channel ? `pins ${channel}` : 'is missing'}; exact2 builds with ${PINNED_RUST}. Copy ${resolve(ROOT, 'rust-toolchain.toml')} there (\`bun exact.mjs update\` does).`);
+  return problems;
+}
+
+/** A lock an outside workspace copied goes stale when exact2's own crates gain
+ * a dependency, and every later `--locked` Cargo call refuses it. Resolving
+ * once without --locked, offline, brings it up to date the way Cargo always
+ * does: only the entries that changed. The root's lock stays binding. */
+function refreshOutsideLock(workspace) {
+  const lock = resolve(workspace, 'Cargo.lock');
+  const before = existsSync(lock) ? readFileSync(lock, 'utf8') : null;
+  const result = spawnSync('cargo', ['metadata', '--offline', '--format-version', '1'], { cwd: workspace, stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8', maxBuffer: 1 << 26 });
+  if (result.status !== 0) throw new Error(`cargo metadata --offline in ${workspace}:\n${result.stderr}`);
+  if (before !== null && before !== readFileSync(lock, 'utf8')) console.error(`${lock} was behind exact2's crates; updated it offline`);
+}
+
 export const runnerOwnedSource = name => ['exactDelivery', 'exactViewport', 'exactSurface'].includes(name);
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -171,14 +240,16 @@ export function webToolchainEnv(env) {
 }
 
 // A Bun older than package.json's pin is refused before anything builds.
-// Node, which runs these scripts for apps outside the repo, is not checked.
 // Partial fixture copies of these scripts carry no package.json and no pin.
+// Asking for help builds nothing, so it is answered on any Bun: an old Bun is
+// exactly when someone reaches for `--help` first.
+const HELP = process.argv.slice(2).some(a => a === '--help' || a === '-h' || a === 'help');
 const PINNED_BUN = existsSync(resolve(ROOT, 'package.json'))
   ? JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).packageManager?.replace(/^bun@/, '') : null;
 if (process.versions.bun && PINNED_BUN) {
   const [have, pin] = [process.versions.bun, PINNED_BUN].map(v => v.split('.').map(Number));
   const at = pin.findIndex((part, i) => have[i] !== part);
-  if (at >= 0 && have[at] < pin[at]) throw new Error(`Bun ${process.versions.bun} is older than ${PINNED_BUN}, the version package.json pins. Upgrade it (\`bun upgrade\`), or install ${PINNED_BUN} beside it and run the scripts with that one: \`curl -fsSL https://bun.sh/install | BUN_INSTALL=~/.bun-${PINNED_BUN} bash -s bun-v${PINNED_BUN}\`, then \`~/.bun-${PINNED_BUN}/bin/bun scripts/…\``);
+  if (at >= 0 && have[at] < pin[at] && !HELP) throw new Error(`Bun ${process.versions.bun} is older than ${PINNED_BUN}, the version package.json pins. Upgrade it (\`bun upgrade\`), or install ${PINNED_BUN} beside it and run the scripts with that one: \`curl -fsSL https://bun.sh/install | BUN_INSTALL=~/.bun-${PINNED_BUN} bash -s bun-v${PINNED_BUN}\`, then \`~/.bun-${PINNED_BUN}/bin/bun scripts/…\``);
   // Build steps start `bun` by name (the bake's compatibility inputs, the
   // TypeScript compiler); they get the Bun that passed, not whatever is first on PATH.
   const found = Bun.which('bun');
@@ -190,7 +261,7 @@ if (process.versions.bun && PINNED_BUN) {
 const WEB_HOST_GROUPS = {
   base: ['glue.js', 'navigation.js', 'textflow-glue.js', 'timer-glue.js', 'input-glue.js',
     'http-body.js', 'media-glue.js', 'list-selection.js', 'markup-editor.js', 'document-glue.js',
-    'motion-glue.js', 'collection-glue.js', 'canvas2d-glue.js'],
+    'motion-glue.js', 'collection-glue.js', 'canvas2d-glue.js', 'presence-glue.js'],
   module: ['module-glue.js', 'module-worker.js', 'module-prelude.js'],
   storage: ['storage-request.js', 'storage.js', 'storage-environment.js', 'storage-fs.js', 'storage-sqlite.js',
     'storage-worker.js', 'sqlite3.mjs', 'sqlite3.wasm'],
@@ -273,6 +344,12 @@ export function resolveApp(nameOrCrate) {
     // always use their generated workspace below and need no Cargo process here.
     const located = spawnSync('cargo', ['locate-project', '--workspace', '--message-format', 'plain'], {cwd:dir, encoding:'utf8'});
     workspace = located.status === 0 && located.stdout?.trim() ? realpathSync(dirname(located.stdout.trim())) : dir;
+    // EXACT_APP_DIR may name an app of this repo; only another workspace is checked.
+    if (workspace !== ROOT && existsSync(resolve(workspace, 'Cargo.toml'))) {
+      const problems = outsideWorkspaceProblems(workspace);
+      if (problems.length) throw new Error(problems.join('\n'));
+      refreshOutsideLock(workspace);
+    }
   }
   if (dirname(dir) === resolve(ROOT, 'game/games') && manifest.game === undefined) {
     throw new Error(`${dir}/app.json: game is required for an app under game/games/`);
@@ -312,11 +389,13 @@ export function resolveApp(nameOrCrate) {
     },
     /** The native-module roster (LLP 1024 D1) and its sources: the Swift under
      * `modules/apple` that becomes `libexact_modules.dylib`, and the web
-     * executor `modules/web/index.js`. Empty tags: the app has no modules. */
+     * executor `modules/web/index.js`. Empty tags: the app has no module
+     * views; its web executor may still answer `native.later` on the page
+     * (LLP 1067 D5). */
     get modules() {
       const tags = manifest.modules ?? [], apple = resolve(dir, 'modules/apple'), web = resolve(dir, 'modules/web/index.js');
       return { tags, apple: tags.length && existsSync(apple) ? readdirSync(apple).filter(f => f.endsWith('.swift')).sort().map(f => resolve(apple, f)) : [],
-        web: tags.length && existsSync(web) ? web : null };
+        web: existsSync(web) ? web : null };
     },
     /** The manifest, validated; the derived defaults when the app has none. */
     manifest,
@@ -515,6 +594,15 @@ function buildCommand(command, args, app, env, stderr = 'pipe') {
   }
   return result;
 }
+/** The lean iOS Hermes archives js/build.rs links: EXACT_HERMES_IOS_DIR's, or
+ * the per-pin cache every checkout shares, which host/apple/build.mjs fills
+ * (`cached`). The pin is js/build.rs's HERMES_PIN. @ref LLP 1036.001 D5 */
+export function hermesIos(env = process.env) {
+  const pin = /const HERMES_PIN: &str = "([0-9a-f]{40})";/.exec(readFileSync(resolve(ROOT, 'js/build.rs'), 'utf8'))?.[1];
+  if (!pin) throw new Error('js/build.rs names no HERMES_PIN');
+  if (env.EXACT_HERMES_IOS_DIR) return { pin, root: resolve(env.EXACT_HERMES_IOS_DIR), cached: false };
+  return { pin, root: resolve(env.HOME ?? homedir(), '.cache/exact/hermes', `${pin.slice(0, 12)}-lean-ios`), cached: true };
+}
 export function bakeTarget(platform) {
   if (platform === 'web') return 'wasm32-unknown-unknown';
   if (platform === 'ios') return 'aarch64-apple-ios';
@@ -632,12 +720,14 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   const replaced = new Set(['app.plan','compat.json','artifacts.json'].map((n) => resolve(rootOutput,n)));
   const packages = [...graph.roles.keys()].map((id) => graph.packages.get(id));
   const locations = packages.map((p) => ({ path: dirname(p.manifest_path), name:`crate:${p.name}@${p.version}` })).sort((a,b) => b.path.length-a.path.length);
+  const hermes = hermesIos(env).root;
   const nameOf = (path) => {
     path = resolve(path);
     const made = generated.find((g) => under(g.path,path));
     if (made) return `generated:${made.pkg.name}:${made.role}/${relative(made.path,path)}`;
     const pkg = locations.find((p) => under(p.path,path));
     if (pkg) return `${pkg.name}/${relative(pkg.path,path)}`;
+    if (under(hermes,path)) return `hermes-ios/${relative(hermes,path)}`; // wherever the archives live
     if (under(app.dir,path)) return `app/${relative(app.dir,path)}`;
     if (under(ROOT,path)) return `exact/${relative(ROOT,path)}`;
     if (under(graph.metadata.workspace_root,path)) return `workspace/${relative(graph.metadata.workspace_root,path)}`;
@@ -809,7 +899,7 @@ export function buildBake(app, platform, target, options = {}) {
     env.EXACT_ASSET_ROOTS=['assets','deck',...(app.manifest.game ? [] : ['gpu/shaders'])].filter(root=>(root==='assets' && app.manifest.game && (app.manifest.game.assets === true || existsSync(resolve(app.dir,'art')))) || existsSync(resolve(app.dir,root))).join(',');
     // The app's own web artifact builds std for size; a GPU crate keeps the toolchain's std.
     const sized=platform==='web'&&!gpuPackage(pkg);
-    const args=['build',...cargoReproducibilityFlags(app),...(sized?WEB_STD:[]),...(target==='wasm32-unknown-unknown'?wasmRemapFlags(app,sized?WEB_TOOLCHAIN:null):[]),'-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(kind==='linux'&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(gpuPackage(pkg)?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json-render-diagnostics'];
+    const args=['build',...cargoReproducibilityFlags(app),...injectedProfiles(app),...(sized?WEB_STD:[]),...(target==='wasm32-unknown-unknown'?wasmRemapFlags(app,sized?WEB_TOOLCHAIN:null):[]),'-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(kind==='linux'&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(gpuPackage(pkg)?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json-render-diagnostics'];
     const result=buildCommand('cargo',args,app,env,'inherit');
     const output=result.stdout.split('\n').filter(Boolean).map((line)=>JSON.parse(line));messages.push(...output);roots.push({package:pkg.id,name:unit.name});
     if (gpuPackage(pkg) && platform !== 'web') {

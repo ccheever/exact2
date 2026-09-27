@@ -51,6 +51,10 @@ pub(super) struct Subst<'m, T> {
     /// Binders in force, innermost last: each hides its name's replacement,
     /// and a renamed one replaces its name by the new spelling.
     binders: Vec<(String, Option<String>)>,
+    /// Whether a call's name is replaced too. Renamed locals (a view's loop
+    /// and `match` variables) are values, never callable, so a call that
+    /// spells one names a function (`t("key")` beside `each t in …`).
+    calls: bool,
 }
 
 impl<'m, T: SubstitutionValue> Subst<'m, T> {
@@ -59,6 +63,7 @@ impl<'m, T: SubstitutionValue> Subst<'m, T> {
             map,
             free: OnceCell::new(),
             binders: Vec::new(),
+            calls: true,
         }
     }
 
@@ -109,6 +114,16 @@ impl<'m, T: SubstitutionValue> Subst<'m, T> {
     }
 }
 
+/// `e` with renamed locals substituted: every reference, but no call's name.
+pub(super) fn renamed_locals(e: &Expr, map: &BTreeMap<String, String>) -> Expr {
+    if map.is_empty() {
+        return e.clone();
+    }
+    let mut s = Subst::new(map);
+    s.calls = false;
+    subst_expr(e, &mut s)
+}
+
 /// `e` with `map` substituted, for a one-off substitution.
 pub(super) fn substituted<T: SubstitutionValue>(e: &Expr, map: &BTreeMap<String, T>) -> Expr {
     if map.is_empty() {
@@ -134,6 +149,9 @@ pub(super) fn subst_expr<T: SubstitutionValue>(e: &Expr, s: &mut Subst<'_, T>) -
         },
         Expr::Call(n, args, span) => {
             let args: Vec<Expr> = args.iter().map(|a| subst_expr(a, s)).collect();
+            if !s.calls {
+                return Expr::Call(n.clone(), args, *span);
+            }
             match s.get(n) {
                 Some(Replacement::Name(f)) => Expr::Call(f.to_owned(), args, *span),
                 Some(Replacement::Expr(Expr::Call(f, first, _))) => {

@@ -95,6 +95,9 @@ impl DataSource for Messages {
     fn interrupt(&self) -> Option<Interrupt> {
         self.0.interrupt()
     }
+    fn native(&self) -> Option<exact_runner::Native> {
+        self.0.native()
+    }
     fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
         self.0.forgotten(in_flight);
     }

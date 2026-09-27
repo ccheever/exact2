@@ -121,9 +121,9 @@ bun scripts/agent.mjs --app messages ios 'tap conversation-maya' \
 
 `--sim <UDID>` on the build and `EXACT_SIM=<UDID>` on the driver select a
 simulator. Native TypeScript execution needs the matching lean Hermes archives
-described in LLP 1027's iOS execution section. On this Mac those archives are
-provisioned under `target/hermes-ios`; simulator archives must be thin archives
-for the build architecture, not universal Mach-O containers. The build now
+described in LLP 1027's iOS execution section, which the iOS build provisions
+into `~/.cache/exact/hermes/<pin>-lean-ios`; simulator archives must be thin
+archives for the build architecture, not universal Mach-O containers. The build now
 invalidates a previously cached iOS engine-less stub when archives are provisioned.
 
 Current behavior: searchable fixture conversations, native iOS controller navigation,

@@ -1626,9 +1626,19 @@
         "isolate"
       ],
       "default": "auto"
+    },
+    "TextTransform": {
+      "_comment": "@ref LLP 1064 D5: applied once, where the kernel produces a paragraph's runs; editable text is never transformed.",
+      "values": [
+        "none",
+        "uppercase",
+        "lowercase",
+        "capitalize"
+      ],
+      "default": "none"
     }
   },
-  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (grid track list) | placement (grid line placement) | aspect-ratio (CSS text: auto, a ratio, or both) | paint (CSS text: none, currentcolor, or a colour) | dasharray (CSS text: none or a list of numbers) | transform (CSS text: a transform list) | paint-order (CSS text: normal, or fill/stroke/markers) | marker (CSS text: none or url(#id)) | transform-origin (CSS text: one to three lengths, percentages or keywords) | animations (`_animations`) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance \u2014 a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard).",
+  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (grid track list) | placement (grid line placement) | aspect-ratio (CSS text: auto, a ratio, or both) | background-image (CSS text: none or one gradient, LLP 1066) | paint (CSS text: none, currentcolor, or a colour) | dasharray (CSS text: none or a list of numbers) | transform (CSS text: a transform list) | paint-order (CSS text: normal, or fill/stroke/markers) | marker (CSS text: none or url(#id)) | transform-origin (CSS text: one to three lengths, percentages or keywords) | animations (`_animations`) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance \u2014 a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard).",
   "styles": [
     {
       "bit": 0,
@@ -2040,7 +2050,8 @@
       "bit": 59,
       "field": "shadow_radius",
       "codec": "f32",
-      "default": 0
+      "default": 0,
+      "_comment": "@ref LLP 1064 D2: CSS `box-shadow`'s blur radius in points, a Gaussian of standard deviation radius / 2. The four shadow rows are one CSS `box-shadow`, painted only outside the border box."
     },
     {
       "bit": 60,
@@ -2585,10 +2596,44 @@
       "bit": 142,
       "field": "isolation",
       "codec": "enum:Isolation"
+    },
+    {
+      "bit": 143,
+      "field": "text_transform",
+      "codec": "enum:TextTransform",
+      "inherited": true,
+      "text": true,
+      "layout": true
+    },
+    {
+      "bit": 144,
+      "field": "background_image",
+      "codec": "background-image",
+      "_comment": "@ref LLP 1066: CSS `background-image` — `none`, or one linear-gradient()/radial-gradient(). Painted over background-color, clipped as the background is."
+    },
+    {
+      "bit": 145,
+      "field": "exit_animation",
+      "codec": "animations",
+      "ends": true,
+      "_comment": "@ref LLP 1063: an `animation` the node plays as it leaves; the outermost removed node stays as a ghost until it ends, so every one must end. Grammar: `_animations`."
+    },
+    {
+      "bit": 146,
+      "field": "layout_transition",
+      "codec": "transitions",
+      "_comment": "@ref LLP 1063: how the node's laid-out origin in its parent moves when layout moves it; the last declaration naming no property governs. Grammar: `_transitions`."
+    },
+    {
+      "bit": 147,
+      "field": "press_scale",
+      "codec": "f32",
+      "default": 1,
+      "_comment": "@ref LLP 1061 D1: the uniform scale a node shows while a pointer holds it pressed, about its centre; 1 is none. Not CSS: the host owns the feedback (no runner round trip), eased in 120 ms, and drops it under reduced motion. It composes with, never replaces, the `scale` row."
     }
   ],
-  "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
-  "_animations": "The `animation` row is CSS `animation` (LLP 1055 D5): count u8 (\u22648), then per animation name (str), duration f32 s, delay f32 s, easing (as `_transitions`, never a spring), iteration count f32 (+inf is `infinite`), direction u8 (0 normal, 1 reverse, 2 alternate, 3 alternate-reverse), fill u8 (0 none, 1 forwards, 2 backwards, 3 both), paused u8, then its keyframes: count u8 (\u226432), per keyframe offset f32 in [0,1], easing flag u8 (0 the animation's, 1 followed by an easing), count u8, per value property u8 (as `Property`), then its components as f32: one, two for `translate`, four for a colour (premultiplied sRGB red, green, blue, alpha; LLP 1055.000 D6). Its Rust type lives in exact-motion; the kernel owns the bytes.",
+  "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 tint-color, 23 box-shadow \u2014 LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
+  "_animations": "The `animation` row is CSS `animation` (LLP 1055 D5): count u8 (\u22648), then per animation name (str), duration f32 s, delay f32 s, easing (as `_transitions`, never a spring), iteration count f32 (+inf is `infinite`), direction u8 (0 normal, 1 reverse, 2 alternate, 3 alternate-reverse), fill u8 (0 none, 1 forwards, 2 backwards, 3 both), paused u8, then its keyframes: count u8 (\u226432), per keyframe offset f32 in [0,1], easing flag u8 (0 the animation's, 1 followed by an easing), count u8, per value property u8 (as `Property`), then its components as f32: one, two for `translate`, three for `box-shadow` (offset x, y and blur, in points; its colour is the next value, `box-shadow`'s colour half), four for a colour (premultiplied sRGB red, green, blue, alpha; LLP 1055.000 D6), a colour then u8 1 and four more for the dark half of a `light-dark()` pair, else u8 0 (LLP 1062 D9). Its Rust type lives in exact-motion; the kernel owns the bytes.",
   "_opcodes": "The closed wire-visible op list for EXWF frame revision 1. There is no op count on the wire; consumers iterate by validated lengths.",
   "opcodes": [
     {
@@ -2759,7 +2804,8 @@
       "filter",
       "slider.horizontal.3",
       "M4 6h9m4 0h3m-3 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM4 12h3m4 0h9m-9 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM4 18h8m4 0h4m-4 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z"
-    ],
+    ]
+,
     [
       "heart",
       "heart",
@@ -2864,6 +2910,66 @@
       "feeds",
       "number.square",
       "M4 4h16v16H4ZM10 7 9 17M15 7l-1 10M7 10h11M6 14h11"
+    ],
+    [
+      "calendar",
+      "calendar",
+      "M4 6h16v14H4ZM4 10h16M8 3v4M16 3v4"
+    ],
+    [
+      "book",
+      "book",
+      "M2 5c3-1.5 7-1.5 10 1v14c-3-2.5-7-2.5-10-1ZM22 5c-3-1.5-7-1.5-10 1v14c3-2.5 7-2.5 10-1Z"
+    ],
+    [
+      "layers",
+      "square.3.layers.3d",
+      "M12 3 2 8l10 5 10-5ZM2 12l10 5 10-5M2 16l10 5 10-5"
+    ],
+    [
+      "lock",
+      "lock",
+      "M5 11h14v10H5ZM8 11V7a4 4 0 0 1 8 0v4"
+    ],
+    [
+      "people",
+      "person.2",
+      "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM2 21a7 7 0 0 1 14 0M16 3.1a4 4 0 0 1 0 7.8M22 21a7 7 0 0 0-4-6.3"
+    ],
+    [
+      "stop",
+      "stop",
+      "M6 6h12v12H6Z"
+    ],
+    [
+      "stop-fill",
+      "stop.fill",
+      "M6 6h12v12H6Z"
+    ],
+    [
+      "circle",
+      "circle",
+      "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
+    ],
+    [
+      "alert",
+      "exclamationmark.circle",
+      "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM12 7v6M12 16.5h.01"
+    ],
+    [
+      "minus-circle",
+      "minus.circle",
+      "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM8 12h8"
+    ],
+    [
+      "pencil",
+      "pencil.line",
+      "M4 20h16M5 16 16 5l3 3L8 19H5Z"
+    ],
+    [
+      "waveform",
+      "waveform",
+      "M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4"
     ]
   ],
   "_symbols": "[role, Apple system symbol name, browser SVG path in a 24-unit box]. The path is stroked; a filled state is its own role, `<role>-fill` for Apple's `<name>.fill`, whose path is a filled silhouette (even-odd, so a cutout is a subpath). Generated once; hosts never admit platform names directly."

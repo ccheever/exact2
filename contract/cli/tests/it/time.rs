@@ -47,3 +47,60 @@ fn the_date_arrives_as_one_commit_and_bad_facts_are_refused() {
     ));
     assert_eq!(text(&r), "1790000000000/120");
 }
+
+const PLACED: &str = "shape Time\n  epochAtZero: number\n  locale: string\n  timeZone: string\ncomponent App\n  resource time = exactTime() as shape Time\n  view\n    text `${time.locale}|${time.timeZone}|${time.epochAtZero}` testId=\"date\"\n";
+
+#[test]
+fn the_locale_and_zone_arrive_beside_the_date_and_bad_ones_are_refused() {
+    let plan = contract::bake(contract::compile(PLACED).unwrap(), NoData).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    // Unknown until the host says, as the date is.
+    assert_eq!(text(&r), "||0");
+    assert!(r.set_place("en-GB", "Europe/London").unwrap().is_some());
+    assert_eq!(text(&r), "en-GB|Europe/London|0");
+    assert!(r.set_place("en-GB", "Europe/London").unwrap().is_none());
+    assert!(r.set_time(1_790_000_000_000.0, 60.0).unwrap().is_some());
+    assert_eq!(text(&r), "en-GB|Europe/London|1790000000000");
+    for (locale, zone) in [
+        ("", "UTC"),
+        ("en GB", "UTC"),
+        ("en", ""),
+        ("en", "Europe/London; rm"),
+    ] {
+        assert!(matches!(
+            r.set_place(locale, zone),
+            Err(RunnerError::InvalidPlace)
+        ));
+    }
+    assert!(r.set_place("pt-BR", "America/Sao_Paulo").unwrap().is_some());
+    assert_eq!(text(&r), "pt-BR|America/Sao_Paulo|1790000000000");
+}
+
+#[test]
+fn the_launch_seed_arrives_as_a_host_fact_and_nothing_else_is_one() {
+    const SEEDED: &str = "shape Time\n  seed: number\n  locale: string\ncomponent App\n  resource time = exactTime() as shape Time\n  view\n    text `${time.seed}|${time.locale}` testId=\"date\"\n";
+    let plan = contract::bake(contract::compile(SEEDED).unwrap(), NoData).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(text(&r), "0|", "zero until the host says");
+    assert!(r.set_seed(123_456_789.0).unwrap().is_some());
+    assert!(r.set_place("en-GB", "Europe/London").unwrap().is_some());
+    assert_eq!(text(&r), "123456789|en-GB", "a place keeps the seed");
+    assert!(r.set_seed(123_456_789.0).unwrap().is_none());
+    for bad in [-1.0, 0.5, f64::NAN, 9_007_199_254_740_992.0] {
+        assert!(matches!(r.set_seed(bad), Err(RunnerError::InvalidPlace)));
+    }
+}

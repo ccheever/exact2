@@ -37,7 +37,7 @@ private let blends: [CGBlendMode] = [
 
 private enum Style: Equatable { case color(CGColor), gradient(UInt32) }
 
-private struct Gradient {
+private struct CanvasGradient {
     var linear: [Double]?   // x0 y0 x1 y1
     var radial: [Double]?   // x0 y0 r0 x1 y1 r1
     var stops: [(Double, CGColor)] = []
@@ -64,7 +64,7 @@ final class Canvas2DReplayer {
     private var stack: [State] = []
     /// The current path, in canvas coordinates; it survives painting.
     private var path = CGMutablePath()
-    private var gradients: [UInt32: Gradient] = [:]
+    private var gradients: [UInt32: CanvasGradient] = [:]
 
     init(width: Int, height: Int, scale: Double, lifetime: UInt64, generation: UInt32) {
         self.lifetime = lifetime; self.generation = generation
@@ -186,8 +186,8 @@ final class Canvas2DReplayer {
                     c.setLineDash(phase: state.dashOffset, lengths: state.dash)
                 case .globalAlpha: c.setAlpha(n[0])
                 case .composite: c.setBlendMode(blends[min(Int(n[0]), blends.count - 1)])
-                case .linearGradient: gradients[UInt32(n[0])] = Gradient(linear: Array(n[1...4]))
-                case .radialGradient: gradients[UInt32(n[0])] = Gradient(radial: Array(n[1...6]))
+                case .linearGradient: gradients[UInt32(n[0])] = CanvasGradient(linear: Array(n[1...4]))
+                case .radialGradient: gradients[UInt32(n[0])] = CanvasGradient(radial: Array(n[1...6]))
                 case .colorStop:
                     let id = UInt32(n[0])
                     if var g = gradients[id] {

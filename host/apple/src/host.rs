@@ -38,8 +38,12 @@ mod height_drag;
 mod height_tests;
 #[path = "holds.rs"]
 mod holds;
+#[path = "paint.rs"]
+mod paint;
 #[path = "paragraph.rs"]
 mod paragraph;
+#[path = "presence.rs"]
+mod presence;
 #[cfg(test)]
 #[path = "transform_drag_tests.rs"]
 mod transform_drag_tests;
@@ -49,6 +53,9 @@ pub use height::{HeightOwnerChange, HeightOwnerDisposition, HeightOwnerError};
 use height_drag::{HeightDrag, HeightHandle};
 #[path = "layout.rs"]
 mod layout;
+#[cfg(test)]
+#[path = "storage_tests.rs"]
+mod storage_tests;
 #[path = "svg.rs"]
 mod svg;
 #[path = "svg_lower.rs"]
@@ -115,6 +122,7 @@ pub struct Host<D: DataSource> {
     /// Last published common collection snapshot; refreshed only after layout.
     collections_json: String,
     engine: Engine,
+    paint: paint::Paint,
     holds: BTreeMap<u64, HoldToken>,
     height_owner: Option<NodeKey>,
     height_handles: BTreeMap<NodeKey, HeightHandle>,
@@ -123,6 +131,7 @@ pub struct Host<D: DataSource> {
     transform_drags: TransformDrags,
     /// The one Arrange contact, from its catch until its source settles.
     arrange: Option<arrange::Arrange>,
+    presence: presence::Presence,
     content_region: Option<crate::content_region::RegionState>,
     /// Lists whose last report stopped before their rows' heights were read back
     /// (a registered content region publishes as it lays out, so a report is
@@ -333,10 +342,7 @@ impl<D: DataSource> Host<D> {
             carried,
             snapshot,
             facts,
-            exact_runner::Viewport {
-                width: width as f64,
-                height: height as f64,
-            },
+            exact_runner::Viewport::sized(width as f64, height as f64),
             launch,
         )
         .map_err(HostError::Runner)?;
@@ -380,6 +386,7 @@ impl<D: DataSource> Host<D> {
                 engine.set_lowered_properties(&svg::LOWERED);
                 engine
             },
+            paint: paint::Paint::default(),
             holds: BTreeMap::new(),
             height_owner: None,
             height_handles: BTreeMap::new(),
@@ -387,6 +394,7 @@ impl<D: DataSource> Host<D> {
             height_drag: None,
             transform_drags: TransformDrags::new()?,
             arrange: None,
+            presence: presence::Presence::default(),
             content_region,
             list_unsettled: BTreeSet::new(),
             height_projection: Vec::new(),
@@ -430,7 +438,8 @@ impl<D: DataSource> Host<D> {
         for c in host.runner.take_commands() {
             batch.command(&c.name, &c.args);
         }
-        // The engine hears the whole tree once: values, no transitions.
+        // The engine hears the whole tree once: values, no transitions; an
+        // `animation` starts now, as a browser starts one on a new element.
         let mut sync = MotionSync::default();
         for id in &order {
             if let Some(node) = host.runner.kernel().node(*id) {
@@ -440,6 +449,7 @@ impl<D: DataSource> Host<D> {
         let applied = sync.apply(&mut host.engine);
         debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
         svg_lower::eligibility(host.runner.kernel(), &mut host.engine, &sync);
+        host.boot_paint(&order);
         host.reconcile_height_handles(&mut batch, true);
         host.layout(&mut batch).map_err(HostError::Layout)?;
         host.canvas_limits();
@@ -451,6 +461,7 @@ impl<D: DataSource> Host<D> {
         host.present(&mut batch, true);
         let timers = host.runner.timer_due_ms();
         let motion = !host.engine.quiescent();
+        batch.spatial = host.engine.spatial();
         let clock = host.runner.now_ms();
         Ok((host, batch.finish(timers, motion, clock, None)))
     }
@@ -506,10 +517,15 @@ impl<D: DataSource> Host<D> {
     fn configure_storage(source: &mut D) -> Result<(), exact_runner::DataError> {
         use exact_runner::DataError;
         use std::path::PathBuf;
-        // Scripted drives must not read or write the developer's app files.
-        if std::env::var_os("EXACT_AGENT").is_some() {
-            return Ok(());
-        }
+        // Scripted drives must not read or write the developer's app files;
+        // one that names a scratch tree gets storage there instead.
+        let scratch = match std::env::var_os("EXACT_AGENT") {
+            Some(_) => match agent_scratch()? {
+                Some(name) => Some(name),
+                None => return Ok(()),
+            },
+            None => None,
+        };
         let app_id = source.app_id().to_string();
         if app_id.is_empty() {
             return Ok(());
@@ -525,11 +541,15 @@ impl<D: DataSource> Host<D> {
             .map(PathBuf::from)
             .filter(|p| p.is_absolute())
             .ok_or_else(|| DataError::Unavailable("app storage needs an absolute HOME".into()))?;
-        let data = home
+        let mut data = home
             .join("Library/Application Support/exact")
             .join(&app_id)
             .join("data");
-        let cache = home.join("Library/Caches/exact").join(&app_id);
+        let mut cache = home.join("Library/Caches/exact").join(&app_id);
+        if let Some(name) = scratch {
+            cache = cache.join("agent").join(name);
+            data = cache.join("data");
+        }
         // Sibling roots keep app:/cache grants from implicitly reaching tmp.
         // The user's cache base avoids a predictable shared /tmp directory.
         let temporary = cache.join("temporary");
@@ -547,6 +567,16 @@ impl<D: DataSource> Host<D> {
     /// commit that handed it out (LLP 1027.002 D3).
     pub fn dispatch_work(&mut self, token: u64) -> exact_runner::Dispatch {
         self.runner.dispatch_work(token)
+    }
+
+    /// Take the source's announced topics, waking the host (LLP 1016.002).
+    pub fn listen(&mut self, wake: std::sync::Arc<dyn Fn() + Send + Sync>) {
+        self.runner.listen(wake);
+    }
+
+    /// A long native call's work: the source's native handler, off this thread.
+    pub fn native_work(&mut self, request: &exact_runner::Request) -> exact_runner::Dispatch {
+        self.runner.native_work(request)
     }
 
     /// Work a source held at dispatch that the last commit released.
@@ -633,8 +663,16 @@ impl<D: DataSource> Host<D> {
     /// the ones before it stand.
     pub fn fulfill_all(&mut self, outcomes: Vec<(u64, Outcome)>, now_ms: f64) -> String {
         self.now_ms = now_ms.max(self.now_ms);
-        let mut receipts = Vec::new();
-        let mut error = None;
+        // Announced topics first: what the device said before these replies.
+        let (announced, failed) = self.runner.apply_announced();
+        let mut error = failed.map(|e| format!("{e:?}"));
+        let mut receipts: Vec<Timed> = announced
+            .into_iter()
+            .map(|receipt| Timed {
+                at_ms: self.now_ms,
+                receipt,
+            })
+            .collect();
         for (ticket, outcome) in outcomes {
             match self.runner.fulfill(ticket, outcome) {
                 Ok(Some(receipt)) => receipts.push(Timed {
@@ -824,6 +862,46 @@ impl<D: DataSource> Host<D> {
         }
     }
 
+    /// The user's display preferences (LLP 1061 D4): re-answer
+    /// `exactViewport` in one commit; the same preferences commit nothing.
+    pub fn set_preferences(&mut self, preferences: exact_runner::Preferences) -> String {
+        match self.runner.set_preferences(preferences) {
+            Ok(Some(receipt)) => self.commit(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => self.finish(Batch::new(), None),
+            Err(e) => self.finish(Batch::new(), Some(format!("preferences: {e:?}"))),
+        }
+    }
+
+    /// The viewer's locale and zone, beside the date: one commit when it changes.
+    pub fn set_place(&mut self, locale: &str, time_zone: &str, seed: Option<f64>) -> String {
+        let mut receipts = Vec::new();
+        let mut error = None;
+        let place = self.runner.set_place(locale, time_zone);
+        let seeded = seed
+            .map(|seed| self.runner.set_seed(seed))
+            .unwrap_or(Ok(None));
+        for result in [place, seeded] {
+            match result {
+                Ok(Some(receipt)) => receipts.push(Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }),
+                Ok(None) => {}
+                Err(e) => error = Some(format!("place: {e:?}")),
+            }
+        }
+        if receipts.is_empty() {
+            return self.finish(Batch::new(), error);
+        }
+        self.commit(&receipts, error)
+    }
+
     fn resize_inner(&mut self, width: f32, height: f32) -> String {
         // @ref LLP 1039 D2 — merge re-answer and relayout, once.
         let receipt = match self.runner.set_viewport(width as f64, height as f64) {
@@ -832,6 +910,7 @@ impl<D: DataSource> Host<D> {
         };
         self.viewport = (width, height);
         self.height_targets_dirty = true;
+        self.presence.snap = true;
         if let Some(receipt) = receipt {
             return self.commit(
                 &[Timed {
@@ -1028,6 +1107,7 @@ impl<D: DataSource> Host<D> {
     }
 
     fn finish(&self, mut batch: Batch, error: Option<String>) -> String {
+        batch.spatial = self.engine.spatial();
         batch.canvas_frames(self.runner.canvas_wants_frame());
         batch.finish(
             self.runner.timer_due_ms(),
@@ -1067,6 +1147,7 @@ impl<D: DataSource> Host<D> {
         .then(|| self.runner.handlers());
         for t in receipts {
             let r = &t.receipt;
+            self.begin_exits(r, &mut batch);
             for key in &r.destroyed {
                 if let Some(id) = self.keys.remove(key) {
                     if let Some((owner, _)) = self.inline_runs.remove(&id) {
@@ -1075,7 +1156,9 @@ impl<D: DataSource> Host<D> {
                         self.mirror.remove(&id);
                     } else if !self.native_selected_id(id) {
                         self.mirror.remove(&id);
-                        batch.destroy(id);
+                        if !self.exit_holds(id, &mut batch) {
+                            batch.destroy(id);
+                        }
                     }
                     self.transform_drags.remove(id);
                 }
@@ -1126,10 +1209,14 @@ impl<D: DataSource> Host<D> {
                 .engine
                 .advance((t.at_ms / 1000.0).max(self.engine.now()));
             debug_assert!(seek.is_ok(), "the clock never runs backwards here");
-            let sync = self.runner.kernel().motion_sync(&t.receipt);
+            let mut sync = self.runner.kernel().motion_sync(&t.receipt);
+            self.spare_exits(&mut sync);
             let applied = sync.apply(&mut self.engine);
             debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
             svg_lower::eligibility(self.runner.kernel(), &mut self.engine, &sync);
+            self.play_exits(&mut batch);
+            self.seed_layout(&t.receipt);
+            self.sync_paint(&t.receipt, &mut batch);
             self.reconcile_height_handles(&mut batch, true);
             let synced = self.sync_height_owner();
             debug_assert!(synced.is_ok(), "validated height sync");
@@ -1171,65 +1258,6 @@ impl<D: DataSource> Host<D> {
         self.emit_transform_drags(&mut batch);
         self.present(&mut batch, false);
         self.finish(batch, error)
-    }
-
-    /// Every presentation value the engine changed, as `present` ops. At
-    /// boot, and for a view the batch creates, only values that are not the
-    /// property's identity: the presenter starts every view at identity (a
-    /// reused one is reset to it), and the four motion rows are never in the
-    /// style dictionary. A list row's views were four identity ops each,
-    /// about half of what a fill batch carried.
-    fn present(&mut self, batch: &mut Batch, boot: bool) {
-        self.holds.retain(|_, token| self.engine.has_hold(*token));
-        let mut colored: Vec<ViewId> = Vec::new();
-        for p in self.engine.frame() {
-            if p.property == Property::Height {
-                continue;
-            }
-            if p.property.is_color() {
-                // @ref LLP 1055.000 D6 — an `svg`'s scene shows its colours;
-                // a box's are its style, re-sent with the presented value.
-                let key = NodeKey {
-                    index: p.node as u32,
-                    generation: (p.node >> 32) as u32,
-                };
-                if let Some(view) = self.keys.get(&key).copied() {
-                    if !self.svg.touch(self.runner.kernel(), view) && !colored.contains(&view) {
-                        colored.push(view);
-                    }
-                }
-                continue;
-            }
-            let identity = p.property.identity() == Some(p.value);
-            if boot && identity {
-                continue;
-            }
-            let key = NodeKey {
-                index: p.node as u32,
-                generation: (p.node >> 32) as u32,
-            };
-            let Some(view) = self.keys.get(&key).copied() else {
-                continue;
-            };
-            if identity && batch.creates(view) {
-                continue;
-            }
-            if self.inline_runs.contains_key(&view) || self.svg.presented(view) {
-                continue;
-            }
-            if self.native_protected_id(view) && !self.native_current() {
-                continue;
-            }
-            let (x, y) = match p.property {
-                Property::Translate => (p.value.x, p.value.y),
-                _ => (p.value.x, 0.0),
-            };
-            batch.present(view, p.property.name(), x, y);
-        }
-        for view in colored {
-            self.present_colors(view, batch);
-        }
-        self.svg.emit(self.runner.kernel(), &self.engine, batch);
     }
 
     fn preorder(&self) -> Vec<ViewId> {
@@ -1347,6 +1375,11 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
         let _: PropId = id;
         out.insert(id.name().to_string(), text);
     }
+    // Swift paints a paragraph from its runs' `text`: the string the kernel
+    // measured, `text-transform` applied (LLP 1064 D5).
+    if let Some(std::borrow::Cow::Owned(shown)) = node.shown_text() {
+        out.insert(PropId::Text.name().to_string(), shown);
+    }
     if node.node_type == NodeType::List && node.props.bool(PropId::Virtualized) == Some(true) {
         // The runner preserves collection anchors and follows the end using
         // sequence-checked corrections. Eager native autoscroll would compete.
@@ -1383,107 +1416,24 @@ fn handler_name(e: EventKind) -> Option<&'static str> {
     }
 }
 
-#[cfg(test)]
-mod storage_tests {
-    use super::*;
-    use exact_kernel::MonospaceMeasurer;
-    use exact_plan::{builder::PlanBuilder, Value};
-    use exact_runner::DataError;
-    use std::path::PathBuf;
-    use std::sync::{Arc, Mutex};
-
-    #[derive(Default)]
-    struct Seen {
-        paths: Option<[PathBuf; 3]>,
-        activations: usize,
-    }
-
-    struct Source(&'static str, Arc<Mutex<Seen>>);
-    impl DataSource for Source {
-        fn app_id(&self) -> &str {
-            self.0
+/// A scripted drive's scratch storage (`EXACT_AGENT_STORAGE=<name>`): a tree
+/// of its own under the cache base, so a drive can exercise storage without
+/// touching the app's real files. Absent, a drive has no storage.
+fn agent_scratch() -> Result<Option<String>, exact_runner::DataError> {
+    let Some(name) = std::env::var_os("EXACT_AGENT_STORAGE") else {
+        return Ok(None);
+    };
+    match name.to_str() {
+        Some(name)
+            if !matches!(name, "" | "." | "..")
+                && name
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b".-_".contains(&b)) =>
+        {
+            Ok(Some(name.to_owned()))
         }
-        fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
-            Err(DataError::UnknownSource(name.into()))
-        }
-        fn configure_storage(
-            &mut self,
-            data: PathBuf,
-            cache: PathBuf,
-            temporary: PathBuf,
-        ) -> Result<(), DataError> {
-            let mut seen = self.1.lock().unwrap();
-            assert_eq!(seen.activations, 0, "configuration precedes app activation");
-            seen.paths = Some([data, cache, temporary]);
-            Ok(())
-        }
-        fn activate(&mut self) -> Result<(), DataError> {
-            self.1.lock().unwrap().activations += 1;
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn storage_configuration_is_post_pixel_app_scoped_and_absent_in_agent_mode() {
-        const CHILD: &str = "EXACT_STORAGE_CONFIGURATION_TEST";
-        if std::env::var_os(CHILD).is_none() {
-            for agent in [false, true] {
-                let mut command = std::process::Command::new(std::env::current_exe().unwrap());
-                command.args(["--exact", "host::storage_tests::storage_configuration_is_post_pixel_app_scoped_and_absent_in_agent_mode"])
-                    .env(CHILD, "1").env_remove("EXACT_AGENT");
-                if agent {
-                    command.env("EXACT_AGENT", "1");
-                }
-                let output = command.output().unwrap();
-                assert!(
-                    output.status.success(),
-                    "{}\n{}",
-                    String::from_utf8_lossy(&output.stdout),
-                    String::from_utf8_lossy(&output.stderr)
-                );
-            }
-            return;
-        }
-        let mut builder = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
-        builder.node(NodeType::View as u8, None, None, 0, &[], &[], None);
-        let plan = builder.finish().unwrap().encode();
-        let mut paths = Vec::new();
-        for app_id in ["test.exact.storage.a", "test.exact.storage.b"] {
-            let seen = Arc::new(Mutex::new(Seen::default()));
-            let (mut host, _) = Host::boot(
-                &plan,
-                Source(app_id, seen.clone()),
-                Box::new(MonospaceMeasurer::default()),
-                10.0,
-                10.0,
-            )
-            .unwrap();
-            assert_eq!(seen.lock().unwrap().activations, 0);
-            assert!(
-                seen.lock().unwrap().paths.is_none(),
-                "boot cannot configure storage"
-            );
-            host.activate_data();
-            host.activate_data();
-            let seen = seen.lock().unwrap();
-            assert_eq!(seen.activations, 1);
-            if std::env::var_os("EXACT_AGENT").is_some() {
-                assert!(seen.paths.is_none());
-            } else {
-                let app_paths = seen.paths.as_ref().unwrap();
-                assert!(app_paths.iter().all(|p| p.is_absolute()));
-                for (index, path) in app_paths.iter().enumerate() {
-                    assert!(path.components().any(|part| part.as_os_str() == app_id));
-                    assert!(app_paths
-                        .iter()
-                        .enumerate()
-                        .all(|(other, p)| other == index || !p.starts_with(path)));
-                }
-                paths.push(app_paths.clone());
-            }
-        }
-        if paths.len() == 2 {
-            assert!(paths[0].iter().zip(&paths[1]).all(|(a, b)| a != b));
-        }
+        _ => Err(exact_runner::DataError::Unavailable(
+            "EXACT_AGENT_STORAGE: one name of letters, digits, '.', '-' or '_'".into(),
+        )),
     }
 }

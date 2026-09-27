@@ -52,6 +52,9 @@ pub struct Document {
     /// The active head's fields: the page's `<head>` (LLP 1048.003 D1). A
     /// head node has no element in the root.
     pub head: exact_runner::Head,
+    /// Every `@keyframes` rule an element's `animation` names, once each
+    /// (LLP 1055 D7), for the head: a reader without JavaScript sees it play.
+    pub keyframes: String,
 }
 
 /// Why a tree has no document.
@@ -105,6 +108,7 @@ fn walk<D: DataSource>(
         fonts: font_names(runner.plan()),
         handlers: runner.handlers(),
         routes: SortedMap::new(),
+        keyframes: SortedMap::new(),
         out: String::new(),
         links: 0,
         buttons: 0,
@@ -125,6 +129,7 @@ fn walk<D: DataSource>(
         viewport_fit: prop(PropId::ViewportFit),
         interactive_widget: prop(PropId::InteractiveWidget),
         head: runner.head(),
+        keyframes: walk.keyframes.values().map(String::as_str).collect(),
     };
     Ok((document, walk.computed))
 }
@@ -149,6 +154,7 @@ struct Walk<'r, D: DataSource> {
     fonts: Vec<String>,
     handlers: SortedMap<ViewId, Vec<EventKind>>,
     routes: SortedMap<ViewId, Route>,
+    keyframes: SortedMap<String, String>,
     out: String,
     /// Open `a` and `button` elements: the parser closes an open one when a
     /// second starts inside it, and a button's containers are `<span>`s.
@@ -178,6 +184,20 @@ impl<D: DataSource> Walk<'_, D> {
         let mut props = props_for(&node);
         super::svg_props(kernel, &node, &mut props);
         let (text, _) = css::css_text(&super::css_style(kernel, &node), &self.fonts);
+        // The rules its animations name, for the head: a reader without
+        // JavaScript sees them play (LLP 1055 D7).
+        for a in node
+            .style
+            .animation
+            .0
+            .iter()
+            .chain(&node.style.exit_animation.0)
+        {
+            if self.keyframes.get(&a.name).is_none() {
+                let rule = format!("@keyframes {}{{{}}}", a.name, a.keyframes.css());
+                self.keyframes.insert(a.name.clone(), rule);
+            }
+        }
         let mut style = host_css(&node, text, tag);
         let kept = self.computed.is_some().then(|| style.clone());
         // `glue.js` create: a canvas is a `div` holding the surface element.

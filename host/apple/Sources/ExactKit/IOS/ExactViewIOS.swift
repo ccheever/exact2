@@ -30,7 +30,8 @@ public final class ExactView: UIView {
     public init(session: ExactSession) {
         self.session = session
         super.init(frame: .zero)
-        backgroundColor = .white
+        // The launch screen's colour (the manifest's `launch`) until the first frame names the canvas.
+        backgroundColor = UIColor(named: "ExactLaunch") ?? .white
         addSubview(session.presenter.viewport)
         keyboardObserver = NotificationCenter.default.addObserver(
             forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { [weak self] _ in
@@ -42,7 +43,11 @@ public final class ExactView: UIView {
         session.presenter.onTitle = { [weak self] title in self?.onTitle?(title) }
         session.presenter.onKeyboardResize = { [weak self] in self?.fit() }
         session.presenter.observeKeyboard()
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (view: ExactView, _: UITraitCollection) in view.reportScheme() }
     }
+
+    /// Paint motion resolves `light-dark()` by this view's appearance (LLP 1062).
+    private func reportScheme() { session.scheme(dark: traitCollection.userInterfaceStyle == .dark) }
 
     required init?(coder: NSCoder) { nil }
     deinit { keyboardObserver.map(NotificationCenter.default.removeObserver) }
@@ -203,6 +208,7 @@ public final class ExactView: UIView {
     /// nothing of the insets — hand them over again, and fit the root.
     func rebooted() {
         if lastInsets != .zero { session.insets(top: lastInsets.top, right: lastInsets.right, bottom: lastInsets.bottom, left: lastInsets.left) }
+        reportScheme()
         fit()
     }
 }

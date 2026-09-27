@@ -1,0 +1,30 @@
+// LLP 1066's parity page: `background-image` gradients, the browser the oracle.
+// Twelve 100×70 boxes on a 125×95 grid, no text: linear by the default
+// direction, an angle and a magic corner; `transparent` into a colour over
+// the page and over a background colour (CSS mixes premultiplied); a hard
+// stop under a clip-path; radial ellipse, circle and corner extents; a
+// rounded box, a bordered one (the gradient box is the padding box), and
+// `light-dark()` stops. `dark` switches the scheme. Chrome's pictures (the
+// web host at 1×) are gradients.web.png as booted and gradients.web-dark.png
+// after `dark`; Linux's raster test and the Apple XCTests hold their own
+// paint to them within an antialiasing band.
+component Gradients
+  state dark = false
+  action scheme writes dark
+    dark = not dark
+    setScheme(dark ? "light" : "dark")
+  view
+    main testId="gradients" position="relative" width=390 height=460 background-color="light-dark(#ffffff, #121212)"
+      box testId="linear" position="absolute" left=20 top=20 width=100 height=70 background-image="linear-gradient(#e53935, #1e88e5)"
+      box testId="angle" position="absolute" left=145 top=20 width=100 height=70 background-image="linear-gradient(30deg, #fdd835, #43a047 60%, #1e88e5)"
+      box testId="corner" position="absolute" left=270 top=20 width=100 height=70 background-image="linear-gradient(to top right, #e53935, #fdd835 50%, #1e88e5)"
+      box testId="fade" position="absolute" left=20 top=115 width=100 height=70 background-image="linear-gradient(transparent, #1e88e5)"
+      box testId="over" position="absolute" left=145 top=115 width=100 height=70 background-color="#fdd835" background-image="linear-gradient(to right, transparent, #e53935cc)"
+      box testId="clip" position="absolute" left=270 top=115 width=100 height=70 clip-path="path('M 50 0 L 100 70 L 0 70 Z')" background-image="linear-gradient(90deg, #e53935 50%, #1e88e5 50%)"
+      box testId="radial" position="absolute" left=20 top=210 width=100 height=70 background-image="radial-gradient(#fdd835, #e53935)"
+      box testId="circle" position="absolute" left=145 top=210 width=100 height=70 background-image="radial-gradient(circle closest-side at 30% 40%, #ffffff, #1e88e5 80%, #000000)"
+      box testId="ellipse" position="absolute" left=270 top=210 width=100 height=70 background-image="radial-gradient(ellipse closest-corner at 70px 20px, #43a047, transparent)"
+      box testId="rounded" position="absolute" left=20 top=305 width=100 height=70 border-radius=24 background-image="linear-gradient(to right, #43a047, #1e88e5)"
+      box testId="bordered" position="absolute" left=145 top=305 width=100 height=70 box-sizing="border-box" border-style="solid" border-width=8 border-color="#000000" border-radius=16 background-image="radial-gradient(circle at top left, #fdd835, #e53935)"
+      box testId="scheme" position="absolute" left=270 top=305 width=100 height=70 border-radius=20 background-image="linear-gradient(light-dark(#e53935, #80deea), light-dark(#fdd835, #ce93d8))"
+      button testId="dark" press=scheme aria-label="Scheme" position="absolute" left=20 top=400 width=40 height=40 background-color="#757575"

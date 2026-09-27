@@ -313,6 +313,13 @@ impl TransformOrigin {
                 }
                 let (va, aa) = part(a)?;
                 let (vb, ab) = part(b)?;
+                // Keywords may come in either order; a length is always x
+                // then y (CSS Transforms 1 §6: `10px left` is no origin).
+                let lengths = (aa.is_none() && !a.eq_ignore_ascii_case("center"))
+                    || (ab.is_none() && !b.eq_ignore_ascii_case("center"));
+                if lengths && (aa == Some(false) || ab == Some(true)) {
+                    return None;
+                }
                 if aa == Some(false) || ab == Some(true) {
                     // `top left`: swapped keywords.
                     (aa != Some(true) && ab != Some(false))
@@ -338,6 +345,20 @@ impl TransformOrigin {
     /// Whether both numbers are finite.
     pub fn is_finite(&self) -> bool {
         self.x.is_finite() && self.y.is_finite()
+    }
+
+    /// The point in a `width` × `height` border box, from its top-left
+    /// (a box's origin, LLP 1061 D6).
+    pub fn resolve(&self, width: f32, height: f32) -> (f32, f32) {
+        (
+            super::length::resolve(self.x, width),
+            super::length::resolve(self.y, height),
+        )
+    }
+
+    /// Whether it is the centre, CSS's initial value for a box.
+    pub fn centred(&self) -> bool {
+        *self == Self::default()
     }
 
     /// The origin in user units, against a reference box `(x, y, w, h)`.

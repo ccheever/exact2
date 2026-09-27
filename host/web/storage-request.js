@@ -2,6 +2,7 @@
 // as TS. Handles never cross this boundary. @ref LLP 1027.001 D2.
 import { createFileSystem } from './storage-fs.js';
 import { createSqlite } from './storage-sqlite.js';
+import { agentStorageRefusal, storageKey } from './storage-environment.js';
 const maxBytes = 16 << 20;
 const encoder = new TextEncoder();
 const bytes = args => {
@@ -28,20 +29,20 @@ const wire = value => {
 const result = r => ({changes:String(r.changes),lastInsertRowid:String(r.lastInsertRowid)});
 function base64(bytes) { let text='';for (let i=0;i<bytes.length;i+=16384)text+=String.fromCharCode(...bytes.subarray(i,i+16384));return btoa(text); }
 export function createStorageRequests(appId, admitted) {
-  const services = new Map(); let disposed = false;
+  const services = new Map(), key = storageKey(appId, location.href); let disposed = false;
   const check = () => { if(disposed)throw new Error('storage source unloaded'); };
   const lines = admitted.split('\n').map(s=>s.trim()).filter(Boolean);
   return {
     async run(payload, scope = null) {
       try {
         check();
-        if (new URL(location.href).searchParams.has('agent')) throw new Error('storage is unavailable in agent mode');
+        if (key == null) throw new Error(agentStorageRefusal);
         if (encoder.encode(payload).length > maxBytes) throw new Error('storage request exceeds its byte limit');
         const request=JSON.parse(payload), {op,args}=request;
         if (request.version!==1 || !args || typeof args.path!=='string' || !args.path.startsWith('app:/')) throw new Error('invalid portable storage request');
         scope ??= admitted;
         if (typeof scope!=='string' || scope.split('\n').map(s=>s.trim()).filter(Boolean).some(s=>!lines.includes(s))) throw new Error("source scope exceeds the app's admitted grants");
-        if (!services.has(scope)) services.set(scope,{fs:createFileSystem(appId,scope),sqlite:createSqlite(appId,scope)});
+        if (!services.has(scope)) services.set(scope,{fs:createFileSystem(key,scope),sqlite:createSqlite(key,scope)});
         const {fs,sqlite}=services.get(scope); let value;
         if (op==='sqlite' || op==='sqlite.transaction') {
           if (!Array.isArray(args.commands) || args.commands.length>10000) throw new Error('invalid SQLite commands');

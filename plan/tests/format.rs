@@ -502,8 +502,8 @@ fn a_huge_announced_count_reserves_little_before_it_is_refused() {
     // (count > remaining), and never reserved 16M entries first.
     let plan = sample();
     let mut bytes = plan.encode();
-    // strings count sits right after the 40-byte header.
-    bytes[40..44].copy_from_slice(&(1u32 << 24).to_le_bytes());
+    // strings count sits right after the 44-byte header.
+    bytes[44..48].copy_from_slice(&(1u32 << 24).to_le_bytes());
     assert!(matches!(Plan::decode(&bytes), Err(PlanError::BadCount(_))));
 }
 

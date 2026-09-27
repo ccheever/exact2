@@ -339,3 +339,75 @@ fn fixed_line_height_keeps_each_inline_fonts_shared_baseline_extents() {
         measured.first_baseline.unwrap()
     );
 }
+
+#[test]
+fn a_drop_cap_flows_its_auto_height_paragraph_and_what_follows_moves() {
+    // @ref LLP 1043.000 §8 — auto height, measured around what is painted.
+    pin_font();
+    let mut heights = Vec::new();
+    for wrap in ["auto", "both"] {
+        let source = format!(
+            r#"component App
+  view
+    box width=360 padding=20 position="relative"
+      box position="absolute" left=20 top=20 width=48 height=48 wrap-flow="{wrap}" shape-outside="inset(0)" shape-margin=6
+        text "T" font-size=48 line-height=1
+      text "There is an hour when the garden belongs to neither day nor night. The visitors have gone, but the birds have not yet settled. Every leaf holds a different green." testId="lede" line-height=1.5
+      text "After." testId="after"
+"#
+        );
+        let plan = contract::compile(&source).unwrap();
+        let (mut p, error) = Presenter::boot_with(
+            &plan.encode(),
+            NoData,
+            (400.0, 600.0),
+            1.0,
+            PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        let kernel = p.host().kernel();
+        let node = |test_id: &str| {
+            kernel
+                .node_by_key(kernel.find_by_test_id(test_id)[0])
+                .unwrap()
+        };
+        let (lede, after) = (node("lede"), node("after"));
+        assert_eq!(lede.flow_refusal(), None);
+        assert_eq!(after.frame.y, lede.frame.y + lede.frame.height);
+        heights.push(lede.frame.height);
+        let (id, frame) = (lede.id, lede.frame);
+        let reply: serde_json::Value =
+            serde_json::from_str(&p.layout_json(Some(id), false)).unwrap();
+        let node = &reply["node"];
+        if wrap == "auto" {
+            assert!(node.get("fragments").is_none(), "{reply}");
+            continue;
+        }
+        // The box is [14, 74] in the column, [-6, 54] in the paragraph: the
+        // bands above 54 (0, 24, 48) start beside it, the next at the margin.
+        let fragments = node["fragments"].as_array().unwrap();
+        let band = |f: &serde_json::Value| f["band"].as_u64().unwrap();
+        let x = |f: &serde_json::Value| f["x"].as_f64().unwrap();
+        assert!(
+            fragments
+                .iter()
+                .filter(|f| band(f) <= 2)
+                .all(|f| x(f) >= 54.),
+            "{reply}"
+        );
+        assert!(
+            fragments.iter().any(|f| band(f) == 3 && x(f) == 0.),
+            "{reply}"
+        );
+        // Painted is measured: the frame ends at the last painted band.
+        let last = fragments.last().unwrap();
+        let bottom = last["y"].as_f64().unwrap() + last["height"].as_f64().unwrap();
+        assert!(
+            (bottom - frame.height as f64).abs() < 0.01,
+            "{bottom} vs {frame:?}"
+        );
+    }
+    assert!(heights[1] > heights[0], "{heights:?}");
+}

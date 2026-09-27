@@ -496,8 +496,11 @@ is a build step, not the loop. The native apps take the plan push already
 **An app outside this repo** (2026-08-30; weird-castle, `~/projects/weird-castle`,
 consuming exact2 by path from `../exact2`): `scripts/app.mjs` `resolveApp` is
 where every script learns what an app is — `apps/<name>` here, or the directory
-`EXACT_APP_DIR` names, with its own cargo workspace (exact2's profiles and the
-Taffy patch copied) and its own `target/`. `build.mjs`, `dev.mjs`, the Apple
+`EXACT_APP_DIR` names, with its own cargo workspace and its own `target/`.
+`exact new <path>` generates that workspace (LLP 1036.001 D2): the crates.io
+patches, the toolchain and the lock come from this checkout, and `resolveApp`
+checks the patches and toolchain on every run. exact2's profiles are injected,
+not copied (D1). `build.mjs`, `dev.mjs`, the Apple
 `build.mjs`, and `scripts/agent.mjs --app` resolve through it; `dist/` and the
 Swift products stay this repo's one slot per host, last build wins. The app's
 `exact.mjs` sets `EXACT_APP_DIR` and calls these scripts unchanged. Diagnostics resolve the

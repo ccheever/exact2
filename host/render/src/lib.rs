@@ -354,6 +354,7 @@ fn hand_out<D: DataSource>(runner: &mut Runner<D>, executor: &Executor, held: &m
         }
         let dispatch = match r.request.continuation {
             Some(token) => runner.dispatch_work(token),
+            None if r.request.is_native() => runner.native_work(&r.request),
             None => Dispatch::Missing,
         };
         run(executor, held, r, dispatch);
@@ -448,7 +449,7 @@ pub fn main<D: DataSource + 'static>(baked: &[u8], data: fn() -> D) -> std::proc
                 let Some((width, height)) = size else {
                     return usage();
                 };
-                viewport = exact_runner::Viewport { width, height };
+                viewport = exact_runner::Viewport::sized(width, height);
             }
             "--name" => match args.next() {
                 Some(value) => name = value,

@@ -487,11 +487,15 @@ impl<D: DataSource> Runner<D> {
                                 self.discard_request(&request);
                             }
                             pending_res[i] = self.pending_res[i];
+                            self.store.take_topics();
                             let answer = self.query(i, &args)?;
                             force.retain(|forced| *forced != i);
                             if self.store.reads() > reads_before {
                                 self.store_readers[i] = true;
                             }
+                            // What a fresh answer watches replaces what the
+                            // last one did; its reply's parse may add more.
+                            self.watching[i] = self.store.take_topics();
                             match answer {
                                 Answer::Now(v) => {
                                     // A re-read shows the source's answer and
@@ -743,6 +747,7 @@ mod tests {
         bad_guard: bool,
         write_on_parse: bool,
         read_store: bool,
+        fail_parse: bool,
         adopted: Vec<(String, Vec<Value>, Value)>,
     }
 
@@ -756,6 +761,7 @@ mod tests {
                 bad_guard: false,
                 write_on_parse: false,
                 read_store: false,
+                fail_parse: false,
                 adopted: Vec::new(),
             }
         }
@@ -798,6 +804,11 @@ mod tests {
         ) -> Result<Answer, DataError> {
             if self.write_on_parse {
                 store.set("token", "candidate")?;
+            }
+            if self.fail_parse {
+                return Err(DataError::Unavailable(
+                    "took 180 ms, over the 100 ms budget".into(),
+                ));
             }
             Ok(Answer::Now(self.value.clone()))
         }
@@ -873,6 +884,51 @@ mod tests {
 
     fn tick(r: &mut Runner<Data>) {
         r.act("tick", vec![Value::Number(1.)]).unwrap();
+    }
+
+    /// A reply the source cannot take is let go, not restored as pending
+    /// with nobody left to deliver it (FRICTION F2 in the grnl port).
+    #[test]
+    fn a_reply_the_source_fails_to_parse_is_no_longer_pending() {
+        let mut data = Data::new(records(1));
+        data.later = true;
+        let mut r = boot(plan(TypeKind::Number, None, false, false), data);
+        let requests = r.take_requests();
+        assert_eq!(requests.len(), 1);
+        assert!(r.has_pending());
+        r.data().fail_parse = true;
+        let receipt = r
+            .fulfill(
+                requests[0].ticket,
+                Outcome::Response(crate::Response {
+                    status: 200,
+                    headers: vec![],
+                    body: vec![],
+                }),
+            )
+            .expect("the release commits");
+        assert!(receipt.is_some());
+        assert!(!r.has_pending(), "the failed reply is let go");
+        assert!(!r.holds(requests[0].ticket));
+        assert!(
+            r.take_requests().is_empty(),
+            "and not asked again by itself"
+        );
+        // `refresh` still asks.
+        r.data().fail_parse = false;
+        r.act("refresh", vec![]).unwrap();
+        let again = r.take_requests();
+        assert_eq!(again.len(), 1);
+        r.fulfill(
+            again[0].ticket,
+            Outcome::Response(crate::Response {
+                status: 200,
+                headers: vec![],
+                body: vec![],
+            }),
+        )
+        .unwrap();
+        assert!(!r.has_pending());
     }
 
     #[test]
@@ -1087,7 +1143,7 @@ mod tests {
     }
 
     #[test]
-    fn async_answers_validate_before_reuse_and_refusal_keeps_ticket_and_store() {
+    fn async_answers_validate_before_reuse_and_refusal_releases_ticket_but_keeps_store() {
         let mut r = boot(
             plan(TypeKind::Number, None, false, false),
             Data::new(records(1)),
@@ -1098,14 +1154,32 @@ mod tests {
         let before = r.carry();
         r.data().write_on_parse = true;
         r.data().value = Value::list(vec![Value::record(vec![Value::str("bad")])]);
-        assert!(matches!(
-            r.fulfill(ticket, Outcome::Storage(vec![])),
-            Err(RunnerError::Shape { .. })
-        ));
-        assert_eq!(r.carry(), before);
-        r.data().value = records(2);
+        // The refused reply rolls back, and its ticket is let go: no host
+        // delivers a ticket twice, so a kept one would be pending forever.
         assert!(r
             .fulfill(ticket, Outcome::Storage(vec![]))
+            .unwrap()
+            .is_some());
+        assert!(!r.has_pending());
+        assert_eq!(
+            r.resource("rows"),
+            Some(&records(1)),
+            "it keeps its last value"
+        );
+        assert_eq!(
+            r.carry().store,
+            before.store,
+            "the refused parse wrote nothing"
+        );
+        assert!(r
+            .fulfill(ticket, Outcome::Storage(vec![]))
+            .unwrap()
+            .is_none());
+        r.data().value = records(2);
+        r.act("refresh", vec![]).unwrap();
+        let again = r.take_requests().remove(0).ticket;
+        assert!(r
+            .fulfill(again, Outcome::Storage(vec![]))
             .unwrap()
             .is_some());
         assert_eq!(r.resource("rows"), Some(&records(2)));
@@ -1116,10 +1190,6 @@ mod tests {
         checks();
         tick(&mut r);
         assert_eq!(checks(), 0);
-        assert!(r
-            .fulfill(ticket, Outcome::Storage(vec![]))
-            .unwrap()
-            .is_none());
     }
 
     #[test]
@@ -1136,17 +1206,20 @@ mod tests {
         r.data().value = records(2);
         r.data().write_on_parse = true;
         r.data().bad_guard = true;
-        assert!(matches!(
-            r.fulfill(ticket, Outcome::Storage(vec![])),
-            Err(RunnerError::Shape { .. })
-        ));
-        assert_eq!(r.resource("rows"), Some(&records(1)));
-        assert_eq!(r.carry(), before);
-        assert_eq!(r.kernel().export(None).unwrap(), tree);
-        assert!(!r.is_poisoned());
-        r.data().bad_guard = false;
         assert!(r
             .fulfill(ticket, Outcome::Storage(vec![]))
+            .unwrap()
+            .is_some());
+        assert_eq!(r.resource("rows"), Some(&records(1)));
+        assert_eq!(r.carry().store, before.store);
+        assert_eq!(r.kernel().export(None).unwrap(), tree);
+        assert!(!r.is_poisoned());
+        assert!(!r.has_pending(), "the refused reply is let go");
+        r.data().bad_guard = false;
+        r.act("refresh", vec![]).unwrap();
+        let again = r.take_requests().remove(0).ticket;
+        assert!(r
+            .fulfill(again, Outcome::Storage(vec![]))
             .unwrap()
             .is_some());
         assert_eq!(r.resource("rows"), Some(&records(2)));

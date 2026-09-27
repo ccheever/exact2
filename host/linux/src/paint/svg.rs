@@ -164,10 +164,6 @@ fn ink(p: Option<&ShapePaint>, dark: bool, to_path: [f32; 6]) -> Option<Ink<'_>>
     })
 }
 
-fn rgba8(c: [u8; 4]) -> Value {
-    Value::rgba8(c[0], c[1], c[2], c[3])
-}
-
 fn affine(t: [f32; 6]) -> Transform {
     Transform::from_row(t[0], t[1], t[2], t[3], t[4], t[5])
 }
@@ -258,11 +254,8 @@ pub fn resolve_with(
                 Property::Y => Value::scalar(v.svg[5]? as f64),
                 Property::Rx => Value::scalar(v.svg[6]? as f64),
                 Property::Ry => Value::scalar(v.svg[7]? as f64),
-                Property::Color => rgba8(v.colors[0]?),
-                Property::BackgroundColor => rgba8(v.colors[1]?),
-                Property::Fill => rgba8(v.colors[2]?),
-                Property::Stroke => rgba8(v.colors[3]?),
-                Property::Height => return None,
+                p if Property::PAINT.contains(&p) => v.colors.value(p)?,
+                _ => return None,
             })
         };
         scene::resolve(kernel, node, content, &value)

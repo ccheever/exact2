@@ -26,6 +26,9 @@ pub struct AnimationPlay {
     pub start: f64,
     /// While paused, the local time it holds.
     pub hold: Option<f64>,
+    /// The appearance its `light-dark()` keyframes took when it started, as
+    /// a browser resolves a rule once (LLP 1062 D9).
+    pub dark: bool,
 }
 
 impl AnimationPlay {
@@ -39,7 +42,7 @@ impl AnimationPlay {
     }
 
     /// Whether it animates a property the engine samples.
-    fn sampled(&self, lowered: &[bool; Property::COUNT], forced: bool) -> bool {
+    fn sampled(&self, lowered: &[bool; Property::COUNT + 1], forced: bool) -> bool {
         forced
             || self
                 .animation
@@ -91,12 +94,14 @@ impl Engine {
                         animation: a.clone(),
                         start,
                         hold,
+                        dark: prior.dark,
                     }
                 }
                 None => AnimationPlay {
                     animation: a.clone(),
                     start: now,
                     hold: a.paused.then_some(0.0),
+                    dark: self.dark_of(node),
                 },
             };
             plays.push(play);
@@ -138,13 +143,13 @@ impl Engine {
     /// tracks their starts and pauses but never samples them into frames or
     /// keeps the clock busy for them. The web lowers every property.
     pub fn set_lowered(&mut self, lowered: bool) {
-        self.lowered = [lowered; Property::COUNT];
+        self.lowered = [lowered; Property::COUNT + 1];
     }
 
     /// Lower only these properties' animations (Apple: the ones Core
     /// Animation plays faithfully); the engine samples the rest per frame.
     pub fn set_lowered_properties(&mut self, properties: &[Property]) {
-        self.lowered = [false; Property::COUNT];
+        self.lowered = [false; Property::COUNT + 1];
         for p in properties {
             self.lowered[*p as usize] = true;
         }
@@ -202,11 +207,89 @@ impl Engine {
     /// interval with no fill contributes nothing. `None` when none applies.
     pub fn animated(&self, node: u64, property: Property, underlying: Value) -> Option<Value> {
         let now = self.now;
-        self.animations
-            .get(&node)?
-            .iter()
-            .rev()
-            .find_map(|play| play.animation.sample(play.local(now), property, underlying))
+        self.animations.get(&node)?.iter().rev().find_map(|play| {
+            play.animation
+                .sample_in(play.local(now), property, underlying, play.dark)
+        })
+    }
+
+    /// Play a node's `exit-animation` as it leaves (LLP 1063), from the
+    /// current clock, after the animations it already plays: as a browser
+    /// appends the exit to the element's `animation` list, those keep
+    /// running and the exit composites over them. An exit naming keyframes
+    /// the node already plays starts again, as a second entry of that name
+    /// does. Returns the clock time the last exit animation ends.
+    pub fn play_exit(&mut self, node: u64, exit: &Animations) -> Result<f64, EngineError> {
+        exit.validate_ending()
+            .map_err(|_| EngineError::InvalidAnimation)?;
+        let (now, dark) = (self.now, self.dark_of(node));
+        for a in &exit.0 {
+            for p in a.keyframes.properties() {
+                self.dirty.insert((node, p));
+            }
+        }
+        let plays = self.animations.entry(node).or_default();
+        plays.extend(exit.0.iter().map(|animation| AnimationPlay {
+            animation: animation.clone(),
+            start: now,
+            hold: None,
+            dark,
+        }));
+        self.animating.insert(node);
+        Ok(now + exit.end_time())
+    }
+
+    /// The host's appearance, which a keyframe's `light-dark()` colour takes
+    /// when its animation starts (LLP 1062 D9): Chrome resolves the rule
+    /// once, and a playing animation keeps its colours across a flip. With
+    /// `playing`, those take it too, in place and keeping their start: a
+    /// host's first report correcting the appearance it booted under.
+    pub fn set_dark(&mut self, dark: bool, playing: bool) {
+        self.dark = dark;
+        if !playing {
+            return;
+        }
+        let nodes: Vec<u64> = self
+            .animations
+            .keys()
+            .copied()
+            .filter(|n| !self.node_dark.contains_key(n))
+            .collect();
+        for node in nodes {
+            self.redark(node, dark);
+        }
+    }
+
+    /// One node's own appearance, where it differs from the host's (`None`:
+    /// the host's again): a view whose appearance is not its window's (LLP
+    /// 1062 D4). With `playing`, its playing animations take it in place, as
+    /// [`Engine::set_dark`]'s first report does.
+    pub fn set_node_dark(&mut self, node: u64, dark: Option<bool>, playing: bool) {
+        match dark {
+            Some(dark) => self.node_dark.insert(node, dark),
+            None => self.node_dark.remove(&node),
+        };
+        if playing {
+            self.redark(node, self.dark_of(node));
+        }
+    }
+
+    fn dark_of(&self, node: u64) -> bool {
+        self.node_dark.get(&node).copied().unwrap_or(self.dark)
+    }
+
+    fn redark(&mut self, node: u64, dark: bool) {
+        let Some(plays) = self.animations.get_mut(&node) else {
+            return;
+        };
+        for p in plays.iter_mut().filter(|p| p.dark != dark) {
+            p.dark = dark;
+            for frame in &p.animation.keyframes.0 {
+                for (property, _) in &frame.dark {
+                    self.dirty.insert((node, *property));
+                }
+            }
+        }
     }
 
     /// Mark every property of every live sampled animation dirty, and retire

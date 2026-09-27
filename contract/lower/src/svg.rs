@@ -374,26 +374,50 @@ impl Lowerer<'_> {
                 css.push_str(&selectors.join(","));
                 css.push('{');
                 for a in &frame.attrs {
+                    // `border-color` is its four sides' (LLP 1062 D9).
+                    let sides = [
+                        "border-top-color",
+                        "border-right-color",
+                        "border-bottom-color",
+                        "border-left-color",
+                    ];
+                    let names: &[&str] = match a.name.as_str() {
+                        "border-color" => &sides,
+                        name => &[name],
+                    };
                     let known = a.name == "animation-timing-function"
-                        || Property::from_name(&a.name).is_some_and(|p| p != Property::Height);
+                        || names
+                            .iter()
+                            .all(|n| Property::from_name(n).is_some_and(|p| p != Property::Height));
                     if !known {
                         ok = false;
                         errors.push(LowerError {
                             id: "lower-keyframe-property",
                             message: format!(
-                                "`{}` cannot animate: keyframes take opacity, translate, scale, rotate, stroke-dashoffset, r, cx, cy, x, y, rx, ry, color, background-color, fill, stroke and animation-timing-function (LLP 1055.000 D6, D15)",
+                                "`{}` cannot animate: keyframes take opacity, translate, scale, rotate, stroke-dashoffset, r, cx, cy, x, y, rx, ry, color, background-color, border-color and its sides, tint-color, box-shadow, fill, stroke and animation-timing-function (LLP 1055.000 D6, D15; LLP 1062 D9)",
                                 a.name
                             ),
                             span: a.span,
                         });
                         continue;
                     }
-                    let value = match &a.value {
-                        Expr::Number(n, _) => exact_num::Shortest(*n).to_string(),
-                        Expr::Str(s, _) => s.clone(),
-                        _ => unreachable!("the parser admits literals only"),
+                    // A literal, or a palette function of literal arguments
+                    // folded to one (LLP 1062 D9).
+                    let Some(value) = crate::keyframes::constant(&a.value, &file.fns) else {
+                        ok = false;
+                        errors.push(LowerError {
+                            id: "lower-keyframes",
+                            message: format!(
+                                "`{}` in `keyframes {}` is a number or a string known when the app compiles: written, or returned by a function of literal arguments",
+                                a.name, decl.name
+                            ),
+                            span: a.span,
+                        });
+                        continue;
                     };
-                    css.push_str(&format!("{}:{value};", a.name));
+                    for name in names {
+                        css.push_str(&format!("{name}:{value};"));
+                    }
                 }
                 css.push('}');
             }
@@ -541,8 +565,11 @@ impl Lowerer<'_> {
                     a.span,
                 );
             }
-            if a.name == "animation" {
+            if matches!(a.name.as_str(), "animation" | "exit-animation") {
                 self.check_animation_names(tag, &a.value)?;
+            }
+            if a.name == "exit-animation" {
+                exit_ends(&a.value)?;
             }
         }
         Ok(())
@@ -694,6 +721,26 @@ impl Lowerer<'_> {
             span: first.span,
         });
         Ok(Some(out))
+    }
+}
+
+/// An `exit-animation` must end (LLP 1063 D2): its node is removed when it
+/// does, so an `infinite` or `paused` literal is refused here.
+fn exit_ends(value: &Expr) -> Result<(), LowerError> {
+    match value {
+        Expr::Str(text, span) => match Animations::parse(text) {
+            Ok(list) if list.validate_ending().is_err() => err(
+                "lower-exit-endless",
+                "an `exit-animation` must end: its node is removed when it does, so it cannot be `infinite` or `paused`",
+                *span,
+            ),
+            _ => Ok(()),
+        },
+        Expr::Ternary(_, yes, no, _) => {
+            exit_ends(yes)?;
+            exit_ends(no)
+        }
+        _ => Ok(()),
     }
 }
 

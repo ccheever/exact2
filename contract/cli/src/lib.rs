@@ -18,6 +18,7 @@ mod map;
 pub mod native;
 mod rust;
 mod sources;
+mod strings;
 mod surface;
 mod symbols;
 mod typescript;
@@ -318,11 +319,13 @@ fn compile_path_output(
         contract_analyze::check_surface_arguments(&file, &declared)
             .map_err(|e| sources.resolve(e.into()))?;
     }
-    let (mut plan, sites) = compile_file_output(&file, Some(&app_root), mapped).map_err(|all| {
-        all.into_iter()
-            .map(|e| sources.resolve(e))
-            .collect::<Vec<_>>()
-    })?;
+    let strings = strings::load(&app_root, path)?;
+    let (mut plan, sites) =
+        compile_file_output(&file, Some(&app_root), strings, mapped).map_err(|all| {
+            all.into_iter()
+                .map(|e| sources.resolve(e))
+                .collect::<Vec<_>>()
+        })?;
     if app_root.join("app.json").is_file() {
         let manifest = Manifest::read(&app_root).map_err(|message| CompileError {
             pass: "app",
@@ -458,7 +461,7 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
 }
 
 fn compile_file(file: File, asset_root: Option<&Path>) -> Result<Plan, CompileError> {
-    compile_file_output(&file, asset_root, false)
+    compile_file_output(&file, asset_root, None, false)
         .map(|(plan, _)| plan)
         .map_err(first)
 }
@@ -472,6 +475,7 @@ impl From<CompileError> for Vec<CompileError> {
 fn compile_file_output(
     file: &File,
     asset_root: Option<&Path>,
+    strings: Option<std::sync::Arc<contract_types::strings::Strings>>,
     mapped: bool,
 ) -> Result<(Plan, Option<contract_lower::Sites>), Vec<CompileError>> {
     // Each pass runs on what the one before it accepted, and reports all of
@@ -499,7 +503,7 @@ fn compile_file_output(
         all
     };
     contract_analyze::check_routes_root(file, true).map_err(CompileError::from)?;
-    let checked = contract_types::check_all(file, mapped, contract_lower::tags::style)
+    let checked = contract_types::check_all(file, mapped, contract_lower::tags::style, strings)
         .map_err(|all| with_lint(each(all, hint)))?;
     let analysis =
         contract_analyze::check_all(&checked).map_err(|all| with_lint(each(all, hint)))?;
@@ -523,10 +527,7 @@ pub fn bake<D: DataSource>(mut plan: Plan, data: D) -> Result<Plan, BakeError> {
         plan.clone(),
         data,
         Kernel::with_monospace(),
-        exact_runner::Viewport {
-            width: LINT_VIEWPORT.0 as f64,
-            height: LINT_VIEWPORT.1 as f64,
-        },
+        exact_runner::Viewport::sized(LINT_VIEWPORT.0 as f64, LINT_VIEWPORT.1 as f64),
         "/",
     )?;
     lint(&mut runner)?;

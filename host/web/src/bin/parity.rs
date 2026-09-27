@@ -34,8 +34,9 @@ fn main() -> ExitCode {
             let samples = fixture.lines().filter(|l| l.starts_with("sample ")).count();
             if mismatches.is_empty() {
                 println!(
-                    "motion parity: the engine matches the browser on all {samples} samples (within {})",
-                    exact_web::parity::TOLERANCE
+                    "motion parity: the engine matches the browser on all {samples} samples (within {}; a colour within {:?})",
+                    exact_web::parity::TOLERANCE,
+                    exact_web::parity::COLOR_TOLERANCE
                 );
                 ExitCode::SUCCESS
             } else {

@@ -66,15 +66,16 @@ pub use instance::collection::{
 pub use instance::{ListLinks, SurfaceUpdate, LISTS};
 pub use request::{
     io_grants, Answer, Dispatch, FailureKind, HttpScheduling, Outcome, Placement, Reply, Request,
-    RequestOut, Response, SurfaceOutcome, SurfaceRequest, Work, MAX_HOST_WORK_BYTES,
+    RequestOut, Response, SurfaceOutcome, SurfaceRequest, Work, MAX_HOST_WORK_BYTES, NATIVE_URL,
 };
 pub use runner::{
-    routing, Advanced, CanvasList, Carried, Checkpoint, Command, DataError, DataSource, DrawReply,
-    DrawRequest, Drawn, Event, Geometry, InFlight, Interrupt, Limits, ListStatus, ListTextPosition,
-    ListViewport, RouterChange, RouterLink, Routing, Runner, RunnerError, RunnerLinks,
-    SurfaceAnswer, Target, Timed, JOURNAL_RING, MAX_CLOCK_MS, TIMER_FIRE_LIMIT,
+    routing, Advanced, Announce, CanvasList, Carried, Checkpoint, Command, DataError, DataSource,
+    DrawReply, DrawRequest, Drawn, Event, Geometry, InFlight, Interrupt, Limits, ListStatus,
+    ListTextPosition, ListViewport, Native, NativeHandler, RouterChange, RouterLink, Routing,
+    Runner, RunnerError, RunnerLinks, SurfaceAnswer, Target, Timed, JOURNAL_RING, MAX_CLOCK_MS,
+    TIMER_FIRE_LIMIT,
 };
 pub use store::{Store, StoreError, StoreWrite};
 pub use uses::{uses, Capability, Uses};
-pub use viewport::Viewport;
+pub use viewport::{Preferences, Viewport};
 pub use vm::Trap;

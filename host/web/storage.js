@@ -1,13 +1,13 @@
 // Storage completions belong to an answer checkpoint, not an arbitrary browser
 // microtask. @ref LLP 1027 D10: host work returns through the data seam.
-import { directories } from './storage-environment.js';
+import { agentStorageRefusal, directories, storageKey } from './storage-environment.js';
 let fileFactory, sqliteFactory;
 
-export function createStorage(win, admitted, scope, agent = new URL(location.href).searchParams.has('agent')) {
+export function createStorage(win, admitted, scope, key = storageKey(admitted.appId, location.href)) {
   // Once storage has been used, a replacement reserves its owner before the
   // old realm is disposed, retaining the shared SQLite worker across reloads.
-  let fs = fileFactory?.(admitted.appId, admitted.grants);
-  let sqlite = sqliteFactory?.(admitted.appId, admitted.grants);
+  let fs = key && fileFactory?.(key, admitted.grants);
+  let sqlite = key && sqliteFactory?.(key, admitted.grants);
   let fsLoading, sqliteLoading;
   const queues = new Map(), waiters = new Map(), retired = new WeakSet();
   let disposed = false;
@@ -20,16 +20,16 @@ export function createStorage(win, admitted, scope, agent = new URL(location.hre
   const fileSystem = () => fs ? Promise.resolve(fs) : fsLoading ??= import('./storage-fs.js').then(({ createFileSystem }) => {
     fileFactory = createFileSystem;
     if (disposed) throw unavailable();
-    return fs = createFileSystem(admitted.appId, admitted.grants);
+    return fs = createFileSystem(key, admitted.grants);
   });
   const databaseSystem = () => sqlite ? Promise.resolve(sqlite) : sqliteLoading ??= import('./storage-sqlite.js').then(({ createSqlite }) => {
     sqliteFactory = createSqlite;
     if (disposed) throw unavailable();
-    return sqlite = createSqlite(admitted.appId, admitted.grants);
+    return sqlite = createSqlite(key, admitted.grants);
   });
   function enqueue(invoke, convert = clone, discard = () => {}) {
     if (disposed) return win.Promise.reject(unavailable());
-    if (agent) return win.Promise.reject(error({message:'storage is unavailable in agent mode'}));
+    if (key == null) return win.Promise.reject(error({message:agentStorageRefusal}));
     const owner = scope();
     const active = () => { if (disposed || retired.has(owner)) throw unavailable(); };
     return new win.Promise((resolve, reject) => {

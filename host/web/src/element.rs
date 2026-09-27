@@ -6,7 +6,7 @@
 
 use exact_kernel::svg::Paint;
 use exact_kernel::SortedMap;
-use exact_kernel::{Kernel, NodeRef, NodeType, PropId, PropValue};
+use exact_kernel::{Kernel, NodeRef, NodeType, ObjectFit, PropId, PropValue, StyleId};
 
 /// A canvas's element hosts its surface element under its children
 /// (`glue.js`, LLP 1014 D2): a containing block for it, unless the author
@@ -39,6 +39,31 @@ pub(super) fn host_css(node: &NodeRef<'_>, mut css: String, tag: &str) -> String
             .is_none_or(|display| display == "block")
     {
         css.push_str("display:flow-root;");
+    }
+    // A raster image with a `tint-color` is a template (LLP 1011 §3): its
+    // alpha masks the tint, fitted and centered in the content box as
+    // `object-fit` fits the picture, which moves out of the box, where the
+    // replaced element's own clip hides it. `scale-down` needs the natural
+    // size, which only the page knows: the glue sets `--exact-tint-fit`.
+    if node.node_type == NodeType::Image && node.style.mask.has(StyleId::TintColor) {
+        if let Some(source) = node
+            .props
+            .str(PropId::ImageSource)
+            .filter(|s| !s.starts_with("symbol:"))
+        {
+            let size = match node.style.object_fit {
+                ObjectFit::Fill => "100% 100%",
+                ObjectFit::Contain => "contain",
+                ObjectFit::Cover => "cover",
+                ObjectFit::None => "auto",
+                ObjectFit::ScaleDown => "var(--exact-tint-fit,contain)",
+            };
+            css.push_str("background-color:var(--exact-tint);mask-image:url(");
+            css.push_str(&crate::css::css_string(source));
+            css.push_str(");mask-size:");
+            css.push_str(size);
+            css.push_str(";mask-repeat:no-repeat;mask-position:center;mask-origin:content-box;mask-clip:content-box;object-position:-100000px 0;");
+        }
     }
     css
 }

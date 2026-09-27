@@ -222,6 +222,7 @@ impl<D: DataSource> Bridge<D> {
                 }
                 let dispatch = match r.request.continuation {
                     Some(token) => h.dispatch_work(token),
+                    None if r.request.is_native() => h.native_work(&r.request),
                     None => {
                         Self::run_dispatch(h, x, parked, r, exact_runner::Dispatch::Missing);
                         continue;
@@ -463,11 +464,13 @@ impl<D: DataSource> Bridge<D> {
                     host.log(&format!("{why}; every request is refused"));
                 }
                 host.commit_boot();
-                self.executor = Some(crate::executor::Executor::start(
+                let executor = crate::executor::Executor::start(
                     bindings,
                     &host.grants(),
                     hooks.wake.map(|w| (w, hooks.wake_ctx)),
-                ));
+                );
+                host.listen(executor.waker());
+                self.executor = Some(executor);
                 self.host = Some(host);
                 self.parked.clear();
                 Ok(batch)
@@ -759,11 +762,13 @@ impl<D: DataSource> Bridge<D> {
             return self.prepare_error("{\"ops\":[],\"error\":\"no prepared plan\"}".into());
         };
         candidate.host.commit_boot();
-        self.executor = Some(crate::executor::Executor::start(
+        let executor = crate::executor::Executor::start(
             candidate.bindings,
             &candidate.host.grants(),
             candidate.hooks.wake.map(|w| (w, candidate.hooks.wake_ctx)),
-        ));
+        );
+        candidate.host.listen(executor.waker());
+        self.executor = Some(executor);
         self.host = Some(candidate.host);
         self.parked.clear();
         self.emit(candidate.batch)
@@ -1041,6 +1046,17 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// The user's display preferences changed or became known (LLP 1061
+    /// D4): bit 0 reduced motion, bit 1 reduced transparency.
+    pub fn set_preferences(&mut self, bits: u32) -> u32 {
+        let preferences = exact_runner::Preferences::from_bits(bits);
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_preferences(preferences));
+        self.emit(out)
+    }
+
     /// The date changed or became known (LLP 1027.000.000).
     pub fn set_time(&mut self, epoch_at_zero: f64, utc_offset: f64) -> u32 {
         let out = self
@@ -1050,12 +1066,50 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// The locale and time zone, as `locale NUL timeZone` in the input buffer.
+    pub fn set_place(&mut self, len: usize) -> u32 {
+        // `locale NUL timeZone`, then `NUL seed` at launch.
+        let text = std::str::from_utf8(&self.input[..len.min(self.input.len())]).unwrap_or("");
+        let mut fields = text.split('\0');
+        let (Some(locale), Some(zone)) = (fields.next(), fields.next()) else {
+            return self.emit(exact_runner::agent::error(
+                "place: expected locale NUL timeZone",
+            ));
+        };
+        let seed = fields.next().and_then(|s| s.parse::<f64>().ok());
+        let (locale, zone) = (locale.to_owned(), zone.to_owned());
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_place(&locale, &zone, seed));
+        self.emit(out)
+    }
+
     /// The safe-area insets changed.
     pub fn insets(&mut self, top: f32, right: f32, bottom: f32, left: f32) -> u32 {
         let out = self
             .host
             .as_mut()
             .map_or_else(not_booted, |h| h.set_insets(top, right, bottom, left));
+        self.emit(out)
+    }
+
+    /// The presenter's appearance, which `light-dark()` paint motion resolves by.
+    pub fn scheme(&mut self, dark: bool) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_scheme(dark));
+        self.emit(out)
+    }
+
+    /// One view's own appearance, where the presenter finds it differs from
+    /// the session's (LLP 1062 D4).
+    pub fn view_scheme(&mut self, view: u32, dark: bool) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_view_scheme(view, dark));
         self.emit(out)
     }
 

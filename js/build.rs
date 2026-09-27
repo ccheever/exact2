@@ -5,7 +5,9 @@
 //! The engine is the vanilla Hermes build the ibex repo produces
 //! (`ios/Frameworks-vanilla/`, receipt beside it): the bytecode-only
 //! `hermesvmlean` archive, JSI, and the headers. iOS uses matching lean CMake
-//! builds under `target/hermes-ios` (EXACT_HERMES_IOS_DIR overrides; LLP 1027 D6).
+//! builds, one per platform, which `host/apple/build.mjs --ios` builds once per
+//! machine into `~/.cache/exact/hermes/<pin>-lean-ios/{ios,ios-simulator}`
+//! (EXACT_HERMES_IOS_DIR overrides; LLP 1027 D6, LLP 1036.001 D5).
 //! All linked engine archives are captured in OUT_DIR for the bake receipt.
 //! On macOS, iOS and Linux a missing engine is a build error naming how to
 //! provision it; `EXACT_JS_ENGINE=stub` instead builds a stub whose
@@ -15,21 +17,22 @@
 //! `HERMES_INCLUDE_DIR` / `HERMES_LIB_DIR`.
 //!
 //! The pin is vanilla Hermes 260318099.0.0-stable, facebook/hermes
-//! `6badada762121682b5481b6124e6c3a991ae6046` (ibex's
-//! `ios/Frameworks-vanilla/hermes-input-receipt.json`). SHA-256 of the
-//! provisioned inputs (2026-08-28):
+//! `HERMES_PIN` below, the one place it is written (ibex's
+//! `ios/Frameworks-vanilla/hermes-input-receipt.json`, where ibex wrote one,
+//! must name it). SHA-256 of the provisioned inputs (2026-08-28):
 //!
 //! - macOS `libhermesvmlean_a.a` `494f925f1aa667ebbb622be3da156af9c75465971201d438bf82945b50d36aa6`
 //! - macOS `libjsi.a` `b6a497618b6363fb1ed5ed0667b8441769cd232cdfaaa5ba9ed874c9fbb0fdde`
 //! - macOS `libboost_context.a` `cb3ffcfa31e515ff03978425e8618992fd77362b92e0ed94487f3e2d531012cb`
 //! - `hermesc-macos-arm64` `fa070c2feddee6968c6a5aef1c92bfb84c075be1471c4733ad0361b680d73132`
-//! - iOS device `libhermesvmlean_a.a` `2e01ddf9646fdff235092752b53bee5f2f42b6f411c9999c5fd2c32407a39d75`
-//! - iOS simulator `libhermesvmlean_a.a` `e78352300b330407a4ae6a94559d97e9f020ca766909999bed31329827ba5234`
 
 use std::env;
 use std::io::Read;
 use std::path::PathBuf;
 use std::process::Command;
+
+/// facebook/hermes, read by `scripts/app.mjs` (`hermesIos`) too.
+const HERMES_PIN: &str = "6badada762121682b5481b6124e6c3a991ae6046";
 
 fn main() {
     println!("cargo:rustc-check-cfg=cfg(exact_js_engine)");
@@ -42,6 +45,7 @@ fn main() {
         "EXACT_ROLLDOWN",
         "HERMES_INCLUDE_DIR",
         "HERMES_LIB_DIR",
+        "HOME",
     ] {
         println!("cargo:rerun-if-env-changed={var}");
     }
@@ -69,12 +73,18 @@ fn main() {
     let target = env::var("TARGET").unwrap_or_default();
     // The iOS input is a pair of lean CMake builds, not the full framework
     // (which also contains a compiler). No engine bytes enter Rust-only apps.
-    let ios = env::var_os("EXACT_HERMES_IOS_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| manifest.join("../target/hermes-ios"));
+    let ios = || {
+        env::var_os("EXACT_HERMES_IOS_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                PathBuf::from(env::var_os("HOME").expect("HOME"))
+                    .join(".cache/exact/hermes")
+                    .join(format!("{}-lean-ios", &HERMES_PIN[..12]))
+            })
+    };
     let linux = ibex.join("linux-vanilla");
     let (headers, static_dir, engine_lib_name, extra_libs) = if target_os == "ios" {
-        let static_dir = ios
+        let static_dir = ios()
             .join(
                 if target.ends_with("-sim") || target.starts_with("x86_64-") {
                     "ios-simulator"
@@ -138,12 +148,24 @@ fn main() {
         if hermes_target {
             assert!(
                 stub,
-                "exact-js: no Hermes for {target_os} at {}. Provision the pinned engine (js/build.rs header): macOS, ibex ./scripts/build-hermes.sh --vanilla (EXACT_HERMES_DIR if elsewhere); iOS, lean builds under target/hermes-ios (LLP 1027 D6; EXACT_HERMES_IOS_DIR); Linux, ibex ./scripts/build-hermes-linux.sh --vanilla --release --intl (HERMES_LIB_DIR). Or set EXACT_JS_ENGINE=stub for an executor that refuses to load.",
+                "exact-js: no Hermes for {target_os} at {}. Provision the pinned engine (js/build.rs header): macOS, ibex ./scripts/build-hermes.sh --vanilla (EXACT_HERMES_DIR if elsewhere); iOS, bun host/apple/build.mjs --ios builds them (LLP 1036.001 D5; EXACT_HERMES_IOS_DIR); Linux, ibex ./scripts/build-hermes-linux.sh --vanilla --release --intl (HERMES_LIB_DIR). Or set EXACT_JS_ENGINE=stub for an executor that refuses to load.",
                 static_dir.display()
             );
             println!("cargo:warning=exact-js: EXACT_JS_ENGINE=stub; the executor refuses to load");
         }
         return;
+    }
+    // Headers, compiler and VM come from one commit.
+    if let Ok(receipt) = std::fs::read_to_string(engine.join("hermes-input-receipt.json")) {
+        let commit = receipt
+            .split_once("\"sourceCommit\": \"")
+            .and_then(|(_, rest)| rest.get(..40))
+            .unwrap_or("none");
+        assert!(
+            commit == HERMES_PIN,
+            "exact-js: ibex's Hermes at {} is facebook/hermes {commit}; js/build.rs pins {HERMES_PIN}",
+            engine.display()
+        );
     }
     let out = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
     let mut library_paths = vec![engine_archive];

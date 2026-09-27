@@ -848,3 +848,48 @@ component App
     draft = text
   view
     Child(comment=post)
+---
+== lower-animation-name
+component A
+  view
+    text "a" animation="pulse 1s infinite"
+---
+== lower-exit-endless
+keyframes leave
+  to opacity=0
+component A
+  view
+    text "a" exit-animation="leave 1s infinite"
+---
+== lower-keyframe-property
+keyframes grow
+  from width=10
+component A
+  view
+    text "a"
+---
+== syntax-keyframe-selector
+keyframes grow
+  halfway opacity=1
+component A
+  view
+    text "a"
+---
+== lower-attr-value
+component A
+  view
+    button press-scale=0
+      text "a"
+---
+== lower-keyframe-property
+keyframes give
+  to press-scale=0.97
+component A
+  view
+    text "a"
+---
+== lower-attr-value
+component A
+  view
+    view transform-origin="10px left"
+      text "a"

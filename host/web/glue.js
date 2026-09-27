@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { focusController, runFocusCommands, environment, inertAncestor, navigation, afterPaintPieces, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst } from "./navigation.js";
+import { focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst } from "./navigation.js";
 let httpModule;
 function httpHelpers() {
   return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
@@ -17,6 +17,7 @@ const pieces = afterPaintPieces(loadAfterPaint, { root, views, applyBatch, inert
   replayed() { motion.commit(); arrange.commit(); if (agentMode) { register(agentClock); seek(agentClock); } },
   wasm(name, bytes) { if (!wasm) return null; new Uint8Array(memory.buffer, wasm.exact_in(bytes.length), bytes.length).set(bytes); return JSON.parse(readOut(wasm[name](bytes.length))); } });
 const { collections, motion, arrange } = pieces, retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
+const presence = presenceLoader(loadAfterPaint, root, batch => applyBatch(batch)); // exit-animation and layout-transition, after paint at first use (LLP 1063)
 let mediaModule;
 function syncMedia(el, set = {}, clear = []) {
   if (!(el instanceof HTMLVideoElement)) return;
@@ -36,6 +37,8 @@ let nativeHost = null; function nativeCreate(el, id) { const st = el.exactNative
   (nativeHost ??= new Promise(r => { try { new PerformanceObserver((l, o) => { o.disconnect(); requestAnimationFrame(r); }).observe({ type: 'paint', buffered: true }); } catch {} requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 250))); }).then(() => loadAfterPaint('./native-glue.js', 'nativeHost')).then(make => make({ log, dispatch(el, kind, text) { const id = Number(el.dataset.view); if (inputReady && views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, kind, text == null ? 0 : writeIn(text), now())); } }))).then(h => h.attach(el), e => { st.state = "unavailable"; st.error = String(e?.message ?? e); log(`native ${st.name} #${id}: unavailable: ${st.error}`); }); }
 const authoredDisabled = new WeakMap();
 let logicInfo = null, moduleLoader = null, activeModule = null, moduleResponse = new Uint8Array();
+const pageNative = Boolean(document.querySelector('meta[name="exact-native"]')); let pageNativeModule = null; // the app's module artifact answers `native.later` too (LLP 1067 D5), loaded after paint at first use (native-glue.js)
+const loadPageNative = () => pageNativeModule ??= loadAfterPaint('./native-glue.js', 'pageNative').then((load) => load(pageNative, (topic) => { if (inputReady && wasm.exact_changed) applyBatch(JSON.parse(readOut(wasm.exact_changed(writeIn(String(topic)))))); }));
 let rustLoader = null, rustLoading = null;
 const rustImports = Object.fromEntries(['load', 'call', 'read', 'drop'].map(name => [name, (...args) => {
   if (!rustLoader) throw new Error('Rust module loader is not ready');
@@ -300,18 +303,16 @@ function positionContexts() {
     }
   }
 }
-// @ref LLP 1039 D2 — layout viewport facts, on every resize, without debounce.
-addEventListener("resize", () => {
-  if (wasm && root.childElementCount) applyBatch(JSON.parse(readOut(wasm.exact_resize(innerWidth, innerHeight, now()))));
-  requestAnimationFrame(positionContexts);
-});
+// @ref LLP 1039 D2, LLP 1061 D4 — viewport facts and display preferences, on every change, without debounce.
+const mediaChanged = () => { if (wasm && root.childElementCount) applyBatch(JSON.parse(readOut(wasm.exact_resize(innerWidth, innerHeight, now(), preferences())))); requestAnimationFrame(positionContexts); }; addEventListener("resize", mediaChanged); onPreferences(mediaChanged);
 visualViewport?.addEventListener("resize", () => requestAnimationFrame(positionContexts));
-const symbolStyle = document.createElement("style");
-symbolStyle.textContent = 'img[data-symbol-path]{background-color:var(--exact-symbol-tint,#000)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,100% 100%);mask-origin:content-box;mask-clip:content-box}';
-document.head.append(symbolStyle);
+const symbolStyle = document.createElement("style"); document.head.append(symbolStyle);
+symbolStyle.textContent = '@property --exact-tint{syntax:"<color>";inherits:false;initial-value:#000}img[data-symbol-path]{background-color:var(--exact-tint)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,100% 100%);mask-origin:content-box;mask-clip:content-box}';
+// A tinted raster's `scale-down` (element.rs `host_css`, LLP 1011 §3): `contain` unless its natural size fits the content box, known once it loads.
+function tintFit(el) { if (!el.style.getPropertyValue("mask-size").includes("--exact-tint-fit")) return; if (!el.complete) { el.addEventListener("load", () => tintFit(el), { once: true }); return; } const cs = getComputedStyle(el); el.style.setProperty("--exact-tint-fit", el.naturalWidth <= el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) && el.naturalHeight <= el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) ? "auto" : "contain"); }
 function refreshSymbols() {
   for (const el of views.values()) {
-    if (!(el instanceof HTMLImageElement) || !el.hasAttribute("data-symbol-path")) continue;
+    if (!(el instanceof HTMLImageElement)) continue; if (!el.hasAttribute("data-symbol-path")) { tintFit(el); continue; }
     const cs = getComputedStyle(el), size = parseFloat(cs.fontSize), weight = Number(cs.fontWeight);
     const path = el.getAttribute("data-symbol-path"), filled = el.hasAttribute("data-symbol-fill"), key = `${path}:${filled}:${size}:${weight}`;
     if (!path && el.symbolRefusal !== el.symbolSource) {
@@ -327,7 +328,6 @@ function refreshSymbols() {
     }
     if (el.getAttribute("src") !== el.symbolPlaceholder) el.src = el.symbolPlaceholder;
     el.style.setProperty("--exact-symbol-mask", el.symbolMask);
-    el.style.setProperty("--exact-symbol-tint", el.style.getPropertyValue("--exact-tint") || "#000");
     const paddingX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight), paddingY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
     const fits = size <= el.clientWidth - paddingX && size <= el.clientHeight - paddingY;
     const fit = cs.objectFit === "none" || (cs.objectFit === "scale-down" && fits) ? `${size}px ${size}px` : cs.objectFit === "scale-down" ? "contain" : cs.objectFit === "fill" ? "100% 100%" : cs.objectFit;
@@ -533,13 +533,11 @@ function viewFor(op, id) {
   return el;
 }
 function apply(batch) {
-  // Retire dispatch before children ops can synchronously blur removed views.
+  // Retire dispatch before children ops can synchronously blur removed views; a leaving view's box is read before any op moves it (LLP 1063).
   for (const op of batch.ops ?? []) {
-    if (op.op === "destroy") {
-      const el = views.get(op.id);
-      if (el) retiredViews.add(el);
-    }
+    if (op.op === "destroy") { const el = views.get(op.id); if (el) retiredViews.add(el); }
   }
+  presence.live?.before(batch, views);
   listSelection?.before();
   prepareContexts(batch);
   for (const s of followedScrolls.values()) s.scrolled();
@@ -590,7 +588,7 @@ function apply(batch) {
         }
         // Reorder in place: keyed rows keep their elements (and their state).
         // A canvas's surface element is skipped: not a child, never removed.
-        const skip = (n) => { while (n?.hasAttribute("data-surface")) n = n.nextElementSibling; return n; };
+        const skip = (n) => { while (n?.hasAttribute("data-surface") || n?.hasAttribute("data-exiting")) n = n.nextElementSibling; return n; }; // a leaving view stays (LLP 1063)
         let cursor = skip(el.firstElementChild);
         for (const child of want) {
           if (child === cursor) { cursor = skip(cursor.nextElementSibling); continue; }
@@ -634,7 +632,6 @@ function apply(batch) {
       case "storage": {
         const requestIncarnation=incarnation;
         const p=Promise.resolve().then(async()=>{
-          if(agentMode)throw new Error('storage is unavailable in agent mode');
           await moduleReady; if(!inputReady)throw new Error('data executor is unavailable');
           if(requestIncarnation!==incarnation)throw new Error('storage source unloaded');
           if(!storageRequests){
@@ -680,6 +677,8 @@ function apply(batch) {
       case "request": {
         // Host and source scopes both admit the request (LLP 1027.001 D2).
         const { ticket, method, url, headers, body, cache } = op, requestIncarnation = incarnation;
+        if (url === "exact-native:") { // a long native call is the app's own page module's, not the network's
+          const p = loadPageNative().then((native) => native.later(body)).then((reply) => safelyFulfill(requestIncarnation, ticket, 0, 200, "", encoder.encode(reply)), (e) => safelyFulfill(requestIncarnation, ticket, 0, 500, "", encoder.encode(String(e?.message ?? e)))); inflight.add(p); p.finally(() => inflight.delete(p)); break; }
         const scopeValid = op.scope == null || typeof op.scope === 'string' && op.scope.split('\n').map(s=>s.trim()).filter(Boolean).every(s=>grants.map(g=>g.trim()).includes(s));
         // Plain bundled-asset GETs use the immutable app namespace.
         const asset = method === 'GET' && !body && Object.keys(headers).length === 0 && /^\/assets\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/.test(url);
@@ -746,7 +745,7 @@ function apply(batch) {
       case "destroy": {
         arrange.destroy(op.id);
         motion.destroy(op.id);
-        const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactMarkup?.destroy(); el.exactNative?.destroy(); if (el instanceof HTMLVideoElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); el.remove(); }
+        const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactMarkup?.destroy(); el.exactNative?.destroy(); if (el instanceof HTMLVideoElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); if (!presence.live?.keeps(el)) el.remove(); }
         views.delete(op.id); messageViews.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break;
       }
       case "roots": {
@@ -799,11 +798,11 @@ function apply(batch) {
   // committed before its focus handler runs.
   runFocusCommands(focusCommands, { root, ready: inputReady, inertAncestor, log });
   focusAutofocus();
-  positionContexts();
+  positionContexts(); presence.live?.after(batch, views);
   return batch.timers;
 }
 function applyBatch(batch) {
-  if (page?.hold(batch)) return { timers: batch.timers, batch }; textflow?.beforeBatch(batch);
+  if (page?.hold(batch) || presence.hold(batch)) return { timers: batch.timers, batch }; textflow?.beforeBatch(batch);
   globalThis.exact.applyDepth = (globalThis.exact.applyDepth ?? 0) + 1; try {
   const timers = apply(batch);
   motion.commit(); arrange.commit();
@@ -1120,7 +1119,7 @@ async function waitForInflight(deadline) {
   return helpers ? helpers.waitForInflight(inflight, deadline) : false;
 }
 async function settleGpu() { loadGpuIfNeeded(); await gpuLoading; await globalThis.exact.gpu?.settled(); }
-async function agent(request) { await loadStage('inspection'); return agentMode && gpuInPlay() ? settleGpu().then(() => agentNow(request)) : agentNow(request); }
+function agent(request) { if (!stageLoaded('inspection')) return loadStage('inspection').then(() => agent(request)); return agentMode && gpuInPlay() ? settleGpu().then(() => agentNow(request)) : agentNow(request); } // synchronous once inspection is in (LLP 1043.000 D7/D8)
 function agentNow(request) { const r = agentReply(request), decorate = globalThis.exact.gpu?.decorate; return decorate ? decorate(request, r) : r; }
 function agentReply(request) {
   try {
@@ -1318,11 +1317,11 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
     ptr = wasm.exact_in(bytes.length + launch.length);
     const payload = new Uint8Array(memory.buffer, ptr, bytes.length + launch.length);
     payload.set(bytes); payload.set(launch, bytes.length);
-    len = wasm.exact_boot_plan(bytes.length, innerWidth, innerHeight, launch.length);
+    len = wasm.exact_boot_plan(bytes.length, innerWidth, innerHeight, launch.length, preferences());
   } else {
     if (page?.checkpoint) wasm.exact_checkpoint(writeIn(page.checkpoint)); ptr = wasm.exact_in(launch.length);
     new Uint8Array(memory.buffer, ptr, launch.length).set(launch);
-    len = wasm.exact_boot(innerWidth, innerHeight, launch.length);
+    len = wasm.exact_boot(innerWidth, innerHeight, launch.length, preferences());
   }
   const batch = JSON.parse(readOut(len));
   if (batch.error) throw new Error(batch.error);
@@ -1360,6 +1359,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   focus.restart(kept, () => applyBatch(batch), () => ask({ op: "tree" }), id => views.get(id));
   // @ref LLP 1027.000.000 — the date, as the clock the runner already reads.
   if (wasm.exact_set_time) applyBatch(JSON.parse(readOut(wasm.exact_set_time(Date.now() - now(), -new Date().getTimezoneOffset()))));
+  if (wasm.exact_set_place) { const seed = crypto.getRandomValues(new Uint32Array(2)); applyBatch(JSON.parse(readOut(wasm.exact_set_place(writeIn(`${navigator.language}\0${Intl.DateTimeFormat().resolvedOptions().timeZone}\0${(seed[0] & 0x1fffff) * 4294967296 + seed[1]}`))))); } // the place, and the launch's seed: explicit entropy for ids, from the platform's secure source
   globalThis.exact?.gpu?.finishRestart();
   if (bytes && !module && (inputReady || root.dataset.error)) activateData(); // A restart after the first activation.
   if (oldAssets !== assets) releaseAssets(oldAssets);
@@ -1441,7 +1441,7 @@ async function main() {
   wasm = instance.exports; const [staged] = WebAssembly.Module.customSections(compiled, 'exact.stages'); if (staged) stages = JSON.parse(new TextDecoder().decode(staged)).stages;
   memory = wasm.memory;
   globalThis.exact.compat = JSON.parse(readOut(wasm.exact_compat()));
-  logicInfo = typeof wasm.exact_module_artifact === 'function' && wasm.exact_logic ? JSON.parse(readOut(wasm.exact_logic())) : null;
+  logicInfo = typeof wasm.exact_module_artifact === 'function' && wasm.exact_logic ? { ...JSON.parse(readOut(wasm.exact_logic())), native: pageNative } : null;
   setInputReady(false); // Every data executor activates after the baked first pixel.
   // Restore granted secrets before the baked frame (LLP 1018 D6).
   if (!agentMode) {

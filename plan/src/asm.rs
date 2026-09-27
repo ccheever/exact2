@@ -118,6 +118,11 @@ impl Asm {
         self.op(Opcode::LoadItem, &[Arg::U16(depth)])
     }
 
+    /// Push the position of the `each` row `depth` scopes out.
+    pub fn load_index(&mut self, depth: u16) -> &mut Self {
+        self.op(Opcode::LoadIndex, &[Arg::U16(depth)])
+    }
+
     /// Push the `match` binding `depth` scopes out.
     pub fn load_bound(&mut self, depth: u16) -> &mut Self {
         self.op(Opcode::LoadBound, &[Arg::U16(depth)])

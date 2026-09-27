@@ -1,6 +1,6 @@
 # An iOS TypeScript app needs Hermes provisioned by hand from an RFC paragraph
 
-**Status:** Open
+**Status:** Fixed (LLP 1036.001 D5 as built). The pin is `HERMES_PIN` in `js/build.rs`; an ibex receipt naming another commit is refused.
 **Systems:** Apple host build, exact-js, Hermes provisioning
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever

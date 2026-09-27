@@ -62,6 +62,9 @@ struct StyleRow {
     /// is the empty set (0) and each later value `i` is bit `i - 1`.
     #[serde(default)]
     keywords: Option<String>,
+    /// An `animations` row whose every animation must end (LLP 1063).
+    #[serde(default)]
+    ends: bool,
 }
 #[derive(Deserialize)]
 struct OpcodeRow {
@@ -207,6 +210,12 @@ fn validate(schema: &Schema) {
                 row.field
             );
         }
+        let ends_ok = !row.ends || matches!(codec, Codec::Animations);
+        assert!(
+            ends_ok,
+            "schema: ends applies to animations rows (`{}`)",
+            row.field
+        );
         if row.admits_auto {
             assert!(
                 matches!(codec, Codec::Dimension),
@@ -638,7 +647,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     // ---- StyleId / StyleCodec --------------------------------------------
     writeln!(w, "/// Wire codec of a style row.").unwrap();
     writeln!(w, "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]").unwrap();
-    writeln!(w, "pub enum StyleCodec {{ Dimension, LineHeight, F32, U8, U16, U32, I32, Rgba8, ColorValue, KeywordColor, Vec2, Color2, Tracks, Placement, Transitions, Animations, ClipPath, ShapeOutside, AspectRatio, Paint, DashArray, Transform, TransformOrigin, PaintOrder, Marker, Filter, Enum }}").unwrap();
+    writeln!(w, "pub enum StyleCodec {{ Dimension, LineHeight, F32, U8, U16, U32, I32, Rgba8, ColorValue, KeywordColor, Vec2, Color2, Tracks, Placement, Transitions, Animations, ClipPath, ShapeOutside, AspectRatio, Paint, DashArray, Transform, TransformOrigin, PaintOrder, Marker, Filter, BackgroundImage, Enum }}").unwrap();
     writeln!(w, "/// One style row; the discriminant is the mask bit.").unwrap();
     writeln!(w, "#[repr(u8)]").unwrap();
     writeln!(
@@ -1267,7 +1276,8 @@ fn generate(schema: &Schema, digest: u64) -> String {
                 writeln!(w, "        if self.mask.has(StyleId::{id}) {{ self.{field}.validate().map_err(StyleDomainError::InvalidTransition)?; }}").unwrap();
             }
             Codec::Animations => {
-                writeln!(w, "        if self.mask.has(StyleId::{id}) {{ self.{field}.validate().map_err(StyleDomainError::InvalidAnimation)?; }}").unwrap();
+                let check = ["validate", "validate_ending"][row.ends as usize];
+                writeln!(w, "        if self.mask.has(StyleId::{id}) {{ self.{field}.{check}().map_err(StyleDomainError::InvalidAnimation)?; }}").unwrap();
             }
             _ => {}
         }
@@ -1312,6 +1322,8 @@ fn generate(schema: &Schema, digest: u64) -> String {
             ),
             Codec::Transitions => "Transitions::parse(value.text(id)?).map_err(|_| StyleValueError::BadTransition { style: id })?".to_string(),
             // Names resolve against the plan's `@keyframes` after this (LLP 1055 D5).
+            // An exit must end (LLP 1063 D2), refused here as on the wire.
+            Codec::Animations if row.ends => "Animations::parse(value.text(id)?).ok().filter(|a| a.validate_ending().is_ok()).ok_or(StyleValueError::BadAnimation { style: id })?".to_string(),
             Codec::Animations => "Animations::parse(value.text(id)?).map_err(|_| StyleValueError::BadAnimation { style: id })?".to_string(),
             Codec::CssValue { path, error, .. } => format!("{path}::parse(&value.css_text(id)?).ok_or(StyleValueError::{error} {{ style: id }})?"),
             Codec::Color2 | Codec::Tracks | Codec::Placement => String::new(),

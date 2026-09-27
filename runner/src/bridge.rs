@@ -75,13 +75,12 @@ pub fn set_style(
         Value::Number(n) => StyleValue::Number(*n),
         Value::Str(s) => match s.as_ref() {
             "auto" if style.codec() == exact_kernel::StyleCodec::Dimension => StyleValue::Auto,
-            t if t.ends_with('%') => exact_num::parse_f64(&t[..t.len() - 1])
-                .map(StyleValue::Percent)
-                .map_err(|_| BridgeError::StyleKind {
-                    style,
-                    value: value.clone(),
-                })?,
-            t => StyleValue::Text(t.to_string()),
+            // A lone percentage is one; other text ending in `%` is a CSS
+            // value (`transform-origin: 0 100%`), as the compiler reads it.
+            t => match t.strip_suffix('%').map(exact_num::parse_f64) {
+                Some(Ok(p)) => StyleValue::Percent(p),
+                _ => StyleValue::Text(t.to_string()),
+            },
         },
         _ => {
             return Err(BridgeError::StyleKind {

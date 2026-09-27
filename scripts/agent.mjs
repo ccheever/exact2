@@ -1,21 +1,17 @@
 #!/usr/bin/env bun
-// The agent API's driver (LLP 1012): the eight operations —
-//   tree · screenshot · tap · type · state · layout · logs · clock
+// The agent API's driver (LLP 1012): the nine operations —
+//   tree · screenshot · tap · type · state · layout · logs · clock · prefer
 // — against a running app on either host, from one script, with the clock in
 // the driver's hands: nothing moves between two calls unless a call moved it.
 //
 // Usage:  bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--plan <file>] [--world <file>] [--url <page>] [--session <label>] [--json] <op> [<op> …]
 //   tree | layout | state | logs | screenshot <png> [window] | screenshot <path> <canvas> save
 //   tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name>
-//   clock <ms|+ms|settle>
+//   clock <ms|+ms|settle> | prefer <media feature> <value> […]
 // A target is a testId or a view id; each op is one argument (quote it).
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
-// began, changed, and the zero-delta lift that ends it — instead of a bare
-// exercises a path a finger never takes (LLP 1033 D4a). macOS only: a host
-// `tap … hover` moves the pointer onto the target (a hover, LLP 1005 §3);
-//
-// LLP 1015 §5) so a pixel taken through this driver is the same pixel on
-// Build/install first with build.mjs --device. No Mac-local plan/assets paths.
+// began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
+// only); `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
@@ -154,6 +150,7 @@ export function browserDiagnosticNoise(line) {
 
 // ---------------------------------------------------------------- web
 
+export const PREFERENCES = { 'prefers-reduced-motion': ['reduce', 'no-preference'], 'prefers-reduced-transparency': ['reduce', 'no-preference'], 'prefers-color-scheme': ['dark', 'light'] }; // `prefer`'s CSS media features and values
 /** The DevTools protocol over Chrome's --remote-debugging-pipe (fd 3 in, fd 4 out; NUL-delimited JSON). A closed pipe or a dead Chrome fails every pending call; every call has a deadline. */
 export class Cdp {
   constructor(input, output) {
@@ -204,7 +201,7 @@ export async function assertWebDistApp(dist, app) {
   if (!await builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, ".exact-build.json")}; run EXACT_APP_DIR=${shellQuote(app.dir)} EXACT_WEB_DIST=${shellQuote(resolve(dist))} bun host/web/build.mjs ${app.crate('web')}`);
 }
 
-async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webDist, onProcess, reuse }) {
+async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webDist, onProcess, reuse, storage }) {
   if (reuse) {
     try { await reuse.reset(); return reuse; }
     catch (error) { await reuse.close(); throw error; }
@@ -297,6 +294,7 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
     // named — the dev server, so a drive can watch an edit arrive.
     const page = pageURL ? new URL(pageURL) : new URL(`http://127.0.0.1:${port}/`);
     page.searchParams.set('agent', '1');
+    if (storage !== undefined) page.searchParams.set('storage', storage);
     await call('Page.navigate', { url: page.href });
     // The first frame: the glue stamps the root when it is in the DOM. A fresh profile's first launch can be slow.
     const t = Date.now();
@@ -316,7 +314,7 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
     // The one contact this carrier may hold (LLP 1035.003 D1), and whether
     // Chrome's touch emulation is on — switched on by the first contact.
     let touch = false;
-    let contact = null;
+    let contact = null, emulated = {};
     const ask = async (req) => JSON.parse(await evaluate(`exact.agentSettled(${JSON.stringify(req)}).then((r) => JSON.stringify(r))`));
     return {
       host: 'web', boot: Number(boot), hostLines, evaluate,
@@ -352,6 +350,8 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
         this.boot = Number(boot);
       },
       ask,
+      // The browser's own emulation (LLP 1061 D5), which replaces its whole list: queries, CSS and the glue's listeners see it.
+      async prefer(media) { await call('Emulation.setEmulatedMedia', { features: Object.entries(Object.assign(emulated, media)).map(([name, value]) => ({ name, value })) }); await frame(); return { media: await evaluate(`Object.fromEntries(${JSON.stringify(Object.entries(PREFERENCES))}.map(([name, [on, off]]) => [name, matchMedia('(' + name + ': ' + on + ')').matches ? on : off]))`) }; },
       async input(id, kind, opts) {
         // @ref LLP 1038 D11 — history.go delivers popstate in the page.
         if (kind === 'history') {
@@ -915,19 +915,20 @@ export async function tapRefusal(session, target, error) {
 /** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `url` opens
  * the same app address on each host; `plan` boots a local compiled contract;
  * `env` adds to a native host's environment. @ref LLP 1030.000 §7 */
-export async function open({onProcess,  host = 'web', plan, world, size, env, app, session, url, webDist, reuse, device = false, phone: pick, timing = 'agent' } = {}) {
+export async function open({onProcess,  host = 'web', plan, world, size, env, app, session, url, webDist, reuse, device = false, phone: pick, timing = 'agent', storage } = {}) {
   if (world && !['web','mac','macos','ios','linux'].includes(host)) throw new Error(`world restore unavailable on this host yet: ${host}`);
   if (world && statSync(world).size > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit; inspect `state world:*` and reduce saved entities before `screenshot checkpoint.world world save`');
   if (world && host !== 'web' && !device) env = {...env, EXACT_WORLD:resolve(world)};
   if (device && host !== 'ios') throw new Error('--device is supported for the standalone ios client');
-  // `timing: 'platform'` (LLP 1035.003 D5, opt-in): the carrier stays and
-  // the driver still owns the runner's clock, but UIKit's own transitions,
-  // sheet presentations and keyboard animations run at their natural
-  // timing — the ordinary app with a socket, for observing an interactive
-  // gesture's native motion. The frozen clock is the default the smoke
-  // depends on. Replies say `mode: "platform"`.
+  // `timing: 'platform'` (LLP 1035.003 D5, opt-in): the carrier stays and the driver still owns the runner's clock,
+  // but UIKit's own transitions, sheet presentations and keyboard animations run at their natural timing — the
+  // ordinary app with a socket, for observing an interactive gesture's native motion. The frozen clock is the
+  // default the smoke depends on. Replies say `mode: "platform"`.
   if (!['agent', 'platform'].includes(timing)) throw new Error(`timing: agent or platform, not ${timing}`);
   if (timing === 'platform') env = { ...(env ?? {}), EXACT_AGENT_TIMING: 'platform' };
+  // A drive has no app storage unless it names a scratch store apart from the app's real files (`--storage <name>`): a tree under the cache base on native, kept between drives; on the web, the drive's own fresh browser profile.
+  if (storage !== undefined && (!/^[A-Za-z0-9._-]+$/.test(storage) || ['.', '..'].includes(storage))) throw new Error("--storage: one name of letters, digits, '.', '-' or '_'");
+  if (storage !== undefined && host !== 'web') env = { ...(env ?? {}), EXACT_AGENT_STORAGE: storage };
   if (url !== undefined && ['macos', 'mac', 'ios', 'linux', 'host', 'host-ios'].includes(host)) {
     // @ref LLP 1038 D5/D11 — a native scheme/path is a launch location;
     // HTTP(S) keeps the existing development-plan locator form.
@@ -936,7 +937,7 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
       env = developmentLaunchEnvironment(['--run', '--url', url], env ?? {});
     } else env = { ...(env ?? {}), EXACT_LAUNCH_URL: url };
   }
-  const carrier = device ? await openStdio({ host: 'ios', plan, world, size, env, app, device, phone: pick, onProcess }) : host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, size, env, app, onProcess }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session, onProcess }) : host === 'host-ios' ? await openIOS({ plan, app, env, session, hostFixture: true, onProcess }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app, onProcess }) : host === 'ios' ? await openIOS({ plan, env, app, size, onProcess }) : await openWeb({ plan, world, size, url, app, webDist, onProcess, reuse });
+  const carrier = device ? await openStdio({ host: 'ios', plan, world, size, env, app, device, phone: pick, onProcess }) : host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, size, env, app, onProcess }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session, onProcess }) : host === 'host-ios' ? await openIOS({ plan, app, env, session, hostFixture: true, onProcess }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app, onProcess }) : host === 'ios' ? await openIOS({ plan, env, app, size, onProcess }) : await openWeb({ plan, world, size, url, app, webDist, onProcess, reuse, storage });
   const mapLocator = plan ?? (url && /^https?:\/\//i.test(url) ? url : env?.EXACT_DEV_PLAN ?? process.env.EXACT_DEV_PLAN)
     ?? (carrier.host === 'web' ? resolve(webDist ?? resolve(ROOT, 'host/web/dist'), 'app.plan') : null);
   const sourceMaps = sourceMapReader(mapLocator);
@@ -1125,6 +1126,8 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
       if (req.settle && r.settled === false) r.diagnostic = r.reason === 'requests' ? 'clock settle gave up on requests still in flight at its bound (20 s native); state shows them under pending, and logs a `request N` with no `fulfil N`' : `clock settle did not reach quiescence: ${JSON.stringify(r.world ?? r)}; state world:* busy shows moving values and busy reasons; state shows held input; logs shows reload/refusals`;
       return r;
     },
+    /** The user's display preferences by CSS's media feature names (LLP 1061 D5): `{"prefers-reduced-motion": "reduce"}`, `"prefers-reduced-transparency"` likewise, `"prefers-color-scheme": "dark"|"light"` (the system's; an app's `setScheme` still wins). Unnamed features stay. The reply is what the host now reports for all three. */
+    async prefer(media) { for (const [name, value] of Object.entries(media ?? {})) if (!(PREFERENCES[name] ?? []).includes(value)) throw new Error(`prefer: ${name} ${value}: expected ${Object.entries(PREFERENCES).map(([n, v]) => `${n} ${v.join('|')}`).join(', ')}`); return carrier.prefer ? s.tagged(await carrier.prefer(media)) : s.op({ op: 'prefer', media }); },
     /** Pixels as PNG (second argument true includes the native window), or a canvas carry with `(path, target, "save")`. */
     screenshot: async (path, target = false, form) => {
       if (form === 'save') {
@@ -1282,9 +1285,8 @@ export function render(op, r) {
       if (!r.viewport) return q(r);
       const e = r.env;
       const env = e && Object.values(e).some((v) => v) ? ` · safe-area ${e['safe-area-inset-top']} ${e['safe-area-inset-right']} ${e['safe-area-inset-bottom']} ${e['safe-area-inset-left']} · keyboard ${e['keyboard-inset-height']}` : '';
-      // `overscroll` is how far a scroller sits past its own ends — a
-      // stretched rubber band, which the offset alone cannot distinguish
-      // from an ordinary scroll position. Printed only when there is one.
+      // `overscroll` is how far a scroller sits past its own ends — a stretched rubber band, which the offset
+      // alone cannot distinguish from an ordinary scroll position. Printed only when there is one.
       const past = (n) => (n.ox != null || n.oy != null ? ` overscroll ${n.ox ?? 0},${n.oy ?? 0}` : '');
       const lines = [`viewport ${r.viewport.w}×${r.viewport.h}${past(r.viewport)}${env} · clock ${r.clock} ms`].concat(r.nodes.map((n) => `#${n.id}${n.testId != null ? ` [${n.testId}]` : ''}${n.type != null ? ` ${n.type}` : ''} ${n.native?.placement === 'window' ? `${n.native.view} · system-owned geometry` : `${n.x},${n.y} ${n.w}×${n.h}${n.sx != null ? ` scroll ${n.sx},${n.sy}` : ''}${past(n)}`}`));
       if (r.node) lines.push(...renderNode(r.node));
@@ -1429,6 +1431,7 @@ async function main(argv) {
     else if (argv[i] === '--device') flags.device = true;
     else if (argv[i] === '--timing') flags.timing = argv[++i];
     else if (argv[i] === '--phone') flags.phone = argv[++i];
+    else if (argv[i] === '--storage') flags.storage = argv[++i];
     else rest.push(argv[i]);
   }
   const [host, ...ops] = rest;
@@ -1442,10 +1445,10 @@ async function main(argv) {
     return r.failed ? 1 : 0;
   }
   if (!host || !ops.length) {
-    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name> [for <ms>] | clock <ms|+ms|settle>\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--storage <name>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name> [for <ms>] | clock <ms|+ms|settle> | prefer <media feature> <value> […]\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
-  const s = await open({ host, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing });
+  const s = await open({ host, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, storage: flags.storage });
   let at = 0;
   try {
     for (const [k, line] of ops.entries()) {
@@ -1477,7 +1480,8 @@ async function main(argv) {
           break;
         case 'type': r = await s.type(...typeArguments(args)); break;
         case 'clock': r = await s.clock(args[0] ?? 'settle'); break;
-        default: throw new Error(`unknown op: ${op} (tree, layout, state, logs, screenshot, tap, type, clock)`);
+        case 'prefer': r = await s.prefer(Object.fromEntries(args.flatMap((a, i) => i % 2 ? [] : [[a, args[i + 1]]]))); break;
+        default: throw new Error(`unknown op: ${op} (tree, layout, state, logs, screenshot, tap, type, clock, prefer)`);
       }
       console.log(flags.json ? JSON.stringify(r) : render(op, r));
     }

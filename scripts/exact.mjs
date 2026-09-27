@@ -7,6 +7,7 @@
 //   exact uninstall <app>        take both away again
 //   exact release <app>          sign for distribution, notarise, staple, package
 //   exact list                   the apps this repo has, and what is installed
+//   exact new <path> [--update]  an app outside this repo, ready to run
 //
 // The two things this exists to get right, because they are the two that make
 // a Mac GUI app awkward from a shell:
@@ -32,6 +33,7 @@ import { accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, r
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { resolveApp } from './app.mjs';
+import { createApp } from '../game/new.mjs';
 import { appleArtifacts, assertAppleIdentity } from '../host/apple/build.mjs';
 import { closeFilesystemReader } from './filesystem.mjs';
 import { builtAppMatches } from '../host/web/serve.mjs';
@@ -302,6 +304,8 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact release <app>          sign with a Developer ID, notarise, staple, package
   exact uninstall <app>        take both away
   exact list                   the apps in this repo
+  exact new <path> [--update]  a new app outside this repo, using this checkout;
+                               --update follows a moved checkout or a new patch
 
 An app is a directory under apps/ (or EXACT_APP_DIR for one outside this repo).
 EXACT_BIN_DIR names where a shim goes; the default is the first of ~/.local/bin,
@@ -315,6 +319,7 @@ function main(argv) {
   const [verb, name, ...rest] = argv;
   if (!verb || verb === '--help' || verb === '-h' || verb === 'help') return console.log(USAGE);
   if (verb === 'list') return list();
+  if (verb === 'new') return console.log(createApp(name, { update: rest.includes('--update') }));
   if (!['run', 'install', 'uninstall', 'release'].includes(verb)) { console.error(`exact: no verb ${verb}\n\n${USAGE}`); process.exit(2); }
   if (!name) { console.error(`exact ${verb}: name an app (exact list)`); process.exit(2); }
   if (process.platform !== 'darwin') { console.error(`exact ${verb} is macOS's; on Linux build the app's own executable (cargo build --release -p ${name}-linux)`); process.exit(2); }

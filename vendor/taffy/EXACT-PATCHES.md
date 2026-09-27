@@ -186,9 +186,10 @@ and the wrapping context's identity within the BFC, as well as the leaf
 callback parameter and cache treatment. No relayout loop or partial offset
 API was introduced. The Part B vendor diff is **zero lines**.
 
-Auto-height exclusions, pre-resolving absolute boxes, auto-height replay
-coverage, web height publication and the seventh article scene remain undone.
-The existing definite-height demo path and skip/journal behavior are retained.
+Auto-height exclusions landed later without any vendor change (LLP 1043.000
+§8, "Stage 2"): the kernel restricts them to block contexts, where a leaf's
+offset depends only on preceding content, and re-lays out to a verified fixed
+point instead of reading `BlockContext` at measure time. Still zero lines here.
 
 ## M8 validation and handoff
 

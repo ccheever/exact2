@@ -415,6 +415,8 @@ pub struct MutationDecl {
     /// `refreshes a, b`: resources the runner re-asks, forced, when a send
     /// to this mutation runs and when its reply lands (LLP 1054.000.000 D1).
     pub refreshes: Vec<(String, Span)>,
+    /// `then action`: run after each answer lands (LLP 1016.001), and where.
+    pub then: Option<(String, Span)>,
     /// Where.
     pub span: Span,
 }
@@ -595,14 +597,17 @@ pub enum Node {
         /// Where.
         span: Span,
     },
-    /// `each x in list key=expr`. `tag` is the inliner's: unique per `each`
-    /// in the expanded root, so a row slot can name the `each` that owns it
-    /// before regions exist (LLP 1017 P4c); 0 as parsed.
+    /// `each x in list key=expr`, or `each x, i in list key=expr` binding
+    /// the item's position too (LLP 1062 D8). `tag` is the inliner's: unique
+    /// per `each` in the expanded root, so a row slot can name the `each`
+    /// that owns it before regions exist (LLP 1017 P4c); 0 as parsed.
     Each {
         /// The inliner's tag.
         tag: u32,
         /// The item variable.
         var: String,
+        /// The position variable, a number from 0, when named.
+        index: Option<String>,
         /// The list.
         list: Expr,
         /// The key expression (may name `var`).

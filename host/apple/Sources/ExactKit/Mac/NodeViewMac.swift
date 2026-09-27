@@ -207,9 +207,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var liveText: String?
     var props: [String: String] = [:] { didSet { presenter?.propsChanged(self) } }
     var style: NodeStyle = [:]
-    var clipPath: CGPath?
+    var clipPath: CGPath?, clipRule = CGPathFillRule.winding
     var handlers: Set<String> = []
-    var translate = CGPoint.zero
+    var translate = CGPoint.zero, layoutOffset = CGPoint.zero, layoutScale = CGPoint(x: 1, y: 1) // layout*: the box layout moved it from (LLP 1063)
+    var surface: SurfaceLayer? // its surface at a layout transition's size (`Surface.swift`)
     var arrangeShift = CGPoint.zero
     var scale: CGFloat = 1
     var rotate: CGFloat = 0
@@ -220,6 +221,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// A `value` that arrived mid-composition, applied when it ends.
     var pendingValue: String?
     var scroll: ChainingScrollView?
+    /// `box-shadow` (`BoxShadow.swift`).
+    var shadowCaster: ShadowCaster?
+    var clipBox: NSView?
     var materialView: NSView?
     private var materialContent: NSView?
     private var materialKind: String?
@@ -265,7 +269,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var raster: NativeRasterLease?
     var imageSource: String?
     var loadGeneration = 0
-    var pressed = false
+    var pressed = false { didSet { if pressed != oldValue { pressChanged() } } }
+    var press = PressFeedback() // LLP 1061: the feedback `pressed` drives
     // @ref LLP 1038 D6 — projection does not overwrite authored inert.
     var routeInert = false
     var inert: Bool {
@@ -623,7 +628,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override var isFlipped: Bool { true }
 
     /// Where children go: the scroll document view, or this view.
-    var container: NSView { scroll?.documentView ?? overlay ?? materialContent ?? self }
+    var container: NSView { scroll?.documentView ?? overlay ?? materialContent ?? clipBox ?? self }
 
     // @ref LLP 1001 §1 — two semantic materials, not sampled blur constants.
     // AppKit owns accessibility/appearance adaptation, including Reduce
@@ -792,7 +797,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// without them, and then the canvas itself is the hit.
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !inert, !isHiddenOrHasHiddenAncestor, placedAncestor?.placementHidden != true else { return nil }
-        if let clipPath, !clipPath.contains(convert(point, from: superview)) { return nil }
+        if let clipPath, !clipPath.contains(convert(point, from: superview), using: clipRule) { return nil }
         if isSurfaceControl, bounds.contains(convert(point, from: superview)) { return self }
         func ordinary() -> NSView? {
             let hit = super.hitTest(point)
@@ -851,7 +856,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// Whether any colour on this node is a pair — what says an appearance
     /// change is something to this view rather than nothing.
     var hasSchemeColor: Bool {
-        style.values.contains { $0.isSchemeColor }
+        style.values.contains { $0.isSchemeColor || $0.isSchemeGradient }
     }
 
     func color(_ key: String, _ fallback: NSColor) -> NSColor {
@@ -1081,20 +1086,22 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     func applyStyle(_ s: NodeStyle) {
         defer { video?.update() }
+        let origin = style["transform_origin"]
         style = s
+        if s["transform_origin"] != origin { applyTransform() }
         let uniformBorder = number("border_width")
-        hasBoxPaint = s["background_color"] != nil
+        hasBoxPaint = s["background_color"] != nil || s["background_image"] != nil
             || number("border_width_top", uniformBorder) > 0
             || number("border_width_right", uniformBorder) > 0
             || number("border_width_bottom", uniformBorder) > 0
             || number("border_width_left", uniformBorder) > 0
         layerContentsRedrawPolicy = kind != "text" && wantsUpdateLayer ? .onSetNeedsDisplay : .duringViewResize
         updateSymbol()
-        clipPath = ClipPath.path(s["clip_path"])
+        (clipPath, clipRule) = (ClipPath.path(s["clip_path"]), ClipPath.rule(s["clip_path"]))
         // Inline text is unmounted run data. Its containing paragraph owns
         // the backing store; create this node's layer only when it mounts.
         if kind != "text" || superview != nil { wantsLayer = true }
-        layer?.mask = ClipPath.mask(clipPath)
+        layer?.mask = ClipPath.mask(clipPath, clipRule)
         // Scrolling and clipping come from the effective overflow the host
         // wrote in (never from the node's kind): `scroll` on an axis makes a
         // scroll container that scrolls that axis; `hidden` clips.
@@ -1137,13 +1144,18 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // CSS's line-clamp implies `overflow: hidden`: a clamped paragraph's
         // one over-wide word must not paint over its neighbour (LLP 1054 P3).
         let clamped = kind == "text" && number("line_clamp") > 0
-        // On a layer-backed view this is the layer's `masksToBounds`.
-        if clipsToBounds != (clips || clamped) { clipsToBounds = clips || clamped }
-        if let l = layer {
+        // On a layer-backed view this is the layer's `masksToBounds`, unless
+        // the node casts a shadow that clipping would clip (`BoxShadow.swift`).
+        // A paragraph paints its own text, which a box would not clip.
+        syncClipBox(clips && kind != "text" && shadowColor != nil && scroll == nil && overlay == nil && materialContent == nil)
+        let clipped = (clips || clamped) && clipBox == nil
+        if clipsToBounds != clipped { clipsToBounds = clipped }
+        if let l = clipBox?.layer ?? layer {
             let radii = ["top_left", "top_right", "bottom_right", "bottom_left"].map { CGFloat(number("border_radius_" + $0, number("border_radius"))) }
             let radius = clips && radii.allSatisfy({ $0 == radii[0] }) ? radii[0] : 0
             if l.cornerRadius != radius { l.cornerRadius = radius }
         }
+        applyShadow()
         // `overscroll-behavior` (CSS): `auto` chains, `contain` keeps the
         // gesture and bounces, `none` keeps it and does not.
         let bx = s["overscroll_behavior_x"]?.string ?? "auto"
@@ -1182,7 +1194,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     func prepareToMount() {
         guard kind == "text" else { return }
         wantsLayer = true
-        layer?.mask = ClipPath.mask(clipPath)
+        applyShadow()
+        layer?.mask = ClipPath.mask(clipPath, clipRule)
         layer?.zPosition = number("z_index")
         applyTransform()
     }
@@ -1191,20 +1204,6 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         guard let document = scroll?.documentView else { return }
         let size = CGSize(width: max(content.width, bounds.width), height: max(content.height, bounds.height))
         if document.frame.size != size { document.setFrameSize(size) }
-    }
-
-    func applyTransform() {
-        // A lifted Arrange row moves by its frame: AppKit paints and culls a
-        // view where its frame is, never where its layer was moved.
-        let shift = presenter?.reorder?.lifts(id) == true ? translate : .zero
-        if shift != arrangeShift {
-            setFrameOrigin(NSPoint(x: frame.minX - arrangeShift.x + shift.x, y: frame.minY - arrangeShift.y + shift.y))
-            arrangeShift = shift
-        }
-        let b = bounds
-        var t = CGAffineTransform(translationX: translate.x - shift.x, y: translate.y - shift.y)
-        t = t.translatedBy(x: b.midX, y: b.midY).rotated(by: rotate * .pi / 180).scaledBy(x: scale, y: scale).translatedBy(x: -b.midX, y: -b.midY)
-        layer?.setAffineTransform(t)
     }
 
     override func viewDidMoveToWindow() {
@@ -1278,13 +1277,16 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // batch — no image, no timer, no motion — would never load it
         // (found by the readback fixture, LLP 1014).
         if presenter?.views[id] === self { firstDraw() }
+        if let ctx = NSGraphicsContext.current?.cgContext { drawCapturedShadow(ctx) }
         let rounded = ["top_left", "top_right", "bottom_right", "bottom_left"].contains { number("border_radius_" + $0) > 0 }
         let path = roundedPath(in: bounds)
         let bg = color("background_color", .clear)
-        if bg.alphaComponent > 0 {
+        // A layout transition's size shows the surface on its own layer.
+        if bg.alphaComponent > 0, surface == nil {
             bg.setFill()
             if rounded { path.fill() } else { NSGraphicsContext.current?.cgContext.fill(bounds) }
         }
+        if let ctx = NSGraphicsContext.current?.cgContext { paintGradient(ctx, clip: path.cgPath) }
         // The host sends each side's colour (`style.rs`), never a uniform
         // one: each side in its colour, joined as the web joins them.
         let uniform = number("border_width")
@@ -1292,7 +1294,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let top = color("border_color_top", .clear)
         let colors = ["top", "right", "bottom", "left"].map { color("border_color_" + $0, top).cgColor }
         let radii = ["top_left", "top_right", "bottom_right", "bottom_left"].map { number("border_radius_" + $0) }
-        if let ctx = NSGraphicsContext.current?.cgContext {
+        if let ctx = NSGraphicsContext.current?.cgContext, surface == nil {
             BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii)
         }
         if kind == "image", symbolView == nil, let bitmap = raster?.image {
@@ -1314,7 +1316,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             NSBezierPath(rect: content).addClip()
             ctx.translateBy(x: rect.minX, y: rect.maxY)
             ctx.scaleBy(x: 1, y: -1)
-            ctx.draw(bitmap.image, in: CGRect(origin: .zero, size: rect.size))
+            RasterGeometry.draw(ctx, bitmap.image, in: CGRect(origin: .zero, size: rect.size), tint: channels("tint_color").map { TextEngine.color($0).cgColor })
             ctx.restoreGState()
         }
         let textDirty = Capture.capturing || canvasAbove != nil || textIsSmall ? rect : rect.intersection(presenter?.textVisibleRect(self) ?? visibleRect)
@@ -1336,7 +1338,6 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             picture.draw(in: bounds, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
         }
     }
-
 
     /// A click counts even when it is the one that activates the window —
     /// the web's rule (a click on an unfocused page still clicks). AppKit's
@@ -1397,7 +1398,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if isSurfaceControl || ownsSurfaceControl { _ = control("move", point: local(event.locationInWindow), timestamp: event.timestamp); return }
         if canvasInput?.pointer(event, phase: "move") == true { return }
         inlinePressed = nil
+        // A gesture that engages ends the press (the chain clears `pressed`).
         if presenter?.mouseChain.drag(event) == true { return }
+        pressFollows(inside: pressInside(event.locationInWindow))
         if isParagraph && !hasPressableAncestor { presenter?.selection.drag(event) }
         else { super.mouseDragged(with: event) }
     }
@@ -1432,7 +1435,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         guard !disabled else { pressed = false; return }
         guard pressed else { return super.mouseUp(with: event) }
         pressed = false
-        if bounds.contains(local(event.locationInWindow)) {
+        if pressInside(event.locationInWindow) {
             let canvas = inputCanvas, ownerWindow = window
             presenter?.press(id)
             finishPress(canvas: canvas, window: ownerWindow, pointer: true)

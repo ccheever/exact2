@@ -185,13 +185,15 @@ painting yet and ignores this row. Messages hides the horizontal timestamp track
 
 `clip-path` (bit 87) clips painting and platform hit-testing without changing
 layout. Its initial value is `none`. The implemented CSS subset is
-`path("...")` with explicit absolute `M`, `L`, `Q`, `C`, and `Z` commands,
-whitespace/comma-separated finite coordinates in CSS pixels, and nonzero fill.
-Other shapes, fill-rule arguments, relative/implicit commands, and adjoining
-signed coordinates are rejected. `clip.rs` validates and canonicalizes the value;
+`path([nonzero | evenodd,] "...")`: SVG path data in full, in CSS pixels,
+parsed by the SVG path parser (`svg/path.rs`, LLP 1055.000; `parse_d_whole`)
+and refused whole on any error or when it draws nothing; `url(#id)` names an
+SVG `clipPath` on an SVG element. Other shapes are rejected. The parsed
+commands are absolute `M`, `L`, `C` and `Z` (quadratics and arcs arrive as
+cubics). `clip.rs` validates and canonicalizes the value;
 the wire carries that CSS string and validates it on decode. Apple receives the
-parsed commands, applies a layer mask to the entire subtree, and tests the same
-path for pointer hits. Web emits CSS. Linux painting has not implemented it.
+parsed commands and fill rule (`{"rule", "commands"}`), applies a layer mask to the entire subtree, and
+tests the same path for pointer hits. Web emits CSS. Linux masks by it.
 Messages uses it for transparent curved tails over the focused reply material.
 
 `navigationKey` and `navigationBack` declare a host navigation container on the
