@@ -111,8 +111,13 @@ extension NodeView {
         // CSS's individual transforms: translate, then rotate, then scale,
         // about `transform-origin` — offset from the centre, UIKit's anchor;
         // a press folds into the scale.
+        // Outermost, a layout transition's offset and scale from the box's
+        // top-left corner, as a web FLIP places it (LLP 1063).
         let o = transformOriginPoint, d = CGPoint(x: o.x - bounds.midX, y: o.y - bounds.midY), s = scale * pressFactor
-        transform = CGAffineTransform(translationX: translate.x + layoutOffset.x + d.x, y: translate.y + layoutOffset.y + d.y).rotated(by: rotate * .pi / 180).scaledBy(x: s, y: s).translatedBy(x: -d.x, y: -d.y).concatenating(contextTransform)
+        let own = CGAffineTransform(translationX: translate.x + d.x, y: translate.y + d.y).rotated(by: rotate * .pi / 180).scaledBy(x: s, y: s).translatedBy(x: -d.x, y: -d.y)
+        let half = bounds.size
+        let flip = CGAffineTransform(scaleX: layoutScale.x, y: layoutScale.y).concatenating(CGAffineTransform(translationX: layoutOffset.x + (layoutScale.x - 1) * half.width / 2, y: layoutOffset.y + (layoutScale.y - 1) * half.height / 2))
+        transform = own.concatenating(flip).concatenating(contextTransform)
     }
     /// Whether a touch is inside the box as it stands unpressed. The pressed
     /// box is smaller, so testing against it would release a finger resting
@@ -134,10 +139,13 @@ extension NodeView {
         }
         // The layer turns about its own origin: move `transform-origin`
         // there, turn, move it back. A press folds into the scale.
-        let o = transformOriginPoint, s = scale * pressFactor
-        var t = CGAffineTransform(translationX: translate.x + layoutOffset.x - shift.x, y: translate.y + layoutOffset.y - shift.y)
+        let o = transformOriginPoint, s = scale * pressFactor, b = bounds
+        var t = CGAffineTransform(translationX: translate.x - shift.x, y: translate.y - shift.y)
         t = t.translatedBy(x: o.x, y: o.y).rotated(by: rotate * .pi / 180).scaledBy(x: s, y: s).translatedBy(x: -o.x, y: -o.y)
-        layer?.setAffineTransform(t)
+        // Outermost, a layout transition's offset and scale from the box's
+        // top-left corner, as a web FLIP places it (LLP 1063).
+        let flip = CGAffineTransform(translationX: layoutOffset.x + b.minX, y: layoutOffset.y + b.minY).scaledBy(x: layoutScale.x, y: layoutScale.y).translatedBy(x: -b.minX, y: -b.minY)
+        layer?.setAffineTransform(t.concatenating(flip))
     }
     /// Whether a window point is inside the box. AppKit's conversion ignores
     /// the layer's transform, so this is the box as it stands unpressed.

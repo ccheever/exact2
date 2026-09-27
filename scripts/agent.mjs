@@ -922,14 +922,11 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
   // depends on. Replies say `mode: "platform"`.
   if (!['agent', 'platform'].includes(timing)) throw new Error(`timing: agent or platform, not ${timing}`);
   if (timing === 'platform') env = { ...(env ?? {}), EXACT_AGENT_TIMING: 'platform' };
-  // A drive has no app storage unless it names a scratch store of its own, kept
-  // apart from the app's real files (`--storage <name>`): a tree under the cache
-  // base on native, kept between drives; on the web, stores in the drive's own
-  // browser profile, which starts empty.
-  if (storage !== undefined) {
-    if (!/^[A-Za-z0-9._-]+$/.test(storage) || ['.', '..'].includes(storage)) throw new Error("--storage: one name of letters, digits, '.', '-' or '_'");
-    if (host !== 'web') env = { ...(env ?? {}), EXACT_AGENT_STORAGE: storage };
-  }
+  // A drive has no app storage unless it names a scratch store of its own, apart from the app's real files
+  // (`--storage <name>`): a tree under the cache base on native, kept between drives; on the web, stores in
+  // the drive's own browser profile, which starts empty.
+  if (storage !== undefined && (!/^[A-Za-z0-9._-]+$/.test(storage) || ['.', '..'].includes(storage))) throw new Error("--storage: one name of letters, digits, '.', '-' or '_'");
+  if (storage !== undefined && host !== 'web') env = { ...(env ?? {}), EXACT_AGENT_STORAGE: storage };
   if (url !== undefined && ['macos', 'mac', 'ios', 'linux', 'host', 'host-ios'].includes(host)) {
     // @ref LLP 1038 D5/D11 — a native scheme/path is a launch location;
     // HTTP(S) keeps the existing development-plan locator form.
