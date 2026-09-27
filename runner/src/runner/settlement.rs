@@ -15,6 +15,7 @@ pub(super) struct Settled {
     pending_res: Vec<bool>,
     pending_mut: Vec<bool>,
     store_readers: Vec<bool>,
+    resource_args: Vec<Vec<Value>>,
 }
 
 /// Which derives and resources this pass has settled, and which of them
@@ -220,6 +221,7 @@ impl<D: DataSource> Runner<D> {
         // Which resources took their compiled value in this settlement: each
         // source is told once it is published (LLP 1027 D11).
         let mut adopted = vec![false; states.len()];
+        let mut resource_args = vec![Vec::new(); states.len()];
         let mut passes = 0usize;
         loop {
             passes += 1;
@@ -328,10 +330,11 @@ impl<D: DataSource> Runner<D> {
                         resource_changed: &resource_changed,
                         pending_res: &pending_res,
                     };
-                    let kept_args = states[i]
+                    let kept_args = self
+                        .settled
                         .as_ref()
                         .filter(|_| self.unchanged(&self.sites.deps().resource_args[i], &now))
-                        .map(|s| s.args.clone());
+                        .map(|s| s.resource_args[i].clone());
                     for a in row.args.iter().filter(|_| kept_args.is_none()) {
                         let code = self.plan.arg(a).expr;
                         let result = {
@@ -378,15 +381,38 @@ impl<D: DataSource> Runner<D> {
                     if let Some(kept) = kept_args {
                         args = kept;
                     }
+                    resource_args[i] = args.clone();
                     // Store provenance follows the values used to form a
                     // resource query, including through derives. Such a
                     // resource is device data just like a direct reader.
                     self.store_readers[i] |= store_dependent;
                     let forced = force.contains(&i);
+                    if forced
+                        || self.failed_args[i]
+                            .as_ref()
+                            .is_some_and(|failed| *failed != args)
+                    {
+                        self.failed_args[i] = None;
+                    }
+                    let failed = self.failed_args[i].as_ref() == Some(&args);
+                    // The value may still answer older arguments while a
+                    // request is in flight. Reuse follows the current ask;
+                    // the standing value keeps its own provenance.
+                    let asked_args = match &effects[i] {
+                        RequestEffect::Later { args, .. } => Some(args),
+                        RequestEffect::Answered => None,
+                        RequestEffect::None => self
+                            .pending
+                            .iter()
+                            .find(|p| p.target == Target::Resource(i))
+                            .map(|p| &p.args),
+                    };
                     // Only for the same arguments: new ones need their request.
                     let reread = !forced
                         && reread.contains(&i)
-                        && states[i].as_ref().is_some_and(|s| s.args == args);
+                        && states[i]
+                            .as_ref()
+                            .is_some_and(|s| asked_args.unwrap_or(&s.args) == &args);
                     // A store-reading resource is reusable only at the exact
                     // store revision it observed. `answer` and `parse` both
                     // write through Store, so this is the one dirtying point.
@@ -395,7 +421,8 @@ impl<D: DataSource> Runner<D> {
                     let reuse = states[i]
                         .as_ref()
                         .filter(|s| {
-                            s.args == args
+                            failed
+                                || (asked_args.unwrap_or(&s.args) == &args
                                 && self.plan.str(row.source) != crate::delivery::SOURCE
                                 && self.plan.str(row.source) != crate::viewport::SOURCE
                                 && self.plan.str(row.source) != crate::time::SOURCE
@@ -406,9 +433,14 @@ impl<D: DataSource> Runner<D> {
                                     || s.store_revision == self.store.revision())
                                 // @ref LLP 1054.000.002 D4 — a placeholder stands
                                 // in only while its answer is on the way.
-                                && (!s.placeholder || pending_res[i] || awaiting[i])
+                                && (!s.placeholder || pending_res[i] || awaiting[i]))
                         })
                         .map(|s| s.value.clone());
+                    let mut value_args = if reuse.is_some() {
+                        states[i].as_ref().expect("reused").args.clone()
+                    } else {
+                        args.clone()
+                    };
                     // Whether what shows is a stand-in, not an answer (D4).
                     let mut placeholder =
                         reuse.is_some() && states[i].as_ref().is_some_and(|s| s.placeholder);
@@ -519,6 +551,7 @@ impl<D: DataSource> Runner<D> {
                                     self.forgot = true;
                                     let state = states[i].as_ref().expect("checked");
                                     placeholder = state.placeholder;
+                                    value_args = state.args.clone();
                                     state.value.clone()
                                 }
                                 Answer::Later(request) => {
@@ -526,6 +559,9 @@ impl<D: DataSource> Runner<D> {
                                     // keeps the value it had — its last answer, or
                                     // its compiled boot value (LLP 1016 D3).
                                     placeholder = states[i].as_ref().is_some_and(|s| s.placeholder);
+                                    if let Some(state) = &states[i] {
+                                        value_args = state.args.clone();
+                                    }
                                     let kept =
                                         states[i].as_ref().map(|s| s.value.clone()).or_else(|| {
                                             (row.initial.len > 0
@@ -578,7 +614,7 @@ impl<D: DataSource> Runner<D> {
                     );
                     resources[i] = Some(value.clone());
                     states[i] = Some(ResourceState {
-                        args,
+                        args: value_args,
                         value,
                         store_revision: self.store.revision(),
                         placeholder,
@@ -615,6 +651,7 @@ impl<D: DataSource> Runner<D> {
                 pending_res,
                 pending_mut: self.pending_mut.clone(),
                 store_readers,
+                resource_args,
             });
             self.derive_store_dependent = derive_store_dependent;
             self.derives = derives;

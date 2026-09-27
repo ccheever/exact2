@@ -402,3 +402,163 @@ fn empty_nests_and_every_other_field_is_its_zero() {
         ])
     );
 }
+
+#[derive(Default)]
+struct FailedSearch {
+    asks: usize,
+    stored: bool,
+    succeed: bool,
+}
+
+impl DataSource for FailedSearch {
+    fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+        unreachable!()
+    }
+    fn answer(
+        &mut self,
+        store: &mut Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<Answer, DataError> {
+        if source == "touch" {
+            store.set("revision", args[0].as_str().unwrap())?;
+            return Ok(Answer::Now(Value::Bool(true)));
+        }
+        self.asks += 1;
+        if args[0].as_str() == Some("broken") {
+            return Err(DataError::Unavailable("query refused".into()));
+        }
+        if self.stored {
+            store.get("revision");
+        }
+        if args[0].as_str() == Some("Menl") {
+            Ok(Answer::Now(Value::str("standing")))
+        } else {
+            Ok(Answer::Later(Request::get("https://search.test/")))
+        }
+    }
+    fn parse(
+        &mut self,
+        _: &mut Store,
+        _: &str,
+        _: &[Value],
+        _: Outcome,
+    ) -> Result<Answer, DataError> {
+        if self.succeed {
+            Ok(Answer::Now(Value::str("new answer")))
+        } else {
+            Err(DataError::Unavailable("deterministic failure".into()))
+        }
+    }
+    fn grants(&self) -> &'static str {
+        "secret.keep revision\n"
+    }
+}
+
+fn failed_search(stored: bool) -> Runner<FailedSearch> {
+    let src = "component App\n  state query = \"Menl\"\n  resource results = search(query) as shape string\n  mutation changed as shape bool\n  action search(q: string) writes query\n    query = q\n  action touch(v: string) writes changed\n    send changed = touch(v)\n  action retry\n    refresh results\n  view\n    text `${results}/${pending(results)}`\n";
+    Runner::boot(
+        contract::compile(src).unwrap(),
+        FailedSearch {
+            stored,
+            ..Default::default()
+        },
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap()
+}
+
+#[test]
+fn a_failed_request_keeps_the_standing_answers_arguments() {
+    let mut r = failed_search(false);
+    r.act("search", vec![Value::str("Menlo Park")]).unwrap();
+    let ticket = r.take_requests()[0].ticket;
+    r.fulfill(ticket, ok()).unwrap();
+    assert!(r.pending().is_empty());
+    assert!(r.take_requests().is_empty());
+    assert_eq!(r.resource("results"), Some(&Value::str("standing")));
+    let checkpoint = r.document_checkpoint("/");
+    assert_eq!(checkpoint.answers[0].2, [Value::str("Menl")]);
+}
+
+#[test]
+fn a_failed_store_reader_waits_for_changed_arguments_or_refresh() {
+    let mut r = failed_search(true);
+    r.act("search", vec![Value::str("Menlo Park")]).unwrap();
+    let ticket = r.take_requests()[0].ticket;
+    r.fulfill(ticket, ok()).unwrap();
+    // A refused argument change must restore the failure marker too.
+    assert!(r.act("search", vec![Value::str("broken")]).is_err());
+    assert_eq!(r.slot("query"), Some(&Value::str("Menlo Park")));
+    let asks = r.data().asks;
+    for revision in ["one", "two"] {
+        r.set_full_evaluation(revision == "two");
+        r.act("touch", vec![Value::str(revision)]).unwrap();
+        assert_eq!(
+            r.data().asks,
+            asks,
+            "store changes must not retry a failed query"
+        );
+        assert!(r.take_requests().is_empty());
+    }
+    r.act("search", vec![Value::str("Menlo")]).unwrap();
+    let ticket = r.take_requests()[0].ticket;
+    r.fulfill(ticket, ok()).unwrap();
+    r.act("search", vec![Value::str("Menlo Park")]).unwrap();
+    let ticket = r.take_requests()[0].ticket;
+    r.fulfill(ticket, ok()).unwrap();
+    r.act("retry", vec![]).unwrap();
+    let ticket = r.take_requests()[0].ticket;
+    r.data().succeed = true;
+    r.fulfill(ticket, ok()).unwrap();
+    assert_eq!(r.resource("results"), Some(&Value::str("new answer")));
+    assert_eq!(
+        r.document_checkpoint("/").answers[0].2,
+        [Value::str("Menlo Park")]
+    );
+    r.act("touch", vec![Value::str("three")]).unwrap();
+    assert_eq!(
+        r.take_requests().len(),
+        1,
+        "success clears the failure marker"
+    );
+}
+
+#[test]
+fn a_failed_placeholder_still_becomes_nonpending_until_refresh() {
+    // This is the current behavior, pending Charlie's placeholder ruling.
+    let plan = contract::compile(&corpus()).unwrap();
+    let mut r = boot(
+        &plan,
+        Blog {
+            refuse_failures: true,
+            ..Default::default()
+        },
+        "/post/7",
+    )
+    .unwrap();
+    let ticket = r
+        .take_requests()
+        .iter()
+        .find(|q| q.target == "post")
+        .unwrap()
+        .ticket;
+    r.fulfill(
+        ticket,
+        Outcome::Failed {
+            kind: FailureKind::Network,
+            message: "offline".into(),
+        },
+    )
+    .unwrap();
+    assert_eq!(text_of(&r, "title"), "");
+    assert_eq!(text_of(&r, "state"), "ready");
+    assert!(r.take_requests().is_empty());
+    assert!(r
+        .document_checkpoint("/post/7")
+        .answers
+        .iter()
+        .any(|(name, ..)| name == "post"));
+}

@@ -261,6 +261,8 @@ pub struct Runner<D: DataSource> {
     /// Resources refused ordered admission, asked again once the last
     /// ordered refusal has settled (`release_refused`).
     refused_asks: Vec<usize>,
+    /// Failed arguments suppress another ask until they change or refresh.
+    failed_args: Vec<Option<Vec<Value>>>,
     /// `pending` as flags, by resource and by mutation, for expressions.
     pending_res: Vec<bool>,
     pending_mut: Vec<bool>,
@@ -642,6 +644,7 @@ impl<D: DataSource> Runner<D> {
             next_ticket: 1,
             forgot: false,
             refused_asks: Vec::new(),
+            failed_args: Vec::new(),
             deferred_edges: Vec::new(),
             requests: Vec::new(),
             refresh_next: Vec::new(),
@@ -754,6 +757,7 @@ impl<D: DataSource> Runner<D> {
         runner.pending_res = vec![false; runner.plan.resources.len()];
         runner.pending_mut = vec![false; runner.plan.mutations.len()];
         runner.watching = vec![Vec::new(); runner.plan.resources.len()];
+        runner.failed_args = vec![None; runner.plan.resources.len()];
         runner.then_due = vec![f64::INFINITY; runner.plan.mutations.len()];
         runner.now_ms = now_ms;
         // A carried boot never takes compiled data: it was baked for the

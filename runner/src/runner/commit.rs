@@ -20,6 +20,7 @@ pub(super) struct Checkpoint {
     stale: Vec<bool>,
     store_readers: Vec<bool>,
     watching: Vec<Vec<String>>,
+    failed_args: Vec<Option<Vec<Value>>>,
     refresh_next: Vec<usize>,
     reread_next: Vec<usize>,
     pending: Vec<PendingReq>,
@@ -39,6 +40,7 @@ impl<D: DataSource> Runner<D> {
             stale: self.stale.clone(),
             store_readers: self.store_readers.clone(),
             watching: self.watching.clone(),
+            failed_args: self.failed_args.clone(),
             refresh_next: self.refresh_next.clone(),
             reread_next: self.reread_next.clone(),
             pending: self.pending.clone(),
@@ -69,6 +71,7 @@ impl<D: DataSource> Runner<D> {
                 self.stale = c.stale;
                 self.store_readers = c.store_readers;
                 self.watching = c.watching;
+                self.failed_args = c.failed_args;
                 self.refresh_next = c.refresh_next;
                 self.reread_next = c.reread_next;
                 self.pending = c.pending;
@@ -832,6 +835,7 @@ impl<D: DataSource> Runner<D> {
         match p.target {
             Target::Resource(i) => {
                 self.stale[i] = false;
+                self.failed_args[i] = None;
                 self.keep_answer(i, &p.args, &value);
                 self.resources[i] = Some(ResourceState {
                     args: p.args,
