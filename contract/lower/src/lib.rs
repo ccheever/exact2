@@ -24,11 +24,13 @@ mod collection;
 pub mod expr;
 mod fonts;
 mod media;
+mod native;
 mod routes;
 mod sites;
 mod svg;
 pub mod tags;
 mod values;
+pub use native::{is_module_tag, module_tags};
 pub use sites::{Declared, NodeSite, Origin, Sites};
 
 use contract_analyze::Analysis;
@@ -113,12 +115,15 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                     span,
                     ..
                 } => {
-                    if tags::tag(tag).is_none() {
+                    if tags::tag(tag).is_none() && !native::is_module_tag(tag) {
                         errors.push(unknown_tag(tag, *span));
                     } else {
                         let coerced = svg::coerce_lengths(tag, false, attrs);
                         let attrs = coerced.as_deref().unwrap_or(attrs);
-                        for a in attrs.iter().filter(|a| a.name != "class") {
+                        for a in attrs
+                            .iter()
+                            .filter(|a| a.name != "class" && !native::leftover(tag, a))
+                        {
                             let checked = match tags::attr(&a.name) {
                                 None => Err(unknown_attr(tag, a)),
                                 // A family is resolved against declared fonts.
@@ -730,7 +735,7 @@ impl<'a> Lowerer<'a> {
                 span,
                 instance,
             } => {
-                let Some(t) = tags::tag(tag) else {
+                let Some(t) = tags::tag(tag).or_else(|| native::tag(tag)) else {
                     return Err(unknown_tag(tag, *span));
                 };
                 // Two layout refusals the compiler can make without measuring
@@ -906,6 +911,9 @@ impl<'a> Lowerer<'a> {
                     .map(|_| vec![Origin::Tag; bindings.len()]);
                 let font = self.font_use(expanded)?;
                 for (index, a) in expanded.iter().enumerate() {
+                    if native::leftover(tag, a) {
+                        continue;
+                    }
                     if let Err(e) = self.attr(
                         tag,
                         a,
@@ -925,6 +933,18 @@ impl<'a> Lowerer<'a> {
                             Origin::Own
                         };
                         origins.resize(bindings.len(), origin);
+                    }
+                }
+                if t.node_type == NodeType::NativeView {
+                    let rest: Vec<&Attr> = expanded
+                        .iter()
+                        .filter(|a| native::leftover(tag, a))
+                        .collect();
+                    if let Err(e) = self.native_bindings(tag, &rest, scope, locals, &mut bindings) {
+                        self.errors.push(e);
+                    }
+                    if let Some(origins) = &mut origins {
+                        origins.resize(bindings.len(), Origin::Own);
                     }
                 }
                 // Two bindings for one row — a style's and the node's own, a
@@ -1223,9 +1243,12 @@ impl<'a> Lowerer<'a> {
         let Some(target) = tags::attr(&a.name) else {
             return Err(unknown_attr(tag, a));
         };
+        // @ref LLP 1024 D1 — `load` and `message` are a module's too.
+        let module = native::is_module_tag(tag) && a.name != "sandbox";
         if (tag != "iframe"
             && matches!(a.name.as_str(), "sandbox" | "load" | "message")
-            && !(tag == "canvas" && a.name == "message"))
+            && !(tag == "canvas" && a.name == "message")
+            && !module)
             || (tag != "iframe" && tag != "video" && a.name == "src")
         {
             return err(

@@ -102,7 +102,7 @@ public final class Agent {
         }
         if Agent.worldRequest(req) { Agent.reply(tagged(world(req))); return }
         switch op {
-        case "tree": Agent.reply(session.canvases.decorate(req, accessibilityTree(session.webviews.tree(line))))
+        case "tree": Agent.reply(session.canvases.decorate(req, accessibilityTree(session.natives.decorate(session.webviews.tree(line)))))
         case "layout": Agent.reply(tagged(layout(req)))
         // A call that moved something settles the canvases before it
         // replies (LLP 1012's fixed point; LLP 1014 D5 reads placements

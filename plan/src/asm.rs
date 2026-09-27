@@ -138,6 +138,12 @@ impl Asm {
         self.op(Opcode::List, &[Arg::U32(n)])
     }
 
+    /// A native module's props (LLP 1024 D1): the top `n` (key, value)
+    /// pairs, keys in canonical order, as one JSON object string.
+    pub fn native_props(&mut self, n: u32) -> &mut Self {
+        self.op(Opcode::NativeProps, &[Arg::U32(n)])
+    }
+
     /// Call a roster function; its arity's worth of arguments are on the stack.
     pub fn call(&mut self, f: Stdlib) -> &mut Self {
         self.op(Opcode::Call, &[Arg::Enum(f as u8)])

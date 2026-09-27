@@ -818,6 +818,12 @@
       "operands": [
         "idx:mutations"
       ]
+    },
+    {
+      "name": "NativeProps",
+      "operands": [
+        "u32"
+      ]
     }
   ],
   "_stdlib": "The enumerated roster (LLP 1004 D2/D4): every callable an expression may name, with its parameter types and return type (`any` = one of number, string, bool, list). The compiler checks calls against this table; the runner's VM implements each entry once; entries are added by fixture, never by speculation. LLP 1038 D3: Router and Entry name reserved record shapes; list<Router>, list<Entry>, and list<string> are typed lists.",

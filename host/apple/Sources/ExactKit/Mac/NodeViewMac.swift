@@ -586,7 +586,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         clearSymbol()
         image = nil
         video?.invalidate(); video = nil
-        presenter?.session?.webviews.destroy(id: id)
+        destroyEmbedded()
         web = nil
         presenter = nil
     }
@@ -617,13 +617,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             field = f
         }
         if kind == "video" { video = VideoView(owner: self) }
-        if kind == "iframe", let w = presenter.session?.webviews.create(owner: self) {
-            w.frame = bounds
-            w.autoresizingMask = [.width, .height]
-            w.wantsLayer = true
-            addSubview(w)
-            web = w
-        }
+        embedPlatformView(presenter)
     }
     required init?(coder: NSCoder) { nil }
     override var isFlipped: Bool { true }
@@ -1050,7 +1044,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         updateRoleAccessibility()
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
         if kind == "image", props["imageSource"] == nil, imageSource != nil { loadGeneration += 1; presenter?.session?.rasters.cancel(id); raster = nil; imageSource = nil; clearSymbol(); image = nil; presenter?.intrinsic(id, nil) }
-        if kind == "iframe" { presenter?.session?.webviews.update(self) }
+        updateEmbedded()
         video?.update()
         updateMaterial()
         needsDisplay = true

@@ -28,13 +28,12 @@ function syncMedia(el, set = {}, clear = []) {
 }
 const iframeLoading = new WeakMap(); // iframe -> true until its latest src load
 const iframeOrigins = new WeakMap(); // iframe -> authored/committed guest origin
-const messageViews = new Set();
-const messageFrames = new Set(); // iframes whose node handles `message`
+const messageViews = new Set(), messageFrames = new Set(); // the latter: iframes whose node handles `message`
 let messageListening = false;
-let wasm = null;
-let memory = null;
-let inputReady = false;
-let inputHandlers;
+let wasm = null, memory = null, inputReady = false, inputHandlers;
+// Native modules (LLP 1024 D3): a module node is its custom element, empty until the adapter and the app's module load after first paint.
+let nativeHost = null; function nativeCreate(el, id) { const st = el.exactNative = { id, name: el.localName, state: "loading", status() { return { name: this.name, state: this.state, ...(this.error ? { error: this.error } : {}) }; }, destroy() { this.destroyed = true; nativeHost?.then(h => h.destroy(el)); } };
+  (nativeHost ??= new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))).then(() => loadAfterPaint('./native-glue.js', 'nativeHost')).then(make => make({ log, dispatch(el, kind, text) { const id = Number(el.dataset.view); if (inputReady && views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, kind, text == null ? 0 : writeIn(text), now())); } }))).then(h => h.attach(el), e => { st.state = "unavailable"; st.error = String(e?.message ?? e); log(`native ${st.name} #${id}: unavailable: ${st.error}`); }); }
 const authoredDisabled = new WeakMap();
 let logicInfo = null, moduleLoader = null, activeModule = null, moduleResponse = new Uint8Array();
 let rustLoader = null, rustLoading = null;
@@ -566,7 +565,7 @@ function apply(batch) {
         applyProps(el, op.props, []);
         const css = op.css + (el.hasAttribute("data-action") ? ";touch-action:none" : ""); if ((el.getAttribute("style") ?? "") !== css) el.style.cssText = css; // an adopted element's is already there
         attach(el, op.id, op.handlers);
-        views.set(op.id, el);
+        views.set(op.id, el); if (op.tag.includes("-") && !op.ns && !el.exactNative) nativeCreate(el, op.id);
         // Shared collections own geometry feedback, including authored estimates.
         listView(el, op.id, collectionOp?.items.some(item => item.view === op.id));
         break;
@@ -746,7 +745,7 @@ function apply(batch) {
       case "destroy": {
         arrange.destroy(op.id);
         motion.destroy(op.id);
-        const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactMarkup?.destroy(); if (el instanceof HTMLVideoElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); el.remove(); }
+        const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactMarkup?.destroy(); el.exactNative?.destroy(); if (el instanceof HTMLVideoElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); el.remove(); }
         views.delete(op.id); messageViews.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break;
       }
       case "roots": {
@@ -1024,7 +1023,7 @@ function tree(request) {
   const reply = ask(request);
   for (const node of reply.nodes ?? []) {
     const el = views.get(node.id);
-    node.focused = el === document.activeElement; if (el?.matches("button, a, [role=button]")) node.accessibleName = el.getAttribute("aria-label") ?? el.textContent.trim();
+    node.focused = el === document.activeElement; if (el?.matches("button, a, [role=button]")) node.accessibleName = el.getAttribute("aria-label") ?? el.textContent.trim(); if (el?.exactNative) node.module = el.exactNative.status();
     if (!(el instanceof HTMLIFrameElement)) continue;
     node.url = el.getAttribute("src") ?? "";
     node.loading = iframeLoading.get(el) !== false;
@@ -1348,7 +1347,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   collections.reset();
   for (const el of lists.keys()) forgetList(el);
   for (const el of views.values()) if (el instanceof HTMLVideoElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); }
-  for (const el of views.values()) el.exactMarkup?.destroy(); views.clear();
+  for (const el of views.values()) { el.exactMarkup?.destroy(); el.exactNative?.destroy(); } views.clear();
   messageFrames.clear(); messageViews.clear();
   if(storageRequests){storageRequests.then(s=>s.dispose()).catch(()=>{});storageRequests=null;}
   grants = [];

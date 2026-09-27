@@ -95,6 +95,51 @@ pub fn call(
     })
 }
 
+/// A native module's props (LLP 1024 D1): `pairs` alternate key and value,
+/// keys already in canonical order. Every value is carried as a string (a
+/// number as JavaScript prints it); an option's `none` leaves its key out.
+/// Escaping is JSON's, deterministic: `"`, `\\` and C0 controls only.
+pub fn native_props(pairs: &[Value]) -> Option<String> {
+    fn quote(s: &str, out: &mut String) {
+        out.push('"');
+        for c in s.chars() {
+            match c {
+                '"' => out.push_str("\\\""),
+                '\\' => out.push_str("\\\\"),
+                '\n' => out.push_str("\\n"),
+                '\r' => out.push_str("\\r"),
+                '\t' => out.push_str("\\t"),
+                c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+                c => out.push(c),
+            }
+        }
+        out.push('"');
+    }
+    let mut out = String::from("{");
+    for pair in pairs.chunks(2) {
+        let [key, value] = pair else { return None };
+        let value = match value {
+            Value::Option(None) => continue,
+            Value::Option(Some(inner)) => inner.as_ref(),
+            v => v,
+        };
+        let text = match value {
+            Value::Str(s) => s.to_string(),
+            Value::Number(n) => format_number(*n),
+            Value::Bool(b) => b.to_string(),
+            _ => return None,
+        };
+        if out.len() > 1 {
+            out.push(',');
+        }
+        quote(key.as_str()?, &mut out);
+        out.push(':');
+        quote(&text, &mut out);
+    }
+    out.push('}');
+    Some(out)
+}
+
 /// JavaScript's decimal/exponent boundaries over Rust's shortest-round-trip printer.
 pub fn format_number(n: f64) -> String {
     if n == 0.0 {

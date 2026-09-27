@@ -684,12 +684,12 @@ extension Agent {
         // (the flush), composed as the underlay, and the live view stays
         // visible on top with the real pixels (measured 2026-08-30; the
         // 0-guest-pixel failure returns if either half is dropped).
-        Capture.web = session.webviews.snapshots()
+        Capture.web = session.webviews.snapshots().merging(session.natives.snapshots()) { web, _ in web }
         #else
         // A device capture has the macOS shape: hide every live WKWebView
         // and compose only the arm's takeSnapshot at the owning node.
-        Capture.web = session.webviews.snapshots()
-        let hidden = presenter.views.values.compactMap(\.web).map { ($0, $0.isHidden) }
+        Capture.web = session.webviews.snapshots().merging(session.natives.snapshots()) { web, _ in web }
+        let hidden = (presenter.views.values.compactMap(\.web) + session.natives.snapshotViews).map { ($0, $0.isHidden) }
         hidden.forEach { $0.0.isHidden = true }
         #endif
         Capture.capturing = true

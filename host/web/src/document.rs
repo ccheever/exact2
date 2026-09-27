@@ -141,7 +141,7 @@ struct Route {
 /// would compute again for the same views of the same tree (`Host::create`).
 /// Last visited first: the first batch creates views in the order the
 /// projection visits them, and takes each from the end.
-pub(crate) type Computed = Vec<(ViewId, &'static str, SortedMap<String, String>, String)>;
+pub(crate) type Computed = Vec<(ViewId, String, SortedMap<String, String>, String)>;
 
 struct Walk<'r, D: DataSource> {
     runner: &'r Runner<D>,
@@ -241,7 +241,7 @@ impl<D: DataSource> Walk<'_, D> {
             }
         }
         if let (Some(computed), Some(css)) = (self.computed.as_mut(), kept) {
-            computed.push((id, tag, props, css));
+            computed.push((id, tag.into(), props, css));
         }
         // `navigation.project`: routes other than the selected one (and the
         // one under a selected modal) are hidden; every route but the

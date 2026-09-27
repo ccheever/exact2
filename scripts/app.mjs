@@ -197,7 +197,19 @@ const WEB_HOST_GROUPS = {
   rust: ['rust-glue.js'],
   gpu: ['gpu-glue.js', 'pace.js', 'gpu-assets.js'],
   gpuModules: ['gpu-modules.js'],
+  native: ['native-glue.js'],
 };
+
+/** A build's module artifact against the app's roster (LLP 1024 D1, D8.4):
+ * a roster tag the artifact has no factory for fails a release build, named,
+ * and is a warning in development, where the node reports its status. */
+export function checkModuleRoster(app, provided, where, release) {
+  const missing = app.modules.tags.filter((tag) => !provided.includes(tag));
+  if (!missing.length) return;
+  const message = `${where}: the roster (app.json modules) names ${missing.join(', ')}, which the module artifact lacks${provided.length ? ` (it serves ${provided.join(', ')})` : ''}`;
+  if (release) throw new Error(message);
+  console.warn(`warning: ${message}; the node reports "error" at runtime`);
+}
 /** Public filename -> repo-relative source; omit groups to inventory every host file. */
 export function webHostFiles(...groups) {
   return Object.fromEntries((groups.length ? groups : Object.keys(WEB_HOST_GROUPS))
@@ -297,6 +309,14 @@ export function resolveApp(nameOrCrate) {
       if (!existsSync(resolve(gpu, 'Cargo.toml'))) return false;
       const pkg = cargoPackage('gpu');
       return !!pkg && realpathSync(dirname(pkg.manifest_path)) === realpathSync(gpu);
+    },
+    /** The native-module roster (LLP 1024 D1) and its sources: the Swift under
+     * `modules/apple` that becomes `libexact_modules.dylib`, and the web
+     * executor `modules/web/index.js`. Empty tags: the app has no modules. */
+    get modules() {
+      const tags = manifest.modules ?? [], apple = resolve(dir, 'modules/apple'), web = resolve(dir, 'modules/web/index.js');
+      return { tags, apple: tags.length && existsSync(apple) ? readdirSync(apple).filter(f => f.endsWith('.swift')).sort().map(f => resolve(apple, f)) : [],
+        web: tags.length && existsSync(web) ? web : null };
     },
     /** The manifest, validated; the derived defaults when the app has none. */
     manifest,

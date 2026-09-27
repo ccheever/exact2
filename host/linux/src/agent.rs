@@ -254,7 +254,8 @@ fn resize<D: DataSource>(p: &mut Presenter<D>, request: &serde_json::Value) -> S
     .to_string()
 }
 
-/// Linux carries an iframe's box but has no web engine (LLP 1020 D5).
+/// Linux carries an iframe's box but has no web engine (LLP 1020 D5), and
+/// a native module's box but no module (LLP 1024 D1).
 fn accessibility_tree<D: DataSource>(p: &mut Presenter<D>) -> String {
     p.boxes();
     use exact_kernel::generated::PropId;
@@ -287,6 +288,14 @@ fn accessibility_tree<D: DataSource>(p: &mut Presenter<D>) -> String {
             row["focused"] = (p.focus() == Some(id)).into();
             if row["type"] == "WebView" || row["type"] == "Video" {
                 row["unavailable"] = true.into();
+            }
+            // @ref LLP 1024 D1 — declared, but this host loads no module.
+            if row["type"] == "NativeView" {
+                row["module"] = serde_json::json!({
+                    "name": row["props"]["nativeViewModuleName"],
+                    "state": "unavailable",
+                    "error": "the Linux host loads no native modules"
+                });
             }
             if let Some(node) = p.host().kernel().node(id) {
                 if node.props.str(PropId::AccessibilityLabel).is_some()

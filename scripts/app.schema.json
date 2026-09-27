@@ -8,6 +8,14 @@
     "app"
   ],
   "properties": {
+    "modules": {
+      "type": "array",
+      "description": "The native-module roster (LLP 1024 D1): the custom-element tags the app's module artifact serves (modules/apple/*.swift beside libexact_modules.dylib on Apple, modules/web/index.js on the web). A hyphenated tag in the Contract that this list lacks is bake-unknown-module.",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*(-[a-z][a-z0-9_]*)+$"
+      }
+    },
     "gpu": {
       "type": "object",
       "additionalProperties": false,

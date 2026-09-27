@@ -546,6 +546,19 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                 extents.remember(&v, e);
                 stack.push(v);
             }
+            // @ref LLP 1024 D1 — the leftover attributes, one replaced object.
+            Opcode::NativeProps => {
+                let n = args[0] as usize * 2;
+                if stack.len() < n {
+                    return Err(Trap::StackUnderflow { pc });
+                }
+                let pairs = stack.split_off(stack.len() - n);
+                let json = stdlib::native_props(&pairs).ok_or(Trap::TypeMismatch { pc, op })?;
+                if json.len() > MAX_STRING {
+                    return Err(Trap::StringTooLong { pc });
+                }
+                stack.push(Value::Str(Rc::from(json)));
+            }
             Opcode::Add => num2!(pc, op, |a, b| Value::Number(a + b)),
             Opcode::Sub => num2!(pc, op, |a, b| Value::Number(a - b)),
             Opcode::Mul => num2!(pc, op, |a, b| Value::Number(a * b)),

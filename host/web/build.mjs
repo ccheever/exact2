@@ -10,12 +10,12 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { relative, resolve } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { rolldown } from 'rolldown';
 import { minifySync } from 'rolldown/experimental';
 import { writeInstallPages } from '../../scripts/install-page.mjs';
-import { gpuModules, rustPolicy, webHostFiles } from '../../scripts/app.mjs';
+import { checkModuleRoster, gpuModules, rustPolicy, webHostFiles } from '../../scripts/app.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
 import { webDist, copyShaders, bakeOutput, buildBake, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp, wasmRemapFlags, WEB_STD, WEB_TOOLCHAIN, webToolchainEnv } from '../../scripts/app.mjs';
 import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
@@ -339,6 +339,21 @@ if (gpuArtifacts.length && !gpuNote.startsWith('wasm-bindgen')) {
   if (gpuModules(app.manifest).length) copyHostFiles('gpuModules');
   gpuNote += ', on demand';
 }
+// @ref LLP 1024 D3/D5 — the app's module table, beside the page only when the
+// app has modules (the GPU gate): its web executor under `modules/`, fetched
+// after first paint by the host's adapter.
+let moduleNote = 'no native modules';
+if (app.modules.tags.length) {
+  const release = buildEnv.EXACT_UPDATE_TRUST === 'production';
+  let provided = [];
+  if (app.modules.web) {
+    copyStaticTreeIfPresent(dirname(app.modules.web), resolve(stage, 'modules'));
+    provided = Object.keys((await import(app.modules.web)).roster ?? {});
+  }
+  checkModuleRoster(app, provided, 'web', release);
+  copyHostFiles('native');
+  moduleNote = `modules/ (${provided.join(', ') || 'none'}), on demand`;
+}
 // Written last inside the private stage. Dev startup trusts a dist only when
 // this marker and the public plan card agree, so a partial/corrupt directory
 // can never be mistaken for a completed build of the requested app.
@@ -358,4 +373,4 @@ try {
 rmSync(previous, { recursive: true, force: true });
 const textFlowWasm = readFileSync(resolve(dist, 'textflow.wasm'));
 const markdownEditor = readFileSync(resolve(dist, 'markup-editor.wasm'));
-console.log(`${relative(process.cwd(), dist) || "."}: app.wasm ${kib(wasm.length)} (${kib(gzipSync(wasm, { level: 9 }).length)} gzip; ${optNote}), index.html, glue.js, app.plan ${kib(planBytes.length)}, exact.json; documents: ${documentNote}; GPU: ${gpuNote}; markup-editor.wasm ${kib(markdownEditor.length)} (${kib(gzipSync(markdownEditor, { level: 9 }).length)} gzip), on demand; textflow.wasm ${kib(textFlowWasm.length)} (${kib(gzipSync(textFlowWasm, { level: 9 }).length)} gzip), on demand`);
+console.log(`${relative(process.cwd(), dist) || "."}: app.wasm ${kib(wasm.length)} (${kib(gzipSync(wasm, { level: 9 }).length)} gzip; ${optNote}), index.html, glue.js, app.plan ${kib(planBytes.length)}, exact.json; documents: ${documentNote}; GPU: ${gpuNote}; modules: ${moduleNote}; markup-editor.wasm ${kib(markdownEditor.length)} (${kib(gzipSync(markdownEditor, { level: 9 }).length)} gzip), on demand; textflow.wasm ${kib(textFlowWasm.length)} (${kib(gzipSync(textFlowWasm, { level: 9 }).length)} gzip), on demand`);

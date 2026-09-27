@@ -616,8 +616,8 @@ extension Agent {
             return p.terminationStatus == 0 ? ["screenshot": path, "window": true, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height), "scale": Agent.r2(window.backingScaleFactor)] : ["error": "screencapture exited \(p.terminationStatus)"]
         }
         guard let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { return ["error": "no bitmap for the viewport"] }
-        Capture.web = session.webviews.snapshots()
-        let hidden = presenter.views.values.compactMap(\.web).map { ($0, $0.isHidden) }
+        Capture.web = session.webviews.snapshots().merging(session.natives.snapshots()) { web, _ in web }
+        let hidden = (presenter.views.values.compactMap(\.web) + session.natives.snapshotViews).map { ($0, $0.isHidden) }
         hidden.forEach { $0.0.isHidden = true }
         // As a capture: every canvas paints its picture, read back from the
         // module, and every iframe paints its arm snapshot at its node.

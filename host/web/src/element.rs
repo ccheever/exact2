@@ -46,7 +46,16 @@ pub(super) fn host_css(node: &NodeRef<'_>, mut css: String, tag: &str) -> String
 /// The element for a node: its type, refined by `semanticTag`. A `<button>`
 /// holds only phrasing content, so there a container — a box, a paragraph,
 /// a heading, a landmark — is a `<span>` with the same style (LLP 1007 §1).
-pub(super) fn tag_for(node: &NodeRef<'_>, in_button: bool) -> &'static str {
+pub(super) fn tag_for<'a>(node: &NodeRef<'a>, in_button: bool) -> &'a str {
+    // @ref LLP 1024 D2 — a module node is its custom element, by the name
+    // the plan carries, checked again: plan bytes are network bytes.
+    if let Some(name) = node
+        .props
+        .str(PropId::NativeViewModuleName)
+        .filter(|n| node.node_type == NodeType::NativeView && module_name(n))
+    {
+        return name;
+    }
     match element(node) {
         "div" | "main" | "header" | "nav" | "section" | "footer" | "article" | "aside" | "h1"
         | "h2" | "h3" | "h4" | "h5" | "h6"
@@ -56,6 +65,27 @@ pub(super) fn tag_for(node: &NodeRef<'_>, in_button: bool) -> &'static str {
         }
         tag => tag,
     }
+}
+
+/// HTML's potential custom element name, lowercase (LLP 1024 D1): the
+/// compiler's admission, repeated where plan bytes become a DOM tag.
+pub(super) fn module_name(name: &str) -> bool {
+    const RESERVED: [&str; 8] = [
+        "annotation-xml",
+        "color-profile",
+        "font-face",
+        "font-face-src",
+        "font-face-uri",
+        "font-face-format",
+        "font-face-name",
+        "missing-glyph",
+    ];
+    let word = |w: &str| {
+        let mut chars = w.chars();
+        chars.next().is_some_and(|c| c.is_ascii_lowercase())
+            && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+    };
+    name.contains('-') && name.split('-').all(word) && !RESERVED.contains(&name)
 }
 
 /// Whether a `<button>` holds the node.

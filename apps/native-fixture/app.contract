@@ -1,0 +1,66 @@
+// The native-module fixture (LLP 1024 D8): the seam and nothing else. Three
+// module tags from the roster in app.json — `exact-fixture` (a coloured box
+// that takes the snapshot bit, fires every event on request, and rejects a
+// `reject` prop), `exact-plain` (a box the ordinary capture paints) and
+// `exact-absent` (in the roster, never in the artifact: its node reports the
+// missing factory). `bun scripts/smoke.mjs <web|macos> --app native-fixture`
+// drives it through the eight operations.
+
+component NativeFixture
+  state count = 0
+  state emit = 0
+  state shown = true
+  state rejecting = false
+  state moded = false
+  state loads = 0
+  state events = ""
+  state received = ""
+  action bump writes count
+    count = count + 1
+  action fire writes emit
+    emit = emit + 1
+  action toggle writes shown
+    shown = not shown
+  action reject writes rejecting
+    rejecting = not rejecting
+  action mode writes moded
+    moded = not moded
+  action onLoad writes loads
+    loads = loads + 1
+  action onPress writes events
+    events = events + "press;"
+  action onChange(v: string) writes events
+    events = events + "change:" + v + ";"
+  action onHover(over: bool) writes events
+    events = events + "hover:" + toString(over) + ";"
+  action onFocus writes events
+    events = events + "focus;"
+  action onBlur writes events
+    events = events + "blur;"
+  action onKey(k: string) writes events
+    events = events + "key:" + k + ";"
+  action onSubmit writes events
+    events = events + "submit;"
+  action onMessage(m: string) writes events, received
+    if contains(m, "props:")
+      received = m
+    else
+      events = events + "message:" + m + ";"
+  view
+    column testId="fixture" width="100%" height="100%" gap=8 padding=12 background-color="#ffffff" color="#111111" font-family="system-ui"
+      row gap=6 flex-wrap="wrap"
+        button press=bump testId="bump" padding=6 background-color="#e5e7eb"
+          text "Bump"
+        button press=fire testId="fire" padding=6 background-color="#e5e7eb"
+          text "Fire"
+        button press=toggle testId="toggle" padding=6 background-color="#e5e7eb"
+          text (shown ? "Unmount" : "Mount")
+        button press=reject testId="reject" padding=6 background-color="#e5e7eb"
+          text "Reject"
+        button press=mode testId="mode" padding=6 background-color="#e5e7eb"
+          text "Mode"
+      text ("count " + toString(count) + " · loads " + toString(loads)) testId="counts"
+      when shown
+        exact-fixture testId="box" width=120 height=80 tint="#2266ee" note="quote \" slash \\ tab\t<&>" count=count emit=emit mode=(moded ? some("wide") : none) reject=rejecting load=onLoad press=onPress change=onChange hover=onHover focus=onFocus blur=onBlur key=onKey submit=onSubmit message=onMessage
+      exact-plain testId="plain" width=120 height=60 tint="#11aa44"
+      exact-absent testId="absent" width=120 height=40 background-color="#f3f4f6"

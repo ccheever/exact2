@@ -315,7 +315,12 @@ fn compatibility_with_trust(
         // does. Shaders are assets (1030.000 stage 1); the surface's Rust
         // binds this interface.
         "gpuSurfaces": gpu_surfaces(app_dir, manifest)?,
-        "nativeModules": Value::Null,
+        // @ref LLP 1024 D3/D4 — the roster and the table's ABI: a new tag
+        // is a binary change, never a bundle (LLP 1047 D8).
+        "nativeModules": match contract::native::roster(manifest)? {
+            tags if tags.is_empty() => Value::Null,
+            tags => json!({ "abi": 1, "tags": tags }),
+        },
         "icons": icons,
         "capabilities": {
             "backgroundModes": list("backgroundModes"),

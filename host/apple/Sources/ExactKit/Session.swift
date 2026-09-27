@@ -335,6 +335,7 @@ public final class ExactSession {
     private var textPressure: DispatchSourceMemoryPressure?
     let canvases: Canvases
     let webviews: WebViews
+    let natives = NativeViews()
     let frames: Frames
     var clockTimer: Timer?
     /// The runner deadline `clockTimer` fires for.
@@ -386,6 +387,7 @@ public final class ExactSession {
         presenter.session = self
         canvases.session = self
         webviews.session = self
+        natives.session = self
         frames.session = self
         runtime.setMeasure(TextEngine.measureText, ctx: text.opaque)
         runtime.setFonts(TextEngine.installFonts, ctx: text.opaque)
@@ -646,7 +648,7 @@ public final class ExactSession {
         presenter.reorder?.raiseLifted()
         frames.motion = batch.motion
         // The GPU module: after the first painted frame, only when a canvas exists.
-        if firstDrawMs != nil { canvases.loadIfNeeded(); drainSurfaceWork() } else { DispatchQueue.main.async { [weak self] in guard let self else { return }; canvases.loadIfNeeded(); drainSurfaceWork(); frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames) } }
+        if firstDrawMs != nil { canvases.loadIfNeeded(); natives.loadIfNeeded(); drainSurfaceWork() } else { DispatchQueue.main.async { [weak self] in guard let self else { return }; canvases.loadIfNeeded(); drainSurfaceWork(); frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames) } }
         timerDue = batch.timerDueMs
         scheduleClock(due: batch.timerDueMs)
         if ExactEnv.environment["EXACT_TIMER_TRACE"] == "1", !ExactEnv.agentMode {
@@ -751,6 +753,7 @@ public final class ExactSession {
                 app.firstPixel(token)
             }
             canvases.loadIfNeeded()
+            natives.loadIfNeeded() // @ref LLP 1024 D3 — the turn after first draw
             drainSurfaceWork()
             frames.run(frames.motion || canvases.wantsFrames)
             frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)

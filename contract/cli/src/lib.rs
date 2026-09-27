@@ -15,6 +15,7 @@
 mod logic;
 mod manifest;
 mod map;
+pub mod native;
 mod rust;
 mod sources;
 mod surface;
@@ -308,6 +309,11 @@ fn compile_path_output(
         related: Box::new([]),
     })?;
     let (file, sources) = sources::load(path, src, &app_root)?;
+    native::check(&file, &app_root).map_err(|all| {
+        all.into_iter()
+            .map(|e| sources.resolve(e))
+            .collect::<Vec<_>>()
+    })?;
     if let Some(declared) = surface::arguments(&app_root)? {
         contract_analyze::check_surface_arguments(&file, &declared)
             .map_err(|e| sources.resolve(e.into()))?;

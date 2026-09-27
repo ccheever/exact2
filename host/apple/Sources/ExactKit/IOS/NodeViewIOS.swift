@@ -572,7 +572,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         clearSymbol()
         image = nil
         video?.invalidate(); video = nil
-        presenter?.session?.webviews.destroy(id: id)
+        destroyEmbedded()
         web = nil
         presenter = nil
     }
@@ -617,12 +617,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             field = f
         }
         if kind == "video" { video = VideoView(owner: self) }
-        if kind == "iframe", let w = presenter.session?.webviews.create(owner: self) {
-            w.frame = bounds
-            w.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-            addSubview(w)
-            web = w
-        }
+        embedPlatformView(presenter)
     }
     required init?(coder: NSCoder) { nil }
 
@@ -1122,7 +1117,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
         if kind == "image", let src = props["imageSource"], src != imageSource { loadImage(src) }
         if kind == "image", props["imageSource"] == nil, imageSource != nil { loadGeneration += 1; presenter?.session?.rasters.cancel(id); raster = nil; imageSource = nil; clearSymbol(); image = nil; presenter?.intrinsic(id, nil) }
-        if kind == "iframe" { presenter?.session?.webviews.update(self) }
+        updateEmbedded()
         video?.update()
         setNeedsDisplay()
     }
