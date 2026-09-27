@@ -66,7 +66,7 @@ import { dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { resolveApp, buildBake, bakeTarget, pendingBuildInputs } from './app.mjs';
 import { hermesIos } from './app.mjs';
-import { HERMES_IOS_ARCHIVES, provisionHermesIos } from '../host/apple/build.mjs';
+import { HERMES_IOS_ARCHIVES, provisionHermesIos, iosAssets, useXcode } from '../host/apple/build.mjs';
 import { snapshotOf, materializeSnapshot, disposeSnapshot } from './deploy.mjs';
 
 // Real Cargo units, no engine dependencies. Opt in with the other bake diagnostics.
@@ -883,3 +883,23 @@ test('lean iOS Hermes provisions into its per-pin cache, only from the pinned pr
     assert.equal(existsSync(elsewhere), false);
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
+
+// Real actool: separate compiles into the same bundle silently replace Assets.car.
+test.skipIf(process.platform !== 'darwin')('iOS distribution assets retain the icon and both launch appearances', () => {
+  useXcode();
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-ios-assets-'));
+  try {
+    writeFileSync(resolve(dir, 'icon.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64'));
+    const bundle = resolve(dir, 'Fixture.app');
+    mkdirSync(bundle);
+    const app = { dir, name: 'fixture', manifest: { icons: [{ src: 'icon.png', sizes: '1024x1024' }], launch: { background: '#fff', backgroundDark: '#123456' } } };
+    const keys = iosAssets(app, bundle, true, { catalog: true });
+    assert.equal(keys.CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName, 'AppIcon');
+    assert.equal(keys.UILaunchScreen.UIColorName, 'ExactLaunch');
+    const result = spawnSync('xcrun', ['assetutil', '--info', resolve(bundle, 'Assets.car')], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    const assets = JSON.parse(result.stdout);
+    assert.ok(assets.some(asset => asset.Name === 'AppIcon'), 'Assets.car must retain AppIcon');
+    assert.equal(assets.filter(asset => asset.Name === 'ExactLaunch').length, 2);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}, 60000);

@@ -1,6 +1,6 @@
 # An `--ipa` build with a launch background ships without its catalog app icon: the launch `actool` pass overwrites `Assets.car`
 
-**Status:** Open
+**Status:** Fixed: iOS icons and launch colours compile in one actool pass, and distribution builds require AppIcon in Assets.car; a real Xcode build of the fixture catalog and assetutil inspection verify AppIcon plus both ExactLaunch appearances.
 **Systems:** Apple build (`host/apple/build.mjs`)
 **Severity:** P1
 **Author:** Claude (Opus 5.5) for Charlie Cheever

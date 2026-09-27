@@ -581,18 +581,10 @@ export function appIcon(app, dir, platform, { catalog = false } = {}) {
     // A distributed build also compiles the icon into Assets.car: App Store
     // Connect requires the asset catalog, not loose PNGs.
     if (catalog) {
-      const work = mkdtempSync(resolve(tmpdir(), 'exact-icon-'));
-      const set = resolve(work, 'Assets.xcassets', 'AppIcon.appiconset');
+      const set = resolve(catalog, 'AppIcon.appiconset');
       mkdirSync(set, { recursive: true });
       sized(1024, resolve(set, 'icon.png'));
       writeFileSync(resolve(set, 'Contents.json'), JSON.stringify({ images: [{ filename: 'icon.png', idiom: 'universal', platform: 'ios', size: '1024x1024' }], info: { author: 'exact', version: 1 } }));
-      writeFileSync(resolve(work, 'Assets.xcassets', 'Contents.json'), JSON.stringify({ info: { author: 'exact', version: 1 } }));
-      const partial = resolve(work, 'partial.plist');
-      run('xcrun', ['actool', resolve(work, 'Assets.xcassets'), '--compile', dir, '--platform', 'iphoneos', '--minimum-deployment-target', app.manifest.host?.ios?.minimumOS ?? '17.0',
-        '--app-icon', 'AppIcon', '--target-device', 'iphone', '--target-device', 'ipad', '--output-partial-info-plist', partial, '--output-format', 'human-readable-text'], { stdio: 'ignore' });
-      const keys = JSON.parse(read('plutil', ['-convert', 'json', '-o', '-', partial]).stdout);
-      rmSync(work, { recursive: true, force: true });
-      return keys;
     }
     const primary = (files) => ({ CFBundlePrimaryIcon: { CFBundleIconFiles: files, CFBundleIconName: 'AppIcon' } });
     return { CFBundleIcons: primary(['AppIcon60x60']), 'CFBundleIcons~ipad': primary(['AppIcon60x60', 'AppIcon76x76', 'AppIcon83.5x83.5']) };
@@ -608,13 +600,38 @@ export function appIcon(app, dir, platform, { catalog = false } = {}) {
   return { CFBundleIconFile: 'AppIcon' };
 }
 
+/** All iOS asset sets share one actool pass: each pass replaces Assets.car. */
+export function iosAssets(app, dir, device, { catalog = false } = {}) {
+  const work = mkdtempSync(resolve(tmpdir(), 'exact-ios-assets-'));
+  try {
+    const assets = resolve(work, 'Assets.xcassets');
+    const keys = { ...appIcon(app, dir, 'ios', { catalog: catalog ? assets : false }), ...launchScreen(app, assets) };
+    const hasIcon = existsSync(resolve(assets, 'AppIcon.appiconset'));
+    if (catalog && !hasIcon) throw new Error(`host/apple: ${app.name}'s distribution bundle requires an AppIcon; declare a square icon of at least 512 px`);
+    if (hasIcon || keys.UILaunchScreen) {
+      writeFileSync(resolve(assets, 'Contents.json'), JSON.stringify({ info: { author: 'exact', version: 1 } }));
+      const partial = resolve(work, 'partial.plist');
+      run('xcrun', ['actool', assets, '--compile', dir, '--platform', device ? 'iphoneos' : 'iphonesimulator',
+        '--minimum-deployment-target', app.manifest.host?.ios?.minimumOS ?? '17.0',
+        ...(hasIcon ? ['--app-icon', 'AppIcon', '--target-device', 'iphone', '--target-device', 'ipad'] : []),
+        '--output-partial-info-plist', partial, '--output-format', 'human-readable-text'], { stdio: 'ignore' });
+      Object.assign(keys, JSON.parse(run('plutil', ['-convert', 'json', '-o', '-', partial], { encoding: 'utf8', stdio: 'pipe' }).stdout));
+    }
+    if (catalog) {
+      const contents = JSON.parse(run('xcrun', ['assetutil', '--info', resolve(dir, 'Assets.car')], { encoding: 'utf8', stdio: 'pipe' }).stdout);
+      if (!contents.some(asset => asset.Name === 'AppIcon')) throw new Error(`host/apple: ${dir}/Assets.car has no AppIcon`);
+    }
+    return keys;
+  } finally { rmSync(work, { recursive: true, force: true }); }
+}
+
 /** The launch screen in the app's own background, light and dark
  * (`launch`, else the manifest's `background_color`): iOS crossfades
  * from the launch screen to the first frame, and between two screens of one
  * colour that crossfade is invisible, so the app opens on its first frame.
  * `UILaunchScreen` names colours only from an asset catalog, so this
- * compiles one (`actool`) into the bundle. Returns the plist keys to merge. */
-export function launchScreen(app, dir, device) {
+ * writes its colour set for the shared compile. Returns the plist keys to merge. */
+function launchScreen(app, catalog) {
   const launch = app.manifest.launch ?? {};
   const light = launch.background ?? app.manifest.background_color;
   if (!light) return {};
@@ -627,16 +644,8 @@ export function launchScreen(app, dir, device) {
   };
   const colors = [{ idiom: 'universal', color: components(light, 'background') }];
   if (launch.backgroundDark) colors.push({ idiom: 'universal', appearances: [{ appearance: 'luminosity', value: 'dark' }], color: components(launch.backgroundDark, 'backgroundDark') });
-  const work = mkdtempSync(resolve(tmpdir(), 'exact-launch-'));
-  try {
-    const catalog = resolve(work, 'Launch.xcassets');
-    mkdirSync(resolve(catalog, 'ExactLaunch.colorset'), { recursive: true });
-    writeFileSync(resolve(catalog, 'Contents.json'), JSON.stringify({ info: { author: 'exact', version: 1 } }));
-    writeFileSync(resolve(catalog, 'ExactLaunch.colorset', 'Contents.json'), JSON.stringify({ colors, info: { author: 'exact', version: 1 } }));
-    run('xcrun', ['actool', catalog, '--compile', dir, '--platform', device ? 'iphoneos' : 'iphonesimulator',
-      '--minimum-deployment-target', app.manifest.host?.ios?.minimumOS ?? '17.0',
-      '--output-partial-info-plist', resolve(work, 'partial.plist')], { stdio: 'ignore' });
-  } finally { rmSync(work, { recursive: true, force: true }); }
+  mkdirSync(resolve(catalog, 'ExactLaunch.colorset'), { recursive: true });
+  writeFileSync(resolve(catalog, 'ExactLaunch.colorset', 'Contents.json'), JSON.stringify({ colors, info: { author: 'exact', version: 1 } }));
   return { UILaunchScreen: { UIColorName: 'ExactLaunch' } };
 }
 
@@ -1091,7 +1100,7 @@ function main(args) {
   // with the module before a surface is created, never strings in the dylib.
   copyAppleStaticTrees(paths.capture, bundle);
   verifyBakeFiles(bakedCompat, bakedPlan, listAssets(bundle, true));
-  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, icon: { ...appIcon(app, bundle, 'ios', { catalog: !!ipa }), ...launchScreen(app, bundle, device) }, distribution: ipa ? distributionKeys() : null }));
+  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, icon: iosAssets(app, bundle, device, { catalog: !!ipa }), distribution: ipa ? distributionKeys() : null }));
   if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(bundle, 'Frameworks', loadName));
   for (const m of moduleDylibs) copyFileSync(resolve(libDir, m.built), resolve(bundle, 'Frameworks', m.load));
   copyFileSync(webBuilt, resolve(bundle, 'Frameworks', webLoadName));
