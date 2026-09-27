@@ -1059,6 +1059,7 @@ name = "exact-runner"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-canvas",
  "exact-kernel",
  "exact-motion",
  "exact-num",

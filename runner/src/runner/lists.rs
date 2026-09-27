@@ -182,7 +182,7 @@ impl<D: DataSource> Runner<D> {
         }
         match self.apply(ops) {
             Ok(receipt) => {
-                self.surfaces.extend(surfaces);
+                self.publish_surfaces(surfaces);
                 Ok(receipt)
             }
             Err(e) => {

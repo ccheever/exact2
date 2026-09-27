@@ -134,6 +134,8 @@ pub struct Placed<D> {
     /// Taken at construction: a moved source's handle still reaches it on its
     /// owner, and a built instance shares its template's.
     interrupt: Option<Interrupt>,
+    /// The Canvas 2D roster, read at construction (LLP 1056 D1).
+    canvas_surfaces: Vec<(String, usize)>,
     owner: Option<Sender<Job>>,
     recorded: BTreeMap<u64, Recorded>,
     stages: HashMap<Key, VecDeque<Stage>>,
@@ -169,6 +171,7 @@ impl<D: DataSource + 'static> Placed<D> {
             grants: source.grants().to_string(),
             revision: source.revision().map(str::to_string),
             interrupt: source.interrupt(),
+            canvas_surfaces: source.canvas_surfaces(),
             inner: Some(source),
             placement,
             spawn,
@@ -410,6 +413,32 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
             return true;
         }
         self.inner.as_ref().is_some_and(D::ready)
+    }
+
+    fn canvas_surfaces(&self) -> Vec<(String, usize)> {
+        self.canvas_surfaces.clone()
+    }
+
+    /// A worker-placed module does not draw yet (LLP 1056 stage 1; QUEUE):
+    /// its canvases report the error through `state`.
+    fn draw(
+        &mut self,
+        request: &exact_runner::DrawRequest<'_>,
+        ctx: &exact_runner::exact_canvas::Context2d,
+    ) -> exact_runner::Drawn {
+        match (&self.owner, self.inner.as_mut()) {
+            (None, Some(inner)) => inner.draw(request, ctx),
+            _ => exact_runner::Drawn::Now(exact_runner::DrawReply {
+                error: Some("a worker-placed module does not draw Canvas 2D yet".into()),
+                ..Default::default()
+            }),
+        }
+    }
+
+    fn canvases_retired(&mut self, retired: &[(u64, u32)]) {
+        if let (None, Some(inner)) = (&self.owner, self.inner.as_mut()) {
+            inner.canvases_retired(retired);
+        }
     }
 
     fn preload(&self) -> Result<bool, DataError> {

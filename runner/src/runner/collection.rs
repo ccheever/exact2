@@ -102,7 +102,7 @@ impl<D: DataSource> Runner<D> {
         if changed || !ops.is_empty() {
             match self.apply(ops) {
                 Ok(receipt) => {
-                    self.surfaces.extend(surfaces);
+                    self.publish_surfaces(surfaces);
                     result.receipts.push(Timed {
                         at_ms: self.now_ms,
                         receipt,

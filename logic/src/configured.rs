@@ -23,6 +23,19 @@ macro_rules! configured {
             fn ready(&self) -> bool {
                 $crate::exact_runner::DataSource::ready(&self.0)
             }
+            fn canvas_surfaces(&self) -> Vec<(String, usize)> {
+                $crate::exact_runner::DataSource::canvas_surfaces(&self.0)
+            }
+            fn draw(
+                &mut self,
+                request: &$crate::exact_runner::DrawRequest<'_>,
+                ctx: &$crate::exact_runner::exact_canvas::Context2d,
+            ) -> $crate::exact_runner::Drawn {
+                $crate::exact_runner::DataSource::draw(&mut self.0, request, ctx)
+            }
+            fn canvases_retired(&mut self, retired: &[(u64, u32)]) {
+                $crate::exact_runner::DataSource::canvases_retired(&mut self.0, retired)
+            }
             fn preload(&self) -> Result<bool, $crate::exact_runner::DataError> {
                 $crate::exact_runner::DataSource::preload(&self.0)
             }

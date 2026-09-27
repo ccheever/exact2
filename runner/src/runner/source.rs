@@ -300,6 +300,60 @@ pub trait DataSource {
     fn ready(&self) -> bool {
         true
     }
+
+    /// The Canvas 2D surfaces this source draws, name and arity (LLP 1056
+    /// D1): known without running app code — a Rust crate's is a constant,
+    /// a TypeScript module's is what the bake read. A `canvas surface=`
+    /// naming one of these is a 2D canvas the runner draws; any other is the
+    /// GPU module's (LLP 1009). A source that forwards forwards this too.
+    fn canvas_surfaces(&self) -> Vec<(String, usize)> {
+        Vec::new()
+    }
+
+    /// Draw one 2D surface with the Rust recorder `ctx` (LLP 1056 D1):
+    /// `Ok(true)` asks for another frame. A throw keeps every call made
+    /// before it (D4, r3). The default draws nothing, by name.
+    fn draw_2d(
+        &mut self,
+        surface: &str,
+        args: &[Value],
+        ctx: &exact_canvas::Context2d,
+        frame: &exact_canvas::Frame,
+    ) -> Result<bool, exact_canvas::DrawError> {
+        let _ = (args, ctx, frame);
+        Err(exact_canvas::DrawError::Message(format!(
+            "this source draws no 2D surface `{surface}`"
+        )))
+    }
+
+    /// Run one draw request (LLP 1056 D4). The runner keeps one Rust
+    /// recorder per canvas generation and passes it as `ctx`; the default
+    /// draws with [`DataSource::draw_2d`] into it and answers now. A source
+    /// with its own recorders (TypeScript) records with its own, keyed by
+    /// the request's canvas and generation, and may answer
+    /// [`super::Drawn::Later`], delivering through
+    /// [`super::Runner::canvas_reply`]. A source that forwards forwards this
+    /// too.
+    fn draw(
+        &mut self,
+        request: &super::DrawRequest<'_>,
+        ctx: &exact_canvas::Context2d,
+    ) -> super::Drawn {
+        let result = self.draw_2d(request.surface, request.args, ctx, &request.frame);
+        super::Drawn::Now(super::DrawReply {
+            lists: ctx.take_lists(),
+            wants_frame: matches!(result, Ok(true)),
+            error: result.err().map(|e| e.to_string()),
+            notes: ctx.take_notes(),
+        })
+    }
+
+    /// The canvas generations a source keeps recorders for are gone: a
+    /// source with its own recorders drops them. The runner calls this for
+    /// canvases unmounted or superseded.
+    fn canvases_retired(&mut self, retired: &[(u64, u32)]) {
+        let _ = retired;
+    }
 }
 
 /// A Contract app without application data has no sources to answer.

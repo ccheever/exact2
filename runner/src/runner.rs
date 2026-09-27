@@ -12,6 +12,8 @@ mod event;
 mod reorder;
 mod reorder_codec;
 pub use event::{ActionBinding, ActionBindingError, ActionBindingRefusal, Event};
+mod canvas2d;
+pub use canvas2d::{CanvasList, DrawReply, DrawRequest, Drawn, Geometry, Limits};
 mod carry;
 mod checkpoint;
 mod collection;
@@ -245,6 +247,8 @@ pub struct Runner<D: DataSource> {
     batch: u64,
     commands: Vec<Command>,
     surfaces: Vec<SurfaceUpdate>,
+    /// The 2D canvases (LLP 1056 D4).
+    canvases: canvas2d::Canvases,
     /// Requests in flight (LLP 1016): at most one per resource or mutation.
     pending: Vec<PendingReq>,
     /// This commit let a request go: `conclude` tells the source what is
@@ -610,6 +614,7 @@ impl<D: DataSource> Runner<D> {
             batch: 0,
             commands: Vec::new(),
             surfaces: Vec::new(),
+            canvases: Default::default(),
             pending: Vec::new(),
             pending_res: Vec::new(),
             pending_mut: Vec::new(),
@@ -750,7 +755,7 @@ impl<D: DataSource> Runner<D> {
         runner.ids = ids;
         runner.tree = Some(tree);
         let receipt = runner.apply(ops)?;
-        runner.surfaces = surfaces;
+        runner.publish_surfaces(surfaces);
         let line = lines::boot(carried.is_some(), runner.kernel.live_count(), receipt.epoch);
         runner.log(line);
         if !note.is_empty() {

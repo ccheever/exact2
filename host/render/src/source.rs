@@ -87,6 +87,19 @@ impl<D: DataSource> DataSource for Anonymous<D> {
     fn ready(&self) -> bool {
         self.inner.ready()
     }
+    fn canvas_surfaces(&self) -> Vec<(String, usize)> {
+        self.inner.canvas_surfaces()
+    }
+    fn draw(
+        &mut self,
+        request: &exact_runner::DrawRequest<'_>,
+        ctx: &exact_runner::exact_canvas::Context2d,
+    ) -> exact_runner::Drawn {
+        self.inner.draw(request, ctx)
+    }
+    fn canvases_retired(&mut self, retired: &[(u64, u32)]) {
+        self.inner.canvases_retired(retired)
+    }
     fn preload(&self) -> Result<bool, DataError> {
         self.inner.preload()
     }

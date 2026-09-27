@@ -383,6 +383,19 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
             num(node.content.1 as f64)
         );
     }
+    // LLP 1056 §5: a 2D canvas's last list, readable, in development builds.
+    if cfg!(debug_assertions) {
+        if let Some(lines) = runner.canvas_describe(id) {
+            s.push_str(",\"canvasList\":[");
+            for (i, line) in lines.iter().enumerate() {
+                if i > 0 {
+                    s.push(',');
+                }
+                quote(line, &mut s);
+            }
+            s.push(']');
+        }
+    }
     s.push('}');
     s
 }
@@ -563,6 +576,8 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
     delivery(runner, &mut s);
     s.push_str(",\"logic\":");
     logic(runner, &mut s);
+    s.push_str(",\"canvas\":");
+    runner.canvas_state(&mut s);
     s.push('}');
     s
 }

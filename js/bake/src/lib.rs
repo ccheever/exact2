@@ -99,6 +99,9 @@ impl DataSource for Composed {
     fn ready(&self) -> bool {
         self.0.ready()
     }
+    fn canvas_surfaces(&self) -> Vec<(String, usize)> {
+        self.0.canvas_surfaces()
+    }
 }
 
 /// What the development producer knows about the Rust half it cannot run:
@@ -222,6 +225,9 @@ impl DataSource for Seeded<'_> {
     }
     fn ready(&self) -> bool {
         self.module.ready()
+    }
+    fn canvas_surfaces(&self) -> Vec<(String, usize)> {
+        self.module.canvas_surfaces()
     }
 }
 
