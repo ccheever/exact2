@@ -64,6 +64,8 @@ component Gallery
     page = 3
   action four writes page
     page = 4
+  action five writes page
+    page = 5
   view
     main testId="gallery" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#0f172a" font-family="system-ui"
       row flex-shrink=0 align-items="center" gap=8 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8
@@ -76,6 +78,8 @@ component Gallery
           text "3" font-size=13
         button press=four testId="page-4" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 4 ? "#e2e8f0" : "#f8fafc")
           text "4" font-size=13
+        button press=five testId="page-5" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 5 ? "#e2e8f0" : "#f8fafc")
+          text "5" font-size=13
       row flex-wrap="wrap" gap=8 padding-left=12 padding-right=12
         when page == 1
           StageOne()
@@ -85,6 +89,8 @@ component Gallery
           StageThree()
         when page == 4
           StageFour()
+        when page == 5
+          StageFive()
 
 // Stage 1: geometry, units, transforms, nested viewports, classes.
 component StageOne
@@ -275,3 +281,31 @@ component StageFour
           rect x=60 y=0 width=40 height=80
       rect width=120 height=80 fill="#0ea5e9" clip-path="url(#ring)"
       rect width=120 height=80 fill="#ef4444" clip-path="url(#both)"
+
+// Stage 5: text. Chart labels, anchors and baselines, runs.
+component StageFive
+  view
+    // An axis: tick labels anchored under their ticks, and a title.
+    svg testId="fx-axis" class=Tile viewBox="0 0 120 80"
+      line x1=10 y1=56 x2=110 y2=56 stroke="#94a3b8"
+      line x1=10 y1=56 x2=10 y2=60 stroke="#94a3b8"
+      line x1=60 y1=56 x2=60 y2=60 stroke="#94a3b8"
+      line x1=110 y1=56 x2=110 y2=60 stroke="#94a3b8"
+      text "0" x=10 y=70 text-anchor="middle" font-size=9 fill="#475569"
+      text "50" x=60 y=70 text-anchor="middle" font-size=9 fill="#475569"
+      text "100" x=110 y=70 text-anchor="end" font-size=9 fill="#475569"
+      text "Revenue" x=60 y=30 text-anchor="middle" font-size=16 font-weight=600 fill="#0f172a"
+    // dominant-baseline against a guide at y=40.
+    svg testId="fx-baselines" class=Tile viewBox="0 0 120 80"
+      line x1=0 y1=40 x2=120 y2=40 stroke="#fda4af"
+      text "Ab" x=4 y=40 font-size=14 fill="#1e293b"
+      text "Ab" x=32 y=40 font-size=14 dominant-baseline="middle" fill="#1e293b"
+      text "Ab" x=60 y=40 font-size=14 dominant-baseline="central" fill="#1e293b"
+      text "Ab" x=88 y=40 font-size=14 dominant-baseline="hanging" fill="#1e293b"
+    // Runs: weights, colours and a shift in one line; a stroked word.
+    svg testId="fx-runs" class=Tile viewBox="0 0 120 80"
+      text x=6 y=30 font-size=13 fill="#334155"
+        tspan "BTC "
+        tspan "+4.88%" font-weight=700 fill="#16a34a"
+        tspan "↑" dx=2 dy=-3 fill="#16a34a"
+      text "SVG" x=60 y=66 text-anchor="middle" font-size=28 font-weight=800 fill="#fef3c7" stroke="#b45309" stroke-width=1.5
