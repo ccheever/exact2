@@ -72,6 +72,8 @@ component Gallery
     page = 7
   action eight writes page
     page = 8
+  action nine writes page
+    page = 9
   view
     main testId="gallery" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#0f172a" font-family="system-ui"
       row flex-shrink=0 align-items="center" gap=8 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8
@@ -92,6 +94,8 @@ component Gallery
           text "7" font-size=13
         button press=eight testId="page-8" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 8 ? "#e2e8f0" : "#f8fafc")
           text "8" font-size=13
+        button press=nine testId="page-9" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 9 ? "#e2e8f0" : "#f8fafc")
+          text "9" font-size=13
       row flex-wrap="wrap" gap=8 padding-left=12 padding-right=12
         when page == 1
           StageOne()
@@ -109,6 +113,8 @@ component Gallery
           StageSeven()
         when page == 8
           StageEight()
+        when page == 9
+          StageNine()
 
 // Stage 1: geometry, units, transforms, nested viewports, classes.
 component StageOne
@@ -432,3 +438,123 @@ component StageEight
         column padding=6 background-color="#ffffff" border-radius=6
           text "HTML in SVG" font-size=12 font-weight=600
           text "a box, laid out by the page" font-size=9 color="#475569"
+
+// Stage 9: filters (LLP 1055.000 D14), islands on native hosts.
+component StageNine
+  view
+    // Gaussian blur: three box blurs past σ 2, a true kernel below it.
+    svg testId="fx-blur" class=Tile viewBox="0 0 120 80"
+      defs
+        filter id="soft"
+          feGaussianBlur stdDeviation=4
+        filter id="slight" x="-20%" y="-20%" width="140%" height="140%"
+          feGaussianBlur stdDeviation="1.5 0.5"
+      rect x=12 y=16 width=40 height=48 fill="#2563eb" filter="url(#soft)"
+      circle cx=88 cy=40 r=20 fill="#f97316" filter="url(#slight)"
+    // A drop shadow two ways: offset, blur, flood, composite and merge;
+    // and feDropShadow.
+    svg testId="fx-shadow" class=Tile viewBox="0 0 120 80"
+      defs
+        filter id="lift"
+          feOffset in="SourceAlpha" dx=3 dy=4 result="moved"
+          feGaussianBlur in="moved" stdDeviation=2.5 result="soft"
+          feFlood flood-color="#0f172a" flood-opacity=0.45
+          feComposite in2="soft" operator="in" result="shade"
+          feMerge
+            feMergeNode in="shade"
+            feMergeNode in="SourceGraphic"
+        filter id="drop"
+          feDropShadow dx=2 dy=3 stdDeviation=2 flood-color="#7c3aed" flood-opacity=0.6
+      rect x=10 y=14 width=44 height=44 rx=8 fill="#fbbf24" filter="url(#lift)"
+      circle cx=88 cy=36 r=20 fill="#34d399" filter="url(#drop)"
+    // Colour matrices on a gradient: grey, turned, and luminance to alpha.
+    svg testId="fx-matrix" class=Tile viewBox="0 0 120 80"
+      defs
+        linearGradient id="rainbow"
+          stop offset=0 stop-color="#ef4444"
+          stop offset=0.5 stop-color="#22c55e"
+          stop offset=1 stop-color="#3b82f6"
+        filter id="grey"
+          feColorMatrix type="saturate" values=0.2
+        filter id="turn"
+          feColorMatrix type="hueRotate" values=120
+        filter id="lum" color-interpolation-filters="sRGB"
+          feColorMatrix type="luminanceToAlpha"
+      rect x=6 y=6 width=108 height=20 fill="url(#rainbow)" filter="url(#grey)"
+      rect x=6 y=30 width=108 height=20 fill="url(#rainbow)" filter="url(#turn)"
+      rect x=6 y=54 width=108 height=20 fill="url(#rainbow)" filter="url(#lum)"
+    // Blend and arithmetic composite, in sRGB.
+    svg testId="fx-blend" class=Tile viewBox="0 0 120 80"
+      defs
+        filter id="multiply" x=0 y=0 width=1 height=1 color-interpolation-filters="sRGB"
+          feFlood flood-color="#38bdf8" result="sky"
+          feBlend in="SourceGraphic" in2="sky" mode="multiply"
+        filter id="screen" x=0 y=0 width=1 height=1 color-interpolation-filters="sRGB"
+          feFlood flood-color="#7c3aed" result="violet"
+          feBlend in="SourceGraphic" in2="violet" mode="screen"
+        filter id="mix" x=0 y=0 width=1 height=1 color-interpolation-filters="sRGB"
+          feFlood flood-color="#ef4444" result="red"
+          feComposite in="SourceGraphic" in2="red" operator="arithmetic" k2=0.5 k3=0.5
+      rect x=6 y=8 width=32 height=64 fill="#fde047" filter="url(#multiply)"
+      rect x=44 y=8 width=32 height=64 fill="#16a34a" filter="url(#screen)"
+      rect x=82 y=8 width=32 height=64 fill="#2563eb" filter="url(#mix)"
+    // CSS filter functions on SVG elements, and a list mixing both.
+    svg testId="fx-css" class=Tile viewBox="0 0 120 80"
+      defs
+        filter id="tint" color-interpolation-filters="sRGB"
+          feColorMatrix type="hueRotate" values=180
+      circle cx=20 cy=22 r=14 fill="#ef4444" filter="grayscale(1)"
+      circle cx=60 cy=22 r=14 fill="#ef4444" filter="sepia(0.8) brightness(1.2)"
+      circle cx=100 cy=22 r=14 fill="#ef4444" filter="hue-rotate(90deg) saturate(2)"
+      rect x=8 y=46 width=24 height=24 fill="#0ea5e9" filter="blur(2px)"
+      rect x=48 y=46 width=24 height=24 fill="#0ea5e9" filter="drop-shadow(3px 3px 2px #0f172a) invert(0.2)"
+      rect x=88 y=46 width=24 height=24 fill="#0ea5e9" filter="url(#tint) opacity(0.6) contrast(1.4)"
+    // Stage 9b: morphology, component transfer, tile.
+    svg testId="fx-shape-ops" class=Tile viewBox="0 0 120 80"
+      defs
+        filter id="fat"
+          feMorphology operator="dilate" radius=2
+        filter id="thin"
+          feMorphology operator="erode" radius="1.5 0.5"
+        filter id="posterize" color-interpolation-filters="sRGB"
+          feComponentTransfer
+            feFuncR type="discrete" tableValues="0 0.5 1"
+            feFuncG type="table" tableValues="1 0"
+            feFuncB type="gamma" amplitude=1 exponent=0.5 offset=0
+            feFuncA type="linear" slope=0.8 intercept=0
+        filter id="tiles" x=0 y=0 width=1 height=1
+          feFlood flood-color="#f43f5e" x=10 y=50 width=8 height=8 result="cell"
+          feTile in="cell"
+      path d="M10 40L26 14L42 40Z" fill="none" stroke="#1d4ed8" stroke-width=2 filter="url(#fat)"
+      rect x=50 y=12 width=24 height=30 fill="#1d4ed8" filter="url(#thin)"
+      rect x=82 y=12 width=32 height=30 fill="#a3e635" filter="url(#posterize)"
+      rect x=10 y=50 width=100 height=24 fill="#000000" filter="url(#tiles)"
+    // Noise, a displacement by it, and an emboss kernel.
+    svg testId="fx-noise" class=Tile viewBox="0 0 120 80"
+      defs
+        filter id="grain" x=0 y=0 width=1 height=1
+          feTurbulence type="fractalNoise" baseFrequency=0.08 numOctaves=2 seed=3
+        filter id="wave" x="-10%" y="-10%" width="120%" height="120%"
+          feTurbulence type="turbulence" baseFrequency=0.05 numOctaves=1 seed=1 result="n"
+          feDisplacementMap in="SourceGraphic" in2="n" scale=6 xChannelSelector="R" yChannelSelector="G"
+        filter id="emboss"
+          feConvolveMatrix order=3 kernelMatrix="-2 -1 0 -1 1 1 0 1 2"
+      rect x=4 y=4 width=36 height=72 fill="#ffffff" filter="url(#grain)"
+      rect x=48 y=14 width=28 height=52 fill="#0891b2" filter="url(#wave)"
+      circle cx=98 cy=40 r=16 fill="#f59e0b" filter="url(#emboss)"
+    // Stage 9c: diffuse and specular lighting.
+    svg testId="fx-light" class=Tile viewBox="0 0 120 80"
+      defs
+        filter id="matte" color-interpolation-filters="sRGB"
+          feGaussianBlur in="SourceAlpha" stdDeviation=3 result="bump"
+          feDiffuseLighting in="bump" surfaceScale=4 diffuseConstant=1 lighting-color="#fde68a" result="lit"
+            feDistantLight azimuth=225 elevation=45
+          feComposite in="lit" in2="SourceAlpha" operator="in"
+        filter id="shine" color-interpolation-filters="sRGB"
+          feGaussianBlur in="SourceAlpha" stdDeviation=2 result="bump"
+          feSpecularLighting in="bump" surfaceScale=3 specularConstant=1 specularExponent=16 lighting-color="#ffffff" result="spec"
+            fePointLight x=70 y=20 z=40
+          feComposite in="spec" in2="SourceAlpha" operator="in" result="glint"
+          feComposite in="SourceGraphic" in2="glint" operator="arithmetic" k2=1 k3=1
+      circle cx=30 cy=40 r=24 fill="#ffffff" filter="url(#matte)"
+      rect x=64 y=16 width=48 height=48 rx=10 fill="#be123c" filter="url(#shine)"
