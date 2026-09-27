@@ -128,6 +128,21 @@ impl Parser {
         while self.at_punct(".") {
             self.next();
             let (field, span) = self.field_name()?;
+            // `xs.map(f)`: the web's method call, directly after the name.
+            let next = self.peek().span;
+            if self.at_punct("(")
+                && next.line == span.line
+                && next.col == span.col + field.chars().count() as u32
+            {
+                return Err(SyntaxError {
+                    id: "syntax-method-call",
+                    message: format!(
+                        "`.{field}(…)` is a method call: {}",
+                        crate::idioms::method_fix(&field)
+                    ),
+                    span,
+                });
+            }
             self.built(self.last, span)?;
             e = Expr::Member(Box::new(e), field, span);
         }
@@ -155,6 +170,16 @@ impl Parser {
                 "some" => {
                     self.expect_punct("(")?;
                     let e = self.expr()?;
+                    // `some(xs, x => …)`: the web's `Array.prototype.some`.
+                    if self.at_punct(",") {
+                        return self.err(
+                            "syntax-refused-idiom",
+                            format!(
+                                "`some(x)` makes an option; {}",
+                                crate::idioms::refusal("some").expect("refused")
+                            ),
+                        );
+                    }
                     self.expect_punct(")")?;
                     self.built(self.last, span)?;
                     Ok(Expr::Some(Box::new(e), span))
@@ -261,6 +286,14 @@ impl Parser {
         }
         self.expect_punct("=>")?;
         let body = self.expr()?;
+        // `x => text x.name`: a view node where a value goes.
+        if matches!(body, Expr::Ident(..)) && !self.at_punct(",") && !self.at_punct(")") {
+            return Err(SyntaxError {
+                id: "syntax-callback-view",
+                message: "a callback returns one value, not a view node: repeat children with `each x in xs key=x.id` under their parent".into(),
+                span: body.span(),
+            });
+        }
         self.built(self.last, span)?;
         Ok(Expr::Arrow {
             params,

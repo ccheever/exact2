@@ -93,6 +93,17 @@ pub(crate) fn infer_call(
             .map(|(p, t)| (p.clone(), Ref::Local(0), t))
             .collect(),
     );
+    // `map(items, i => Row(item=i))`: the JSX habit.
+    if let Expr::Call(callee, _, at) = &**body {
+        if callee.starts_with(|c: char| c.is_ascii_uppercase()) && !shapes.fns.contains_key(callee)
+        {
+            return err(
+                "type-callback-view",
+                format!("a callback returns one value, not a view: repeat `{callee}` with `each x in xs key=x.id` under its parent"),
+                *at,
+            );
+        }
+    }
     let result = infer(body, &inner, shapes)?;
     if f == Stdlib::Map {
         return Ok(if listed == Ty::Unknown {
@@ -102,9 +113,17 @@ pub(crate) fn infer_call(
         });
     }
     if !matches!(result, Ty::Bool | Ty::Unknown) {
+        // No truthiness: say the comparison the web's `filter` implied.
+        let compare = match &result {
+            Ty::String => "compare it: `x.name != \"\"`",
+            Ty::Number => "compare it: `x.count != 0`",
+            Ty::Option(_) => "compare it: `x.note != none`",
+            Ty::List(_) => "test it: `length(x.tags) > 0`",
+            _ => "return a comparison",
+        };
         return err(
             "type-argument",
-            format!("a `filter` callback returns a bool, not `{result}`"),
+            format!("a `filter` callback returns a bool, not `{result}` (Contract has no truthiness); {compare}"),
             body.span(),
         );
     }

@@ -1140,6 +1140,10 @@ impl Parser {
                 "syntax-stray-keyword",
                 format!("`{word}` without a matching construct"),
             ),
+            "map" | "filter" if matches!(self.peek2(), TokenKind::Punct("(")) => self.err(
+                "syntax-map-view",
+                format!("`{word}` makes a value, not view nodes: repeat children with `each x in xs key=x.id` (LLP 1017.003)"),
+            ),
             _ if word.chars().next().is_some_and(char::is_uppercase) => {
                 self.next();
                 self.expect_punct("(")?;

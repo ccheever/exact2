@@ -607,9 +607,16 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                     None => return Err(shapes.unknown_field(shape, field, *span)),
                 },
                 other => {
+                    // `xs.length`, `xs.map`: the web's properties and methods.
+                    let fix = match field.as_str() {
+                        "length" | "map" | "filter" | "join" | "includes" => {
+                            format!(": {}", contract_syntax::idioms::method_fix(field))
+                        }
+                        _ => String::new(),
+                    };
                     return err(
                         "type-not-a-record",
-                        format!("`{other}` has no fields"),
+                        format!("`{other}` has no fields{fix}"),
                         *span,
                     )
                 }

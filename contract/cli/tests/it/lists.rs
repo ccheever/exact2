@@ -377,3 +377,118 @@ component Child
         "bound inside the callback: {shared:?}"
     );
 }
+
+/// LLP 1017.003 §Diagnostics: the web's list idioms, as an agent or a web
+/// developer writes them first, are each refused with the spelling that works
+/// or what to do instead.
+#[test]
+fn the_webs_list_idioms_are_refused_with_their_fix() {
+    let refused = |line: &str, id: &str, fix: &str| {
+        let src = format!(
+            "shape S\n  name: string\n  n: number\ncomponent A\n  resource xs = xs() as shape list<S>\n  view\n    column\n      {line}\n"
+        );
+        let Err(e) = contract::compile(&src) else {
+            panic!("{line} compiled")
+        };
+        assert_eq!(e.id, id, "{line}: {e}");
+        assert!(e.message.contains(fix), "{line}: {e}");
+    };
+    // 1. Methods.
+    for m in ["map", "filter"] {
+        refused(
+            &format!("text join(xs.{m}(x => x.name), \",\")"),
+            "syntax-method-call",
+            &format!("`{m}(xs, (x, i) => …)`"),
+        );
+    }
+    refused(
+        "text xs.join(\",\")",
+        "syntax-method-call",
+        "`join(xs, \", \")`",
+    );
+    refused(
+        "text toString(xs.length)",
+        "type-not-a-record",
+        "`length(xs)`",
+    );
+    refused(
+        "text toString(xs.map)",
+        "type-not-a-record",
+        "`map(xs, (x, i) => …)`",
+    );
+    // 2. Refused neighbours, as functions and as methods.
+    refused(
+        "text toString(length(some(xs, x => x.n)))",
+        "syntax-refused-idiom",
+        "compute it in the data source",
+    );
+    refused(
+        "text toString(xs.some(x => x.n))",
+        "syntax-method-call",
+        "compute it in the data source",
+    );
+    for f in [
+        "reduce", "find", "every", "sort", "slice", "flatMap", "concat",
+    ] {
+        refused(
+            &format!("text toString({f}(xs, x => x.n))"),
+            "type-refused-idiom",
+            "compute it in the data source",
+        );
+        refused(
+            &format!("text toString(xs.{f}(x => x.n))"),
+            "syntax-method-call",
+            "compute it in the data source",
+        );
+    }
+    refused(
+        "text toString(Math.min(1, 2))",
+        "syntax-method-call",
+        "`min(a, b)` for two numbers",
+    );
+    refused(
+        "text toString(Math.max(1, 2))",
+        "syntax-method-call",
+        "`lo` and `hi`",
+    );
+    refused(
+        "text toFixed(1.5, 2)",
+        "type-refused-idiom",
+        "floor(v * 100 + 0.5) / 100",
+    );
+    refused(
+        "text (1.5).toFixed(2)",
+        "syntax-method-call",
+        "formatNumber",
+    );
+    // 3. Mapping to view nodes.
+    refused(
+        "map(xs, x => text x.name)",
+        "syntax-map-view",
+        "`each x in xs key=x.id`",
+    );
+    refused(
+        "text join(map(xs, x => text x.name), \"\")",
+        "syntax-callback-view",
+        "`each x in xs key=x.id`",
+    );
+    refused(
+        "text join(map(xs, x => Row(s=x)), \"\")",
+        "type-callback-view",
+        "`each x in xs key=x.id`",
+    );
+    // 4. Truthiness.
+    refused(
+        "text toString(length(filter(xs, x => x.name)))",
+        "type-argument",
+        "`x.name != \"\"`",
+    );
+    refused(
+        "text toString(length(filter(xs, x => x.n)))",
+        "type-argument",
+        "`x.count != 0`",
+    );
+    // A field named like a method is still a field, and a spaced `(` is not a call.
+    let ok = "shape S\n  map: string\ncomponent A\n  resource xs = xs() as shape list<S>\n  view\n    text join(map(xs, x => x.map), \",\")\n";
+    contract::compile(ok).unwrap();
+}

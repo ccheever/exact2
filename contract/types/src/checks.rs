@@ -251,6 +251,15 @@ pub(super) fn unknown_function(
     shapes: &Shapes,
     span: Span,
 ) -> TypeError {
+    // The web's list operations and number formatters Contract refuses
+    // (LLP 1017.003 §Diagnostics) say what to do instead.
+    if let Some(why) = contract_syntax::idioms::refusal(name) {
+        return TypeError {
+            id: "type-refused-idiom",
+            message: why,
+            span,
+        };
+    }
     let mut message = format!(
         "`{name}` is not in the stdlib roster and is not an action; data comes from a `resource`"
     );

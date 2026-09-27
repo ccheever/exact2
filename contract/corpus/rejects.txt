@@ -893,3 +893,49 @@ component A
   view
     view transform-origin="10px left"
       text "a"
+---
+== type-arrow-position
+# LLP 1017.003: an arrow is only the callback of `map` or `filter`.
+component A
+  view
+    text toString(x => 1)
+---
+== type-arrow-parameters
+component A
+  resource xs = xs() as shape list<number>
+  view
+    text join(map(xs, (a, a) => a), ",")
+---
+== syntax-method-call
+# The web's `xs.map(f)`: Contract spells it `map(xs, f)`.
+component A
+  resource xs = xs() as shape list<number>
+  view
+    text join(xs.map(x => x * 2), ",")
+---
+== syntax-map-view
+# The JSX habit: children repeat with `each`.
+component A
+  resource xs = xs() as shape list<string>
+  view
+    column
+      map(xs, x => text x)
+---
+== syntax-callback-view
+component A
+  resource xs = xs() as shape list<string>
+  view
+    text join(map(xs, x => text x), "")
+---
+== type-callback-view
+component A
+  resource xs = xs() as shape list<string>
+  view
+    text join(map(xs, x => Row(label=x)), "")
+---
+== type-refused-idiom
+# `reduce`, `find`, `sort`, `slice`, `toFixed`…: refused, with what to do instead.
+component A
+  resource xs = xs() as shape list<number>
+  view
+    text toString(reduce(xs, (a, x) => a + x, 0))
