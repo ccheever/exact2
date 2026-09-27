@@ -275,6 +275,16 @@ reading. Nothing that isn't HTML is added by it.
   cost trigger it alongside 60 fps. Take: further Messages decorative Tapback/emoji
   artwork, material matching and animation-timing polish move behind list memory.
   O(N) input data is named separately from O(window) UI; recycling is no flat-memory claim.
+  **Expanded (Charlie, 2026-09-27, LLP 1070: "yes delete the old windowed list
+  thing, collection list is now better"):** horizontal windowed lists (`display:
+  flex; flex-direction: row`) and one level of nesting, a windowed list in a
+  windowed list's row, whose lifetime is its outer row's; its scroll position is
+  kept by the runner, bounded, as the unvirtualized page would keep it. Unblocks
+  the Extra Heavy feed's filmstrip and inbox, and any feed of carousels. Take: the
+  legacy windowed list (`item-height`/`estimated-item-height` without
+  `virtualized`, `runner/src/instance/window.rs`) is deleted first, before either
+  capability lands. Still out: grids, masonry, wrapping and inverted lists; RTL
+  row lists; nesting deeper than one level; host keep-alive of an inner list's views.
 - No host keep-alive of heavy views by row key, and no reuse of a web view
   or of a native-module view without that module's opt-in (LLP 1068 §4.7,
   §4.8, §5.3; Charlie, 2026-09-27). A reused view is indistinguishable from a

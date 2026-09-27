@@ -1,10 +1,10 @@
 # LLP 1070: Nested and horizontal virtualized lists
 
 **Type:** RFC
-**Status:** Draft (r2: two reviews folded, §0; four questions await Charlie, §13)
+**Status:** Accepted (Charlie, 2026-09-27; rulings in §0.1, questions answered in §13)
 **Systems:** Contract (`contract/lower/src/collection.rs`: the two refusals this replaces), Runner (`runner/src/instance/collection/`: the axis, the nested lifetime, pin chains, the size cache), Web host (`collection-glue.js`, `glue.js`), Apple host (`Collection.swift`, `IOS/CollectionIOS.swift`, `IOS/ScrollPumpIOS.swift`, `IOS/ScrollViewIOS.swift`, `IOS/AgentIOS.swift`, `IOS/NodePoolIOS.swift`, `Mac/CollectionMac.swift`, `Mac/ChainingScrollView.swift`), Linux host (`presenter.rs`, `presenter/collection.rs`), Agent (LLP 1012: no new operation)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
-**Implementer:** none named. `rules/RULES.md` wants one and a date before this is built; the lane that ports the Extra Heavy feed (`~/bench/xheavy`) is the natural owner, and Charlie names it when he rules
+**Implementer:** a Claude lane (Opus 5.5), `feat/horizontal-lists`, from 2026-09-27: stages 1–3 first; stage 4 (nesting) follows on the same lane
 **Date:** 2026-09-27 (r1 and r2)
 **Related:**
 - LLP 1010 §6 (the collection: row state dies on retirement, `:334–340`; nested virtual rows rejected, `:760–763`).
@@ -35,9 +35,9 @@ The kernel is already axis-generic (`overflow_x`/`_y`, `content` on both axes). 
 | H1 | One engine, two axes. The collection's seam becomes main/cross (`offset`, `port_main`, `cross`, `size`), wire v3; no second list type |
 | H2 | A horizontal list is CSS's: `display="flex" flex-direction="row"` with a literal `height`. Reverse, wrap, main-axis alignment other than `flex-start`, `gap` and RTL (authored or inherited) are refused by name |
 | H3 | LLP 1050.000's owed-set table applies unchanged on the main axis |
-| H4 | The runner anchors on the main axis, both axes. Chrome anchors only on the block axis (measured, §2): a declared deviation for horizontal lists (Q3) |
+| H4 | The runner anchors on the main axis, both axes. On a horizontal list it anchors only when an estimate is replaced by a first measurement; a re-measured card shifts the strip as in Chrome (Q3, ruled (a)) |
 | N1 | An inner list lives and dies with its outer row, on every host |
-| N2 | Nothing app-visible survives an outer row's retirement: not the rows, not the offset (Q1). Optionally, a bounded cache of measured sizes seeds estimates on re-creation, built only if stage 3 measures a visible benefit |
+| N2 | An inner list's scroll position survives its outer row's retirement by default, kept by the runner as an anchor key and an offset within it, bounded by recency; `scroll-restoration="manual"` opts out (Q1, ruled §4.2). Rows, slots and views do not survive. Optionally, a bounded cache of measured sizes seeds estimates on re-creation, built only if stage 4 measures a visible benefit |
 | N3 | The cache is keyed by the outer collection, the outer row's key, and the inner list's plan node plus any eager `each` keys between them |
 | N4 | Bounded by bytes counted over every retained allocation; the live index is ~220 bytes an item today and is the larger number |
 | N5 | A pin chain: the addressed list and every ancestor whose mounted row contains the pin view. The runner derives it, transfers it atomically, and releases only lists off the new chain |
@@ -67,6 +67,15 @@ Both reviews: "build with named changes". Dispositions are in the review files. 
 - **The take** (Astra): `rules/DEFERRED.md` wants the take in the admitting change, so the legacy deletion now precedes the first capability stage.
 - **Corrections**: Linux already picks the innermost owner; the iOS raster throttle already covers any list; the iOS pool already matches trees across lists by shape; the bootstrap at estimate 128 is 4 rows; `tests.rs` asserts `scrollTop` in snapshot JSON; `pending` is a boolean.
 - **Questions**: staging (r1 Q4) is decided in the RFC, as both suggested; H4 becomes a question (Astra).
+
+## 0.1 Rulings (Charlie, 2026-09-27)
+
+- **Q1, accepted as revised** ("if your rec has changed then let's do your rec"). The r2 recommendation (reset to 0) is withdrawn. An inner list nested in a virtualized list **keeps its scroll position** across its outer row's retirement, automatically and by default, with an opt-out. §4.2 states the rule.
+  - *Why.* The oracle for a virtualized list is the same page unvirtualized. There the outer row's element is never destroyed, so the inner box keeps its offset when the page scrolls it away and back (§2, "the eager oracle"). Virtualization must not change what the user sees. Removal is how exact2 implements a list, not what the author wrote.
+  - He first said: "leave it up to the app to save position. maybe worth creating an option to do it automatically since that seems more intuitively correct". The revision makes the automatic option the default, since the eager page is the oracle.
+- **Q2, accepted:** "yes delete the old windowed list thing, collection list is now better." Horizontal lists and one level of nesting are admitted to `rules/DEFERRED.md`; the take is deleting the legacy windowed list, stage 1.
+- **Q3, (a) accepted:** "(a) is ok for now, but we might want to allow an option for (b) at some point." A horizontal list anchors only when an estimate is replaced by a first measurement. (b), anchoring every size change, is recorded as a future option (`QUEUE.md`).
+- **Q4, accepted provisionally:** "i don't really know, lt's try your rec and see how it feels." Under `overscroll-behavior: auto` on iOS, a new drag starting at an inner edge outward goes to the outer list; `contain` keeps the inner rubber band. Provisional until a real-finger feel test on a device (`QUEUE.md`), which may reverse it.
 
 ## 1. What exists
 
@@ -140,10 +149,10 @@ Measured 2026-09-27 on Chrome 154.0.8037.57 headless, over CDP, with a scratch p
 
 - **Touch chaining is decided at gesture start and latched.** A gesture belongs to one scroller from its first movement to its end: the innermost that can move in the gesture's dominant direction. At its edge the rest is dropped, or rubber-banded where the platform shows overscroll. A gesture that *starts* at an inner edge outward goes to the outer. `contain` stops chaining (G1).
 - **A phase-less wheel tick is its own gesture, and is not split.** It goes to the innermost scroller that can take *any* of its components, which takes what it can; the rest is dropped. exact2's macOS, Linux and iOS agent route such a tick by its dominant axis and apply both components (`ChainingScrollView.swift:88–111`, `presenter.rs:1071–1082`, `AgentIOS.swift:560–588`), so a y-dominant `tap … wheel 60 100` over a strip scrolls the feed natively and the strip on the web. G2 follows Chrome.
-- **Re-creation resets the offset.** Chrome keeps an offset only for an element that stays in the document (hidden, moved, or skipped by `content-visibility`). exact2's declared lifecycle is removal (LLP 1068 §2; LLP 1010 §6.2), and SPEC's carousel already says "a recycled row starts at 0 too". §4.2 and Q1.
+- **The offset follows the eager page.** Chrome keeps an offset for an element that stays in the document (hidden, moved, or skipped by `content-visibility`), and on an unvirtualized page the row's element always stays. Removal is exact2's implementation, not the author's page, so an inner list keeps its position by default (§4.2; Q1 as ruled).
 - **Anchoring is on the block axis only.** H4 and Q3.
 
-The eager oracle and the lifecycle oracle disagree in one place: on an eager page an inner box is never removed, so its offset survives scrolling the page away and back. exact2 chose the lifecycle oracle for row state in LLP 1010 §6.2 and LLP 1068 §2; this RFC keeps that choice for the offset (Q1).
+The eager oracle and the lifecycle oracle disagree in one place: on an eager page an inner box is never removed, so its offset survives scrolling the page away and back. exact2 keeps the lifecycle oracle for row state (slots, views; LLP 1010 §6.2, LLP 1068 §2) and, by Charlie's Q1 ruling, takes the eager oracle for the inner scroll position, which the user sees and did not ask to lose.
 
 ## 3. Horizontal virtualization
 
@@ -211,7 +220,7 @@ The runner keeps a list's first visible key and its offset through measurement, 
 Chrome does not anchor on the inline axis (§2). For a horizontal list this is a **declared deviation**, entered in LLP 1001's list if Charlie accepts it (Q3):
 - **Where it differs.** A real size change of a mounted card left of the viewport shifts the strip in Chrome; the runner holds it still.
 - **Why.** Most off-screen size changes a virtualized list sees are its own artefacts: a first measurement replacing an estimate, or a remount re-measuring. The eager oracle shows neither. Without main-axis anchoring, a strip jumps each time a card left of view is first measured.
-- **The alternative (Q3).** Anchor only first measurements (an estimate replaced), and let a re-measured card shift the strip as Chrome does. The runner can tell those apart: a row's measured epoch says whether it had a measurement.
+- **As ruled (Q3 (a)).** Anchor only first measurements (an estimate replaced), and let a re-measured card shift the strip as Chrome does. Anchoring every size change ((b)) may return as an option (`QUEUE.md`). The runner can tell those apart: a row's measured epoch says whether it had a measurement.
 - **During motion.** No correction applies while the list itself is tracked or decelerating (as iOS already drops it, `CollectionIOS.swift:69`); the web glue gains the same guard (`collection-glue.js:373`). An ancestor's motion does not block an inner correction: moving an inner strip's `scrollLeft` does not disturb the feed's deceleration.
 
 ## 4. Nesting
@@ -229,7 +238,7 @@ Chrome does not anchor on the inline axis (§2). For a horizontal list this is a
 | State | Survives? | Why |
 |---|---|---|
 | Realized inner rows, their slots and views | No | LLP 1010 §6.2: row state dies on retirement; re-creation is removal then insertion (LLP 1068 §2) |
-| The inner scroll offset | **No** (Q1) | Chrome resets a removed box (§2); SPEC's carousel resets on recycle. An app that wants it keeps it in keyed data |
+| The inner scroll position | **Yes, by default** (Q1) | The eager page never destroys the row, so its inner box keeps its offset (§2). Kept as below; `scroll-restoration="manual"` opts out |
 | The inner index (keys, positions, generations) | No | Keys may depend on inputs outside the items value (`mod.rs:250–262`); identical items do not prove the same keys. The key pass runs again |
 | Measured positive sizes, by inner key | **Optionally**, as a bounded cache, used only as estimates | Not app state; brings a re-created list's geometry closer to the eager oracle, which always has true sizes. Built only if stage 3 shows that first-measurement corrections are visible without it |
 
@@ -238,7 +247,16 @@ Chrome does not anchor on the inline axis (§2). For a horizontal list this is a
 - It is valid for the `cross` size and typography generation it was measured at. A typography counter is added, bumped by `invalidate_typography` (`traversal.rs:481–515`), which today walks only live collections.
 - Every seeded row is measured again when it mounts: the cache never becomes an authority.
 
-**Keeping the offset, if the app wants it.** The app writes the list's `scrollLeft` (or `scrollTop`) from keyed data, updated by the list's scroll event, as the xheavy thread keeps its draft. That needs an authored offset to be **build-then-move on both axes and every host**, which today it is only for the web's `scrollTop` (`glue.js:815`): the web's `jumpTo` and anchor writes, iOS's `pendingScrollLeft`, Linux's collection offset (§7). Otherwise a restored strip paints an empty port, the bug LLP 1050.000 stage 2 closed for `scrollTop`. With estimates the restored offset can land a little off its item; uniform thumbnails land exactly.
+**Keeping the position (Q1, as ruled).**
+- **Default on**, for a virtualized list nested in a virtualized list's row. The opt-out is `scroll-restoration="manual"` on the inner list; the default is `auto`. The name and values are the web's own for the same choice: `history.scrollRestoration` is `auto` (the user agent restores the scroll position) or `manual` (the page does). A top-level list has nothing that retires it and ignores the row.
+- **What is stored** is the inner list's anchor: the key of its first visible item and the offset into that item, never raw pixels. On re-creation the runner seeds its window at that key and places the offset from the item's start, so a changed estimate or a re-measured item above it does not move what the user sees. Storing pixels is what made LegendList's inbox land 44–53 pt off after re-measurement.
+- **Keyed by** the outer row's key (`listItemKey`) plus the inner list's position in the row: its plan node, and the keys of any eager `each` between the row root and the list (N3).
+- **Bounded by recency**: at most 4,096 entries per outer collection (about 200 KB at ~48 bytes an entry, keys shared with the index), least recently retired evicted first. **An evicted list falls back to its start**, as a list the user never scrolled. Nothing responds to memory pressure (N4).
+- **Dropped when the row's key changes**: an outer data change that removes a key drops its entries, and a new key starts at 0. An anchor key no longer among the inner items falls back to the start.
+- **Visible** in the agent's `state`: each collection snapshot lists its kept positions (`kept`: outer key, slot, anchor key, offset), and an inner list's snapshot says whether it was restored.
+- Rows, slots and views are still re-created; only the position is kept. It is not a host keep-alive (LLP 1068 §5.3 stands): the runner keeps two values, not a view. An app that wants more (a position across launches) still writes `scrollLeft`/`scrollTop` from keyed data, with `manual`.
+
+**Restoring needs build-then-move.** A restored or app-written offset must be **build-then-move on both axes and every host**, which today it is only for the web's `scrollTop` (`glue.js:815`): the web's `jumpTo` and anchor writes, iOS's `pendingScrollLeft`, Linux's collection offset (§7). Otherwise a restored strip paints an empty port, the bug LLP 1050.000 stage 2 closed for `scrollTop`. An anchor restore lands exactly on its item even with estimates.
 
 ### 4.3 N3: keyed by what
 
@@ -472,7 +490,7 @@ Nothing new is added as apparatus: no script, check or harness. Tests go in the 
 | 1 | The legacy windowed list is deleted (`QUEUE.md` "One list engine"): the take (§12) | The Markdown reader on the collection; LLP 1050.000 stage 1's parity gates |
 | 2 | The axis refactor (H1): rename, wire v3, all hosts. No behaviour change | Every existing collection test and smoke passes with renamed assertions |
 | 3 | Horizontal lists at top level (H2–H4), build-then-move `scrollLeft`, G2, the Chrome pins, the fixture's strip | A 25,000-item top-level strip windowed on four hosts with O(window) rows after twenty traversals; Chrome parity; `tap strip wheel` |
-| 4 | Nesting: N1, N3 (keys only), N5, N6, §4.7, F1–F5, G1, G3 | The fixture on four hosts; the runner tests; the hand gates; xheavy `innerfling` and `fling` against stage 0 |
+| 4 | Nesting: N1, N3 (keys only), N5, N6, §4.7, F1–F5, G1, G3; the kept position and `scroll-restoration` (§4.2, Q1) | The fixture on four hosts; the runner tests; the hand gates; xheavy `innerfling` and `fling` against stage 0 |
 | 5 | Only if stage 4's numbers ask: the size cache (N2–N4); pooling outer rows with their scroll view (1068 §4.2) | xheavy against stage 4 |
 
 **Why this order.** The filmstrip needs both halves; the inbox needs only nesting. Stage 2 is mechanical, and the existing vertical suites prove it. Nesting's hard parts (pins, lifetime, budget, gestures) are axis-free; built on the axis-generic seam they are written once, where built on the vertical seam they would be rewritten by the refactor. The inbox waits one stage. Nesting does not wait for LLP 1050.000 stage 3 (F3).
@@ -480,7 +498,7 @@ Nothing new is added as apparatus: no script, check or harness. Tests go in the 
 ## 11. What this does not do
 
 - **Not built:** grids, masonry, wrapping or reversed (inverted) virtualized lists; visible-column windowing (LLP 1050.000 §3); nesting deeper than one level; RTL horizontal lists; `gap` or main-axis alignment on a virtualized container; reorder in row or nested lists.
-- **No host keep-alive**, by row key, of an inner list, its views or its offset (Q1). No offset cache in the runner.
+- **No host keep-alive**, by row key, of an inner list or its views. The runner keeps only its position, bounded (§4.2).
 - **No lazy sequence value type.** An inner list's items are a list value the row body evaluates. A range or generator value the index could read without materializing N records would cut §5.3's setup cost; it is a new value type, and a separate proposal if stage 4's numbers ask.
 - **No memory-pressure signal** from hosts to the runner.
 - **Selection and copy stop at a list's boundary.**
@@ -490,23 +508,27 @@ Nothing new is added as apparatus: no script, check or harness. Tests go in the 
 
 `rules/DEFERRED.md` keeps virtualList v2 out ("cert wires, extent demand, proxy lanes") and admits "a straightforward windowed list with bounded row/view lifetime" (2026-09-14). Nested and horizontal lists are that windowed list on a second axis and one level down, with the same lifetime rule; they are not virtualList v2's machinery. They are still new capability, so the entry says so. Proposed, beside the virtualList line:
 
-> **Expanded (Charlie, 2026-09-__, LLP 1070):** horizontal windowed lists (`display: flex; flex-direction: row`) and one level of nesting, a windowed list in a windowed list's row, with the inner list's lifetime its outer row's. Unblocks the Extra Heavy feed's filmstrip and inbox, and any feed of carousels. Take: the legacy windowed list (`item-height`/`estimated-item-height` without `virtualized`, `runner/src/instance/window.rs`) is deleted in the first change of this work, before either capability lands. Still out: grids, masonry, wrapping and inverted lists; nesting deeper than one level; host keep-alive of an inner list or its offset.
+> **Expanded (Charlie, 2026-09-27, LLP 1070):** horizontal windowed lists (`display: flex; flex-direction: row`) and one level of nesting, a windowed list in a windowed list's row, with the inner list's lifetime its outer row's. Unblocks the Extra Heavy feed's filmstrip and inbox, and any feed of carousels. Take: the legacy windowed list (`item-height`/`estimated-item-height` without `virtualized`, `runner/src/instance/window.rs`) is deleted in the first change of this work, before either capability lands. Still out: grids, masonry, wrapping and inverted lists; nesting deeper than one level; host keep-alive of an inner list or its views.
 
 `rules/DEFERRED.md` requires the take in the admitting change (`:438`), which is why stage 1 is the deletion. The take is a path removed that `QUEUE.md` already owes; this makes it a precondition rather than an intention, the precedent LLP 1026 D12 set ("fewer paths after than before"). It is a cheap take, and Q2 says so.
 
-## 13. Questions for Charlie
+## 13. Questions for Charlie (all ruled 2026-09-27)
 
 **Q1. An inner list re-created with its outer row starts at offset 0. The runner keeps no offset; an app that wants one keeps it in keyed data. Agree?**
 Recommendation: yes. Chrome resets a removed box, even the same element re-inserted (§2); exact2's lifecycle is removal (LLP 1010 §6.2, LLP 1068 §2); SPEC's carousel already resets on recycle; feed apps keep carousel offsets in their model (the Furrow pattern, LLP 1068's appendix). Keeping it in the runner would make a row's state depend on whether its key was recently seen, which LLP 1068 §5.3 rejected. Confidence: medium-high (0.7). The size cache (N2) is a separate, measured decision at stage 5 and needs no ruling now.
+**Ruled (Charlie, 2026-09-27): no, keep it.** "leave it up to the app to save position. maybe worth creating an option to do it automatically since that seems more intuitively correct"; then, on the revised recommendation, "if your rec has changed then let's do your rec". The r2 recommendation above is withdrawn: an inner list keeps its position automatically by default, as an anchor key and offset, bounded by recency, with `scroll-restoration="manual"` to opt out (§0.1, §4.2).
 
 **Q2. Admit horizontal and one-level nested windowed lists (§12), with the legacy windowed list's deletion, done first, as the take?**
 Recommendation: yes. Confidence: medium (0.6). The deletion is owed already, so the take is cheap. If that is too cheap, the alternative take is that further Extra Heavy row kinds wait behind these two.
+**Ruled (Charlie, 2026-09-27): yes.** "yes delete the old windowed list thing, collection list is now better." Entered in `rules/DEFERRED.md`.
 
 **Q3. Horizontal lists anchor on their main axis, which Chrome does not do on the inline axis (§2, H4): anchor every size change, or only first measurements (an estimate replaced), letting a re-measured card shift the strip as in Chrome?**
 Recommendation: anchor only first measurements. It removes the jumps virtualization causes and keeps Chrome's behaviour for real changes, with no declared deviation for mounted cards; a remount's re-measurement of a card whose data did not change measures the same. Confidence: medium (0.6). Anchoring everything is simpler and never jumps, at the cost of a declared deviation.
+**Ruled (Charlie, 2026-09-27): (a).** "(a) is ok for now, but we might want to allow an option for (b) at some point." (b) is a `QUEUE.md` line.
 
 **Q4. On iOS, `overscroll-behavior: auto` at an inner list's edge chains a new outward drag to the outer list, as Chrome does, giving up UIKit's rubber band on the inner list at that edge; `contain` keeps it. Agree?**
 Recommendation: yes. It is CSS's meaning of `auto` and how the web behaves. Confidence: medium (0.65), until a device run with real fingers shows it feels right on a phone; that run is a landing gate either way.
+**Ruled (Charlie, 2026-09-27): provisionally yes.** "i don't really know, lt's try your rec and see how it feels." Provisional until the real-finger feel test on a device (`QUEUE.md`).
 
 ## Appendix: the Chrome probe
 
