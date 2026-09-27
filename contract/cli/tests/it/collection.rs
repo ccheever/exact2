@@ -3,6 +3,93 @@ fn source(list: &str, rows: &str) -> String {
     format!("component App\n  state yes = true\n  resource rows = rows() as shape list<number>\n  view\n    {list}\n{rows}\n")
 }
 const ROW: &str = "      each x in rows key=x\n        text `${x}`";
+
+fn index_keys(list: &str) {
+    struct SharedRows(Vec<Value>);
+    impl DataSource for SharedRows {
+        fn query(&mut self, _: &str, args: &[Value]) -> Result<Value, DataError> {
+            let indices: &[usize] = match args[0].as_number().unwrap() as usize {
+                0 => &[0, 1, 2],
+                1 => &[3, 0, 1, 2],
+                2 => &[1, 2],
+                3 => &[2, 1],
+                _ => &[3, 2, 1, 4],
+            };
+            Ok(Value::list(
+                indices.iter().map(|i| self.0[*i].clone()).collect(),
+            ))
+        }
+    }
+    let src = format!("component App\n  state step = 0\n  resource rows = rows(step) as shape list<string>\n  action next writes step\n    step = step + 1\n  view\n    {list} testId=\"list\"\n      each item, i in rows key=i\n        text `${{i}}:${{item}}` testId=`row-${{i}}`\n");
+    let mut r = Runner::boot(
+        contract::compile(&src).unwrap(),
+        SharedRows(["a", "b", "c", "x", "d"].map(Value::str).to_vec()),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    for (step, expected) in [
+        vec!["a", "b", "c"],
+        vec!["x", "a", "b", "c"],
+        vec!["b", "c"],
+        vec!["c", "b"],
+        vec!["x", "c", "b", "d"],
+    ]
+    .iter()
+    .enumerate()
+    {
+        if step > 0 {
+            r.act("next", vec![]).unwrap();
+        }
+        let view = r
+            .kernel()
+            .node_by_key(r.kernel().find_by_test_id("list")[0])
+            .unwrap()
+            .id;
+        if list.starts_with("list") && !list.contains("virtualized=true") {
+            r.list_viewport(
+                view,
+                exact_runner::ListViewport {
+                    height: 200.0,
+                    width: 200.0,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        }
+        for (i, item) in expected.iter().enumerate() {
+            let key = r.kernel().find_by_test_id(&format!("row-{i}"))[0];
+            assert_eq!(
+                r.kernel().node_by_key(key).unwrap().props.str(PropId::Text),
+                Some(format!("{i}:{item}").as_str())
+            );
+            if list.starts_with("list") {
+                assert_eq!(
+                    r.list_index(view, &format!("n:{i}")),
+                    Some(i),
+                    "step {step}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn plain_each_keys_can_read_the_index() {
+    index_keys("column");
+}
+
+#[test]
+fn windowed_list_keys_can_read_the_index() {
+    index_keys("list item-height=20 height=200");
+    index_keys("list estimated-item-height=20 height=200");
+}
+
+#[test]
+fn virtualized_list_keys_follow_positions_when_shared_items_move() {
+    index_keys("list virtualized=true estimated-item-height=20 height=200");
+}
 #[test]
 fn literal_opt_in_and_ordinary_each_compile() {
     for list in [

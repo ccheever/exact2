@@ -2,8 +2,8 @@
 //! G8): a live insert keys the rows it added, not the list.
 //!
 //! A row's key is its key expression over its item; while the key's other
-//! inputs are unchanged, the same item object has the same key. So an item
-//! that is the same object as a previous item ([`crate::compare::shared`])
+//! inputs and its index (if read) are unchanged, the same item has the same
+//! key. An item that is the same object as a previous item ([`crate::compare::shared`])
 //! takes that item's key and identity text without evaluating anything, and
 //! only the others are keyed. The result equals a full re-key: when the
 //! previous keys repeated, or a new key repeats one the new list keeps, the
@@ -31,6 +31,13 @@ impl Collection {
             return Ok(false);
         }
         if !self.dups.is_empty() {
+            return Ok(false);
+        }
+        // Shared objects can move. A positional key must be evaluated at
+        // the new position, including the otherwise-reused suffix.
+        if vm::instructions(u.env.plan.code(key))
+            .any(|i| i.is_ok_and(|i| i.op == exact_plan::Opcode::LoadIndex))
+        {
             return Ok(false);
         }
         let shared = crate::compare::shared(&self.items, items, true);
@@ -61,6 +68,7 @@ impl Collection {
                 None => {
                     u.work.rows_keyed += 1;
                     inner.last_mut().unwrap().item = Some(items[start + k].clone());
+                    inner.last_mut().unwrap().index = Some(start + k);
                     let value = u.eval(key, &inner)?;
                     let text = key_text(&value).ok_or(InstanceError::KeyKind {
                         region: self.region,

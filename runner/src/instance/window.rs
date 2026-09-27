@@ -356,6 +356,7 @@ impl ListWindow {
                 frames,
                 Frame {
                     item: Some(item.clone()),
+                    index: Some(index),
                     ..Frame::default()
                 },
             );

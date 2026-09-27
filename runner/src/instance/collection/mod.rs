@@ -387,6 +387,7 @@ impl Collection {
             } else {
                 u.work.rows_keyed += 1;
                 inner.last_mut().unwrap().item = Some(item.clone());
+                inner.last_mut().unwrap().index = Some(position);
                 u.eval(key_code, &inner)?
             };
             if !changed && same_key(&key, &self.keys[position]) {
