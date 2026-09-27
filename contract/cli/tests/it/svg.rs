@@ -311,3 +311,28 @@ fn stage_six_events() {
     let c = k.node_by_key(k.find_by_test_id("c")[0]).unwrap();
     assert_eq!(c.style.pointer_events, exact_kernel::PointerEvents::Stroke);
 }
+
+// LLP 1055.000 stage 7: `marker`, its attributes, and the marker rows.
+#[test]
+fn stage_seven_markers() {
+    let r = boot(
+        "component A\n  view\n    svg width=10 height=10\n      marker id=\"m\" testId=\"m\" markerWidth=4 refX=2 orient=\"auto\"\n        circle r=2\n      polyline testId=\"p\" points=\"0,0 5,5\" marker=\"url(#m)\"\n",
+    );
+    let k = r.kernel();
+    let node = |id: &str| k.node_by_key(k.find_by_test_id(id)[0]).unwrap();
+    let m = node("m");
+    assert_eq!(m.node_type, NodeType::SvgMarker);
+    assert_eq!(m.props.str(PropId::MarkerWidth), Some("4"));
+    assert_eq!(m.style.overflow_x, exact_kernel::Overflow::Hidden);
+    let p = node("p");
+    for row in [
+        &p.style.marker_start,
+        &p.style.marker_mid,
+        &p.style.marker_end,
+    ] {
+        assert_eq!(row.url(), Some("m"), "`marker` sets all three");
+    }
+    let svg =
+        |body: &str| format!("component A\n  view\n    svg width=10 height=10\n      {body}\n");
+    assert!(refused(&svg("rect markerWidth=3")).contains("lower-attr-tag"));
+}

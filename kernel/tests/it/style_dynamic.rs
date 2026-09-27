@@ -552,6 +552,7 @@ fn every_row_writes_its_own_field_and_no_other() {
         StyleValue::Text("path(\"M 0 0 L 10 0 L 10 10 Z\")".into()),
         StyleValue::Text("rotate(10deg)".into()),
         StyleValue::Text("stroke".into()),
+        StyleValue::Text("url(#m)".into()),
     ];
     let mut unwritten = Vec::new();
     let base = StyleProps::default();

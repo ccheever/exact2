@@ -50,6 +50,7 @@ impl NodeType {
                 | NodeType::SvgClipPath
                 | NodeType::SvgText
                 | NodeType::SvgTSpan
+                | NodeType::SvgMarker
         )
     }
 
@@ -79,6 +80,7 @@ impl NodeType {
                 | NodeType::SvgSymbol
                 | NodeType::SvgClipPath
                 | NodeType::SvgTSpan
+                | NodeType::SvgMarker
         )
     }
 
@@ -96,6 +98,7 @@ impl NodeType {
                 | NodeType::SvgClipPath
                 | NodeType::SvgText
                 | NodeType::SvgTSpan
+                | NodeType::SvgMarker
         )
     }
 
@@ -121,6 +124,7 @@ impl NodeType {
             NodeType::SvgClipPath => "clipPath",
             NodeType::SvgText => "text",
             NodeType::SvgTSpan => "tspan",
+            NodeType::SvgMarker => "marker",
             _ => return None,
         })
     }
@@ -304,6 +308,41 @@ fn hex(c: Color) -> String {
     let mut s = String::with_capacity(9);
     let _ = write!(s, "#{:08x}", c.0);
     s
+}
+
+/// SVG `marker-start`, `marker-mid` and `marker-end`: `none`, or a
+/// `marker` by `url(#id)` (LLP 1055.000 D9).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct MarkerRef(pub Option<Box<str>>);
+
+impl MarkerRef {
+    /// `none` or `url(#id)`.
+    pub fn parse(css: &str) -> Option<MarkerRef> {
+        let t = css.trim();
+        if t.eq_ignore_ascii_case("none") {
+            return Some(MarkerRef(None));
+        }
+        let inner = t
+            .get(..4)
+            .filter(|p| p.eq_ignore_ascii_case("url("))
+            .and_then(|_| t[4..].strip_suffix(')'))?;
+        let id = inner.trim().trim_matches(|c| c == '"' || c == '\'');
+        let id = id.strip_prefix('#').filter(|id| !id.is_empty())?;
+        Some(MarkerRef(Some(id.into())))
+    }
+
+    /// The value as CSS reads it.
+    pub fn css(&self) -> String {
+        match &self.0 {
+            Some(id) => format!("url(#{id})"),
+            None => "none".into(),
+        }
+    }
+
+    /// The id it names.
+    pub fn url(&self) -> Option<&str> {
+        self.0.as_deref()
+    }
 }
 
 /// SVG `stroke-dasharray`: `none` (empty) or non-negative lengths in user

@@ -26,6 +26,7 @@ impl NodeType {
                 | NodeType::SvgClipPath
                 | NodeType::SvgText
                 | NodeType::SvgTSpan
+                | NodeType::SvgMarker
         )
     }
 

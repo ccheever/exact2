@@ -230,6 +230,7 @@ impl Batch {
                 | "use"
                 | "symbol"
                 | "clipPath"
+                | "marker"
                 | "text"
                 | "tspan"
         ) {

@@ -244,6 +244,46 @@ pub fn resolve_with(
 }
 
 impl Painter {
+    /// A shape's fill and/or stroke (`parts`), in its own space `own`.
+    fn svg_shape(
+        &mut self,
+        item: &Item,
+        shape: &exact_kernel::svg::Shape,
+        own: Transform,
+        origin: Transform,
+        parts: (bool, bool),
+    ) {
+        let dark = self.dark;
+        // Drawn in the content box's space, the stroke unscaled
+        // (LLP 1055.000 D5): a gradient maps through the same ctm.
+        let to_path = if shape.non_scaling {
+            item.ctm
+        } else {
+            exact_kernel::svg::transform::IDENTITY
+        };
+        let mapped;
+        let (path, space) = if shape.non_scaling {
+            mapped = shape.path.transformed(item.ctm);
+            (&mapped, origin)
+        } else {
+            (&shape.path, own)
+        };
+        let paint = SvgPaint {
+            path,
+            fill: ink(shape.fill.as_ref().filter(|_| parts.0), dark, to_path),
+            even_odd: shape.fill_rule == exact_kernel::FillRule::Evenodd,
+            stroke: ink(shape.stroke.as_ref().filter(|_| parts.1), dark, to_path),
+            order: shape.order,
+            width: shape.width,
+            cap: shape.cap as u8,
+            join: shape.join as u8,
+            miter: shape.miter,
+            dash: shape.dash.clone(),
+            phase: shape.dash_offset,
+        };
+        self.backend.svg_path(&paint, space);
+    }
+
     /// One item in its parent's space `ts`; `origin` is the content box's
     /// space, where a non-scaling stroke is drawn.
     fn svg_item(&mut self, item: &Item, ts: Transform, origin: Transform) {
@@ -288,35 +328,30 @@ impl Painter {
             }
             Kind::Text(text) => self.svg_text(text, own),
             Kind::Shape(shape) => {
-                let dark = self.dark;
-                // Drawn in the content box's space, the stroke unscaled
-                // (LLP 1055.000 D5): a gradient maps through the same ctm.
-                let to_path = if shape.non_scaling {
-                    item.ctm
-                } else {
-                    exact_kernel::svg::transform::IDENTITY
+                // @ref LLP 1055.000 D9 — markers paint where `paint-order`
+                // puts them: before, between, or after the fill and stroke.
+                let at = shape.order.iter().position(|&o| o == 2).unwrap_or(2);
+                let markers = |this: &mut Self| {
+                    for m in &shape.markers {
+                        this.svg_item(m, own, origin);
+                    }
                 };
-                let mapped;
-                let (path, space) = if shape.non_scaling {
-                    mapped = shape.path.transformed(item.ctm);
-                    (&mapped, origin)
-                } else {
-                    (&shape.path, own)
-                };
-                let paint = SvgPaint {
-                    path,
-                    fill: ink(shape.fill.as_ref(), dark, to_path),
-                    even_odd: shape.fill_rule == exact_kernel::FillRule::Evenodd,
-                    stroke: ink(shape.stroke.as_ref(), dark, to_path),
-                    order: shape.order,
-                    width: shape.width,
-                    cap: shape.cap as u8,
-                    join: shape.join as u8,
-                    miter: shape.miter,
-                    dash: shape.dash.clone(),
-                    phase: shape.dash_offset,
-                };
-                self.backend.svg_path(&paint, space);
+                match at {
+                    0 => {
+                        markers(self);
+                        self.svg_shape(item, shape, own, origin, (true, true));
+                    }
+                    1 => {
+                        let fill_first = shape.order[0] == 0;
+                        self.svg_shape(item, shape, own, origin, (fill_first, !fill_first));
+                        markers(self);
+                        self.svg_shape(item, shape, own, origin, (!fill_first, fill_first));
+                    }
+                    _ => {
+                        self.svg_shape(item, shape, own, origin, (true, true));
+                        markers(self);
+                    }
+                }
             }
         }
         for _ in 0..clips {

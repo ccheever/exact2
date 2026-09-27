@@ -182,6 +182,17 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: None,
         },
+        // @ref LLP 1055.000 D9 — a marker clips to its viewport, as the UA's
+        // `marker { overflow: hidden }` does.
+        "marker" => Tag {
+            node_type: NodeType::SvgMarker,
+            fixed_styles: &[
+                (StyleId::OverflowX, "hidden"),
+                (StyleId::OverflowY, "hidden"),
+            ],
+            fixed_props: &[],
+            positional: None,
+        },
         // @ref LLP 1055.000 D11 — a run of SVG text, its string positional.
         "tspan" => Tag {
             node_type: NodeType::SvgTSpan,
@@ -444,6 +455,16 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "spreadMethod" => AttrTarget::Prop(p("spreadMethod")),
         "offset" => AttrTarget::Prop(p("offset")),
         "clipPathUnits" => AttrTarget::Prop(p("clipPathUnits")),
+        "markerWidth" => AttrTarget::Prop(p("markerWidth")),
+        "markerHeight" => AttrTarget::Prop(p("markerHeight")),
+        "refX" => AttrTarget::Prop(p("refX")),
+        "refY" => AttrTarget::Prop(p("refY")),
+        "orient" => AttrTarget::Prop(p("orient")),
+        "markerUnits" => AttrTarget::Prop(p("markerUnits")),
+        "marker-start" => styles(&[StyleId::MarkerStart]),
+        "marker-mid" => styles(&[StyleId::MarkerMid]),
+        "marker-end" => styles(&[StyleId::MarkerEnd]),
+        "marker" => styles(&[StyleId::MarkerStart, StyleId::MarkerMid, StyleId::MarkerEnd]),
         // @ref LLP 1055.000 D11 — SVG text's positions (`x`, `y`, `dx`,
         // `dy` on `text`/`tspan` lower to these) and its alignment.
         "textX" => AttrTarget::Prop(p("textX")),

@@ -32,6 +32,7 @@ pub(crate) fn is_element(tag: &str) -> bool {
             | "use"
             | "symbol"
             | "clipPath"
+            | "marker"
             | "tspan"
     )
 }
@@ -50,6 +51,7 @@ pub(crate) fn in_svg(inside: bool, parent_tag: Option<&str>) -> bool {
                     | "linearGradient"
                     | "radialGradient"
                     | "clipPath"
+                    | "marker"
                     | "text"
                     | "tspan"
             )
@@ -63,7 +65,7 @@ fn holds(parent: &str, child: &str) -> bool {
         // SVG text holds its runs.
         "text" | "tspan" => child == "tspan",
         "linearGradient" | "radialGradient" => child == "stop",
-        "svg" | "g" | "defs" | "symbol" => {
+        "svg" | "g" | "defs" | "symbol" | "marker" => {
             child != "stop"
                 && child != "tspan"
                 && (is_element(child) || matches!(child, "svg" | "text"))
@@ -93,13 +95,19 @@ pub(crate) fn is_length_prop(attr: &str) -> bool {
             | "textY"
             | "textDx"
             | "textDy"
+            | "markerWidth"
+            | "markerHeight"
+            | "refX"
+            | "refY"
+            | "orient"
     )
 }
 
 /// The elements an SVG-specific attribute belongs to.
 fn owners(attr: &str) -> Option<&'static [&'static str]> {
     Some(match attr {
-        "viewBox" | "preserveAspectRatio" => &["svg", "symbol"],
+        "viewBox" | "preserveAspectRatio" => &["svg", "symbol", "marker"],
+        "markerWidth" | "markerHeight" | "refX" | "refY" | "orient" | "markerUnits" => &["marker"],
         "points" => &["polyline", "polygon"],
         "d" => &["path"],
         "pathLength" => &[
@@ -163,6 +171,10 @@ fn shared(attr: &str) -> bool {
             | "text-anchor"
             | "dominant-baseline"
             | "pointer-events"
+            | "marker"
+            | "marker-start"
+            | "marker-mid"
+            | "marker-end"
             | "animation"
             | "transition"
             | "testId"
@@ -176,7 +188,7 @@ pub(crate) fn refused_tag(tag: &str) -> Option<&'static str> {
         "text" | "tspan" | "textPath" => {
             "text inside `svg` is refused (LLP 1055 D12); put a `text` beside the `svg`"
         }
-        "mask" | "pattern" | "marker" | "filter" | "image" => {
+        "mask" | "pattern" | "filter" | "image" => {
             "not in exact2's SVG yet: LLP 1055.000 §4 builds it in a later stage"
         }
         "foreignObject" => {
@@ -335,7 +347,14 @@ impl Lowerer<'_> {
                 && !(matches!(tags::attr(&a.name), Some(tags::AttrTarget::Handler("press")))
                     && !matches!(
                         tag,
-                        "defs" | "linearGradient" | "radialGradient" | "stop" | "symbol" | "clipPath" | "tspan"
+                        "defs"
+                            | "linearGradient"
+                            | "radialGradient"
+                            | "stop"
+                            | "symbol"
+                            | "clipPath"
+                            | "marker"
+                            | "tspan"
                     ))
                 && !(matches!(tag, "rect" | "svg" | "use")
                     && matches!(a.name.as_str(), "width" | "height"))

@@ -210,6 +210,7 @@ fn scene(
         &resolved.items,
         resolved.view.unwrap_or(tf::IDENTITY),
         &mut s,
+        Role::Item,
     );
     s.push('}');
     s
@@ -228,21 +229,90 @@ fn affine_json(t: Affine, s: &mut String) {
     );
 }
 
+/// How an item is written: as itself, or as a piece of a marked shape
+/// (LLP 1055.000 D9) — the group standing for the shape, one of its paint
+/// parts (its opacity is the group's), or a marker (which takes no hits).
+#[derive(Clone, Copy, PartialEq)]
+enum Role {
+    Item,
+    Marked,
+    Part,
+    Marker,
+}
+
 fn items(
     engine: &Engine,
     press: &IdSet<ViewId>,
     list: &[Item],
     parent_ctm: Affine,
     s: &mut String,
+    parent: Role,
 ) {
     s.push('[');
     for (i, item) in list.iter().enumerate() {
         if i > 0 {
             s.push(',');
         }
-        element(engine, press, item, parent_ctm, s);
+        let role = match (parent, &item.kind) {
+            (Role::Marked, Kind::Shape(_)) => Role::Part,
+            (Role::Marked, _) => Role::Marker,
+            _ => Role::Item,
+        };
+        element(engine, press, item, parent_ctm, s, role);
     }
     s.push(']');
+}
+
+/// A shape with markers, as a group of its paint and its markers in
+/// `paint-order`: the group takes the shape's opacity, transform and clip.
+fn marked(
+    engine: &Engine,
+    press: &IdSet<ViewId>,
+    item: &Item,
+    shape: &Shape,
+    parent_ctm: Affine,
+    s: &mut String,
+) {
+    let part = |fill: bool, stroke: bool, salt: u64| {
+        let mut sh = shape.clone();
+        sh.markers = Vec::new();
+        sh.fill = sh.fill.filter(|_| fill);
+        sh.stroke = sh.stroke.filter(|_| stroke);
+        Item {
+            id: item.id,
+            uid: item.uid ^ salt,
+            key: item.key,
+            opacity: 1.0,
+            transform: None,
+            ctm: item.ctm,
+            clip: None,
+            instance: false,
+            kind: Kind::Shape(Box::new(sh)),
+        }
+    };
+    let at = shape.order.iter().position(|&o| o == 2).unwrap_or(2);
+    let fill_first = shape.order[0] == 0;
+    let mut children = Vec::new();
+    match at {
+        0 => {
+            children.extend(shape.markers.iter().cloned());
+            children.push(part(true, true, 1 << 52));
+        }
+        1 => {
+            children.push(part(fill_first, !fill_first, 1 << 52));
+            children.extend(shape.markers.iter().cloned());
+            children.push(part(!fill_first, fill_first, 1 << 51));
+        }
+        _ => {
+            children.push(part(true, true, 1 << 52));
+            children.extend(shape.markers.iter().cloned());
+        }
+    }
+    let group = Item {
+        kind: Kind::Group(children),
+        ..item.clone()
+    };
+    element(engine, press, &group, parent_ctm, s, Role::Marked);
 }
 
 /// One item: `id`, group opacity `o`, its transform `tf` (origin `o`, the
@@ -254,7 +324,13 @@ fn element(
     item: &Item,
     parent_ctm: Affine,
     s: &mut String,
+    role: Role,
 ) {
+    if let (Role::Item, Kind::Shape(shape)) = (role, &item.kind) {
+        if !shape.markers.is_empty() {
+            return marked(engine, press, item, shape, parent_ctm, s);
+        }
+    }
     let key = motion_node(item.key);
     let opacity = item.opacity as f64;
     let _ = write!(s, "{{\"id\":{},\"o\":{}", item.uid, num(item.opacity));
@@ -264,7 +340,8 @@ fn element(
     if press.contains(&item.id) {
         s.push_str(",\"h\":1");
     }
-    if matches!(&item.kind, Kind::Shape(sh) if sh.pointer_events == exact_kernel::PointerEvents::None)
+    if role == Role::Marker
+        || matches!(&item.kind, Kind::Shape(sh) if sh.pointer_events == exact_kernel::PointerEvents::None)
     {
         s.push_str(",\"pn\":1");
     }
@@ -315,7 +392,7 @@ fn element(
                 (Value::scalar(opacity), 1.0)
             });
             let _ = write!(s, ",\"g\":1,\"a\":{specs},\"c\":");
-            items(engine, press, children, item.ctm, s);
+            items(engine, press, children, item.ctm, s, role);
         }
         Kind::Viewport {
             rect,
@@ -343,11 +420,18 @@ fn element(
             }
             s.push_str(",\"c\":");
             match view {
-                Some(v) => items(engine, press, children, tf::mul(item.ctm, *v), s),
+                Some(v) => items(
+                    engine,
+                    press,
+                    children,
+                    tf::mul(item.ctm, *v),
+                    s,
+                    Role::Item,
+                ),
                 None => s.push_str("[]"),
             }
         }
-        Kind::Shape(shape) => shape_json(engine, key, opacity, item, shape, s),
+        Kind::Shape(shape) => shape_json(engine, key, opacity, item, shape, s, role == Role::Part),
         Kind::Text(text) => {
             let specs = specs(engine, key, &[Property::Opacity], &|_| {
                 (Value::scalar(opacity), 1.0)
@@ -359,7 +443,15 @@ fn element(
     s.push('}');
 }
 
-fn shape_json(engine: &Engine, key: u64, opacity: f64, item: &Item, shape: &Shape, s: &mut String) {
+fn shape_json(
+    engine: &Engine,
+    key: u64,
+    opacity: f64,
+    item: &Item,
+    shape: &Shape,
+    s: &mut String,
+    part: bool,
+) {
     // A circle is drawn about the origin and placed at its centre, so a
     // moving pulse and an `r` animation never fight over one path.
     let centered = shape.circle.filter(|_| !shape.non_scaling);
@@ -438,7 +530,10 @@ fn shape_json(engine: &Engine, key: u64, opacity: f64, item: &Item, shape: &Shap
         Property::Stroke => paint(shape.stroke.as_ref()),
         _ => (Value::ZERO, 1.0),
     };
-    let props: &[Property] = if centered.is_some() {
+    let props: &[Property] = if part {
+        // A marked shape's paint: its group takes the opacity.
+        &[Property::StrokeDashoffset, Property::Fill, Property::Stroke]
+    } else if centered.is_some() {
         &LOWERED
     } else {
         &[

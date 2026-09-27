@@ -292,6 +292,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         RowValue::Transform(t) => out.push_str(&t.css()),
         RowValue::TransformOrigin(t) => out.push_str(&t.css()),
         RowValue::PaintOrder(p) => out.push_str(&p.css()),
+        RowValue::Marker(m) => out.push_str(&m.css()),
         RowValue::Vec2(v) => {
             num_into(out, v.x);
             out.push_str("px ");

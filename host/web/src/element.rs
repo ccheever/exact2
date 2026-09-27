@@ -115,6 +115,7 @@ fn element(node: &NodeRef<'_>) -> &'static str {
         NodeType::SvgUse => "use",
         NodeType::SvgSymbol => "symbol",
         NodeType::SvgClipPath => "clipPath",
+        NodeType::SvgMarker => "marker",
         NodeType::SvgText => "text",
         NodeType::SvgTSpan => "tspan",
         NodeType::ScrollView => "div",
@@ -183,6 +184,13 @@ pub(super) fn css_style<'a>(
         && !url(&node.style.fill)
         && !url(&node.style.stroke)
         && node.style.clip_path.url().is_none()
+        && [
+            &node.style.marker_start,
+            &node.style.marker_mid,
+            &node.style.marker_end,
+        ]
+        .iter()
+        .all(|m| m.url().is_none())
     {
         return std::borrow::Cow::Borrowed(node.style);
     }
@@ -200,6 +208,16 @@ pub(super) fn css_style<'a>(
     {
         if let Some(c) = exact_kernel::clip::ClipPath::parse(&format!("url(#{})", dom_id(target))) {
             style.clip_path = c;
+        }
+    }
+    // @ref LLP 1055.000 D9 — a marker by the id the page gives it.
+    for marker in [
+        &mut style.marker_start,
+        &mut style.marker_mid,
+        &mut style.marker_end,
+    ] {
+        if let Some(target) = marker.url().and_then(|id| kernel.resolve_id(node.id, id)) {
+            *marker = exact_kernel::svg::MarkerRef(Some(dom_id(target).into()));
         }
     }
     // @ref LLP 1055.000 D3 — a paint server by the id the page gives it.
@@ -425,6 +443,12 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
             PropId::SpreadMethod => "spreadMethod",
             PropId::Offset => "offset",
             PropId::ClipPathUnits => "clipPathUnits",
+            PropId::MarkerWidth => "markerWidth",
+            PropId::MarkerHeight => "markerHeight",
+            PropId::RefX => "refX",
+            PropId::RefY => "refY",
+            PropId::Orient => "orient",
+            PropId::MarkerUnits => "markerUnits",
             PropId::TextX => "x",
             PropId::TextY => "y",
             PropId::TextDx => "dx",

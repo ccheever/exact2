@@ -111,6 +111,14 @@ impl Lexer<'_> {
 /// Parse `d`. A syntax error ends the path at the last complete segment, as
 /// browsers render it.
 pub fn parse_d(d: &str) -> Path {
+    parse_d_commands(d).0
+}
+
+/// [`parse_d`], with where each authored command's segments end: a marker
+/// sits at the end of each command, so an arc drawn as several cubics is
+/// one vertex (LLP 1055.000 D9).
+pub fn parse_d_commands(d: &str) -> (Path, Vec<usize>) {
+    let mut ends = Vec::new();
     let mut lx = Lexer {
         s: d.as_bytes(),
         i: 0,
@@ -223,8 +231,9 @@ pub fn parse_d(d: &str) -> Path {
         }
         last_ctrl = ctrl;
         cmd = Some(c);
+        ends.push(out.len());
     }
-    Path(out)
+    (Path(out), ends)
 }
 
 fn quad(x0: f32, y0: f32, qx: f32, qy: f32, x: f32, y: f32) -> Seg {

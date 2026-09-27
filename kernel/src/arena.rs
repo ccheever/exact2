@@ -800,6 +800,9 @@ mod tests {
             (StyleId::TextAnchor, text("middle")),
             (StyleId::DominantBaseline, text("central")),
             (StyleId::PointerEvents, text("stroke")),
+            (StyleId::MarkerStart, text("url(#a)")),
+            (StyleId::MarkerMid, text("url(#a)")),
+            (StyleId::MarkerEnd, text("url(#a)")),
         ];
         let mut covered = StyleMask::EMPTY;
         for (id, value) in samples {

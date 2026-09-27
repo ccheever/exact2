@@ -30,6 +30,7 @@ type Circle = (f32, f32, f32);
 
 mod clip;
 mod hit;
+mod marker;
 mod text;
 pub use clip::{Clip, ClipShape};
 pub use text::{TextChunk, TextItem, TextRun};
@@ -194,6 +195,9 @@ pub struct Shape {
     pub visible: bool,
     /// Whether `fill` and `stroke` are other than `none`.
     pub painted: (bool, bool),
+    /// Marker instances at its vertices, in its user space, painted where
+    /// `paint-order` puts markers (LLP 1055.000 D9). They take no hits.
+    pub markers: Vec<Item>,
 }
 
 /// The content box inside a box's border box: x, y, width, height. A
@@ -271,9 +275,10 @@ pub fn resolve(
 struct Resolver<'k, 'p> {
     kernel: &'k Kernel,
     presented: Presented<'p>,
-    /// The `use` elements above the item being resolved, outermost first:
-    /// its instance path, and what a `use` cycle is checked against.
-    uses: Vec<ViewId>,
+    /// The `use` elements (and marker instances) above the item being
+    /// resolved, outermost first: its instance path, and what a cycle is
+    /// checked against.
+    uses: Vec<u64>,
 }
 
 /// The rows a child computes from its parent: every inherited row it does
@@ -376,7 +381,11 @@ impl Resolver<'_, '_> {
             NodeType::SvgViewport => self.viewport(node, &style, vp, ctm),
             NodeType::SvgUse => self.instance(node, &style, vp, ctm)?,
             NodeType::SvgText => Kind::Text(Box::new(self.text(node, &style, vp)?)),
-            _ => Kind::Shape(Box::new(self.shape(node, &style, vp)?)),
+            _ => {
+                let mut shape = self.shape(node, &style, vp)?;
+                shape.markers = self.markers(node, &style, &shape.path, vp, ctm);
+                Kind::Shape(Box::new(shape))
+            }
         };
         let clip = if style.clip_path.url().is_some() {
             let bbox = match &kind {
@@ -582,6 +591,7 @@ impl Resolver<'_, '_> {
             ),
             path,
             circle,
+            markers: Vec::new(),
         })
     }
 
@@ -592,7 +602,7 @@ impl Resolver<'_, '_> {
             return id as u64;
         }
         self.uses.iter().fold(id as u64, |acc, u| {
-            (acc ^ ((*u as u64) << 32))
+            (acc ^ (u << 32) ^ (u >> 32))
                 .rotate_left(13)
                 .wrapping_mul(0x9e37_79b9_7f4a_7c15)
                 & ((1 << 53) - 1)
@@ -616,7 +626,7 @@ impl Resolver<'_, '_> {
             .str(PropId::Href)
             .and_then(|h| h.strip_prefix('#'))
             .and_then(|h| self.kernel.resolve_id(node.id, h))?;
-        if self.uses.contains(&node.id) || self.uses.len() > 16 {
+        if self.uses.contains(&(node.id as u64)) || self.uses.len() > 16 {
             return None;
         }
         // The target must not contain the `use` itself.
@@ -629,7 +639,7 @@ impl Resolver<'_, '_> {
         }
         let target = self.kernel.node(target_id)?;
         let (x, y) = (vp.x(style.x), vp.y(style.y));
-        self.uses.push(node.id);
+        self.uses.push(node.id as u64);
         let kind = if matches!(
             target.node_type,
             NodeType::SvgSymbol | NodeType::SvgViewport | NodeType::Svg
@@ -792,7 +802,8 @@ impl Scene {
                 f(item);
                 match &item.kind {
                     Kind::Group(c) | Kind::Viewport { children: c, .. } => go(c, f),
-                    Kind::Shape(_) | Kind::Text(_) => {}
+                    Kind::Shape(s) => go(&s.markers, f),
+                    Kind::Text(_) => {}
                 }
             }
         }

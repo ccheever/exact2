@@ -136,6 +136,11 @@
     {
       "id": 31,
       "name": "SvgTSpan"
+    },
+    {
+      "id": 32,
+      "name": "SvgMarker",
+      "_comment": "@ref LLP 1055.000 D9: SVG 2 `marker`, drawn at the vertices of the shapes whose marker-start/mid/end name it, never where it stands."
     }
   ],
   "_propKinds": "str | bool | int (i64) | float (f64). `measure: true` marks props whose change invalidates a text leaf's intrinsic size.",
@@ -853,6 +858,37 @@
       "id": 146,
       "name": "textDy",
       "kind": "str"
+    },
+    {
+      "id": 147,
+      "name": "markerWidth",
+      "kind": "str",
+      "_comment": "@ref LLP 1055.000 D9: a marker's viewport, reference point, orientation and units, as authored."
+    },
+    {
+      "id": 148,
+      "name": "markerHeight",
+      "kind": "str"
+    },
+    {
+      "id": 149,
+      "name": "refX",
+      "kind": "str"
+    },
+    {
+      "id": 150,
+      "name": "refY",
+      "kind": "str"
+    },
+    {
+      "id": 151,
+      "name": "orient",
+      "kind": "str"
+    },
+    {
+      "id": 152,
+      "name": "markerUnits",
+      "kind": "str"
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
@@ -1224,7 +1260,7 @@
       "default": "auto"
     }
   },
-  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (grid track list) | placement (grid line placement) | aspect-ratio (CSS text: auto, a ratio, or both) | paint (CSS text: none, currentcolor, or a colour) | dasharray (CSS text: none or a list of numbers) | transform (CSS text: a transform list) | paint-order (CSS text: normal, or fill/stroke/markers) | transform-origin (CSS text: one to three lengths, percentages or keywords) | animations (`_animations`) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance \u2014 a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard).",
+  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (grid track list) | placement (grid line placement) | aspect-ratio (CSS text: auto, a ratio, or both) | paint (CSS text: none, currentcolor, or a colour) | dasharray (CSS text: none or a list of numbers) | transform (CSS text: a transform list) | paint-order (CSS text: normal, or fill/stroke/markers) | marker (CSS text: none or url(#id)) | transform-origin (CSS text: one to three lengths, percentages or keywords) | animations (`_animations`) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance \u2014 a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard).",
   "styles": [
     {
       "bit": 0,
@@ -2108,6 +2144,25 @@
       "codec": "enum:PointerEvents",
       "inherited": true,
       "_comment": "@ref LLP 1055.000 D17: SVG 2 pointer-events on SVG elements (auto is visiblePainted)."
+    },
+    {
+      "bit": 131,
+      "field": "marker_start",
+      "codec": "marker",
+      "inherited": true,
+      "_comment": "@ref LLP 1055.000 D9: SVG 2 marker-start, marker-mid and marker-end: none or url(#id), inherited."
+    },
+    {
+      "bit": 132,
+      "field": "marker_mid",
+      "codec": "marker",
+      "inherited": true
+    },
+    {
+      "bit": 133,
+      "field": "marker_end",
+      "codec": "marker",
+      "inherited": true
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

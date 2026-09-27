@@ -681,3 +681,77 @@ fn text_resolves_into_chunks_of_runs() {
         "continues on x"
     );
 }
+
+// LLP 1055.000 D9: markers at a path's vertices, oriented, scaled by the
+// stroke width, the reference point on the vertex; content inherits from
+// the marker, not the shape.
+#[test]
+fn markers_sit_on_vertices() {
+    use NodeType::*;
+    let mut d = Doc::new();
+    let svg = d.node(
+        Svg,
+        &[(StyleId::Width, "100"), (StyleId::Height, "100")],
+        &[],
+    );
+    let marker = d.node(
+        SvgMarker,
+        &[
+            (StyleId::Fill, "#ff0000"),
+            (StyleId::OverflowX, "hidden"),
+            (StyleId::OverflowY, "hidden"),
+        ],
+        &[
+            (PropId::Id, "m"),
+            (PropId::MarkerWidth, "4"),
+            (PropId::MarkerHeight, "4"),
+            (PropId::RefX, "2"),
+            (PropId::RefY, "2"),
+            (PropId::Orient, "auto"),
+        ],
+    );
+    let dot = d.node(
+        SvgRect,
+        &[(StyleId::Width, "4"), (StyleId::Height, "4")],
+        &[],
+    );
+    d.children(marker, &[dot]);
+    let path = d.node(
+        SvgPath,
+        &[
+            (StyleId::StrokeWidth, "2"),
+            (StyleId::Fill, "#0000ff"),
+            (StyleId::MarkerStart, "url(#m)"),
+            (StyleId::MarkerEnd, "url(#m)"),
+        ],
+        &[(PropId::D, "M10 10 L50 10 L50 50")],
+    );
+    d.children(svg, &[marker, path]);
+    let k = d.kernel(&[svg], 400.0);
+    let s = resolve(&k, svg);
+    assert_eq!(s.items.len(), 1, "the marker renders only where it is used");
+    let Kind::Shape(shape) = &find(&s.items, path).unwrap().kind else {
+        panic!("a shape")
+    };
+    assert_eq!(shape.markers.len(), 2, "start and end, no mid");
+    let end = &shape.markers[1];
+    let near = |a: (f32, f32), b: (f32, f32)| (a.0 - b.0).abs() < 1e-4 && (a.1 - b.1).abs() < 1e-4;
+    // The reference point on the last vertex; the marker turned 90° and
+    // doubled: its origin lands at (54, 46).
+    assert!(near(tf::apply(end.ctm, (2.0, 2.0)), (50.0, 50.0)));
+    assert!(near(tf::apply(end.ctm, (0.0, 0.0)), (54.0, 46.0)));
+    let Kind::Viewport { children, clip, .. } = &end.kind else {
+        panic!("a viewport")
+    };
+    assert!(*clip, "Contract gives a marker the UA's `overflow: hidden`");
+    let Kind::Shape(inner) = &children[0].kind else {
+        panic!("the marker's content")
+    };
+    assert_eq!(
+        inner.fill.as_ref().map(|p| p.color),
+        Some(exact_kernel::ColorValue::Fixed(exact_kernel::Color(
+            0xff00_00ff
+        ))),
+        "content inherits from the marker"
+    );
+}

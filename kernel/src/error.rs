@@ -56,6 +56,8 @@ pub enum DecodeError {
     BadTransformOrigin,
     /// Invalid SVG `paint-order` (LLP 1055.000 D7).
     BadPaintOrder,
+    /// Invalid SVG `marker-start`/`-mid`/`-end` (LLP 1055.000 D9).
+    BadMarker,
     /// An `animation` row carried more entries or keyframes than the wire
     /// admits, or a direction/fill byte outside the table (LLP 1055 D5).
     BadAnimation,
@@ -444,6 +446,10 @@ pub enum StyleValueError {
     },
     /// Not SVG `paint-order`.
     BadPaintOrder {
+        style: StyleId,
+    },
+    /// Not `none` or `url(#id)`.
+    BadMarker {
         style: StyleId,
     },
     /// Not CSS `animation` shorthand.
