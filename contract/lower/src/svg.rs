@@ -206,6 +206,15 @@ const FE_ATTRS: [&str; 47] = [
     "limitingConeAngle",
 ];
 
+/// Whether an attribute is an SVG element's own prop (`viewBox`, a
+/// gradient's units, a primitive's `in`, `mode`, `seed`, …), derived from
+/// this module's tables: meaningful only on SVG elements, so on a native
+/// module's tag it stays the module's prop (LLP 1024 D8, LLP 1055.000).
+pub(crate) fn svg_only_prop(attr: &str) -> bool {
+    (owners(attr).is_some() || is_length_prop(attr))
+        && matches!(tags::attr(attr), Some(tags::AttrTarget::Prop(_)))
+}
+
 /// The elements an SVG-specific attribute belongs to.
 fn owners(attr: &str) -> Option<&'static [&'static str]> {
     Some(match attr {
@@ -692,6 +701,16 @@ impl Lowerer<'_> {
 /// its text and any other expression is interpolated, so `x1=10`,
 /// `x1="50%"` and `x1=gridX` all lower. `None` when nothing changes.
 pub(crate) fn coerce_lengths(tag: &str, in_svg: bool, attrs: &[Attr]) -> Option<Vec<Attr>> {
+    // Only an SVG element's attributes are SVG lengths: on a box or a
+    // native module's tag (LLP 1024 D8) a same-named attribute is left as
+    // written (`mode=` on `exact-fixture` is the module's, not feBlend's).
+    if !(is_element(tag) || tag == "svg" || (tag == "text" && in_svg)) {
+        return None;
+    }
+    coerce(tag, in_svg, attrs)
+}
+
+fn coerce(tag: &str, in_svg: bool, attrs: &[Attr]) -> Option<Vec<Attr>> {
     // SVG text's `x`, `y`, `dx`, `dy` are position lists, not geometry
     // rows (LLP 1055.000 D11): they lower to their own props.
     let text = tag == "tspan" || (tag == "text" && in_svg);
@@ -719,7 +738,7 @@ pub(crate) fn coerce_lengths(tag: &str, in_svg: bool, attrs: &[Attr]) -> Option<
                 }
             })
             .collect();
-        let coerced = coerce_lengths("g", in_svg, &renamed);
+        let coerced = coerce("g", in_svg, &renamed);
         return Some(coerced.unwrap_or(renamed));
     }
     if text {
@@ -740,7 +759,7 @@ pub(crate) fn coerce_lengths(tag: &str, in_svg: bool, attrs: &[Attr]) -> Option<
                 }
             })
             .collect();
-        let coerced = coerce_lengths("", false, &renamed);
+        let coerced = coerce("", false, &renamed);
         return Some(coerced.unwrap_or(renamed));
     }
     let svg = is_element(tag) || tag == "svg";

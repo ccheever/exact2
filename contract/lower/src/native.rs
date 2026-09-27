@@ -4,7 +4,8 @@
 //!
 //! @ref LLP 1024 D1 (HTML's potential-custom-element-name, lowercase only,
 //! the SVG/MathML reserved names refused; a fixed `display: block` row; the
-//! known attribute table binds first and its renamed spellings stay refused)
+//! known attribute table binds first and its renamed spellings stay refused;
+//! an SVG element's own props, `svg::svg_only_prop`, stay the module's)
 
 use crate::tags::{self, Tag};
 use crate::{err, LowerError, Lowerer};
@@ -57,7 +58,7 @@ pub(crate) fn tag(name: &str) -> Option<Tag> {
 pub(crate) fn leftover(tag: &str, a: &Attr) -> bool {
     is_module_tag(tag)
         && a.name != "class"
-        && tags::attr(&a.name).is_none()
+        && (tags::attr(&a.name).is_none() || crate::svg::svg_only_prop(&a.name))
         && tags::renamed(&a.name).is_none()
 }
 
@@ -157,6 +158,25 @@ impl Lowerer<'_> {
 #[cfg(test)]
 mod tests {
     use super::is_module_tag;
+
+    /// SVG elements' own props (LLP 1055.000's filter primitives among them)
+    /// stay a module's props; rows still bind first.
+    #[test]
+    fn svg_element_props_stay_a_modules_on_its_tag() {
+        let attr = |name: &str| contract_syntax::Attr {
+            name: name.into(),
+            value: contract_syntax::Expr::Ident("v".into(), Default::default()),
+            span: Default::default(),
+        };
+        for name in [
+            "mode", "seed", "values", "in", "viewBox", "offset", "orient",
+        ] {
+            assert!(super::leftover("exact-fixture", &attr(name)), "{name}");
+        }
+        for name in ["width", "fill", "x", "filter"] {
+            assert!(!super::leftover("exact-fixture", &attr(name)), "{name}");
+        }
+    }
 
     #[test]
     fn the_admission_is_lowercase_pcen_without_the_reserved_names() {
