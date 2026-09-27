@@ -272,12 +272,23 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   Take: other animated layout properties and decorative effects remain behind
   that consumer. The first increment accepts several numeric samples; automatic
   content-height measurement and host adoption remain unfinished.
-- **Decay, sequence, and repeat drivers; `@keyframes`.** A spring carries release
-  velocity; nothing else needs a driver.
+- **Decay and sequence drivers.** A spring carries release velocity; nothing
+  else needs a driver. (`@keyframes` and repeat came off; see below.)
 - **Reduced-motion policy in the engine.** The producer emits `transition: none`
   when the host reports the preference, as a stylesheet's media query would.
-- **A Core Animation executor.** Permitted by LLP 1002 D2, not built; the Apple
-  lane measures whether it earns its place.
+- **A Core Animation executor for transitions.** Permitted by LLP 1002 D2, not
+  built; the Apple lane measures whether it earns its place.
+
+**Proposed (2026-09-26, the crypto-list benchmark brief; LLP 1055; pending
+Charlie's take):** inline SVG (`svg`, `g`, `path`, `polyline`, `polygon`,
+`circle`, `line`, `rect`, with the SVG 2 presentation properties) and CSS
+`@keyframes` / `animation`, run by the browser on the web, by Core Animation
+on Apple for `opacity`, `stroke-dashoffset` and `r`, and by `exact-motion`
+elsewhere. Unblocks the benchmark's SVG port and any list with inline charts
+or icons, written as a web developer writes them. Take: **owed — Charlie
+names it** (LLP 1055 §0; the dead `svgSource` prop is deleted, but that is
+hygiene, not a take). Still out: filters, masks, paint servers, text in SVG,
+SMIL, scroll-driven animations, animation events and colour motion.
 - **`runOnJS` and the escape hatch / runtime graph admission** — never existed here.
 
 **Tooling** — no Design Mode, no Guide system, no devtools UI, no TUI host, no blog/CMS.

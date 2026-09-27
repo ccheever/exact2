@@ -1,10 +1,10 @@
 # LLP 1055: Inline SVG shapes and CSS animations
 
 **Type:** RFC
-**Status:** Draft (r1)
+**Status:** Draft (r2: built on `feat/svg-anim`; reviews dispositioned in §0; the NOT-DOING take awaits Charlie)
 **Systems:** Kernel (`kernel/tables/schema.json` node types, props, style rows; the SVG subtree outside box layout; `kernel/src/svg/` geometry), Motion (`exact-motion`: `@keyframes`, `animation`, two new animatable properties), Contract (`svg` tags and attributes, the `keyframes` declaration, `animation` and its longhands), Plan (a `keyframes` table), Runner (resolving `animation-name`), Web / Apple / Linux hosts (painting shapes, executing animations)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
-**Date:** 2026-09-26
+**Date:** 2026-09-26 (r1 and r2)
 **Implementer:** Claude (Opus 5.5), branch `feat/svg-anim`, 2026-09-26
 **Related:** LLP 1002 / 1003 (motion v1: CSS `transition`, two executors, the web as oracle; this RFC extends that design rather than adding a second one), LLP 1001 (kernel; declared deviations), LLP 1050.000 (the fill policy), LLP 1047 (pay for what you use), LLP 1053 (the list-benchmark gaps; the same house process), `rules/NOT-DOING.md` §Motion (the `@keyframes` and Core Animation lines this moves), `~/bench/cryptobench/SPEC.md` (the consumer)
 
@@ -12,11 +12,74 @@
 
 The crypto-list benchmark (`~/bench/cryptobench/SPEC.md`) needs each row to draw a live sparkline. The line draws in when the row appears, and a dot at the last point has a ring that breathes forever. A web developer writes that as an inline `<svg>` with a `<polyline>`, `stroke-dasharray` / `stroke-dashoffset` over `pathLength="1"` for the draw-in, and a CSS `@keyframes` pulse. exact2 has neither SVG shapes nor CSS animations today: the `Svg` node type exists but nothing creates it, and `@keyframes` is on the not-doing list.
 
-This RFC adds both, the web way:
+This RFC adds both, the web way. §0 records how review and building changed it:
 - **Shapes:** a minimum SVG 2 subset (`svg`, `g`, `path`, `polyline`, `polygon`, `circle`, `line`, `rect`) with the presentation properties as CSS style rows. Each element is a kernel node. The subtree is skipped by box layout, and its geometry is parsed once in Rust for every host.
 - **Animations:** CSS Animations Level 1 (`@keyframes`, the `animation` shorthand and its eight longhands) as a second row beside `transition`, executed the way LLP 1002 executes transitions: the browser on the web, `exact-motion` wherever the host samples per frame (Linux), and Core Animation on Apple, where the compositor already runs a repeating animation without waking the app.
 
 **Recommendation:** build it as specified here. It trades one NOT-DOING line (`@keyframes`) and the Core Animation executor for this benchmark, and deletes the dead `svgSource` prop in exchange (§9).
+
+## 0. Disposition after review, and what was built (r2)
+
+Astra (`gpt-6-astra`, reasoning max) and Grok (served as `grok-4.6-build`, xhigh) reviewed r1 blind (`llp/reviews/1055-svg-shapes-and-css-animations.{astra,grok}.md`). Both said "build with named changes": the architecture (CSS names, element nodes, the browser as oracle, Core Animation for repeating compositor work, start on mount) stands. The rest of this section supersedes r1 where they differ.
+
+**Accepted and built:**
+
+| Finding | Disposition |
+|---|---|
+| D5 matching by name is insufficient (both) | New lists are walked from the end, each name pairing with the last unmatched old animation of that name; duplicates are separate animations; a reorder restarts nothing (`motion/src/engine/animate.rs`). |
+| An unknown name starts no animation (Astra; Grok said the opposite) | CSS Animations 1 §3 and Chrome agree with Astra: no `CSSAnimation` exists for a name without a rule. `Animations::resolve` drops it and the runner journals it; Contract refuses a literal unknown name at compile time (`lower-animation-name`). |
+| Transition precedence reversed (Astra) | A running transition wins over an animation on the same property (the CSS cascade's transition origin); the animation shows again when it ends. Tested. |
+| Iteration progress, fills, directions, zero duration and zero iterations need the full timing model (both) | `Animation::directed_progress` is Web Animations §4.5–4.8 (phases with boundary times, active time, overall and simple iteration progress, the `simple == 1` endpoint rule, current iteration, direction parity). Seventeen samples are pinned to headless Chrome 154's `getComputedStyle` at a paused `currentTime`: `alternate` over three iterations, a fractional `reverse` with `forwards`, `steps(4, jump-start)` with a negative delay, and the benchmark pulse (`motion/tests/it/animation.rs`, `samples_match_chrome`). All match to 5e-6. |
+| Implicit endpoints are per property and live (both) | Tracks are built per property at sample time from the current underlying value, which is the slot's presented value, so a running transition feeds them. |
+| D7 lowering too broad (both) | Apple lowers only `opacity`, `stroke-dashoffset` and `r`: `Engine::set_lowered_properties`. Transform animations are sampled by the engine per frame, as transitions are, so no matrix-composition deviation exists. On the web every property is lowered (the browser). |
+| Reverse needs time-reversed easings; `alternate-reverse` and odd counts; steps as holds; duplicate offsets (both) | Each direction becomes one explicit CA period: forward, reversed (times mirrored, each cubic `(x1,y1,x2,y2) → (1−x2,1−y2,1−x1,1−y1)`), or both joined over twice the duration, so a fractional `repeatCount` ends mid-period exactly as CSS does. `steps()` becomes hold pairs a hair apart; `linear()` keeps its stops. Equal offsets merge in the parser. |
+| Agent clock versus the compositor (both) | Under an agent-owned clock every lowered animation is `speed = 0` at the engine's seek, and `SvgHost.seek` re-seeks on each clock change. One CA quirk was found and handled: a held time at or past a finite end wraps to the next cycle's start, while CSS holds the last frame. The time is clamped just inside. |
+| `motion` keeping the display link awake (Astra) | `quiescent()` now separates sampled from lowered work. A lowered infinite pulse leaves `batch.motion` false (asserted in `host/apple/src/svg_tests.rs`). `settle_time` still counts finite lowered animations. |
+| Web: `createElementNS`, exact attribute case, unitless numbers, settle with infinite animations, base CSS (both) | The create op carries `ns` for SVG tags. SVG props map to their case-sensitive names. `fill-opacity`, `stroke-opacity`, `stroke-miterlimit`, `stroke-width` and `stroke-dashoffset` are emitted unitless and `r`/`cx`/`cy` as px. `svg` is `display: block` in the page CSS. The glue's seek never calls `finish()` on an infinite animation, and settle skips infinite and author-paused ones (the latter recorded at registration). `@keyframes` rules go into one page-owned stylesheet, once per name, from the navigation-side motion proxy (no after-paint piece needed). |
+| Nodes without boxes need a contract (both) | SVG elements keep never-attached Taffy leaves, so publication, export and rebuild see ordinary nodes with zero frames. `sync_children` gives an `svg`, `g` and shapes no layout children (`NodeType::lays_out_children`). On Apple, SVG elements are not views: `create`, `update`, `children`, `destroy` and `present` for them fold into the owning `svg`'s scene. That is the declared exception to "the view tree mirrors the kernel tree", beside inline runs. |
+| Hit testing and accessibility of shapes (both) | v1 shapes are decorative: Contract refuses handlers and box attributes on SVG elements (`lower-svg-attr`); the `svg` is the one hit and accessibility box. |
+| Content box and borders | Found while building, not by the reviews: CSS's initial `border-width` is `medium` (3 px) and counts only when a style draws a border. The Apple scene now does the same; the bug had shrunk every chart by 3 pt a side. |
+| Unit rules for geometry (Astra) | A `px` suffix is accepted only on CSS lengths (keyframe `r`, `translate`, `stroke-dashoffset`) and dash lists. `points`, `d` and `viewBox` take numbers only. |
+| Default `preserveAspectRatio`, negative and zero `viewBox` sizes, `pathLength` 0 and negative (both) | `xMidYMid meet`; a negative size invalidates the view box and a zero size renders nothing; `pathLength` ≤ 0 is ignored (scale 1). Unit tests pin the view-box equations. |
+| iOS pooling (both) | Rows holding an `svg` stay ineligible for `NodePoolIOS` in v1 (its kind list omits `svg`); `SvgHost.forget` clears scenes and box animations on destroy. Pooling SVG rows is owed (QUEUE). |
+
+**Accepted as declared deviations or limits (not built):**
+- **Geometry properties.** `x`, `y`, `rx`, `ry` and `d` are CSS geometry properties in SVG 2 (both reviewers). They stay attributes here, so they are not animatable in v1. Only `cx`, `cy` and `r` are rows.
+- **Arcs.** Arcs become cubic quarters, whose length runs 0.014% long against Skia's exact conics (0.004 units on a 10-unit half circle). The parity tolerance covers it.
+- **Keyframes are resolved into the row at bind time.** CSS keyframes are live, but a plan's rules never change.
+- **`display: none` does not cancel an animation** on native hosts (Astra); the web's does. Hidden nodes paint nothing either way.
+- **Inherited animated values do not flow to descendants on native hosts.** An animated `stroke-dashoffset` on a `g` animates the `g`'s own value.
+- **A circle with both an animated `r` and dashes** dashes against its static length on Apple.
+- **Steps ignore the before flag** at exact boundaries (the existing easing).
+- **Intrinsic sizing.** An `svg` with a view box but no width or height is 300 × 150, not the view box's ratio. Authors give both.
+- **Capture paths.** Linux retained regions and iOS canvas capture (`Shadow.swift`) copy no SVG scene or presentation state. SVG inside a content region or a captured canvas is unsupported in v1.
+- **macOS screenshots.** The agent's default macOS screenshot renders model layers, which is why the frozen ring is missing from it; `screenshot … window` shows presentation.
+
+**D9, corrected:** the collection that exists (fresh ids per mounted key, one viewport of overscan plus velocity lead, bounded retirement, pins) decides when an animation starts: at mount, as on the web. A row kept mounted by overscan, a pin or deferred retirement does not replay when it scrolls back. LLP 1050.000's `complete` and D3 are rulings on an RFC not yet built; nothing here depends on them.
+
+**The NOT-DOING take (both):** deleting the dead `svgSource` is hygiene, not a doing-list take. The consumer (the crypto-list benchmark) is also outside the v1 bar. `rules/NOT-DOING.md` now carries the admission marked **pending Charlie's take** (§6 Q1). This branch is unpushed until he names one.
+
+**Not accepted:** Grok's suggestion to capability-link the path parser (LLP 1047). The parser is about 350 lines and the web wasm grew by it; it is kernel geometry every host needs, and an `svg`-free plan pays only its code size. That can be measured if it matters.
+
+### As built (hosts)
+
+| Host | Shapes | Animations |
+|---|---|---|
+| Web | real SVG DOM (`createElementNS`) | the browser, from a page `@keyframes` sheet; seek and settle through WAAPI |
+| iOS, macOS | one `svg` scene op per root; `CAShapeLayer` per shape, `CALayer` per `g` (`SvgScene.swift`, shared) | Core Animation for `opacity`, `stroke-dashoffset` (`lineDashPhase`, scaled by length ÷ `pathLength`), `r` (`path`, circles about the origin, layer at `cx, cy`); a box's own `opacity` animation goes to its view's layer; the rest are engine-sampled |
+| Linux | `Backend::svg_path` on vello and tiny-skia (dashes, caps, joins, miter limit, even-odd) inside the view-box transform, clipped by the `svg` | `exact-motion`, sampled per frame (`Presented.svg` carries `r` and the dash offset) |
+
+### Parity against Chrome (`apps/sparkline`)
+
+The eight top charts, cropped by their layout boxes (margin 10 pt, compared at 2 px/pt after registering each crop to the Chrome crop within ±20 px; Chrome at 1×):
+
+| Host | Frozen: mean \|Δ\| | pixels off by > 32 | Mid draw-in (clock 300 ms): mean \|Δ\| | off > 32 |
+|---|---|---|---|---|
+| Linux (CPU painter) | 1.04 / 255 | 0.77% | 0.75 | 0.59% |
+| iOS simulator (402 pt, 3×) | 1.98 | 3.14% | 1.42 | 2.32% |
+| macOS (window capture, 2×) | 1.96 | 3.65% | 1.39 | 2.69% |
+
+The residue is antialiasing and Chrome's 1× raster; no crop shows a geometric difference.
 
 ## 1. What exists today
 
