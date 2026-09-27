@@ -160,6 +160,8 @@ mod tests {
         assert_eq!(ClipPath::parse(&full.css()), Some(full));
         for bad in [
             "path('')",
+            "path('M0 0 Z 1')",
+            "path('M0 0 z 1')",
             "path('L 0 0')",
             "path('M 0 NaN')",
             "path('M 0 0 C 1 2')",

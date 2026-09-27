@@ -64,6 +64,18 @@ fn errors_render_up_to_the_last_good_segment() {
 }
 
 #[test]
+fn a_close_cannot_repeat_implicitly() {
+    for d in ["M0 0 Z 1", "M0 0 z 1", "M0 0Z1 M20 20L30 30"] {
+        let (path, ends) = super::path::parse_d_commands(d);
+        assert_eq!(path.0, [Seg::Move(0.0, 0.0), Seg::Close], "{d}");
+        assert_eq!(ends, [1, 2], "{d}");
+        assert!(parse_d_whole(d).is_none(), "{d}");
+    }
+    assert_eq!(parse_d("M0 0ZZ").0, [Seg::Move(0.0, 0.0), Seg::Close]);
+    assert!(parse_d_whole("M0 0Z M1 1L2 2").is_some());
+}
+
+#[test]
 fn arcs_become_cubics_on_the_ellipse() {
     // A half circle of radius 10 from (0,0) to (20,0).
     let p = parse_d("M0 0 A10 10 0 0 1 20 0");

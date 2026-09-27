@@ -144,6 +144,7 @@ fn parse(d: &str) -> (Path, Vec<usize>, bool) {
     let mut cmd: Option<u8> = None;
     let mut clean = false;
     loop {
+        let start = lx.i;
         let c = if let Some(c) = lx.command() {
             c
         } else if let Some(previous) = cmd.filter(|_| lx.at_number()) {
@@ -151,6 +152,7 @@ fn parse(d: &str) -> (Path, Vec<usize>, bool) {
             match previous {
                 b'M' => b'L',
                 b'm' => b'l',
+                b'Z' | b'z' => break, // closepath has no implicit arguments
                 c => c,
             }
         } else {
@@ -244,6 +246,7 @@ fn parse(d: &str) -> (Path, Vec<usize>, bool) {
             }
             _ => break,
         }
+        assert!(lx.i > start, "a path command must consume input");
         last_ctrl = ctrl;
         cmd = Some(c);
         ends.push(out.len());

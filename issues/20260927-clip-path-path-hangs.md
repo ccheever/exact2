@@ -1,6 +1,6 @@
 # `clip-path: path('M0 0 Z 1')`, and the same `d` on an SVG `path`, hangs the kernel and grows memory without bound
 
-**Status:** Open
+**Status:** Fixed: reject implicit repeats after Z/z and assert parser progress; both hanging entry points reproduced under a timeout, then passed SVG-prefix and CSS-rejection regression tests.
 **Systems:** Kernel (`kernel/src/svg/path.rs`, `kernel/src/clip.rs`)
 **Severity:** P1
 **Author:** Claude (Opus 5.5) for Charlie Cheever
