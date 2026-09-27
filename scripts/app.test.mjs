@@ -66,7 +66,7 @@ import { dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { resolveApp, buildBake, bakeTarget, pendingBuildInputs } from './app.mjs';
 import { hermesIos } from './app.mjs';
-import { HERMES_IOS_ARCHIVES, provisionHermesIos, iosAssets, useXcode } from '../host/apple/build.mjs';
+import { HERMES_IOS_ARCHIVES, provisionHermesIos, iosAssets, macReleaseEntitlements, useXcode } from '../host/apple/build.mjs';
 import { snapshotOf, materializeSnapshot, disposeSnapshot } from './deploy.mjs';
 
 // Real Cargo units, no engine dependencies. Opt in with the other bake diagnostics.
@@ -923,4 +923,18 @@ test('manifest colours follow the web and retired launch and alias keys are refu
     assert.throws(() => read({ ...manifest, launch: { background: '#fff' } }), /launch/);
     assert.throws(() => read({ ...manifest, typescript: { aliases: { '@/*': './*' } } }), /aliases/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a release signs with the hardened-runtime entitlements its usage keys need, and only those', () => {
+  const app = (permissions) => ({ manifest: { host: { macos: { permissions } } } });
+  assert.equal(macReleaseEntitlements({ manifest: {} }), null);
+  assert.equal(macReleaseEntitlements(app({ NSSpeechRecognitionUsageDescription: 'no hardened entitlement' })), null);
+  const both = macReleaseEntitlements(app({ NSMicrophoneUsageDescription: 'hear', NSLocationUsageDescription: 'a', NSLocationWhenInUseUsageDescription: 'b', NSSpeechRecognitionUsageDescription: 'c' }));
+  const keys = [...both.matchAll(/<key>([^<]+)<\/key><true\/>/g)].map((m) => m[1]);
+  assert.deepEqual(keys, ['com.apple.security.device.audio-input', 'com.apple.security.personal-information.location']);
+  if (process.platform === 'darwin') {
+    const dir = mkdtempSync(resolve(tmpdir(), 'exact-entitlements-')), file = resolve(dir, 'entitlements.plist');
+    try { writeFileSync(file, both); assert.equal(spawnSync('plutil', ['-lint', file]).status, 0); }
+    finally { rmSync(dir, { recursive: true, force: true }); }
+  }
 });

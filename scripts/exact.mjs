@@ -34,7 +34,7 @@ import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { resolveApp } from './app.mjs';
 import { createApp } from '../game/new.mjs';
-import { appleArtifacts, assertAppleIdentity } from '../host/apple/build.mjs';
+import { appleArtifacts, assertAppleIdentity, macReleaseEntitlements } from '../host/apple/build.mjs';
 import { closeFilesystemReader } from './filesystem.mjs';
 import { builtAppMatches } from '../host/web/serve.mjs';
 
@@ -220,10 +220,14 @@ function release(app) {
 
   // Sign inside out, with the hardened runtime and a timestamp. Both are
   // notarisation's requirements, not preferences: a build without them is
-  // rejected at submission rather than at launch.
+  // rejected at submission rather than at launch. The app itself carries the
+  // entitlements its declared usage keys need; the libraries inside carry none.
+  const entitled = macReleaseEntitlements(app);
+  const entitlements = resolve(out, 'entitlements.plist');
+  if (entitled) writeFileSync(entitlements, entitled);
   for (const path of signingOrder(staged)) {
     sh('codesign', ['--force', '--sign', identity, '--options', 'runtime', '--timestamp',
-      ...(path === staged ? ['--identifier', app.id] : []), path]);
+      ...(path === staged ? ['--identifier', app.id, ...(entitled ? ['--entitlements', entitlements] : [])] : []), path]);
   }
   sh('codesign', ['--verify', '--deep', '--strict', '--verbose=1', staged]);
 

@@ -437,6 +437,32 @@ export const entitlements = (app, team, debuggable = true) => {
   return plistFile(dict);
 };
 
+/** Each macOS usage key and the hardened-runtime entitlement that resource
+ * also needs (Apple's "Hardened Runtime" resource-access entitlements). The
+ * usage string alone is not enough: a hardened app without the entitlement is
+ * silently refused, so a notarised build can't hear what a development one can.
+ * LLP 1069.008 moves this to `device.*` grants. */
+const HARDENED_RESOURCES = {
+  NSMicrophoneUsageDescription: 'com.apple.security.device.audio-input',
+  NSCameraUsageDescription: 'com.apple.security.device.camera',
+  NSLocationUsageDescription: 'com.apple.security.personal-information.location',
+  NSLocationWhenInUseUsageDescription: 'com.apple.security.personal-information.location',
+  NSLocationAlwaysAndWhenInUseUsageDescription: 'com.apple.security.personal-information.location',
+  NSContactsUsageDescription: 'com.apple.security.personal-information.addressbook',
+  NSCalendarsUsageDescription: 'com.apple.security.personal-information.calendars',
+  NSCalendarsFullAccessUsageDescription: 'com.apple.security.personal-information.calendars',
+  NSCalendarsWriteOnlyAccessUsageDescription: 'com.apple.security.personal-information.calendars',
+  NSPhotoLibraryUsageDescription: 'com.apple.security.personal-information.photos-library',
+  NSAppleEventsUsageDescription: 'com.apple.security.automation.apple-events',
+};
+
+/** The hardened-runtime entitlements `exact release` signs the Mac app with,
+ * from the usage keys `host.macos.permissions` declares; null when none needs one. */
+export const macReleaseEntitlements = (app) => {
+  const names = Object.keys(app.manifest.host?.macos?.permissions ?? {}).map((key) => HARDENED_RESOURCES[key]).filter(Boolean);
+  return names.length ? plistFile(Object.fromEntries([...new Set(names)].sort().map((name) => [name, true]))) : null;
+};
+
 /** Build with Xcode when `xcode-select` names the Command Line Tools, which
  * carry no iOS SDK (LLP 1054 O2): the iOS build otherwise fails deep in a
  * crate's build script with `SDK "iphonesimulator" cannot be located`. An
