@@ -15,8 +15,14 @@
 //! reused slot never inherits its predecessor's motion.
 //!
 //! Colour is its own pass ([`Kernel::paint_sync`], LLP 1062 D2): a native
-//! host resolves `light-dark()` by an appearance the kernel does not know,
-//! and keeps the record of which nodes own paint motion.
+//! host reports appearance to [`PaintMotion`], which resolves `light-dark()`
+//! and keeps the record of which nodes own paint motion. [`LayoutMotion`]
+//! observes boxes after layout; the hosts only present the resulting values.
+
+mod layout;
+mod paint;
+pub use layout::{layout_presented, LayoutMotion};
+pub use paint::PaintMotion;
 
 use crate::generated::{
     BoxSizing, Display, InterpolateSize, NodeType, PropId, StyleId, StyleMask, StyleProps,
@@ -31,6 +37,14 @@ use std::collections::BTreeMap;
 /// The engine's node number for a kernel node.
 pub fn motion_node(key: NodeKey) -> u64 {
     ((key.generation as u64) << 32) | key.index as u64
+}
+
+/// The generation-checked kernel key packed into an engine node number.
+pub fn node_key(node: u64) -> NodeKey {
+    NodeKey {
+        index: node as u32,
+        generation: (node >> 32) as u32,
+    }
 }
 
 /// Everything the motion engine must hear about one commit, in the order it
@@ -98,7 +112,7 @@ pub fn targets(style: &StyleProps) -> [(Property, Value); 4] {
 }
 
 /// Which nodes own paint motion, and which paint properties each owns: the
-/// host's record (LLP 1062 D2), so a commit retires exactly what an earlier
+/// record (LLP 1062 D2), so a commit retires exactly what an earlier
 /// one adopted and an appearance change re-resolves exactly those.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PaintOwners(BTreeMap<u64, u16>);
@@ -378,13 +392,7 @@ impl Kernel {
     /// target that changes transitions under the node's row, as a browser's
     /// computed value does when `color-scheme` changes (LLP 1062 D4).
     pub fn paint_resync(&self, dark: impl Appearance, owners: &mut PaintOwners) -> MotionSync {
-        let keys: Vec<NodeKey> = owners
-            .nodes()
-            .map(|node| NodeKey {
-                index: node as u32,
-                generation: (node >> 32) as u32,
-            })
-            .collect();
+        let keys: Vec<NodeKey> = owners.nodes().map(node_key).collect();
         self.paint_adopt(keys, dark, owners)
     }
 

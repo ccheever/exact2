@@ -7,85 +7,74 @@
 //! resolver (LLP 1055.000 D15).
 
 use super::Host;
-use exact_kernel::motion::{motion_node, MotionSync};
-use exact_kernel::{CommitReceipt, NodeKey, StyleId, ViewId};
+use exact_kernel::motion::{motion_node, node_key};
+use exact_kernel::{CommitReceipt, StyleId, ViewId};
 use exact_motion::{Presentation, Property, Value};
 use exact_runner::DataSource;
-
-fn node_key(node: u64) -> NodeKey {
-    NodeKey {
-        index: node as u32,
-        generation: (node >> 32) as u32,
-    }
-}
 
 impl<D: DataSource> Host<D> {
     /// Adopt a commit's paint, after its `motion_sync` set the rows.
     pub(super) fn sync_paint(&mut self, receipt: &CommitReceipt) {
-        let sync = self
-            .runner
-            .kernel()
-            .paint_sync(receipt, self.dark, &mut self.paint_owners);
-        self.apply_paint(sync);
+        let retired = self
+            .paint
+            .sync(self.runner.kernel(), receipt, &mut self.engine);
+        self.retire_paint(retired);
     }
 
     /// Adopt the whole tree's paint at boot.
     pub(super) fn boot_paint(&mut self) {
-        let kernel = self.runner.kernel();
-        let keys: Vec<NodeKey> = self.keys.keys().copied().collect();
-        let sync = kernel.paint_adopt(keys, self.dark, &mut self.paint_owners);
-        self.apply_paint(sync);
+        self.paint.adopt(
+            self.runner.kernel(),
+            self.keys.keys().copied(),
+            &mut self.engine,
+        );
     }
 
-    fn apply_paint(&mut self, sync: MotionSync) {
-        // A side that was and stays `currentcolor` has no transition of its
-        // own (CSS: its computed value never changed): it takes the new
-        // `color` at once and paints the presented one.
-        let kernel = self.runner.kernel();
-        let mut nodes: Vec<u64> = sync.changes.iter().map(|c| c.node).collect();
-        nodes.dedup();
-        for node in nodes {
-            let now = kernel.current_color_sides(node_key(node));
-            let was = self.paint_current.remove(&node).unwrap_or_default();
-            for side in now.iter().filter(|s| was.contains(s)) {
-                if !self.engine.is_active(node, *side) {
-                    self.engine.remove_property(node, *side);
-                }
-            }
-            if !now.is_empty() {
-                self.paint_current.insert(node, now);
-            }
-        }
-        for (node, property) in &sync.retired {
-            self.paint_current.remove(node);
-            let views = self.inheritors_of(*node, *property);
-            let own = self.keys.get(&node_key(*node)).copied();
+    fn retire_paint(&mut self, retired: Vec<(u64, Property)>) {
+        for (node, property) in retired {
+            let views = self.inheritors_of(node, property);
+            let own = self.keys.get(&node_key(node)).copied();
             for view in own.into_iter().chain(views) {
                 match property {
                     Property::Color => self.paint_color(view, None),
-                    p => self.paint_over(view, *p, None),
+                    p => self.paint_over(view, p, None),
                 }
             }
         }
-        let applied = sync.apply(&mut self.engine);
-        debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
     }
 
-    /// The appearance `light-dark()` resolves to (the app's `setScheme`):
-    /// every owner re-targets, transitioning under its row (LLP 1062 D4).
+    /// Report the session's appearance: first quietly, then transitioning
+    /// `light-dark()` targets under their rows (LLP 1062 D4).
     pub fn set_scheme(&mut self, dark: bool) {
-        if self.dark == dark {
-            return;
+        if let Some(retired) = self.paint.set_scheme(
+            self.runner.kernel(),
+            &mut self.engine,
+            dark,
+            self.now_ms / 1000.0,
+        ) {
+            self.flow_damage.repaint();
+            self.retire_paint(retired);
+            self.present();
         }
-        self.dark = dark;
-        self.engine.set_dark(dark, false);
-        let seek = self.engine.advance(self.now_ms / 1000.0);
-        debug_assert!(seek.is_ok(), "the clock never runs backwards here");
-        let sync = self
-            .runner
-            .kernel()
-            .paint_resync(dark, &mut self.paint_owners);
-        self.apply_paint(sync);
+    }
+
+    /// Report a view's own appearance, following the same first-report
+    /// correction and later transitions as the session's.
+    pub fn set_view_scheme(&mut self, view: ViewId, dark: bool) {
+        let Some(key) = self.runner.kernel().node(view).map(|n| n.key) else {
+            return;
+        };
+        if let Some(retired) = self.paint.set_view_scheme(
+            self.runner.kernel(),
+            &mut self.engine,
+            key,
+            dark,
+            self.now_ms / 1000.0,
+        ) {
+            self.flow_damage.repaint();
+            self.retire_paint(retired);
+            self.present();
+        }
     }
 
     /// One paint presentation, over its row while it differs from the target.
@@ -144,7 +133,7 @@ impl<D: DataSource> Host<D> {
             }
             if current.contains(&side) {
                 self.paint_over(view, side, value);
-            } else if !self.paint_owners.owns(motion_node(key), side) {
+            } else if !self.paint.owns(motion_node(key), side) {
                 self.paint_over(view, side, None);
             }
         }
@@ -173,8 +162,7 @@ impl<D: DataSource> Host<D> {
             let Some(child) = kernel.node(id) else {
                 continue;
             };
-            if child.style.mask.has(row) || self.paint_owners.owns(motion_node(child.key), property)
-            {
+            if child.style.mask.has(row) || self.paint.owns(motion_node(child.key), property) {
                 continue;
             }
             out.push(id);

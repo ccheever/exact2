@@ -1222,7 +1222,7 @@ impl<D: DataSource> Host<D> {
             debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
             svg_lower::eligibility(self.runner.kernel(), &mut self.engine, &sync);
             self.play_exits(&mut batch);
-            self.seed_layout(&t.receipt);
+            self.seed_layout(&t.receipt, &mut batch);
             self.sync_paint(&t.receipt, &mut batch);
             self.reconcile_height_handles(&mut batch, true);
             let synced = self.sync_height_owner();

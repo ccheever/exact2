@@ -1,0 +1,191 @@
+//! Native paint ownership and appearance, shared by the hosts (LLP 1062).
+
+use super::{motion_node, node_key, MotionSync, PaintOwners};
+use crate::{CommitReceipt, Kernel, NodeKey};
+use exact_motion::{Engine, Property, Value};
+use std::collections::BTreeMap;
+
+/// Paint targets owned by one native session. Hosts report appearance and
+/// present the resulting values; the browser owns this policy on the web.
+#[derive(Debug, Default)]
+pub struct PaintMotion {
+    owners: PaintOwners,
+    /// `None` until the first report, which corrects boot without motion.
+    dark: Option<bool>,
+    /// Each owner's `currentcolor` sides at its last sync.
+    current: BTreeMap<u64, Vec<Property>>,
+    /// Views whose appearance differs from the session's.
+    views: BTreeMap<u64, bool>,
+}
+
+impl PaintMotion {
+    /// Whether the node owns this paint property.
+    pub fn owns(&self, node: u64, property: Property) -> bool {
+        self.owners.owns(node, property)
+    }
+
+    /// The appearance a view's colours resolve by, else the session's.
+    pub fn dark(&self, key: NodeKey) -> bool {
+        self.views
+            .get(&motion_node(key))
+            .copied()
+            .unwrap_or(self.dark.unwrap_or(false))
+    }
+
+    /// Adopt a commit after its ordinary motion rows. Returned properties
+    /// have retired: the host must show their style rows again.
+    pub fn sync(
+        &mut self,
+        kernel: &Kernel,
+        receipt: &CommitReceipt,
+        engine: &mut Engine,
+    ) -> Vec<(u64, Property)> {
+        for key in &receipt.destroyed {
+            let node = motion_node(*key);
+            self.views.remove(&node);
+            self.current.remove(&node);
+        }
+        let (views, session) = (&self.views, self.dark.unwrap_or(false));
+        let sync = kernel.paint_sync(
+            receipt,
+            |key| views.get(&motion_node(key)).copied().unwrap_or(session),
+            &mut self.owners,
+        );
+        self.apply(kernel, sync, engine)
+    }
+
+    /// Adopt the tree at boot, after its ordinary motion rows.
+    pub fn adopt(
+        &mut self,
+        kernel: &Kernel,
+        keys: impl IntoIterator<Item = NodeKey>,
+        engine: &mut Engine,
+    ) {
+        let (views, session) = (&self.views, self.dark.unwrap_or(false));
+        let sync = kernel.paint_adopt(
+            keys,
+            |key| views.get(&motion_node(key)).copied().unwrap_or(session),
+            &mut self.owners,
+        );
+        self.apply(kernel, sync, engine);
+    }
+
+    fn apply(
+        &mut self,
+        kernel: &Kernel,
+        sync: MotionSync,
+        engine: &mut Engine,
+    ) -> Vec<(u64, Property)> {
+        // A side that stays `currentcolor` has no transition of its own:
+        // its computed value is still the keyword. A change to or from an
+        // explicit colour moves under its row.
+        let mut nodes: Vec<u64> = sync.changes.iter().map(|c| c.node).collect();
+        nodes.dedup();
+        for node in nodes {
+            let now = kernel.current_color_sides(node_key(node));
+            let was = self.current.remove(&node).unwrap_or_default();
+            for side in now.iter().filter(|s| was.contains(s)) {
+                if !engine.is_active(node, *side) {
+                    engine.remove_property(node, *side);
+                }
+            }
+            if !now.is_empty() {
+                self.current.insert(node, now);
+            }
+        }
+        for (node, _) in &sync.retired {
+            self.current.remove(node);
+        }
+        let applied = sync.apply(engine);
+        debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
+        sync.retired
+    }
+
+    /// The value painted over a row while it moves. A settled
+    /// `currentcolor` side follows the presented `color` through its row.
+    pub fn shown(&self, engine: &Engine, node: u64, property: Property) -> Option<Value> {
+        // A leaving node no longer owns paint; its exit still plays.
+        let playing = engine.animated(node, property, Value::ZERO).is_some();
+        if !self.owns(node, property) && !engine.is_active(node, property) && !playing {
+            return None;
+        }
+        if self
+            .current
+            .get(&node)
+            .is_some_and(|s| s.contains(&property))
+            && !engine.is_active(node, property)
+        {
+            return None;
+        }
+        let value = engine.sampled_value(node, property)?;
+        (engine.target(node, property) != Some(value)).then_some(value)
+    }
+
+    /// Report the session's appearance. The first report corrects boot's
+    /// guess, including playing keyframes; later changes transition targets
+    /// and leave playing keyframes in their starting appearance.
+    pub fn set_scheme(
+        &mut self,
+        kernel: &Kernel,
+        engine: &mut Engine,
+        dark: bool,
+        now: f64,
+    ) -> Option<Vec<(u64, Property)>> {
+        if self.dark == Some(dark) {
+            return None;
+        }
+        let first = self.dark.is_none();
+        self.dark = Some(dark);
+        engine.set_dark(dark, first);
+        let seek = engine.advance(now);
+        debug_assert!(seek.is_ok(), "the clock never runs backwards here");
+        let views = &self.views;
+        let sync = kernel.paint_resync(
+            |key| views.get(&motion_node(key)).copied().unwrap_or(dark),
+            &mut self.owners,
+        );
+        if first {
+            for c in &sync.changes {
+                engine.remove_property(c.node, c.property);
+            }
+        }
+        Some(self.apply(kernel, sync, engine))
+    }
+
+    /// Report one view's appearance. Its first differing report corrects
+    /// in place; subsequent changes, including rejoining the session, move.
+    pub fn set_view_scheme(
+        &mut self,
+        kernel: &Kernel,
+        engine: &mut Engine,
+        key: NodeKey,
+        dark: bool,
+        now: f64,
+    ) -> Option<Vec<(u64, Property)>> {
+        kernel.node_by_key(key)?;
+        let node = motion_node(key);
+        let own = (Some(dark) != self.dark).then_some(dark);
+        let before = self.views.get(&node).copied();
+        if own == before {
+            return None;
+        }
+        let first = before.is_none();
+        match own {
+            Some(dark) => self.views.insert(node, dark),
+            None => self.views.remove(&node),
+        };
+        let sync = kernel.paint_adopt([key], dark, &mut self.owners);
+        if first {
+            for c in &sync.changes {
+                engine.remove_property(c.node, c.property);
+            }
+        }
+        let retired = self.apply(kernel, sync, engine);
+        // Dropping a slot drops its dirt; playing keyframes must be marked
+        // after the rows so the host presents their corrected colours.
+        engine.set_node_dark(node, own, first);
+        let seek = engine.advance(now);
+        debug_assert!(seek.is_ok(), "the clock never runs backwards here");
+        Some(retired)
+    }
+}

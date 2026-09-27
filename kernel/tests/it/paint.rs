@@ -3,7 +3,7 @@
 //! computed colours resolved by the host's appearance, and an appearance
 //! change re-targets them the way a browser's computed value changes.
 
-use exact_kernel::motion::{motion_node, PaintOwners};
+use exact_kernel::motion::{motion_node, PaintMotion, PaintOwners};
 use exact_kernel::{wire, Kernel, NodeType, Op, StyleId, StyleProps, StyleValue};
 use exact_motion::{Engine, Property, TransitionProperty, Transitions, Value};
 
@@ -77,6 +77,103 @@ fn tree() -> (Kernel, exact_kernel::CommitReceipt) {
     ];
     let receipt = k.apply(0, 1, &ops).unwrap();
     (k, receipt)
+}
+
+#[test]
+fn native_appearance_reports_snap_first_then_transition_per_view() {
+    let (k, receipt) = tree();
+    let key = k.node(2).unwrap().key;
+    let node = motion_node(key);
+    let mut engine = Engine::new();
+    let mut paint = PaintMotion::default();
+    k.motion_sync(&receipt).apply(&mut engine).unwrap();
+    paint.adopt(&k, receipt.created.iter().copied(), &mut engine);
+    paint.set_scheme(&k, &mut engine, true, 0.0).unwrap();
+    assert!(engine.quiescent(), "boot is corrected without motion");
+    assert_eq!(
+        engine.target(node, Property::BackgroundColor),
+        Some(rgba(0, 0, 0, 1.0))
+    );
+    paint
+        .set_view_scheme(&k, &mut engine, key, false, 0.0)
+        .unwrap();
+    assert!(engine.quiescent(), "a view's first report also snaps");
+    assert!(!paint.dark(key));
+    paint.set_scheme(&k, &mut engine, false, 0.0).unwrap();
+    paint.set_scheme(&k, &mut engine, true, 0.0).unwrap();
+    assert!(
+        !paint.dark(key),
+        "a session change preserves the view's appearance"
+    );
+    assert_eq!(
+        engine.target(node, Property::BackgroundColor),
+        Some(rgba(255, 255, 255, 1.0))
+    );
+    paint
+        .set_view_scheme(&k, &mut engine, key, true, 0.0)
+        .unwrap();
+    engine.advance(0.1).unwrap();
+    let shown = paint
+        .shown(&engine, node, Property::BackgroundColor)
+        .unwrap();
+    assert!(
+        shown.x > 0.0 && shown.x < 1.0,
+        "rejoining the session transitions: {shown:?}"
+    );
+    assert!(paint
+        .set_view_scheme(&k, &mut engine, key, true, 0.1)
+        .is_none());
+}
+
+#[test]
+fn a_destroyed_paint_owner_cannot_pass_appearance_to_a_reused_slot() {
+    let (mut k, receipt) = tree();
+    let key = k.node(2).unwrap().key;
+    let mut engine = Engine::new();
+    let mut paint = PaintMotion::default();
+    k.motion_sync(&receipt).apply(&mut engine).unwrap();
+    paint.sync(&k, &receipt, &mut engine);
+    paint.set_scheme(&k, &mut engine, false, 0.0);
+    paint.set_view_scheme(&k, &mut engine, key, true, 0.0);
+    let receipt = k
+        .apply(
+            0,
+            2,
+            &[
+                Op::DestroyView { id: 2 },
+                Op::CreateView {
+                    id: 2,
+                    node_type: NodeType::View,
+                },
+                Op::SetStyle {
+                    id: 2,
+                    patch: patch(&[
+                        (StyleId::BackgroundColor, "light-dark(#ffffff, #000000)"),
+                        (StyleId::Transition, "background-color 1s linear"),
+                    ]),
+                },
+                Op::SetChildren {
+                    id: 1,
+                    children: vec![2, 3],
+                },
+            ],
+        )
+        .unwrap();
+    k.motion_sync(&receipt).apply(&mut engine).unwrap();
+    paint.sync(&k, &receipt, &mut engine);
+    let fresh = k.node(2).unwrap().key;
+    assert_eq!(key.index, fresh.index);
+    assert_ne!(key.generation, fresh.generation);
+    assert!(!paint.dark(key), "destroyed appearance is forgotten");
+    assert!(!paint.dark(fresh));
+    assert!(!paint.owns(motion_node(key), Property::BackgroundColor));
+    assert_eq!(
+        engine.target(motion_node(fresh), Property::BackgroundColor),
+        Some(rgba(255, 255, 255, 1.0))
+    );
+    assert!(paint
+        .set_view_scheme(&k, &mut engine, key, true, 0.0)
+        .is_none());
 }
 
 #[test]

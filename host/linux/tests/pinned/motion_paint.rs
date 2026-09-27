@@ -98,6 +98,62 @@ fn an_appearance_change_transitions_a_light_dark_colour() {
     assert_eq!(pixel(&mut p, 150, 250), [0, 0, 0, 255]);
 }
 
+#[test]
+fn the_first_appearance_report_corrects_boot_without_a_transition() {
+    let plan = contract::compile(APP).unwrap();
+    let (mut host, error) = exact_linux::Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(exact_kernel::MonospaceMeasurer::default()),
+        200.0,
+        300.0,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    host.set_scheme(true);
+    assert!(
+        !host.motion(),
+        "the first report corrects boot's light guess"
+    );
+    host.set_scheme(false);
+    host.tick(250.0);
+    let kernel = host.kernel();
+    let page = kernel
+        .node_by_key(kernel.find_by_test_id("page")[0])
+        .unwrap()
+        .id;
+    assert_eq!(
+        host.presented(page).colors.color(Property::BackgroundColor),
+        Some([64, 64, 64, 255]),
+        "later reports transition from the corrected appearance"
+    );
+}
+
+#[test]
+fn a_views_appearance_resolves_its_rows_and_rejoins_the_session_with_motion() {
+    let mut p = boot();
+    let page = view(&p, "page");
+    p.set_view_scheme(page, true);
+    assert!(!p.host().motion(), "first view report snaps");
+    assert_eq!(pixel(&mut p, 150, 250), [0, 0, 0, 255]);
+    p.set_system_scheme(true);
+    p.set_system_scheme(false);
+    assert_eq!(
+        pixel(&mut p, 150, 250),
+        [0, 0, 0, 255],
+        "the view keeps its own appearance"
+    );
+    p.set_view_scheme(page, false);
+    p.tick(250.0);
+    assert_eq!(pixel(&mut p, 150, 250), [64, 64, 64, 255]);
+    p.tick(1000.0);
+    assert_eq!(pixel(&mut p, 150, 250), [255, 255, 255, 255]);
+    assert!(
+        p.host().presented(page).colors.is_empty(),
+        "arrived: its row paints again"
+    );
+}
+
 /// A `currentcolor` border paints the animating `color` frame by frame —
 /// never its own faster `border-color` transition, as its computed value
 /// stays `currentcolor` — and an inline run that inherits it follows (LLP

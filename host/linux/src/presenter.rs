@@ -398,6 +398,7 @@ impl<D: DataSource> Presenter<D> {
             last_region_frame: None,
             last_region_scale: None,
         };
+        p.set_system_scheme(false);
         let e = p.after_commit();
         p.booting = false;
         if let Some(reason) = p.assets.take_refusal() {

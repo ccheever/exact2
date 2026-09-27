@@ -23,6 +23,7 @@
 //! change runs.
 
 use super::*;
+use exact_kernel::motion::{layout_presented, node_key, LayoutMotion};
 use exact_kernel::CommitReceipt;
 
 /// One view leaving with its exit.
@@ -47,7 +48,7 @@ pub(crate) struct Presence {
     /// Views whose destroy waits for a leaving view's end.
     held: IdSet<ViewId>,
     /// Nodes whose `Layout` the engine holds.
-    layout: IdSet<NodeKey>,
+    layout: LayoutMotion,
     /// A resize lays out next: positions are taken, not animated.
     pub(super) snap: bool,
 }
@@ -152,60 +153,32 @@ impl<D: DataSource> Host<D> {
     /// Before a commit's layout: each node the commit gave the row starts
     /// from the box it had, which layout has not replaced yet. A node the
     /// commit created has none; its first layout is first seen.
-    pub(super) fn seed_layout(&mut self, receipt: &CommitReceipt) {
-        for key in &receipt.touched {
-            if receipt.created.contains(key) || self.presence.layout.contains(key) {
-                continue;
-            }
-            if let Some(value) = self.runner.kernel().layout_box(*key) {
-                self.presence.layout.insert(*key);
-                self.observe_box(*key, value);
-            }
-        }
+    pub(super) fn seed_layout(&mut self, receipt: &CommitReceipt, batch: &mut Batch) {
+        let retired = self
+            .presence
+            .layout
+            .seed(self.runner.kernel(), receipt, &mut self.engine);
+        self.retire_layout(retired, batch);
     }
 
-    /// Observe a laid-out node's box when it declares a layout transition,
-    /// and retire it when it no longer does. A windowed row's wrapper moving
-    /// moves the row placed through it.
+    /// Observe changed boxes after layout; shared policy also observes the
+    /// row placed through a moving windowed wrapper.
     pub(super) fn observe_layout(&mut self, key: NodeKey, batch: &mut Batch) {
-        let kernel = self.runner.kernel();
-        let Some(node) = kernel.node_by_key(key) else {
-            return;
-        };
-        let mut keys = vec![key];
-        if node.props.str(PropId::ListItemKey).is_some() {
-            keys.extend(
-                node.children()
-                    .into_iter()
-                    .filter_map(|c| kernel.node(c).map(|n| n.key)),
-            );
-        }
-        for key in keys {
-            let node = motion_node(key);
-            let Some(value) = self.runner.kernel().layout_box(key) else {
-                if self.presence.layout.remove(&key) {
-                    self.engine.remove_property(node, Property::Layout);
-                    if let Some(&view) = self.keys.get(&key) {
-                        batch.present4(view, "layout", [0.0, 0.0, 1.0, 1.0]);
-                    }
-                }
-                continue;
-            };
-            if self.presence.snap || self.presence.layout.insert(key) {
-                self.engine.remove_property(node, Property::Layout);
-            }
-            self.observe_box(key, value);
-        }
+        let retired = self.presence.layout.observe(
+            self.runner.kernel(),
+            key,
+            &mut self.engine,
+            self.presence.snap,
+        );
+        self.retire_layout(retired, batch);
     }
 
-    fn observe_box(&mut self, key: NodeKey, value: exact_motion::Value) {
-        let observed = self.engine.observe(Change {
-            node: motion_node(key),
-            property: Property::Layout,
-            value,
-            velocity: None,
-        });
-        debug_assert!(observed.is_ok(), "layout is finite");
+    fn retire_layout(&self, retired: Vec<NodeKey>, batch: &mut Batch) {
+        for key in retired {
+            if let Some(&view) = self.keys.get(&key) {
+                batch.present4(view, "layout", [0.0, 0.0, 1.0, 1.0]);
+            }
+        }
     }
 
     /// Every presentation value the engine changed, as `present` ops, and the
@@ -223,9 +196,6 @@ impl<D: DataSource> Host<D> {
         for leaving in ended {
             self.end_exit(leaving, batch);
         }
-        self.presence
-            .layout
-            .retain(|key| self.keys.contains_key(key));
         self.holds.retain(|_, token| self.engine.has_hold(*token));
         let mut colored: Vec<(ViewId, bool)> = Vec::new();
         let frame = self.engine.frame();
@@ -234,10 +204,7 @@ impl<D: DataSource> Host<D> {
             if p.property == Property::Height {
                 continue;
             }
-            let key = NodeKey {
-                index: p.node as u32,
-                generation: (p.node >> 32) as u32,
-            };
+            let key = node_key(p.node);
             let Some(view) = self.keys.get(&key).copied().or_else(|| {
                 self.presence
                     .leaving
@@ -264,25 +231,7 @@ impl<D: DataSource> Host<D> {
             // origin and its scale of the laid-out size; identity is
             // `0 0 1 1`. The other three are one or two numbers.
             let values = match p.property {
-                Property::Layout => {
-                    let at = self
-                        .engine
-                        .target(p.node, Property::Layout)
-                        .unwrap_or(p.value);
-                    let scale = |shown: f64, laid: f64| {
-                        if laid > 0.0 {
-                            shown.max(0.0) / laid
-                        } else {
-                            1.0
-                        }
-                    };
-                    [
-                        p.value.x - at.x,
-                        p.value.y - at.y,
-                        scale(p.value.z, at.z),
-                        scale(p.value.w, at.w),
-                    ]
-                }
+                Property::Layout => layout_presented(&self.engine, p.node, p.value),
                 Property::Translate => [p.value.x, p.value.y, 0.0, 0.0],
                 _ => [p.value.x, 0.0, 0.0, 0.0],
             };

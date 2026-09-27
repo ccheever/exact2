@@ -316,3 +316,86 @@ fn the_seam_hands_layout_rows_to_the_engine_and_all_never_moves_a_box() {
         "the layout row's 1s, not transition's 5s"
     );
 }
+
+#[test]
+fn shared_layout_observation_seeds_snaps_hides_and_retires() {
+    use exact_kernel::motion::{layout_presented, LayoutMotion};
+    use exact_kernel::{Offer, StyleValue};
+
+    let rows = |id, rows: &[(StyleId, &str)]| {
+        let mut s = StyleProps::default();
+        for (row, value) in rows {
+            s.set_dynamic(*row, &StyleValue::Text((*value).into()))
+                .unwrap();
+        }
+        Op::SetStyle {
+            id,
+            patch: Box::new(s),
+        }
+    };
+    let mut k = kernel();
+    let receipt = k
+        .apply(0, 2, &[rows(4, &[(StyleId::Height, "10px")])])
+        .unwrap();
+    k.compute_layout(1, Offer::definite(400.0, 600.0)).unwrap();
+    let key = k.node(4).unwrap().key;
+    let node = motion_node(key);
+    let mut engine = Engine::new();
+    let mut layout = LayoutMotion::default();
+    k.motion_sync(&receipt).apply(&mut engine).unwrap();
+    layout.adopt(&k, [key]);
+    let receipt = k
+        .apply(
+            0,
+            3,
+            &[
+                rows(2, &[(StyleId::Height, "50px")]),
+                rows(
+                    4,
+                    &[
+                        (StyleId::Height, "100px"),
+                        (StyleId::LayoutTransition, "1s linear"),
+                    ],
+                ),
+            ],
+        )
+        .unwrap();
+    k.motion_sync(&receipt).apply(&mut engine).unwrap();
+    assert!(layout.seed(&k, &receipt, &mut engine).is_empty());
+    k.compute_layout(1, Offer::definite(400.0, 600.0)).unwrap();
+    layout.observe_all(&k, &mut engine, false);
+    assert_eq!(
+        layout_presented(&engine, node, engine.value(node, Property::Layout).unwrap()),
+        [0.0, -50.0, 1.0, 0.1]
+    );
+    engine.advance(0.5).unwrap();
+    assert_eq!(
+        layout_presented(&engine, node, engine.value(node, Property::Layout).unwrap()),
+        [0.0, -25.0, 1.0, 0.55]
+    );
+    k.compute_layout(1, Offer::definite(800.0, 600.0)).unwrap();
+    layout.observe_all(&k, &mut engine, true);
+    assert!(!engine.is_active(node, Property::Layout), "resize snaps");
+    let receipt = k
+        .apply(0, 4, &[rows(1, &[(StyleId::Display, "none")])])
+        .unwrap();
+    layout.seed(&k, &receipt, &mut engine);
+    assert_eq!(layout.observe_all(&k, &mut engine, false), vec![key]);
+    assert_eq!(engine.target(node, Property::Layout), None);
+    let receipt = k
+        .apply(0, 5, &[rows(1, &[(StyleId::Display, "block")])])
+        .unwrap();
+    layout.seed(&k, &receipt, &mut engine);
+    k.compute_layout(1, Offer::definite(800.0, 600.0)).unwrap();
+    layout.observe_all(&k, &mut engine, false);
+    assert_eq!(engine.value(node, Property::Layout), k.layout_box(key));
+    assert!(
+        !engine.is_active(node, Property::Layout),
+        "shown again is first seen"
+    );
+    let receipt = k
+        .apply(0, 6, &[rows(4, &[(StyleId::LayoutTransition, "none")])])
+        .unwrap();
+    assert_eq!(layout.seed(&k, &receipt, &mut engine), vec![key]);
+    assert_eq!(engine.target(node, Property::Layout), None);
+}

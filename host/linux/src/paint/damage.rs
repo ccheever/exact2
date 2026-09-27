@@ -14,6 +14,10 @@ impl Changes {
     pub fn clear(&mut self) {
         *self = Self::default();
     }
+    pub fn repaint(&mut self) {
+        self.full = true;
+        self.keys.clear();
+    }
     pub fn commit(&mut self, kernel: &Kernel, r: &CommitReceipt) {
         self.full |= !r.created.is_empty() || !r.destroyed.is_empty();
         if self.full {

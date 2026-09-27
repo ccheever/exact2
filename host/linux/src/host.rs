@@ -12,7 +12,7 @@
 //! and the only copy.
 
 use crate::paint::Presented;
-use exact_kernel::motion::{motion_node, MotionSync};
+use exact_kernel::motion::{layout_presented, motion_node, node_key, MotionSync, PaintMotion};
 use exact_kernel::{Kernel, NodeKey, TextMeasurer, ViewId};
 use exact_motion::{Engine, Property};
 use exact_plan::Plan;
@@ -63,10 +63,7 @@ pub struct Host<D: DataSource> {
     keys: BTreeMap<NodeKey, ViewId>,
     presented: BTreeMap<ViewId, Presented>,
     /// Paint motion's owners and the appearance they resolve by (LLP 1062).
-    paint_owners: exact_kernel::motion::PaintOwners,
-    /// Each owner's `currentcolor` border sides at its last paint sync.
-    paint_current: std::collections::BTreeMap<u64, Vec<exact_motion::Property>>,
-    dark: bool,
+    paint: PaintMotion,
     viewport: (f32, f32),
     now_ms: f64,
     height_owner: Option<NodeKey>,
@@ -167,9 +164,7 @@ impl<D: DataSource> Host<D> {
             engine: Engine::new(),
             keys: BTreeMap::new(),
             presented: BTreeMap::new(),
-            paint_owners: Default::default(),
-            paint_current: Default::default(),
-            dark: false,
+            paint: Default::default(),
             viewport: (width, height),
             now_ms: 0.0,
             height_owner: None,
@@ -199,20 +194,15 @@ impl<D: DataSource> Host<D> {
             if let Some(node) = host.runner.kernel().node(id) {
                 let key = node.key;
                 host.keys.insert(key, id);
-                if node
-                    .style
-                    .layout_transition
-                    .matching(Property::Layout)
-                    .is_some()
-                {
-                    host.presence.tracked.insert(key);
-                }
                 host.runner.kernel().motion_sync_node(key, &mut sync);
             }
         }
         let applied = sync.apply(&mut host.engine);
         debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
         host.boot_paint();
+        host.presence
+            .layout
+            .adopt(host.runner.kernel(), host.keys.keys().copied());
         host.project_navigation();
         host.reconcile_height_bindings();
         host.reconcile_transform_bindings();
@@ -412,19 +402,20 @@ impl<D: DataSource> Host<D> {
     /// A node's presentation values: the engine's, else the committed
     /// style's.
     pub fn presented(&self, id: ViewId) -> Presented {
-        let mut p = self.presented.get(&id).copied().unwrap_or_else(|| {
-            self.runner
-                .kernel()
-                .node(id)
-                .map_or(Presented::IDENTITY, |n| Presented::from_style(n.style))
-        });
-        p.press = self
-            .runner
-            .kernel()
-            .node(id)
-            .and_then(|n| self.presses.get(&n.key))
+        let Some(node) = self.runner.kernel().node(id) else {
+            return Presented::IDENTITY;
+        };
+        let mut shown = self
+            .presented
+            .get(&id)
+            .copied()
+            .unwrap_or_else(|| Presented::from_style(node.style));
+        shown.dark = Some(self.paint.dark(node.key));
+        shown.press = self
+            .presses
+            .get(&node.key)
             .map_or(1., |f| f.factor(self.now_ms));
-        p
+        shown
     }
 
     /// The agent API's read operations (LLP 1012): `tree`, `state`, `logs`
@@ -976,10 +967,7 @@ impl<D: DataSource> Host<D> {
     fn present(&mut self) -> bool {
         let mut changed = false;
         for p in self.engine.frame() {
-            let key = NodeKey {
-                index: p.node as u32,
-                generation: (p.node >> 32) as u32,
-            };
+            let key = node_key(p.node);
             let Some(view) = self.keys.get(&key).copied() else {
                 continue;
             };
@@ -991,12 +979,13 @@ impl<D: DataSource> Host<D> {
                 self.present_paint(p);
                 continue;
             }
-            let layout = self.layout_presented(p.node, p.value);
             let base = self.presented(view);
             let entry = self.presented.entry(view).or_insert(base);
             match p.property {
                 Property::Translate => entry.translate = (p.value.x as f32, p.value.y as f32),
-                Property::Layout => entry.layout = layout,
+                Property::Layout => {
+                    entry.layout = layout_presented(&self.engine, p.node, p.value).map(|v| v as f32)
+                }
                 Property::Scale => entry.scale = p.value.x as f32,
                 Property::Rotate => entry.rotate = p.value.x as f32,
                 Property::Opacity => entry.opacity = p.value.x as f32,

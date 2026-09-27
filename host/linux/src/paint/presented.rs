@@ -12,6 +12,8 @@ use tiny_skia::Transform;
 /// A node's presentation values.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Presented {
+    /// The view's resolved appearance, when supplied by the host.
+    pub dark: Option<bool>,
     /// Points.
     pub translate: (f32, f32),
     /// Uniform.
@@ -35,6 +37,7 @@ pub struct Presented {
 impl Presented {
     /// Nothing moved.
     pub const IDENTITY: Presented = Presented {
+        dark: None,
         translate: (0.0, 0.0),
         scale: 1.0,
         press: 1.0,
@@ -48,6 +51,7 @@ impl Presented {
     /// The committed style's values (what the engine starts from).
     pub fn from_style(s: &StyleProps) -> Presented {
         Presented {
+            dark: None,
             translate: (s.translate.x, s.translate.y),
             scale: s.scale,
             press: 1.0,

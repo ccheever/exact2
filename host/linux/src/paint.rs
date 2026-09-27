@@ -745,6 +745,7 @@ impl Painter {
         // existing paint walk, not an extra whole-document walk per flow tick.
         // A shadow paints outside the node's box, where damage never looks.
         self.damage.unsupported |= p.moves()
+            || p.dark.is_some_and(|dark| dark != self.dark)
             || p.opacity != 1.0
             || node.node_type == NodeType::Image
             || node.style.shadow_opacity > 0.0
@@ -781,7 +782,10 @@ impl Painter {
             && self
                 .backend
                 .push_css_clip(&node.style.clip_path, ts.pre_translate(x, y));
+        let previous = self.dark;
+        self.dark = p.dark.unwrap_or(previous);
         self.content(walk, &node, (x, y, w, h), ts, offset, clip_rect);
+        self.dark = previous;
         if path_clip {
             self.backend.pop_clip();
         }

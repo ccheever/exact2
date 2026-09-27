@@ -14,6 +14,7 @@ impl<D: DataSource> Presenter<D> {
 
     /// A candidate has a new runner, but belongs to the same launch.
     pub(super) fn restore_time(&self, host: &mut Host<D>) -> Result<(), HostError> {
+        host.set_scheme(self.dark());
         let time = self.host.runner().wall_time();
         if let Some(error) = host.set_place(self.host.runner().place()) {
             return Err(HostError::Layout(error));
@@ -49,6 +50,12 @@ impl<D: DataSource> Presenter<D> {
     pub fn set_system_scheme(&mut self, dark: bool) {
         self.scheme.1 = dark;
         self.apply_scheme();
+    }
+
+    /// Report an individual view's appearance (LLP 1062 D4).
+    pub fn set_view_scheme(&mut self, view: ViewId, dark: bool) {
+        self.host.set_view_scheme(view, dark);
+        self.dirty = true;
     }
 
     pub(crate) fn app_scheme(&mut self, scheme: Option<bool>) {
