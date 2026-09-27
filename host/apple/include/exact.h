@@ -250,6 +250,9 @@ uint32_t exact_prepare_module(ExactRuntime rt, uint64_t token, size_t plan, size
 /* Call after first pixel, never as a prerequisite to painting the baked frame. */
 uint32_t exact_data_ready(ExactRuntime rt);
 void exact_discard_plan(ExactRuntime rt);
+/* Content has settled (a scroll came to rest): the tree and the motion
+ * engine give back storage beyond the live nodes. Changes nothing shown. */
+void exact_trim(ExactRuntime rt);
 /* Every queued reply into the runner, on its thread: the batch of their
  * commits (empty when none). A request the app sends (LLP 1016) runs on the
  * library's own executor thread — ibex2::host — never through the host. */

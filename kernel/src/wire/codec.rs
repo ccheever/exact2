@@ -402,6 +402,11 @@ impl Writer {
         &self.buf
     }
 
+    /// Forget the bytes, keeping the buffer.
+    pub fn clear(&mut self) {
+        self.buf.clear();
+    }
+
     /// Take the bytes.
     pub fn into_vec(self) -> Vec<u8> {
         self.buf

@@ -118,6 +118,7 @@ final class Runtime {
     }
     func dataReady() -> Batch { read(exact_data_ready(rt)) }
     func discardPlan() { exact_discard_plan(rt) }
+    func trim() { exact_trim(rt) }
 
     /// Every queued reply into the runner: the batch of their commits.
     func pump(now: Double) -> Batch { read(exact_pump(rt, now)) }

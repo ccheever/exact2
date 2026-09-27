@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12 and 13 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14 and 15 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -532,3 +532,20 @@ browser's). The fix clamps the inner size and adds the margin after, in
 both the measured branch and the definite-preferred-size branch. Held by
 `contract/cli/tests/it/negative_margin.rs` (five item shapes, and the
 header the port found). Upstream has the same order.
+
+## Patch 15: a node's style is shared — Exact's
+
+**Implementer:** Claude (Opus 5.5), 2026-09-27, for the crypto list's memory.
+
+`NodeData::style` is an `Rc<Style>` (`src/tree/taffy_tree.rs`), and
+`new_leaf`, `new_leaf_with_context`, `new_with_children`, `set_style` and
+`set_style_unmarked` take `impl Into<Rc<Style>>`, so an owned `Style` still
+works and a caller may hand the same allocation to many nodes. A `Style` is
+552 bytes and most of a list's nodes repeat a few: the kernel interns the
+styles it lowers (`kernel/src/layout.rs`, `LayoutTree::share`, equality as
+`write_style` already compares them) and each node holds a pointer. Layout
+reads the style through the `Rc`; nothing else changes, and no result can.
+It makes `TaffyTree` `!Send`, which the kernel already was. Held by the
+kernel's layout suites (`cargo test -p exact-kernel`), which lay out through
+shared styles throughout, and `kernel/src/kernel/trim.rs`. Upstream would
+want an `Arc` or a style store keyed by handle; this stays Exact's.

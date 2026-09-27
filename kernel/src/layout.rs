@@ -15,6 +15,8 @@ mod containment_tests;
 mod publication;
 
 use crate::id::{IdMap, IdSet};
+use crate::shared_style::Interner;
+use std::rc::Rc;
 use taffy::prelude::{AvailableSpace, NodeId, Size, TaffyTree};
 use taffy::tree::{Baselines, LayoutInput};
 use taffy::util::{MaybeResolve, ResolveOrZero};
@@ -114,6 +116,8 @@ pub struct LayoutTree {
     // did not reach a fixed point in the last settle (a defect, journalled).
     flowing: IdSet<u32>,
     pub(crate) unsettled: IdSet<u32>,
+    // Equal engine styles are one allocation (`shared_style`).
+    shared: Interner<taffy::Style, ()>,
 }
 
 // A non-visible overflow on both axes establishes a formatting context and
@@ -130,6 +134,33 @@ fn boundary_style(s: &taffy::Style) -> bool {
             s.overflow.y,
             taffy::Overflow::Hidden | taffy::Overflow::Scroll
         )
+}
+
+/// A hash of the rows most styles differ in; equality decides the rest.
+fn engine_hash(s: &taffy::Style) -> u64 {
+    use std::hash::Hasher;
+    let mut h = crate::id::IdHasher::default();
+    let mut len = |l: taffy::CompactLength| {
+        h.write_u64(((l.tag() as u64) << 32) | u64::from(l.value().to_bits()));
+    };
+    len(s.size.width.into_raw());
+    len(s.size.height.into_raw());
+    len(s.min_size.width.into_raw());
+    len(s.min_size.height.into_raw());
+    len(s.flex_basis.into_raw());
+    len(s.margin.left.into_raw());
+    len(s.margin.top.into_raw());
+    len(s.padding.left.into_raw());
+    len(s.padding.top.into_raw());
+    len(s.gap.width.into_raw());
+    h.write_u64(u64::from(s.flex_grow.to_bits()) << 32 | u64::from(s.flex_shrink.to_bits()));
+    h.write_u64(
+        (s.display as u64)
+            | (s.position as u64) << 8
+            | (s.flex_direction as u64) << 16
+            | (s.box_sizing as u64) << 24,
+    );
+    h.finish()
 }
 
 impl Default for LayoutTree {
@@ -271,6 +302,30 @@ impl LayoutTree {
             presented_heights: Vec::new(),
             flowing: IdSet::default(),
             unsettled: IdSet::default(),
+            shared: Interner::default(),
+        }
+    }
+
+    /// Return spare capacity: the shared styles no node holds and the
+    /// per-node maps' room. The engine's own node store keeps its capacity
+    /// (its handles are its slots, and a rebuild would drop every cached
+    /// measurement).
+    pub(crate) fn trim(&mut self) {
+        self.shared.trim();
+        if self.slots.capacity() > 2 * self.slots.len().max(64) {
+            self.slots.shrink_to_fit();
+            self.deferred.shrink_to_fit();
+            self.walks.shrink_to_fit();
+            self.offers.shrink_to_fit();
+        }
+    }
+
+    /// One allocation for every engine style equal to `style`.
+    fn share(&mut self, style: taffy::Style) -> Rc<taffy::Style> {
+        let hash = engine_hash(&style);
+        match self.shared.get(hash, |_, held| *held == style) {
+            Some(found) => found,
+            None => self.shared.insert(hash, (), style),
         }
     }
 
@@ -295,6 +350,7 @@ impl LayoutTree {
     /// Allocate a leaf; `measured` leaves carry their slot for the measure closure.
     pub fn new_leaf(&mut self, style: taffy::style::Style, slot: u32, measured: bool) -> NodeId {
         let boundary = boundary_style(&style);
+        let style = self.share(style);
         let result = if measured {
             self.taffy.new_leaf_with_context(
                 style,
@@ -354,6 +410,7 @@ impl LayoutTree {
         }
         self.clear_measurements(node);
         self.taffy.track_layout_input(node, boundary_style(&style));
+        let style = self.share(style);
         self.taffy.set_style_unmarked(node, style);
         self.deferred.insert(node, true);
     }

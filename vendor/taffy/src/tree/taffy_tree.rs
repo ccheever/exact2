@@ -5,6 +5,8 @@ use slotmap::SecondaryMap;
 use slotmap::SparseSecondaryMap as SecondaryMap;
 use slotmap::{DefaultKey, SlotMap};
 
+use std::rc::Rc;
+
 #[cfg(feature = "block_layout")]
 use crate::block::BlockContext;
 use crate::geometry::Size;
@@ -95,7 +97,9 @@ impl Default for TaffyConfig {
 #[derive(Debug, Clone, PartialEq)]
 struct NodeData {
     /// The layout strategy used by this node
-    pub(crate) style: Style,
+    ///
+    /// EXACT PATCH 15: shared, so equal styles can be one allocation.
+    pub(crate) style: Rc<Style>,
 
     /// The always unrounded results of the layout computation. We must store this separately from the rounded
     /// layout to avoid errors from rounding already-rounded values. See <https://github.com/DioxusLabs/taffy/issues/501>.
@@ -123,7 +127,7 @@ struct NodeData {
 impl NodeData {
     /// Create the data for a new node
     #[must_use]
-    pub const fn new(style: Style) -> Self {
+    pub fn new(style: Rc<Style>) -> Self {
         Self {
             style,
             cache: Cache::new(),
@@ -630,8 +634,10 @@ impl<NodeContext> TaffyTree<NodeContext> {
     }
 
     /// Creates and adds a new unattached leaf node to the tree, and returns the node of the new node
-    pub fn new_leaf(&mut self, layout: Style) -> TaffyResult<NodeId> {
-        let id = self.nodes.insert(NodeData::new(layout));
+    ///
+    /// EXACT PATCH 15: the style may be one shared with other nodes.
+    pub fn new_leaf(&mut self, layout: impl Into<Rc<Style>>) -> TaffyResult<NodeId> {
+        let id = self.nodes.insert(NodeData::new(layout.into()));
         let _ = self.children.insert(new_vec_with_capacity(0));
         let _ = self.parents.insert(None);
 
@@ -641,8 +647,12 @@ impl<NodeContext> TaffyTree<NodeContext> {
     /// Creates and adds a new unattached leaf node to the tree, and returns the [`NodeId`] of the new node
     ///
     /// Creates and adds a new leaf node with a supplied context
-    pub fn new_leaf_with_context(&mut self, layout: Style, context: NodeContext) -> TaffyResult<NodeId> {
-        let mut data = NodeData::new(layout);
+    pub fn new_leaf_with_context(
+        &mut self,
+        layout: impl Into<Rc<Style>>,
+        context: NodeContext,
+    ) -> TaffyResult<NodeId> {
+        let mut data = NodeData::new(layout.into());
         data.has_context = true;
 
         let id = self.nodes.insert(data);
@@ -655,8 +665,8 @@ impl<NodeContext> TaffyTree<NodeContext> {
     }
 
     /// Creates and adds a new node, which may have any number of `children`
-    pub fn new_with_children(&mut self, layout: Style, children: &[NodeId]) -> TaffyResult<NodeId> {
-        let id = NodeId::from(self.nodes.insert(NodeData::new(layout)));
+    pub fn new_with_children(&mut self, layout: impl Into<Rc<Style>>, children: &[NodeId]) -> TaffyResult<NodeId> {
+        let id = NodeId::from(self.nodes.insert(NodeData::new(layout.into())));
 
         for child in children {
             self.parents[(*child).into()] = Some(id);
@@ -905,16 +915,16 @@ impl<NodeContext> TaffyTree<NodeContext> {
 
     /// Sets the [`Style`] of the provided `node`
     #[inline]
-    pub fn set_style(&mut self, node: NodeId, style: Style) -> TaffyResult<()> {
-        self.nodes[node.into()].style = style;
+    pub fn set_style(&mut self, node: NodeId, style: impl Into<Rc<Style>>) -> TaffyResult<()> {
+        self.nodes[node.into()].style = style.into();
         self.mark_dirty(node)?;
         Ok(())
     }
 
     /// EXACT PATCH 9: [`Self::set_style`] without invalidation. The caller
     /// marks `node` dirty (`mark_dirty` or `mark_dirty_to`) before any layout.
-    pub fn set_style_unmarked(&mut self, node: NodeId, style: Style) {
-        self.nodes[node.into()].style = style;
+    pub fn set_style_unmarked(&mut self, node: NodeId, style: impl Into<Rc<Style>>) {
+        self.nodes[node.into()].style = style.into();
     }
 
     /// EXACT PATCH 9: [`Self::set_children`] without invalidation, for children
@@ -940,7 +950,7 @@ impl<NodeContext> TaffyTree<NodeContext> {
     /// Gets the [`Style`] of the provided `node`
     #[inline]
     pub fn style(&self, node: NodeId) -> TaffyResult<&Style> {
-        Ok(&self.nodes[node.into()].style)
+        Ok(&*self.nodes[node.into()].style)
     }
 
     /// Return this node layout relative to its parent

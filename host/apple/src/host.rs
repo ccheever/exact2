@@ -1064,6 +1064,13 @@ impl<D: DataSource> Host<D> {
         self.finish(batch, error)
     }
 
+    /// Content has settled: the tree and the motion engine give back what
+    /// they hold beyond the live nodes ([`exact_kernel::Kernel::trim`]).
+    pub fn trim(&mut self) {
+        self.runner.kernel_mut().trim();
+        self.engine.trim();
+    }
+
     /// A motion frame: seek the engine to `now_ms` and report every
     /// presentation value that changed. Nothing else moves.
     pub fn tick(&mut self, now_ms: f64) -> String {

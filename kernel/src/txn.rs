@@ -444,7 +444,7 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
     staged.check_depth(&arrivals)?;
     // Conservative: ignores free-slot reuse, so it only ever refuses a batch that
     // would have fit within a few slots of the four-billion-node ceiling.
-    if arena.slot_count() as u64 + creates > u32::MAX as u64 {
+    if arena.slot_space() as u64 + creates > u32::MAX as u64 {
         return Err(ApplyError::SlotSpaceExhausted);
     }
     Ok(())
@@ -614,7 +614,9 @@ pub fn apply(
                         continue;
                     }
                     let excluded = crate::flow::is_exclusion(arena, slot);
-                    arena.style_mut(slot).apply_patch(patch);
+                    let mut next = arena.style(slot).clone();
+                    next.apply_patch(patch);
+                    arena.set_style(slot, next);
                     arena.update_exclusion_count(slot, excluded);
                     if changed.has(crate::StyleId::Display) {
                         receipt.display_changed.push(arena.key(slot));
@@ -630,7 +632,9 @@ pub fn apply(
                         continue;
                     }
                     let excluded = crate::flow::is_exclusion(arena, slot);
-                    arena.style_mut(slot).clear(*mask);
+                    let mut next = arena.style(slot).clone();
+                    next.clear(*mask);
+                    arena.set_style(slot, next);
                     arena.update_exclusion_count(slot, excluded);
                     if changed.has(crate::StyleId::Display) {
                         receipt.display_changed.push(arena.key(slot));

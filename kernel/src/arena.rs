@@ -9,7 +9,9 @@
 //! columns: rehydration is columns-plus-rebuild, never serialized engine state.
 
 use crate::id::IdMap;
+use crate::shared_style::SharedStyles;
 use crate::sorted::SlotSet;
+use std::rc::Rc;
 
 use taffy::NodeId;
 
@@ -36,7 +38,9 @@ pub struct NodeArena {
     // Sources whose pass flags need consuming. Geometry flags expire by pass,
     // so a small edit after a large layout never clears N prior changed nodes.
     pub(crate) layout_dirty: SlotSet,
-    styles: Vec<StyleProps>,
+    // Equal styles are one allocation (`shared_style`).
+    styles: Vec<Rc<StyleProps>>,
+    shared: SharedStyles,
     props: Vec<PropList>,
     flags: Vec<NodeFlags>,
     layout_passes: Vec<u64>,
@@ -78,6 +82,7 @@ impl Clone for NodeArena {
             child_indices: self.child_indices.clone(),
             layout_dirty: self.layout_dirty.clone(),
             styles: self.styles.clone(),
+            shared: self.shared.clone(),
             props: self.props.clone(),
             flags: self.flags.clone(),
             layout_passes: self.layout_passes.clone(),
@@ -132,11 +137,11 @@ impl NodeArena {
         self.renew_text_namespace();
         self.flow.clear();
         self.exclusion_slots.clear();
-        for slot in 0..self.generations.len() {
+        for slot in 0..self.live.len() {
             self.live[slot] = false;
             self.parents[slot] = None;
             self.children[slot].clear();
-            self.styles[slot] = StyleProps::default();
+            self.styles[slot] = self.shared.default_style();
             self.props[slot].clear();
             self.flags[slot] = NodeFlags::default();
             self.frames[slot] = Frame::default();
@@ -145,15 +150,63 @@ impl NodeArena {
             self.taffy[slot] = None;
             self.is_root[slot] = false;
         }
-        self.free = (0..self.generations.len() as u32).rev().collect();
+        self.free = (0..self.live.len() as u32).rev().collect();
         self.roots.clear();
         self.by_local.clear();
         self.live_count = 0;
     }
 
-    /// Slots ever allocated (live plus free).
+    /// Slots the columns hold (live plus free).
     pub fn slot_count(&self) -> usize {
+        self.live.len()
+    }
+
+    /// Slots ever allocated: identities never repeat below this.
+    pub(crate) fn slot_space(&self) -> usize {
         self.generations.len()
+    }
+
+    /// Return what the columns hold beyond the live nodes, once they hold
+    /// more than twice as many slots: trailing free slots go (their
+    /// generations stay, so a stale key never names a later node), and each
+    /// column gives back its spare capacity. A list's columns grow to the
+    /// most rows a fling mounts; this is how they come back once it settles.
+    /// Below that, a trim changes nothing, so a steady tree never churns.
+    pub(crate) fn trim(&mut self) {
+        self.shared.trim();
+        if self.live.capacity() <= 2 * self.live_count.max(64) {
+            return;
+        }
+        let keep = self.live.iter().rposition(|l| *l).map_or(0, |s| s + 1);
+        self.free.retain(|s| (*s as usize) < keep);
+        self.free.shrink_to_fit();
+        macro_rules! fit {
+            ($($column:ident),*) => {$(
+                self.$column.truncate(keep);
+                self.$column.shrink_to_fit();
+            )*};
+        }
+        fit!(
+            live,
+            node_types,
+            local_ids,
+            parents,
+            children,
+            child_indices,
+            styles,
+            props,
+            flags,
+            layout_passes,
+            geometry_passes,
+            frames,
+            contents,
+            intrinsic,
+            taffy,
+            is_root,
+            text_revisions
+        );
+        self.flow.shrink_to_fit();
+        self.by_local.shrink_to_fit();
     }
 
     /// Whether `slot` holds a live node.
@@ -406,7 +459,7 @@ impl NodeArena {
     /// initial value, unmarked. Rows outside `rows`, and rows the schema does
     /// not mark inherited, are the node's own. One walk, however many rows.
     pub fn computed_style(&self, slot: u32, rows: StyleMask) -> StyleProps {
-        let mut out = self.styles[slot as usize].clone();
+        let mut out = StyleProps::clone(&self.styles[slot as usize]);
         self.copy_inherited(slot, rows, |from, mask| out.copy_rows(from, mask));
         out
     }
@@ -433,7 +486,7 @@ impl NodeArena {
         let mut cur = self.parents[slot as usize];
         while !pending.is_empty() {
             let Some(p) = cur else { break };
-            let ancestor = &self.styles[p as usize];
+            let ancestor: &StyleProps = &self.styles[p as usize];
             let found = pending.intersect(ancestor.mask);
             if !found.is_empty() {
                 copy(ancestor, found);
@@ -582,17 +635,21 @@ impl NodeArena {
         let slot = match self.free.pop() {
             Some(slot) => slot,
             None => {
-                if self.generations.len() >= u32::MAX as usize {
-                    return Err(ApplyError::SlotSpaceExhausted);
+                // A trimmed slot's generation outlives its columns.
+                let slot = self.live.len();
+                if slot == self.generations.len() {
+                    if slot >= u32::MAX as usize {
+                        return Err(ApplyError::SlotSpaceExhausted);
+                    }
+                    self.generations.push(0);
                 }
-                self.generations.push(0);
                 self.live.push(false);
                 self.node_types.push(node_type);
                 self.local_ids.push(0);
                 self.parents.push(None);
                 self.children.push(Vec::new());
                 self.child_indices.push(0);
-                self.styles.push(StyleProps::default());
+                self.styles.push(self.shared.default_style());
                 self.props.push(PropList::new());
                 self.flags.push(NodeFlags::default());
                 self.layout_passes.push(0);
@@ -603,7 +660,7 @@ impl NodeArena {
                 self.taffy.push(None);
                 self.is_root.push(false);
                 self.text_revisions.push(TextRevisions::default());
-                (self.generations.len() - 1) as u32
+                slot as u32
             }
         };
         let s = slot as usize;
@@ -614,7 +671,7 @@ impl NodeArena {
         self.local_ids[s] = id;
         self.parents[s] = None;
         self.children[s].clear();
-        self.styles[s] = StyleProps::default();
+        self.styles[s] = self.shared.default_style();
         self.props[s].clear();
         self.flags[s] = NodeFlags::CREATED;
         self.layout_dirty.insert(slot);
@@ -640,7 +697,7 @@ impl NodeArena {
         self.text_revisions[s] = TextRevisions::default();
         self.parents[s] = None;
         self.children[s] = Vec::new();
-        self.styles[s] = StyleProps::default();
+        self.styles[s] = self.shared.default_style();
         self.props[s] = PropList::new();
         self.flags[s] = NodeFlags::default();
         self.frames[s] = Frame::default();
@@ -712,8 +769,22 @@ impl NodeArena {
         }
     }
 
+    /// A test's write in place, copied first when shared. Production writes
+    /// go through [`set_style`](Self::set_style), which keeps an unset row
+    /// at its initial value, as sharing assumes.
+    #[cfg(test)]
     pub(crate) fn style_mut(&mut self, slot: u32) -> &mut StyleProps {
-        &mut self.styles[slot as usize]
+        Rc::make_mut(&mut self.styles[slot as usize])
+    }
+
+    /// Replace the slot's style, sharing an equal one's allocation.
+    pub(crate) fn set_style(&mut self, slot: u32, style: StyleProps) {
+        self.styles[slot as usize] = self.shared.intern(style);
+    }
+
+    /// Distinct styles the arena holds for its nodes, beyond the initial one.
+    pub fn shared_style_count(&self) -> usize {
+        self.shared.len()
     }
 
     pub(crate) fn props_mut(&mut self, slot: u32) -> &mut PropList {
