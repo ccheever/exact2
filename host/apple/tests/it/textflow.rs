@@ -157,17 +157,17 @@ fn list_settlement_publishes_final_mounted_flow_and_clears_disappearing_shapes()
         view: list,
         revision: snapshot.revision,
         scroll_sequence: snapshot.scroll_sequence + 1,
-        scroll_top: 400.,
-        port_width: 240.,
-        port_height: 160.,
-        row_width: 240.,
+        offset: 400.,
+        port_cross: 240.,
+        port_main: 160.,
+        cross: 240.,
         measurements: snapshot
             .rows
             .iter()
             .map(|r| exact_runner::RowMeasurement {
                 view: r.view,
                 epoch: r.epoch,
-                height: 80.,
+                size: 80.,
             })
             .collect(),
         focus_view: None,

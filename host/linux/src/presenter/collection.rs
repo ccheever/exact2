@@ -99,7 +99,7 @@ impl Cursor {
             return None;
         }
         self.corrected = Some(snapshot.revision);
-        Some(correction.scroll_top)
+        Some(correction.offset)
     }
 }
 impl State {
@@ -670,10 +670,10 @@ impl<D: DataSource> Presenter<D> {
                 view,
                 revision: snapshot.revision,
                 scroll_sequence: cursor.sequence,
-                scroll_top: (feedback_top as f64 - g.padding_top).max(0.),
-                port_width: g.width,
-                port_height: g.height,
-                row_width: g.row_width,
+                offset: (feedback_top as f64 - g.padding_top).max(0.),
+                port_cross: g.width,
+                port_main: g.height,
+                cross: g.row_width,
                 measurements: snapshot
                     .rows
                     .iter()
@@ -684,7 +684,7 @@ impl<D: DataSource> Presenter<D> {
                             .map(|node| RowMeasurement {
                                 view: row.view,
                                 epoch: row.epoch,
-                                height: node.frame.height as f64,
+                                size: node.frame.height as f64,
                             })
                     })
                     .collect(),
@@ -745,7 +745,7 @@ mod tests {
             rows: vec![],
             correction: Some(AnchorCorrection {
                 scroll_sequence: 2,
-                scroll_top: 200.,
+                offset: 200.,
             }),
             pending: false,
         }

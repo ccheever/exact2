@@ -56,7 +56,7 @@ fn boundary(p: &Presenter<GrowthRows>, label: &str) -> Boundary {
         acknowledged_clamp_of_correction: acknowledged.and_then(|b| {
             snapshot
                 .correction
-                .map(|c| b.clamp((0., c.scroll_top as f32)).1)
+                .map(|c| b.clamp((0., c.offset as f32)).1)
         }),
         snapshot,
     };
@@ -185,8 +185,8 @@ fn follows_growth(displayed: bool) {
         .correction
         .expect("Runner must emit real end correction");
     assert_eq!(correction.scroll_sequence, before.snapshot.scroll_sequence);
-    assert!((correction.scroll_top - (issued.snapshot.total_extent - 180.)).abs() <= 0.5);
-    assert!(correction.scroll_top > before.offset as f64 + 1000.);
+    assert!((correction.offset - (issued.snapshot.total_extent - 180.)).abs() <= 0.5);
+    assert!(correction.offset > before.offset as f64 + 1000.);
     if displayed {
         assert_eq!(issued.acknowledged_max, before.acknowledged_max);
         assert!((issued.acknowledged_clamp_of_correction.unwrap() - before.offset).abs() <= 0.5);
@@ -222,7 +222,7 @@ fn away_reader_is_not_pulled_to_new_end() {
         assert!(issued
             .snapshot
             .correction
-            .is_none_or(|c| { (c.scroll_top - before.offset as f64).abs() <= 0.5 }));
+            .is_none_or(|c| { (c.offset - before.offset as f64).abs() <= 0.5 }));
         let after = finish_growth(&mut p, displayed);
         assert!((after.offset - before.offset).abs() <= 0.5);
         assert!(!at_end(&after));
@@ -237,7 +237,7 @@ fn disabled_follow_keeps_old_end_offset() {
         assert!(issued
             .snapshot
             .correction
-            .is_none_or(|c| { (c.scroll_top - before.offset as f64).abs() <= 0.5 }));
+            .is_none_or(|c| { (c.offset - before.offset as f64).abs() <= 0.5 }));
         let after = finish_growth(&mut p, displayed);
         assert!((after.offset - before.offset).abs() <= 0.5);
         assert!(!at_end(&after));
@@ -249,7 +249,7 @@ fn newer_real_scroll_wins_over_issued_end_correction() {
     let (mut p, before) = boot_end(true, true);
     let issued = grow_before_adapter(&mut p, &before);
     let correction = issued.snapshot.correction.unwrap();
-    assert!(correction.scroll_top > before.offset as f64 + 1000.);
+    assert!(correction.offset > before.offset as f64 + 1000.);
     wheel(&mut p, -40.);
     let moved = boundary(&p, "newer-wheel-before-old-correction-can-win");
     assert!(moved.snapshot.scroll_sequence > correction.scroll_sequence);
@@ -372,7 +372,7 @@ fn older_b_ack_preserves_newer_model_target_on_same_input_sequence() {
         issued.snapshot.scroll_sequence,
         before.snapshot.scroll_sequence
     );
-    assert_eq!(issued.snapshot.correction.unwrap().scroll_top, 300.);
+    assert_eq!(issued.snapshot.correction.unwrap().offset, 300.);
     assert!(p.after_commit().is_none());
     assert!(complete(&mut p, &b));
     assert_eq!(

@@ -417,17 +417,17 @@ fn native_collection_epochs_stay_with_selected_rows_until_complete() {
         view: a.view,
         revision: a.revision,
         scroll_sequence: a.scroll_sequence + 1,
-        scroll_top: 0.,
-        port_width: 600.,
-        port_height: 400.,
-        row_width: 600.,
+        offset: 0.,
+        port_cross: 600.,
+        port_main: 400.,
+        cross: 600.,
         measurements: a
             .rows
             .iter()
             .map(|r| exact_runner::RowMeasurement {
                 view: r.view,
                 epoch: r.epoch,
-                height: 120.,
+                size: 120.,
             })
             .collect(),
         focus_view: None,

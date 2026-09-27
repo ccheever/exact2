@@ -82,17 +82,17 @@ fn logical_text_copy_spans_unmounted_rows_without_changing_the_window() {
         view: list,
         revision: snapshot.revision,
         scroll_sequence: snapshot.scroll_sequence + 1,
-        scroll_top: 12000.0,
-        port_width: 390.0,
-        port_height: 240.0,
-        row_width: 390.0,
+        offset: 12000.0,
+        port_cross: 390.0,
+        port_main: 240.0,
+        cross: 390.0,
         measurements: snapshot
             .rows
             .iter()
             .map(|row| RowMeasurement {
                 view: row.view,
                 epoch: row.epoch,
-                height: 24.0,
+                size: 24.0,
             })
             .collect(),
         focus_view: None,

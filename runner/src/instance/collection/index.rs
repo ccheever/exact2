@@ -83,7 +83,7 @@ pub(crate) struct Window {
 }
 
 #[derive(Debug)]
-pub(crate) struct HeightIndex {
+pub(crate) struct SizeIndex {
     order: Rc<[Rc<str>]>,
     positions: BTreeMap<Rc<str>, usize>,
     rows: Vec<RowHeight>,
@@ -95,7 +95,7 @@ pub(crate) struct HeightIndex {
     rebuilds: usize,
 }
 
-impl HeightIndex {
+impl SizeIndex {
     /// Zero estimates are legal, but cannot bootstrap a visible row by geometry.
     /// Choose a positive estimate for unmeasured content; measured zeroes are fine.
     pub(crate) fn new(estimated_height: f64) -> Result<Self, IndexError> {
@@ -365,7 +365,7 @@ impl HeightIndex {
     ) -> Result<Window, IndexError> {
         self.window_led(offset, viewport, [viewport, viewport], pins)
     }
-    /// [`HeightIndex::window`] with its overscan `lead` before and after the
+    /// [`SizeIndex::window`] with its overscan `lead` before and after the
     /// viewport given, rather than one viewport each side.
     pub(crate) fn window_led(
         &self,

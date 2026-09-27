@@ -21,10 +21,10 @@ fn viewport(runner: &mut Runner<MessagesStress>, top: f64, interaction: Option<u
             view: snapshot.view,
             revision: snapshot.revision,
             scroll_sequence: snapshot.scroll_sequence + 1,
-            scroll_top: top,
-            port_width: 640.0,
-            port_height: 320.0,
-            row_width: 640.0,
+            offset: top,
+            port_cross: 640.0,
+            port_main: 320.0,
+            cross: 640.0,
             measurements: vec![],
             focus_view: None,
             interaction_view: interaction,
@@ -138,9 +138,7 @@ fn transcript_follows_new_tail_only_when_reading_at_the_end() {
     let snapshot = &runner.collections()[0];
     assert_eq!(snapshot.count, 1_001);
     assert_eq!(snapshot.rows.last().unwrap().index, 1_000);
-    assert!(
-        (snapshot.correction.unwrap().scroll_top - (snapshot.total_extent - 320.0)).abs() < 0.01
-    );
+    assert!((snapshot.correction.unwrap().offset - (snapshot.total_extent - 320.0)).abs() < 0.01);
 
     viewport(&mut runner, 2_000.0, None);
     let first = runner.collections()[0].rows[0].root;

@@ -13,7 +13,7 @@ use super::*;
 pub use api::*;
 use exact_kernel::PropId;
 use exact_plan::EventKind;
-use index::{HeightIndex, MeasurementToken};
+use index::{MeasurementToken, SizeIndex};
 pub use reorder_api::*;
 pub(super) use traversal::invalidate_typography;
 
@@ -77,7 +77,7 @@ pub(crate) struct Collection {
     preview: Option<reorder::Preview>,
     view: ViewId,
     region: RegionsId,
-    index: HeightIndex,
+    index: SizeIndex,
     estimated_height: f64,
     bootstrap_rows: usize,
     items: Rc<[Value]>,
@@ -211,7 +211,7 @@ impl Collection {
             preview: None,
             view,
             region,
-            index: HeightIndex::new(estimated_height).map_err(index_error)?,
+            index: SizeIndex::new(estimated_height).map_err(index_error)?,
             estimated_height,
             // Keep the original provisional pixel budget, capped at sixteen
             // rows. Actual nested-scrollport feedback determines the real window.
@@ -439,8 +439,8 @@ impl Collection {
             .map(|g| {
                 self.index
                     .capture_anchor(
-                        g.scroll_top,
-                        g.port_height,
+                        g.offset,
+                        g.port_main,
                         self.follow_end && self.preview.is_none(),
                     )
                     .map_err(index_error)
@@ -451,14 +451,14 @@ impl Collection {
         if let (Some(anchor), Some(g)) = (anchor, &mut self.geometry) {
             let corrected = self
                 .index
-                .restore_anchor(&anchor, g.port_height)
+                .restore_anchor(&anchor, g.port_main)
                 .map_err(index_error)?;
-            if (corrected - g.scroll_top).abs() > 0.01 {
+            if (corrected - g.offset).abs() > 0.01 {
                 self.correction = Some(AnchorCorrection {
                     scroll_sequence: g.scroll_sequence,
-                    scroll_top: corrected,
+                    offset: corrected,
                 });
-                g.scroll_top = corrected;
+                g.offset = corrected;
             }
         }
         Ok(())
@@ -487,7 +487,7 @@ impl Collection {
             if self.index.len() > 0 {
                 let window = self
                     .index
-                    .window(g.scroll_top, g.port_height, [None, None])
+                    .window(g.offset, g.port_main, [None, None])
                     .map_err(index_error)?;
                 reached = [0, self.index.len() - 1]
                     .map(|i| window.segments.iter().any(|range| range.contains(&i)));
@@ -529,9 +529,9 @@ impl Collection {
             let window = self
                 .index
                 .window_led(
-                    g.scroll_top,
-                    g.port_height,
-                    lead(g.port_height, fill.velocity),
+                    g.offset,
+                    g.port_main,
+                    lead(g.port_main, fill.velocity),
                     [focus.as_deref(), interaction.as_deref()],
                 )
                 .map_err(index_error)?;
@@ -541,7 +541,7 @@ impl Collection {
                     owed.push(i..i + 1);
                 }
             }
-            port = Some((window.offset, window.offset + g.port_height));
+            port = Some((window.offset, window.offset + g.port_main));
             window.segments
         } else {
             let first = self.index.row_at(0.0).map_err(index_error)?.unwrap_or(0);
@@ -793,7 +793,7 @@ impl Collection {
         let changed_width = self
             .geometry
             .as_ref()
-            .is_none_or(|g| g.row_width != feedback.row_width);
+            .is_none_or(|g| g.cross != feedback.cross);
         if !changed_width {
             // Each height can fit the kernel's f32 geometry while their sum
             // does not. Validate the complete replacement against retained
@@ -804,7 +804,7 @@ impl Collection {
             for measurement in &feedback.measurements {
                 let position = self.mounted[by_view[&measurement.view]].position;
                 removed += self.index.height(position).unwrap();
-                added += measurement.height;
+                added += measurement.size;
             }
             let extent = (self.index.total_height() - removed).max(0.0) + added;
             if !extent.is_finite() || extent > f32::MAX as f64 {
@@ -828,20 +828,20 @@ impl Collection {
         let changed_width = self
             .geometry
             .as_ref()
-            .is_none_or(|g| g.row_width != feedback.row_width);
+            .is_none_or(|g| g.cross != feedback.cross);
         // A new port size, width or pin retires every row that left and
         // builds the whole window: only travel is sliced.
         if self.geometry.as_ref().is_none_or(|g| {
             (
-                g.port_width,
-                g.port_height,
-                g.row_width,
+                g.port_cross,
+                g.port_main,
+                g.cross,
                 g.focus_view,
                 g.interaction_view,
             ) != (
-                feedback.port_width,
-                feedback.port_height,
-                feedback.row_width,
+                feedback.port_cross,
+                feedback.port_main,
+                feedback.cross,
                 feedback.focus_view,
                 feedback.interaction_view,
             )
@@ -862,11 +862,11 @@ impl Collection {
         let anchor_height = self
             .geometry
             .as_ref()
-            .map_or(feedback.port_height, |g| g.port_height);
+            .map_or(feedback.port_main, |g| g.port_main);
         let anchor = Some(
             self.index
                 .capture_anchor(
-                    feedback.scroll_top,
+                    feedback.offset,
                     anchor_height,
                     self.follow_end && self.preview.is_none(),
                 )
@@ -887,9 +887,9 @@ impl Collection {
                 let row = &self.mounted[by_view[&measurement.view]];
                 let key = self.index.key(row.position).unwrap().to_owned();
                 self.index
-                    .set_measured_height(&key, row.token, measurement.height)
+                    .set_measured_height(&key, row.token, measurement.size)
                     .map_err(index_error)?;
-                if measurement.height == 0.0 {
+                if measurement.size == 0.0 {
                     self.zero_heights.insert(key);
                 } else {
                     self.zero_heights.remove(&key);
@@ -946,23 +946,23 @@ impl Collection {
             let key = self.index.key(row.position).unwrap();
             self.index.measurement_token(key) == Some(row.token)
                 && !(self.index.is_measured(key)
-                    && self.index.height(row.position) == Some(m.height)
-                    && (m.height == 0.0) == self.zero_heights.contains(key))
+                    && self.index.height(row.position) == Some(m.size)
+                    && (m.size == 0.0) == self.zero_heights.contains(key))
         };
         if feedback.measurements.iter().any(remeasures)
             || self.pending
             || self.preview.is_some()
             || self.correction.is_some()
             || (
-                g.port_width,
-                g.port_height,
-                g.row_width,
+                g.port_cross,
+                g.port_main,
+                g.cross,
                 g.focus_view,
                 g.interaction_view,
             ) != (
-                feedback.port_width,
-                feedback.port_height,
-                feedback.row_width,
+                feedback.port_cross,
+                feedback.port_main,
+                feedback.cross,
                 feedback.focus_view,
                 feedback.interaction_view,
             )
@@ -971,22 +971,22 @@ impl Collection {
         }
         let anchor = self
             .index
-            .capture_anchor(feedback.scroll_top, g.port_height, self.follow_end)
+            .capture_anchor(feedback.offset, g.port_main, self.follow_end)
             .map_err(index_error)?;
         let corrected = self
             .index
-            .restore_anchor(&anchor, g.port_height)
+            .restore_anchor(&anchor, g.port_main)
             .map_err(index_error)?;
-        if (corrected - feedback.scroll_top).abs() > 0.01 {
+        if (corrected - feedback.offset).abs() > 0.01 {
             return Ok(None);
         }
         let (focus, interaction) = (self.pin(g.focus_view), self.pin(g.interaction_view));
         let window = self
             .index
             .window_led(
-                feedback.scroll_top,
-                feedback.port_height,
-                lead(feedback.port_height, fill.velocity),
+                feedback.offset,
+                feedback.port_main,
+                lead(feedback.port_main, fill.velocity),
                 [focus.as_deref(), interaction.as_deref()],
             )
             .map_err(index_error)?;
@@ -1051,8 +1051,8 @@ impl Collection {
                     view: row.wrapper,
                     root: roots_of(&row.row.roots)[0],
                     index: row.position,
-                    top: self.index.prefix(row.position).unwrap(),
-                    height: self.index.height(row.position).unwrap(),
+                    start: self.index.prefix(row.position).unwrap(),
+                    size: self.index.height(row.position).unwrap(),
                     epoch: row.epoch,
                     measured: self
                         .index

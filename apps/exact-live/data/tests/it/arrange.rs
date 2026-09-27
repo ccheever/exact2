@@ -199,10 +199,10 @@ fn measured(r: &mut Runner<Counted>, pin: NodeKey) {
             view: id,
             revision: c.revision,
             scroll_sequence: c.scroll_sequence + 1,
-            scroll_top: 0.,
-            port_width: f64::from(frame.width),
-            port_height: f64::from(frame.height),
-            row_width: f64::from(frame.width),
+            offset: 0.,
+            port_cross: f64::from(frame.width),
+            port_main: f64::from(frame.height),
+            cross: f64::from(frame.width),
             measurements: c
                 .rows
                 .iter()
@@ -212,7 +212,7 @@ fn measured(r: &mut Runner<Counted>, pin: NodeKey) {
                     RowMeasurement {
                         view: row.view,
                         epoch: row.epoch,
-                        height,
+                        size: height,
                     }
                 })
                 .collect(),
@@ -240,9 +240,9 @@ fn common_preview_never_calls_data_and_terminal_queries_once_before_pin_finish()
         .find(|c| c.view == list)
         .unwrap();
     let first = c.rows.iter().find(|row| row.index == 0).unwrap();
-    let y = first.top + first.height * 0.25;
+    let y = first.start + first.size * 0.25;
     let g = r.reorder_geometry(binding.list).unwrap();
-    assert!(first.top >= g.scroll_top && first.top <= g.scroll_top + g.port_height);
+    assert!(first.start >= g.scroll_top && first.start <= g.scroll_top + g.port_height);
     assert!(
         matches!(
             r.preview_reorder(token, g, c.total_extent + 1.).unwrap(),

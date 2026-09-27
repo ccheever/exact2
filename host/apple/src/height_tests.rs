@@ -438,17 +438,17 @@ fn nested_collection_feedback_relayouts_current_height_at_new_epoch() {
         view: snapshot.view,
         revision: snapshot.revision,
         scroll_sequence: 1,
-        scroll_top: 0.,
-        port_width: 400.,
-        port_height: height(&h, "port") as f64,
-        row_width: 400.,
+        offset: 0.,
+        port_cross: 400.,
+        port_main: height(&h, "port") as f64,
+        cross: 400.,
         measurements: snapshot
             .rows
             .iter()
             .map(|row| RowMeasurement {
                 view: row.view,
                 epoch: row.epoch,
-                height: h.runner().kernel().node(row.view).unwrap().frame.height as f64,
+                size: h.runner().kernel().node(row.view).unwrap().frame.height as f64,
             })
             .collect(),
         focus_view: None,

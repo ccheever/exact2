@@ -21,10 +21,10 @@ impl Collection {
             list,
             revision: self.revision,
             scroll_sequence: g.scroll_sequence,
-            scroll_top: g.scroll_top,
-            port_width: g.port_width,
-            port_height: g.port_height,
-            row_width: g.row_width,
+            scroll_top: g.offset,
+            port_width: g.port_cross,
+            port_height: g.port_main,
+            row_width: g.cross,
             total_extent: self.index.total_height(),
         })
     }
@@ -75,9 +75,9 @@ impl Collection {
         if self.preview.is_some()
             || self.geometry.as_ref().is_none_or(|g| {
                 g.interaction_view != Some(handle)
-                    || g.port_width <= 0.0
-                    || g.port_height <= 0.0
-                    || g.row_width <= 0.0
+                    || g.port_cross <= 0.0
+                    || g.port_main <= 0.0
+                    || g.cross <= 0.0
             })
         {
             return Ok(false);

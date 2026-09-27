@@ -2,30 +2,32 @@
 // engine's browser half: an after-paint piece, fetched when a batch first
 // commits a collection (LLP 1047 D5); navigation.js stands in until then.
 // `fill` (LLP 1050.000 §6): `velocity` in CSS px/s toward the end, and
-// `limit`, the rows past what the report owes it may build (null: any).
+// `limit`, the rows past what the report owes it may build (null: any);
+// `ancestorMoving`, an enclosing list is moving (LLP 1070 F2). Wire v3:
+// offset, port and row sizes on the list's main and cross axes.
 export function collectionBytes(facts, fill = {}) {
   const valid = n => Number.isFinite(n) && n >= 0 && n <= 3.4028234663852886e38;
   const id = n => Number.isInteger(n) && n > 0 && n <= 0xffffffff;
   const u64 = n => { if (typeof n === 'number' && !Number.isSafeInteger(n)) throw Error('unsafe collection identity'); const v = BigInt(n); if (v < 0n || v > 0xffffffffffffffffn) throw Error('invalid collection identity'); return v; };
   const rows = facts.measurements, seen = new Set();
-  if (!id(facts.view) || ![facts.scroll_top, facts.port_width, facts.port_height, facts.row_width].every(valid)
+  if (!id(facts.view) || ![facts.offset, facts.port_main, facts.port_cross, facts.cross].every(valid)
       || [facts.focus_view, facts.interaction_view].some(n => n != null && !id(n))) throw Error('invalid collection geometry');
   for (const row of rows) {
-    if (!id(row.view) || seen.has(row.view) || !valid(row.height)) throw Error('invalid collection row');
+    if (!id(row.view) || seen.has(row.view) || !valid(row.size)) throw Error('invalid collection row');
     seen.add(row.view);
   }
   const velocity = Number.isFinite(fill.velocity) ? fill.velocity : 0;
   const limit = Number.isInteger(fill.limit) && fill.limit >= 0 ? Math.min(fill.limit, 0xfffffffe) : 0xffffffff;
-  const bytes = new Uint8Array(80 + rows.length * 20), d = new DataView(bytes.buffer);
-  d.setUint32(0, 2, true); d.setUint32(4, facts.view, true);
+  const bytes = new Uint8Array(84 + rows.length * 20), d = new DataView(bytes.buffer);
+  d.setUint32(0, 3, true); d.setUint32(4, facts.view, true);
   d.setBigUint64(8, u64(facts.revision), true); d.setBigUint64(16, u64(facts.scroll_sequence), true);
-  [facts.scroll_top, facts.port_width, facts.port_height, facts.row_width].forEach((n, i) => d.setFloat64(24 + i * 8, n, true));
+  [facts.offset, facts.port_main, facts.port_cross, facts.cross].forEach((n, i) => d.setFloat64(24 + i * 8, n, true));
   d.setUint32(56, facts.focus_view ?? 0, true); d.setUint32(60, facts.interaction_view ?? 0, true);
   d.setFloat64(64, velocity, true); d.setUint32(72, limit, true);
-  d.setUint32(76, rows.length, true);
+  d.setUint32(76, fill.ancestorMoving ? 1 : 0, true); d.setUint32(80, rows.length, true);
   rows.forEach((row, i) => {
-    d.setUint32(80 + i * 20, row.view, true); d.setBigUint64(84 + i * 20, u64(row.epoch), true);
-    d.setFloat64(92 + i * 20, row.height, true);
+    d.setUint32(84 + i * 20, row.view, true); d.setBigUint64(88 + i * 20, u64(row.epoch), true);
+    d.setFloat64(96 + i * 20, row.size, true);
   });
   return bytes;
 }
@@ -171,10 +173,10 @@ export function collectionController({ root, views, report, settled=()=>{},
           const rect = row.el.getBoundingClientRect();
           rects.push(rect);
           measuredSizes.set(row.el, `${rect.width},${rect.height}`);
-          return { view: row.view, epoch: row.epoch, height: rect.height };
+          return { view: row.view, epoch: row.epoch, size: rect.height };
         });
       } else if (releases.includes(s)) {
-        g = { raw: old.scroll_top, width: old.port_width, height: old.port_height, rowWidth: old.row_width };
+        g = { raw: old.offset, width: old.port_cross, height: old.port_main, rowWidth: old.cross };
       } else continue;
       scrollChanged(s);
       // The jump's target, clamped as the browser will: reported before it
@@ -187,10 +189,10 @@ export function collectionController({ root, views, report, settled=()=>{},
       if (s.dimensions !== null && dimensions !== s.dimensions) s.sequence++;
       s.dimensions = dimensions;
       const facts = { view: s.snapshot.view, revision: s.snapshot.revision, scroll_sequence: s.sequence,
-        scroll_top: Math.max(0, g.raw), port_width: g.width, port_height: g.height, row_width: g.rowWidth,
+        offset: Math.max(0, g.raw), port_main: g.height, port_cross: g.width, cross: g.rowWidth,
         focus_view: pins[0], interaction_view: pins[1], measurements };
-      const signature = [facts.scroll_top, facts.scroll_sequence, dimensions, ...pins,
-        ...measurements.flatMap(r => [r.view, r.epoch, r.height])].join('|');
+      const signature = [facts.offset, facts.scroll_sequence, dimensions, ...pins,
+        ...measurements.flatMap(r => [r.view, r.epoch, r.size])].join('|');
       for (const [el, value] of measuredSizes) if (s.observed.has(el)) s.observed.set(el, value);
       if (s.signature === signature && jump == null && !s.snapshot.pending) continue;
       const v = jump == null ? velocity(s) : 0;
@@ -277,9 +279,9 @@ export function collectionController({ root, views, report, settled=()=>{},
       if(scrollChanged(s))enqueue(s,true);
       enqueue(s);if(!delivering)flush(true);
       const g=geometry(s),f=s.lastFacts,p=viewport(s.port);
-      if(!g||!f||f.scroll_top!==Math.max(0,g.raw)||f.port_width!==g.width||f.port_height!==g.height
-        ||f.row_width!==g.rowWidth||BigInt(f.scroll_sequence)!==s.sequence)return undefined;
-      return {revision:s.snapshot.revision,scrollSequence:String(s.sequence),scrollTop:f.scroll_top,
+      if(!g||!f||f.offset!==Math.max(0,g.raw)||f.port_cross!==g.width||f.port_main!==g.height
+        ||f.cross!==g.rowWidth||BigInt(f.scroll_sequence)!==s.sequence)return undefined;
+      return {revision:s.snapshot.revision,scrollSequence:String(s.sequence),scrollTop:f.offset,
         portWidth:g.width,portHeight:g.height,rowWidth:g.rowWidth,totalExtent:s.snapshot.totalExtent,
         contentY:y-p.top+g.raw,raw:g.raw,port:s.port,portTop:p.top};
     },
@@ -303,8 +305,8 @@ export function collectionController({ root, views, report, settled=()=>{},
       if (!lease || interaction?.lease !== lease || delivering || reportsLeft <= 0) return null;
       const s=lease.state,view=liveView(s,element),g=geometry(s),old=s.lastFacts;
       if (!states.has(s.snapshot.view)||!lease.wrapper.isConnected||!lease.wrapper.contains(element)||view==null
-        ||!g||old?.interaction_view!==lease.view||old.scroll_top!==Math.max(0,g.raw)
-        ||old.port_width!==g.width||old.port_height!==g.height||old.row_width!==g.rowWidth
+        ||!g||old?.interaction_view!==lease.view||old.offset!==Math.max(0,g.raw)
+        ||old.port_cross!==g.width||old.port_main!==g.height||old.cross!==g.rowWidth
         ||s.port.scrollTop!==s.scrollTop) return null;
       const facts={...old,revision:s.snapshot.revision,interaction_view:view,measurements:[]};
       const bytes=collectionBytes(facts);reportsLeft--;delivering=true;let accepted;
@@ -373,12 +375,12 @@ export function collectionController({ root, views, report, settled=()=>{},
         const correction = snapshot.correction;
         if (correction && s.corrected !== snapshot.revision
             && BigInt(correction.scrollSequence) === s.sequence
-            && Number.isFinite(correction.scrollTop) && correction.scrollTop >= 0) {
+            && Number.isFinite(correction.offset) && correction.offset >= 0) {
           const g = geometry(s);
           if (g && (s.dimensions === null || s.dimensions === `${g.width},${g.height},${g.rowWidth}`)) {
             s.corrected = snapshot.revision;
             // Relative conversion also handles a list below siblings in its port.
-            port.scrollTop += correction.scrollTop - g.raw;
+            port.scrollTop += correction.offset - g.raw;
             s.scrollTop = port.scrollTop; // consume the programmatic scroll echo
           }
         }

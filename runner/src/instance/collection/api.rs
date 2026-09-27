@@ -3,15 +3,16 @@
 use exact_kernel::ViewId;
 use exact_plan::bytes::{Reader, Writer};
 
-/// A mounted wrapper's measured border-box height, using its published epoch.
+/// A mounted wrapper's measured border-box size on the list's main axis,
+/// using its published epoch.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RowMeasurement {
     /// Wrapper view, not the authored child root.
     pub view: ViewId,
     /// Epoch copied from the snapshot used for this layout.
     pub epoch: u64,
-    /// Finite nonnegative border-box height.
-    pub height: f64,
+    /// Finite nonnegative border-box size along the main axis.
+    pub size: f64,
 }
 /// Facts from the actual nested scrollport. Never use the window's size instead.
 #[derive(Debug, Clone, PartialEq)]
@@ -22,14 +23,16 @@ pub struct CollectionFeedback {
     pub revision: u64,
     /// Monotonically increasing host scroll/layout sequence.
     pub scroll_sequence: u64,
-    /// Actual content-relative vertical offset, clamped past rubber-banding.
-    pub scroll_top: f64,
-    /// Actual inner scrollport width.
-    pub port_width: f64,
-    /// Actual inner scrollport height.
-    pub port_height: f64,
-    /// Available row width after content padding and any scrollbar reservation.
-    pub row_width: f64,
+    /// Actual content-relative offset on the main axis, clamped past
+    /// rubber-banding: `scrollTop` for a vertical list.
+    pub offset: f64,
+    /// Actual inner scrollport size on the main axis.
+    pub port_main: f64,
+    /// Actual inner scrollport size on the cross axis.
+    pub port_cross: f64,
+    /// The rows' available cross size, after content padding and any
+    /// scrollbar reservation: a vertical list's row width.
+    pub cross: f64,
     /// Only currently mounted row wrappers may be measured.
     pub measurements: Vec<RowMeasurement>,
     /// Focused authored descendant; pins at most its containing row.
@@ -47,6 +50,9 @@ pub struct CollectionFill {
     /// Rows this report may create beyond the owed set (visible and pinned
     /// rows), and a bound on the rows it retires. `None` is unlimited.
     pub limit: Option<u32>,
+    /// An ancestor list is being dragged, flung or wheeled (LLP 1070 F2).
+    /// Carried on the wire from version 3; nesting reads it.
+    pub ancestor_moving: bool,
 }
 /// A mounted row; unmounted keys and records never cross the host seam.
 #[derive(Debug, Clone, PartialEq)]
@@ -57,10 +63,11 @@ pub struct CollectionRow {
     pub root: ViewId,
     /// Zero-based logical item position.
     pub index: usize,
-    /// Logical top, including estimated heights before this item.
-    pub top: f64,
-    /// Current measured height or provisional estimate.
-    pub height: f64,
+    /// Logical start on the main axis, including estimated sizes before
+    /// this item.
+    pub start: f64,
+    /// Current measured size or provisional estimate.
+    pub size: f64,
     /// Copy verbatim into feedback; changes on remount, width/content changes.
     pub epoch: u64,
     /// Whether the estimate has been confirmed in this epoch.
@@ -71,8 +78,8 @@ pub struct CollectionRow {
 pub struct AnchorCorrection {
     /// Scroll sequence whose anchor was preserved.
     pub scroll_sequence: u64,
-    /// Corrected content-relative scroll position.
-    pub scroll_top: f64,
+    /// Corrected content-relative offset on the main axis.
+    pub offset: f64,
 }
 /// Current O(mounted rows) host metadata, separate from the ordinary kernel ops.
 #[derive(Debug, Clone, PartialEq)]
@@ -85,7 +92,7 @@ pub struct CollectionSnapshot {
     pub scroll_sequence: u64,
     /// Logical item count, including unmounted rows.
     pub count: usize,
-    /// Measured plus estimated full content height.
+    /// Measured plus estimated full content extent on the main axis.
     pub total_extent: f64,
     /// Only live wrappers, in logical order, including at most two pinned rows.
     pub rows: Vec<CollectionRow>,
@@ -104,33 +111,30 @@ impl CollectionFeedback {
     pub fn encode(&self) -> Result<Vec<u8>, FeedbackError> {
         self.encode_with(CollectionFill::default())
     }
-    /// Portable LE wire version 2: u32 version, u32 view, u64 revision,
-    /// u64 sequence, f64 top/port_width/port_height/row_width, u32 focus and
-    /// interaction (zero means none), f64 velocity, u32 limit (`u32::MAX`
-    /// means none), u32 count, then count × (u32 wrapper, u64 epoch, f64
-    /// height). No keys, strings, or JSON parsing.
+    /// Portable LE wire version 3 (LLP 1070 H1): u32 version, u32 view, u64
+    /// revision, u64 sequence, f64 offset/port_main/port_cross/cross, u32
+    /// focus and interaction (zero means none), f64 velocity, u32 limit
+    /// (`u32::MAX` means none), u32 flags (bit 0: an ancestor list is
+    /// moving), u32 count, then count × (u32 wrapper, u64 epoch, f64 size).
+    /// Main and cross are the list's axes. No keys, strings, or JSON parsing.
     pub fn encode_with(&self, fill: CollectionFill) -> Result<Vec<u8>, FeedbackError> {
         self.validate()?;
         if !fill.velocity.is_finite() || fill.limit == Some(u32::MAX) {
             return Err(FeedbackError);
         }
         let mut w = Writer::default();
-        w.u32(2);
+        w.u32(3);
         w.u32(self.view);
         w.u64(self.revision);
         w.u64(self.scroll_sequence);
-        for n in [
-            self.scroll_top,
-            self.port_width,
-            self.port_height,
-            self.row_width,
-        ] {
+        for n in [self.offset, self.port_main, self.port_cross, self.cross] {
             w.f64(n);
         }
         w.u32(self.focus_view.unwrap_or(0));
         w.u32(self.interaction_view.unwrap_or(0));
         w.f64(fill.velocity);
         w.u32(fill.limit.unwrap_or(u32::MAX));
+        w.u32(u32::from(fill.ancestor_moving));
         w.u32(
             self.measurements
                 .len()
@@ -140,7 +144,7 @@ impl CollectionFeedback {
         for row in &self.measurements {
             w.u32(row.view);
             w.u64(row.epoch);
-            w.f64(row.height);
+            w.f64(row.size);
         }
         Ok(w.into_vec())
     }
@@ -153,23 +157,28 @@ impl CollectionFeedback {
     pub fn decode_with_fill(bytes: &[u8]) -> Result<(Self, CollectionFill), FeedbackError> {
         let mut r = Reader::new(bytes);
         let out = (|| -> Result<(Self, CollectionFill), exact_plan::PlanError> {
-            if r.u32()? != 2 {
+            if r.u32()? != 3 {
                 return Err(exact_plan::PlanError::BadCount(0));
             }
             let view = r.u32()?;
             let revision = r.u64()?;
             let scroll_sequence = r.u64()?;
-            let scroll_top = r.f64()?;
-            let port_width = r.f64()?;
-            let port_height = r.f64()?;
-            let row_width = r.f64()?;
+            let offset = r.f64()?;
+            let port_main = r.f64()?;
+            let port_cross = r.f64()?;
+            let cross = r.f64()?;
             let focus = r.u32()?;
             let interaction = r.u32()?;
             let velocity = r.f64()?;
             let limit = r.u32()?;
+            let flags = r.u32()?;
+            if flags > 1 {
+                return Err(exact_plan::PlanError::BadCount(flags));
+            }
             let fill = CollectionFill {
                 velocity,
                 limit: (limit != u32::MAX).then_some(limit),
+                ancestor_moving: flags == 1,
             };
             let count = r.u32()? as usize;
             if count.checked_mul(20) != Some(r.remaining()) {
@@ -180,17 +189,17 @@ impl CollectionFeedback {
                 measurements.push(RowMeasurement {
                     view: r.u32()?,
                     epoch: r.u64()?,
-                    height: r.f64()?,
+                    size: r.f64()?,
                 });
             }
             let facts = Self {
                 view,
                 revision,
                 scroll_sequence,
-                scroll_top,
-                port_width,
-                port_height,
-                row_width,
+                offset,
+                port_main,
+                port_cross,
+                cross,
                 measurements,
                 focus_view: (focus != 0).then_some(focus),
                 interaction_view: (interaction != 0).then_some(interaction),
@@ -209,20 +218,15 @@ impl CollectionFeedback {
         if self.view == 0
             || self.focus_view == Some(0)
             || self.interaction_view == Some(0)
-            || ![
-                self.scroll_top,
-                self.port_width,
-                self.port_height,
-                self.row_width,
-            ]
-            .into_iter()
-            .all(valid)
+            || ![self.offset, self.port_main, self.port_cross, self.cross]
+                .into_iter()
+                .all(valid)
         {
             return Err(FeedbackError);
         }
         let mut seen = std::collections::BTreeSet::new();
         for row in &self.measurements {
-            if row.view == 0 || !valid(row.height) || !seen.insert(row.view) {
+            if row.view == 0 || !valid(row.size) || !seen.insert(row.view) {
                 return Err(FeedbackError);
             }
         }
@@ -245,15 +249,15 @@ pub fn snapshots_json(snapshots: &[CollectionSnapshot]) -> String {
             if i > 0 {
                 out.push(',');
             }
-            write!(out, "{{\"view\":{},\"root\":{},\"index\":{},\"top\":{},\"height\":{},\"epoch\":\"{}\",\"measured\":{}}}", row.view, row.root, row.index, exact_num::Shortest(row.top), exact_num::Shortest(row.height), row.epoch, row.measured).unwrap();
+            write!(out, "{{\"view\":{},\"root\":{},\"index\":{},\"start\":{},\"size\":{},\"epoch\":\"{}\",\"measured\":{}}}", row.view, row.root, row.index, exact_num::Shortest(row.start), exact_num::Shortest(row.size), row.epoch, row.measured).unwrap();
         }
         write!(out, "],\"pending\":{},\"correction\":", c.pending).unwrap();
         if let Some(correction) = c.correction {
             write!(
                 out,
-                "{{\"scrollSequence\":\"{}\",\"scrollTop\":{}}}",
+                "{{\"scrollSequence\":\"{}\",\"offset\":{}}}",
                 correction.scroll_sequence,
-                exact_num::Shortest(correction.scroll_top)
+                exact_num::Shortest(correction.offset)
             )
             .unwrap();
         } else {

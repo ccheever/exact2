@@ -224,7 +224,7 @@ mod split_facts {
             .map(|row| RowMeasurement {
                 view: row.view,
                 epoch: row.epoch,
-                height: receipt
+                size: receipt
                     .current_frame(r.kernel().node(row.view).unwrap().key)
                     .unwrap()
                     .height as f64,
@@ -235,10 +235,10 @@ mod split_facts {
             view: c.view,
             revision: c.revision,
             scroll_sequence: c.scroll_sequence + 1,
-            scroll_top: (c.total_extent - port.height as f64).max(0.),
-            port_width: port.width as f64,
-            port_height: port.height as f64,
-            row_width: row_width as f64,
+            offset: (c.total_extent - port.height as f64).max(0.),
+            port_cross: port.width as f64,
+            port_main: port.height as f64,
+            cross: row_width as f64,
             measurements,
             focus_view: selected,
             interaction_view: selected,

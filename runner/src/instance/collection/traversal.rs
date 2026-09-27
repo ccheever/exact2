@@ -155,8 +155,8 @@ impl Tree {
                     view: row.wrapper,
                     root: first_root_bounded(&row.row.roots, &mut roots, max_traversal)?,
                     index: row.position,
-                    top: c.index.prefix(row.position).unwrap(),
-                    height: c.index.height(row.position).unwrap(),
+                    start: c.index.prefix(row.position).unwrap(),
+                    size: c.index.height(row.position).unwrap(),
                     epoch: row.epoch,
                     measured: c.index.is_measured(c.index.key(row.position).unwrap()),
                 });

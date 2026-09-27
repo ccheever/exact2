@@ -152,10 +152,10 @@ impl Harness {
             view: s.view,
             revision: s.revision,
             scroll_sequence: s.scroll_sequence + 1,
-            scroll_top: top,
-            port_width: 640.0,
-            port_height: 320.0,
-            row_width: 640.0,
+            offset: top,
+            port_cross: 640.0,
+            port_main: 320.0,
+            cross: 640.0,
             measurements: vec![],
             focus_view: None,
             interaction_view: None,
@@ -286,13 +286,13 @@ fn variable_heights_stale_epochs_width_changes_and_noop_feedback() {
         .map(|r| RowMeasurement {
             view: r.view,
             epoch: r.epoch,
-            height: if r.index == 10 { 96.0 } else { 32.0 },
+            size: if r.index == 10 { 96.0 } else { 32.0 },
         })
         .collect();
     h.send(feedback);
     let measured = h.snapshot();
     assert_eq!(measured.total_extent, 32_064.0);
-    assert_eq!(measured.correction.unwrap().scroll_top, 704.0);
+    assert_eq!(measured.correction.unwrap().offset, 704.0);
     let mut noop = h.feedback(704.0);
     h.send(noop.clone()); // correction acknowledgement
     noop = h.feedback(704.0);
@@ -300,19 +300,19 @@ fn variable_heights_stale_epochs_width_changes_and_noop_feedback() {
     let stale = h.feedback(704.0);
     let before_width = h.snapshot();
     let mut width = h.feedback(704.0);
-    width.row_width = 320.0;
-    width.port_width = 320.0;
+    width.cross = 320.0;
+    width.port_cross = 320.0;
     h.send(width);
     let after_width = h.snapshot();
     assert_eq!(after_width.total_extent, measured.total_extent);
     assert!(after_width.rows.iter().all(|r| !r.measured));
     assert!(!h.send(stale));
     let mut old_epoch = h.feedback(704.0);
-    old_epoch.row_width = 320.0;
+    old_epoch.cross = 320.0;
     old_epoch.measurements = vec![RowMeasurement {
         view: before_width.rows[0].view,
         epoch: before_width.rows[0].epoch,
-        height: 900.0,
+        size: 900.0,
     }];
     assert!(!h.send(old_epoch));
     assert_eq!(h.snapshot(), after_width);
@@ -329,7 +329,7 @@ fn prepend_reorder_delete_and_end_follow_preserve_the_right_anchor() {
     );
     h.update().unwrap();
     let after = h.snapshot();
-    assert_eq!(after.correction.unwrap().scroll_top, 674.0);
+    assert_eq!(after.correction.unwrap().offset, 674.0);
     assert_eq!(
         after.rows.iter().find(|r| r.index == 21).unwrap().root,
         before.rows.iter().find(|r| r.index == 20).unwrap().root
@@ -337,10 +337,7 @@ fn prepend_reorder_delete_and_end_follow_preserve_the_right_anchor() {
     h.send(h.feedback(674.0));
     h.slots[0] = Value::list((0..100).rev().map(|i| Value::Number(i as f64)).collect());
     h.update().unwrap();
-    assert_eq!(
-        h.snapshot().correction.unwrap().scroll_top,
-        79.0 * 32.0 + 2.0
-    );
+    assert_eq!(h.snapshot().correction.unwrap().offset, 79.0 * 32.0 + 2.0);
     h.send(h.feedback(79.0 * 32.0 + 2.0));
     h.slots[0] = Value::list(
         (0..100)
@@ -355,7 +352,7 @@ fn prepend_reorder_delete_and_end_follow_preserve_the_right_anchor() {
     end.send(end.feedback(2880.0));
     end.slots[0] = values(200);
     end.update().unwrap();
-    assert_eq!(end.snapshot().correction.unwrap().scroll_top, 6080.0);
+    assert_eq!(end.snapshot().correction.unwrap().offset, 6080.0);
     end.send(end.feedback(640.0));
     end.slots[0] = values(300);
     end.update().unwrap();
@@ -366,10 +363,10 @@ fn dom_integer_end_append_follows_but_half_pixel_reader_does_not() {
     for (at_end, follow) in [(true, true), (false, true), (true, false)] {
         let mut h = Harness::new(2, false, follow);
         let mut initial = h.feedback(0.0);
-        initial.port_height = 519.0;
+        initial.port_main = 519.0;
         h.send(initial); // establish width before accepting measurements
         let mut measured = h.feedback(0.0);
-        measured.port_height = 519.0;
+        measured.port_main = 519.0;
         measured.measurements = h
             .snapshot()
             .rows
@@ -378,7 +375,7 @@ fn dom_integer_end_append_follows_but_half_pixel_reader_does_not() {
             .map(|(r, height)| RowMeasurement {
                 view: r.view,
                 epoch: r.epoch,
-                height,
+                size: height,
             })
             .collect();
         h.send(measured);
@@ -389,7 +386,7 @@ fn dom_integer_end_append_follows_but_half_pixel_reader_does_not() {
             334_858.078_125 - 0.500_001
         };
         let mut tail = h.feedback(top);
-        tail.port_height = 519.0;
+        tail.port_main = 519.0;
         let sequence = tail.scroll_sequence;
         h.send(tail.clone());
         h.slots[0] = values(3);
@@ -398,7 +395,7 @@ fn dom_integer_end_append_follows_but_half_pixel_reader_does_not() {
         if at_end && follow {
             let correction = appended.correction.expect("DOM end must follow append");
             assert_eq!(correction.scroll_sequence, sequence);
-            assert_eq!(correction.scroll_top, appended.total_extent - 519.0);
+            assert_eq!(correction.offset, appended.total_extent - 519.0);
         } else {
             assert!(appended.correction.is_none());
         }
@@ -413,20 +410,17 @@ fn dom_integer_end_append_follows_but_half_pixel_reader_does_not() {
         } else {
             top
         });
-        growth.port_height = 519.0;
+        growth.port_main = 519.0;
         growth.measurements = vec![RowMeasurement {
             view: row.view,
             epoch: row.epoch,
-            height: 134.593_75,
+            size: 134.593_75,
         }];
         h.send(growth);
         let grown = h.snapshot();
         assert_eq!(grown.total_extent, 335_511.671_875);
         if at_end && follow {
-            assert_eq!(
-                grown.correction.unwrap().scroll_top,
-                grown.total_extent - 519.0
-            );
+            assert_eq!(grown.correction.unwrap().offset, grown.total_extent - 519.0);
         } else {
             assert!(grown.correction.is_none());
         }
@@ -486,14 +480,15 @@ fn binary_feedback_roundtrips_and_rejects_malformed_reports() {
     f.measurements.push(RowMeasurement {
         view: row.view,
         epoch: row.epoch,
-        height: 20.5,
+        size: 20.5,
     });
     let bytes = f.encode().unwrap();
-    assert_eq!(bytes.len(), 100);
+    assert_eq!(bytes.len(), 104);
     assert_eq!(CollectionFeedback::decode(&bytes).unwrap(), f);
     let fill = CollectionFill {
         velocity: -1200.5,
         limit: Some(3),
+        ancestor_moving: true,
     };
     let filled = f.encode_with(fill).unwrap();
     assert_eq!(
@@ -522,7 +517,7 @@ fn binary_feedback_roundtrips_and_rejects_malformed_reports() {
     f.measurements.push(f.measurements[0]);
     assert!(f.encode().is_err());
     f.measurements.pop();
-    f.row_width = f64::NAN;
+    f.cross = f64::NAN;
     assert!(f.encode().is_err());
     assert!(h.snapshot().json().contains("\"totalExtent\""));
 }
@@ -539,21 +534,21 @@ fn snapshot_json_preserves_u64_metadata_as_decimal_strings() {
             view: 2,
             root: 3,
             index: 1,
-            top: 32.0,
-            height: 32.0,
+            start: 32.0,
+            size: 32.0,
             epoch: u64::MAX,
             measured: true,
         }],
         correction: Some(AnchorCorrection {
             scroll_sequence: (1_u64 << 53) + 3,
-            scroll_top: 16.5,
+            offset: 16.5,
         }),
         pending: true,
     };
     let expected = concat!(
         r#"{"view":1,"revision":"9007199254740993","scrollSequence":"18446744073709551614","count":3,"totalExtent":96,"rows":["#,
-        r#"{"view":2,"root":3,"index":1,"top":32,"height":32,"epoch":"18446744073709551615","measured":true}],"pending":true,"#,
-        r#""correction":{"scrollSequence":"9007199254740995","scrollTop":16.5}}"#,
+        r#"{"view":2,"root":3,"index":1,"start":32,"size":32,"epoch":"18446744073709551615","measured":true}],"pending":true,"#,
+        r#""correction":{"scrollSequence":"9007199254740995","offset":16.5}}"#,
     );
     assert_eq!(snapshot.json(), expected);
     assert_eq!(
@@ -586,7 +581,7 @@ fn pending_correction_survives_another_commit_until_host_acknowledges_it() {
     );
     h.update().unwrap();
     let correction = h.snapshot().correction;
-    assert_eq!(correction.unwrap().scroll_top, 672.0);
+    assert_eq!(correction.unwrap().offset, 672.0);
     h.slots[1] = Value::Number(4.0);
     h.update().unwrap();
     assert_eq!(h.snapshot().correction, correction);
@@ -599,11 +594,11 @@ fn height_resize_preserves_end_only_when_previously_following_and_new_sequence_w
     let mut h = Harness::new(100, false, true);
     h.send(h.feedback(2880.0));
     let mut resized = h.feedback(2880.0);
-    resized.port_height = 160.0;
+    resized.port_main = 160.0;
     h.send(resized);
-    assert_eq!(h.snapshot().correction.unwrap().scroll_top, 3040.0);
+    assert_eq!(h.snapshot().correction.unwrap().offset, 3040.0);
     let mut reading = h.feedback(640.0);
-    reading.port_height = 160.0;
+    reading.port_main = 160.0;
     h.send(reading);
     assert!(h.snapshot().correction.is_none());
     let before = h.snapshot();
@@ -655,7 +650,7 @@ fn typography_change_remounts_a_fully_zero_measured_collection() {
             .map(|r| RowMeasurement {
                 view: r.view,
                 epoch: r.epoch,
-                height: 0.0,
+                size: 0.0,
             })
             .collect();
         h.send(feedback);
@@ -686,15 +681,11 @@ fn typography_change_remounts_a_fully_zero_measured_collection() {
         .map(|r| RowMeasurement {
             view: r.view,
             epoch: r.epoch,
-            height: h.kernel.node(r.view).unwrap().frame.height as f64,
+            size: h.kernel.node(r.view).unwrap().frame.height as f64,
         })
         .collect();
     h.send(feedback);
-    assert!(h
-        .snapshot()
-        .rows
-        .iter()
-        .any(|r| r.measured && r.height > 0.0));
+    assert!(h.snapshot().rows.iter().any(|r| r.measured && r.size > 0.0));
     h.send(h.feedback(900.0 * 32.0));
     assert!(h.snapshot().rows.iter().any(|r| r.index >= 890));
 }
@@ -711,10 +702,10 @@ fn runner_feedback(r: &crate::Runner<NoData>) -> CollectionFeedback {
         view: c.view,
         revision: c.revision,
         scroll_sequence: c.scroll_sequence + 1,
-        scroll_top: 0.0,
-        port_width: 640.0,
-        port_height: 320.0,
-        row_width: 640.0,
+        offset: 0.0,
+        port_cross: 640.0,
+        port_main: 320.0,
+        cross: 640.0,
         measurements: vec![],
         focus_view: None,
         interaction_view: None,
@@ -733,7 +724,7 @@ fn typography_restores_zero_prefix_without_moving_the_reading_anchor() {
         .map(|row| RowMeasurement {
             view: row.view,
             epoch: row.epoch,
-            height: if row.index < 10 { 0.0 } else { 32.0 },
+            size: if row.index < 10 { 0.0 } else { 32.0 },
         })
         .collect();
     h.send(measured);
@@ -745,7 +736,7 @@ fn typography_restores_zero_prefix_without_moving_the_reading_anchor() {
     h.slots[3] = Value::Number(24.0);
     h.update().unwrap();
     let after = h.snapshot();
-    assert_eq!(after.correction.unwrap().scroll_top, 960.0);
+    assert_eq!(after.correction.unwrap().offset, 960.0);
     assert_eq!(
         after.correction.unwrap().scroll_sequence,
         before.scroll_sequence
@@ -786,7 +777,7 @@ fn aggregate_measurement_overflow_is_atomic_and_does_not_poison_runner() {
             feedback.measurements.push(RowMeasurement {
                 view: rows[0].view,
                 epoch: rows[0].epoch,
-                height: f32::MAX as f64 * 0.75,
+                size: f32::MAX as f64 * 0.75,
             });
             r.collection_feedback(feedback).unwrap();
         }
@@ -798,14 +789,14 @@ fn aggregate_measurement_overflow_is_atomic_and_does_not_poison_runner() {
             vec![RowMeasurement {
                 view: rows[1].view,
                 epoch: rows[1].epoch,
-                height: f32::MAX as f64 * 0.75,
+                size: f32::MAX as f64 * 0.75,
             }]
         } else {
             rows.iter()
                 .map(|row| RowMeasurement {
                     view: row.view,
                     epoch: row.epoch,
-                    height: f32::MAX as f64 * 0.75,
+                    size: f32::MAX as f64 * 0.75,
                 })
                 .collect()
         };
@@ -837,7 +828,7 @@ fn aggregate_measurement_overflow_is_atomic_and_does_not_poison_runner() {
             .map(|row| RowMeasurement {
                 view: row.view,
                 epoch: row.epoch,
-                height: 24.0,
+                size: 24.0,
             })
             .collect();
         r.collection_feedback(valid).unwrap();
@@ -880,7 +871,7 @@ fn measured_interior_zero_run_bounds_25k_realized_views_and_row_slots() {
                 RowMeasurement {
                     view: row.view,
                     epoch: row.epoch,
-                    height: if row.index == 0 || row.index == COUNT - 1 {
+                    size: if row.index == 0 || row.index == COUNT - 1 {
                         32.0
                     } else {
                         0.0
@@ -931,7 +922,7 @@ fn identical_order_with_new_content_still_invalidates_rows_and_updates_layout() 
         .map(|row| RowMeasurement {
             view: row.view,
             epoch: row.epoch,
-            height: 20.,
+            size: 20.,
         })
         .collect();
     h.send(measured);
@@ -978,7 +969,7 @@ fn identical_order_with_new_content_still_invalidates_rows_and_updates_layout() 
     stale.measurements = vec![RowMeasurement {
         view: old_row.view,
         epoch: old_row.epoch,
-        height: 99.,
+        size: 99.,
     }];
     assert!(!h.send(stale));
     let fresh = h.snapshot();
@@ -989,7 +980,7 @@ fn identical_order_with_new_content_still_invalidates_rows_and_updates_layout() 
         .map(|row| RowMeasurement {
             view: row.view,
             epoch: row.epoch,
-            height: 24.,
+            size: 24.,
         })
         .collect();
     assert!(h.send(next));
@@ -997,7 +988,7 @@ fn identical_order_with_new_content_still_invalidates_rows_and_updates_layout() 
         .snapshot()
         .rows
         .iter()
-        .any(|row| row.measured && row.height == 24.));
+        .any(|row| row.measured && row.size == 24.));
 }
 
 // Key reuse must be earned by immutable item identity AND key-environment
@@ -1105,7 +1096,7 @@ fn key_reuse_one_changed_record_evaluates_once_and_updates_measured_body() {
         .map(|r| RowMeasurement {
             view: r.view,
             epoch: r.epoch,
-            height: 20.,
+            size: 20.,
         })
         .collect();
     h.send(measured);

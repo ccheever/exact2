@@ -42,10 +42,10 @@ fn fixture() -> (Host<Rows>, ReorderBinding) {
             view: c.view,
             revision: c.revision,
             scroll_sequence: c.scroll_sequence + 1,
-            scroll_top: 0.,
-            port_width: 320.,
-            port_height: 100.,
-            row_width: 320.,
+            offset: 0.,
+            port_cross: 320.,
+            port_main: 100.,
+            cross: 320.,
             focus_view: None,
             interaction_view: Some(h.runner.kernel().node_by_key(handle).unwrap().id),
             measurements: c
@@ -54,7 +54,7 @@ fn fixture() -> (Host<Rows>, ReorderBinding) {
                 .map(|r| RowMeasurement {
                     view: r.view,
                     epoch: r.epoch,
-                    height: 20.,
+                    size: 20.,
                 })
                 .collect(),
         };
@@ -226,10 +226,10 @@ fn refused_missing_source_pin_does_not_advance_clock_or_take_property() {
         view: c.view,
         revision: c.revision,
         scroll_sequence: c.scroll_sequence + 1,
-        scroll_top: 0.,
-        port_width: 320.,
-        port_height: 100.,
-        row_width: 320.,
+        offset: 0.,
+        port_cross: 320.,
+        port_main: 100.,
+        cross: 320.,
         measurements: vec![],
         focus_view: None,
         interaction_view: None,

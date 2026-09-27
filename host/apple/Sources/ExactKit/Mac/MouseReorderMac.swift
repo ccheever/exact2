@@ -88,7 +88,7 @@ extension ReorderHold {
     /// where the pointer is against its port. The document is flipped.
     func portFacts() -> (top: Double, inside: Bool, offset: Double, height: Double)? {
         guard let presenter, let scroll = presenter.views[state.list]?.scroll,
-              let top = presenter.collections.geometry(state.list)?.top else { return nil }
+              let top = presenter.collections.geometry(state.list)?.offset else { return nil }
         let clip = scroll.contentView, port = clip.bounds
         let p = clip.convert(point, from: nil)
         let offset = clip.isFlipped ? p.y - port.minY : port.maxY - p.y

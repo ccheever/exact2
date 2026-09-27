@@ -42,17 +42,17 @@ final class CollectionMacTests: XCTestCase {
         let clip = try XCTUnwrap(list.scroll?.contentView)
         clip.scroll(to: NSPoint(x: 0, y: 120))
         let facts = try XCTUnwrap(p.collections.geometry(1))
-        XCTAssertEqual(facts.top, 100)
-        XCTAssertEqual(facts.portWidth, Double(clip.bounds.width))
-        XCTAssertEqual(facts.portHeight, Double(clip.bounds.height))
-        XCTAssertEqual(facts.rowWidth, 280)
-        XCTAssertNotEqual(facts.portHeight, Double(p.viewportSize.height))
+        XCTAssertEqual(facts.offset, 100)
+        XCTAssertEqual(facts.portCross, Double(clip.bounds.width))
+        XCTAssertEqual(facts.portMain, Double(clip.bounds.height))
+        XCTAssertEqual(facts.cross, 280)
+        XCTAssertNotEqual(facts.portMain, Double(p.viewportSize.height))
         XCTAssertEqual(p.collections.height(2), 72)
         var feedback: [Data] = []
         p.collections.onFeedback = { feedback.append($0) }
         p.collections.flush()
         XCTAssertEqual(feedback.count, 1)
-        XCTAssertEqual(feedback[0].count, 100)
+        XCTAssertEqual(feedback[0].count, 104)
         p.collections.changed(1)
         p.collections.flush()
         XCTAssertEqual(feedback.count, 1, "identical layout must not reenter Rust")
@@ -112,14 +112,14 @@ final class CollectionMacTests: XCTestCase {
             XCTAssertEqual(clip.bounds.minY, 220)
         }
         p.apply(batch([
-            ["op": "collections", "items": [snapshot(revision: 2, correction: ["scrollSequence": 0, "scrollTop": 200])]],
+            ["op": "collections", "items": [snapshot(revision: 2, correction: ["scrollSequence": 0, "offset": 200])]],
             ["op": "props", "id": 1, "set": ["viewportFit": "cover"]]
         ]))
         XCTAssertTrue(received)
         XCTAssertEqual(clip.bounds.minY, 220)
         p.collections.userIntent(1)
         p.apply(batch([["op": "collections", "items": [snapshot(revision: 3,
-            correction: ["scrollSequence": 0, "scrollTop": 900])]]]))
+            correction: ["scrollSequence": 0, "offset": 900])]]]))
         XCTAssertEqual(clip.bounds.minY, 220, "stale correction must not replace newer user intent")
     }
     func testClearedSnapshotRetiresStateAndObserver() {

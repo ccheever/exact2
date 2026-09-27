@@ -67,10 +67,10 @@ fn facts(snapshot: &CollectionSnapshot, top: f64) -> CollectionFeedback {
         view: snapshot.view,
         revision: snapshot.revision,
         scroll_sequence: snapshot.scroll_sequence + 1,
-        scroll_top: top,
-        port_width: 240.,
-        port_height: 160.,
-        row_width: 240.,
+        offset: top,
+        port_cross: 240.,
+        port_main: 160.,
+        cross: 240.,
         measurements: Vec::new(),
         focus_view: None,
         interaction_view: None,
@@ -233,14 +233,14 @@ fn collection_scroll_and_measurements_commit_without_requerying_resources() {
     measurement.measurements.push(RowMeasurement {
         view: after.rows[0].view,
         epoch: after.rows[0].epoch,
-        height: 43.,
+        size: 43.,
     });
     let batch = send(&mut bridge, &measurement, 20.);
     assert!(batch.contains("\"error\":null"), "{batch}");
     assert!(snapshot(&bridge)
         .rows
         .iter()
-        .any(|row| row.height == 43. && row.measured));
+        .any(|row| row.size == 43. && row.measured));
     assert_eq!(queries.get(), queries_before);
 }
 
@@ -359,10 +359,10 @@ fn ordinary_eager_list_has_no_collection_metadata() {
         view: 1,
         revision: 0,
         scroll_sequence: 1,
-        scroll_top: 10.,
-        port_width: 240.,
-        port_height: 160.,
-        row_width: 240.,
+        offset: 10.,
+        port_cross: 240.,
+        port_main: 160.,
+        cross: 240.,
         measurements: vec![],
         focus_view: None,
         interaction_view: None,

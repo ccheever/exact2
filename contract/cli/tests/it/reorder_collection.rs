@@ -58,17 +58,17 @@ fn feedback<D: DataSource>(r: &Runner<D>, pin: Option<NodeKey>, top: f64) -> Col
         view: c.view,
         revision: c.revision,
         scroll_sequence: c.scroll_sequence + 1,
-        scroll_top: top,
-        port_width: 320.,
-        port_height: 100.,
-        row_width: 320.,
+        offset: top,
+        port_cross: 320.,
+        port_main: 100.,
+        cross: 320.,
         measurements: c
             .rows
             .iter()
             .map(|r| RowMeasurement {
                 view: r.view,
                 epoch: r.epoch,
-                height: 20.,
+                size: 20.,
             })
             .collect(),
         focus_view: None,
@@ -220,10 +220,10 @@ fn edit_feedback(r: &mut Runner<EditingRows>, handle: NodeKey, top: f64) {
         view: c.view,
         revision: c.revision,
         scroll_sequence: c.scroll_sequence + 1,
-        scroll_top: top,
-        port_width: 320.,
-        port_height: 100.,
-        row_width: 320.,
+        offset: top,
+        port_cross: 320.,
+        port_main: 100.,
+        cross: 320.,
         focus_view: None,
         interaction_view: r.kernel().node_by_key(handle).map(|n| n.id),
         measurements: c
@@ -232,7 +232,7 @@ fn edit_feedback(r: &mut Runner<EditingRows>, handle: NodeKey, top: f64) {
             .map(|r| RowMeasurement {
                 view: r.view,
                 epoch: r.epoch,
-                height: 20.,
+                size: 20.,
             })
             .collect(),
     })
@@ -334,7 +334,7 @@ fn successor_pin_and_token_survive_old_finish_and_width_cancellation() {
     assert!(r.finish_reorder(old).unwrap().is_none());
     assert!(r.has_reorder(new));
     let mut f = feedback(&r, Some(other), 0.);
-    f.row_width = 300.;
+    f.cross = 300.;
     r.collection_feedback(f).unwrap();
     assert!(!r.has_reorder(new));
     assert!(r.reorder_frame(new).unwrap().terminal);
@@ -392,7 +392,7 @@ fn changed_measured_source_extent_retires_old_preview_before_reusing_height() {
         .iter_mut()
         .find(|m| m.view == wrapper)
         .unwrap()
-        .height = 40.;
+        .size = 40.;
     r.collection_feedback(f).unwrap();
     assert!(!r.has_reorder(token));
     assert!(r.reorder_frame(token).unwrap().terminal);
@@ -430,7 +430,7 @@ fn zero_scrollport_cannot_admit_and_deleted_source_finish_publishes_pin_cleanup(
     let h = ready(&mut r);
     let b = r.reorder_binding(h).unwrap();
     let mut f = feedback(&r, Some(h), 0.);
-    f.port_height = 0.;
+    f.port_main = 0.;
     r.collection_feedback(f).unwrap();
     let g = r.reorder_geometry(b.list).unwrap();
     assert!(r.begin_reorder(b, g).unwrap().is_none());
@@ -609,7 +609,7 @@ fn source_exclusion_right_biases_and_certifies_zero_ties_after_normalization() {
             let rows = r.collections()[0].rows.clone();
             for m in &mut f.measurements {
                 if rows.iter().any(|r| r.index == 2 && r.view == m.view) {
-                    m.height = 0.;
+                    m.size = 0.;
                 }
             }
             r.collection_feedback(f).unwrap();
@@ -663,7 +663,7 @@ fn source_exclusion_right_biases_and_certifies_zero_ties_after_normalization() {
             let mut f = feedback(&r, Some(h), 0.);
             for m in &mut f.measurements {
                 if rows.iter().any(|r| r.index == 2 && r.view == m.view) {
-                    m.height = 0.;
+                    m.size = 0.;
                 }
             }
             r.collection_feedback(f).unwrap();

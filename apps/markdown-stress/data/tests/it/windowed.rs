@@ -33,7 +33,7 @@ fn feedback(runner: &mut Runner<MarkdownStress>, top: f64, width: f64) {
         });
         if let Some(correction) = snapshot.correction {
             if correction.scroll_sequence == sequence {
-                top = correction.scroll_top;
+                top = correction.offset;
             }
         }
         top = top.clamp(0.0, (snapshot.total_extent - port.height as f64).max(0.0));
@@ -43,7 +43,7 @@ fn feedback(runner: &mut Runner<MarkdownStress>, top: f64, width: f64) {
             .map(|row| RowMeasurement {
                 view: row.view,
                 epoch: row.epoch,
-                height: runner.kernel().node(row.view).unwrap().frame.height as f64,
+                size: runner.kernel().node(row.view).unwrap().frame.height as f64,
             })
             .collect();
         let receipt = runner
@@ -51,10 +51,10 @@ fn feedback(runner: &mut Runner<MarkdownStress>, top: f64, width: f64) {
                 view: snapshot.view,
                 revision: snapshot.revision,
                 scroll_sequence: sequence,
-                scroll_top: top,
-                port_width: port.width as f64,
-                port_height: port.height as f64,
-                row_width: row_width as f64,
+                offset: top,
+                port_cross: port.width as f64,
+                port_main: port.height as f64,
+                cross: row_width as f64,
                 measurements,
                 focus_view: None,
                 interaction_view: None,
@@ -64,12 +64,12 @@ fn feedback(runner: &mut Runner<MarkdownStress>, top: f64, width: f64) {
             let visible: Vec<_> = snapshot
                 .rows
                 .iter()
-                .filter(|row| row.top + row.height > top && row.top < top + port.height as f64)
+                .filter(|row| row.start + row.size > top && row.start < top + port.height as f64)
                 .collect();
             assert!(!visible.is_empty(), "no block covers the settled viewport");
-            assert!(visible[0].top <= top + 0.01);
+            assert!(visible[0].start <= top + 0.01);
             assert!(
-                visible.last().unwrap().top + visible.last().unwrap().height
+                visible.last().unwrap().start + visible.last().unwrap().size
                     >= (top + port.height as f64).min(snapshot.total_extent) - 0.01
             );
             assert!(visible

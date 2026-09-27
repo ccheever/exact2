@@ -136,7 +136,7 @@ fn settle(r: &mut Runner<Messages>, sequence: &mut u64, top: f64, check: bool) -
             .map(|row| RowMeasurement {
                 view: row.view,
                 epoch: row.epoch,
-                height: r.kernel().node(row.view).unwrap().frame.height as f64,
+                size: r.kernel().node(row.view).unwrap().frame.height as f64,
             })
             .collect();
         *sequence += 1;
@@ -144,10 +144,10 @@ fn settle(r: &mut Runner<Messages>, sequence: &mut u64, top: f64, check: bool) -
             view: snapshot.view,
             revision: snapshot.revision,
             scroll_sequence: *sequence,
-            scroll_top: top,
-            port_width: port.width as f64,
-            port_height: port.height as f64,
-            row_width: port.width as f64,
+            offset: top,
+            port_cross: port.width as f64,
+            port_main: port.height as f64,
+            cross: port.width as f64,
             measurements,
             focus_view: None,
             interaction_view: None,

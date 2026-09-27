@@ -278,17 +278,17 @@ fn feedback(r: &Runner<Fake>, rng: &mut Rng) -> Option<CollectionFeedback> {
         view: c.view,
         revision: c.revision,
         scroll_sequence: c.scroll_sequence + 1,
-        scroll_top: *rng.pick(&[0.0, 30.0, 400.0, 1e5]),
-        port_width: 320.0,
-        port_height: *rng.pick(&[120.0, 400.0]),
-        row_width: *rng.pick(&[320.0, 320.0, 640.0]),
+        offset: *rng.pick(&[0.0, 30.0, 400.0, 1e5]),
+        port_cross: 320.0,
+        port_main: *rng.pick(&[120.0, 400.0]),
+        cross: *rng.pick(&[320.0, 320.0, 640.0]),
         measurements: c
             .rows
             .iter()
             .map(|row| RowMeasurement {
                 view: row.view,
                 epoch: row.epoch,
-                height: *rng.pick(&[0.0, 18.0, 24.0, 60.0]),
+                size: *rng.pick(&[0.0, 18.0, 24.0, 60.0]),
             })
             .collect(),
         focus_view: None,
@@ -337,17 +337,17 @@ fn reorder(full: &mut Runner<Fake>, incremental: &mut Runner<Fake>, y: f64) -> (
                 view: c.view,
                 revision: c.revision,
                 scroll_sequence: c.scroll_sequence + 1,
-                scroll_top: 0.0,
-                port_width: 320.0,
-                port_height: 400.0,
-                row_width: 320.0,
+                offset: 0.0,
+                port_cross: 320.0,
+                port_main: 400.0,
+                cross: 320.0,
                 measurements: c
                     .rows
                     .iter()
                     .map(|row| RowMeasurement {
                         view: row.view,
                         epoch: row.epoch,
-                        height: 24.0,
+                        size: 24.0,
                     })
                     .collect(),
                 focus_view: None,

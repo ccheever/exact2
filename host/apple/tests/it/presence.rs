@@ -263,17 +263,17 @@ fn a_virtualized_row_whose_item_left_exits_and_the_rows_after_it_slide() {
         view: snapshot.view,
         revision: snapshot.revision,
         scroll_sequence: snapshot.scroll_sequence + 1,
-        scroll_top: 0.0,
-        port_width: 390.0,
-        port_height: 300.0,
-        row_width: 390.0,
+        offset: 0.0,
+        port_cross: 390.0,
+        port_main: 300.0,
+        cross: 390.0,
         measurements: snapshot
             .rows
             .iter()
             .map(|r| exact_runner::RowMeasurement {
                 view: r.view,
                 epoch: r.epoch,
-                height: 40.0,
+                size: 40.0,
             })
             .collect(),
         focus_view: None,

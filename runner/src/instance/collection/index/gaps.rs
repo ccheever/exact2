@@ -1,7 +1,7 @@
 //! A gap is certified only by current measured boundary rows, including zero runs.
 use super::*;
 
-impl HeightIndex {
+impl SizeIndex {
     /// Nearest midpoint boundary; rightmost logical boundary for coincident zero
     /// heights. None means measurement is missing, never logical end by guessing.
     #[cfg(test)]

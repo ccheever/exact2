@@ -19,6 +19,7 @@ fn a_limited_report_builds_what_it_owes_then_leads_in_travel_order() {
     let down = CollectionFill {
         velocity: 1_600.0,
         limit: Some(2),
+        ..Default::default()
     };
     h.send_filled(h.feedback(3840.0), down);
     let now = rows(&h);
@@ -65,6 +66,7 @@ fn a_limited_report_builds_what_it_owes_then_leads_in_travel_order() {
     let up = CollectionFill {
         velocity: -1_600.0,
         limit: Some(1),
+        ..Default::default()
     };
     h.send_filled(h.feedback(3200.0), up);
     let now = rows(&h);
@@ -84,7 +86,7 @@ fn travel_inside_the_realized_window_moves_only_the_geometry() {
             .map(|r| RowMeasurement {
                 view: r.view,
                 epoch: r.epoch,
-                height: r.height + if r.index == rows[0].index { grow } else { 0.0 },
+                size: r.size + if r.index == rows[0].index { grow } else { 0.0 },
             })
             .collect();
         f
@@ -108,7 +110,7 @@ fn travel_inside_the_realized_window_moves_only_the_geometry() {
     assert_eq!(after.revision, before.revision);
     assert_eq!(after.rows, before.rows);
     assert_eq!(h.collection().children, children);
-    assert_eq!(h.collection().geometry.as_ref().unwrap().scroll_top, 3231.0);
+    assert_eq!(h.collection().geometry.as_ref().unwrap().offset, 3231.0);
     // A new height is a measurement: the window realizes again.
     assert!(h.send(report(&h, 3231.0, 8.0)));
     assert_ne!(h.snapshot().revision, before.revision);
@@ -122,7 +124,7 @@ fn travel_inside_the_realized_window_moves_only_the_geometry() {
     let rows = |s: CollectionSnapshot| {
         s.rows
             .iter()
-            .map(|r| (r.index, r.top, r.height))
+            .map(|r| (r.index, r.start, r.size))
             .collect::<Vec<_>>()
     };
     assert_eq!(rows(h.snapshot()), rows(fresh.snapshot()));
@@ -145,6 +147,7 @@ fn a_limited_report_retires_nearer_rows_at_its_cap() {
     let down = CollectionFill {
         velocity: 1_600.0,
         limit: Some(2),
+        ..Default::default()
     };
     h.send_filled(h.feedback(3520.0), down);
     let now = rows(&h);
@@ -170,6 +173,7 @@ fn rows_kept_past_the_window_never_outnumber_the_window() {
     let rescue = CollectionFill {
         velocity: 48_000.0,
         limit: Some(0),
+        ..Default::default()
     };
     for step in 1..=40 {
         let top = 3200.0 + 400.0 * step as f64;

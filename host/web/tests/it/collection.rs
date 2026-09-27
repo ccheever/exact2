@@ -62,10 +62,10 @@ fn facts(snapshot: &CollectionSnapshot) -> CollectionFeedback {
         view: snapshot.view,
         revision: snapshot.revision,
         scroll_sequence: 1,
-        scroll_top: 3_000.0,
-        port_width: 320.0,
-        port_height: 180.0,
-        row_width: 305.0,
+        offset: 3_000.0,
+        port_cross: 320.0,
+        port_main: 180.0,
+        cross: 305.0,
         focus_view: None,
         interaction_view: None,
         measurements: snapshot
@@ -74,7 +74,7 @@ fn facts(snapshot: &CollectionSnapshot) -> CollectionFeedback {
             .map(|row| RowMeasurement {
                 view: row.view,
                 epoch: row.epoch,
-                height: 32.0,
+                size: 32.0,
             })
             .collect(),
     }
@@ -194,7 +194,7 @@ component App
         );
         let before = host.runner().collections().remove(0);
         let mut feedback = facts(&before);
-        feedback.scroll_top = before.total_extent - 180.;
+        feedback.offset = before.total_extent - 180.;
         let batch = host.collection_feedback(&feedback.encode().unwrap());
         let after = host.runner().collections().remove(0);
         assert_eq!(after.rows.last().unwrap().index, 999);
@@ -219,7 +219,7 @@ component App
         }
         let mut repeat = facts(&after);
         repeat.scroll_sequence = 2;
-        repeat.scroll_top = feedback.scroll_top;
+        repeat.offset = feedback.offset;
         let batch = host.collection_feedback(&repeat.encode().unwrap());
         assert_eq!(batch.contains("edge refused"), refuse, "{batch}");
         assert!(batch.contains("\"accepted\":true"), "{batch}");

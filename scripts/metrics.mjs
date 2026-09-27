@@ -768,7 +768,7 @@ if (long) {
       ['markdown', /^exact_markdown::|^exact_web_capabilities::markdown/],
       ['motion', /^(exact_motion::|exact_web::motion$)/],
       ['drag', /^exact_web::host::(height_drag|transform_drag|reorder_drag)$/],
-      ['collections', /^exact_runner::(instance::(collection|window|heights)|runner::(collection|lists|reorder))/],
+      ['collections', /^exact_runner::(instance::collection|runner::(collection|lists|reorder))/],
       ['router', /^(exact_route::|exact_runner::runner::router$)/],
       ['surfaces', /^exact_runner::(surface_record|runner::surface_record)$/],
       ['inspection', /^(exact_runner::(agent|compare)$|sha2::)/],

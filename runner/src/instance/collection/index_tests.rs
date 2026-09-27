@@ -34,8 +34,8 @@ fn keys(count: usize) -> Vec<Rc<str>> {
     (0..count).map(|i| Rc::from(format!("k{i}"))).collect()
 }
 
-fn index(heights: &[f64]) -> HeightIndex {
-    let mut index = HeightIndex::new(10.0).unwrap();
+fn index(heights: &[f64]) -> SizeIndex {
+    let mut index = SizeIndex::new(10.0).unwrap();
     index.replace_keys(keys(heights.len())).unwrap();
     for (i, &height) in heights.iter().enumerate() {
         let key = format!("k{i}");
@@ -109,7 +109,7 @@ impl Random {
 
 #[test]
 fn estimated_heights_and_key_rebuild_retain_measurements() {
-    let mut index = HeightIndex::new(12.5).unwrap();
+    let mut index = SizeIndex::new(12.5).unwrap();
     index.replace_keys(keys(3)).unwrap();
     assert_eq!(index.len(), 3);
     assert_eq!(index.total_height(), 37.5);
@@ -151,8 +151,8 @@ fn zero_heights_and_exact_boundaries_have_no_linear_search() {
     assert_eq!(all_zero.tree.visits.get(), 0);
 }
 
-fn index_with_zeros(count: usize) -> HeightIndex {
-    let mut index = HeightIndex::new(0.0).unwrap();
+fn index_with_zeros(count: usize) -> SizeIndex {
+    let mut index = SizeIndex::new(0.0).unwrap();
     index.replace_keys(keys(count)).unwrap();
     index
 }
@@ -540,7 +540,7 @@ fn end_follow_rounding_tolerance_is_half_a_logical_pixel_on_every_host() {
 #[test]
 fn invalid_numbers_and_duplicates_leave_index_unchanged() {
     for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -1.0] {
-        assert!(HeightIndex::new(bad).is_err());
+        assert!(SizeIndex::new(bad).is_err());
         let mut index = index(&[10.0, 20.0]);
         let token = index.measurement_token("k0").unwrap();
         assert!(index.set_measured_height("k0", token, bad).is_err());
@@ -583,7 +583,7 @@ fn extent_overflow_is_transactional_and_large_geometry_saturates() {
     let window = index.window(f64::MAX, f64::MAX, [None; 2]).unwrap();
     assert_eq!(window.offset, 0.0);
     assert_eq!(window.segments, vec![0..2]);
-    let mut huge = HeightIndex::new(f64::MAX).unwrap();
+    let mut huge = SizeIndex::new(f64::MAX).unwrap();
     huge.replace_keys(keys(1)).unwrap();
     let generation = huge.next_generation;
     assert_eq!(huge.replace_keys(keys(2)), Err(IndexError::ExtentOverflow));
@@ -613,7 +613,7 @@ fn generation_overflow_does_not_revalidate_ancient_tokens() {
 
 #[test]
 fn twenty_traversals_do_not_rebuild_or_accumulate_scroll_metadata() {
-    let mut index = HeightIndex::new(10.0).unwrap();
+    let mut index = SizeIndex::new(10.0).unwrap();
     index.replace_keys(keys(25_000)).unwrap();
     let order = Rc::clone(&index.order);
     let rows = index.rows.as_ptr();
@@ -817,7 +817,7 @@ fn measured_bands_require_current_rows_without_scanning_the_band() {
 
 #[test]
 fn a_splice_equals_the_replacement_and_refuses_a_repeat_untouched() {
-    let spliced = |index: &mut HeightIndex| {
+    let spliced = |index: &mut SizeIndex| {
         // Keep k0 and k4; k2 moves ahead of a new key; k1 and k3 go.
         index.splice_keys(1, 4, vec![("k2".into(), Some(2)), ("new".into(), None)])
     };

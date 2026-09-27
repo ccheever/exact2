@@ -55,7 +55,7 @@ extension ReorderHold {
     /// where the pointer is against its port.
     func portFacts() -> (top: Double, inside: Bool, offset: Double, height: Double)? {
         guard let presenter, let scroll = presenter.views[state.list]?.scroll,
-              let top = presenter.collections.geometry(state.list)?.top else { return nil }
+              let top = presenter.collections.geometry(state.list)?.offset else { return nil }
         let port = scroll.bounds.inset(by: scroll.adjustedContentInset)
         let p = scroll.convert(point, from: nil)
         return (top, port.contains(p), Double(p.y - port.minY), Double(port.height))

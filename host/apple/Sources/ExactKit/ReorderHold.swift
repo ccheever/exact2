@@ -89,7 +89,7 @@ final class ReorderHold {
         generation = presenter.session?.generation
         // The pin reaches the runner (synchronous feedback) before the catch.
         pin = presenter.collections.holdPointer(handle.id)
-        guard let top = presenter.collections.geometry(list)?.top else {
+        guard let top = presenter.collections.geometry(list)?.offset else {
             presenter.collections.releaseInteractionLater(ifCurrent: pin); return nil
         }
         let batch = calls.reorderBegin(handle.id, scrollTop: top, now: presenter.session?.now() ?? time * 1000)

@@ -92,7 +92,7 @@ fn harness() -> Harness {
         .map(|r| RowMeasurement {
             view: r.view,
             epoch: r.epoch,
-            height: 20.0 + r.index as f64,
+            size: 20.0 + r.index as f64,
         })
         .collect();
     h.send(feedback);
@@ -290,7 +290,7 @@ fn an_in_place_change_invalidates_only_the_changed_rows() {
     let after = h.snapshot();
     assert_eq!(before.rows.len(), after.rows.len());
     for (a, b) in before.rows.iter().zip(&after.rows) {
-        assert_eq!((a.index, a.view, a.height), (b.index, b.view, b.height));
+        assert_eq!((a.index, a.view, a.size), (b.index, b.view, b.size));
         if a.index == shown {
             assert!(
                 !b.measured && a.epoch != b.epoch,

@@ -239,10 +239,10 @@ fn feedback(r: &Runner<Rows>, top: f64) -> CollectionFeedback {
         view: c.view,
         revision: c.revision,
         scroll_sequence: c.scroll_sequence + 1,
-        scroll_top: top,
-        port_width: 640.0,
-        port_height: 320.0,
-        row_width: 640.0,
+        offset: top,
+        port_cross: 640.0,
+        port_main: 320.0,
+        cross: 640.0,
         measurements: vec![],
         focus_view: None,
         interaction_view: None,
@@ -366,7 +366,7 @@ fn inherited_typography_changes_measurement_epochs_without_rekeying() {
         .map(|r| exact_runner::RowMeasurement {
             view: r.view,
             epoch: r.epoch,
-            height: 500.0,
+            size: 500.0,
         })
         .collect();
     assert!(r.collection_feedback(old).unwrap().receipts.is_empty());
@@ -397,11 +397,11 @@ fn tall_estimate_bounds_bootstrap_and_actual_measurements_replace_it() {
     measured.measurements.push(exact_runner::RowMeasurement {
         view: row.view,
         epoch: row.epoch,
-        height: 800.0,
+        size: 800.0,
     });
     r.collection_feedback_bytes(&measured.encode().unwrap())
         .unwrap();
-    assert_eq!(r.collections()[0].rows[0].height, 800.0);
+    assert_eq!(r.collections()[0].rows[0].size, 800.0);
     let distant = feedback(&r, 40_000.0);
     r.collection_feedback_bytes(&distant.encode().unwrap())
         .unwrap();
@@ -410,7 +410,7 @@ fn tall_estimate_bounds_bootstrap_and_actual_measurements_replace_it() {
     let top = feedback(&r, 0.0);
     r.collection_feedback_bytes(&top.encode().unwrap()).unwrap();
     assert_eq!(r.collections()[0].rows[0].index, 0);
-    assert_eq!(r.collections()[0].rows[0].height, 800.0);
+    assert_eq!(r.collections()[0].rows[0].size, 800.0);
     assert_eq!(r.data_ref().queries, queries);
     assert_eq!(r.last_instance_work().rows_keyed, 0);
 }

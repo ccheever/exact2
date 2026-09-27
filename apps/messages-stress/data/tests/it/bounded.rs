@@ -65,10 +65,10 @@ fn feed(r: &mut Runner<Counted>, top: f64) -> (f64, usize) {
             view: c.view,
             revision: c.revision,
             scroll_sequence: c.scroll_sequence + 1,
-            scroll_top: top,
-            port_width: 640.,
-            port_height: 320.,
-            row_width: 640.,
+            offset: top,
+            port_cross: 640.,
+            port_main: 320.,
+            cross: 640.,
             // This fixture uses 32px rows. Confirm the mounted band so a
             // corrected anchor away from an edge can rearm that edge.
             measurements: c
@@ -77,7 +77,7 @@ fn feed(r: &mut Runner<Counted>, top: f64) -> (f64, usize) {
                 .map(|row| exact_runner::RowMeasurement {
                     view: row.view,
                     epoch: row.epoch,
-                    height: 32.,
+                    size: 32.,
                 })
                 .collect(),
             focus_view: None,
@@ -98,7 +98,7 @@ fn feed(r: &mut Runner<Counted>, top: f64) -> (f64, usize) {
     assert_eq!(c.count, rows(r).len());
     assert!(c.count <= WINDOW_SIZE + 1);
     assert!(c.rows.len() <= 34, "mounted {}", c.rows.len());
-    (c.correction.map_or(top, |c| c.scroll_top), events)
+    (c.correction.map_or(top, |c| c.offset), events)
 }
 fn at_tail(r: &mut Runner<Counted>) -> f64 {
     let end = r.collections()[0].total_extent - 320.;
@@ -171,7 +171,7 @@ fn feedback_alone_traverses_tail_to_first_and_back_preserving_every_anchor() {
                     .iter()
                     .find(|row| row.index == new_index)
                     .expect("anchor is mounted");
-                assert!((row.top - corrected - offset).abs() <= 0.01,
+                assert!((row.start - corrected - offset).abs() <= 0.01,
                     "N={count}, earlier={earlier}, anchor={anchor}, offset={offset}, corrected={corrected}, row={row:?}");
                 max_mounted = max_mounted.max(c.rows.len());
                 // Accept the correction. A changed endpoint key cannot re-arm
@@ -214,7 +214,7 @@ fn feedback_alone_traverses_tail_to_first_and_back_preserving_every_anchor() {
         let c = &r.collections()[0];
         assert_eq!(c.count, WINDOW_SIZE + 1);
         assert_eq!(id(rows(&r).last().unwrap()), "local-echo");
-        assert!((c.correction.unwrap().scroll_top - (c.total_extent - 320.)).abs() <= 0.01);
+        assert!((c.correction.unwrap().offset - (c.total_extent - 320.)).abs() <= 0.01);
         println!("N={count}: earlier shifts={}, later shifts={}, max mounted={max_mounted}; every anchor preserved; first/tail reached; latest follows echo", shifts[0], shifts[1]);
     }
 }

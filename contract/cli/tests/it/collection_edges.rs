@@ -83,10 +83,10 @@ fn facts(r: &Runner<Rows>, top: f64) -> CollectionFeedback {
         view: c.view,
         revision: c.revision,
         scroll_sequence: c.scroll_sequence + 1,
-        scroll_top: top,
-        port_width: 640.,
-        port_height: 320.,
-        row_width: 640.,
+        offset: top,
+        port_cross: 640.,
+        port_main: 320.,
+        cross: 640.,
         measurements: vec![],
         focus_view: None,
         interaction_view: None,
@@ -104,7 +104,7 @@ fn measurements(r: &Runner<Rows>, height: f64) -> Vec<exact_runner::RowMeasureme
         .map(|row| exact_runner::RowMeasurement {
             view: row.view,
             epoch: row.epoch,
-            height,
+            size: height,
         })
         .collect()
 }
@@ -284,7 +284,7 @@ fn tiny_rows_shift_at_most_once_per_report_then_stay_disarmed() {
                 .map(|row| exact_runner::RowMeasurement {
                     view: row.view,
                     epoch: row.epoch,
-                    height: 1.,
+                    size: 1.,
                 })
                 .collect();
             let result = r.collection_feedback(f).unwrap();
@@ -326,7 +326,7 @@ fn pinned_endpoints_do_not_qualify_and_zero_port_has_no_geometric_window() {
     f.measurements = measurements(&r, 32.);
     assert!(r.collection_feedback(f).unwrap().error.is_none());
     let mut f = facts(&r, 0.);
-    f.port_height = 0.;
+    f.port_main = 0.;
     f.focus_view = Some(first);
     r.collection_feedback(f).unwrap();
     assert_eq!(hits(&r), (1., 1.));
@@ -348,7 +348,7 @@ fn stale_revision_sequence_and_measurement_epoch_do_not_dispatch() {
     old.measurements.push(exact_runner::RowMeasurement {
         view: row.view,
         epoch: row.epoch + 1,
-        height: 32.,
+        size: 32.,
     });
     assert!(r.collection_feedback(old).unwrap().receipts.is_empty());
     assert_eq!(hits(&r), (0., 0.));
@@ -561,10 +561,10 @@ fn lists_in_an_each_say_which_one_reached_its_end() {
             view: c.view,
             revision: c.revision,
             scroll_sequence: c.scroll_sequence + 1,
-            scroll_top: 0.,
-            port_width: 640.,
-            port_height: 320.,
-            row_width: 640.,
+            offset: 0.,
+            port_cross: 640.,
+            port_main: 320.,
+            cross: 640.,
             measurements: vec![],
             focus_view: None,
             interaction_view: None,
@@ -630,7 +630,7 @@ fn replacement_estimates_do_not_rearm_bidirectional_measured_tiny_rows() {
     for turn in 0..120 {
         let snapshot = r.collections().remove(0);
         if let Some(correction) = snapshot.correction {
-            top = correction.scroll_top;
+            top = correction.offset;
         }
         let mut feedback = facts(&r, top);
         feedback.scroll_sequence = 1; // no reader scroll, only layout feedback
@@ -660,7 +660,7 @@ fn hiding_the_scrollport_does_not_rearm_an_edge() {
     send(&mut r, 0.);
     measure(&mut r, 0., 32.);
     let mut feedback = facts(&r, 0.);
-    feedback.port_height = 0.;
+    feedback.port_main = 0.;
     assert!(r.collection_feedback(feedback).unwrap().error.is_none());
     send(&mut r, 0.);
     measure(&mut r, 0., 32.);

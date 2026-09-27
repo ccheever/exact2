@@ -228,9 +228,9 @@ extension CollectionHost {
         let available = max(0, bounds.width - left - right)
         let width = entries[id]?.snapshot.rows.first.flatMap { rowWidth($0.view) }.map { CGFloat($0) } ?? available
         guard bounds.width.isFinite, bounds.height.isFinite, width.isFinite else { return nil }
-        return CollectionFacts(top: Double(max(0, bounds.minY - content.minY)),
-            portWidth: Double(max(0, bounds.width)), portHeight: Double(max(0, bounds.height)),
-            rowWidth: Double(width), measurements: [], focus: nil, interaction: nil)
+        return CollectionFacts(offset: Double(max(0, bounds.minY - content.minY)),
+            portMain: Double(max(0, bounds.height)), portCross: Double(max(0, bounds.width)),
+            cross: Double(width), measurements: [], focus: nil, interaction: nil)
     }
     func rowWidth(_ id: UInt32) -> Double? {
         presenter?.views[id].map { Double($0.bounds.width) }

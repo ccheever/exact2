@@ -46,8 +46,8 @@ extension CollectionHost {
         let available = max(0, portWidth - content.minX - (node.bounds.width - content.maxX))
         let width = entries[id]?.snapshot.rows.first.flatMap { rowWidth($0.view) }.map { CGFloat($0) } ?? available
         guard portWidth.isFinite, portHeight.isFinite, width.isFinite else { return nil }
-        return CollectionFacts(top: Double(max(0, scroll.contentOffset.y + insets.top - content.minY)),
-            portWidth: Double(portWidth), portHeight: Double(portHeight), rowWidth: Double(width),
+        return CollectionFacts(offset: Double(max(0, scroll.contentOffset.y + insets.top - content.minY)),
+            portMain: Double(portHeight), portCross: Double(portWidth), cross: Double(width),
             measurements: [], focus: nil, interaction: nil)
     }
     func rowWidth(_ id: UInt32) -> Double? {

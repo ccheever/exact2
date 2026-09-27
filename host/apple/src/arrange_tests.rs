@@ -60,10 +60,10 @@ fn feedback(h: &mut Host<Rows>, top: f64, pin: Option<ViewId>) {
             view: c.view,
             revision: c.revision,
             scroll_sequence: c.scroll_sequence + 1,
-            scroll_top: top,
-            port_width: 320.,
-            port_height: 100.,
-            row_width: 320.,
+            offset: top,
+            port_cross: 320.,
+            port_main: 100.,
+            cross: 320.,
             focus_view: None,
             interaction_view: pin,
             measurements: c
@@ -72,7 +72,7 @@ fn feedback(h: &mut Host<Rows>, top: f64, pin: Option<ViewId>) {
                 .map(|r| RowMeasurement {
                     view: r.view,
                     epoch: r.epoch,
-                    height: 20.,
+                    size: 20.,
                 })
                 .collect(),
         };

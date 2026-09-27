@@ -83,10 +83,10 @@ fn feedback(h: &Harness, owner: usize, top: f64) -> CollectionFeedback {
         view: snapshot.view,
         revision: snapshot.revision,
         scroll_sequence: snapshot.scroll_sequence + 1,
-        scroll_top: top,
-        port_width: 640.0,
-        port_height: 320.0,
-        row_width: 640.0,
+        offset: top,
+        port_cross: 640.0,
+        port_main: 320.0,
+        cross: 640.0,
         measurements: vec![],
         focus_view: None,
         interaction_view: None,
@@ -100,10 +100,7 @@ fn assert_budget(h: &Harness) {
         if let Some(g) = &c.geometry {
             categories[0] += usize::from(g.focus_view.is_some());
             categories[1] += usize::from(g.interaction_view.is_some());
-            let band = c
-                .index
-                .window(g.scroll_top, g.port_height, [None; 2])
-                .unwrap();
+            let band = c.index.window(g.offset, g.port_main, [None; 2]).unwrap();
             outside += c
                 .mounted
                 .iter()
@@ -213,11 +210,11 @@ fn rejected_or_stale_feedback_never_transfers_session_pins() {
             2 => f.view = u32::MAX,
             3 => f.focus_view = Some(u32::MAX),
             4 => f.interaction_view = Some(left.rows[1].root),
-            5 => f.scroll_top = f64::NAN,
+            5 => f.offset = f64::NAN,
             6 => f.measurements.push(RowMeasurement {
                 view: right.rows[0].view,
                 epoch: right.rows[0].epoch - 1,
-                height: 40.0,
+                size: 40.0,
             }),
             7 => {
                 f.measurements = right.rows[..2]
@@ -225,7 +222,7 @@ fn rejected_or_stale_feedback_never_transfers_session_pins() {
                     .map(|row| RowMeasurement {
                         view: row.view,
                         epoch: row.epoch,
-                        height: f32::MAX as f64,
+                        size: f32::MAX as f64,
                     })
                     .collect()
             }

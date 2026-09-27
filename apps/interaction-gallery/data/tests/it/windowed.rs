@@ -75,17 +75,17 @@ fn settle_at(
         let c = r.collections().remove(0);
         let port = r.kernel().node(c.view).unwrap().frame;
         if let Some(correction) = c.correction.filter(|c| c.scroll_sequence == sequence) {
-            top = correction.scroll_top;
+            top = correction.offset;
         }
         top = top.clamp(0.0, (c.total_extent - port.height as f64).max(0.0));
         let facts = CollectionFeedback {
             view: c.view,
             revision: c.revision,
             scroll_sequence: sequence,
-            scroll_top: top,
-            port_width: port.width as f64,
-            port_height: port.height as f64,
-            row_width: c.rows.first().map_or(port.width, |row| {
+            offset: top,
+            port_cross: port.width as f64,
+            port_main: port.height as f64,
+            cross: c.rows.first().map_or(port.width, |row| {
                 r.kernel().node(row.view).unwrap().frame.width
             }) as f64,
             measurements: c
@@ -94,7 +94,7 @@ fn settle_at(
                 .map(|row| RowMeasurement {
                     view: row.view,
                     epoch: row.epoch,
-                    height: r.kernel().node(row.view).unwrap().frame.height as f64,
+                    size: r.kernel().node(row.view).unwrap().frame.height as f64,
                 })
                 .collect(),
             focus_view: None,
@@ -104,12 +104,12 @@ fn settle_at(
             let visible: Vec<_> = c
                 .rows
                 .iter()
-                .filter(|row| row.top + row.height > top && row.top < top + port.height as f64)
+                .filter(|row| row.start + row.size > top && row.start < top + port.height as f64)
                 .collect();
             assert!(!visible.is_empty());
-            assert!(visible[0].top <= top + 0.1);
+            assert!(visible[0].start <= top + 0.1);
             assert!(
-                visible.last().unwrap().top + visible.last().unwrap().height
+                visible.last().unwrap().start + visible.last().unwrap().size
                     >= (top + port.height as f64).min(c.total_extent) - 0.5
             );
             assert!(visible.windows(2).all(|w| w[0].index + 1 == w[1].index));
@@ -188,9 +188,9 @@ fn read_uses_the_actual_sheet_scrollport_and_remeasures_variable_height_rows() {
     press(&mut r, "count-25000");
     press(&mut r, "mode-sheet");
     let (_, wide_port) = settle(&mut r, 0., 1180.);
-    let wide = r.collections()[0].rows[0].height;
+    let wide = r.collections()[0].rows[0].size;
     let (_, narrow_port) = settle(&mut r, 0., 420.);
-    assert!(r.collections()[0].rows[0].height > wide);
+    assert!(r.collections()[0].rows[0].size > wide);
     assert!(narrow_port < 860. && wide_port < 860.);
     press(&mut r, "sheet-peek");
     let (_, peek) = settle(&mut r, 0., 420.);
@@ -213,7 +213,7 @@ fn insertion_preserves_the_reading_identity_and_offset_while_rekeying_new_data()
     let anchor = before
         .rows
         .iter()
-        .find(|row| row.top + row.height > top)
+        .find(|row| row.start + row.size > top)
         .unwrap();
     let key = r
         .kernel()
@@ -223,12 +223,12 @@ fn insertion_preserves_the_reading_identity_and_offset_while_rekeying_new_data()
         .str(PropId::TestId)
         .unwrap()
         .to_owned();
-    let offset = anchor.top - top;
+    let offset = anchor.start - top;
     let old = rows(&r);
     press(&mut r, "insert");
     assert!(!Rc::ptr_eq(&old, &rows(&r)));
     assert_eq!(r.last_instance_work().rows_keyed, 1001);
-    let next = r.collections()[0].correction.map_or(top, |c| c.scroll_top);
+    let next = r.collections()[0].correction.map_or(top, |c| c.offset);
     let (new_top, _) = settle(&mut r, next, 1180.);
     let current = r.collections().remove(0);
     let same = current
@@ -239,7 +239,7 @@ fn insertion_preserves_the_reading_identity_and_offset_while_rekeying_new_data()
         })
         .unwrap();
     assert_eq!(same.index, anchor.index + 1);
-    assert!((same.top - new_top - offset).abs() < 0.5);
+    assert!((same.start - new_top - offset).abs() < 0.5);
 }
 
 #[test]
@@ -309,7 +309,7 @@ fn intermediate_sheet_samples_and_resize_feed_actual_nested_list_geometry() {
         assert_eq!(r.slot("sheetPx"), Some(&Value::Number(360.)));
         assert!(Rc::ptr_eq(&records, &rows(&r)));
     }
-    let wide_row = r.collections()[0].rows[0].height;
+    let wide_row = r.collections()[0].rows[0].size;
     for (width, height) in [(420., 620.), (420., 860.), (1180., 960.)] {
         let (_, port) = settle_at(&mut r, 0., width, height, Some(640.));
         let stage = frame_height(&r, "sheet-stage");
@@ -322,7 +322,7 @@ fn intermediate_sheet_samples_and_resize_feed_actual_nested_list_geometry() {
         assert_eq!(r.collections()[0].count, 1000);
         assert!(Rc::ptr_eq(&records, &rows(&r)));
         if width == 420. {
-            assert!(r.collections()[0].rows[0].height > wide_row);
+            assert!(r.collections()[0].rows[0].size > wide_row);
         }
     }
     let handle = r

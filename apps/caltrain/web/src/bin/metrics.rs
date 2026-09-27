@@ -328,17 +328,17 @@ component App
                 view: snapshot.view,
                 revision: snapshot.revision,
                 scroll_sequence: sequence,
-                scroll_top: top,
-                port_width: 390.0,
-                port_height: 844.0,
-                row_width: 390.0,
+                offset: top,
+                port_cross: 390.0,
+                port_main: 844.0,
+                cross: 390.0,
                 measurements: snapshot
                     .rows
                     .iter()
                     .map(|row| exact_runner::RowMeasurement {
                         view: row.view,
                         epoch: row.epoch,
-                        height: 24.0,
+                        size: 24.0,
                     })
                     .collect(),
                 focus_view: None,
@@ -682,7 +682,7 @@ impl CollectionDriver {
         if virtualized {
             if let Some(correction) = runner.collections()[0].correction {
                 if correction.scroll_sequence == self.sequence {
-                    self.top = correction.scroll_top;
+                    self.top = correction.offset;
                 }
             }
         }
@@ -701,7 +701,7 @@ impl CollectionDriver {
                     .map(|row| exact_runner::RowMeasurement {
                         view: row.view,
                         epoch: row.epoch,
-                        height: runner.kernel().node(row.view).unwrap().frame.height as f64,
+                        size: runner.kernel().node(row.view).unwrap().frame.height as f64,
                     })
                     .collect();
                 self.sequence += 1;
@@ -709,10 +709,10 @@ impl CollectionDriver {
                     view: snapshot.view,
                     revision: snapshot.revision,
                     scroll_sequence: self.sequence,
-                    scroll_top: self.top,
-                    port_width: port.width as f64,
-                    port_height: port.height as f64,
-                    row_width: port.width as f64,
+                    offset: self.top,
+                    port_cross: port.width as f64,
+                    port_main: port.height as f64,
+                    cross: port.width as f64,
                     measurements,
                     focus_view: None,
                     interaction_view: None,
@@ -731,7 +731,7 @@ impl CollectionDriver {
                 layout_ms += collection_layout(runner);
                 if let Some(correction) = runner.collections()[0].correction {
                     assert_eq!(correction.scroll_sequence, self.sequence);
-                    self.top = correction.scroll_top;
+                    self.top = correction.offset;
                 }
                 assert!(iteration < 11, "measurement feedback did not converge");
             }

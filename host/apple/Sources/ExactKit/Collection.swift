@@ -5,32 +5,37 @@ import Foundation
 struct CollectionMeasurement: Equatable {
     var view: UInt32
     var epoch: UInt64
-    var height: Double
+    /// The wrapper's border-box size on the list's main axis.
+    var size: Double
 }
 
+/// A list's port on its own axes (LLP 1070 H1): `offset` along the main
+/// axis, the port's main and cross sizes, and the rows' cross size.
 struct CollectionFacts: Equatable {
-    var top: Double
-    var portWidth: Double
-    var portHeight: Double
-    var rowWidth: Double
+    var offset: Double
+    var portMain: Double
+    var portCross: Double
+    var cross: Double
     var measurements: [CollectionMeasurement]
     var focus: UInt32?
     var interaction: UInt32?
 
-    /// Wire version 2: `velocity` (points/s, positive toward the end) and
-    /// `limit`, the rows past what it owes this report may build (nil: any).
-    func encode(view: UInt32, revision: UInt64, sequence: UInt64, velocity: Double = 0, limit: UInt32? = nil) -> Data {
+    /// Wire version 3: `velocity` (points/s, positive toward the end),
+    /// `limit`, the rows past what it owes this report may build (nil: any),
+    /// and whether an enclosing list is moving (LLP 1070 F2).
+    func encode(view: UInt32, revision: UInt64, sequence: UInt64, velocity: Double = 0, limit: UInt32? = nil, ancestorMoving: Bool = false) -> Data {
         var bytes = Data()
         func integer<T: FixedWidthInteger>(_ value: T) {
             var le = value.littleEndian
             withUnsafeBytes(of: &le) { bytes.append(contentsOf: $0) }
         }
-        integer(UInt32(2)); integer(view); integer(revision); integer(sequence)
-        for value in [top, portWidth, portHeight, rowWidth] { integer(value.bitPattern) }
+        integer(UInt32(3)); integer(view); integer(revision); integer(sequence)
+        for value in [offset, portMain, portCross, cross] { integer(value.bitPattern) }
         integer(focus ?? 0); integer(interaction ?? 0)
         integer((velocity.isFinite ? velocity : 0).bitPattern); integer(limit.map { Swift.min($0, UInt32.max - 1) } ?? UInt32.max)
+        integer(UInt32(ancestorMoving ? 1 : 0))
         integer(UInt32(measurements.count))
-        for row in measurements { integer(row.view); integer(row.epoch); integer(row.height.bitPattern) }
+        for row in measurements { integer(row.view); integer(row.epoch); integer(row.size.bitPattern) }
         return bytes
     }
 }
@@ -68,7 +73,7 @@ struct CollectionSnapshot {
     }
     struct Correction {
         let sequence: UInt64
-        let top: Double
+        let offset: Double
     }
     let view: UInt32
     let revision: UInt64
@@ -95,8 +100,8 @@ struct CollectionSnapshot {
         var correction: Correction?
         if let raw = value["correction"], !(raw is NSNull) {
             guard let raw = raw as? [String: Any], let seq = Self.uint(raw["scrollSequence"]),
-                  let top = Self.number(raw["scrollTop"]) else { return nil }
-            correction = Correction(sequence: seq, top: top)
+                  let offset = Self.number(raw["offset"]) else { return nil }
+            correction = Correction(sequence: seq, offset: offset)
         }
         self.view = view; self.revision = revision; self.sequence = sequence
         self.extent = extent; self.rows = rows; self.correction = correction
@@ -216,13 +221,13 @@ final class CollectionHost {
         // clamp against this coherent extent and suppress correction notifications.
         for (view, entry) in entries {
             guard let port = geometry(view) else { continue }
-            let dimensions = [port.portWidth, port.portHeight, port.rowWidth]
+            let dimensions = [port.portCross, port.portMain, port.cross]
             if let previous = entry.port, previous != dimensions { entry.cursor.advance() }
             entry.port = dimensions
             if let correction = entry.snapshot.correction,
                entry.cursor.takeCorrection(revision: entry.snapshot.revision, sequence: correction.sequence) {
                 correcting = true
-                correct(view, top: correction.top, extent: entry.snapshot.extent)
+                correct(view, top: correction.offset, extent: entry.snapshot.extent)
                 correcting = false
             }
             dirty.insert(view)
@@ -377,8 +382,8 @@ final class CollectionHost {
                 }
                 facts.measurements = entry.snapshot.rows.compactMap { row in
                     guard let height = height(row.view), height.isFinite, height >= 0,
-                          rowWidth(row.view) == facts.rowWidth else { return nil }
-                    return CollectionMeasurement(view: row.view, epoch: row.epoch, height: height)
+                          rowWidth(row.view) == facts.cross else { return nil }
+                    return CollectionMeasurement(view: row.view, epoch: row.epoch, size: height)
                 }
                 // A slice builds its limit once; later passes and every
                 // report while moving or owed a continuation only measure

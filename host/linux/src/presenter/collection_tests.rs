@@ -534,7 +534,7 @@ fn collection_resize_remeasures_new_width_without_unbounded_frame_loop() {
     let after = p.host.runner().collections().pop().unwrap();
     assert!(after.rows.iter().all(|r| r.measured));
     assert_ne!(before.rows[0].epoch, after.rows[0].epoch);
-    assert!(after.rows[0].height > before.rows[0].height);
+    assert!(after.rows[0].size > before.rows[0].size);
     assert_eq!(
         p.host
             .kernel()
@@ -630,14 +630,14 @@ fn feedback_budget_schedules_later_progress_and_stale_rows_do_not_commit() {
         view: snapshot.view,
         revision: snapshot.revision,
         scroll_sequence: snapshot.scroll_sequence,
-        scroll_top: 0.,
-        port_width: 360.,
-        port_height: 180.,
-        row_width: 336.,
+        offset: 0.,
+        port_cross: 360.,
+        port_main: 180.,
+        cross: 336.,
         measurements: vec![exact_runner::RowMeasurement {
             view: snapshot.rows[0].view,
             epoch: snapshot.rows[0].epoch + 1,
-            height: 999.,
+            size: 999.,
         }],
         focus_view: None,
         interaction_view: None,
@@ -750,10 +750,10 @@ fn height_projection_refines_real_25k_port_through_hold_ticks_resize_and_typing(
         assert!(snapshot.rows.len() < 64);
         assert!(p.node_count() < 200);
         let offset = p.scroll_of(port).1 as f64;
-        assert!(snapshot.rows.first().unwrap().top <= offset + 0.5);
+        assert!(snapshot.rows.first().unwrap().start <= offset + 0.5);
         let last = snapshot.rows.last().unwrap();
         assert!(
-            last.top + last.height
+            last.start + last.size
                 >= (offset + port_height as f64).min(snapshot.total_extent) - 0.5
         );
         assert_eq!(last.index, 24_999);
