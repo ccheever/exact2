@@ -183,6 +183,9 @@ struct ResourceState {
     value: Value,
     /// Store revision this answer observed; checked only for known readers.
     store_revision: u64,
+    /// A placeholder shown while the answer is on the way, never an answer
+    /// to reuse, carry or compile (LLP 1054.000.002 D4).
+    placeholder: bool,
 }
 
 /// What a boot starts from besides the plan and the launch.
@@ -440,6 +443,7 @@ impl<D: DataSource> Runner<D> {
                 // A request in flight or a placeholder shown until the
                 // source is ready is not an answer to carry.
                 .filter(|(i, _)| !self.pending_res[*i] && !self.stale[*i])
+                .filter(|(_, (_, s))| s.as_ref().is_none_or(|s| !s.placeholder))
                 .filter_map(|(_, (r, s))| {
                     s.as_ref().map(|s| {
                         (
@@ -661,6 +665,7 @@ impl<D: DataSource> Runner<D> {
                         args: args.clone(),
                         value: value.clone(),
                         store_revision: runner.store.revision(),
+                        placeholder: false,
                     })
             })
             .collect();
@@ -706,6 +711,7 @@ impl<D: DataSource> Runner<D> {
                         args,
                         value,
                         store_revision: runner.store.revision(),
+                        placeholder: false,
                     });
                 }
             }

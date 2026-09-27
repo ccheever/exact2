@@ -174,6 +174,11 @@
           "name": "placeholder",
           "codec": "opt:resources",
           "_comment": "@ref LLP 1048.003 D6: the row whose value shows while this one's source hasn't answered and nothing is kept for its arguments \u2014 a declared `else source(args)`, compiled as a row of its own (named `<name>#else`, arguments that read no state, the same type, no placeholder of its own). None: a list or an option shows its empty value, and anything else has none."
+        },
+        {
+          "name": "placeholder_value",
+          "codec": "bytes",
+          "_comment": "@ref LLP 1054.000.002 D3: a declared `else empty(field=value, …)`, the compiler's constant (a value), shown while nothing is kept and the source has not answered. Empty bytes: none — an undeclared placeholder is the type's zero, which the runner computes (D1)."
         }
       ]
     },

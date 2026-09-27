@@ -172,7 +172,9 @@ mod tests {
     fn a_carried_kept_seed_cannot_restore_an_answer_from_another_source() {
         let mut original_plan = plan("remember", false);
         original_plan.resources[0].reader = true;
-        let original = Runner::boot_stored(
+        // A module not ready at boot shows the resource's zero, and its answer
+        // at `data_ready` is kept (LLP 1054.000.002 D1).
+        let mut original = Runner::boot_stored(
             original_plan,
             Source {
                 deferred: true,
@@ -184,6 +186,8 @@ mod tests {
             "/",
         )
         .unwrap();
+        original.data.deferred = false;
+        original.data_ready().unwrap();
         let mut carried = original.carry();
         assert!(carried
             .store
@@ -207,11 +211,13 @@ mod tests {
                 "/",
             )
             .unwrap();
+            // Another source's kept answer is never restored: until its
+            // module is ready, the resource shows its zero.
             assert_eq!(
                 reloaded.resource("answer"),
-                Some(&Value::str(if reused { "stored answer" } else { "fresh" }))
+                Some(&Value::str(if reused { "stored answer" } else { "" }))
             );
-            assert_eq!(reloaded.data().queries, usize::from(!reused));
+            assert_eq!(reloaded.data().queries, 0);
         }
     }
 
@@ -219,7 +225,7 @@ mod tests {
     fn repeated_reload_cannot_relabel_an_old_kept_seed_as_the_pending_source() {
         let mut old_plan = plan("remember", false);
         old_plan.resources[0].reader = true;
-        let original = Runner::boot_stored(
+        let mut original = Runner::boot_stored(
             old_plan,
             Source {
                 deferred: true,
@@ -237,6 +243,8 @@ mod tests {
         b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
         let mut next = b.finish().unwrap();
         next.resources[0].reader = true;
+        original.data.deferred = false;
+        original.data_ready().unwrap();
         let mut carried = original.carry();
         for reload in 0..2 {
             let mut reloaded = Runner::boot_carrying(

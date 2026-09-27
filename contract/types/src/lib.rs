@@ -20,6 +20,7 @@
 mod checks;
 mod component;
 /// Router declaration checking and compile-time path expansion (LLP 1038 D2/D3).
+pub mod placeholder;
 pub mod routes;
 mod selection;
 mod uses;

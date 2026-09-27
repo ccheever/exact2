@@ -732,6 +732,7 @@ impl<D: DataSource> Runner<D> {
                     args: p.args,
                     value,
                     store_revision: self.store.revision(),
+                    placeholder: false,
                 });
             }
             Target::Mutation(m) => {

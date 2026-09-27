@@ -471,6 +471,23 @@ fn lower_with_sites(
     // after every authored row; its arguments read no state.
     for (i, r) in root.resources.iter().enumerate() {
         let Some(p) = &r.placeholder else { continue };
+        // @ref LLP 1054.000.002 D3 — `empty(…)` rides the resource's row.
+        if p.source == contract_types::placeholder::EMPTY {
+            let value = contract_types::placeholder::materialize(
+                &root_types.resources[i],
+                &p.args,
+                &l.types.shapes,
+                &r.name,
+                p.span,
+            )
+            .map_err(|errors| LowerError {
+                id: errors[0].id,
+                message: errors[0].message.clone(),
+                span: errors[0].span,
+            })?;
+            l.b.set_resource_placeholder_value(l.resources[i], &value);
+            continue;
+        }
         let ty = l.ty_id(&root_types.resources[i])?;
         let mut args = Vec::new();
         for a in &p.args {

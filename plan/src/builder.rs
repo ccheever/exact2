@@ -402,6 +402,7 @@ impl PlanBuilder {
             initial_args,
             reader: false,
             placeholder: None,
+            placeholder_value: self.no_data(),
         });
         ResourcesId(self.plan.resources.len() as u32 - 1)
     }
@@ -633,6 +634,12 @@ impl PlanBuilder {
     /// Replace a resource's arguments.
     pub fn set_resource_args(&mut self, id: ResourcesId, args: ArgsRange) {
         self.plan.resources[id.0 as usize].args = args;
+    }
+
+    /// A declared `else empty(…)`'s constant (LLP 1054.000.002 D3).
+    pub fn set_resource_placeholder_value(&mut self, id: ResourcesId, v: &Value) {
+        let bytes = self.data(v);
+        self.plan.resources[id.0 as usize].placeholder_value = bytes;
     }
 
     /// Replace a resource's compiled initial value.

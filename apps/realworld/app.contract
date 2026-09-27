@@ -126,12 +126,12 @@ component RealWorld
   derive changeKind = match change { case some(c) => c.kind, case none => "" }
   derive changeSlug = match change { case some(c) => c.slug, case none => "" }
   derive editorTags = match tagEdit { case some(t) => (t.session == editorSession ? t.items: post.tags), case none => post.tags }
-  resource me = currentUser() as shape User else anonymous()
+  resource me = currentUser() as shape User else empty(avatar="/assets/default-avatar.svg")
   resource tags = popularTags(current.name == "home" or current.name == "tag") as shape list<string>
-  resource feed = articles(listKind, current.params.tag, listName, page, me.username) as shape Feed else emptyFeed()
-  resource post = article(slug, me.username) as shape Article else emptyArticle()
+  resource feed = articles(listKind, current.params.tag, listName, page, me.username) as shape Feed
+  resource post = article(slug, me.username) as shape Article else empty(author=empty(found=true, image="/assets/default-avatar.svg"))
   resource thread = comments(slug, me.username) as shape list<Comment>
-  resource person = profile(listName, me.username) as shape Profile else emptyProfile()
+  resource person = profile(listName, me.username) as shape Profile else empty(image="/assets/default-avatar.svg")
 
   action go(url: string) writes nav, page, editorSession, tagInput, commentDraft
     page = 1

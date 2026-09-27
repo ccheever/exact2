@@ -79,14 +79,30 @@ impl<D: DataSource> Runner<D> {
     /// What a resource shows while its source hasn't answered and nothing
     /// is kept (LLP 1048.003 D6): its declared placeholder row's value this
     /// pass, or a list's or an option's empty value.
-    fn placeholder(&self, row: &ResourcesRow, resources: &[Option<Value>]) -> Option<Value> {
+    fn placeholder(
+        &self,
+        i: usize,
+        row: &ResourcesRow,
+        resources: &[Option<Value>],
+    ) -> Option<Value> {
         match row.placeholder {
             Some(p) => resources[p.0 as usize].clone(),
-            None => match self.plan.type_(row.ty).kind {
-                TypeKind::List => Some(Value::list(Vec::new())),
-                TypeKind::Option => Some(Value::NONE),
-                _ => None,
-            },
+            // @ref LLP 1054.000.002 D1/D3 — a declared `else empty(…)`, or
+            // the type's zero.
+            None if row.placeholder_value.len > 0 => {
+                Value::from_bytes(self.plan.bytes(row.placeholder_value)).ok()
+            }
+            // A declared `else source()` row must answer now: no zero hides
+            // one that answers later (its owner is refused, by name).
+            None if self
+                .plan
+                .resources
+                .iter()
+                .any(|r| r.placeholder.is_some_and(|p| p.0 as usize == i)) =>
+            {
+                None
+            }
+            None => zero(&self.plan, row.ty),
         }
     }
 
@@ -385,8 +401,14 @@ impl<D: DataSource> Runner<D> {
                                 && !reread
                                 && (!self.store_readers[i]
                                     || s.store_revision == self.store.revision())
+                                // @ref LLP 1054.000.002 D4 — a placeholder stands
+                                // in only while its answer is on the way.
+                                && (!s.placeholder || pending_res[i] || awaiting[i])
                         })
                         .map(|s| s.value.clone());
+                    // Whether what shows is a stand-in, not an answer (D4).
+                    let mut placeholder =
+                        reuse.is_some() && states[i].as_ref().is_some_and(|s| s.placeholder);
                     // Every ResourceState was checked for this index in this
                     // Runner's immutable plan: settlement checks new values,
                     // boot rechecks carried/kept values, and fulfil checks replies.
@@ -437,12 +459,13 @@ impl<D: DataSource> Runner<D> {
                         // the placeholder shows, pending; `data_ready` asks.
                         None if !self.data.ready()
                             && !exact_plan::runner_owned_source(self.plan.str(row.source))
-                            && self.placeholder(&row, &resources).is_some() =>
+                            && self.placeholder(i, &row, &resources).is_some() =>
                         {
                             self.stale[i] = true;
                             pending_res[i] = true;
                             awaiting[i] = true;
-                            self.placeholder(&row, &resources).expect("checked")
+                            placeholder = true;
+                            self.placeholder(i, &row, &resources).expect("checked")
                         }
                         None => {
                             awaiting[i] = false;
@@ -484,12 +507,15 @@ impl<D: DataSource> Runner<D> {
                                     // in flight and drops the one parked here.
                                     self.discard_request(&request);
                                     self.forgot = true;
-                                    states[i].as_ref().expect("checked").value.clone()
+                                    let state = states[i].as_ref().expect("checked");
+                                    placeholder = state.placeholder;
+                                    state.value.clone()
                                 }
                                 Answer::Later(request) => {
                                     // The host will run it. Meanwhile the resource
                                     // keeps the value it had — its last answer, or
                                     // its compiled boot value (LLP 1016 D3).
+                                    placeholder = states[i].as_ref().is_some_and(|s| s.placeholder);
                                     let kept =
                                         states[i].as_ref().map(|s| s.value.clone()).or_else(|| {
                                             (row.initial.len > 0
@@ -505,7 +531,10 @@ impl<D: DataSource> Runner<D> {
                                         });
                                     // @ref LLP 1048.003 D6 — nothing kept for these
                                     // arguments: the placeholder shows, pending.
-                                    let kept = kept.or_else(|| self.placeholder(&row, &resources));
+                                    let kept = kept.or_else(|| {
+                                        placeholder = true;
+                                        self.placeholder(i, &row, &resources)
+                                    });
                                     let Some(kept) = kept else {
                                         return Err(self.unanswerable(i));
                                     };
@@ -542,6 +571,7 @@ impl<D: DataSource> Runner<D> {
                         args,
                         value,
                         store_revision: self.store.revision(),
+                        placeholder,
                     });
                     settled_res[i] = true;
                     progress = true;
@@ -624,6 +654,28 @@ impl<D: DataSource> Runner<D> {
                 .adopt(self.plan.str(row.source), &args, &state.value);
         }
     }
+}
+
+/// `ty`'s zero (LLP 1054.000.002 D1): `0`, `""`, `false`, `()`, `none`, `[]`,
+/// and a record's fields' zeros in order — the compiler's
+/// `contract_types::placeholder::zero`, over the plan's tables.
+pub(super) fn zero(plan: &exact_plan::Plan, ty: exact_plan::TypesId) -> Option<Value> {
+    let row = plan.types.get(ty.0 as usize)?;
+    Some(match row.kind {
+        TypeKind::Number => Value::Number(0.0),
+        TypeKind::String => Value::str(""),
+        TypeKind::Bool => Value::Bool(false),
+        TypeKind::Unit => Value::Unit,
+        TypeKind::Option => Value::NONE,
+        TypeKind::List => Value::list(Vec::new()),
+        TypeKind::Record => Value::record(
+            plan.fields
+                .get(row.fields.start as usize..(row.fields.start + row.fields.len) as usize)?
+                .iter()
+                .map(|f| zero(plan, f.ty))
+                .collect::<Option<Vec<_>>>()?,
+        ),
+    })
 }
 
 #[cfg(test)]

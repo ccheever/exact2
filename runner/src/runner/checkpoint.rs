@@ -151,6 +151,7 @@ impl<D: DataSource> Runner<D> {
                 args: args.clone(),
                 value: value.clone(),
                 store_revision: self.store.revision(),
+                placeholder: false,
             });
             *seed = true;
         }

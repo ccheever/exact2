@@ -439,16 +439,18 @@ fn a_deep_launch_answering_later_cannot_show_another_locations_compiled_value() 
     b.set_resource_initial_args(resource, &[Value::str("/")]);
     let plan = b.finish().unwrap();
     let calls = Rc::new(RefCell::new(0));
-    assert!(matches!(
-        Runner::boot(
-            plan.clone(),
-            Later(calls.clone()),
-            Kernel::with_monospace(),
-            Default::default(),
-            "/t/42"
-        ),
-        Err(RunnerError::Data { .. })
-    ));
+    // @ref LLP 1054.000.002 D1 — the deep launch shows the type's zero,
+    // pending, never another location's compiled value.
+    let mut deep = Runner::boot(
+        plan.clone(),
+        Later(calls.clone()),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/t/42",
+    )
+    .unwrap();
+    assert_eq!(deep.resource("page"), Some(&Value::str("")));
+    assert_eq!(deep.take_requests().len(), 1);
     assert_eq!(*calls.borrow(), 1);
     let mut r = Runner::boot(
         plan,

@@ -213,7 +213,10 @@ assigned (`session = none`), which forgets a reply in flight. `mutation name
 as shape T refreshes a, b` (LLP 1054.000.000 D1) names the root's resources a
 send changes: each is re-requested, forced, in the commit that sends and in
 the one where the reply lands (`type-refreshes-not-resource`,
-`type-refreshes-duplicate`). **Actions.**
+`type-refreshes-duplicate`). A resource's `else` is a source call over values
+(LLP 1048.003 D6) or `empty(field=value, …)`, its type's zero with named fields
+replaced by constants (LLP 1054.000.002); without `else`, the zero shows while
+it is pending. **Actions.**
 `action name(params) writes a, b` with a body of `slot = expr`
 assignments, `send`/`refresh` statements, `name(args)` commands, and — since
 2026-08-30, LLP 1017 P2 — `if cond` … `else` … and `match option` with `case

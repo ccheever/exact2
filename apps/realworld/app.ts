@@ -142,10 +142,6 @@ async function change(kind: string, work: () => Promise<string>): Promise<Change
 const slugPath = (slug: string) => `/articles/${encodeURIComponent(slug)}`;
 
 const sources: Sources = {
-  anonymous: () => anonymous,
-  emptyFeed: () => emptyFeed,
-  emptyArticle: () => emptyArticle,
-  emptyProfile: () => emptyProfile,
   currentUser: (_, store) => currentUser(store),
   popularTags: async ([home], store) => {
     if (!home) return [];

@@ -544,7 +544,9 @@ pub fn bake<D: DataSource>(mut plan: Plan, data: D) -> Result<Plan, BakeError> {
         }
         // @ref LLP 1048.003 D6 — a source that answers later at build shows
         // its placeholder there; that is not its answer, so a launch asks it.
-        if pending.contains(&name) {
+        // @ref LLP 1054.000.002 D4 — nor is any placeholder, even one shown
+        // without a ticket (a source not ready).
+        if pending.contains(&name) || runner.resource_is_placeholder(&name) {
             continue;
         }
         if let Some(v) = runner.resource(&name) {

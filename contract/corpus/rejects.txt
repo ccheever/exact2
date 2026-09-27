@@ -807,7 +807,7 @@ shape S
   a: string
 component A
   state id = "x"
-  resource s = s(id) as shape S else empty(id)
+  resource s = s(id) as shape S else blank(id)
   view
     text s.a
 ---
