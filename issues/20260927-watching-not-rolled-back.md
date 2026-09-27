@@ -1,0 +1,19 @@
+# A refused commit keeps the device topics its failed answer watched, and drops the ones the standing answer still needs
+
+**Status:** Open
+**Systems:** Runner (`runner/src/runner/settlement.rs`, `runner/src/runner/commit.rs`)
+**Severity:** P2
+**Author:** Claude (Opus 5.5) for Charlie Cheever
+**Date:** 2026-09-27
+**Related:** LLP 1016.002
+
+The resource's `watching` topics are rewritten during the commit (`runner/src/runner/settlement.rs:498`, `commit.rs:807`), but the commit checkpoint (`commit.rs:31-45`) and `conclude` don't include them.
+
+**Failure:**
+1. A resource's standing answer watches topic A.
+2. An action changes its arguments. The new answer watches B but fails shape validation (`settlement.rs:568`).
+3. State and the resource value roll back, but `watching` now says B. An announcement of A no longer refreshes the A answer still on screen.
+
+**Fix:** put `watching` in the checkpoint and restore it on refusal, or recompute it from the standing answer when a commit concludes.
+
+Found in the 2026-09-27 review of Seth's PR #47 (`seth/grnl-port-and-motion`, merge 240b418f), reviewed at `c74615a3`. Reviewers: Opus 5.5 max, Astra max. Verification: confirmed by reading.
