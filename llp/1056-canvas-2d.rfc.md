@@ -1,7 +1,7 @@
 # LLP 1056: Canvas 2D — Core Graphics everywhere, by the web's name
 
 **Type:** RFC
-**Status:** Draft (r2: two blind reviews of r1 folded; dispositions in §0 and in `llp/reviews/1056-canvas-2d.{astra,grok}.md`). Charlie agreed to the direction on 2026-09-27. Canvas 2D is not admitted in `rules/NOT-DOING.md` until he rules on §9, and nothing is built before that ruling.
+**Status:** Accepted (r3: Charlie's rulings of 2026-09-27 on §10, recorded in §0.1 and folded into D4, D6, §9 and §10. r2 folded two blind reviews of r1; dispositions in §0 and in `llp/reviews/1056-canvas-2d.{astra,grok}.md`). Canvas 2D is admitted in `rules/NOT-DOING.md` §Components with Caltrain's line map as the take.
 **Systems:**
 - Data modules: a `draw` export and a `surfaces` roster in TypeScript and Rust, and a module ABI 2 that returns bytes (LLP 1027, 1027.002).
 - A new crate, `exact-canvas`: the recorder, the list format, the canvas colour and `font` parsers, and arc geometry.
@@ -13,8 +13,8 @@
 - Agent: `state` and `layout` for a canvas.
 
 **Author:** Claude (Opus 5.5) for Charlie Cheever
-**Date:** 2026-09-27 (r1 and r2)
-**Implementer:** Claude (Opus 5.5), from Charlie's ruling on §9, stage by stage in §8's order.
+**Date:** 2026-09-27 (r1, r2 and r3)
+**Implementer:** Claude (Opus 5.5), stage by stage in §8's order; stage 1 from 2026-09-27 on `feat/canvas2d-stage1`.
 **Related:**
 - LLP 1009: the `canvas` node and wgpu surfaces. D2's roster and publish-after-commit rule and D4's frame ownership are reused here.
 - LLP 1014 and 1014.000: canvas children.
@@ -53,7 +53,7 @@ This RFC adds that context to exact2's existing `canvas` tag on every host:
 - **Drawing only when data changes:** close to the SVG app's cost, plus 4–8 MB of bitmaps.
 - **Pulse drawn every frame:** about 230–300 ms/s more main-thread time, which puts the main thread near the GPU canvas's and far below its total CPU and memory.
 
-**Recommendation:** admit Canvas 2D with Caltrain's line map as the take (§9), and build it in §8's order.
+**Ruled (r3):** Canvas 2D is admitted with Caltrain's line map as the take (§9), and is built in §8's order. Charlie's rulings are in §0.1.
 
 ## 0. Disposition after review (r2)
 
@@ -91,6 +91,19 @@ Astra (`gpt-6-astra`, reasoning max) and Grok (`grok-4.6`, xhigh) reviewed r1 (`
 Declined:
 - **Throw-free drawing.** Both reviews offered making every failure silent instead of throwing. It is refused: the web throws, and Chrome is the standard.
 
+## 0.1 Charlie's rulings (r3, 2026-09-27)
+
+Charlie ruled on §10's four questions on 2026-09-27. In his words and in this text's:
+
+1. **Admit Canvas 2D, with Caltrain's line map as the take:** "seems reasonable". §9's text goes into `rules/NOT-DOING.md` §Components as drafted. The take: Caltrain's wgpu `map` surface and `shaders/map.wgsl` are deleted when stage 1 moves the map to Canvas 2D.
+2. **Core Graphics on Apple, tiny-skia on Linux:** accepted as recommended.
+3. **The fixture apparatus:** approved. `apps/canvas-gallery` with its direct-API page, a canvas mode in `apps/sparkline` at stage 3, and `smoke.mjs canvas` over the generalised SVG comparator. This approval is the human say-so `rules/RULES.md` §Agents and `CLAUDE.md` require before an agent adds apparatus.
+4. **The deviations,** revised by Charlie's "ok" to these:
+   - **(a) Coordinates.** Automatic CSS-pixel coordinates over a device-resolution backing store remain the default. But an author who sets the canvas's bitmap size explicitly gets exactly the web's behaviour: a fixed bitmap of that size, no automatic device scaling, stretched to the CSS box as the browser stretches it. That keeps web canvas code portable. It follows his standing principle that each platform reaches its full potential rather than the lowest common denominator, and that the web is the standard. D6 has the text.
+   - **(b) Display-scale change:** clear and redraw, as drafted. "Stretch the old pixels into the new store, then redraw" is recorded as the future option for accumulating (paint-style) canvases, triggered by such a consumer (D6).
+   - **(c) Errors are not atomic.** Match the web: a draw that throws keeps everything it recorded before the throw, pixels and state changes both, exactly as Chrome does. The rollback snapshot is removed (D4).
+   - **(d) Limits** stay, but the size limits are what browsers actually enforce, so nothing that works in Chrome or Safari is refused here. The total-memory budget is set from measurement, not a guess, and still refuses through `state` (D4).
+
 ## 1. The model, and why it is Core Graphics
 
 | Canvas 2D (HTML) | Core Graphics | tiny-skia |
@@ -108,7 +121,9 @@ Declined:
 | `fillText` `strokeText` | Core Text `CTLineDraw` into the context | the host's paragraph painter into the pixmap |
 | `drawImage` | `draw(_:in:)` | `draw_pixmap` |
 
-The web's names are CG's operations under standard spellings. Where the two models differ, the replayer carries the rule and the API does not change:
+The web's names are CG's operations under standard spellings. Where the two models differ, the replayer carries the rule and the API does not change.
+
+**As built (r3).** The recorder resolves path geometry itself. `arc`, `arcTo`, `ellipse`, `rect` and `roundRect` become line and cubic segments by `exact-canvas`'s f64 geometry, and every point is transformed by the author matrix current when it was added, as the spec says. So the list carries only `moveTo`, `lineTo`, `quadraticCurveTo`, `bezierCurveTo` and `closePath` in canvas coordinates, and every replayer, Core Graphics included, draws the same segments. CG's `addArc` is never called, so its flip inversion below cannot go wrong. The arc-direction fixture still comes first, because it proves the whole chain. The notes below remain true of the model:
 
 - **The current path survives painting.** Canvas's `fill`, `stroke` and `clip` keep the current path; CG's context operations consume it. The replayer keeps the path as a `CGMutablePath` in canvas coordinates and adds it to the context before each paint. Points are transformed by the matrix current when each was added, as the spec says. A `Path2D` is painted under the matrix current at the paint.
 - **Coordinates.** CG's origin is at the bottom left. The replayer flips the context once, which reverses the sense of `clockwise`. It passes `clockwise: !anticlockwise` to `addArc` for that reason. This is the first parity fixture (§4).
@@ -251,31 +266,31 @@ Replay runs on the host's presenting thread: the main thread on Apple and the we
 
 **On screen only, for frames.** A `"frame"` request is honoured only while the host judges the canvas on screen. This is the GPU canvas's lesson from the crypto bench (`GAPS.md` §1). The request is held until the canvas is seen. The other causes draw whether or not the canvas is on screen, so a row built in overscan arrives drawn.
 
-**Errors, one policy.** A draw is atomic, which is a declared deviation. On the web, the calls before an uncaught exception have already painted. Here, a draw that throws, or returns a rejected promise, applies nothing: the recorder's state rolls back to its snapshot at the draw's start. A snapshot is the state struct and the current path, which is copy-on-write. `state` reports the error with the canvas's lifetime. Frame requests stop until the next `"args"`, `"size"` or `"mount"`. The possible failures, and what each shows:
+**Errors, as the web has them** (Charlie, r3: not atomic). On the web the calls before an uncaught exception have already painted, and the context keeps every state change they made. Here too: a draw that throws keeps everything recorded before the throw, pixels and state both. The list up to the throw is applied in order, and the recorder is not rolled back. There is no snapshot. `state` reports the error with the canvas's lifetime. Frame requests stop until the next `"args"`, `"size"` or `"mount"`. The possible failures, and what each shows:
 
 | Failure | Shows |
 |---|---|
-| A draw that throws | the previous bitmap |
-| A first draw that throws | the transparent bitmap over the box's background |
+| A draw that throws | the previous bitmap with the calls made before the throw applied over it; the context keeps their state changes |
+| A first draw that throws | the calls made before the throw, over the transparent bitmap and the box's background |
 | A bitmap that cannot be allocated, or is over the limit | the background; the canvas is refused in `state` |
 | An unknown surface or arity | a compile error; if it escapes, the background |
 
-`draw` is synchronous in both languages. A returned promise is refused as a `TypeError`, because a draw must finish in its turn.
+`draw` is synchronous in both languages. A returned promise is a `TypeError`, because a draw must finish in its turn. The calls it made before returning are kept, as for any throw.
 
-**Limits.** Each is enforced where the cost is incurred, and each refuses through `state`:
+**Limits** (Charlie, r3: what browsers enforce, so nothing that works in Chrome or Safari is refused here). Each is enforced where the cost is incurred. A refusal is reported through `state`, and the canvas shows its background:
 
-| Limit | Value | Where |
+| Limit | Value | Source |
 |---|---|---|
-| Operations and strings in one list | 1 MiB | the recorder, at the call that crosses it; `RangeError` |
-| Pixel payloads (`putImageData`) in one list | 2× the canvas's backing bytes | the recorder |
-| Queued lists across all canvases | 8 MiB | the runner; beyond it, requests wait |
-| Backing size | 8,192 px per side | the host, at a new generation |
-| Total canvas backing, mounted plus free list | 64 MiB per process | the host |
-| State stack depth, clip depth | 1,024 | the recorder; a deeper `save` does nothing |
-| Current path segments, per `Path2D` | 1,000,000 | the recorder; `RangeError` |
-| Live gradient and `Path2D` ids per canvas | 65,536 | the recorder; `RangeError` |
+| Backing side | 65,535 px | Chrome's `kMaxSkiaDim` (`canvas_rendering_context_host.cc`). WebKit has no per-side limit, only area |
+| Backing area, web, macOS, Linux | 268,435,456 px (16,384²) | Chrome's `kMaxCanvasArea` = 32,768 × 8,192; WebKit's `maxCanvasArea()` = 16,384² off iOS (`CanvasBase.cpp`) |
+| Backing area, iOS | 67,108,864 px (8,192²) | WebKit's `maxCanvasArea()` on `IOS_FAMILY`. Every iOS browser is WebKit, so nothing that runs in a browser on the device is refused |
+| Total canvas backing, mounted plus free list, per process | a quarter of physical memory (native hosts; the browser's own on the web) | WebKit's `maxActivePixelMemory()` was `ramSize() / 4` on iOS until 2023 (WebKit `6bd11f37`, bug 195325, which removed it). Chrome and today's Safari have none. Measured below |
+| Operations in one list | no refusal: a list is sealed at 1 MiB and the draw continues in the next, applied in order | Chrome flushes its recording at a byte threshold too (`BaseRenderingContext2D::UpdateRecordingLimits`, `kMaxRecordedOpKB`) |
+| Queued lists across all canvases | 8 MiB; beyond it, requests wait | back-pressure, not a refusal |
 
-The web has no fixed limits for these. The limits are declared because exact2 must refuse where Chrome might crash a tab.
+**The total budget, measured.** A Core Graphics probe on this Mac (§11) holding full-screen canvases, each drawn, published to a layer and drawn again, measured an in-process footprint of 22.5 MiB per iPad Pro 13″ canvas (2,064 × 2,752 px; one bitmap is 21.7 MiB) and 14.5 MiB per iPhone 6.7″ canvas (1,290 × 2,796 px). The budget counts two bitmaps per canvas regardless (the context's and the layer's image, §6), so an iPad 13″ full-screen canvas is charged 43.4 MiB. r2's 64 MiB held one of them. A quarter of physical memory holds 47 of those on an 8 GB iPad, and 27 iPhone 6.7″ canvases (27.6 MiB charged each) on a 3 GB phone, and leaves three quarters of memory to the rest of the app. It is WebKit's own figure for the years it had one.
+
+Not limits any more, because no browser has them: state-stack and clip depth, path segments, and live gradient and `Path2D` ids. Chrome only records its maximum stack depth in a histogram (`Canvas2DRecorderContext`, `Blink.Canvas.MaximumStateStackDepth`). A draw that exhausts memory with them does so as a page does.
 
 **Reload.** A dev reload that replaces the module owning a surface (LLP 1007 §6) starts a new incarnation. Every 2D canvas it owns gets a new lifetime, and in-flight replies are discarded. In a mixed module, replacing only the TypeScript half re-creates only the TypeScript half's canvases.
 
@@ -293,11 +308,19 @@ The web has no fixed limits for these. The limits are declared because exact2 mu
 
 The context's coordinate space is the content box in CSS pixels. The backing store is at device pixels: `frame.pixelWidth` × `frame.pixelHeight`, `frame.scale`. The replayer's transform is `base ∘ author`, where `base` is the device scale and the flip, and `author` is the recorder's matrix. `setTransform` and `resetTransform` replace only `author`, and `getTransform()` returns only `author`.
 
-On the web authors write `canvas.width = w * dpr; ctx.scale(dpr, dpr)` by hand. exact2 does it because the canvas's size is a CSS box (LLP 1009 D3), not a bitmap attribute. Declared:
-- no `width`/`height` bitmap attributes;
+On the web authors write `canvas.width = w * dpr; ctx.scale(dpr, dpr)` by hand. exact2 does it because the canvas's size is a CSS box (LLP 1009 D3). Declared, for the default:
 - the backing store is sized and reset automatically;
-- a scale change clears and redraws (D4);
+- a scale change clears and redraws (D4). The future option for accumulating (paint-style) canvases is to stretch the old pixels into the new store and then redraw; its trigger is such a consumer (Charlie, r3);
 - the device scale is invisible to the author's matrix.
+
+**An explicit bitmap size is the web's canvas exactly** (Charlie, r3). On the web a canvas's `width` and `height` content attributes size its bitmap, and CSS sizes its box. In Contract `width` and `height` are the box's CSS size (LLP 1009 D3), so the bitmap attributes are spelled `bitmap-width` and `bitmap-height` (whole pixels, as HTML's non-negative integers). When either is set, the canvas behaves as the web's:
+- the bitmap is `bitmap-width` × `bitmap-height` pixels; an attribute left unset takes the web's default, 300 or 150;
+- `frame.width` = `frame.pixelWidth` = the bitmap width, and likewise the height; `frame.scale` is 1, and `base` is the identity (and the flip);
+- the host stretches the bitmap to the content box, as the browser does for `object-fit: fill`, with smoothing;
+- a change of display scale is not a new generation, because the bitmap does not change;
+- a change of either attribute is a new generation, as assigning `canvas.width` is on the web.
+
+So canvas code written for a fixed bitmap runs unchanged, including its blur on a high-density display.
 
 **Pixels are raw backing pixels, as on the web.** `createImageData` and `putImageData` address device pixels, and `putImageData` ignores the transform, clip, alpha, compositing and smoothing, per the spec. An author sizes a full-canvas `ImageData` from `frame.pixelWidth` and `frame.pixelHeight`.
 
@@ -379,7 +402,7 @@ The reset contract on park: the backing pixels are cleared, not only the layer's
 - its image and font subscriptions;
 - its inspection record.
 
-The next node's `mounted` is that node's creation time, so a reused row replays its draw-in. A parked bitmap is kept only if the next node's backing size matches. Parked and free-listed buffers are counted together under the 64 MiB limit and dropped under memory pressure, as shaped text is (`1ced26af`).
+The next node's `mounted` is that node's creation time, so a reused row replays its draw-in. A parked bitmap is kept only if the next node's backing size matches. Parked and free-listed buffers are counted together under the total budget (D4) and dropped under memory pressure, as shaped text is (`1ced26af`).
 
 **The fill policy (LLP 1050.000).**
 - **The first draw always runs** with its row. Its cost is unknown until it has run once.
@@ -387,7 +410,7 @@ The next node's `mounted` is that node's creation time, so a reused row replays 
 - **Only native `main` placement can present an owed row drawn**, since the web and worker placements answer later (D4). There the row presents with its canvas `pending`, and `state` says so.
 - **Frame requests are never owed.** A missed frame shows the previous one.
 
-**Memory is O(mounted canvases):** bitmaps for mounted 2D canvases, the image the layer holds, and the bounded free list. It is not charged to the decoded-image budget, and it is bounded by D4's 64 MiB.
+**Memory is O(mounted canvases):** bitmaps for mounted 2D canvases, the image the layer holds, and the bounded free list. It is not charged to the decoded-image budget, and it is bounded by D4's total budget.
 
 ## 3. The subset by stage, and what is refused
 
@@ -486,7 +509,7 @@ There are two oracles, because the recorded list puts the web glue inside the fi
 - accumulation without clearing;
 - `reset` versus `clearRect` under a clip;
 - a resize mid-sequence (new generation);
-- a draw that throws (atomic);
+- a draw that throws (the calls before the throw are kept);
 - a worker-placed canvas with a stale reply;
 - a reload.
 
@@ -586,11 +609,11 @@ The line counts are estimates. The protocol (D4) is most of the new work.
 - **`apps/sparkline`** gains a canvas chart beside its SVG chart in stage 3: one Contract row, two drawing models, Chrome the reference for both.
 - **The smoke** is `bun scripts/smoke.mjs canvas`, over the generalised comparator.
 
-The gallery, the sparkline mode and the smoke mode are apparatus, which `rules/RULES.md` needs Charlie to approve (§10 Q3).
+The gallery, the sparkline mode and the smoke mode are apparatus. Charlie approved them on 2026-09-27 (§0.1, §10 Q3), which is the human approval `rules/RULES.md` §Agents requires.
 
-## 9. `rules/NOT-DOING.md`: the admission for Charlie to rule on
+## 9. `rules/NOT-DOING.md`: the admission
 
-Canvas 2D is not admitted today. Drafted for §Components, after the SVG entry:
+Admitted by Charlie on 2026-09-27 (§0.1). The text below is in §Components, after the SVG entry:
 
 > **Expanded (Charlie, 2026-09-27: "Core Graphics everywhere", by the web's name):** the HTML Canvas 2D context on the `canvas` tag (LLP 1056). A surface in the app's data module, TypeScript or Rust, draws with `CanvasRenderingContext2D`'s own names and rules. Its recorded calls are replayed in order by the browser, Core Graphics or tiny-skia into the canvas's kept bitmap. Unblocks computed 2D drawing (charts, sparklines, maps, custom controls) on every host without a GPU module, with Chrome as the oracle. Take: Caltrain's line map leaves wgpu. Its `map` surface and shader are deleted, and it is redrawn as a Canvas 2D surface in Caltrain's data crate, so one fewer GPU path exists after than before. Still refused: a drawing language in Contract (SVG is the declarative one), readback (`getImageData`, `toDataURL`, `toBlob`), `ctx.filter`, and an app-visible `OffscreenCanvas`.
 
@@ -598,22 +621,56 @@ Canvas 2D is not admitted today. Drafted for §Components, after the SVG entry:
 - **Proposed.** Caltrain defines v1, so the admission has a consumer inside the v1 bar. The GPU module stays for the aurora, glass and deck, which are shaders. Stage 1 delivers the migration (§8).
 - **Considered and dropped (r2).** 1009's unbuilt `Custom(u16)` extension point, and closing the GPU-row-pooling queue item. Neither is a doing-list line, and GPU surfaces may still want the first. Both reviewers said so.
 
-## 10. Questions for Charlie
+## 10. Questions for Charlie, as ruled (r3)
 
-1. **Admit Canvas 2D with the Caltrain map as the take?** Recommendation: yes, with the §9 text as written.
-2. **Core Graphics on Apple rather than tiny-skia on every native host?** Recommendation: Core Graphics. It is 3.1–5.7× faster on the same drawing here, its text is the app's text, and it is the model you asked for. The costs:
-   - Apple and Linux each match Chrome rather than each other.
-   - `ctx.filter` stays refused, because sharing SVG's tiny-skia islands would give Apple a third raster path.
-3. **Approve the fixture apparatus:** `apps/canvas-gallery` with its direct-API page, a canvas mode in `apps/sparkline` (stage 3), and `smoke.mjs canvas` over the generalised SVG comparator. Recommendation: yes. It adds no blocking check, and it generalises rather than copies.
-4. **Accept the declared deviations:**
-   - CSS-pixel coordinates over a device backing store;
-   - clear and redraw on a scale change;
-   - atomic draws;
-   - fixed limits.
+1. **Admit Canvas 2D with the Caltrain map as the take?** Ruled yes: "seems reasonable". §9's text is in `rules/NOT-DOING.md`.
+2. **Core Graphics on Apple rather than tiny-skia on every native host?** Ruled yes, as recommended. The costs stand: Apple and Linux each match Chrome rather than each other, and `ctx.filter` stays refused, because sharing SVG's tiny-skia islands would give Apple a third raster path.
+3. **Approve the fixture apparatus** (`apps/canvas-gallery` with its direct-API page, a canvas mode in `apps/sparkline` at stage 3, and `smoke.mjs canvas` over the generalised SVG comparator)? Ruled yes. It adds no blocking check, and it generalises rather than copies.
+4. **Accept the declared deviations?** Ruled "ok" to these revisions:
+   - CSS-pixel coordinates over a device backing store stay the default, and an explicit bitmap size is the web's canvas exactly (D6);
+   - a scale change clears and redraws; stretching the old pixels first is the recorded future option (D6);
+   - draws are not atomic: a throw keeps what was recorded before it, as Chrome does (D4);
+   - limits stay, at what browsers enforce, with a measured total budget (D4).
 
-   Recommendation: yes. Each is where exact2's box-sized canvas or its agent-owned determinism differs from a page. Each is named in D4 and D6, so a web author learns them once.
+**Open, for Charlie when he next looks:** the Contract spelling of the bitmap attributes. HTML spells them `width` and `height`, which Contract already uses for the box's CSS size, so r3 spells them `bitmap-width` and `bitmap-height`.
 
 ## 11. Appendix: the probes (2026-09-27, Apple M5 Max)
+
+The total budget's footprint (`swiftc -O main.swift -o probe && ./probe 2064 2752 8 && ./probe 1290 2796 8`), r3. It reads `phys_footprint` before and after holding `n` canvases, each drawn, published to a `CALayer` as `makeImage()`, drawn and published again, then drawn once more:
+
+```swift
+import CoreGraphics
+import Foundation
+import QuartzCore
+func footprint() -> Double {
+  var info = task_vm_info_data_t(); var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+  let kr = withUnsafeMutablePointer(to: &info) { $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) } }
+  precondition(kr == KERN_SUCCESS); return Double(info.phys_footprint) / 1048576
+}
+let (w, h) = (Int(CommandLine.arguments[1])!, Int(CommandLine.arguments[2])!)
+let n = Int(CommandLine.arguments[3])!
+let cs = CGColorSpace(name: CGColorSpace.sRGB)!
+let base = footprint()
+var keep: [(CGContext, CALayer)] = []
+for i in 0..<n {
+  let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)!
+  let layer = CALayer()
+  for pass in 0..<2 {
+    ctx.setFillColor(red: CGFloat(i % 3) / 2, green: CGFloat(pass), blue: 0.5, alpha: 1)
+    ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+    ctx.setStrokeColor(red: 0, green: 0, blue: 0, alpha: 1); ctx.setLineWidth(3)
+    ctx.stroke(CGRect(x: 10, y: 10, width: w - 20, height: h - 20))
+    layer.contents = ctx.makeImage()
+  }
+  ctx.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+  keep.append((ctx, layer))
+}
+let per = (footprint() - base) / Double(n)
+print(String(format: "%dx%d px, %d canvases: %.1f MiB each (one bitmap = %.1f MiB)", w, h, n, per, Double(w*h*4)/1048576))
+```
+
+It printed 22.5 MiB each at 2,064 × 2,752 (one bitmap 21.7 MiB) and 14.5 MiB each at 1,290 × 2,796 (13.8 MiB). An offscreen layer is never committed to the render server, so the probe sees about one bitmap per canvas. The budget charges two.
+
 
 Core Graphics (`swiftc -O main.swift -o probe && ./probe 2 && ./probe 3`):
 

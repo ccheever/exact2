@@ -301,6 +301,19 @@ none named; the dead `svgSource` prop is deleted.
     hosts refuse it by name until a design for boxes inside a scene exists;
     the error names the pattern that works everywhere, a box positioned over
     the `svg`.
+
+**Expanded (Charlie, 2026-09-27: "Core Graphics everywhere", by the web's name;
+admitted with "seems reasonable"):** the HTML Canvas 2D context on the `canvas`
+tag (LLP 1056). A surface in the app's data module, TypeScript or Rust, draws
+with `CanvasRenderingContext2D`'s own names and rules. Its recorded calls are
+replayed in order by the browser, Core Graphics or tiny-skia into the canvas's
+kept bitmap. Unblocks computed 2D drawing (charts, sparklines, maps, custom
+controls) on every host without a GPU module, with Chrome as the oracle. Take:
+Caltrain's line map leaves wgpu. Its `map` surface and shader are deleted, and
+it is redrawn as a Canvas 2D surface in Caltrain's data crate, so one fewer GPU
+path exists after than before. Still refused: a drawing language in Contract
+(SVG is the declarative one), readback (`getImageData`, `toDataURL`,
+`toBlob`), `ctx.filter`, and an app-visible `OffscreenCanvas`.
 - **`runOnJS` and the escape hatch / runtime graph admission** — never existed here.
 
 **Tooling** — no Design Mode, no Guide system, no devtools UI, no TUI host, no blog/CMS.
