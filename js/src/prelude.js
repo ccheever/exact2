@@ -295,6 +295,15 @@
     currentCall = null;
     return ok(result);
   };
+  // Canvas 2D (LLP 1056 D1): the module's draw seam, when it exports `draw`.
+  global.__exact_draw = function (request) {
+    if (!global.exact.drawCanvas) throw new Error("the module exports no draw");
+    return global.exact.drawCanvas(request);
+  };
+  global.__exact_retire = function (retired) {
+    if (global.exact.retireCanvases) global.exact.retireCanvases(retired);
+    return "";
+  };
   global.__exact_settle = function (id) {
     currentCall = null;
     var call = calls.get(Number(id));

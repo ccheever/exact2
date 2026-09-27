@@ -1,0 +1,81 @@
+// Canvas gallery — the LLP 1056 fixture: every Canvas 2D stage-1 member,
+// drawn by fixtures.js through the recorder on each host. Chrome (the web
+// host) is the reference; `bun scripts/smoke.mjs canvas` crops each `fx-*`
+// canvas on every host and compares it, and holds the web's recorded path to
+// direct.html, which runs the same fixtures on Chrome's context directly.
+//
+// Page 3's fixtures are sequences: `step` redraws them on the same context.
+
+routes nav
+  tab home "/"
+
+style Tile
+  width=150
+  height=100
+  flex-shrink=0
+  background-color="#f8fafc"
+
+component Gallery
+  state page = 1
+  state step = 0
+  action one writes page
+    page = 1
+  action two writes page
+    page = 2
+  action three writes page
+    page = 3
+  action advance writes step
+    step = step + 1
+  view
+    main testId="gallery" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#0f172a" font-family="system-ui"
+      row flex-shrink=0 align-items="center" gap=8 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8
+        text "Canvas" flex=1 font-size=17 font-weight=600
+        button press=one testId="page-1" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 1 ? "#e2e8f0" : "#f8fafc")
+          text "1" font-size=13
+        button press=two testId="page-2" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 2 ? "#e2e8f0" : "#f8fafc")
+          text "2" font-size=13
+        button press=three testId="page-3" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 3 ? "#e2e8f0" : "#f8fafc")
+          text "3" font-size=13
+        button press=advance testId="step" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="#f8fafc"
+          text `step ${step}` font-size=13
+      row flex-wrap="wrap" gap=8 padding-left=12 padding-right=12
+        when page == 1
+          Shapes()
+        when page == 2
+          Paint()
+        when page == 3
+          Sequences(step=step)
+
+// Shapes and paths: arcs first (the direction under Core Graphics' flip).
+component Shapes
+  view
+    canvas surface=arc() class=Tile testId="fx-arc"
+    canvas surface=caps() class=Tile testId="fx-caps"
+    canvas surface=dash() class=Tile testId="fx-dash"
+    canvas surface=arcto() class=Tile testId="fx-arcto"
+    canvas surface=roundrect() class=Tile testId="fx-roundrect"
+    canvas surface=ellipse() class=Tile testId="fx-ellipse"
+    canvas surface=transform() class=Tile testId="fx-transform"
+    canvas surface=kept() class=Tile testId="fx-kept"
+
+// Paint: gradients, alpha, every stage-1 operator, clips, an explicit bitmap.
+component Paint
+  view
+    canvas surface=linear() class=Tile testId="fx-linear"
+    canvas surface=radial() class=Tile testId="fx-radial"
+    canvas surface=alpha() class=Tile testId="fx-alpha"
+    canvas surface=composite() class=Tile testId="fx-composite"
+    canvas surface=clip() class=Tile testId="fx-clip"
+    canvas surface=clear() class=Tile testId="fx-clear"
+    canvas surface=bitmap() class=Tile bitmap-width=40 bitmap-height=25 testId="fx-bitmap"
+
+// Sequences: each step draws again on the same context (D3, D4).
+component Sequences
+  props
+    step: number
+  view
+    canvas surface=accumulate(step) class=Tile testId="fx-accumulate"
+    canvas surface=stack(step) class=Tile testId="fx-stack"
+    canvas surface=reset(step) class=Tile testId="fx-reset"
+    canvas surface=throws(step) class=Tile testId="fx-throws"
+    canvas surface=resize(step) class=Tile width=(90 + step * 20) testId="fx-resize"

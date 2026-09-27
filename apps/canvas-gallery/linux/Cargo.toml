@@ -1,0 +1,21 @@
+# The Canvas gallery on the Linux host (LLP 1056 §4): one executable with the
+# runner, the kernel, the baked plan and its TypeScript data module.
+[package]
+name = "canvas-gallery-linux"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+build = "build.rs"
+
+[[bin]]
+name = "canvas-gallery-linux"
+path = "src/main.rs"
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-linux = { path = "../../../host/linux" }
+exact-js = { path = "../../../js" }
+
+[build-dependencies]
+exact-js-bake = { path = "../../../js/bake" }

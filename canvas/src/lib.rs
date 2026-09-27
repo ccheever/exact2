@@ -8,6 +8,7 @@
 //! - [`color`]: CSS Color 4's sRGB forms and the canvas serialisation.
 //! - [`geom`]: the author matrix and f64 arc, `arcTo` and `roundRect`
 //!   geometry, resolved at the call.
+//! - [`seam`]: the TypeScript recorder's reply (`canvas/recorder.js`).
 //!
 //! A leaf: it depends on nothing, so the runner and every host can reach it.
 //! An app's artifact carries it only if its data module draws.
@@ -19,6 +20,7 @@ pub mod color;
 pub mod context;
 pub mod geom;
 pub mod list;
+pub mod seam;
 
 pub use color::Rgba;
 pub use context::{CanvasGradient, CanvasWindingRule, Context2d, DomException, DomMatrix, Style};

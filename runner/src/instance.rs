@@ -237,6 +237,30 @@ impl Ids {
     }
 }
 
+/// A value as the JSON a surface's arguments cross in: numbers shortest,
+/// records and lists as arrays, `none` as `null`.
+pub fn value_json(value: &Value, out: &mut String) {
+    match value {
+        Value::Number(n) if n.is_finite() => {
+            exact_num::push_text!(out, "{}", exact_num::Shortest(*n))
+        }
+        Value::Number(_) | Value::Unit | Value::Option(None) => out.push_str("null"),
+        Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+        Value::Str(s) => crate::agent::quote(s, out),
+        Value::Option(Some(v)) => value_json(v, out),
+        Value::List(items) | Value::Record(items) => {
+            out.push('[');
+            for (i, value) in items.iter().enumerate() {
+                if i != 0 {
+                    out.push(',');
+                }
+                value_json(value, out);
+            }
+            out.push(']');
+        }
+    }
+}
+
 /// A canvas node's surface inputs, evaluated against state: the runner's
 /// side-output for the host's GPU module (LLP 1009 D2). Published only
 /// after the commit that produced it applied.
@@ -258,27 +282,6 @@ impl SurfaceUpdate {
     /// Positional JSON array or named JSON object consumed by the surface module.
     /// Host reserialization may reorder keys: transport bytes are never hash inputs.
     pub fn arguments_json(&self) -> String {
-        fn value_json(value: &Value, out: &mut String) {
-            match value {
-                Value::Number(n) if n.is_finite() => {
-                    exact_num::push_text!(out, "{}", exact_num::Shortest(*n))
-                }
-                Value::Number(_) | Value::Unit | Value::Option(None) => out.push_str("null"),
-                Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
-                Value::Str(s) => crate::agent::quote(s, out),
-                Value::Option(Some(v)) => value_json(v, out),
-                Value::List(items) | Value::Record(items) => {
-                    out.push('[');
-                    for (i, value) in items.iter().enumerate() {
-                        if i != 0 {
-                            out.push(',');
-                        }
-                        value_json(value, out);
-                    }
-                    out.push(']');
-                }
-            }
-        }
         let named = self.mode == exact_plan::SurfaceArgsMode::Named;
         let mut out = String::from(if named { "{" } else { "[" });
         for (i, value) in self.values.iter().enumerate() {

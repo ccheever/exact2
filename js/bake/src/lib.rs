@@ -295,6 +295,12 @@ fn build_sources(
             .as_str()
             .is_some_and(|module| !module.is_empty());
     let mut metadata = format!("pub const APP: &str = {:?};\npub const GRANTS: &str = {:?};\npub const REVISION: &str = {:?};\npub const RUST_UPDATES: bool = {rust_updates};\n", meta["appId"].as_str().ok_or("missing appId")?, meta["grants"].as_str().ok_or("missing grants")?, meta["module"]["sha256"].as_str().ok_or("missing module hash")?);
+    // The module's Canvas 2D roster (LLP 1056 D1), known before it loads.
+    metadata.push_str("#[allow(dead_code)]\npub const CANVAS_SURFACES: &[(&str, usize)] = &[");
+    for (name, arity) in meta["surfaces"].as_object().into_iter().flatten() {
+        metadata.push_str(&format!("({name:?}, {}), ", arity.as_u64().unwrap_or(0)));
+    }
+    metadata.push_str("];\n");
     // Where each module runs (LLP 1027.002 §6), typed for the executor crate
     // this platform links; the compatibility id already carries the same.
     let placement_type = if platform == "web" {
@@ -559,11 +565,18 @@ fn bake_in(
     {
         return Err("TypeScript bake needs app.ts and app.contract".into());
     }
-    if captured.contains_key(Path::new("__exact_entry.ts"))
-        || captured.contains_key(Path::new("__exact_tsconfig.json"))
+    if [
+        "__exact_entry.ts",
+        "__exact_tsconfig.json",
+        "__exact_canvas.js",
+        "__exact_canvas.d.ts",
+    ]
+    .iter()
+    .any(|name| captured.contains_key(Path::new(name)))
     {
         return Err(
-            "__exact_entry.ts and __exact_tsconfig.json are reserved for the producer".into(),
+            "__exact_entry.ts, __exact_tsconfig.json and __exact_canvas.* are reserved for the producer"
+                .into(),
         );
     }
     for name in previous.keys().filter(|name| !captured.contains_key(*name)) {
@@ -603,9 +616,29 @@ fn bake_in(
     if let Some(map) = source_map.as_mut() {
         map.relocate_sources(stage, &app)?;
     }
-    let declarations = contract::typescript(&plan)?;
+    let mut declarations = contract::typescript(&plan)?;
+    // Canvas 2D (LLP 1056 D1): a module that exports `draw` and `surfaces`
+    // speaks ABI 2, and only it carries the recorder.
+    let app_ts = String::from_utf8_lossy(&captured[Path::new("app.ts")]).into_owned();
+    let draws = exports(&app_ts, "draw");
+    if draws != exports(&app_ts, "surfaces") {
+        return Err(
+            "app.ts exports `draw` and `surfaces` together, or neither (LLP 1056 D1)".into(),
+        );
+    }
+    if draws {
+        declarations.push_str(CANVAS_TYPES);
+        write_changed(&stage.join("__exact_canvas.js"), RECORDER.as_bytes())?;
+        write_changed(
+            &stage.join("__exact_canvas.d.ts"),
+            RECORDER_TYPES.as_bytes(),
+        )?;
+    }
     write_changed(&stage.join("app.contract.d.ts"), declarations.as_bytes())?;
-    let entry = format!("import * as app from './app';\nimport type {{ Answer }} from './app.contract.d.ts';\nexport const abi = {};\nexport const appId: string = app.appId;\nexport const grants: string = app.grants;\nexport const answer: Answer = app.answer;\n", exact_js::ABI);
+    let mut entry = format!("import * as app from './app';\nimport type {{ Answer }} from './app.contract.d.ts';\nexport const abi = {};\nexport const appId: string = app.appId;\nexport const grants: string = app.grants;\nexport const answer: Answer = app.answer;\n", if draws { 2 } else { 1 });
+    if draws {
+        entry.push_str(CANVAS_ENTRY);
+    }
     write_changed(&stage.join("__exact_entry.ts"), entry.as_bytes())?;
     if let BakeMode::Development {
         compiler: Some(compiler),
@@ -621,6 +654,11 @@ fn bake_in(
     let module = Module::inspect(bytecode.clone())?;
     let app_id = module.app_id().to_owned();
     let grants = module.grants().to_owned();
+    let surfaces: serde_json::Map<String, serde_json::Value> = module
+        .canvas_roster()
+        .iter()
+        .map(|(name, arity)| (name.clone(), (*arity).into()))
+        .collect();
     let rust_sources = composer
         .as_ref()
         .map(|c| c.rust_sources.clone())
@@ -641,7 +679,8 @@ fn bake_in(
     .encode();
     let source_map = source_map.map(|map| map.json(&plan));
     let receipt = serde_json::json!({
-        "version": 1, "appId": app_id, "grants": grants, "abi": exact_js::ABI,
+        "version": 1, "appId": app_id, "grants": grants, "abi": if draws { 2 } else { 1 },
+        "surfaces": surfaces,
         "rustSources": rust_sources,
         "bytecodeVersion": exact_js::BYTECODE_VERSION,
         "plan": {"file": "app.plan", "sha256": digest(&plan), "bytes": plan.len()},
@@ -656,6 +695,69 @@ fn bake_in(
         declarations,
         receipt,
         source_map,
+    })
+}
+
+/// The TypeScript recorder (LLP 1056 D3), bundled into a module that draws.
+const RECORDER: &str = include_str!("../../../canvas/recorder.js");
+
+/// Its seam's type, for the generated entry's strict check.
+const RECORDER_TYPES: &str = "export declare function canvasSeam(draw: (surface: string, args: any, ctx: any, frame: any) => unknown): { draw(request: unknown): string; retire(retired: unknown): void };\n";
+
+/// The entry's Canvas 2D half: the roster as JSON and the seam's two calls.
+const CANVAS_ENTRY: &str = "import { canvasSeam } from './__exact_canvas.js';\nexport const surfacesJson: string = JSON.stringify(app.surfaces);\nconst seam = canvasSeam(app.draw);\nexport const drawCanvas = (request: string): string => seam.draw(JSON.parse(request));\nexport const retireCanvases = (retired: string): void => seam.retire(JSON.parse(retired));\n";
+
+/// What a drawing module's author types against (LLP 1056 D1, stage 1):
+/// the context is the web's own interface, narrowed to stage 1's members.
+const CANVAS_TYPES: &str = "
+/** The 2D context a surface draws with (LLP 1056 §3, stage 1). */
+export type Ctx2D = Pick<OffscreenCanvasRenderingContext2D,
+  | 'save' | 'restore' | 'reset'
+  | 'translate' | 'rotate' | 'scale' | 'transform' | 'setTransform' | 'resetTransform' | 'getTransform'
+  | 'beginPath' | 'moveTo' | 'lineTo' | 'quadraticCurveTo' | 'bezierCurveTo' | 'arc' | 'arcTo' | 'ellipse' | 'rect' | 'roundRect' | 'closePath'
+  | 'fill' | 'stroke' | 'clip' | 'fillRect' | 'strokeRect' | 'clearRect'
+  | 'lineWidth' | 'lineCap' | 'lineJoin' | 'miterLimit' | 'setLineDash' | 'getLineDash' | 'lineDashOffset'
+  | 'fillStyle' | 'strokeStyle' | 'createLinearGradient' | 'createRadialGradient'
+  | 'globalAlpha' | 'globalCompositeOperation'>;
+/** What one draw is told (LLP 1056 D4–D6). */
+export interface Frame {
+  readonly time: number;
+  readonly mounted: number;
+  readonly cause: 'mount' | 'args' | 'size' | 'frame' | 'image' | 'font';
+  readonly causes: readonly string[];
+  readonly width: number;
+  readonly height: number;
+  readonly pixelWidth: number;
+  readonly pixelHeight: number;
+  readonly scale: number;
+}
+/** A module's `draw`: true asks for another frame. */
+export type Draw = (surface: string, args: any, ctx: Ctx2D, frame: Frame) => boolean;
+";
+
+/// Whether `app.ts` exports `name` (a function, a binding, or in a list).
+fn exports(source: &str, name: &str) -> bool {
+    let word = |at: usize| {
+        source[at + name.len()..]
+            .chars()
+            .next()
+            .is_none_or(|c| !(c.is_alphanumeric() || c == '_' || c == '$'))
+    };
+    [
+        "export function ",
+        "export async function ",
+        "export const ",
+        "export let ",
+    ]
+    .iter()
+    .any(|prefix| {
+        source
+            .match_indices(&format!("{prefix}{name}"))
+            .any(|(at, _)| word(at + prefix.len()))
+    }) || source.match_indices("export {").any(|(at, _)| {
+        let list = &source[at..at + source[at..].find('}').unwrap_or(0)];
+        list.split(|c: char| c == ',' || c == '{' || c.is_whitespace())
+            .any(|w| w == name)
     })
 }
 

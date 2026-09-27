@@ -42,7 +42,7 @@ function init(message) {
   self.__exact_storage = storage.capability;
   self.__exact_install_storage();
   evaluate(message.script);
-  if (self.exact?.abi !== 1 || self.exact.appId !== admitted.appId || self.exact.grants?.trim() !== admitted.grants.trim() || typeof self.exact.answer !== 'function') throw new Error('module exports mismatch the admitted client');
+  if ((self.exact?.abi !== 1 && self.exact?.abi !== 2) || self.exact.appId !== admitted.appId || self.exact.grants?.trim() !== admitted.grants.trim() || typeof self.exact.answer !== 'function') throw new Error('module exports mismatch the admitted client');
 }
 
 function begin(request) {

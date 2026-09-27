@@ -32,7 +32,11 @@ impl Paired {
             return Err("module candidate exceeds its size limit".into());
         }
         let meta: Value = serde_json::from_str(receipt).map_err(|e| e.to_string())?;
-        if meta["version"].as_u64() != Some(1) || meta["abi"].as_u64() != Some(ABI.into()) {
+        if meta["version"].as_u64() != Some(1)
+            || !meta["abi"]
+                .as_u64()
+                .is_some_and(|abi| abi == 1 || abi == ABI as u64)
+        {
             return Err("module candidate has an unsupported receipt or seam ABI".into());
         }
         if BYTECODE_VERSION == 0

@@ -78,7 +78,7 @@ export function moduleCards(files, appId) {
   const receipt = files.get(MODULE_FILES.receipt);
   if (!receipt || receipt.length > 1024 * 1024) throw new Error('missing or oversized module receipt');
   const meta = JSON.parse(receipt.toString('utf8'));
-  if (meta.version !== 1 || meta.abi !== 1 || meta.appId !== appId || typeof meta.grants !== 'string'
+  if (meta.version !== 1 || (meta.abi !== 1 && meta.abi !== 2) || meta.appId !== appId || typeof meta.grants !== 'string'
       || !Number.isSafeInteger(meta.bytecodeVersion) || meta.bytecodeVersion <= 0) throw new Error('incompatible module receipt');
   for (const [key, name] of [['plan', 'app.plan'], ['module', 'app.hbc'], ['web', 'app.js']]) {
     const bytes = files.get(name), card = meta[key];

@@ -138,6 +138,76 @@ pub struct DrawRequest<'a> {
     pub frame: Frame,
 }
 
+impl DrawRequest<'_> {
+    /// The request as the TypeScript seam reads it (`canvas/recorder.js`):
+    /// `{canvas, generation, seq, surface, args, frame}`, the arguments as
+    /// a GPU surface's `bind` receives them.
+    pub fn json(&self) -> String {
+        let mut s = format!(
+            "{{\"canvas\":{},\"generation\":{},\"seq\":{},\"surface\":",
+            self.canvas, self.generation, self.seq
+        );
+        crate::agent::quote(self.surface, &mut s);
+        s.push_str(",\"args\":");
+        let named = !self.names.is_empty();
+        s.push(if named { '{' } else { '[' });
+        for (i, v) in self.args.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            if named {
+                crate::agent::quote(&self.names[i], &mut s);
+                s.push(':');
+            }
+            crate::instance::value_json(v, &mut s);
+        }
+        s.push(if named { '}' } else { ']' });
+        let f = &self.frame;
+        let _ = write!(
+            s,
+            ",\"frame\":{{\"time\":{},\"mounted\":{},\"cause\":\"{}\",\"causes\":[",
+            crate::agent::num(f.time),
+            crate::agent::num(f.mounted),
+            f.cause.primary()
+        );
+        for (i, c) in f.cause.names().iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            let _ = write!(s, "\"{c}\"");
+        }
+        let _ = write!(
+            s,
+            "],\"width\":{},\"height\":{},\"pixelWidth\":{},\"pixelHeight\":{},\"scale\":{}}}}}",
+            crate::agent::num(f.width),
+            crate::agent::num(f.height),
+            f.pixel_width,
+            f.pixel_height,
+            crate::agent::num(f.scale)
+        );
+        s
+    }
+}
+
+impl DrawReply {
+    /// A TypeScript seam's reply ([`exact_canvas::seam`]), or its fault as
+    /// the draw's error.
+    pub fn from_seam(json: &str) -> DrawReply {
+        match exact_canvas::seam::reply(json) {
+            Ok(r) => DrawReply {
+                lists: r.lists,
+                wants_frame: r.frame,
+                error: r.error,
+                notes: r.notes,
+            },
+            Err(e) => DrawReply {
+                error: Some(e),
+                ..Default::default()
+            },
+        }
+    }
+}
+
 /// What a source did with a draw request.
 #[derive(Debug)]
 pub enum Drawn {
@@ -465,6 +535,7 @@ impl<D: DataSource> Runner<D> {
             self.data.canvases_retired(&retired);
         }
         let views: Vec<ViewId> = self.canvases.records.keys().copied().collect();
+        let ready = self.data.ready();
         for view in views {
             let queued: usize = self
                 .canvases
@@ -493,7 +564,9 @@ impl<D: DataSource> Runner<D> {
                 });
             }
             let Some(b) = r.backing else { continue };
-            if b.empty() || r.in_flight.is_some() || queued > QUEUED_BYTES {
+            // A module not yet active draws nothing yet (D4: its canvases
+            // are transparent until its executor is active); the causes wait.
+            if !ready || b.empty() || r.in_flight.is_some() || queued > QUEUED_BYTES {
                 continue;
             }
             let mut causes = r.causes;

@@ -96,7 +96,7 @@ export async function baked() {
 export async function prepare(payload, admitted, id = nextId++) {
   const ceiling = new Set(admitted.grants.split('\n').map(s=>s.trim()).filter(Boolean));
   const meta = JSON.parse(decoder.decode(payload.receipt));
-  if (meta.version !== 1 || meta.abi !== 1 || meta.appId !== admitted.appId || typeof meta.grants !== 'string' || meta.grants.split('\n').map(s=>s.trim()).filter(Boolean).some(s=>!ceiling.has(s))
+  if (meta.version !== 1 || (meta.abi !== 1 && meta.abi !== 2) || meta.appId !== admitted.appId || typeof meta.grants !== 'string' || meta.grants.split('\n').map(s=>s.trim()).filter(Boolean).some(s=>!ceiling.has(s))
       || meta.web?.file !== 'app.js' || meta.web.bytes !== payload.script.length || meta.web.sha256 !== await hash(payload.script)
       || !/^[0-9a-f]{64}$/.test(meta.module?.sha256)) throw new Error('module integrity, ABI, identity, or grants mismatch');
   admitted = {...admitted,grants:meta.grants};
@@ -136,7 +136,7 @@ export async function prepare(payload, admitted, id = nextId++) {
         win.__exact_install_storage();
       }
     }
-    if (win.exact?.abi !== 1 || win.exact.appId !== admitted.appId || win.exact.grants?.trim() !== admitted.grants.trim() || typeof win.exact.answer !== 'function') throw new Error('module exports mismatch the admitted client');
+    if ((win.exact?.abi !== 1 && win.exact?.abi !== 2) || win.exact.appId !== admitted.appId || win.exact.grants?.trim() !== admitted.grants.trim() || typeof win.exact.answer !== 'function') throw new Error('module exports mismatch the admitted client');
     const pending = new Map();
     // The runner's target first: two targets asking one source with equal
     // arguments are two calls (LLP 1027 D1a).
@@ -198,6 +198,9 @@ export async function prepare(payload, admitted, id = nextId++) {
       return {continuation:token};
     };
     const realm = { frame, meta, id, placement: 'main',
+      // Canvas 2D (LLP 1056 D1): a draw awaits nothing, so it runs now.
+      draw: request => JSON.parse(win.__exact_draw(request)),
+      retire: retired => win.__exact_retire(retired),
       invoke(request) {
         // A context is installed only inside the queue that will finish it.
         // The host may run continuation tokens in a different order from calls.
@@ -288,6 +291,8 @@ export function call(request) {
     return { ok: true };
   }
   if (request.op === 'forget') { realm.forget(request.inFlight ?? []); return { ok: true }; }
+  if (request.op === 'draw') return realm.draw ? realm.draw(request.request) : { error: 'a worker-placed module does not draw Canvas 2D yet' };
+  if (request.op === 'retire') { realm.retire?.(request.retired); return { ok: true }; }
   if (request.op === 'answer' || request.op === 'resume') return realm.invoke(request);
   return { error: 'unknown browser module operation' };
 }

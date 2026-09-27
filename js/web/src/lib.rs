@@ -130,6 +130,8 @@ pub struct Module {
     /// Where the loader runs this module's turns (LLP 1027.002 D1): the
     /// page's private iframe realm, or a dedicated Worker.
     placement: Placement,
+    /// The Canvas 2D roster the bake read (LLP 1056 D1).
+    canvas_surfaces: Vec<(String, usize)>,
 }
 impl Module {
     /// Construct from binary-admitted identity/grants and baked HBC digest.
@@ -144,7 +146,15 @@ impl Module {
             signatures: Table::new(),
             waiting: Table::new(),
             placement: Placement::Main,
+            canvas_surfaces: Vec::new(),
         }
+    }
+
+    /// This module's Canvas 2D roster, as the bake recorded it
+    /// (`module.rs`'s `CANVAS_SURFACES`).
+    pub fn with_canvas_surfaces(mut self, surfaces: &[(&str, usize)]) -> Self {
+        self.canvas_surfaces = surfaces.iter().map(|(n, a)| (n.to_string(), *a)).collect();
+        self
     }
 
     /// This module, placed: the loader prepares its realm as a dedicated
@@ -345,6 +355,48 @@ impl DataSource for Module {
     fn app_id(&self) -> &str {
         &self.app
     }
+    fn canvas_surfaces(&self) -> Vec<(String, usize)> {
+        self.canvas_surfaces.clone()
+    }
+    /// Canvas 2D (LLP 1056 D1): the module's `draw` in its realm, in this
+    /// turn — a draw awaits nothing, so it need not wait for a module turn.
+    fn draw(
+        &mut self,
+        request: &exact_runner::DrawRequest<'_>,
+        _ctx: &exact_runner::exact_canvas::Context2d,
+    ) -> exact_runner::Drawn {
+        let reply = call(object([
+            ("op", "draw".into()),
+            ("id", self.id.into()),
+            ("request", request.json().as_str().into()),
+        ]));
+        exact_runner::Drawn::Now(match reply {
+            Ok(bytes) => exact_runner::DrawReply::from_seam(&String::from_utf8_lossy(&bytes)),
+            Err(
+                DataError::Unavailable(e)
+                | DataError::BadArguments(e)
+                | DataError::UnknownSource(e),
+            ) => exact_runner::DrawReply {
+                error: Some(e),
+                ..Default::default()
+            },
+        })
+    }
+    fn canvases_retired(&mut self, retired: &[(u64, u32)]) {
+        let mut json = String::from("[");
+        for (i, (canvas, generation)) in retired.iter().enumerate() {
+            if i > 0 {
+                json.push(',');
+            }
+            json.push_str(&format!("[{canvas},{generation}]"));
+        }
+        json.push(']');
+        let _ = call(object([
+            ("op", "retire".into()),
+            ("id", self.id.into()),
+            ("retired", json.as_str().into()),
+        ]));
+    }
     fn grants(&self) -> &str {
         &self.grants
     }
@@ -381,7 +433,7 @@ impl DataSource for Module {
             .as_u64()
             .ok_or_else(|| unavailable("the module id is not a u64"))?;
         if meta["version"] != 1
-            || meta["abi"] != 1
+            || (meta["abi"] != 1 && meta["abi"] != 2)
             || meta["appId"] != self.app
             || meta["grants"].as_str().map(str::trim) != Some(self.grants.trim())
             || meta["plan"]["bytes"].as_u64() != Some(plan.len() as u64)
