@@ -68,6 +68,8 @@ component Gallery
     page = 5
   action six writes page
     page = 6
+  action seven writes page
+    page = 7
   view
     main testId="gallery" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#0f172a" font-family="system-ui"
       row flex-shrink=0 align-items="center" gap=8 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8
@@ -84,6 +86,8 @@ component Gallery
           text "5" font-size=13
         button press=six testId="page-6" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 6 ? "#e2e8f0" : "#f8fafc")
           text "6" font-size=13
+        button press=seven testId="page-7" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 7 ? "#e2e8f0" : "#f8fafc")
+          text "7" font-size=13
       row flex-wrap="wrap" gap=8 padding-left=12 padding-right=12
         when page == 1
           StageOne()
@@ -97,6 +101,8 @@ component Gallery
           StageFive()
         when page == 6
           StageSix()
+        when page == 7
+          StageSeven()
 
 // Stage 1: geometry, units, transforms, nested viewports, classes.
 component StageOne
@@ -336,3 +342,30 @@ component StageSix
         rect x=84 y=44 width=16 height=30
       polyline points="10,70 60,20 110,60" fill="none" stroke="#0f172a" stroke-width=3 press=pick("line")
     text picked testId="picked-label" font-size=13
+
+// Stage 7: markers (LLP 1055.000 D9).
+component StageSeven
+  view
+    // An arrowhead scaled by the stroke; dots at every vertex of a line
+    // chart, in user units.
+    svg testId="fx-arrows" class=Tile viewBox="0 0 120 80"
+      defs
+        marker id="arrow" viewBox="0 0 10 10" refX=8 refY=5 markerWidth=5 markerHeight=5 orient="auto"
+          path d="M0 0L10 5L0 10z" fill="#0f172a"
+        marker id="dot" markerUnits="userSpaceOnUse" markerWidth=8 markerHeight=8 refX=4 refY=4
+          circle cx=4 cy=4 r=3 fill="#ffffff" stroke="#2563eb" stroke-width=1.5
+      line x1=10 y1=18 x2=100 y2=18 stroke="#0f172a" stroke-width=2 marker-end="url(#arrow)"
+      polyline points="10,70 35,40 60,55 85,30 110,45" fill="none" stroke="#2563eb" stroke-width=2 marker="url(#dot)"
+    // auto-start-reverse on a curve; a closed polygon's vertices, turned
+    // by the bisector; a fixed angle.
+    svg testId="fx-orient" class=Tile viewBox="0 0 120 80"
+      defs
+        marker id="head" viewBox="0 0 10 10" refX=5 refY=5 markerWidth=4 markerHeight=4 orient="auto-start-reverse"
+          path d="M0 0L10 5L0 10z" fill="#dc2626"
+        marker id="tick" viewBox="0 0 6 6" refX=3 refY=3 markerWidth=6 markerHeight=6 markerUnits="userSpaceOnUse" orient="auto"
+          rect width=6 height=2 y=2 fill="#16a34a"
+        marker id="still" viewBox="0 0 4 4" refX=2 refY=2 markerWidth=6 markerHeight=6 markerUnits="userSpaceOnUse" orient="45deg"
+          rect width=4 height=4 fill="#a855f7"
+      path d="M12 34C30 4 60 4 70 24A14 14 0 0 1 100 30" fill="none" stroke="#dc2626" stroke-width=2 marker-start="url(#head)" marker-end="url(#head)"
+      polygon points="20,50 50,70 14,74" fill="#bbf7d0" stroke="#16a34a" marker-mid="url(#tick)" marker-start="url(#tick)"
+      polyline points="70,70 90,52 110,70" fill="none" stroke="#a855f7" marker="url(#still)"
