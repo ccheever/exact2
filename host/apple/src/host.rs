@@ -72,11 +72,6 @@ use exact_kernel::id::{IdMap, IdSet};
 use std::collections::{BTreeMap, BTreeSet};
 use transform_drag::TransformDrags;
 
-/// How many times one list report may measure, re-render and lay out before
-/// the batch goes out. A window settles in two; rows of zero height can ask
-/// for more, and the presenter's next report continues where this stopped.
-const LIST_SETTLE_PASSES: usize = 4;
-
 /// Why the host refused.
 #[allow(missing_docs)]
 #[derive(Debug)]
@@ -134,10 +129,6 @@ pub struct Host<D: DataSource> {
     arrange: Option<arrange::Arrange>,
     presence: presence::Presence,
     content_region: Option<crate::content_region::RegionState>,
-    /// Lists whose last report stopped before their rows' heights were read back
-    /// (a registered content region publishes as it lays out, so a report is
-    /// one round there): the window wants another report.
-    list_unsettled: BTreeSet<ViewId>,
     height_projection: Vec<(NodeKey, f32)>,
     height_sampling: Vec<(NodeKey, f32)>,
     height_presented: Vec<exact_kernel::PresentedHeight>,
@@ -398,7 +389,6 @@ impl<D: DataSource> Host<D> {
             arrange: None,
             presence: presence::Presence::default(),
             content_region,
-            list_unsettled: BTreeSet::new(),
             height_projection: Vec::new(),
             height_sampling: Vec::new(),
             height_presented: Vec::new(),
@@ -928,119 +918,6 @@ impl<D: DataSource> Host<D> {
         self.finish(batch, error)
     }
 
-    /// Native list geometry; row heights come from the same kernel layout
-    /// that supplied the presenter's frames, never a second text measurer.
-    ///
-    /// A created row is an estimate until it is laid out, and the kernel is
-    /// what lays it out — so the window settles here, in one call: report,
-    /// lay out, read the rows back, report again until nothing changes. The
-    /// presenter gets one batch carrying final frames. It used to take a
-    /// second report from AppKit's frames, and with it a second JSON batch,
-    /// a second `Presenter.apply` and its whole-tree passes, for every
-    /// change that created a row (LLP 1044 F7).
-    pub fn list_viewport(
-        &mut self,
-        view: ViewId,
-        geometry: exact_runner::ListViewport<'_>,
-    ) -> String {
-        self.list_viewport_within(view, geometry, None)
-    }
-
-    /// [`Host::list_viewport`] creating at most `create_limit` rows beyond
-    /// those the scrollport shows (`Runner::list_viewport_within`); the budget
-    /// is the call's, across its settling rounds. [`Host::list_pending`] then
-    /// says whether the window wants another report.
-    pub fn list_viewport_within(
-        &mut self,
-        view: ViewId,
-        geometry: exact_runner::ListViewport<'_>,
-        create_limit: Option<usize>,
-    ) -> String {
-        let mut receipts: Vec<Timed> = Vec::new();
-        let mut error = None;
-        let mut top = geometry.top;
-        // The report's budget is for the call, not for each round of it: what
-        // a round creates comes off what the next may. Rows the scrollport
-        // shows are outside any budget, so they still settle here.
-        let mut budget = create_limit;
-        self.list_unsettled.remove(&view);
-        for pass in 0..LIST_SETTLE_PASSES {
-            let rows = self.list_rows(view);
-            let round = exact_runner::ListViewport {
-                rows: &rows,
-                top,
-                ..geometry
-            };
-            match self.runner.list_viewport_within(view, round, budget) {
-                Ok(receipt)
-                    if receipt.created.is_empty()
-                        && receipt.destroyed.is_empty()
-                        && receipt.touched.is_empty() =>
-                {
-                    break;
-                }
-                Ok(receipt) => {
-                    receipts.push(Timed {
-                        at_ms: self.now_ms,
-                        receipt,
-                    });
-                    // A registered content region publishes as it computes:
-                    // one round here, and `list_pending` asks for the next.
-                    if self.content_region.is_some() {
-                        self.list_unsettled.insert(view);
-                        break;
-                    }
-                    if let Err(e) = self.compute_layout() {
-                        error = Some(e);
-                        break;
-                    }
-                    if let Some(status) = self.runner.list_status(view) {
-                        // Measuring can move the offset to hold the reading key.
-                        top = status.top;
-                        budget = budget.map(|left| left.saturating_sub(status.created));
-                    }
-                    if pass + 1 == LIST_SETTLE_PASSES {
-                        self.list_unsettled.insert(view);
-                    }
-                }
-                Err(e) => {
-                    error = Some(format!("{e:?}"));
-                    break;
-                }
-            }
-        }
-        if receipts.is_empty() && error.is_none() {
-            return self.finish(Batch::new(), None);
-        }
-        self.commit(&receipts, error)
-    }
-
-    /// Whether a list's last report left rows to create or retire under its budget.
-    pub fn list_pending(&self, view: ViewId) -> bool {
-        self.list_unsettled.contains(&view)
-            || self
-                .runner
-                .list_status(view)
-                .is_some_and(|status| status.pending)
-    }
-
-    /// A windowed list's mounted row wrappers and their laid-out heights.
-    fn list_rows(&self, view: ViewId) -> Vec<(ViewId, f64)> {
-        let kernel = self.runner.kernel();
-        kernel
-            .node(view)
-            .and_then(|list| list.children().first().copied())
-            .and_then(|content| kernel.node(content))
-            .map(|content| {
-                content
-                    .children()
-                    .into_iter()
-                    .filter_map(|id| kernel.node(id).map(|row| (id, row.frame.height as f64)))
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
     /// The safe-area insets changed (a boot under `viewport-fit=cover`, a
     /// rotation): the kernel's environment is set, every node whose style
     /// holds an `env()` length gets its dictionary re-sent with the new
@@ -1146,8 +1023,6 @@ impl<D: DataSource> Host<D> {
         error: Option<String>,
         mut batch: Batch,
     ) -> (Batch, Option<String>) {
-        self.list_unsettled
-            .retain(|view| self.runner.kernel().node(*view).is_some());
         self.native_retire_removed_owner(&mut batch);
         self.native_note_receipts(receipts);
         let bulk_handlers = (receipts

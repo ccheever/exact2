@@ -239,11 +239,6 @@ final class Runtime {
     func setTime(epochAtZero: Double, utcOffset: Double) -> Batch { read(exact_set_time(rt, epochAtZero, utcOffset)) }
     func setPreferences(_ bits: UInt32) -> Batch { read(exact_set_preferences(rt, bits)) }
     func setPlace(locale: String, timeZone: String, seed: UInt64) -> Batch { read(exact_set_place(rt, write(locale + "\0" + timeZone + "\0" + String(seed))) ) }
-    /// `limit` rations the report (`exact.h`): 0 is the whole window.
-    func list(_ view: UInt32, top: Double, height: Double, width: Double, origin: Double, focus: UInt32, interaction: UInt32, limit: UInt32 = 0, velocity: Double = 0) -> Batch {
-        read(exact_list(rt, view, top, height, width, origin, focus, interaction, limit, velocity))
-    }
-    func listPending(_ view: UInt32) -> Bool { exact_list_pending(rt, view) != 0 }
     func listIndex(_ view: UInt32, key: String) -> Int? {
         let n = write(key)
         let index = exact_list_index(rt, view, UInt32(n))

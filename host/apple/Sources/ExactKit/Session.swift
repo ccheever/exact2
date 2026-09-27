@@ -488,8 +488,7 @@ public final class ExactSession {
             let batch = runtime.collectionFeedback(bytes, now: now())
             // A report inside the built window commits nothing: while a list
             // moves that is most frames. Skip the presenter's finalization
-            // pass for it, as the windowed list does (`onList`), unless the
-            // clock or the motion it reports is news.
+            // pass for it, unless the clock or the motion it reports is news.
             if batch.ops.isEmpty && batch.error == nil && batch.motion == frames.motion && batch.spatial == frames.spatial && batch.timerDueMs == timerDue { return }
             apply(batch)
         }
@@ -505,16 +504,6 @@ public final class ExactSession {
         presenter.onRefresh = { [unowned self] id in apply(runtime.refresh(id, now: now())) }
         presenter.onPan = { [unowned self] id, dx, dy in apply(runtime.pan(id, dx: dx, dy: dy, now: now())) }
         presenter.onScroll = { [unowned self] id, left, top in apply(runtime.scroll(id, left: left, top: top, now: now())) }
-        presenter.onList = { [unowned self] id, top, height, width, origin, focus, interaction, limit in
-            let post = Presenter.signposts.beginInterval("exact_list")
-            let velocity = presenter.listVelocity(id)
-            let batch = runtime.list(id, top: top, height: height, width: width, origin: origin, focus: focus, interaction: interaction, limit: limit, velocity: velocity)
-            Presenter.signposts.endInterval("exact_list", post)
-            // Scrolling within the mounted window changes no native views.
-            // Avoid running every presenter's batch-finalization pass for it.
-            if !batch.ops.isEmpty || batch.error != nil { apply(batch) }
-            return runtime.listPending(id)
-        }
         #if canImport(AppKit)
         presenter.onListIndex = { [unowned self] id, key in runtime.listIndex(id, key: key) }
         presenter.onListText = { [unowned self] id, first, last in runtime.listText(id, first: first, last: last) }

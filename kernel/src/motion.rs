@@ -292,7 +292,7 @@ impl Kernel {
 
     /// The box a node's `layout-transition` animates (LLP 1063), when it
     /// declares one: its laid-out origin and size, relative to the box it is
-    /// placed in. That is its parent, except for the root of a windowed
+    /// placed in. That is its parent, except for the root of a virtualized
     /// list's row: its wrapper (the node carrying `listItemKey`) exists only
     /// to position it, so the row is placed in the list content and a wrapper
     /// moving is the row moving. `None` too while it or an ancestor is

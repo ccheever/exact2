@@ -389,21 +389,6 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.resize(width, height), |n| n)
         }
 
-        /// Report an actual list scrollport and bounded interaction pins.
-        #[no_mangle]
-        pub extern "C" fn exact_list(rt: u32, view: u32, top: f64, height: f64, width: f64, origin: f64, focus: u32, interaction: u32, limit: u32, velocity: f64) -> u32 {
-            // Zero asks for the whole window; `limit - 1` rows beyond the scrollport otherwise.
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.list_viewport(view, $crate::ListViewport {
-                top, height, width, origin, velocity, pins: [focus, interaction], rows: &[],
-            }, limit.checked_sub(1).map(|rows| rows as usize)), |n| n)
-        }
-
-        /// Whether that list's last report left rows to create or retire: 1 or 0.
-        #[no_mangle]
-        pub extern "C" fn exact_list_pending(rt: u32, view: u32) -> u32 {
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.list_pending(view), |_| 0)
-        }
-
         /// Resolve a logical row key in the input buffer, or UINT32_MAX.
         #[no_mangle]
         pub extern "C" fn exact_list_index(rt: u32, view: u32, len: u32) -> u32 {

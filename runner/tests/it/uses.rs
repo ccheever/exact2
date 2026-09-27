@@ -59,7 +59,9 @@ fn collections_are_lists_the_host_windows() {
     assert_eq!(list("height=100"), Uses::NONE, "a plain list is the core's");
     assert!(list("virtualized=true height=100").has(Capability::Collections));
     assert_eq!(list("virtualized=false height=100"), Uses::NONE);
-    assert!(list("item-height=20 height=100").has(Capability::Collections));
+    assert!(
+        list("virtualized=true estimated-item-height=20 height=100").has(Capability::Collections)
+    );
 }
 
 #[test]

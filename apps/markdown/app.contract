@@ -148,9 +148,13 @@ component Markdown
                 column width="100%" box-sizing="border-box" padding=8 gap=1
                   each e in doc.siblings key=e.id
                     FolderRow(entry=e, open=openFile)
-            list estimated-item-height=96 flex=1 height="100%" overflow-x="hidden" overscroll-behavior="contain" testId="document" padding-top=28 padding-bottom=72 box-sizing="border-box"
+            // A virtualized list's container takes no block-axis padding (its
+            // rows are the extent), so the page's top and end space is the
+            // first and last rows' own. A block's id is its index.
+            list virtualized=true estimated-item-height=96 flex=1 height="100%" overflow-x="hidden" overscroll-behavior="contain" testId="document" box-sizing="border-box"
               each b in doc.blocks key=`${doc.path}:${b.id}`
-                Blocks(block=b)
+                view width="100%" padding-top=(b.id == "0" ? 28 : 0) padding-bottom=(b.id == `${doc.count - 1}` ? 72 : 0) box-sizing="border-box"
+                  Blocks(block=b)
 
 component FolderRow
   inject

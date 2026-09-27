@@ -24,7 +24,7 @@ pub enum Capability {
     /// gestures that hold a value (a swipe, a height, transform or reorder
     /// drag). CSS plays every other transition.
     Motion,
-    /// Lists the host windows: a `virtualized` list, or one with row heights,
+    /// Lists the host windows: a `virtualized` list,
     /// or a handler for a list's edges.
     Collections,
     /// Drags a host tracks at every commit: height, transform and reorder
@@ -141,9 +141,6 @@ pub fn uses(plan: &Plan) -> Uses {
                 Some(PropId::Virtualized)
                     if constant_bool(plan.code(binding.expr)).is_none_or(|on| on) =>
                 {
-                    uses = uses.with(Capability::Collections);
-                }
-                Some(PropId::ItemHeight | PropId::EstimatedItemHeight) => {
                     uses = uses.with(Capability::Collections);
                 }
                 _ => {}

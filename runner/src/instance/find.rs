@@ -5,23 +5,14 @@
 
 use super::*;
 
-/// Where the descent stands after matching one view of the chain.
-enum Step<'a> {
-    /// An instance node's view.
-    Node(&'a NodeInst),
-    /// A windowed list's content view (its rows sit under wrappers).
-    Window(&'a RegionInst),
-}
-
 /// Whether `children` contribute `view` among their roots, directly or
 /// through a nested region's arm or rows.
 fn has_root(children: &[Child], view: ViewId) -> bool {
     children.iter().any(|c| match c {
         Child::Node(n) => n.view == view,
-        Child::Region(r) => match (&r.window, &r.active) {
-            (Some(w), _) => w.content == view,
-            (None, Active::Arm { roots, .. }) => has_root(roots, view),
-            (None, Active::Rows { rows }) => rows.iter().any(|row| has_root(&row.roots, view)),
+        Child::Region(r) => match &r.active {
+            Active::Arm { roots, .. } => has_root(roots, view),
+            Active::Rows { rows } => rows.iter().any(|row| has_root(&row.roots, view)),
         },
     })
 }
@@ -33,21 +24,15 @@ fn locate<'a>(
     target: ViewId,
     frames: &mut Vec<Frame>,
     scanned: &mut usize,
-) -> Option<Step<'a>> {
+) -> Option<&'a NodeInst> {
     if let Some(n) = children.iter().find_map(|c| match c {
         Child::Node(n) if n.view == target => Some(n),
         _ => None,
     }) {
-        return Some(Step::Node(n));
+        return Some(n);
     }
     for c in children {
         let Child::Region(r) = c else { continue };
-        if let Some(w) = &r.window {
-            if w.content == target {
-                return Some(Step::Window(r));
-            }
-            continue;
-        }
         match &r.active {
             Active::Arm { roots, frame, .. } => {
                 if has_root(roots, target) {
@@ -107,28 +92,17 @@ impl Tree {
         let mut frames = Vec::new();
         let mut here: &[Child] = &self.children;
         while let Some(target) = targets.next() {
-            match locate(here, target, &mut frames, scanned)? {
-                Step::Node(n) if target == view => return Some((n.node, frames)),
-                Step::Node(n) => match &n.collection {
-                    Some(collection) => {
-                        let row = collection.row_by_wrapper(targets.next()?)?;
-                        frames.push(row.frame.clone());
-                        here = &row.roots;
-                    }
-                    None => here = &n.children,
-                },
-                Step::Window(region) => {
-                    let wrapper = targets.next()?;
-                    let Active::Rows { rows } = &region.active else {
-                        return None;
-                    };
-                    let row = rows.iter().find(|r| {
-                        *scanned += 1;
-                        r.wrapper == Some(wrapper)
-                    })?;
+            let n = locate(here, target, &mut frames, scanned)?;
+            if target == view {
+                return Some((n.node, frames));
+            }
+            match &n.collection {
+                Some(collection) => {
+                    let row = collection.row_by_wrapper(targets.next()?)?;
                     frames.push(row.frame.clone());
                     here = &row.roots;
                 }
+                None => here = &n.children,
             }
         }
         None

@@ -71,37 +71,6 @@ impl<D: DataSource> Host<D> {
         self.emit_layout(batch)
     }
 
-    /// Lay the roots out and publish nothing: the frames a list's settle pass
-    /// reads. The batch's own `layout` follows and sends what moved, against
-    /// the mirror, so nothing computed here is lost or sent twice.
-    pub(super) fn compute_layout(&mut self) -> Result<(), String> {
-        // Motion is synced per receipt by the commit that follows; this pass
-        // only needs row heights, under the height already being presented.
-        self.collect_height_samples()?;
-        self.height_presented.clear();
-        let epoch = self.runner.kernel().epoch();
-        self.height_presented
-            .extend(
-                self.height_sampling
-                    .iter()
-                    .map(|(node, px)| exact_kernel::PresentedHeight {
-                        node: *node,
-                        px: *px,
-                        epoch,
-                    }),
-            );
-        let (w, h) = self.viewport;
-        for root in self.runner.roots() {
-            let receipt = self
-                .runner
-                .kernel_mut()
-                .compute_layout_presented(root, Offer::definite(w, h), &self.height_presented)
-                .map_err(|e| format!("layout: {e:?}"))?;
-            self.record_layout(&receipt);
-        }
-        Ok(())
-    }
-
     /// The parent-relative frames and scroll content sizes that changed since
     /// the presenter last heard them.
     fn emit_layout(&mut self, batch: &mut Batch) -> Result<(), String> {

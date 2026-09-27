@@ -546,7 +546,7 @@ component Deck
         text "toggle"
       button press=jump
         text "jump"
-      list estimated-item-height=24 height=200 scrollTop=scrollTo
+      list virtualized=true estimated-item-height=24 height=200 scrollTop=scrollTo
         each it in items key=it.id
           column width="100%"
             text `${it.label} ${picked}`

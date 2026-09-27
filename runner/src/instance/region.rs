@@ -8,7 +8,6 @@ impl RegionInst {
     ) -> Result<RegionInst, InstanceError> {
         let mut inst = RegionInst {
             region,
-            window: None,
             subject: None,
             active: match u.env.plan.region(region).kind {
                 RegionKind::Each => Active::Rows { rows: Vec::new() },
@@ -36,9 +35,6 @@ impl RegionInst {
         let index = self.region.0 as usize;
         let row = plan.region(self.region);
         let subject_stale = fresh || u.stale(&deps.subjects[index]);
-        if self.window.is_some() {
-            return (u.env.lists.ok_or_else(unlinked)?.window)(self, u, frames, subject_stale);
-        }
         match (&row.kind, &mut self.active) {
             (RegionKind::When, Active::Arm { arm, frame, roots }) => {
                 let want = if !subject_stale {
@@ -227,7 +223,6 @@ impl RegionInst {
                                 u.notes.push(repeated(self.region, &key, &key_text));
                             }
                             next.push(Row {
-                                wrapper: None,
                                 key,
                                 dup,
                                 frame,
@@ -285,10 +280,6 @@ impl RegionInst {
     }
 
     pub(super) fn collect_roots(&self, out: &mut Vec<ViewId>) {
-        if let Some(window) = &self.window {
-            out.push(window.content);
-            return;
-        }
         match &self.active {
             Active::Arm { roots, .. } => push_roots(roots, out),
             Active::Rows { rows } => {
@@ -300,10 +291,6 @@ impl RegionInst {
     }
 
     pub(super) fn destroy(self, u: &mut Update<'_>) {
-        if let Some(window) = self.window {
-            u.ops.push(Op::DestroyView { id: window.content });
-            return;
-        }
         match self.active {
             Active::Arm { roots, .. } => destroy_all(u, roots),
             Active::Rows { rows } => {

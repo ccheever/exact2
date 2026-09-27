@@ -228,7 +228,6 @@ extension BatchDecodeTests {
                     let extent = max(0, (scroll.documentView?.frame.height ?? 0) - scroll.contentSize.height)
                     scroll.contentView.scroll(to: CGPoint(x: 0, y: extent * fraction))
                     session.presenter.scrolled()
-                    session.presenter.syncLists()
                     session.presenter.pump()
                     drain()
                 }

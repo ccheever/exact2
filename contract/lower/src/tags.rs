@@ -467,7 +467,6 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // it; the default, `resizes-visual`, insets the viewport instead.
         "interactive-widget" => AttrTarget::Prop(p("interactiveWidget")),
         "value" => AttrTarget::Prop(p("value")),
-        "item-height" => AttrTarget::Prop(p("itemHeight")),
         "estimated-item-height" => AttrTarget::Prop(p("estimatedItemHeight")),
         // @ref LLP 1056 D6 (r3): a canvas's explicit bitmap size, HTML's
         // `width`/`height` content attributes (Contract's are the CSS box).
@@ -877,79 +876,47 @@ pub fn renamed(old: &str) -> Option<&'static str> {
     })
 }
 
-// A list's fixed or measured row template and scrollport are explicit host policy.
+// A list's row-size estimate is the virtualized list's host policy (LLP 1010
+// §6.5); the fixed-height windowed list it once also named is deleted (LLP
+// 1070 stage 1), so a hint without `virtualized=true` says how to migrate.
 pub(crate) fn validate_list(
     tag: &str,
     expanded: &[contract_syntax::Attr],
-    children: &[contract_syntax::Node],
     span: contract_syntax::Span,
 ) -> Result<(), super::LowerError> {
-    use contract_syntax::{Expr, Node};
-    if tag == "list" {
-        let heights: Vec<_> = expanded
-            .iter()
-            .filter(|a| matches!(a.name.as_str(), "item-height" | "estimated-item-height"))
-            .collect();
-        if heights.is_empty() {
-            return Ok(());
-        }
-        if expanded
-            .iter()
-            .any(|a| a.name == "virtualized" && matches!(a.value, Expr::Bool(true, _)))
-        {
-            if heights.len() == 1
-                && heights[0].name == "estimated-item-height"
-                && matches!(heights[0].value, Expr::Number(n, _) if n.is_finite() && n > 0.0)
-            {
-                // Shared collection template, viewport and flow checks follow
-                // in check_collection, including their specific diagnostics.
-                return Ok(());
-            }
-            return super::err(
-                "lower-list-height",
-                "virtualized lists accept one positive literal `estimated-item-height`, not a fixed row height",
-                span,
-            );
-        }
-        let height = (heights.len() == 1).then(|| heights[0]);
-        if !height
-            .is_some_and(|a| matches!(a.value, Expr::Number(n, _) if n.is_finite() && n > 0.0))
-        {
-            return super::err(
-                "lower-list-height",
-                "`list` needs exactly one positive literal `item-height` or `estimated-item-height` in CSS pixels",
-                span,
-            );
-        }
-        if children.len() != 1 || !matches!(&children[0], Node::Each { .. }) {
-            return super::err(
-                "lower-list-rows",
-                "`list` contains exactly one direct keyed `each`",
-                span,
-            );
-        }
-    } else {
-        let heights: Vec<_> = expanded
-            .iter()
-            .filter(|a| matches!(a.name.as_str(), "item-height" | "estimated-item-height"))
-            .collect();
-        if !heights.is_empty() {
-            return super::err(
-                "lower-list-height",
-                "row height hints belong on `list`",
-                span,
-            );
-        }
+    use contract_syntax::Expr;
+    if let Some(fixed) = expanded.iter().find(|a| a.name == "item-height") {
+        return super::err(
+            "lower-list-height",
+            "`item-height` was the deleted windowed list's; write `virtualized=true estimated-item-height=N`, which measures every row",
+            fixed.span,
+        );
     }
-    if tag == "list"
-        && !expanded
-            .iter()
-            .any(|a| matches!(a.name.as_str(), "height" | "max-height" | "flex"))
+    let Some(estimate) = expanded.iter().find(|a| a.name == "estimated-item-height") else {
+        return Ok(());
+    };
+    if tag != "list" {
+        return super::err(
+            "lower-list-height",
+            "row height hints belong on `list`",
+            span,
+        );
+    }
+    if !expanded
+        .iter()
+        .any(|a| a.name == "virtualized" && matches!(a.value, Expr::Bool(true, _)))
     {
         return super::err(
-            "lower-list-viewport",
-            "`list` needs a constrained scrollport: height, max-height, or flex",
-            span,
+            "lower-list-virtualized",
+            "`estimated-item-height` is a virtualized list's estimate; add `virtualized=true` (the windowed list without it is deleted, LLP 1070)",
+            estimate.span,
+        );
+    }
+    if !matches!(estimate.value, Expr::Number(n, _) if n.is_finite() && n > 0.0) {
+        return super::err(
+            "lower-list-height",
+            "virtualized lists accept one positive literal `estimated-item-height`",
+            estimate.span,
         );
     }
     Ok(())

@@ -128,7 +128,7 @@ fn list_settlement_publishes_final_mounted_flow_and_clears_disappearing_shapes()
     column width=240 height=200
       button testId="clear" press=clear
         text "Clear"
-      list testId="list" estimated-item-height=80 width=240 height=160
+      list testId="list" virtualized=true estimated-item-height=80 width=240 height=160 overflow-x="hidden"
         each row in rows key=row
           view width=240 height=80
             text `Paragraph ${row} around the circle` testId=`row-${row}` width=240 height=80
@@ -151,15 +151,29 @@ fn list_settlement_publishes_final_mounted_flow_and_clears_disappearing_shapes()
         .iter_live()
         .map(|slot| h.runner().kernel().arena().key(slot))
         .collect();
-    let batch = h.list_viewport(
-        list,
-        exact_apple::ListViewport {
-            top: 400.,
-            height: 160.,
-            width: 240.,
-            ..Default::default()
-        },
-    );
+    let snapshot = h.runner().collections().remove(0);
+    assert_eq!(snapshot.view, list);
+    let feedback = exact_runner::CollectionFeedback {
+        view: list,
+        revision: snapshot.revision,
+        scroll_sequence: snapshot.scroll_sequence + 1,
+        scroll_top: 400.,
+        port_width: 240.,
+        port_height: 160.,
+        row_width: 240.,
+        measurements: snapshot
+            .rows
+            .iter()
+            .map(|r| exact_runner::RowMeasurement {
+                view: r.view,
+                epoch: r.epoch,
+                height: 80.,
+            })
+            .collect(),
+        focus_view: None,
+        interaction_view: None,
+    };
+    let batch = h.collection_feedback(&feedback.encode().unwrap(), 0.);
     assert!(!batch.contains("\"error\":\""), "{batch}");
     let mut flowed = Vec::new();
     let mut mounted = 0;

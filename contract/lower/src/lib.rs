@@ -704,7 +704,7 @@ impl<'a> Lowerer<'a> {
                     },
                     _ => t,
                 };
-                tags::validate_list(tag, expanded, children, *span)?;
+                tags::validate_list(tag, expanded, *span)?;
                 self.check_collection(tag, expanded, children, *span)?;
                 let has =
                     |names: &[&str]| expanded.iter().any(|a| names.contains(&a.name.as_str()));

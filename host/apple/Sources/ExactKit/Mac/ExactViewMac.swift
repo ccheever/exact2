@@ -120,7 +120,6 @@ public final class ExactView: NSView {
             // Route declared commands first, scoped to this session's focused view.
             shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
                 guard let self, event.window === self.window, self.ownsShortcutFocus() else { return event }
-                if event.keyCode == 48 { self.session.presenter.flushKeyViewLoop() }
                 let code=KeyCodes.mac[Int(event.keyCode)] ?? "Unidentified"
                 if event.modifierFlags.intersection([.command,.control]).isEmpty,
                    self.session.canvases.pressedControlKey(code,down:event.type == .keyDown,timestamp:event.timestamp) {return nil}

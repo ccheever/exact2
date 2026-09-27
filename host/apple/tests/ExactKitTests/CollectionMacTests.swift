@@ -35,16 +35,9 @@ final class CollectionMacTests: XCTestCase {
         return (p, p.views[1]!)
     }
     func testMeasuresActualNestedClipViewWithoutAuthoredScrollHandler() throws {
-        var legacyReports: [UInt32] = []
-        let (p, list) = fixture(estimatedItemHeight: "24") { p in
-            p.onList = { id, _, _, _, _, _, _, _ in
-                legacyReports.append(id)
-                return false
-            }
-        }
+        let (p, list) = fixture(estimatedItemHeight: "24")
         defer { p.collections.reset() }
         XCTAssertTrue(p.collections.owns(list.id))
-        XCTAssertTrue(legacyReports.isEmpty, "collection ownership must precede initial legacy reporting")
         XCTAssertTrue(list.handlers.isEmpty)
         let clip = try XCTUnwrap(list.scroll?.contentView)
         clip.scroll(to: NSPoint(x: 0, y: 120))
@@ -63,32 +56,16 @@ final class CollectionMacTests: XCTestCase {
         p.collections.changed(1)
         p.collections.flush()
         XCTAssertEqual(feedback.count, 1, "identical layout must not reenter Rust")
-        XCTAssertTrue(legacyReports.isEmpty, "collection geometry uses only common feedback")
-    }
-    func testOrdinaryListStillReportsLegacyGeometryOnInitialApply() {
-        var legacyReports: [UInt32] = []
-        let (p, list) = fixture(collection: false, estimatedItemHeight: "24") { p in
-            p.onList = { id, _, _, _, _, _, _, _ in
-                legacyReports.append(id)
-                return false
-            }
-        }
-        defer { p.collections.reset() }
-        XCTAssertFalse(p.collections.owns(list.id))
-        XCTAssertEqual(legacyReports, [list.id])
     }
     func testSharedCollectionResizeUsesOnlyRevisionedFeedback() {
         let (p, _) = fixture()
         defer { p.collections.reset() }
-        var legacyReports = 0
         var collectionReports = 0
-        p.onList = { _, _, _, _, _, _, _, _ in legacyReports += 1; return false }
         p.collections.onFeedback = { _ in collectionReports += 1 }
         p.apply(batch([
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 240.0]
         ]))
         p.collections.flush()
-        XCTAssertEqual(legacyReports, 0, "the legacy window protocol rejects a shared collection tree")
         XCTAssertEqual(collectionReports, 1, "the resized collection still reports actual geometry")
     }
 
@@ -388,40 +365,6 @@ final class CollectionMacTests: XCTestCase {
         }
         wait(for: [done], timeout: 1)
     }
-    func testScrollQueuesOneSliceOutsideTheCallbackAndDefersTheDisplayLink() {
-        let (p, list) = fixture(collection: false)
-        defer { p.reset() }
-        list.props["estimatedItemHeight"] = "24"
-        var limits: [UInt32] = []
-        p.onList = { _, _, _, _, _, _, _, limit in limits.append(limit); return true }
-        p.apply(batch([
-            ["op": "props", "id": 3, "set": ["accessibilityPosInSet": "1", "accessibilitySetSize": "100"]],
-            ["op": "frame", "id": 2, "x": 10.0, "y": 20.0, "w": 280.0, "h": 3000.0],
-            ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 280.0, "h": 300.0]
-        ]))
-        limits.removeAll()
-        p.scrolled()
-        p.scrolled()
-        XCTAssertEqual(limits, [], "overscan must leave AppKit's synchronizer before running")
-        p.displayPump(1.0 / 60)
-        XCTAssertEqual(limits, [], "a queued post-scroll slice owns this frame")
-        let done = expectation(description: "post-synchronizer slice")
-        DispatchQueue.main.async {
-            XCTAssertEqual(limits, [2], "repeated callbacks coalesce into one bounded fill")
-            p.displayPump(1.0 / 60)
-            XCTAssertEqual(limits, [2], "the same frame's display tick cannot fill again")
-            p.scrolled()
-            p.settlePump()
-            XCTAssertEqual(limits.last, 0, "agent settlement remains immediate and unlimited")
-            let settled = limits
-            DispatchQueue.main.async {
-                XCTAssertEqual(limits, settled, "no queued admission escapes synchronous settlement")
-                done.fulfill()
-            }
-        }
-        wait(for: [done], timeout: 1)
-    }
-
     func testPumpScheduleCoalescesCallbacksAndResumesAfterScrolling() throws {
         var schedule = Presenter.PumpSchedule()
         let token = try XCTUnwrap(schedule.queuePostSync(at: 10))
@@ -437,6 +380,8 @@ final class CollectionMacTests: XCTestCase {
     }
 
     func testPumpScheduleUsesNewRefreshRateEvenWhenTheTickIsSuppressed() throws {
+        XCTAssertEqual(Presenter.listSliceBudget(1.0 / 60), 0.004, accuracy: 0.000001)
+        XCTAssertEqual(Presenter.listSliceBudget(1.0 / 120), 0.002, accuracy: 0.000001)
         var schedule = Presenter.PumpSchedule()
         let token = try XCTUnwrap(schedule.queuePostSync(at: 10))
         XCTAssertFalse(schedule.takeDisplayLink(interval: 1.0 / 120, at: 10.001))
@@ -465,81 +410,6 @@ final class CollectionMacTests: XCTestCase {
         XCTAssertTrue(schedule.takeDisplayLink(interval: 1.0 / 60, at: 10.022))
     }
 
-    func testBudgetPendingReportsSameGeometryWithoutRecursiveAdmission() {
-        let (p, list) = fixture(collection: false)
-        defer { p.reset() }
-        list.props["estimatedItemHeight"] = "24"
-        var limits: [UInt32] = []
-        p.onList = { _, _, _, _, _, _, _, limit in
-            limits.append(limit)
-            // Actual delivery reenters apply; its finalization must not admit
-            // another report and multiply this slice's budget.
-            p.apply(self.batch([]))
-            return true
-        }
-        p.syncLists(limit: 2)
-        XCTAssertEqual(limits, [2])
-        p.pump()
-        XCTAssertTrue(limits.allSatisfy { $0 == 2 }, "every pump report admits only one overscan row")
-        let afterList = limits.count
-        p.requestTextPublication()
-        p.pump()
-        XCTAssertEqual(limits.count, afterList, "pending list work leaves a slice for text publication")
-        p.pump()
-        XCTAssertTrue(limits.dropFirst(afterList).allSatisfy { $0 == 2 })
-        // A descheduled test can exhaust the entire deadline before admission.
-        // Pending demand must survive that empty slice and settle synchronously.
-        p.settlePump()
-        XCTAssertGreaterThan(limits.count, afterList)
-        XCTAssertEqual(limits.last, 0)
-        let afterSecondList = limits.count
-        p.reset()
-        p.pump()
-        XCTAssertEqual(limits.count, afterSecondList, "reset clears pending list identities and the pump flag")
-    }
-
-    func testNativeViewportCorrectionRetriesOnlyUncoveredPixelsWithoutOverscan() {
-        for covered in [false, true] {
-            let (p, list) = fixture(collection: false)
-            defer { p.reset() }
-            p.apply(batch([
-                ["op": "frame", "id": 2, "x": 10.0, "y": 20.0, "w": 280.0, "h": 3000.0],
-                ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 280.0, "h": covered ? 1000.0 : 300.0]
-            ]))
-            list.props["estimatedItemHeight"] = "24"
-            var limits: [UInt32] = []
-            var tops: [Double] = []
-            p.onList = { _, top, _, _, _, _, _, limit in
-                limits.append(limit); tops.append(top)
-                if limits.count == 1 {
-                    // A report can cause this through native anchoring/clamping
-                    // while its nested viewport notification is suppressed.
-                    list.scroll!.contentView.scroll(to: NSPoint(x: 0, y: 600))
-                } else {
-                    p.apply(self.batch([
-                        ["op": "frame", "id": 3, "x": 0.0, "y": 580.0, "w": 280.0, "h": 300.0]
-                    ]))
-                }
-                return false
-            }
-            p.syncLists(limit: 2)
-            XCTAssertEqual(limits, covered ? [2] : [2, 1])
-            if !covered { XCTAssertEqual(tops.last, 600) }
-        }
-    }
-
-    func testScrollOnlyReportsVisibleRowsAndRefreshDeterminesSliceBudget() {
-        XCTAssertEqual(Presenter.listSliceBudget(1.0 / 60), 0.004, accuracy: 0.000001)
-        XCTAssertEqual(Presenter.listSliceBudget(1.0 / 120), 0.002, accuracy: 0.000001)
-        let (p, list) = fixture(collection: false)
-        defer { p.reset() }
-        list.props["estimatedItemHeight"] = "24"
-        var limits: [UInt32] = []
-        p.onList = { _, _, _, _, _, _, _, limit in limits.append(limit); return true }
-        p.scrolled()
-        XCTAssertEqual(limits, [1], "uncovered user scroll never fills overscan synchronously")
-    }
-
     func testListAdmissionLearnsWholeReportCostAndLeavesDeadlineHeadroom() {
         var cost = Presenter.ListFillCost()
         XCTAssertEqual(cost.rows(within: 0.004), 1, "probe an unknown row before batching")
@@ -553,98 +423,6 @@ final class CollectionMacTests: XCTestCase {
         cost.record(seconds: 0.0001, rows: 0)
         XCTAssertEqual(cost.rows(within: 0.004), 1, "empty or retirement-only reports cannot cheapen rows")
         XCTAssertEqual(cost.rows(within: -1), 0)
-    }
-
-    func testBudgetedListFillUsesOneBatchUntilTheViewportChanges() {
-        let (p, list) = fixture(collection: false)
-        defer { p.reset() }
-        list.props["estimatedItemHeight"] = "24"
-        var reports = 0
-        p.onList = { _, _, _, _, _, _, _, _ in
-            reports += 1
-            p.apply(self.batch([]))
-            return true
-        }
-        p.syncLists(limit: 2, deadline: CACurrentMediaTime() + 1)
-        XCTAssertEqual(reports, 1, "pending overscan must not multiply per-batch work within a slice")
-    }
-
-    func testExpensiveListRowMakesProgressWithoutStartingAnotherReport() {
-        let (p, list) = fixture(collection: false)
-        defer { p.reset() }
-        list.props["estimatedItemHeight"] = "24"
-        var reports = 0
-        p.onList = { _, _, _, _, _, _, _, limit in
-            reports += 1
-            XCTAssertEqual(limit, 2)
-            let id = reports + 3
-            p.apply(self.batch([
-                ["op": "create", "id": id, "kind": "view"],
-                ["op": "children", "id": 2, "ids": Array(3...id)]
-            ]))
-            Thread.sleep(forTimeInterval: 0.006) // an indivisible row longer than a 60 Hz slice
-            return true
-        }
-        p.syncLists(limit: 2)
-        for _ in 0..<8 {
-            let before = reports
-            p.pump()
-            XCTAssertLessThanOrEqual(reports - before, 1, "no second report after an expensive row")
-            if reports == 3 { break }
-        }
-        // A descheduled slice may expire before its first report.
-        XCTAssertEqual(reports, 3, "the expensive estimate must not starve all later slices")
-    }
-
-    func testSynchronousSettlementUsesUnlimitedReportsAndRetirementClearsPending() {
-        let (p, list) = fixture(collection: false)
-        defer { p.reset() }
-        list.props["estimatedItemHeight"] = "24"
-        var limits: [UInt32] = []
-        p.onList = { _, _, _, _, _, _, _, limit in
-            limits.append(limit)
-            return limits.count < 3
-        }
-        p.syncLists(limit: 2)
-        p.settlePump()
-        XCTAssertEqual(limits, [2, 0, 0], "agent settlement drains pending reports without an overscan budget")
-        p.pump()
-        XCTAssertEqual(limits, [2, 0, 0])
-        p.onList = { _, _, _, _, _, _, _, limit in limits.append(limit); return true }
-        list.scroll!.contentView.scroll(to: NSPoint(x: 0, y: 200))
-        p.syncLists(limit: 2)
-        let beforeRetirement = limits.count
-        p.apply(batch([["op": "destroy", "id": Int(list.id)]]))
-        p.pump()
-        XCTAssertEqual(limits.count, beforeRetirement, "destroyed lists cannot retain a pending report")
-    }
-
-    func testCommonOwnershipRetiresLegacyPendingWorkAndGeometry() {
-        for duringReport in [false, true] {
-            let (p, list) = fixture(collection: false)
-            defer { p.reset() }
-            list.props["estimatedItemHeight"] = "24"
-            var reports = 0
-            let takeover = batch([["op": "collections", "items": [snapshot()]]])
-            p.onList = { _, _, _, _, _, _, _, _ in
-                reports += 1
-                if duringReport && reports == 1 { p.apply(takeover) }
-                return true
-            }
-            p.syncLists(limit: 2)
-            if !duringReport { p.apply(takeover) }
-            XCTAssertTrue(p.collections.owns(list.id))
-            p.pump(); p.pump()
-            XCTAssertEqual(reports, 1, "common ownership must stop legacy continuations")
-            // Remove common ownership without apply's automatic legacy sync,
-            // so an obsolete pump continuation is observable independently.
-            p.collections.beginBatch(batch([["op": "collections", "items": []]]))
-            p.collections.endBatch()
-            p.pump()
-            XCTAssertEqual(reports, 1, "the previous owner's pending work was retired")
-            p.syncLists(limit: 2)
-            XCTAssertEqual(reports, 2, "returning legacy ownership must report even unchanged geometry")
-        }
     }
 
     func testCollectionSpacerReorderPreservesParagraphFocusAndSelection() throws {

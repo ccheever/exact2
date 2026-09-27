@@ -371,16 +371,6 @@ uint32_t exact_canvas_display(ExactRuntime rt, double scale, double memory);
  * buffer's first len bytes. Returns the batch length. */
 uint32_t exact_canvas_image(ExactRuntime rt, size_t len, uint32_t width, uint32_t height, uint32_t ok);
 uint32_t exact_resize(ExactRuntime rt, float width, float height);
-/* Actual list scrollport and focused/interacting descendants (zero if absent).
-   Row heights use the kernel frames already delivered to the presenter. */
-uint32_t exact_list(ExactRuntime rt, uint32_t view, double top, double height,
-                    double width, double origin, uint32_t focus, uint32_t interaction,
-                    uint32_t limit, double velocity);
-/* `limit` rations the report: 0 fills the whole window; n creates at most
-   n - 1 rows beyond those the scrollport shows, which are never rationed.
-   velocity is recent user travel in points/second (0 for deterministic reports).
-   exact_list_pending says whether rows remain to create or retire (1 or 0). */
-uint32_t exact_list_pending(ExactRuntime rt, uint32_t view);
 /* Opaque row key in the input buffer; UINT32_MAX means absent. */
 uint32_t exact_list_index(ExactRuntime rt, uint32_t view, uint32_t len);
 /* Two concatenated UTF-8 keys in input; empty first key selects all text.

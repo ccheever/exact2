@@ -745,7 +745,6 @@ impl Collection {
                 .push(super::repeated(self.region, &self.keys[position], ident));
         }
         Ok(Row {
-            wrapper: None,
             dup,
             key: self.keys[position].clone(),
             frame,

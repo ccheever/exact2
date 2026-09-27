@@ -206,17 +206,12 @@ function assetNamespace(cards) {
 function releaseAssets(assets) { for (const card of assets?.values() ?? []) if (card.objectURL) URL.revokeObjectURL(card.objectURL); }
 const lists = new Map();
 let listSelection, listSelectionLoading;
-// A list with logical rows; a virtualized list's (`collection`) feedback is navigation.js's.
+// A virtualized list has logical rows; its (`collection`) feedback is navigation.js's.
 function listView(el, id, collection) {
-  const measured = el.hasAttribute('data-estimateditemheight');
-  if (!collection && !measured && !el.hasAttribute('data-itemheight')) return;
-  lists.set(el, { id, measured, window: !collection });
+  if (!collection) return;
+  lists.set(el, { id });
   listSelectionLoading ??= new Promise(resolve => requestAnimationFrame(() => resolve(loadAfterPaint('./list-selection.js', 'installListSelection'))))
-    .then(install => { listSelection = install({ root, lists, views,
-      report: (id, geometry, measurements, limit) => {
-        send(wasm.exact_list(id, ...geometry, writeIn(measurements), limit));
-        return Boolean(wasm.exact_list_pending(id));
-      },
+    .then(install => { listSelection = install({ root, lists,
       index: (el, key) => wasm.exact_list_index(Number(el.dataset.view), writeIn(key)),
       text: (el, a, b) => { const first = encoder.encode(a?.key ?? '').length, len = writeIn((a?.key ?? '') + (b?.key ?? '')); return readOut(wasm.exact_list_text(Number(el.dataset.view), first, len, a?.paragraph ?? 0, a?.offset ?? 0, b?.paragraph ?? 0, b?.offset ?? 0)); },
     }); listSelection.sync(); }).catch(console.error);
@@ -608,7 +603,6 @@ function apply(batch) {
         const css = op.css + (el.hasAttribute("data-action") ? ";touch-action:none" : ""); if ((el.getAttribute("style") ?? "") !== css) el.style.cssText = css; // an adopted element's is already there
         attach(el, op.id, op.handlers);
         views.set(op.id, el); if (op.tag.includes("-") && !op.ns && !el.exactNative) nativeCreate(el, op.id);
-        // Shared collections own geometry feedback, including authored estimates.
         listView(el, op.id, collectionOp?.items.some(item => item.view === op.id));
         break;
       }

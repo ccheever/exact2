@@ -125,7 +125,7 @@ fn main() {
         list_memory(
             count,
             std::env::args().any(|arg| arg == "--hold"),
-            std::env::args().any(|arg| arg == "--windowed"),
+            std::env::args().any(|arg| arg == "--virtualized"),
         );
         return;
     }
@@ -261,7 +261,7 @@ fn main() {
 
 // @ref LLP 1010 §6 — baseline first; these are runner measurements, not
 // browser/phone frames. One invocation owns one size and one runner.
-fn list_memory(count: usize, hold: bool, windowed: bool) {
+fn list_memory(count: usize, hold: bool, virtualized: bool) {
     use std::io::Write;
     use std::sync::atomic::Ordering::Relaxed;
 
@@ -285,8 +285,8 @@ component App
     // Compile outside the measured interval; retain only the encoded input.
     // The decoded plan and source data below are counted separately once,
     // even when runner values share their storage through Rc.
-    let source = if windowed {
-        source.replace("scroll height=844 width=390\n      column\n        each row in rows key=row.id\n          text", "list item-height=24 height=844 width=390\n      each row in rows key=row.id\n        text")
+    let source = if virtualized {
+        source.replace("scroll height=844 width=390\n      column\n        each row in rows key=row.id\n          text", "list virtualized=true estimated-item-height=24 height=844 width=390 overflow-x=\"hidden\"\n      each row in rows key=row.id\n        text")
     } else {
         source.to_string()
     };
@@ -313,22 +313,43 @@ component App
         .unwrap()
     });
     let root = runner.roots()[0];
+    // The collection's host seam, as a host reports it: its offset, its
+    // port and every mounted row at its laid-out 24 px.
+    let mut sequence = 0;
+    let mut report = |runner: &mut Runner<MemoryRows>, top: f64| {
+        let snapshot = runner
+            .collections()
+            .into_iter()
+            .next()
+            .expect("a collection");
+        sequence += 1;
+        runner
+            .collection_feedback(exact_runner::CollectionFeedback {
+                view: snapshot.view,
+                revision: snapshot.revision,
+                scroll_sequence: sequence,
+                scroll_top: top,
+                port_width: 390.0,
+                port_height: 844.0,
+                row_width: 390.0,
+                measurements: snapshot
+                    .rows
+                    .iter()
+                    .map(|row| exact_runner::RowMeasurement {
+                        view: row.view,
+                        epoch: row.epoch,
+                        height: 24.0,
+                    })
+                    .collect(),
+                focus_view: None,
+                interaction_view: None,
+            })
+            .unwrap();
+    };
+    let middle = (count as f64 * 12.0 - 422.0).max(0.0);
     let (_, window_ms) = time(|| {
-        if windowed {
-            runner
-                .list_viewport(
-                    root,
-                    exact_runner::ListViewport {
-                        top: (count as f64 * 12.0 - 422.0).max(0.0),
-                        height: 844.0,
-                        width: 390.0,
-                        origin: 0.0,
-                        pins: [0, 0],
-                        rows: &[],
-                        velocity: 0.0,
-                    },
-                )
-                .unwrap();
+        if virtualized {
+            report(&mut runner, middle);
         }
     });
     let (_, layout_ms) = time(|| {
@@ -338,51 +359,35 @@ component App
             .unwrap()
     });
     let nodes = runner.kernel().live_count();
-    if windowed {
-        assert!(nodes <= 216, "three viewports of row instances");
+    // Three viewports of rows (overscan either side), a wrapper and a text
+    // each, and the spacers.
+    let window_nodes = 3 * (844 / 24 + 2) * 2 + 8;
+    if virtualized {
+        assert!(
+            nodes <= window_nodes,
+            "three viewports of row instances, {nodes}"
+        );
     } else {
         assert_eq!(nodes, count + 2, "the baseline must materialize every row");
     }
     let initial_retained = HEAP_DELTA.load(Relaxed);
     let mut first_traversal_retained = initial_retained;
-    if windowed {
+    if virtualized {
         for pass in 0..20 {
             for row in (0..count).step_by(35).chain((0..count).step_by(35).rev()) {
                 let top = (row as f64 * 24.0).min((count as f64 * 24.0 - 844.0).max(0.0));
-                runner
-                    .list_viewport(
-                        root,
-                        exact_runner::ListViewport {
-                            top,
-                            height: 844.0,
-                            width: 390.0,
-                            origin: 0.0,
-                            pins: [0, 0],
-                            rows: &[],
-                            velocity: 0.0,
-                        },
-                    )
-                    .unwrap();
+                // A move reports twice, as a host does: once to build, once
+                // with the new rows measured.
+                report(&mut runner, top);
+                report(&mut runner, top);
                 runner
                     .kernel_mut()
                     .compute_layout(root, Offer::definite(390.0, 844.0))
                     .unwrap();
-                assert!(runner.kernel().live_count() <= 216);
+                assert!(runner.kernel().live_count() <= window_nodes);
             }
-            runner
-                .list_viewport(
-                    root,
-                    exact_runner::ListViewport {
-                        top: (count as f64 * 12.0 - 422.0).max(0.0),
-                        height: 844.0,
-                        width: 390.0,
-                        origin: 0.0,
-                        pins: [0, 0],
-                        rows: &[],
-                        velocity: 0.0,
-                    },
-                )
-                .unwrap();
+            report(&mut runner, middle);
+            report(&mut runner, middle);
             runner
                 .kernel_mut()
                 .compute_layout(root, Offer::definite(390.0, 844.0))
@@ -395,7 +400,7 @@ component App
     let retained = HEAP_DELTA.load(Relaxed);
     let peak = HEAP_PEAK.load(Relaxed);
     MEASURE_HEAP.store(false, Relaxed);
-    let mode = if windowed { "windowed" } else { "eager" };
+    let mode = if virtualized { "virtualized" } else { "eager" };
     let slots = runner.kernel().arena().slot_count();
     println!(
         "{{\"mode\":\"{mode}\",\"initial_retained_heap_bytes\":{initial_retained},\"first_traversal_retained_heap_bytes\":{first_traversal_retained},\"kernel_slots\":{slots},\"window_ms\":{window_ms:.4},\"rows\":{count},\"live_kernel_nodes\":{nodes},\"encoded_plan_bytes\":{},\"data_heap_bytes\":{data_bytes},\"decoded_plan_heap_bytes\":{plan_bytes},\"retained_heap_delta_bytes\":{retained},\"peak_heap_delta_bytes\":{peak},\"decode_ms\":{decode_ms:.4},\"runner_boot_ms\":{boot_ms:.4},\"layout_ms\":{layout_ms:.4},\"first_frame_ms\":null,\"native_views\":null,\"decoded_image_bytes\":null}}",
@@ -544,7 +549,7 @@ component App
     println!("{{\"scaling\":[{}],\"scaling_note\":\"release; four warmup updates, 40 measured; runner includes settlement/evaluation/kernel apply; web timings include runner and serialization, not browser; layout uses monospace, no physical device or allocation measurement\"}}", results.join(","));
 }
 
-// @ref LLP 1010 §6: paired current-binary eager/windowed controls. Geometry is
+// @ref LLP 1010 §6: paired current-binary eager/virtualized controls. Geometry is
 // measured by the real kernel; there is no browser/native presenter in this run.
 const COLLECTION_HEIGHT: f64 = 800.0;
 const COLLECTION_WIDTH: f64 = 390.0;

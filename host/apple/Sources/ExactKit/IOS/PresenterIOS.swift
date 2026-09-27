@@ -12,8 +12,6 @@ final class Presenter {
     var documentLanguage = ""
     var documentDirection = "ltr"
     static let signposts = OSSignposter(subsystem: "com.exact.host", category: "scroll")
-    var scrollCreatedRows = 0
-    var scrollOffscreenRows = 0
 
     var autofocusProcessed: Set<ObjectIdentifier> = []
     /// The session this presenter shows (LLP 1031 D1).
@@ -458,7 +456,6 @@ final class Presenter {
     var onRefresh: ((UInt32) -> Void)?
     var onPan: ((UInt32, Double, Double) -> Void)?
     var onScroll: ((UInt32, Double, Double) -> Void)?
-    var onList: ((UInt32, Double, Double, Double, Double, UInt32, UInt32, UInt32) -> Bool)?
     var interacting: UInt32 = 0
     var listViews: [UInt32: NodeView] = [:]
     var textViews: [UInt32: NodeView] = [:]

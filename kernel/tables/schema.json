@@ -565,11 +565,6 @@
       "kind": "float"
     },
     {
-      "id": 80,
-      "name": "itemHeight",
-      "kind": "float"
-    },
-    {
       "id": 81,
       "name": "accessibilityPosInSet",
       "kind": "int"

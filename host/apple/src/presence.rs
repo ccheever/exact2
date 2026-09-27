@@ -162,7 +162,7 @@ impl<D: DataSource> Host<D> {
     }
 
     /// Observe changed boxes after layout; shared policy also observes the
-    /// row placed through a moving windowed wrapper.
+    /// row placed through a moving virtualized row wrapper.
     pub(super) fn observe_layout(&mut self, key: NodeKey, batch: &mut Batch) {
         let retired =
             self.presence

@@ -97,7 +97,7 @@ final class Presenter {
         viewport.backgroundColor = .white
         viewport.contentView.postsBoundsChangedNotifications = true
         // LLP 1050.000 stage 1: a collection reports its travel and builds
-        // ahead in the pump's slices, as the windowed list does.
+        // ahead in the pump's slices.
         collections.motion = { [unowned self] id in
             let velocity = listVelocity(id)
             return velocity == 0 ? nil : velocity
@@ -237,13 +237,9 @@ final class Presenter {
 
     private var pumpLink: CADisplayLink?
     private let pumpTarget = PumpTarget()
-    private var listSyncPending = false
     private var inScrollCallback = false
     private var textPending = false
-    private var textTurn = false
     private var pumping = false
-    private var listBatchPending = false
-    private var listFinalizationCost: TimeInterval = 0.0005
     private var pumpSchedule = PumpSchedule()
     private var pumpScreen: UInt32?
     private var refreshInterval: TimeInterval { pumpSchedule.refreshInterval }
@@ -339,10 +335,6 @@ final class Presenter {
             listTravel[id] = travel
         }
     }
-    private var listIsMoving: Bool {
-        listTravel.contains { listVelocity($0.key) != 0 }
-    }
-
     /// A collection's clip view moved (`NodeView.clipScrolled`): its travel
     /// first, so the rescue or the slice that follows leads the right way.
     func collectionScrolled(_ id: UInt32) {
@@ -376,14 +368,9 @@ final class Presenter {
         // there is nothing to report, and nothing here reads or writes the
         // scroll view again until AppKit next calls in.
         sampleListTravel()
-        switch listsNeed() {
-        case .nothing: break
-        case .soon: listSyncPending = true
-        case .now: syncLists(limit: ExactEnv.agentMode ? 0 : 1)
-        }
         // Only what is already on screen without paint; the rest is pumped.
         textPending = refreshVisibleText(limit: 0) || textPending
-        if listSyncPending || textPending {
+        if textPending {
             startPump()
             queuePostSyncSlice()
         }
@@ -401,16 +388,6 @@ final class Presenter {
 
     /// After a batch: paint what is visible now, admit the rest over frames.
     private func batchApplied() {
-        listBatchPending = true
-        guard listSyncDepth == 0 else { return }
-        syncLists(limit: ExactEnv.agentMode ? 0 : 1)
-    }
-
-    /// All reports in a fill share one visibility/index pass. No intermediate
-    /// hierarchy is painted, and the next scroll observes the final cover.
-    private func finishListBatch() {
-        listBatchPending = false
-        coverLists()
         // Mounting and layout already spent this frame's main-thread time.
         // Keep visible pixels urgent; prepare offscreen text in a later slice.
         if refreshVisibleText(limit: 0) { textPending = true; startPump() }
@@ -465,15 +442,12 @@ final class Presenter {
         // Match the previous bounded native-feedback depth while keeping
         // background admission out of this synchronous agent boundary.
         for _ in 0..<8 {
-            guard listSyncPending || !listPending.isEmpty || !collections.fillPending.isEmpty else { break }
+            guard !collections.fillPending.isEmpty else { break }
             for id in collections.fillPending.sorted() { collections.fillSlice(id, limit: UInt32.max - 1) }
-            listSyncPending = false
-            syncLists()
         }
         refreshVisibleText()
         textPending = false
-        textTurn = false
-        if listSyncPending || !collections.fillPending.isEmpty { startPump() } else { stopPump() }
+        if !collections.fillPending.isEmpty { startPump() } else { stopPump() }
     }
 
     /// The refresh interval sets the deadline. A report sizes its overscan from
@@ -488,79 +462,12 @@ final class Presenter {
             fillCollections(deadline: CACurrentMediaTime() + sliceBudget)
             Self.signposts.endInterval("pump-collection", post)
         }
-        if listSyncPending && (listIsMoving || !(textTurn && textPending)) {
-            let post = Self.signposts.beginInterval("pump-list")
-            let deadline = CACurrentMediaTime() + sliceBudget
-            listSyncPending = false
-            syncLists(limit: ExactEnv.agentMode ? 0 : 2, deadline: deadline)
-            textTurn = true
-            Self.signposts.endInterval("pump-list", post)
-            // Dispatch pixels for newly mounted lead rows without surrendering
-            // the next list slice. Worker admission remains bounded.
-            textPending = refreshVisibleText(limit: Self.textBandsPerSlice, afterFrame: true) || textPending
-            return
-        }
-        textTurn = false
         if textPending {
             let post = Self.signposts.beginInterval("pump-text")
             textPending = refreshVisibleText(limit: Self.textBandsPerSlice, afterFrame: true)
             Self.signposts.endInterval("pump-text", post)
         }
-        if !listSyncPending && !textPending && collections.fillPending.isEmpty { stopPump() }
-    }
-
-    private enum ListNeed { case nothing, soon, now }
-
-    /// What the mounted rows of each windowed list cover, from the last batch
-    /// that changed them: `scrolled` compares an offset against four numbers
-    /// instead of walking the rows on every tick.
-    private struct ListCover {
-        var top: CGFloat, bottom: CGFloat, origin: CGFloat
-        var atStart: Bool, atEnd: Bool
-    }
-    private var listCovers: [UInt32: ListCover] = [:]
-
-    private func coverLists() {
-        listCovers.removeAll(keepingCapacity: true)
-        for list in listViews.values {
-            guard !collections.owns(list.id) else { continue }
-            guard list.props["itemHeight"] != nil || list.props["estimatedItemHeight"] != nil,
-                  let content = list.container.subviews.first as? NodeView else { continue }
-            let rows = content.container.subviews.compactMap { $0 as? NodeView }
-            let positions = rows.compactMap { Int($0.props["accessibilityPosInSet"] ?? "") }.sorted()
-            // Focus and interaction can pin a distant row. Its bounds do not
-            // cover the unmounted gap: use the normal viewport report until
-            // the mounted rows are contiguous again.
-            guard positions.count == rows.count, !positions.isEmpty,
-                  zip(positions, positions.dropFirst()).allSatisfy({ $1 == $0 + 1 }) else { continue }
-            var cover = ListCover(top: .infinity, bottom: -.infinity, origin: content.frame.minY, atStart: false, atEnd: false)
-            for row in rows {
-                let index = Int(row.props["accessibilityPosInSet"] ?? "") ?? 0, count = Int(row.props["accessibilitySetSize"] ?? "") ?? -1
-                if row.frame.minY < cover.top { cover.top = row.frame.minY; cover.atStart = index <= 1 }
-                if row.frame.maxY > cover.bottom { cover.bottom = row.frame.maxY; cover.atEnd = index == count }
-            }
-            if cover.top.isFinite { listCovers[list.id] = cover }
-        }
-    }
-
-    /// Whether a windowed list has scrolled to where the runner would mount
-    /// rows (its window is a scrollport either side), and whether it is close
-    /// to showing past the mounted ones — a jump, a scroller drag, a fling
-    /// faster than the pump. Then it fills now.
-    private func listsNeed() -> ListNeed {
-        var need = ListNeed.nothing
-        for list in listViews.values {
-            guard !collections.owns(list.id) else { continue }
-            guard list.props["itemHeight"] != nil || list.props["estimatedItemHeight"] != nil, let scroll = list.scroll else { continue }
-            guard let cover = listCovers[list.id] else { return .now }
-            let visible = scroll.contentView.bounds, port = visible.height
-            let first = cover.top + cover.origin, last = cover.bottom + cover.origin
-            if (!cover.atEnd && visible.maxY > last) || (!cover.atStart && visible.minY < first) { return .now }
-            let bias = CGFloat(max(-Double(port) * 0.75, min(Double(port) * 0.75, listVelocity(list.id) * 0.1)))
-            if (!cover.atEnd && visible.maxY + port + bias + 1 > last)
-                || (!cover.atStart && visible.minY - port + bias - 1 < first) { need = .soon }
-        }
-        return need
+        if !textPending && collections.fillPending.isEmpty { stopPump() }
     }
 
     /// Scrolling exposes strips of an existing backing store. Repainting the
@@ -622,7 +529,6 @@ final class Presenter {
         chrome = ChromeIndex()
         scrollers.removeAll()
         pendingScrolls.removeAll()
-        keyLoopTimer?.invalidate(); keyLoopTimer = nil
         heightBindings.removeAll()
         transformBindings.removeAll()
         transformGeometry.reset()
@@ -631,17 +537,10 @@ final class Presenter {
         visibleText.removeAll()
         textViewportIndex = nil
         stopPump()
-        listCovers.removeAll()
         listTravel.removeAll()
         listFillCosts.removeAll()
-        listBatchPending = false
-        listFinalizationCost = 0.0005
-        listSyncPending = false
         textPending = false
-        listGeometry.removeAll()
         listViews.removeAll()
-        listPending.removeAll()
-        textTurn = false
     }
 
     /// Size the document to its roots, never smaller than the viewport.
@@ -713,11 +612,9 @@ final class Presenter {
     var onRefresh: ((UInt32) -> Void)?
     var onPan: ((UInt32, Double, Double) -> Void)?
     var onScroll: ((UInt32, Double, Double) -> Void)?
-    var onList: ((UInt32, Double, Double, Double, Double, UInt32, UInt32, UInt32) -> Bool)?
     var onListIndex: ((UInt32, String) -> Int?)?
     var onListText: ((UInt32, (String, Int, Int)?, (String, Int, Int)?) -> String)?
     var interacting: UInt32 = 0
-    private var listGeometry: [UInt32: [Double]] = [:]
     private var listViews: [UInt32: NodeView] = [:]
 
     /// Everything kept for `id`, out of the maps (not out of the window);
@@ -744,126 +641,10 @@ final class Presenter {
         chrome.forget(id)
         scrollers.remove(id)
         pendingScrolls.remove(id)
-        listPending.remove(id)
         listViews.removeValue(forKey: id)
         listTravel.removeValue(forKey: id)
         listFillCosts.removeValue(forKey: id)
         return gone
-    }
-    private var listSyncDepth = 0
-    private var listPending: Set<UInt32> = []
-
-    /// Fill and measure the row window before paint. Unusual documents with
-    /// many zero-height rows continue next turn instead of recursing forever.
-    func syncLists(limit: UInt32 = 0, deadline: TimeInterval? = nil) {
-        guard !applying, listSyncDepth == 0 else { return }
-        listSyncDepth += 1
-        defer {
-            listSyncDepth -= 1
-            if listBatchPending {
-                let started = CACurrentMediaTime()
-                finishListBatch()
-                if deadline != nil {
-                    let elapsed = CACurrentMediaTime() - started
-                    listFinalizationCost = max(elapsed, listFinalizationCost * 0.75 + elapsed * 0.25)
-                }
-            }
-        }
-        var admittedReport = false
-        listGeometry = listGeometry.filter { views[$0.key] != nil && !collections.owns($0.key) }
-        listPending = listPending.filter { views[$0] != nil && !collections.owns($0) }
-        for list in Array(listViews.values).sorted(by: { $0.id < $1.id }) {
-            if let deadline, CACurrentMediaTime() >= deadline {
-                listSyncPending = true
-                break
-            }
-            // Shared collections use revisioned feedback, not the earlier
-            // item-height window protocol (which rejects their row tree).
-            guard !collections.owns(list.id) else { continue }
-            guard list.props["itemHeight"] != nil || list.props["estimatedItemHeight"] != nil else { continue }
-            guard views[list.id] === list, let scroll = list.scroll,
-                  let content = list.container.subviews.first as? NodeView else { continue }
-            var responder = root.window?.firstResponder as? NSView
-            if let owner = (responder as? NSTextView)?.delegate as? NSView { responder = owner }
-            while responder != nil && !(responder is NodeView) { responder = responder?.superview }
-            let focused = responder as? NodeView
-            let focus = focused?.isDescendant(of: list) == true ? focused!.id : 0
-            let interaction = views[interacting]?.isDescendant(of: list) == true ? interacting : 0
-            var reportLimit = limit
-            for attempt in 0..<8 {
-                let started = CACurrentMediaTime()
-                if let deadline {
-                    let remaining = deadline - started - listFinalizationCost
-                    let rows = (listFillCosts[list.id] ?? ListFillCost()).rows(within: remaining)
-                    if started >= deadline || (rows == 0 && admittedReport) {
-                        listPending.insert(list.id)
-                        break
-                    }
-                    // An indivisible expensive row must still make progress;
-                    // only the first report may exceed the estimated budget.
-                    if reportLimit > 1 { reportLimit = max(1, rows) + 1 }
-                }
-                let top = Double(scroll.contentView.bounds.minY)
-                let height = Double(scroll.contentSize.height)
-                let width = Double(content.frame.width)
-                let origin = Double(content.frame.minY)
-                let rows = content.container.subviews.compactMap { $0 as? NodeView }
-                let stamp = [top, height, width, origin, Double(focus), Double(interaction), listVelocity(list.id)]
-                    + rows.flatMap { [Double($0.id), Double($0.frame.height)] }
-                if listGeometry[list.id] == stamp && !listPending.contains(list.id) { break }
-                if let deadline, CACurrentMediaTime() >= deadline {
-                    listPending.insert(list.id)
-                    break
-                }
-                listGeometry[list.id] = stamp
-                let previous = Set(rows.map(\.id))
-                admittedReport = true
-                let more = onList?(list.id, top, height, width, origin, focus, interaction, reportLimit) ?? false
-                // The callback can transfer ownership in a nested batch while
-                // recursive list synchronization is suppressed.
-                guard views[list.id] === list, !collections.owns(list.id) else {
-                    listPending.remove(list.id)
-                    listGeometry.removeValue(forKey: list.id)
-                    listFillCosts.removeValue(forKey: list.id)
-                    break
-                }
-                let created = content.container.subviews.reduce(0) { count, view in
-                    count + ((view as? NodeView).map { previous.contains($0.id) ? 0 : 1 } ?? 0)
-                }
-                listFillCosts[list.id, default: ListFillCost()].record(
-                    seconds: CACurrentMediaTime() - started, rows: created)
-                if more { listPending.insert(list.id) } else { listPending.remove(list.id) }
-                // Applying a report can anchor or clamp the native scrollport.
-                // Nested reports are suppressed, so cover that changed visible
-                // interval here; row-only changes never multiply the budget.
-                let changed = top != Double(scroll.contentView.bounds.minY)
-                    || height != Double(scroll.contentSize.height)
-                    || width != Double(content.frame.width) || origin != Double(content.frame.minY)
-                // One measured batch amortizes the fixed passes. Spending a
-                // slice's tail on another tiny report pays them again; only a
-                // native correction exposing missing pixels requires a retry.
-                guard changed, !listShowsViewport(scroll, content: content) else { break }
-                if attempt == 7 { listPending.insert(list.id) }
-                reportLimit = limit == 0 ? 0 : 1
-            }
-        }
-        if !listPending.isEmpty { listSyncPending = true; startPump() }
-    }
-    /// Check intervals, not their bounding box: a pinned row can leave a gap.
-    private func listShowsViewport(_ scroll: NSScrollView, content: NodeView) -> Bool {
-        let port = scroll.contentView.bounds
-        var reached = max(0, port.minY - content.frame.minY)
-        let end = min(content.frame.height, port.maxY - content.frame.minY)
-        guard port.height > 0, end > reached else { return true }
-        let rows = content.container.subviews.compactMap { $0 as? NodeView }
-            .sorted { $0.frame.minY < $1.frame.minY }
-        for row in rows {
-            if row.frame.maxY <= reached { continue }
-            if row.frame.minY > reached { return false }
-            reached = row.frame.maxY
-            if reached >= end { return true }
-        }
-        return false
     }
     var onSubmit: ((UInt32) -> Void)?
     var onLoad: ((UInt32) -> Void)?
@@ -1124,7 +905,7 @@ final class Presenter {
         shortcuts.sync()
         if structureChanged { selection.structureChanged() }
         if structureChanged || batch.ops.contains(where: { $0.op == .props }) {
-            keyViewLoopChanged(whileScrolling: listSyncDepth > 0)
+            syncKeyViewLoop()
         }
         refreshVisibleText()
         syncAccessibility()
@@ -1154,29 +935,6 @@ final class Presenter {
 
     /// The view that takes Tab for this node: an input's field, else itself.
     private func keyView(of v: NodeView) -> NSView { v.textArea ?? v.field ?? v }
-
-    private var keyLoopTimer: Timer?
-    /// Sequential focus follows the batch that changed it — except a batch that
-    /// only moved a list's window, which a scroll applies many times a second
-    /// and each of which would walk and sort the whole tree. Nobody tabs
-    /// mid-scroll: the rebuild waits for the scroll to pause, and a Tab that
-    /// arrives first runs it (`flushKeyViewLoop`, from the view's key monitor).
-    func keyViewLoopChanged(whileScrolling: Bool) {
-        guard whileScrolling else {
-            keyLoopTimer?.invalidate(); keyLoopTimer = nil
-            syncKeyViewLoop()
-            return
-        }
-        if let keyLoopTimer { keyLoopTimer.fireDate = Date(timeIntervalSinceNow: 0.15); return }
-        let timer = Timer(timeInterval: 0.15, repeats: false) { [weak self] _ in self?.flushKeyViewLoop() }
-        RunLoop.main.add(timer, forMode: .common)
-        keyLoopTimer = timer
-    }
-    func flushKeyViewLoop() {
-        guard keyLoopTimer != nil else { return }
-        keyLoopTimer?.invalidate(); keyLoopTimer = nil
-        syncKeyViewLoop()
-    }
 
     /// Sequential focus after a batch: tree order, then `tabIndex` > 0, as
     /// HTML. `autorecalculatesKeyViewLoop` stays false so nothing is focused

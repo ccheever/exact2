@@ -33,7 +33,7 @@ pub const MAX_DEPTH: u32 = 128;
 
 /// A destroyed node that leaves with its `exit-animation` (LLP 1063): the
 /// root of a destroyed subtree whose parent survived the batch and that no
-/// batch-local creation owns, or a windowed list's row whose item left the
+/// batch-local creation owns, or a virtualized list's row whose item left the
 /// data. Its descendants go with it; their own exit rows never play.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Exit {
@@ -822,7 +822,7 @@ pub(crate) fn apply_document(
 
 /// The exit a destroyed subtree root plays, if any (LLP 1063). Not for a
 /// node this batch created (nothing presented it), a root or inline run
-/// (nowhere to stay), or a windowed list's row the window scrolled away
+/// (nowhere to stay), or a virtualized list's row the window scrolled away
 /// ([`leaving_with`]).
 fn exit(
     arena: &NodeArena,
@@ -848,7 +848,7 @@ fn exit(
 }
 
 /// The `exit-animation` `slot` plays as it leaves: its own row, unless it
-/// is a windowed list's row wrapper (it carries `listItemKey`). The window
+/// is a virtualized list's row wrapper (it carries `listItemKey`). The window
 /// destroys rows that scroll away as well as rows whose item left the data,
 /// and empties the key of the latter alone; such a wrapper leaves as the
 /// row, where the window placed it, with its one root's row.

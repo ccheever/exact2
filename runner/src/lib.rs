@@ -71,9 +71,9 @@ pub use request::{
 pub use runner::{
     canvas_engine, routing, Advanced, Announce, CanvasEngine, CanvasLink, CanvasList, Carried,
     Checkpoint, Command, DataError, DataSource, DrawReply, DrawRequest, Drawn, Event, Geometry,
-    InFlight, Interrupt, Limits, ListStatus, ListTextPosition, ListViewport, Native, NativeCall,
-    NativeHandler, RouterChange, RouterLink, Routing, Runner, RunnerError, RunnerLinks,
-    SurfaceAnswer, Target, Timed, JOURNAL_RING, MAX_CLOCK_MS, TIMER_FIRE_LIMIT,
+    InFlight, Interrupt, Limits, ListTextPosition, Native, NativeCall, NativeHandler, RouterChange,
+    RouterLink, Routing, Runner, RunnerError, RunnerLinks, SurfaceAnswer, Target, Timed,
+    JOURNAL_RING, MAX_CLOCK_MS, TIMER_FIRE_LIMIT,
 };
 pub use store::{Store, StoreError, StoreWrite};
 pub use uses::{uses, Capability, Uses};

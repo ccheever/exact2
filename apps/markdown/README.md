@@ -666,6 +666,10 @@ is faster than Legend follows from this slice.
 
 ### Measured row windows — prototype, 2026-09-18
 
+**Superseded 2026-09-27 (LLP 1070 stage 1):** the windowed list this section
+describes is deleted; the reader's document is a `virtualized=true` list (the
+collection), with the page's top and end space on its first and last rows.
+
 The shared runner now accepts `estimated-item-height` on a list. A compact
 prefix-sum index tracks measured rows; offset lookup and individual height
 updates are logarithmic. Width changes invalidate measurements. Height changes

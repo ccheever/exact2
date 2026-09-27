@@ -538,9 +538,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// A scroll under a canvas repaints it (LLP 1014 D4 c).
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         let post = Presenter.signposts.beginInterval("scrolled")
-        let before = presenter?.scrollCreatedRows ?? 0
-        let offscreen = presenter?.scrollOffscreenRows ?? 0
-        defer { Presenter.signposts.endInterval("scrolled", post, "rows=\((self.presenter?.scrollCreatedRows ?? before) - before) offscreen=\((self.presenter?.scrollOffscreenRows ?? offscreen) - offscreen)") }
+        defer { Presenter.signposts.endInterval("scrolled", post) }
         presenter?.collections.changed(id, user: true)
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()

@@ -93,7 +93,7 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
             // @ref LLP 1063 — not CSS properties: custom properties the page's
             // presence module reads (`presence-glue.js`), inherited by nothing
             // it reads, since it reads only the element's own declaration. The
-            // exit's own list also rides its `exit` op (a windowed row leaves
+            // exit's own list also rides its `exit` op (a virtualized row leaves
             // as its wrapper, which declares none); here it declares the row,
             // so the module is fetched before the first exit needs it. The
             // rules it names are in the page's stylesheet, as `animation`'s.

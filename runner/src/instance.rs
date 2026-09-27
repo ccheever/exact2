@@ -20,10 +20,8 @@
 pub mod collection;
 mod deps;
 mod find;
-mod heights;
 mod region;
 mod text;
-mod window;
 
 use crate::bridge;
 use crate::vm::{self, Env, Frame, RowSlots, Trap};
@@ -36,23 +34,20 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-/// The list engines' entries (LLP 1047 D3; LLP 1047.000 §9): the core
-/// reaches virtualized collections and windowed lists only through this
-/// table, and only [`LISTS`] names them. `RunnerLinks::ALL` and the web's
-/// collections capability are what name `LISTS`, so an artifact whose plan
-/// windows no list carries neither engine. Admission (D6) refuses a plan
-/// that windows a list where the table is absent.
+/// The list engine's entries (LLP 1047 D3; LLP 1047.000 §9): the core
+/// reaches virtualized collections only through this table, and only
+/// [`LISTS`] names it. `RunnerLinks::ALL` and the web's collections
+/// capability are what name `LISTS`, so an artifact whose plan virtualizes
+/// no list carries no engine. Admission (D6) refuses a plan that
+/// virtualizes a list where the table is absent.
 pub struct ListLinks {
     create: CreateList,
-    windowed: WindowedList,
-    prepare: fn(&mut NodeInst, &Plan, Option<Value>) -> Result<(), InstanceError>,
     update: fn(
         &mut collection::Collection,
         &mut Update<'_>,
         &[Frame],
         bool,
     ) -> Result<(), InstanceError>,
-    window: fn(&mut RegionInst, &mut Update<'_>, &[Frame], bool) -> Result<bool, InstanceError>,
     typography: ListTypography,
     pub(crate) collections_json: fn(&Tree) -> String,
 }
@@ -63,16 +58,12 @@ type CreateList = fn(
     ViewId,
     &[Frame],
 ) -> Result<Option<Box<collection::Collection>>, InstanceError>;
-type WindowedList = fn(&NodeInst, &mut Update<'_>, &[Frame]) -> Result<Vec<Child>, InstanceError>;
 type ListTypography = fn(&mut [Child], &mut Update<'_>, &[Frame]) -> Result<(), InstanceError>;
 
-/// Both list engines.
+/// The list engine.
 pub static LISTS: ListLinks = ListLinks {
     create: collection::Collection::create,
-    windowed: NodeInst::list_children,
-    prepare: NodeInst::prepare_list,
     update: collection::update_collection,
-    window: window::update_region,
     typography: collection::invalidate_typography,
     collections_json: collection::collections_json,
 };
@@ -146,7 +137,6 @@ enum Child {
 pub struct RegionInst {
     region: RegionsId,
     active: Active,
-    window: Option<Box<window::ListWindow>>,
     /// An `each` subject as last keyed: the same object again, with the key's
     /// other inputs unchanged, is the same keys.
     subject: Option<Value>,
@@ -166,7 +156,6 @@ enum Active {
 
 #[derive(Debug)]
 struct Row {
-    wrapper: Option<ViewId>,
     key: Value,
     /// Which repeat of `key` this row is: 0 for the first; the data gave the
     /// rest the same key, and they are told apart by order (see [`ident`]).
@@ -616,9 +605,7 @@ fn update_all(
                 }
             }
             Child::Region(r) => {
-                if u.stale(&deps.regions[r.region.0 as usize])
-                    || r.window.as_ref().is_some_and(|w| w.scroll_requested())
-                {
+                if u.stale(&deps.regions[r.region.0 as usize]) {
                     roots |= r.update(u, frames, false)?;
                 } else {
                     u.work.regions_skipped += 1;
@@ -685,22 +672,24 @@ impl NodeInst {
             None => None,
         };
         if inst.collection.is_none() {
-            inst.children = if let Some(lists) = lists.filter(|_| {
-                node_type == NodeType::List
-                    && (inst
-                        .bound_prop(u.env.plan, exact_kernel::PropId::ItemHeight)
-                        .is_some()
-                        || inst
-                            .bound_prop(u.env.plan, exact_kernel::PropId::EstimatedItemHeight)
-                            .is_some())
-            }) {
-                (lists.windowed)(&inst, u, frames)?
-            } else {
-                realize(u, Some(node), row.arm, frames)?
-            };
+            inst.children = realize(u, Some(node), row.arm, frames)?;
             inst.emit_children(u);
         }
         Ok(inst)
+    }
+
+    /// The value a prop binding last emitted.
+    pub(super) fn bound_prop(&self, plan: &Plan, prop: exact_kernel::PropId) -> Option<&Value> {
+        plan.node(self.node)
+            .bindings
+            .iter()
+            .enumerate()
+            .find_map(|(i, b)| {
+                let b = plan.binding(b);
+                (b.kind == BindingKind::Prop && b.id == prop as u16)
+                    .then(|| self.last[i].as_ref())
+                    .flatten()
+            })
     }
 
     fn emit_bindings(
@@ -848,13 +837,7 @@ impl NodeInst {
 
     fn update(&mut self, u: &mut Update<'_>, frames: &[Frame]) -> Result<(), InstanceError> {
         u.work.nodes_visited += 1;
-        let old_top = self
-            .bound_prop(u.env.plan, exact_kernel::PropId::ScrollTop)
-            .cloned();
         self.emit_bindings(u, frames, false)?;
-        if let Some(lists) = u.env.lists {
-            (lists.prepare)(self, u.env.plan, old_top)?;
-        }
 
         if let Some(collection) = &mut self.collection {
             let follow = u

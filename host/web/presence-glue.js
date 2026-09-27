@@ -79,7 +79,7 @@ function measure() {
   };
   // Where layout put `el` in `parent`, `[x, y, w, h]` in the parent's own
   // points: sub-pixel and free of every transform, however its ancestors
-  // turn or scale it. A windowed list's row wrapper (it carries
+  // turn or scale it. A virtualized list's row wrapper (it carries
   // `data-listitemkey`) only positions its row, so by default a row's root
   // is placed in the list content.
   return (el, parent = el.parentElement?.hasAttribute('data-listitemkey') ? el.parentElement.parentElement : el.parentElement) => {

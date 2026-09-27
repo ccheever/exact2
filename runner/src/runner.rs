@@ -29,7 +29,7 @@ mod kept;
 mod lines;
 mod lists;
 pub mod router;
-pub use lists::{ListStatus, ListTextPosition, ListViewport};
+pub use lists::ListTextPosition;
 mod settlement;
 mod surface_record;
 mod time;

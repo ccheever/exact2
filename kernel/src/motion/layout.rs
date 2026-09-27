@@ -49,7 +49,7 @@ impl LayoutMotion {
     }
 
     /// Observe one laid-out box, including the row placed through a
-    /// windowed wrapper. Hidden boxes lose their value and reappear as
+    /// virtualized row wrapper. Hidden boxes lose their value and reappear as
     /// first seen; a resize snaps. Returned keys need identity presented.
     pub fn observe(
         &mut self,

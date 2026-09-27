@@ -550,37 +550,6 @@ impl<D: DataSource> Host<D> {
         self.dispatch_at(view, event, self.now_ms)
     }
 
-    /// Host scroll geometry changes only the addressed list's row window.
-    pub fn list_viewport(
-        &mut self,
-        view: ViewId,
-        geometry: exact_runner::ListViewport<'_>,
-    ) -> String {
-        self.list_viewport_within(view, geometry, None)
-    }
-
-    /// Report geometry with bounded overscan creation; visible rows remain owed.
-    pub fn list_viewport_within(
-        &mut self,
-        view: ViewId,
-        geometry: exact_runner::ListViewport<'_>,
-        create_limit: Option<usize>,
-    ) -> String {
-        match self
-            .runner
-            .list_viewport_within(view, geometry, create_limit)
-        {
-            Ok(receipt) => self.batch_for(
-                &[Timed {
-                    at_ms: self.runner.now_ms(),
-                    receipt,
-                }],
-                None,
-            ),
-            Err(error) => self.batch_for(&[], Some(&format!("{error:?}"))),
-        }
-    }
-
     /// What a reload keeps (`Runner::carry`).
     pub fn carry(&self) -> Carried {
         self.runner.carry()

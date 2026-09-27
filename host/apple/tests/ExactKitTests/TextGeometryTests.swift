@@ -185,38 +185,6 @@ final class TextGeometryTests: XCTestCase {
         XCTAssertEqual(presenter.selection.selectedText(), "")
     }
 
-    func testPinnedRowDoesNotCoverAnUnmountedListGap() {
-        let presenter = Presenter()
-        presenter.viewport.frame = NSRect(x: 0, y: 0, width: 300, height: 500)
-        var ops: [[String: Any]] = [
-            ["op": "create", "id": 1, "kind": "list", "props": ["itemHeight": "100"],
-             "style": ["overflow_y": "scroll", "overflow_x": "hidden"]],
-            ["op": "create", "id": 2, "kind": "view"],
-            ["op": "frame", "id": 1, "w": 300.0, "h": 500.0],
-            ["op": "frame", "id": 2, "w": 300.0, "h": 20000.0],
-            ["op": "content", "id": 1, "w": 300.0, "h": 20000.0],
-        ]
-        let indices = [0] + Array(90...120)
-        for index in indices {
-            let id = index + 10
-            ops.append(["op": "create", "id": id, "kind": "view",
-                        "props": ["accessibilityPosInSet": String(index + 1), "accessibilitySetSize": "200"]])
-            ops.append(["op": "frame", "id": id, "y": Double(index * 100), "w": 300.0, "h": 100.0])
-        }
-        ops += [
-            ["op": "children", "id": 2, "ids": indices.map { $0 + 10 }],
-            ["op": "children", "id": 1, "ids": [2]],
-            ["op": "roots", "ids": [1]],
-        ]
-        presenter.apply(batchFixture(ops: ops, timers: false, motion: false, clock: nil, error: nil))
-        var reported: [Double] = []
-        presenter.onList = { _, top, _, _, _, _, _, _ in reported.append(top); return false }
-        presenter.views[1]!.scroll!.contentView.scroll(to: NSPoint(x: 0, y: 5000))
-        presenter.scrolled()
-        XCTAssertEqual(reported.last, 5000, "a distant pinned row must not hide a gap from the list runner")
-        presenter.settlePump()
-    }
-
     func testParagraphVisibilityTracksScrollWithoutIndexingAgain() {
         let presenter = Presenter()
         presenter.viewport.frame = NSRect(x: 0, y: 0, width: 400, height: 300)

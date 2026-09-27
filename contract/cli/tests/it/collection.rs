@@ -47,17 +47,6 @@ fn index_keys(list: &str) {
             .node_by_key(r.kernel().find_by_test_id("list")[0])
             .unwrap()
             .id;
-        if list.starts_with("list") && !list.contains("virtualized=true") {
-            r.list_viewport(
-                view,
-                exact_runner::ListViewport {
-                    height: 200.0,
-                    width: 200.0,
-                    ..Default::default()
-                },
-            )
-            .unwrap();
-        }
         for (i, item) in expected.iter().enumerate() {
             let key = r.kernel().find_by_test_id(&format!("row-{i}"))[0];
             assert_eq!(
@@ -81,12 +70,6 @@ fn plain_each_keys_can_read_the_index() {
 }
 
 #[test]
-fn windowed_list_keys_can_read_the_index() {
-    index_keys("list item-height=20 height=200");
-    index_keys("list estimated-item-height=20 height=200");
-}
-
-#[test]
 fn virtualized_list_keys_follow_positions_when_shared_items_move() {
     index_keys("list virtualized=true estimated-item-height=20 height=200");
 }
@@ -96,8 +79,6 @@ fn literal_opt_in_and_ordinary_each_compile() {
         "list virtualized=true height=200",
         "list virtualized=true estimated-item-height=400 height=200",
         "list virtualized=false height=200",
-        "list virtualized=false estimated-item-height=400 height=200",
-        "list estimated-item-height=400 height=200",
         "scroll height=200",
         "column",
     ] {
@@ -150,6 +131,19 @@ fn invalid_opt_in_shape_and_layout_are_rejected_with_stable_ids() {
             "lower-list-height",
         ),
         ("column estimated-item-height=400", ROW, "lower-list-height"),
+        // The windowed list is deleted (LLP 1070 stage 1): its hints say how
+        // to move to the collection.
+        ("list item-height=400 height=200", ROW, "lower-list-height"),
+        (
+            "list estimated-item-height=400 height=200",
+            ROW,
+            "lower-list-virtualized",
+        ),
+        (
+            "list virtualized=false estimated-item-height=400 height=200",
+            ROW,
+            "lower-list-virtualized",
+        ),
         (
             "list virtualized=true estimated-item-height=400",
             ROW,
@@ -422,38 +416,10 @@ fn tall_estimate_bounds_bootstrap_and_actual_measurements_replace_it() {
 }
 
 #[test]
-fn row_height_hints_select_exactly_one_window_owner() {
-    for opt in ["", "virtualized=false", "virtualized=true"] {
-        for hint in ["item-height=400", "estimated-item-height=400"] {
-            if opt == "virtualized=true" && hint == "item-height=400" {
-                continue; // Rejected by the compiler cases above.
-            }
-            let source = source(
-                &format!("list {opt} {hint} height=200 testId=\"rows\""),
-                ROW,
-            );
-            let r = Runner::boot(
-                contract::compile(&source).unwrap(),
-                Rows { queries: 0 },
-                Kernel::with_monospace(),
-                Default::default(),
-                "/",
-            )
-            .unwrap();
-            let key = r.kernel().find_by_test_id("rows")[0];
-            let id = r.kernel().node_by_key(key).unwrap().id;
-            let shared = opt == "virtualized=true";
-            assert_eq!(r.collections().len(), usize::from(shared), "{opt} {hint}");
-            assert_eq!(r.list_status(id).is_some(), !shared, "{opt} {hint}");
-        }
-    }
-}
-
-#[test]
-fn window_feedback_and_duplicate_updates_leave_the_session_usable() {
+fn duplicate_keys_index_and_copy_on_a_virtualized_list() {
     use exact_kernel::Kernel;
     use exact_plan::Value;
-    use exact_runner::{DataError, DataSource, ListViewport, Runner};
+    use exact_runner::{DataError, DataSource, Runner};
     struct Data;
     impl DataSource for Data {
         fn query(&mut self, _: &str, args: &[Value]) -> Result<Value, DataError> {
@@ -465,7 +431,7 @@ fn window_feedback_and_duplicate_updates_leave_the_session_usable() {
             Ok(Value::list(values.into_iter().map(Value::Number).collect()))
         }
     }
-    let source = "component App\n  state version = 0\n  resource rows = rows(version) as shape list<number>\n  action change(next: number) writes version\n    version = next\n  view\n    list estimated-item-height=20 height=100 testId=\"list\"\n      each x in rows key=x\n        text `${x}`\n";
+    let source = "component App\n  state version = 0\n  resource rows = rows(version) as shape list<number>\n  action change(next: number) writes version\n    version = next\n  view\n    list virtualized=true estimated-item-height=20 height=100 overflow-x=\"hidden\" testId=\"list\"\n      each x in rows key=x\n        text `${x}`\n";
     let boot = |source: &str| {
         Runner::boot(
             contract::compile(source).unwrap(),
@@ -475,44 +441,14 @@ fn window_feedback_and_duplicate_updates_leave_the_session_usable() {
             "/",
         )
     };
-    assert!(boot(&source.replace("version = 0", "version = 1")).is_err());
+    // Duplicates are told apart by order, from the first report on.
+    assert!(boot(&source.replace("version = 0", "version = 1")).is_ok());
     let mut runner = boot(source).unwrap();
     let view = runner
         .kernel()
         .node_by_key(runner.kernel().find_by_test_id("list")[0])
         .unwrap()
         .id;
-    let geometry = ListViewport {
-        height: 100.0,
-        width: 200.0,
-        ..Default::default()
-    };
-    runner.list_viewport(view, geometry).unwrap();
-    let wrappers: Vec<_> = runner
-        .kernel()
-        .node(runner.kernel().node(view).unwrap().children()[0])
-        .unwrap()
-        .children()
-        .into_iter()
-        .map(|id| (id, f32::MAX as f64))
-        .collect();
-    assert_eq!(wrappers.len(), 2);
-    let before = exact_runner::agent::tree(&runner);
-    let status = runner.list_status(view);
-    assert!(runner
-        .list_viewport(
-            view,
-            ListViewport {
-                top: 10.0,
-                origin: 2.0,
-                rows: &wrappers,
-                ..geometry
-            }
-        )
-        .is_err());
-    assert_eq!(before, exact_runner::agent::tree(&runner));
-    assert_eq!(status, runner.list_status(view));
-    runner.list_viewport(view, geometry).unwrap();
     runner.act("change", vec![Value::Number(1.0)]).unwrap();
     assert_eq!(runner.list_index(view, "n:1"), Some(0));
     assert_eq!(runner.list_index(view, "d1:n:1"), Some(1));

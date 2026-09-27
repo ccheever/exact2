@@ -1,70 +1,16 @@
-// Logical text selection over a list's rows, mounted or not, and a windowed
-// list's geometry feedback, which shares row lifetime with it. A virtualized
-// list (`window: false`) takes only the selection; navigation.js reports its
-// geometry. Loaded after paint only for lists; ordinary selection stays native.
-globalThis.exact.installListSelection = function ({ root, lists, views, report, index, text }) {
-  // @ref LLP 1044.000 S7 — one read phase, then bounded fills, per frame.
-  // ResizeObserver owns row measurements; scrolling never measures a row.
-  const createLimit = 2;
+// Logical text selection over a virtualized list's rows, mounted or not;
+// navigation.js reports the list's geometry. Loaded after paint only for
+// lists; ordinary selection stays native.
+globalThis.exact.installListSelection = function ({ root, lists, index, text }) {
   let frame = null;
   function schedule() {
     if (frame === null && lists.size) frame = requestAnimationFrame(flush);
   }
   function flush() {
     frame = null;
-    const reports = [];
-    for (const [el, s] of lists) {
-      if (!s.window || !el.isConnected || views.get(s.id) !== el) continue;
-      const content = el.firstElementChild;
-      const origin = content ? content.getBoundingClientRect().top - el.getBoundingClientRect().top - el.clientTop + el.scrollTop : 0;
-      const focus = el.contains(document.activeElement) ? Number(document.activeElement.closest('[data-view]')?.dataset.view ?? 0) : 0;
-      const width = content?.clientWidth ?? el.clientWidth;
-      // A width change can precede its observer delivery. Never apply old-width
-      // heights to the runner's freshly invalidated height index.
-      const measurements = [...s.observed].filter(([, size]) => size && Math.round(size.inlineSize) === width)
-        .map(([row, size]) => `${row.dataset.view},${size.blockSize}`).join('\n');
-      const geometry = [el.scrollTop, el.clientHeight, width, origin, focus, s.pointer];
-      const stamp = geometry.join(',') + ':' + measurements;
-      if (s.last !== stamp || s.pending) reports.push({ el, s, geometry, measurements, stamp });
-    }
     readSelection();
-    for (const { el, s, geometry, measurements, stamp } of reports) {
-      if (!el.isConnected || lists.get(el) !== s || views.get(s.id) !== el) continue;
-      s.last = stamp;
-      s.pending = report(s.id, geometry, measurements, createLimit);
-      if (s.pending) schedule();
-    }
   }
-  function sync() {
-    for (const [el, s] of lists) {
-      if (!s.window) continue;
-      if (!s.observer) {
-        s.observed = new Map(); s.pointer = 0; s.last = null; s.pending = false;
-        s.observer = new ResizeObserver(entries => {
-          for (const entry of entries) if (s.observed.has(entry.target)) {
-            s.observed.set(entry.target, entry.borderBoxSize[0]);
-          }
-          readSelection();
-          schedule();
-        });
-        s.observer.observe(el);
-        for (const name of ['scroll', 'focusin', 'focusout']) el.addEventListener(name, schedule, { passive: true });
-        el.addEventListener('pointerdown', e => {
-          s.pointer = Number(e.target.closest('[data-view]')?.dataset.view ?? 0); schedule();
-        }, { passive: true });
-      }
-      const rows = new Set(s.measured ? el.firstElementChild?.children ?? [] : []);
-      for (const row of s.observed.keys()) if (!rows.has(row)) { s.observer.unobserve(row); s.observed.delete(row); }
-      for (const row of rows) if (!s.observed.has(row)) {
-        s.observed.set(row, null); s.observer.observe(row, { box: 'border-box' });
-      }
-    }
-    schedule();
-  }
-  for (const name of ['pointerup', 'pointercancel']) document.addEventListener(name, () => {
-    // Keep the source through the click following pointerup.
-    requestAnimationFrame(() => { for (const s of lists.values()) s.pointer = 0; schedule(); });
-  }, { passive: true });
+  function sync() { schedule(); }
   let selected = null, lastList = null, applying = false, nativeStamp = [], selectionPending = false;
   const rowSelector = '[data-listitemkey]', paragraphSelector = '[data-exact-text]';
   const style = document.createElement('style');

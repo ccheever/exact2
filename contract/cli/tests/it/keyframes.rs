@@ -197,14 +197,11 @@ fn each_names_the_position_and_a_moved_row_reads_its_new_one() {
     );
     assert!(c_delay.abs() < 1e-6);
     assert_eq!(text(&r, "row-b").1, "2:b");
-    // A windowed list's rows read their positions too, and a row the window
-    // keeps reads its new one when the list moves under it.
-    let list = "keyframes enter\n  from opacity=0\ncomponent App\n  state moved = false\n  resource keys = keys(moved) as shape list<string>\n  action move writes moved\n    moved = true\n  view\n    column\n      button \"move\" press=move testId=\"move\"\n      list height=100 item-height=20 testId=\"list\"\n        each k, i in keys key=k\n          text `${i}:${k}` testId=`row-${k}` animation=`enter 300ms ${i * 40}ms both`\n";
-    let virtualized = list.replace(
-        "item-height=20",
-        "virtualized=true estimated-item-height=20",
-    );
-    for source in [list, virtualized.as_str()] {
+    // A virtualized list's rows read their positions too, and a row the
+    // window keeps reads its new one when the list moves under it.
+    let list = "keyframes enter\n  from opacity=0\ncomponent App\n  state moved = false\n  resource keys = keys(moved) as shape list<string>\n  action move writes moved\n    moved = true\n  view\n    column\n      button \"move\" press=move testId=\"move\"\n      list height=100 virtualized=true estimated-item-height=20 overflow-x=\"hidden\" testId=\"list\"\n        each k, i in keys key=k\n          text `${i}:${k}` testId=`row-${k}` animation=`enter 300ms ${i * 40}ms both`\n";
+    {
+        let source = list;
         let mut r = Runner::boot(
             contract::compile(source).unwrap(),
             Keys,
@@ -213,17 +210,7 @@ fn each_names_the_position_and_a_moved_row_reads_its_new_one() {
             "/",
         )
         .unwrap();
-        let k = r.kernel();
-        let view = k.node_by_key(k.find_by_test_id("list")[0]).unwrap().id;
-        let port = exact_runner::ListViewport {
-            height: 100.0,
-            width: 200.0,
-            ..Default::default()
-        };
         // A collection mounts its first rows without a report.
-        if !source.contains("virtualized") {
-            r.list_viewport(view, port).unwrap();
-        }
         let (_, c_text, c_delay) = text(&r, "row-c");
         assert_eq!(c_text, "2:c", "{source}");
         assert!((c_delay - 0.08).abs() < 1e-6);
