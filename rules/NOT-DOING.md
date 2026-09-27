@@ -294,6 +294,13 @@ the browser on the web, by Core Animation on Apple for `opacity`,
 `stroke-dashoffset` and `r`, and by `exact-motion` elsewhere) serves the
 crypto-list benchmark's charts; the rest of SVG follows as its own stages. Take:
 none named; the dead `svgSource` prop is deleted.
+  - **Carve-out: `foreignObject` on native hosts** (Charlie, 2026-09-27, LLP
+    1055.000 D13 and §8). The web emits it now, with real HTML inside: "our
+    general philosophy should be allow platforms to reach their full platform
+    rather than sanding everything down to lowest common denominator." Native
+    hosts refuse it by name until a design for boxes inside a scene exists;
+    the error names the pattern that works everywhere, a box positioned over
+    the `svg`.
 - **`runOnJS` and the escape hatch / runtime graph admission** — never existed here.
 
 **Tooling** — no Design Mode, no Guide system, no devtools UI, no TUI host, no blog/CMS.
