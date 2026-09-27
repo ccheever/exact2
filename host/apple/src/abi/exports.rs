@@ -313,6 +313,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_time(epoch_at_zero, utc_offset), |n| n)
         }
 
+        /// The display preferences: bit 0 reduced motion, bit 1 reduced transparency.
+        #[no_mangle]
+        pub extern "C" fn exact_set_preferences(rt: u32, bits: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_preferences(bits), |n| n)
+        }
+
         /// The locale and time zone: `locale NUL timeZone` in the input buffer.
         #[no_mangle]
         pub extern "C" fn exact_set_place(rt: u32, len: usize) -> u32 {

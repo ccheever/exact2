@@ -234,7 +234,7 @@ extension NodeView {
         // UIKit's setters are not free, even to the same value.
         if isHidden { isHidden = false }
         if alpha != 1 { alpha = 1 }
-        translate = .zero; scale = 1; rotate = 0
+        translate = .zero; scale = 1; rotate = 0; press = PressFeedback()
         if !transform.isIdentity { transform = .identity }
         if !isUserInteractionEnabled { isUserInteractionEnabled = true }
         if isAccessibilityElement { isAccessibilityElement = false }

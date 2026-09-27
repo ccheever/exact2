@@ -336,7 +336,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var imageLayer: CALayer?
     var imageSource: String?
     var loadGeneration = 0
-    var pressed = false
+    var pressed = false { didSet { if pressed != oldValue { pressChanged() } } }
+    var press = PressFeedback() // LLP 1061 D2: the feedback `pressed` drives
     var disabled: Bool { props["disabled"] == "true" }
     /// HTML inertness covers the subtree, including direct agent activation.
     var inert: Bool {
@@ -1259,8 +1260,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
 
     func applyTransform() {
         // CSS's individual transforms: translate, then rotate, then scale,
-        // about the center (UIKit's anchor).
-        transform = CGAffineTransform(translationX: translate.x, y: translate.y).rotated(by: rotate * .pi / 180).scaledBy(x: scale, y: scale).concatenating(contextTransform)
+        // about the center (UIKit's anchor); a press folds into the scale.
+        transform = CGAffineTransform(translationX: translate.x, y: translate.y).rotated(by: rotate * .pi / 180).scaledBy(x: scale * pressFactor, y: scale * pressFactor).concatenating(contextTransform)
     }
 
     override func layoutSubviews() {
@@ -1380,7 +1381,6 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
     }
 
-
     // Press: a touch down and up inside the bounds. A node without a
     // handler passes the touch up the responder chain (UIView's default),
     // so a touch on a button's text reaches the button, as a DOM click
@@ -1397,7 +1397,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         inlinePressed = nil
         if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "move", source: self) == true { return }
-        if !pressed { super.touchesMoved(touches, with: event) }
+        if pressed { pressMoved(touches) } else { super.touchesMoved(touches, with: event) }
     }
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "up", source: self) == true { finishPointerPress(); return }
@@ -1414,7 +1414,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         pressed = false
         // A pressed node that did not take the focus: the field being edited
         // loses it, as a click on a button blurs a page's input.
-        let inside = touches.first.map { bounds.contains(local($0.location(in: nil))) } ?? false
+        let inside = touches.first.map(pressInside) ?? false
         if !isFirstResponder && presenter?.contextRetainsFocus(self) != true { presenter?.viewport.endEditing(true) }
         if inside, presenter?.views[id] === self { presenter?.press(id); finishPointerPress() }
     }

@@ -236,6 +236,18 @@ pub(crate) fn check_style_value(
                 return err("lower-attr-value", "percentage `shape-margin` is not implemented in exact2 v1; use a nonnegative length in points/px", span);
             }
         }
+        // @ref LLP 1061 D1 — a press that makes a node vanish or flip is a
+        // typo, not a feel.
+        if rows.contains(&StyleId::PressScale) && numeric_literal(value).is_some_and(|n| n <= 0.0) {
+            return err(
+                "lower-attr-value",
+                format!(
+                    "`{}` takes a positive scale (0.97 is a button's, 1 is none)",
+                    a.name
+                ),
+                span,
+            );
+        }
         // @ref LLP 1055 D1 — a shadow is text; a number is no shadow.
         if rows.contains(&StyleId::ShadowOffset)
             && (numeric_literal(value).is_some()

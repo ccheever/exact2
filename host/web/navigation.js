@@ -443,3 +443,12 @@ export function environment() {
     "keyboard-inset-height": r2(Math.max(0, innerHeight - (visualViewport?.height ?? innerHeight))),
   };
 }
+
+// @ref LLP 1061 D4 — the user's display preferences as the page's media
+// queries report them: bit 0 `prefers-reduced-motion: reduce`, bit 1
+// `prefers-reduced-transparency: reduce` (a browser that does not know the
+// feature answers no preference, as CSS does). Told with each boot and resize.
+let preferenceQueries;
+const queries = () => (preferenceQueries ??= ["(prefers-reduced-motion: reduce)", "(prefers-reduced-transparency: reduce)"].map((q) => matchMedia(q)));
+export const preferences = () => queries().reduce((bits, q, i) => bits | (q.matches ? 1 << i : 0), 0);
+export const onPreferences = (changed) => queries().forEach((q) => q.addEventListener("change", changed));

@@ -140,10 +140,7 @@ impl<D: DataSource> Host<D> {
             carried,
             Vec::new(),
             delivery.unwrap_or_default(),
-            exact_runner::Viewport {
-                width: width as f64,
-                height: height as f64,
-            },
+            exact_runner::Viewport::sized(width as f64, height as f64),
             launch,
         )
         .map_err(HostError::Runner)?;

@@ -1658,6 +1658,13 @@
       "field": "animation",
       "codec": "animations",
       "_comment": "@ref LLP 1057: CSS `animation`, its @keyframes resolved by the compiler. Grammar: `_animations`."
+    },
+    {
+      "bit": 103,
+      "field": "press_scale",
+      "codec": "f32",
+      "default": 1,
+      "_comment": "@ref LLP 1061 D1: the uniform scale a node shows while a pointer holds it pressed, about its centre; 1 is none. Not CSS: the host owns the feedback (no runner round trip), eased in 120 ms, and drops it under reduced motion. It composes with, never replaces, the `scale` row."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, 1 translate, 2 scale, 3 rotate, 4 opacity), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

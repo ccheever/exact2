@@ -38,6 +38,11 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
     let mut skipped = Vec::new();
     let mut shadow: Option<(f32, f32, f32, ColorValue, f32)> = None;
     let unset = (0.0, 0.0, 0.0, ColorValue::Fixed(Color::TRANSPARENT), 0.0);
+    // @ref LLP 1061 D3 — a press eases `transform`, which no row writes, so it
+    // joins the node's own transitions instead of replacing them; the page's
+    // `:active` rule reads `--exact-press`.
+    let press = style.mask.has(StyleId::PressScale) && style.press_scale != 1.0;
+    let mut press_pending = press;
     for id in style.mask.iter() {
         let value = style.get(id);
         match (id, &value) {
@@ -55,7 +60,14 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                 shadow.get_or_insert(unset).4 = *n as f32
             }
             (StyleId::Transition, RowValue::Transitions(t)) => {
-                let (text, spring_skipped) = transition_css(t);
+                let (mut text, spring_skipped) = transition_css(t);
+                if press {
+                    if !text.is_empty() {
+                        text.push(',');
+                    }
+                    text.push_str(PRESS_TRANSITION);
+                    press_pending = false;
+                }
                 if !text.is_empty() {
                     push_text!(&mut out, "transition:{};", text);
                 }
@@ -75,6 +87,13 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                         }
                         out.push_str(&animation.css(&keyframes_name(&animation.keyframes)));
                     }
+                    out.push(';');
+                }
+            }
+            (StyleId::PressScale, RowValue::Number(n)) => {
+                if press {
+                    out.push_str("--exact-press:");
+                    num_into(&mut out, *n as f32);
                     out.push(';');
                 }
             }
@@ -142,6 +161,9 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
             }),
         }
     }
+    if press_pending {
+        push_text!(&mut out, "transition:{};", PRESS_TRANSITION);
+    }
     if let Some((x, y, radius, color, opacity)) = shadow {
         // The opacity row folds into each colour's alpha, both halves of a
         // `light-dark()` pair alike: the browser still resolves the pair per
@@ -176,6 +198,10 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
     }
     (out, skipped)
 }
+
+/// The press's ease in and back (LLP 1061 D2): 120 ms on a fast settle.
+/// Last in the list, so it wins over an authored `all` for `transform`.
+const PRESS_TRANSITION: &str = "transform 0.12s cubic-bezier(0.16,1,0.3,1) 0s";
 
 fn is_generic_family(value: &str) -> bool {
     matches!(
@@ -758,6 +784,41 @@ mod declaration_tests {
         assert_eq!(
             css(&[(StyleId::BackgroundImage, t("none"))], &[]),
             "background-image:none;"
+        );
+    }
+
+    /// LLP 1061 D3: a press scale is `--exact-press` for the page's `:active`
+    /// rule, plus a `transform` entry appended to the node's own transitions
+    /// — never replacing them, and last so it wins over `all`. 1 is none.
+    #[test]
+    fn a_press_scale_joins_the_transitions_it_finds() {
+        let n = StyleValue::Number;
+        let t = |s: &str| StyleValue::Text(s.into());
+        assert_eq!(
+            css(&[(StyleId::PressScale, n(0.97))], &[]),
+            "--exact-press:0.97;transition:transform 0.12s cubic-bezier(0.16,1,0.3,1) 0s;"
+        );
+        assert_eq!(
+            css(
+                &[
+                    (StyleId::Scale, n(1.5)),
+                    (StyleId::Transition, t("all 200ms ease")),
+                    (StyleId::PressScale, n(0.994)),
+                ],
+                &[]
+            ),
+            "scale:1.5;transition:all 0.2s ease 0s,transform 0.12s cubic-bezier(0.16,1,0.3,1) 0s;--exact-press:0.994;"
+        );
+        assert_eq!(css(&[(StyleId::PressScale, n(1.0))], &[]), "");
+        assert_eq!(
+            css(
+                &[
+                    (StyleId::Transition, t("opacity 1s")),
+                    (StyleId::PressScale, n(1.0))
+                ],
+                &[]
+            ),
+            "transition:opacity 1s ease 0s;"
         );
     }
 }

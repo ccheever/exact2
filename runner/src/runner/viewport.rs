@@ -1,7 +1,7 @@
 //! Host-owned viewport answers; never baked or carried device data.
-//! @ref LLP 1039 D1–D3
+//! @ref LLP 1039 D1–D3; LLP 1061 D4
 use super::{DataError, DataSource, Runner, RunnerError};
-use crate::viewport::{Viewport, SOURCE};
+use crate::viewport::{Preferences, Viewport, SOURCE};
 use exact_kernel::CommitReceipt;
 use exact_plan::{TypeKind, Value};
 
@@ -12,18 +12,45 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Re-answer every viewport resource in one commit. Invalid sizes are
-    /// journaled without changing the fact or poisoning the runner.
+    /// journaled without changing the fact or poisoning the runner. The
+    /// display preferences stay as they were.
     pub fn set_viewport(
         &mut self,
         width: f64,
         height: f64,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
-        let viewport = Viewport { width, height };
+        let viewport = Viewport {
+            width,
+            height,
+            ..self.viewport
+        };
         if let Err(error) = viewport.validate() {
             let (width, height) = (exact_num::Shortest(width), exact_num::Shortest(height));
             self.log(format!("viewport {width} × {height} refused: {error:?}"));
             return Err(error);
         }
+        self.replace_viewport(viewport, "viewport")
+    }
+
+    /// The user's display preferences changed (LLP 1061 D4): re-answer
+    /// every viewport resource in one commit; the same preferences again, or
+    /// no reader, commit nothing.
+    pub fn set_preferences(
+        &mut self,
+        preferences: Preferences,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        let viewport = Viewport {
+            preferences,
+            ..self.viewport
+        };
+        self.replace_viewport(viewport, "preferences")
+    }
+
+    fn replace_viewport(
+        &mut self,
+        viewport: Viewport,
+        why: &str,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
         if viewport == self.viewport {
             return Ok(None);
         }
@@ -32,7 +59,7 @@ impl<D: DataSource> Runner<D> {
         let which = (0..self.plan.resources.len())
             .filter(|i| self.plan.str(self.plan.resources[*i].source) == SOURCE)
             .collect();
-        let result = self.recommit(which, "viewport");
+        let result = self.recommit(which, why);
         if result.is_err() {
             self.viewport = previous;
         }

@@ -1046,22 +1046,51 @@ fn viewport_boot_and_resize_use_one_batch_and_emit_aria_orientation() {
     let (mut host, first) = Host::boot(
         &plan.encode(),
         NoData,
-        exact_runner::Viewport {
-            width: 1280.0,
-            height: 900.0,
-        },
+        exact_runner::Viewport::sized(1280.0, 900.0),
         "/",
     )
     .unwrap();
     assert_eq!(host.runner().kernel().epoch(), 1);
     assert!(first.contains("aria-orientation") && first.contains("vertical"));
     assert!(!host.runner().kernel().find_by_test_id("wide").is_empty());
-    let batch = host.resize(390.0, 844.0, 0.0);
+    let batch = host.resize(exact_runner::Viewport::sized(390.0, 844.0), 0.0);
     assert!(batch.contains("\"error\":null"), "{batch}");
     assert_eq!(host.runner().kernel().epoch(), 2);
     assert!(!host.runner().kernel().find_by_test_id("narrow").is_empty());
-    host.resize(390.0, 844.0, 0.0);
+    host.resize(exact_runner::Viewport::sized(390.0, 844.0), 0.0);
     assert_eq!(host.runner().kernel().epoch(), 2);
+}
+
+// @ref LLP 1061 D4 — the page reports its media queries with the size: a
+// changed preference alone is one commit, and the app's `none` reaches CSS.
+#[test]
+fn a_preference_change_rides_the_resize_batch() {
+    let plan = contract::bake(
+        contract::compile(include_str!(
+            "../../../../contract/corpus/motion-feel.contract"
+        ))
+        .unwrap(),
+        caltrain_data::Caltrain,
+    )
+    .unwrap();
+    exact_web::link(exact_web_capabilities::ALL);
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert!(first.contains("animation:rise-"), "{first}");
+    assert!(first.contains("--exact-press:0.97"), "{first}");
+    let reduced = exact_runner::Viewport {
+        preferences: exact_runner::Preferences::from_bits(1),
+        ..Default::default()
+    };
+    let batch = host.resize(reduced, 0.0);
+    assert_eq!(host.runner().kernel().epoch(), 2);
+    assert!(!batch.contains("animation:rise-"), "{batch}");
+    assert_eq!(host.resize(reduced, 0.0).matches("\"op\"").count(), 0);
 }
 
 // @ref LLP 1039 D2 — a refused timer cannot swallow the browser's resize.
@@ -1089,7 +1118,7 @@ component App
         "/",
     )
     .unwrap();
-    let batch = host.resize(1280.0, 900.0, 200.0);
+    let batch = host.resize(exact_runner::Viewport::sized(1280.0, 900.0), 200.0);
     assert!(batch.contains("SlotType"), "{batch}");
     assert!(batch.contains("\"text\":\"1280\""), "{batch}");
     assert_eq!(host.runner().viewport().width, 1280.0);
@@ -1150,7 +1179,7 @@ fn router_batches_follow_launch_and_committed_actions() {
     assert_eq!(batch.matches("\"op\":\"router\"").count(), 1);
     assert!(batch.contains("\"url\":\"/prompt/5/write\",\"removed\":[]"));
     println!("launch batch: {batch}");
-    let unchanged = host.resize(1280.0, 900.0, 0.0);
+    let unchanged = host.resize(exact_runner::Viewport::sized(1280.0, 900.0), 0.0);
     assert!(!unchanged.contains("\"op\":\"router\""));
     let key = host.runner().kernel().find_by_test_id("select-home-6")[0];
     let id = host.runner().kernel().node_by_key(key).unwrap().id;

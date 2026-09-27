@@ -1023,6 +1023,17 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// The user's display preferences changed or became known (LLP 1061
+    /// D4): bit 0 reduced motion, bit 1 reduced transparency.
+    pub fn set_preferences(&mut self, bits: u32) -> u32 {
+        let preferences = exact_runner::Preferences::from_bits(bits);
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_preferences(preferences));
+        self.emit(out)
+    }
+
     /// The date changed or became known (LLP 1027.000.000).
     pub fn set_time(&mut self, epoch_at_zero: f64, utc_offset: f64) -> u32 {
         let out = self

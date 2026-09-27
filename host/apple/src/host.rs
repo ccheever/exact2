@@ -305,10 +305,7 @@ impl<D: DataSource> Host<D> {
             carried,
             snapshot,
             facts,
-            exact_runner::Viewport {
-                width: width as f64,
-                height: height as f64,
-            },
+            exact_runner::Viewport::sized(width as f64, height as f64),
             launch,
         )
         .map_err(HostError::Runner)?;
@@ -822,6 +819,22 @@ impl<D: DataSource> Host<D> {
             ),
             Ok(None) => self.finish(Batch::new(), None),
             Err(e) => self.finish(Batch::new(), Some(format!("time: {e:?}"))),
+        }
+    }
+
+    /// The user's display preferences (LLP 1061 D4): re-answer
+    /// `exactViewport` in one commit; the same preferences commit nothing.
+    pub fn set_preferences(&mut self, preferences: exact_runner::Preferences) -> String {
+        match self.runner.set_preferences(preferences) {
+            Ok(Some(receipt)) => self.commit(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => self.finish(Batch::new(), None),
+            Err(e) => self.finish(Batch::new(), Some(format!("preferences: {e:?}"))),
         }
     }
 
