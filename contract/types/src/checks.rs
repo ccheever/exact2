@@ -109,6 +109,7 @@ fn calls_in(e: &Expr, indices: &BTreeMap<&str, usize>, out: &mut Vec<usize>) {
             calls_in(value, indices, out);
             calls_in(body, indices, out);
         }
+        Expr::Arrow { body, .. } => calls_in(body, indices, out),
         Expr::Template(parts, _) => {
             for p in parts {
                 if let TemplatePart::Expr(x) = p {

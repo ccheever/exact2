@@ -775,8 +775,24 @@ impl<'a> Resolver<'a> {
                 } else if matches!(self.infer(expr), Ty::Action(_)) {
                     self.name(name, *span);
                 }
-                for arg in args {
-                    self.expr(arg);
+                for (i, arg) in args.iter().enumerate() {
+                    match arg {
+                        // A `map`/`filter` callback's item and index (LLP 1017.003).
+                        Expr::Arrow { params, body, span } if i == 1 => {
+                            let item = match self.infer(&args[0]) {
+                                Ty::List(t) => *t,
+                                _ => Ty::Unknown,
+                            };
+                            for (p, t) in params.iter().zip([item, Ty::Number]) {
+                                self.local("local", p, *span, t);
+                            }
+                            self.expr(body);
+                            for _ in params.iter().take(2) {
+                                self.pop_local();
+                            }
+                        }
+                        _ => self.expr(arg),
+                    }
                 }
             }
             Expr::Binary(_, lhs, rhs, _) => {
@@ -810,6 +826,8 @@ impl<'a> Resolver<'a> {
                 self.expr(value);
                 self.expr(body);
             }
+            // Outside `map`/`filter`, which the type pass refuses.
+            Expr::Arrow { body, .. } => self.expr(body),
         }
     }
 }

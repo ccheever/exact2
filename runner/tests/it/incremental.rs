@@ -554,6 +554,7 @@ component Deck
         each it in items key=it.id
           column width="100%"
             text `${it.n} ${picked}`
+            text join(map(it.tags, (t, i) => `${i}:${t.name}`), ",")
       text moved
       list id="deck-list" reorderdrop=moveItem virtualized=true height=200
         each it in items key=it.id
@@ -565,6 +566,7 @@ component Deck
           each it in items key=it.id
             column
               Card(item=it, picked=picked)
+              text join(filter(map(it.tags, t => t.name), n => n != picked), " ")
               button press=pick(it.id)
                 text `${now()} ${it.n}`
 component Card

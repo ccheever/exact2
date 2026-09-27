@@ -85,6 +85,8 @@ fn strict_calls(e: &Expr, is_fn: &dyn Fn(&str) -> bool, out: &mut Vec<Expr>) {
         // A bound value is always evaluated; its body's calls may read the
         // bound name, so they stay where they are.
         Expr::Let { value, .. } => strict_calls(value, is_fn, out),
+        // A callback runs once per item, perhaps never (LLP 1017.003).
+        Expr::Arrow { .. } => {}
         Expr::Template(parts, _) => {
             for p in parts {
                 if let TemplatePart::Expr(x) = p {
@@ -152,6 +154,7 @@ fn names(e: &Expr, out: &mut Vec<String>) {
             names(value, out);
             names(body, out);
         }
+        Expr::Arrow { body, .. } => names(body, out),
         Expr::Template(parts, _) => parts.iter().for_each(|p| {
             if let TemplatePart::Expr(x) = p {
                 names(x, out);
@@ -210,6 +213,15 @@ fn replace(e: Expr, key: &str, free: &[String], with: &str) -> Expr {
             name,
             span,
         },
+        Expr::Arrow { params, body, span } => Expr::Arrow {
+            body: if params.iter().any(|p| free.contains(p)) {
+                body
+            } else {
+                Box::new(replace(*body, key, free, with))
+            },
+            params,
+            span,
+        },
         e => map_children(e, &mut |child| replace(child, key, free, with)),
     }
 }
@@ -250,6 +262,11 @@ fn each_child(e: &Expr, free: &[String], f: &mut dyn FnMut(&Expr)) {
         } => {
             f(value);
             if !free.contains(name) {
+                f(body);
+            }
+        }
+        Expr::Arrow { params, body, .. } => {
+            if !params.iter().any(|p| free.contains(p)) {
                 f(body);
             }
         }
@@ -309,6 +326,11 @@ fn map_children(e: Expr, f: &mut dyn FnMut(Expr) -> Expr) -> Expr {
                 span,
             }
         }
+        Expr::Arrow { params, body, span } => Expr::Arrow {
+            params,
+            body: b(body),
+            span,
+        },
         Expr::Template(parts, s) => Expr::Template(
             parts
                 .into_iter()

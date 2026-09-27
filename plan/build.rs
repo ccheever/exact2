@@ -747,7 +747,7 @@ fn main() {
         w,
         "        let mut r = Reader::new(bytes); let mut last = None;"
     );
-    let _ = writeln!(w, "        let mut boundaries: Vec<usize> = Vec::new(); let mut jumps: Vec<(usize, u32)> = Vec::new();");
+    let _ = writeln!(w, "        let mut boundaries: Vec<usize> = Vec::new(); let mut jumps: Vec<(usize, u32)> = Vec::new(); let mut bodies: Vec<(usize, usize)> = Vec::new();");
     let _ = writeln!(w, "        while !r.is_empty() {{");
     let _ = writeln!(w, "            let pc = r.position(); boundaries.push(pc); let b = r.u8().map_err(|_| CodeError::Truncated {{ pc }})?;");
     let _ = writeln!(w, "            let op = Opcode::from_wire(b).ok_or(CodeError::UnknownOpcode {{ pc, byte: b }})?;");
@@ -760,7 +760,7 @@ fn main() {
         "                Operand::U8 => {{ r.u8().map_err(|_| CodeError::Truncated {{ pc }})?; }}"
     );
     let _ = writeln!(w, "                Operand::U16 => {{ r.u16().map_err(|_| CodeError::Truncated {{ pc }})?; }}");
-    let _ = writeln!(w, "                Operand::U32 => {{ let v = r.u32().map_err(|_| CodeError::Truncated {{ pc }})?; if matches!(op, Opcode::Jump | Opcode::JumpIfFalse | Opcode::JumpIfNone) {{ jumps.push((pc, v)); }} }}");
+    let _ = writeln!(w, "                Operand::U32 => {{ let v = r.u32().map_err(|_| CodeError::Truncated {{ pc }})?; if matches!(op, Opcode::Jump | Opcode::JumpIfFalse | Opcode::JumpIfNone | Opcode::Map | Opcode::Filter) {{ jumps.push((pc, v)); }} if matches!(op, Opcode::Map | Opcode::Filter) {{ bodies.push((pc, v as usize)); }} }}");
     let _ = writeln!(w, "                Operand::F64 => {{ let v = r.f64().map_err(|_| CodeError::Truncated {{ pc }})?; if !v.is_finite() {{ return Err(CodeError::NonFinite {{ pc }}); }} }}");
     let _ = writeln!(w, "                Operand::Str => {{ let v = r.u32().map_err(|_| CodeError::Truncated {{ pc }})?; if v as usize >= self.strings.len() {{ return Err(CodeError::BadIndex {{ pc, table: \"strings\", index: v }}); }} }}");
     let _ = writeln!(w, "                Operand::Enum(name) => {{ let v = r.u8().map_err(|_| CodeError::Truncated {{ pc }})?; let ok = match *name {{");
@@ -787,9 +787,14 @@ fn main() {
         w,
         "        if last != Some(Opcode::Return) {{ return Err(CodeError::NoReturn); }}"
     );
-    let _ = writeln!(w, "        // Control flow is forward-only and instruction-aligned, so a body always terminates.");
+    let _ = writeln!(w, "        // Control flow is forward-only and instruction-aligned, so a body always terminates; a callback body repeats once per item of a list (LLP 1017.003 D5).");
     let _ = writeln!(w, "        boundaries.push(bytes.len());");
-    let _ = writeln!(w, "        for (pc, target) in jumps {{ let t = target as usize; if t <= pc || boundaries.binary_search(&t).is_err() {{ return Err(CodeError::BadJump {{ pc, target }}); }} }}");
+    let _ = writeln!(w, "        for &(pc, target) in &jumps {{ let t = target as usize; if t <= pc || boundaries.binary_search(&t).is_err() {{ return Err(CodeError::BadJump {{ pc, target }}); }} }}");
+    // @ref LLP 1017.003 D5: a `Map`/`Filter` callback body runs from its
+    // opcode to its end once per item. No jump leaves a body, none lands
+    // inside one from outside (its end is fine: a branch around it), and
+    // bodies nest, so each run ends at its end.
+    let _ = writeln!(w, "        for &(b, end) in &bodies {{ for &(pc, target) in &jumps {{ let t = target as usize; let inside = b < pc && pc < end; if (inside && t > end) || (!inside && b < t && t < end) {{ return Err(CodeError::BadJump {{ pc, target }}); }} }} }}");
     let _ = writeln!(w, "        Ok(())");
     let _ = writeln!(w, "    }}");
     let _ = writeln!(w, "}}");

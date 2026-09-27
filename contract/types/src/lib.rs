@@ -19,6 +19,7 @@
 
 mod checks;
 mod component;
+mod lists;
 /// Router declaration checking and compile-time path expansion (LLP 1038 D2/D3).
 pub mod placeholder;
 pub mod routes;
@@ -695,6 +696,8 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                     }
                 }
                 Ty::Action(params.iter().skip(args.len()).cloned().collect())
+            } else if let Some(f) = Stdlib::from_name(name).filter(|f| lists::is_list_op(*f)) {
+                return lists::infer_call(f, args, *span, scope, shapes);
             } else if let Some(f) = Stdlib::from_name(name) {
                 routes::require_table(f, shapes, *span)?;
                 if args.len() != f.arity() {
@@ -829,6 +832,13 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
             let mut inner = scope.clone();
             inner.push(vec![(name.clone(), Ref::Local(0), t)]);
             infer(body, &inner, shapes)?
+        }
+        Expr::Arrow { span, .. } => {
+            return err(
+                "type-arrow-position",
+                "an arrow function is only the second argument of `map` or `filter`: `map(list, (item, index) => …)`",
+                *span,
+            )
         }
     })
 }

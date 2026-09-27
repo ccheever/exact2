@@ -1,0 +1,36 @@
+// Accept fixture: `map`, `filter` and `join` (LLP 1017.003). A row holds
+// its numbers once and the view formats them: a sparkline's SVG `points`
+// from a series, scaled into a 96 × 32 box, the way a web view maps an
+// array. The callback reads its item and index, the enclosing `fn`'s
+// parameters, and nothing it could write.
+fn y(p: number, lo: number, hi: number): number = hi == lo ? 16 : 32 - (p - lo) / (hi - lo) * 32
+fn round2(v: number): number = floor(v * 100 + 0.5) / 100
+fn points(series: list<number>, lo: number, hi: number): string = join(map(series, (p, i) => `${round2(i * 96 / (length(series) - 1))},${round2(y(p, lo, hi))}`), " ")
+
+shape Coin
+  id: string
+  series: list<number>
+  lo: number
+  hi: number
+  flash: bool
+  tags: list<string>
+
+component Lists
+  resource initial = coins() as shape list<Coin>
+  mutation changed as shape list<Coin>
+  derive coins = match changed { case some(m) => m, case none => initial }
+  // Every coin's tags that are not empty, and a count.
+  derive tagged = filter(coins, c => length(filter(c.tags, t => t != "")) > 0)
+  action tick writes changed
+    send changed = tick()
+  view
+    column testId="root"
+      text `${length(tagged)} tagged` testId="tagged"
+      text join(map(coins, (c, i) => `${i + 1}. ${c.id}`), ", ") testId="ids"
+      each c in coins key=c.id
+        row testId=`row-${c.id}`
+          text c.id
+          text (c.flash ? "*" : "") testId=`flash-${c.id}`
+          text join(filter(c.tags, t => t != ""), "·") testId=`tags-${c.id}`
+          svg width=96 height=32 viewBox="0 0 96 32"
+            polyline points=points(c.series, c.lo, c.hi) testId=`chart-${c.id}` fill="none" stroke="currentcolor"

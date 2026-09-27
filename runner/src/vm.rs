@@ -36,6 +36,12 @@ pub const MAX_VALUE_BYTES: u64 = MAX_STRING as u64;
 /// per action cannot grow past what walking or dropping it recurses through.
 pub const MAX_VALUE_DEPTH: u32 = 64;
 
+/// The most list steps one evaluation takes (LLP 1017.003 D3): each run of a
+/// `map` or `filter` callback body is a step, nested runs each counted, and
+/// each item `join` prints is a step. A body is straight-line code with
+/// forward jumps, so this bounds how many instructions an evaluation runs.
+pub const MAX_LIST_STEPS: u32 = 1 << 16;
+
 /// Only extents at least this large are remembered: smaller ones cost less
 /// to walk again than to look up.
 const REMEMBERED: u64 = 64;
@@ -169,6 +175,48 @@ pub enum Trap {
     ValueTooDeep {
         pc: usize,
     },
+    /// A `Map`, `Filter` or `join` (at `pc`) would take this evaluation past
+    /// [`MAX_LIST_STEPS`] (LLP 1017.003 D3).
+    IterationLimit {
+        pc: usize,
+    },
+}
+
+/// A `Map` or `Filter` in progress (LLP 1017.003 D5): its callback body is
+/// `start..end`, run once per item with the item and its index bound as
+/// locals `locals` and `locals + 1`, on an operand stack of its own (the
+/// caller's is kept in `caller`), so a body can neither read nor drop what
+/// its caller left, nor drop a local it did not bind.
+struct Callback {
+    pc: usize,
+    filter: bool,
+    start: usize,
+    end: usize,
+    items: Rc<[Value]>,
+    next: usize,
+    out: Vec<Value>,
+    extent: Extent,
+    locals: usize,
+    caller: Vec<Value>,
+}
+
+/// Take `n` list steps, or trap at `pc`.
+fn step(steps: &mut u32, n: usize, pc: usize) -> Result<(), Trap> {
+    *steps = steps.saturating_add(u32::try_from(n).unwrap_or(u32::MAX));
+    if *steps > MAX_LIST_STEPS {
+        return Err(Trap::IterationLimit { pc });
+    }
+    Ok(())
+}
+
+impl Callback {
+    /// Bind item `self.next` and its index, counting the run.
+    fn begin(&mut self, locals: &mut Vec<Value>, steps: &mut u32) -> Result<(), Trap> {
+        step(steps, 1, self.pc)?;
+        locals.push(self.items[self.next].clone());
+        locals.push(Value::Number(self.next as f64));
+        Ok(())
+    }
 }
 
 /// A value's expanded extent: its values (a shared one counted once per
@@ -402,8 +450,18 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
     let mut locals: Vec<Value> = Vec::new();
     let mut out = Outcome::default();
     let mut extents = Extents::default();
+    let mut callbacks: Vec<Callback> = Vec::new();
+    let mut steps = 0u32;
     let mut r = Reader::new(code);
     let malformed = |pc: usize| Trap::Malformed { pc };
+    // A jump inside a callback body stays inside it (the plan checker's
+    // rule, checked again here: a plan is never trusted).
+    let jump_to = |target: u32, callbacks: &[Callback], pc: usize| {
+        if callbacks.last().is_some_and(|c| target as usize > c.end) {
+            return Err(Trap::BadJump { pc, target });
+        }
+        jump(code, target).ok_or(Trap::BadJump { pc, target })
+    };
     macro_rules! pop {
         ($pc:expr) => {
             stack.pop().ok_or(Trap::StackUnderflow { pc: $pc })?
@@ -419,7 +477,52 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
             }
         }};
     }
-    while !r.is_empty() {
+    loop {
+        // A callback body's end: collect what the run left, then run the
+        // next item or finish the list (which may end an outer body too).
+        while let Some(c) = callbacks.last_mut().filter(|c| r.position() == c.end) {
+            let pc = c.end;
+            // One value left, every local it bound dropped.
+            if stack.len() != 1 || locals.len() != c.locals + 2 {
+                return Err(Trap::Malformed { pc });
+            }
+            let v = pop!(pc);
+            let kept = match (c.filter, v) {
+                (true, Value::Bool(keep)) => keep.then(|| c.items[c.next].clone()),
+                (true, _) => {
+                    return Err(Trap::TypeMismatch {
+                        pc: c.pc,
+                        op: Opcode::Filter,
+                    })
+                }
+                (false, v) => Some(v),
+            };
+            if let Some(v) = kept {
+                c.extent = c.extent.with(extents.of(&v, c.pc)?, c.pc)?;
+                c.out.push(v);
+            }
+            locals.truncate(c.locals);
+            c.next += 1;
+            if c.next < c.items.len() {
+                c.begin(&mut locals, &mut steps)?;
+                r = jump(code, c.start as u32).ok_or(Trap::Malformed { pc })?;
+                break;
+            }
+            let c = callbacks.pop().expect("the last callback");
+            stack = c.caller;
+            // A filter that kept every item is that list, shared.
+            let v = if c.filter && c.out.len() == c.items.len() {
+                Value::List(c.items)
+            } else {
+                let v = Value::list(c.out);
+                extents.remember(&v, c.extent);
+                v
+            };
+            stack.push(v);
+        }
+        if r.is_empty() {
+            break;
+        }
         let Instruction {
             pc,
             op,
@@ -615,17 +718,12 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                     _ => return Err(Trap::TypeMismatch { pc, op }),
                 }
             }
-            Opcode::Jump => {
-                let target = args[0] as u32;
-                r = jump(code, target).ok_or(Trap::BadJump { pc, target })?;
-            }
+            Opcode::Jump => r = jump_to(args[0] as u32, &callbacks, pc)?,
             Opcode::JumpIfFalse => {
                 let target = args[0] as u32;
                 match pop!(pc) {
                     Value::Bool(true) => {}
-                    Value::Bool(false) => {
-                        r = jump(code, target).ok_or(Trap::BadJump { pc, target })?
-                    }
+                    Value::Bool(false) => r = jump_to(target, &callbacks, pc)?,
                     _ => return Err(Trap::TypeMismatch { pc, op }),
                 }
             }
@@ -633,9 +731,7 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                 let target = args[0] as u32;
                 match stack.last() {
                     Some(Value::Option(Some(_))) => {}
-                    Some(Value::Option(None)) => {
-                        r = jump(code, target).ok_or(Trap::BadJump { pc, target })?
-                    }
+                    Some(Value::Option(None)) => r = jump_to(target, &callbacks, pc)?,
                     Some(_) => return Err(Trap::TypeMismatch { pc, op }),
                     None => return Err(Trap::StackUnderflow { pc }),
                 }
@@ -652,9 +748,56 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                     return Err(Trap::Arity { pc, expected: n });
                 }
                 let call_args = stack.split_off(stack.len() - n);
-                let v = stdlib::call(f, &call_args, env.now_ms, env.plan, env.router)
-                    .ok_or(Trap::TypeMismatch { pc, op })?;
+                let v = if f == Stdlib::Join {
+                    if let Some(Value::List(items)) = call_args.first() {
+                        step(&mut steps, items.len(), pc)?;
+                    }
+                    match stdlib::join(&call_args, MAX_STRING) {
+                        Ok(v) => v,
+                        Err(stdlib::JoinError::Type) => return Err(Trap::TypeMismatch { pc, op }),
+                        Err(stdlib::JoinError::TooLong) => return Err(Trap::StringTooLong { pc }),
+                    }
+                } else {
+                    stdlib::call(f, &call_args, env.now_ms, env.plan, env.router)
+                        .ok_or(Trap::TypeMismatch { pc, op })?
+                };
                 stack.push(v);
+            }
+            // @ref LLP 1017.003 D5 — a callback body follows inline, to `end`.
+            Opcode::Map | Opcode::Filter => {
+                let end = args[0] as usize;
+                let start = r.position();
+                if end < start || end > code.len() {
+                    return Err(Trap::BadJump {
+                        pc,
+                        target: end as u32,
+                    });
+                }
+                let Value::List(items) = pop!(pc) else {
+                    return Err(Trap::TypeMismatch { pc, op });
+                };
+                if items.is_empty() {
+                    r = jump_to(end as u32, &callbacks, pc)?;
+                    stack.push(Value::List(items));
+                    continue;
+                }
+                let mut c = Callback {
+                    pc,
+                    filter: op == Opcode::Filter,
+                    start,
+                    end,
+                    out: Vec::with_capacity(if op == Opcode::Map { items.len() } else { 0 }),
+                    extent: Extent {
+                        nodes: 1,
+                        ..Extent::default()
+                    },
+                    items,
+                    next: 0,
+                    locals: locals.len(),
+                    caller: std::mem::take(&mut stack),
+                };
+                c.begin(&mut locals, &mut steps)?;
+                callbacks.push(c);
             }
             Opcode::StoreSlot => {
                 let slot = args[0] as u32;
@@ -733,9 +876,18 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                 },
             )?),
             Opcode::DropLocal => {
+                if callbacks
+                    .last()
+                    .is_some_and(|c| locals.len() <= c.locals + 2)
+                {
+                    return Err(Trap::Malformed { pc });
+                }
                 locals.pop().ok_or(Trap::StackUnderflow { pc })?;
             }
             Opcode::Return => {
+                if !callbacks.is_empty() {
+                    return Err(Trap::Malformed { pc });
+                }
                 out.value = stack.pop().unwrap_or(Value::Unit);
                 return Ok(out);
             }
@@ -912,5 +1064,221 @@ mod tests {
         let mut too_deep = deepest.clone();
         too_deep = Value::some(too_deep);
         assert!(Value::from_bytes(&too_deep.to_bytes()).is_err());
+    }
+
+    /// Push a list of `n` ones.
+    fn ones(body: &mut Asm, n: u32) -> &mut Asm {
+        for _ in 0..n {
+            body.number(1.0);
+        }
+        body.list(n)
+    }
+
+    /// `map(outer, x => map(inner, y => 1))`, then, when `extra`, one more
+    /// `map` over a one-item list; its value is the nested lists' length.
+    fn nested(outer: u32, inner: u32, extra: bool) -> Result<Outcome, Trap> {
+        let mut body = Asm::new();
+        ones(&mut body, inner).bind_local();
+        ones(&mut body, outer);
+        let (end, end_inner) = (body.label(), body.label());
+        body.each_item(exact_plan::Opcode::Map, end)
+            .load_local(0)
+            .each_item(exact_plan::Opcode::Map, end_inner)
+            .number(1.0)
+            .place(end_inner)
+            .place(end);
+        if extra {
+            let last = body.label();
+            body.simple(exact_plan::Opcode::Pop);
+            ones(&mut body, 1)
+                .each_item(exact_plan::Opcode::Map, last)
+                .number(1.0)
+                .place(last);
+        }
+        body.drop_local();
+        run(body)
+    }
+
+    /// LLP 1017.003 D3: 256 outer runs of 255 inner are 65,536 runs, which
+    /// fit; one more run anywhere in the evaluation is `IterationLimit`.
+    #[test]
+    fn callback_runs_are_counted_across_nesting_and_capped() {
+        let Value::List(outer) = nested(256, 255, false).unwrap().value else {
+            panic!("a list")
+        };
+        assert_eq!(outer.len(), 256);
+        assert!(matches!(&outer[0], Value::List(inner) if inner.len() == 255));
+        assert!(matches!(
+            nested(256, 255, true),
+            Err(Trap::IterationLimit { .. })
+        ));
+        assert!(nested(255, 255, true).is_ok());
+    }
+
+    #[test]
+    fn map_and_filter_bind_the_item_and_index_and_filter_keeps_by_bool() {
+        // map([1, 1, 1], (x, i) => x + i) == [1, 2, 3]
+        let mut body = Asm::new();
+        let end = body.label();
+        ones(&mut body, 3)
+            .each_item(exact_plan::Opcode::Map, end)
+            .load_local(0)
+            .load_local(1)
+            .simple(exact_plan::Opcode::Add)
+            .place(end);
+        let expected: Vec<Value> = [1.0, 2.0, 3.0].map(Value::Number).into();
+        assert_eq!(run(body).unwrap().value, Value::list(expected));
+        // filter(xs, (x, i) => i > 0) drops the first; `true` keeps the list itself.
+        let mut body = Asm::new();
+        let end = body.label();
+        ones(&mut body, 3)
+            .each_item(exact_plan::Opcode::Filter, end)
+            .load_local(1)
+            .number(0.0)
+            .simple(exact_plan::Opcode::Gt)
+            .place(end);
+        assert!(matches!(run(body).unwrap().value, Value::List(l) if l.len() == 2));
+        let mut body = Asm::new();
+        let end = body.label();
+        ones(&mut body, 2).bind_local().load_local(0);
+        body.each_item(exact_plan::Opcode::Filter, end)
+            .bool(true)
+            .place(end)
+            .load_local(0)
+            .op(exact_plan::Opcode::Eq, &[])
+            .drop_local();
+        assert_eq!(run(body).unwrap().value, Value::Bool(true));
+        // A filter body that is not a bool; an empty list runs no body.
+        let mut body = Asm::new();
+        let end = body.label();
+        ones(&mut body, 1)
+            .each_item(exact_plan::Opcode::Filter, end)
+            .number(1.0)
+            .place(end);
+        assert!(matches!(
+            run(body),
+            Err(Trap::TypeMismatch {
+                op: exact_plan::Opcode::Filter,
+                ..
+            })
+        ));
+        let mut body = Asm::new();
+        let end = body.label();
+        body.list(0)
+            .each_item(exact_plan::Opcode::Map, end)
+            .simple(exact_plan::Opcode::Return)
+            .place(end);
+        assert_eq!(run(body).unwrap().value, Value::list(vec![]));
+        // A `Return` inside a body is malformed.
+        let mut body = Asm::new();
+        let end = body.label();
+        ones(&mut body, 1)
+            .each_item(exact_plan::Opcode::Map, end)
+            .number(1.0)
+            .simple(exact_plan::Opcode::Return)
+            .place(end);
+        assert!(matches!(run(body), Err(Trap::Malformed { .. })));
+    }
+
+    /// A body runs on a stack of its own and drops only the locals it bound.
+    #[test]
+    fn a_callback_body_cannot_touch_what_its_caller_holds() {
+        let mut body = Asm::new();
+        let end = body.label();
+        body.number(7.0);
+        ones(&mut body, 1)
+            .each_item(exact_plan::Opcode::Map, end)
+            .simple(exact_plan::Opcode::Pop)
+            .simple(exact_plan::Opcode::Pop)
+            .number(1.0)
+            .place(end);
+        assert!(matches!(run(body), Err(Trap::StackUnderflow { .. })));
+        let mut body = Asm::new();
+        let end = body.label();
+        ones(&mut body, 1)
+            .each_item(exact_plan::Opcode::Map, end)
+            .drop_local()
+            .number(1.0)
+            .place(end);
+        assert!(matches!(run(body), Err(Trap::Malformed { .. })));
+        // Its caller's operands are there again after it.
+        let mut body = Asm::new();
+        let end = body.label();
+        body.number(7.0);
+        ones(&mut body, 2)
+            .each_item(exact_plan::Opcode::Map, end)
+            .number(1.0)
+            .place(end)
+            .simple(exact_plan::Opcode::Pop);
+        assert_eq!(run(body).unwrap().value, Value::Number(7.0));
+    }
+
+    /// Each item `join` prints is a step against the same bound.
+    #[test]
+    fn join_takes_a_step_per_item() {
+        let joined = |n: u32| {
+            let mut body = Asm::new();
+            let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+            let sep = b.str("");
+            ones(&mut body, n).str(sep).call(Stdlib::Join);
+            let code = b.code(body);
+            let plan = b.finish().unwrap();
+            let strings = intern(&plan);
+            let env = Env {
+                plan: &plan,
+                strings: &strings,
+                router: None,
+                lists: None,
+                slots: &[],
+                derives: &[],
+                resources: &[],
+                params: &[],
+                frames: &[],
+                now_ms: 0.0,
+                pending_resources: &[],
+                pending_mutations: &[],
+                store_dependent_derives: &[],
+                store_dependent_resources: &[],
+            };
+            eval(plan.code(code), &env, &[]).map(|o| o.value)
+        };
+        assert!(
+            matches!(joined(MAX_LIST_STEPS), Ok(Value::Str(s)) if s.len() == MAX_LIST_STEPS as usize)
+        );
+        assert!(matches!(
+            joined(MAX_LIST_STEPS + 1),
+            Err(Trap::IterationLimit { .. })
+        ));
+    }
+
+    #[test]
+    fn join_prints_items_as_to_string_does() {
+        let join = |items: Vec<Value>, sep: &str| {
+            stdlib::join(&[Value::list(items), Value::str(sep)], MAX_STRING)
+        };
+        let n = Value::Number;
+        assert_eq!(
+            join(vec![n(1.5), n(-0.0), n(1e21), n(0.1 + 0.2)], ","),
+            Ok(Value::str("1.5,0,1e+21,0.30000000000000004"))
+        );
+        assert_eq!(
+            join(vec![Value::str("a"), Value::Bool(false)], " · "),
+            Ok(Value::str("a · false"))
+        );
+        assert_eq!(join(vec![], ","), Ok(Value::str("")));
+        assert_eq!(
+            join(vec![Value::record(vec![])], ","),
+            Err(stdlib::JoinError::Type)
+        );
+        assert_eq!(
+            stdlib::join(
+                &[
+                    Value::list(vec![Value::str("ab"), Value::str("cd")]),
+                    Value::str("-")
+                ],
+                4
+            ),
+            Err(stdlib::JoinError::TooLong)
+        );
     }
 }

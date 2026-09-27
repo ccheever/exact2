@@ -1314,6 +1314,8 @@ impl Parser {
                 let value = self.expr()?;
                 self.last += 1;
                 Expr::NamedArg(name, Box::new(value), span)
+            } else if self.arrow_ahead() {
+                self.arrow()?
             } else {
                 self.expr()?
             };

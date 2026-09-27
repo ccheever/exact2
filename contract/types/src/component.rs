@@ -511,6 +511,7 @@ fn derive_order(c: &Component) -> Vec<usize> {
                 names(value, out);
                 names(body, out);
             }
+            Expr::Arrow { body, .. } => names(body, out),
             Expr::Template(parts, _) => parts.iter().for_each(|p| {
                 if let TemplatePart::Expr(x) = p {
                     names(x, out)
@@ -589,6 +590,12 @@ fn reads_state(e: &Expr, scope: &Scope) -> Option<(String, Span)> {
             Expr::Let {
                 name, value, body, ..
             } => walk(value, scope, bound).or_else(|| within(name, body, bound)),
+            Expr::Arrow { params, body, .. } => {
+                bound.extend(params.iter().cloned());
+                let found = walk(body, scope, bound);
+                bound.truncate(bound.len() - params.len());
+                found
+            }
         }
     }
     walk(e, scope, &mut Vec::new())

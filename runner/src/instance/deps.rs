@@ -81,6 +81,10 @@ pub struct Reads {
     pub(crate) bits: Bits,
     /// Enclosing frames read, by relative depth (bit 63: that far or farther).
     pub(crate) frames: u64,
+    /// The fields of the innermost frame's value read (bit `k` for field
+    /// `k`, bit 63 for 63 and past; every bit when read other than one
+    /// field at a time): LLP 1017.003 D6. Meaningful with bit 0 of `frames`.
+    pub(crate) fields: u64,
     /// Whether any row slot is among `bits`.
     pub(crate) row_slots: bool,
     /// Reads a parameter or has an effect: never skipped.
@@ -90,7 +94,15 @@ pub struct Reads {
 impl Reads {
     fn union(&mut self, other: &Reads, shift: u32) {
         self.bits.union(&other.bits);
-        self.frames |= out_of(other.frames, shift);
+        let frames = out_of(other.frames, shift);
+        if shift == 0 {
+            self.fields |= other.fields;
+        } else if frames & 1 != 0 {
+            // A scope further in read this frame as an outer one: which
+            // fields is not recorded that far out.
+            self.fields = !0;
+        }
+        self.frames |= frames;
         self.row_slots |= other.row_slots;
         self.opaque |= other.opaque;
     }
@@ -335,7 +347,8 @@ fn empty(layout: Layout) -> Reads {
 
 fn scan(plan: &Plan, layout: Layout, code: Code) -> Reads {
     let mut reads = empty(layout);
-    for instruction in vm::instructions(plan.code(code)) {
+    let mut code = vm::instructions(plan.code(code)).peekable();
+    while let Some(instruction) = code.next() {
         let Ok(i) = instruction else {
             reads.opaque = true;
             return reads;
@@ -358,7 +371,17 @@ fn scan(plan: &Plan, layout: Layout, code: Code) -> Reads {
                 reads.bits.set(layout.clock())
             }
             Opcode::LoadItem | Opcode::LoadBound | Opcode::LoadIndex => {
-                reads.frames |= 1 << index.min(63)
+                reads.frames |= 1 << index.min(63);
+                if index == 0 {
+                    // One field of the innermost frame's value, or all of it
+                    // (its position, LLP 1062 D8, counts as all of it).
+                    reads.fields |= match code.peek() {
+                        Some(Ok(next)) if i.op != Opcode::LoadIndex && next.op == Opcode::Field => {
+                            1 << next.args[0].min(63)
+                        }
+                        _ => !0,
+                    };
+                }
             }
             Opcode::LoadParam
             | Opcode::StoreSlot

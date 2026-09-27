@@ -346,6 +346,9 @@ pub struct Update<'a> {
     changed: Option<Bits>,
     /// Enclosing frames whose value changed in this update, by relative depth.
     dirty_frames: u64,
+    /// The fields of the innermost frame's value that changed, when bit 0
+    /// of `dirty_frames` is set ([`crate::compare::changed_fields`]).
+    dirty_fields: u64,
     /// Whether the scopes walked so far enclose every written row.
     on_path: bool,
     /// Journal lines for what the data got wrong and the tree absorbed: an
@@ -367,6 +370,7 @@ impl<'a> Update<'a> {
             rows: RowWrites::default(),
             changed: None,
             dirty_frames: 0,
+            dirty_fields: 0,
             on_path: true,
             notes: Vec::new(),
         }
@@ -395,9 +399,13 @@ impl<'a> Update<'a> {
         let Some(changed) = &self.changed else {
             return true;
         };
+        let frames = reads.frames_outside(shift) & self.dirty_frames;
         reads.opaque
             || reads.bits.intersects(changed)
-            || reads.frames_outside(shift) & self.dirty_frames != 0
+            // Only the innermost frame, seen from inside it: only if a field
+            // read is a field that changed (LLP 1017.003 D6).
+            || (frames == 1 && shift == 0 && reads.fields & self.dirty_fields != 0)
+            || (frames != 0 && (frames != 1 || shift != 0))
             || (reads.row_slots
                 && self.on_path
                 && self
@@ -407,18 +415,20 @@ impl<'a> Update<'a> {
                     .any(|(_, slot)| reads.bits.get(*slot as usize)))
     }
 
-    /// Enter a row or arm scope whose frame value `dirty`-ly changed.
-    fn enter(&mut self, dirty: bool, row: Option<&RowSlots>) -> (u64, bool) {
-        let saved = (self.dirty_frames, self.on_path);
-        self.dirty_frames = deps::into_scope(self.dirty_frames, dirty);
+    /// Enter a row or arm scope whose frame value changed in the fields
+    /// `dirty` names (none: unchanged).
+    fn enter(&mut self, dirty: u64, row: Option<&RowSlots>) -> (u64, u64, bool) {
+        let saved = (self.dirty_frames, self.dirty_fields, self.on_path);
+        self.dirty_frames = deps::into_scope(self.dirty_frames, dirty != 0);
+        self.dirty_fields = dirty;
         if let Some(row) = row {
             self.on_path &= self.rows.path.contains(&RowWrites::id(row));
         }
         saved
     }
 
-    fn leave(&mut self, saved: (u64, bool)) {
-        (self.dirty_frames, self.on_path) = saved;
+    fn leave(&mut self, saved: (u64, u64, bool)) {
+        (self.dirty_frames, self.dirty_fields, self.on_path) = saved;
     }
 }
 
@@ -618,13 +628,14 @@ fn update_all(
     Ok(roots)
 }
 
-/// Visit a kept row when anything its body reads changed, the row's own
-/// item included (`dirty`); whether its roots changed.
+/// Visit a kept row when anything its body reads changed, the fields of its
+/// own item that changed included (`dirty`, [`crate::compare::changed_fields`]);
+/// whether its roots changed.
 fn update_row(
     u: &mut Update<'_>,
     row: &mut Row,
     frames: &[Frame],
-    dirty: bool,
+    dirty: u64,
     body: &Reads,
 ) -> Result<bool, InstanceError> {
     u.work.rows_scanned += 1;
@@ -982,7 +993,7 @@ impl RegionInst {
                 if !rekey {
                     let mut roots = false;
                     for r in rows.iter_mut() {
-                        roots |= update_row(u, r, frames, false, body)?;
+                        roots |= update_row(u, r, frames, 0, body)?;
                     }
                     return Ok(roots);
                 }
@@ -1061,10 +1072,15 @@ impl RegionInst {
                             // Row bodies may distinguish signed zero (`1 / n > 0`):
                             // compare by bits, not by the language's `==`. An
                             // equivalent item keeps its object for nested memos.
-                            // A row that moved reads a new position (LLP 1062 D8).
-                            let dirty = !crate::compare::equivalent_opt(&r.frame.item, &frame.item)
-                                || r.frame.index != frame.index;
-                            if !dirty {
+                            // A row that moved reads a new position (LLP 1062
+                            // D8): every field counts as changed, since the
+                            // index is read as the whole frame.
+                            let dirty = if r.frame.index != frame.index {
+                                !0
+                            } else {
+                                crate::compare::changed_fields(&r.frame.item, &frame.item)
+                            };
+                            if dirty == 0 {
                                 frame.item = r.frame.item.take();
                             }
                             frame.row = Some(r.slots.clone());
@@ -1131,8 +1147,8 @@ impl RegionInst {
         let plan = u.env.plan;
         if *arm == want {
             // An equivalent binding keeps its object for nested memos.
-            let dirty = !crate::compare::equivalent_opt(&frame.bound, &new_frame.bound);
-            if dirty {
+            let dirty = crate::compare::changed_fields(&frame.bound, &new_frame.bound);
+            if dirty != 0 {
                 *frame = new_frame;
             }
             let saved = u.enter(dirty, None);

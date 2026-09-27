@@ -745,6 +745,17 @@ pub enum Expr {
         /// Where.
         span: Span,
     },
+    /// `(item, index) => body`: a callback, only ever the second argument
+    /// of `map` or `filter` (LLP 1017.003 D1). Its zero to two parameters
+    /// are the item and its index.
+    Arrow {
+        /// Parameter names, in order.
+        params: Vec<String>,
+        /// The one expression it returns.
+        body: Box<Expr>,
+        /// Where.
+        span: Span,
+    },
     /// `value` evaluated once and bound to `name` in `body`. Compiler-only:
     /// no surface syntax spells it. Expansion introduces it so a child's
     /// derive read twice, or a `fn` call repeated, is computed and emitted
@@ -788,6 +799,7 @@ impl Expr {
             | Expr::Binary(_, _, _, s)
             | Expr::Ternary(_, _, _, s)
             | Expr::Match { span: s, .. }
+            | Expr::Arrow { span: s, .. }
             | Expr::Let { span: s, .. } => *s,
         }
     }

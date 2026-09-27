@@ -662,3 +662,69 @@ fn sites_nest_at_most_max_site_depth_and_types_never_contain_themselves() {
     plan.types[list.0 as usize].elem = Some(row);
     assert!(matches!(plan.validate(), Err(PlanError::TypeCycle { .. })));
 }
+
+/// LLP 1017.003 D5: a `Map`/`Filter` callback body is a region no jump
+/// leaves or enters, though a branch around it may land on its end.
+#[test]
+fn a_callback_body_is_entered_and_left_only_at_its_ends() {
+    let plan = sample();
+    let with = |body: Vec<u8>| {
+        let mut p = plan.clone();
+        let start = p.code.len() as u32;
+        let len = body.len() as u32;
+        p.code.extend_from_slice(&body);
+        p.slots[0].init = Code { offset: start, len };
+        p.validate()
+    };
+    let u32le = |v: u32| v.to_le_bytes();
+    let bad = |pc: usize, target: u32| {
+        Err(PlanError::BadCode {
+            table: "slots",
+            row: 0,
+            field: "init",
+            error: CodeError::BadJump { pc, target },
+        })
+    };
+    // Unit@0; Map@1 end 12 [Unit@6; Jump@7 12 (its end, from inside)]; Return@12.
+    let mut fine = vec![Opcode::Unit as u8, Opcode::Map as u8];
+    fine.extend(u32le(12));
+    fine.push(Opcode::Unit as u8);
+    fine.push(Opcode::Jump as u8);
+    fine.extend(u32le(12));
+    fine.push(Opcode::Return as u8);
+    assert_eq!(with(fine.clone()), Ok(()));
+    // The same jump past the end leaves the body.
+    let mut leaves = fine.clone();
+    leaves[8..12].copy_from_slice(&u32le(13));
+    leaves.push(Opcode::Return as u8);
+    assert_eq!(with(leaves), bad(7, 13));
+    // Jump@0 11 into Filter@6's body [Unit@11], which ends at 12.
+    let mut enters = vec![Opcode::Jump as u8];
+    enters.extend(u32le(11));
+    enters.push(Opcode::Unit as u8);
+    enters.push(Opcode::Filter as u8);
+    enters.extend(u32le(12));
+    enters.push(Opcode::Unit as u8);
+    enters.push(Opcode::Return as u8);
+    assert_eq!(with(enters), bad(0, 11));
+    // A branch around the whole body lands on its end: fine.
+    let mut around = vec![Opcode::Jump as u8];
+    around.extend(u32le(12));
+    around.push(Opcode::Unit as u8);
+    around.push(Opcode::Filter as u8);
+    around.extend(u32le(12));
+    around.push(Opcode::Unit as u8);
+    around.push(Opcode::Return as u8);
+    assert_eq!(with(around), Ok(()));
+    // Bodies nest: an inner one may not end past its outer one.
+    // Map@1 ends at 13, Map@7 inside it at 14.
+    let mut crossed = vec![Opcode::Unit as u8, Opcode::Map as u8];
+    crossed.extend(u32le(13));
+    crossed.push(Opcode::Unit as u8);
+    crossed.push(Opcode::Map as u8);
+    crossed.extend(u32le(14));
+    crossed.push(Opcode::Unit as u8);
+    crossed.push(Opcode::Unit as u8);
+    crossed.push(Opcode::Return as u8);
+    assert_eq!(with(crossed), bad(7, 14));
+}

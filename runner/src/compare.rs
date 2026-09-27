@@ -150,6 +150,23 @@ pub fn equivalent_opt(a: &Option<Value>, b: &Option<Value>) -> bool {
     }
 }
 
+/// Which fields of a frame's value differ between `a` and `b`, as the
+/// dependency table's field mask (LLP 1017.003 D6): bit `k` for field `k`,
+/// bit 63 for 63 and past; `0` when [`equivalent_opt`]; every bit unless both
+/// are records of one length.
+pub fn changed_fields(a: &Option<Value>, b: &Option<Value>) -> u64 {
+    match (a, b) {
+        (Some(Value::Record(a)), Some(Value::Record(b))) if a.len() == b.len() => a
+            .iter()
+            .zip(b.iter())
+            .enumerate()
+            .filter(|(_, (a, b))| !equivalent(a, b))
+            .fold(0, |mask, (k, _)| mask | 1 << k.min(63)),
+        _ if equivalent_opt(a, b) => 0,
+        _ => !0,
+    }
+}
+
 /// [`equivalent`], element by element.
 pub fn equivalent_all(a: &[Value], b: &[Value]) -> bool {
     a.len() == b.len() && a.iter().zip(b).all(|(a, b)| equivalent(a, b))

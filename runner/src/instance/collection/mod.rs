@@ -657,19 +657,24 @@ impl Collection {
         self.emit_preview(u)?;
         Ok(())
     }
-    /// Move a mounted row to `position`; whether its item or its position
+    /// Move a mounted row to `position`; which fields of its item changed
+    /// ([`crate::compare::changed_fields`]), every one when its position
     /// changed (a row that moved reads its new one, LLP 1062 D8). An
     /// equivalent item keeps its object for nested memos.
-    fn reposition(&self, mounted: &mut Mounted, position: usize) -> bool {
+    fn reposition(&self, mounted: &mut Mounted, position: usize) -> u64 {
         mounted.position = position;
         let item = Some(self.items[position].clone());
-        let dirty = !crate::compare::equivalent_opt(&mounted.row.frame.item, &item);
-        if dirty {
+        let dirty = crate::compare::changed_fields(&mounted.row.frame.item, &item);
+        if dirty != 0 {
             mounted.row.frame.item = item;
         }
         let moved = mounted.row.frame.index != Some(position);
         mounted.row.frame.index = Some(position);
-        dirty || moved
+        if moved {
+            !0
+        } else {
+            dirty
+        }
     }
     /// Publish a row's position and measurement epoch, and mount it.
     fn settle_mounted(

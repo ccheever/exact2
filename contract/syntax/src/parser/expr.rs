@@ -222,6 +222,53 @@ impl Parser {
         }
     }
 
+    /// Whether an arrow function starts here: `x =>`, `() =>`, `(x) =>` or
+    /// `(x, i) =>` (LLP 1017.003 D1).
+    pub(super) fn arrow_ahead(&self) -> bool {
+        let at = |k: usize| &self.tokens[(self.pos + k).min(self.tokens.len() - 1)].kind;
+        let name = |k: usize| matches!(at(k), TokenKind::Ident(_));
+        let punct = |k: usize, p: &str| matches!(at(k), TokenKind::Punct(q) if *q == p);
+        if name(0) {
+            return punct(1, "=>");
+        }
+        if !punct(0, "(") {
+            return false;
+        }
+        let mut k = 1;
+        if name(k) {
+            k += 1;
+            while punct(k, ",") && name(k + 1) {
+                k += 2;
+            }
+        }
+        punct(k, ")") && punct(k + 1, "=>")
+    }
+
+    /// An arrow function: its parameters, `=>`, and one expression.
+    pub(super) fn arrow(&mut self) -> R<Expr> {
+        let span = self.peek().span;
+        let mut params = Vec::new();
+        if self.eat_punct("(") {
+            while !self.at_punct(")") {
+                params.push(self.ident()?.0);
+                if !self.eat_punct(",") {
+                    break;
+                }
+            }
+            self.expect_punct(")")?;
+        } else {
+            params.push(self.ident()?.0);
+        }
+        self.expect_punct("=>")?;
+        let body = self.expr()?;
+        self.built(self.last, span)?;
+        Ok(Expr::Arrow {
+            params,
+            body: Box::new(body),
+            span,
+        })
+    }
+
     pub(super) fn template(&mut self, raw: &str, span: Span) -> R<Expr> {
         let (mut parts, mut deepest) = (Vec::new(), 0);
         let mut text = String::new();

@@ -27,6 +27,7 @@ mod instance;
 mod instance_work;
 mod keyframes;
 mod lint;
+mod lists;
 mod markdown_editing;
 mod motion_feel;
 mod mutation;

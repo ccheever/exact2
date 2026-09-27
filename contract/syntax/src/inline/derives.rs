@@ -174,6 +174,8 @@ fn summarize(e: &Expr, indices: &BTreeMap<&str, usize>, summaries: &[Summary]) -
             out.add(&part(subject));
             branches(&mut out, &part(some), &part(none));
         }
+        // A callback runs once per item, perhaps never (LLP 1017.003).
+        Expr::Arrow { body, .. } => out.add_sometimes(&part(body)),
         _ => each_child(e, &mut |child| out.add(&part(child))),
     }
     out
@@ -246,6 +248,12 @@ impl Cx<'_> {
                 none: Box::new(self.place(none, bound, true)),
                 span: *span,
             },
+            // Evaluated once per item, perhaps never: a part of its own.
+            Expr::Arrow { params, body, span } => Expr::Arrow {
+                params: params.clone(),
+                body: Box::new(self.place(body, bound, true)),
+                span: *span,
+            },
             _ => map_children(e, &mut |child| self.place(child, bound, false)),
         };
         bound.truncate(bound.len() - lets.len());
@@ -281,6 +289,24 @@ fn freshen(e: &Expr, fresh: &mut u32) -> Expr {
                 var: name,
                 some: Box::new(some),
                 none: Box::new(freshen(none, fresh)),
+                span: *span,
+            }
+        }
+        Expr::Arrow { params, body, span } => {
+            let mut renamed = BTreeMap::new();
+            let params = params
+                .iter()
+                .map(|p| {
+                    *fresh += 1;
+                    let name = format!("{p}@b{fresh}");
+                    renamed.insert(p.clone(), name.clone());
+                    name
+                })
+                .collect();
+            let body = freshen(body, fresh);
+            Expr::Arrow {
+                params,
+                body: Box::new(substituted(&body, &renamed)),
                 span: *span,
             }
         }
@@ -430,6 +456,7 @@ fn each_child<'a>(e: &'a Expr, f: &mut dyn FnMut(&'a Expr)) {
             f(value);
             f(body);
         }
+        Expr::Arrow { body, .. } => f(body),
         Expr::Call(_, args, _) => args.iter().for_each(f),
         Expr::Template(parts, _) => parts.iter().for_each(|p| {
             if let TemplatePart::Expr(x) = p {
@@ -484,6 +511,11 @@ fn map_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> Expr {
                 span: *span,
             }
         }
+        Expr::Arrow { params, body, span } => Expr::Arrow {
+            params: params.clone(),
+            body: Box::new(f(body)),
+            span: *span,
+        },
         Expr::Call(n, args, s) => Expr::Call(n.clone(), args.iter().map(&mut *f).collect(), *s),
         Expr::Template(parts, s) => Expr::Template(
             parts

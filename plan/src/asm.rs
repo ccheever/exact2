@@ -236,6 +236,16 @@ impl Asm {
         self.jump_like(Opcode::JumpIfNone, label)
     }
 
+    /// Pop a list and run the callback body that follows, up to `end`, once
+    /// per item (LLP 1017.003 D5): `Map` or `Filter`.
+    pub fn each_item(&mut self, op: Opcode, end: Label) -> &mut Self {
+        assert!(
+            matches!(op, Opcode::Map | Opcode::Filter),
+            "{op:?} has no body"
+        );
+        self.jump_like(op, end)
+    }
+
     /// Emit an operand-free opcode.
     pub fn simple(&mut self, op: Opcode) -> &mut Self {
         self.op(op, &[])

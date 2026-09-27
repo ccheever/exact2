@@ -560,13 +560,13 @@ impl ListWindow {
                 if refresh || moved {
                     let item = Some(self.items[*index].clone());
                     // An equivalent item keeps its object for nested memos.
-                    let dirty = !crate::compare::equivalent_opt(&row.frame.item, &item);
-                    if dirty {
+                    let dirty = crate::compare::changed_fields(&row.frame.item, &item);
+                    if dirty != 0 {
                         row.frame.item = item;
                     }
                     row.frame.index = Some(*index);
                     let body = &u.sites.deps.bodies[region.0 as usize];
-                    update_row(u, &mut row, frames, dirty || moved, body)?;
+                    update_row(u, &mut row, frames, if moved { !0 } else { dirty }, body)?;
                 } else if was == top && of == count {
                     // Where it was, as many as there were: nothing to say.
                     rows.push(row);

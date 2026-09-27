@@ -242,6 +242,11 @@ pub(crate) fn compile(
                 }
                 return Ok(l.types.shapes.fns[name].1.clone());
             }
+            if let (Some(f @ (Stdlib::Map | Stdlib::Filter)), [list, callback]) =
+                (Stdlib::from_name(name), args.as_slice())
+            {
+                return callback_call(l, asm, f, list, callback, scope, locals);
+            }
             let Some(f) = Stdlib::from_name(name) else {
                 return err(
                     "lower-unknown-function",
@@ -390,5 +395,74 @@ pub(crate) fn compile(
             asm.drop_local();
             ty
         }
+        Expr::Arrow { span, .. } => {
+            return err(
+                "lower-arrow-position",
+                "an arrow function is only the second argument of `map` or `filter`",
+                *span,
+            )
+        }
+    })
+}
+
+/// `map(list, callback)` or `filter(list, callback)` (LLP 1017.003 D5):
+/// the list, then `Map`/`Filter` with the callback's body inline, the item
+/// and its index the next two locals, which the VM binds for each run.
+fn callback_call(
+    l: &mut Lowerer<'_>,
+    asm: &mut Asm,
+    f: Stdlib,
+    list: &Expr,
+    callback: &Expr,
+    scope: &Scope,
+    locals: &mut u16,
+) -> Result<Ty, LowerError> {
+    let listed = compile(l, asm, list, scope, locals)?;
+    let Expr::Arrow { params, body, span } = callback else {
+        return err(
+            "lower-arrow-position",
+            format!("the second argument of `{}` is an arrow function", f.name()),
+            callback.span(),
+        );
+    };
+    let item = match &listed {
+        Ty::List(item) => (**item).clone(),
+        _ => Ty::Unknown,
+    };
+    if params.len() > 2 {
+        return err(
+            "lower-arrow-parameters",
+            "a callback takes the item and its index",
+            *span,
+        );
+    }
+    let end = asm.label();
+    asm.each_item(
+        if f == Stdlib::Map {
+            Opcode::Map
+        } else {
+            Opcode::Filter
+        },
+        end,
+    );
+    let base = *locals;
+    *locals += 2;
+    let mut inner = scope.clone();
+    inner.push(
+        params
+            .iter()
+            .zip([item, Ty::Number])
+            .enumerate()
+            .map(|(i, (p, t))| (p.clone(), Ref::Local((base + i as u16) as u32), t))
+            .collect(),
+    );
+    let result = compile(l, asm, body, &inner, locals);
+    *locals -= 2;
+    let result = result?;
+    asm.place(end);
+    Ok(if f == Stdlib::Map {
+        Ty::List(Box::new(result))
+    } else {
+        listed
     })
 }

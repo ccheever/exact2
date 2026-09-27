@@ -89,6 +89,9 @@ pub fn call(
                 .map_or(Value::Option(None), Value::some),
             _ => return None,
         },
+        // @ref LLP 1017.003 D5 — opcodes with a callback body, never a
+        // call; `join` is the VM's, which bounds the string it makes.
+        Stdlib::Map | Stdlib::Filter | Stdlib::Join => return None,
         Stdlib::Floor => Value::Number(num(0)?.floor()),
         Stdlib::Max => Value::Number(num(0)?.max(num(1)?)),
         Stdlib::Min => Value::Number(num(0)?.min(num(1)?)),
@@ -107,6 +110,43 @@ pub fn call(
             }))
         }
     })
+}
+
+/// Why `join` refused.
+#[derive(Debug, PartialEq)]
+pub enum JoinError {
+    /// Not a list and a string, or an item that is not a string, number or bool.
+    Type,
+    /// The result would pass the limit.
+    TooLong,
+}
+
+/// `join(list, separator)` (LLP 1017.003 D4): the web's `Array.prototype.join`
+/// over strings, numbers and bools, each printed as `toString` prints it, in
+/// at most `limit` bytes.
+pub fn join(args: &[Value], limit: usize) -> Result<Value, JoinError> {
+    let [Value::List(items), Value::Str(separator)] = args else {
+        return Err(JoinError::Type);
+    };
+    if let [Value::Str(only)] = &items[..] {
+        return Ok(Value::Str(Rc::clone(only)));
+    }
+    let mut out = String::new();
+    for (i, item) in items.iter().enumerate() {
+        if i > 0 {
+            out.push_str(separator);
+        }
+        match item {
+            Value::Str(s) => out.push_str(s),
+            Value::Number(n) => out.push_str(&format_number(*n)),
+            Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+            _ => return Err(JoinError::Type),
+        }
+        if out.len() > limit {
+            return Err(JoinError::TooLong);
+        }
+    }
+    Ok(Value::str(&out))
 }
 
 /// A native module's props (LLP 1024 D1): `pairs` alternate key and value,

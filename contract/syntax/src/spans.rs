@@ -214,6 +214,14 @@ impl VisitSpans for Expr {
                 body.visit_spans(visit);
                 visit(span);
             }
+            Self::Arrow {
+                params: _,
+                body,
+                span,
+            } => {
+                body.visit_spans(visit);
+                visit(span);
+            }
         }
     }
 }

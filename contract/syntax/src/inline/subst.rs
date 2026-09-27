@@ -217,6 +217,21 @@ pub(super) fn subst_expr<T: SubstitutionValue>(e: &Expr, s: &mut Subst<'_, T>) -
                 span: *span,
             }
         }
+        Expr::Arrow { params, body, span } => {
+            let spelled: Vec<String> = params
+                .iter()
+                .map(|p| s.enter(p, &|n| occurs(body, n) || params.iter().any(|q| q == n)))
+                .collect();
+            let body = Box::new(subst_expr(body, s));
+            for _ in params {
+                s.leave();
+            }
+            Expr::Arrow {
+                params: spelled,
+                body,
+                span: *span,
+            }
+        }
         Expr::Template(parts, span) => Expr::Template(
             parts
                 .iter()
@@ -355,6 +370,11 @@ fn free_names(e: &Expr, bound: &mut Vec<String>, out: &mut BTreeSet<String>) {
             free_names(body, bound, out);
             bound.pop();
         }
+        Expr::Arrow { params, body, .. } => {
+            bound.extend(params.iter().cloned());
+            free_names(body, bound, out);
+            bound.truncate(bound.len() - params.len());
+        }
         Expr::Template(parts, _) => {
             for p in parts {
                 if let TemplatePart::Expr(x) = p {
@@ -390,6 +410,7 @@ fn occurs(e: &Expr, name: &str) -> bool {
             body,
             ..
         } => n == name || occurs(value, name) || occurs(body, name),
+        Expr::Arrow { params, body, .. } => params.iter().any(|p| p == name) || occurs(body, name),
         Expr::Template(parts, _) => parts
             .iter()
             .any(|p| matches!(p, TemplatePart::Expr(x) if occurs(x, name))),
