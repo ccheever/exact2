@@ -81,6 +81,7 @@ impl Kernel {
             || s.width != Dimension::Percent(100.0)
             || s.height != Dimension::Percent(100.0)
             || s.box_sizing != BoxSizing::BorderBox
+            || !s.transform_origin.centred()
             || !zero_insets(s)
             || !zero_insets(p)
             || ![s.margin_top, s.margin_right, s.margin_bottom, s.margin_left]

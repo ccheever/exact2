@@ -1140,6 +1140,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
     func applyStyle(_ s: NodeStyle) {
         defer { video?.update() }
+        let origin = style["transform_origin"]
         style = s
         updateSymbol()
         clipPath = ClipPath.path(s["clip_path"])
@@ -1154,6 +1155,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             f.frame = contentBox()
         }
         layer.zPosition = number("z_index")
+        if s["transform_origin"] != origin { applyTransform() }
         setNeedsDisplay()
     }
 
@@ -1256,12 +1258,6 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // enclosing page scroll. Keep elastic feedback for vertical content,
         // including short vertical lists that have no horizontal overflow.
         sv.alwaysBounceVertical = sv.scrollsY && (size.height > sv.bounds.height + 0.5 || size.width <= sv.bounds.width + 0.5)
-    }
-
-    func applyTransform() {
-        // CSS's individual transforms: translate, then rotate, then scale,
-        // about the center (UIKit's anchor); a press folds into the scale.
-        transform = CGAffineTransform(translationX: translate.x + layoutOffset.x, y: translate.y + layoutOffset.y).rotated(by: rotate * .pi / 180).scaledBy(x: scale * pressFactor, y: scale * pressFactor).concatenating(contextTransform)
     }
 
     override func layoutSubviews() {
@@ -1397,7 +1393,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         inlinePressed = nil
         if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "move", source: self) == true { return }
-        if pressed { pressMoved(touches) } else { super.touchesMoved(touches, with: event) }
+        if pressed { pressFollows(inside: touches.first.map(pressInside) ?? false) } else { super.touchesMoved(touches, with: event) }
     }
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "up", source: self) == true { finishPointerPress(); return }

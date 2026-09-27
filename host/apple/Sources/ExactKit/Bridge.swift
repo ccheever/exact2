@@ -20,6 +20,8 @@ public struct Batch {
     /// @ref LLP 1043.000 §3 D8 — absolute runner deadline, absent without timers.
     public var timerDueMs: Double? = nil
     public var pending = false
+    /// What moves changes place or size: the panel's full rate (LLP 1061 D4).
+    public var spatial = false
     init(ops: [BatchOp], timers: Bool, motion: Bool, clock: Double?, error: String?, timerDueMs: Double? = nil, pending: Bool = false) {
         self.ops = ops; self.timers = timers; self.motion = motion; self.clock = clock
         self.error = error; self.timerDueMs = timerDueMs; self.pending = pending

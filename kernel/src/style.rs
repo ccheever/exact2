@@ -492,11 +492,12 @@ impl StyleValue {
         }
     }
 
-    /// A CSS-valued row's text: text as given, a number (`aspect-ratio: 2`)
-    /// or `auto` as CSS spells it.
+    /// A CSS-valued row's text: text as given, a number (`aspect-ratio: 2`),
+    /// a percentage (`transform-origin: 25%`) or `auto` as CSS spells it.
     pub(crate) fn css_text(&self, style: StyleId) -> Result<String, StyleValueError> {
         match self {
             StyleValue::Number(n) => Ok(exact_num::Shortest(*n).to_string()),
+            StyleValue::Percent(p) => Ok(format!("{}%", exact_num::Shortest(*p))),
             StyleValue::Auto => Ok("auto".into()),
             _ => self.text(style).map(str::to_string),
         }
@@ -822,6 +823,8 @@ pub enum RowValue<'a> {
     ShapeOutside(&'a exact_textflow::ShapeOutside),
     /// CSS `aspect-ratio` as authored (LLP 1053 G1).
     AspectRatio(&'a crate::ratio::AspectRatio),
+    /// CSS `transform-origin` (LLP 1061 D6).
+    TransformOrigin(&'a crate::origin::TransformOrigin),
     /// CSS `background-image`: `none` or one gradient (LLP 1056).
     BackgroundImage(&'a crate::gradient::BackgroundImage),
     /// A dimension.
@@ -864,6 +867,7 @@ impl RowValue<'_> {
             RowValue::ClipPath(_)
             | RowValue::ShapeOutside(_)
             | RowValue::AspectRatio(_)
+            | RowValue::TransformOrigin(_)
             | RowValue::BackgroundImage(_)
             | RowValue::Color(_)
             | RowValue::ColorValue(_)

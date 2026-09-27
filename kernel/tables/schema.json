@@ -1752,6 +1752,12 @@
       "codec": "f32",
       "default": 1,
       "_comment": "@ref LLP 1065 D4: where the visible stroke ends, as a fraction of the whole path's length in subpath order. Animatable."
+    },
+    {
+      "bit": 113,
+      "field": "transform_origin",
+      "codec": "transform-origin",
+      "_comment": "@ref LLP 1061 D6: CSS `transform-origin` in two dimensions, the point `translate`, `rotate`, `scale` and a press turn about; initially the centre. Not animatable."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 background-color, 7 color, 8 border-top-color, 9 border-right-color, 10 border-bottom-color, 11 border-left-color, 12 tint-color, 13 box-shadow, 15 border-color — LLP 1062; 14 is refused; 16 stroke-start, 17 stroke-end — LLP 1065), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

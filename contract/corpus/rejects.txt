@@ -897,3 +897,9 @@ keyframes give
 component A
   view
     text "a"
+---
+== lower-attr-value
+component A
+  view
+    view transform-origin="10px left"
+      text "a"
