@@ -60,6 +60,8 @@ component Gallery
     page = 1
   action two writes page
     page = 2
+  action three writes page
+    page = 3
   view
     main testId="gallery" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#0f172a" font-family="system-ui"
       row flex-shrink=0 align-items="center" gap=8 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8
@@ -68,11 +70,15 @@ component Gallery
           text "1" font-size=13
         button press=two testId="page-2" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 2 ? "#e2e8f0" : "#f8fafc")
           text "2" font-size=13
+        button press=three testId="page-3" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 3 ? "#e2e8f0" : "#f8fafc")
+          text "3" font-size=13
       row flex-wrap="wrap" gap=8 padding-left=12 padding-right=12
         when page == 1
           StageOne()
         when page == 2
           StageTwo()
+        when page == 3
+          StageThree()
 
 // Stage 1: geometry, units, transforms, nested viewports, classes.
 component StageOne
@@ -153,3 +159,80 @@ component StageTwo
       g color="#0891b2" fill="currentcolor" stroke="#0f172a" stroke-width=2 stroke-dasharray="4 4" animation="tint 1s linear -500ms paused, march 1s linear -500ms paused"
         circle cx=90 cy=24 r=12
         line x1=70 y1=60 x2=112 y2=60
+
+// Stage 3: references, gradients, `use` and `symbol`, paint order.
+component StageThree
+  view
+    // Linear and radial gradients on the object bounding box; a focal
+    // point and radius.
+    svg testId="fx-gradients" class=Tile viewBox="0 0 120 80"
+      defs
+        linearGradient id="sunrise"
+          stop offset=0 stop-color="#f59e0b"
+          stop offset="50%" stop-color="#ef4444"
+          stop offset=1 stop-color="#7c3aed"
+        radialGradient id="glow" fx="30%" fy="30%" fr="5%"
+          stop offset=0 stop-color="#ffffff"
+          stop offset=1 stop-color="#0ea5e9"
+      rect x=6 y=8 width=56 height=64 rx=6 fill="url(#sunrise)"
+      circle cx=90 cy=40 r=26 fill="url(#glow)" stroke="url(#sunrise)" stroke-width=4
+    // Spread: reflect and repeat, and a gradient transform in user space.
+    svg testId="fx-spread" class=Tile viewBox="0 0 120 80"
+      defs
+        linearGradient id="bands" x2="25%" spreadMethod="reflect"
+          stop offset=0 stop-color="#0f766e"
+          stop offset=1 stop-color="#99f6e4"
+        linearGradient id="stripes" x2="20%" spreadMethod="repeat"
+          stop offset=0 stop-color="#1d4ed8"
+          stop offset=1 stop-color="#bfdbfe"
+        linearGradient id="turned" gradientUnits="userSpaceOnUse" x1=0 y1=0 x2=20 y2=0 gradientTransform="rotate(45 60 60)" spreadMethod="repeat"
+          stop offset=0 stop-color="#be123c"
+          stop offset="50%" stop-color="#be123c"
+          stop offset="50%" stop-color="#fda4af"
+          stop offset=1 stop-color="#fda4af"
+      rect x=4 y=4 width=112 height=22 fill="url(#bands)"
+      rect x=4 y=30 width=112 height=20 fill="url(#stripes)"
+      rect x=4 y=54 width=112 height=22 fill="url(#turned)"
+    // The area chart: a translucent fill fading down under its line.
+    svg testId="fx-area" class=Tile viewBox="0 0 120 80"
+      defs
+        linearGradient id="area" x2=0 y2=1
+          stop offset=0 stop-color="#2563eb" stop-opacity=0.45
+          stop offset=1 stop-color="#2563eb" stop-opacity=0
+      polygon points="0,80 0,50 20,42 40,48 60,26 80,32 100,14 120,20 120,80" fill="url(#area)"
+      polyline points="0,50 20,42 40,48 60,26 80,32 100,14 120,20" fill="none" stroke="#2563eb" stroke-width=2 stroke-linejoin="round"
+    // An icon symbol, used three times: each instance inherits its `use`'s
+    // colour; a template gradient reached through `href`.
+    svg testId="fx-use" class=Tile viewBox="0 0 120 80"
+      defs
+        symbol id="star" viewBox="0 0 24 24"
+          path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" fill="currentcolor"
+        linearGradient id="base"
+          stop offset=0 stop-color="#fde047"
+          stop offset=1 stop-color="#ca8a04"
+        linearGradient id="tilted" href="#base" gradientTransform="rotate(90 0.5 0.5)"
+      use href="#star" x=4 y=6 width=34 height=34 color="#f59e0b"
+      use href="#star" x=43 y=6 width=34 height=34 color="#10b981"
+      use href="#star" x=82 y=6 width=34 height=34 color="#6366f1"
+      rect x=8 y=48 width=104 height=26 rx=13 fill="url(#tilted)"
+    // Paint order: the stroke under the fill; a missing server's fallback.
+    svg testId="fx-order" class=Tile viewBox="0 0 120 80"
+      rect x=14 y=16 width=40 height=48 fill="#fbbf24" stroke="#78350f" stroke-width=10 paint-order="stroke"
+      circle cx=88 cy=40 r=22 fill="url(#nowhere) #22c55e" stroke="url(#nowhere)" stroke-width=6
+    // One component twice, each declaring id="shade": each instance's
+    // own gradient (LLP 1055.000 D3), and a sprite from another svg.
+    Badge(tint="#f43f5e")
+    Badge(tint="#14b8a6")
+    svg testId="fx-sprite" class=Tile viewBox="0 0 120 80" color="#a855f7"
+      use href="#star" x=30 y=10 width=60 height=60
+
+component Badge
+  props
+    tint: string
+  view
+    svg testId=`fx-badge-${tint}` class=Tile viewBox="0 0 120 80"
+      defs
+        radialGradient id="shade"
+          stop offset=0 stop-color="#ffffff"
+          stop offset=1 stop-color=tint
+      circle cx=60 cy=40 r=32 fill="url(#shade)"
