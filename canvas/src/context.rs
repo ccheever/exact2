@@ -14,10 +14,17 @@
 //! hold both recorders to them.
 
 use crate::color::{self, Parsed, Rgba};
+use crate::font::{Font, TextEngine};
 use crate::geom::{self, Matrix, Radius, Seg};
 use crate::list::{Op, Writer, SEAL_BYTES};
 use crate::COMPOSITE;
 use std::sync::{Arc, Mutex, MutexGuard};
+
+#[path = "context/image.rs"]
+mod image;
+#[path = "context/text.rs"]
+mod text;
+pub use image::{CanvasPattern, ImageData, Images};
 
 /// A thrown `DOMException` (or `TypeError`, by name).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -36,7 +43,7 @@ impl std::fmt::Display for DomException {
 
 impl std::error::Error for DomException {}
 
-fn throw<T>(name: &'static str, message: impl Into<String>) -> Result<T, DomException> {
+pub(crate) fn throw<T>(name: &'static str, message: impl Into<String>) -> Result<T, DomException> {
     Err(DomException {
         name,
         message: message.into(),
@@ -54,7 +61,7 @@ pub enum CanvasWindingRule {
 }
 
 impl CanvasWindingRule {
-    fn code(self) -> f64 {
+    pub(crate) fn code(self) -> f64 {
         match self {
             CanvasWindingRule::Nonzero => 0.0,
             CanvasWindingRule::Evenodd => 1.0,
@@ -69,22 +76,74 @@ pub enum Style {
     Color(String),
     /// A gradient.
     Gradient(CanvasGradient),
+    /// A pattern.
+    Pattern(CanvasPattern),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum Paint {
-    Color(Rgba),
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Paint {
+    /// A colour, and a wide colour's own serialisation.
+    Color(Rgba, Option<Arc<str>>),
     Gradient(u32),
+    Pattern(u32),
+}
+
+/// What the runner tells a context about where it draws (LLP 1056 D4, D8,
+/// D9): the host's text engine, the image handles it can draw, and the
+/// canvas node's `color` and `direction`.
+#[derive(Clone, Default)]
+pub struct Env {
+    /// The canvas's lifetime id, which an image a draw asked for names.
+    pub canvas: u64,
+    /// The host's text engine, callable on this thread.
+    pub text: Option<Arc<dyn TextEngine>>,
+    /// The decoded image handles.
+    pub images: Option<Arc<dyn Images>>,
+    /// The canvas node's CSS `color`: what `currentColor` resolves to.
+    pub current_color: Option<Rgba>,
+    /// The canvas node's CSS `direction` is `rtl`: what `direction =
+    /// "inherit"` resolves to.
+    pub rtl: bool,
 }
 
 /// `DOMMatrix`'s 2D members, detached: what `get_transform` returns.
 pub type DomMatrix = Matrix;
 
+/// The text attributes (LLP 1056 D8): what shapes a run, and where it goes.
 #[derive(Debug, Clone, PartialEq)]
-struct State {
-    transform: Matrix,
-    fill: Paint,
-    stroke: Paint,
+pub(crate) struct TextState {
+    pub(crate) font: Font,
+    /// `letterSpacing` and `wordSpacing`: the authored text and px.
+    pub(crate) letter_spacing: (String, f64),
+    pub(crate) word_spacing: (String, f64),
+    pub(crate) kerning: u8,
+    pub(crate) rendering: u8,
+    pub(crate) align: u8,
+    pub(crate) baseline: u8,
+    /// 0 ltr, 1 rtl, 2 inherit.
+    pub(crate) direction: u8,
+}
+
+impl Default for TextState {
+    fn default() -> Self {
+        TextState {
+            font: Font::default(),
+            letter_spacing: ("0px".into(), 0.0),
+            word_spacing: ("0px".into(), 0.0),
+            kerning: 0,
+            rendering: 0,
+            align: 0,
+            baseline: 3,
+            direction: 2,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct State {
+    pub(crate) transform: Matrix,
+    pub(crate) fill: Paint,
+    pub(crate) stroke: Paint,
     line_width: f64,
     cap: u8,
     join: u8,
@@ -93,14 +152,22 @@ struct State {
     dash_offset: f64,
     alpha: f64,
     composite: u8,
+    shadow_color: (Rgba, Option<Arc<str>>),
+    shadow_blur: f64,
+    shadow_offset: (f64, f64),
+    pub(crate) smoothing: (bool, u8),
+    pub(crate) text: TextState,
+    /// The `Font` record the replayer's state holds, which save and restore
+    /// carry as the replayer's stack does.
+    pub(crate) font_sent: Option<Arc<[f64]>>,
 }
 
 impl Default for State {
     fn default() -> Self {
         State {
             transform: Matrix::IDENTITY,
-            fill: Paint::Color(Rgba::BLACK),
-            stroke: Paint::Color(Rgba::BLACK),
+            fill: Paint::Color(Rgba::BLACK, None),
+            stroke: Paint::Color(Rgba::BLACK, None),
             line_width: 1.0,
             cap: 0,
             join: 0,
@@ -109,25 +176,48 @@ impl Default for State {
             dash_offset: 0.0,
             alpha: 1.0,
             composite: 0,
+            shadow_color: (
+                Rgba {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 0.0,
+                },
+                None,
+            ),
+            shadow_blur: 0.0,
+            shadow_offset: (0.0, 0.0),
+            smoothing: (true, 0),
+            text: TextState::default(),
+            font_sent: None,
         }
     }
 }
 
-#[derive(Debug, Default)]
-struct Inner {
-    state: State,
+#[derive(Default)]
+pub(crate) struct Inner {
+    pub(crate) state: State,
     stack: Vec<State>,
     writer: Writer,
     sealed: Vec<Vec<u8>>,
     /// The current subpath's start and last point, in canvas coordinates.
     subpath: Option<((f64, f64), (f64, f64))>,
-    next_gradient: u32,
-    current_color: Option<Rgba>,
+    /// Gradients, patterns and images share one id space.
+    pub(crate) next_id: u32,
+    /// Image handles given an id in this generation.
+    pub(crate) image_ids: Vec<(String, u32)>,
+    pub(crate) env: Env,
     notes: Vec<String>,
 }
 
+impl std::fmt::Debug for Inner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Inner")
+    }
+}
+
 impl Inner {
-    fn op(&mut self, op: Op, operands: &[f64]) {
+    pub(crate) fn op(&mut self, op: Op, operands: &[f64]) {
         if self.writer.len() + 8 + operands.len() * 8 > SEAL_BYTES && !self.writer.is_empty() {
             let full = std::mem::take(&mut self.writer);
             self.sealed.push(full.finish());
@@ -135,13 +225,22 @@ impl Inner {
         self.writer.op(op, operands);
     }
 
-    fn paint_op(&mut self, fill: bool, paint: Paint) {
+    pub(crate) fn paint_op(&mut self, fill: bool, paint: &Paint) {
         match (fill, paint) {
-            (true, Paint::Color(c)) => self.op(Op::FillColor, &c.operands()),
-            (true, Paint::Gradient(id)) => self.op(Op::FillGradient, &[id as f64]),
-            (false, Paint::Color(c)) => self.op(Op::StrokeColor, &c.operands()),
-            (false, Paint::Gradient(id)) => self.op(Op::StrokeGradient, &[id as f64]),
+            (true, Paint::Color(c, _)) => self.op(Op::FillColor, &c.operands()),
+            (true, Paint::Gradient(id)) => self.op(Op::FillGradient, &[*id as f64]),
+            (true, Paint::Pattern(id)) => self.op(Op::FillPattern, &[*id as f64]),
+            (false, Paint::Color(c, _)) => self.op(Op::StrokeColor, &c.operands()),
+            (false, Paint::Gradient(id)) => self.op(Op::StrokeGradient, &[*id as f64]),
+            (false, Paint::Pattern(id)) => self.op(Op::StrokePattern, &[*id as f64]),
         }
+    }
+
+    /// A new id for a gradient, pattern or image.
+    pub(crate) fn next_object(&mut self) -> u32 {
+        let id = self.next_id;
+        self.next_id += 1;
+        id
     }
 
     fn set_transform(&mut self, m: Matrix) {
@@ -207,11 +306,20 @@ impl Inner {
     }
 
     /// Whether paints do anything: Chrome skips them under a singular matrix.
-    fn paints(&self) -> bool {
+    pub(crate) fn paints(&self) -> bool {
         self.state.transform.invertible()
     }
 
-    fn note(&mut self, line: String) {
+    /// A colour assignment's value, with `currentColor` resolved.
+    pub(crate) fn color(&self, v: &str) -> Option<(Rgba, Option<Arc<str>>)> {
+        match color::parse(v)? {
+            Parsed::Color(c) => Some((c, None)),
+            Parsed::Wide(c, text) => Some((c, Some(text.into()))),
+            Parsed::Current => Some((self.env.current_color.unwrap_or(Rgba::BLACK), None)),
+        }
+    }
+
+    pub(crate) fn note(&mut self, line: String) {
         if self.notes.len() < 32 {
             self.notes.push(line);
         }
@@ -258,7 +366,7 @@ impl CanvasGradient {
             );
         }
         let c = match color::parse(color) {
-            Some(Parsed::Color(c)) => c,
+            Some(Parsed::Color(c) | Parsed::Wide(c, _)) => c,
             Some(Parsed::Current) => Rgba::BLACK,
             None => {
                 return throw(
@@ -274,14 +382,14 @@ impl CanvasGradient {
     }
 }
 
-fn lock(inner: &Arc<Mutex<Inner>>) -> MutexGuard<'_, Inner> {
+pub(crate) fn lock(inner: &Arc<Mutex<Inner>>) -> MutexGuard<'_, Inner> {
     inner.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// The recording `CanvasRenderingContext2D` for one canvas generation.
 #[derive(Clone, Default)]
 pub struct Context2d {
-    inner: Arc<Mutex<Inner>>,
+    pub(crate) inner: Arc<Mutex<Inner>>,
 }
 
 impl std::fmt::Debug for Context2d {
@@ -303,13 +411,19 @@ impl Context2d {
         Context2d::default()
     }
 
-    fn g(&self) -> MutexGuard<'_, Inner> {
+    pub(crate) fn g(&self) -> MutexGuard<'_, Inner> {
         lock(&self.inner)
     }
 
-    /// What `currentColor` resolves to: the canvas node's `color`.
-    pub fn set_current_color(&self, c: Option<Rgba>) {
-        self.g().current_color = c;
+    /// Where this context draws: set by the runner before each draw.
+    pub fn set_env(&self, env: Env) {
+        self.g().env = env;
+    }
+
+    /// The environment's text engine, for a seam that measures on the
+    /// executor's behalf (a TypeScript recorder's `measureText`).
+    pub fn env(&self) -> Env {
+        self.g().env.clone()
     }
 
     /// The lists recorded since the last take, in order: a draw longer than
@@ -848,20 +962,22 @@ impl Context2d {
 
     fn set_style_str(&self, fill: bool, v: &str) {
         let mut g = self.g();
-        let c = match color::parse(v) {
-            Some(Parsed::Color(c)) => c,
-            Some(Parsed::Current) => g.current_color.unwrap_or(Rgba::BLACK),
-            None => return,
+        let Some((c, text)) = g.color(v) else {
+            return;
         };
-        let p = Paint::Color(c);
+        let p = Paint::Color(c, text);
         let slot = if fill {
             &mut g.state.fill
         } else {
             &mut g.state.stroke
         };
         if *slot != p {
-            *slot = p;
-            g.paint_op(fill, p);
+            let changed =
+                !matches!((&*slot, &p), (Paint::Color(a, _), Paint::Color(b, _)) if a == b);
+            *slot = p.clone();
+            if changed {
+                g.paint_op(fill, &p);
+            }
         }
     }
 
@@ -873,20 +989,25 @@ impl Context2d {
             return;
         }
         let p = Paint::Gradient(gradient.id);
+        g.paint_op(fill, &p);
         if fill {
             g.state.fill = p;
         } else {
             g.state.stroke = p;
         }
-        g.paint_op(fill, p);
     }
 
     fn style(&self, fill: bool) -> Style {
         let g = self.g();
-        match if fill { g.state.fill } else { g.state.stroke } {
-            Paint::Color(c) => Style::Color(c.serialize()),
+        match if fill { &g.state.fill } else { &g.state.stroke } {
+            Paint::Color(_, Some(text)) => Style::Color(text.to_string()),
+            Paint::Color(c, None) => Style::Color(c.serialize()),
             Paint::Gradient(id) => Style::Gradient(CanvasGradient {
-                id,
+                id: *id,
+                inner: self.inner.clone(),
+            }),
+            Paint::Pattern(id) => Style::Pattern(CanvasPattern {
+                id: *id,
                 inner: self.inner.clone(),
             }),
         }
@@ -924,8 +1045,7 @@ impl Context2d {
 
     fn gradient(&self, op: Op, operands: &[f64]) -> CanvasGradient {
         let mut g = self.g();
-        let id = g.next_gradient;
-        g.next_gradient += 1;
+        let id = g.next_object();
         let mut all = vec![id as f64];
         all.extend_from_slice(operands);
         g.op(op, &all);
@@ -974,6 +1094,20 @@ impl Context2d {
         Ok(self.gradient(Op::RadialGradient, &[x0, y0, r0, x1, y1, r1]))
     }
 
+    /// `createConicGradient(startAngle, x, y)`: `TypeError` for a
+    /// non-finite argument.
+    pub fn create_conic_gradient(
+        &self,
+        start_angle: f64,
+        x: f64,
+        y: f64,
+    ) -> Result<CanvasGradient, DomException> {
+        if ![start_angle, x, y].iter().all(|v| v.is_finite()) {
+            return throw("TypeError", "The provided double value is non-finite.");
+        }
+        Ok(self.gradient(Op::ConicGradient, &[start_angle, x, y]))
+    }
+
     // --- Compositing ---------------------------------------------------
 
     /// `globalAlpha = v`: ignored unless finite and within [0, 1].
@@ -990,19 +1124,12 @@ impl Context2d {
         self.g().state.alpha
     }
 
-    /// `globalCompositeOperation = v`: an unknown value is ignored; so is a
-    /// value this stage does not draw yet, with a development note.
+    /// `globalCompositeOperation = v`: an unknown value is ignored.
     pub fn set_global_composite_operation(&self, v: &str) -> Result<(), DomException> {
         let Some(k) = COMPOSITE.iter().position(|n| *n == v) else {
             return Ok(());
         };
         let mut g = self.g();
-        if !crate::composite_supported(k) {
-            g.note(format!(
-                "globalCompositeOperation `{v}` is stage 2; ignored"
-            ));
-            return Ok(());
-        }
         if g.state.composite != k as u8 {
             g.state.composite = k as u8;
             g.op(Op::Composite, &[k as f64]);
@@ -1013,5 +1140,108 @@ impl Context2d {
     /// `globalCompositeOperation`.
     pub fn global_composite_operation(&self) -> String {
         COMPOSITE[self.g().state.composite as usize].into()
+    }
+
+    // --- Shadows -------------------------------------------------------
+
+    /// `shadowColor = v`: an unparseable colour is ignored.
+    pub fn set_shadow_color(&self, v: &str) {
+        let mut g = self.g();
+        let Some((c, text)) = g.color(v) else {
+            return;
+        };
+        if g.state.shadow_color.0 != c {
+            g.op(Op::ShadowColor, &c.operands());
+        }
+        g.state.shadow_color = (c, text);
+    }
+
+    /// `shadowColor`.
+    pub fn shadow_color(&self) -> String {
+        let g = self.g();
+        match &g.state.shadow_color {
+            (_, Some(text)) => text.to_string(),
+            (c, None) => c.serialize(),
+        }
+    }
+
+    /// `shadowBlur = v`: ignored unless finite and non-negative.
+    pub fn set_shadow_blur(&self, v: f64) {
+        let mut g = self.g();
+        if v.is_finite() && v >= 0.0 && g.state.shadow_blur != v {
+            g.state.shadow_blur = v;
+            g.op(Op::ShadowBlur, &[v]);
+        }
+    }
+
+    /// `shadowBlur`.
+    pub fn shadow_blur(&self) -> f64 {
+        self.g().state.shadow_blur
+    }
+
+    fn set_shadow_offset(&self, x: Option<f64>, y: Option<f64>) {
+        let mut g = self.g();
+        let (ox, oy) = g.state.shadow_offset;
+        let next = (x.unwrap_or(ox), y.unwrap_or(oy));
+        if next.0.is_finite() && next.1.is_finite() && next != (ox, oy) {
+            g.state.shadow_offset = next;
+            g.op(Op::ShadowOffset, &[next.0, next.1]);
+        }
+    }
+
+    /// `shadowOffsetX = v`: ignored unless finite.
+    pub fn set_shadow_offset_x(&self, v: f64) {
+        self.set_shadow_offset(Some(v), None)
+    }
+
+    /// `shadowOffsetX`.
+    pub fn shadow_offset_x(&self) -> f64 {
+        self.g().state.shadow_offset.0
+    }
+
+    /// `shadowOffsetY = v`: ignored unless finite.
+    pub fn set_shadow_offset_y(&self, v: f64) {
+        self.set_shadow_offset(None, Some(v))
+    }
+
+    /// `shadowOffsetY`.
+    pub fn shadow_offset_y(&self) -> f64 {
+        self.g().state.shadow_offset.1
+    }
+
+    // --- Image smoothing -------------------------------------------------
+
+    fn set_smoothing(&self, next: (bool, u8)) {
+        let mut g = self.g();
+        if g.state.smoothing != next {
+            g.state.smoothing = next;
+            g.op(Op::ImageSmoothing, &[next.0 as u8 as f64, next.1 as f64]);
+        }
+    }
+
+    /// `imageSmoothingEnabled = v`.
+    pub fn set_image_smoothing_enabled(&self, v: bool) {
+        let q = self.g().state.smoothing.1;
+        self.set_smoothing((v, q))
+    }
+
+    /// `imageSmoothingEnabled`.
+    pub fn image_smoothing_enabled(&self) -> bool {
+        self.g().state.smoothing.0
+    }
+
+    /// `imageSmoothingQuality = v`: `low`, `medium` or `high`; anything else
+    /// ignored.
+    pub fn set_image_smoothing_quality(&self, v: &str) {
+        let Some(k) = ["low", "medium", "high"].iter().position(|n| *n == v) else {
+            return;
+        };
+        let e = self.g().state.smoothing.0;
+        self.set_smoothing((e, k as u8))
+    }
+
+    /// `imageSmoothingQuality`.
+    pub fn image_smoothing_quality(&self) -> String {
+        ["low", "medium", "high"][self.g().state.smoothing.1 as usize].into()
     }
 }

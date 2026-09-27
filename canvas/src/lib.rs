@@ -18,13 +18,20 @@
 
 pub mod color;
 pub mod context;
+pub mod font;
 pub mod geom;
 pub mod list;
+pub mod path2d;
 pub mod seam;
 
 pub use color::Rgba;
-pub use context::{CanvasGradient, CanvasWindingRule, Context2d, DomException, DomMatrix, Style};
+pub use context::{
+    CanvasGradient, CanvasPattern, CanvasWindingRule, Context2d, DomException, DomMatrix, Env,
+    ImageData, Images, Style,
+};
+pub use font::{Font, RawMetrics, TextEngine, TextMetrics, TextRun};
 pub use geom::{Matrix, Radius};
+pub use path2d::Path2d;
 
 /// `globalCompositeOperation`'s values; the list's `Composite` operand is
 /// the index.
@@ -57,12 +64,12 @@ pub const COMPOSITE: [&str; 26] = [
     "luminosity",
 ];
 
-/// Whether stage 1 draws operator `k`: every one that changes only covered
-/// pixels. The five that reach outside the shape, within the clip
-/// (`source-in`, `source-out`, `destination-in`, `destination-atop`,
-/// `copy`), are stage 2 (LLP 1056 §3).
-pub fn composite_supported(k: usize) -> bool {
-    !matches!(k, 1 | 2 | 5 | 7 | 9) && k < COMPOSITE.len()
+/// Whether operator `k` changes destination pixels outside the shape,
+/// within the clip (`source-in`, `source-out`, `destination-in`,
+/// `destination-atop`, `copy`): a replayer draws the shape into a layer and
+/// composites the layer over the whole clip (LLP 1056 §1, §3).
+pub fn composite_clips_extent(k: usize) -> bool {
+    matches!(k, 1 | 2 | 5 | 7 | 9)
 }
 
 /// Why a draw was requested (LLP 1056 D4). Requests coalesce before they
