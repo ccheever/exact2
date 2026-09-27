@@ -34,7 +34,7 @@ const BACKDROPS = { light: [255, 255, 255], dark: [0, 0, 0] };
 
 /** The page sequence, captured the same way on every host. */
 async function capture(open, host, dir, check, env) {
-  const s = await open({ host, app: 'canvas-gallery', env });
+  const s = await open({ host, app: 'canvas-gallery', env, ...(host === 'web' ? { webDist: webBuild('canvas-gallery') } : {}) });
   const label = env?.EXACT_PAINTER ? `${host}-${env.EXACT_PAINTER}` : host;
   const out = {}, natives = {};
   let dark = false;
@@ -122,20 +122,23 @@ function over(img, rgb, pad) {
   return { width, height, data };
 }
 
-/** Caltrain's line map with the sky off: `{ crop, record }` of its canvas's
- * left part, where no child is drawn. The web's is served from its own
- * dist (`target/web-dist/caltrain`), built here if missing. */
-async function caltrainMap(open, host, dir, check, env) {
-  let webDist;
-  if (host === 'web') {
-    webDist = resolve(ROOT, 'target/web-dist/caltrain');
-    if (!existsSync(resolve(webDist, '.exact-build.json'))) {
-      mkdirSync(dirname(webDist), { recursive: true });
-      const b = spawnSync('bun', [resolve(ROOT, 'host/web/build.mjs'), 'caltrain-web'], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: webDist }, encoding: 'utf8', stdio: 'inherit' });
-      if (b.status !== 0) throw new Error('the Caltrain web build failed');
-    }
+/** An app's web build in its own dist (`target/web-dist/<app>`), so the
+ * smoke leaves `host/web/dist` to the web smoke; built here when missing
+ * (`EXACT_CANVAS_REBUILD=1` builds it again). */
+function webBuild(app) {
+  const dist = resolve(ROOT, 'target/web-dist', app);
+  if (process.env.EXACT_CANVAS_REBUILD === '1' || !existsSync(resolve(dist, '.exact-build.json'))) {
+    mkdirSync(dirname(dist), { recursive: true });
+    const b = spawnSync('bun', [resolve(ROOT, 'host/web/build.mjs'), `${app}-web`], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: 'inherit' });
+    if (b.status !== 0) throw new Error(`the ${app} web build failed`);
   }
-  const s = await open({ host, app: 'caltrain', env, ...(webDist ? { webDist } : {}) });
+  return dist;
+}
+
+/** Caltrain's line map with the sky off: `{ crop, record }` of its canvas's
+ * left part, where no child is drawn. */
+async function caltrainMap(open, host, dir, check, env) {
+  const s = await open({ host, app: 'caltrain', env, ...(host === 'web' ? { webDist: webBuild('caltrain') } : {}) });
   try {
     await s.tap('sky-toggle');
     await s.clock('settle');
