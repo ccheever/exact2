@@ -51,6 +51,9 @@ impl NodeType {
                 | NodeType::SvgText
                 | NodeType::SvgTSpan
                 | NodeType::SvgMarker
+                | NodeType::SvgMask
+                | NodeType::SvgPattern
+                | NodeType::SvgForeignObject
         )
     }
 
@@ -69,7 +72,9 @@ impl NodeType {
     }
 
     /// Whether the element renders where it stands: definitions (`defs`,
-    /// gradients, `stop`, `symbol`) render only through a reference.
+    /// gradients, `stop`, `symbol`) render only through a reference, and a
+    /// `foreignObject` only on the web (LLP 1055.000 D13): a native host's
+    /// scene has none.
     pub fn renders(self) -> bool {
         !matches!(
             self,
@@ -81,6 +86,9 @@ impl NodeType {
                 | NodeType::SvgClipPath
                 | NodeType::SvgTSpan
                 | NodeType::SvgMarker
+                | NodeType::SvgMask
+                | NodeType::SvgPattern
+                | NodeType::SvgForeignObject
         )
     }
 
@@ -99,6 +107,8 @@ impl NodeType {
                 | NodeType::SvgText
                 | NodeType::SvgTSpan
                 | NodeType::SvgMarker
+                | NodeType::SvgMask
+                | NodeType::SvgPattern
         )
     }
 
@@ -125,6 +135,9 @@ impl NodeType {
             NodeType::SvgText => "text",
             NodeType::SvgTSpan => "tspan",
             NodeType::SvgMarker => "marker",
+            NodeType::SvgMask => "mask",
+            NodeType::SvgPattern => "pattern",
+            NodeType::SvgForeignObject => "foreignObject",
             _ => return None,
         })
     }

@@ -231,6 +231,9 @@ impl Batch {
                 | "symbol"
                 | "clipPath"
                 | "marker"
+                | "mask"
+                | "pattern"
+                | "foreignObject"
                 | "text"
                 | "tspan"
         ) {

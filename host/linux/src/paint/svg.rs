@@ -11,6 +11,9 @@ use exact_kernel::{NodeKey, NodeRef, Overflow};
 use exact_motion::{Property, Value};
 use tiny_skia::Transform;
 
+#[path = "island.rs"]
+mod island;
+
 /// What a fill or a stroke paints with.
 pub enum Ink<'a> {
     /// One colour, straight RGBA.
@@ -25,6 +28,16 @@ pub enum Ink<'a> {
         stops: Vec<(f32, [u8; 4])>,
         /// Gradient space to the path's space.
         transform: [f32; 6],
+    },
+    /// A pattern (LLP 1055.000 D7): its tile rendered to pixels, repeated;
+    /// the transform maps the tile's pixels to the path's space.
+    Pattern {
+        /// The tile, premultiplied, at device scale.
+        tile: std::sync::Arc<tiny_skia::Pixmap>,
+        /// Tile pixels to the path's space.
+        transform: [f32; 6],
+        /// The paint's opacity.
+        opacity: f32,
     },
 }
 
@@ -169,6 +182,13 @@ impl Painter {
         ts: Transform,
     ) {
         let scene = resolve_svg(walk.scene, node, content);
+        if let Some(refusal) = scene.refused {
+            // @ref LLP 1055.000 D13 — refused by name, once.
+            static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            if !SAID.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                eprintln!("exact svg: {refusal}");
+            }
+        }
         let (ox, oy) = effective_overflow(node);
         let clips = ox != Overflow::Visible || oy != Overflow::Visible;
         self.paint_svg(&scene, clips, rect, content, ts);
@@ -268,11 +288,19 @@ impl Painter {
         } else {
             (&shape.path, own)
         };
+        let fill = shape.fill.as_ref().filter(|_| parts.0);
+        let stroke = shape.stroke.as_ref().filter(|_| parts.1);
         let paint = SvgPaint {
             path,
-            fill: ink(shape.fill.as_ref().filter(|_| parts.0), dark, to_path),
+            fill: match fill {
+                Some(p) if p.pattern.is_some() => self.pattern_ink(p, space, to_path),
+                p => ink(p, dark, to_path),
+            },
             even_odd: shape.fill_rule == exact_kernel::FillRule::Evenodd,
-            stroke: ink(shape.stroke.as_ref().filter(|_| parts.1), dark, to_path),
+            stroke: match stroke {
+                Some(p) if p.pattern.is_some() => self.pattern_ink(p, space, to_path),
+                p => ink(p, dark, to_path),
+            },
             order: shape.order,
             width: shape.width,
             cap: shape.cap as u8,
@@ -286,7 +314,7 @@ impl Painter {
 
     /// One item in its parent's space `ts`; `origin` is the content box's
     /// space, where a non-scaling stroke is drawn.
-    fn svg_item(&mut self, item: &Item, ts: Transform, origin: Transform) {
+    pub(super) fn svg_item(&mut self, item: &Item, ts: Transform, origin: Transform) {
         if item.opacity <= 0.0 {
             return;
         }
@@ -301,6 +329,21 @@ impl Painter {
             .clip
             .as_ref()
             .map_or(0, |c| self.backend.push_svg_clip(c, own));
+        match &item.mask {
+            // @ref LLP 1055.000 D10 — a mask is an island.
+            Some(mask) => self.svg_masked(item, mask, own, origin),
+            None => self.svg_kind(item, own, origin),
+        }
+        for _ in 0..clips {
+            self.backend.pop_clip();
+        }
+        if item.opacity < 1.0 {
+            self.backend.pop_opacity();
+        }
+    }
+
+    /// What an item draws, in its own space `own`.
+    pub(super) fn svg_kind(&mut self, item: &Item, own: Transform, origin: Transform) {
         match &item.kind {
             Kind::Group(children) => {
                 for child in children {
@@ -353,12 +396,6 @@ impl Painter {
                     }
                 }
             }
-        }
-        for _ in 0..clips {
-            self.backend.pop_clip();
-        }
-        if item.opacity < 1.0 {
-            self.backend.pop_opacity();
         }
     }
 }

@@ -33,6 +33,9 @@ pub(crate) fn is_element(tag: &str) -> bool {
             | "symbol"
             | "clipPath"
             | "marker"
+            | "mask"
+            | "pattern"
+            | "foreignObject"
             | "tspan"
     )
 }
@@ -52,6 +55,8 @@ pub(crate) fn in_svg(inside: bool, parent_tag: Option<&str>) -> bool {
                     | "radialGradient"
                     | "clipPath"
                     | "marker"
+                    | "mask"
+                    | "pattern"
                     | "text"
                     | "tspan"
             )
@@ -65,8 +70,9 @@ fn holds(parent: &str, child: &str) -> bool {
         // SVG text holds its runs.
         "text" | "tspan" => child == "tspan",
         "linearGradient" | "radialGradient" => child == "stop",
-        "svg" | "g" | "defs" | "symbol" | "marker" => {
+        "svg" | "g" | "defs" | "symbol" | "marker" | "mask" | "pattern" => {
             child != "stop"
+                && !(child == "foreignObject" && matches!(parent, "defs" | "mask" | "pattern"))
                 && child != "tspan"
                 && (is_element(child) || matches!(child, "svg" | "text"))
         }
@@ -106,14 +112,14 @@ pub(crate) fn is_length_prop(attr: &str) -> bool {
 /// The elements an SVG-specific attribute belongs to.
 fn owners(attr: &str) -> Option<&'static [&'static str]> {
     Some(match attr {
-        "viewBox" | "preserveAspectRatio" => &["svg", "symbol", "marker"],
+        "viewBox" | "preserveAspectRatio" => &["svg", "symbol", "marker", "pattern"],
         "markerWidth" | "markerHeight" | "refX" | "refY" | "orient" | "markerUnits" => &["marker"],
         "points" => &["polyline", "polygon"],
         "d" => &["path"],
         "pathLength" => &[
             "path", "polyline", "polygon", "circle", "ellipse", "line", "rect",
         ],
-        "x" | "y" => &["rect", "svg", "use"],
+        "x" | "y" => &["rect", "svg", "use", "mask", "pattern", "foreignObject"],
         "rx" | "ry" => &["rect", "ellipse"],
         "x1" | "y1" | "x2" | "y2" => &["line", "linearGradient"],
         "cx" | "cy" => &["circle", "ellipse", "radialGradient"],
@@ -124,6 +130,8 @@ fn owners(attr: &str) -> Option<&'static [&'static str]> {
         }
         "offset" | "stop-color" | "stop-opacity" => &["stop"],
         "clipPathUnits" => &["clipPath"],
+        "maskUnits" | "maskContentUnits" | "mask-type" => &["mask"],
+        "patternUnits" | "patternContentUnits" | "patternTransform" => &["pattern"],
         "textX" | "textY" | "textDx" | "textDy" | "text-anchor" | "dominant-baseline" => {
             &["text", "tspan"]
         }
@@ -163,6 +171,7 @@ fn shared(attr: &str) -> bool {
             | "paint-order"
             | "clip-path"
             | "clip-rule"
+            | "mask"
             | "font-size"
             | "font-weight"
             | "font-style"
@@ -188,12 +197,7 @@ pub(crate) fn refused_tag(tag: &str) -> Option<&'static str> {
         "text" | "tspan" | "textPath" => {
             "text inside `svg` is refused (LLP 1055 D12); put a `text` beside the `svg`"
         }
-        "mask" | "pattern" | "filter" | "image" => {
-            "not in exact2's SVG yet: LLP 1055.000 §4 builds it in a later stage"
-        }
-        "foreignObject" => {
-            "`foreignObject` is deferred (LLP 1055.000 D13): position a box over the `svg` instead"
-        }
+        "filter" | "image" => "not in exact2's SVG yet: LLP 1055.000 §4 builds it in a later stage",
         "hatch" | "hatchpath" | "mesh" | "meshgradient" | "solidcolor" => {
             "refused (LLP 1055.000 §7): Chrome does not implement it"
         }
@@ -354,11 +358,14 @@ impl Lowerer<'_> {
                             | "symbol"
                             | "clipPath"
                             | "marker"
+                            | "mask"
+                            | "pattern"
                             | "tspan"
                     ))
-                && !(matches!(tag, "rect" | "svg" | "use")
+                && !(matches!(tag, "rect" | "svg" | "use" | "mask" | "pattern" | "foreignObject")
                     && matches!(a.name.as_str(), "width" | "height"))
-                && !(matches!(tag, "use" | "linearGradient" | "radialGradient") && a.name == "href")
+                && !(matches!(tag, "use" | "linearGradient" | "radialGradient" | "pattern")
+                    && a.name == "href")
                 && !(tag == "svg"
                     && matches!(a.name.as_str(), "overflow" | "overflow-x" | "overflow-y"))
             {

@@ -49,6 +49,9 @@ pub(crate) struct SvgState {
     box_sent: IdMap<ViewId, String>,
     /// SVG elements with a press handler (LLP 1055.000 D17).
     pressable: IdSet<ViewId>,
+    /// Whether a `foreignObject` was met: its boxes are then looked for
+    /// (LLP 1055.000 D13, refused on this host).
+    foreign: bool,
 }
 
 impl SvgState {
@@ -60,10 +63,25 @@ impl SvgState {
             return None;
         }
         if !node.node_type.is_svg_element() {
+            // @ref LLP 1055.000 D13 — a box inside a `foreignObject` is the
+            // web's; here it is left out with the element.
+            if self.foreign {
+                let mut up = node.parent;
+                while let Some(p) = up.and_then(|p| kernel.node(p)) {
+                    if p.node_type == NodeType::SvgForeignObject {
+                        return self.element(kernel, p.id);
+                    }
+                    up = p.parent;
+                }
+            }
             if !node.style.animation.0.is_empty() || self.box_sent.contains_key(&id) {
                 self.boxes.insert(id);
             }
             return None;
+        }
+        if node.node_type == NodeType::SvgForeignObject && !self.foreign {
+            self.foreign = true;
+            eprintln!("exact svg: {}", exact_kernel::svg::scene::FOREIGN_OBJECT);
         }
         let mut root = node.parent;
         while let Some(r) = root {
@@ -286,6 +304,7 @@ fn marked(
             transform: None,
             ctm: item.ctm,
             clip: None,
+            mask: None,
             instance: false,
             kind: Kind::Shape(Box::new(sh)),
         }
@@ -386,6 +405,35 @@ fn element(
         s.push_str(",\"cl\":");
         clip_json(&clip, s);
     }
+    if let Some(mask) = &item.mask {
+        // @ref LLP 1055.000 D10 — a mask: its region and content, and the
+        // element's user space to its layer's (as the clip's above).
+        let local = match &item.kind {
+            Kind::Shape(sh) if sh.non_scaling => item.ctm,
+            Kind::Shape(sh) => sh
+                .circle
+                .map_or(tf::IDENTITY, |(cx, cy, _)| tf::translate(-cx, -cy)),
+            _ => tf::IDENTITY,
+        };
+        let (x, y, w, h) = mask.region;
+        let _ = write!(
+            s,
+            ",\"mk\":{{\"r\":[{},{},{},{}],\"l\":{},\"t\":",
+            num(x),
+            num(y),
+            num(w),
+            num(h),
+            mask.luminance as u8
+        );
+        affine_json(local, s);
+        // Points of the layer per unit, for the island's resolution.
+        let det = |m: Affine| (m[0] * m[3] - m[1] * m[2]).abs();
+        let k = (det(item.ctm) / det(local).max(1e-12)).sqrt();
+        let _ = write!(s, ",\"k\":{}", num(k));
+        s.push_str(",\"c\":");
+        items(engine, press, &mask.items, item.ctm, s, Role::Item);
+        s.push('}');
+    }
     match &item.kind {
         Kind::Group(children) => {
             let specs = specs(engine, key, &[Property::Opacity], &|_| {
@@ -431,7 +479,16 @@ fn element(
                 None => s.push_str("[]"),
             }
         }
-        Kind::Shape(shape) => shape_json(engine, key, opacity, item, shape, s, role == Role::Part),
+        Kind::Shape(shape) => shape_json(
+            engine,
+            press,
+            key,
+            opacity,
+            item,
+            shape,
+            s,
+            role == Role::Part,
+        ),
         Kind::Text(text) => {
             let specs = specs(engine, key, &[Property::Opacity], &|_| {
                 (Value::scalar(opacity), 1.0)
@@ -443,8 +500,10 @@ fn element(
     s.push('}');
 }
 
+#[allow(clippy::too_many_arguments)]
 fn shape_json(
     engine: &Engine,
+    press: &IdSet<ViewId>,
     key: u64,
     opacity: f64,
     item: &Item,
@@ -473,10 +532,38 @@ fn shape_json(
         }
         Some(p)
     };
-    s.push_str(",\"f\":");
-    paint_json(local(shape.fill.as_ref()).as_ref(), s);
-    s.push_str(",\"s\":");
-    paint_json(local(shape.stroke.as_ref()).as_ref(), s);
+    // @ref LLP 1055.000 D7 — a pattern's tile, in the same space.
+    let place = match centered {
+        Some((cx, cy, _)) => tf::translate(-cx, -cy),
+        None if shape.non_scaling => item.ctm,
+        None => tf::IDENTITY,
+    };
+    for (key, paint) in [("f", &shape.fill), ("s", &shape.stroke)] {
+        let _ = write!(s, ",\"{key}\":");
+        match paint
+            .as_ref()
+            .and_then(|p| p.pattern.as_ref().map(|t| (p, t)))
+        {
+            Some((p, pattern)) => {
+                let (x, y, w, h) = pattern.tile;
+                let _ = write!(
+                    s,
+                    "{{\"pt\":[{},{},{},{}],\"o\":{},\"t\":",
+                    num(x),
+                    num(y),
+                    num(w),
+                    num(h),
+                    num(p.opacity)
+                );
+                affine_json(tf::mul(place, pattern.transform), s);
+                s.push_str(",\"c\":");
+                let at = tf::mul(item.ctm, pattern.transform);
+                items(engine, press, &pattern.items, at, s, Role::Item);
+                s.push('}');
+            }
+            None => paint_json(local(paint.as_ref()).as_ref(), s),
+        }
+    }
     if shape.order != [0, 1, 2] {
         let _ = write!(
             s,
@@ -484,9 +571,11 @@ fn shape_json(
             shape.order[0], shape.order[1], shape.order[2]
         );
     }
-    if shape.fill.as_ref().is_some_and(|p| p.server.is_some())
-        || shape.stroke.as_ref().is_some_and(|p| p.server.is_some())
-    {
+    let drawn = |p: &Option<ShapePaint>| {
+        p.as_ref()
+            .is_some_and(|p| p.server.is_some() || p.pattern.is_some())
+    };
+    if drawn(&shape.fill) || drawn(&shape.stroke) {
         // Gradients are drawn at the scale the shape shows at.
         let m = item.ctm;
         let _ = write!(
@@ -519,6 +608,7 @@ fn shape_json(
             color: ColorValue::Fixed(c),
             opacity,
             server: None,
+            pattern: None,
         }) => (Value::rgba8(c.r(), c.g(), c.b(), c.a()), *opacity as f64),
         _ => (Value::ZERO, 1.0),
     };
@@ -594,6 +684,7 @@ fn server_json(server: &Server, opacity: f32, s: &mut String) {
             color: stop.color,
             opacity: stop.opacity * opacity,
             server: None,
+            pattern: None,
         };
         paint_json(Some(&paint), s);
         s.push(']');

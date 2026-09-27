@@ -1,0 +1,18 @@
+# The SVG island rasterizer (LLP 1055.000 §3, §8 ruling 4): the pixel work
+# behind masks and filters, as pure functions over premultiplied RGBA. A
+# loaded capability on Apple — `libexact_svg.dylib`, opened the first time an
+# island needs it, never linked into the core host (LLP 1047 D1) — and a
+# plain dependency of the Linux host, which already links a rasterizer.
+[package]
+name = "exact-svg-raster"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "SVG islands: mask coverage and filter primitives over premultiplied RGBA"
+publish = false
+
+[lib]
+name = "exact_svg_raster"
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]

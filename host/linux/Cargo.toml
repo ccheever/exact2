@@ -26,6 +26,9 @@ exact-textflow = { path = "../../textflow" }
 exact-motion = { path = "../../motion" }
 exact-plan = { path = "../../plan" }
 exact-raster = { path = "../raster" }
+# SVG islands (LLP 1055.000 §8 ruling 4): a loaded module on Apple, linked
+# here beside the tiny-skia this host already has.
+exact-svg-raster = { path = "../svg-raster" }
 exact-route = { path = "../../route" }
 exact-runner = { path = "../../runner" }
 # The executor for a request that leaves the process (LLP 1016 D2): ibex2's

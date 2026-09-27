@@ -146,6 +146,9 @@ fn element(node: &NodeRef<'_>) -> &'static str {
         NodeType::SvgSymbol => "symbol",
         NodeType::SvgClipPath => "clipPath",
         NodeType::SvgMarker => "marker",
+        NodeType::SvgMask => "mask",
+        NodeType::SvgPattern => "pattern",
+        NodeType::SvgForeignObject => "foreignObject",
         NodeType::SvgText => "text",
         NodeType::SvgTSpan => "tspan",
         NodeType::ScrollView => "div",
@@ -214,6 +217,7 @@ pub(super) fn css_style<'a>(
         && !url(&node.style.fill)
         && !url(&node.style.stroke)
         && node.style.clip_path.url().is_none()
+        && node.style.svg_mask.url().is_none()
         && [
             &node.style.marker_start,
             &node.style.marker_mid,
@@ -239,6 +243,14 @@ pub(super) fn css_style<'a>(
         if let Some(c) = exact_kernel::clip::ClipPath::parse(&format!("url(#{})", dom_id(target))) {
             style.clip_path = c;
         }
+    }
+    // @ref LLP 1055.000 D10 — a mask by the id the page gives it.
+    if let Some(target) = style
+        .svg_mask
+        .url()
+        .and_then(|id| kernel.resolve_id(node.id, id))
+    {
+        style.svg_mask = exact_kernel::svg::MarkerRef(Some(dom_id(target).into()));
     }
     // @ref LLP 1055.000 D9 — a marker by the id the page gives it.
     for marker in [
@@ -269,14 +281,17 @@ fn dom_id(view: exact_kernel::ViewId) -> String {
 
 /// Rows an element takes as attributes: Chrome 154 lays out a nested `svg`
 /// and places a `use` from their attributes and ignores those CSS
-/// properties, and a radial gradient's `cx`, `cy` and `r` are attributes
+/// properties; a `mask`'s and a `pattern`'s region is attributes only, as
+/// is a radial gradient's `cx`, `cy` and `r` are attributes
 /// only (LLP 1055.000 D4, D7).
 fn attribute_rows(t: NodeType) -> &'static [(exact_kernel::StyleId, &'static str)] {
     use exact_kernel::StyleId::*;
     match t {
-        NodeType::SvgViewport | NodeType::SvgUse => {
-            &[(X, "x"), (Y, "y"), (Width, "width"), (Height, "height")]
-        }
+        NodeType::SvgViewport
+        | NodeType::SvgUse
+        | NodeType::SvgMask
+        | NodeType::SvgPattern
+        | NodeType::SvgForeignObject => &[(X, "x"), (Y, "y"), (Width, "width"), (Height, "height")],
         NodeType::SvgRadialGradient => &[(Cx, "cx"), (Cy, "cy"), (R, "r")],
         _ => &[],
     }
@@ -479,6 +494,11 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
             PropId::RefY => "refY",
             PropId::Orient => "orient",
             PropId::MarkerUnits => "markerUnits",
+            PropId::MaskUnits => "maskUnits",
+            PropId::MaskContentUnits => "maskContentUnits",
+            PropId::PatternUnits => "patternUnits",
+            PropId::PatternContentUnits => "patternContentUnits",
+            PropId::PatternTransform => "patternTransform",
             PropId::TextX => "x",
             PropId::TextY => "y",
             PropId::TextDx => "dx",

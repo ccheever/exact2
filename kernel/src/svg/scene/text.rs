@@ -169,6 +169,7 @@ impl Resolver<'_, '_> {
                 color,
                 opacity: opacity.clamp(0.0, 1.0),
                 server: None,
+                pattern: None,
             })
         };
         let run = |text: String| TextRun {

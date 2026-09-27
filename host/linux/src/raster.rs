@@ -657,9 +657,25 @@ impl Backend for Raster {
         };
         // @ref LLP 1055.000 D7 — a gradient is a tiny-skia shader in the
         // path's space (two circles, as SVG's focal radial).
-        let paint = |ink: &crate::paint::Ink<'_>| -> Option<tiny_skia::Paint<'static>> {
+        fn paint<'a>(ink: &'a crate::paint::Ink<'_>) -> Option<tiny_skia::Paint<'a>> {
             match ink {
                 crate::paint::Ink::Solid(c) => Some(solid(*c)),
+                // @ref LLP 1055.000 D7 — a pattern's tile, repeated.
+                crate::paint::Ink::Pattern {
+                    tile,
+                    transform: m,
+                    opacity,
+                } => Some(tiny_skia::Paint {
+                    shader: tiny_skia::Pattern::new(
+                        tile.as_ref().as_ref(),
+                        tiny_skia::SpreadMode::Repeat,
+                        tiny_skia::FilterQuality::Bilinear,
+                        *opacity,
+                        Transform::from_row(m[0], m[1], m[2], m[3], m[4], m[5]),
+                    ),
+                    anti_alias: true,
+                    ..Default::default()
+                }),
                 crate::paint::Ink::Gradient {
                     server,
                     stops,
@@ -712,7 +728,7 @@ impl Backend for Raster {
                     })
                 }
             }
-        };
+        }
         for part in s.order {
             match part {
                 0 => {

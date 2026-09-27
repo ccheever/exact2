@@ -31,7 +31,7 @@ enum SvgPaint {
     /// Rebuild `shape`'s part layers from the element: fill and stroke in
     /// paint order (markers have no part yet). The shape layer itself then
     /// paints nothing.
-    static func parts(_ shape: CAShapeLayer, _ e: [String: Any], scale: CGFloat, dark: Bool, color: (Any?, Bool) -> CGColor?) {
+    static func parts(_ shape: CAShapeLayer, _ e: [String: Any], scale: CGFloat, dark: Bool, fonts: SvgText.Fonts?, color: (Any?, Bool) -> CGColor?) {
         shape.sublayers?.forEach { $0.removeFromSuperlayer() }
         guard let path = shape.path else { return }
         let order = numbers(e["po"]).count == 3 ? numbers(e["po"]).map(Int.init) : [0, 1, 2]
@@ -42,7 +42,8 @@ enum SvgPaint {
             case 0:
                 guard let spec = e["f"], !(spec is NSNull) else { continue }
                 if let g = spec as? [String: Any] {
-                    if let layer = gradient(g, rect: path.boundingBoxOfPath, scale: shows, dark: dark, color: color) {
+                    if let layer = g["pt"] != nil ? SvgIsland.pattern(g, rect: path.boundingBoxOfPath, scale: shows, dark: dark, fonts: fonts)
+                        : gradient(g, rect: path.boundingBoxOfPath, scale: shows, dark: dark, color: color) {
                         layer.mask = mask(path, of: layer, fill: true, like: shape)
                         shape.addSublayer(layer)
                     }
@@ -55,7 +56,8 @@ enum SvgPaint {
             case 1:
                 guard let spec = e["s"], !(spec is NSNull), shape.lineWidth > 0 else { continue }
                 if let g = spec as? [String: Any] {
-                    if let layer = gradient(g, rect: stroke.boundingBoxOfPath, scale: shows, dark: dark, color: color) {
+                    if let layer = g["pt"] != nil ? SvgIsland.pattern(g, rect: stroke.boundingBoxOfPath, scale: shows, dark: dark, fonts: fonts)
+                        : gradient(g, rect: stroke.boundingBoxOfPath, scale: shows, dark: dark, color: color) {
                         layer.mask = mask(path, of: layer, fill: false, like: shape)
                         shape.addSublayer(layer)
                     }

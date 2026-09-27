@@ -375,6 +375,30 @@ impl Backend for Gpu {
         let brush = |ink: &crate::paint::Ink<'_>| -> (vello::peniko::Brush, Option<Affine>) {
             match ink {
                 crate::paint::Ink::Solid(c) => (color(*c).into(), None),
+                // @ref LLP 1055.000 D7 — a pattern's tile as a repeating image brush.
+                crate::paint::Ink::Pattern {
+                    tile,
+                    transform: t,
+                    opacity,
+                } => {
+                    struct Pixels(std::sync::Arc<tiny_skia::Pixmap>);
+                    impl AsRef<[u8]> for Pixels {
+                        fn as_ref(&self) -> &[u8] {
+                            self.0.data()
+                        }
+                    }
+                    let image = vello::peniko::ImageBrush::new(vello::peniko::ImageData {
+                        data: vello::peniko::Blob::new(std::sync::Arc::new(Pixels(tile.clone()))),
+                        format: vello::peniko::ImageFormat::Rgba8,
+                        alpha_type: vello::peniko::ImageAlphaType::AlphaPremultiplied,
+                        width: tile.width(),
+                        height: tile.height(),
+                    })
+                    .with_extend(vello::peniko::Extend::Repeat)
+                    .with_alpha(*opacity);
+                    let m = Affine::new([t[0], t[1], t[2], t[3], t[4], t[5]].map(|v| v as f64));
+                    (image.into(), Some(m))
+                }
                 crate::paint::Ink::Gradient {
                     server,
                     stops,

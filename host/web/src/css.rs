@@ -239,6 +239,7 @@ fn property(out: &mut String, id: StyleId) {
         StyleId::TintColor => return out.push_str("--exact-tint"),
         StyleId::PositionType => return out.push_str("position"),
         StyleId::BackdropBlur => return out.push_str("backdrop-filter"),
+        StyleId::SvgMask => return out.push_str("mask"),
         id => id.name(),
     };
     for (prefix, suffix) in [

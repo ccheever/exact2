@@ -336,6 +336,7 @@ impl Resolver<'_, '_> {
             }),
             ctm: at,
             clip: None,
+            mask: None,
             instance: true,
             kind: Kind::Viewport {
                 rect: (0.0, 0.0, w, h),

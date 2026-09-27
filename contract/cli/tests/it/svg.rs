@@ -122,7 +122,11 @@ fn refusals_are_named() {
     assert!(refused("component A\n  view\n    circle r=3\n").contains("lower-svg-content"));
     assert!(refused(&svg("column")).contains("lower-svg-content"));
     assert!(refused(&svg("text \"hi\" rotate=\"10 20\"")).contains("later stage"));
-    assert!(refused(&svg("foreignObject")).contains("deferred"));
+    // LLP 1055.000 §8 ruling 5: HTML inside, the web's; SVG shapes need an `svg`.
+    assert!(
+        refused(&svg("foreignObject width=10 height=10\n        circle r=3"))
+            .contains("lower-svg-content")
+    );
     assert!(refused(&svg("animate")).contains("SMIL is refused"));
     assert!(
         refused(&svg("defs press=go")).contains("lower-svg-attr"),
@@ -132,7 +136,7 @@ fn refusals_are_named() {
     assert!(refused(&svg("circle r=3 padding=4")).contains("lower-svg-attr"));
     assert!(refused(&svg("rect points=\"0,0\"")).contains("lower-attr-tag"));
     assert!(refused("component A\n  view\n    column points=\"0,0\"\n").contains("lower-attr-tag"));
-    assert!(refused(&svg("mask")).contains("later stage"));
+    assert!(refused(&svg("filter")).contains("later stage"));
     assert!(refused(&svg("hatch")).contains("Chrome does not implement"));
     assert!(refused(&svg("linearGradient\n        rect width=1")).contains("does not hold"));
     assert!(refused(&svg("circle r=3 animation=\"nope 1s\"")).contains("lower-animation-name"));
@@ -335,4 +339,31 @@ fn stage_seven_markers() {
     let svg =
         |body: &str| format!("component A\n  view\n    svg width=10 height=10\n      {body}\n");
     assert!(refused(&svg("rect markerWidth=3")).contains("lower-attr-tag"));
+}
+
+// LLP 1055.000 stage 8: `mask` and `pattern`, their attributes, and the
+// `mask` and `mask-type` rows.
+#[test]
+fn stage_eight_masks_and_patterns() {
+    let r = boot(
+        "component A\n  view\n    svg width=10 height=10\n      mask id=\"m\" testId=\"m\" maskUnits=\"userSpaceOnUse\" x=0 y=0 width=10 height=10 mask-type=\"alpha\"\n        rect width=5 height=5 fill=\"#ffffff\"\n      pattern id=\"p\" testId=\"p\" width=4 height=4 patternUnits=\"userSpaceOnUse\" patternTransform=\"rotate(45)\" viewBox=\"0 0 2 2\"\n        circle cx=1 cy=1 r=1\n      rect testId=\"r\" width=10 height=10 fill=\"url(#p)\" mask=\"url(#m)\"\n",
+    );
+    let k = r.kernel();
+    let node = |id: &str| k.node_by_key(k.find_by_test_id(id)[0]).unwrap();
+    let m = node("m");
+    assert_eq!(m.node_type, NodeType::SvgMask);
+    assert_eq!(m.props.str(PropId::MaskUnits), Some("userSpaceOnUse"));
+    assert_eq!(m.style.mask_type, exact_kernel::MaskType::Alpha);
+    let p = node("p");
+    assert_eq!(p.node_type, NodeType::SvgPattern);
+    assert_eq!(p.props.str(PropId::PatternTransform), Some("rotate(45)"));
+    assert_eq!(node("r").style.svg_mask.url(), Some("m"));
+    let svg =
+        |body: &str| format!("component A\n  view\n    svg width=10 height=10\n      {body}\n");
+    assert!(refused(&svg("rect maskUnits=\"userSpaceOnUse\"")).contains("lower-attr-tag"));
+    let act = "component A\n  state n = 0\n  action go writes n\n    n = 1\n  view\n    svg width=10 height=10\n      mask press=go\n";
+    assert!(
+        refused(act).contains("lower-svg-attr"),
+        "a mask handles no events"
+    );
 }

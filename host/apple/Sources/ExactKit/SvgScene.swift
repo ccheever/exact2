@@ -92,7 +92,7 @@ enum CssAnimations {
 
     /// A spec's values, hashed: describing them as text was most of a
     /// scene's cost on a list's rows.
-    private static func digest(_ v: Any?, into h: inout Hasher) {
+    static func digest(_ v: Any?, into h: inout Hasher) {
         switch v {
         case let n as Double: h.combine(n.bitPattern)
         case let s as String: h.combine(s)
@@ -162,6 +162,8 @@ final class SvgScene {
     /// The transform pair around an element, by id.
     private var wrappers: [Int: (outer: CALayer, inner: CALayer)] = [:]
     private var installed: [Int: [String: String]] = [:]
+    /// Each masked element's mask island, by the digest of what drew it.
+    private var islands: [Int: (key: Int, layer: CALayer)] = [:]
     private var specs: [Int: [[String: Any]]] = [:]
     private var last: [String: Any] = [:]
     /// The view's pixels per point, for gradients drawn as pixels.
@@ -194,7 +196,7 @@ final class SvgScene {
         attach(scene["els"] as? [Any] ?? [], to: root, dark: dark, clock: clock, alive: &alive)
         for (id, layer) in layers where !alive.contains(id) {
             layer.removeAllAnimations(); layer.removeFromSuperlayer()
-            layers.removeValue(forKey: id); installed.removeValue(forKey: id); specs.removeValue(forKey: id)
+            layers.removeValue(forKey: id); installed.removeValue(forKey: id); specs.removeValue(forKey: id); islands.removeValue(forKey: id)
             if let pair = wrappers.removeValue(forKey: id) { pair.outer.removeFromSuperlayer() }
             node.removeValue(forKey: ObjectIdentifier(layer)); parentOf.removeValue(forKey: id)
             nodeOf.removeValue(forKey: id); pressable.remove(id); passes.remove(id)
@@ -267,7 +269,7 @@ final class SvgScene {
     func reset() {
         for layer in layers.values { layer.removeAllAnimations() }
         root.sublayers?.forEach { $0.removeFromSuperlayer() }
-        layers = [:]; installed = [:]; specs = [:]; wrappers = [:]
+        layers = [:]; installed = [:]; specs = [:]; wrappers = [:]; islands = [:]
         node = [:]; parentOf = [:]; nodeOf = [:]; pressable = []; passes = []
     }
 
@@ -342,7 +344,7 @@ final class SvgScene {
                 if SvgPaint.needsParts(e) {
                     // Gradients or a paint order: part layers paint it.
                     shape.fillColor = nil; shape.strokeColor = nil
-                    SvgPaint.parts(shape, e, scale: scale, dark: dark) { color($0, dark: $1) }
+                    SvgPaint.parts(shape, e, scale: scale, dark: dark, fonts: fonts ?? SvgScene.systemFonts) { color($0, dark: $1) }
                 } else if shape.sublayers?.isEmpty == false {
                     shape.sublayers?.forEach { $0.removeFromSuperlayer() }
                 }
@@ -352,8 +354,26 @@ final class SvgScene {
                 // space, and the layer undoes its parents' transforms.
                 shape.setAffineTransform(affine(e["inv"]) ?? .identity)
             }
-            // @ref LLP 1055.000 D10 — a clip is the layer's mask.
+            // @ref LLP 1055.000 D10 — a clip is the layer's mask; a mask
+            // is an island inside it.
             layer.mask = SvgPaint.clip(e["cl"]) { path($0) }
+            if let mk = e["mk"] as? [String: Any] {
+                var h = Hasher()
+                CssAnimations.digest(mk, into: &h)
+                h.combine(scale); h.combine(dark)
+                let key = h.finalize()
+                let m = islands[id].flatMap { $0.key == key ? $0.layer : nil }
+                    ?? SvgIsland.mask(mk, k: CGFloat(num(mk["k"])) * scale, dark: dark, fonts: fonts ?? SvgScene.systemFonts)
+                islands[id] = (key, m)
+                if var inner = layer.mask {
+                    while let next = inner.mask { inner = next }
+                    inner.mask = m
+                } else {
+                    layer.mask = m
+                }
+            } else {
+                islands.removeValue(forKey: id)
+            }
             node[ObjectIdentifier(layer)] = (id, UInt32(num(e["n"])))
             let list = e["a"] as? [[String: Any]] ?? []
             specs[id] = list

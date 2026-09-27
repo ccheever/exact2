@@ -27,6 +27,9 @@ impl NodeType {
                 | NodeType::SvgText
                 | NodeType::SvgTSpan
                 | NodeType::SvgMarker
+                | NodeType::SvgMask
+                | NodeType::SvgPattern
+                | NodeType::SvgForeignObject
         )
     }
 

@@ -755,3 +755,92 @@ fn markers_sit_on_vertices() {
         "content inherits from the marker"
     );
 }
+
+/// LLP 1055.000 D7, D10: a mask's region and content units against the
+/// element's box, and a pattern's tile, content and template.
+#[test]
+fn masks_and_patterns_resolve_against_the_box() {
+    use NodeType::*;
+    let mut d = Doc::new();
+    let svg = d.node(
+        Svg,
+        &[(StyleId::Width, "100"), (StyleId::Height, "100")],
+        &[],
+    );
+    let mask = d.node(
+        SvgMask,
+        &[(StyleId::MaskType, "alpha")],
+        &[
+            (PropId::Id, "m"),
+            (PropId::MaskContentUnits, "objectBoundingBox"),
+        ],
+    );
+    let dot = d.node(
+        SvgCircle,
+        &[
+            (StyleId::Cx, "0.5"),
+            (StyleId::Cy, "0.5"),
+            (StyleId::R, "0.5"),
+        ],
+        &[],
+    );
+    d.children(mask, &[dot]);
+    let pat = d.node(
+        SvgPattern,
+        &[(StyleId::Width, "25%"), (StyleId::Height, "0.5")],
+        &[(PropId::Id, "p"), (PropId::PatternTransform, "rotate(45)")],
+    );
+    let cell = d.node(
+        SvgRect,
+        &[(StyleId::Width, "3"), (StyleId::Height, "3")],
+        &[],
+    );
+    d.children(pat, &[cell]);
+    let child = d.node(SvgPattern, &[], &[(PropId::Id, "q"), (PropId::Href, "#p")]);
+    let rect = |d: &mut Doc, extra: (StyleId, &str)| {
+        d.node(
+            SvgRect,
+            &[
+                (StyleId::X, "20"),
+                (StyleId::Y, "10"),
+                (StyleId::Width, "40"),
+                (StyleId::Height, "20"),
+                extra,
+            ],
+            &[],
+        )
+    };
+    let masked = rect(&mut d, (StyleId::SvgMask, "url(#m)"));
+    let tiled = rect(&mut d, (StyleId::Fill, "url(#p)"));
+    let templated = rect(&mut d, (StyleId::Fill, "url(#q)"));
+    d.children(svg, &[mask, pat, child, masked, tiled, templated]);
+    let k = d.kernel(&[svg], 400.0);
+    let s = resolve(&k, svg);
+    let m = find(&s.items, masked)
+        .unwrap()
+        .mask
+        .as_ref()
+        .expect("masked");
+    // −10%/−10%/120%/120% of the 40×20 box at (20, 10).
+    let r = m.region;
+    for (a, b) in [(r.0, 16.0), (r.1, 8.0), (r.2, 48.0), (r.3, 24.0)] {
+        assert!((a - b).abs() < 1e-4, "{r:?}");
+    }
+    assert!(!m.luminance, "mask-type: alpha");
+    // Content in box units: the unit disc lands on the box.
+    let content = &m.items[0];
+    let t = content.transform.expect("content units").matrix;
+    close(t, [40.0, 0.0, 0.0, 20.0, 20.0, 10.0], "content units");
+    let paint = |id: u32| match &find(&s.items, id).unwrap().kind {
+        Kind::Shape(sh) => sh.fill.clone().expect("filled"),
+        _ => unreachable!(),
+    };
+    let p = paint(tiled).pattern.expect("a pattern");
+    // 25% and 0.5 of the box, from the box's origin.
+    assert_eq!(p.tile, (20.0, 10.0, 10.0, 10.0));
+    close(p.transform, tf::rotate(45.0), "patternTransform");
+    let q = paint(templated).pattern.expect("the template's tile");
+    assert_eq!(q.tile, p.tile, "href inherits the tile and the content");
+    assert_eq!(q.items.len(), 1);
+    assert!(find(&s.items, mask).is_none() && find(&s.items, pat).is_none());
+}

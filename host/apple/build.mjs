@@ -659,6 +659,7 @@ function main(args) {
     built: `lib${app.crate(`gpu-${name}`).replace(/-/g, '_')}.dylib`, load: `libexact_gpu_${name.replace(/-/g, '_')}.dylib` }));
   const webLoadName = 'libexact_web.dylib';
   const videoLoadName = 'libexact_video.dylib';
+  const svgLoadName = 'libexact_svg.dylib';
   const webBuildDir = mkdtempSync(resolve(tmpdir(), 'exact-webarm-'));
   cleanup.push(webBuildDir);
   const webBuilt = resolve(webBuildDir, webLoadName);
@@ -863,6 +864,13 @@ function main(args) {
     } else if (modulesBuilt) console.warn('host/apple: the module roster check needs Bun (bun:ffi); skipped');
     checkModuleRoster(app, modulesBuilt && typeof Bun === 'undefined' ? app.modules.tags : provided, `host/apple ${ios ? 'iOS' : 'macOS'}`, cargoEnv.EXACT_UPDATE_TRUST === 'production');
   }
+  // The SVG island module (@ref LLP 1055.000 §8 ruling 4): exact-svg-raster
+  // as its own dylib, never linked into the presenter; SvgIsland.swift
+  // dlopens it the first time a mask or filter needs pixel work.
+  const svgBuilt = resolve(webBuildDir, svgLoadName);
+  const svgTarget = process.env.CARGO_TARGET_DIR ?? resolve(root, 'target');
+  runApple('cargo', ['build', '--release', '-p', 'exact-svg-raster', '--lib', '--target', target, '--target-dir', svgTarget, '--manifest-path', resolve(root, 'Cargo.toml')], { cwd: root, env: { ...process.env, ...cargoEnv } });
+  copyFileSync(resolve(svgTarget, target, 'release', 'libexact_svg_raster.dylib'), svgBuilt);
   const t2 = Date.now();
   const bin = resolve(binDir, product);
   const hostPaths = appleArtifacts(app, { destination: ios ? (device ? 'ios' : 'ios-simulator') : 'macos', composition, trust: cargoEnv.EXACT_UPDATE_TRUST, host: true });
@@ -898,6 +906,8 @@ function main(args) {
     copyFileSync(videoBuilt, resolve(binDir, videoLoadName));
     rmSync(resolve(binDir, modulesLoadName), { force: true });
     if (modulesBuilt) copyFileSync(modulesBuilt, resolve(binDir, modulesLoadName));
+    rmSync(resolve(binDir, svgLoadName), { force: true });
+    copyFileSync(svgBuilt, resolve(binDir, svgLoadName));
     // The app's kept secrets live in the login keychain, whose ACL trusts the
     // creating app by its code signature (LLP 1018 D7): signed with the team's
     // identity a rebuild keeps them; ad-hoc, every rebuild is a new app and
@@ -916,6 +926,7 @@ function main(args) {
     writeFileSync(resolve(binDir, `${products[0]}-Info.plist`), macInfoPlist(app, { development }));
     run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', webDest], { stdio: 'ignore' });
     if (modulesBuilt) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(binDir, modulesLoadName)], { stdio: 'ignore' });
+    run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(binDir, svgLoadName)], { stdio: 'ignore' });
     run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', '--identifier', app.id, bin], { stdio: 'ignore' });
     for (const p of products.slice(1)) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', '--identifier', `${app.id}.${p.toLowerCase()}`, resolve(binDir, p)], { stdio: 'ignore' });
     // The receipt beside it (LLP 1030 D2).
@@ -937,7 +948,7 @@ function main(args) {
       const executables = resolve(contents, 'MacOS'), resources = resolve(contents, 'Resources');
       mkdirSync(executables, { recursive: true });
       mkdirSync(resources);
-      for (const file of ['ExactMac', webLoadName, videoLoadName, ...(modulesBuilt ? [modulesLoadName] : []), ...(hasGpu ? [loadName] : []), ...moduleDylibs.map(m => m.load)]) copyFileSync(resolve(binDir, file), resolve(executables, file));
+      for (const file of ['ExactMac', webLoadName, videoLoadName, svgLoadName, ...(modulesBuilt ? [modulesLoadName] : []), ...(hasGpu ? [loadName] : []), ...moduleDylibs.map(m => m.load)]) copyFileSync(resolve(binDir, file), resolve(executables, file));
       writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development }));
       copyAppleStaticTrees(paths.capture, resources);
       verifyBakeFiles(bakedCompat, bakedPlan, listAssets(resources, true));
@@ -945,7 +956,7 @@ function main(args) {
       copyFileSync(resolve(binDir, 'receipt.json'), resolve(resources, 'receipt.json'));
       // GPU artifacts were signed before their digests entered the baked receipt.
       // Preserve those exact bytes, as the iOS bundle assembly does below.
-      for (const file of [webLoadName, videoLoadName, ...(modulesBuilt ? [modulesLoadName] : [])]) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(executables, file)], { stdio: 'ignore' });
+      for (const file of [webLoadName, videoLoadName, svgLoadName, ...(modulesBuilt ? [modulesLoadName] : [])]) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(executables, file)], { stdio: 'ignore' });
       run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', bundle], { stdio: 'ignore' });
       const placed = bundleDestination;
       assertAppleIdentity(app, resolve(executables, 'ExactMac'), bakedCompat.id);
@@ -983,6 +994,7 @@ function main(args) {
   copyFileSync(webBuilt, resolve(bundle, 'Frameworks', webLoadName));
   copyFileSync(videoBuilt, resolve(bundle, 'Frameworks', videoLoadName));
   if (modulesBuilt) copyFileSync(modulesBuilt, resolve(bundle, 'Frameworks', modulesLoadName));
+  copyFileSync(svgBuilt, resolve(bundle, 'Frameworks', svgLoadName));
   const bundles = [[bundle, false]];
   if (args.includes('--host')) {
     const hostBundle = resolve(binDir, 'ExactHostIOS.app');

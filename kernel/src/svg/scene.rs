@@ -30,9 +30,11 @@ type Circle = (f32, f32, f32);
 
 mod clip;
 mod hit;
+mod island;
 mod marker;
 mod text;
 pub use clip::{Clip, ClipShape};
+pub use island::{Mask, Pattern};
 pub use text::{TextChunk, TextItem, TextRun};
 
 /// A host's presented value for a node's property: a running transition's
@@ -51,7 +53,13 @@ pub struct Scene {
     pub clip: bool,
     /// The elements, in paint order.
     pub items: Vec<Item>,
+    /// What this host cannot draw and so leaves out, by name: a
+    /// `foreignObject` (LLP 1055.000 D13), which is the web's alone.
+    pub refused: Option<&'static str>,
 }
+
+/// The refusal a native host reports for a `foreignObject`.
+pub const FOREIGN_OBJECT: &str = "`foreignObject` renders on the web only (LLP 1055.000 D13): on this host, position a box over the `svg` instead";
 
 /// One rendered element.
 #[derive(Debug, Clone, PartialEq)]
@@ -74,6 +82,9 @@ pub struct Item {
     pub ctm: Affine,
     /// `clip-path: url(#…)`: the clip in the element's user space.
     pub clip: Option<Box<Clip>>,
+    /// `mask: url(#…)`: the mask in the element's user space (LLP
+    /// 1055.000 D10), applied inside the clip.
+    pub mask: Option<Box<Mask>>,
     /// A `use`: what it draws is an instance, and hits it as the `use`.
     pub instance: bool,
     /// What it draws.
@@ -153,6 +164,9 @@ pub struct ShapePaint {
     pub opacity: f32,
     /// A gradient in the shape's user space (LLP 1055.000 D7).
     pub server: Option<Box<super::server::Server>>,
+    /// A pattern, whose pattern space maps to the shape's user space (LLP
+    /// 1055.000 D7). `color` and `server` are unused beside it.
+    pub pattern: Option<Box<Pattern>>,
 }
 
 /// A shape, resolved.
@@ -258,6 +272,7 @@ pub fn resolve(
         kernel,
         presented,
         uses: Vec::new(),
+        refused: None,
     };
     r.present(node, &mut inherited);
     let items = match view {
@@ -269,6 +284,7 @@ pub fn resolve(
         view,
         clip,
         items,
+        refused: r.refused,
     }
 }
 
@@ -279,6 +295,8 @@ struct Resolver<'k, 'p> {
     /// resolved, outermost first: its instance path, and what a cycle is
     /// checked against.
     uses: Vec<u64>,
+    /// A refusal met on the walk.
+    refused: Option<&'static str>,
 }
 
 /// The rows a child computes from its parent: every inherited row it does
@@ -342,6 +360,9 @@ impl Resolver<'_, '_> {
         let mut out = Vec::new();
         for child in parent.children() {
             if let Some(node) = self.kernel.node(child) {
+                if node.node_type == NodeType::SvgForeignObject {
+                    self.refused = Some(FOREIGN_OBJECT);
+                }
                 if let Some(item) = self.item(&node, inherited, vp, ctm) {
                     out.push(item);
                 }
@@ -382,7 +403,7 @@ impl Resolver<'_, '_> {
             NodeType::SvgUse => self.instance(node, &style, vp, ctm)?,
             NodeType::SvgText => Kind::Text(Box::new(self.text(node, &style, vp)?)),
             _ => {
-                let mut shape = self.shape(node, &style, vp)?;
+                let mut shape = self.shape(node, &style, vp, ctm)?;
                 shape.markers = self.markers(node, &style, &shape.path, vp, ctm);
                 Kind::Shape(Box::new(shape))
             }
@@ -396,10 +417,20 @@ impl Resolver<'_, '_> {
         } else {
             None
         };
+        let mask = if style.svg_mask.url().is_some() {
+            let bbox = match &kind {
+                Kind::Shape(s) => s.path.bounds(),
+                _ => self.bbox(node, &style, vp),
+            };
+            self.mask(node, bbox, vp, ctm).map(Box::new)
+        } else {
+            None
+        };
         Some(Item {
             id: node.id,
             uid: self.uid(node.id),
             clip,
+            mask,
             instance: node.node_type == NodeType::SvgUse,
             key,
             opacity,
@@ -516,15 +547,45 @@ impl Resolver<'_, '_> {
         geometry(node.node_type, node.props, style, vp).map(|p| (p, None))
     }
 
-    fn shape(&self, node: &NodeRef<'_>, style: &StyleProps, vp: Viewport) -> Option<Shape> {
+    fn shape(
+        &mut self,
+        node: &NodeRef<'_>,
+        style: &StyleProps,
+        vp: Viewport,
+        ctm: Affine,
+    ) -> Option<Shape> {
         let (path, circle) = self.geometry(node, style, vp)?;
         let hidden = style.visibility != Visibility::Visible;
         let bbox = path.bounds();
-        let paint = |p: &Paint, opacity: f32| -> Option<ShapePaint> {
+        // A pattern paint's tile, resolved first: `Some(None)` paints
+        // nothing, `None` is not a pattern (LLP 1055.000 D7).
+        let mut patterns = [None, None];
+        for (slot, p) in patterns.iter_mut().zip([&style.fill, &style.stroke]) {
+            if let (Paint::Url(id, _), false) = (p, hidden) {
+                *slot = match self.pattern(node, id, bbox, vp, ctm) {
+                    Ok(Some(pat)) => Some(Some(Box::new(pat))),
+                    Ok(None) => None,
+                    Err(()) => Some(None),
+                };
+            }
+        }
+        let [fill_pattern, stroke_pattern] = patterns;
+        let paint = |p: &Paint,
+                     opacity: f32,
+                     pattern: Option<Option<Box<Pattern>>>|
+         -> Option<ShapePaint> {
             if hidden {
                 return None;
             }
             let opacity = opacity.clamp(0.0, 1.0);
+            if let Some(pattern) = pattern {
+                return pattern.map(|pat| ShapePaint {
+                    color: style.text_color,
+                    opacity,
+                    server: None,
+                    pattern: Some(pat),
+                });
+            }
             let color = match p {
                 Paint::None => return None,
                 Paint::CurrentColor => style.text_color,
@@ -536,11 +597,13 @@ impl Resolver<'_, '_> {
                             color: style.text_color,
                             opacity,
                             server: Some(Box::new(server)),
+                            pattern: None,
                         }),
                         Resolved::Color(color, stop) => Some(ShapePaint {
                             color,
                             opacity: opacity * stop,
                             server: None,
+                            pattern: None,
                         }),
                         Resolved::Nothing => None,
                         // A missing server paints the fallback, or nothing.
@@ -549,11 +612,13 @@ impl Resolver<'_, '_> {
                                 color: style.text_color,
                                 opacity,
                                 server: None,
+                                pattern: None,
                             }),
                             Paint::Color(c) => Some(ShapePaint {
                                 color: c,
                                 opacity,
                                 server: None,
+                                pattern: None,
                             }),
                             _ => None,
                         },
@@ -564,14 +629,16 @@ impl Resolver<'_, '_> {
                 color,
                 opacity,
                 server: None,
+                pattern: None,
             })
         };
         let width = style.stroke_width.max(0.0);
-        let stroke = paint(&style.stroke, style.stroke_opacity).filter(|_| width > 0.0);
+        let stroke =
+            paint(&style.stroke, style.stroke_opacity, stroke_pattern).filter(|_| width > 0.0);
         let scale = dash_scale(&path, node.props);
         let offset = style.stroke_dashoffset;
         Some(Shape {
-            fill: paint(&style.fill, style.fill_opacity),
+            fill: paint(&style.fill, style.fill_opacity, fill_pattern),
             fill_rule: style.fill_rule,
             stroke,
             width,

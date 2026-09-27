@@ -872,6 +872,7 @@ dependencies = [
  "exact-raster",
  "exact-route",
  "exact-runner",
+ "exact-svg-raster",
  "exact-textflow",
  "ibex2",
  "libc",
@@ -1074,6 +1075,10 @@ dependencies = [
  "snapback4-device",
  "snapback4-lang",
 ]
+
+[[package]]
+name = "exact-svg-raster"
+version = "0.1.0"
 
 [[package]]
 name = "exact-textflow"

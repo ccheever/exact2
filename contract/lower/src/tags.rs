@@ -193,6 +193,30 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: None,
         },
+        // @ref LLP 1055.000 D7/D10 — a mask and a pattern render only where
+        // they are referenced; a pattern's tile clips its content, which
+        // the hosts do (no row says so).
+        "mask" => Tag {
+            node_type: NodeType::SvgMask,
+            fixed_styles: &[],
+            fixed_props: &[],
+            positional: None,
+        },
+        "pattern" => Tag {
+            node_type: NodeType::SvgPattern,
+            fixed_styles: &[],
+            fixed_props: &[],
+            positional: None,
+        },
+        // @ref LLP 1055.000 D13, §8 ruling 5 — HTML inside an `svg`: its
+        // children are boxes. The web draws it; native hosts refuse it by
+        // name at run time (one plan serves every host).
+        "foreignObject" => Tag {
+            node_type: NodeType::SvgForeignObject,
+            fixed_styles: &[],
+            fixed_props: &[],
+            positional: None,
+        },
         // @ref LLP 1055.000 D11 — a run of SVG text, its string positional.
         "tspan" => Tag {
             node_type: NodeType::SvgTSpan,
@@ -455,6 +479,13 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "spreadMethod" => AttrTarget::Prop(p("spreadMethod")),
         "offset" => AttrTarget::Prop(p("offset")),
         "clipPathUnits" => AttrTarget::Prop(p("clipPathUnits")),
+        "maskUnits" => AttrTarget::Prop(p("maskUnits")),
+        "maskContentUnits" => AttrTarget::Prop(p("maskContentUnits")),
+        "patternUnits" => AttrTarget::Prop(p("patternUnits")),
+        "patternContentUnits" => AttrTarget::Prop(p("patternContentUnits")),
+        "patternTransform" => AttrTarget::Prop(p("patternTransform")),
+        "mask" => styles(&[StyleId::SvgMask]),
+        "mask-type" => styles(&[StyleId::MaskType]),
         "markerWidth" => AttrTarget::Prop(p("markerWidth")),
         "markerHeight" => AttrTarget::Prop(p("markerHeight")),
         "refX" => AttrTarget::Prop(p("refX")),
