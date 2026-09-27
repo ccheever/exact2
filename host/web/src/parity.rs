@@ -15,7 +15,7 @@
 //! played by the browser through `Element.animate` exactly as the glue plays
 //! them; its samples hold the *lowering* to the engine, midpoints included.
 //!
-//! A keyframe case (LLP 1057) is an `animation` row: the page gets the
+//! A keyframe case (LLP 1055 D5) is an `animation` row: the page gets the
 //! declaration and `@keyframes` rules the host emits, starts it at time zero
 //! over the case's initial value, and seeks it the same way.
 

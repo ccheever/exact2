@@ -57,3 +57,33 @@ fn a_press_in_an_svg_reaches_the_element_under_it() {
     assert_eq!(picked(&mut presenter, 80., 50.), "line", "on the stroke");
     assert_eq!(picked(&mut presenter, 95., 95.), "back");
 }
+
+/// SVG 2 §13.4.7: a zero-length subpath with round or square caps paints
+/// its cap, a dot where Chrome paints one; a butt cap paints nothing.
+#[test]
+fn a_zero_length_subpath_paints_its_cap() {
+    const DOTS: &str = "component App\n  view\n    svg testId=\"dots\" width=100 height=40 viewBox=\"0 0 100 40\"\n      path d=\"M 10 20 Z\" stroke=\"#ff0000\" stroke-width=12 stroke-linecap=\"round\"\n      path d=\"M 40 20 L 40 20\" stroke=\"#ff0000\" stroke-width=12 stroke-linecap=\"square\"\n      path d=\"M 70 20 L 70 20\" stroke=\"#ff0000\" stroke-width=12\n";
+    let plan = contract::compile(DOTS).unwrap_or_else(|e| panic!("{e}"));
+    let (mut p, error) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (100., 40.),
+        1.,
+        std::env::temp_dir(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let k = p.host().kernel();
+    let dots = k.node_by_key(k.find_by_test_id("dots")[0]).unwrap().id;
+    let b = *p.boxes().iter().find(|b| b.id == dots).unwrap();
+    let (x0, y0) = (b.rect.0 as u32, b.rect.1 as u32);
+    let frame = p.frame();
+    let red = |x: u32| {
+        let c = frame.pixel(x0 + x, y0 + 20).unwrap().demultiply();
+        (c.red(), c.green(), c.alpha())
+    };
+    assert_eq!(red(10), (255, 0, 255), "M p Z, round: a dot");
+    assert_eq!(red(40), (255, 0, 255), "M p L p, square: a square");
+    assert_ne!(red(70), (255, 0, 255), "a butt cap paints nothing");
+}

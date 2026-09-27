@@ -1,4 +1,4 @@
-//! Keyframe animations on Linux (LLP 1057 D4): the host's engine samples the
+//! Keyframe animations on Linux (LLP 1055 D5/D7): the host's engine samples the
 //! `animation` row under its clock, as it does a transition, and the painter
 //! draws the presented values.
 use exact_kernel::MonospaceMeasurer;

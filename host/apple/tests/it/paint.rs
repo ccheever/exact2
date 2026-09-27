@@ -336,3 +336,23 @@ fn a_side_that_stays_currentcolor_follows_color_and_one_that_becomes_it_moves() 
         "{mid}"
     );
 }
+
+/// An SVG shape's `light-dark()` fill transitions when the appearance
+/// changes, as a box's colour does (LLP 1055.000 D6, LLP 1062 D4): the scene
+/// is re-sent with the moving value.
+#[test]
+fn an_svg_fill_moves_between_its_light_dark_pair() {
+    let mut host = boot(
+        "component App\n  view\n    svg testId=\"chart\" width=100 height=100 viewBox=\"0 0 100 100\"\n      circle cx=50 cy=50 r=40 fill=\"light-dark(#ffffff, #000000)\" transition=\"fill 1s linear\"\n",
+    );
+    let chart = view(&host, "chart");
+    host.set_scheme(false);
+    let flipped = host.set_scheme(true);
+    assert!(flipped.contains("\"motion\":true"), "{flipped}");
+    let mid = host.tick(500.0);
+    let scene = mid
+        .split("{\"op\":")
+        .find(|op| op.starts_with(&format!("\"svg\",\"id\":{chart},")))
+        .unwrap_or_else(|| panic!("{mid}"));
+    assert!(scene.contains("\"f\":[128,128,128,255]"), "{scene}");
+}
