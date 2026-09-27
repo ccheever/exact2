@@ -279,16 +279,15 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
 - **A Core Animation executor for transitions.** Permitted by LLP 1002 D2, not
   built; the Apple lane measures whether it earns its place.
 
-**Proposed (2026-09-26, the crypto-list benchmark brief; LLP 1055; pending
-Charlie's take):** inline SVG (`svg`, `g`, `path`, `polyline`, `polygon`,
-`circle`, `line`, `rect`, with the SVG 2 presentation properties) and CSS
-`@keyframes` / `animation`, run by the browser on the web, by Core Animation
-on Apple for `opacity`, `stroke-dashoffset` and `r`, and by `exact-motion`
-elsewhere. Unblocks the benchmark's SVG port and any list with inline charts
-or icons, written as a web developer writes them. Take: **owed — Charlie
-names it** (LLP 1055 §0; the dead `svgSource` prop is deleted, but that is
-hygiene, not a take). Still out: filters, masks, paint servers, text in SVG,
-SMIL, scroll-driven animations, animation events and colour motion.
+**Expanded (Charlie, 2026-09-26: "why wouldn't we just do a complete SVG
+implementation here? i think this will be useful and we're using it now"):**
+SVG, complete, as the browser renders it, and CSS `@keyframes` / `animation`
+(LLP 1055). The first slice (`svg`, `g`, `path`, `polyline`, `polygon`,
+`circle`, `line`, `rect`, the SVG 2 presentation properties, animations run by
+the browser on the web, by Core Animation on Apple for `opacity`,
+`stroke-dashoffset` and `r`, and by `exact-motion` elsewhere) serves the
+crypto-list benchmark's charts; the rest of SVG follows as its own stages. Take:
+none named; the dead `svgSource` prop is deleted.
 - **`runOnJS` and the escape hatch / runtime graph admission** — never existed here.
 
 **Tooling** — no Design Mode, no Guide system, no devtools UI, no TUI host, no blog/CMS.

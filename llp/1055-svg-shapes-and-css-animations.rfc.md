@@ -1,7 +1,7 @@
 # LLP 1055: Inline SVG shapes and CSS animations
 
 **Type:** RFC
-**Status:** Draft (r2: built on `feat/svg-anim`; reviews dispositioned in §0; the NOT-DOING take awaits Charlie)
+**Status:** Accepted (r2, landed; reviews dispositioned in §0). Charlie, 2026-09-26: "why wouldn't we just do a complete SVG implementation here? i think this will be useful and we're using it now" — SVG is admitted complete; this RFC is its first slice and the rest follows as its own stages.
 **Systems:** Kernel (`kernel/tables/schema.json` node types, props, style rows; the SVG subtree outside box layout; `kernel/src/svg/` geometry), Motion (`exact-motion`: `@keyframes`, `animation`, two new animatable properties), Contract (`svg` tags and attributes, the `keyframes` declaration, `animation` and its longhands), Plan (a `keyframes` table), Runner (resolving `animation-name`), Web / Apple / Linux hosts (painting shapes, executing animations)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-09-26 (r1 and r2)
@@ -57,7 +57,7 @@ Astra (`gpt-6-astra`, reasoning max) and Grok (served as `grok-4.6-build`, xhigh
 
 **D9, corrected:** the collection that exists (fresh ids per mounted key, one viewport of overscan plus velocity lead, bounded retirement, pins) decides when an animation starts: at mount, as on the web. A row kept mounted by overscan, a pin or deferred retirement does not replay when it scrolls back. LLP 1050.000's `complete` and D3 are rulings on an RFC not yet built; nothing here depends on them.
 
-**The NOT-DOING take (both):** deleting the dead `svgSource` is hygiene, not a doing-list take. The consumer (the crypto-list benchmark) is also outside the v1 bar. `rules/NOT-DOING.md` now carries the admission marked **pending Charlie's take** (§6 Q1). This branch is unpushed until he names one.
+**The NOT-DOING take (both):** deleting the dead `svgSource` is hygiene, not a doing-list take. The consumer (the crypto-list benchmark) is also outside the v1 bar. Charlie's ruling (2026-09-26) admits SVG complete with no take named; `rules/NOT-DOING.md` records it.
 
 **Not accepted:** Grok's suggestion to capability-link the path parser (LLP 1047). The parser is about 350 lines and the web wasm grew by it; it is kernel geometry every host needs, and an `svg`-free plan pays only its code size. That can be measured if it matters.
 
@@ -289,7 +289,7 @@ The data crate scales the series into the 96×32 box (min at the bottom, max at 
 
 ## 6. Questions for Charlie
 
-1. **The NOT-DOING trade (§9):** `@keyframes` and a Core Animation executor come off the list, and `svgSource` is deleted in exchange. Is that the right take, or should something larger come off?
+1. **The NOT-DOING trade (§9):** answered by Charlie (2026-09-26): SVG complete, no take; the subset refusals in this RFC are stages still to build, not permanent refusals.
 2. **Apple execution:** Core Animation for animations only (transitions stay on the engine), or should transitions follow once the fixtures exist?
 3. **D9:** "starts when mounted" (the web's rule) rather than "starts when first visible". Agreed?
 
