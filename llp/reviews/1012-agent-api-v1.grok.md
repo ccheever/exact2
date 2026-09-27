@@ -17,7 +17,7 @@ I'll start by reading the review skill, the full prompt, and the spec under revi
 
 ## Overall assessment
 
-The architecture is transcribed well: eight named operations, three answered once in the runner, five in host glue, one driver, time as a seek. §5's decisions (real input, no session envelope, no tiers, `clock` not `wait`, `layout` as what the host renders) match the code and `rules/NOT-DOING.md` §Agent API.
+The architecture is transcribed well: eight named operations, three answered once in the runner, five in host glue, one driver, time as a seek. §5's decisions (real input, no session envelope, no tiers, `clock` not `wait`, `layout` as what the host renders) match the code and `rules/DEFERRED.md` §Agent API.
 
 It is not yet the reference r1 claims to be. A Linux author cannot implement `layout` / `tap` / `type` / `clock` / `screenshot` from §1 without reading `Agent.swift` and `glue.js`. §4 titles itself "What the smoke holds" and then states magnitudes and a cross-host constant the smoke does not assert. Those two gaps — implementer contract, honesty of the check — are why this revision is not READY.
 
@@ -158,9 +158,9 @@ Citing 0495 §4.1 as the defect class ("a projection that is a parallel reconstr
 
 ### **LOW** · §1 · "a ninth costs one" is originated here, slightly mis-cited
 
-NOT-DOING §Agent API lists the same eight, says `clock` replaces `wait`, and does not mention a wheel. The wheel-as-`tap` decision (Charlie, "A") is correctly this spec's. Good.
+DEFERRED §Agent API lists the same eight, says `clock` replaces `wait`, and does not mention a wheel. The wheel-as-`tap` decision (Charlie, "A") is correctly this spec's. Good.
 
-"A ninth operation costs one of these eight (the trade shape of `rules/RULES.md`'s five checks)" — RULES.md's trade is about **blocking checks**, not operations. NOT-DOING already binds the count ("8 operations, not 90"). The trade sentence should live in NOT-DOING if it is meant to bind the next PR; this spec should cite it, not invent it by analogy. Do not write it in both as two laws.
+"A ninth operation costs one of these eight (the trade shape of `rules/RULES.md`'s five checks)" — RULES.md's trade is about **blocking checks**, not operations. DEFERRED already binds the count ("8 operations, not 90"). The trade sentence should live in DEFERRED if it is meant to bind the next PR; this spec should cite it, not invent it by analogy. Do not write it in both as two laws.
 
 ### **LOW** · §3 · line-count approximations
 
@@ -173,7 +173,7 @@ Cut, if the document is meant to be sparse:
 - The exact1 inventory (Related, §1 last sentence, §5 identity/wait paragraphs, §7 "five forms").
 - §6 (gpu observer, `wall()` vs `now()`). True, already in the code comments; not API.
 - Approximate line counts and the wasm-size narrative (or pin them to a printer).
-- Charlie asides that do not bind ("seems worth it."). Keep "A" only if NOT-DOING does not take the wheel sentence.
+- Charlie asides that do not bind ("seems worth it."). Keep "A" only if DEFERRED does not take the wheel sentence.
 - Duplicate restatement of the eight names already in the table.
 
 Add, minimally:
@@ -202,7 +202,7 @@ Keep the table, the journal, the web `clock` outline, §5's decision list, the t
 5. **Almost.** Empty `label` uses truthiness; no `state` row; CLI omits the word `wheel`; comments say §8. One rendering is enforced; never-parsed is not.
 6. **`focus` / `settle` / `reload` are honest.** `Runner::act` and `quit` are holes. Polling image/GPU (and the 300 ms retry) punches the "nothing moves" line.
 7. **Oldest dropped; `journal_start` is the drop count.** A passed cursor returns the suffix with `from > since`, no error. Table and library hide `from`.
-8. **Eight and `clock`-replaces-`wait` match NOT-DOING.** Wheel-as-`tap` is this spec's, correctly. Put "a ninth costs one" in NOT-DOING if it binds; cite it here. Not both as independent rules. Not RULES.md (that's checks).
+8. **Eight and `clock`-replaces-`wait` match DEFERRED.** Wheel-as-`tap` is this spec's, correctly. Put "a ninth costs one" in DEFERRED if it binds; cite it here. Not both as independent rules. Not RULES.md (that's checks).
 9. **Yes — the exact1 lists.** Flagged above. 0495's one-sentence defect class can stay as research.
 10. **Cut** the exact1 catalog, §6, line-count guesses, unverified size/time numbers, duplicate eight-op prose.
 
@@ -216,4 +216,4 @@ Revise r1: tighten §1 for a native implementer, walk §4 back to `smoke.mjs`'s 
 
 ## Disposition (orchestrator, 2026-08-29)
 
-Folded into r2 (sha256 7e0f6d7d3cfd345275efbc4493ddd8634bf976119123c775918a0b6af9d2d1b1, unreviewed): the clock made true on both hosts (animations frozen at every batch; `Runner::advance_timed` with per-commit times, web `at` markers and a `clock` trailer, Apple per-commit engine seeks; the clock lands where the runner says, refusal and all; `settle` as a bounded fixed point; the GPU module on the agent's clock); §1 rewritten as the contract a host implements (space, membership, order, rounding, transforms, monotonic clock, wheel sign and delivery, `type` on inputs only, replies, errors, private messages); §5 walked back to what `check(...)` asserts, with the smoke made exact (300, 652, every countdown) and its wall-clock retry removed; the journal's FIFO drop and passed-cursor behavior stated and `from`/`dropped` surfaced by the driver; §7 tightened (predicates, quoting, the outer fixture grammar, `empty`/`dropped`); exact1 inventory cut to one research sentence; line counts and §6 cut; the wasm delta restated as 13 780 B = 13.5 KiB with commit and method; LLP 1005's "tests, agents" reworded. Not folded: a separate normal/agent wasm artifact (open for Charlie, §8); the "ninth replaces one" line (proposed for NOT-DOING, not written here as law); a transition fixture under `clock` in the smoke (§8, not in v1). The verdict above binds to r1; r2 is unreviewed.
+Folded into r2 (sha256 7e0f6d7d3cfd345275efbc4493ddd8634bf976119123c775918a0b6af9d2d1b1, unreviewed): the clock made true on both hosts (animations frozen at every batch; `Runner::advance_timed` with per-commit times, web `at` markers and a `clock` trailer, Apple per-commit engine seeks; the clock lands where the runner says, refusal and all; `settle` as a bounded fixed point; the GPU module on the agent's clock); §1 rewritten as the contract a host implements (space, membership, order, rounding, transforms, monotonic clock, wheel sign and delivery, `type` on inputs only, replies, errors, private messages); §5 walked back to what `check(...)` asserts, with the smoke made exact (300, 652, every countdown) and its wall-clock retry removed; the journal's FIFO drop and passed-cursor behavior stated and `from`/`dropped` surfaced by the driver; §7 tightened (predicates, quoting, the outer fixture grammar, `empty`/`dropped`); exact1 inventory cut to one research sentence; line counts and §6 cut; the wasm delta restated as 13 780 B = 13.5 KiB with commit and method; LLP 1005's "tests, agents" reworded. Not folded: a separate normal/agent wasm artifact (open for Charlie, §8); the "ninth replaces one" line (proposed for DEFERRED, not written here as law); a transition fixture under `clock` in the smoke (§8, not in v1). The verdict above binds to r1; r2 is unreviewed.

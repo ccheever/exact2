@@ -3,7 +3,7 @@
 //! Exact1 had Facet: a theme *capability* with signal semantics, a token
 //! store shared with React, `$`-prefixed token references resolved by a
 //! registered resolver. None of that exists here and none of it can — a
-//! second value graph is refused (`rules/NOT-DOING.md` §Motion), Contract's
+//! second value graph is refused (`rules/DEFERRED.md` §Motion), Contract's
 //! `use` admits no packages (`contract/corpus/rejects.txt` lists `use theme
 //! from "@exact/facet-contract"` among the refusals), and nothing runs
 //! JavaScript above the data seam.

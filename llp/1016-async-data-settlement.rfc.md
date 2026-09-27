@@ -6,7 +6,7 @@
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-30
 **Revised:** 2026-08-30 (r6 — LLP 1018 amends D1 as built: `answer` and `parse` take a `Store` the host filled before boot, and a write rides the commit out as a `store` op — the runner still touches no platform; §5's token item is resolved there.) 2026-08-30 (r4 — Accepted: the decision on §4 recorded; the working set swaps the two research links for this document.) 2026-08-30 (r3 — a third panelist, Claude Fable 5, joined at Charlie's request; §4 "The panel" rewritten for three; D1 notes the forbidden-header parity hazard; D2's cache rule is per request, not global; D5: a forgotten ticket never holds `clock settle`, an executor may abort, nothing is undone; the recommendation is A in Fable's shape — `mutation`/`send`, `option<T>`, no `else`, no stubs — plus `refresh`.) 2026-08-30 (r2 — the panel's fold: §4 "The panel" with the recommendation; D3 keep-previous-value named Exact policy; D4 promises no executor timeout; D5 says what a forgotten ticket does not undo and that a mutation's request is never take-latest; D6 beside CORS, not instead; the HTTP-cache rule in D2.)
-**Related:** LLP 1005 §5 (settlement: transactional, args-keyed re-request), §7 (the seam "synchronous in v1; a settlement event in asynchronous shape is reserved, not built"), §8; LLP 1004 D4 (app data logic is a Rust data source with arguments from state — a request/response seam); LLP 1006 §1 (`resource name = source(args) as shape T`); LLP 1007 §4 (the glue, `command` ops); LLP 1008 §4 (`exact.h`), §5; LLP 1012 §2 (the clock, `settle`); `QUEUE.md` §Later (ibex2, Charlie 2026-08-29: "`ibex2::host` at the first `resource` that needs bytes from outside the process — build it together with the runner's asynchronous data settlement"); ibex LLP 0068 (the standard library for a Rust consumer: `Host`, `endow`, `Fetch::send`, synchronous by design, §4 "Exact 2"), LLP 0067 (grants); Weird Castle `llp/0000` §Authentication and session boundary (`loginV2`), its `app.contract` and `data/src/lib.rs` (the stand-in this replaces); `rules/NOT-DOING.md` §Process (this document is written because someone is about to build it), §Runtime
+**Related:** LLP 1005 §5 (settlement: transactional, args-keyed re-request), §7 (the seam "synchronous in v1; a settlement event in asynchronous shape is reserved, not built"), §8; LLP 1004 D4 (app data logic is a Rust data source with arguments from state — a request/response seam); LLP 1006 §1 (`resource name = source(args) as shape T`); LLP 1007 §4 (the glue, `command` ops); LLP 1008 §4 (`exact.h`), §5; LLP 1012 §2 (the clock, `settle`); `QUEUE.md` §Later (ibex2, Charlie 2026-08-29: "`ibex2::host` at the first `resource` that needs bytes from outside the process — build it together with the runner's asynchronous data settlement"); ibex LLP 0068 (the standard library for a Rust consumer: `Host`, `endow`, `Fetch::send`, synchronous by design, §4 "Exact 2"), LLP 0067 (grants); Weird Castle `llp/0000` §Authentication and session boundary (`loginV2`), its `app.contract` and `data/src/lib.rs` (the stand-in this replaces); `rules/DEFERRED.md` §Process (this document is written because someone is about to build it), §Runtime
 
 ## Summary
 
@@ -416,7 +416,7 @@ password sits in `state`, in the agent's `state` dump, and in the carry.
   as resources of *submitted* snapshots, add `refresh`, coalesce, and write
   D5 so that a request whose method is `POST` is **never replayed** — on
   reload, shape-miss, focus, or any later retry rule — using `Request.method`
-  as the audit. PRG without a keyword; one authoring model (NOT-DOING). Its
+  as the audit. PRG without a keyword; one authoring model (DEFERRED). Its
   case against A: a second way to fill a `T`, a `send` opcode beside
   `Command`, every remote value classified by the author, and `option<T>` on
   the cell is the retyping D3 refused (three `match` derives in the login).
@@ -480,7 +480,7 @@ a manifest (LLP 0068 §4 — the grant constant is its seed); secure storage of 
 
 ## 6. Process note
 
-`rules/NOT-DOING.md` §Process says no refine loops and no READY verdicts. This
+`rules/DEFERRED.md` §Process says no refine loops and no READY verdicts. This
 RFC gets one **panel** at Charlie's request (2026-08-30) — two outside models
 argue §4's question, each sees the other's position once, and the fold is
 recorded here — not a loop, and no verdict binds. The artifacts are

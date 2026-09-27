@@ -2,10 +2,10 @@
 
 **Type:** Research
 **Status:** Draft
-**Systems:** Scrolling (LLP 1010 §6.2 the windowed list, §6.5 the collection), Runner (`ListWindow`, `collection/index.rs`, `CollectionFeedback`), Apple host (`ScrollPumpIOS`, `Collection.swift`, `ChainingScrollView`, responsive scrolling), Web host (`collection-glue.js`, `list-selection.js`), Linux host (`presenter.rs` wheel, `presenter/collection.rs`), future Windows and Android hosts (`rules/NOT-DOING.md`)
+**Systems:** Scrolling (LLP 1010 §6.2 the windowed list, §6.5 the collection), Runner (`ListWindow`, `collection/index.rs`, `CollectionFeedback`), Apple host (`ScrollPumpIOS`, `Collection.swift`, `ChainingScrollView`, responsive scrolling), Web host (`collection-glue.js`, `list-selection.js`), Linux host (`presenter.rs` wheel, `presenter/collection.rs`), future Windows and Android hosts (`rules/DEFERRED.md`)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-09-24 (r1); r2 the same day, citations corrected after three reviews (`llp/reviews/1050.000-choosing-the-fill-tradeoff.{claude,astra,grok}.md`)
-**Related:** LLP 1010 (scrolling; "never reset native momentum"), LLP 1044 and 1044.000 §11 (the deferred ruling: *"Never-blank and never-stall conflict there; which wins is a product choice"*), LLP 1044.001 §5.3/§6.2 (no visible placeholder in ordinary use; an explicit pending landing area under overload), LLP 1041 (graceful overload), `rules/NOT-DOING.md` ("Scroll always wins"; no virtualList v2; Windows and Android hosts deferred). External: expo/expo PR 49975 (merged 2026-09-23, `List.ForEach` recycling). Every external source is cited inline; claims marked *inference* are reasoning, not a quoted source.
+**Related:** LLP 1010 (scrolling; "never reset native momentum"), LLP 1044 and 1044.000 §11 (the deferred ruling: *"Never-blank and never-stall conflict there; which wins is a product choice"*), LLP 1044.001 §5.3/§6.2 (no visible placeholder in ordinary use; an explicit pending landing area under overload), LLP 1041 (graceful overload), `rules/DEFERRED.md` ("Scroll always wins"; no virtualList v2; Windows and Android hosts deferred). External: expo/expo PR 49975 (merged 2026-09-23, `List.ForEach` recycling). Every external source is cited inline; claims marked *inference* are reasoning, not a quoted source.
 **Plans:** [LLP 1050.000](1050.000-choosing-the-fill-tradeoff.rfc.md) proposes how an app picks the trade-off.
 
 ## Summary

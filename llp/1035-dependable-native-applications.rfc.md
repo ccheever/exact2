@@ -7,7 +7,7 @@
 **Implementer:** Claude (Fable 5.1), from 2026-09-09, for the first slice of each child in the order of §3 (Charlie, 2026-09-09: "go ahead and implement once you are happy with them"). Codex continues the Messages repairs in the same tree. A later slice gets its own implementer and date when it is selected (`rules/RULES.md` §Scope).
 **Date:** 2026-09-09
 **Revised:** 2026-09-09 (r2)
-**Related:** LLP 1000, 1001 §1/§5/§6, 1005 §3, 1006 §2/§8, 1007 §1/§4, 1008 §2/§3/§5/§9, 1011, 1012 §1/§6/§8, 1017 §8, 1017.000, 1021, 1030 stage 1 (the asset row), 1031 D9/D10, 1033, 1034; the children LLP 1035.000–1035.005; `apps/messages/README.md` (the application record); `rules/NOT-DOING.md` (binds; §5 names the two lines this program asks to amend)
+**Related:** LLP 1000, 1001 §1/§5/§6, 1005 §3, 1006 §2/§8, 1007 §1/§4, 1008 §2/§3/§5/§9, 1011, 1012 §1/§6/§8, 1017 §8, 1017.000, 1021, 1030 stage 1 (the asset row), 1031 D9/D10, 1033, 1034; the children LLP 1035.000–1035.005; `apps/messages/README.md` (the application record); `rules/DEFERRED.md` (binds; §5 names the two lines this program asks to amend)
 
 ## Summary
 
@@ -170,7 +170,7 @@ re-argues it:
    selection and composition, scroll arbitration. Exact declares intent
    (which route, which sheet, whether dismissal is permitted) and receives
    outcomes. No gesture arena, no transition-progress graph, no Core
-   Animation executor (`rules/NOT-DOING.md` §Motion).
+   Animation executor (`rules/DEFERRED.md` §Motion).
 4. **The driver reports what it actually exercised and observed.** An
    activation is not a touch; a model frame is not a presentation frame; a
    preview is not the saved pixels. Every reply says which it is.
@@ -236,7 +236,7 @@ the source state read, and each input's delivery mechanism named in the
 reply. **Then a second consumer per child**, because a fix that only
 Messages needs belongs to Messages: Caltrain for semantics and inspection
 (it has real lists, search, navigation and theming), Fieldnotes for editing
-and focus (a multiline editor on web and Apple, LLP 1033/NOT-DOING
+and focus (a multiline editor on web and Apple, LLP 1033/DEFERRED
 2026-09-07), the embedded two-session host (LLP 1031 D10) for ownership
 across sessions, the Markdown readers for text-row inheritance (their
 workaround is the QUEUE line of 2026-09-08), and Weird Castle for the
@@ -251,17 +251,17 @@ registry, a review loop, a per-PR ledger or a new check category.
 
 ## 5. Scope trades
 
-`rules/NOT-DOING.md` binds. The development source map needs an amendment
+`rules/DEFERRED.md` binds. The development source map needs an amendment
 there; the formatter also changes LLP 1006 §8's explicit exclusion. Both
 are proposed here with their scope trades:
 
 | Proposed addition | What it unblocks | The take, and the boundary kept |
 |---|---|---|
 | Bounded style and host-state detail in the existing `tree`/`layout`/`state` reads (1035.002) | diagnosing the painted native node without LLDB | further bespoke Messages pixel tuning waits behind explaining the existing mismatches; no devtools UI, no ninth operation |
-| A development-only map from plan node to declaration span and component call-site chain, emitted by the compiler, read by the driver (1035.002 D6, 1035.005 D3) | jumping from a failing node to its declaration and instantiation site | **amends NOT-DOING §Agent API** ("contract witness / dataflow / source-map / bindings"): the map is admitted, the general witness/dataflow explorer stays out. The take: no new Contract syntax until formatting and navigation have landed (1035.005 §1's order), and the `contract` blocks as executable assertions (LLP 1006 §8) stay off the doing-list |
-| Driver-owned pointer sequences and checkpoints as forms of `tap` (1035.003) | verifying a keyboard drag, a sheet reversal and a Back cancellation | replaces the disposable helper and the hand-mapped offsets; further gesture-dependent Messages polish waits behind it. Already inside NOT-DOING: a drag is a form of `tap` (LLP 1012 §1, Charlie 2026-08-29); no recorder, no replay system, no coordinates reach the runner |
+| A development-only map from plan node to declaration span and component call-site chain, emitted by the compiler, read by the driver (1035.002 D6, 1035.005 D3) | jumping from a failing node to its declaration and instantiation site | **amends DEFERRED §Agent API** ("contract witness / dataflow / source-map / bindings"): the map is admitted, the general witness/dataflow explorer stays out. The take: no new Contract syntax until formatting and navigation have landed (1035.005 §1's order), and the `contract` blocks as executable assertions (LLP 1006 §8) stay off the doing-list |
+| Driver-owned pointer sequences and checkpoints as forms of `tap` (1035.003) | verifying a keyboard drag, a sheet reversal and a Back cancellation | replaces the disposable helper and the hand-mapped offsets; further gesture-dependent Messages polish waits behind it. Already inside DEFERRED: a drag is a form of `tap` (LLP 1012 §1, Charlie 2026-08-29); no recorder, no replay system, no coordinates reach the runner |
 | Six symbol roles as an `image` source and the existing material row inspected (1035.004) | replacing the matching standard-control shapes; the app's 35 `clip-path` uses include custom artwork that stays (§3 of the child names the removals) | no new tag (the count stays ~15), no component catalog, no theme framework; Linux paints the declared fallback or a declared gap |
-| Native route projection extended with title intent (1035.001 D9) | UIKit's large-title collapse, insets and scroll edge on the inbox | extends LLP 1008 §9's projection; **does not** admit the interactive-navigation model NOT-DOING excludes — UIKit still owns recognition, progress and cancellation |
+| Native route projection extended with title intent (1035.001 D9) | UIKit's large-title collapse, insets and scroll edge on the inbox | extends LLP 1008 §9's projection; **does not** admit the interactive-navigation model DEFERRED excludes — UIKit still owns recognition, progress and cancellation |
 | Formatting and source navigation through the existing Contract compiler (1035.005 D1/D2) | making long declarations and component action bindings readable and findable | **amends LLP 1006 §8** to admit the formatter; the LSP stays out. The proposed continuation rule is the bounded grammar change needed for formatting; further syntax expansion waits behind these tools |
 
 If implementing a child turns out to need a genuinely excluded capability
@@ -278,7 +278,7 @@ take. Draft status is not an exception to the rules.
    reported" until an XCTest bundle exists. The ordinary-app launch under the
    socket is opt-in, `EXACT_AGENT_TIMING=platform` (1035.003 D5), never the
    default. The helper this needs is approved as apparatus.
-3. **The source-map amendment:** accepted as written in `rules/NOT-DOING.md`
+3. **The source-map amendment:** accepted as written in `rules/DEFERRED.md`
    §Agent API — the development-only map, the driver its only reader; the
    take is no new Contract syntax before formatting and navigation land, and
    `contract` blocks as executable assertions stay off.

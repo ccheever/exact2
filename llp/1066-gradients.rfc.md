@@ -8,7 +8,7 @@
 **Systems:** Kernel (`schema.json` style bit 144, `kernel/src/gradient.rs`), Contract (`background-image` in `tags.rs`, refusals in `values.rs`), Web host (`css.rs`), Apple host (`style.rs` gradient_json, `Gradient.swift`, `BoxLayerIOS.swift`, the node views' `draw`), Linux host (`paint/gradient.rs`, the tiny-skia and Vello backends)
 **Author:** Claude (Opus 5.5) for Seth Webster
 **Date:** 2026-09-26
-**Related:** LLP 1014 §5 (took the old gradient rows out; this brings one back in CSS's shape), LLP 1034 (`light-dark()` colours, resolved by the host), LLP 1043.000 (`clip-path`, the CSS-text row this copies), LLP 1053 G2 (the border parity page this copies), `rules/NOT-DOING.md` (the gradient line, moved off 2026-09-26; Charlie has not ruled on the take).
+**Related:** LLP 1014 §5 (took the old gradient rows out; this brings one back in CSS's shape), LLP 1034 (`light-dark()` colours, resolved by the host), LLP 1043.000 (`clip-path`, the CSS-text row this copies), LLP 1053 G2 (the border parity page this copies), `rules/DEFERRED.md` (the gradient line, moved off 2026-09-26; Charlie has not ruled on the take).
 
 ## Summary
 

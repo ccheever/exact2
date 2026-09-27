@@ -12,7 +12,7 @@
 
 I'll start from the binding rules and the RFC, then walk the cited exact2 specs and code so the position is grounded in this capsule rather than the predecessor's research.The capsule is a closed set of files. Next I’ll read the RFC and the rules that bind it, then the cited specs and host code.The RFC’s claims now need to be checked against the exact2 specs and the host/agent code it says it extends.Next I’ll read the remaining specs and the host/dev-loop code the RFC says it extends.I have enough to take a position: keep the two-rung URL and pointer-card envelope, but Stage 1 is mis-cut, and native code must not go on the wire.# Keep the two-rung URL; keep native code off the wire; cut Stage 1 to the link, not Accept
 
-Panel round 1 (blind). Judged against `rules-RULES.md`, `rules-NOT-DOING.md`, the cited exact2 specs and host code, and exact1 as research only. Charlie’s four rulings stand.
+Panel round 1 (blind). Judged against `rules-RULES.md`, `rules-DEFERRED.md`, the cited exact2 specs and host code, and exact1 as research only. Charlie’s four rulings stand.
 
 ---
 
@@ -81,7 +81,7 @@ Two holes, one pain:
 
 ### HIGH — “No update economy” is a comment until release hosts refuse network plans
 
-`rules-NOT-DOING.md` §Runtime lists Snapback / update economy. §8 of this RFC keeps it out. If a Release ExactMac/iOS binary honors `EXACT_PLAN_URL`, the launcher’s “connect to this URL,” or a canonical production `U`, you have built exact1 `docs/hosting-ssr-ota.md` (“your web host is your update server”) with the envelope as the manifest and the plan as the bundle. 0268’s own security section required signatures and a pinned key before production-capable hosts execute remote artifacts. This RFC has neither, and refuses auth.
+`rules-DEFERRED.md` §Runtime lists Snapback / update economy. §8 of this RFC keeps it out. If a Release ExactMac/iOS binary honors `EXACT_PLAN_URL`, the launcher’s “connect to this URL,” or a canonical production `U`, you have built exact1 `docs/hosting-ssr-ota.md` (“your web host is your update server”) with the envelope as the manifest and the plan as the bundle. 0268’s own security section required signatures and a pinned key before production-capable hosts execute remote artifacts. This RFC has neither, and refuses auth.
 
 **Resolve:** Network plan fetch is a **dev-profile** behavior (`EXACT_DEV`, debug menu, debug Info.plist). Release/embedded-release (0331’s name for the shipped binary) boots the baked plan only. The static `exact.json` beside HTML may exist for *future* work; production native must not consume it in v1. That is the door closing.
 
@@ -196,7 +196,7 @@ Stage 1 is the only slice that ships alone. It has to be a complete “phone ope
 
 **Generate `exact.json` in Node, next to the plan, not as a new Rust endpoint.** Hash `app.plan`, write the pointer card when the compiler writes the plan (`host-web-dev.mjs` already learns `{bytes, …}` on stdout). No new process, no new check, no new config file.
 
-Transcribe `1023.000` with Stage 1’s PR, covering **only what landed** (`rules-RULES.md`: a spec without an implementer is not written; `rules-NOT-DOING.md` §Process: no speculative specs). Do not pre-write Stages 2–3 into that spec.
+Transcribe `1023.000` with Stage 1’s PR, covering **only what landed** (`rules-RULES.md`: a spec without an implementer is not written; `rules-DEFERRED.md` §Process: no speculative specs). Do not pre-write Stages 2–3 into that spec.
 
 ---
 

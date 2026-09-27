@@ -6,7 +6,7 @@
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-28
 **Numeric-height trial:** Tuft / Zeno (Astra), implementing 2026-09-17; LLP 1041 §8.12.
-**Related:** LLP 1003 (the spec of what this built), LLP 1001 (kernel v1 — the rows motion targets), RFC 0492 (the exact1 motion program this supersedes as authority; research), RFC 0099 (exact1's motion substrate; research), LLP 0486 (one layout language, two engines — the pattern this applies to motion), LLP 0559 F1 (the Flutter warning this heeds), `rules/NOT-DOING.md` §Motion
+**Related:** LLP 1003 (the spec of what this built), LLP 1001 (kernel v1 — the rows motion targets), RFC 0492 (the exact1 motion program this supersedes as authority; research), RFC 0099 (exact1's motion substrate; research), LLP 0486 (one layout language, two engines — the pattern this applies to motion), LLP 0559 F1 (the Flutter warning this heeds), `rules/DEFERRED.md` §Motion
 
 ## Summary
 
@@ -32,7 +32,7 @@ closed-form spring — the parts worth keeping — stayed.
 
 Found by reading, confirmed by counting (2026-08-28):
 
-1. **Anti-web by decision.** `rules/NOT-DOING.md` carried "no delegation to
+1. **Anti-web by decision.** `rules/DEFERRED.md` carried "no delegation to
    Core Animation or CSS — one evaluator everywhere at a measured power cost."
    On the web that is a wasm evaluator writing `transform`/`opacity` from the
    main thread every frame, which a bare `<div style="transition: …">` beats on
@@ -40,7 +40,7 @@ Found by reading, confirmed by counting (2026-08-28):
    `prefers-reduced-motion`, and interruptibility. RFC 0492 §4.1 records that
    its own pre-draft *rejected* evaluator-everywhere for the power reason and
    that a docket inverted it for "one source of truth" — conflating one
-   *representation* with one *executor*. The NOT-DOING line said this was "the
+   *representation* with one *executor*. The DEFERRED line said this was "the
    same call the old repo made"; per RFC 0099's status table the old repo shipped
    CSS/CA delegation and only *decided* to invert, never shipped it.
 2. **The stated reason for owning the web evaluator did not hold.** The
@@ -193,8 +193,8 @@ shared-value slab, derived values, property bindings, the plan node graph, the
 decay driver, sequence/repeat drivers, the virtual-clock type and its input
 events, the tick-phase order, and the reduced-motion action enum. No shims.
 
-**D6 — The NOT-DOING trade** (written into `rules/NOT-DOING.md` §Motion).
-Off the not-doing list: delegation to CSS on the web — it unblocks a web host
+**D6 — The DEFERRED trade** (written into `rules/DEFERRED.md` §Motion).
+Off the deferred list: delegation to CSS on the web — it unblocks a web host
 that ships zero motion bytes and a corpus with the browser as oracle. Onto it:
 the gesture arena and interactive-navigation model (platform-owned), a second
 value graph, layout transitions, decay/sequence/repeat, and reduced-motion
@@ -383,7 +383,7 @@ validated sample until retirement; an ordinary layout call would clear it.
 
 Built and verified 2026-08-28 (LLP 1003 §10): 113 tests across both crates,
 clippy `-D warnings` and fmt clean, both crates on `wasm32-unknown-unknown`,
-`caps` green. D2 and D6 reversed a line Charlie wrote in `rules/NOT-DOING.md`;
+`caps` green. D2 and D6 reversed a line Charlie wrote in `rules/DEFERRED.md`;
 he confirmed both on 2026-08-28 and this document became Accepted. The spring
 `duration: 0` rule (LLP 1003 §4) stands as built; he expressed no view on it.
 

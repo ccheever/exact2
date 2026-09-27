@@ -6,7 +6,7 @@
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-30
 **Revised:** 2026-09-04 (Charlie clarified the application boundary; §9)
-**Related:** `rules/NOT-DOING.md` §Components (`webview`; §6 records the trade this RFC owes), weird-castle `llp/0000` §Web decks only (the governing invariant this serves), LLP 1001 (the kernel: a box is a box), LLP 1009 D3 + LLP 1014 (the on-demand module shape and the capture handshake this reuses), LLP 1012 (the eight operations), LLP 1016/1018 (the Weird Castle lane precedent), LLP 1017 §8.1 (literal HTML/CSS names, no aliases). Predecessor record (research, never authority): exact1 LLP 0433 `~/projects/exact/llp/0433-embedded-webview.rfc.md` (799 lines, Implemented, 4 review rounds) and its issue trail, cited per finding in §3.
+**Related:** `rules/DEFERRED.md` §Components (`webview`; §6 records the trade this RFC owes), weird-castle `llp/0000` §Web decks only (the governing invariant this serves), LLP 1001 (the kernel: a box is a box), LLP 1009 D3 + LLP 1014 (the on-demand module shape and the capture handshake this reuses), LLP 1012 (the eight operations), LLP 1016/1018 (the Weird Castle lane precedent), LLP 1017 §8.1 (literal HTML/CSS names, no aliases). Predecessor record (research, never authority): exact1 LLP 0433 `~/projects/exact/llp/0433-embedded-webview.rfc.md` (799 lines, Implemented, 4 review rounds) and its issue trail, cited per finding in §3.
 
 ## 1. Summary
 
@@ -117,7 +117,7 @@ Q5), which blocked the DOM-components layer downstream.
 the first place — `tap` is a journal entry into the runner (LLP 1012).
 The guest is driven the same way: **through the engine's scripting
 interface, in-process to the content process, where delivery is not a
-gamble.** The eight operations stay eight (NOT-DOING §Agent API); the
+gamble.** The eight operations stay eight (DEFERRED §Agent API); the
 guest joins them under D4 rather than growing a controller vocabulary
 beside them. The sandbox fail-open class is structurally gone: there is no
 approximation code to fail open — `sandbox` lands on a real `<iframe>`
@@ -221,7 +221,7 @@ untouched either way (§3.1). The Linux host loads nothing ever (D5). No
 cargo feature on any core crate (`rules` §Optional capability).
 
 **D4 — the guest joins the eight operations.** No ninth op, no controller
-(NOT-DOING: "a new question is answered from `tree`, `state`, or
+(DEFERRED: "a new question is answered from `tree`, `state`, or
 `layout`"). The host owns a script bridge into the guest — on Apple,
 `evaluateJavaScript(_:in:in:)` into the guest frame in a private content
 world (reaches cross-origin frames; invisible to deck code); on the web,
@@ -262,7 +262,7 @@ as the browser's origin rules allow:
   physical Caltrain smoke passes its guest-pixel assertion.
 - **`clock`** does not govern the guest. A foreign runtime's
   `requestAnimationFrame` is not on the seekable clock, and pretending
-  otherwise rebuilds the settle-flake NOT-DOING §Agent API exists to kill.
+  otherwise rebuilds the settle-flake DEFERRED §Agent API exists to kill.
   Declared: `clock settle` settles Exact; guest content is a live region.
   The smoke's deck is a **fixture deck** — static files in the app repo,
   content settled at load — so every cross-host assertion is
@@ -332,9 +332,9 @@ so each return is a measurement or a named consumer, not drift:
   same posture as exact1's, now written down first: rectangular
   placement, the engine's scroll view owns guest touches.
 
-## 6. The NOT-DOING trade this RFC owes (Charlie's, before Acceptance)
+## 6. The DEFERRED trade this RFC owes (Charlie's, before Acceptance)
 
-`rules/NOT-DOING.md` §Components lists `webview` by name; the rule is one
+`rules/DEFERRED.md` §Components lists `webview` by name; the rule is one
 line naming what it unblocks and something off the doing-list in the same
 PR.
 
@@ -346,7 +346,7 @@ PR.
   transitions (LLP 1013, Draft)**, moves behind this work — the deck
   lane displaces the transitions lane in the working set, and 1013 keeps
   its place on the list rather than the calendar. The `webview` line
-  comes off `rules/NOT-DOING.md` §Components in the PR that lands M1,
+  comes off `rules/DEFERRED.md` §Components in the PR that lands M1,
   citing this section, per the rule's "same PR" wording.
 - **Kept locked, explicitly:** `video`, `lottie`, `rive`, `fileinput`,
   `pager`, camera — nothing else moves off §Components with this.

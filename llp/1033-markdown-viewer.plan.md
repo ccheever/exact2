@@ -397,7 +397,7 @@ pure function of geometry, so it cannot flake. The sign says which end.
 
 **`tap … wheel <dx> <dy> gesture`.** A trackpad's gesture, not a bare delta:
 `.began`, `.changed`, and the zero-delta `.ended` that is a lift, all
-delivered inside one request. `rules/NOT-DOING.md` admits this explicitly —
+delivered inside one request. `rules/DEFERRED.md` admits this explicitly —
 "a new input is a form of `tap` or `type` (a wheel is a `tap`; so would a
 drag be)" — so the eight operations are still eight. The comment that used
 to sit here refused phases because they "would put the top-level scroll view
@@ -484,7 +484,7 @@ Facet's theme is a *capability with signal semantics* — a token store in
 `@exact/facet-core` shared with React, `$`-prefixed token references through
 a registered resolver, scope subscriptions, fine-grained updates. Every layer
 of that is refused by standing rules: no second value graph and no bindings
-(`rules/NOT-DOING.md` §Motion), no React Facet bindings, nothing running
+(`rules/DEFERRED.md` §Motion), no React Facet bindings, nothing running
 JavaScript above the data seam, and Contract's `use` admits no packages —
 `contract/corpus/rejects.txt` carries `use theme from "@exact/facet-contract"`
 as a *refusal fixture*.

@@ -36,11 +36,11 @@
 
 ## F5
 
-**Position.** Concede `derive` on a child. Live-tree identity: declaration + which use + enclosing `each` keys. Not source address as a reload key. A dev reload carries root slots by name where the type still fits, settled resources whose arguments still match, and the clock (`NOT-DOING.md` §Runtime, Charlie 2026-08-28); child slots restart unless they have a stable qualified name that is not a span.
+**Position.** Concede `derive` on a child. Live-tree identity: declaration + which use + enclosing `each` keys. Not source address as a reload key. A dev reload carries root slots by name where the type still fits, settled resources whose arguments still match, and the clock (`DEFERRED.md` §Runtime, Charlie 2026-08-28); child slots restart unless they have a stable qualified name that is not a span.
 
-**Reason.** `coterie/message-bubble.contract` already has six `derive`s on the child (`receiptMark`, `bubbleColor`, …). exact2 inlines children (LLP 1006 §3); a child `derive` is an alias at inlining, as r2 says. I refused it as `analyze-child-resource` and asked Charlie (1017.001 Q6) — delay, not a cost argument. LLP 1005 §6 already keys `each` rows; I inlined singleton uses to renamed root slots. r2's "use address" distinguishes two live uses of `StationRow` (nearest vs all); as a reload key it is hostile to edits, and `NOT-DOING.md` forbids identity matching. LLP 1004 D5 still says teardown; the later carry-by-name rule is the one 1016's `boot_carrying` uses.
+**Reason.** `coterie/message-bubble.contract` already has six `derive`s on the child (`receiptMark`, `bubbleColor`, …). exact2 inlines children (LLP 1006 §3); a child `derive` is an alias at inlining, as r2 says. I refused it as `analyze-child-resource` and asked Charlie (1017.001 Q6) — delay, not a cost argument. LLP 1005 §6 already keys `each` rows; I inlined singleton uses to renamed root slots. r2's "use address" distinguishes two live uses of `StationRow` (nearest vs all); as a reload key it is hostile to edits, and `DEFERRED.md` forbids identity matching. LLP 1004 D5 still says teardown; the later carry-by-name rule is the one 1016's `boot_carrying` uses.
 
-**What would change my mind.** A measured reload where hover/`picker` surviving an edit that only restyles the parent is worth identity matching, recorded as a NOT-DOING trade.
+**What would change my mind.** A measured reload where hover/`picker` surviving an edit that only restyles the parent is worth identity matching, recorded as a DEFERRED trade.
 
 ## P7
 
@@ -74,4 +74,4 @@ Sol's: the rule is "only a root owns `query`" (1017.002 Reactivity; r2 P4c). `St
 - `expect state name == value` is a read of `state`.
 - `token=` is `style=`. The sample uses `style`.
 - `sends` / `refreshes` declared next to `writes` (Sol; 0103's `writes` catches).
-- r2's NOT-DOING trade for per-instance state: no per-instance `resource` / `mutation`, no `await`.
+- r2's DEFERRED trade for per-instance state: no per-instance `resource` / `mutation`, no `await`.

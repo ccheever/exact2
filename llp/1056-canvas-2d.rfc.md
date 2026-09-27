@@ -1,7 +1,7 @@
 # LLP 1056: Canvas 2D — Core Graphics everywhere, by the web's name
 
 **Type:** RFC
-**Status:** Accepted (r3: Charlie's rulings of 2026-09-27 on §10, recorded in §0.1 and folded into D4, D6, §9 and §10. r2 folded two blind reviews of r1; dispositions in §0 and in `llp/reviews/1056-canvas-2d.{astra,grok}.md`). Canvas 2D is admitted in `rules/NOT-DOING.md` §Components with Caltrain's line map as the take.
+**Status:** Accepted (r3: Charlie's rulings of 2026-09-27 on §10, recorded in §0.1 and folded into D4, D6, §9 and §10. r2 folded two blind reviews of r1; dispositions in §0 and in `llp/reviews/1056-canvas-2d.{astra,grok}.md`). Canvas 2D is admitted in `rules/DEFERRED.md` §Components with Caltrain's line map as the take.
 **Systems:**
 - Data modules: a `draw` export and a `surfaces` roster in TypeScript and Rust, and a module ABI 2 that returns bytes (LLP 1027, 1027.002).
 - A new crate, `exact-canvas`: the recorder, the list format, the canvas colour and `font` parsers, and arc geometry.
@@ -26,7 +26,7 @@
 - LLP 1019: declared fonts.
 - LLP 1047: pay for what you use.
 - `~/bench/cryptobench/SPEC.md` and `GAPS.md`.
-- `rules/NOT-DOING.md` §Components.
+- `rules/DEFERRED.md` §Components.
 
 ## Summary
 
@@ -95,7 +95,7 @@ Declined:
 
 Charlie ruled on §10's four questions on 2026-09-27. In his words and in this text's:
 
-1. **Admit Canvas 2D, with Caltrain's line map as the take:** "seems reasonable". §9's text goes into `rules/NOT-DOING.md` §Components as drafted. The take: Caltrain's wgpu `map` surface and `shaders/map.wgsl` are deleted when stage 1 moves the map to Canvas 2D.
+1. **Admit Canvas 2D, with Caltrain's line map as the take:** "seems reasonable". §9's text goes into `rules/DEFERRED.md` §Components as drafted. The take: Caltrain's wgpu `map` surface and `shaders/map.wgsl` are deleted when stage 1 moves the map to Canvas 2D.
 2. **Core Graphics on Apple, tiny-skia on Linux:** accepted as recommended.
 3. **The fixture apparatus:** approved. `apps/canvas-gallery` with its direct-API page, a canvas mode in `apps/sparkline` at stage 3, and `smoke.mjs canvas` over the generalised SVG comparator. This approval is the human say-so `rules/RULES.md` §Agents and `CLAUDE.md` require before an agent adds apparatus.
 4. **The deviations,** revised by Charlie's "ok" to these:
@@ -637,7 +637,7 @@ What stage 1 ships, and where it differs from the text above. `QUEUE.md` lists w
   - **iOS against the web:** mean 0.18, worst 1.07; pixels off 2.35% worst. At native resolution (3×): mean 0.11, worst 2.23.
   - **Caltrain's line map**, the strip no child covers, with the sky off: Linux 0.25 (cpu) and 0.31 (gpu), macOS 0.26, iOS 0.23.
 
-## 9. `rules/NOT-DOING.md`: the admission
+## 9. `rules/DEFERRED.md`: the admission
 
 Admitted by Charlie on 2026-09-27 (§0.1). The text below is in §Components, after the SVG entry:
 
@@ -649,7 +649,7 @@ Admitted by Charlie on 2026-09-27 (§0.1). The text below is in §Components, af
 
 ## 10. Questions for Charlie, as ruled (r3)
 
-1. **Admit Canvas 2D with the Caltrain map as the take?** Ruled yes: "seems reasonable". §9's text is in `rules/NOT-DOING.md`.
+1. **Admit Canvas 2D with the Caltrain map as the take?** Ruled yes: "seems reasonable". §9's text is in `rules/DEFERRED.md`.
 2. **Core Graphics on Apple rather than tiny-skia on every native host?** Ruled yes, as recommended. The costs stand: Apple and Linux each match Chrome rather than each other, and `ctx.filter` stays refused, because sharing SVG's tiny-skia islands would give Apple a third raster path.
 3. **Approve the fixture apparatus** (`apps/canvas-gallery` with its direct-API page, a canvas mode in `apps/sparkline` at stage 3, and `smoke.mjs canvas` over the generalised SVG comparator)? Ruled yes. It adds no blocking check, and it generalises rather than copies.
 4. **Accept the declared deviations?** Ruled "ok" to these revisions:

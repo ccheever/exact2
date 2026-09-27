@@ -5,7 +5,7 @@
 **Systems:** Kernel (the layout engine; `measure_height_targets`, `compute_layout_presented`, the staged view in `txn`), Motion (`exact-motion`: closed-form timing, holds, the seekable clock), Runner (event handlers; timers), Web host (the browser lays out; DOM measurement), Apple and Linux hosts (the kernel lays out; CoreText and cosmic-text measure), Agent API (`layout`, `clock`)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-09-25
-**Related:** LLP 1052 (the conversation notes); LLP 1001 §3 (`SetChildren` reparents with identity kept), §6 (text measurement); LLP 1002 D4 (follow and release), D7 (the numeric sheet), D8 (the reorder preview); LLP 1007 §9 (no text-measurement bridge for kernel layout on the web); LLP 1010 §6 (windowed lists estimate unmounted rows); LLP 1012 §2 (the clock); LLP 1013 (view transitions: snapshots around a commit); LLP 1039 D5 (no container queries); LLP 1041 §8.5 (the four interactions), §8.12 (presented heights, `measure_height_targets`); LLP 1043 (Pretext, measured); LLP 1043.000 (text around shapes); LLP 1046.002 F16 and LLP 1046.003 (the game add-on and its physics); LLP 1050 F6 (fling landing points); research LLP 0099 (`model | predicted | presented`), 0100 (off-screen route layout for shared elements), 0297 (layout islands), 0486–0488 (counterfactual `fits`; the container-size feedback channel); `rules/NOT-DOING.md` §Motion. Sub-document: LLP 1051.000.
+**Related:** LLP 1052 (the conversation notes); LLP 1001 §3 (`SetChildren` reparents with identity kept), §6 (text measurement); LLP 1002 D4 (follow and release), D7 (the numeric sheet), D8 (the reorder preview); LLP 1007 §9 (no text-measurement bridge for kernel layout on the web); LLP 1010 §6 (windowed lists estimate unmounted rows); LLP 1012 §2 (the clock); LLP 1013 (view transitions: snapshots around a commit); LLP 1039 D5 (no container queries); LLP 1041 §8.5 (the four interactions), §8.12 (presented heights, `measure_height_targets`); LLP 1043 (Pretext, measured); LLP 1043.000 (text around shapes); LLP 1046.002 F16 and LLP 1046.003 (the game add-on and its physics); LLP 1050 F6 (fling landing points); research LLP 0099 (`model | predicted | presented`), 0100 (off-screen route layout for shared elements), 0297 (layout islands), 0486–0488 (counterfactual `fits`; the container-size feedback channel); `rules/DEFERRED.md` §Motion. Sub-document: LLP 1051.000.
 
 ## Summary
 
@@ -387,7 +387,7 @@ This table was verified at origin/main `121d629e` (2026-09-25) and extends the
 | Event payloads | `heightrelease(height, velocity)`, `transformgeometry(bw, bh, pw, ph)`, `transformrelease(x, y, scale, vx, vy, vscale)`, `reorderdrop(item, before)`, `scroll`, `pan` | The only geometry an app sees. On Apple, `transformgeometry` arrives a turn late |
 | Host code per feature | The context preview (the web's `positionContexts`, and Apple's own); the reorder preview, which hit-tests "unpreviewed logical boxes … not moved presentation boxes" and returns `NeedsMeasurement` when geometry is unknown (LLP 1002 D8); list row feedback | Written once per feature per host |
 | App-side prediction | Reflow's data crate; Reflow's balls; the textflow orbs | Disagrees with the platform at the margins. Walls cannot come from layout |
-| `exact-motion` | Closed-form springs: `SpringConfig::sample` returns position *and* velocity at any t (`motion/src/spring.rs:102`). The engine's advance is a seek. `libm`'s software kernels are pinned so every host computes the same bits (`motion/src/math.rs`) | No decay or collision driver (NOT-DOING). The engine exposes no velocity read. A spring rests when displacement and speed are both under 1e-3, found on a 240 Hz grid capped at 10 s (`motion/src/spring.rs:53`, `:59`, `:145`) |
+| `exact-motion` | Closed-form springs: `SpringConfig::sample` returns position *and* velocity at any t (`motion/src/spring.rs:102`). The engine's advance is a seek. `libm`'s software kernels are pinned so every host computes the same bits (`motion/src/math.rs`) | No decay or collision driver (DEFERRED). The engine exposes no velocity read. A spring rests when displacement and speed are both under 1e-3, found on a 240 Hz grid capped at 10 s (`motion/src/spring.rs:53`, `:59`, `:145`) |
 | The clock that samples motion | Apple: `CACurrentMediaTime()` when the display-link callback runs; its canvases use `targetTimestamp` (`host/apple/Sources/ExactKit/Session.swift:920`: "Motion keeps its existing sampling clock; canvas frames target presentation"). Linux: monotonic time in the poll loop. Web: the browser plays keyframes sampled at 240 Hz (`motion/src/transition.rs:329`) | UI motion samples when the callback runs, not when the frame will be shown |
 | Release velocity | Apple differences the last two samples. The web fits a slope over up to eight samples in 80 ms. Linux uses `VelocityTracker`, a weighted least-squares fit over 100 ms (`motion/src/velocity.rs:19`) | Three estimators, so the same fling carries three velocities |
 | Hit testing during motion | The web, iOS and Linux hit presented geometry. macOS writes transforms to layers but hit-tests with `NSView.hitTest`, which by inference ignores them | One host deviates, and no test covers it |
@@ -395,7 +395,7 @@ This table was verified at origin/main `121d629e` (2026-09-25) and extends the
 
 What any design has to respect:
 
-- `rules/NOT-DOING.md` §Motion:
+- `rules/DEFERRED.md` §Motion:
   - no gesture arena ("Scroll always wins");
   - no second value graph ("The style row is the binding");
   - general layout transitions only where admitted (the sheet and the Shop
@@ -690,7 +690,7 @@ what gives `clock settle` a meaning for a ball.
    agreement with the browser. Also his cases, from 2026-09-24, for excluding
    touches in subtrees during simultaneous recognition.
 2. **For Charlie:** is physics against layout a consumer, or only an
-   illustration? A consumer moves NOT-DOING's decay-driver line (LLP 1051.000
+   illustration? A consumer moves DEFERRED's decay-driver line (LLP 1051.000
    §9).
 3. **The web:** forced-layout what-ifs (exact, but a reflow each), or a second
    engine (fast, but it drifts)? LLP 1051.000 recommends the first and keeps

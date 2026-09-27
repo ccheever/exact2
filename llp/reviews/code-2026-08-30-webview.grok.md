@@ -93,9 +93,9 @@ Any completed eval is treated as a hit. `type` is slightly better (it copies `va
 
 RFC D5 requires the empty box plus `tree` `{unavailable: true}`. The unified diff has **no** Linux host file. Smoke skips deck steps on Linux (`smoke.mjs` `if (host === 'web' || apple)`). Workspace build still has to compile, so the box probably paints — the declared `unavailable` bit is not evidenced.
 
-### M5. RFC §6 NOT-DOING trade is not in the PR
+### M5. RFC §6 DEFERRED trade is not in the PR
 
-`rules-NOT-DOING.md:57` still lists `webview`. RFC §6 says that line comes off in the same PR that lands M1. `change.diff` does not touch that file. The rule is “one line naming what it unblocks, and take something off the doing-list in the same PR.”
+`rules-DEFERRED.md:57` still lists `webview`. RFC §6 says that line comes off in the same PR that lands M1. `change.diff` does not touch that file. The rule is “one line naming what it unblocks, and take something off the doing-list in the same PR.”
 
 ### M6. Web host does not remount when `sandbox` changes
 
@@ -148,7 +148,7 @@ The diagnosis (simulator `takeSnapshot` can drop text; `drawHierarchy` can see W
 ## RFC findings
 
 1. **D5 is specified and not delivered** (M4). Either implement `{unavailable: true}` on Linux `tree` or narrow D5 to “smoke skips the deck; the box is empty.”
-2. **§6 is specified and not delivered** (M5). The NOT-DOING trade is a rule, not a suggestion.
+2. **§6 is specified and not delivered** (M5). The DEFERRED trade is a rule, not a suggestion.
 3. **§5 forbids author-facing `srcdoc`; the Apple arm uses `srcdoc` internally.** That is a valid implementation trick if the RFC says so. As written, a reader will think srcdoc does not exist in v1. Add one sentence: scheme-relative `src` may be inlined as the inner iframe’s `srcdoc`; it is not a Contract attribute.
 4. **D1’s “synthesizes an error document on provisional failure” is a top-topology lesson.** `didFailProvisionalNavigation` is on the WKWebView (`WebArm.swift:253–263`). In frame topology, inner-iframe failures are the engine’s error document plus the inner `load` listener. Wrapper failure re-serves a wrapper whose *inner* iframe gets the error HTML as srcdoc (`wrapper(error:)`). The RFC text is slightly wrong for the topology it mandates; the code is closer to iframe semantics than the RFC is.
 
@@ -232,7 +232,7 @@ Every finding was verified against the live tree before folding; all held. Appli
   `{unavailable: true}`.
 - **grok FLAG (leaf)** — confirmed already-false by omission; asserted in the kernel
   node tests.
-- **sol LOW 1 / grok M5 (the NOT-DOING trade)** — applied by the orchestrator:
+- **sol LOW 1 / grok M5 (the DEFERRED trade)** — applied by the orchestrator:
   `webview` off §Components with LLP 1020 §6's line and take; QUEUE §5 reordered.
 - **grok RFC 3/4** — the RFC is amended as built (srcdoc materialization declared
   with its multi-file limit; the error document restated for frame topology).

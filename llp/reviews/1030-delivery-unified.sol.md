@@ -1,7 +1,7 @@
 # Panel: LLP 1030 Delivery, unified + LLP 1030.000 The dev server as the deployer (sol)
 
 - **Family:** OpenAI: `codex exec -m gpt-5.6-sol -c model_reasoning_effort=ultra -s read-only --skip-git-repo-check -C <capsule> -o <out> -` (OpenAI Codex CLI 0.153.0), prompt on stdin, cwd = the read-only capsule; no repository access. Requested `gpt-5.6-sol` at `ultra` (Charlie named "sol ultra").
-- **Method:** a panel at Charlie's request, 2026-09-03 — "do a panel discussion with grok 4.6 xhigh and sol ultra about them and see if that influences your thoughts at all, and update as appropriate." Not a refine loop: no verdict binds, no approval given or withheld. Two rounds: **round 1 blind** (neither panelist saw the other), **round 2 mutually visible** (each read the other's round-1 answer in full and wrote only where they differ, correct, or extend; the named disagreements were forced to a final position). The author (Claude Fable 5.1, this session) wrote the documents and is not a reviewer. Capsule: a read-only copy of LLP 1028, 1029, 1030 r1, 1030.000 r1 and the context LLPs 1000, 1007, 1009, 1012, 1018, 1023, 1024, 1026, 1027, `rules/RULES.md`, `rules/NOT-DOING.md`, `CLAUDE.md`, `QUEUE.md`, `host/web/dev.mjs`, `host/apple/build.mjs`, `gpu/reflect/src/lib.rs`, `scripts/app.mjs`; no network; no repository access. Panelists' narration lines before the document marker are preserved verbatim.
+- **Method:** a panel at Charlie's request, 2026-09-03 — "do a panel discussion with grok 4.6 xhigh and sol ultra about them and see if that influences your thoughts at all, and update as appropriate." Not a refine loop: no verdict binds, no approval given or withheld. Two rounds: **round 1 blind** (neither panelist saw the other), **round 2 mutually visible** (each read the other's round-1 answer in full and wrote only where they differ, correct, or extend; the named disagreements were forced to a final position). The author (Claude Fable 5.1, this session) wrote the documents and is not a reviewer. Capsule: a read-only copy of LLP 1028, 1029, 1030 r1, 1030.000 r1 and the context LLPs 1000, 1007, 1009, 1012, 1018, 1023, 1024, 1026, 1027, `rules/RULES.md`, `rules/DEFERRED.md`, `CLAUDE.md`, `QUEUE.md`, `host/web/dev.mjs`, `host/apple/build.mjs`, `gpu/reflect/src/lib.rs`, `scripts/app.mjs`; no network; no repository access. Panelists' narration lines before the document marker are preserved verbatim.
 - **Gates (round 1):** sha256 —
 ```
 a57e18881f326d035a77c742283608fda80b7a5cf639ad23d643667817dec159  capsule/llp/1030-delivery-unified.rfc.md
@@ -63,9 +63,9 @@ The core theory is directionally right: delivery should be derived from artifact
 
 1. **Blocking — proposed foundations are described as existing (`1030 §1`, `D1`; `1030.000` staging).**
 
-   **Why:** `1030 §1` says production embedded-plus-update, native modules, and mixed Wasm execution already exist and that “none of that changes.” In fact, LLPs 1023, 1024, 1026, 1028, and 1029 remain Draft, and substantial parts of accepted LLP 1027 are not implemented. More importantly, the binding file still lists “Snapback / update economy” under NOT-DOING at `rules/NOT-DOING.md:52-58`; `rules/RULES.md:47-50` requires an explicit trade to move it. The RFC therefore obscures both implementation dependency and current authority.
+   **Why:** `1030 §1` says production embedded-plus-update, native modules, and mixed Wasm execution already exist and that “none of that changes.” In fact, LLPs 1023, 1024, 1026, 1028, and 1029 remain Draft, and substantial parts of accepted LLP 1027 are not implemented. More importantly, the binding file still lists “Snapback / update economy” under DEFERRED at `rules/DEFERRED.md:52-58`; `rules/RULES.md:47-50` requires an explicit trade to move it. The RFC therefore obscures both implementation dependency and current authority.
 
-   **Resolve:** Add a Built / Accepted-but-unbuilt / Proposed column to every prerequisite, state exactly which LLPs 1030 amends or supersedes, and have Charlie formally move the update economy off NOT-DOING before implementation.
+   **Resolve:** Add a Built / Accepted-but-unbuilt / Proposed column to every prerequisite, state exactly which LLPs 1030 amends or supersedes, and have Charlie formally move the update economy off DEFERRED before implementation.
 
 2. **Blocking — `runtimeVersion` does not define a safe compatibility cohort (`1030 D1/D3/D9`; `1030.000 D3/D4`).**
 
@@ -93,7 +93,7 @@ The core theory is directionally right: delivery should be derived from artifact
 
 6. **Blocking — the static update and publication protocol is underspecified (`1030 D3/D5`; `1030.000 D2/D3/D8`).**
 
-   **Why:** The document simultaneously puts the app at `U`, an envelope at `U/exact.json`, and an `exact.json` in every runtime directory. A static host cannot select the old client’s manifest without a deterministic distinct path. “Any static host” also supplies no authenticated write protocol or conditional update primitive. A committed local `deploy.lock` cannot allocate monotonic sequences across CI jobs or worktrees, and committing this tool-generated ledger conflicts with `rules/RULES.md:16` and `rules/NOT-DOING.md:150`. Uploading a pointer last is safe only for a single writer and suitably configured caches; it does not make store submissions reversible.
+   **Why:** The document simultaneously puts the app at `U`, an envelope at `U/exact.json`, and an `exact.json` in every runtime directory. A static host cannot select the old client’s manifest without a deterministic distinct path. “Any static host” also supplies no authenticated write protocol or conditional update primitive. A committed local `deploy.lock` cannot allocate monotonic sequences across CI jobs or worktrees, and committing this tool-generated ledger conflicts with `rules/RULES.md:16` and `rules/DEFERRED.md:150`. Uploading a pointer last is safe only for a single writer and suitably configured caches; it does not make store submissions reversible.
 
    **Resolve:** Give installed clients a baked path such as `U/.exact/updates/<compatibilityId>/exact.json`; keep `U` as the human-facing URL. Define a publish adapter with conditional put/CAS, cache requirements, and immutable receipts. Use a global release ID for correlation and a remotely serialized `seq` per `(app, channel, compatibilityId, trustEpoch)` stream. Treat multi-platform work as a resumable saga.
 
@@ -257,7 +257,7 @@ The core theory is directionally right: delivery should be derived from artifact
 5. **Position:** Ship the launcher through TestFlight/developer distribution first; treat App Store release as a separate product and policy decision.  
    **Reason:** Arbitrary app loading, domain ownership, downloaded functionality, grants, and review need real evidence.
 
-6. **Position:** Keep Android on NOT-DOING for v1, but do not confirm that only two platform-specific rows are needed.  
+6. **Position:** Keep Android on DEFERRED for v1, but do not confirm that only two platform-specific rows are needed.  
    **Reason:** Android requires a complete build, signing, packaging, links, lifecycle, background, store, and policy lane.
 
 7. **Position:** Pin a content-addressed toolchain capsule, dependency lock, configuration receipt, and app-source revision; neither a tag nor a raw commit alone suffices.  
@@ -296,11 +296,11 @@ The core theory is directionally right: delivery should be derived from artifact
 
 - Grok M15 overreads `RULES.md`: implementer/date is mandatory for a Spec, not an exploratory Draft RFC (`rules/RULES.md:58-60`). 1030.000 says the same (`llp/1030.000-dev-server-as-deployer.rfc.md:347-351`). Splitting it is still warranted on scope and trust-boundary grounds.
 
-- The agent-operation count is governed directly by LLP 1012 and `NOT-DOING.md`, not primarily “LLP 1024’s count rule” (`llp/1012-agent-api-v1.spec.md:33-42`, `106-109`; `rules/NOT-DOING.md:109-116`).
+- The agent-operation count is governed directly by LLP 1012 and `DEFERRED.md`, not primarily “LLP 1024’s count rule” (`llp/1012-agent-api-v1.spec.md:33-42`, `106-109`; `rules/DEFERRED.md:109-116`).
 
 Important blockers Grok missed:
 
-- 1030 presents update delivery as existing and unchanged, although 1026 and 1029 remain Draft and the update economy remains on binding NOT-DOING (`llp/1030-delivery-unified.rfc.md:53-82`; `llp/1026-dynamic-delivery.rfc.md:805-809`; `rules/NOT-DOING.md:52`; `rules/RULES.md:47-50`). Charlie must explicitly approve the trade 1026 proposes before acceptance.
+- 1030 presents update delivery as existing and unchanged, although 1026 and 1029 remain Draft and the update economy remains on binding DEFERRED (`llp/1030-delivery-unified.rfc.md:53-82`; `llp/1026-dynamic-delivery.rfc.md:805-809`; `rules/DEFERRED.md:52`; `rules/RULES.md:47-50`). Charlie must explicitly approve the trade 1026 proposes before acceptance.
 
 - `runtimeVersion` is not a binary compatibility cohort. It omits platform, architecture, distribution profile, native capability identity, accepted artifact kinds, executor configuration, trust roots, update-store codec, and shipped icon roster (`llp/1030-delivery-unified.rfc.md:64-72`). The contradiction is visible: 1030 says level is included in `V`, while 1030.000 shows one `a1b2` shared by three different levels (`llp/1030-delivery-unified.rfc.md:209-213`; `llp/1030.000-dev-server-as-deployer.rfc.md:134-141`).
 
@@ -361,7 +361,7 @@ Important blockers Grok missed:
 | Native `.cwasm` on Apple | Material | Blocking identity concern | **Not an iOS defect as currently targeted; blocking for any unverified Mac App Store lane, material wording otherwise.** |
 | Splitting 1030.000 | Material | Not raised | **Material.** The rules citation was wrong, but stages 5–8 are separate programs with different owners and trust boundaries. |
 
-Additional final blockers absent from Grok’s grading are the unresolved NOT-DOING trade, compatibility identity, verification-key protocol, manifest projections, and native/Wasm identity.
+Additional final blockers absent from Grok’s grading are the unresolved DEFERRED trade, compatibility identity, verification-key protocol, manifest projections, and native/Wasm identity.
 
 ## The one change
 
@@ -379,6 +379,6 @@ No other 1030.000 answer changed from my round-one position.
 
 ## Recommended next step
 
-Keep both Draft; another model family is unnecessary now. Charlie should first approve or reject the required NOT-DOING trade. If approved, the author should revise 1030 around the compatibility graph/DAG, recut 1030.000 to the bundle-delivery slice, and leave production binary automation, landing, reach/background behavior, and brownfield for follow-on LLPs.
+Keep both Draft; another model family is unnecessary now. Charlie should first approve or reject the required DEFERRED trade. If approved, the author should revise 1030 around the compatibility graph/DAG, recut 1030.000 to the bundle-delivery slice, and leave production binary automation, landing, reach/background behavior, and brownfield for follow-on LLPs.
 
 Before those later lanes are accepted, run four proofs: concurrent/CAS publication under cache skew, externalized shader compatibility across real backends, signed iOS/direct-macOS/Mac-App-Store distribution, and V→V′ updater/app-state carry.

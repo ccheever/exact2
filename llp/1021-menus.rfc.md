@@ -390,7 +390,7 @@ else changes: `tap <item>` is a journal entry whichever presentation is
 up; `tree` always holds the popover subtree (it is in the plan and laid
 out), with the node reporting `{open}` the way layout reports scroll;
 `screenshot` composes the open layer because in agent mode it is ours.
-The eight operations stay eight (`rules/NOT-DOING.md` §Agent API).
+The eight operations stay eight (`rules/DEFERRED.md` §Agent API).
 
 **D5 — every host, from one table.** Web: the attributes land on the real
 elements and the browser does the rest (one glue rule for D2's anchoring).

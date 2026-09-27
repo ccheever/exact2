@@ -6,17 +6,17 @@
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-09-26 (r1 and r2)
 **Implementer:** Claude (Opus 5.5), branch `feat/svg-anim`, 2026-09-26
-**Related:** LLP 1002 / 1003 (motion v1: CSS `transition`, two executors, the web as oracle; this RFC extends that design rather than adding a second one), LLP 1001 (kernel; declared deviations), LLP 1050.000 (the fill policy), LLP 1047 (pay for what you use), LLP 1053 (the list-benchmark gaps; the same house process), `rules/NOT-DOING.md` §Motion (the `@keyframes` and Core Animation lines this moves), `~/bench/cryptobench/SPEC.md` (the consumer)
+**Related:** LLP 1002 / 1003 (motion v1: CSS `transition`, two executors, the web as oracle; this RFC extends that design rather than adding a second one), LLP 1001 (kernel; declared deviations), LLP 1050.000 (the fill policy), LLP 1047 (pay for what you use), LLP 1053 (the list-benchmark gaps; the same house process), `rules/DEFERRED.md` §Motion (the `@keyframes` and Core Animation lines this moves), `~/bench/cryptobench/SPEC.md` (the consumer)
 
 ## Summary
 
-The crypto-list benchmark (`~/bench/cryptobench/SPEC.md`) needs each row to draw a live sparkline. The line draws in when the row appears, and a dot at the last point has a ring that breathes forever. A web developer writes that as an inline `<svg>` with a `<polyline>`, `stroke-dasharray` / `stroke-dashoffset` over `pathLength="1"` for the draw-in, and a CSS `@keyframes` pulse. exact2 has neither SVG shapes nor CSS animations today: the `Svg` node type exists but nothing creates it, and `@keyframes` is on the not-doing list.
+The crypto-list benchmark (`~/bench/cryptobench/SPEC.md`) needs each row to draw a live sparkline. The line draws in when the row appears, and a dot at the last point has a ring that breathes forever. A web developer writes that as an inline `<svg>` with a `<polyline>`, `stroke-dasharray` / `stroke-dashoffset` over `pathLength="1"` for the draw-in, and a CSS `@keyframes` pulse. exact2 has neither SVG shapes nor CSS animations today: the `Svg` node type exists but nothing creates it, and `@keyframes` is on the deferred list.
 
 This RFC adds both, the web way. §0 records how review and building changed it:
 - **Shapes:** a minimum SVG 2 subset (`svg`, `g`, `path`, `polyline`, `polygon`, `circle`, `line`, `rect`) with the presentation properties as CSS style rows. Each element is a kernel node. The subtree is skipped by box layout, and its geometry is parsed once in Rust for every host.
 - **Animations:** CSS Animations Level 1 (`@keyframes`, the `animation` shorthand and its eight longhands) as a second row beside `transition`, executed the way LLP 1002 executes transitions: the browser on the web, `exact-motion` wherever the host samples per frame (Linux), and Core Animation on Apple, where the compositor already runs a repeating animation without waking the app.
 
-**Recommendation:** build it as specified here. It trades one NOT-DOING line (`@keyframes`) and the Core Animation executor for this benchmark, and deletes the dead `svgSource` prop in exchange (§9).
+**Recommendation:** build it as specified here. It trades one DEFERRED line (`@keyframes`) and the Core Animation executor for this benchmark, and deletes the dead `svgSource` prop in exchange (§9).
 
 ## 0. Disposition after review, and what was built (r2)
 
@@ -57,7 +57,7 @@ Astra (`gpt-6-astra`, reasoning max) and Grok (served as `grok-4.6-build`, xhigh
 
 **D9, corrected:** the collection that exists (fresh ids per mounted key, one viewport of overscan plus velocity lead, bounded retirement, pins) decides when an animation starts: at mount, as on the web. A row kept mounted by overscan, a pin or deferred retirement does not replay when it scrolls back. LLP 1050.000's `complete` and D3 are rulings on an RFC not yet built; nothing here depends on them.
 
-**The NOT-DOING take (both):** deleting the dead `svgSource` is hygiene, not a doing-list take. The consumer (the crypto-list benchmark) is also outside the v1 bar. Charlie's ruling (2026-09-26) admits SVG complete with no take named; `rules/NOT-DOING.md` records it.
+**The DEFERRED take (both):** deleting the dead `svgSource` is hygiene, not a doing-list take. The consumer (the crypto-list benchmark) is also outside the v1 bar. Charlie's ruling (2026-09-26) admits SVG complete with no take named; `rules/DEFERRED.md` records it.
 
 **Not accepted:** Grok's suggestion to capability-link the path parser (LLP 1047). The parser is about 350 lines and the web wasm grew by it; it is kernel geometry every host needs, and an `svg`-free plan pays only its code size. That can be measured if it matters.
 
@@ -289,7 +289,7 @@ The data crate scales the series into the 96×32 box (min at the bottom, max at 
 
 ## 6. Questions for Charlie
 
-1. **The NOT-DOING trade (§9):** answered by Charlie (2026-09-26): SVG complete, no take; the subset refusals in this RFC are stages still to build, not permanent refusals.
+1. **The DEFERRED trade (§9):** answered by Charlie (2026-09-26): SVG complete, no take; the subset refusals in this RFC are stages still to build, not permanent refusals.
 2. **Apple execution:** Core Animation for animations only (transitions stay on the engine), or should transitions follow once the fixtures exist?
 3. **D9:** "starts when mounted" (the web's rule) rather than "starts when first visible". Agreed?
 
@@ -309,7 +309,7 @@ The price flash ("green at once, then back to the text colour over 400 ms") is a
   - Apple's layer tree and paused-layer presentation in XCTest.
 - A pixel parity case: the fixture app's rows (frozen) on iOS, macOS and Linux against Chrome.
 
-## 9. The NOT-DOING trade
+## 9. The DEFERRED trade
 
 **Onto the doing-list:**
 - the SVG subset of D1;
@@ -369,5 +369,5 @@ D6 and §9 kept colour motion out. LLP 1055.000 D6 admitted it for SVG's
 `fill` and `stroke`; LLP 1062 (the grnl branch) admitted it for boxes —
 `background-color`, `color`, borders, `tint-color`, `box-shadow` — through
 the same kernel seam (`color_targets`, `Kernel::paint_sync`) and the same
-Apple mechanism (a restyle carrying the presented value). `rules/NOT-DOING.md`
+Apple mechanism (a restyle carrying the presented value). `rules/DEFERRED.md`
 §Motion records it as pending Charlie's ruling on the take.

@@ -12,7 +12,7 @@
 
 Charlie requested a web-based video component with iOS/macOS options, then a
 simple player that shrinks for the software keyboard. `apps/video-player` is
-that consumer. Video comes off NOT-DOING; router/viewport-fact integration
+that consumer. Video comes off DEFERRED; router/viewport-fact integration
 (1038/1039, previously not started) follows this consumer. The 1039 current
 link gives this spec its working-set slot; neither proposal is deleted.
 

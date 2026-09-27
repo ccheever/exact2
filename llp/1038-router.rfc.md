@@ -6,7 +6,7 @@
 **Author:** Claude (Fable 5.1) for Charlie Cheever
 **Implementer:** Astra (`gpt-6-astra` through Codex), assigned by Charlie 2026-09-14. Slice 1 (§9, chunks a–e) landed in `248f322`/`887caa6`, `3ff55a0`/`aac382c`, `63cf660`, `319d847`, and `2a3d793`/`e476354`, with follow-up fixes through `330177a` and the S6–S11 review fixes here. Slice 2's web history/serving and native URL lanes were integrated through `5444575`; Codex prepared delivery and addressed review findings on 2026-09-15. The TS binding (slice 3) waits for its first source consumer.
 **Date:** 2026-09-14
-**Related:** LLP 1035.001 D1 (the route props, the Back control), D2 (the three outcomes), D6 (refusals are journal lines), D10 (the Router's semantic core — this RFC is the "later contract decision" its last bullet names); LLP 1005 §5–§8 (roster, boot, settlement, row slots); LLP 1006 (the compiler); LLP 1007 §4 (the glue), §6 (reload carries state); LLP 1012 (the eight operations); LLP 1017 P4c (per-instance state, and why a row holds no resource), P7 (tests in the language); LLP 1018 (the store); LLP 1023 §3 (the URL is the app); LLP 1027.001 §2 (Contract owns UI state; sources receive and return values), D1 (the standard utility surface); LLP 1030 D7 (a fact the runner answers itself); LLP 1031 D5 (navigation is an intention); LLP 1039 (the viewport fact the rail needs); `rules/NOT-DOING.md` (no interactive-navigation model, no route payloads, no platform-suffixed routes). Research, never authority: exact1 LLP 0010, 0051, 0282, 0290, 0305, 0310, 0311, 0494; `~/projects/exact/router-core` and `packages/exact-router/src/browser.ts`
+**Related:** LLP 1035.001 D1 (the route props, the Back control), D2 (the three outcomes), D6 (refusals are journal lines), D10 (the Router's semantic core — this RFC is the "later contract decision" its last bullet names); LLP 1005 §5–§8 (roster, boot, settlement, row slots); LLP 1006 (the compiler); LLP 1007 §4 (the glue), §6 (reload carries state); LLP 1012 (the eight operations); LLP 1017 P4c (per-instance state, and why a row holds no resource), P7 (tests in the language); LLP 1018 (the store); LLP 1023 §3 (the URL is the app); LLP 1027.001 §2 (Contract owns UI state; sources receive and return values), D1 (the standard utility surface); LLP 1030 D7 (a fact the runner answers itself); LLP 1031 D5 (navigation is an intention); LLP 1039 (the viewport fact the rail needs); `rules/DEFERRED.md` (no interactive-navigation model, no route payloads, no platform-suffixed routes). Research, never authority: exact1 LLP 0010, 0051, 0282, 0290, 0305, 0310, 0311, 0494; `~/projects/exact/router-core` and `packages/exact-router/src/browser.ts`
 
 ## Summary
 
@@ -633,16 +633,16 @@ and `closedby`.
 
 Each with the trigger that would earn it back:
 
-- Loaders, caches, prefetching, suspense, route payloads (NOT-DOING's
+- Loaders, caches, prefetching, suspense, route payloads (DEFERRED's
   server-generation line; 0494). Never.
 - Auth guards or redirect tables: an action checks `data.authenticated` and
   applies `replace`. Never.
-- Transitions, a gesture model, progress values (1035.001 §6; NOT-DOING
+- Transitions, a gesture model, progress values (1035.001 §6; DEFERRED
   §Motion). Never.
 - Typed-route codegen, receipts, navigation contracts, workflows (0290,
   0305 R5). Never.
 - File-based routes, layouts as files, platform-suffixed routes
-  (NOT-DOING). Never.
+  (DEFERRED). Never.
 - Named outlets or parallel routes: a split view is two columns over one
   value (D12). An app whose second column is not a function of the first.
 - Wildcards, optional segments, regexp patterns. A second consumer that
@@ -671,7 +671,7 @@ Each with the trigger that would earn it back:
   host (`exact_route_match`); the listener is input glue, after paint.
 - A `navigationTitle`: 1035.001 D9 stays the path.
 
-One line goes onto `rules/NOT-DOING.md` under Features at acceptance, so §7
+One line goes onto `rules/DEFERRED.md` under Features at acceptance, so §7
 binds; nothing comes off it, because none of this was ever on it.
 
 ## 8. Verification
@@ -913,6 +913,6 @@ the rail needs (D12), is separate and can land in any order.
   rules.
 - **LLP 1012**: `state.navigation.url`; the `type` and `tap` forms of D11.
 - **LLP 1027.001**: `exact.routes` on the standard utility surface (D1).
-- **`rules/NOT-DOING.md`**, under Features: "Router: no loaders, guards,
+- **`rules/DEFERRED.md`**, under Features: "Router: no loaders, guards,
   route payloads, typed-route codegen, receipts, outlets, router-owned
   transitions or scroll restoration (LLP 1038 §7)".

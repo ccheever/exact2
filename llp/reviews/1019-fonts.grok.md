@@ -1,7 +1,7 @@
 # Panel: LLP 1019 Fonts — declared, not loaded (grok)
 
 - **Family:** grok (xAI): `grok --prompt-file <brief> -m grok-4.6 --reasoning-effort xhigh --disable-web-search --cwd <capsule> --output-format plain`. Reported model not independently verifiable from the CLI; requested `grok-4.6` at `xhigh`.
-- **Method:** a panel at Charlie's request, 2026-08-30 — LLP 1016 §6's sense: not a refine loop, no verdict binds, no approval given or withheld. Two rounds. **Round 1 blind** (neither panelist saw the other's answer); **round 2 mutually visible** (each read the other's round-1 answer in full and was asked to write only where they differ). Workdir = a read-only panel capsule, no network: LLP 1019 r1, the panel brief, exact2's four host text paths (`host-web-css.rs`, `host-apple-Text.swift`, `host-apple-measure.rs`, `host-linux-text.rs`), the kernel text IR and its style rows, `contract-lower-tags.rs`, LLP 1005 and 1011, both app contracts (Caltrain and Weird Castle), the rules (`RULES.md`, `NOT-DOING.md`, `CLAUDE.md`), and exact1's whole font system (`fonts-and-assets.md`, `assets-fonts-{state,registry}.ts`, the Apple and Windows registries, the 2026-07-02 Apple text-stack audit, the LLP 0470 limitations excerpt).
+- **Method:** a panel at Charlie's request, 2026-08-30 — LLP 1016 §6's sense: not a refine loop, no verdict binds, no approval given or withheld. Two rounds. **Round 1 blind** (neither panelist saw the other's answer); **round 2 mutually visible** (each read the other's round-1 answer in full and was asked to write only where they differ). Workdir = a read-only panel capsule, no network: LLP 1019 r1, the panel brief, exact2's four host text paths (`host-web-css.rs`, `host-apple-Text.swift`, `host-apple-measure.rs`, `host-linux-text.rs`), the kernel text IR and its style rows, `contract-lower-tags.rs`, LLP 1005 and 1011, both app contracts (Caltrain and Weird Castle), the rules (`RULES.md`, `DEFERRED.md`, `CLAUDE.md`), and exact1's whole font system (`fonts-and-assets.md`, `assets-fonts-{state,registry}.ts`, the Apple and Windows registries, the 2026-07-02 Apple text-stack audit, the LLP 0470 limitations excerpt).
 - **Gates:** LLP 1019 r1 sha256 `159cfed094e038dc70abc700684df34cc75dc9c3c247f9041ee8afb8574a48a1`; round-1 brief sha256 `36c3e6bf507284200fe1320011a2e1d2e03b13ef7c26fd78b57faf5e087ac3b0`; round-2 brief sha256 `941d016f69d4ee6defcc9c7888e5380168ef63593bcb2934e4d55750af1f5774`; capsule (evidence files, panel answers excluded) sha256 `2e8c5c8e28bc43be56856c3a82671bd61df66c67e8ce3b81dffb349983bac5b9`. No capsule file was modified while either panelist was in flight.
 - **Runs:** round 1 2026-08-30T16:04:50Z → T16:12:43Z; round 2 → T16:24:53Z.
 - **Disposition:** folded into LLP 1019 r2 §11. The panel's factual catches against the live repo were re-verified by the author before folding — see §11 for which held.
@@ -25,7 +25,7 @@
 
 The three “foreclosures”:
 
-- *OTA.* `exact2/NOT-DOING.md` already killed HBC, staged reload, and the update economy. A reload is a restart from a new plan. A new face is a new plan plus a file in `assets/`, the same way Caltrain’s train PNG is (`exact2/1011-image-v1.spec.md` §2–§3). You cannot hot-swap a TTF under a live id, and you should not be able to.
+- *OTA.* `exact2/DEFERRED.md` already killed HBC, staged reload, and the update economy. A reload is a restart from a new plan. A new face is a new plan plus a file in `assets/`, the same way Caltrain’s train PNG is (`exact2/1011-image-v1.spec.md` §2–§3). You cannot hot-swap a TTF under a live id, and you should not be able to.
 - *User-chosen font.* `system-ui` (id 0, already the kernel default in `exact2/kernel-text.rs`) is the OS face, including whatever the user set. A dropdown of arbitrary installed names is OQ3, not a runtime registry.
 - *Font that arrives with data.* That is a document viewer. Weird Castle and Caltrain are bundled apps (`exact2/weird-castle.app.contract`, `exact2/caltrain.app.contract`). A face in a `resource` is a later product.
 
@@ -138,7 +138,7 @@ Licensing (“cannot bundle, must use the installed face”) is the only honest 
 
 **Position.** Build a thin v1 now. The RFC as written will still cost a rewrite unless it decides how a *declared name* binds to *bytes*, and unless it stops growing surface that Weird Castle does not ask for.
 
-**Reason.** `NOT-DOING.md` says v1 is done when one real app runs, and recommends Caltrain. Caltrain does not need a brand face. Weird Castle does: the wordmark is system font standing in for a display face (`weird-castle.app.contract`). `CLAUDE.md` already treats `~/projects/weird-castle` as a first-class consumer. The kernel row exists and is inert; web skips it as `"not lowered in v1"` (`host-web-css.rs`); Contract cannot say `font-family` or `font-style` (`contract-lower-tags.rs`). That is enough to build. It is not enough to build D3’s interned CSS parser, `font-synthesis` as a property, or `font-variant-numeric`.
+**Reason.** `DEFERRED.md` says v1 is done when one real app runs, and recommends Caltrain. Caltrain does not need a brand face. Weird Castle does: the wordmark is system font standing in for a display face (`weird-castle.app.contract`). `CLAUDE.md` already treats `~/projects/weird-castle` as a first-class consumer. The kernel row exists and is inert; web skips it as `"not lowered in v1"` (`host-web-css.rs`); Contract cannot say `font-family` or `font-style` (`contract-lower-tags.rs`). That is enough to build. It is not enough to build D3’s interned CSS parser, `font-synthesis` as a property, or `font-variant-numeric`.
 
 Omissions that cost more than OQ1/OQ3:
 
@@ -182,9 +182,9 @@ The cost asymmetry still stands and was not refuted. Sol said new Linux raster m
 
 B is right about permission. I was describing readiness.
 
-`RULES.md` §Scope: `NOT-DOING.md` is binding; a spec needs an implementer and a date; an agent may not add a registry without a human saying so. `NOT-DOING.md:5–12`: v1 is one real app; the name is an open decision; the recommendation is Caltrain; everything that app does not need does not exist. `CLAUDE.md` listing `~/projects/weird-castle` as a consumer is not that naming.
+`RULES.md` §Scope: `DEFERRED.md` is binding; a spec needs an implementer and a date; an agent may not add a registry without a human saying so. `DEFERRED.md:5–12`: v1 is one real app; the name is an open decision; the recommendation is Caltrain; everything that app does not need does not exist. `CLAUDE.md` listing `~/projects/weird-castle` as a consumer is not that naming.
 
-Sol cites the wrong paragraph. `NOT-DOING.md:141–144` is how you move something *off this list* — off the listed nos (Windows, video, GPU, …). Fonts are not on the list. Charlie does not have to delete a no to add bundled faces. He has to close the open decision at lines 9–12: name the app, or write that Weird Castle’s wordmark is in v1 beside Caltrain. That one line, plus “an agent may add a font table,” is the whole obligation.
+Sol cites the wrong paragraph. `DEFERRED.md:141–144` is how you move something *off this list* — off the listed nos (Windows, video, GPU, …). Fonts are not on the list. Charlie does not have to delete a no to add bundled faces. He has to close the open decision at lines 9–12: name the app, or write that Weird Castle’s wordmark is in v1 beside Caltrain. That one line, plus “an agent may add a font table,” is the whole obligation.
 
 Until that line exists, implementing is what the rules exist to stop. After it exists, a thin v1 is the right build — not LLP 1019 as written.
 
@@ -204,7 +204,7 @@ v1: split the tables so a family is not a stack. Web may emit a CSS list (the on
 
 Wrong, with files:
 
-- `NOT-DOING.md:141–144` applied to fonts. Fonts are not on that list. The binding text is `NOT-DOING.md:5–12` and `RULES.md` §Scope / §Agents.
+- `DEFERRED.md:141–144` applied to fonts. Fonts are not on that list. The binding text is `DEFERRED.md:5–12` and `RULES.md` §Scope / §Agents.
 - “Ordered per-glyph cascade may be unimplementable” on Linux. The capsule shows the current fallback is uncontrolled (`exact2/host-linux-text.rs:209–216`), not that a restricted `FontSystem` cannot be built. The product answer is still: declare it out.
 - “Native need not be pixel-identical” is not in `RULES.md` or `CLAUDE.md`. Those files name the web as the parity oracle and 1001 as the deviation register.
 
@@ -212,7 +212,7 @@ Correct catches I missed:
 
 - D1’s variable-font shorthand cannot fit D2’s `weight: u16, italic: bool, path` face row (`1019-fonts.rfc.md:136–149`).
 - Helvetica “declared like any family” (`1019-fonts.rfc.md:169–172`) has no file-less syntax in D1.
-- Apple font/paragraph caches are process-global (`exact2/host-apple-Text.swift:63–69`). IDs are per-plan. A same-process plan restart (`NOT-DOING.md:48–51`; the ~20 ms web restart in `CLAUDE.md:30–32`) can reuse id 10 for different bytes. Cache keys need plan/catalog identity, not only family. I treated this as a missing family field; it is also scar 1 if the process lives.
+- Apple font/paragraph caches are process-global (`exact2/host-apple-Text.swift:63–69`). IDs are per-plan. A same-process plan restart (`DEFERRED.md:48–51`; the ~20 ms web restart in `CLAUDE.md:30–32`) can reuse id 10 for different bytes. Cache keys need plan/catalog identity, not only family. I treated this as a missing family field; it is also scar 1 if the process lives.
 - `font-family` would be a global attribute (`exact2/contract-lower-tags.rs:149–266`), and Weird Castle has `input`s (`exact2/weird-castle.app.contract:123–124`). Native fields are resolver number two unless they share the catalog or the attribute is refused on them.
 - Kernel `font_weight` is integer 100–900 billed as CSS (`exact2/kernel-text.rs:21–22`). CSS Fonts 4 is 1–1000, and a variable `wght` axis is continuous. That is already a 1001-shaped decision.
 - D7 is unevidenced by the corpus.

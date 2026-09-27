@@ -12,7 +12,7 @@
 
 # Audit of LLP 1053 (Draft)
 
-Verified against this checkout at `e992cefe` (matches the RFC’s “origin/main” pin). Binding rules: the web is the standard; `rules/NOT-DOING.md` is the doing-list trade. I did not build, and I did not look outside this tree.
+Verified against this checkout at `e992cefe` (matches the RFC’s “origin/main” pin). Binding rules: the web is the standard; `rules/DEFERRED.md` is the doing-list trade. I did not build, and I did not look outside this tree.
 
 The RFC’s split (Contract names for rows the kernel already has / host text work / runtime shapes that need measurement or design) is the right frame. Several “what exists today” host claims are wrong, two CSS stories are wrong enough to change the work, and G8/G9/G11 point at the wrong seam.
 
@@ -189,7 +189,7 @@ A runtime string from a DataSource cannot be checked at compile time. “Refuse 
 
 A new 10k `Vec` of new records every 250 ms will rekey everything, even though the runner “shares unchanged records.” Sharing is the **producer’s** job (`Rc`), not a new wire form.
 
-LLP 1027.004 already measured this class of work and chose **windowed resources** (cursor + K rows), explicitly **no delta protocol** (`llp/1027.004-bounded-resource-answers.plan.md:23-29, 47-54`: ~0.3 ms for a 100-row page vs ~78 ms for a whole-history answer at 100k). `rules/NOT-DOING.md` (2026-09-18) parks further shared-representation / structural reconciliation behind that consumer.
+LLP 1027.004 already measured this class of work and chose **windowed resources** (cursor + K rows), explicitly **no delta protocol** (`llp/1027.004-bounded-resource-answers.plan.md:23-29, 47-54`: ~0.3 ms for a 100-row page vs ~78 ms for a whole-history answer at 100k). `rules/DEFERRED.md` (2026-09-18) parks further shared-representation / structural reconciliation behind that consumer.
 
 A 10k **mounted** list is also an LLP 1010 virtualization problem. Patching the answer does not bound views.
 
@@ -238,7 +238,7 @@ Copy or link the JSON into the app. Do not weaken hermeticity for a benchmark.
 | Apple | Kind string `"toggle"` (`host/apple/src/host.rs:1208`); no `UISwitch`/`NSSwitch` in ExactKit |
 | Linux | Toggle is a **box** (`llp/1015-linux-host-v1.spec.md:125-127`) |
 
-HTML `switch` on checkbox is Safari 17.4+; other browsers show a checkbox. That is a **web** compromise. Mapping it onto `TextInput` is a type lie (measure, keyboard, `value` vs boolean). LLP 1035.006 already catalogs switches as native settings-slice work (`llp/1035.006-public-ui-coverage.plan.md:192`), not started. `rules/NOT-DOING.md:221` keeps ~15 tags; this is a new control (intrinsic size, a11y, events) on every host. Cosmetic for the easy benchmark. **Drop from 1053.**
+HTML `switch` on checkbox is Safari 17.4+; other browsers show a checkbox. That is a **web** compromise. Mapping it onto `TextInput` is a type lie (measure, keyboard, `value` vs boolean). LLP 1035.006 already catalogs switches as native settings-slice work (`llp/1035.006-public-ui-coverage.plan.md:192`), not started. `rules/DEFERRED.md:221` keeps ~15 tags; this is a new control (intrinsic size, a11y, events) on every host. Cosmetic for the easy benchmark. **Drop from 1053.**
 
 ---
 
@@ -325,7 +325,7 @@ The runner already:
 - reuses `each` rows by key when the **list allocation** is unchanged;
 - treats records as shared when the **DataSource** keeps `Rc` identity.
 
-What the heavy port hits is almost certainly “new list, new records, every tick,” plus a fully realized 10k tree. LLP 1027.004 already chose **bounded answers** (window in the resource arguments) and refused a delta protocol. `NOT-DOING` parks generic reconciliation.
+What the heavy port hits is almost certainly “new list, new records, every tick,” plus a fully realized 10k tree. LLP 1027.004 already chose **bounded answers** (window in the resource arguments) and refused a delta protocol. `DEFERRED` parks generic reconciliation.
 
 Better, in order:
 

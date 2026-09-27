@@ -2,7 +2,7 @@
 
 - **Family:** OpenAI, `codex exec -m gpt-6-astra -c model_reasoning_effort=max -s read-only -C /Users/ccheever/projects/exact2`, one fresh session (`01a0cd76-d6bc-73e3-b774-13afcba53e01`) at `b1d73f44`, 2026-09-23T08:51:50Z to 2026-09-23T09:11:03Z. Brief sha256 `2b6301b00a3a35b929e8d767663a2ef8cb338ea733433d8397fe23fa80fb7944`. Read-only: no builds, tests, writes or network.
 - **Method:** a single sanity-check review at Charlie's request ("can we have astra max do a sanity check over this plan before we start implementation?"), no refine loop. The author (Claude, Opus 5.5) is not a reviewer. Provider: OpenAI; nothing redacted — the brief told the reviewer not to open `.env*`, `.snapback/invite-code` or key files in either repository, and it reports it opened none.
-- **Reviewed revision:** LLP 1048 and 1048.000–1048.003 as of `b1d73f44`, before the NOT-DOING take was recorded in `6bf20653`. The reviewer also read `~/projects/interview`.
+- **Reviewed revision:** LLP 1048 and 1048.000–1048.003 as of `b1d73f44`, before the DEFERRED take was recorded in `6bf20653`. The reviewer also read `~/projects/interview`.
 - **Disposition:** by the author, after the verbatim review.
 
 ---
@@ -163,9 +163,9 @@ This was a read-only source review against the supplied HEAD. I ran no builds or
 
 14. **MEDIUM — Resolve scope and baseline contradictions before implementation. Confidence: high.**
 
-   The binding NOT-DOING entry still excludes this work, and the parent explicitly leaves the required take open. Direction approval is recorded; the outstanding scope trade remains unresolved. [NOT-DOING.md:164](/Users/ccheever/projects/exact2/rules/NOT-DOING.md:164), [NOT-DOING.md:314](/Users/ccheever/projects/exact2/rules/NOT-DOING.md:314), [1048 §5](/Users/ccheever/projects/exact2/llp/1048-rendering-across-the-curve.rfc.md:195)
+   The binding DEFERRED entry still excludes this work, and the parent explicitly leaves the required take open. Direction approval is recorded; the outstanding scope trade remains unresolved. [DEFERRED.md:164](/Users/ccheever/projects/exact2/rules/DEFERRED.md:164), [DEFERRED.md:314](/Users/ccheever/projects/exact2/rules/DEFERRED.md:314), [1048 §5](/Users/ccheever/projects/exact2/llp/1048-rendering-across-the-curve.rfc.md:195)
 
-   Interview’s own milestone currently excludes public access. That needs reconciliation with the new consumer scope. [Interview NOT-DOING.md:16](/Users/ccheever/projects/interview/rules/NOT-DOING.md:16)
+   Interview’s own milestone currently excludes public access. That needs reconciliation with the new consumer scope. [Interview DEFERRED.md:16](/Users/ccheever/projects/interview/rules/DEFERRED.md:16)
 
    Smaller corrections:
 
@@ -189,7 +189,7 @@ Use the existing verification lanes for meaningful counterexamples: delayed repl
 - Which existing Interview content and profile fields are intended to become public, and does that include previously invitation-only content?
 - Is a rendered document a fresh bootstrap snapshot or a fully settled data snapshot? What time and device-state transition does it promise?
 - Which renderer capabilities must work with JavaScript disabled, particularly virtualized content, streamed responses and forms?
-- What is the required NOT-DOING take?
+- What is the required DEFERRED take?
 
 **Recommended next step**
 
@@ -207,7 +207,7 @@ timer (`app.contract:175`, `:241`), content shown only when
 buttons without URLs (`app.contract:1007`), `build.mjs` shipping the whole paired
 `app.js`/`app.hbc` (~98–104), `parse` receiving the store in fulfillment
 without a read delta (`runner/src/runner/commit.rs` ~595), and Interview's own
-`rules/NOT-DOING.md` excluding public access (~16). The review is right that the
+`rules/DEFERRED.md` excluding public access (~16). The review is right that the
 plan conflated a fresh boot, a settled page and a restart from `Carried`.
 
 | # | Finding | Disposition | Where it goes |
@@ -215,7 +215,7 @@ plan conflated a fresh boot, a settled page and a restart from `Carried`.
 | 1 | "The batch is the page" is too broad | **Accepted.** Replaced by a defined *document*: the DOM projection of a settled checkpoint before browser layout, with browser-owned effects (fonts, symbol sizing, focus, scroll, context positioning, virtualized windows) listed and excluded. Public documents render virtualized collections' content in full as static HTML; canvas renders its fallback; parity is claimed only for the document. | 1048 D1 (r2); 1048.000 D1, D3 |
 | 2 | Phase 1 needs an asynchronous renderer; replace-on-boot can erase content | **Accepted.** Phase 1 now includes a bounded async render host (Hermes for TypeScript, the native executor, continuation pumping, a completion rule that ignores ordinary timers and mutations, deadlines and cancellation), and pages carry their resource answers so the client boots seeded with them: replacement never shows less than the server did. | 1048.000 D9–D11 (r2) |
 | 3 | Byte determinism and `Carried` equivalence are overstated | **Accepted.** The digest covers a canonical document, not batch bytes, and excludes runtime incarnation ids such as reorder runtimes. A *document checkpoint* is specified separately from reload state (answers, pending flags, row state, time, and no store). "No code re-runs" becomes "Contract evaluation rebuilds the tree; adoption avoids rebuilding the DOM". A page's checkpoint never replaces the device's store, and the clock policy is explicit. | 1048 D4 (r2); 1048.001 (open items) |
-| 4 | Interview's split is necessary but insufficient | **Accepted.** Interview's phase-1 list now includes public view gating for logged-out readers, bounded public API projections with matching shapes, initial data without the 250 ms `started` timer, real links for posts, questions and authors, search in the URL, a document-scrolling layout, heads, and missing-item behaviour. Interview's own NOT-DOING excludes public access, which is **Charlie's decision** (which content becomes public). | 1048 §10 (r2) |
+| 4 | Interview's split is necessary but insufficient | **Accepted.** Interview's phase-1 list now includes public view gating for logged-out readers, bounded public API projections with matching shapes, initial data without the 250 ms `started` timer, real links for posts, questions and authors, search in the URL, a document-scrolling layout, heads, and missing-item behaviour. Interview's own DEFERRED excludes public access, which is **Charlie's decision** (which content becomes public). | 1048 §10 (r2) |
 | 5 | The dependency table doesn't enforce the privacy guarantee | **Accepted.** Stage (build/request/client) and confidentiality (public/private) become separate labels. Source capability reads (store, request context) are tracked through calls and continuations — the `parse` attribution gap is a bug to fix first. Unknowns are private; `Vary` comes from tracked request-context reads, not from the dependency table; the whole serialized payload is checked, and public payloads carry no store. | 1048 D3 (r2); 1048.002 §1, §5 |
 | 6 | Escaping alone doesn't preserve safety or DOM semantics | **Accepted.** The serializer shares the complete safe projection: the URL allowlist (now one policy on main, `871e2631`), property-to-HTML rules (checked, value, booleans, `textarea` content, canvas wrappers, markup expansion) and content models for semantic elements (phrasing-only children for `p`). The parity check parses the served HTML and compares the parsed tree. | 1048.000 D1, §4 (r2); 1048.003 D2 |
 | 7 | Bare-div defaults for semantic elements contradict "the web is the standard" | **Accepted.** Semantic elements keep their HTML defaults (UA stylesheet) on every host; authors reset them explicitly. Native hosts reproduce the defaults. | 1048.003 D2 (r2) |
@@ -225,7 +225,7 @@ plan conflated a fresh boot, a settled page and a restart from `Carried`.
 | 11 | The request service needs isolation and an HTTP contract | **Accepted.** Phase 1's server gets per-request isolation (a fresh realm per request, since Interview's module holds globals), bounded concurrency, output and work, deadlines that interrupt, cancellation on disconnect, outbound-origin and redirect rules (SSRF), no credential forwarding in phase 1, and an HTTP contract (status codes, HEAD, canonical URLs and queries, 404 and 5xx pages). The `fetch.rs` citation was wrong (it fetches dev plans); the executor core is the reusable part. | 1048.000 D10–D11 (r2) |
 | 12 | Provenance doesn't remove server code from client artifacts | **Accepted.** The code-elision claim is removed. Server-only source artifacts are a phase-3 question. | 1048 §2 (r2) |
 | 13 | Navigation payload reuse needs resource identity | **Accepted.** Matching is by source, arguments, logic identity, freshness and principal. The uncached request-data endpoint moves into phase 2, and prefetch is bounded. | 1048.001 D7 (r2) |
-| 14 | Scope and baseline contradictions | **Mostly resolved.** The NOT-DOING take was recorded after the reviewed revision (`6bf20653`: Messages as the Snapback4 consumer). 1048.000 §3 no longer contradicts D9; Hermes is in phase 1; heading lowering is pending in the web lane, not landed; the digest preimage excludes its own field. Interview's public-access exclusion is Charlie's decision (row 4). | 1048, 1048.000, 1048.001 (r2) |
+| 14 | Scope and baseline contradictions | **Mostly resolved.** The DEFERRED take was recorded after the reviewed revision (`6bf20653`: Messages as the Snapback4 consumer). 1048.000 §3 no longer contradicts D9; Hermes is in phase 1; heading lowering is pending in the web lane, not landed; the digest preimage excludes its own field. Interview's public-access exclusion is Charlie's decision (row 4). | 1048, 1048.000, 1048.001 (r2) |
 
 **Proposed next step:** revise to r2 as above, then implement phase 1. A second
 review round is not needed for a sanity check, per the reviewer. Status stays

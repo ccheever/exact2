@@ -6,7 +6,7 @@
 **Author:** Claude (Opus 5.5) for Seth Webster
 **Date:** 2026-09-26 (gaps closed 2026-09-27: size, windowed rows, the web's
 measure, load, ghost and springs, first moves, XCTests)
-**Related:** LLP 1002/1003 (motion v1), LLP 1055 D5 (keyframes and `animation` — the grammar reused here), LLP 1041 §8.12 (the numeric-height trial, unchanged), `rules/NOT-DOING.md` §Motion
+**Related:** LLP 1002/1003 (motion v1), LLP 1055 D5 (keyframes and `animation` — the grammar reused here), LLP 1041 §8.12 (the numeric-height trial, unchanged), `rules/DEFERRED.md` §Motion
 
 ## Summary
 

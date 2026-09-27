@@ -1,6 +1,6 @@
 # Review: LLP 1045 Markdown editing and reading, 2026-09-21 (astra)
 
-- **Family:** OpenAI, `codex exec -m gpt-6-astra -c model_reasoning_effort=max -s read-only`, one fresh session in the working tree at `eb24ea6` plus the uncommitted slice 1 (`markdown/`, LLP 1045 r1, the proposed NOT-DOING entry). Brief sha256 `0114cfa0bfee3761e5d38d55bbed716a6d7155a606ce02765c9b0fc5b3073c0b`.
+- **Family:** OpenAI, `codex exec -m gpt-6-astra -c model_reasoning_effort=max -s read-only`, one fresh session in the working tree at `eb24ea6` plus the uncommitted slice 1 (`markdown/`, LLP 1045 r1, the proposed DEFERRED entry). Brief sha256 `0114cfa0bfee3761e5d38d55bbed716a6d7155a606ce02765c9b0fc5b3073c0b`.
 - **Method:** a single sanity-check review at Charlie's request ("have astra max sanity check it"), no refine loop. The author (Claude, Fable 5.1) is not a reviewer. Provider: OpenAI; nothing redacted; the brief named the eight questions and asked for HIGH/MEDIUM/LOW with code evidence.
 - **Disposition:** by the author, after the verbatim review.
 
@@ -173,7 +173,7 @@ Essential work is also deferred or unspecified:
 - **Consumer integration:** Interview needs a concrete TypeScript route to segmentation/excerpts, draft recovery and external updates. Slice 6 discovers those constraints too late.
 - **Reader migration:** The existing reader resolves relative links and images against the document directory ([data/lib.rs:170](/Users/ccheever/projects/exact2/apps/markdown/data/src/lib.rs:170)). The replacement must retain that behavior before deleting the old parser.
 
-The proposed NOT-DOING entry honestly marks its trade as unconfirmed ([line 95](/Users/ccheever/projects/exact2/rules/NOT-DOING.md:95)). However, LLP 1024 was already deferred behind the reader on September 5 ([line 17](/Users/ccheever/projects/exact2/rules/NOT-DOING.md:17)); deferring it again contributes no new trade. Specific active reader follow-ups can constitute a real take, subject to Charlie’s confirmation.
+The proposed DEFERRED entry honestly marks its trade as unconfirmed ([line 95](/Users/ccheever/projects/exact2/rules/DEFERRED.md:95)). However, LLP 1024 was already deferred behind the reader on September 5 ([line 17](/Users/ccheever/projects/exact2/rules/DEFERRED.md:17)); deferring it again contributes no new trade. Specific active reader follow-ups can constitute a real take, subject to Charlie’s confirmation.
 
 **Resolution:** State the Linux exception as an owner decision, or include a path to compliant editing. Identify actual work being displaced, and bring a thin Interview integration forward.
 
@@ -213,6 +213,6 @@ VERDICT: MATERIAL FINDINGS
 11. **Providers — accepted, partly fixed.** TikTok now emits the documented `/player/v1/{id}`; YouTube carries a start time and is noted as needing an embedding identity; X and Instagram iframe URLs are marked in r2 D7 as assumptions slice 6 validates or replaces; the poster request is named as a third-party request.
 12. **Slicing and trade — accepted.** Linux is now an owner decision (§6); the write-back fix leads slice 2; a thin Interview integration is slice 4; the reader migration keeps relative resolution; LLP 1024 is dropped from the take and the reader's open follow-ups are the trade. r2 §2 corrects the Linux caret claim.
 
-Open for Charlie (r2 §6): Linux source-only editing, copy default, the web dependency question, source-only table editing, the NOT-DOING take.
+Open for Charlie (r2 §6): Linux source-only editing, copy default, the web dependency question, source-only table editing, the DEFERRED take.
 
 Proposed next step: revise (done as r2) and stay `Draft`; proceed to slice 2 on Charlie's word, with the measurement deciding the `markup` row.

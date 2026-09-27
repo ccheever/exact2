@@ -1,6 +1,6 @@
 # Panel: LLP 1016 Asynchronous data settlement — §4, how a mutation is written (codex)
 
-- **Family:** codex (OpenAI): `codex exec -s read-only -C <capsule> --skip-git-repo-check --ephemeral -m gpt-5.6-sol -c model_reasoning_effort="ultra"`, the brief on stdin, workdir = the capsule (16 files: LLP 1016, 1004, 1005, 1006, 1007, 1012, `rules/RULES.md`, `rules/NOT-DOING.md`, `runner/src/runner.rs`, the caltrain and weird-castle contracts, weird-castle `data/src/lib.rs`, weird-castle `llp/0000`, `0004`, ibex LLP 0067, 0068), no network.
+- **Family:** codex (OpenAI): `codex exec -s read-only -C <capsule> --skip-git-repo-check --ephemeral -m gpt-5.6-sol -c model_reasoning_effort="ultra"`, the brief on stdin, workdir = the capsule (16 files: LLP 1016, 1004, 1005, 1006, 1007, 1012, `rules/RULES.md`, `rules/DEFERRED.md`, `runner/src/runner.rs`, the caltrain and weird-castle contracts, weird-castle `data/src/lib.rs`, weird-castle `llp/0000`, `0004`, ibex LLP 0067, 0068), no network.
 - **Method:** a panel at Charlie's request, 2026-08-30 (LLP 1016 §6: not a refine loop; no verdict binds). Round 1 mutually blind; round 2 each panelist sees the other's round-1 position verbatim. Brief (round 1) sha256 57b579c1f9fbfa777c497943d6e7f59f7e4593bd54e3a42e7389ba9885a53895; LLP 1016 sha256 fa8ed97e6c088c2d26d31d1f294fd821e4bd9c62313f2a9d2ce8e6da9f2873f3; capsule sha256 9af90cce34517544ec3907f13ab189e7112e3a2ae715084f4322f2c61ff96861.
 - **Disposition:** the fold is recorded in LLP 1016 §4 and at the end of this file.
 

@@ -1,5 +1,5 @@
 //! The line map: a Canvas 2D surface (LLP 1056 §8 stage 1, the take in
-//! `rules/NOT-DOING.md`), drawn by the data crate with the web's canvas
+//! `rules/DEFERRED.md`), drawn by the data crate with the web's canvas
 //! calls. It was a wgpu surface (LLP 1009); the drawing is the same.
 //!
 //! Arguments, in `canvas surface=map(line, selectedId, board, nowMs)` order:

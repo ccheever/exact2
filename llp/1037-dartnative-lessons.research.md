@@ -5,7 +5,7 @@
 **Systems:** Apple host (navigation ownership, keyboard, native view lifetime, diagnostics), Kernel + Runner (list windowing, the scroll seam), Image (decoded-bitmap bounds), GPU module (the optional artifact), Update store (launch-failure trace)
 **Author:** Claude (Opus 5) for Charlie Cheever
 **Date:** 2026-09-14
-**Related:** LLP 0559 (the Flutter comparable — the predecessor's research, opposite bet on pixels); LLP 1035.001 D1–D5/D9/D10 (native interaction ownership; the header-shaped route); LLP 1008 §9 (iOS keyboard, interactive dismissal); LLP 1010 §"not in v1" (windowing seam); LLP 1011 §6 (image loading gaps); LLP 1009 D2 (GPU as a second artifact); LLP 1012 (the journal ring and `logs`); LLP 1026 crash recovery; LLP 1015 (Linux statically links vello/wgpu); `rules/NOT-DOING.md` §Components (windowed list); `apps/messages`. External: DartNative (dartnative.com, github.com/DartNative/dartnative — not the unrelated `dart-native/dart_native`).
+**Related:** LLP 0559 (the Flutter comparable — the predecessor's research, opposite bet on pixels); LLP 1035.001 D1–D5/D9/D10 (native interaction ownership; the header-shaped route); LLP 1008 §9 (iOS keyboard, interactive dismissal); LLP 1010 §"not in v1" (windowing seam); LLP 1011 §6 (image loading gaps); LLP 1009 D2 (GPU as a second artifact); LLP 1012 (the journal ring and `logs`); LLP 1026 crash recovery; LLP 1015 (Linux statically links vello/wgpu); `rules/DEFERRED.md` §Components (windowed list); `apps/messages`. External: DartNative (dartnative.com, github.com/DartNative/dartnative — not the unrelated `dart-native/dart_native`).
 
 ## Summary
 
@@ -228,7 +228,7 @@ A framework can recycle cells and still grow without limit.
 - *[measured]* `metrics.mjs --scaling` measures *runner* time at 300, 3,000 and
   10,000 rows. LLP 1005 says: "peak allocation is unmeasured … not a browser or
   phone frame budget."
-- *[LLP]* `rules/NOT-DOING.md` §Components frames the windowed list against
+- *[LLP]* `rules/DEFERRED.md` §Components frames the windowed list against
   60 fps: "if it misses 60fps, that is a kernel bug." That is the frame-rate half
   only. Their docs show the memory half is a separate bar.
 
@@ -352,7 +352,7 @@ Each piece is small, and must not add boot-path work beyond an append.
 2. **Keyboard.** Measure dismissal-drag frame cost at transcript scale (F2) on a
    device.
 3. **Windowing.** When `List` windowing is designed, define the five-number
-   memory measurement (F3) first. Consider amending `NOT-DOING.md`'s windowed-list
+   memory measurement (F3) first. Consider amending `DEFERRED.md`'s windowed-list
    line to name memory beside 60 fps.
 4. **Diagnostics.** A capped persisted journal, a panic hook, and refusal reasons
    in `record.json` (F5), and the LLP 1026 header built or struck.

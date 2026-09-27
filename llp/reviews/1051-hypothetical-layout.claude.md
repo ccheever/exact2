@@ -27,7 +27,7 @@
 
 3. **Answers can be provisional or stale in ways the epoch can't detect.** Images lay out at 0×0 until the host reports their size (kernel/src/layout.rs:756-765). On macOS, a paragraph of 64 KiB or more gets an estimated height, marked pending, in ordinary layout (RegionReaderMac.swift:120-130, 430-447; Text.swift:816). `set_intrinsic_size`, `set_env` and `invalidate_text_metrics` all change layout without bumping the epoch (kernel.rs:697-785). On the web, image loads, font loads and browser-run transitions move layout with no kernel event at all, so a path's "wall changed" re-solve never gets a signal. F5's "exact by construction" holds only once inputs have settled. **Fix:** stamp each answer with a layout generation that every layout input bumps, and add a completeness flag like the content region's "miss" signal.
 
-4. **The time half is overbuilt for its consumers.** D6–D7 amount to a physics engine: laws, root finding against moving walls, re-solving, contact and rest events, and a new timing function. They move a NOT-DOING line, yet no named consumer needs bouncing (restitution). UI flings decelerate and rubber-band; they don't bounce. The sheet and the pager are snap problems. The web-standard answer to those is declarative CSS scroll snap, which exact2 already admits (schema.json:848-855). The iOS host already projects flings against snap areas taken from layout (NodeViewIOS.swift:690-707). Start there rather than with app-side `projectFling` using UIKit's constant. §2.5's claim that no platform projects against layout overlooks scroll snap.
+4. **The time half is overbuilt for its consumers.** D6–D7 amount to a physics engine: laws, root finding against moving walls, re-solving, contact and rest events, and a new timing function. They move a DEFERRED line, yet no named consumer needs bouncing (restitution). UI flings decelerate and rubber-band; they don't bounce. The sheet and the pager are snap problems. The web-standard answer to those is declarative CSS scroll snap, which exact2 already admits (schema.json:848-855). The iOS host already projects flings against snap areas taken from layout (NodeViewIOS.swift:690-707). Start there rather than with app-side `projectFling` using UIKit's constant. §2.5's claim that no platform projects against layout overlooks scroll snap.
 
 **What it gets right**:
 - The committed/presented/hypothetical vocabulary, and the failure taxonomy.
@@ -36,7 +36,7 @@
 - The three invariants, with `rehydrate` as the oracle.
 - The ball analysis: event times beat small steps, rest rules matter, and step independence is the property the agent clock needs.
 - Sampling at presentation time. I confirmed that Apple samples motion when its display-link callback runs, not at the frame's target time (Session.swift:919-921).
-- Honesty about which NOT-DOING lines move.
+- Honesty about which DEFERRED lines move.
 
 **Anything you would cut**:
 - D6–D7, and D5's central-difference velocity, into a separate RFC that waits for a consumer.

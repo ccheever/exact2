@@ -1,6 +1,6 @@
 # The Caltrain app: `app.contract` plus its Rust data crate, compiled and
 # baked by the tests here. This crate is what a host links: the plan bytes
-# and the data source. @ref rules/NOT-DOING.md (the v1 app).
+# and the data source. @ref rules/DEFERRED.md (the v1 app).
 [package]
 name = "caltrain"
 version.workspace = true

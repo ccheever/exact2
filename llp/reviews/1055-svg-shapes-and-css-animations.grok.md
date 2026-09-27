@@ -12,7 +12,7 @@
 
 I'll audit from the checkout only: binding rules first, then the RFC, then the kernel/motion/host code those decisions rest on. No skills, no builds, no edits.Binding docs and the RFC are in. Next I’ll locate 1002/1003/1050 and the kernel/motion/host files the decisions cite.HEAD is the RFC on `0fd40388`. I’ll read the motion/fill LLPs and the kernel seams those claims depend on.I’ll pull schema, layout exclusion, motion, tags, collection, and host seams next so D1–D12 can be checked against the code.D3’s layout-skip and Height’s wire id look like real conflicts. I’ll confirm those against txn, region, paint, CSS, and the collection.# Independent audit of LLP 1055 r1 (`llp/1055-svg-shapes-and-css-animations.rfc.md`)
 
-**Scope.** Binding rules (`CLAUDE.md`, `rules/RULES.md`, `rules/NOT-DOING.md`), the Draft r1 RFC (commit `d357a7c4` on `origin/main` `0fd40388`; the commit is the RFC file only), LLP 1002 / 1003 / 1050.000, and the in-tree kernel, motion, contract, collection, and host seams those decisions rest on. Standards used: SVG 2, CSS Animations Level 1 (as implemented via Web Animations / CSS Animations 2 in Chrome), CSS Easing, CSS Transitions. No builds, no tests, no dependency sources outside this checkout.
+**Scope.** Binding rules (`CLAUDE.md`, `rules/RULES.md`, `rules/DEFERRED.md`), the Draft r1 RFC (commit `d357a7c4` on `origin/main` `0fd40388`; the commit is the RFC file only), LLP 1002 / 1003 / 1050.000, and the in-tree kernel, motion, contract, collection, and host seams those decisions rest on. Standards used: SVG 2, CSS Animations Level 1 (as implemented via Web Animations / CSS Animations 2 in Chrome), CSS Easing, CSS Transitions. No builds, no tests, no dependency sources outside this checkout.
 
 **Bottom line.** The direction is right: CSS names, two executors, browser as oracle, nodes as animation targets, Core Animation only for repeating compositor work. It is not specified tightly enough to implement without inventing the hard parts. Several claims about today’s code are true; several are stale or incomplete; the CSS/CA timing story is the largest semantic hole.
 
@@ -74,7 +74,7 @@ Odd-length `stroke-dasharray` is repeated to even — correct. **Negatives are i
 
 Why nodes, not one replaced display list:
 
-- `exact-motion` keys `(node, property)` (`motion/src/engine.rs:26–38`, `:146`). CSS animates *elements*. The sparkline’s `stroke-dashoffset` and `r`/`opacity` are different elements. A display list would need a second targeting graph, which NOT-DOING forbids.
+- `exact-motion` keys `(node, property)` (`motion/src/engine.rs:26–38`, `:146`). CSS animates *elements*. The sparkline’s `stroke-dashoffset` and `r`/`opacity` are different elements. A display list would need a second targeting graph, which DEFERRED forbids.
 - The web oracle needs real SVG DOM nodes (`host/web/glue.js:558` creates one element per kernel create). Unpacking a display list on web only is a third representation.
 - Inheritance of `fill`/`stroke` already walks kernel ancestors (`schema.json` `_styles` inherited rule). A flattened list would bake paint.
 - Four extra nodes per visible row is cheap next to the collection’s wrapper (`views.rs:23–58`).
@@ -172,7 +172,7 @@ PresenterIOS `present` only applies translate/scale/rotate/opacity (`PresenterIO
 6. **`lineDashPhase`.** Scaling `stroke-dashoffset` by `actualLength/pathLength` is the right *direction*. The **dash array must be scaled the same way** (D4 says the scene already does — keep it). Sign of phase vs SVG dashoffset must be pinned to Chrome, not assumed. `pathLength="1"` + `dasharray="1"` is the draw-in; both numbers are in normalized path space.
 7. **`r` → `path`.** Circles about the origin, layer at `(cx,cy)`, is the right way to not fight a position animation. Path interpolation matches Chrome’s numeric `r` only if both keyframes are the same ellipse command sequence. Fine for circles; declare it.
 8. **Transform properties → one `transform` key path.** Two CA animations on `transform` clobber unless additive and composed in CSS order (`translate * rotate * scale`). The sparkline does not need this; D6 still allows it.
-9. **Delay / fill / pause / seek.** `beginTime` for delay, `fillMode` for CSS fill, `isRemovedOnCompletion = false` when filling forwards: right sketch. Pause as `speed = 0` + `timeOffset` is the usual recipe and is easy to get wrong with delay. **Agent-owned `session.clock` already stops the display link (`Session.swift:989–993`) but does not stop compositor CA.** Without pausing every lowered animation, screenshots and `clock` are not deterministic — the whole reason motion is in v1 (`NOT-DOING.md` clock paragraph). RFC says this; it is load-bearing, not a footnote.
+9. **Delay / fill / pause / seek.** `beginTime` for delay, `fillMode` for CSS fill, `isRemovedOnCompletion = false` when filling forwards: right sketch. Pause as `speed = 0` + `timeOffset` is the usual recipe and is easy to get wrong with delay. **Agent-owned `session.clock` already stops the display link (`Session.swift:989–993`) but does not stop compositor CA.** Without pausing every lowered animation, screenshots and `clock` are not deterministic — the whole reason motion is in v1 (`DEFERRED.md` clock paragraph). RFC says this; it is load-bearing, not a footnote.
 10. **`Animation.finish()` / glue.** Today (`glue.js:1087–1106`): settle uses `timing.endTime` for **every** `document.getAnimations()`; seek calls `finish()` when `t >= endTime`. For infinite animations `endTime` is `Infinity`; `settle` → `Infinity`; `Infinity >= Infinity` is true; `finish()` throws. D10 must change this file, not only `Engine::settle_time`.
 
 Parity plan (engine ↔ Chrome `getComputedStyle` at a seeked `currentTime`; CA `presentation()` under a paused layer) is the right LLP 1003 shape. It only works if the timing model in D5 is the WA one.
@@ -255,13 +255,13 @@ D8 restart holds on web/Linux/macOS and on iOS **until** SVG rows are pooled. Po
 | Settle + infinite | `glue.js:1087–1106` | `endTime` Infinity, `finish()` throws |
 | Presentation attribute vs CSS | rows as CSS, geometry as attributes | CSS wins; do not emit both for `r` |
 
-### 6. NOT-DOING §9 / RULES.md
+### 6. DEFERRED §9 / RULES.md
 
 **The take is real in name and weak in weight.**
 
-Moving `@keyframes` and “a Core Animation executor” off `rules/NOT-DOING.md` §Motion is exactly the file’s procedure, and CSS `animation-iteration-count: infinite` **is** the repeat driver that list called out. LLP 1002 D2 already permitted CA. The RFC is honest that decay/sequence, colour, SMIL stay out.
+Moving `@keyframes` and “a Core Animation executor” off `rules/DEFERRED.md` §Motion is exactly the file’s procedure, and CSS `animation-iteration-count: infinite` **is** the repeat driver that list called out. LLP 1002 D2 already permitted CA. The RFC is honest that decay/sequence, colour, SMIL stay out.
 
-The *take* is deleting dead `svgSource`. The rule is: write what it unblocks **and take something off the doing-list**. `svgSource` is not on the doing-list; it is unused schema. Unblocking `~/bench/cryptobench` is also **not** Caltrain / Weird Castle / Markdown / Fieldnotes (the bar at the top of NOT-DOING). That is Charlie’s question (§6 Q1), not something the RFC can settle by deleting a dead prop.
+The *take* is deleting dead `svgSource`. The rule is: write what it unblocks **and take something off the doing-list**. `svgSource` is not on the doing-list; it is unused schema. Unblocking `~/bench/cryptobench` is also **not** Caltrain / Weird Castle / Markdown / Fieldnotes (the bar at the top of DEFERRED). That is Charlie’s question (§6 Q1), not something the RFC can settle by deleting a dead prop.
 
 RULES fit:
 
@@ -279,7 +279,7 @@ Initials and inheritance: good. Grammar: `points` odd coordinate drop: good. `d`
 
 ## Verdict
 
-**Build with named changes.** Do not build as written. The architecture (CSS vocabulary, node targets, browser oracle, CA only for repeating compositor animations, mount-not-visible start) is the one this repo would have to build anyway. The timing model, the no-layout node contract, the CA mapping, web emit/settle, and the NOT-DOING take are not ready.
+**Build with named changes.** Do not build as written. The architecture (CSS vocabulary, node targets, browser oracle, CA only for repeating compositor animations, mount-not-visible start) is the one this repo would have to build anyway. The timing model, the no-layout node contract, the CA mapping, web emit/settle, and the DEFERRED take are not ready.
 
 ### Ranked required changes
 
@@ -299,6 +299,6 @@ Initials and inheritance: good. Grammar: `points` odd coordinate drop: good. `d`
 
 8. **SVG 2 honesty in D1/D2:** subset split is a v1 choice, not SVG 2; name default `preserveAspectRatio`; refuse negative dasharray/pathLength/viewBox size; arc cubics ≠ Chrome `getTotalLength`.
 
-9. **NOT-DOING:** Charlie accepts crypto-list as the consumer and a real doing-list take (dead `svgSource` is hygiene, not a trade). Human approval for `apps/sparkline` / CA XCTest apparatus. Colour stays a separate RFC.
+9. **DEFERRED:** Charlie accepts crypto-list as the consumer and a real doing-list take (dead `svgSource` is hygiene, not a trade). Human approval for `apps/sparkline` / CA XCTest apparatus. Colour stays a separate RFC.
 
 10. **Do not expand CA to transitions in the same drop** (RFC §6 Q2). Get animation fixtures green first; Apple `present` still cannot apply `r`.

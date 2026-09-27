@@ -476,7 +476,7 @@ whether stages 3–7 are worth their cost, and in what order.
 ## 10. Being carried out (2026-09-24)
 
 **The target is an outcome, not a byte count.** It uses the RealWorld bench
-(`~/projects/realworld-react/bench`, outside this repo per NOT-DOING's take):
+(`~/projects/realworld-react/bench`, outside this repo per DEFERRED's take):
 exact2 served against React 19.3 + Vite, on the Lighthouse mobile profile
 (150 ms RTT, 1.6 Mbps, 4× CPU), pressing the `python` tag at the `load` event.
 

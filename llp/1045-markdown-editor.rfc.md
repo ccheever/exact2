@@ -408,7 +408,7 @@ paragraph with the caret in the caption. The editor never sees bytes; the
 runner does no I/O; where a file goes is the app's decision. Progress is the
 app's state (a placeholder URL the app later replaces in the source).
 
-This takes `fileinput` off `rules/NOT-DOING.md` in this form only — a
+This takes `fileinput` off `rules/DEFERRED.md` in this form only — a
 picker limited to images and video, no camera, no generic file input.
 
 ## 4. Slices (each verified by running)
@@ -452,7 +452,7 @@ document model. The web editor has no dependency (Charlie, 2026-09-22).
 
 ## 6. Open, for Charlie
 
-- Decided 2026-09-21: the `rules/NOT-DOING.md` take is the reader's other
+- Decided 2026-09-21: the `rules/DEFERRED.md` take is the reader's other
   open follow-ups (heading anchors, file watching, the compact folder layout);
   code-block highlighting is in v1 (D8). LLP 1024 was already deferred on
   2026-09-05 and is not a new trade.

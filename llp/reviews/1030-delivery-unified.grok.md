@@ -1,7 +1,7 @@
 # Panel: LLP 1030 Delivery, unified + LLP 1030.000 The dev server as the deployer (grok)
 
 - **Family:** grok (xAI): `grok --prompt-file <brief> -m grok-4.6 --reasoning-effort xhigh --disable-web-search --cwd <capsule> --output-format plain`. Reported model not independently verifiable from the CLI; requested `grok-4.6` at `xhigh`.
-- **Method:** a panel at Charlie's request, 2026-09-03 — "do a panel discussion with grok 4.6 xhigh and sol ultra about them and see if that influences your thoughts at all, and update as appropriate." Not a refine loop: no verdict binds, no approval given or withheld. Two rounds: **round 1 blind** (neither panelist saw the other), **round 2 mutually visible** (each read the other's round-1 answer in full and wrote only where they differ, correct, or extend; the named disagreements were forced to a final position). The author (Claude Fable 5.1, this session) wrote the documents and is not a reviewer. Capsule: a read-only copy of LLP 1028, 1029, 1030 r1, 1030.000 r1 and the context LLPs 1000, 1007, 1009, 1012, 1018, 1023, 1024, 1026, 1027, `rules/RULES.md`, `rules/NOT-DOING.md`, `CLAUDE.md`, `QUEUE.md`, `host/web/dev.mjs`, `host/apple/build.mjs`, `gpu/reflect/src/lib.rs`, `scripts/app.mjs`; no network; no repository access. Panelists' narration lines before the document marker are preserved verbatim.
+- **Method:** a panel at Charlie's request, 2026-09-03 — "do a panel discussion with grok 4.6 xhigh and sol ultra about them and see if that influences your thoughts at all, and update as appropriate." Not a refine loop: no verdict binds, no approval given or withheld. Two rounds: **round 1 blind** (neither panelist saw the other), **round 2 mutually visible** (each read the other's round-1 answer in full and wrote only where they differ, correct, or extend; the named disagreements were forced to a final position). The author (Claude Fable 5.1, this session) wrote the documents and is not a reviewer. Capsule: a read-only copy of LLP 1028, 1029, 1030 r1, 1030.000 r1 and the context LLPs 1000, 1007, 1009, 1012, 1018, 1023, 1024, 1026, 1027, `rules/RULES.md`, `rules/DEFERRED.md`, `CLAUDE.md`, `QUEUE.md`, `host/web/dev.mjs`, `host/apple/build.mjs`, `gpu/reflect/src/lib.rs`, `scripts/app.mjs`; no network; no repository access. Panelists' narration lines before the document marker are preserved verbatim.
 - **Gates (round 1):** sha256 —
 ```
 a57e18881f326d035a77c742283608fda80b7a5cf639ad23d643667817dec159  capsule/llp/1030-delivery-unified.rfc.md
@@ -58,15 +58,15 @@ I would not build 1030.000 as written. I would revise 1030 until the classifier 
 - **The theory sentence** (1030 Summary, D3 opening). Digest identity, lightest carrier, two policies. This is the right shape. Expo’s `runtimeVersion` + embedded update is the precedent; 1026 D10’s native-by-digest is the improvement; 1030 is the inventory that makes both span every layer.
 - **D2, host metadata as a baked artifact.** `host/apple/build.mjs` really does this by hand today: iOS `Info.plist` and entitlements are string templates from crate name and team (`build.mjs:155–184`, written at `build.mjs:303, 317`); macOS writes neither; icons, privacy manifest, associated domains, background modes are nowhere. One declared manifest, generate, never edit the output, digest in the binary’s identity — that is the same move as `kernel/tables/schema.json`, and it is the half of “OTA” people learn the hard way.
 - **D4 Level 0.** This is what 1023 §8 described as every release binary, restated as a choice rather than a law. Kiosk, brownfield-that-owns-updates, “no network path in the release” are real. The classifier reporting every change to it as a binary is the point.
-- **D5 propagation without a service.** Reach-by-carrier, live runtime versions as an explicit list, sunset as a static file, `check now` as a nudge the app’s own push may call, apply as a `Command`. This respects `rules/NOT-DOING.md` §Runtime (no service) and 1026 §7. The long-running desktop app that never relaunches is the right design case.
+- **D5 propagation without a service.** Reach-by-carrier, live runtime versions as an explicit list, sunset as a static file, `check now` as a nudge the app’s own push may call, apply as a `Command`. This respects `rules/DEFERRED.md` §Runtime (no service) and 1026 §7. The long-running desktop app that never relaunches is the right design case.
 - **D8’s three GPU sub-layers, in principle.** Surface Rust / WGSL / GPU module is the right split. `gpu/reflect` already emits entry points, bindings, host-shareable structs, vertex layouts, and compute workgroup sizes (`gpu/reflect/src/lib.rs:210–232`). An interface digest is a real thing you can hash, not a vibe. Taking 1026 D6 (surfaces as wasm) off staging and keeping surfaces as a binary is the honest 1029 §6 call.
-- **D9 constants vs. may-change.** The five constants (app identity, installed binary keeps working, durable state conforms-or-restarts, digests comparable, envelope major additive) are the right freeze surface for a pre-1.0 runtime that otherwise names-change (`rules/NOT-DOING.md` §Deliberately worse). Freeze-by-default on upgrade matches the tail. The store-carry test is the one new check worth adding, and putting it on the minutes-loop matches `RULES.md`.
+- **D9 constants vs. may-change.** The five constants (app identity, installed binary keeps working, durable state conforms-or-restarts, digests comparable, envelope major additive) are the right freeze surface for a pre-1.0 runtime that otherwise names-change (`rules/DEFERRED.md` §Deliberately worse). Freeze-by-default on upgrade matches the tail. The store-carry test is the one new check worth adding, and putting it on the minutes-loop matches `RULES.md`.
 - **D10’s per-platform honesty, as a table.** “A platform that cannot take a change live is not made to look as if it can” is the rule 1030 exists to enforce. iOS `setAlternateIconName` as switch-among-shipped, Finder icon as binary, launch screen as binary-plus-OS-cache — those three are right.
-- **1030.000 D1, not Vite.** Correct. After 1027 the TypeScript module is one file, a restart with carry, not ESM HMR (`rules/NOT-DOING.md` §Runtime: no hot revision surfaces). Rolldown is already the bake’s bundler. A deck (1020) is where a Vite app lives. Do not reopen this.
+- **1030.000 D1, not Vite.** Correct. After 1027 the TypeScript module is one file, a restart with carry, not ESM HMR (`rules/DEFERRED.md` §Runtime: no hot revision surfaces). Rolldown is already the bake’s bundler. A deck (1020) is where a Vite app lives. Do not reopen this.
 - **1030.000 D3 dry-run as the default, one table, atomic static publish** (content-addressed files first, signed `exact.json` last). The table-before-yes is the feature. The mid-publish client seeing only a complete envelope is the 1023 D3 rule applied to production.
 - **1030.000 D4 as knobs, not modes.** Continuous / manual / schedule / per-platform / channels-as-origins / Level 0 / brownfield in one configuration is the right answer to “we need to support all flavors.”
 - **1030.000 D7 brownfield.** Host owns the binary; exact2 is a library; `brownfield: true` publishes bundles only. That is the only brownfield shape that does not become a second product.
-- **`state.delivery` on `state`, not a ninth operation.** Matches LLP 1012 / `NOT-DOING.md` §Agent API.
+- **`state.delivery` on `state`, not a ninth operation.** Matches LLP 1012 / `DEFERRED.md` §Agent API.
 
 ## 3. Concerns
 
@@ -136,7 +136,7 @@ Also missing from the reflected interface: WGSL `override` constants, and any bi
 *Resolve:* Stage 1 lists a packaging prerequisite: shaders as digest-addressed assets, `SOURCE` not in the dylib, interface digest defined as the generated interface minus source text. Until then a `.wgsl` edit is a GPU-crate rebuild, i.e. a binary.
 
 **M3. Dual-publish in v1 fights binding rules.**  
-1030 D9; `rules/RULES.md` §Scope “Delete; don’t deprecate. No compat shims, no migration paths, no legacy branches before 1.0”; `NOT-DOING.md` “No backwards compatibility, at all, before 1.0.”
+1030 D9; `rules/RULES.md` §Scope “Delete; don’t deprecate. No compat shims, no migration paths, no legacy branches before 1.0”; `DEFERRED.md` “No backwards compatibility, at all, before 1.0.”
 
 Dual-publish is a pinned old toolchain plus a source that compiles under both. That is a legacy branch. Pre-1.0, names change; the dual-publish bake will fail constantly, which is the compiler doing its job. Freeze is the only policy that matches the rules. Dual-publish is a 1.0 conversation.
 
@@ -165,7 +165,7 @@ The last published bundle for `V` is already `V`’s `exact.json` on the origin.
 **M8. AASA is not instant; associated domains are a second layer.**  
 1030 D1 association row: “the static origin — instant, but the OS caches it.”
 
-Apple’s CDN (`app-site-association.cdn-apple.com`) caches for on the order of a day; devices cache too; developer mode is the bypass. Adding a **domain** is `com.apple.developer.associated-domains` — entitlements, binary, store re-review. Changing **paths** in AASA is a static file, delayed by that cache. Android `assetlinks.json` must name the **Play App Signing** cert fingerprint, not the upload key — a brownfield footgun 1030.000 D7 does not mention. Android stays on `NOT-DOING.md`; the row is fine as a door, not as a v1 claim.
+Apple’s CDN (`app-site-association.cdn-apple.com`) caches for on the order of a day; devices cache too; developer mode is the bypass. Adding a **domain** is `com.apple.developer.associated-domains` — entitlements, binary, store re-review. Changing **paths** in AASA is a static file, delayed by that cache. Android `assetlinks.json` must name the **Play App Signing** cert fingerprint, not the upload key — a brownfield footgun 1030.000 D7 does not mention. Android stays on `DEFERRED.md`; the row is fine as a door, not as a v1 claim.
 
 **M9. Downloaded native `cwasm` on Apple is not “honored in substance.”**  
 1030 D1 wasm row; 1029 D3; 1023 §8; 1028 F5.
@@ -265,7 +265,7 @@ Eight stages, no implementer, no date. `RULES.md` §Scope: a spec without those 
 2. **Atomic-per-(platform, V) is the default; the override cannot override bake’s source-roster check.** Reason: a half-published bundle is the failure mode; an override that ships a plan naming missing Rust is how you get it anyway.
 3. **Sunset in v1 for `L = A` binaries that contain the reader; not for Level 0.** Reason: ten lines in a binary that already fetches; zero lines that can be retrofitted into Level 0.
 4. **`state.delivery` on `state`, not a ninth operation.** Reason: LLP 1024’s count rule; it is a question `state` already exists to answer.
-5. **Freeze is the only v1 upgrade policy; dual-publish is not a v1 value.** Reason: `NOT-DOING.md` before 1.0; freeze matches the store’s drain.
+5. **Freeze is the only v1 upgrade policy; dual-publish is not a v1 value.** Reason: `DEFERRED.md` before 1.0; freeze matches the store’s drain.
 6. **The reflected-interface digest is enough once it hashes the generated interface excluding `SOURCE`, including workgroup size — and once shaders are actually assets.** Reason: the binary binds the interface; color-only edits must not move that digest; today’s `reflect()` return value would.
 
 ### 1030.000 §5
@@ -275,7 +275,7 @@ Eight stages, no implementer, no date. `RULES.md` §Scope: a spec without those 
 3. **`app.toml` beside `app.contract`, TOML.** Reason: host metadata is not UI; the Contract compiler must not learn entitlements; same standing as `Cargo.toml`.
 4. **One secret store, whatever 1026 D13 already holds for the bundle key.** Reason: two custodies is how keys rot in the one you forgot.
 5. **Launcher is TestFlight-only until it is a product.** Reason: the store listing is a product decision; the typed URL works without it.
-6. **Android stays on `NOT-DOING.md`; keep `assetlinks.json` as a generated file so the door is a file not a redesign.** Reason: a row is cheap; a Play pipeline is a surface.
+6. **Android stays on `DEFERRED.md`; keep `assetlinks.json` as a generated file so the door is a file not a redesign.** Reason: a row is cheap; a Play pipeline is a surface.
 7. **Pin a commit, not a tag — and do not implement dual-publish yet.** Reason: there are no releases; weird-castle already consumes by path; a pin without a matrix is just “this exact2.”
 
 ## 6. Named disagreements to argue in round 2
@@ -284,7 +284,7 @@ Eight stages, no implementer, no date. `RULES.md` §Scope: a spec without those 
 2. **`release: automatic` because Charlie said “continuous everywhere” vs. `internal` because store promote is not the same act as bundle publish.** This is the one the human has to settle; both panelists should answer it in one sentence without restating the ask.
 3. **Whether `exact deploy` from the dev-server process is in v1.** I say the verb is in, the watch-loop submit is out, and stages 5–8 are another LLP. If the other family calls the whole of 1030.000 buildable as staged, that is the fork: theory-complete vs. EAS-complete.
 
-(Secondary, if there is room: freeze-only vs. dual-publish as a v1 knob; I will not move unless the other family has a pre-1.0 compatibility story that `NOT-DOING.md` allows.)
+(Secondary, if there is room: freeze-only vs. dual-publish as a v1 knob; I will not move unless the other family has a pre-1.0 compatibility story that `DEFERRED.md` allows.)
 
 ## 7. Recommended next step
 
@@ -308,7 +308,7 @@ Provenance: Grok 4.6 · xAI · 2026-09-03 · not redacted · mutually visible wi
 
 ### Where Sol is wrong about the code or the cited LLPs
 
-**`deploy.lock` is not forbidden by the generated-file rule.** Sol cites `rules/RULES.md:16` and `rules/NOT-DOING.md:150` as if a committed ledger were the same class as `build.rs` output. Those sentences are “generated files are built, never committed” — `Info.plist`, reflected Rust, wasm. A lockfile is a different category (`Cargo.lock` is committed). The *operational* case against `deploy.lock` still holds (merge conflicts, worktree/CI seq allocation, origin already is the ledger). Cite that, not the generated-file rule; the wrong citation makes a good point look like a process nit.
+**`deploy.lock` is not forbidden by the generated-file rule.** Sol cites `rules/RULES.md:16` and `rules/DEFERRED.md:150` as if a committed ledger were the same class as `build.rs` output. Those sentences are “generated files are built, never committed” — `Info.plist`, reflected Rust, wasm. A lockfile is a different category (`Cargo.lock` is committed). The *operational* case against `deploy.lock` still holds (merge conflicts, worktree/CI seq allocation, origin already is the ledger). Cite that, not the generated-file rule; the wrong citation makes a good point look like a process nit.
 
 **Canonical signed bytes already exist next door.** Sol writes that the documents “do not specify canonical signed bytes.” LLP 1026 D11 does: public key baked into the binary; Ed25519 over the envelope’s canonical bytes, which name every other file’s digest; rotation is a new binary (`llp/1026-dynamic-delivery.rfc.md` around the signing bullets under D11). 1030’s actual error is D1’s row “**The signing key** for bundles … in the binary” (`llp/1030-delivery-unified.rfc.md` D1 table), which *regresses* 1026’s correct public-key wording. Missing key IDs, overlap, and compromise behavior are a real 1030 gap; “no canonical signed bytes” is not.
 
@@ -316,7 +316,7 @@ Provenance: Grok 4.6 · xAI · 2026-09-03 · not redacted · mutually visible wi
 
 **“A mixed app carrying Hermes is B by definition” reimports the hole.** That sentence is 1027 D7 (`llp/1027-typescript-data-sources.rfc.md`, the “Level A and Level B restated” paragraph: a TypeScript app always links `exact-js`, so “Level B is free where Level A was”). 1029 D2 then keeps the default mixed composition as Level A for the Rust half while the binary still carries Hermes (`llp/1029-mixed-logic-and-engine-choice.rfc.md` D2 table, default row). Picking 1027’s B as the resolution is how 1030 D4 fell through. The mixed default is `L = A, E = {hermes}`, not B.
 
-**1030 §1’s “None of that changes” is not an implementation claim.** The heading “What already exists, and what it already says” is sloppy, and Sol is right that 1023/1024/1026/1028/1029 are Draft and that 1027 is Accepted with stages 2/4–7 unbuilt (`QUEUE.md`). The sentence “None of that changes” means 1030 does not reverse those designs. Do not grade 1030 as if it asserted production OTA is in the tree. Grade the heading as a status lie; grade 1030.000 stage 4+ as blocked on 1026 still being Draft *and* on `rules/NOT-DOING.md:52` still listing “Snapback / update economy” (1026 D11 claims Charlie opened that door; `rules/RULES.md:47-50` still requires a written trade).
+**1030 §1’s “None of that changes” is not an implementation claim.** The heading “What already exists, and what it already says” is sloppy, and Sol is right that 1023/1024/1026/1028/1029 are Draft and that 1027 is Accepted with stages 2/4–7 unbuilt (`QUEUE.md`). The sentence “None of that changes” means 1030 does not reverse those designs. Do not grade 1030 as if it asserted production OTA is in the tree. Grade the heading as a status lie; grade 1030.000 stage 4+ as blocked on 1026 still being Draft *and* on `rules/DEFERRED.md:52` still listing “Snapback / update economy” (1026 D11 claims Charlie opened that door; `rules/RULES.md:47-50` still requires a written trade).
 
 **1029 D4 is more than Sol credits, and it is not a default-path blocker.** 1029 D4 already takes the whole data section and “every wasm function reachable from that source’s dispatch arm.” Sol is right that table/indirect-call closure is not specified, and that a wasm32 digest is not native identity under `#[cfg(target_os = "ios")]`. The default 1029 D1 app does not opt into `Swappable`. That identity hole is Material on D1’s native-Rust row and Blocking only for opted-in cwasm OTA, not for 1030’s paved path.
 
@@ -341,7 +341,7 @@ Provenance: Grok 4.6 · xAI · 2026-09-03 · not redacted · mutually visible wi
 - A generic launcher cannot claim arbitrary customer domains; its associated-domains entitlement is signed into *its* binary.
 - PWA name/icon/splash and Linux `.desktop`/theme icons are installed-shell metadata, not “replace the file.”
 - Brownfield needs a host descriptor; `host/apple` is `ExactIOS`/`ExactMac`, not an embeddable view (`1030.000 D7`).
-- Snapback is still on `NOT-DOING.md:52`.
+- Snapback is still on `DEFERRED.md:52`.
 
 ---
 
@@ -395,7 +395,7 @@ No remaining panel disagreement. Charlie can still pick `automatic`; we would bo
 
 **Final: retract D9 item 3 as written.** 1007 §6 (`llp/1007-web-host-v1.spec.md` §6) is reload carry of slots and matching resources — “what no longer fits starts fresh.” That is not a Store-across-runtime-upgrade guarantee. 1018’s implemented `secret` tier is opaque strings in Keychain/`localStorage`; `plain` is unbuilt; Linux is memory-only (`llp/1018-durable-client-state.rfc.md` D2 and the Linux bullet). Equal shapes are not equal semantics. Keychain continuity is team / code signature / access group, not `app_id` alone (`host/apple/build.mjs:280-283` already says ad-hoc signing loses secrets). The update-store codec cannot “change” and also “survive without migrations.” “Works forever” is false once OS support, certificates, or store policy move.
 
-Replacement, still with no migration scripts (`rules/RULES.md` “Delete; don’t deprecate”; `NOT-DOING.md` “No backwards compatibility, at all, before 1.0”):
+Replacement, still with no migration scripts (`rules/RULES.md` “Delete; don’t deprecate”; `DEFERRED.md` “No backwards compatibility, at all, before 1.0”):
 
 - Secrets survive a runtime upgrade **if** the platform keychain continuity conditions hold.
 - Plain-tier values, once that tier exists, conform-or-restart at the declared shape.
@@ -423,7 +423,7 @@ I collapsed 2 and 4 into “store.” That is wrong: MAS sandbox plus the cwasm 
 
 ### I. Dual-publish in v1 *(secondary in my r1; Sol concern 18)*
 
-**Final: freeze is the only v1 policy.** Dual-publish is a pinned old toolchain plus a source that compiles under both — a legacy branch, banned by `rules/RULES.md` §Scope and `NOT-DOING.md` §Deliberately worse before 1.0. Sol is right that an Exact commit is not a reproducible toolchain (`scripts/app.mjs:17-27` binds to the current root) and that running old bake code with current production keys is a supply-chain boundary. If dual-publish ever exists, it needs a content-addressed toolchain capsule; a commit pin is not that. It is not a `1030.000 D4` value.
+**Final: freeze is the only v1 policy.** Dual-publish is a pinned old toolchain plus a source that compiles under both — a legacy branch, banned by `rules/RULES.md` §Scope and `DEFERRED.md` §Deliberately worse before 1.0. Sol is right that an Exact commit is not a reproducible toolchain (`scripts/app.mjs:17-27` binds to the current root) and that running old bake code with current production keys is a supply-chain boundary. If dual-publish ever exists, it needs a content-addressed toolchain capsule; a commit pin is not that. It is not a `1030.000 D4` value.
 
 ### J. Secrets: one store vs KMS + isolated signer *(my r1 1030.000 Q4 vs Sol Q4)*
 
@@ -441,7 +441,7 @@ Only where we graded differently. Shared Blocking (A/B hole, classifier/atomicit
 
 | Issue | Me r1 | Sol r1 | Final | Why |
 |---|---|---|---|---|
-| “Already exists” / Draft prerequisites / snapback still on NOT-DOING | missed as its own item | Blocking | **Material on 1030; Blocking on 1030.000 stage 4+** | Theory may rest on same-day Drafts; it may not claim they are code. Bundle publish cannot start while `NOT-DOING.md:52` still lists the update economy and 1026 is Draft. |
+| “Already exists” / Draft prerequisites / snapback still on DEFERRED | missed as its own item | Blocking | **Material on 1030; Blocking on 1030.000 stage 4+** | Theory may rest on same-day Drafts; it may not claim they are code. Bundle publish cannot start while `DEFERRED.md:52` still lists the update economy and 1026 is Draft. |
 | `runtimeVersion` underspecified | folded into B2 | Blocking | **Blocking** | Cohort key is the classifier’s input. Holiday-icon and native-`cfg` are unsafe in one `V`. |
 | Signing-key wording + trust epochs | missed | Blocking | **Blocking on D1’s “signing key”; Material on rotation-overlap** | Public vs private is a factual error against 1026 D11. Key IDs/compromise can land as a short D1/D9 addendum; 1026 already has Ed25519-over-envelope and rotation-is-binary. |
 | `[deploy]` inside binary identity | missed | Blocking | **Blocking** | A policy-only edit must not move binary identity or `compatibilityId`. |
@@ -480,7 +480,7 @@ I adopt Sol’s Apple-lane split, grant-ceiling row, Contract-vs-agent `state`, 
 
 4. **One custody system, separate named credentials, isolated signer — not “whatever 1026 D13 holds” as the whole architecture, and not one key.** Local Keychain remains the dev identity story (`build.mjs:133-146, 280-286`).
 
-(1, 2, 3, 5, 6, 7 unchanged in direction: `release: internal`; separate deploy process; `app.toml`; TestFlight-only launcher; Android stays on NOT-DOING without confirming “two rows”; pin a commit and do not implement dual-publish. Sol is right that a commit is not a toolchain capsule *if* dual-publish ever returns.)
+(1, 2, 3, 5, 6, 7 unchanged in direction: `release: internal`; separate deploy process; `app.toml`; TestFlight-only launcher; Android stays on DEFERRED without confirming “two rows”; pin a commit and do not implement dual-publish. Sol is right that a commit is not a toolchain capsule *if* dual-publish ever returns.)
 
 ---
 
@@ -488,7 +488,7 @@ I adopt Sol’s Apple-lane split, grant-ceiling row, Contract-vs-agent `state`, 
 
 **Revise and stay Draft. Do not gather another family. Do not accept.**
 
-The remaining forks are not ones another model needs to discover. Charlie answers three words — `release: internal`, freeze-only, deploy-not-in-the-LAN-process — and the author rewrites 1030 D1/D3/D4/D8/D9 and cuts 1030.000 to stages 1–4. Snapback comes off `NOT-DOING.md` with a written trade before any bundle-publish stage is a spec.
+The remaining forks are not ones another model needs to discover. Charlie answers three words — `release: internal`, freeze-only, deploy-not-in-the-LAN-process — and the author rewrites 1030 D1/D3/D4/D8/D9 and cuts 1030.000 to stages 1–4. Snapback comes off `DEFERRED.md` with a written trade before any bundle-publish stage is a spec.
 
 The wasmtime-entitlement afternoon (1028 F3 / 1029 §7 stage 0), a real-device AASA/associated-domains run, and a concurrent-publish/cache spike can run in parallel. They gate a later binary-pipeline LLP, not this revision.
 

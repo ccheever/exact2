@@ -186,7 +186,7 @@ If measured need later earns HMR, require generation-addressed artifacts, load-a
 
 Fixture-first is the correct implementation order once the work has a real consumer. Fixture-only is not sufficient authorization or ABI proof.
 
-**MATERIAL — The feature-scope trade is unpaid.** The binding v1 scope says only Caltrain and Weird Castle’s wordmark exist; everything else does not. LLP 1024 itself says neither depends on native modules, while the kernel spec explicitly leaves a module registry out until a consumer exists (`rules-NOT-DOING.md:7-15,128-133`; `llp-1024-native-modules.rfc.md:296-298,344-353`; `llp-1001-kernel-v1.spec.md:222-231`). Removing LLP 1022 from the working-set overlay pays the document-count budget, not the implementation trade.
+**MATERIAL — The feature-scope trade is unpaid.** The binding v1 scope says only Caltrain and Weird Castle’s wordmark exist; everything else does not. LLP 1024 itself says neither depends on native modules, while the kernel spec explicitly leaves a module registry out until a consumer exists (`rules-DEFERRED.md:7-15,128-133`; `llp-1024-native-modules.rfc.md:296-298,344-353`; `llp-1001-kernel-v1.spec.md:222-231`). Removing LLP 1022 from the working-set overlay pays the document-count budget, not the implementation trade.
 
 Before landing, either:
 
@@ -223,7 +223,7 @@ The “no `schema.json`/`tags.rs`/Presenter edit” headline remains narrowly tr
 
 1. **MATERIAL — One app artifact with an inner table.** Follow GPU’s proven app-module shape. Split per tag only after measured co-loading or iteration cost.
 
-2. **ADVISORY — Freeze the namespace rule, not a global name ledger.** Declared hyphenated names always mean modules; Exact should not silently reinterpret one as a future built-in. Before 1.0, an unavoidable web/platform collision becomes an explicit compiler error and deliberate rename, consistent with the repository’s lack of API stability (`rules-NOT-DOING.md:141-146`).
+2. **ADVISORY — Freeze the namespace rule, not a global name ledger.** Declared hyphenated names always mean modules; Exact should not silently reinterpret one as a future built-in. Before 1.0, an unavoidable web/platform collision becomes an explicit compiler error and deliberate rename, consistent with the repository’s lack of API stability (`rules-DEFERRED.md:141-146`).
 
 3. **MATERIAL — Linux is explicitly unavailable in v1.** Its host directly paints the kernel tree through Vello/tiny-skia and has no platform-view presenter, while D4 returns no Linux view (`llp-1000-exact2-root.explainer.md:72-80`; `llp-1024-native-modules.rfc.md:183-190`). Do not `dlopen` a fixture merely to paint through a screenshot side channel. A real Linux consumer must first choose a toolkit view or host-owned pixel/render target.
 

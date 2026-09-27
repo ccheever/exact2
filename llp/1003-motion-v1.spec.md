@@ -247,7 +247,7 @@ executor (LLP 1002 §4); reduced-motion policy in the engine (producer emits
 with the web host (LLP 1002 §5) landed there the same day: LLP 1007 §5, a
 recorded fixture of 105 browser samples the engine matches within 1e-3, held
 by `host/web/tests/parity.rs`. Everything deleted from the ported crate is listed
-in LLP 1002 D5 and in `rules/NOT-DOING.md` §Motion.
+in LLP 1002 D5 and in `rules/DEFERRED.md` §Motion.
 
 ## 10. Checks that hold this
 

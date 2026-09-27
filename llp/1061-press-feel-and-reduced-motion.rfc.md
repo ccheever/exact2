@@ -5,7 +5,7 @@
 **Systems:** Kernel (style rows bit 147 `press_scale`, bit 120 `transform_origin`, LLP 1055.000's); Contract (`press-scale`, `transform-origin`); Motion (`Engine::spatial`); Runner (`Viewport.preferences`, `set_preferences`, two `exactViewport` fields); Apple host (`exact_set_preferences`, press feedback on UIKit and AppKit, the display link's rate policy, the batch's `spatial`); Web host (`--exact-press`, the input glue's `data-pressed`, the page's media queries through `exact_boot`/`exact_resize`); Linux host (`transform-origin` in the painter, `prefer`); agent driver (`prefer`, LLP 1012)
 **Author:** Claude (Opus 5.5) for Seth Webster
 **Date:** 2026-09-26
-**Related:** LLP 1002 §4 and `rules/NOT-DOING.md` §Motion (reduced motion is the app's choice, not the engine's); LLP 1055 D11 (animations inherit that); LLP 1039 (`exactViewport`, the fact this extends); LLP 1027.000.000 (a host fact told after boot, as the date is); LLP 1009 D4 (frames only while something moves)
+**Related:** LLP 1002 §4 and `rules/DEFERRED.md` §Motion (reduced motion is the app's choice, not the engine's); LLP 1055 D11 (animations inherit that); LLP 1039 (`exactViewport`, the fact this extends); LLP 1027.000.000 (a host fact told after boot, as the date is); LLP 1009 D4 (frames only while something moves)
 
 ## Summary
 
@@ -172,7 +172,7 @@ moves it per frame, and no app asked. The runner reads a string ending in
 `"0 100%"` reaches the row.
 *Rejected:* a new `exactPreferences()` source (a second copy of the viewport's
 bake, TypeScript and receipt handling for two booleans); an engine-level
-reduced-motion switch (`NOT-DOING`).
+reduced-motion switch (`DEFERRED`).
 
 ## What an app does with it
 

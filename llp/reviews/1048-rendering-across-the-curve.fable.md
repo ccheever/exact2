@@ -17,7 +17,7 @@ What I would change is above and around the renderer, not in it: the server has 
 
 **Major issues**
 
-1. **HIGH — The website has no production topology, and the acceptance case has no environment.** Interview's backend is a Node `createServer` wrapping a spawned `snapback4 dev` owner ("loopback-only", `scripts/backend.mjs:1–15`); `src/config.ts` bakes `backendURL = "http://127.0.0.1:3211"`; Interview's `rules/NOT-DOING.md` excludes "Production hosting … this is local development" and "public access", and §9.5 is still open. The plan specifies the render server's HTTP contract in detail (1048.000 D10–D11) but never says what sits in front of it, where Interview's owner and adapter run, who serves assets, or how TLS and the domain work. Phase 1 can land completely in exact2 and there is still no website. *Change:* decide §9.5 and the deployable topology before kickoff, and put Interview's §10 list in an Interview LLP with an implementer — it is the larger half of phase 1.
+1. **HIGH — The website has no production topology, and the acceptance case has no environment.** Interview's backend is a Node `createServer` wrapping a spawned `snapback4 dev` owner ("loopback-only", `scripts/backend.mjs:1–15`); `src/config.ts` bakes `backendURL = "http://127.0.0.1:3211"`; Interview's `rules/DEFERRED.md` excludes "Production hosting … this is local development" and "public access", and §9.5 is still open. The plan specifies the render server's HTTP contract in detail (1048.000 D10–D11) but never says what sits in front of it, where Interview's owner and adapter run, who serves assets, or how TLS and the domain work. Phase 1 can land completely in exact2 and there is still no website. *Change:* decide §9.5 and the deployable topology before kickoff, and put Interview's §10 list in an Interview LLP with an implementer — it is the larger half of phase 1.
 
 2. **HIGH — Confidentiality labels, runtime capability-read tracking and tracked `Vary` are speculative apparatus for a guarantee the plan already has by construction.** 1048.000 D9 states the invariant that matters: the server renders with no request context, no cookies, an empty store. Phase 3 (1048.002 §1, §3, §5, D5–D7) then gives the server cookies and request headers and buys back safety with static label propagation, per-continuation read recording through Hermes (`js/src/lib.rs` ~743), whole-payload inspection and refusal tests — a proof obligation that never ends, in a module the repo calls "trusted app code, NOT a security sandbox" (`host/web/module-glue.js:2`). No consumer needs it: Interview's phase-3 column ("the viewer's parts are private holes") is identical if private means client hole, filled from the device's own replica after adoption. *Change:* make the anonymous server permanent. Keep `stage`; drop `confidentiality`. Request context becomes a declared allowlist of public inputs (client hints, `Accept-Language`) so `Vary` is declared, not tracked. Cookies never reach a render. This deletes most of 1048.002 §1/§3 and half of parent D3.
 
@@ -27,7 +27,7 @@ What I would change is above and around the renderer, not in it: the server has 
 
 5. **MEDIUM — The inferred `eager` default keeps ~420 KB (brotli) on every Interview page.** LLP 1047 §1: 1.1 MB raw wasm for a 35-line app, 2.9× growth in 25 days with no budget, plus 41 KB of glue. Every Interview route has handlers, so `never` never applies and `eager` competes with images and fonts on the 6 Mbit/s profile the plan measures against. *Change:* `idle` is the default for rendered routes; land a byte budget (1047) before phase 2's `interaction`.
 
-6. **MEDIUM — Phase 1's Contract surface is larger than its consumer needs and crosses a NOT-DOING number.** `contract/lower/src/tags.rs:62–150` has 22 tags; 1048.003 D2 adds about 20, landing at the "not 40" NOT-DOING names. The `SemanticTag` prop and `role="heading" aria-level=` already exist (Interview uses them), and §6 already lists "`h1`–`h6` from heading levels" as pending — headings are being specified twice. Width variants were pulled into phase 1 for the rail/tabs switch, but the rail renders only `when data.authenticated and wide` (`app.contract` ~413, ~637): anonymous readers, the whole of phase 1, never see it. *Change:* part A is `head`, `scroll document` and the route fields; elements come from roles; semantic tags and variants wait for a consumer that hand-authors a document.
+6. **MEDIUM — Phase 1's Contract surface is larger than its consumer needs and crosses a DEFERRED number.** `contract/lower/src/tags.rs:62–150` has 22 tags; 1048.003 D2 adds about 20, landing at the "not 40" DEFERRED names. The `SemanticTag` prop and `role="heading" aria-level=` already exist (Interview uses them), and §6 already lists "`h1`–`h6` from heading levels" as pending — headings are being specified twice. Width variants were pulled into phase 1 for the rail/tabs switch, but the rail renders only `when data.authenticated and wide` (`app.contract` ~413, ~637): anonymous readers, the whole of phase 1, never see it. *Change:* part A is `head`, `scroll document` and the route fields; elements come from roles; semantic tags and variants wait for a consumer that hand-authors a document.
 
 7. **LOW — Realities the plan doesn't yet meet.** A Q&A site earns rich results from JSON-LD (`QAPage`), which `head` cannot express; `request`/`cached` routes have no sitemap unless `pages=` also feeds one; `robots.txt` needs an AI-crawler policy in 2026; the `Accept`-negotiated envelope with `Vary: Accept` on the HTML URL (`serve.mjs` `readWebRequest`) fragments CDN caches once pages are `cached` — serve it by `<link rel=alternate>` only. Security: the embedded checkpoint must escape `</script` and `<!--`; with no inline app JS a strict CSP is free and belongs in D11. Accessibility: don't mark controls disabled while activation is pending (replay already covers them; screen readers announce disabled), and a stacked presentation (`each e in stack(nav)`, absolutely positioned) will put the feed under every question page unless covered entries are hidden in the document.
 
@@ -63,13 +63,13 @@ They converge on five major changes:
    - sized for a page;
    - not asked again until their freshness lapses;
    - kept when a refresh fails.
-2. **The first slice.** Phase 1 aimed the most expensive point on the curve at a consumer whose own rules exclude public access and production hosting (all three; `interview/rules/NOT-DOING.md` ~16–18). That point is a per-request server with no cache, a wasm boot that starts at once, and a DOM replacement.
+2. **The first slice.** Phase 1 aimed the most expensive point on the curve at a consumer whose own rules exclude public access and production hosting (all three; `interview/rules/DEFERRED.md` ~16–18). That point is a per-request server with no cache, a wasm boot that starts at once, and a DOM replacement.
 3. **Caching.** A render that sees no cookies and an empty store depends only on its URL and public data. It is cached from the start (Claude, Grok), not served `no-store`.
 4. **An anonymous server.** The server renders the public document, and the device renders the person (Fable, Claude, and Grok's "no credentials on the public render"). With no credentials and no private data on the render path, confidentiality labels, runtime read tracking and an inferred `Vary` protect nothing. Grok would keep the confidentiality label, but on such a server "private" can only mean "rendered on the device", and stage already says that.
 5. **The Contract surface.** Phase 1's is too large (all three):
    - Tags with HTML defaults are kernel work on four hosts: `em` lengths, `list-item`, and classes at runtime.
    - Anonymous readers never see Interview's rail (`app.contract:413`, `when data.authenticated and wide`).
-   - NOT-DOING says "roughly 15 built-in tags, not 40".
+   - DEFERRED says "roughly 15 built-in tags, not 40".
 
 This reverses three r2 acceptances of Astra's review: rows 5 (confidentiality labels and a tracked `Vary`), 7 (tags with HTML defaults in phase 1) and 8 (width variants in phase 1). The problems those rows found still stand. What changes is the answer: nothing on the server can leak, and the tags and variants wait for a consumer.
 
@@ -80,7 +80,7 @@ The code claims I spot-checked hold:
 - the Linux executor sharing `executor_core.rs` by `#[path]` (`host/linux/src/executor.rs:9`);
 - `renderMarkup`'s spans and `<br>` (`host/web/navigation.js:1420`);
 - `readWebRequest` negotiating on `Accept` (`host/web/serve.mjs:591`);
-- Interview's NOT-DOING.
+- Interview's DEFERRED.
 
 One claim is misplaced. The global `h1`…`h6` reset is the web lane's commit, now on main as `44f8643c`; it isn't a `core/fixes` commit.
 
@@ -94,7 +94,7 @@ One claim is misplaced. The global `h1`…`h6` reset is the web lane's commit, n
 - **1b: Interview.**
   - **Gated on:**
     - ★ which content is public, including content written while Interview was invitation-only (§9.5);
-    - ★ Interview's NOT-DOING lifting its public-access and production-hosting lines;
+    - ★ Interview's DEFERRED lifting its public-access and production-hosting lines;
     - ★ a hosting target.
   - **Proposed topology:**
     - the Linux host in a serve mode, a native Rust binary (ruling 4), updated through delivery;
@@ -128,9 +128,9 @@ One claim is misplaced. The global `h1`…`h6` reset is the web lane's commit, n
 | 3 | The server should be a serve mode of the Linux host, fed by delivery, reading a local public replica | **Accepted** as the proposed 1b topology (★ Charlie).<br>To confirm before r3 is final:<br>• a serve mode keeps the painter off the server's startup path;<br>• Snapback4 can hold a public partition. | 1048.000 D9–D10 (r3) |
 | 4 | Seeding uses the wrong mechanism, and freshness is unstated | **Accepted** (change 1).<br>• The checkpoint seeds `ResourceState` the way `boot_carrying` does.<br>• The client doesn't ask again until freshness lapses, so a page costs one backend read.<br>• The two engines (`app.js` in the browser, `app.hbc` on the server) never race for the same answer. | 1048.000 D6 (r3) |
 | 5 | An inferred `eager` keeps about 420 KB of runtime on every page | **Accepted.**<br>• By default the runtime loads when the page is idle or at the first interaction, with no preload.<br>• A byte budget (LLP 1047) comes before the `interaction` policy. | 1048.000 D3; 1048.001 (r3) |
-| 6 | Phase 1's Contract surface crosses a NOT-DOING number | **Accepted** (change 5). | 1048.003 (r3) |
+| 6 | Phase 1's Contract surface crosses a DEFERRED number | **Accepted** (change 5). | 1048.003 (r3) |
 | 7 | JSON-LD, sitemaps, robots, `Vary: Accept`, escaping, CSP, disabled controls, stacked entries | **Accepted for 1b:**<br>• JSON-LD `QAPage` from the head;<br>• a sitemap from the public replica;<br>• the data envelope at its own URL, never negotiated on the HTML URL;<br>• checkpoint escaping;<br>• a strict CSP in D11;<br>• controls never disabled while activation is pending;<br>• covered stack entries left out of the document.<br>★ Charlie decides the robots policy for AI crawlers when 1b starts. | 1048.000, 1048.003 (r3) |
-| 8 | 1048.001 is a Spec with no implementer; forms are unruled | **Accepted.**<br>• 1048.001 leaves the working set.<br>• Phase 1 has no `form`, because the new tags are cut.<br>• Whether a GET form navigates without the runtime is decided against NOT-DOING's refusal of progressive forms when someone proposes one. | 1048 (r3) |
+| 8 | 1048.001 is a Spec with no implementer; forms are unruled | **Accepted.**<br>• 1048.001 leaves the working set.<br>• Phase 1 has no `form`, because the new tags are cut.<br>• Whether a GET form navigates without the runtime is decided against DEFERRED's refusal of progressive forms when someone proposes one. | 1048 (r3) |
 
 **Proposed next step:**
 - Charlie rules on the ★ items.
@@ -142,7 +142,7 @@ No further review round is needed to settle the direction. Status stays Draft; C
 
 **Update, 2026-09-23: after Charlie's rulings (r3).** Each item marked ★ is now resolved:
 - **Public content:** "questions, answers, posts, profiles — but all at the preference of the user". Each author chooses, and the choice is off by default (LLP 1048 §9.5).
-- **Hosting:** "for now just hosted locally, eventually on a CDN/hosting provider" (§9.6). Interview's NOT-DOING records public reading at the author's choice, and still keeps production hosting out.
+- **Hosting:** "for now just hosted locally, eventually on a CDN/hosting provider" (§9.6). Interview's DEFERRED records public reading at the author's choice, and still keeps production hosting out.
 - **The server's shape:** Charlie wasn't sure and asked the author to decide. It renders on request from a serve mode of the Linux host, on loopback, with headers ready for a cache (§9.7).
 - **Pages for signed-in readers:** Charlie asked "why not server render the personal stuff?" They are now rendered on the server in a simple form: the whole page for that reader, `private, no-store`, never shared (§9.8, LLP 1048.002).
   - This reverses the disposition's "anonymous forever".

@@ -47,7 +47,7 @@ Rewrite P4 as: a paged resource's arguments are the window, and a multi-list scr
 ### Open questions
 
 1. **Admit Bluesky?** Not by silence. Admit it if relative time, `calendarDiff`, compact counts, and the feed work are in this round. Do not block P3, Messages' `trim`, Caltrain's clock rename, or the RealWorld mutation split on that decision.
-2. **`asks` / `rows` versus "perf"?** Acceptable. NOT-DOING's eight operations are `tree · screenshot · tap · type · state · layout · logs · clock`, and a new question is answered from `state` (`rules/NOT-DOING.md:295-302`). Two integers on the existing reply are not a ninth operation and not a profiler. The static line is not the refused dataflow explorer if it stays one summary, like the node-cost line (`contract/cli/src/build.rs:125-138`). A witness, a graph, or a timing breakdown would cross `NOT-DOING.md:304-316`.
+2. **`asks` / `rows` versus "perf"?** Acceptable. DEFERRED's eight operations are `tree · screenshot · tap · type · state · layout · logs · clock`, and a new question is answered from `state` (`rules/DEFERRED.md:295-302`). Two integers on the existing reply are not a ninth operation and not a profiler. The static line is not the refused dataflow explorer if it stays one summary, like the node-cost line (`contract/cli/src/build.rs:125-138`). A witness, a graph, or a timing breakdown would cross `DEFERRED.md:304-316`.
 3. **Caltrain.** Leave the boards on `nowMs`. Report them. Do not move filtering into the view in this plan.
 
 ## LLP 1054.000.003 r2 — Dates, numbers, durations
@@ -93,7 +93,7 @@ The entry is the right size and the right character set. On Node 26.9.0, `String
 
 ### Suggestions
 
-Ship `trim` in the same `FORMAT_DIGEST` change as whatever `.003` entries survive, and migrate Messages' `canSend` in that change: the source answers "the addresses resolve," the view says `trim(newDraft) != ""`. That is the admitted consumer. NOT-DOING does not refuse `trim` (`:348-351`), so no doing-list trade is required.
+Ship `trim` in the same `FORMAT_DIGEST` change as whatever `.003` entries survive, and migrate Messages' `canSend` in that change: the source answers "the addresses resolve," the view says `trim(newDraft) != ""`. That is the admitted consumer. DEFERRED does not refuse `trim` (`:348-351`), so no doing-list trade is required.
 
 ### Verdict
 
@@ -125,7 +125,7 @@ Clone the handler (action id and arg codes) before `eval`, as `dispatch` does. `
 
 ## Rules
 
-The plan does not reverse a NOT-DOING entry, and it does not add syntax. One-in/one-out is not triggered. The fixture rule and the consumer bar are. Roster rows are "by fixture, never by speculation." A Node oracle table is a test, not a fixture. Bluesky is not an admitted consumer (`1054.000:244-247`). P6's line and counters are not a new check, script, or registry (`RULES.md` agents: add no apparatus). Do not add a blocking metric. `llp/current/` already has 19 links against a cap of 15 (`RULES.md`). Building this should not add another. Archive before adding.
+The plan does not reverse a DEFERRED entry, and it does not add syntax. One-in/one-out is not triggered. The fixture rule and the consumer bar are. Roster rows are "by fixture, never by speculation." A Node oracle table is a test, not a fixture. Bluesky is not an admitted consumer (`1054.000:244-247`). P6's line and counters are not a new check, script, or registry (`RULES.md` agents: add no apparatus). Do not add a blocking metric. `llp/current/` already has 19 links against a cap of 15 (`RULES.md`). Building this should not add another. Archive before adding.
 
 ## Bottom line
 
