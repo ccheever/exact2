@@ -1,10 +1,10 @@
 # LLP 1068: Recycling heavy native views in list rows
 
 **Type:** RFC
-**Status:** Draft (r2: two reviews folded, §0; five questions await Charlie, §10)
+**Status:** Accepted (r3: Charlie's rulings of 2026-09-27 on §10, recorded in §0.1; "for now", with a revisit left open. r2 folded two reviews, §0)
 **Systems:** Apple host (`NodePoolIOS.swift` and its reset contract; `NodeViewIOS.swift`'s material, scroll and field views; `GpuIOS.swift`'s canvases; the video, web and native-module arms), GPU module ABI (LLP 1009: stage 3 only), native-module ABI (LLP 1024: one optional entry, stage 3 only), Runner (none), Contract (none)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
-**Implementer:** none named. `rules/RULES.md` wants one before this is built; the lane that builds the Extra Heavy feed (`~/bench/xheavy`) is the natural owner of stages 1–2, and Charlie names it when he rules
+**Implementer:** Claude (Opus 5.5), stage 1 from 2026-09-27 on `feat/heavy-pool-stage1`; later stages by the lane that builds the Extra Heavy feed (`~/bench/xheavy`), each behind its gate
 **Date:** 2026-09-27 (r1 and r2)
 **Related:**
 - `~/bench/xheavy/EXACT2-GAPS.md` gap 1 (the audit this answers) and `SPEC.md` (the 17 row kinds).
@@ -52,7 +52,7 @@ shape it:
    id after a rebind. So heavy reuse is staged behind proof, one kind at a
    time, and the first stage reuses no heavy view at all.
 
-**Per-kind decisions (recommendations for Charlie):**
+**Per-kind decisions (as ruled, §0.1):**
 
 | Kind | Decision | Stage |
 |---|---|---|
@@ -112,6 +112,32 @@ files. The changes, in order of weight:
   because it changes row lifetime on one host, not because the agent could
   not reproduce it.
 - **Baseline first** (Astra): the unpooled port is measured before stage 1.
+
+## 0.1 Charlie's rulings (r3, 2026-09-27)
+
+Charlie ruled on §10's five questions on 2026-09-27: "go with your recs for
+1068 for now. maybe we'll revisit them later though". Every recommendation is
+accepted as written, and each is open to a later revisit:
+
+1. **Q1, stage 1:** yes, after the stage 0 baseline — rows pool around their
+   heavy leaves (holes, full-subtree validation, index restore, cross-shape
+   eviction), and materials are recreated rather than reused.
+2. **Q2, the mid-fling deviation (§5.1):** yes — during user motion a heavy
+   leaf whose measured creation cost exceeds the frame is created when the
+   list slows; its row is present and its box painted. The stage-1 lane
+   builds it with the rest of stage 1.
+3. **Q3, web views:** not pooled; the ~0.5 s (simulator) or 70–90 ms (Mac) to
+   content per web-view row is declared. Reuse is left to a stage-3
+   experiment that must prove a fresh browsing context.
+4. **Q4, GPU canvases:** profile `gpu_create` first; pool the layer (with a
+   presentation signal in the GPU ABI) only if the UIKit layer and surface
+   setup are a large share. LLP 1009 D2 and D4 stand.
+5. **Q5, video players and module views:** neither is pooled until the iPad
+   shows the saving; then a player pool (amending LLP 1042's "one node
+   incarnation owns one player" to "one item") and the native
+   `prepare_for_reuse` opt-in, with `NativeMap` its adopter.
+
+§7's line is in `rules/DEFERRED.md`.
 
 ## 1. What the pool is today
 
@@ -645,7 +671,9 @@ second, from `state`.
 - It never moves a surface instance, an `AVPlayerItem` or a document between
   rows.
 
-## 10. Questions for Charlie
+## 10. Questions for Charlie, as ruled (r3)
+
+All five ruled yes as recommended on 2026-09-27, "for now" (§0.1).
 
 **Q1. Build stage 1: pool rows around their heavy leaves (holes,
 full-subtree validation, index restore, cross-shape eviction), recreating
