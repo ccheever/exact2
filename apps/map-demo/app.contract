@@ -1,0 +1,29 @@
+// Map Demo — `<native-map>`, a native module (LLP 1024) meant to drop into a
+// shop app later: MapKit on Apple hosts, OpenStreetMap tiles on the web (no
+// API key). Pins are a prop, `id|latitude|longitude|title` joined with `;`;
+// the module says which pin was selected (`change`, its id) and the Contract
+// shows it. The buttons select a pin through the `selected` prop, the
+// non-gesture way to the same state.
+
+component MapDemo
+  state selected = ""
+  state picks = 0
+  action pick(id: string) writes selected, picks
+    selected = id
+    picks = picks + 1
+  action choose(id: string) writes selected
+    selected = id
+  view
+    main testId="map-demo" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#15171c" font-family="system-ui"
+      row flex-shrink=0 align-items="center" padding-left=16 padding-right=16 padding-top=12 padding-bottom=12
+        text "Stores" flex=1 font-size=19 font-weight=600
+        text (selected == "" ? "No store selected" : "Selected: " + selected) testId="selected" aria-live="polite" font-size=14 color="#4a505c"
+      native-map testId="map" flex=1 min-height=0 width="100%" latitude=37.7946 longitude=-122.4040 span=0.035 selected=selected pins="ferry|37.7955|-122.3937|Ferry Building;coit|37.8024|-122.4058|Coit Tower;union|37.7880|-122.4075|Union Square;chinatown|37.7941|-122.4078|Dragon Gate" aria-label="Map of stores; the buttons below select a store without the map" change=pick
+      row flex-shrink=0 gap=8 padding=12 flex-wrap="wrap"
+        button press=choose("ferry") testId="pick-ferry" padding=10 border-radius=8 background-color="#eef1f6"
+          text "Ferry Building"
+        button press=choose("coit") testId="pick-coit" padding=10 border-radius=8 background-color="#eef1f6"
+          text "Coit Tower"
+        button press=choose("union") testId="pick-union" padding=10 border-radius=8 background-color="#eef1f6"
+          text "Union Square"
+      text ("Pins selected on the map: " + toString(picks)) testId="picks" font-size=13 color="#4a505c" padding-left=12 padding-bottom=12
