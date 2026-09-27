@@ -71,7 +71,10 @@ pub enum EngineError {
 struct Slot {
     target: Value,
     presented: Value,
-    running: Option<Running>,
+    // Boxed: every observed property of every node has a slot (four per node
+    // by receipt sync), and almost all are settled. Inline, the curve made
+    // each slot about 300 bytes; a list's thousand nodes cost a megabyte.
+    running: Option<Box<Running>>,
     owner: Option<Owner>,
 }
 
@@ -273,7 +276,7 @@ impl Engine {
                 match declaration {
                     Some(declaration) => {
                         let velocity = change.velocity.unwrap_or(Value::ZERO);
-                        slot.running = Some(Running::start(
+                        slot.running = Some(Box::new(Running::start(
                             &declaration,
                             before,
                             after,
@@ -281,7 +284,7 @@ impl Engine {
                             now,
                             before,
                             1.0,
-                        ));
+                        )));
                         slot.presented = slot
                             .running
                             .as_ref()
@@ -337,7 +340,7 @@ impl Engine {
                     )
                 };
                 slot.presented = next.sample(now).value;
-                slot.running = Some(next);
+                slot.running = Some(Box::new(next));
             }
         }
         if slot.running.is_some() {

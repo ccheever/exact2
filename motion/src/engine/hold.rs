@@ -356,7 +356,15 @@ impl Engine {
         // Do not use observe: its unchanged-target fast path deliberately
         // suppresses redundant commits, whereas this is a presentation release.
         slot.running = declaration.map(|declaration| {
-            Running::start(declaration, from, slot.target, velocity, now_s, from, 1.0)
+            Box::new(Running::start(
+                declaration,
+                from,
+                slot.target,
+                velocity,
+                now_s,
+                from,
+                1.0,
+            ))
         });
         slot.presented = if let Some(running) = &slot.running {
             let sample = running.sample(now_s);
