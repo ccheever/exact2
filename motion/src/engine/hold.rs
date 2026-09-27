@@ -124,9 +124,8 @@ impl Engine {
         let values = presented.unwrap_or_else(|| {
             keys.map(|key| {
                 let slot = &self.slots[&key];
-                slot.running
-                    .as_ref()
-                    .map_or(slot.presented, |running| running.sample(now_s).value)
+                slot.running()
+                    .map_or(slot.presented(), |running| running.sample(now_s).value)
             })
         });
         for (key, value) in keys.into_iter().zip(values) {
@@ -137,10 +136,10 @@ impl Engine {
         let [translate, scale] = std::array::from_fn(|i| {
             let key = keys[i];
             let slot = self.slots.get_mut(&key).expect("both adopted properties");
-            slot.presented = values[i];
-            slot.running = None;
+            slot.set_presented(values[i]);
+            slot.set_running(None);
             self.running.remove(&key);
-            slot.owner = Some(Owner::Held(serial + i as u64));
+            slot.set_owner(Some(Owner::Held(serial + i as u64)));
             self.dirty.insert(key);
             HoldStart {
                 token: HoldToken {
@@ -179,7 +178,10 @@ impl Engine {
         self.advance(now_s)?;
         for (start, value) in starts.into_iter().zip(values) {
             let key = (start.token.node, start.token.property);
-            self.slots.get_mut(&key).expect("both live holds").presented = value;
+            self.slots
+                .get_mut(&key)
+                .expect("both live holds")
+                .set_presented(value);
             self.dirty.insert(key);
             self.track(start.token, now_s, value);
         }
@@ -211,11 +213,11 @@ impl Engine {
         let serial = allocate_serial(&NEXT_SERIAL)?;
         self.advance(now_s)?;
         let slot = self.slots.get_mut(&key).expect("adopted property");
-        let value = presented.unwrap_or(slot.presented);
-        slot.presented = value;
-        slot.running = None;
+        let value = presented.unwrap_or(slot.presented());
+        slot.set_presented(value);
+        slot.set_running(None);
         self.running.remove(&key);
-        slot.owner = Some(Owner::Held(serial));
+        slot.set_owner(Some(Owner::Held(serial)));
         self.dirty.insert(key);
         let token = HoldToken {
             node,
@@ -231,7 +233,7 @@ impl Engine {
     pub fn has_hold(&self, token: HoldToken) -> bool {
         self.slots
             .get(&(token.node, token.property))
-            .is_some_and(|slot| slot.owner == Some(Owner::Held(token.serial)))
+            .is_some_and(|slot| slot.owner() == Some(Owner::Held(token.serial)))
     }
 
     /// Whether this exact token's return still runs in this engine. This is
@@ -242,7 +244,7 @@ impl Engine {
         self.slots
             .get(&(token.node, token.property))
             .is_some_and(|slot| {
-                slot.owner == Some(Owner::Returning(token.serial)) && slot.running.is_some()
+                slot.owner() == Some(Owner::Returning(token.serial)) && slot.running().is_some()
             })
     }
 
@@ -251,7 +253,7 @@ impl Engine {
     pub fn is_held(&self, node: u64, property: Property) -> bool {
         self.slots
             .get(&(node, property))
-            .is_some_and(|slot| matches!(slot.owner, Some(Owner::Held(_))))
+            .is_some_and(|slot| matches!(slot.owner(), Some(Owner::Held(_))))
     }
 
     /// Seek and change only the held presentation. Stale tokens return `false`
@@ -268,7 +270,10 @@ impl Engine {
         validate_value(token.property, value)?;
         self.advance(now_s)?;
         let key = (token.node, token.property);
-        self.slots.get_mut(&key).expect("live hold").presented = value;
+        self.slots
+            .get_mut(&key)
+            .expect("live hold")
+            .set_presented(value);
         self.dirty.insert(key);
         self.track(token, now_s, value);
         Ok(true)
@@ -309,7 +314,7 @@ impl Engine {
             self.held.retain(|serial, _| {
                 slots
                     .values()
-                    .any(|slot| slot.owner == Some(Owner::Held(*serial)))
+                    .any(|slot| slot.owner() == Some(Owner::Held(*serial)))
             });
         }
         self.held
@@ -342,7 +347,7 @@ impl Engine {
         self.held.remove(&token.serial);
         let key = (token.node, token.property);
         let slot = self.slots.get_mut(&key).expect("live hold");
-        let from = slot.presented;
+        let from = slot.presented();
         let declaration = self
             .transitions
             .get(&token.node)
@@ -355,31 +360,23 @@ impl Engine {
             });
         // Do not use observe: its unchanged-target fast path deliberately
         // suppresses redundant commits, whereas this is a presentation release.
-        slot.running = declaration.map(|declaration| {
-            Box::new(Running::start(
-                declaration,
-                from,
-                slot.target,
-                velocity,
-                now_s,
-                from,
-                1.0,
-            ))
+        let mut running = declaration.map(|declaration| {
+            Running::start(declaration, from, slot.target, velocity, now_s, from, 1.0)
         });
-        slot.presented = if let Some(running) = &slot.running {
-            let sample = running.sample(now_s);
+        let presented = if let Some(curve) = &running {
+            let sample = curve.sample(now_s);
             if sample.done {
-                slot.running = None;
+                running = None;
             }
             sample.value
         } else {
             slot.target
         };
-        slot.owner = slot
-            .running
-            .as_ref()
-            .map(|_| Owner::Returning(token.serial));
-        if slot.running.is_some() {
+        let owner = running.as_ref().map(|_| Owner::Returning(token.serial));
+        slot.set_running(running);
+        slot.set_presented(presented);
+        slot.set_owner(owner);
+        if slot.running().is_some() {
             self.running.insert(key);
         }
         self.dirty.insert(key);

@@ -67,15 +67,100 @@ pub enum EngineError {
     InvalidAnimation,
 }
 
+/// Every observed property of every node has a slot (four per node by
+/// receipt sync), and almost all are settled: presented at their target,
+/// nothing running, no hold. A settled slot is its target alone; the rest
+/// lives in a box made when the presentation leaves the target and dropped
+/// when it settles again. A list's peak of nodes is then 56 bytes a
+/// property here, not 104. Readers see the same values either way.
 #[derive(Debug, Clone, PartialEq)]
 struct Slot {
     target: Value,
+    live: Option<Box<Live>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct Live {
     presented: Value,
-    // Boxed: every observed property of every node has a slot (four per node
-    // by receipt sync), and almost all are settled. Inline, the curve made
-    // each slot about 300 bytes; a list's thousand nodes cost a megabyte.
-    running: Option<Box<Running>>,
+    running: Option<Running>,
     owner: Option<Owner>,
+}
+
+/// Bitwise, so a settled slot hands back exactly the value it was given
+/// (`-0` is not `0` here).
+fn same(a: Value, b: Value) -> bool {
+    [a.x, a.y, a.z, a.w]
+        .iter()
+        .zip([b.x, b.y, b.z, b.w])
+        .all(|(a, b)| a.to_bits() == b.to_bits())
+}
+
+impl Slot {
+    fn settled(target: Value) -> Slot {
+        Slot { target, live: None }
+    }
+    fn presented(&self) -> Value {
+        self.live.as_ref().map_or(self.target, |l| l.presented)
+    }
+    fn running(&self) -> Option<&Running> {
+        self.live.as_ref()?.running.as_ref()
+    }
+    fn owner(&self) -> Option<Owner> {
+        self.live.as_ref()?.owner
+    }
+    /// The box, made (presenting the target) if the slot was settled.
+    fn live(&mut self) -> &mut Live {
+        let target = self.target;
+        self.live.get_or_insert_with(|| {
+            Box::new(Live {
+                presented: target,
+                running: None,
+                owner: None,
+            })
+        })
+    }
+    /// A settled slot gives its box back.
+    fn settle(&mut self) {
+        if self.live.as_ref().is_some_and(|l| {
+            l.running.is_none() && l.owner.is_none() && same(l.presented, self.target)
+        }) {
+            self.live = None;
+        }
+    }
+    fn set_target(&mut self, target: Value) {
+        if !same(target, self.target) {
+            // The presentation stays where it is.
+            self.live();
+        }
+        self.target = target;
+        self.settle();
+    }
+    fn set_presented(&mut self, presented: Value) {
+        if self.live.is_none() && same(presented, self.target) {
+            return;
+        }
+        self.live().presented = presented;
+        self.settle();
+    }
+    fn set_running(&mut self, running: Option<Running>) {
+        if self.live.is_none() && running.is_none() {
+            return;
+        }
+        self.live().running = running;
+        self.settle();
+    }
+    fn take_running(&mut self) -> Option<Running> {
+        let running = self.live.as_mut()?.running.take();
+        self.settle();
+        running
+    }
+    fn set_owner(&mut self, owner: Option<Owner>) {
+        if self.live.is_none() && owner.is_none() {
+            return;
+        }
+        self.live().owner = owner;
+        self.settle();
+    }
 }
 
 /// One process-unique identity follows a held property into its own return.
@@ -265,7 +350,7 @@ impl Engine {
     /// at zero displacement. Holds are active here but remain clock-quiescent.
     pub fn is_active(&self, node: u64, property: Property) -> bool {
         self.slots.get(&(node, property)).is_some_and(|slot| {
-            matches!(slot.owner, Some(Owner::Held(_))) || slot.running.is_some()
+            matches!(slot.owner(), Some(Owner::Held(_))) || slot.running().is_some()
         })
     }
 
@@ -295,62 +380,46 @@ impl Engine {
         .map(|t| t.governing(change.property));
 
         let Some(slot) = self.slots.get_mut(&key) else {
-            self.slots.insert(
-                key,
-                Slot {
-                    target: change.value,
-                    presented: change.value,
-                    running: None,
-                    owner: None,
-                },
-            );
+            self.slots.insert(key, Slot::settled(change.value));
             self.dirty.insert(key);
             return Ok(());
         };
 
         let after = change.value;
-        if matches!(slot.owner, Some(Owner::Held(_))) {
-            slot.target = after;
+        if matches!(slot.owner(), Some(Owner::Held(_))) {
+            slot.set_target(after);
             return Ok(());
         }
-        match slot.running.take() {
+        match slot.take_running() {
             None => {
                 if after == slot.target {
                     return Ok(());
                 }
-                slot.owner = None;
-                let before = slot.presented;
-                slot.target = after;
+                slot.set_owner(None);
+                let before = slot.presented();
+                slot.set_target(after);
                 match declaration {
                     Some(declaration) => {
                         let velocity = change.velocity.unwrap_or(Value::ZERO);
-                        slot.running = Some(Box::new(Running::start(
-                            &declaration,
-                            before,
-                            after,
-                            velocity,
-                            now,
-                            before,
-                            1.0,
-                        )));
-                        slot.presented = slot
-                            .running
-                            .as_ref()
-                            .map_or(before, |r| r.sample(now).value);
+                        let running =
+                            Running::start(&declaration, before, after, velocity, now, before, 1.0);
+                        let presented = running.sample(now).value;
+                        slot.set_running(Some(running));
+                        slot.set_presented(presented);
                     }
-                    None => slot.presented = after,
+                    None => slot.set_presented(after),
                 }
             }
             Some(running) => {
                 if after == running.to {
-                    slot.running = Some(running);
+                    slot.set_running(Some(running));
                     return Ok(());
                 }
-                slot.owner = None;
+                slot.set_owner(None);
                 let current = running.sample(now);
-                slot.target = after;
+                slot.set_target(after);
                 let Some(declaration) = declaration.filter(|_| current.value != after) else {
-                    slot.presented = after;
+                    slot.set_presented(after);
                     self.running.remove(&key);
                     self.dirty.insert(key);
                     return Ok(());
@@ -387,11 +456,12 @@ impl Engine {
                         1.0,
                     )
                 };
-                slot.presented = next.sample(now).value;
-                slot.running = Some(Box::new(next));
+                let presented = next.sample(now).value;
+                slot.set_running(Some(next));
+                slot.set_presented(presented);
             }
         }
-        if slot.running.is_some() {
+        if slot.running().is_some() {
             self.running.insert(key);
         }
         self.dirty.insert(key);
@@ -406,12 +476,11 @@ impl Engine {
         self.now = now;
         self.running.retain(|key| {
             let slot = self.slots.get_mut(key).expect("running slot");
-            let running = slot.running.as_ref().expect("indexed curve");
-            let sample = running.sample(now);
-            slot.presented = sample.value;
+            let sample = slot.running().expect("indexed curve").sample(now);
+            slot.set_presented(sample.value);
             if sample.done {
-                slot.running = None;
-                slot.owner = None;
+                slot.set_running(None);
+                slot.set_owner(None);
             }
             self.dirty.insert(*key);
             !sample.done
@@ -439,11 +508,11 @@ impl Engine {
             .into_iter()
             .filter_map(|key| {
                 let slot = self.slots.get(&key);
-                let underlying = slot.map(|slot| slot.presented);
+                let underlying = slot.map(Slot::presented);
                 // A sampling host paints an animation over the property's own
                 // value; a running transition is above animations in the CSS
                 // cascade, so it wins while it runs (LLP 1055 D5).
-                let transitioning = slot.is_some_and(|s| s.running.is_some());
+                let transitioning = slot.is_some_and(|s| s.running().is_some());
                 let animated = (!self.lowered_for(key.0, key.1) && !transitioning)
                     .then(|| {
                         let base = underlying.or_else(|| base(key.1))?;
@@ -464,7 +533,7 @@ impl Engine {
     /// `None` for held, settled, unknown properties and easings. A host may lower
     /// frames only when this descriptor differs from its last playback.
     pub fn spring_descriptor(&self, node: u64, property: Property) -> Option<SpringDescriptor> {
-        let running = self.slots.get(&(node, property))?.running.as_ref()?;
+        let running = self.slots.get(&(node, property))?.running()?;
         let Curve::Spring { config, velocity } = &running.curve else {
             return None;
         };
@@ -480,7 +549,7 @@ impl Engine {
     /// The spring running on one property, lowered to frames; `None` when
     /// nothing runs there or what runs is an easing.
     pub fn spring_frames(&self, node: u64, property: Property) -> Option<SpringFrames> {
-        let running = self.slots.get(&(node, property))?.running.as_ref()?;
+        let running = self.slots.get(&(node, property))?.running()?;
         let (duration, values) = running.spring_frames()?;
         Some(SpringFrames {
             node,
@@ -493,7 +562,7 @@ impl Engine {
 
     /// The current presentation value of one property.
     pub fn value(&self, node: u64, property: Property) -> Option<Value> {
-        self.slots.get(&(node, property)).map(|s| s.presented)
+        self.slots.get(&(node, property)).map(Slot::presented)
     }
 
     /// What a sampling host paints for one property now: a sampled
@@ -502,8 +571,8 @@ impl Engine {
     /// the slot's value. `frame` reports the same values as they change.
     pub fn sampled_value(&self, node: u64, property: Property) -> Option<Value> {
         let slot = self.slots.get(&(node, property));
-        let underlying = slot.map(|s| s.presented);
-        if slot.is_some_and(|s| s.running.is_some()) || self.lowered_for(node, property) {
+        let underlying = slot.map(Slot::presented);
+        if slot.is_some_and(|s| s.running().is_some()) || self.lowered_for(node, property) {
             return underlying;
         }
         let base = underlying.or_else(|| base(property))?;
@@ -543,13 +612,7 @@ impl Engine {
     pub fn settle_time(&self) -> Option<f64> {
         self.running
             .iter()
-            .map(|key| {
-                self.slots[key]
-                    .running
-                    .as_ref()
-                    .expect("indexed curve")
-                    .end_time()
-            })
+            .map(|key| self.slots[key].running().expect("indexed curve").end_time())
             .chain(self.animations_settle_time())
             .fold(None, |acc, t| Some(acc.map_or(t, |a: f64| a.max(t))))
     }
@@ -598,6 +661,9 @@ mod tests {
         assert!(engine.frame().is_empty());
         assert_eq!(engine.slots.len(), 4096);
         assert_eq!(engine.settle_time(), None);
+        // A settled slot is its target alone.
+        assert!(engine.slots.values().all(|slot| slot.live.is_none()));
+        assert_eq!(std::mem::size_of::<Slot>(), 40);
 
         engine
             .set_transitions(
@@ -622,6 +688,7 @@ mod tests {
         assert_eq!(engine.running.len(), 1);
         engine.advance(engine.settle_time().unwrap()).unwrap();
         assert!(engine.running.is_empty());
+        assert!(engine.slots[&(7, Property::Opacity)].live.is_none());
         engine.observe(change(7, 1.0)).unwrap();
         assert_eq!(engine.running.len(), 1);
         engine.remove_property(7, Property::Opacity);
