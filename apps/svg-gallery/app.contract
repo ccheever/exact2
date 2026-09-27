@@ -15,6 +15,40 @@ style Tile
   flex-shrink=0
   background-color="#f8fafc"
 
+// Stage 2's keyframes: colour and transform motion, each fixture paused at a
+// fixed phase by a negative delay, so a screenshot needs no clock.
+keyframes shift
+  from fill="#ef4444"
+  to fill="#2563eb"
+
+keyframes ink
+  from stroke="#16a34a"
+  to stroke="#f59e0b"
+
+keyframes fadeTo
+  from fill="#ef4444"
+  to fill="rgba(37, 99, 235, 0.2)"
+
+keyframes glow
+  from background-color="#16a34a"
+  to background-color="#000000"
+
+keyframes flash
+  from color="#16a34a"
+  to color="#000000"
+
+keyframes spin
+  from rotate=0
+  to rotate=90
+
+keyframes march
+  from stroke-dashoffset=0
+  to stroke-dashoffset=12
+
+keyframes tint
+  from color="#0891b2"
+  to color="#be185d"
+
 style Warm
   fill="#f97316"
   stroke="#7c2d12"
@@ -24,15 +58,21 @@ component Gallery
   state page = 1
   action one writes page
     page = 1
+  action two writes page
+    page = 2
   view
     main testId="gallery" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#0f172a" font-family="system-ui"
       row flex-shrink=0 align-items="center" gap=8 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8
         text "SVG" flex=1 font-size=17 font-weight=600
         button press=one testId="page-1" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 1 ? "#e2e8f0" : "#f8fafc")
           text "1" font-size=13
+        button press=two testId="page-2" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 2 ? "#e2e8f0" : "#f8fafc")
+          text "2" font-size=13
       row flex-wrap="wrap" gap=8 padding-left=12 padding-right=12
         when page == 1
           StageOne()
+        when page == 2
+          StageTwo()
 
 // Stage 1: geometry, units, transforms, nested viewports, classes.
 component StageOne
@@ -92,3 +132,24 @@ component StageOne
     svg testId="fx-ratio" width=120 flex-shrink=0 background-color="#f8fafc" viewBox="0 0 40 20"
       rect width=40 height=20 fill="#fde68a"
       circle cx=20 cy=10 r=8 fill="#d97706"
+
+// Stage 2: colour and transform motion, paused mid-flight.
+component StageTwo
+  view
+    // A fill and a stroke colour between opaque colours (Core Animation on
+    // Apple), and a fill toward a translucent one (sampled there).
+    svg testId="fx-color" class=Tile viewBox="0 0 120 80"
+      rect x=8 y=8 width=48 height=30 animation="shift 1s linear -500ms paused"
+      polyline points="64,34 80,10 96,30 112,8" fill="none" stroke-width=4 animation="ink 1s linear -250ms paused"
+      rect x=8 y=44 width=48 height=30 animation="fadeTo 1s linear -500ms paused"
+      circle cx=88 cy=60 r=14 fill="#ef4444" animation="shift 1s ease -750ms paused"
+    // A box's background and a text's colour (the price flash).
+    column testId="fx-boxcolor" class=Tile align-items="center" justify-content="center" gap=6 animation="glow 400ms ease -100ms paused"
+      text "$1,234.56" font-size=16 font-weight=600 animation="flash 400ms ease -200ms paused"
+    // A spin about the fill box's centre, and a group whose `color` and
+    // dash offset move while its children inherit them.
+    svg testId="fx-spin" class=Tile viewBox="0 0 120 80"
+      rect x=20 y=20 width=40 height=40 fill="#0ea5e9" transform-box="fill-box" transform-origin="center" animation="spin 1s linear -500ms paused"
+      g color="#0891b2" fill="currentcolor" stroke="#0f172a" stroke-width=2 stroke-dasharray="4 4" animation="tint 1s linear -500ms paused, march 1s linear -500ms paused"
+        circle cx=90 cy=24 r=12
+        line x1=70 y1=60 x2=112 y2=60
