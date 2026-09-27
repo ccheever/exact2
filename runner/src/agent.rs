@@ -383,8 +383,9 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
             num(node.content.1 as f64)
         );
     }
-    // LLP 1056 §5: a 2D canvas's last list, readable, in development builds.
-    if cfg!(debug_assertions) {
+    // LLP 1056 §5: a 2D canvas's last list, readable (bounded: 200 lines,
+    // 16 KiB), wherever inspection is linked.
+    {
         if let Some(lines) = runner.canvas_describe(id) {
             s.push_str(",\"canvasList\":[");
             for (i, line) in lines.iter().enumerate() {

@@ -611,6 +611,32 @@ The line counts are estimates. The protocol (D4) is most of the new work.
 
 The gallery, the sparkline mode and the smoke mode are apparatus. Charlie approved them on 2026-09-27 (§0.1, §10 Q3), which is the human approval `rules/RULES.md` §Agents requires.
 
+## 8.1 Stage 1 as built (2026-09-27, `feat/canvas2d-stage1`)
+
+What stage 1 ships, and where it differs from the text above. `QUEUE.md` lists what it still owes.
+
+- **`exact-canvas`** (`canvas/`): the Rust recorder `Context2d` with web-sys's names; the list (`list.rs`: little-endian, 8-byte aligned, sealed at 1 MiB, never refused); CSS Color 4's sRGB forms with Chrome's 8-bit alpha; f64 geometry. The recorder resolves `arc`, `arcTo`, `ellipse`, `rect` and `roundRect` into canvas-space segments (§1, as built), so every replayer draws the same segments.
+- **The rules, and the TypeScript recorder.** `canvas/tests/cases.txt` holds the rules as calls, getters and throws. Headless Chrome agrees with all 14 cases (`bun canvas/tests/cases.mjs --chrome`). The Rust recorder passes them in `cargo test`, and so does `canvas/recorder.js`, the TypeScript recorder (`bun test`). `cases.rs` compares the two recorders' lists record by record. The TypeScript recorder is a hand port held to the Rust one by that comparison, not generated from a rule table as D3 says.
+- **The seam.** The data module is reached through `DataSource`, not an `exact_canvas::Surfaces` trait: `canvas_surfaces()` (the roster, known before any app code runs), `draw_2d()` for a Rust crate, `draw()` for an executor with its own recorders, and `canvases_retired()`. Every forwarding source forwards them. A module that exports `draw` and `surfaces` speaks ABI 2. The bake bundles the recorder only into such a module and records its roster beside the bytecode (`CANVAS_SURFACES`). A TypeScript draw's reply crosses as JSON with base64 lists (`exact_canvas::seam`); the byte result is owed.
+- **The protocol** (`runner/src/runner/canvas2d.rs`): as D4 says, with these differences:
+  - A Rust source is active at boot, so its canvases draw in the first frame natively (Caltrain's map does). A TypeScript module's canvases wait for activation.
+  - On the web, the module realm draws synchronously in the turn, because a draw awaits nothing.
+  - Worker-placed and replaced Rust modules report that they do not draw yet.
+  - `state.canvas` is as §5 says. `layout <node>`'s `canvasList` is there wherever inspection is linked, not only in development builds; it is bounded as §5 says.
+  - `clock` draws the canvases that asked for a frame at the landed time.
+- **Hosts.**
+  - Linux replays into tiny-skia under both painters. `clearRect` is a destination-out fill, because tiny-skia's `Clear` ignores the mask.
+  - Apple replays into Core Graphics on the main thread. A 2D canvas is a plain view (kind `canvas2d`: no Metal view, no overlay, as D10 wants for pooling). The bitmap is a sublayer masked to the content edge's curve. Lists cross the batch as base64, where D7 asks for a typed buffer (owed).
+  - The web replays into the element's own context. A `ResizeObserver` reports the content box and a `matchMedia` watch the scale.
+- **Explicit bitmaps** (D6, r3): the `bitmap-width` and `bitmap-height` props (schema 133, 134).
+- **Caltrain.** The line map is `caltrain_data::map`. `map.wgsl`, the `map` surface and its tests are gone.
+- **Parity** (`bun scripts/smoke.mjs canvas`, all four hosts, one revision). The gallery has 70 crops a host: 16 fixtures on white and black, and page 3's five sequences at four steps. Every crop is within §4's bands, which hold as the measured bands. Mean |Δ| per crop (/255) and pixels off by more than 32:
+  - **The API oracle.** The web's recorded path against `direct.html` (the fixtures on Chrome's own context, no recorder or glue): mean 0.20, worst 1.66; pixels off 0.21% mean, 1.11% worst.
+  - **Linux against the web**, cpu and gpu painters alike: mean 0.17, worst 0.81; pixels off 0.20% mean, 2.19% worst. At native resolution (1×) against `direct.html`: worst 1.17.
+  - **macOS against the web:** mean 0.31, worst 2.10; pixels off 2.37% worst. At native resolution (2×): mean 0.28, worst 1.82.
+  - **iOS against the web:** mean 0.18, worst 1.07; pixels off 2.35% worst. At native resolution (3×): mean 0.11, worst 2.23.
+  - **Caltrain's line map**, the strip no child covers, with the sky off: Linux 0.25 (cpu) and 0.31 (gpu), macOS 0.26, iOS 0.23.
+
 ## 9. `rules/NOT-DOING.md`: the admission
 
 Admitted by Charlie on 2026-09-27 (§0.1). The text below is in §Components, after the SVG entry:
