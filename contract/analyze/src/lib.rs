@@ -379,6 +379,21 @@ fn check_mutation_then(c: &Component) -> Result<(), AnalyzeError> {
                 *span,
             );
         }
+        let mut writes = Vec::new();
+        writes_of(&a.body, &mut writes);
+        if let Some((_, send, _)) = writes
+            .into_iter()
+            .find(|(target, _, kind)| **target == m.name && *kind == "sends")
+        {
+            return err(
+                "analyze-then-self-send",
+                format!(
+                    "`{}` cannot send `{}`: it runs when that mutation answers",
+                    a.name, m.name
+                ),
+                *send,
+            );
+        }
     }
     Ok(())
 }

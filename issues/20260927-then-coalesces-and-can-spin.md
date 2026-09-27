@@ -1,6 +1,6 @@
 # `mutation … then action` runs once for several answers, and a `then` that re-sends its own mutation spins the host at the fire limit
 
-**Status:** Open
+**Status:** Partly fixed: the analyzer refuses a `then` action that sends its own mutation, including sends in branches; compiler/runner regressions pass. Remaining: Charlie must choose per-answer completion delivery or coalescing against the latest answer.
 **Systems:** Runner (`runner/src/runner/commit.rs`, `runner/src/runner.rs`), Contract analyzer
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -16,5 +16,15 @@
 **Fix:**
 - Rule on the semantics: either carry each completion (with its answer) in a queue, or amend the LLP to a coalesced reaction to the latest value.
 - Have the analyzer refuse a `then` action that can send its own mutation, or have the runner not re-arm a `then` inside the commit its own action caused.
+
+Implemented in `contract/analyze/src/lib.rs`: `analyze-then-self-send` names the
+offending send, including inside `if` and `match`. Assigning `none` remains legal.
+`contract/cli/tests/it/mutation.rs` reproduced acceptance before the fix and now
+checks rejection. A separate runner test records the current behavior: two answers
+before `advance` still produce one `then` commit. No per-answer/latest ruling or
+LLP change is made here.
+
+Required verification passed: root build, tests (1,726 passed; 0 failed; 8 ignored),
+Clippy with warnings denied, formatting, staged caps, and boot.
 
 Found in the 2026-09-27 review of Seth's PR #47 (`seth/grnl-port-and-motion`, merge 240b418f), reviewed at `c74615a3`. Reviewers: Astra max (code and design), Opus 5.5 max. Verification: both reproduced with a runner probe. The design review also flagged that a dev reload drops an armed `then`; that is declared in LLP 1016.001 D3 and is not a bug.

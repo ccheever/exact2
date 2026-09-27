@@ -941,3 +941,37 @@ fn then_names_an_action_that_takes_nothing() {
         "analyze-handler-arity",
     );
 }
+
+#[test]
+fn then_cannot_send_its_own_mutation_even_in_a_branch() {
+    for body in [
+        "    send session = greet(who)",
+        "    if who == \"ada\"\n      send session = greet(who)",
+        "    match session\n      case some(s)\n        send session = greet(s.username)\n      case none\n        greeted = \"?\"",
+    ] {
+        let src = THEN.replace(
+            "action signedIn writes greeted, landings",
+            "action signedIn writes greeted, landings, session",
+        ).replace("    landings = landings + 1", body);
+        let error = contract::compile(&src).unwrap_err();
+        assert_eq!(error.id, "analyze-then-self-send");
+    }
+    // Clearing the answer is allowed; only sending can arm the action again.
+    let src = THEN
+        .replace(
+            "action signedIn writes greeted, landings",
+            "action signedIn writes greeted, landings, session",
+        )
+        .replace("    landings = landings + 1", "    session = none");
+    contract::compile(&src).unwrap();
+}
+
+#[test]
+fn two_answers_before_advance_currently_coalesce_into_one_then() {
+    let mut r = boot_then(false);
+    r.act("quick", vec![]).unwrap();
+    r.act("quick", vec![]).unwrap();
+    assert_eq!(r.advance(0.0).unwrap().len(), 1);
+    assert_eq!(text_of(&r, "greeted").as_deref(), Some("hello ada/1"));
+    assert_eq!(r.timer_due_ms(), None);
+}
