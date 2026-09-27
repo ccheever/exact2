@@ -16,12 +16,61 @@
 //! lifetime or generation is discarded whole.
 
 use super::{DataSource, Runner};
-use exact_canvas::{list, Causes, Context2d, Frame};
+use exact_canvas::{list, Causes, Context2d, Env, Frame, Images, Rgba, TextEngine};
 use exact_kernel::ViewId;
 use exact_plan::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+
+/// The image handles 2D canvases draw (LLP 1056 D9): decoded, broken, or
+/// requested of the host, and which canvases asked. A context reads it at
+/// the call ([`Images::size`]), so readiness is pinned per draw.
+#[derive(Default)]
+pub struct ImageTable {
+    inner: Mutex<ImageState>,
+}
+
+#[derive(Default)]
+struct ImageState {
+    ready: HashMap<String, (u32, u32)>,
+    broken: HashMap<String, String>,
+    /// Handles asked for, not yet answered by the host.
+    pending: Vec<String>,
+    /// Handles to hand the host at the next take.
+    requests: Vec<String>,
+    /// Which canvases (lifetimes) asked for each handle.
+    subscribers: HashMap<String, Vec<u64>>,
+}
+
+impl ImageTable {
+    fn state(&self) -> std::sync::MutexGuard<'_, ImageState> {
+        self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
+impl Images for ImageTable {
+    fn size(&self, canvas: u64, src: &str) -> Option<(u32, u32)> {
+        let mut s = self.state();
+        if let Some(size) = s.ready.get(src) {
+            return Some(*size);
+        }
+        let subs = s.subscribers.entry(src.to_string()).or_default();
+        if !subs.contains(&canvas) {
+            subs.push(canvas);
+        }
+        if !s.broken.contains_key(src) && !s.pending.iter().any(|p| p == src) {
+            s.pending.push(src.to_string());
+            s.requests.push(src.to_string());
+        }
+        None
+    }
+}
+
+/// A canvas node's CSS `color` (for `currentColor`) and whether its
+/// `direction` is `rtl` (for `direction = "inherit"`), LLP 1056 D3, D8.
+pub type NodeStyle<'a> = &'a dyn Fn(ViewId) -> (Option<Rgba>, bool);
 
 /// A canvas's content box in coordinate units and its device scale, as the
 /// host that lays it out reports it; `bitmap` is an explicit bitmap size
@@ -136,6 +185,10 @@ pub struct DrawRequest<'a> {
     pub names: &'a [String],
     /// What the draw is told.
     pub frame: Frame,
+    /// The canvas node's `color`, for `currentColor`.
+    pub current_color: Option<Rgba>,
+    /// The canvas node's `direction` is `rtl`.
+    pub rtl: bool,
 }
 
 impl DrawRequest<'_> {
@@ -185,6 +238,18 @@ impl DrawRequest<'_> {
             f.pixel_height,
             crate::agent::num(f.scale)
         );
+        s.pop();
+        if let Some(c) = self.current_color {
+            let _ = write!(
+                s,
+                ",\"currentColor\":[{},{},{},{}]",
+                c.r,
+                c.g,
+                c.b,
+                crate::agent::num(c.a)
+            );
+        }
+        let _ = write!(s, ",\"rtl\":{}}}", self.rtl);
         s
     }
 }
@@ -288,6 +353,8 @@ struct Record {
     /// The clock value it was last drawn at for a frame (D5: at most once
     /// per clock value).
     framed_at: Option<f64>,
+    /// Its last draw drew text: a font that loads redraws it (D8).
+    text: bool,
 }
 
 /// Every 2D canvas the runner draws.
@@ -299,6 +366,8 @@ struct Canvases {
     out: Vec<CanvasList>,
     retired: Vec<(u64, u32)>,
     notes: Vec<String>,
+    text: Option<Arc<dyn TextEngine>>,
+    images: Arc<ImageTable>,
 }
 
 /// Lists waiting for the host beyond this hold new draws back (LLP 1056 D4).
@@ -333,11 +402,13 @@ pub trait CanvasEngine {
     /// since the last take, for the source.
     fn take_retired(&mut self, alive: &dyn Fn(ViewId) -> bool) -> Vec<(u64, u32)>;
     /// [`Runner::draw_canvases`]: every due draw, through `draw`.
+    #[allow(clippy::too_many_arguments)]
     fn draw(
         &mut self,
         ready: bool,
         now: f64,
         on_screen: &dyn Fn(ViewId) -> bool,
+        style: NodeStyle<'_>,
         draw: &mut dyn FnMut(&DrawRequest<'_>, &Context2d) -> Drawn,
         log: &mut dyn FnMut(String),
     );
@@ -359,6 +430,16 @@ pub trait CanvasEngine {
     fn state(&self, s: &mut String);
     /// [`Runner::canvas_describe`].
     fn describe(&self, view: ViewId) -> Option<Vec<String>>;
+    /// [`Runner::set_canvas_text`].
+    fn set_text(&mut self, engine: Arc<dyn TextEngine>);
+    /// [`Runner::take_canvas_image_requests`].
+    fn take_image_requests(&mut self) -> Vec<String>;
+    /// [`Runner::canvas_images_pending`].
+    fn images_pending(&self) -> bool;
+    /// [`Runner::canvas_image`].
+    fn image(&mut self, src: &str, result: Result<(u32, u32), String>, also: &[u64]);
+    /// [`Runner::canvas_fonts_loaded`].
+    fn fonts_loaded(&mut self);
 }
 
 /// A Canvas 2D engine: what [`crate::RunnerLinks::canvas`] names.
@@ -437,6 +518,7 @@ impl CanvasEngine for Canvases {
                             last_draw: None,
                             draws: 0,
                             framed_at: None,
+                            text: false,
                         },
                     );
                 }
@@ -546,6 +628,7 @@ impl CanvasEngine for Canvases {
         ready: bool,
         now: f64,
         on_screen: &dyn Fn(ViewId) -> bool,
+        style: NodeStyle<'_>,
         draw: &mut dyn FnMut(&DrawRequest<'_>, &Context2d) -> Drawn,
         log: &mut dyn FnMut(String),
     ) {
@@ -614,6 +697,14 @@ impl CanvasEngine for Canvases {
                 r.names.clone(),
                 r.ctx.clone(),
             );
+            let (current_color, rtl) = style(view);
+            ctx.set_env(Env {
+                canvas: lifetime,
+                text: self.text.clone(),
+                images: Some(self.images.clone() as Arc<dyn Images>),
+                current_color,
+                rtl,
+            });
             let request = DrawRequest {
                 canvas: lifetime,
                 generation,
@@ -622,6 +713,8 @@ impl CanvasEngine for Canvases {
                 args: &args,
                 names: &names,
                 frame,
+                current_color,
+                rtl,
             };
             match draw(&request, &ctx) {
                 Drawn::Now(reply) => {
@@ -678,6 +771,12 @@ impl CanvasEngine for Canvases {
             }
         }
         r.gradients = gradients;
+        r.text = reply.lists.iter().any(|l| {
+            list::records(l).is_ok_and(|recs| {
+                recs.iter()
+                    .any(|x| matches!(x.op, list::Op::FillText | list::Op::StrokeText))
+            })
+        });
         r.applied_seq = seq;
         r.draws += 1;
         r.last_draw = Some(now);
@@ -775,6 +874,28 @@ impl CanvasEngine for Canvases {
                 }
                 None => s.push_str("null"),
             }
+            let broken: Vec<String> = {
+                let images = self.images.state();
+                images
+                    .broken
+                    .iter()
+                    .filter(|(src, _)| {
+                        images
+                            .subscribers
+                            .get(*src)
+                            .is_some_and(|l| l.contains(&r.lifetime))
+                    })
+                    .map(|(src, why)| format!("{src}: {why}"))
+                    .collect()
+            };
+            s.push_str(",\"brokenImages\":[");
+            for (i, b) in broken.iter().enumerate() {
+                if i > 0 {
+                    s.push(',');
+                }
+                crate::agent::quote(b, s);
+            }
+            s.push(']');
             for (key, v) in [("error", &r.error), ("refused", &r.refused)] {
                 let _ = write!(s, ",\"{key}\":");
                 match v {
@@ -793,6 +914,58 @@ impl CanvasEngine for Canvases {
             return Some(Vec::new());
         }
         Some(list::describe(&r.last_list, 200, 16 * 1024))
+    }
+
+    fn set_text(&mut self, engine: Arc<dyn TextEngine>) {
+        self.text = Some(engine);
+    }
+
+    fn take_image_requests(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.images.state().requests)
+    }
+
+    fn images_pending(&self) -> bool {
+        !self.images.state().pending.is_empty()
+    }
+
+    fn image(&mut self, src: &str, result: Result<(u32, u32), String>, also: &[u64]) {
+        let subscribers = {
+            let mut s = self.images.state();
+            s.pending.retain(|p| p != src);
+            match result {
+                Ok(size) if size.0 > 0 && size.1 > 0 => {
+                    s.broken.remove(src);
+                    s.ready.insert(src.to_string(), size);
+                }
+                Ok(_) => {
+                    s.broken
+                        .insert(src.to_string(), "the image is zero-sized".into());
+                }
+                Err(why) => {
+                    s.broken.insert(src.to_string(), why);
+                }
+            }
+            let subs = s.subscribers.entry(src.to_string()).or_default();
+            for l in also {
+                if !subs.contains(l) {
+                    subs.push(*l);
+                }
+            }
+            subs.clone()
+        };
+        for r in self.records.values_mut() {
+            if subscribers.contains(&r.lifetime) {
+                r.causes = r.causes.with(Causes::IMAGE);
+            }
+        }
+    }
+
+    fn fonts_loaded(&mut self) {
+        for r in self.records.values_mut() {
+            if r.text {
+                r.causes = r.causes.with(Causes::FONT);
+            }
+        }
     }
 }
 
@@ -914,10 +1087,12 @@ impl<D: DataSource> Runner<D> {
         let now = self.now_ms;
         let data = &mut self.data;
         let mut lines = Vec::new();
+        let style = |view: ViewId| canvas_node_style(kernel, view);
         c.draw(
             ready,
             now,
             on_screen,
+            &style,
             &mut |request, ctx| data.draw(request, ctx),
             &mut |line| lines.push(line),
         );
@@ -976,4 +1151,69 @@ impl<D: DataSource> Runner<D> {
     pub fn canvas_describe(&self, view: ViewId) -> Option<Vec<String>> {
         self.canvases.as_ref()?.describe(view)
     }
+
+    /// The host's text engine for Canvas 2D, callable on the executor's
+    /// thread (LLP 1056 D8). Without one, text is measured by
+    /// [`exact_canvas::font::Estimate`].
+    pub fn set_canvas_text(&mut self, engine: Arc<dyn TextEngine>) {
+        if let Some(c) = self.canvases.as_mut() {
+            c.set_text(engine);
+        }
+    }
+
+    /// The image handles a draw asked for since the last take: the host
+    /// decodes each and answers [`Runner::canvas_image`] (LLP 1056 D9).
+    pub fn take_canvas_image_requests(&mut self) -> Vec<String> {
+        self.canvases
+            .as_mut()
+            .map_or_else(Vec::new, |c| c.take_image_requests())
+    }
+
+    /// Whether any requested image is still unanswered.
+    pub fn canvas_images_pending(&self) -> bool {
+        self.canvases.as_ref().is_some_and(|c| c.images_pending())
+    }
+
+    /// The host decoded `src` (`Ok` with its natural size in pixels) or
+    /// could not (`Err` with why). Every canvas that asked for it, and
+    /// `also` (lifetimes the host knows asked, on the web), draws again with
+    /// cause `"image"`; a broken image draws nothing and `state` names it.
+    pub fn canvas_image(&mut self, src: &str, result: Result<(u32, u32), String>, also: &[u64]) {
+        if let Some(c) = self.canvases.as_mut() {
+            c.image(src, result, also);
+        }
+    }
+
+    /// A font finished loading (the web, LLP 1056 D8): every canvas whose
+    /// last draw drew text draws again with cause `"font"`.
+    pub fn canvas_fonts_loaded(&mut self) {
+        if let Some(c) = self.canvases.as_mut() {
+            c.fonts_loaded();
+        }
+    }
+}
+
+/// A canvas's node `color` and `direction` (LLP 1056 D3, D8):
+/// `currentColor` and `direction = "inherit"` resolve to them.
+fn canvas_node_style(kernel: &exact_kernel::Kernel, view: ViewId) -> (Option<Rgba>, bool) {
+    let Some(node) = kernel.node(view) else {
+        return (None, false);
+    };
+    let c = match node.text_color() {
+        exact_kernel::ColorValue::Fixed(c) | exact_kernel::ColorValue::LightDark(c, _) => c.0,
+    };
+    let [r, g, b, a] = c.to_be_bytes();
+    let rtl = node
+        .computed_style(exact_kernel::StyleMask::INHERITED)
+        .direction
+        == exact_kernel::Direction::Rtl;
+    (
+        Some(Rgba {
+            r,
+            g,
+            b,
+            a: a as f64 / 255.0,
+        }),
+        rtl,
+    )
 }

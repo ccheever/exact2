@@ -29,6 +29,8 @@ const SOURCE: &str = "component App
 struct Log {
     frames: Vec<Frame>,
     later: bool,
+    /// Draw images and text instead.
+    pictures: bool,
     parked: Vec<(u64, u32, u64)>,
     retired: Vec<(u64, u32)>,
 }
@@ -55,6 +57,12 @@ impl DataSource for Spark {
             Value::Number(n) => n,
             _ => panic!(),
         };
+        if self.0.borrow().pictures {
+            ctx.draw_image_with_image_handle("photo.png", 0.0, 0.0)?;
+            ctx.draw_image_with_image_handle("gone.png", 0.0, 0.0)?;
+            ctx.fill_text("hi", 1.0, 9.0)?;
+            return Ok(false);
+        }
         ctx.translate(1.0, 0.0)?;
         ctx.fill_rect(0.0, 0.0, n, n);
         if n == 3.0 {
@@ -253,4 +261,37 @@ fn sizes_past_the_limits_are_refused_through_state() {
     assert!(agent::state(&r).contains("MiB budget"));
     r.set_canvas_geometry(view, geometry(9000.0, 9000.0, 1.0));
     assert!(agent::state(&r).contains("area limit"));
+}
+
+#[test]
+fn an_image_a_draw_asks_for_redraws_it_when_it_decodes() {
+    let (mut r, log) = boot();
+    log.borrow_mut().pictures = true;
+    let view = r.canvas_views()[0];
+    r.set_canvas_geometry(view, geometry(10.0, 10.0, 1.0));
+    r.draw_canvases(&|_| true);
+    let lists = r.take_canvas_lists();
+    assert_eq!(
+        ops(&lists[1].lists[0]),
+        ["Font", "FillText"],
+        "no image yet"
+    );
+    let mut asked = r.take_canvas_image_requests();
+    asked.sort();
+    assert_eq!(asked, ["gone.png", "photo.png"]);
+    assert!(r.canvas_images_pending());
+    r.canvas_image("photo.png", Ok((4, 2)), &[]);
+    r.canvas_image("gone.png", Err("404".into()), &[]);
+    assert!(!r.canvas_images_pending());
+    r.draw_canvases(&|_| true);
+    let lists = r.take_canvas_lists();
+    assert_eq!(ops(&lists[0].lists[0]), ["Image", "DrawImage", "FillText"]);
+    assert_eq!(log.borrow().frames.last().unwrap().cause.primary(), "image");
+    assert!(r.take_canvas_image_requests().is_empty(), "asked once");
+    assert!(agent::state(&r).contains("gone.png: 404"));
+    // A font that loads redraws a canvas that drew text.
+    r.canvas_fonts_loaded();
+    r.draw_canvases(&|_| true);
+    assert_eq!(r.take_canvas_lists().len(), 1);
+    assert_eq!(log.borrow().frames.last().unwrap().cause.primary(), "font");
 }
