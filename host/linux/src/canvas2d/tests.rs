@@ -11,7 +11,7 @@ impl Images for Tile {
 fn replay(w: u32, h: u32, scale: f64, draw: impl Fn(&Context2d)) -> Pixmap {
     let ctx = Context2d::new();
     ctx.set_env(CanvasEnv {
-        images: Some(Arc::new(Tile)),
+        images: Arc::new(std::sync::Mutex::new(Some(Arc::new(Tile)))),
         ..Default::default()
     });
     draw(&ctx);

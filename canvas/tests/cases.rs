@@ -341,6 +341,7 @@ fn rust_lists(text: &str) -> Vec<(String, Vec<Vec<u8>>)> {
 /// 1e-9 (the two languages' `sin`/`cos` may differ in the last bit).
 #[test]
 fn the_typescript_recorder_writes_the_rust_recorders_lists() {
+    exact_canvas::color::link_wide();
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
     let out = std::process::Command::new(std::env::var("BUN").unwrap_or_else(|_| "bun".into()))
         .arg(dir.join("cases.mjs"))
@@ -408,6 +409,7 @@ fn the_typescript_recorder_writes_the_rust_recorders_lists() {
 
 #[test]
 fn the_shared_cases_hold_for_the_rust_recorder() {
+    exact_canvas::color::link_wide();
     let text = include_str!("cases.txt");
     let mut failures = Vec::new();
     let mut ctx = Context2d::new();

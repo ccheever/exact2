@@ -104,7 +104,7 @@ pub fn parse(input: &str) -> Option<Parsed> {
     if let Some(open) = s.find('(') {
         let name = s[..open].trim();
         let body = s[open + 1..].strip_suffix(')')?;
-        if let Some(wide) = wide(name, body) {
+        if let Some(wide) = WIDE.get().and_then(|f| f(name, body)) {
             return Some(wide);
         }
         return functional(name, body).map(Parsed::Color);
@@ -315,6 +315,18 @@ snow fffafa springgreen 00ff7f steelblue 4682b4 tan d2b48c teal 008080 thistle d
 tomato ff6347 turquoise 40e0d0 violet ee82ee wheat f5deb3 white ffffff whitesmoke f5f5f5 \
 yellow ffff00 yellowgreen 9acd32";
 
+/// The wide forms' parser, once linked ([`link_wide`]).
+static WIDE: std::sync::OnceLock<fn(&str, &str) -> Option<Parsed>> = std::sync::OnceLock::new();
+
+/// Link the wide forms (`lab()`, `lch()`, `oklab()`, `oklch()`,
+/// `color()`): until a host calls this, they do not parse and their
+/// assignments are ignored. Native hosts link them at start; a web artifact
+/// links them when its data crate's source names one (LLP 1047 D2: linked
+/// by use; the web core's budget).
+pub fn link_wide() {
+    let _ = WIDE.set(wide);
+}
+
 /// The wide forms: modern syntax only, three components and an alpha.
 fn wide(name: &str, body: &str) -> Option<Parsed> {
     let (space, body) = if name == "color" {
@@ -517,6 +529,7 @@ mod tests {
     use super::*;
 
     fn c(s: &str) -> String {
+        link_wide();
         match parse(s) {
             Some(Parsed::Color(c)) => c.serialize(),
             Some(Parsed::Wide(c, text)) => format!("{text} {}", c.serialize()),

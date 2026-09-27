@@ -352,7 +352,8 @@ fn canvas_measure(
 fn canvas_image(env: Option<&exact_runner::exact_canvas::Env>, json: &str) -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(json).ok()?;
     let env = env?;
-    let (w, h) = env.images.as_ref()?.size(env.canvas, v["src"].as_str()?)?;
+    let (w, h) =
+        exact_runner::exact_canvas::images_in(&env.images).size(env.canvas, v["src"].as_str()?)?;
     Some(format!("[{w},{h}]"))
 }
 

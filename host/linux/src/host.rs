@@ -278,6 +278,8 @@ impl<D: DataSource> Host<D> {
                 ));
                 self.canvas2d.text = Some(text.clone());
                 self.runner.set_canvas_text(text);
+                // Native hosts parse the wide colour forms (LLP 1056 §8.2).
+                exact_runner::exact_canvas::color::link_wide();
             }
             self.runner.layout_canvases(scale);
             if frame {

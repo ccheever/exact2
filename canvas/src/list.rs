@@ -414,37 +414,30 @@ pub fn describe(bytes: &[u8], max_lines: usize, max_bytes: usize) -> Vec<String>
     let mut out = Vec::new();
     let mut used = 0;
     for (i, r) in recs.iter().enumerate() {
-        let line = match r.op {
-            Op::Composite => format!(
-                "Composite {}",
-                crate::COMPOSITE.get(r.at(0) as usize).unwrap_or(&"?")
-            ),
-            Op::Font => format!(
-                "Font {} {}",
-                r.operands().take(9).map(trim).collect::<Vec<_>>().join(" "),
-                text_at(r, 9)
-            ),
-            Op::FillText | Op::StrokeText => format!(
-                "{} {} {:?}",
-                r.op.name(),
-                r.operands().take(4).map(trim).collect::<Vec<_>>().join(" "),
-                text_at(r, 4)
-            ),
-            Op::Image => format!("Image {} {:?}", trim(r.at(0)), text_at(r, 1)),
-            Op::PutImageData => format!(
-                "PutImageData {} ({} pixels)",
-                r.operands().take(4).map(trim).collect::<Vec<_>>().join(" "),
-                r.len().saturating_sub(4)
-            ),
-            _ => {
-                let args: Vec<String> = r.operands().map(trim).collect();
-                if args.is_empty() {
-                    r.op.name().to_string()
-                } else {
-                    format!("{} {}", r.op.name(), args.join(" "))
-                }
-            }
+        // Numbers first; a record that ends in text (a font's families, a
+        // run, an image's source) or pixels shows those as text or a count.
+        let (numbers, tail) = match r.op {
+            Op::Font => (9, 1),
+            Op::FillText | Op::StrokeText => (4, 1),
+            Op::Image => (1, 1),
+            Op::PutImageData => (4, 2),
+            _ => (r.len(), 0),
         };
+        let mut line = r.op.name().to_string();
+        if r.op == Op::Composite {
+            line.push(' ');
+            line.push_str(crate::COMPOSITE.get(r.at(0) as usize).unwrap_or(&"?"));
+        } else {
+            for v in r.operands().take(numbers) {
+                line.push(' ');
+                line.push_str(&trim(v));
+            }
+        }
+        match tail {
+            1 => line.push_str(&format!(" {:?}", text_at(r, numbers))),
+            2 => line.push_str(&format!(" ({} pixels)", r.len().saturating_sub(numbers))),
+            _ => {}
+        }
         if out.len() + 1 >= max_lines || used + line.len() > max_bytes {
             out.push(format!("… {} more", recs.len() - i));
             break;

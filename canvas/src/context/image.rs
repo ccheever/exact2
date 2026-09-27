@@ -13,13 +13,141 @@ use crate::geom::Matrix;
 use crate::list::{text_operands, Op};
 use std::sync::{Arc, Mutex};
 
-/// The decoded image handles a context can draw (the runner's table).
+/// The decoded image handles a context can draw. [`ImageTable`] is the one
+/// the runner keeps; a test may put its own in an [`ImageSlot`].
 pub trait Images: Send + Sync {
     /// The natural size of `src`, in image pixels, when it is decoded and
     /// drawable; `None` while it is not (not yet decoded, broken, or
     /// zero-sized). Asking for one the host has not seen requests it for
     /// canvas `canvas`, which is drawn again when it decodes.
     fn size(&self, canvas: u64, src: &str) -> Option<(u32, u32)>;
+    /// The handles asked for since the last take, for the host to decode.
+    fn take_requests(&self) -> Vec<String> {
+        Vec::new()
+    }
+    /// Whether a requested handle is unanswered.
+    fn pending(&self) -> bool {
+        false
+    }
+    /// The host's answer for `src`; returns the canvases (lifetimes) that
+    /// asked for it, with `also`.
+    fn answer(&self, src: &str, result: Result<(u32, u32), String>, also: &[u64]) -> Vec<u64> {
+        let _ = (src, result);
+        also.to_vec()
+    }
+    /// `src: why` for each broken handle canvas `canvas` asked for.
+    fn broken(&self, canvas: u64) -> Vec<String> {
+        let _ = canvas;
+        Vec::new()
+    }
+}
+
+/// Where a runner's image table lives. It is made by the first image call
+/// a draw makes ([`images_in`]), so an app whose canvases draw no image
+/// links none of it (LLP 1047 D2: linked by use).
+pub type ImageSlot = Arc<Mutex<Option<Arc<dyn Images>>>>;
+
+/// The table in `slot`, made on first use.
+pub fn images_in(slot: &ImageSlot) -> Arc<dyn Images> {
+    let mut s = slot.lock().unwrap_or_else(|e| e.into_inner());
+    s.get_or_insert_with(|| Arc::new(ImageTable::default()))
+        .clone()
+}
+
+/// The image handles 2D canvases draw (LLP 1056 D9): decoded, broken, or
+/// requested of the host, and which canvases asked. A context reads it at
+/// the call, so readiness is pinned per draw.
+#[derive(Default)]
+pub struct ImageTable {
+    inner: Mutex<ImageState>,
+}
+
+#[derive(Default)]
+struct ImageState {
+    ready: Vec<(String, (u32, u32))>,
+    broken: Vec<(String, String)>,
+    pending: Vec<String>,
+    requests: Vec<String>,
+    subscribers: Vec<(String, Vec<u64>)>,
+}
+
+impl ImageState {
+    fn subscribers(&mut self, src: &str) -> &mut Vec<u64> {
+        let i = match self.subscribers.iter().position(|(s, _)| s == src) {
+            Some(i) => i,
+            None => {
+                self.subscribers.push((src.to_string(), Vec::new()));
+                self.subscribers.len() - 1
+            }
+        };
+        &mut self.subscribers[i].1
+    }
+}
+
+impl ImageTable {
+    fn state(&self) -> std::sync::MutexGuard<'_, ImageState> {
+        self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
+impl Images for ImageTable {
+    fn size(&self, canvas: u64, src: &str) -> Option<(u32, u32)> {
+        let mut s = self.state();
+        if let Some((_, size)) = s.ready.iter().find(|(r, _)| r == src) {
+            return Some(*size);
+        }
+        let subs = s.subscribers(src);
+        if !subs.contains(&canvas) {
+            subs.push(canvas);
+        }
+        if !s.broken.iter().any(|(b, _)| b == src) && !s.pending.iter().any(|p| p == src) {
+            s.pending.push(src.to_string());
+            s.requests.push(src.to_string());
+        }
+        None
+    }
+
+    fn take_requests(&self) -> Vec<String> {
+        std::mem::take(&mut self.state().requests)
+    }
+
+    fn pending(&self) -> bool {
+        !self.state().pending.is_empty()
+    }
+
+    fn answer(&self, src: &str, result: Result<(u32, u32), String>, also: &[u64]) -> Vec<u64> {
+        let mut s = self.state();
+        s.pending.retain(|p| p != src);
+        s.ready.retain(|(r, _)| r != src);
+        s.broken.retain(|(b, _)| b != src);
+        match result {
+            Ok(size) if size.0 > 0 && size.1 > 0 => s.ready.push((src.to_string(), size)),
+            Ok(_) => s
+                .broken
+                .push((src.to_string(), "the image is zero-sized".into())),
+            Err(why) => s.broken.push((src.to_string(), why)),
+        }
+        let subs = s.subscribers(src);
+        for l in also {
+            if !subs.contains(l) {
+                subs.push(*l);
+            }
+        }
+        subs.clone()
+    }
+
+    fn broken(&self, canvas: u64) -> Vec<String> {
+        let s = self.state();
+        s.broken
+            .iter()
+            .filter(|(src, _)| {
+                s.subscribers
+                    .iter()
+                    .any(|(x, l)| x == src && l.contains(&canvas))
+            })
+            .map(|(src, why)| format!("{src}: {why}"))
+            .collect()
+    }
 }
 
 /// `ImageData`: raw RGBA pixels, non-premultiplied, sRGB.
@@ -134,9 +262,7 @@ impl CanvasPattern {
 impl Inner {
     /// The natural size of a handle this draw may use.
     fn image_size(&self, src: &str) -> Option<(u32, u32)> {
-        self.env
-            .images
-            .as_ref()?
+        images_in(&self.env.images)
             .size(self.env.canvas, src)
             .filter(|(w, h)| *w > 0 && *h > 0)
     }

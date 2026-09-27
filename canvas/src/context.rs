@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 mod image;
 #[path = "context/text.rs"]
 mod text;
-pub use image::{CanvasPattern, ImageData, Images};
+pub use image::{images_in, CanvasPattern, ImageData, ImageSlot, ImageTable, Images};
 
 /// A thrown `DOMException` (or `TypeError`, by name).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -97,8 +97,8 @@ pub struct Env {
     pub canvas: u64,
     /// The host's text engine, callable on this thread.
     pub text: Option<Arc<dyn TextEngine>>,
-    /// The decoded image handles.
-    pub images: Option<Arc<dyn Images>>,
+    /// The runner's image table, made by the first image call.
+    pub images: ImageSlot,
     /// The canvas node's CSS `color`: what `currentColor` resolves to.
     pub current_color: Option<Rgba>,
     /// The canvas node's CSS `direction` is `rtl`: what `direction =

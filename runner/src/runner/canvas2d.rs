@@ -16,57 +16,13 @@
 //! lifetime or generation is discarded whole.
 
 use super::{DataSource, Runner};
-use exact_canvas::{list, Causes, Context2d, Env, Frame, Images, Rgba, TextEngine};
+use exact_canvas::{list, Causes, Context2d, Env, Frame, ImageSlot, Images, Rgba, TextEngine};
 use exact_kernel::ViewId;
 use exact_plan::Value;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
-
-/// The image handles 2D canvases draw (LLP 1056 D9): decoded, broken, or
-/// requested of the host, and which canvases asked. A context reads it at
-/// the call ([`Images::size`]), so readiness is pinned per draw.
-#[derive(Default)]
-pub struct ImageTable {
-    inner: Mutex<ImageState>,
-}
-
-#[derive(Default)]
-struct ImageState {
-    ready: HashMap<String, (u32, u32)>,
-    broken: HashMap<String, String>,
-    /// Handles asked for, not yet answered by the host.
-    pending: Vec<String>,
-    /// Handles to hand the host at the next take.
-    requests: Vec<String>,
-    /// Which canvases (lifetimes) asked for each handle.
-    subscribers: HashMap<String, Vec<u64>>,
-}
-
-impl ImageTable {
-    fn state(&self) -> std::sync::MutexGuard<'_, ImageState> {
-        self.inner.lock().unwrap_or_else(|e| e.into_inner())
-    }
-}
-
-impl Images for ImageTable {
-    fn size(&self, canvas: u64, src: &str) -> Option<(u32, u32)> {
-        let mut s = self.state();
-        if let Some(size) = s.ready.get(src) {
-            return Some(*size);
-        }
-        let subs = s.subscribers.entry(src.to_string()).or_default();
-        if !subs.contains(&canvas) {
-            subs.push(canvas);
-        }
-        if !s.broken.contains_key(src) && !s.pending.iter().any(|p| p == src) {
-            s.pending.push(src.to_string());
-            s.requests.push(src.to_string());
-        }
-        None
-    }
-}
+use std::sync::Arc;
 
 /// A canvas node's CSS `color` (for `currentColor`) and whether its
 /// `direction` is `rtl` (for `direction = "inherit"`), LLP 1056 D3, D8.
@@ -367,7 +323,7 @@ struct Canvases {
     retired: Vec<(u64, u32)>,
     notes: Vec<String>,
     text: Option<Arc<dyn TextEngine>>,
-    images: Arc<ImageTable>,
+    images: ImageSlot,
 }
 
 /// Lists waiting for the host beyond this hold new draws back (LLP 1056 D4).
@@ -448,6 +404,14 @@ pub fn engine() -> Box<dyn CanvasEngine> {
 }
 
 impl Canvases {
+    /// The image table, if a draw has made one (it is linked by use).
+    fn table(&self) -> Option<Arc<dyn Images>> {
+        self.images
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
     fn prune(&mut self, alive: &dyn Fn(ViewId) -> bool) {
         let gone: Vec<ViewId> = self
             .records
@@ -701,7 +665,7 @@ impl CanvasEngine for Canvases {
             ctx.set_env(Env {
                 canvas: lifetime,
                 text: self.text.clone(),
-                images: Some(self.images.clone() as Arc<dyn Images>),
+                images: self.images.clone(),
                 current_color,
                 rtl,
             });
@@ -874,20 +838,7 @@ impl CanvasEngine for Canvases {
                 }
                 None => s.push_str("null"),
             }
-            let broken: Vec<String> = {
-                let images = self.images.state();
-                images
-                    .broken
-                    .iter()
-                    .filter(|(src, _)| {
-                        images
-                            .subscribers
-                            .get(*src)
-                            .is_some_and(|l| l.contains(&r.lifetime))
-                    })
-                    .map(|(src, why)| format!("{src}: {why}"))
-                    .collect()
-            };
+            let broken = self.table().map_or_else(Vec::new, |t| t.broken(r.lifetime));
             s.push_str(",\"brokenImages\":[");
             for (i, b) in broken.iter().enumerate() {
                 if i > 0 {
@@ -921,37 +872,17 @@ impl CanvasEngine for Canvases {
     }
 
     fn take_image_requests(&mut self) -> Vec<String> {
-        std::mem::take(&mut self.images.state().requests)
+        self.table().map_or_else(Vec::new, |t| t.take_requests())
     }
 
     fn images_pending(&self) -> bool {
-        !self.images.state().pending.is_empty()
+        self.table().is_some_and(|t| t.pending())
     }
 
     fn image(&mut self, src: &str, result: Result<(u32, u32), String>, also: &[u64]) {
-        let subscribers = {
-            let mut s = self.images.state();
-            s.pending.retain(|p| p != src);
-            match result {
-                Ok(size) if size.0 > 0 && size.1 > 0 => {
-                    s.broken.remove(src);
-                    s.ready.insert(src.to_string(), size);
-                }
-                Ok(_) => {
-                    s.broken
-                        .insert(src.to_string(), "the image is zero-sized".into());
-                }
-                Err(why) => {
-                    s.broken.insert(src.to_string(), why);
-                }
-            }
-            let subs = s.subscribers.entry(src.to_string()).or_default();
-            for l in also {
-                if !subs.contains(l) {
-                    subs.push(*l);
-                }
-            }
-            subs.clone()
+        let subscribers = match self.table() {
+            Some(t) => t.answer(src, result, also),
+            None => also.to_vec(),
         };
         for r in self.records.values_mut() {
             if subscribers.contains(&r.lifetime) {
