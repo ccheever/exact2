@@ -51,7 +51,6 @@ mod native;
 mod paired;
 mod pure;
 mod storage;
-pub mod swift;
 mod watch;
 
 pub use engine::ENGINE_LINKED;

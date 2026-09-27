@@ -1,6 +1,6 @@
 # A Swift native module is one object per process, so a second session takes over the first one's announcements and data directories
 
-**Status:** Partly fixed: activation-owned instances, synchronized listener teardown/fan-out, and per-package Swift/C names pass session, reload, and two-app link tests. Remaining: Charlie must rule on combining the LLP 1067 data artifact with LLP 1024’s view dylib; they remain separate.
+**Status:** Fixed (2026-09-27): the data seam and the view dylib are one artifact (LLP 1067.000's working direction, (A)). The host makes one module instance per session; two sample-host sessions of `apps/recorder` each keep their own. The static bridge this issue was about is deleted.
 **Systems:** Native executor (`js/native/ExactNative.swift`, `js/src/swift.rs`, `js/bake/src/swift.rs`), Apple sample host (LLP 1031 D10)
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever

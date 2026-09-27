@@ -5,8 +5,6 @@
 #![deny(missing_docs)]
 
 mod resident;
-mod swift;
-pub use swift::swift_native;
 #[cfg(test)]
 mod sources_tests;
 pub use resident::Producer;

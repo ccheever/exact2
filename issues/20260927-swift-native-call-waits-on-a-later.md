@@ -1,6 +1,6 @@
 # A Swift module's `native.call` can hold the main thread while a `later` runs on an I/O worker
 
-**Status:** Open. LLP 1067.000 Q5 (working direction) removes the lock when the module moves onto the main thread; until then, this stands.
+**Status:** Fixed by removal (2026-09-27): the static Swift bridge and its lock are deleted. An app's Swift is its module artifact, whose every entry runs on the main thread, and a long call's start is dispatched there asynchronously (LLP 1067.000 Q5, `host/apple/Sources/ExactKit/NativeModule.swift`).
 **Systems:** Native executor (`js/native/ExactNative.swift`, `js/src/swift.rs`), Apple host (`host/apple/src/executor_core.rs`)
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
