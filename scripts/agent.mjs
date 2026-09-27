@@ -509,6 +509,10 @@ export function hangup({ what, pid = null, exit = null, reports = [], hostLines 
 /** A native reply's deadline: past `clock settle`'s own 20 s bound, so only a wedged app reaches it (a phone has 45 s). */
 const REPLY_MS = 120000;
 
+/** A refused boot; a format refusal usually means a host binary built before the plan's format changed. */
+const bootRefusal = (error) => 'the app booted with an error: ' + error +
+  (/UnsupportedVersion|FormatDigestMismatch|KernelSchemaMismatch/.test(error) ? ' (the plan and the host binary were built from different formats: rebuild the host)' : '');
+
 /** One JSON-lines protocol over stdio on macOS/Linux, or a phone's outbound socket. */
 async function openStdio({ host, plan, world, size, app, env: extra = {}, session, device = false, phone: pick, onProcess }) {
   const a = resolveApp(app);
@@ -573,7 +577,7 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
     })]);
     clearTimeout(readyTimeout);
     if (!ready.ready) throw new Error('unexpected first line: ' + JSON.stringify(ready));
-    if (ready.error) throw new Error('the app booted with an error: ' + ready.error);
+    if (ready.error) throw new Error(bootRefusal(ready.error));
     // The sample host routes by label: the session the caller named, and
     // `s.session = "b"` moves every later request to another.
     const state = { session: session ?? null };
@@ -678,7 +682,7 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
   try {
     const ready = await waitAtMost(lines.next(), 20000, () => { throw new Error('the app never became ready; ' + hostLines.join('\n')); });
     if (!ready.ready) throw new Error('unexpected first line: ' + JSON.stringify(ready));
-    if (ready.error) throw new Error('the app booted with an error: ' + ready.error);
+    if (ready.error) throw new Error(bootRefusal(ready.error));
     pid = ready.pid ?? null;
     // The sample host routes by label, as the macOS one does over stdio.
     const state = { session: session ?? null };

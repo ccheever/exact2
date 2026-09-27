@@ -115,10 +115,13 @@ func watchPlan() {
 /// one out. `ready` goes out once the driver has connected, after the first
 /// frame is applied.
 nonisolated(unsafe) var readySent = false
+/// A refused EXACT_PLAN: the view's first layout then boots the embedded
+/// plan, which clears the session's error, but the driver asked for this one.
+nonisolated(unsafe) var planRefusal: String?
 func agentReady() {
     guard agentMode, !readySent, session.booted || session.bootError != nil else { return }
     readySent = true
-    Agent.startSocket(ready: ["ready": true, "boot": session.bootMs, "views": session.viewCount, "error": session.bootError ?? NSNull(), "pid": Int(getpid())], sessions: [("main", session)])
+    Agent.startSocket(ready: ["ready": true, "boot": session.bootMs, "views": session.viewCount, "error": planRefusal ?? session.bootError ?? NSNull(), "pid": Int(getpid())], sessions: [("main", session)])
 }
 
 /// The one screen: the view fills the controller's view; the plan boots at
@@ -236,7 +239,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
             DispatchQueue.main.async { ExactDevelopmentPlan(path).apply(to: exact) }
         }
         if let path = environment["EXACT_PLAN"] ?? devPlanPath, !ExactDevelopmentPlan(path).hasModule, let bytes = FileManager.default.contents(atPath: path) {
-            ExactIOS.session.boot(plan: bytes, size: ws.coordinateSpace.bounds.inset(by: w.safeAreaInsets).size)
+            planRefusal = ExactIOS.session.boot(plan: bytes, size: ws.coordinateSpace.bounds.inset(by: w.safeAreaInsets).size).error
         }
         let c = Controller()
         w.rootViewController = c
