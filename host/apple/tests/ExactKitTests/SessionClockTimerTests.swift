@@ -28,7 +28,7 @@ final class SessionClockTimerTests: XCTestCase {
         let defaults = LaunchPlace(environment: ["EXACT_AGENT": "1"])
         XCTAssertEqual(defaults.locale, "en-US")
         XCTAssertEqual(defaults.timeZone, "UTC")
-        XCTAssertEqual(defaults.seed, 0)
+        XCTAssertEqual(defaults.seed, 1)
         let custom = LaunchPlace(environment: ["EXACT_AGENT": "1",
             "EXACT_AGENT_LOCALE": "fr-CA", "EXACT_AGENT_TIME_ZONE": "America/Toronto",
             "EXACT_AGENT_SEED": "9007199254740991"])

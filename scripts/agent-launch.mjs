@@ -26,7 +26,7 @@ export function parseFlags(argv) {
 }
 
 export function launchFacts({seed, locale, timeZone, env = {}}) {
-  seed = Number(seed ?? env.EXACT_AGENT_SEED ?? 0);
+  seed = Number(seed ?? env.EXACT_AGENT_SEED ?? 1);
   locale = locale ?? env.EXACT_AGENT_LOCALE ?? 'en-US';
   timeZone = timeZone ?? env.EXACT_AGENT_TIME_ZONE ?? 'UTC';
   if (!Number.isSafeInteger(seed) || seed < 0) throw new Error('seed: an integer from 0 through 2^53 - 1');

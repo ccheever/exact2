@@ -501,7 +501,7 @@ export function placeReporter(params, platform = globalThis) {
   let seed;
   return () => {
     if (params.has('agent')) {
-      const value = Number(params.get('seed') ?? 0);
+      const value = Number(params.get('seed') ?? 1);
       if (!Number.isSafeInteger(value) || value < 0) throw new Error('seed: an integer from 0 through 2^53 - 1');
       return [params.get('locale') ?? 'en-US', params.get('timeZone') ?? 'UTC', value].join('\0');
     }

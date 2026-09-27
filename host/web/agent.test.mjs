@@ -452,7 +452,7 @@ test('a timer whose request never lands cannot hold the clock: past the deadline
 });
 
 test('launch setup supplies fixed defaults and carries CLI overrides to every host', () => {
-  expect(launchFacts({})).toEqual({seed:0, locale:'en-US', timeZone:'UTC'});
+  expect(launchFacts({})).toEqual({seed:1, locale:'en-US', timeZone:'UTC'});
   const {flags, rest} = parseFlags(['web', '--seed', '9007199254740991', '--locale', 'fr-ca', '--time-zone', 'America/Toronto', 'tree']);
   expect(rest).toEqual(['web', 'tree']);
   const facts = launchFacts(flags);

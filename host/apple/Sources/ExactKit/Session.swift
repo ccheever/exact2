@@ -25,7 +25,7 @@ struct LaunchPlace: Equatable {
         if environment["EXACT_AGENT"] == "1" {
             locale = environment["EXACT_AGENT_LOCALE"] ?? "en-US"
             timeZone = environment["EXACT_AGENT_TIME_ZONE"] ?? "UTC"
-            seed = UInt64(environment["EXACT_AGENT_SEED"] ?? "0") ?? 0
+            seed = UInt64(environment["EXACT_AGENT_SEED"] ?? "1") ?? 1
         } else {
             locale = Locale.preferredLanguages.first ?? Locale.current.identifier(.bcp47)
             timeZone = TimeZone.current.identifier

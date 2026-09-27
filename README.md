@@ -200,7 +200,7 @@ the same URL with `bun scripts/agent.mjs macos --url http://127.0.0.1:8765/ tree
 The Go/custom-client sequence
 is in [LLP 1030.000 §7](llp/1030.000-dev-server-as-deployer.rfc.md#7-exact2-go-and-custom-development-clients--implementation-direction).
 
-Agent sessions use `exactTime()` launch facts `seed: 0`, `locale: "en-US"`,
+Agent sessions use `exactTime()` launch facts `seed: 1` (LLP 1069.007), `locale: "en-US"`,
 `timeZone: "UTC"` on every host. Override them at session setup with
 `bun scripts/agent.mjs web --seed 42 --locale fr-CA --time-zone America/Toronto tree`
 or `open({host, seed: 42, locale: "fr-CA", timeZone: "America/Toronto"})`.

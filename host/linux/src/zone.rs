@@ -26,7 +26,7 @@ pub fn launch_place(
             locale: env("EXACT_AGENT_LOCALE").unwrap_or_else(|| "en-US".into()),
             time_zone: env("EXACT_AGENT_TIME_ZONE").unwrap_or_else(|| "UTC".into()),
             seed: env("EXACT_AGENT_SEED")
-                .map_or(Ok(0.0), |s| s.parse::<f64>())
+                .map_or(Ok(1.0), |s| s.parse::<f64>())
                 .map_err(|e| format!("EXACT_AGENT_SEED: {e}"))?,
         }
     } else {
@@ -126,7 +126,13 @@ mod tests {
             _ => panic!("agent read the machine's {key}"),
         })
         .unwrap();
-        assert_eq!(defaults, exact_runner::time::Place::default());
+        assert_eq!(
+            defaults,
+            exact_runner::time::Place {
+                seed: 1.0,
+                ..exact_runner::time::Place::default()
+            }
+        );
         let custom = launch_place(|key| {
             Some(
                 match key {

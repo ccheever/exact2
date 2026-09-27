@@ -1,6 +1,6 @@
 # Under the agent, the launch seed, locale and time zone come from the machine and a CSPRNG, and a web dev reload draws a new seed
 
-**Status:** Fixed: every agent carrier supplies seed 0, en-US and UTC with drive overrides; web and native reloads retain the launch seed, verified by agent, Linux, Swift and live smoke regressions (broader host-suite failures noted below).
+**Status:** Fixed: every agent carrier supplies seed 1 (LLP 1069.007), en-US and UTC with drive overrides; web and native reloads retain the launch seed, verified by agent, Linux, Swift and live smoke regressions (broader host-suite failures noted below).
 **Systems:** Web host (`host/web/glue.js`), Apple host (`host/apple/Sources/ExactKit/Session.swift`), agent (`scripts/agent.mjs`)
 **Severity:** P2
 **Author:** Claude (Opus 5.5) for Charlie Cheever
