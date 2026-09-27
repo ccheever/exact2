@@ -1,11 +1,11 @@
 # LLP 1069: The Expo SDK against exact2 — what to add, ranked
 
 **Type:** Research
-**Status:** Draft
+**Status:** Draft r2; Charlie's rulings folded 2026-09-27
 **Systems:** All; chiefly the data seam and grants (device capabilities as requests), the reserved sources (device facts), Contract tags (form controls, pickers), host commands (share, haptics), the Apple and web hosts, delivery (store release), and `rules/DEFERRED.md` (which items each addition would need moved)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-09-27
-**Revised:** 2026-09-27, the same day: renumbered from 1057 at a merge, then from 1068, which main's view-recycling RFC took first; brought to main after the day's landings (§0); `NOT-DOING.md` is now `DEFERRED.md`; the sub-LLPs 1069.000–.010 written (§7)
+**Revised:** 2026-09-27, the same day: renumbered from 1057 at a merge, then from 1068, which main's view-recycling RFC took first; brought to main after the day's landings (§0); `NOT-DOING.md` is now `DEFERRED.md`; the sub-LLPs 1069.000–.010 written (§7). r2, the same day: Charlie's rulings folded into every sub-LLP and this survey, the family reconciled, a build order added (§7)
 **Related:** LLP 1016.000 (answers that keep coming: SSE and WebSocket, designed); LLP 1018 (durable client state and secrets); LLP 1024 (native modules: views); LLP 1027, 1027.000 (TypeScript sources; explicit time and randomness); LLP 1030, 1030.003 (delivery; the install page and the store lanes left behind it); LLP 1031 (brownfield embedding); LLP 1033 (the Markdown reader's documents); LLP 1034 (scheme-aware colour); LLP 1039 (viewport facts, the pattern for every fact below); LLP 1042 (video); LLP 1045 D10 (the admitted image/video picker); LLP 1048 (web rendering); LLP 1049 and LLP 1054 (the Crew and Bluesky port reports: what real ports asked for)
 
 ## Summary
@@ -74,9 +74,10 @@ rows of §2 and items of §5:
 
 | landed | LLP | what it closes |
 |---|---|---|
-| reduced motion and reduced transparency as `exactViewport` fields; `press-scale`; the agent's `prefer` (a ninth operation, pending a ruling) | 1061 | the reduced-motion half of #1, and the DEFERRED.md sentence no host carried out |
+| reduced motion and reduced transparency as `exactViewport` fields; `press-scale`; the agent's `prefer` (the ninth operation, ruled 2026-09-27) | 1061 | the reduced-motion half of #1, and the DEFERRED.md sentence no host carried out |
 | locale and time zone on `exactTime` (`Runner::set_place`) | 1060, 1027.000.000 | the locale half of #1 |
 | a launch `seed` on `exactTime`, the explicit entropy for ids | 1027.000 (commit `22018204`) | half of #6 |
+| agent launch facts `--seed`, `--locale`, `--time-zone` on every host, defaults 1, `en-US`, `UTC` | 1069.007 (commits `93546bef`, `c7f2014b`) | most of 1069.007's first slice; the date remains |
 | string tables, `t(...)`, the locale as a slot | 1060 | #17 (localized strings) |
 | CSS `linear-gradient()` / `radial-gradient()` as `background-image` | 1066 | `expo-linear-gradient`; gradients are no longer refused |
 | `box-shadow`, `text-transform` | 1064 | |
@@ -332,12 +333,14 @@ The ranking weighs four things, in order:
    - Font scale: Dynamic Type, or the browser's root size.
    - Visibility: `document.visibilityState`, or the app being active.
    - `navigator.onLine`.
-   - The resolved colour scheme. LLP 1034 D3 rules the opposite ("never a
-     fact in the app"), so this one needs Charlie's ruling.
+   - The system's colour scheme, `prefersColorScheme`: admitted, amending
+     LLP 1034 D3, with a lint toward `light-dark()`.
+   - `canShare`, for #4.
 
-   Each is one host observation, a field on a reserved source and an
-   agent-settable value. It's the cheapest item with the widest reach.
-   No trade.
+   Font scale is not a fact: it is CSS's `rem` over a root font size the
+   host sets. Each fact is one host observation, a field on
+   `exactViewport` or the new `exactPage()`, and a `prefer` name. It's the
+   cheapest item with the widest reach. No trade.
 2. **Form controls by their HTML names.** These are `input type=checkbox`
    (rendered as a switch on Apple under `role=switch`, the ARIA name),
    `type=range`, `type=date|time`, and `select`/`option`. They map to
@@ -346,30 +349,35 @@ The ranking weighs four things, in order:
    Every settings screen needs them, and ports build them by hand today.
    No trade: these are HTML's tags, not new components.
 3. **Finish the admitted picker (LLP 1045 D10).** Name it
-   `<input type=file accept="image/*,video/*">`, the web's spelling. It is
-   PHPicker on iOS, `NSOpenPanel` filtered on macOS and the input itself on
-   the web. It is already admitted. Any `accept` wider than media stays ✕
-   ("no generic file input").
+   `<input type=file accept="image/*,video/*">`, opened by `showPicker(id)`,
+   the web's spelling. It is PHPicker on iOS, `NSOpenPanel` filtered on
+   macOS and the input itself on the web. `accept` may also name the
+   manifest's `file_handlers` types (widened 2026-09-27), which makes it
+   #13's import; anything wider stays ✕.
 4. **`share` command (Web Share API).** It takes `{title, text, url}` and
    opens `UIActivityViewController` on iOS, `NSSharingServicePicker` on
-   macOS and `navigator.share` on the web. On Linux it is unavailable and
-   reported as a failed command. The Bluesky and Interview ports want it.
-   No trade.
+   macOS and `navigator.share` on the web. On Linux it is refused into the
+   journal. The outcome goes to the journal only, and `canShare` on
+   `exactPage()` says whether to draw the button. The Bluesky and Interview
+   ports want it. No trade.
 5. **SSE, then WebSocket (build LLP 1016.000).** The design is written and
-   the grant parses. Crew, Messages and Bluesky want it. SSE first; that is
-   1016.000's open question 2, and Crew needs only SSE. No trade: 1016.000 and LLP 1027 name it as the waiting
-   trigger.
+   the grant parses. Crew is SSE's consumer and Bluesky's Jetstream
+   WebSocket's (ruled). SSE first. No trade: nothing in DEFERRED.md
+   refuses live data for apps.
 6. **Ids and hashing in sources (LLP 1069.005).** The launch seed on
    `exactTime` landed. What is left is a way to turn it into ids, and
    `crypto.subtle.digest`, which is pure. Ambient `getRandomValues` and
-   `randomUUID` conflict with LLP 1027.000, so 1069.005 decides how they
-   arrive. Optimistic ids and PKCE (#7) need them. No trade.
-7. **Auth session for OAuth/OIDC with PKCE.** One request opens the system
-   browser session: `ASWebAuthenticationSession` on Apple, a redirect or
-   popup on the web. It answers with the callback URL, and the token goes
-   into `secret.keep`. Bluesky's real login needs it, and so does any
+   `randomUUID` arrive as counted device reads (ruled), repeatable under
+   the agent. ECDSA P-256 for DPoP comes with them. Optimistic ids and
+   PKCE (#7) need them. No trade.
+7. **Auth session for OAuth/OIDC with PKCE.** One request,
+   `openAuthSession(url, {callback})`, opens the system browser session:
+   `ASWebAuthenticationSession` on Apple, a popup on the web (a blocked
+   popup fails; no redirect fallback). It answers with the callback URL,
+   and the token goes into `secret.keep`. Bluesky's real login needs it
+   (named in DEFERRED.md as one of Bluesky's asks), and so does any
    third-party sign-in. Sign in with Apple and passkeys (WebAuthn) come
-   later in the same shape. No trade (a request, not a service).
+   later in the same shape. No trade.
 
 ### Next — each needs a design or a trade
 
@@ -413,7 +421,8 @@ The ranking weighs four things, in order:
     - Multiple windows on macOS.
 
     Fieldnotes and the Markdown reader want it (LLP 1033's owed adapters).
-    It widens "no generic file input", so **trade**.
+    It widened "no generic file input" to `file_handlers` types: the trade
+    was taken 2026-09-27, with no take named (LLP 1069.010).
 14. **Geolocation (`navigator.geolocation`).** A grant, a permission
     request, and an agent-set position. Weatherlight would use it. No trade.
 15. **Audio (`<audio>`).** It is the video arm without a picture: AVPlayer,
@@ -469,7 +478,7 @@ each item in §4:
 |---|---|---|
 | 1069.000 | §5 #1 | the remaining device facts |
 | 1069.001 | §5 #2 | form controls by their HTML names |
-| 1069.002 | §5 #3 | the image/video picker, `input type=file` |
+| 1069.002 | §5 #3 | the file picker, `input type=file` (media, and `file_handlers` types) |
 | 1069.003 | §5 #4 | `share`, after the Web Share API |
 | 1069.004 | §5 #5 | building LLP 1016.000: SSE, then WebSocket (a plan) |
 | 1069.005 | §5 #6 | Web Crypto in sources: ids and hashing |
@@ -480,7 +489,7 @@ each item in §4:
 | 1069.010 | §4 B4 | the Mac as a document platform |
 
 They are RFCs (1069.004 is a plan), not specs. None has an implementer or a
-date yet.
+date yet. Each carries LLP 1069.007 D7's Substitute paragraph.
 
 Charlie ruled on every open question the same day. Each sub-LLP records its
 own rulings in a §Rulings section. Three changed rules and specs:
@@ -493,7 +502,107 @@ own rulings in a §Rulings section. Three changed rules and specs:
   Bluesky's OAuth sign-in is named as one of its asks.
 
 Native hosts don't enforce the web's user-activation rule for pickers and
-share; developers are trusted. No `DEFERRED.md` trade was taken.
+share; developers are trusted. The picker's widening came with no take
+named; no other `DEFERRED.md` line moved.
+
+### Decided across the family (r2)
+
+The pass that folded the rulings also made the eleven documents agree:
+
+| subject | the one answer | owner |
+|---|---|---|
+| page facts | `exactPage()`: `visibilityState`, `onLine`, `canShare` | 1069.000 D2 (`canShare`'s meaning: 1069.003 D5) |
+| `prefer`'s forms | CLI `prefer <name> <value>`, web names; wire groups `media` (built), `page`, `place`, `permission`; a launch flag per name | 1069.007 D2 |
+| request names in `pending` | `pick`, `share`, `auth`, `open-file`, `open-directory`, `save-file`, `export`, `permission`, `position`, `native` | 1069.007 D3 |
+| answering | `tap @t <choice>` (`allow`, `deny`, `shared`, `cancel`), `type @t <value>`, `--answer <capability>=<value>`; `delivery: "substituted"` | 1069.007 D4 |
+| user activation | the browser's rule on the web, documented; not enforced natively | 1069.002 D2, 1069.003 D4, 1069.010 D2 |
+| picker vs documents | 1069.002's `input type=file` is every copy-in (media, and import of `file_handlers` types); 1069.010's `showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker` yield `doc:` handles; `saveFile` is export | 1069.002 D1, 1069.010 D2–D3 |
+| grants | `device.<name> <purpose-key>`; `auth.session <origin>`, `auth.callback <callback>`, `auth.apple <client id>`, `auth.passkey <rp id>`; `fs.read doc:/`, `fs.write doc:/` (not r1's `fs.document`); exact2 families stripped by `io_grants` before `ibex2` | 1069.008 D1, 1069.006 D2, 1069.010 D1 |
+| derived platform setup | `device.*` and `auth.*` lines through one bake table | 1069.008 D2 |
+| the auth call | `openAuthSession(url, {callback, ephemeral})`, a request to `exact-auth:` | 1069.006 D1 |
+| entropy under the agent | a stream seeded by `--seed` | 1069.005 D2b, in 1069.007's first slice |
+
+Dependencies: 1069.006 needs 1069.005 (random, digest, P-256), 1069.007
+(its substitute) and, for an https callback only, 1069.008. 1069.002, .003,
+.006 and .010 carry substitutes in 1069.007 D7's form and need its first
+slice. 1069.003 needs 1069.000's `exactPage()`. 1069.010's import needs
+1069.002.
+
+### Build order
+
+Each wave needs only what the waves before it land.
+
+**Wave 0 — bugs already queued (QUEUE.md), each on its own:**
+
+- **Mac release entitlements.** `exact release` signs hardened with none,
+  so a notarised grnl can't hear. Shipped apps are broken today (1069.008).
+- **Crypto parity, web and native.** `crypto.randomUUID()` works in the
+  browser and throws natively; 1069.005's first step (the prelude and the
+  realm wrapper) closes it.
+- **Agent-mode date.** `--epoch` on every host; seed, locale and zone
+  already landed. Every screenshot test depends on it.
+- **Never-aborted web fetches.** Fixes today's 20 s `settle` stall and is
+  1069.004 slice 2's prerequisite.
+
+**Wave 1 — foundations with no dependency inside LLP 1069:**
+
+- **1069.007's first slice** (pending `device`, `@t`, `settle`'s reason,
+  the random stream, `prefer`'s groups): every capability's substitute
+  builds on it.
+- **1069.000:** `exactPage()` with `canShare`, contrast, scheme, `rem`.
+  Widest reach; 1069.003 reads `canShare`.
+- **1069.005:** digest, entropy as a read, P-256. 1069.006 can't start
+  without it.
+- **1069.001 checkbox and switch,** with the text field's `input` rename.
+  Self-contained.
+- **1069.009's runner test.** One test, no dependencies.
+
+**Wave 2 — capabilities on the foundations:**
+
+- **1069.002:** needs 1069.007's pending entry and `@t`.
+- **1069.003:** needs `canShare` (1069.000) and 1069.007.
+- **1069.004 slices 1–2:** needs Wave 0's web abort.
+- **1069.008 slice 1** (and slice 2's derived entitlements): replaces
+  Wave 0's hand-written file; derives 1069.006's associated domains.
+- **1069.010 slice 1** (reader windows, Open Recent, `head title`): needs
+  nothing else here, and Charlie reads the corpus in it.
+
+**Wave 3 — the widest pieces:**
+
+- **1069.006:** needs 1069.005, 1069.007, and 1069.008 for an https
+  callback. It could start in Wave 2 on a private-use scheme once 1069.005
+  lands.
+- **1069.004 slice 3, WebSocket:** a new `ibex2` transport per surface.
+- **1069.001 `select`, range, date and time.**
+- **The rest of 1069.010:** Fieldnotes' export and import (needs
+  1069.002), the cross-window topic, `doc:` handles and the three pickers.
+
+### Open after the pass
+
+The pass could not settle these from the documents; each is the spec's or
+Charlie's:
+
+1. **Tickets for command-shaped requests.** The picker, share and the
+   document pickers have no runner ticket; 1069.007 D3 has the host assign
+   one. How it avoids the runner's numbers (a shared counter in the
+   runner, or a distinct range) is unsettled.
+2. **`prefer`'s smaller forms.** Announcing a `native.watch` topic (1069.007
+   D5) has no value to pair with a name; `permission.<name>` is proposed
+   but no permissioned capability exists yet.
+3. **Where a permission's state lives.** 1069.007 D1 calls it a fact; no
+   source is named (`exactPage()` or per capability).
+4. **Keeping a non-extractable key on the web.** 1069.005 D1b holds the
+   `CryptoKey` in IndexedDB with a handle in `secret.keep`; the source-side
+   spelling that is the same on every host is unwritten.
+5. **Where `accept` is checked.** 1069.002 D1 bounds it by `app.json`'s
+   `file_handlers`; the Contract compiler doesn't read the manifest today,
+   so the check is the bake's, and its id is unnamed.
+6. **Safari's activation window for the auth popup.** 1069.006 D4 moves PAR
+   before the press; whether Safari still blocks the popup is unmeasured.
+7. **The cross-window notification** (1069.010 D4) uses LLP 1016.002 topics,
+   which today announce device changes to a native module's readers. A
+   store write announced by the app owner to a sibling session is a new
+   announcer; 1016.002 should say so when it lands.
 
 ## Confidence
 
@@ -509,6 +618,15 @@ searched include `UNUserNotificationCenter`, `CLLocation`, `LAContext`,
 `NWPathMonitor`, `prefersStatusBarHidden`, `reduced-motion` and
 `ReduceMotion`. The capability could exist under a name those patterns
 don't match, but each of the §5 "now" items was checked again by hand.
+
+**The sub-LLPs' code claims were rechecked in r2, by reading.** Six were
+corrected, each citing file and line in its document: the share anchor
+isn't known to the Apple command queue today (1069.003 D3); no runner path
+reads kernel geometry (1069.009 D2b, confirmed); the picker search's "no
+hits" had unrelated hits (1069.002); the web's fetch aborts happen only on
+runner replacement (1069.004); the agent's seed, locale and zone landed the
+same day (1069.007); and the head's title already reaches the Mac window
+(1069.010 D6).
 
 **The ranking is judgement.** The consumer column (§3) is the evidence. The
 commonness and cost estimates are not measured. No item here is specified.
