@@ -34,6 +34,16 @@ impl StepPosition {
     pub fn from_wire(value: u8) -> Option<StepPosition> {
         StepPosition::ALL.get(value as usize).copied()
     }
+
+    /// The CSS keyword.
+    pub fn name(self) -> &'static str {
+        match self {
+            StepPosition::JumpStart => "jump-start",
+            StepPosition::JumpEnd => "jump-end",
+            StepPosition::JumpNone => "jump-none",
+            StepPosition::JumpBoth => "jump-both",
+        }
+    }
 }
 
 /// One stop of a `linear()` easing: input progress → output progress.

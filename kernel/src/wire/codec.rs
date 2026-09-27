@@ -275,6 +275,52 @@ impl<'a> Reader<'a> {
         })
     }
 
+    /// Read a timing function (grammar: `schema.json` `_transitions`).
+    pub(crate) fn timing_function(&mut self) -> Result<TimingFunction, DecodeError> {
+        Ok(match self.u8()? {
+            0 => TimingFunction::Easing(Easing::Linear),
+            1 => TimingFunction::Easing(Easing::Ease),
+            2 => TimingFunction::Easing(Easing::EaseIn),
+            3 => TimingFunction::Easing(Easing::EaseOut),
+            4 => TimingFunction::Easing(Easing::EaseInOut),
+            5 => TimingFunction::Easing(Easing::CubicBezier {
+                x1: self.f32()? as f64,
+                y1: self.f32()? as f64,
+                x2: self.f32()? as f64,
+                y2: self.f32()? as f64,
+            }),
+            6 => {
+                let count = self.u16()?;
+                let position = self.u8()?;
+                TimingFunction::Easing(Easing::Steps {
+                    count,
+                    position: StepPosition::from_wire(position)
+                        .ok_or(DecodeError::UnknownStepPosition(position))?,
+                })
+            }
+            7 => TimingFunction::Spring(SpringConfig {
+                stiffness: self.f32()? as f64,
+                damping: self.f32()? as f64,
+                mass: self.f32()? as f64,
+            }),
+            8 => {
+                let stops = self.u8()?;
+                if stops as usize > MAX_LINEAR_STOPS {
+                    return Err(DecodeError::TooManyEasingStops(stops));
+                }
+                let mut list = Vec::with_capacity(stops as usize);
+                for _ in 0..stops {
+                    list.push(LinearStop {
+                        input: self.f32()? as f64,
+                        output: self.f32()? as f64,
+                    });
+                }
+                TimingFunction::Easing(Easing::PiecewiseLinear(list))
+            }
+            other => return Err(DecodeError::UnknownEasing(other)),
+        })
+    }
+
     /// Read a `transition` row (grammar: `schema.json` `_transitions`) and
     /// validate it the way the evaluator will, so an invalid declaration is a
     /// decode rejection, never a later surprise.
@@ -293,48 +339,7 @@ impl<'a> Reader<'a> {
             };
             let duration = self.f32()? as f64;
             let delay = self.f32()? as f64;
-            let timing = match self.u8()? {
-                0 => TimingFunction::Easing(Easing::Linear),
-                1 => TimingFunction::Easing(Easing::Ease),
-                2 => TimingFunction::Easing(Easing::EaseIn),
-                3 => TimingFunction::Easing(Easing::EaseOut),
-                4 => TimingFunction::Easing(Easing::EaseInOut),
-                5 => TimingFunction::Easing(Easing::CubicBezier {
-                    x1: self.f32()? as f64,
-                    y1: self.f32()? as f64,
-                    x2: self.f32()? as f64,
-                    y2: self.f32()? as f64,
-                }),
-                6 => {
-                    let count = self.u16()?;
-                    let position = self.u8()?;
-                    TimingFunction::Easing(Easing::Steps {
-                        count,
-                        position: StepPosition::from_wire(position)
-                            .ok_or(DecodeError::UnknownStepPosition(position))?,
-                    })
-                }
-                7 => TimingFunction::Spring(SpringConfig {
-                    stiffness: self.f32()? as f64,
-                    damping: self.f32()? as f64,
-                    mass: self.f32()? as f64,
-                }),
-                8 => {
-                    let stops = self.u8()?;
-                    if stops as usize > MAX_LINEAR_STOPS {
-                        return Err(DecodeError::TooManyEasingStops(stops));
-                    }
-                    let mut list = Vec::with_capacity(stops as usize);
-                    for _ in 0..stops {
-                        list.push(LinearStop {
-                            input: self.f32()? as f64,
-                            output: self.f32()? as f64,
-                        });
-                    }
-                    TimingFunction::Easing(Easing::PiecewiseLinear(list))
-                }
-                other => return Err(DecodeError::UnknownEasing(other)),
-            };
+            let timing = self.timing_function()?;
             out.push(Transition {
                 property,
                 duration,
@@ -563,6 +568,46 @@ impl Writer {
         }
     }
 
+    /// Append a timing function.
+    pub(crate) fn timing_function(&mut self, timing: &TimingFunction) {
+        match timing {
+            TimingFunction::Easing(Easing::Linear) => self.u8(0),
+            TimingFunction::Easing(Easing::Ease) => self.u8(1),
+            TimingFunction::Easing(Easing::EaseIn) => self.u8(2),
+            TimingFunction::Easing(Easing::EaseOut) => self.u8(3),
+            TimingFunction::Easing(Easing::EaseInOut) => self.u8(4),
+            TimingFunction::Easing(Easing::CubicBezier { x1, y1, x2, y2 }) => {
+                self.u8(5);
+                for v in [x1, y1, x2, y2] {
+                    self.f32(*v as f32);
+                }
+            }
+            TimingFunction::Easing(Easing::Steps { count, position }) => {
+                self.u8(6);
+                self.u16(*count);
+                self.u8(StepPosition::ALL
+                    .iter()
+                    .position(|p| p == position)
+                    .unwrap_or(1) as u8);
+            }
+            TimingFunction::Spring(config) => {
+                self.u8(7);
+                self.f32(config.stiffness as f32);
+                self.f32(config.damping as f32);
+                self.f32(config.mass as f32);
+            }
+            TimingFunction::Easing(Easing::PiecewiseLinear(stops)) => {
+                self.u8(8);
+                debug_assert!(stops.len() <= MAX_LINEAR_STOPS);
+                self.u8(stops.len() as u8);
+                for stop in stops {
+                    self.f32(stop.input as f32);
+                    self.f32(stop.output as f32);
+                }
+            }
+        }
+    }
+
     /// Append a `transition` row.
     pub fn transitions(&mut self, t: &Transitions) {
         debug_assert!(t.0.len() <= MAX_TRANSITIONS);
@@ -574,42 +619,7 @@ impl Writer {
             });
             self.f32(transition.duration as f32);
             self.f32(transition.delay as f32);
-            match &transition.timing {
-                TimingFunction::Easing(Easing::Linear) => self.u8(0),
-                TimingFunction::Easing(Easing::Ease) => self.u8(1),
-                TimingFunction::Easing(Easing::EaseIn) => self.u8(2),
-                TimingFunction::Easing(Easing::EaseOut) => self.u8(3),
-                TimingFunction::Easing(Easing::EaseInOut) => self.u8(4),
-                TimingFunction::Easing(Easing::CubicBezier { x1, y1, x2, y2 }) => {
-                    self.u8(5);
-                    for v in [x1, y1, x2, y2] {
-                        self.f32(*v as f32);
-                    }
-                }
-                TimingFunction::Easing(Easing::Steps { count, position }) => {
-                    self.u8(6);
-                    self.u16(*count);
-                    self.u8(StepPosition::ALL
-                        .iter()
-                        .position(|p| p == position)
-                        .unwrap_or(1) as u8);
-                }
-                TimingFunction::Spring(config) => {
-                    self.u8(7);
-                    self.f32(config.stiffness as f32);
-                    self.f32(config.damping as f32);
-                    self.f32(config.mass as f32);
-                }
-                TimingFunction::Easing(Easing::PiecewiseLinear(stops)) => {
-                    self.u8(8);
-                    debug_assert!(stops.len() <= MAX_LINEAR_STOPS);
-                    self.u8(stops.len() as u8);
-                    for stop in stops {
-                        self.f32(stop.input as f32);
-                        self.f32(stop.output as f32);
-                    }
-                }
-            }
+            self.timing_function(&transition.timing);
         }
     }
 

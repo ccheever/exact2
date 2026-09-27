@@ -782,6 +782,18 @@ mod tests {
             (StyleId::WhiteSpace, text("pre-wrap")),
             (StyleId::OverflowWrap, text("anywhere")),
             (StyleId::InterpolateSize, text("allow-keywords")),
+            // SVG 2 presentation properties (LLP 1055 D2).
+            (StyleId::Fill, text("#16a34a")),
+            (StyleId::Stroke, text("currentcolor")),
+            (StyleId::StrokeWidth, number(1.5)),
+            (StyleId::StrokeLinecap, text("round")),
+            (StyleId::StrokeLinejoin, text("round")),
+            (StyleId::StrokeMiterlimit, number(2.0)),
+            (StyleId::StrokeDasharray, text("1 2")),
+            (StyleId::StrokeDashoffset, number(1.0)),
+            (StyleId::FillOpacity, number(0.5)),
+            (StyleId::StrokeOpacity, number(0.5)),
+            (StyleId::FillRule, text("evenodd")),
         ];
         let mut covered = StyleMask::EMPTY;
         for (id, value) in samples {

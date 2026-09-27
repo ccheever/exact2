@@ -10,6 +10,7 @@
 //! linearly (CSS Transitions §4, "animation type: by computed value"). The
 //! numeric `height` trial adds a scalar in pixels, with host-owned admission
 //! and layout (LLP 1041 §8.12). Its CSS initial `auto` has no numeric value.
+//! SVG 2's `stroke-dashoffset` and `r` are scalars in user units (LLP 1055 D6).
 
 /// One animatable property.
 #[repr(u8)]
@@ -25,16 +26,22 @@ pub enum Property {
     Opacity = 3,
     /// Numeric CSS `height`, in logical pixels; host admission is explicit.
     Height = 4,
+    /// SVG 2 `stroke-dashoffset`, in user units (LLP 1055 D6).
+    StrokeDashoffset = 5,
+    /// SVG 2 `r`, a circle's radius in user units (LLP 1055 D6).
+    R = 6,
 }
 
 impl Property {
     /// Every property, in wire order.
-    pub const ALL: [Property; 5] = [
+    pub const ALL: [Property; 7] = [
         Property::Translate,
         Property::Scale,
         Property::Rotate,
         Property::Opacity,
         Property::Height,
+        Property::StrokeDashoffset,
+        Property::R,
     ];
 
     /// The CSS property name.
@@ -45,6 +52,8 @@ impl Property {
             Property::Rotate => "rotate",
             Property::Opacity => "opacity",
             Property::Height => "height",
+            Property::StrokeDashoffset => "stroke-dashoffset",
+            Property::R => "r",
         }
     }
 
@@ -62,7 +71,12 @@ impl Property {
     pub fn components(self) -> usize {
         match self {
             Property::Translate => 2,
-            Property::Scale | Property::Rotate | Property::Opacity | Property::Height => 1,
+            Property::Scale
+            | Property::Rotate
+            | Property::Opacity
+            | Property::Height
+            | Property::StrokeDashoffset
+            | Property::R => 1,
         }
     }
 
@@ -72,7 +86,7 @@ impl Property {
         match self {
             Property::Translate => Some(Value::ZERO),
             Property::Scale | Property::Opacity => Some(Value::scalar(1.0)),
-            Property::Rotate => Some(Value::scalar(0.0)),
+            Property::Rotate | Property::StrokeDashoffset | Property::R => Some(Value::scalar(0.0)),
             Property::Height => None,
         }
     }

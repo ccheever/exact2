@@ -298,7 +298,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "use crate::error::{{DecodeError, StyleDomainError}};").unwrap();
     writeln!(
         w,
-        "use crate::error::StyleValueError;\nuse crate::style::{{Color, ColorValue, Dimension, LineHeight, GridPlacement, GridTracks, RowValue, StyleValue, Transitions, Vec2, MAX_GRID_TRACKS}};"
+        "use crate::error::StyleValueError;\nuse crate::style::{{Color, ColorValue, Dimension, LineHeight, GridPlacement, GridTracks, RowValue, StyleValue, Transitions, Animations, Vec2, MAX_GRID_TRACKS}};"
     )
     .unwrap();
     writeln!(w, "use crate::wire::codec::{{Reader, Writer}};").unwrap();
@@ -638,7 +638,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     // ---- StyleId / StyleCodec --------------------------------------------
     writeln!(w, "/// Wire codec of a style row.").unwrap();
     writeln!(w, "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]").unwrap();
-    writeln!(w, "pub enum StyleCodec {{ Dimension, LineHeight, F32, U8, U16, U32, I32, Rgba8, ColorValue, KeywordColor, Vec2, Color2, Tracks, Placement, Transitions, ClipPath, ShapeOutside, AspectRatio, Enum }}").unwrap();
+    writeln!(w, "pub enum StyleCodec {{ Dimension, LineHeight, F32, U8, U16, U32, I32, Rgba8, ColorValue, KeywordColor, Vec2, Color2, Tracks, Placement, Transitions, Animations, ClipPath, ShapeOutside, AspectRatio, Paint, DashArray, Enum }}").unwrap();
     writeln!(w, "/// One style row; the discriminant is the mask bit.").unwrap();
     writeln!(w, "#[repr(u8)]").unwrap();
     writeln!(
@@ -1214,7 +1214,8 @@ fn generate(schema: &Schema, digest: u64) -> String {
             | Codec::Dimension
             | Codec::LineHeight
             | Codec::Tracks
-            | Codec::Transitions => {
+            | Codec::Transitions
+            | Codec::Animations => {
                 format!("self.{}.is_finite()", row.field)
             }
             Codec::Vec2 => format!(
@@ -1265,6 +1266,9 @@ fn generate(schema: &Schema, digest: u64) -> String {
             Codec::Transitions => {
                 writeln!(w, "        if self.mask.has(StyleId::{id}) {{ self.{field}.validate().map_err(StyleDomainError::InvalidTransition)?; }}").unwrap();
             }
+            Codec::Animations => {
+                writeln!(w, "        if self.mask.has(StyleId::{id}) {{ self.{field}.validate().map_err(StyleDomainError::InvalidAnimation)?; }}").unwrap();
+            }
             _ => {}
         }
     }
@@ -1307,6 +1311,8 @@ fn generate(schema: &Schema, digest: u64) -> String {
                 "{name}::from_name(value.text(id)?).ok_or(StyleValueError::UnknownEnumValue {{ style: id }})?"
             ),
             Codec::Transitions => "Transitions::parse(value.text(id)?).map_err(|_| StyleValueError::BadTransition { style: id })?".to_string(),
+            // Names resolve against the plan's `@keyframes` after this (LLP 1055 D5).
+            Codec::Animations => "Animations::parse(value.text(id)?).map_err(|_| StyleValueError::BadAnimation { style: id })?".to_string(),
             Codec::CssValue { path, error, .. } => format!("{path}::parse(&value.css_text(id)?).ok_or(StyleValueError::{error} {{ style: id }})?"),
             Codec::Color2 | Codec::Tracks | Codec::Placement => String::new(),
         };
@@ -1368,6 +1374,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
             Codec::Tracks => format!("RowValue::Tracks(&self.{f})"),
             Codec::Placement => format!("RowValue::Placement(self.{f})"),
             Codec::Transitions => format!("RowValue::Transitions(&self.{f})"),
+            Codec::Animations => format!("RowValue::Animations(&self.{f})"),
             Codec::CssValue { variant, .. } => format!("RowValue::{variant}(&self.{f})"),
         };
         writeln!(w, "            StyleId::{id} => {expr},").unwrap();

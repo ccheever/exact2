@@ -371,7 +371,7 @@ impl Color {
 /// The `transition` row's type: CSS `transition` declarations, owned by
 /// `exact-motion` so the evaluator and the kernel share one definition. The
 /// kernel owns the bytes (`wire::codec`); the engine owns the semantics.
-pub use exact_motion::Transitions;
+pub use exact_motion::{Animations, Transitions};
 
 /// An untyped style value from a producer that resolves rows by id — a plan
 /// runner, a compiler lowering a literal, a TypeScript encoder. Exactly one
@@ -787,6 +787,10 @@ pub enum RowValue<'a> {
     ShapeOutside(&'a exact_textflow::ShapeOutside),
     /// CSS `aspect-ratio` as authored (LLP 1053 G1).
     AspectRatio(&'a crate::ratio::AspectRatio),
+    /// SVG paint (LLP 1055 D2).
+    Paint(&'a crate::svg::Paint),
+    /// SVG `stroke-dasharray` (LLP 1055 D2).
+    DashArray(&'a crate::svg::DashArray),
     /// A dimension.
     Dimension(Dimension),
     /// A number (`f32`, `u8`, `u16`, `u32`, `i32` rows).
@@ -808,6 +812,8 @@ pub enum RowValue<'a> {
     Placement(GridPlacement),
     /// The `transition` row.
     Transitions(&'a Transitions),
+    /// The `animation` row (LLP 1055 D5).
+    Animations(&'a Animations),
 }
 
 impl RowValue<'_> {
@@ -821,7 +827,10 @@ impl RowValue<'_> {
             RowValue::Vec2(v) => v.x.is_finite() && v.y.is_finite(),
             RowValue::Tracks(v) => v.is_finite(),
             RowValue::Transitions(v) => v.is_finite(),
-            RowValue::ClipPath(_)
+            RowValue::Animations(v) => v.is_finite(),
+            RowValue::DashArray(v) => v.0.iter().all(|n| n.is_finite()),
+            RowValue::Paint(_)
+            | RowValue::ClipPath(_)
             | RowValue::ShapeOutside(_)
             | RowValue::AspectRatio(_)
             | RowValue::Color(_)

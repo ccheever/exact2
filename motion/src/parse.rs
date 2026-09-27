@@ -32,6 +32,10 @@ pub enum ParseError {
     BadShape(String),
     /// Parsed, but the evaluator refuses it.
     Invalid(TransitionError),
+    /// A keyframe value outside its property's grammar (LLP 1055 D6).
+    BadValue(String),
+    /// Parsed, but the animation sampler refuses it (LLP 1055 D5).
+    InvalidAnimation(crate::animation::AnimationError),
 }
 
 impl Transitions {
@@ -97,7 +101,7 @@ impl Transitions {
     }
 }
 
-fn time(s: &str) -> Result<f64, ParseError> {
+pub(crate) fn time(s: &str) -> Result<f64, ParseError> {
     let (num, scale) = if let Some(n) = s.strip_suffix("ms") {
         (n, 0.001)
     } else if let Some(n) = s.strip_suffix('s') {
@@ -110,7 +114,7 @@ fn time(s: &str) -> Result<f64, ParseError> {
         .map_err(|_| ParseError::BadTime(s.to_string()))
 }
 
-fn easing(s: &str) -> Result<TimingFunction, ParseError> {
+pub(crate) fn easing(s: &str) -> Result<TimingFunction, ParseError> {
     Ok(TimingFunction::Easing(match s {
         "linear" => Easing::Linear,
         "ease" => Easing::Ease,
@@ -274,7 +278,7 @@ fn numbers(args: &[String], whole: &str) -> Result<Vec<f64>, ParseError> {
 }
 
 /// Split on `sep` outside parentheses.
-fn split_top_level(s: &str, sep: char) -> Vec<&str> {
+pub(crate) fn split_top_level(s: &str, sep: char) -> Vec<&str> {
     let mut out = Vec::new();
     let mut depth = 0;
     let mut start = 0;

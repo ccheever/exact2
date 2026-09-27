@@ -1,5 +1,6 @@
 //! Motion's integration tests: one binary, so one link and one launch.
 
+mod animation;
 mod descriptor;
 mod easing;
 mod engine;

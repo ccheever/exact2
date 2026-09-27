@@ -171,7 +171,7 @@ impl LayoutMirror for LayoutTree {
     }
 
     fn sync_children(&mut self, arena: &NodeArena, parent: u32, node: NodeId) -> usize {
-        if arena.node_type(parent) == NodeType::Text {
+        if !arena.node_type(parent).lays_out_children() {
             LayoutTree::set_children(self, node, &[]);
             return 0;
         }
@@ -760,7 +760,9 @@ impl LayoutTree {
                         // to a known dimension); nothing at all before it loads,
                         // as a broken `<img>` is 0×0.
                         let Some((iw, ih)) = arena.intrinsic(slot).or_else(|| {
-                            (arena.node_type(slot) == NodeType::Video).then_some((300.0, 150.0))
+                            // A bare <video> and a bare <svg> are 300×150.
+                            matches!(arena.node_type(slot), NodeType::Video | NodeType::Svg)
+                                .then_some((300.0, 150.0))
                         }) else {
                             return Size::ZERO;
                         };

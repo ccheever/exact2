@@ -20,7 +20,9 @@ use crate::transition::{Curve, Running, TransitionError, Transitions};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::{BuildHasherDefault, Hasher};
 
+mod animate;
 mod hold;
+pub use animate::AnimationPlay;
 pub use hold::{HoldEnd, HoldStart, HoldToken, TransformHold};
 
 /// One animatable row's new target, as committed by the kernel.
@@ -61,6 +63,8 @@ pub enum EngineError {
     HoldSerialExhausted,
     /// A `transition` row was invalid.
     Transition(TransitionError),
+    /// An `animation` row was invalid (LLP 1055 D5).
+    InvalidAnimation,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -148,6 +152,11 @@ pub struct Engine {
     // need a clock. Holds and settled slots never enter this index.
     running: BTreeSet<(u64, Property)>,
     dirty: HashSet<(u64, Property), BuildHasherDefault<SlotHasher>>,
+    // CSS animations per node (LLP 1055 D5), and the nodes a sampling host
+    // must still advance: some animation running and not yet ended.
+    animations: BTreeMap<u64, Vec<AnimationPlay>>,
+    animating: BTreeSet<u64>,
+    lowered: [bool; 7],
 }
 
 impl Engine {
@@ -180,6 +189,8 @@ impl Engine {
     /// Forget a node entirely.
     pub fn remove(&mut self, node: u64) {
         self.transitions.remove(&node);
+        self.animations.remove(&node);
+        self.animating.remove(&node);
         // Removing a list must not scan every other node once per row.
         for property in Property::ALL {
             self.remove_property(node, property);
@@ -346,6 +357,7 @@ impl Engine {
             self.dirty.insert(*key);
             !sample.done
         });
+        self.advance_animations();
         Ok(())
     }
 
@@ -367,10 +379,22 @@ impl Engine {
         dirty
             .into_iter()
             .filter_map(|key| {
-                self.slots.get(&key).map(|slot| Presentation {
+                let slot = self.slots.get(&key);
+                let underlying = slot.map(|slot| slot.presented);
+                // A sampling host paints an animation over the property's own
+                // value; a running transition is above animations in the CSS
+                // cascade, so it wins while it runs (LLP 1055 D5).
+                let transitioning = slot.is_some_and(|s| s.running.is_some());
+                let animated = (!self.is_lowered(key.1) && !transitioning)
+                    .then(|| {
+                        let base = underlying.or_else(|| key.1.identity())?;
+                        self.animated(key.0, key.1, base)
+                    })
+                    .flatten();
+                animated.or(underlying).map(|value| Presentation {
                     node: key.0,
                     property: key.1,
-                    value: slot.presented,
+                    value,
                 })
             })
             .collect()
@@ -420,11 +444,12 @@ impl Engine {
 
     /// Whether nothing is running.
     pub fn quiescent(&self) -> bool {
-        self.running.is_empty()
+        self.running.is_empty() && self.animating.is_empty()
     }
 
-    /// The clock time at which the last running transition ends, or `None`
-    /// when quiescent. An agent advances here instead of waiting.
+    /// The clock time at which the last running transition or finite
+    /// animation ends, or `None` when none is. An agent advances here instead
+    /// of waiting; an infinite animation never settles (LLP 1055 D10).
     pub fn settle_time(&self) -> Option<f64> {
         self.running
             .iter()
@@ -435,6 +460,7 @@ impl Engine {
                     .expect("indexed curve")
                     .end_time()
             })
+            .chain(self.animations_settle_time())
             .fold(None, |acc, t| Some(acc.map_or(t, |a: f64| a.max(t))))
     }
 }

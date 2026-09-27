@@ -321,6 +321,9 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                         StyleDomainError::InvalidTransition(error) => {
                             ApplyError::InvalidTransition { op_index, error }
                         }
+                        StyleDomainError::InvalidAnimation(error) => {
+                            ApplyError::InvalidAnimation { op_index, error }
+                        }
                     });
                 }
             }
@@ -360,6 +363,16 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                             parent: *id,
                             child: *child,
                             node_type: child_type,
+                        });
+                    }
+                    // @ref LLP 1055 D3 — an `svg` or `g` holds SVG elements
+                    // and nothing else; an SVG element lives only there.
+                    let svg_parent = matches!(node_type, NodeType::Svg | NodeType::SvgGroup);
+                    if svg_parent != child_type.is_svg_element() {
+                        return Err(ApplyError::SvgContent {
+                            op_index,
+                            parent: *id,
+                            child: *child,
                         });
                     }
                     if staged.is_root(*child) {

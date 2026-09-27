@@ -16,6 +16,8 @@ impl NodeType {
                 | NodeType::Pressable
                 | NodeType::Text
                 | NodeType::Canvas
+                | NodeType::Svg
+                | NodeType::SvgGroup
         )
     }
 
@@ -30,9 +32,16 @@ impl NodeType {
         self.is_text_leaf() || self.is_replaced()
     }
 
-    /// An image or video whose content has an intrinsic size.
+    /// An image, video or `svg` whose content has an intrinsic size. An
+    /// `svg`'s children are its content, never laid out (LLP 1055 D3).
     pub fn is_replaced(self) -> bool {
-        matches!(self, NodeType::Image | NodeType::Video)
+        matches!(self, NodeType::Image | NodeType::Video | NodeType::Svg)
+    }
+
+    /// Whether this node's children are laid out as boxes: not a paragraph's
+    /// inline runs, and not an `svg`'s content (LLP 1055 D3).
+    pub fn lays_out_children(self) -> bool {
+        self != NodeType::Text && self != NodeType::Svg && !self.is_svg_element()
     }
 
     /// Whether the node is a scroll container by default (overflow on its

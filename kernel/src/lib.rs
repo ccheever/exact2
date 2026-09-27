@@ -44,6 +44,7 @@ pub mod region;
 pub mod selector;
 pub mod sorted;
 pub mod style;
+pub mod svg;
 pub mod text;
 pub mod transform;
 pub mod txn;

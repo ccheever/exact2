@@ -19,6 +19,8 @@
 //!   keyframes so the web plays the same curve.
 //! - [`transition`] — the declaration, and CSS's rules for starting,
 //!   interrupting, and reversing a transition.
+//! - [`animation`] — CSS `@keyframes` and `animation`, sampled in closed form
+//!   (LLP 1055 D5).
 //! - [`engine`] — per-node presentation state under a seekable clock.
 //! - [`velocity`] — a pointer-velocity estimate for hosts without one.
 //! - [`math`] — pinned transcendentals, so the same input yields the same bits.
@@ -30,6 +32,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod animation;
 pub mod easing;
 pub mod engine;
 pub mod math;
@@ -39,10 +42,14 @@ pub mod spring;
 pub mod transition;
 pub mod velocity;
 
+pub use animation::{
+    Animation, AnimationError, Animations, Direction, FillMode, Keyframes, Phase, MAX_ANIMATIONS,
+    MAX_KEYFRAMES,
+};
 pub use easing::{Easing, EasingError, LinearStop, StepPosition};
 pub use engine::{
-    Change, Engine, EngineError, HoldEnd, HoldStart, HoldToken, Presentation, SpringDescriptor,
-    SpringFrames, TransformHold,
+    AnimationPlay, Change, Engine, EngineError, HoldEnd, HoldStart, HoldToken, Presentation,
+    SpringDescriptor, SpringFrames, TransformHold,
 };
 pub use parse::ParseError;
 pub use property::{Property, Value};

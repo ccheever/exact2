@@ -15,13 +15,13 @@
 //! reused slot never inherits its predecessor's motion.
 
 use crate::generated::{
-    BoxSizing, Display, InterpolateSize, PropId, StyleId, StyleMask, StyleProps,
+    BoxSizing, Display, InterpolateSize, NodeType, PropId, StyleId, StyleMask, StyleProps,
 };
 use crate::id::NodeKey;
 use crate::kernel::Kernel;
 use crate::style::Dimension;
 use crate::txn::CommitReceipt;
-use exact_motion::{Change, Engine, EngineError, Property, Transitions, Value};
+use exact_motion::{Animations, Change, Engine, EngineError, Property, Transitions, Value};
 
 /// The engine's node number for a kernel node.
 pub fn motion_node(key: NodeKey) -> u64 {
@@ -41,6 +41,8 @@ pub struct MotionSync {
     pub retired: Vec<(u64, Property)>,
     /// Each created or touched node's `transition` row.
     pub transitions: Vec<(u64, Transitions)>,
+    /// Each created or touched node's `animation` row (LLP 1055 D5).
+    pub animations: Vec<(u64, Animations)>,
     /// The sync's eligible targets; ordinary receipt sync has four per node.
     pub changes: Vec<Change>,
 }
@@ -59,6 +61,9 @@ impl MotionSync {
         }
         for change in &self.changes {
             engine.observe(*change)?;
+        }
+        for (node, animations) in &self.animations {
+            engine.set_animations(*node, animations)?;
         }
         Ok(())
     }
@@ -81,6 +86,23 @@ pub fn targets(style: &StyleProps) -> [(Property, Value); 4] {
 }
 
 impl Kernel {
+    /// An SVG shape's two animatable geometry rows (LLP 1055 D6): its
+    /// computed `stroke-dashoffset` (inherited, as SVG says), and a circle's
+    /// `r`.
+    pub fn svg_targets(&self, key: NodeKey) -> Vec<(Property, Value)> {
+        let Some(node) = self.node_by_key(key) else {
+            return Vec::new();
+        };
+        let mut mask = StyleMask::EMPTY;
+        mask.set(StyleId::StrokeDashoffset);
+        let offset = node.computed_style(mask).stroke_dashoffset;
+        let mut out = vec![(Property::StrokeDashoffset, Value::scalar(offset as f64))];
+        if node.node_type == NodeType::SvgCircle {
+            out.push((Property::R, Value::scalar(node.style.r as f64)));
+        }
+        out
+    }
+
     /// Resolve an authored `heightDragFor` to its unique strict ancestor `id`.
     /// The complete handle-to-root path must be attached, displayed, enabled
     /// and non-inert. The target must be a numeric border-box height owner.
@@ -229,9 +251,21 @@ impl Kernel {
             ..MotionSync::default()
         };
         for key in receipt.created.iter().chain(receipt.touched.iter()) {
-            let Some(node) = self.node_by_key(*key) else {
-                continue;
+            self.motion_sync_node(*key, &mut sync);
+        }
+        sync
+    }
+
+    /// Append one live node's `transition` row, targets and `animation` row
+    /// to `sync`: what a commit says about a node it created or touched, and
+    /// what a host's boot says about every node (LLP 1055 D5: an animation
+    /// starts when its node is first seen, boot included).
+    pub fn motion_sync_node(&self, key: NodeKey, sync: &mut MotionSync) {
+        {
+            let Some(node) = self.node_by_key(key) else {
+                return;
             };
+            let key = &key;
             let id = motion_node(*key);
             sync.transitions.push((id, node.style.transition.clone()));
             for (property, value) in targets(node.style) {
@@ -242,7 +276,19 @@ impl Kernel {
                     velocity: None,
                 });
             }
+            if node.node_type.is_svg_shape() {
+                for (property, value) in self.svg_targets(*key) {
+                    sync.changes.push(Change {
+                        node: id,
+                        property,
+                        value,
+                        velocity: None,
+                    });
+                }
+            }
+            // An empty row is how a removed animation reaches the engine; an
+            // empty row on a node that never had one costs one map lookup.
+            sync.animations.push((id, node.style.animation.clone()));
         }
-        sync
     }
 }

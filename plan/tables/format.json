@@ -483,6 +483,20 @@
           "_comment": "@ref LLP 1048.000 D2: that source's arguments, values (a list in the plan's value encoding); empty bytes without a source."
         }
       ]
+    },
+    {
+      "name": "keyframes",
+      "_comment": "@ref LLP 1055 D5: the app's `@keyframes` rules by name, each body as CSS text (`0%{r:3px;}100%{r:9px;}`); the runner resolves `animation-name` against them.",
+      "fields": [
+        {
+          "name": "name",
+          "codec": "str"
+        },
+        {
+          "name": "css",
+          "codec": "str"
+        }
+      ]
     }
   ],
   "_enums": "Wire ordinal is the 0-based index. An unknown ordinal is a typed decode rejection.",

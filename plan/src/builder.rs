@@ -269,6 +269,13 @@ impl PlanBuilder {
         FamiliesId(self.plan.families.len() as u32 - 1)
     }
 
+    /// A `@keyframes` rule, its body as CSS text (LLP 1055 D5).
+    pub fn keyframes(&mut self, name: &str, css: &str) -> KeyframesId {
+        let (name, css) = (self.str(name), self.str(css));
+        self.plan.keyframes.push(KeyframesRow { name, css });
+        KeyframesId(self.plan.keyframes.len() as u32 - 1)
+    }
+
     /// An ordered font stack. v1's semantic validator accepts one member;
     /// the range keeps the format additive for authored cascade later.
     pub fn font_stack(&mut self, members: &[(StackMemberKind, Option<FamiliesId>)]) -> StacksId {

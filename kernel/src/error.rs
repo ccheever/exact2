@@ -24,6 +24,7 @@ pub enum StyleDomainError {
     TooManyTracks { style: StyleId, count: usize },
     InvalidGridSpan(StyleId),
     InvalidTransition(exact_motion::TransitionError),
+    InvalidAnimation(exact_motion::AnimationError),
 }
 
 /// A frame or payload could not be decoded. Nothing was applied.
@@ -45,6 +46,15 @@ pub enum DecodeError {
     BadShapeOutside,
     /// Invalid CSS `aspect-ratio` value.
     BadAspectRatio,
+    /// Invalid SVG paint (LLP 1055 D2).
+    BadPaint,
+    /// Invalid SVG `stroke-dasharray` (LLP 1055 D2).
+    BadDashArray,
+    /// An `animation` row carried more entries or keyframes than the wire
+    /// admits, or a direction/fill byte outside the table (LLP 1055 D5).
+    BadAnimation,
+    /// An `animation` row decoded but failed the sampler's validation.
+    InvalidAnimation(exact_motion::AnimationError),
     /// The frame revision is not one this kernel reads.
     UnsupportedRevision(u16),
     /// The producer was generated from a different schema than this kernel.
@@ -226,6 +236,18 @@ pub enum ApplyError {
         op_index: usize,
         error: exact_motion::TransitionError,
     },
+    /// A `SetStyle` patch carried an `animation` row the sampler refuses.
+    InvalidAnimation {
+        op_index: usize,
+        error: exact_motion::AnimationError,
+    },
+    /// An SVG element's parent is not an `svg` or `g`, or an `svg` or `g`
+    /// was given a child that is not an SVG element (LLP 1055 D3).
+    SvgContent {
+        op_index: usize,
+        parent: ViewId,
+        child: ViewId,
+    },
     /// The batch would leave node `id` `depth` levels below the top of its
     /// tree, past [`MAX_DEPTH`](crate::MAX_DEPTH): layout recurses once per
     /// level and the host's stack is finite. `op_index` attached the subtree
@@ -310,6 +332,7 @@ impl From<StyleDomainError> for DecodeError {
             StyleDomainError::TooManyTracks { count, .. } => DecodeError::TooManyTracks(count),
             StyleDomainError::InvalidGridSpan(_) => DecodeError::InvalidGridSpan,
             StyleDomainError::InvalidTransition(error) => DecodeError::InvalidTransition(error),
+            StyleDomainError::InvalidAnimation(error) => DecodeError::InvalidAnimation(error),
         }
     }
 }
@@ -395,6 +418,18 @@ pub enum StyleValueError {
     },
     /// Not CSS `aspect-ratio`: `auto`, a ratio, or both.
     BadAspectRatio {
+        style: StyleId,
+    },
+    /// Not SVG paint: `none`, `currentcolor`, or a colour.
+    BadPaint {
+        style: StyleId,
+    },
+    /// Not SVG `stroke-dasharray`: `none` or non-negative numbers.
+    BadDashArray {
+        style: StyleId,
+    },
+    /// Not CSS `animation` shorthand.
+    BadAnimation {
         style: StyleId,
     },
 }
