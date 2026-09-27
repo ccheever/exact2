@@ -302,6 +302,8 @@ pub enum Ref {
     Param(u32),
     /// An `each` item, `depth` region frames out (0 = innermost).
     Item(u32),
+    /// An `each` item's position, `depth` region frames out (LLP 1062 D8).
+    Index(u32),
     /// A `match` binding, `depth` region frames out.
     Bound(u32),
     /// A name an inline `match` expression binds; the index is lowering's.
@@ -340,6 +342,16 @@ impl Scope {
         }));
     }
 
+    /// Push an `each` row's frame: its item, and its position when named.
+    pub fn push_each(&mut self, item: &str, index: Option<&str>, ty: Ty) {
+        let mut names = vec![(item.to_string(), Ref::Item(0), ty)];
+        names.extend(index.map(|i| (i.to_string(), Ref::Index(0), Ty::Number)));
+        self.frames.push(Arc::new(Frame {
+            names,
+            region: true,
+        }));
+    }
+
     /// The one value name in scope `name` most plausibly misspells. Actions
     /// are the driver's to suggest (it knows the handler's position), and a
     /// generated name (`count#2`, `x@1`) is never offered.
@@ -373,6 +385,7 @@ impl Scope {
                 if n == name {
                     let r = match r {
                         Ref::Item(_) => Ref::Item(depth),
+                        Ref::Index(_) => Ref::Index(depth),
                         Ref::Bound(_) => Ref::Bound(depth),
                         other => *other,
                     };

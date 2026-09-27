@@ -351,7 +351,9 @@ fn scan(plan: &Plan, layout: Layout, code: Code) -> Reads {
             Opcode::Call if Stdlib::from_wire(index as u8) == Some(Stdlib::Now) => {
                 reads.bits.set(layout.clock())
             }
-            Opcode::LoadItem | Opcode::LoadBound => reads.frames |= 1 << index.min(63),
+            Opcode::LoadItem | Opcode::LoadBound | Opcode::LoadIndex => {
+                reads.frames |= 1 << index.min(63)
+            }
             Opcode::LoadParam
             | Opcode::StoreSlot
             | Opcode::Command

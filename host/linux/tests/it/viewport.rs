@@ -32,10 +32,7 @@ fn viewport_resize_reanswers_before_native_layout() {
     assert!(!host.runner().kernel().find_by_test_id("narrow").is_empty());
     assert_eq!(
         host.runner().viewport(),
-        exact_runner::Viewport {
-            width: 390.0,
-            height: 844.0
-        }
+        exact_runner::Viewport::sized(390.0, 844.0)
     );
     host.resize(390.0, 844.0);
     assert_eq!(host.runner().kernel().epoch(), 2);

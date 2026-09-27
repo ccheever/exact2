@@ -312,6 +312,9 @@ uint32_t exact_surface_record(ExactRuntime rt, size_t len);
 uint32_t exact_set_time(ExactRuntime rt, double epoch_at_zero, double utc_offset);
 /* Beside the date: the locale and IANA time zone, as locale NUL timeZone input. */
 uint32_t exact_set_place(ExactRuntime rt, size_t len);
+/* @ref LLP 1061 D4: the user's display preferences, told after boot and on
+ * each change — bit 0 reduced motion, bit 1 reduced transparency. */
+uint32_t exact_set_preferences(ExactRuntime rt, uint32_t bits);
 /* @ref LLP 1039: re-answer viewport facts and relayout in the same batch. */
 uint32_t exact_resize(ExactRuntime rt, float width, float height);
 /* Actual list scrollport and focused/interacting descendants (zero if absent).
@@ -336,6 +339,9 @@ uint32_t exact_list_text(ExactRuntime rt, uint32_t view, uint32_t first_len,
  * safe area itself. A change re-sends the style of every node that reads
  * them and lays out again. */
 uint32_t exact_insets(ExactRuntime rt, float top, float right, float bottom, float left);
+/* The presenter's appearance (nonzero: dark), which a light-dark() colour
+ * under paint motion resolves by; a change transitions it (LLP 1062). */
+uint32_t exact_scheme(ExactRuntime rt, uint32_t dark);
 uint32_t exact_tick(ExactRuntime rt, double now_ms);      /* a motion frame, only while "motion" is true */
 /* An image node loaded: its bitmap's pixel counts, taken one-for-one as
  * points (never divided by the backing scale — a 2× asset is not half its

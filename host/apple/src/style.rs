@@ -298,6 +298,21 @@ mod flow_tests {
         assert_eq!(style_json(&s, &Env::default()), ("{}".into(), vec![]));
     }
 
+    /// LLP 1061 D2: the press scale is the presenter's to show, so it crosses
+    /// as a number, where the engine's own `scale` never does.
+    #[test]
+    fn press_scale_crosses_and_the_motion_scale_does_not() {
+        let mut s = StyleProps::default();
+        s.set_dynamic(StyleId::PressScale, &StyleValue::Number(0.97))
+            .unwrap();
+        s.set_dynamic(StyleId::Scale, &StyleValue::Number(2.0))
+            .unwrap();
+        assert_eq!(
+            style_json(&s, &Env::default()),
+            (r#"{"press_scale":0.97}"#.into(), vec![])
+        );
+    }
+
     /// LLP 1056: a gradient crosses as its shape and ready-to-mix stops; a
     /// `light-dark()` one carries both appearances, and `none` nothing.
     #[test]

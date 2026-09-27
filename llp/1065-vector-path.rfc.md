@@ -2,7 +2,7 @@
 
 **Type:** RFC
 **Status:** Implemented 2026-09-26
-**Systems:** Kernel (`schema.json` node type 7 `Path`, props 8 `pathData` and 122 `viewBox`, style bits 103–109, codec `paint`; `kernel/src/vector.rs`; `motion::node_targets`), Motion (`Property::StrokeStart`/`StrokeEnd`), Contract (`path`, `d`, `viewBox`, SVG's painting attributes, `stroke-start`/`stroke-end`, keyframes), Web host (`vector.rs`, `css.rs`, one `glue.js` line), Apple host (`vector.rs`, `VectorPath.swift`, `PathViewIOS.swift`, `PathViewMac.swift`), Linux host (`paint/vector.rs`, both painters)
+**Systems:** Kernel (`schema.json` node type 7 `Path`, props 8 `pathData` and 122 `viewBox`, style bits 106–112, codec `paint`; `kernel/src/vector.rs`; `motion::node_targets`), Motion (`Property::StrokeStart`/`StrokeEnd`), Contract (`path`, `d`, `viewBox`, SVG's painting attributes, `stroke-start`/`stroke-end`, keyframes), Web host (`vector.rs`, `css.rs`, one `glue.js` line), Apple host (`vector.rs`, `VectorPath.swift`, `PathViewIOS.swift`, `PathViewMac.swift`), Linux host (`paint/vector.rs`, both painters)
 **Author:** Claude (Opus 5.5) for Seth Webster
 **Date:** 2026-09-26
 **Related:** LLP 1002/1003 (motion: one representation, two executors), LLP 1057 (keyframes), LLP 1034 (`light-dark()`), LLP 1043.000 (`clip-path`, the other SVG path in the kernel)
@@ -48,8 +48,8 @@ web's name, as every attribute here. A literal `d` or `viewBox` is parsed at
 compile time and any error refused (`lower-attr-value`, naming the byte);
 data from state is drawn up to its first error, as SVG does.
 
-**D3 — SVG's painting properties, inherited.** Rows `fill` (103), `stroke`
-(104), `stroke_width` (105), `stroke_linecap` (106), `stroke_linejoin` (107)
+**D3 — SVG's painting properties, inherited.** Rows `fill` (106), `stroke`
+(107), `stroke_width` (108), `stroke_linecap` (109), `stroke_linejoin` (110)
 are marked `inherited`, as CSS has them, so a `column stroke="#000"` paints
 the paths under it on every host (native hosts read the path's computed
 style; the web inherits). `fill`/`stroke` use a new codec `paint`: the
@@ -59,14 +59,15 @@ keyword-colour codec with keyword `none` (`none`, a colour, or a
 in path units, so it scales with the view box. `currentColor` is refused
 (gap).
 
-**D4 — `stroke-start`/`stroke-end`: fractions of the whole path.** Rows 108
-and 109 (f32, 0 and 1). They are not CSS — SVG spells the effect with dashes
+**D4 — `stroke-start`/`stroke-end`: fractions of the whole path.** Rows 111
+and 112 (f32, 0 and 1). They are not CSS — SVG spells the effect with dashes
 that restart at every subpath — so the fraction is along the whole path's
 length, subpaths in order: subpath 2 begins only when subpath 1 is complete.
-Motion adds `Property::StrokeStart = 5`, `StrokeEnd = 6` (scalar, identities 0
-and 1). The existing wire grammars grow by the enum alone: transition
-property codes 6 and 7, keyframe property codes 5 and 6 (4, height, is still
-refused). `transition` and `keyframes` take them like the compositor rows;
+Motion adds `Property::StrokeStart = 15`, `StrokeEnd = 16` (scalar,
+identities 0 and 1), after `Layout = 14`, which no row carries; `from_wire`
+maps a discriminant, not an index into `Property::ALL`. On the wire:
+transition property codes 16 and 17 (15 stays `border-color`), keyframe
+property codes 15 and 16. `transition` and `keyframes` take them like the compositor rows;
 the engine's first-seen, interruption and restart rules are unchanged. Only
 a `path` hands the engine its strokes (`motion::node_targets`, used by
 `motion_sync` and every host's boot adoption), so no other node spends
@@ -136,6 +137,8 @@ subpath (adaptive subdivision to ~1e-6 units). No host parses SVG.
 - On the web a `spring()` on a stroke row is not lowered (the web engine's
   spring lowering animates the four compositor properties); the value jumps.
   Native hosts run it.
+- `stroke` and `fill` colours do not transition: paint motion (LLP 1062)
+  animates its own colour rows, and these are not yet among them.
 - `currentColor`, `fill-rule`, `stroke-miterlimit`, `stroke-dasharray`,
   `preserveAspectRatio`, `vector-effect`, markers, and more than one path per
   node.

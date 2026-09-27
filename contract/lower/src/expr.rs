@@ -119,6 +119,10 @@ pub(crate) fn compile(
                 asm.load_item(d as u16);
                 t.clone()
             }
+            Some((Ref::Index(d), t)) => {
+                asm.load_index(d as u16);
+                t.clone()
+            }
             Some((Ref::Bound(d), t)) => {
                 asm.load_bound(d as u16);
                 t.clone()

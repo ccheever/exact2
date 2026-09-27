@@ -706,10 +706,7 @@ fn timer_demand_paused_due_receipt_does_not_repaint() {
         plan,
         Empty,
         exact_kernel::Kernel::new(Box::new(exact_kernel::MonospaceMeasurer::default())),
-        exact_runner::Viewport {
-            width: 320.,
-            height: 240.,
-        },
+        exact_runner::Viewport::sized(320., 240.),
         "/",
     )
     .unwrap();

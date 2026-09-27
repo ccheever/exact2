@@ -648,6 +648,7 @@ impl Collection {
         let slots: RowSlots = Rc::new(RefCell::new(BTreeMap::new()));
         let frame = Frame {
             item: Some(self.items[position].clone()),
+            index: None,
             bound: None,
             region: Some(self.region.0),
             row: Some(slots.clone()),

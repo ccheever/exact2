@@ -981,10 +981,11 @@ impl RegionInst {
                 // Key every item. A repeated key is the data's error, not the
                 // plan's: its later rows get their own identity, in order.
                 let mut keyed: Vec<(String, Value, u32, Frame)> = Vec::with_capacity(items.len());
-                for item in items.iter() {
+                for (index, item) in items.iter().enumerate() {
                     u.work.rows_keyed += 1;
                     let frame = Frame {
                         item: Some(item.clone()),
+                        index: Some(index),
                         bound: None,
                         ..Default::default()
                     };
@@ -1045,7 +1046,9 @@ impl RegionInst {
                             // Row bodies may distinguish signed zero (`1 / n > 0`):
                             // compare by bits, not by the language's `==`. An
                             // equivalent item keeps its object for nested memos.
-                            let dirty = !crate::compare::equivalent_opt(&r.frame.item, &frame.item);
+                            // A row that moved reads a new position (LLP 1062 D8).
+                            let dirty = !crate::compare::equivalent_opt(&r.frame.item, &frame.item)
+                                || r.frame.index != frame.index;
                             if !dirty {
                                 frame.item = r.frame.item.take();
                             }

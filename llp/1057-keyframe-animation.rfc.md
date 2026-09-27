@@ -61,7 +61,7 @@ it means on a node. Anything else is refused by name with the reason. Numeric
 `height` stays a transition-only trial (LLP 1002 D7). *Rejected:* colours and
 layout properties — natively they need a second interpolation vocabulary and
 a layout per frame, which would break parity with the web for these consumers'
-sake alone.
+sake alone. (Colours since admitted, fixed ones, by LLP 1062 D9.)
 
 **D3 — Names resolve at compile time.** Lowering rewrites every literal an
 `animation` expression can produce — a string, or either side of a condition,

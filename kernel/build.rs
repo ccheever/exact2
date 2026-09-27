@@ -62,6 +62,9 @@ struct StyleRow {
     /// is the empty set (0) and each later value `i` is bit `i - 1`.
     #[serde(default)]
     keywords: Option<String>,
+    /// An `animations` row whose every animation must end (LLP 1063).
+    #[serde(default)]
+    ends: bool,
 }
 #[derive(Deserialize)]
 struct OpcodeRow {
@@ -207,6 +210,12 @@ fn validate(schema: &Schema) {
                 row.field
             );
         }
+        let ends_ok = !row.ends || matches!(codec, Codec::Animations);
+        assert!(
+            ends_ok,
+            "schema: ends applies to animations rows (`{}`)",
+            row.field
+        );
         if row.admits_auto {
             assert!(
                 matches!(codec, Codec::Dimension),
@@ -1267,7 +1276,12 @@ fn generate(schema: &Schema, digest: u64) -> String {
                 writeln!(w, "        if self.mask.has(StyleId::{id}) {{ self.{field}.validate().map_err(StyleDomainError::InvalidTransition)?; }}").unwrap();
             }
             Codec::Animations => {
-                writeln!(w, "        if self.mask.has(StyleId::{id}) {{ self.{field}.validate().map_err(StyleDomainError::InvalidAnimation)?; }}").unwrap();
+                let check = if row.ends {
+                    "validate_ending"
+                } else {
+                    "validate"
+                };
+                writeln!(w, "        if self.mask.has(StyleId::{id}) {{ self.{field}.{check}().map_err(StyleDomainError::InvalidAnimation)?; }}").unwrap();
             }
             _ => {}
         }

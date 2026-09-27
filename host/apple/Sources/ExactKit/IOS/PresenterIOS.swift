@@ -20,6 +20,8 @@ final class Presenter {
     /// The viewport over it: the window's content, scrolling like a browser's.
     let viewport: ScrollView = Viewport(frame: .zero)
     var views: [UInt32: NodeView] = [:]
+    /// Views leaving with their exit, by id (LLP 1063, `PresenceIOS.swift`).
+    var leaving: [UInt32: Leaving] = [:]
     private(set) var chrome = ChromeIndex()
     func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props); view.updateReorderGesture(); view.updateRefresh() }
     func carrying(_ key: String) -> [NodeView] { chrome.ids(key).sorted().compactMap { views[$0] } }
@@ -652,7 +654,7 @@ final class Presenter {
                 let container = parent.container
                 let wanted = Set(want.map(ObjectIdentifier.init))
                 var current = container.subviews
-                for case let child as NodeView in current where !wanted.contains(ObjectIdentifier(child)) && !pool.isParked(child) {
+                for case let child as NodeView in current where !wanted.contains(ObjectIdentifier(child)) && !pool.isParked(child) && !isLeaving(child) {
                     if !modals.retainsRemovedView(child) { child.removeFromSuperview() }
                 }
                 // In order, below anything else in the container (a scroll
@@ -668,7 +670,9 @@ final class Presenter {
                 if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] ?? []) }
             case .command:
                 onCommand?(op.payload["name"] as? String ?? "", op.payload["args"] as? [Any] ?? [])
+            case .exit: beginExit(id)
             case .destroy:
+                if endExit(id) { continue }
                 // A collection's retired row parks for the next of its shape.
                 if let view = views[id], pool.retire(view) { continue }
                 // Out of the map before out of the window: the editing-ended
@@ -682,16 +686,18 @@ final class Presenter {
                 if kind == .frame { pool.framed(id) }
                 if let node = views[id], !modals.deferGeometry(op, for: node) { applyGeometry(op) }
             case .present:
-                guard let v = views[id] else { continue }
+                guard let v = views[id] ?? leaving[id]?.view else { continue }
                 let x = CGFloat(op.x)
                 switch op.property {
                 case "translate": v.translate = CGPoint(x: x, y: CGFloat(op.y)); v.applyTransform()
+                case "layout": v.layoutOffset = CGPoint(x: x, y: CGFloat(op.y)); v.applyTransform()
                 case "scale": v.scale = x; v.applyTransform()
                 case "rotate": v.rotate = x; v.applyTransform()
                 case "opacity": v.alpha = x
                 case "stroke-start", "stroke-end": PathView.of(v)?.present(op.property, x)
-                default: break
+                default: v.present(paint: op.property, [op.x, op.y, op.w, op.h])
                 }
+            case .unpresent: (views[id] ?? leaving[id]?.view)?.present(paint: op.property, nil)
             default: break
             }
         }

@@ -62,10 +62,7 @@ fn baked_phone_first_wide_batch_then_one_narrow_commit() {
         baked,
         NoData,
         Kernel::with_monospace(),
-        Viewport {
-            width: 1280.0,
-            height: 900.0,
-        },
+        Viewport::sized(1280.0, 900.0),
         "/",
     )
     .unwrap();
@@ -99,10 +96,7 @@ fn baked_phone_first_wide_batch_then_one_narrow_commit() {
         NoData,
         Kernel::with_monospace(),
         &carried,
-        Viewport {
-            width: 1280.0,
-            height: 900.0,
-        },
+        Viewport::sized(1280.0, 900.0),
         "/",
     )
     .unwrap();

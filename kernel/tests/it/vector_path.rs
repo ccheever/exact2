@@ -189,10 +189,10 @@ fn stroke_end_plays_in_keyframes_from_creation() {
         engine.value(node, Property::StrokeEnd),
         Some(Value::scalar(1.0))
     );
-    // The transition vocabulary names the stroke rows too, on the wire after height.
+    // The transition vocabulary names the stroke rows too, on the wire after `layout`.
     let t = Transitions::parse("stroke-start 1s, stroke-end 2s").unwrap();
     assert_eq!(t.0.len(), 2);
-    assert_eq!(Property::StrokeStart as u8, 5);
+    assert_eq!(Property::StrokeStart as u8, 15);
     assert_eq!(
         Property::from_name("--exact-stroke-end"),
         Some(Property::StrokeEnd)

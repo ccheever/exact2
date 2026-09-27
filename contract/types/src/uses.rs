@@ -243,7 +243,11 @@ fn walk_use(
                 walk_uses(otherwise, scope, types, file, actions, sink);
             }
             Node::Each {
-                var, list, body, ..
+                var,
+                index,
+                list,
+                body,
+                ..
             } => {
                 let lt = infer(list, scope, &types.shapes)?;
                 let Ty::List(item) = lt else {
@@ -254,7 +258,7 @@ fn walk_use(
                     );
                 };
                 let mut inner = scope.clone();
-                inner.push_region(Some((var.clone(), Ref::Item(0), *item)));
+                inner.push_each(var, index.as_deref(), *item);
                 walk_uses(body, &inner, types, file, actions, sink);
             }
             Node::Match {

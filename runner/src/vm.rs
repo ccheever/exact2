@@ -51,6 +51,8 @@ pub type RowSlots = Rc<RefCell<BTreeMap<u32, Value>>>;
 pub struct Frame {
     /// The `each` item, when this scope is a keyed row.
     pub item: Option<Value>,
+    /// The row's position in its list, from 0 (LLP 1062 D8).
+    pub index: Option<usize>,
     /// The `match` binding, when this scope is a `some(x)` arm.
     pub bound: Option<Value>,
     /// The `each` region this row belongs to, when this scope is a row.
@@ -488,6 +490,20 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                     index: args[0] as u16,
                 },
             )?),
+            Opcode::LoadIndex => {
+                let depth = args[0] as usize;
+                let index = env
+                    .frames
+                    .len()
+                    .checked_sub(depth + 1)
+                    .and_then(|i| env.frames.get(i))
+                    .and_then(|f| f.index)
+                    .ok_or(Trap::BadScope {
+                        pc,
+                        depth: depth as u16,
+                    })?;
+                stack.push(Value::Number(index as f64));
+            }
             Opcode::LoadItem | Opcode::LoadBound => {
                 let depth = args[0] as usize;
                 let frame = env

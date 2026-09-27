@@ -72,5 +72,5 @@ pub use runner::{
 };
 pub use store::{Store, StoreError, StoreWrite};
 pub use uses::{uses, Capability, Uses};
-pub use viewport::Viewport;
+pub use viewport::{Preferences, Viewport};
 pub use vm::Trap;

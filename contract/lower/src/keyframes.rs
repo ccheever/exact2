@@ -11,9 +11,10 @@
 //! nobody declared is refused here, at compile time.
 
 use crate::{err, tags, values, LowerError};
-use contract_syntax::{Attr, Expr, File};
+use contract_syntax::{Attr, Expr, File, FnDecl, TemplatePart};
 use exact_kernel::motion::{stroke_targets, targets};
-use exact_kernel::{StyleId, StyleProps, StyleValue};
+use exact_kernel::style::ColorValue;
+use exact_kernel::{RowValue, StyleId, StyleProps, StyleValue};
 use exact_motion::{Animations, Easing, KeyframeBlock, Keyframes, ParseError};
 use std::collections::BTreeMap;
 
@@ -38,11 +39,15 @@ pub(crate) fn resolve(file: &File) -> (Table, Vec<LowerError>) {
                 offset: 0.0,
                 easing: None,
                 values: Vec::new(),
+                dark: Vec::new(),
             };
             for a in &block.attrs {
-                match value(a) {
+                match value(a, &file.fns) {
                     Ok(Setting::Easing(easing)) => out.easing = Some(easing),
-                    Ok(Setting::Value(property, value)) => out.values.push((property, value)),
+                    Ok(Setting::Value(values, dark)) => {
+                        out.values.extend(values);
+                        out.dark.extend(dark);
+                    }
                     Err(e) => {
                         errors.push(e);
                         refused = true;
@@ -86,14 +91,57 @@ pub(crate) fn resolve(file: &File) -> (Table, Vec<LowerError>) {
     (table, errors)
 }
 
+type Values = Vec<(exact_motion::Property, exact_motion::Value)>;
+
 enum Setting {
     Easing(Easing),
-    Value(exact_motion::Property, exact_motion::Value),
+    /// The values, and a `light-dark()` colour's dark ones.
+    Value(Values, Values),
 }
 
-/// One keyframe attribute: `animation-timing-function`, or one of the four
-/// rows motion animates, read by the kernel's parser for that row.
-fn value(a: &Attr) -> Result<Setting, LowerError> {
+/// A keyframe's value as written, through calls to argument-free functions
+/// (`color=accent()` where `fn accent(): string = "light-dark(…)"`): a
+/// palette is written once, and a keyframe is still known when the app
+/// compiles.
+fn constant<'a>(e: &'a Expr, fns: &'a [FnDecl]) -> &'a Expr {
+    let mut e = e;
+    for _ in 0..16 {
+        let Expr::Call(name, args, _) = e else { break };
+        match fns.iter().find(|f| &f.name == name && f.params.is_empty()) {
+            Some(f) if args.is_empty() => e = &f.body,
+            _ => break,
+        }
+    }
+    e
+}
+
+/// The motion property a keyframe row animates: the four compositor rows,
+/// and the colours (LLP 1062).
+fn animated(row: StyleId) -> Option<exact_motion::Property> {
+    use exact_motion::Property as P;
+    Some(match row {
+        StyleId::Translate => P::Translate,
+        StyleId::Scale => P::Scale,
+        StyleId::Rotate => P::Rotate,
+        StyleId::Opacity => P::Opacity,
+        StyleId::BackgroundColor => P::BackgroundColor,
+        StyleId::TextColor => P::Color,
+        StyleId::BorderColorTop => P::BorderTopColor,
+        StyleId::BorderColorRight => P::BorderRightColor,
+        StyleId::BorderColorBottom => P::BorderBottomColor,
+        StyleId::BorderColorLeft => P::BorderLeftColor,
+        StyleId::TintColor => P::TintColor,
+        // @ref LLP 1065 D4 — a path's stroke fractions.
+        StyleId::StrokeStart => P::StrokeStart,
+        StyleId::StrokeEnd => P::StrokeEnd,
+        _ => return None,
+    })
+}
+
+/// One keyframe attribute: `animation-timing-function`, or a row motion
+/// animates — the four compositor rows or a colour — read by the kernel's
+/// parser for that row.
+fn value(a: &Attr, fns: &[FnDecl]) -> Result<Setting, LowerError> {
     if a.name == "animation-timing-function" {
         let Expr::Str(text, _) = &a.value else {
             return err(
@@ -110,19 +158,14 @@ fn value(a: &Attr) -> Result<Setting, LowerError> {
             )
         });
     }
-    let row = match tags::attr(&a.name) {
-        Some(tags::AttrTarget::Styles(
-            [row @ (StyleId::Translate
-            | StyleId::Scale
-            | StyleId::Rotate
-            | StyleId::Opacity
-            | StyleId::StrokeStart
-            | StyleId::StrokeEnd)],
-        )) => *row,
+    let rows = match tags::attr(&a.name) {
+        Some(tags::AttrTarget::Styles(rows)) if rows.iter().all(|r| animated(*r).is_some()) => {
+            rows
+        }
         Some(_) => {
             return err(
                 "lower-keyframes",
-                format!("`{}` cannot be in a keyframe: keyframes animate `translate`, `scale`, `rotate` and `opacity`, the properties motion runs without layout (LLP 1002), and a path's `stroke-start` and `stroke-end` (LLP 1065)", a.name),
+                format!("`{}` cannot be in a keyframe: keyframes animate `translate`, `scale`, `rotate`, `opacity` and the colours, which motion runs without layout (LLP 1002, LLP 1062), and a path's `stroke-start` and `stroke-end` (LLP 1065)", a.name),
                 a.span,
             )
         }
@@ -137,57 +180,96 @@ fn value(a: &Attr) -> Result<Setting, LowerError> {
             );
         }
     };
-    let literal = match &a.value {
+    let literal = match constant(&a.value, fns) {
         Expr::Str(s, _) => StyleValue::Text(s.clone()),
         other => match values::numeric_literal(other) {
             Some(n) => StyleValue::Number(n),
             None => {
                 return err(
                     "lower-keyframes",
-                    format!("`{}` in a keyframe is a number or a string", a.name),
+                    format!("`{}` in a keyframe is a number or a string, written or returned by a function without parameters", a.name),
                     a.span,
                 )
             }
         },
     };
-    let mut style = StyleProps::default();
-    if let Err(e) = style.set_dynamic(row, &literal) {
-        return err(
-            "lower-attr-value",
-            format!(
-                "`{}` in a keyframe is not a valid `{}`: {}",
-                a.name,
-                a.name,
-                values::describe(&e)
-            ),
-            a.span,
-        );
+    let (mut out, mut dark) = (Vec::new(), Vec::new());
+    for row in rows {
+        let mut style = StyleProps::default();
+        if let Err(e) = style.set_dynamic(*row, &literal) {
+            return err(
+                "lower-attr-value",
+                format!(
+                    "`{}` in a keyframe is not a valid `{}`: {}",
+                    a.name,
+                    a.name,
+                    values::describe(&e)
+                ),
+                a.span,
+            );
+        }
+        let property = animated(*row).expect("an animated row");
+        let value = match style.get(*row) {
+            RowValue::ColorValue(ColorValue::Fixed(c)) => {
+                exact_motion::Value::rgba8([c.r(), c.g(), c.b(), c.a()])
+            }
+            // The host's appearance picks one when it paints (LLP 1062 D9).
+            RowValue::ColorValue(ColorValue::LightDark(l, d)) => {
+                dark.push((
+                    property,
+                    exact_motion::Value::rgba8([d.r(), d.g(), d.b(), d.a()]),
+                ));
+                exact_motion::Value::rgba8([l.r(), l.g(), l.b(), l.a()])
+            }
+            _ => {
+                targets(&style)
+                    .into_iter()
+                    .chain(stroke_targets(&style))
+                    .find(|(p, _)| *p == property)
+                    .expect("targets name every compositor row")
+                    .1
+            }
+        };
+        out.push((property, value));
     }
-    let property = exact_motion::Property::from_name(&a.name).expect("a motion row");
-    let (_, value) = targets(&style)
-        .into_iter()
-        .chain(stroke_targets(&style))
-        .find(|(p, _)| *p == property)
-        .expect("targets name every compositor row");
-    Ok(Setting::Value(property, value))
+    Ok(Setting::Value(out, dark))
 }
 
 /// An `animation` value with every literal resolved to the row's text. A
 /// computed value is refused: which keyframes play is known when the app
 /// compiles, and a condition may still choose between literals.
-pub(crate) fn animation_value(value: &Expr, table: &Table) -> Result<Expr, LowerError> {
+/// `exit-animation` (LLP 1063) resolves the same way, and must end: its node
+/// is removed when it does.
+pub(crate) fn animation_value(
+    value: &Expr,
+    table: &Table,
+    row: StyleId,
+) -> Result<Expr, LowerError> {
+    let attr = if row == StyleId::ExitAnimation {
+        "exit-animation"
+    } else {
+        "animation"
+    };
     Ok(match value {
         Expr::Str(text, span) => {
             let parsed = Animations::parse(&format!("{text}{}", table.rules))
-                .or_else(|e| err(e_id(&e), message(text, &e, table), *span))?;
+                .or_else(|e| err(e_id(&e), message(attr, text, &e, table), *span))?;
+            if row == StyleId::ExitAnimation && parsed.validate_ending().is_err() {
+                return err(
+                    "lower-exit-endless",
+                    format!("`exit-animation=\"{text}\"` never ends (`infinite` or `paused`): a leaving node stays until its exit ends"),
+                    *span,
+                );
+            }
             Expr::Str(parsed.text(), *span)
         }
         // A class choice's side that leaves the row unset.
         Expr::None(_) => value.clone(),
+        Expr::Template(parts, span) => animation_template(parts, *span, table, attr)?,
         Expr::Ternary(c, yes, no, span) => Expr::Ternary(
             c.clone(),
-            Box::new(animation_value(yes, table)?),
-            Box::new(animation_value(no, table)?),
+            Box::new(animation_value(yes, table, row)?),
+            Box::new(animation_value(no, table, row)?),
             *span,
         ),
         Expr::Match {
@@ -199,8 +281,8 @@ pub(crate) fn animation_value(value: &Expr, table: &Table) -> Result<Expr, Lower
         } => Expr::Match {
             subject: subject.clone(),
             var: var.clone(),
-            some: Box::new(animation_value(some, table)?),
-            none: Box::new(animation_value(none, table)?),
+            some: Box::new(animation_value(some, table, row)?),
+            none: Box::new(animation_value(none, table, row)?),
             span: *span,
         },
         Expr::Let {
@@ -211,17 +293,72 @@ pub(crate) fn animation_value(value: &Expr, table: &Table) -> Result<Expr, Lower
         } => Expr::Let {
             name: name.clone(),
             value: bound.clone(),
-            body: Box::new(animation_value(body, table)?),
+            body: Box::new(animation_value(body, table, row)?),
             span: *span,
         },
         other => {
             return err(
                 "lower-animation-literal",
-                "`animation` is literal text, or a condition choosing between literals: its keyframes are resolved when the app compiles",
+                format!("`{attr}` is literal text, or a condition choosing between literals: its keyframes are resolved when the app compiles"),
                 other.span(),
             )
         }
     })
+}
+
+/// A template whose only interpolations are times (LLP 1062 D7): each
+/// `${…}` is followed by `ms` or `s`, so it can only be a duration or a
+/// delay, and the names stay literal. The shorthand is checked here with
+/// every time at zero, and the rules it names are appended to it, so the row
+/// the app computes at run time carries its keyframes like a literal's.
+fn animation_template(
+    parts: &[TemplatePart],
+    span: contract_syntax::Span,
+    table: &Table,
+    attr: &str,
+) -> Result<Expr, LowerError> {
+    let mut probe = String::new();
+    for (i, part) in parts.iter().enumerate() {
+        match part {
+            TemplatePart::Text(text) => probe.push_str(text),
+            TemplatePart::Expr(e) => {
+                let unit = match parts.get(i + 1) {
+                    Some(TemplatePart::Text(next)) => ["ms", "s"].into_iter().find(|u| {
+                        next.strip_prefix(u)
+                            .is_some_and(|rest| rest.is_empty() || rest.starts_with([' ', ',']))
+                    }),
+                    _ => None,
+                };
+                if unit.is_none() {
+                    return err(
+                        "lower-animation-literal",
+                        "`animation` interpolates only times: write `${…}ms` or `${…}s` for a duration or delay; its keyframes are resolved when the app compiles",
+                        e.span(),
+                    );
+                }
+                probe.push('0');
+            }
+        }
+    }
+    let parsed = Animations::parse(&format!("{probe}{}", table.rules))
+        .or_else(|e| err(e_id(&e), message(attr, &probe, &e, table), span))?;
+    if attr == "exit-animation" && parsed.validate_ending().is_err() {
+        return err(
+            "lower-exit-endless",
+            format!("`exit-animation=\"{probe}\"` never ends (`infinite` or `paused`): a leaving node stays until its exit ends"),
+            span,
+        );
+    }
+    let mut rules = String::new();
+    for (i, a) in parsed.0.iter().enumerate() {
+        if parsed.0[..i].iter().all(|b| b.keyframes != a.keyframes) {
+            rules.push(' ');
+            rules.push_str(&a.keyframes.rule(&a.keyframes.name));
+        }
+    }
+    let mut parts = parts.to_vec();
+    parts.push(TemplatePart::Text(rules));
+    Ok(Expr::Template(parts, span))
 }
 
 fn e_id(e: &ParseError) -> &'static str {
@@ -231,12 +368,12 @@ fn e_id(e: &ParseError) -> &'static str {
     }
 }
 
-fn message(text: &str, e: &ParseError, table: &Table) -> String {
+fn message(attr: &str, text: &str, e: &ParseError, table: &Table) -> String {
     match e {
         ParseError::UnknownKeyframes(name) => {
             let declared: Vec<String> = table.by_name.keys().map(|n| format!("`{n}`")).collect();
             format!(
-                "`animation=\"{text}\"` names `{name}`, but no `keyframes {name}` is declared; {}",
+                "`{attr}=\"{text}\"` names `{name}`, but no `keyframes {name}` is declared; {}",
                 if declared.is_empty() {
                     "no keyframes are declared".to_string()
                 } else {
@@ -245,10 +382,10 @@ fn message(text: &str, e: &ParseError, table: &Table) -> String {
             )
         }
         ParseError::SpringInAnimation => format!(
-            "`animation=\"{text}\"`: `spring()` is a `transition` extension; an animation takes a CSS easing"
+            "`{attr}=\"{text}\"`: `spring()` is a `transition` extension; an animation takes a CSS easing"
         ),
         other => format!(
-            "`animation=\"{text}\"` is not a CSS `animation` shorthand (name, duration, easing, delay, iteration count, direction, fill mode, play state): {other:?}"
+            "`{attr}=\"{text}\"` is not a CSS `animation` shorthand (name, duration, easing, delay, iteration count, direction, fill mode, play state): {other:?}"
         ),
     }
 }

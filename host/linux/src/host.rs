@@ -29,6 +29,10 @@ mod height;
 mod height_binding;
 #[path = "holds.rs"]
 mod holds;
+#[path = "paint_motion.rs"]
+mod paint_motion;
+#[path = "presence.rs"]
+mod presence;
 #[path = "transform_binding.rs"]
 mod transform_binding;
 
@@ -56,6 +60,9 @@ pub struct Host<D: DataSource> {
     engine: Engine,
     keys: BTreeMap<NodeKey, ViewId>,
     presented: BTreeMap<ViewId, Presented>,
+    /// Paint motion's owners and the appearance they resolve by (LLP 1062).
+    paint_owners: exact_kernel::motion::PaintOwners,
+    dark: bool,
     viewport: (f32, f32),
     now_ms: f64,
     height_owner: Option<NodeKey>,
@@ -70,6 +77,7 @@ pub struct Host<D: DataSource> {
     data_activated: bool,
     router_op: Option<exact_runner::RouterChange>,
     navigation: crate::navigation::Navigation,
+    presence: presence::Presence,
 }
 
 impl<D: DataSource> Host<D> {
@@ -140,10 +148,7 @@ impl<D: DataSource> Host<D> {
             carried,
             Vec::new(),
             delivery.unwrap_or_default(),
-            exact_runner::Viewport {
-                width: width as f64,
-                height: height as f64,
-            },
+            exact_runner::Viewport::sized(width as f64, height as f64),
             launch,
         )
         .map_err(HostError::Runner)?;
@@ -155,6 +160,8 @@ impl<D: DataSource> Host<D> {
             engine: Engine::new(),
             keys: BTreeMap::new(),
             presented: BTreeMap::new(),
+            paint_owners: Default::default(),
+            dark: false,
             viewport: (width, height),
             now_ms: 0.0,
             height_owner: None,
@@ -169,6 +176,7 @@ impl<D: DataSource> Host<D> {
             data_activated: false,
             router_op: None,
             navigation: Default::default(),
+            presence: Default::default(),
         };
         // The engine hears the whole tree once: values, no transitions; an
         // `animation` starts now, as a browser starts one on a new element.
@@ -181,7 +189,16 @@ impl<D: DataSource> Host<D> {
                 host.keys.insert(key, id);
                 let n = motion_node(node.key);
                 sync.transitions.push((n, node.style.transition.clone()));
+                sync.layout.push((n, node.style.layout_transition.clone()));
                 sync.animations.push((n, node.style.animation.clone()));
+                if node
+                    .style
+                    .layout_transition
+                    .matching(Property::Layout)
+                    .is_some()
+                {
+                    host.presence.tracked.insert(key);
+                }
                 for (property, value) in node_targets(node.node_type, node.style) {
                     sync.changes.push(Change {
                         node: n,
@@ -194,6 +211,7 @@ impl<D: DataSource> Host<D> {
         }
         let applied = sync.apply(&mut host.engine);
         debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
+        host.boot_paint();
         host.project_navigation();
         host.reconcile_height_bindings();
         host.reconcile_transform_bindings();
@@ -209,6 +227,7 @@ impl<D: DataSource> Host<D> {
             );
         }
         let error = host.layout().err();
+        host.observe_layout();
         host.present();
         Ok((host, error))
     }
@@ -715,6 +734,7 @@ impl<D: DataSource> Host<D> {
             Err(e) => return Some(format!("viewport: {e:?}")),
         };
         self.viewport = (width, height);
+        self.presence.snap = true;
         if let Some(receipt) = receipt {
             return self.commit(
                 &[Timed {
@@ -724,7 +744,9 @@ impl<D: DataSource> Host<D> {
                 None,
             );
         }
-        self.layout().err()
+        let error = self.layout().err();
+        self.observe_layout();
+        error
     }
 
     /// The date (LLP 1027.000.000): re-answer `exactTime` in one commit.
@@ -755,6 +777,9 @@ impl<D: DataSource> Host<D> {
                 false
             }
         };
+        if changed {
+            self.observe_layout();
+        }
         self.present();
         changed
     }
@@ -782,6 +807,7 @@ impl<D: DataSource> Host<D> {
                 self.forget_transform_handle(*key);
                 if let Some(id) = self.keys.remove(key) {
                     self.presented.remove(&id);
+                    self.presence.offsets.remove(&id);
                 }
             }
             for key in &r.created {
@@ -790,6 +816,7 @@ impl<D: DataSource> Host<D> {
                 }
             }
         }
+        self.track_presence(receipts);
         if receipts.iter().any(|t| !t.receipt.created.is_empty()) {
             self.discover_height_handles();
             self.discover_transform_handles();
@@ -818,6 +845,7 @@ impl<D: DataSource> Host<D> {
                 .motion_sync(&t.receipt)
                 .apply(&mut self.engine);
             debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
+            self.sync_paint(&t.receipt);
             if let Err(error) = self.sync_height_owner() {
                 self.log(error);
                 paint = true;
@@ -832,6 +860,7 @@ impl<D: DataSource> Host<D> {
         } else {
             self.layout()
         };
+        self.observe_layout();
         paint |= layout.as_ref().copied().unwrap_or(true);
         // Consume the final sample even when the seek has made motion quiescent.
         paint |= self.present();
@@ -877,18 +906,26 @@ impl<D: DataSource> Host<D> {
             if p.property == Property::Height {
                 continue;
             }
+            changed = true;
+            if Property::PAINT.contains(&p.property) {
+                self.present_paint(p);
+                continue;
+            }
+            let translate = matches!(p.property, Property::Translate | Property::Layout)
+                .then(|| self.present_translate(view, p.node, p.property));
             let base = self.presented(view);
             let entry = self.presented.entry(view).or_insert(base);
             match p.property {
-                Property::Translate => entry.translate = (p.value.x as f32, p.value.y as f32),
+                Property::Translate | Property::Layout => {
+                    entry.translate = translate.expect("a translation")
+                }
                 Property::Scale => entry.scale = p.value.x as f32,
                 Property::Rotate => entry.rotate = p.value.x as f32,
                 Property::Opacity => entry.opacity = p.value.x as f32,
-                Property::Height => unreachable!("height is projected through layout"),
                 Property::StrokeStart => entry.stroke.0 = p.value.x as f32,
                 Property::StrokeEnd => entry.stroke.1 = p.value.x as f32,
+                _ => unreachable!("height is projected through layout; paint is above"),
             }
-            changed = true;
         }
         changed
     }

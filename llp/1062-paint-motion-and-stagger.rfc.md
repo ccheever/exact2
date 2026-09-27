@@ -1,0 +1,178 @@
+# LLP 1062: Paint motion and stagger — colour and shadow transitions, computed times, `each` positions
+
+**Type:** RFC
+**Status:** Implemented 2026-09-26
+**Systems:** Motion (`exact-motion`), Kernel (motion seam, wire), Contract (syntax, types, lowering), Plan (`LoadIndex`), Runner, Web, Apple (UIKit, AppKit), Linux
+**Author:** Claude (Opus 5.5) for Seth Webster
+**Date:** 2026-09-26
+**Related:** LLP 1002 (motion v1: one representation, two executors), LLP 1003 (motion as built), LLP 1057 (keyframe animation), LLP 1034 (`light-dark()`), LLP 1055 (`box-shadow`), `rules/NOT-DOING.md` §Motion
+
+## Summary
+
+`transition=` animated only the compositor rows; a colour or a shadow snapped
+on every native host while the browser eased it (under `all` it already did).
+And `animation=` had to be a literal, so a stagger was a ladder of conditions.
+This extends motion the way LLP 1002 and 1057 did: CSS's model, the browser as
+executor on the web, `exact-motion` everywhere else, held to Chrome.
+
+```
+keyframes enter
+  from
+    opacity=0
+    background-color="#f97316"
+
+button background-color=(on ? "#1d4ed8" : "#fde68a") color=(on ? "#ffffff" : "#111827")
+    border-color=(on ? "#16a34a" : "#dc2626") box-shadow=(on ? "0 16px 24px #1d4ed8" : "none")
+    transition="background-color 200ms cubic-bezier(.32,.72,0,1), color 120ms ease, border-color 1s, box-shadow 320ms linear"
+  text "Toggle"
+image "symbol:microphone" tint-color=(live ? "#dc2626" : "#16a34a") transition="tint-color 200ms"
+column background-color="light-dark(#ffffff, #0b1020)" transition="background-color 1s linear"
+each step, i in steps key=step.id
+  row animation=`enter 320ms cubic-bezier(.16,1,.3,1) ${i * 70}ms both`
+```
+
+## Design
+
+**D1 — Paint properties are engine properties.** `Property` gains
+`background-color`, `color`, the four `border-*-color`s, `tint-color`,
+`box-shadow` (offset and blur, points) and `box-shadow`'s colour half (named
+only through `box-shadow`, never alone). `Value` grows from two components to
+four; a colour is **premultiplied sRGB, channels 0–1**, so componentwise
+interpolation is CSS Color 4 §12.3's for legacy colours — Chrome's. A fade from
+`transparent` keeps its hue; red to half-transparent blue passes through
+`rgba(170,0,85,0.75)`, not purple-grey. A shadow's opacity row folds into its
+colour's alpha, so `none` → a shadow is CSS's transparent, zero-length padding.
+`transition-property` takes each name and CSS's `border-color` shorthand
+(wire value 15). *Rejected:* interpolating straight RGB (disagrees with every
+browser whenever alpha changes); eight-component values carrying both
+appearances (see D4).
+
+**D2 — Only a node that names paint owns it.** `Kernel::paint_sync(receipt,
+dark, owners)` adopts, for each created or touched node, the paint properties its
+`transition` starts an easing for or its `animation` animates, with their
+*computed* targets: `light-dark()` resolved, `currentcolor` borders as the
+computed `color`, `color` inherited. Everything else stays the style row the
+presenter already paints, so a list of 1,000 coloured rows costs the engine
+nothing. `PaintOwners` (the host's) records what was adopted, so a row that
+stops naming paint retires exactly that. The web never calls it.
+
+**D3 — A spring never drives paint.** The web leaves every `spring()` out of its
+CSS `transition` (LLP 1002 D2), so there an earlier easing still governs a colour
+and a spring alone governs none. `Transitions::matching` does the same for paint
+on every host. Springs on colours are therefore not offered.
+
+**D4 — An appearance change transitions, as in Chrome.** Chrome 153 resolves
+`light-dark()` at computed-value time, so flipping `color-scheme` starts a
+transition (recorded: `getAnimations()` holds one, 50% is `rgb(128,128,128)`).
+Native hosts resolve before the engine hears a target, so the host must know the
+appearance: Apple's presenter reports it (`exact_scheme`, from the ExactView's
+trait change and after every boot); Linux's is the app's `setScheme`. A change
+re-targets every owner (`paint_resync`) and the engine transitions under each
+node's row. The first Apple report only corrects boot's light guess, without
+motion.
+
+**D5 — Presented over the row, then handed back.** Apple: `present` carries a
+paint value in the style dictionary's units (channels 0–255) under its style key
+(`background_color`, `text_color`, `border_color_*`, `tint_color`,
+`shadow_color`, `shadow_geometry`); `NodeView.channels` reads `paint` first, so
+the box layer, border, shadow caster, paragraph runs and symbol tint paint it
+unchanged. When the value reaches its target the host sends `unpresent` and the
+row shows again, so nothing goes stale when the row later changes without a
+transition. An animating `color` is also presented on each view that inherits it
+(no own row, no paint of its own), as a browser's inheriting element shows it.
+Linux: `Presented.paint`, painted over the captured box and text palette.
+
+**D6 — Text is re-rastered, not tinted.** A paragraph's pixels carry its colour
+(`TextRasterIOS`), so a presented `color` invalidates the raster and a worker
+paints a new one each frame. A layer tint (glyphs as a mask under a coloured
+layer) would cost nothing per frame but is wrong for colour emoji and for runs
+of other colours; measured below, re-rastering is cheap enough to be the one
+path. `tint-color` on the web is the registered custom property `--exact-tint`
+(`@property … syntax:"<color>"`), which the browser interpolates; symbols read
+it directly.
+
+**D7 — An `animation` template interpolates only times.** `animation=` may be a
+template whose every `${…}` is immediately followed by `ms` or `s`: a duration
+or a delay. Names stay literal, so the compiler checks the shorthand with each
+time at zero and appends the rules it names; the row computed at run time
+carries its keyframes like a literal's. LLP 1057 D4 holds unchanged: an
+animation whose keyframes are unchanged keeps its start, so a new delay applies
+as if it had always had it (engine, and the web's same `@keyframes` name).
+*Rejected:* an `animation-delay` row — a schema row, a kernel merge and web
+ordering for one number, and no computed duration.
+
+**D8 — `each item, i in list` names the position.** A number from 0 (plan opcode
+`LoadIndex`). A kept row that moves reads its new position; its identity is
+still its key, so a stagger re-times without restarting. A windowed `list`
+(`item-height`, `virtualized`) refuses it at compile time: its rows outlive
+their positions; put the position in the item.
+
+**D9 — Keyframes take colours, `light-dark()` included.** `background-color`,
+`color`, `border-*-color` and `tint-color` in a keyframe, written or returned
+by an argument-free function (`color=accent()` where `fn accent(): string =
+"light-dark(#4F6657, #B7C9AC)"`), which lowering folds to its literal. A
+`light-dark()` pair keeps both values (`KeyframeBlock.dark`; on the wire a
+flag and four more floats); the row's text writes it as
+`light-dark(rgba(…),rgba(…))` under the browser's name (`--exact-tint`).
+Which one plays is the appearance the animation **starts** under: Chrome 153
+resolves a rule's `light-dark()` once, and a playing animation keeps its
+colours across a `color-scheme` flip (recorded: at 50% of `lit`, light
+`rgb(128,0,0)` before and after the flip; one started dark, `rgb(128,128,255)`).
+The engine does the same (`Engine::set_dark(dark, playing)`); only an Apple
+host's first appearance report, which corrects boot's light guess, re-resolves
+playing animations in place, keeping their start. `box-shadow` stays a
+transition's.
+
+```
+fn accent(): string = "light-dark(#4F6657, #B7C9AC)"
+fn textTitle(): string = "light-dark(#171B17, #F5F5EC)"
+keyframes lit
+  from
+    color=accent()
+  to
+    color=textTitle()
+each w, i in words key=w
+  text w animation=`lit 900ms linear ${i * 120}ms both`
+```
+
+## Verification
+
+- **Chrome parity.** Six paint cases join `host/web/src/parity.rs`
+  (premultiplied, from transparent, `color` under `cubic-bezier(.32,.72,0,1)`,
+  the `border-color` shorthand, reversal, a colour keyframe with `alternate`).
+  Chrome 153 recorded 29 colour samples; the engine matches every one within a
+  channel unit and an alpha step (`COLOR_TOLERANCE`), all 172 samples in all.
+- **Hosts, driven.** The same Contract on web (headless Chrome), iOS
+  (simulator, UIKit) and macOS through `scripts/agent.mjs` with the clock held:
+  at 250 ms and 500 ms into a 1 s linear transition, background and border pixels
+  agree with the web's within 1/255; the shadow's blur differs by the platforms'
+  rasterizers (≤ 8/255). An appearance flip on iOS transitions the page from
+  `(11,16,32)` to white through `(72,76,88)` at 250 ms — the web's value
+  exactly. Tests: `motion/tests/it/paint.rs`, `kernel/tests/it/paint.rs`,
+  `host/apple/tests/it/paint.rs` (batch ops, scheme),
+  `host/linux/tests/pinned/motion_paint.rs` (pixels),
+  `contract/cli/tests/it/keyframes.rs` (template, positions, refusals,
+  `light-dark()` through palette functions). grnl's welcome shape (three
+  words, `lit` from `accent()` to `textTitle()`, 300 ms apart) driven on web
+  and iOS under dark: each word at its own point between the pairs' dark values.
+- **Cost (iPhone 17 Pro simulator on an Apple-silicon Mac, 61 real frames of a
+  1 s `color` transition).** Worker raster per frame: a 314×24 pt label
+  0.13 ms median (p95 0.21); a 354×308 pt, 14-line paragraph 0.57 ms median
+  (p95 1.09, max 1.29). Main-thread `ensure` 5 µs median (max 65 µs). A box
+  colour is layer properties only. Not measured on a device.
+
+## Known gaps
+
+- A `currentcolor` border follows its own transition of the computed `color`, not
+  an animating `color` frame by frame; nor do inline runs inherit an ancestor's
+  animating colour (their colour rides the paragraph op).
+- A flip mid-animation leaves a playing keyframe's colours as they started
+  (Chrome's behaviour, matched); only animations that start afterwards follow.
+- A keyframe function must take no arguments; `box-shadow` has no keyframes;
+  paint has no springs.
+- An exit animation (LLP 1063) animates a colour only if the leaving node
+  already owned it (its `transition` or `animation` named it).
+- A colour's text reaches the screen a frame after its value (worker raster).
+- `each item, i` is refused in windowed lists.
+- Apple resolves by the ExactView's appearance, one per session; a view whose own
+  appearance differs from its window's paints motion in the window's.

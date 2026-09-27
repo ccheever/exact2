@@ -811,6 +811,13 @@
       "operands": [
         "idx:mutations"
       ]
+    },
+    {
+      "name": "LoadIndex",
+      "operands": [
+        "u16"
+      ],
+      "_comment": "LLP 1062 D8: the position (a number from 0) of the `each` row `depth` scopes out, as `each item, i in list` names it."
     }
   ],
   "_stdlib": "The enumerated roster (LLP 1004 D2/D4): every callable an expression may name, with its parameter types and return type (`any` = one of number, string, bool, list). The compiler checks calls against this table; the runner's VM implements each entry once; entries are added by fixture, never by speculation. LLP 1038 D3: Router and Entry name reserved record shapes; list<Router>, list<Entry>, and list<string> are typed lists.",

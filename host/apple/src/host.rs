@@ -36,8 +36,12 @@ mod height_drag;
 mod height_tests;
 #[path = "holds.rs"]
 mod holds;
+#[path = "paint.rs"]
+mod paint;
 #[path = "paragraph.rs"]
 mod paragraph;
+#[path = "presence.rs"]
+mod presence;
 #[cfg(test)]
 #[path = "transform_drag_tests.rs"]
 mod transform_drag_tests;
@@ -104,6 +108,7 @@ pub struct Host<D: DataSource> {
     /// Last published common collection snapshot; refreshed only after layout.
     collections_json: String,
     engine: Engine,
+    paint: paint::Paint,
     holds: BTreeMap<u64, HoldToken>,
     height_owner: Option<NodeKey>,
     height_handles: BTreeMap<NodeKey, HeightHandle>,
@@ -112,6 +117,7 @@ pub struct Host<D: DataSource> {
     transform_drags: TransformDrags,
     /// The one Arrange contact, from its catch until its source settles.
     arrange: Option<arrange::Arrange>,
+    presence: presence::Presence,
     content_region: Option<crate::content_region::RegionState>,
     /// Lists whose last report stopped before their rows' heights were read back
     /// (a registered content region publishes as it lays out, so a report is
@@ -305,10 +311,7 @@ impl<D: DataSource> Host<D> {
             carried,
             snapshot,
             facts,
-            exact_runner::Viewport {
-                width: width as f64,
-                height: height as f64,
-            },
+            exact_runner::Viewport::sized(width as f64, height as f64),
             launch,
         )
         .map_err(HostError::Runner)?;
@@ -347,6 +350,7 @@ impl<D: DataSource> Host<D> {
             roots: Vec::new(),
             collections_json: "[]".into(),
             engine: Engine::new(),
+            paint: paint::Paint::default(),
             holds: BTreeMap::new(),
             height_owner: None,
             height_handles: BTreeMap::new(),
@@ -354,6 +358,7 @@ impl<D: DataSource> Host<D> {
             height_drag: None,
             transform_drags: TransformDrags::new()?,
             arrange: None,
+            presence: presence::Presence::default(),
             content_region,
             list_unsettled: BTreeSet::new(),
             height_projection: Vec::new(),
@@ -404,6 +409,7 @@ impl<D: DataSource> Host<D> {
             if let Some(node) = host.runner.kernel().node(*id) {
                 let n = motion_node(node.key);
                 sync.transitions.push((n, node.style.transition.clone()));
+                sync.layout.push((n, node.style.layout_transition.clone()));
                 sync.animations.push((n, node.style.animation.clone()));
                 for (property, value) in node_targets(node.node_type, node.style) {
                     sync.changes.push(Change {
@@ -417,6 +423,7 @@ impl<D: DataSource> Host<D> {
         }
         let applied = sync.apply(&mut host.engine);
         debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
+        host.boot_paint(&order);
         host.reconcile_height_handles(&mut batch, true);
         host.layout(&mut batch).map_err(HostError::Layout)?;
         // A failed first layout is a refused boot, not a partially committed
@@ -825,6 +832,22 @@ impl<D: DataSource> Host<D> {
         }
     }
 
+    /// The user's display preferences (LLP 1061 D4): re-answer
+    /// `exactViewport` in one commit; the same preferences commit nothing.
+    pub fn set_preferences(&mut self, preferences: exact_runner::Preferences) -> String {
+        match self.runner.set_preferences(preferences) {
+            Ok(Some(receipt)) => self.commit(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => self.finish(Batch::new(), None),
+            Err(e) => self.finish(Batch::new(), Some(format!("preferences: {e:?}"))),
+        }
+    }
+
     /// The viewer's locale and zone, beside the date: one commit when it changes.
     pub fn set_place(&mut self, locale: &str, time_zone: &str, seed: Option<f64>) -> String {
         let mut receipts = Vec::new();
@@ -857,6 +880,7 @@ impl<D: DataSource> Host<D> {
         };
         self.viewport = (width, height);
         self.height_targets_dirty = true;
+        self.presence.snap = true;
         if let Some(receipt) = receipt {
             return self.commit(
                 &[Timed {
@@ -1082,13 +1106,16 @@ impl<D: DataSource> Host<D> {
         .then(|| self.runner.handlers());
         for t in receipts {
             let r = &t.receipt;
+            self.begin_exits(r, &mut batch);
             for key in &r.destroyed {
                 if let Some(id) = self.keys.remove(key) {
                     if let Some((owner, _)) = self.inline_runs.remove(&id) {
                         self.dirty_paragraphs.insert(owner);
                     } else if !self.native_selected_id(id) {
                         self.mirror.remove(&id);
-                        batch.destroy(id);
+                        if !self.exit_holds(id, &mut batch) {
+                            batch.destroy(id);
+                        }
                     }
                     self.transform_drags.remove(id);
                 }
@@ -1139,12 +1166,12 @@ impl<D: DataSource> Host<D> {
                 .engine
                 .advance((t.at_ms / 1000.0).max(self.engine.now()));
             debug_assert!(seek.is_ok(), "the clock never runs backwards here");
-            let applied = self
-                .runner
-                .kernel()
-                .motion_sync(&t.receipt)
-                .apply(&mut self.engine);
+            let mut sync = self.runner.kernel().motion_sync(&t.receipt);
+            self.spare_exits(&mut sync);
+            let applied = sync.apply(&mut self.engine);
             debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
+            self.play_exits();
+            self.sync_paint(&t.receipt, &mut batch);
             self.reconcile_height_handles(&mut batch, true);
             let synced = self.sync_height_owner();
             debug_assert!(synced.is_ok(), "validated height sync");
@@ -1185,46 +1212,6 @@ impl<D: DataSource> Host<D> {
         self.emit_transform_drags(&mut batch);
         self.present(&mut batch, false);
         self.finish(batch, error)
-    }
-
-    /// Every presentation value the engine changed, as `present` ops. At
-    /// boot, and for a view the batch creates, only values that are not the
-    /// property's identity: the presenter starts every view at identity (a
-    /// reused one is reset to it), and the four motion rows are never in the
-    /// style dictionary. A list row's views were four identity ops each,
-    /// about half of what a fill batch carried.
-    fn present(&mut self, batch: &mut Batch, boot: bool) {
-        self.holds.retain(|_, token| self.engine.has_hold(*token));
-        for p in self.engine.frame() {
-            if p.property == Property::Height {
-                continue;
-            }
-            let identity = p.property.identity() == Some(p.value);
-            if boot && identity {
-                continue;
-            }
-            let key = NodeKey {
-                index: p.node as u32,
-                generation: (p.node >> 32) as u32,
-            };
-            let Some(view) = self.keys.get(&key).copied() else {
-                continue;
-            };
-            if identity && batch.creates(view) {
-                continue;
-            }
-            if self.inline_runs.contains_key(&view) {
-                continue;
-            }
-            if self.native_protected_id(view) && !self.native_current() {
-                continue;
-            }
-            let (x, y) = match p.property {
-                Property::Translate => (p.value.x, p.value.y),
-                _ => (p.value.x, 0.0),
-            };
-            batch.present(view, p.property.name(), x, y);
-        }
     }
 
     fn preorder(&self) -> Vec<ViewId> {

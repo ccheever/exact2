@@ -28,6 +28,11 @@ use std::fmt::Write as _;
 /// solvers differ in their last bits.
 pub const TOLERANCE: f64 = 1e-3;
 
+/// A colour's band (LLP 1062): a browser keeps an interpolated colour in
+/// 8-bit channels, alpha included, so a channel may sit a unit from the
+/// engine's and alpha a step.
+pub const COLOR_TOLERANCE: (f64, f64) = (1.0, 1.0 / 255.0 + 1e-3);
+
 /// One step of a case's script, at a time in seconds.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Step {
@@ -287,6 +292,70 @@ pub fn cases() -> Vec<Case> {
     });
     interrupt.steps.extend(samples(&[0.75, 1.0, 1.25, 1.6]));
     out.push(interrupt);
+    // Paint (LLP 1062): colours interpolate premultiplied, as CSS Color 4
+    // says for legacy colours — a fade from transparent keeps its hue, and
+    // one between alphas weights each colour by its own alpha.
+    let rgba = |r: u8, g: u8, b: u8, a: f64| {
+        let unit = |c: u8| c as f64 / 255.0;
+        Value::rgba(unit(r), unit(g), unit(b), a)
+    };
+    out.extend([
+        single(
+            "color-premultiplied",
+            Property::BackgroundColor,
+            "background-color 1s linear",
+            rgba(255, 0, 0, 1.0),
+            rgba(0, 0, 255, 0.5),
+            &mid,
+        ),
+        single(
+            "color-from-transparent",
+            Property::BackgroundColor,
+            "background-color 1s ease",
+            Value::ZERO,
+            rgba(255, 0, 0, 1.0),
+            &mid,
+        ),
+        single(
+            "color-text",
+            Property::Color,
+            "color 1s cubic-bezier(0.32, 0.72, 0, 1)",
+            rgba(17, 24, 39, 1.0),
+            rgba(249, 115, 22, 1.0),
+            &mid,
+        ),
+        single(
+            "color-border-shorthand",
+            Property::BorderTopColor,
+            "border-color 1s ease-in-out",
+            rgba(0, 128, 0, 1.0),
+            rgba(255, 255, 255, 0.25),
+            &mid,
+        ),
+        keyframes(
+            "kf-color",
+            Property::BackgroundColor,
+            "k 1s ease-in-out infinite alternate @keyframes k{from{background-color:rgba(255,255,255,1)}to{background-color:rgba(10,20,200,0.5)}}",
+            rgba(0, 0, 0, 1.0),
+            &[0.1, 0.5, 0.9, 1.25],
+        ),
+    ]);
+    let mut color_reversing = single(
+        "color-reversing",
+        Property::BackgroundColor,
+        "background-color 1s ease-in-out",
+        rgba(0, 0, 0, 1.0),
+        rgba(255, 255, 255, 1.0),
+        &[0.1],
+    );
+    color_reversing.steps.push(Step::Set {
+        at: 0.3,
+        value: rgba(0, 0, 0, 1.0),
+    });
+    color_reversing
+        .steps
+        .extend(samples(&[0.35, 0.5, 0.6, 1.0]));
+    out.push(color_reversing);
     // A spring, on the grid (24/240 = 0.1 s) and between grid points.
     out.push(single(
         "spring",
@@ -445,12 +514,11 @@ pub fn cases_json() -> String {
         let (css, _) = transition_css(&case.transitions);
         let _ = write!(
             s,
-            "{{\"name\":\"{}\",\"property\":\"{}\",\"css\":\"{}\",\"initial\":[{},{}],\"steps\":[",
+            "{{\"name\":\"{}\",\"property\":\"{}\",\"css\":\"{}\",\"initial\":{},\"steps\":[",
             case.name,
-            case.property.name(),
+            case.property.css_name(),
             css,
-            case.initial.x,
-            case.initial.y
+            wire(case.property, case.initial)
         );
         for (j, step) in case.steps.iter().enumerate() {
             if j > 0 {
@@ -458,7 +526,7 @@ pub fn cases_json() -> String {
             }
             match step {
                 Step::Set { at, value } => {
-                    let _ = write!(s, "{{\"at\":{at},\"set\":[{},{}]}}", value.x, value.y);
+                    let _ = write!(s, "{{\"at\":{at},\"set\":{}}}", wire(case.property, *value));
                 }
                 Step::Sample { at } => {
                     let _ = write!(s, "{{\"at\":{at}}}");
@@ -495,6 +563,27 @@ pub fn cases_json() -> String {
     s
 }
 
+/// A value as the page writes it: a colour straight, channels 0–255 and
+/// alpha 0–1, as CSS spells it; anything else its two components.
+fn wire(property: Property, value: Value) -> String {
+    let [x, y, z, w] = sample_units(property, value);
+    match property.is_color() {
+        true => format!("[{x},{y},{z},{w}]"),
+        false => format!("[{x},{y}]"),
+    }
+}
+
+/// An engine value in the units a browser's computed style reads.
+fn sample_units(property: Property, value: Value) -> [f64; 4] {
+    match property.is_color() {
+        true => {
+            let [r, g, b, a] = value.straight();
+            [r * 255.0, g * 255.0, b * 255.0, a]
+        }
+        false => value.components(),
+    }
+}
+
 /// The fixture text for what a browser recorded: one `sample <case> <at>
 /// <x> <y>` line per sample, in any order, after a `# recorded …` header.
 /// [`check`] reads this.
@@ -511,10 +600,14 @@ pub fn check(fixture: &str) -> Vec<String> {
     let mut recorded: Vec<(String, f64, Value)> = Vec::new();
     for line in fixture.lines() {
         let f: Vec<&str> = line.split_whitespace().collect();
-        if f.len() == 5 && f[0] == "sample" {
-            let parse = |s: &str| s.parse::<f64>().ok();
-            if let (Some(at), Some(x), Some(y)) = (parse(f[2]), parse(f[3]), parse(f[4])) {
-                recorded.push((f[1].to_string(), at, Value::new(x, y)));
+        if (f.len() == 5 || f.len() == 7) && f[0] == "sample" {
+            let n: Option<Vec<f64>> = f[2..].iter().map(|s| s.parse::<f64>().ok()).collect();
+            if let Some(n) = n {
+                let (z, w) = (
+                    n.get(3).copied().unwrap_or(0.0),
+                    n.get(4).copied().unwrap_or(0.0),
+                );
+                recorded.push((f[1].to_string(), n[0], Value::four(n[1], n[2], z, w)));
             }
         }
     }
@@ -528,12 +621,20 @@ pub fn check(fixture: &str) -> Vec<String> {
                 out.push(format!("{}: no browser sample at {at}s", case.name));
                 continue;
             };
-            let dx = (browser.x - expected.x).abs();
-            let dy = (browser.y - expected.y).abs();
-            if dx > TOLERANCE || dy > TOLERANCE {
+            let expected = sample_units(case.property, expected);
+            let browser = browser.components();
+            let (channel, alpha) = match case.property.is_color() {
+                true => COLOR_TOLERANCE,
+                false => (TOLERANCE, TOLERANCE),
+            };
+            let off = (0..4).any(|i| {
+                let band = if i == 3 { alpha } else { channel };
+                (browser[i] - expected[i]).abs() > band
+            });
+            if off {
                 out.push(format!(
-                    "{}: at {at}s the browser shows ({}, {}), the engine ({}, {})",
-                    case.name, browser.x, browser.y, expected.x, expected.y
+                    "{}: at {at}s the browser shows {browser:?}, the engine {expected:?}",
+                    case.name
                 ));
             }
         }

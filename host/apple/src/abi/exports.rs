@@ -313,6 +313,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_time(epoch_at_zero, utc_offset), |n| n)
         }
 
+        /// The display preferences: bit 0 reduced motion, bit 1 reduced transparency.
+        #[no_mangle]
+        pub extern "C" fn exact_set_preferences(rt: u32, bits: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_preferences(bits), |n| n)
+        }
+
         /// The locale and time zone: `locale NUL timeZone` in the input buffer.
         #[no_mangle]
         pub extern "C" fn exact_set_place(rt: u32, len: usize) -> u32 {
@@ -357,6 +363,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_insets(rt: u32, top: f32, right: f32, bottom: f32, left: f32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.insets(top, right, bottom, left), |n| n)
+        }
+
+        /// The presenter's appearance: nonzero is dark (LLP 1062); returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_scheme(rt: u32, dark: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.scheme(dark != 0), |n| n)
         }
 
         /// An image loaded (or failed: a size ≤ 0); returns the batch's length.

@@ -17,7 +17,7 @@
 
 use crate::animation::{Animation, AnimationError, Animations, PlayState};
 use crate::property::{Property, Value};
-use crate::transition::{Curve, Running, TransitionError, Transitions};
+use crate::transition::{Curve, Running, Transition, TransitionError, Transitions};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::{BuildHasherDefault, Hasher};
 
@@ -74,6 +74,9 @@ struct Playing {
     animation: Animation,
     start: f64,
     paused: Option<f64>,
+    // The appearance its `light-dark()` keyframes took when it started, as
+    // a browser resolves them once (LLP 1062 D9).
+    dark: bool,
 }
 
 impl Playing {
@@ -176,6 +179,11 @@ pub struct Engine {
     // nodes whose overlay still moves with the clock.
     animations: BTreeMap<u64, Vec<Playing>>,
     animating: BTreeSet<u64>,
+    // Each node's `layout-transition` declaration (LLP 1063): the only thing
+    // that moves `Property::Layout`, so `transition: all` never covers layout.
+    layout: BTreeMap<u64, Transition>,
+    // The appearance a keyframe's `light-dark()` colour takes (LLP 1062 D9).
+    dark: bool,
 }
 
 impl Engine {
@@ -187,6 +195,28 @@ impl Engine {
     /// The clock.
     pub fn now(&self) -> f64 {
         self.now
+    }
+
+    /// The host's appearance, which a keyframe's `light-dark()` colour takes
+    /// when its animation starts (LLP 1062 D9): Chrome resolves the rule
+    /// once, and a playing animation keeps its colours across a flip. With
+    /// `playing`, those take it too, in place and keeping their start: a
+    /// host's first report correcting the appearance it booted under.
+    pub fn set_dark(&mut self, dark: bool, playing: bool) {
+        self.dark = dark;
+        if !playing {
+            return;
+        }
+        for (node, list) in &mut self.animations {
+            for p in list.iter_mut().filter(|p| p.dark != dark) {
+                p.dark = dark;
+                for block in &p.animation.keyframes.blocks {
+                    for (property, _) in &block.dark {
+                        self.dirty.insert((*node, *property));
+                    }
+                }
+            }
+        }
     }
 
     /// Set a node's `transition` row. Governs changes observed from now on;
@@ -202,6 +232,23 @@ impl Engine {
         } else {
             self.transitions.insert(node, transitions);
         }
+        Ok(())
+    }
+
+    /// Set a node's `layout-transition` row (LLP 1063): the last declaration
+    /// that covers every property governs [`Property::Layout`] changes
+    /// observed from now on. One that names a property governs nothing, as
+    /// `transition: opacity 1s` does not move a box.
+    pub fn set_layout_transition(
+        &mut self,
+        node: u64,
+        transitions: &Transitions,
+    ) -> Result<(), EngineError> {
+        transitions.validate().map_err(EngineError::Transition)?;
+        match transitions.matching(Property::Layout) {
+            Some(declaration) => self.layout.insert(node, declaration.clone()),
+            None => self.layout.remove(&node),
+        };
         Ok(())
     }
 
@@ -236,12 +283,14 @@ impl Engine {
                                 p.start
                             },
                             paused: paused.then_some(local),
+                            dark: p.dark,
                         }
                     }
                     None => Playing {
                         animation,
                         start: now,
                         paused: paused.then_some(0.0),
+                        dark: self.dark,
                     },
                 }
             })
@@ -281,7 +330,7 @@ impl Engine {
         list.iter().fold(base, |under, p| {
             p.animation
                 .progress(p.local(self.now))
-                .and_then(|progress| p.animation.value(property, progress, under))
+                .and_then(|progress| p.animation.value(property, progress, under, p.dark))
                 .unwrap_or(under)
         })
     }
@@ -289,12 +338,25 @@ impl Engine {
     /// Forget a node entirely.
     pub fn remove(&mut self, node: u64) {
         self.transitions.remove(&node);
+        self.layout.remove(&node);
         self.animations.remove(&node);
         self.animating.remove(&node);
         // Removing a list must not scan every other node once per row.
         for property in Property::ALL {
             self.remove_property(node, property);
         }
+        self.remove_property(node, Property::Layout);
+    }
+
+    /// Replay a node's animations from the current clock: its `exit-animation`
+    /// as it leaves (LLP 1063), which restarts even when it names the
+    /// keyframes an entry animation was already playing. The end is the
+    /// clock time the last of them ends, infinite for an endless one.
+    pub fn restart_animations(&mut self, node: u64, list: Animations) -> Result<f64, EngineError> {
+        self.set_animations(node, Animations::NONE)?;
+        let end = list.end_time();
+        self.set_animations(node, list)?;
+        Ok(self.now + end)
     }
 
     /// Forget only this property's target, curve, hold and pending frame.
@@ -328,12 +390,15 @@ impl Engine {
         }
         let key = (change.node, change.property);
         let now = self.now;
-        let declaration = self
-            .transitions
-            .get(&change.node)
-            .and_then(|t| t.matching(change.property))
-            .filter(|t| t.starts())
-            .cloned();
+        let declaration = if change.property == Property::Layout {
+            self.layout.get(&change.node)
+        } else {
+            self.transitions
+                .get(&change.node)
+                .and_then(|t| t.matching(change.property))
+        }
+        .filter(|t| t.starts())
+        .cloned();
 
         let Some(slot) = self.slots.get_mut(&key) else {
             self.slots.insert(
@@ -577,7 +642,7 @@ fn validate_value(property: Property, value: Value) -> Result<(), EngineError> {
     if !value.is_finite() {
         return Err(EngineError::NonFinite);
     }
-    if property.components() == 1 && value.y != 0.0 {
+    if !value.fits(property) {
         return Err(EngineError::InvalidValueShape);
     }
     Ok(())

@@ -1,5 +1,5 @@
 # exact motion parity fixture — the browser's samples of the cases in host/web/src/parity.rs
-# recorded by host/web/parity.mjs: 2026-09-26, Chrome/153.0.0.0
+# recorded by host/web/parity.mjs: 2026-09-27, Chrome/153.0.0.0
 # `sample <case> <seconds> <x> <y>`; held by host/web/tests/it/parity.rs within 0.001
 sample linear 0.1 0.1 0
 sample linear 0.25 0.25 0
@@ -99,6 +99,35 @@ sample interrupt 0.75 0.4375 0
 sample interrupt 1 0.375 0
 sample interrupt 1.25 0.3125 0
 sample interrupt 1.6 0.25 0
+sample color-premultiplied 0.1 242 0 13 0.95
+sample color-premultiplied 0.25 218 0 37 0.875
+sample color-premultiplied 0.5 170 0 85 0.753
+sample color-premultiplied 0.75 102 0 153 0.627
+sample color-premultiplied 0.9 46 0 209 0.553
+sample color-from-transparent 0.1 255 0 0 0.094
+sample color-from-transparent 0.25 255 0 0 0.408
+sample color-from-transparent 0.5 255 0 0 0.804
+sample color-from-transparent 0.75 255 0 0 0.96
+sample color-from-transparent 0.9 255 0 0 0.996
+sample color-text 0.1 80 49 34 1
+sample color-text 0.25 198 95 26 1
+sample color-text 0.5 239 111 23 1
+sample color-text 0.75 247 114 22 1
+sample color-text 0.9 249 115 22 1
+sample color-border-shorthand 0.1 1 129 1 0.984
+sample color-border-shorthand 0.25 9 133 9 0.9
+sample color-border-shorthand 0.5 51 153 51 0.627
+sample color-border-shorthand 0.75 160 208 160 0.35
+sample color-border-shorthand 0.9 236 246 236 0.267
+sample kf-color 0.1 253 253 254 0.99
+sample kf-color 0.5 173 176 237 0.753
+sample kf-color 0.9 19 29 202 0.514
+sample kf-color 1.25 66 74 213 0.565
+sample color-reversing 0.1 5 5 5 1
+sample color-reversing 0.35 41 41 41 1
+sample color-reversing 0.5 0 0 0 1
+sample color-reversing 0.6 0 0 0 1
+sample color-reversing 1 0 0 0 1
 sample spring 0.05 1.08971 0
 sample spring 0.1 1.27269 0
 sample spring 0.1020833333 1.28065 0

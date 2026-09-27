@@ -538,10 +538,16 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "transition" => styles(&[StyleId::Transition]),
         // @ref LLP 1057 — its keyframes resolve at compile time (`keyframes.rs`).
         "animation" => styles(&[StyleId::Animation]),
+        // @ref LLP 1063 — played as the node leaves; resolved like `animation`.
+        "exit-animation" => styles(&[StyleId::ExitAnimation]),
+        // @ref LLP 1063 — how the laid-out box moves when layout moves it.
+        "layout-transition" => styles(&[StyleId::LayoutTransition]),
         "interpolate-size" => styles(&[StyleId::InterpolateSize]),
         "translate" => styles(&[StyleId::Translate]),
         "scale" => styles(&[StyleId::Scale]),
         "rotate" => styles(&[StyleId::Rotate]),
+        // @ref LLP 1061 D1 — host-owned press feedback; not a motion target.
+        "press-scale" => styles(&[StyleId::PressScale]),
         _ => return None,
     })
 }
@@ -628,6 +634,17 @@ pub(crate) fn validate_list(
             .collect();
         if heights.is_empty() {
             return Ok(());
+        }
+        if children
+            .iter()
+            .any(|c| matches!(c, Node::Each { index: Some(_), .. }))
+        {
+            // A windowed row outlives its position (LLP 1062 D8).
+            return super::err(
+                "lower-list-rows",
+                "a windowed list's rows name no position: `each item in list`, with the position in the item if a row needs it",
+                span,
+            );
         }
         if expanded
             .iter()

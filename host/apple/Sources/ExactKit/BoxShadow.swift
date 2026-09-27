@@ -55,9 +55,17 @@ extension NodeView {
     /// The shadow's colour with its opacity row folded in, resolved for the
     /// view's appearance; nil when nothing would show.
     var shadowColor: CGColor? {
-        let opacity = min(number("shadow_opacity"), 1)
+        // Paint motion's colour has the opacity in its alpha already (LLP 1062).
+        let opacity = paint["shadow_color"] == nil ? min(number("shadow_opacity"), 1) : 1
         guard opacity > 0, let c = channels("shadow_color"), c[3] > 0 else { return nil }
         return CGColor(srgbRed: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255 * opacity)
+    }
+
+    /// The offset and CSS blur radius: paint motion's while it runs, else the rows'.
+    var shadowGeometry: (x: CGFloat, y: CGFloat, blur: CGFloat) {
+        if let g = paint["shadow_geometry"] { return (g[0], g[1], max(0, g[2])) }
+        let o = style["shadow_offset"]?.numbers ?? []
+        return (o.first ?? 0, o.count > 1 ? o[1] : 0, max(0, number("shadow_radius")))
     }
 
     /// The caster onto the layer's bottom, cast from the border box, or gone.
@@ -73,10 +81,8 @@ extension NodeView {
         let caster = shadowCaster ?? ShadowCaster()
         if caster.superlayer !== host { host.insertSublayer(caster, at: 0) }
         shadowCaster = caster
-        let o = style["shadow_offset"]?.numbers ?? []
-        caster.cast(box: bounds, outline: outline, color: color,
-                    offset: CGSize(width: o.first ?? 0, height: o.count > 1 ? o[1] : 0),
-                    blur: max(0, number("shadow_radius")))
+        let g = shadowGeometry
+        caster.cast(box: bounds, outline: outline, color: color, offset: CGSize(width: g.x, height: g.y), blur: g.blur)
     }
 }
 
@@ -96,8 +102,7 @@ extension NodeView {
     func drawCapturedShadow(_ ctx: CGContext) {
         guard Capture.capturing, shadowCaster != nil, let color = shadowColor else { return }
         let outline = roundedPath(in: bounds).cgPath
-        let o = style["shadow_offset"]?.numbers ?? []
-        let (x, y, blur) = (o.first ?? 0, o.count > 1 ? o[1] : 0, max(0, number("shadow_radius")))
+        let (x, y, blur) = shadowGeometry
         let outside = CGMutablePath()
         outside.addRect(bounds.insetBy(dx: -(1.5 * blur + abs(x) + abs(y) + 1), dy: -(1.5 * blur + abs(x) + abs(y) + 1)))
         outside.addPath(outline)

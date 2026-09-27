@@ -37,6 +37,20 @@ pub struct KeyframeBlock {
     pub easing: Option<Easing>,
     /// The values this keyframe sets, one per property.
     pub values: Vec<(Property, Value)>,
+    /// A `light-dark()` colour's value under a dark appearance, for each of
+    /// `values` that has one; `values` holds the light one (LLP 1062 D9).
+    pub dark: Vec<(Property, Value)>,
+}
+
+impl KeyframeBlock {
+    /// A property's value under an appearance.
+    fn get(&self, property: Property, dark: bool) -> Option<Value> {
+        let own =
+            |list: &[(Property, Value)]| list.iter().find(|(q, _)| *q == property).map(|(_, v)| *v);
+        dark.then(|| own(&self.dark))
+            .flatten()
+            .or_else(|| own(&self.values))
+    }
 }
 
 /// A resolved `@keyframes` rule: its authored name and its blocks, sorted by
@@ -173,12 +187,16 @@ pub enum AnimationError {
     /// A keyframe named a property twice.
     DuplicateProperty(Property),
     /// A keyframe named a property keyframes do not animate (numeric
-    /// `height` is a transition-only trial, LLP 1002 D7).
+    /// `height` is a transition-only trial, LLP 1002 D7; `box-shadow` is a
+    /// transition's, LLP 1062).
     NotAnimatable(Property),
     /// A scalar property carried a second component.
     InvalidValueShape,
     /// An easing was invalid.
     Easing(EasingError),
+    /// An `exit-animation` that never ends — an `infinite` count, or
+    /// `paused` — would keep its leaving node forever (LLP 1063).
+    Endless,
 }
 
 impl Keyframes {
@@ -193,8 +211,10 @@ impl Keyframes {
                 Some(last) if last.offset == block.offset => {
                     for (property, value) in block.values {
                         last.values.retain(|(p, _)| *p != property);
+                        last.dark.retain(|(p, _)| *p != property);
                         last.values.push((property, value));
                     }
+                    last.dark.extend(block.dark);
                     if block.easing.is_some() {
                         last.easing = block.easing;
                     }
@@ -234,7 +254,10 @@ impl Keyframes {
                 easing.validate().map_err(AnimationError::Easing)?;
             }
             for (i, (property, value)) in block.values.iter().enumerate() {
-                if *property == Property::Height {
+                if matches!(
+                    property,
+                    Property::Height | Property::BoxShadow | Property::ShadowColor
+                ) {
                     return Err(AnimationError::NotAnimatable(*property));
                 }
                 if block.values[..i].iter().any(|(p, _)| p == property) {
@@ -243,8 +266,19 @@ impl Keyframes {
                 if !value.is_finite() {
                     return Err(AnimationError::NonFinite);
                 }
-                if property.components() == 1 && value.y != 0.0 {
+                if !value.fits(*property) {
                     return Err(AnimationError::InvalidValueShape);
+                }
+            }
+            for (i, (property, value)) in block.dark.iter().enumerate() {
+                if !property.is_color() || !block.values.iter().any(|(p, _)| p == property) {
+                    return Err(AnimationError::NotAnimatable(*property));
+                }
+                if block.dark[..i].iter().any(|(p, _)| p == property) {
+                    return Err(AnimationError::DuplicateProperty(*property));
+                }
+                if !value.is_finite() {
+                    return Err(AnimationError::NonFinite);
                 }
             }
         }
@@ -272,6 +306,16 @@ impl Keyframes {
                 out.push_str(property.css_name());
                 out.push(':');
                 match property {
+                    p if p.is_color() => match block.dark.iter().find(|(q, _)| q == p) {
+                        Some((_, night)) => {
+                            out.push_str("light-dark(");
+                            rgba_css(&mut out, *value);
+                            out.push(',');
+                            rgba_css(&mut out, *night);
+                            out.push(')');
+                        }
+                        None => rgba_css(&mut out, *value),
+                    },
                     Property::Translate => {
                         css_number(&mut out, value.x);
                         out.push_str("px ");
@@ -296,6 +340,18 @@ impl Keyframes {
         out.push('}');
         out
     }
+}
+
+/// A colour as the rule writes it: `rgba(r,g,b,a)`, channels 0–255.
+fn rgba_css(out: &mut String, value: Value) {
+    let [r, g, b, a] = value.straight();
+    out.push_str("rgba(");
+    for c in [r, g, b] {
+        css_number(out, (c * 255.0).round());
+        out.push(',');
+    }
+    css_number(out, a);
+    out.push(')');
 }
 
 /// Where local time falls (Web Animations §4.6.4).
@@ -417,12 +473,19 @@ impl Animation {
     /// missing `0%`/`100%` keyframe is the underlying value (CSS Animations
     /// §3.3); the interval's easing is its start keyframe's, else the
     /// animation's.
-    pub fn value(&self, property: Property, p: f64, underlying: Value) -> Option<Value> {
+    /// A `light-dark()` colour takes its value under `dark`.
+    pub fn value(
+        &self,
+        property: Property,
+        p: f64,
+        underlying: Value,
+        dark: bool,
+    ) -> Option<Value> {
         let mut start = (0.0, underlying, &self.easing);
         let mut end = None;
         let mut any = false;
         for block in &self.keyframes.blocks {
-            let Some(&(_, value)) = block.values.iter().find(|(q, _)| *q == property) else {
+            let Some(value) = block.get(property, dark) else {
                 continue;
             };
             any = true;
@@ -490,6 +553,26 @@ impl Animations {
     /// Whether every number is finite, save `infinite` iteration counts.
     pub fn is_finite(&self) -> bool {
         self.0.iter().all(Animation::is_finite)
+    }
+
+    /// Local time at which the last animation ends; zero for none, infinite
+    /// when one is endless.
+    pub fn end_time(&self) -> f64 {
+        self.0.iter().map(Animation::end_time).fold(0.0, f64::max)
+    }
+
+    /// [`Animations::validate`], and every animation runs to an end: the
+    /// rule for an `exit-animation`, whose node is removed when it ends.
+    pub fn validate_ending(&self) -> Result<(), AnimationError> {
+        self.validate()?;
+        if self
+            .0
+            .iter()
+            .any(|a| a.play_state == PlayState::Paused || !a.end_time().is_finite())
+        {
+            return Err(AnimationError::Endless);
+        }
+        Ok(())
     }
 
     /// The row as its self-contained text: the shorthand list, then each

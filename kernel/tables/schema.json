@@ -1685,6 +1685,26 @@
     },
     {
       "bit": 103,
+      "field": "exit_animation",
+      "codec": "animations",
+      "ends": true,
+      "_comment": "@ref LLP 1063: an `animation` the node plays as it leaves; the outermost removed node stays as a ghost until it ends, so every one must end. Grammar: `_animations`."
+    },
+    {
+      "bit": 104,
+      "field": "layout_transition",
+      "codec": "transitions",
+      "_comment": "@ref LLP 1063: how the node's laid-out origin in its parent moves when layout moves it; the last declaration naming no property governs. Grammar: `_transitions`."
+    },
+    {
+      "bit": 105,
+      "field": "press_scale",
+      "codec": "f32",
+      "default": 1,
+      "_comment": "@ref LLP 1061 D1: the uniform scale a node shows while a pointer holds it pressed, about its centre; 1 is none. Not CSS: the host owns the feedback (no runner round trip), eased in 120 ms, and drops it under reduced motion. It composes with, never replaces, the `scale` row."
+    },
+    {
+      "bit": 106,
       "field": "fill",
       "codec": "paint",
       "inherited": true,
@@ -1692,7 +1712,7 @@
       "_comment": "@ref LLP 1065 D3: SVG `fill` — `none` or a colour; SVG's initial value is black."
     },
     {
-      "bit": 104,
+      "bit": 107,
       "field": "stroke",
       "codec": "paint",
       "inherited": true,
@@ -1700,7 +1720,7 @@
       "_comment": "@ref LLP 1065 D3: SVG `stroke` — `none` (the initial value) or a colour."
     },
     {
-      "bit": 105,
+      "bit": 108,
       "field": "stroke_width",
       "codec": "f32",
       "inherited": true,
@@ -1708,34 +1728,34 @@
       "_comment": "@ref LLP 1065 D3: in the path's own units, so it scales with the view box as SVG's does."
     },
     {
-      "bit": 106,
+      "bit": 109,
       "field": "stroke_linecap",
       "codec": "enum:StrokeLinecap",
       "inherited": true
     },
     {
-      "bit": 107,
+      "bit": 110,
       "field": "stroke_linejoin",
       "codec": "enum:StrokeLinejoin",
       "inherited": true
     },
     {
-      "bit": 108,
+      "bit": 111,
       "field": "stroke_start",
       "codec": "f32",
       "default": 0,
       "_comment": "@ref LLP 1065 D4: where the visible stroke starts, as a fraction of the whole path's length in subpath order. Animatable."
     },
     {
-      "bit": 109,
+      "bit": 112,
       "field": "stroke_end",
       "codec": "f32",
       "default": 1,
       "_comment": "@ref LLP 1065 D4: where the visible stroke ends, as a fraction of the whole path's length in subpath order. Animatable."
     }
   ],
-  "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-start, 7 stroke-end), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
-  "_animations": "The `animation` row is CSS `animation` with its keyframes resolved (LLP 1057): count u8 (\u22648), then per animation name string, duration f32 s, delay f32 s, easing (the `_transitions` easing, spring refused), iterations f32 (+inf is `infinite`), direction u8 (0 normal, 1 reverse, 2 alternate, 3 alternate-reverse), fill u8 (0 none, 1 forwards, 2 backwards, 3 both), play-state u8 (0 running, 1 paused), keyframe count u8 (\u226432), then per keyframe offset f32, easing flag u8 (0 the animation's, 1 an easing follows), value count u8, then per value property u8 (0 translate, 1 scale, 2 rotate, 3 opacity, 5 stroke-start, 6 stroke-end; 4, height, is refused), x f32, y f32. Its Rust type lives in exact-motion; the kernel owns the bytes.",
+  "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 background-color, 7 color, 8 border-top-color, 9 border-right-color, 10 border-bottom-color, 11 border-left-color, 12 tint-color, 13 box-shadow, 15 border-color — LLP 1062; 14 is refused; 16 stroke-start, 17 stroke-end — LLP 1065), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
+  "_animations": "The `animation` row is CSS `animation` with its keyframes resolved (LLP 1057): count u8 (\u22648), then per animation name string, duration f32 s, delay f32 s, easing (the `_transitions` easing, spring refused), iterations f32 (+inf is `infinite`), direction u8 (0 normal, 1 reverse, 2 alternate, 3 alternate-reverse), fill u8 (0 none, 1 forwards, 2 backwards, 3 both), play-state u8 (0 running, 1 paused), keyframe count u8 (\u226432), then per keyframe offset f32, easing flag u8 (0 the animation's, 1 an easing follows), value count u8, then per value property u8 (the `_transitions` property less one: 0 translate, 1 scale, 2 rotate, 3 opacity, 5–11 the colours, 15 stroke-start, 16 stroke-end), then its components as f32 (translate x y; a colour premultiplied r g b a, 0–1, then u8 1 and a dark value of four more for a `light-dark()` pair, else 0; else one — LLP 1062). Its Rust type lives in exact-motion; the kernel owns the bytes.",
   "_opcodes": "The closed wire-visible op list for EXWF frame revision 1. There is no op count on the wire; consumers iterate by validated lengths.",
   "opcodes": [
     {

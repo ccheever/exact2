@@ -16,9 +16,7 @@
 
 use exact_kernel::style::ColorValue;
 use exact_kernel::{Color, Dimension, Display, Overflow, RowValue, StyleId, StyleProps};
-use exact_motion::{
-    Animations, Easing, Keyframes, TimingFunction, Transition, TransitionProperty, Transitions,
-};
+use exact_motion::{Animations, Easing, Keyframes, TimingFunction, Transition, Transitions};
 use exact_num::{push_text, Piece, Shortest32};
 use std::fmt::Write as _;
 
@@ -38,6 +36,11 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
     let mut skipped = Vec::new();
     let mut shadow: Option<(f32, f32, f32, ColorValue, f32)> = None;
     let unset = (0.0, 0.0, 0.0, ColorValue::Fixed(Color::TRANSPARENT), 0.0);
+    // @ref LLP 1061 D3 — a press eases `transform`, which no row writes, so it
+    // joins the node's own transitions instead of replacing them; the page's
+    // `:active` rule reads `--exact-press`.
+    let press = style.mask.has(StyleId::PressScale) && style.press_scale != 1.0;
+    let mut press_pending = press;
     for id in style.mask.iter() {
         let value = style.get(id);
         match (id, &value) {
@@ -55,7 +58,14 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                 shadow.get_or_insert(unset).4 = *n as f32
             }
             (StyleId::Transition, RowValue::Transitions(t)) => {
-                let (text, spring_skipped) = transition_css(t);
+                let (mut text, spring_skipped) = transition_css(t);
+                if press {
+                    if !text.is_empty() {
+                        text.push(',');
+                    }
+                    text.push_str(PRESS_TRANSITION);
+                    press_pending = false;
+                }
                 if !text.is_empty() {
                     push_text!(&mut out, "transition:{};", text);
                 }
@@ -75,6 +85,33 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                         }
                         out.push_str(&animation.css(&keyframes_name(&animation.keyframes)));
                     }
+                    out.push(';');
+                }
+            }
+            // @ref LLP 1063 — not CSS properties: custom properties the page's
+            // presence module reads (`presence-glue.js`), inherited by nothing
+            // it reads, since it reads only the element's own declaration.
+            (StyleId::ExitAnimation, RowValue::Animations(a)) => {
+                if !a.0.is_empty() {
+                    out.push_str("--exact-exit-animation:");
+                    for (i, animation) in a.0.iter().enumerate() {
+                        if i > 0 {
+                            out.push(',');
+                        }
+                        out.push_str(&animation.css(&keyframes_name(&animation.keyframes)));
+                    }
+                    out.push(';');
+                }
+            }
+            (StyleId::LayoutTransition, RowValue::Transitions(t)) => {
+                if let Some(text) = layout_transition_css(t) {
+                    push_text!(&mut out, "--exact-layout-transition:{};", text);
+                }
+            }
+            (StyleId::PressScale, RowValue::Number(n)) => {
+                if press {
+                    out.push_str("--exact-press:");
+                    num_into(&mut out, *n as f32);
                     out.push(';');
                 }
             }
@@ -142,6 +179,9 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
             }),
         }
     }
+    if press_pending {
+        push_text!(&mut out, "transition:{};", PRESS_TRANSITION);
+    }
     if let Some((x, y, radius, color, opacity)) = shadow {
         // The opacity row folds into each colour's alpha, both halves of a
         // `light-dark()` pair alike: the browser still resolves the pair per
@@ -177,6 +217,10 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
     (out, skipped)
 }
 
+/// The press's ease in and back (LLP 1061 D2): 120 ms on a fast settle.
+/// Last in the list, so it wins over an authored `all` for `transform`.
+const PRESS_TRANSITION: &str = "transform 0.12s cubic-bezier(0.16,1,0.3,1) 0s";
+
 fn is_generic_family(value: &str) -> bool {
     matches!(
         value,
@@ -206,7 +250,7 @@ fn generic_stack(family: &str) -> &str {
     }
 }
 
-fn css_string(value: &str) -> String {
+pub(crate) fn css_string(value: &str) -> String {
     let mut out = String::from("\"");
     for c in value.chars() {
         match c {
@@ -365,10 +409,47 @@ pub fn transition_css(t: &Transitions) -> (String, bool) {
 }
 
 fn transition_property(tr: &Transition) -> &'static str {
-    match tr.property {
-        TransitionProperty::All => "all",
-        TransitionProperty::Property(p) => p.css_name(),
-    }
+    tr.property.css_name()
+}
+
+/// A `layout-transition` row as the presence module reads it: duration and
+/// delay in milliseconds, then a CSS easing (LLP 1063). A spring is its curve
+/// from a unit displacement at rest, as `linear()` over its settle time.
+/// `None` when no declaration covers layout.
+pub fn layout_transition_css(t: &Transitions) -> Option<String> {
+    let tr = t.matching(exact_motion::Property::Layout)?;
+    Some(match &tr.timing {
+        TimingFunction::Easing(e) => format!(
+            "{} {} {}",
+            num((tr.duration * 1000.0) as f32),
+            num((tr.delay * 1000.0) as f32),
+            easing_css(e)
+        ),
+        TimingFunction::Spring(config) => {
+            let (duration, frames) = exact_motion::spring::keyframes(config, 1.0, 0.0, 0.0);
+            // Sixty stops a second: the browser interpolates between them.
+            let step = (frames.len() / (duration * 60.0).ceil().max(1.0) as usize).max(1);
+            let mut stops = String::new();
+            for (i, f) in frames.iter().enumerate() {
+                if i % step == 0 || i + 1 == frames.len() {
+                    if !stops.is_empty() {
+                        stops.push_str(", ");
+                    }
+                    let _ = write!(
+                        stops,
+                        "{} {}%",
+                        num((1.0 - f.value) as f32),
+                        num((f.offset * 100.0) as f32)
+                    );
+                }
+            }
+            format!(
+                "{} {} linear({stops})",
+                num((duration * 1000.0) as f32),
+                num((tr.delay * 1000.0) as f32)
+            )
+        }
+    })
 }
 
 /// A CSS `<easing-function>` from the motion crate's spelling.
@@ -396,15 +477,18 @@ pub fn keyframes_name(keyframes: &Keyframes) -> String {
     name
 }
 
-/// Each `@keyframes` rule a style's `animation` row plays, as the page names
+/// Each `@keyframes` rule a style's `animation` and `exit-animation` rows play, as the page names
 /// it: `(name, rule)`. A host inserts each name's rule once, before the
 /// declaration that uses it.
 pub fn keyframes_rules(style: &StyleProps) -> Vec<(String, String)> {
-    let Animations(list) = &style.animation;
-    if !style.mask.has(StyleId::Animation) {
-        return Vec::new();
-    }
-    list.iter()
+    let rows = [
+        (StyleId::Animation, &style.animation),
+        // Sent while the node lives, so the rule is there when it leaves.
+        (StyleId::ExitAnimation, &style.exit_animation),
+    ];
+    rows.into_iter()
+        .filter(|(id, _)| style.mask.has(*id))
+        .flat_map(|(_, Animations(list))| list)
         .map(|a| {
             let name = keyframes_name(&a.keyframes);
             let rule = a.keyframes.rule(&name);
@@ -763,6 +847,41 @@ mod declaration_tests {
         assert_eq!(
             css(&[(StyleId::BackgroundImage, t("none"))], &[]),
             "background-image:none;"
+        );
+    }
+
+    /// LLP 1061 D3: a press scale is `--exact-press` for the page's `:active`
+    /// rule, plus a `transform` entry appended to the node's own transitions
+    /// — never replacing them, and last so it wins over `all`. 1 is none.
+    #[test]
+    fn a_press_scale_joins_the_transitions_it_finds() {
+        let n = StyleValue::Number;
+        let t = |s: &str| StyleValue::Text(s.into());
+        assert_eq!(
+            css(&[(StyleId::PressScale, n(0.97))], &[]),
+            "--exact-press:0.97;transition:transform 0.12s cubic-bezier(0.16,1,0.3,1) 0s;"
+        );
+        assert_eq!(
+            css(
+                &[
+                    (StyleId::Scale, n(1.5)),
+                    (StyleId::Transition, t("all 200ms ease")),
+                    (StyleId::PressScale, n(0.994)),
+                ],
+                &[]
+            ),
+            "scale:1.5;transition:all 0.2s ease 0s,transform 0.12s cubic-bezier(0.16,1,0.3,1) 0s;--exact-press:0.994;"
+        );
+        assert_eq!(css(&[(StyleId::PressScale, n(1.0))], &[]), "");
+        assert_eq!(
+            css(
+                &[
+                    (StyleId::Transition, t("opacity 1s")),
+                    (StyleId::PressScale, n(1.0))
+                ],
+                &[]
+            ),
+            "transition:opacity 1s ease 0s;"
         );
     }
 }

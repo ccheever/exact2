@@ -21,6 +21,11 @@ use exact_motion::{
 /// Bound on any string field on the wire.
 pub const MAX_STRING_BYTES: u32 = 1 << 24;
 
+/// A `transition` row's `border-color` shorthand: 15, the code `layout`
+/// (14) would have, which no row carries; a path's strokes follow at 16 and
+/// 17 (grammar: `schema.json` `_transitions`).
+const BORDER_COLOR: u8 = Property::Layout as u8 + 1;
+
 /// Round `n` up to a multiple of 8.
 pub const fn align8(n: usize) -> usize {
     (n + 7) & !7
@@ -288,8 +293,11 @@ impl<'a> Reader<'a> {
         for _ in 0..count {
             let property = match self.u8()? {
                 0 => TransitionProperty::All,
+                BORDER_COLOR => TransitionProperty::BorderColor,
                 p => TransitionProperty::Property(
-                    Property::from_wire(p - 1).ok_or(DecodeError::UnknownTransitionProperty(p))?,
+                    Property::from_wire(p - 1)
+                        .filter(|p| *p != Property::ShadowColor)
+                        .ok_or(DecodeError::UnknownTransitionProperty(p))?,
                 ),
             };
             let duration = self.f32()? as f64;
@@ -391,16 +399,36 @@ impl<'a> Reader<'a> {
                 };
                 let values = self.u8()?;
                 let mut set = Vec::with_capacity(values as usize);
+                let mut dark = Vec::new();
                 for _ in 0..values {
                     let p = self.u8()?;
                     let property = Property::from_wire(p).ok_or(keyword(p))?;
-                    let value = Value::new(self.f32()? as f64, self.f32()? as f64);
-                    set.push((property, value));
+                    // A value carries the property's own components (LLP 1062).
+                    let mut c = [0.0; 4];
+                    for c in &mut c[..property.components()] {
+                        *c = self.f32()? as f64;
+                    }
+                    set.push((property, Value::four(c[0], c[1], c[2], c[3])));
+                    // A colour then says whether a dark value follows (LLP 1062 D9).
+                    if property.is_color() {
+                        match self.u8()? {
+                            0 => {}
+                            1 => {
+                                let mut d = [0.0; 4];
+                                for d in &mut d {
+                                    *d = self.f32()? as f64;
+                                }
+                                dark.push((property, Value::four(d[0], d[1], d[2], d[3])));
+                            }
+                            other => return Err(keyword(other)),
+                        }
+                    }
                 }
                 list.push(KeyframeBlock {
                     offset,
                     easing,
                     values: set,
+                    dark,
                 });
             }
             out.push(Animation {
@@ -651,6 +679,7 @@ impl Writer {
             self.u8(match transition.property {
                 TransitionProperty::All => 0,
                 TransitionProperty::Property(p) => p as u8 + 1,
+                TransitionProperty::BorderColor => BORDER_COLOR,
             });
             self.f32(transition.duration as f32);
             self.f32(transition.delay as f32);
@@ -686,8 +715,20 @@ impl Writer {
                 self.u8(block.values.len() as u8);
                 for (property, value) in &block.values {
                     self.u8(*property as u8);
-                    self.f32(value.x as f32);
-                    self.f32(value.y as f32);
+                    for c in &value.components()[..property.components()] {
+                        self.f32(*c as f32);
+                    }
+                    if property.is_color() {
+                        match block.dark.iter().find(|(p, _)| p == property) {
+                            Some((_, night)) => {
+                                self.u8(1);
+                                for c in night.components() {
+                                    self.f32(c as f32);
+                                }
+                            }
+                            None => self.u8(0),
+                        }
+                    }
                 }
             }
         }

@@ -670,6 +670,7 @@ impl<'a> Resolver<'a> {
                 }
                 Node::Each {
                     var,
+                    index,
                     list,
                     key,
                     body,
@@ -682,8 +683,14 @@ impl<'a> Resolver<'a> {
                         _ => Ty::Unknown,
                     };
                     self.local("local", var, self.file.names.name(*span), ty);
+                    if let Some(index) = index {
+                        self.local("local", index, self.file.names.name(*span), Ty::Number);
+                    }
                     self.expr(key);
                     self.nodes(body);
+                    if index.is_some() {
+                        self.pop_local();
+                    }
                     self.pop_local();
                 }
                 Node::Match {
@@ -924,10 +931,14 @@ pub(crate) fn authored_action_hint(file: &File, mut error: CompileError) -> Comp
                     }
                     view(file, c, body, span, shadowed, context)
                 }
-                Node::Each { var, body, .. } => {
+                Node::Each {
+                    var, index, body, ..
+                } => {
+                    let names = 1 + index.is_some() as usize;
                     shadowed.push(var.clone());
+                    shadowed.extend(index.clone());
                     let found = view(file, c, body, span, shadowed, context);
-                    shadowed.pop();
+                    shadowed.truncate(shadowed.len() - names);
                     found
                 }
                 Node::Match { some, none, .. } => {
