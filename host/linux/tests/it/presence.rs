@@ -5,6 +5,7 @@ use exact_kernel::MonospaceMeasurer;
 use exact_linux::Host;
 use exact_runner::{DataError, DataSource, Event};
 
+#[derive(Default)]
 struct NoData;
 impl DataSource for NoData {
     fn query(
@@ -118,6 +119,17 @@ fn a_growing_box_reveals_its_content_at_its_final_size_and_never_scales_it() {
         let card = id(&p, "card");
         p.tap(id(&p, "toggle")).unwrap();
         p.tick(500.);
+        let state: serde_json::Value =
+            serde_json::from_str(&exact_linux::agent::handle(&mut p, r#"{"op":"state"}"#)).unwrap();
+        let observed = state["presence"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["id"] == card)
+            .unwrap();
+        assert_eq!(observed["h"], 110.0, "surface, not laid-out height");
+        assert_eq!(observed["opacity"], 1.0);
+        assert_eq!(observed["exiting"], false);
         let (x, y, ..) = p.rect_of(card).unwrap();
         let frame = p.frame();
         // Half way from 20 to 200 high: the surface is 110 high; the title

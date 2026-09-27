@@ -12,7 +12,8 @@
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
 // only); `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
-import { parseFlags, launchFacts, launchEnvironment } from './agent-launch.mjs';
+import { Cdp, parseFlags, launchFacts, launchEnvironment } from './agent-launch.mjs';
+export { Cdp } from './agent-launch.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
@@ -152,49 +153,6 @@ export function browserDiagnosticNoise(line) {
 // ---------------------------------------------------------------- web
 
 export const PREFERENCES = { 'prefers-reduced-motion': ['reduce', 'no-preference'], 'prefers-reduced-transparency': ['reduce', 'no-preference'], 'prefers-color-scheme': ['dark', 'light'] }; // `prefer`'s CSS media features and values
-/** The DevTools protocol over Chrome's --remote-debugging-pipe (fd 3 in, fd 4 out; NUL-delimited JSON). A closed pipe or a dead Chrome fails every pending call; every call has a deadline. */
-export class Cdp {
-  constructor(input, output) {
-    this.input = input;
-    this.next = 1;
-    this.pending = new Map();
-    this.listeners = [];
-    this.closed = null;
-    let buf = '';
-    output.setEncoding('utf8');
-    output.on('data', (d) => {
-      buf += d;
-      let i;
-      while ((i = buf.indexOf('\0')) >= 0) {
-        const msg = JSON.parse(buf.slice(0, i));
-        buf = buf.slice(i + 1);
-        if (msg.id) {
-          const p = this.pending.get(msg.id);
-          this.pending.delete(msg.id);
-          if (msg.error) p?.reject(new Error(`${msg.error.message} (${p.method})`));
-          else p?.resolve(msg.result);
-        } else for (const l of this.listeners) l(msg);
-      }
-    });
-    output.on('end', () => this.fail('the DevTools pipe closed'));
-    output.on('error', (e) => this.fail(`the DevTools pipe failed: ${e.message}`));
-    input.on('error', (e) => this.fail(`the DevTools pipe failed: ${e.message}`));
-  }
-  fail(why) {
-    this.closed ??= why;
-    for (const [id, p] of this.pending) { this.pending.delete(id); p.reject(new Error(`${why} (${p.method})`)); }
-  }
-  send(method, params = {}, sessionId, timeoutMs = 15000) {
-    if (this.closed) return Promise.reject(new Error(`${this.closed} (${method})`));
-    const id = this.next++;
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`${method} did not answer within ${timeoutMs} ms`)); }, timeoutMs);
-      this.pending.set(id, { resolve: (v) => { clearTimeout(timer); resolve(v); }, reject: (e) => { clearTimeout(timer); reject(e); }, method });
-      this.input.write(JSON.stringify({ id, method, params, sessionId }) + '\0');
-    });
-  }
-}
-
 /** Refuse to drive anything but a complete, authenticated build of the
  * selected app. The build marker binds every public runtime artifact. */
 export async function assertWebDistApp(dist, app) {
@@ -320,7 +278,18 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
     // Chrome's touch emulation is on — switched on by the first contact.
     let touch = false;
     let contact = null, emulated = {};
-    const ask = async (req) => JSON.parse(await evaluate(`exact.agentSettled(${JSON.stringify(req)}).then((r) => JSON.stringify(r))`));
+    const ask = async (req) => {
+      // The existing resize input uses Chrome's real viewport and resize event.
+      if (req.op === 'tap' && req.resize !== undefined) {
+        const pair = req.resize;
+        if (Object.keys(req).some(k => !['op', 'resize'].includes(k)) || !Array.isArray(pair) || pair.length !== 2
+          || !pair.every(n => Number.isInteger(n) && n >= 64 && n <= 4096) || pair[0] * pair[1] > 8388608) return { error: 'tap resize needs exactly two integer dimensions in 64...4096, area <= 8388608, and no other input fields' };
+        await call('Emulation.setDeviceMetricsOverride', { width: pair[0], height: pair[1], deviceScaleFactor: 1, mobile: false });
+        await frame();
+        return { resized: pair, viewport: await evaluate('[innerWidth, innerHeight]'), delivery: 'browser-viewport' };
+      }
+      return JSON.parse(await evaluate(`exact.agentSettled(${JSON.stringify(req)}).then((r) => JSON.stringify(r))`));
+    };
     return {
       host: 'web', boot: Number(boot), hostLines, evaluate, launchFacts: facts,
       async gpuMs() {

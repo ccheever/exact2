@@ -40,3 +40,46 @@ export function launchFacts({seed, locale, timeZone, env = {}}) {
 export function launchEnvironment(facts) {
   return {EXACT_AGENT_SEED: String(facts.seed), EXACT_AGENT_LOCALE: facts.locale, EXACT_AGENT_TIME_ZONE: facts.timeZone};
 }
+
+/** The DevTools protocol over Chrome's --remote-debugging-pipe (fd 3 in, fd 4 out; NUL-delimited JSON). A closed pipe or a dead Chrome fails every pending call; every call has a deadline. */
+export class Cdp {
+  constructor(input, output) {
+    this.input = input;
+    this.next = 1;
+    this.pending = new Map();
+    this.listeners = [];
+    this.closed = null;
+    let buf = '';
+    output.setEncoding('utf8');
+    output.on('data', (d) => {
+      buf += d;
+      let i;
+      while ((i = buf.indexOf('\0')) >= 0) {
+        const msg = JSON.parse(buf.slice(0, i));
+        buf = buf.slice(i + 1);
+        if (msg.id) {
+          const p = this.pending.get(msg.id);
+          this.pending.delete(msg.id);
+          if (msg.error) p?.reject(new Error(`${msg.error.message} (${p.method})`));
+          else p?.resolve(msg.result);
+        } else for (const l of this.listeners) l(msg);
+      }
+    });
+    output.on('end', () => this.fail('the DevTools pipe closed'));
+    output.on('error', (e) => this.fail(`the DevTools pipe failed: ${e.message}`));
+    input.on('error', (e) => this.fail(`the DevTools pipe failed: ${e.message}`));
+  }
+  fail(why) {
+    this.closed ??= why;
+    for (const [id, p] of this.pending) { this.pending.delete(id); p.reject(new Error(`${why} (${p.method})`)); }
+  }
+  send(method, params = {}, sessionId, timeoutMs = 15000) {
+    if (this.closed) return Promise.reject(new Error(`${this.closed} (${method})`));
+    const id = this.next++;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`${method} did not answer within ${timeoutMs} ms`)); }, timeoutMs);
+      this.pending.set(id, { resolve: (v) => { clearTimeout(timer); resolve(v); }, reject: (e) => { clearTimeout(timer); reject(e); }, method });
+      this.input.write(JSON.stringify({ id, method, params, sessionId }) + '\0');
+    });
+  }
+}

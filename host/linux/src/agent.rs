@@ -143,6 +143,26 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             let mut s = p.host().agent(line);
             if s.ends_with('}') && !s.starts_with("{\"error\"") {
                 s.pop();
+                let presence: Vec<_> = p
+                    .boxes()
+                    .to_vec()
+                    .iter()
+                    .filter_map(|b| {
+                        let node = p.host().kernel().node(b.id)?;
+                        if node.style.layout_transition.0.is_empty()
+                            && node.style.exit_animation.0.is_empty()
+                        {
+                            return None;
+                        }
+                        let shown = p.host().presented(b.id);
+                        let (x, y, w, h) = b.surface(shown)?;
+                        Some(
+                            serde_json::json!({"id": b.id, "x": x, "y": y, "w": w, "h": h,
+                        "opacity": shown.opacity, "exiting": false}),
+                        )
+                    })
+                    .collect();
+                s.push_str(&format!(",\"presence\":{}", serde_json::json!(presence)));
                 s.push_str(&format!(",\"raster\":{}", p.images().diagnostics()));
                 s.push_str(&format!(
                     ",\"focus\":{{\"logical\":{}}}",

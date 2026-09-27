@@ -43,5 +43,17 @@ extension Presenter {
         guard let node = view as? NodeView else { return false }
         return leaving[node.id]?.view === node
     }
+
+    /// Presented surface boxes and opacity, including ghosts absent from `tree`.
+    func presenceObservation() -> [[String: Any]] {
+        let live = views.values
+        return (Array(live) + leaving.values.map(\.view)).filter { $0.window != nil }.map { view in
+            let clip = viewport.contentView
+            let local = view.surface?.frame ?? view.bounds
+            let r = view.convert(local.applying(view.layer?.affineTransform() ?? .identity), to: clip)
+            return ["id": Int(view.id), "x": r.minX - clip.bounds.minX, "y": r.minY - clip.bounds.minY,
+                    "w": r.width, "h": r.height, "opacity": view.alphaValue, "exiting": isLeaving(view)]
+        }
+    }
 }
 #endif

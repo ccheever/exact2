@@ -1,0 +1,437 @@
+{
+  "host": "macos",
+  "steps": [
+    {
+      "name": "initial"
+    },
+    {
+      "name": "move-start",
+      "tap": "move"
+    },
+    {
+      "name": "move-100",
+      "advance": 100
+    },
+    {
+      "name": "size-start",
+      "tap": "grow"
+    },
+    {
+      "name": "size-100",
+      "advance": 100
+    },
+    {
+      "name": "retarget-start",
+      "tap": "move"
+    },
+    {
+      "name": "retarget-100",
+      "advance": 100
+    },
+    {
+      "name": "viewport-resize",
+      "resize": [
+        460,
+        500
+      ]
+    },
+    {
+      "name": "after-resize",
+      "advance": 100
+    },
+    {
+      "name": "second-move",
+      "tap": "move"
+    },
+    {
+      "name": "second-move-200",
+      "advance": 200
+    },
+    {
+      "name": "before-exit",
+      "advance": 1000
+    },
+    {
+      "name": "exit-start",
+      "tap": "hide"
+    },
+    {
+      "name": "exit-100",
+      "advance": 100
+    },
+    {
+      "name": "exit-200",
+      "advance": 100
+    },
+    {
+      "name": "exit-ended",
+      "advance": 201
+    },
+    {
+      "name": "settled",
+      "advance": 600
+    }
+  ],
+  "samples": [
+    {
+      "name": "initial",
+      "clock": 0,
+      "nodes": {
+        "card": {
+          "x": 0,
+          "y": 50,
+          "w": 100,
+          "h": 40,
+          "opacity": 1,
+          "exiting": false
+        },
+        "sibling": {
+          "x": 0,
+          "y": 90,
+          "w": 50,
+          "h": 30,
+          "opacity": 1,
+          "exiting": false
+        }
+      }
+    },
+    {
+      "name": "move-start",
+      "clock": 0,
+      "nodes": {
+        "card": {
+          "x": 0,
+          "y": 50,
+          "w": 100,
+          "h": 40,
+          "opacity": 1,
+          "exiting": false
+        },
+        "sibling": {
+          "x": 0,
+          "y": 90,
+          "w": 50,
+          "h": 30,
+          "opacity": 1,
+          "exiting": false
+        }
+      }
+    },
+    {
+      "name": "move-100",
+      "clock": 100,
+      "nodes": {
+        "card": {
+          "x": 0,
+          "y": 60,
+          "w": 100,
+          "h": 40,
+          "opacity": 1,
+          "exiting": false
+        },
+        "sibling": {
+          "x": 0,
+          "y": 100,
+          "w": 50,
+          "h": 30,
+          "opacity": 1,
+          "exiting": false
+        }
+      }
+    },
+    {
+      "name": "size-start",
+      "clock": 100,
+      "nodes": {
+        "card": {
+          "x": 0,
+          "y": 60,
+          "w": 100,
+          "h": 40,
+          "opacity": 1,
+          "exiting": false
+        },
+        "sibling": {
+          "x": 0,
+          "y": 100,
+          "w": 50,
+          "h": 30,
+          "opacity": 1,
+          "exiting": false
+        }
+      }
+    },
+    {
+      "name": "size-100",
+      "clock": 200,
+      "nodes": {
+        "card": {
+          "x": 0,
+          "y": 69,
+          "w": 108,
+          "h": 44,
+          "opacity": 1,
+          "exiting": false
+        },
+        "sibling": {
+          "x": 0,
+          "y": 113,
+          "w": 50,
+          "h": 30,
+          "opacity": 1,
+          "exiting": false
+        }
+      }
+    },
+    {
+      "name": "retarget-start",
+      "clock": 200,
+      "nodes": {
+        "card": {
+          "x": 0,
+          "y": 69,
+          "w": 108,
+          "h": 44,
+          "opacity": 1,
+          "exiting": false
+        },
+        "sibling": {
+          "x": 0,
+          "y": 113,
+          "w": 50,
+          "h": 30,
+          "opacity": 1,
+          "exiting": false
+        }
+      }
+    },
+    {
+      "name": "retarget-100",
+      "clock": 300,
+      "nodes": {
+        "card": {
+          "x": 0,
+          "y": 67.1,
+          "w": 115.2,
+          "h": 47.599999999999994,
+          "opacity": 1,
+          "exiting": false
+        },
+        "sibling": {
+          "x": 0,
+          "y": 114.7,
+          "w": 50,
+          "h": 29.999999999999986,
+          "opacity": 1,
+          "exiting": false
+        }
+      }
+    },
+    {
+      "name": "viewport-resize",
+      "clock": 300,
+      "nodes": {
+        "card": {
+          "x": 0,
+          "y": 67.1,
+          "w": 115.2,
+          "h": 47.599999999999994,
+          "opacity": 1,
+          "exiting": false
+        },
+        "sibling": {
+          "x": 0,
+          "y": 114.7,
+          "w": 50,
+          "h": 29.999999999999986,
+          "opacity": 1,
+          "exiting": false
+        }
+      }
+    },
+    {
+      "name": "after-resize",
+      "clock": 400,
+      "nodes": {
+        "card": {
+          "x": 0,
+          "y": 65.2,
+          "w": 122.4,
+          "h": 51.2,
+          "opacity": 1,
+          "exiting": false
+        },
+        "sibling": {
+          "x": 0,
+          "y": 116.4,
+          "w": 50,
+          "h": 30,
+          "opacity": 1,
+          "exiting": false
+        }
+      }
+    },
+    {
+      "name": "second-move",
+      "clock": 400,
+      "nodes": {
+        "card": {
+          "x": 0,
+          "y": 65.2,
+          "w": 122.4,
+          "h": 51.2,
+          "opacity": 1,
+          "exiting": false
+        },
+        "sibling": {
+          "x": 0,
+          "y": 116.4,
+          "w": 50,
+          "h": 30,
+          "opacity": 1,
+          "exiting": false
+        }
+      }
+    },
+    {
+      "name": "second-move-200",
+      "clock": 600,
+      "nodes": {
+        "card": {
+          "x": 0,
+          "y": 82.16,
+          "w": 133.92000000000002,
+          "h": 56.96000000000001,
+          "opacity": 1,
+          "exiting": false
+        },
+        "sibling": {
+          "x": 0,
+          "y": 139.12,
+          "w": 50,
+          "h": 30,
+          "opacity": 1,
+          "exiting": false
+        }
+      }
+    },
+    {
+      "name": "before-exit",
+      "clock": 1600,
+      "nodes": {
+        "card": {
+          "x": 0,
+          "y": 150,
+          "w": 180,
+          "h": 80,
+          "opacity": 1,
+          "exiting": false
+        },
+        "sibling": {
+          "x": 0,
+          "y": 230,
+          "w": 50,
+          "h": 30,
+          "opacity": 1,
+          "exiting": false
+        }
+      }
+    },
+    {
+      "name": "exit-start",
+      "clock": 1600,
+      "nodes": {
+        "card": {
+          "x": 0,
+          "y": 150,
+          "w": 180,
+          "h": 80,
+          "opacity": 1,
+          "exiting": true
+        },
+        "sibling": {
+          "x": 0,
+          "y": 230,
+          "w": 50,
+          "h": 30,
+          "opacity": 1,
+          "exiting": false
+        }
+      }
+    },
+    {
+      "name": "exit-100",
+      "clock": 1700,
+      "nodes": {
+        "card": {
+          "x": 0,
+          "y": 150,
+          "w": 180,
+          "h": 80,
+          "opacity": 0.7500000000000003,
+          "exiting": true
+        },
+        "sibling": {
+          "x": 0,
+          "y": 222,
+          "w": 50,
+          "h": 30,
+          "opacity": 1,
+          "exiting": false
+        }
+      }
+    },
+    {
+      "name": "exit-200",
+      "clock": 1800,
+      "nodes": {
+        "card": {
+          "x": 0,
+          "y": 150,
+          "w": 180,
+          "h": 80,
+          "opacity": 0.5000000000000001,
+          "exiting": true
+        },
+        "sibling": {
+          "x": 0,
+          "y": 214,
+          "w": 50,
+          "h": 30,
+          "opacity": 1,
+          "exiting": false
+        }
+      }
+    },
+    {
+      "name": "exit-ended",
+      "clock": 2001,
+      "nodes": {
+        "card": null,
+        "sibling": {
+          "x": 0,
+          "y": 197.92000000000002,
+          "w": 50,
+          "h": 30,
+          "opacity": 1,
+          "exiting": false
+        }
+      }
+    },
+    {
+      "name": "settled",
+      "clock": 2601,
+      "nodes": {
+        "card": null,
+        "sibling": {
+          "x": 0,
+          "y": 150,
+          "w": 50,
+          "h": 30,
+          "opacity": 1,
+          "exiting": false
+        }
+      }
+    }
+  ]
+}

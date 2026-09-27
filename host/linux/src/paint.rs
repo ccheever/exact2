@@ -231,6 +231,15 @@ pub struct PaintedBox {
 }
 
 impl PaintedBox {
+    /// The surface's box through the same transform the painter used.
+    /// Projective canvas placements have no affine surface observation.
+    pub fn surface(&self, shown: Presented) -> Option<Rect4> {
+        if self.projective.is_some() {
+            return None;
+        }
+        self.affine.map(|(ts, rect)| bbox(ts, shown.surface(rect)))
+    }
+
     /// Project the local center, which need not be the projected AABB center.
     pub fn center(&self) -> (f32, f32) {
         if let Some((inv, rect, _, _)) = self.projective {

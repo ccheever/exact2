@@ -250,6 +250,17 @@ function createPresence(root) {
 
   return {
     sync,
+    // Agent state reads the painted surface, including unnamed exit ghosts.
+    // The ordinary layout box still describes the content's final geometry.
+    observation() {
+      return [...root.querySelectorAll('[data-view]')].filter(el =>
+        el.style.getPropertyValue(LAYOUT) || el.style.getPropertyValue('--exact-exit-animation') || el.hasAttribute('data-exiting')
+      ).map(el => {
+        const shown = flips.get(el)?.surface?.box ?? el, r = shown.getBoundingClientRect();
+        return { id: Number(el.dataset.view), x: r.x, y: r.y, w: r.width, h: r.height,
+          opacity: Number(getComputedStyle(el).opacity), exiting: el.hasAttribute('data-exiting') };
+      });
+    },
     // Before a batch's ops: the place of every view that declares the row or
     // gains it here, with what it has still to go (a view that gains the row
     // moves from where it was, as a CSS transition gained with its change

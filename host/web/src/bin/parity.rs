@@ -7,6 +7,20 @@ use std::process::ExitCode;
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
+        Some("presence") => {
+            let Some(path) = args.get(1) else {
+                eprintln!("usage: parity presence <plan>");
+                return ExitCode::from(2);
+            };
+            let plan = contract::compile(exact_web::parity::PRESENCE_SOURCE)
+                .expect("the presence fixture compiles");
+            if let Err(error) = std::fs::write(path, plan.encode()) {
+                eprintln!("{path}: {error}");
+                return ExitCode::FAILURE;
+            }
+            println!("{}", exact_web::parity::PRESENCE_STEPS);
+            ExitCode::SUCCESS
+        }
         Some("cases") => {
             println!("{}", exact_web::parity::cases_json());
             ExitCode::SUCCESS
@@ -51,7 +65,9 @@ fn main() -> ExitCode {
             }
         }
         _ => {
-            eprintln!("usage: parity cases | header <recorder> | check <fixture>");
+            eprintln!(
+                "usage: parity cases | header <recorder> | check <fixture> | presence <plan>"
+            );
             ExitCode::from(2)
         }
     }

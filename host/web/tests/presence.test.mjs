@@ -7,6 +7,27 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
+import { comparePresence } from '../parity.mjs';
+
+test('the timeline comparator rejects missing ghosts, drift, and invalid recordings', () => {
+  const node = { x: 10, y: 20, w: 100, h: 40, opacity: .5, exiting: true };
+  const reference = { steps: [{ advance: 100 }], samples: [{ name: 'exit-200', clock: 200, nodes: { card: node, sibling: { ...node, exiting: false } } }] };
+  const changed = change => { const other = structuredClone(reference); change(other); return comparePresence(reference, other); };
+  expect(comparePresence(reference, reference)).toEqual([]);
+  expect(changed(r => { r.samples[0].nodes.card.x += .09; r.samples[0].nodes.card.opacity += .004; })).toEqual([]);
+  for (const change of [
+    r => { r.samples = []; },
+    r => { r.steps[0].advance = 101; },
+    r => { r.samples[0].clock++; },
+    r => { r.samples[0].nodes.card = null; },
+    r => { delete r.samples[0].nodes.sibling; },
+    r => { r.samples[0].nodes.card.h += 1; },
+    r => { r.samples[0].nodes.card.opacity += .02; },
+    r => { r.samples[0].nodes.card.x = NaN; },
+    r => { r.samples[0].nodes.card.exiting = false; },
+  ]) expect(changed(change).length).toBeGreaterThan(0);
+  expect(comparePresence({ samples: [] }, { samples: [] }).length).toBeGreaterThan(0);
+});
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -54,6 +75,8 @@ const page = `<style>
   window.seek = ms => { clock.register(0); clock.seek(ms); };
   window.resizePresence = batch => { window.resizeBatch = batch; mediaChanged(); };
   window.surface = () => root.querySelector('[data-exiting] > div');
+  window.readPresence = () => presence.live.observation();
+  window.leave = css => presence.live.exit(document.getElementById('card'), css);
   window.ready = true;
 </script>`;
 
@@ -92,6 +115,21 @@ afterAll(() => {
 const card = 'width:100px;height:40px;background:red;--exact-layout-transition:1000 0 linear';
 const fixture = html => evaluate(`fixture(${JSON.stringify(html)})`);
 const style = (css, id = 'card') => evaluate(`batch({ops:[{op:'style',id:${JSON.stringify(id)},css:${JSON.stringify(css)}}]})`);
+
+check('presence inspection reads the moving surface and the leaving ghost', async () => {
+  await fixture(`<div id="card" data-view="7" style="${card}"></div>`);
+  await style(card.replace('40px', '140px'));
+  await evaluate('seek(250)');
+  const read = () => evaluate('readPresence()');
+  const moving = (await read())[0];
+  expect(moving.id).toBe(7);
+  expect(moving.h).toBeCloseTo(65, 2);
+  expect(moving.opacity).toBe(1);
+  await evaluate(`leave('pulse 1000ms linear both'); seek(500)`);
+  const leaving = (await read())[0];
+  expect(leaving.exiting).toBe(true);
+  expect(leaving.opacity).toBeCloseTo(.6, 3);
+});
 
 check('resize snaps an active move and takes new boxes without a move', async () => {
   await fixture(`<div id="card" style="${card}"></div>`);

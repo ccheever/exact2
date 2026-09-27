@@ -18,6 +18,10 @@
 //! A keyframe case (LLP 1055 D5) is an `animation` row: the page gets the
 //! declaration and `@keyframes` rules the host emits, starts it at time zero
 //! over the case's initial value, and seeks it the same way.
+//!
+//! Presence (LLP 1063) has no browser oracle: [`PRESENCE_SOURCE`] and
+//! [`PRESENCE_STEPS`] drive one recorded timeline through the agent on each
+//! host. `parity.mjs --presence` compares their presented surfaces and opacity.
 
 use crate::css::transition_css;
 use exact_motion::{Animations, Change, Engine, Property, TimingFunction, Transitions, Value};
@@ -32,6 +36,56 @@ pub const TOLERANCE: f64 = 1e-3;
 /// 8-bit channels, alpha included, so a channel may sit a unit from the
 /// engine's and alpha a step.
 pub const COLOR_TOLERANCE: (f64, f64) = (1.0, 1.0 / 255.0 + 1e-3);
+
+/// Fixed boxes avoid platform font metrics; the root's viewport offset is
+/// subtracted by the recorder so native safe areas do not become motion.
+pub const PRESENCE_SOURCE: &str = r##"keyframes leave
+  from opacity=1
+  to opacity=0
+
+component PresenceTimeline
+  state moved = false
+  state large = false
+  state shown = true
+  action move writes moved
+    moved = not moved
+  action grow writes large
+    large = not large
+  action hide writes shown
+    shown = false
+  view
+    column testId="root" width=300 height=500
+      row height=30
+        button "Move" testId="move" press=move width=80 height=30
+        button "Grow" testId="grow" press=grow width=80 height=30
+        button "Hide" testId="hide" press=hide width=80 height=30
+      view height=(moved ? 120 : 20) flex-shrink=0
+      when shown
+        view testId="card" width=(large ? 180 : 100) height=(large ? 80 : 40) flex-shrink=0 background-color="#ff0000" layout-transition="1000ms linear" exit-animation="leave 400ms linear both"
+      view testId="sibling" width=50 height=30 flex-shrink=0 background-color="#0000ff" layout-transition="1000ms linear"
+"##;
+
+/// Relative agent-clock advances, sampled after every operation. Resizing
+/// the surface during a move and resizing the viewport are distinct cases.
+pub const PRESENCE_STEPS: &str = r#"[
+  {"name":"initial"},
+  {"name":"move-start","tap":"move"},
+  {"name":"move-100","advance":100},
+  {"name":"size-start","tap":"grow"},
+  {"name":"size-100","advance":100},
+  {"name":"retarget-start","tap":"move"},
+  {"name":"retarget-100","advance":100},
+  {"name":"viewport-resize","resize":[460,500]},
+  {"name":"after-resize","advance":100},
+  {"name":"second-move","tap":"move"},
+  {"name":"second-move-200","advance":200},
+  {"name":"before-exit","advance":1000},
+  {"name":"exit-start","tap":"hide"},
+  {"name":"exit-100","advance":100},
+  {"name":"exit-200","advance":100},
+  {"name":"exit-ended","advance":201},
+  {"name":"settled","advance":600}
+]"#;
 
 /// One step of a case's script, at a time in seconds.
 #[derive(Debug, Clone, PartialEq)]

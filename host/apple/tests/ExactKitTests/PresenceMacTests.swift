@@ -47,6 +47,26 @@ final class PresenceMacTests: XCTestCase {
         XCTAssertNil(fresh.superview)
     }
 
+    func testPresenceInspectionKeepsTheSurfaceAndGhostUntilDestroy() throws {
+        let p = fixture()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 400),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = p.viewport
+        p.apply(wireBatch([["op": "present", "id": 2, "property": "layout", "x": 0.0, "y": 10.0, "w": 1.0, "h": 0.5]]))
+        let moved = try XCTUnwrap(p.presenceObservation().first { $0["id"] as? Int == 2 })
+        XCTAssertEqual(moved["h"] as? CGFloat, 25)
+        XCTAssertEqual(moved["exiting"] as? Bool, false)
+        p.apply(wireBatch([
+            ["op": "exit", "id": 2],
+            ["op": "present", "id": 2, "property": "opacity", "x": 0.25, "y": 0.0],
+        ]))
+        let ghost = try XCTUnwrap(p.presenceObservation().first { $0["id"] as? Int == 2 })
+        XCTAssertEqual(ghost["opacity"] as? CGFloat, 0.25)
+        XCTAssertEqual(ghost["exiting"] as? Bool, true)
+        p.apply(wireBatch([["op": "destroy", "id": 2]]))
+        XCTAssertFalse(p.presenceObservation().contains { $0["id"] as? Int == 2 })
+    }
+
     func testALayoutSpringCannotGiveTheSurfaceANegativeSize() throws {
         let p = fixture()
         let v = try XCTUnwrap(p.views[3])

@@ -4,6 +4,12 @@
 //! re-recorded with `bun host/web/parity.mjs`.
 
 #[test]
+fn the_presence_timeline_uses_one_compiled_fixture() {
+    let plan = contract::compile(exact_web::parity::PRESENCE_SOURCE).unwrap();
+    assert!(!plan.encode().is_empty());
+}
+
+#[test]
 fn the_engine_matches_the_browser_on_every_recorded_sample() {
     let fixture = include_str!("../fixtures/browser-motion.txt");
     let samples = fixture.lines().filter(|l| l.starts_with("sample ")).count();

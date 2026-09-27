@@ -1098,6 +1098,7 @@ function agentReply(request) {
       case "state": {
         const st = ask(request);
         if (st.error) return st;
+        st.presence = presence.live?.observation() ?? [];
         const r2 = (x) => Math.round(x * 100) / 100;
         const idOf = (e) => { for (const [i, v] of views) if (v === e) return i; return null; };
         const active = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
