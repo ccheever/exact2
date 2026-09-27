@@ -137,11 +137,15 @@ globalThis.exact.nativeHost = ({ dispatch, log }) => {
 // the browser's own capabilities are: an optional export
 //
 //   export async function later(request) → reply   // JSON in, JSON out
-//   export function connect({ changed })           // optional: announce a
-//                                                   // device topic (LLP 1016.002)
+//   export function connect({ changed, agent, now }) // optional: announce a
+//                                                   // device topic (LLP 1016.002);
+//                                                   // `agent`: substitute device
+//                                                   // input (LLP 1067.000 Q7);
+//                                                   // `now()`: the page's clock,
+//                                                   // the agent's under the agent
 //
 // Connected after first paint, independently of whether anything calls later.
-globalThis.exact.pageNative = async (present, { changed, ready, generation }) => {
+globalThis.exact.pageNative = async (present, { changed, ready, generation, agent = false, now = () => performance.now() }) => {
   if (!present) throw new Error('this app has no module artifact (modules/web/index.js) to answer native.later');
   const module = await artifact();
   const topics = new Map();
@@ -153,7 +157,7 @@ globalThis.exact.pageNative = async (present, { changed, ready, generation }) =>
     const pending = [...topics]; topics.clear();
     for (const [topic, owner] of pending) if (owner === generation()) changed(topic);
   }
-  module.connect?.({ changed(topic) {
+  module.connect?.({ agent, now, changed(topic) {
     topics.set(String(topic), generation());
     // Like the native host's wake: enqueue during the producer's turn and
     // drain once on the host's next turn, one commit per distinct topic.

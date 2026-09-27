@@ -1,0 +1,48 @@
+// The recorder (LLP 1067.000): one native object, the microphone, with a view
+// and functions around it. `<waveform-view>` draws the recorder's own levels
+// as they arrive: nothing it shows crosses the TypeScript source or Contract
+// state. The source asks the same object to start, stop (which writes the
+// take) and list the takes, and watches it for changes.
+
+shape Status
+  available: bool
+  recording: bool
+  message: string
+shape Take
+  name: string
+  label: string
+shape Takes
+  takes: list<Take>
+shape Saved
+  name: string
+  message: string
+
+component Recorder
+  resource status = recorderStatus() as shape Status
+  resource library = takes() as shape Takes
+  mutation started as shape Status
+  mutation saved as shape Saved
+  derive busy = pending(started) or pending(saved)
+  action toggle writes started, saved
+    if status.recording
+      send saved = stopRecording()
+    else
+      send started = startRecording()
+  view
+    column testId="recorder" width="100%" height="100%" gap=16 padding=20 box-sizing="border-box" background-color="#101418" color="#e8edf2" font-family="system-ui"
+      text "Recorder" font-size=24 font-weight=600
+      waveform-view testId="waveform" width="100%" height=140 flex-shrink=0
+      row gap=12 align-items="center"
+        button press=toggle disabled=(busy or not status.available) testId="toggle" padding=12 border-radius=24 background-color=(status.recording ? "#e5484d" : "#2f81f7")
+          text (status.recording ? "Stop" : "Record") color="#ffffff" font-weight=600
+        text status.message testId="status" font-size=14 color="#9aa7b4"
+      match saved
+        case some(s)
+          text s.message testId="saved-message" font-size=13 color="#7ee2a8"
+        case none
+          text "" font-size=13
+      text (length(library.takes) == 0 ? "No takes yet." : "Takes") font-size=16 font-weight=600 testId="takes-heading"
+      column gap=6 testId="takes"
+        each take in library.takes key=take.name
+          row gap=8 padding=10 border-radius=8 background-color="#1a2129" testId=("take-" + take.name)
+            text take.label font-size=14

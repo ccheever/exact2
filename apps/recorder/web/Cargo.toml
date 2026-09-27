@@ -1,0 +1,22 @@
+# The recorder on the web (LLP 1067.000): one wasm with the runner, the kernel
+# and the baked plan; its TypeScript runs in the page's realm, and its page
+# module (modules/web/index.js) is the recorder and its waveform view.
+[package]
+name = "recorder-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+build = "build.rs"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-web = { path = "../../../host/web" }
+exact-web-capabilities = { path = "../../../host/web-capabilities" }
+exact-js-web = { path = "../../../js/web" }
+
+[build-dependencies]
+exact-js-bake = { path = "../../../js/bake" }

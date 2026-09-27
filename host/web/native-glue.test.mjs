@@ -6,7 +6,7 @@ const source = readFileSync(new URL('./native-glue.js', import.meta.url), 'utf8'
 function host(table) {
   const scripts = [], timers = new Map(), listeners = new Set();
   const exact = {}, context = {
-    exact, URL, TextDecoder, TextEncoder, Uint8Array, atob, console, queueMicrotask,
+    exact, URL, TextDecoder, TextEncoder, Uint8Array, atob, console, queueMicrotask, performance,
     document: { baseURI: 'https://example.test/', createElement: () => ({ remove() {} }), head: { append: script => scripts.push(script) } },
     addEventListener: (_, listener) => listeners.add(listener), removeEventListener: (_, listener) => listeners.delete(listener),
     setTimeout: callback => { const id = timers.size + 1; timers.set(id, callback); return id; }, clearTimeout: id => timers.delete(id),
@@ -23,6 +23,18 @@ test('an announcement-only page module connects without a native.later export', 
   page.drain();
   expect(heard).toEqual(['meter']);
   await expect(page.later(btoa('{}'))).rejects.toThrow('exports no later');
+});
+
+test('connect receives the agent flag and the page clock (LLP 1067.000 Q7)', async () => {
+  let seen = null;
+  const h = host({ connect(context) { seen = context; } });
+  await h.exact.pageNative(true, { changed() {}, ready: () => true, generation: () => 1, agent: true, now: () => 1234 });
+  expect(seen.agent).toBe(true);
+  expect(seen.now()).toBe(1234);
+  const plain = host({ connect(context) { seen = context; } });
+  await plain.exact.pageNative(true, { changed() {}, ready: () => true, generation: () => 1 });
+  expect(seen.agent).toBe(false);
+  expect(typeof seen.now()).toBe('number');
 });
 
 test('a rejected or timed-out artifact can load again and cleans up its load hooks', async () => {
@@ -65,8 +77,8 @@ test('the page loader clears its rejected cache and activation connects without 
   const loaderSource = glue.slice(glue.indexOf('let pageNativeModule'), glue.indexOf('let rustLoader'));
   let attempts = 0;
   const native = { drain() {} };
-  const load = Function('loadAfterPaint', 'pageNative', 'inputReady', 'incarnation', 'afterNativePaint', `${loaderSource}; return loadPageNative;`)(
-    async () => { if (++attempts === 1) throw Error('transient load failure'); return async () => native; }, true, true, 1, async () => {});
+  const load = Function('loadAfterPaint', 'pageNative', 'inputReady', 'incarnation', 'afterNativePaint', 'agentMode', 'now', `${loaderSource}; return loadPageNative;`)(
+    async () => { if (++attempts === 1) throw Error('transient load failure'); return async () => native; }, true, true, 1, async () => {}, false, () => 0);
   await expect(load()).rejects.toThrow('transient load failure');
   expect(await load()).toBe(native);
   expect(await load()).toBe(native);

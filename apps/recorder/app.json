@@ -1,0 +1,21 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Recorder",
+  "short_name": "Recorder",
+  "id": "com.exact.recorder",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#101418",
+  "background_color": "#101418",
+  "app": {
+    "id": "com.exact.recorder",
+    "name": "Recorder"
+  },
+  "modules": ["waveform-view"],
+  "host": {
+    "web": {}
+  },
+  "deploy": {
+    "store": { "web": "0", "macos": "0", "ios": "0", "linux": "0" }
+  }
+}

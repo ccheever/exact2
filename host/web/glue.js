@@ -65,7 +65,7 @@ const pageNative = Boolean(document.querySelector('meta[name="exact-native"]'));
 let pageNativeModule = null;
 const loadPageNative = () => pageNativeModule ??= afterNativePaint().then(() => loadAfterPaint('./native-glue.js', 'pageNative'))
   .then(load => load(pageNative, {
-    ready: () => inputReady, generation: () => incarnation,
+    ready: () => inputReady, generation: () => incarnation, agent: agentMode, now,
     changed: topic => { if (wasm.exact_changed) applyBatch(JSON.parse(readOut(wasm.exact_changed(writeIn(topic))))); },
   })).catch(error => { pageNativeModule = null; throw error; });
 let rustLoader = null, rustLoading = null;
