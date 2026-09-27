@@ -166,12 +166,13 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     await failing('a wrong ABI', { url: skewed.url }, /module ABI 2, host ABI 1/, skewed.close);
   } else {
     await failing('a missing artifact', { env: { EXACT_MODULES: resolve(tmp, 'absent/libexact_modules.dylib') } }, /no module artifact/);
-    // An artifact built against another ABI: a table whose major is 2.
+    // An artifact built against another ABI: a views-only table of major 1
+    // (LLP 1024), from before the module entries (LLP 1067.000).
     const source = resolve(tmp, 'skew.c'), dylib = resolve(tmp, 'libexact_modules.dylib');
-    writeFileSync(source, 'static const struct { unsigned major, size; const char *roster; void *f[7]; } t = { 2, 72, "{}", { 0 } };\nconst void *exact_native_abi(void) { return &t; }\n');
+    writeFileSync(source, 'static const struct { unsigned major, size; const char *roster; void *f[7]; } t = { 1, 72, "{}", { 0 } };\nconst void *exact_native_abi(void) { return &t; }\n');
     const cc = spawnSync('xcrun', host === 'ios' ? ['--sdk', 'iphonesimulator', 'clang', '-target', 'arm64-apple-ios17.0-simulator', '-dynamiclib', '-o', dylib, source] : ['clang', '-dynamiclib', '-o', dylib, source], { encoding: 'utf8' });
     check(cc.status === 0, `${host} native: the skewed artifact compiles: ${cc.stderr}`);
-    await failing('a wrong ABI', { env: { EXACT_MODULES: dylib } }, /module ABI 2, host ABI 1/);
+    await failing('a wrong ABI', { env: { EXACT_MODULES: dylib } }, /module ABI 1, host ABI 2/);
   }
   rmSync(tmp, { recursive: true, force: true });
   console.log(`${host} native: ${checks - failed} of ${checks} checks passed in ${((Date.now() - t0) / 1000).toFixed(1)} s (the LLP 1024 D8 fixture)`);

@@ -14,10 +14,13 @@ import AppKit
 import UIKit
 #endif
 
-let exactNativeModules: [String: ExactNativeFactory] = [
-    "exact-fixture": ExactNativeFactory(snapshot: true) { props, events in try FixtureBox(props: props, events: events) },
-    "exact-plain": ExactNativeFactory { props, events in PlainBox(props: props, events: events) },
-]
+final class FixtureModule: ExactModule {
+    override class var views: [String: ExactNativeFactory] {
+        ["exact-fixture": ExactNativeFactory(snapshot: true) { props, events in try FixtureBox(props: props, events: events) },
+         "exact-plain": ExactNativeFactory { props, events in PlainBox(props: props, events: events) }]
+    }
+}
+let exactModule: ExactModule.Type = FixtureModule.self
 
 private func rgb(_ hex: String?) -> (CGFloat, CGFloat, CGFloat) {
     guard let hex, hex.hasPrefix("#"), hex.count == 7, let v = UInt32(hex.dropFirst(), radix: 16) else { return (0.5, 0.5, 0.5) }

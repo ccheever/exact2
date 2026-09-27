@@ -709,6 +709,7 @@ extension Agent {
         // Materialize this turn's web/GPU pictures before composing the hierarchy.
         let captured = presenter.views.values.filter { Capture.web[$0.id] != nil || $0.kind == "canvas" }
         for node in captured { node.setNeedsDisplay(); node.layer.displayIfNeeded() }
+        session.natives.redrawForCapture()
         let png = UIGraphicsImageRenderer(size: size, format: format).pngData { _ in
             captureView.drawHierarchy(in: CGRect(origin: .zero, size: size), afterScreenUpdates: true)
         }

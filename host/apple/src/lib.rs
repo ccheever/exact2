@@ -34,6 +34,7 @@
 #![deny(missing_docs)]
 
 pub mod abi;
+pub mod app_module;
 pub mod batch;
 pub mod collapse;
 pub mod content_region;

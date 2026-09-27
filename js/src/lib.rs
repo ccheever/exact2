@@ -143,6 +143,9 @@ struct HostState {
     native: Option<Box<dyn NativeModule>>,
     /// The native module takes long calls off this thread (`native.later`).
     later: bool,
+    /// The host's app module answers this source's long calls (LLP 1067.000
+    /// Q6): `native` is available, and `later` goes to it.
+    hosted: bool,
 }
 
 /// A TypeScript data source: bytecode, its bake-time identity, and the
@@ -252,7 +255,7 @@ unsafe extern "C" fn host_door(
                 if let Some(store) = state.store {
                     (*store).observe_external_read();
                 }
-                Ok(state.native.is_some().then(|| "native".into()))
+                Ok((state.native.is_some() || state.hosted).then(|| "native".into()))
             } else if a == "watch" {
                 // The answer watches a device topic; its announcement asks
                 // the answer again (LLP 1016.002).
@@ -271,6 +274,11 @@ unsafe extern "C" fn host_door(
                         .map_err(|error| error.to_string())
                         .and_then(|request| module.call(&request))
                         .map(|reply| Some(reply.to_string())),
+                    // LLP 1067.000 Q8: an app module answers only long calls,
+                    // as the web's page module does.
+                    (None, Some(_)) if state.hosted => {
+                        Err("the app's module answers native.later, not native.call".into())
+                    }
                     _ => Err(
                         "native storage is unavailable during bake or in an unconfigured host"
                             .into(),
@@ -619,6 +627,13 @@ impl Module {
             // the local engine must be destroyed before its storage context.
             engine.install_storage(&self.storage.as_ref().unwrap().context)?;
         }
+        // The host's app module, when the app links no native module of its
+        // own: present in agent mode too, where it substitutes its input
+        // (LLP 1067.000 Q7), so it needs no storage directories.
+        if self.host.native.is_none() && self.native_slot.hosted() {
+            self.host.hosted = true;
+            self.host.later = true;
+        }
         engine
             .load(&self.bytecode)
             .map_err(|e| format!("exact-js: the module did not load: {e}"))?;
@@ -641,6 +656,7 @@ impl Module {
         self.storage = None;
         self.host.native = None;
         self.host.later = false;
+        self.host.hosted = false;
         self.native_slot.set(None);
         self.parked.clear();
         self.host.requests.clear();

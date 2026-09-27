@@ -1,0 +1,21 @@
+# The recorder on Apple platforms (LLP 1067.000): the host's C exports over
+# its TypeScript source and baked plan. The recorder itself is the app's
+# module artifact (modules/apple), which the host loads per session.
+[package]
+name = "recorder-apple"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+build = "build.rs"
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-apple = { path = "../../../host/apple" }
+exact-js = { path = "../../../js" }
+
+[build-dependencies]
+exact-js-bake = { path = "../../../js/bake" }

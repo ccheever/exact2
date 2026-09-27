@@ -20,6 +20,7 @@ macro_rules! host {
         $crate::textflow_exports!();
         $crate::markup_exports!();
         $crate::collapse_exports!();
+        $crate::app_module_exports!();
         thread_local! {
             static EXACT_RUNTIMES: ::std::cell::RefCell<$crate::abi::Registry<$data>> = ::std::cell::RefCell::new($crate::abi::Registry::default());
         }
@@ -55,6 +56,25 @@ macro_rules! host {
             ctx: *mut ::std::ffi::c_void,
         ) {
             $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| { e.hooks.wake = wake; e.hooks.wake_ctx = ctx; });
+        }
+
+        /// The session's app module (LLP 1067.000): `later` takes each long
+        /// native call, and answers it once with `exact_app_reply`. `None`
+        /// removes it.
+        #[no_mangle]
+        pub extern "C" fn exact_set_app_module(
+            rt: u32,
+            later: ::std::option::Option<$crate::app_module::LaterFn>,
+            ctx: *mut ::std::ffi::c_void,
+        ) {
+            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| e.bridge.set_app_module(later, ctx));
+        }
+
+        /// The app module announced a topic (LLP 1016.002), on this thread.
+        #[no_mangle]
+        pub extern "C" fn exact_app_changed(rt: u32, topic: *const u8, len: usize) {
+            let topic = $crate::app_module::text(topic, len);
+            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| e.bridge.app_changed(&topic));
         }
 
         /// The plan-font hook, called synchronously by each boot on this

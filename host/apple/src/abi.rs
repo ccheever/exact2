@@ -72,6 +72,9 @@ pub struct Bridge<D: DataSource> {
     /// D3): released after a later commit, by token.
     parked: std::collections::BTreeMap<u64, exact_runner::RequestOut>,
     launch: Option<String>,
+    /// The session's app module (LLP 1067.000 Q6): installed into each
+    /// activated source's native slot, so it outlives activations.
+    app_module: Option<exact_runner::NativeHandler>,
     input: Vec<u8>,
     output: Vec<u8>,
 }
@@ -104,6 +107,7 @@ impl<D: DataSource> Bridge<D> {
             delivery: None,
             parked: std::collections::BTreeMap::new(),
             launch: None,
+            app_module: None,
             input: Vec::new(),
             output: Vec::new(),
         }
@@ -490,12 +494,35 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// The session's app module: `later(ctx, body, len, reply)` takes each
+    /// long native call on the executor's thread and answers it, once, with
+    /// [`crate::app_module::exact_app_reply`] (LLP 1067.000). `None` removes it.
+    pub fn set_app_module(&mut self, later: Option<crate::app_module::LaterFn>, ctx: *mut c_void) {
+        self.app_module = later.map(|later| crate::app_module::handler(later, ctx));
+        self.adopt_app_module();
+    }
+
+    /// The app module announced `topic` (LLP 1016.002): the live source's
+    /// watching answers are asked again.
+    pub fn app_changed(&mut self, topic: &str) {
+        if let Some(native) = self.host.as_ref().and_then(|h| h.native_slot()) {
+            native.changed(topic);
+        }
+    }
+
+    fn adopt_app_module(&self) {
+        if let Some(native) = self.host.as_ref().and_then(|h| h.native_slot()) {
+            native.host(self.app_module.clone());
+        }
+    }
+
     /// The presenter has painted this session; deferred logic can now load.
     pub fn data_ready(&mut self) -> u32 {
         if self.host.is_none() {
             return self.emit(not_booted());
         }
         self.painted = true;
+        self.adopt_app_module();
         let out = self.host.as_mut().expect("checked").activate_data();
         self.emit(out)
     }
@@ -770,6 +797,7 @@ impl<D: DataSource> Bridge<D> {
         candidate.host.listen(executor.waker());
         self.executor = Some(executor);
         self.host = Some(candidate.host);
+        self.adopt_app_module();
         self.parked.clear();
         self.emit(candidate.batch)
     }

@@ -577,6 +577,11 @@ impl<D: DataSource> Host<D> {
         self.runner.listen(wake);
     }
 
+    /// The source's native slot, where the host installs the app module.
+    pub fn native_slot(&self) -> Option<exact_runner::Native> {
+        self.runner.data_ref().native()
+    }
+
     /// A long native call's work: the source's native handler, off this thread.
     pub fn native_work(&mut self, request: &exact_runner::Request) -> exact_runner::Dispatch {
         self.runner.native_work(request)

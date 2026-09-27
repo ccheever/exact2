@@ -432,6 +432,7 @@ public final class ExactSession {
         }
         ExactSession.live[runtime.rt] = WeakSession(self)
         runtime.setWake(ExactSession.wake, ctx: UnsafeMutableRawPointer(bitPattern: UInt(runtime.rt)))
+        natives.installAppModule()
         let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
         pressure.setEventHandler { [weak self] in self?.text.dropCold() }
         pressure.resume(); textPressure = pressure
@@ -458,6 +459,9 @@ public final class ExactSession {
     /// A request's reply is in (LLP 1016 D2): the executor's thread says so;
     /// the pump runs on the main thread, where the runner lives. `ctx` is
     /// the handle; a session that is gone is a stranger, dropped.
+    /// The live session behind a runtime handle, or nil for a stranger's.
+    static func session(for rt: ExactRuntime) -> ExactSession? { live[rt]?.session }
+
     private static let wake: ExactWakeFn = { ctx in
         let rt = ExactRuntime(UInt(bitPattern: ctx))
         DispatchQueue.main.async {
@@ -968,6 +972,7 @@ public final class ExactSession {
         rasters.shutdown()
         textPressure?.cancel(); textPressure = nil
         runtime.destroy()
+        natives.destroyModule()
         app.forget(self)
     }
 }

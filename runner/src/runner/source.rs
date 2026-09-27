@@ -35,6 +35,7 @@ pub struct Native(std::sync::Arc<NativeSlots>);
 #[derive(Default)]
 pub struct NativeSlots {
     handler: std::sync::Mutex<Option<NativeHandler>>,
+    hosted: std::sync::Mutex<Option<NativeHandler>>,
     announce: std::sync::Mutex<Option<Announce>>,
 }
 
@@ -52,13 +53,38 @@ impl Native {
         *self.0.handler.lock().unwrap_or_else(|e| e.into_inner()) = handler;
     }
 
-    /// The handler now, if the source has one.
+    /// The handler now: the source's own, else the host's app module.
     pub fn handler(&self) -> Option<NativeHandler> {
-        self.0
+        let own = self
+            .0
             .handler
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .clone()
+            .clone();
+        own.or_else(|| {
+            self.0
+                .hosted
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone()
+        })
+    }
+
+    /// The session's app module, which the host owns and installs (LLP
+    /// 1067.000 Q6): it outlives the source's activations, so unloading the
+    /// source leaves it, and it answers when the source has no handler of
+    /// its own. `None` removes it.
+    pub fn host(&self, handler: Option<NativeHandler>) {
+        *self.0.hosted.lock().unwrap_or_else(|e| e.into_inner()) = handler;
+    }
+
+    /// Whether the host installed an app module.
+    pub fn hosted(&self) -> bool {
+        self.0
+            .hosted
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some()
     }
 
     /// Where the host takes announced topics; `None` stops taking them.

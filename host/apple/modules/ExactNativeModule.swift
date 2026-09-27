@@ -1,17 +1,26 @@
-// The module side of the native-module table (@ref LLP 1024 D4), compiled
-// into the app's one artifact, `libexact_modules.dylib`, with the app's own
-// `modules/apple/*.swift` by `host/apple/build.mjs`. The host side, and the
-// table's layout, is `Sources/ExactKit/NativeModule.swift`.
+// The module side of the native-module table (@ref LLP 1024 D4, LLP 1067.000),
+// compiled into the app's one artifact, `libexact_modules.dylib`, with the
+// app's own `modules/apple/*.swift` by `host/apple/build.mjs`. The host side,
+// and the table's layout, is `Sources/ExactKit/NativeModule.swift`.
 //
-// An app's module source declares its roster as a table of factories:
+// An app has one module: a subclass of `ExactModule`, named once.
 //
-//     let exactNativeModules: [String: ExactNativeFactory] = [
-//         "photo-editor": ExactNativeFactory { props, events in try PhotoEditor(props: props, events: events) },
-//     ]
+//     final class Recorder: ExactModule {
+//         override class var views: [String: ExactNativeFactory] {
+//             ["waveform-view": ExactNativeFactory { module, props, events in
+//                 WaveformView(recorder: module as! Recorder, events: events) }]
+//         }
+//         override func later(_ request: [String: Any], reply: ExactReply) { … }
+//     }
+//     let exactModule: ExactModule.Type = Recorder.self
 //
-// and each instance subclasses `ExactNativeInstance`: a platform view, a
-// props replacement that may refuse (the last accepted stays), an optional
-// PNG snapshot, and `destroy`. `events` may be called from any thread.
+// The host makes one instance per session, at the first view or long call
+// that needs it, and destroys it with the session, after its views. Its
+// views receive it, so a view and a function share one object. Every entry
+// (init, the views' create, props and destroy, `later`, `destroy`) is on the
+// main thread (LLP 1067.000 Q5); long work goes on the module's own queues,
+// and a reply may be sent from any thread, once. `views` is the roster, read
+// once per process. Each view instance subclasses `ExactNativeInstance`.
 import Foundation
 #if os(macOS)
 import AppKit
@@ -23,11 +32,93 @@ public typealias ExactNativeView = UIView
 
 public typealias ExactNativeEventFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UInt32, UnsafePointer<UInt8>?, UInt32) -> Void
 public typealias ExactNativeReplyFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UInt32, UInt32, UnsafePointer<UInt8>?, UInt32) -> Void
+/// `changed(host, topic, len)`, from any thread.
+public typealias ExactModuleChangedFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
+/// `now(host)`: the session's clock in milliseconds, on the main thread.
+public typealias ExactModuleNowFn = @convention(c) (UnsafeMutableRawPointer?) -> Double
+/// `reply(ctx, status, bytes, len)`: a long call's one answer, from any thread.
+public typealias ExactModuleReplyFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafePointer<UInt8>?, Int) -> Void
 
 /// A refusal with a message the host logs and reports in `tree`.
 public struct ExactNativeRefusal: Error, CustomStringConvertible {
     public let description: String
     public init(_ message: String) { description = message }
+}
+
+/// What the session gives its module.
+public final class ExactModuleContext: @unchecked Sendable {
+    /// Under the agent: substitute device input before asking the OS
+    /// (LLP 1067.000 Q7), so a drive is repeatable and never prompts.
+    public let agent: Bool
+    /// The app's own directories; under the agent, a scratch tree.
+    public let data: URL, cache: URL, temporary: URL
+    private let host: UnsafeMutableRawPointer?
+    private let changedFn: ExactModuleChangedFn
+    private let nowFn: ExactModuleNowFn
+
+    init(json: [String: Any], host: UnsafeMutableRawPointer?, changed: @escaping ExactModuleChangedFn, now: @escaping ExactModuleNowFn) {
+        let url = { (key: String) in URL(fileURLWithPath: json[key] as? String ?? NSTemporaryDirectory(), isDirectory: true) }
+        agent = json["agent"] as? Bool ?? false
+        data = url("data"); cache = url("cache"); temporary = url("temporary")
+        self.host = host; changedFn = changed; nowFn = now
+    }
+
+    /// The session's clock, in milliseconds: the agent's under the agent,
+    /// so what a view draws from it repeats. Main thread.
+    public func now() -> Double { nowFn(host) }
+
+    /// Say a device topic changed: every TypeScript answer that called
+    /// `native.watch(topic)` is asked again (LLP 1016.002). Any thread.
+    public func changed(_ topic: String) {
+        let bytes = Array(topic.utf8)
+        bytes.withUnsafeBufferPointer { changedFn(host, $0.baseAddress, UInt32($0.count)) }
+    }
+}
+
+/// The answer to one `native.later` call. Only the first `send` or `fail`
+/// answers; one dropped unanswered fails the call.
+public final class ExactReply: @unchecked Sendable {
+    private let lock = NSLock()
+    private var ctx: UnsafeMutableRawPointer?
+    private let fn: ExactModuleReplyFn
+    init(ctx: UnsafeMutableRawPointer?, fn: @escaping ExactModuleReplyFn) { self.ctx = ctx; self.fn = fn }
+
+    private func answer(_ status: UInt32, _ text: String) {
+        lock.lock()
+        let taken = ctx
+        ctx = nil
+        lock.unlock()
+        guard let taken else { NSLog("exact module: ignored a second reply"); return }
+        let bytes = Array(text.utf8)
+        bytes.withUnsafeBufferPointer { fn(taken, status, $0.baseAddress, $0.count) }
+    }
+
+    /// Resolve the TypeScript promise with a JSON object.
+    public func send(_ value: [String: Any]) {
+        guard JSONSerialization.isValidJSONObject(value), let data = try? JSONSerialization.data(withJSONObject: value) else {
+            return fail("the reply was not JSON")
+        }
+        answer(200, String(decoding: data, as: UTF8.self))
+    }
+
+    /// Reject the TypeScript promise with a message.
+    public func fail(_ message: String) { answer(500, message) }
+
+    deinit { if ctx != nil { fail("the module dropped the reply") } }
+}
+
+/// An app's one module: its views, its long calls, one instance a session.
+open class ExactModule {
+    /// The roster: each tag's factory, read once per process.
+    open class var views: [String: ExactNativeFactory] { [:] }
+    public let context: ExactModuleContext
+    public required init(context: ExactModuleContext) { self.context = context }
+    /// A long call (`native.later`): start the work and return; reply once.
+    open func later(_ request: [String: Any], reply: ExactReply) {
+        reply.fail("\(type(of: self)) answers no native.later")
+    }
+    /// The session is ending; its views are already gone.
+    open func destroy() {}
 }
 
 /// The nine events, as the kernel's `EventKind` ordinals.
@@ -66,13 +157,18 @@ open class ExactNativeInstance {
     open func destroy() {}
 }
 
-/// A roster entry: how to make an instance, and whether it answers snapshots.
+/// A roster entry: how to make an instance from the session's module, and
+/// whether it answers snapshots.
 public struct ExactNativeFactory {
     public let snapshot: Bool
-    public let make: ([String: String], ExactNativeEvents) throws -> ExactNativeInstance
-    public init(snapshot: Bool = false, make: @escaping ([String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
+    public let make: (ExactModule, [String: String], ExactNativeEvents) throws -> ExactNativeInstance
+    public init(snapshot: Bool = false, make: @escaping (ExactModule, [String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
         self.snapshot = snapshot
         self.make = make
+    }
+    /// A view that needs nothing from the module.
+    public init(snapshot: Bool = false, make: @escaping ([String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
+        self.init(snapshot: snapshot) { _, props, events in try make(props, events) }
     }
 }
 
@@ -106,12 +202,19 @@ private func handle(_ raw: UnsafeMutableRawPointer?) -> Handle? {
     raw.map { Unmanaged<Handle>.fromOpaque($0).takeUnretainedValue() }
 }
 
-private let create: @convention(c) (UnsafePointer<UInt8>?, UInt32, UnsafePointer<UInt8>?, UInt32, ExactNativeEventFn?, ExactNativeReplyFn?, UnsafeMutableRawPointer?, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> UnsafeMutableRawPointer? = { tag, tagLength, json, jsonLength, event, reply, ctx, nonce, out, capacity in
+private func module(_ raw: UnsafeMutableRawPointer?) -> ExactModule? {
+    raw.map { Unmanaged<ExactModule>.fromOpaque($0).takeUnretainedValue() }
+}
+
+private let roster: [String: ExactNativeFactory] = exactModule.views
+
+private let create: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UInt8>?, UInt32, ExactNativeEventFn?, ExactNativeReplyFn?, UnsafeMutableRawPointer?, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> UnsafeMutableRawPointer? = { owner, tag, tagLength, json, jsonLength, event, reply, ctx, nonce, out, capacity in
     let name = tag.map { String(decoding: UnsafeBufferPointer(start: $0, count: Int(tagLength)), as: UTF8.self) } ?? ""
-    guard let factory = exactNativeModules[name] else { write("no factory for \(name)", out, capacity); return nil }
+    guard let factory = roster[name] else { write("no factory for \(name)", out, capacity); return nil }
+    guard let owner = module(owner) else { write("no module instance", out, capacity); return nil }
     guard let event else { write("no event callback", out, capacity); return nil }
     do {
-        let instance = try factory.make(try props(json, jsonLength), ExactNativeEvents(fn: event, ctx: ctx, nonce: nonce))
+        let instance = try factory.make(owner, try props(json, jsonLength), ExactNativeEvents(fn: event, ctx: ctx, nonce: nonce))
         return Unmanaged.passRetained(Handle(instance, reply: reply, ctx: ctx, nonce: nonce)).toOpaque()
     } catch {
         write(String(describing: error), out, capacity)
@@ -149,24 +252,53 @@ private let destroy: @convention(c) (UnsafeMutableRawPointer?) -> Void = { raw i
     h.release()
 }
 
+private let moduleCreate: @convention(c) (UnsafePointer<UInt8>?, UInt32, UnsafeMutableRawPointer?, ExactModuleChangedFn?, ExactModuleNowFn?, UnsafeMutablePointer<UInt8>?, UInt32) -> UnsafeMutableRawPointer? = { json, length, host, changed, now, out, capacity in
+    guard let changed, let now else { write("no host callbacks", out, capacity); return nil }
+    let data = json.map { Data(bytes: $0, count: Int(length)) } ?? Data()
+    let object = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+    let instance = exactModule.init(context: ExactModuleContext(json: object, host: host, changed: changed, now: now))
+    return Unmanaged.passRetained(instance).toOpaque()
+}
+
+private let moduleDestroy: @convention(c) (UnsafeMutableRawPointer?) -> Void = { raw in
+    guard let raw else { return }
+    let m = Unmanaged<ExactModule>.fromOpaque(raw)
+    m.takeUnretainedValue().destroy()
+    m.release()
+}
+
+private let moduleLater: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int, UnsafeMutableRawPointer?, ExactModuleReplyFn?) -> Void = { raw, body, length, ctx, fn in
+    guard let fn else { return }
+    let reply = ExactReply(ctx: ctx, fn: fn)
+    guard let m = module(raw) else { return reply.fail("no module instance") }
+    let data = body.map { Data(bytes: $0, count: length) } ?? Data()
+    guard let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        return reply.fail("the request was not a JSON object")
+    }
+    m.later(request, reply: reply)
+}
+
 /// The ABI major this artifact was built against; the host refuses others.
-private let major: UInt32 = 1
+private let major: UInt32 = 2
 
 private let table: UnsafeMutableRawPointer = {
-    let roster = "{" + exactNativeModules.keys.sorted().map { tag in
-        "\"\(tag)\":{\"snapshot\":\(exactNativeModules[tag]!.snapshot)}"
+    let text = "{" + roster.keys.sorted().map { tag in
+        "\"\(tag)\":{\"snapshot\":\(roster[tag]!.snapshot)}"
     }.joined(separator: ",") + "}"
-    let size = 72
+    let size = 104
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
     t.storeBytes(of: major, as: UInt32.self)
     t.storeBytes(of: UInt32(size), toByteOffset: 4, as: UInt32.self)
-    t.storeBytes(of: UnsafeRawPointer(strdup(roster)), toByteOffset: 8, as: UnsafeRawPointer?.self)
+    t.storeBytes(of: UnsafeRawPointer(strdup(text)), toByteOffset: 8, as: UnsafeRawPointer?.self)
     t.storeBytes(of: unsafeBitCast(create, to: UnsafeRawPointer.self), toByteOffset: 16, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(platformView, to: UnsafeRawPointer.self), toByteOffset: 24, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(setProps, to: UnsafeRawPointer.self), toByteOffset: 32, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(snapshot, to: UnsafeRawPointer.self), toByteOffset: 40, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(destroy, to: UnsafeRawPointer.self), toByteOffset: 48, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(moduleCreate, to: UnsafeRawPointer.self), toByteOffset: 72, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(moduleDestroy, to: UnsafeRawPointer.self), toByteOffset: 80, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(moduleLater, to: UnsafeRawPointer.self), toByteOffset: 88, as: UnsafeRawPointer.self)
     return t
 }()
 

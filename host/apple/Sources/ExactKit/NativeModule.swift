@@ -1,31 +1,42 @@
-// Native modules on Apple hosts (@ref LLP 1024 D2–D5): one NativeView arm,
-// one app module artifact behind `dlopen`, loaded after the first painted
-// frame, and a versioned C function table whose tag → factory roster is
-// looked up by name. Shared by the AppKit and UIKit presenters.
+// Native modules on Apple hosts (@ref LLP 1024 D2–D5, LLP 1067.000): one
+// NativeView arm, one app module artifact behind `dlopen`, loaded after the
+// first painted frame or at the first long call, and a versioned C function
+// table whose tag → factory roster is looked up by name. The artifact's
+// module is instantiated once per session (Q6): its views receive it, and a
+// source's `native.later` calls reach it through the runtime
+// (`exact_set_app_module`). Shared by the AppKit and UIKit presenters.
 //
 // The table (`exact_native_abi()`, 64-bit layout; the module side is
 // `host/apple/modules/ExactNativeModule.swift`):
 //
-//   0  u32 major            1
-//   4  u32 size             72 or more
+//   0  u32 major            2
+//   4  u32 size             104 or more
 //   8  const char *roster   JSON: {"tag": {"snapshot": bool}, …}
-//  16  create(tag, tagLen, props, propsLen, event, reply, ctx, nonce, err, errCap) → handle
+//  16  create(module, tag, tagLen, props, propsLen, event, reply, ctx, nonce, err, errCap) → handle
 //  24  platform_view(handle) → NSView * / UIView *   (the module keeps ownership)
 //  32  set_props(handle, json, len, err, errCap) → 0 accepted, else refused
 //  40  snapshot(handle, token)          nullable; answered on `reply`
 //  48  destroy(handle)
 //  56  set_bounds                       reserved, NULL (LLP 1024 §5)
 //  64  agent_input                      reserved, NULL
+//  72  module_create(json, len, host, changed, now, err, errCap) → module
+//        json: {"agent", "data", "cache", "temporary"}; changed(host, topic,
+//        len) from any thread; now(host) → the session clock, main thread
+//  80  module_destroy(module)
+//  88  module_later(module, body, len, reply, answer)
+//        answer(reply, status, bytes, len) once, any thread: exact_app_reply
+//  96  call                             reserved, NULL (LLP 1067.000 Q8)
 //
 //   event(ctx, nonce, kind, bytes, len)          kind: EventKind 0–8 — press,
 //     change, hover, focus, blur, key, submit, load, message; change, key and
 //     message carry UTF-8, hover "true"/"false"; from any thread.
 //   reply(ctx, nonce, token, kind, bytes, len)   kind 0 PNG bytes, 2 error text.
 //
-// Every entry is called on the main thread. Callbacks may come from any
+// Every entry is called on the main thread (LLP 1067.000 Q5). Callbacks may come from any
 // thread: the bytes are copied, the call hops to the main queue, and an
 // invalidated nonce (a destroyed instance) is dropped and logged. The
 // artifact is never closed (D5).
+import CExact
 import Foundation
 #if os(macOS)
 import AppKit
@@ -44,13 +55,20 @@ private struct NativeFailure: Error { let state: String; let message: String }
 
 /// The loaded table: the roster and the entries, read once.
 private final class NativeTable {
-    static let major: UInt32 = 1
-    typealias CreateFn = @convention(c) (UnsafePointer<UInt8>?, UInt32, UnsafePointer<UInt8>?, UInt32, NativeEventFn?, NativeReplyFn?, UnsafeMutableRawPointer?, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> UnsafeMutableRawPointer?
+    static let major: UInt32 = 2
+    static let size: UInt32 = 104
+    typealias CreateFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UInt8>?, UInt32, NativeEventFn?, NativeReplyFn?, UnsafeMutableRawPointer?, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> UnsafeMutableRawPointer?
     typealias ViewFn = @convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?
     typealias SetFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> Int32
     typealias SnapshotFn = @convention(c) (UnsafeMutableRawPointer?, UInt32) -> Void
     typealias DestroyFn = @convention(c) (UnsafeMutableRawPointer?) -> Void
     typealias AbiFn = @convention(c) () -> UnsafeRawPointer?
+    typealias ChangedFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
+    typealias NowFn = @convention(c) (UnsafeMutableRawPointer?) -> Double
+    typealias AnswerFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafePointer<UInt8>?, Int) -> Void
+    typealias ModuleCreateFn = @convention(c) (UnsafePointer<UInt8>?, UInt32, UnsafeMutableRawPointer?, ChangedFn?, NowFn?, UnsafeMutablePointer<UInt8>?, UInt32) -> UnsafeMutableRawPointer?
+    typealias ModuleDestroyFn = @convention(c) (UnsafeMutableRawPointer?) -> Void
+    typealias ModuleLaterFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int, UnsafeMutableRawPointer?, AnswerFn?) -> Void
 
     let path: String
     let roster: [String: [String: Any]]
@@ -59,11 +77,16 @@ private final class NativeTable {
     let setProps: SetFn
     let snapshot: SnapshotFn?
     let destroy: DestroyFn
+    let moduleCreate: ModuleCreateFn
+    let moduleDestroy: ModuleDestroyFn
+    let moduleLater: ModuleLaterFn
 
     private init(path: String, roster: [String: [String: Any]], create: @escaping CreateFn, platformView: @escaping ViewFn,
-                 setProps: @escaping SetFn, snapshot: SnapshotFn?, destroy: @escaping DestroyFn) {
+                 setProps: @escaping SetFn, snapshot: SnapshotFn?, destroy: @escaping DestroyFn,
+                 moduleCreate: @escaping ModuleCreateFn, moduleDestroy: @escaping ModuleDestroyFn, moduleLater: @escaping ModuleLaterFn) {
         self.path = path; self.roster = roster; self.create = create; self.platformView = platformView
         self.setProps = setProps; self.snapshot = snapshot; self.destroy = destroy
+        self.moduleCreate = moduleCreate; self.moduleDestroy = moduleDestroy; self.moduleLater = moduleLater
     }
 
     static func load(path: String) -> Result<NativeTable, NativeFailure> {
@@ -81,19 +104,23 @@ private final class NativeTable {
         guard major == NativeTable.major else {
             return .failure(NativeFailure(state: "unavailable", message: "module ABI \(major), host ABI \(NativeTable.major)"))
         }
-        guard size >= 72 else { return .failure(NativeFailure(state: "unavailable", message: "module table of \(size) bytes, host needs 72")) }
+        guard size >= NativeTable.size else { return .failure(NativeFailure(state: "unavailable", message: "module table of \(size) bytes, host needs \(NativeTable.size)")) }
         func pointer(_ offset: Int) -> UnsafeRawPointer? { table.load(fromByteOffset: offset, as: UnsafeRawPointer?.self) }
         guard let rosterText = pointer(8).map({ String(cString: $0.assumingMemoryBound(to: CChar.self)) }),
               let roster = try? JSONSerialization.jsonObject(with: Data(rosterText.utf8)) as? [String: [String: Any]]
         else { return .failure(NativeFailure(state: "unavailable", message: "\(path): unreadable roster")) }
-        guard let create = pointer(16), let view = pointer(24), let set = pointer(32), let destroy = pointer(48) else {
+        guard let create = pointer(16), let view = pointer(24), let set = pointer(32), let destroy = pointer(48),
+              let moduleCreate = pointer(72), let moduleDestroy = pointer(80), let moduleLater = pointer(88) else {
             return .failure(NativeFailure(state: "unavailable", message: "\(path): the table lacks a required entry"))
         }
         return .success(NativeTable(
             path: path, roster: roster, create: unsafeBitCast(create, to: CreateFn.self),
             platformView: unsafeBitCast(view, to: ViewFn.self), setProps: unsafeBitCast(set, to: SetFn.self),
             snapshot: pointer(40).map { unsafeBitCast($0, to: SnapshotFn.self) },
-            destroy: unsafeBitCast(destroy, to: DestroyFn.self)))
+            destroy: unsafeBitCast(destroy, to: DestroyFn.self),
+            moduleCreate: unsafeBitCast(moduleCreate, to: ModuleCreateFn.self),
+            moduleDestroy: unsafeBitCast(moduleDestroy, to: ModuleDestroyFn.self),
+            moduleLater: unsafeBitCast(moduleLater, to: ModuleLaterFn.self)))
     }
 }
 
@@ -140,6 +167,33 @@ private let nativeReplyCallback: NativeReplyFn = { _, nonce, token, kind, bytes,
     let data = bytes.map { Data(bytes: $0, count: Int(length)) } ?? Data()
     let deliver: () -> Void = { NativeProcess.owners[nonce]?.natives?.replied(token: token, kind: kind, data: data) }
     if Thread.isMainThread { deliver() } else { DispatchQueue.main.async(execute: deliver) }
+}
+
+// The session's module reaches its session by runtime handle, as the wake
+// does: a stranger's (a destroyed session's) is dropped or refused.
+private let nativeLaterCallback: ExactAppLaterFn = { ctx, body, length, reply in
+    let rt = ExactRuntime(UInt(bitPattern: ctx))
+    let data = body.map { Data(bytes: $0, count: length) } ?? Data()
+    DispatchQueue.main.async {
+        guard let natives = ExactSession.session(for: rt)?.natives else {
+            let bytes = Array("the session ended".utf8)
+            return bytes.withUnsafeBufferPointer { exact_app_reply(reply, 503, $0.baseAddress, $0.count) }
+        }
+        natives.later(data, reply: reply)
+    }
+}
+
+private let nativeChangedCallback: NativeTable.ChangedFn = { host, topic, length in
+    let rt = ExactRuntime(UInt(bitPattern: host))
+    let text = topic.map { Data(bytes: $0, count: Int(length)) } ?? Data()
+    DispatchQueue.main.async {
+        guard let session = ExactSession.session(for: rt) else { return }
+        text.withUnsafeBytes { exact_app_changed(session.runtime.rt, $0.bindMemory(to: UInt8.self).baseAddress, text.count) }
+    }
+}
+
+private let nativeNowCallback: NativeTable.NowFn = { host in
+    ExactSession.session(for: ExactRuntime(UInt(bitPattern: host)))?.now() ?? ExactEnv.wall()
 }
 
 final class NativeViews {
@@ -206,6 +260,88 @@ final class NativeViews {
         return loaded
     }
 
+    // MARK: The session's module (LLP 1067.000 Q5–Q7)
+
+    private var instance: UnsafeMutableRawPointer?
+    private var instanceFailure: NativeFailure?
+
+    /// The session's one module instance, made at the first view or long
+    /// call that needs it. Main thread.
+    private func module(_ table: NativeTable) -> Result<UnsafeMutableRawPointer, NativeFailure> {
+        if let instance { return .success(instance) }
+        if let instanceFailure { return .failure(instanceFailure) }
+        guard let session else { return .failure(NativeFailure(state: "unavailable", message: "the session ended")) }
+        let roots = NativeViews.roots(session: session)
+        let context: [String: Any] = ["agent": ExactEnv.agentMode, "data": roots.data, "cache": roots.cache, "temporary": roots.temporary]
+        let json = (try? JSONSerialization.data(withJSONObject: context)) ?? Data()
+        var error = [UInt8](repeating: 0, count: 512)
+        let host = UnsafeMutableRawPointer(bitPattern: UInt(session.runtime.rt))
+        let made = json.withUnsafeBytes { j in
+            table.moduleCreate(j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count), host, nativeChangedCallback, nativeNowCallback, &error, UInt32(error.count))
+        }
+        guard let made else {
+            let failure = NativeFailure(state: "error", message: "module create refused: \(String(cString: error.map { CChar(bitPattern: $0) }))")
+            instanceFailure = failure
+            log(failure.message)
+            return .failure(failure)
+        }
+        instance = made
+        log("module instance made (agent \(ExactEnv.agentMode))")
+        return .success(made)
+    }
+
+    /// Where the module keeps its files: the app's roots, as the runtime
+    /// configures storage; under the agent, a scratch tree of this process.
+    private static func roots(session: ExactSession) -> (data: String, cache: String, temporary: String) {
+        let id = Bundle.main.bundleIdentifier ?? "app"
+        if ExactEnv.agentMode {
+            let base = (NSTemporaryDirectory() as NSString).appendingPathComponent("exact-agent-\(getpid())-\(session.runtime.rt)")
+            return (base + "/data", base + "/cache", base + "/temporary")
+        }
+        let home = NSHomeDirectory()
+        let cache = home + "/Library/Caches/exact/" + id
+        return (home + "/Library/Application Support/exact/" + id + "/data", cache + "/cache", cache + "/temporary")
+    }
+
+    /// Tell the runtime this session has an app module, when the app ships
+    /// an artifact: `native` is then available to its sources, and their long
+    /// calls come here. Nothing loads until one arrives or a view needs it.
+    func installAppModule() {
+        guard let session else { return }
+        let path = NativeViews.modulePath(session: session)
+        guard FileManager.default.fileExists(atPath: path) else { return }
+        exact_set_app_module(session.runtime.rt, nativeLaterCallback, UnsafeMutableRawPointer(bitPattern: UInt(session.runtime.rt)))
+    }
+
+    /// A long call, on the main thread: the artifact loads, the instance is
+    /// made if need be, and the module takes the call (Q5).
+    fileprivate func later(_ body: Data, reply: UnsafeMutableRawPointer?) {
+        let refuse = { (message: String) in
+            let bytes = Array(message.utf8)
+            bytes.withUnsafeBufferPointer { exact_app_reply(reply, 503, $0.baseAddress, $0.count) }
+        }
+        let table: NativeTable
+        switch self.table() {
+        case .failure(let f): return refuse(f.message)
+        case .success(let t): table = t
+        }
+        switch module(table) {
+        case .failure(let f): refuse(f.message)
+        case .success(let m):
+            body.withUnsafeBytes { b in
+                table.moduleLater(m, b.bindMemory(to: UInt8.self).baseAddress, body.count, reply, { reply, status, bytes, length in exact_app_reply(reply, status, bytes, length) })
+            }
+        }
+    }
+
+    /// Session teardown, after the views and the runtime: the module goes last.
+    func destroyModule() {
+        guard let instance, case .success(let table)? = NativeProcess.table else { return }
+        self.instance = nil
+        table.moduleDestroy(instance)
+        log("module instance destroyed")
+    }
+
     private func fail(_ entry: NativeEntry, _ state: String, _ message: String) {
         entry.state = state
         entry.error = message
@@ -222,6 +358,11 @@ final class NativeViews {
         case .success(let t): table = t
         }
         guard let caps = table.roster[entry.name] else { return fail(entry, "error", "the module artifact has no factory for \(entry.name)") }
+        let module: UnsafeMutableRawPointer
+        switch self.module(table) {
+        case .failure(let f): return fail(entry, f.state, f.message)
+        case .success(let m): module = m
+        }
         entry.snapshotBit = caps["snapshot"] as? Bool == true && table.snapshot != nil
         let nonce = NativeProcess.next
         NativeProcess.next &+= 1
@@ -231,7 +372,7 @@ final class NativeViews {
         var error = [UInt8](repeating: 0, count: 512)
         let tag = Data(entry.name.utf8), json = Data(props.utf8)
         let handle = tag.withUnsafeBytes { t in json.withUnsafeBytes { p in
-            table.create(t.bindMemory(to: UInt8.self).baseAddress, UInt32(tag.count), p.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count),
+            table.create(module, t.bindMemory(to: UInt8.self).baseAddress, UInt32(tag.count), p.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count),
                          nativeEventCallback, nativeReplyCallback, nil, nonce, &error, UInt32(error.count))
         } }
         guard let handle else {
@@ -344,6 +485,15 @@ final class NativeViews {
         out["nodes"] = nodes
         return out
     }
+
+    #if canImport(UIKit)
+    /// Before a capture: `drawHierarchy` reuses a clean backing layer without
+    /// calling `draw`, and a module view that draws from the session's clock
+    /// (the agent's) may not have drawn since the clock moved.
+    func redrawForCapture() {
+        for view in entries.values.compactMap(\.view) { view.setNeedsDisplay(); view.layer.displayIfNeeded() }
+    }
+    #endif
 
     /// The platform views whose tag answers snapshots: hidden while the
     /// capture draws their pictures instead (Metal- and remote-layer views).

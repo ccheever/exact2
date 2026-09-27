@@ -18,9 +18,12 @@ import AppKit
 import UIKit
 #endif
 
-let exactNativeModules: [String: ExactNativeFactory] = [
-    "photo-editor": ExactNativeFactory { props, events in try PhotoEditor(props: props, events: events) },
-]
+final class PhotoEditorModule: ExactModule {
+    override class var views: [String: ExactNativeFactory] {
+        ["photo-editor": ExactNativeFactory { props, events in try PhotoEditor(props: props, events: events) }]
+    }
+}
+let exactModule: ExactModule.Type = PhotoEditorModule.self
 
 /// The edit, in the canvas's own terms: the photo fits the canvas at
 /// `scale` 1, centred and moved by `offset` points, turned by `rotation`

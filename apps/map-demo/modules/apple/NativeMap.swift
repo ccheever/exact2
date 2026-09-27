@@ -13,9 +13,12 @@ import AppKit
 import UIKit
 #endif
 
-let exactNativeModules: [String: ExactNativeFactory] = [
-    "native-map": ExactNativeFactory(snapshot: true) { props, events in NativeMap(props: props, events: events) },
-]
+final class MapModule: ExactModule {
+    override class var views: [String: ExactNativeFactory] {
+        ["native-map": ExactNativeFactory(snapshot: true) { props, events in NativeMap(props: props, events: events) }]
+    }
+}
+let exactModule: ExactModule.Type = MapModule.self
 
 private final class Pin: MKPointAnnotation {
     let id: String

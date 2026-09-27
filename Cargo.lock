@@ -2756,6 +2756,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "recorder-apple"
+version = "0.1.0"
+dependencies = [
+ "exact-apple",
+ "exact-js",
+ "exact-js-bake",
+ "exact-logic",
+]
+
+[[package]]
 name = "recorder-web"
 version = "0.1.0"
 dependencies = [
