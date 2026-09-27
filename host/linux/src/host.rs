@@ -840,6 +840,10 @@ impl<D: DataSource> Host<D> {
                 Property::Opacity => entry.opacity = p.value.x as f32,
                 Property::R => entry.svg.0 = Some(p.value.x as f32),
                 Property::StrokeDashoffset => entry.svg.1 = Some(p.value.x as f32),
+                Property::Color => entry.colors[0] = Some(p.value.to_rgba8()),
+                Property::BackgroundColor => entry.colors[1] = Some(p.value.to_rgba8()),
+                Property::Fill => entry.colors[2] = Some(p.value.to_rgba8()),
+                Property::Stroke => entry.colors[3] = Some(p.value.to_rgba8()),
                 Property::Height => unreachable!("height is projected through layout"),
             }
             changed = true;

@@ -151,7 +151,11 @@ fn catch_is_zero_displacement_and_scale_two_pan_stays_in_parent_units() {
         p.host()
             .engine()
             .value(motion_node(target), Property::Translate),
-        Some(Value { x: 20., y: 10. })
+        Some(Value {
+            x: 20.,
+            y: 10.,
+            ..Value::ZERO
+        })
     );
     assert!(
         p.host().engine().quiescent(),
@@ -162,7 +166,11 @@ fn catch_is_zero_displacement_and_scale_two_pan_stays_in_parent_units() {
         p.host()
             .engine()
             .value(motion_node(target), Property::Translate),
-        Some(Value { x: 40., y: 0. })
+        Some(Value {
+            x: 40.,
+            y: 0.,
+            ..Value::ZERO
+        })
     );
     assert!(p.pointer_up(126., 96., 30.).unwrap());
     assert_eq!(text(&p, "seenX"), "60");

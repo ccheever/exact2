@@ -28,7 +28,7 @@ fn spring(delay: f64) -> Transitions {
 
 #[test]
 fn height_appends_wire_value_and_has_no_numeric_css_initial() {
-    assert_eq!(Property::ALL.len(), 7);
+    assert_eq!(Property::ALL.len(), Property::COUNT);
     for (wire, p) in Property::ALL.into_iter().enumerate() {
         assert_eq!(Property::from_wire(wire as u8), Some(p));
         assert_eq!(Property::from_name(p.name()), Some(p));
@@ -41,7 +41,7 @@ fn height_appends_wire_value_and_has_no_numeric_css_initial() {
     assert_eq!(Property::Scale.identity(), Some(Value::scalar(1.0)));
     assert_eq!(Property::Rotate.identity(), Some(Value::ZERO));
     assert_eq!(Property::Opacity.identity(), Some(Value::scalar(1.0)));
-    assert_eq!(Property::from_wire(7), None);
+    assert_eq!(Property::from_wire(Property::COUNT as u8), None);
     let parsed = Transitions::parse("height 200ms linear 50ms").unwrap();
     assert_eq!(parsed.0[0].property, TransitionProperty::Property(HEIGHT));
     let mut e = Engine::new();

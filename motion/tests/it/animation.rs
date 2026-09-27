@@ -361,3 +361,81 @@ fn samples_match_chrome() {
         );
     }
 }
+
+/// Colour animations interpolate premultiplied sRGB (LLP 1055.000 D6),
+/// pinned to headless Chrome 154's `getComputedStyle` at a paused
+/// `currentTime` (alpha to Chrome's 8-bit rounding).
+#[test]
+fn colour_samples_match_chrome() {
+    let c1 = Keyframes::parse("from{color:#ff0000}to{color:rgba(0,0,255,0.5)}").unwrap();
+    let c2 =
+        Keyframes::parse("from{background-color:#16a34a}to{background-color:#000000}").unwrap();
+    let c3 = Keyframes::parse("from{fill:#ff0000}to{fill:transparent}").unwrap();
+    let cases: [(&str, &Keyframes, Property, f64, [u8; 4]); 8] = [
+        (
+            "c 1s linear",
+            &c1,
+            Property::Color,
+            250.0,
+            [218, 0, 37, 223],
+        ),
+        (
+            "c 1s linear",
+            &c1,
+            Property::Color,
+            500.0,
+            [170, 0, 85, 192],
+        ),
+        (
+            "c 1s linear",
+            &c1,
+            Property::Color,
+            750.0,
+            [102, 0, 153, 160],
+        ),
+        (
+            "c 400ms ease",
+            &c2,
+            Property::BackgroundColor,
+            0.0,
+            [22, 163, 74, 255],
+        ),
+        (
+            "c 400ms ease",
+            &c2,
+            Property::BackgroundColor,
+            100.0,
+            [13, 96, 44, 255],
+        ),
+        (
+            "c 400ms ease",
+            &c2,
+            Property::BackgroundColor,
+            200.0,
+            [4, 32, 15, 255],
+        ),
+        (
+            "c 400ms ease",
+            &c2,
+            Property::BackgroundColor,
+            300.0,
+            [1, 6, 3, 255],
+        ),
+        ("c 1s linear", &c3, Property::Fill, 500.0, [255, 0, 0, 128]),
+    ];
+    for (text, k, p, ms, want) in cases {
+        let mut a = Animations::parse(text).unwrap();
+        a.resolve(|_| Some(k));
+        let entry = &a.0[0];
+        let got = entry
+            .sample(ms / 1000.0, p, Value::ZERO)
+            .unwrap()
+            .to_rgba8();
+        for c in 0..4 {
+            assert!(
+                (got[c] as i32 - want[c] as i32).abs() <= 1,
+                "{text} at {ms} ms: {got:?} != Chrome {want:?}"
+            );
+        }
+    }
+}

@@ -298,4 +298,49 @@ impl<D: DataSource> Host<D> {
             m.children = children;
         }
     }
+
+    /// A box whose `color` or `background-color` is moving: its style with
+    /// the presented colours, and the style of every descendant that
+    /// inherits that `color` (LLP 1055.000 D6). When the motion ends the
+    /// engine's last frame is the row's own value, so the committed style
+    /// comes back the same way.
+    pub(super) fn present_colors(&mut self, view: ViewId, batch: &mut Batch) {
+        let kernel = self.runner.kernel();
+        let Some(node) = kernel.node(view) else {
+            return;
+        };
+        let key = motion_node(node.key);
+        let color = self.engine.sampled_value(key, Property::Color);
+        let background = self.engine.sampled_value(key, Property::BackgroundColor);
+        let env = kernel.env();
+        let mut restyled = vec![(
+            view,
+            style::style_json_presented(&node, &env, color, background).0,
+        )];
+        if color.is_some() {
+            let mut stack = node.children();
+            while let Some(child) = stack.pop() {
+                let Some(c) = kernel.node(child) else {
+                    continue;
+                };
+                if c.source_of(exact_kernel::StyleId::TextColor) != Some(view) {
+                    continue;
+                }
+                restyled.push((child, style::style_json_presented(&c, &env, color, None).0));
+                stack.extend(c.children());
+            }
+        }
+        for (id, style) in restyled {
+            if self.svg.touch(self.runner.kernel(), id) {
+                continue;
+            }
+            let Some(m) = self.mirror.get_mut(&id) else {
+                continue;
+            };
+            if m.style != style {
+                batch.style(id, &style);
+                m.style = style;
+            }
+        }
+    }
 }

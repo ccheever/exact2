@@ -452,9 +452,11 @@ fn a_created_node_takes_its_style_without_a_transition() {
     let (_, mut engine, node) = boot(linear_all(1.0));
     assert!(engine.quiescent());
     let painted = engine.frame();
+    // `transition: all` covers the colours too (LLP 1055.000 D6): `color`
+    // and `background-color` join the four; a box has no fill or stroke.
     assert_eq!(
         painted.len(),
-        4,
+        6,
         "every animatable property is presented once"
     );
     assert_eq!(

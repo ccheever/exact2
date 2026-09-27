@@ -26,9 +26,13 @@
 //   reported again for the new id), keeping the glyph view unless the new
 //   node shows no symbol;
 // - input and accessibility: interaction enabled, the element, traits,
-//   label, value, hint, identifier, hidden-elements, all set again by props.
+//   label, value, hint, identifier, hidden-elements, all set again by props;
+// - motion: an `svg`'s scene layers and every Core Animation spec the view
+//   ran (`SvgHost.forget`, on release), so no animation of the old row
+//   plays on the new one (LLP 1055 D8; the new row's scene op starts its
+//   own). SVG elements are not views: an `svg` parks as one leaf.
 // What makes a view ineligible instead of reset: a kind other than plain
-// boxes, text, images, buttons and waiting scrolls; a live UIScrollView, an
+// boxes, text, images, buttons, `svg`s and waiting scrolls; a live UIScrollView, an
 // input, a text area, a canvas, video or web view, a material, a placement;
 // gesture recognizers or interactions (menus, reorder handles, drags); a
 // press, drag or swipe in progress, or a projected swipe row; focus, a focus
@@ -53,7 +57,7 @@ final class NodePool {
     private(set) var count = 0
     /// Enough for the rows one fill slice retires before the next builds.
     static let perShape = 8, capacity = 32
-    static let kinds: Set<String> = ["view", "text", "image", "button", "scroll"]
+    static let kinds: Set<String> = ["view", "text", "image", "button", "scroll", "svg"]
 
     private var batch: Batch?
     private var destroyed: Set<UInt32>?

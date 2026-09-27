@@ -52,8 +52,21 @@ impl Reader<'_> {
                 let mut values = Vec::with_capacity(n);
                 for _ in 0..n {
                     let p = Property::from_wire(self.u8()?).ok_or(DecodeError::BadAnimation)?;
-                    let (x, y) = (self.f32()? as f64, self.f32()? as f64);
-                    values.push((p, Value::new(x, y)));
+                    // Each value carries its property's components: one,
+                    // two for `translate`, four for a colour.
+                    let mut c = [0.0f64; 4];
+                    for slot in c.iter_mut().take(p.components()) {
+                        *slot = self.f32()? as f64;
+                    }
+                    values.push((
+                        p,
+                        Value {
+                            x: c[0],
+                            y: c[1],
+                            z: c[2],
+                            w: c[3],
+                        },
+                    ));
                 }
                 keyframes.push(Keyframe {
                     offset,
@@ -108,8 +121,9 @@ impl Writer {
                 self.u8(frame.values.len() as u8);
                 for (p, v) in &frame.values {
                     self.u8(*p as u8);
-                    self.f32(v.x as f32);
-                    self.f32(v.y as f32);
+                    for c in [v.x, v.y, v.z, v.w].into_iter().take(p.components()) {
+                        self.f32(c as f32);
+                    }
                 }
             }
         }

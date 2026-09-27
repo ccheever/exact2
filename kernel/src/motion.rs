@@ -19,7 +19,7 @@ use crate::generated::{
 };
 use crate::id::NodeKey;
 use crate::kernel::Kernel;
-use crate::style::Dimension;
+use crate::style::{ColorValue, Dimension};
 use crate::txn::CommitReceipt;
 use exact_motion::{Animations, Change, Engine, EngineError, Property, Transitions, Value};
 
@@ -83,6 +83,62 @@ pub fn targets(style: &StyleProps) -> [(Property, Value); 4] {
         (Property::Rotate, Value::scalar(style.rotate as f64)),
         (Property::Opacity, Value::scalar(style.opacity as f64)),
     ]
+}
+
+/// A node's colour targets (LLP 1055.000 D6), only for the colour
+/// properties its `transition` or `animation` row names, so a node that
+/// animates no colour costs nothing. `None` for a property that is not a
+/// colour now: paint `none` (CSS: a discrete pair, no transition) or a
+/// `light-dark()` pair, which native hosts do not interpolate yet.
+pub fn color_targets(node: &crate::kernel::NodeRef<'_>) -> Vec<(Property, Option<Value>)> {
+    const COLORS: [Property; 4] = [
+        Property::Color,
+        Property::BackgroundColor,
+        Property::Fill,
+        Property::Stroke,
+    ];
+    let animated = node.style.animation.properties();
+    // `fill` and `stroke` paint only in an `svg`; a box's computed paint
+    // is the initial one and moves nothing.
+    let svg = node.node_type == crate::generated::NodeType::Svg || node.node_type.is_svg_element();
+    let wanted: Vec<Property> = COLORS
+        .into_iter()
+        .filter(|p| svg || !matches!(p, Property::Fill | Property::Stroke))
+        .filter(|p| {
+            animated.contains(p)
+                || node
+                    .style
+                    .transition
+                    .0
+                    .iter()
+                    .any(|t| t.property.covers(*p))
+        })
+        .collect();
+    if wanted.is_empty() {
+        return Vec::new();
+    }
+    let fixed = |c: ColorValue| match c {
+        ColorValue::Fixed(c) => Some(Value::rgba8(c.r(), c.g(), c.b(), c.a())),
+        ColorValue::LightDark(..) => None,
+    };
+    let text = node.text_color();
+    let paint = |id: StyleId| match node.computed(id) {
+        crate::style::RowValue::Paint(crate::svg::Paint::Color(c)) => fixed(*c),
+        crate::style::RowValue::Paint(crate::svg::Paint::CurrentColor) => fixed(text),
+        _ => None,
+    };
+    wanted
+        .into_iter()
+        .map(|p| {
+            let value = match p {
+                Property::Color => fixed(text),
+                Property::BackgroundColor => fixed(node.style.background_color),
+                Property::Fill => paint(StyleId::Fill),
+                _ => paint(StyleId::Stroke),
+            };
+            (p, value)
+        })
+        .collect()
 }
 
 impl Kernel {
@@ -255,7 +311,45 @@ impl Kernel {
         for key in receipt.created.iter().chain(receipt.touched.iter()) {
             self.motion_sync_node(*key, &mut sync);
         }
+        // A `display` change cancels (`none`) or restarts every animation
+        // below it (LLP 1055.000 D15): only descendants with a row are told.
+        for key in &receipt.display_changed {
+            let Some(node) = self.node_by_key(*key) else {
+                continue;
+            };
+            let mut stack = node.children();
+            while let Some(id) = stack.pop() {
+                let Some(d) = self.node(id) else {
+                    continue;
+                };
+                if !d.style.animation.0.is_empty() {
+                    let row = if self.hidden(&d) {
+                        Animations::default()
+                    } else {
+                        d.style.animation.clone()
+                    };
+                    sync.animations.push((motion_node(d.key), row));
+                }
+                stack.extend(d.children());
+            }
+        }
         sync
+    }
+
+    /// Whether the node or an ancestor is `display: none`: CSS runs no
+    /// animation there (CSS Animations 1 §3).
+    fn hidden(&self, node: &crate::kernel::NodeRef<'_>) -> bool {
+        let mut cur = Some(node.id);
+        while let Some(id) = cur {
+            let Some(n) = self.node(id) else {
+                return false;
+            };
+            if n.style.display == Display::None {
+                return true;
+            }
+            cur = n.parent;
+        }
+        false
     }
 
     /// Append one live node's `transition` row, targets and `animation` row
@@ -288,9 +382,28 @@ impl Kernel {
                     });
                 }
             }
+            for (property, value) in color_targets(&node) {
+                match value {
+                    Some(value) => sync.changes.push(Change {
+                        node: id,
+                        property,
+                        value,
+                        velocity: None,
+                    }),
+                    // Not a colour now (`none`, a scheme pair): nothing
+                    // interpolates, and the row shows as authored.
+                    None => sync.retired.push((id, property)),
+                }
+            }
             // An empty row is how a removed animation reaches the engine; an
             // empty row on a node that never had one costs one map lookup.
-            sync.animations.push((id, node.style.animation.clone()));
+            // A hidden node runs none (LLP 1055.000 D15).
+            let row = if !node.style.animation.0.is_empty() && self.hidden(&node) {
+                Animations::default()
+            } else {
+                node.style.animation.clone()
+            };
+            sync.animations.push((id, row));
         }
     }
 }

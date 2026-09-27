@@ -34,6 +34,10 @@ pub struct SvgPaint<'a> {
     pub phase: f32,
 }
 
+fn rgba8(c: [u8; 4]) -> Value {
+    Value::rgba8(c[0], c[1], c[2], c[3])
+}
+
 fn affine(t: [f32; 6]) -> Transform {
     Transform::from_row(t[0], t[1], t[2], t[3], t[4], t[5])
 }
@@ -59,6 +63,10 @@ impl Painter {
                 Property::Rotate => Value::scalar(v.rotate as f64),
                 Property::R => Value::scalar(v.svg.0? as f64),
                 Property::StrokeDashoffset => Value::scalar(v.svg.1? as f64),
+                Property::Color => rgba8(v.colors[0]?),
+                Property::BackgroundColor => rgba8(v.colors[1]?),
+                Property::Fill => rgba8(v.colors[2]?),
+                Property::Stroke => rgba8(v.colors[3]?),
                 Property::Height => return None,
             })
         };

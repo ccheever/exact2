@@ -10,6 +10,7 @@
 //! op on its view. The engine runs lowered for these properties: it tracks
 //! each animation's start and pause, and never samples it per frame.
 
+use super::svg_lower::specs;
 use crate::batch::Batch;
 use crate::style::num;
 use exact_kernel::id::{IdMap, IdSet};
@@ -18,13 +19,17 @@ use exact_kernel::svg::scene::{content_box, Item, Kind, Shape, ShapePaint};
 use exact_kernel::svg::transform::{self as tf, Affine};
 use exact_kernel::svg::{Path, Seg};
 use exact_kernel::{ColorValue, Dimension, Kernel, NodeKey, NodeRef, NodeType, StyleProps, ViewId};
-use exact_motion::animation::Keyframe;
-use exact_motion::{AnimationPlay, Easing, Engine, Property, Value};
+use exact_motion::{Engine, Property, Value};
 use std::fmt::Write as _;
 
 /// The properties Core Animation plays for a CSS animation on Apple.
-pub(crate) const LOWERED: [Property; 3] =
-    [Property::Opacity, Property::StrokeDashoffset, Property::R];
+pub(crate) const LOWERED: [Property; 5] = [
+    Property::Opacity,
+    Property::StrokeDashoffset,
+    Property::R,
+    Property::Fill,
+    Property::Stroke,
+];
 
 /// A content box: x, y, width, height.
 type Rect = (f32, f32, f32, f32);
@@ -68,6 +73,19 @@ impl SvgState {
             root = n.parent;
         }
         None
+    }
+
+    /// A presented value moved on an `svg` or an SVG element: its scene is
+    /// rebuilt. `false` for any other node.
+    pub(crate) fn touch(&mut self, kernel: &Kernel, id: ViewId) -> bool {
+        match kernel.node(id).map(|n| n.node_type) {
+            Some(NodeType::Svg) => {
+                self.dirty.insert(id);
+                true
+            }
+            Some(t) if t.is_svg_element() => self.presented(id),
+            _ => false,
+        }
     }
 
     /// Forget a destroyed node; `true` when it was an SVG element (no view).
@@ -129,7 +147,9 @@ impl SvgState {
             let base = engine
                 .target(key, Property::Opacity)
                 .map_or(node.style.opacity as f64, |v| v.x);
-            let specs = specs(engine, key, &[Property::Opacity], &|_| (base, 1.0));
+            let specs = specs(engine, key, &[Property::Opacity], &|_| {
+                (Value::scalar(base), 1.0)
+            });
             if self.box_sent.get(&id) != Some(&specs) {
                 batch.animations(id, &specs);
                 if specs == "[]" {
@@ -147,7 +167,9 @@ impl SvgState {
 /// one (LLP 1055.000 D1); this only serializes it with the lowered
 /// animations of each item.
 fn scene(kernel: &Kernel, engine: &Engine, node: &NodeRef<'_>, bx: (f32, f32, f32, f32)) -> String {
-    let presented = |key: NodeKey, p: Property| engine.value(motion_node(key), p);
+    // A sampled animation's value now; a lowered one is Core Animation's,
+    // so the scene carries its underlying value and the spec.
+    let presented = |key: NodeKey, p: Property| engine.sampled_value(motion_node(key), p);
     let resolved = exact_kernel::svg::scene::resolve(kernel, node, bx, &presented);
     let mut s = String::new();
     let _ = write!(
@@ -233,7 +255,9 @@ fn element(engine: &Engine, item: &Item, parent_ctm: Affine, s: &mut String) {
     }
     match &item.kind {
         Kind::Group(children) => {
-            let specs = specs(engine, key, &[Property::Opacity], &|_| (opacity, 1.0));
+            let specs = specs(engine, key, &[Property::Opacity], &|_| {
+                (Value::scalar(opacity), 1.0)
+            });
             let _ = write!(s, ",\"g\":1,\"a\":{specs},\"c\":");
             items(engine, children, item.ctm, s);
         }
@@ -243,7 +267,9 @@ fn element(engine: &Engine, item: &Item, parent_ctm: Affine, s: &mut String) {
             clip,
             children,
         } => {
-            let specs = specs(engine, key, &[Property::Opacity], &|_| (opacity, 1.0));
+            let specs = specs(engine, key, &[Property::Opacity], &|_| {
+                (Value::scalar(opacity), 1.0)
+            });
             let _ = write!(
                 s,
                 ",\"g\":1,\"vp\":[{},{},{},{}],\"clip\":{},\"a\":{specs},\"t\":",
@@ -307,16 +333,30 @@ fn shape_json(engine: &Engine, key: u64, opacity: f64, item: &Item, shape: &Shap
         0.0
     };
     let r = shape.circle.map_or(0.0, |c| c.2 as f64);
+    let paint = |p: Option<&ShapePaint>| match p {
+        Some(ShapePaint {
+            color: ColorValue::Fixed(c),
+            opacity,
+        }) => (Value::rgba8(c.r(), c.g(), c.b(), c.a()), *opacity as f64),
+        _ => (Value::ZERO, 1.0),
+    };
     let underlying = |p: Property| match p {
-        Property::Opacity => (opacity, 1.0),
-        Property::StrokeDashoffset => (offset, scale),
-        Property::R => (r, 1.0),
-        _ => (0.0, 1.0),
+        Property::Opacity => (Value::scalar(opacity), 1.0),
+        Property::StrokeDashoffset => (Value::scalar(offset), scale),
+        Property::R => (Value::scalar(r), 1.0),
+        Property::Fill => paint(shape.fill.as_ref()),
+        Property::Stroke => paint(shape.stroke.as_ref()),
+        _ => (Value::ZERO, 1.0),
     };
     let props: &[Property] = if centered.is_some() {
         &LOWERED
     } else {
-        &[Property::Opacity, Property::StrokeDashoffset]
+        &[
+            Property::Opacity,
+            Property::StrokeDashoffset,
+            Property::Fill,
+            Property::Stroke,
+        ]
     };
     let specs = specs(engine, key, props, &underlying);
     let _ = write!(s, ",\"a\":{specs}");
@@ -372,209 +412,6 @@ fn paint_json(paint: Option<&ShapePaint>, s: &mut String) {
             );
         }
     }
-}
-
-/// One CA keyframe track: key times, values and a cubic per segment.
-struct Track {
-    times: Vec<f64>,
-    values: Vec<f64>,
-    curves: Vec<[f64; 4]>,
-}
-
-fn bezier(e: &Easing) -> Option<[f64; 4]> {
-    Some(match e {
-        Easing::Linear => [0.0, 0.0, 1.0, 1.0],
-        // CSS `ease`, not Core Animation's default curve.
-        Easing::Ease => [0.25, 0.1, 0.25, 1.0],
-        Easing::EaseIn => [0.42, 0.0, 1.0, 1.0],
-        Easing::EaseOut => [0.0, 0.0, 0.58, 1.0],
-        Easing::EaseInOut => [0.42, 0.0, 0.58, 1.0],
-        Easing::CubicBezier { x1, y1, x2, y2 } => [*x1, *y1, *x2, *y2],
-        Easing::Steps { .. } | Easing::PiecewiseLinear(_) => return None,
-    })
-}
-
-const LINEAR: [f64; 4] = [0.0, 0.0, 1.0, 1.0];
-
-/// One forward iteration of `property`, keyframe easings as cubics; a
-/// `steps()` or `linear()` interval becomes linear sub-keyframes at its own
-/// breakpoints (a step is a hold: two keys a hair apart).
-fn forward(frames: &[Keyframe], default: &Easing, property: Property, underlying: f64) -> Track {
-    let mut pts: Vec<(f64, Option<&Easing>, f64)> = frames
-        .iter()
-        .filter_map(|f| {
-            f.values
-                .iter()
-                .find(|(p, _)| *p == property)
-                .map(|(_, v)| (f.offset, f.easing.as_ref(), v.x))
-        })
-        .collect();
-    if pts.first().is_none_or(|p| p.0 > 0.0) {
-        pts.insert(0, (0.0, None, underlying));
-    }
-    if pts.last().is_none_or(|p| p.0 < 1.0) {
-        pts.push((1.0, None, underlying));
-    }
-    let mut t = Track {
-        times: vec![pts[0].0],
-        values: vec![pts[0].2],
-        curves: Vec::new(),
-    };
-    for w in pts.windows(2) {
-        let (a, b) = (&w[0], &w[1]);
-        let easing = a.1.unwrap_or(default);
-        match bezier(easing) {
-            Some(c) => {
-                t.times.push(b.0);
-                t.values.push(b.2);
-                t.curves.push(c);
-            }
-            None => {
-                let span = b.0 - a.0;
-                let mut xs: Vec<f64> = match easing {
-                    Easing::Steps { count, .. } => (1..*count)
-                        .map(|j| j as f64 / *count as f64)
-                        .flat_map(|x| [x - 1e-4, x])
-                        .chain([1e-4, 1.0 - 1e-4])
-                        .collect(),
-                    Easing::PiecewiseLinear(stops) => stops.iter().map(|s| s.input).collect(),
-                    _ => Vec::new(),
-                };
-                xs.push(1.0);
-                xs.retain(|x| *x > 0.0 && *x <= 1.0);
-                xs.sort_by(f64::total_cmp);
-                xs.dedup();
-                for x in xs {
-                    t.times.push(a.0 + span * x);
-                    t.values.push(a.2 + (b.2 - a.2) * easing.progress(x));
-                    t.curves.push(LINEAR);
-                }
-            }
-        }
-    }
-    t
-}
-
-/// The same iteration played backwards: times mirrored, each cubic reversed
-/// in time (CSS `reverse`: an ease-out interval traversed backwards).
-fn reversed(t: &Track) -> Track {
-    Track {
-        times: t.times.iter().rev().map(|x| 1.0 - x).collect(),
-        values: t.values.iter().rev().copied().collect(),
-        curves: t
-            .curves
-            .iter()
-            .rev()
-            .map(|c| [1.0 - c[2], 1.0 - c[3], 1.0 - c[0], 1.0 - c[1]])
-            .collect(),
-    }
-}
-
-/// Two tracks, one after the other, in one period.
-fn joined(a: &Track, b: &Track) -> Track {
-    let mut t = Track {
-        times: a.times.iter().map(|x| x * 0.5).collect(),
-        values: a.values.clone(),
-        curves: a.curves.clone(),
-    };
-    for (i, x) in b.times.iter().enumerate().skip(1) {
-        t.times.push(0.5 + x * 0.5);
-        t.values.push(b.values[i]);
-        t.curves.push(b.curves[i - 1]);
-    }
-    t
-}
-
-/// A node's lowered animations for `props`, as CA specs:
-/// `[{"id","k","s","dl","d","n","t":[…],"v":[…],"c":[[…],…],"fill","h"}]`.
-/// `underlying(p)` is the property's own value and the scale to CA units
-/// (a dash offset's length over `pathLength`).
-fn specs(
-    engine: &Engine,
-    key: u64,
-    props: &[Property],
-    underlying: &dyn Fn(Property) -> (f64, f64),
-) -> String {
-    let mut s = String::from("[");
-    let mut first = true;
-    for (i, play) in engine.animation_plays(key).iter().enumerate() {
-        for p in play.animation.keyframes.properties() {
-            if !props.contains(&p) {
-                continue;
-            }
-            if !first {
-                s.push(',');
-            }
-            first = false;
-            spec(play, i, p, underlying(p), &mut s);
-        }
-    }
-    s.push(']');
-    s
-}
-
-fn spec(
-    play: &AnimationPlay,
-    index: usize,
-    p: Property,
-    (base, scale): (f64, f64),
-    s: &mut String,
-) {
-    let a = &play.animation;
-    // Keyframes and the underlying value are in the author's units (a dash
-    // offset in `pathLength` units); CA's are the path's own.
-    let fwd = forward(&a.keyframes.0, &a.easing, p, base);
-    let (track, period, repeat) = match a.direction {
-        exact_motion::Direction::Normal => (fwd, a.duration, a.iterations),
-        exact_motion::Direction::Reverse => (reversed(&fwd), a.duration, a.iterations),
-        exact_motion::Direction::Alternate => (
-            joined(&fwd, &reversed(&fwd)),
-            a.duration * 2.0,
-            a.iterations / 2.0,
-        ),
-        exact_motion::Direction::AlternateReverse => (
-            joined(&reversed(&fwd), &fwd),
-            a.duration * 2.0,
-            a.iterations / 2.0,
-        ),
-    };
-    let key = match p {
-        Property::Opacity => "opacity",
-        Property::StrokeDashoffset => "lineDashPhase",
-        _ => "r",
-    };
-    let list = |v: &[f64]| {
-        v.iter()
-            .map(|n| num(*n as f32))
-            .collect::<Vec<_>>()
-            .join(",")
-    };
-    let values: Vec<f64> = track.values.iter().map(|v| v * scale).collect();
-    let curves: Vec<String> = track
-        .curves
-        .iter()
-        .map(|c| format!("[{}]", list(c)))
-        .collect();
-    let _ = write!(
-        s,
-        "{{\"id\":\"{}#{index}#{key}\",\"k\":\"{key}\",\"s\":{},\"dl\":{},\"d\":{},\"n\":{},\"t\":[{}],\"v\":[{}],\"c\":[{}],\"fill\":{},\"h\":",
-        a.name.replace(['"', '\\'], ""),
-        play.start,
-        a.delay,
-        period,
-        if repeat.is_infinite() { -1.0 } else { repeat },
-        list(&track.times),
-        list(&values),
-        curves.join(","),
-        a.fill as u8,
-    );
-    match play.hold {
-        Some(h) => {
-            let _ = write!(s, "{h}");
-        }
-        None => s.push_str("null"),
-    }
-    s.push('}');
 }
 
 /// A node's own unlowered value for a row, for tests and state.

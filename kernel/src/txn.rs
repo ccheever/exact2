@@ -49,6 +49,9 @@ pub struct CommitReceipt {
     pub touched: Vec<NodeKey>,
     /// Whether any change can move geometry; a host that only paints may skip layout otherwise.
     pub layout_invalidated: bool,
+    /// Live nodes whose `display` changed: their descendants' animations
+    /// are cancelled or restarted (LLP 1055.000 D15; CSS Animations 1 §3).
+    pub display_changed: Vec<NodeKey>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -579,6 +582,9 @@ pub fn apply(
                     let excluded = crate::flow::is_exclusion(arena, slot);
                     arena.style_mut(slot).apply_patch(patch);
                     arena.update_exclusion_count(slot, excluded);
+                    if changed.has(crate::StyleId::Display) {
+                        receipt.display_changed.push(arena.key(slot));
+                    }
                     style_changed(arena, layout, slot, changed, &mut receipt);
                     touched.push(arena.key(slot));
                     propagate_inherited(arena, layout, slot, changed, &mut touched, &mut receipt);
@@ -592,6 +598,9 @@ pub fn apply(
                     let excluded = crate::flow::is_exclusion(arena, slot);
                     arena.style_mut(slot).clear(*mask);
                     arena.update_exclusion_count(slot, excluded);
+                    if changed.has(crate::StyleId::Display) {
+                        receipt.display_changed.push(arena.key(slot));
+                    }
                     style_changed(arena, layout, slot, changed, &mut receipt);
                     touched.push(arena.key(slot));
                     propagate_inherited(arena, layout, slot, changed, &mut touched, &mut receipt);

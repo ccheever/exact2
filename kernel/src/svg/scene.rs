@@ -220,8 +220,9 @@ pub fn resolve(
     };
     let clip =
         node.style.overflow_x != Overflow::Visible || node.style.overflow_y != Overflow::Visible;
-    let inherited = node.computed_style(StyleMask::INHERITED);
+    let mut inherited = node.computed_style(StyleMask::INHERITED);
     let mut r = Resolver { kernel, presented };
+    r.present(node, &mut inherited);
     let items = match view {
         Some(v) => r.children(node, &inherited, vp, v),
         None => Vec::new(),
@@ -252,6 +253,44 @@ impl Resolver<'_, '_> {
         (self.presented)(key, p).filter(|v| v.is_finite())
     }
 
+    /// The inherited properties an animation or transition is moving on
+    /// this node, over its computed style: its descendants inherit the
+    /// presented value, as CSS's computed value (LLP 1055.000 D15).
+    ///
+    /// A node's own presented value counts only where the node sets the row
+    /// or animates the property itself: otherwise its engine slot holds the
+    /// row it inherits, and the ancestor's moving value must win.
+    fn present(&self, node: &NodeRef<'_>, style: &mut StyleProps) {
+        let key = node.key;
+        let animated = node.style.animation.properties();
+        let own = |p: Property, row: StyleId| node.style.mask.has(row) || animated.contains(&p);
+        let color = |p: Property| {
+            let row = match p {
+                Property::Color => StyleId::TextColor,
+                Property::Fill => StyleId::Fill,
+                _ => StyleId::Stroke,
+            };
+            own(p, row).then(|| self.value(key, p)).flatten().map(|v| {
+                let [r, g, b, a] = v.to_rgba8();
+                crate::style::Color(u32::from_be_bytes([r, g, b, a]))
+            })
+        };
+        if let Some(c) = color(Property::Color) {
+            style.text_color = ColorValue::Fixed(c);
+        }
+        if let Some(c) = color(Property::Fill) {
+            style.fill = Paint::Color(ColorValue::Fixed(c));
+        }
+        if let Some(c) = color(Property::Stroke) {
+            style.stroke = Paint::Color(ColorValue::Fixed(c));
+        }
+        if own(Property::StrokeDashoffset, StyleId::StrokeDashoffset) {
+            if let Some(v) = self.value(key, Property::StrokeDashoffset) {
+                style.stroke_dashoffset = v.x as f32;
+            }
+        }
+    }
+
     fn children(
         &mut self,
         parent: &NodeRef<'_>,
@@ -280,10 +319,11 @@ impl Resolver<'_, '_> {
         if !node.node_type.is_svg_element() {
             return None;
         }
-        let style = cascade(node, inherited);
+        let mut style = cascade(node, inherited);
         if style.display == Display::None {
             return None;
         }
+        self.present(node, &mut style);
         let key = node.key;
         let opacity = self
             .value(key, Property::Opacity)
@@ -436,9 +476,7 @@ impl Resolver<'_, '_> {
         let width = style.stroke_width.max(0.0);
         let stroke = paint(&style.stroke, style.stroke_opacity).filter(|_| width > 0.0);
         let scale = dash_scale(&path, node.props);
-        let offset = self
-            .value(node.key, Property::StrokeDashoffset)
-            .map_or(style.stroke_dashoffset, |v| v.x as f32);
+        let offset = style.stroke_dashoffset;
         Some(Shape {
             fill: paint(&style.fill, style.fill_opacity),
             fill_rule: style.fill_rule,

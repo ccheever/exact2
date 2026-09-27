@@ -39,12 +39,14 @@ impl AnimationPlay {
     }
 
     /// Whether it animates a property the engine samples.
-    fn sampled(&self, lowered: &[bool; 7]) -> bool {
-        self.animation
-            .keyframes
-            .properties()
-            .iter()
-            .any(|p| !lowered[*p as usize])
+    fn sampled(&self, lowered: &[bool; Property::COUNT], forced: bool) -> bool {
+        forced
+            || self
+                .animation
+                .keyframes
+                .properties()
+                .iter()
+                .any(|p| !lowered[*p as usize])
     }
 }
 
@@ -108,8 +110,11 @@ impl Engine {
         if plays.is_empty() {
             self.animating.remove(&node);
         } else {
-            let lowered = self.lowered;
-            if plays.iter().any(|p| p.live(now) && p.sampled(&lowered)) {
+            let (lowered, forced) = (self.lowered, self.forced.contains(&node));
+            if plays
+                .iter()
+                .any(|p| p.live(now) && p.sampled(&lowered, forced))
+            {
                 self.animating.insert(node);
             } else {
                 self.animating.remove(&node);
@@ -133,13 +138,13 @@ impl Engine {
     /// tracks their starts and pauses but never samples them into frames or
     /// keeps the clock busy for them. The web lowers every property.
     pub fn set_lowered(&mut self, lowered: bool) {
-        self.lowered = [lowered; 7];
+        self.lowered = [lowered; Property::COUNT];
     }
 
     /// Lower only these properties' animations (Apple: the ones Core
     /// Animation plays faithfully); the engine samples the rest per frame.
     pub fn set_lowered_properties(&mut self, properties: &[Property]) {
-        self.lowered = [false; 7];
+        self.lowered = [false; Property::COUNT];
         for p in properties {
             self.lowered[*p as usize] = true;
         }
@@ -148,6 +153,48 @@ impl Engine {
     /// Whether a property's animations are lowered.
     pub fn is_lowered(&self, property: Property) -> bool {
         self.lowered[property as usize]
+    }
+
+    /// Whether the host asked for this node's animations to be sampled.
+    pub fn node_sampled(&self, node: u64) -> bool {
+        self.forced.contains(&node)
+    }
+
+    /// Whether this node's animations of `property` are lowered: the
+    /// property is, and the host has not asked to sample the node.
+    pub fn lowered_for(&self, node: u64, property: Property) -> bool {
+        self.lowered[property as usize] && !self.forced.contains(&node)
+    }
+
+    /// Sample (or stop sampling) every animation on `node`, whatever the
+    /// lowered set says: its host's compositor cannot play this node's
+    /// animations faithfully (LLP 1055.000 D15). Its properties are marked
+    /// dirty so the next frame shows the switch.
+    pub fn set_node_sampled(&mut self, node: u64, sampled: bool) {
+        let changed = if sampled {
+            self.forced.insert(node)
+        } else {
+            self.forced.remove(&node)
+        };
+        if !changed {
+            return;
+        }
+        let now = self.now;
+        if let Some(plays) = self.animations.get(&node) {
+            for play in plays {
+                for p in play.animation.keyframes.properties() {
+                    self.dirty.insert((node, p));
+                }
+            }
+            if plays
+                .iter()
+                .any(|p| p.live(now) && p.sampled(&self.lowered, sampled))
+            {
+                self.animating.insert(node);
+            } else {
+                self.animating.remove(&node);
+            }
+        }
     }
 
     /// One property's animated value over `underlying` now: the last entry
@@ -170,14 +217,18 @@ impl Engine {
         let mut ended = Vec::new();
         for node in &self.animating {
             let plays = &self.animations[node];
+            let forced = self.forced.contains(node);
             for play in plays {
                 for p in play.animation.keyframes.properties() {
-                    if !lowered[p as usize] {
+                    if forced || !lowered[p as usize] {
                         self.dirty.insert((*node, p));
                     }
                 }
             }
-            if !plays.iter().any(|p| p.live(now) && p.sampled(&lowered)) {
+            if !plays
+                .iter()
+                .any(|p| p.live(now) && p.sampled(&lowered, forced))
+            {
                 ended.push(*node);
             }
         }

@@ -82,6 +82,7 @@ impl<D: DataSource> Presenter<D> {
         let value = Value {
             x: pair.translate().value.x + delta.x,
             y: pair.translate().value.y + delta.y,
+            ..Value::ZERO
         };
         let accepted =
             self.host

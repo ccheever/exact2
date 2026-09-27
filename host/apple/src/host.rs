@@ -49,6 +49,8 @@ use height_drag::{HeightDrag, HeightHandle};
 mod layout;
 #[path = "svg.rs"]
 mod svg;
+#[path = "svg_lower.rs"]
+mod svg_lower;
 #[cfg(test)]
 #[path = "svg_tests.rs"]
 mod svg_tests;
@@ -435,6 +437,7 @@ impl<D: DataSource> Host<D> {
         }
         let applied = sync.apply(&mut host.engine);
         debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
+        svg_lower::eligibility(host.runner.kernel(), &mut host.engine, &sync);
         host.reconcile_height_handles(&mut batch, true);
         host.layout(&mut batch).map_err(HostError::Layout)?;
         // A failed first layout is a refused boot, not a partially committed
@@ -1108,12 +1111,10 @@ impl<D: DataSource> Host<D> {
                 .engine
                 .advance((t.at_ms / 1000.0).max(self.engine.now()));
             debug_assert!(seek.is_ok(), "the clock never runs backwards here");
-            let applied = self
-                .runner
-                .kernel()
-                .motion_sync(&t.receipt)
-                .apply(&mut self.engine);
+            let sync = self.runner.kernel().motion_sync(&t.receipt);
+            let applied = sync.apply(&mut self.engine);
             debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
+            svg_lower::eligibility(self.runner.kernel(), &mut self.engine, &sync);
             self.reconcile_height_handles(&mut batch, true);
             let synced = self.sync_height_owner();
             debug_assert!(synced.is_ok(), "validated height sync");
@@ -1164,8 +1165,23 @@ impl<D: DataSource> Host<D> {
     /// about half of what a fill batch carried.
     fn present(&mut self, batch: &mut Batch, boot: bool) {
         self.holds.retain(|_, token| self.engine.has_hold(*token));
+        let mut colored: Vec<ViewId> = Vec::new();
         for p in self.engine.frame() {
             if p.property == Property::Height {
+                continue;
+            }
+            if p.property.is_color() {
+                // @ref LLP 1055.000 D6 — an `svg`'s scene shows its colours;
+                // a box's are its style, re-sent with the presented value.
+                let key = NodeKey {
+                    index: p.node as u32,
+                    generation: (p.node >> 32) as u32,
+                };
+                if let Some(view) = self.keys.get(&key).copied() {
+                    if !self.svg.touch(self.runner.kernel(), view) && !colored.contains(&view) {
+                        colored.push(view);
+                    }
+                }
                 continue;
             }
             let identity = p.property.identity() == Some(p.value);
@@ -1193,6 +1209,9 @@ impl<D: DataSource> Host<D> {
                 _ => (p.value.x, 0.0),
             };
             batch.present(view, p.property.name(), x, y);
+        }
+        for view in colored {
+            self.present_colors(view, batch);
         }
         self.svg.emit(self.runner.kernel(), &self.engine, batch);
     }

@@ -231,7 +231,7 @@ impl Keyframes {
                 if !v.is_finite() {
                     return Err(AnimationError::NonFinite);
                 }
-                if p.components() == 1 && v.y != 0.0 {
+                if !v.fits(*p) {
                     return Err(AnimationError::ValueShape);
                 }
             }

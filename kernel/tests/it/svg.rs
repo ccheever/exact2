@@ -214,3 +214,47 @@ fn motion_hears_the_animation_row_and_svg_targets() {
     let mut r = exact_kernel::wire::codec::Reader::new(&bytes);
     assert_eq!(r.animations().unwrap(), node.style.animation);
 }
+
+/// LLP 1055.000 D15: `display: none` on a node or an ancestor cancels its
+/// animations; showing it again restarts them (CSS Animations 1 §3).
+#[test]
+fn display_none_cancels_and_restarts_animations() {
+    let mut k = Kernel::with_monospace();
+    let receipt = k.apply(0, 1, &tree()).unwrap();
+    let mut engine = Engine::new();
+    k.motion_sync(&receipt).apply(&mut engine).unwrap();
+    let mut patch = StyleProps::default();
+    patch
+        .set_dynamic(
+            StyleId::Animation,
+            &StyleValue::Text("grow 1s linear infinite".into()),
+        )
+        .unwrap();
+    let rule = Keyframes::parse("to{r:9}").unwrap();
+    patch.animation.resolve(|_| Some(&rule));
+    let receipt = k
+        .apply(
+            0,
+            2,
+            &[Op::SetStyle {
+                id: 5,
+                patch: Box::new(patch),
+            }],
+        )
+        .unwrap();
+    k.motion_sync(&receipt).apply(&mut engine).unwrap();
+    let circle = exact_kernel::motion_node(k.node(5).unwrap().key);
+    assert_eq!(engine.animation_plays(circle).len(), 1);
+    // The group above it is hidden: the circle's animation is cancelled.
+    let hide = |d: &str| style(4, &[(StyleId::Display, StyleValue::Text(d.into()))]);
+    let receipt = k.apply(0, 3, &[hide("none")]).unwrap();
+    k.motion_sync(&receipt).apply(&mut engine).unwrap();
+    assert!(engine.animation_plays(circle).is_empty());
+    // Shown again, it starts anew at the clock's now.
+    engine.advance(2.0).unwrap();
+    let receipt = k.apply(0, 4, &[hide("block")]).unwrap();
+    k.motion_sync(&receipt).apply(&mut engine).unwrap();
+    let plays = engine.animation_plays(circle);
+    assert_eq!(plays.len(), 1);
+    assert_eq!(plays[0].start, 2.0);
+}

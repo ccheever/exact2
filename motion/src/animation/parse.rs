@@ -273,6 +273,9 @@ pub fn value_css(property: Property, v: Value) -> String {
         Property::Scale | Property::Opacity | Property::StrokeDashoffset => {
             format!("{}", Shortest(v.x))
         }
+        Property::Color | Property::BackgroundColor | Property::Fill | Property::Stroke => {
+            crate::color::css(v)
+        }
     }
 }
 
@@ -410,6 +413,9 @@ fn keyframe_value(property: Property, value: &str) -> Result<Value, ParseError> 
         }
         Property::StrokeDashoffset | Property::R | Property::Height => {
             Value::scalar(length(value).ok_or_else(bad)?)
+        }
+        Property::Color | Property::BackgroundColor | Property::Fill | Property::Stroke => {
+            crate::color::parse(value).ok_or_else(bad)?
         }
     })
 }

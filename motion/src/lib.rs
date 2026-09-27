@@ -19,6 +19,7 @@
 //!   keyframes so the web plays the same curve.
 //! - [`transition`] — the declaration, and CSS's rules for starting,
 //!   interrupting, and reversing a transition.
+//! - [`color`] — CSS colours as premultiplied values (LLP 1055.000 D6).
 //! - [`animation`] — CSS `@keyframes` and `animation`, sampled in closed form
 //!   (LLP 1055 D5).
 //! - [`engine`] — per-node presentation state under a seekable clock.
@@ -33,6 +34,7 @@
 #![deny(missing_docs)]
 
 pub mod animation;
+pub mod color;
 pub mod easing;
 pub mod engine;
 pub mod math;

@@ -133,10 +133,10 @@ fn refusals_are_named() {
     assert!(refused(&svg("circle r=3 fill=\"url(#g)\"")).contains("paint servers"));
     assert!(refused(&svg("circle r=3 animation=\"nope 1s\"")).contains("lower-animation-name"));
     assert!(
-        refused("keyframes k\n  to color=\"#fff\"\ncomponent A\n  view\n    column\n")
+        refused("keyframes k\n  to width=3\ncomponent A\n  view\n    column\n")
             .contains("lower-keyframe-property")
     );
-    assert!(refused("keyframes k\n  to scale=2\ncomponent A\n  view\n    svg\n      circle r=1 animation=\"k 1s\"\n").contains("lower-animation-target"));
+    assert!(refused("keyframes k\n  to r=2\ncomponent A\n  view\n    svg\n      rect width=1 animation=\"k 1s\"\n").contains("lower-animation-target"));
     assert!(
         refused("keyframes k\n  120% opacity=1\ncomponent A\n  view\n    column\n")
             .contains("syntax-keyframe-selector")
@@ -205,4 +205,25 @@ fn stage_one_geometry_transforms_and_classes() {
     let inner = node("inner");
     assert_eq!(inner.node_type, NodeType::SvgViewport);
     assert_eq!(inner.style.width, Percent(50.0));
+}
+
+// LLP 1055.000 stage 2: colour keyframes and transitions, transforms on SVG
+// elements animated.
+#[test]
+fn stage_two_colour_and_transform_motion() {
+    let r = boot(
+        "keyframes flash\n  from color=\"#16a34a\"\n  to color=\"#000000\"\nkeyframes spin\n  to rotate=90\ncomponent A\n  view\n    column\n      text \"$1\" testId=\"p\" animation=\"flash 400ms ease\" transition=\"background-color 200ms\"\n      svg width=10 height=10\n        rect testId=\"r\" width=4 height=4 animation=\"spin 1s linear infinite\"\n",
+    );
+    let k = r.kernel();
+    let node = |id: &str| k.node_by_key(k.find_by_test_id(id)[0]).unwrap();
+    let p = node("p");
+    let flash = &p.style.animation.0[0];
+    assert_eq!(flash.keyframes.properties(), vec![Property::Color]);
+    let from = flash.keyframes.0[0].values[0].1;
+    assert_eq!(from.to_rgba8(), [0x16, 0xa3, 0x4a, 255]);
+    assert!(p.style.transition.0[0]
+        .property
+        .covers(Property::BackgroundColor));
+    let spin = &node("r").style.animation.0[0];
+    assert_eq!(spin.keyframes.properties(), vec![Property::Rotate]);
 }

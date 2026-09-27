@@ -161,6 +161,18 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
 /// the descendants an inherited change reaches (LLP 1035.000 D4), so this is
 /// re-sent by the ordinary update path, never re-derived per frame.
 pub fn style_json_for(node: &NodeRef<'_>, env: &Env) -> (String, Vec<Skipped>) {
+    style_json_presented(node, env, None, None)
+}
+
+/// [`style_json_for`] with presented `color` and `background-color` values
+/// over the rows while a colour animation or transition moves them (LLP
+/// 1055.000 D6).
+pub fn style_json_presented(
+    node: &NodeRef<'_>,
+    env: &Env,
+    color: Option<exact_motion::Value>,
+    background: Option<exact_motion::Value>,
+) -> (String, Vec<Skipped>) {
     let rows = if matches!(
         node.node_type,
         NodeType::Text | NodeType::TextInput | NodeType::Image
@@ -171,6 +183,17 @@ pub fn style_json_for(node: &NodeRef<'_>, env: &Env) -> (String, Vec<Skipped>) {
     };
     let mut computed = node.computed_style(rows);
     computed.mask.set(StyleId::TextColor);
+    let fixed = |v: exact_motion::Value| {
+        let [r, g, b, a] = v.to_rgba8();
+        ColorValue::Fixed(exact_kernel::Color(u32::from_be_bytes([r, g, b, a])))
+    };
+    if let Some(c) = color {
+        computed.text_color = fixed(c);
+    }
+    if let Some(c) = background {
+        computed.background_color = fixed(c);
+        computed.mask.set(StyleId::BackgroundColor);
+    }
     // The presenter must inset editors/images and paint the same border area
     // that the kernel laid out. Authored widths survive separately in the node.
     let widths = computed.border_widths();

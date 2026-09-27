@@ -89,12 +89,17 @@ enum CssAnimations {
 
     static func make(_ spec: [String: Any], layer: CALayer, clock: Double?) -> CAAnimation? {
         let key = spec["k"] as? String ?? ""
-        let times = nums(spec["t"]), values = nums(spec["v"])
+        let colors = key == "fillColor" || key == "strokeColor"
+        let times = nums(spec["t"])
+        // A colour track's values are [r,g,b,a] bytes (LLP 1055.000 D6).
+        let values: [Any] = colors
+            ? (spec["v"] as? [Any] ?? []).compactMap { color($0, dark: false) }
+            : nums(spec["v"]).map { key == "r" ? circle(max(0, $0)) as Any : NSNumber(value: $0) }
         let duration = num(spec["d"]), repeatCount = num(spec["n"])
         guard duration > 0, repeatCount != 0, times.count == values.count, times.count >= 2 else { return nil }
         let a = CAKeyframeAnimation(keyPath: key == "r" ? "path" : key)
         a.keyTimes = times.map { NSNumber(value: $0) }
-        a.values = key == "r" ? values.map { circle(max(0, $0)) } : values.map { NSNumber(value: $0) }
+        a.values = values
         a.timingFunctions = (spec["c"] as? [Any] ?? []).map { c in
             let p = nums(c).map(Float.init)
             return p.count == 4 ? CAMediaTimingFunction(controlPoints: p[0], p[1], p[2], p[3]) : CAMediaTimingFunction(name: .linear)

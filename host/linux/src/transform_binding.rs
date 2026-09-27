@@ -167,6 +167,7 @@ impl<D: DataSource> Host<D> {
             Value {
                 x: p.translate.0 as f64,
                 y: p.translate.1 as f64,
+                ..Value::ZERO
             },
             Value::scalar(p.scale as f64),
         ];

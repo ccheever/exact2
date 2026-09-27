@@ -156,7 +156,11 @@ pub struct Engine {
     // must still advance: some animation running and not yet ended.
     animations: BTreeMap<u64, Vec<AnimationPlay>>,
     animating: BTreeSet<u64>,
-    lowered: [bool; 7],
+    lowered: [bool; Property::COUNT],
+    // Nodes whose animations are sampled whatever `lowered` says: a host
+    // decides per node what its compositor plays faithfully (LLP 1055.000
+    // D15: eligibility is per effect, not per property name).
+    forced: BTreeSet<u64>,
 }
 
 impl Engine {
@@ -191,6 +195,7 @@ impl Engine {
         self.transitions.remove(&node);
         self.animations.remove(&node);
         self.animating.remove(&node);
+        self.forced.remove(&node);
         // Removing a list must not scan every other node once per row.
         for property in Property::ALL {
             self.remove_property(node, property);
@@ -385,9 +390,9 @@ impl Engine {
                 // value; a running transition is above animations in the CSS
                 // cascade, so it wins while it runs (LLP 1055 D5).
                 let transitioning = slot.is_some_and(|s| s.running.is_some());
-                let animated = (!self.is_lowered(key.1) && !transitioning)
+                let animated = (!self.lowered_for(key.0, key.1) && !transitioning)
                     .then(|| {
-                        let base = underlying.or_else(|| key.1.identity())?;
+                        let base = underlying.or_else(|| base(key.1))?;
                         self.animated(key.0, key.1, base)
                     })
                     .flatten();
@@ -437,6 +442,20 @@ impl Engine {
         self.slots.get(&(node, property)).map(|s| s.presented)
     }
 
+    /// What a sampling host paints for one property now: a sampled
+    /// animation over the property's own value, unless a transition runs
+    /// (it wins) or the animation is lowered (the compositor plays it); else
+    /// the slot's value. `frame` reports the same values as they change.
+    pub fn sampled_value(&self, node: u64, property: Property) -> Option<Value> {
+        let slot = self.slots.get(&(node, property));
+        let underlying = slot.map(|s| s.presented);
+        if slot.is_some_and(|s| s.running.is_some()) || self.lowered_for(node, property) {
+            return underlying;
+        }
+        let base = underlying.or_else(|| base(property))?;
+        self.animated(node, property, base).or(underlying)
+    }
+
     /// The current target of one property.
     pub fn target(&self, node: u64, property: Property) -> Option<Value> {
         self.slots.get(&(node, property)).map(|s| s.target)
@@ -465,11 +484,20 @@ impl Engine {
     }
 }
 
+/// What an animation samples over when the property has no value of its
+/// own: its numeric initial value, or for a colour with none (paint `none`)
+/// transparent, so keyframes that give both ends still play.
+fn base(property: Property) -> Option<Value> {
+    property
+        .identity()
+        .or_else(|| property.is_color().then_some(Value::ZERO))
+}
+
 fn validate_value(property: Property, value: Value) -> Result<(), EngineError> {
     if !value.is_finite() {
         return Err(EngineError::NonFinite);
     }
-    if property.components() == 1 && value.y != 0.0 {
+    if !value.fits(property) {
         return Err(EngineError::InvalidValueShape);
     }
     Ok(())

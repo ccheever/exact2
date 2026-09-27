@@ -129,7 +129,7 @@ impl Lowerer<'_> {
                         errors.push(LowerError {
                             id: "lower-keyframe-property",
                             message: format!(
-                                "`{}` cannot animate: keyframes take opacity, translate, scale, rotate, stroke-dashoffset, r and animation-timing-function (LLP 1055 D6)",
+                                "`{}` cannot animate: keyframes take opacity, translate, scale, rotate, stroke-dashoffset, r, color, background-color, fill, stroke and animation-timing-function (LLP 1055.000 D6)",
                                 a.name
                             ),
                             span: a.span,
@@ -245,13 +245,18 @@ impl Lowerer<'_> {
                             *span,
                         );
                     };
-                    let transforms = properties.iter().any(|p| {
-                        matches!(p, Property::Translate | Property::Scale | Property::Rotate)
-                    });
-                    if (is_element(tag) || tag == "svg") && transforms {
+                    // An SVG element's transform animates as CSS says (LLP
+                    // 1055.000 D5); `r` is a circle's alone.
+                    if properties.contains(&Property::R)
+                        && !matches!(tag, "circle")
+                        && is_element(tag)
+                    {
                         return err(
                             "lower-animation-target",
-                            format!("`keyframes {}` animates a transform, and SVG elements take no transform in v1 (LLP 1055 D1)", a.name),
+                            format!(
+                                "`keyframes {}` animates `r`, which only a `circle` has",
+                                a.name
+                            ),
                             *span,
                         );
                     }

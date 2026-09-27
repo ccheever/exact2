@@ -84,21 +84,46 @@ fn live_tuple_range_validation_is_atomic_and_stale_is_before_validation() {
     let b = binding(&h, "first");
     let pair = h.transform_drag_begin(b, 10.).unwrap().unwrap();
     for values in [
-        [Value { x: f64::MAX, y: 0. }, Value::scalar(2.)],
+        [
+            Value {
+                x: f64::MAX,
+                y: 0.,
+                ..Value::ZERO
+            },
+            Value::scalar(2.),
+        ],
         [Value::ZERO, Value::scalar(0.)],
         [Value::ZERO, Value::scalar(-1.)],
         [Value::ZERO, Value::scalar(f64::MIN_POSITIVE)],
-        [Value::ZERO, Value { x: 2., y: 1. }],
+        [
+            Value::ZERO,
+            Value {
+                x: 2.,
+                y: 1.,
+                ..Value::ZERO
+            },
+        ],
     ] {
         assert!(h.transform_drag_update(pair, b, values, 20.).is_err());
         assert_eq!(h.now(), 10.);
         assert!(h.transform_hold_live(pair, b));
         assert_eq!(
             h.engine().value(motion_node(b.target), Property::Translate),
-            Some(Value { x: 20., y: 0. })
+            Some(Value {
+                x: 20.,
+                y: 0.,
+                ..Value::ZERO
+            })
         );
     }
-    let values = [Value { x: 30., y: -10. }, Value::scalar(2.)];
+    let values = [
+        Value {
+            x: 30.,
+            y: -10.,
+            ..Value::ZERO
+        },
+        Value::scalar(2.),
+    ];
     assert!(h
         .dispatch_transform_held(pair, b, values, [Value::ZERO, Value::scalar(f64::NAN)], 20.)
         .is_err());
@@ -109,7 +134,14 @@ fn live_tuple_range_validation_is_atomic_and_stale_is_before_validation() {
             pair,
             b,
             values,
-            [Value { x: -200., y: 50. }, Value::scalar(-0.5)],
+            [
+                Value {
+                    x: -200.,
+                    y: 50.,
+                    ..Value::ZERO
+                },
+                Value::scalar(-0.5)
+            ],
             20.
         )
         .unwrap());
@@ -166,8 +198,20 @@ fn receipt_latest_none_transition_and_target_precede_invalid_binding_cancellatio
     let mut h = boot(APP);
     let b = binding(&h, "first");
     let pair = h.transform_drag_begin(b, 100.).unwrap().unwrap();
-    h.transform_drag_update(pair, b, [Value { x: 90., y: 0. }, Value::scalar(2.)], 110.)
-        .unwrap();
+    h.transform_drag_update(
+        pair,
+        b,
+        [
+            Value {
+                x: 90.,
+                y: 0.,
+                ..Value::ZERO
+            },
+            Value::scalar(2.),
+        ],
+        110.,
+    )
+    .unwrap();
     let view = h.kernel().node_by_key(key(&h, "unbind")).unwrap().id;
     assert!(h.dispatch_at(view, Event::Press, 200.).is_none());
     assert_eq!(binding(&h, "second").target, b.target);
@@ -176,7 +220,11 @@ fn receipt_latest_none_transition_and_target_precede_invalid_binding_cancellatio
     assert_eq!(h.engine().now(), 0.2);
     assert_eq!(
         h.engine().value(motion_node(b.target), Property::Translate),
-        Some(Value { x: 40., y: 0. })
+        Some(Value {
+            x: 40.,
+            y: 0.,
+            ..Value::ZERO
+        })
     );
     assert_eq!(
         h.engine().value(motion_node(b.target), Property::Scale),

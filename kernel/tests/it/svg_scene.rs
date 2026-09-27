@@ -343,3 +343,73 @@ fn a_view_box_is_the_natural_ratio() {
     assert_eq!(size(sized), (60.0, 30.0));
     assert_eq!(size(bare), (300.0, 150.0));
 }
+
+/// LLP 1055.000 D15: an animated inherited value on a `g` reaches the
+/// shapes that inherit it, and an animated `color` reaches `currentcolor`.
+#[test]
+fn animated_inherited_values_flow_to_descendants() {
+    use exact_motion::{Engine, Keyframes, Property};
+    let mut d = Doc::new();
+    let svg = d.node(
+        NodeType::Svg,
+        &[(StyleId::Width, "100"), (StyleId::Height, "100")],
+        &[],
+    );
+    // The animation row resolved as the runner resolves it.
+    let mut rows = vec![
+        (StyleId::TextColor, "#0891b2"),
+        (StyleId::Fill, "currentcolor"),
+        (StyleId::StrokeDasharray, "4 4"),
+    ];
+    rows.push((
+        StyleId::Animation,
+        "tint 1s linear -500ms paused, march 1s linear -500ms paused",
+    ));
+    let g = d.node(NodeType::SvgGroup, &[], &[]);
+    let mut patch = StyleProps::default();
+    for (row, v) in &rows {
+        patch
+            .set_dynamic(*row, &StyleValue::Text((*v).into()))
+            .unwrap();
+    }
+    let tint = Keyframes::parse("from{color:#0891b2}to{color:#be185d}").unwrap();
+    let march = Keyframes::parse("from{stroke-dashoffset:0}to{stroke-dashoffset:12}").unwrap();
+    patch
+        .animation
+        .resolve(|n| Some(if n == "tint" { &tint } else { &march }));
+    d.ops.push(Op::SetStyle {
+        id: g,
+        patch: Box::new(patch),
+    });
+    let line = d.node(NodeType::SvgLine, &[], &[(PropId::X2, "40")]);
+    d.children(g, &[line]);
+    d.children(svg, &[g]);
+    let mut ops = std::mem::take(&mut d.ops);
+    ops.push(Op::SetChildren {
+        id: 1,
+        children: vec![svg],
+    });
+    ops.push(Op::AttachRoot { id: 1 });
+    let mut k = Kernel::with_monospace();
+    let receipt = k.apply(0, 1, &ops).unwrap();
+    k.compute_layout(1, Offer::definite(400.0, 800.0)).unwrap();
+    let mut engine = Engine::new();
+    k.motion_sync(&receipt).apply(&mut engine).unwrap();
+    let node = k.node(svg).unwrap();
+    let content = scene::content_box(&node);
+    let s = scene::resolve(&k, &node, content, &|key, p| {
+        engine.sampled_value(exact_kernel::motion_node(key), p)
+    });
+    let Kind::Shape(l) = &find(&s.items, line).unwrap().kind else {
+        panic!()
+    };
+    assert_eq!(l.dash_offset, 6.0, "the g's paused dash offset, inherited");
+    // The paused `tint` is half way: `currentcolor` fill follows it.
+    let fill = l.fill.unwrap().color.resolve(false);
+    let want = exact_motion::color::parse("#0891b2")
+        .unwrap()
+        .lerp(exact_motion::color::parse("#be185d").unwrap(), 0.5)
+        .to_rgba8();
+    assert_eq!([fill.r(), fill.g(), fill.b(), fill.a()], want);
+    let _ = Property::Color;
+}

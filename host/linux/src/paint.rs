@@ -34,7 +34,7 @@ pub(crate) mod damage;
 mod inline;
 mod region;
 mod svg;
-use inline::{text_backgrounds, text_palette};
+use inline::{presented_color, presented_text_colors, text_backgrounds, text_palette};
 pub(crate) use region::{ActionNode, ActionSlot, RegionActions, ScrollBounds};
 pub use svg::SvgPaint;
 
@@ -51,6 +51,10 @@ pub struct Presented {
     pub opacity: f32,
     /// An SVG shape's presented `r` and `stroke-dashoffset` (LLP 1055 D6).
     pub svg: (Option<f32>, Option<f32>),
+    /// Presented colours while one animates (LLP 1055.000 D6): `color`,
+    /// `background-color`, `fill`, `stroke`, straight RGBA; `None` paints
+    /// the row.
+    pub colors: [Option<[u8; 4]>; 4],
 }
 
 impl Presented {
@@ -61,6 +65,7 @@ impl Presented {
         rotate: 0.0,
         opacity: 1.0,
         svg: (None, None),
+        colors: [None; 4],
     };
 
     /// The committed style's values (what the engine starts from).
@@ -71,6 +76,7 @@ impl Presented {
             rotate: s.rotate,
             opacity: s.opacity,
             svg: (None, None),
+            colors: [None; 4],
         }
     }
 
@@ -845,7 +851,11 @@ impl Painter {
         offset: (f32, f32),
         clip_rect: Option<Rect4>,
     ) {
-        let paint = BoxPaint::capture(node, walk.scene.kernel, self.dark, rect.2);
+        let mut paint = BoxPaint::capture(node, walk.scene.kernel, self.dark, rect.2);
+        let presented = (walk.scene.presented)(node.id);
+        if let Some(bg) = presented.colors[1] {
+            paint.background = bg;
+        }
         let geometry = paint.geometry(rect);
         paint.paint(self.backend.as_mut(), &geometry, ts);
         let outer = geometry.outer;
@@ -894,6 +904,7 @@ impl Painter {
                 if let Some(paragraph) = paragraph {
                     let mut palette = Vec::new();
                     text_palette(walk.scene.kernel, node, self.dark, &mut palette);
+                    presented_text_colors(walk, node, &mut palette);
                     walk.text.insert(node.key, paragraph.clone());
                     // CSS `text-overflow: ellipsis` in a clipping box: an
                     // over-wide line ends in "…" (LLP 1053 G5; paint only).
@@ -952,7 +963,8 @@ impl Painter {
                 let ink = if placeholder {
                     [0x75, 0x75, 0x75, 0xff]
                 } else {
-                    rgba(node.text_color().resolve(self.dark))
+                    presented_color(walk, node)
+                        .unwrap_or_else(|| rgba(node.text_color().resolve(self.dark)))
                 };
                 {
                     let mut engine = self.text.borrow_mut();
