@@ -207,7 +207,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var style: NodeStyle = [:]
     var clipPath: CGPath?
     var handlers: Set<String> = []
-    var translate = CGPoint.zero
+    var translate = CGPoint.zero, layoutOffset = CGPoint.zero // layoutOffset: where layout moved it from (LLP 1063)
     var arrangeShift = CGPoint.zero
     var scale: CGFloat = 1
     var rotate: CGFloat = 0
@@ -1215,7 +1215,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             arrangeShift = shift
         }
         let b = bounds
-        var t = CGAffineTransform(translationX: translate.x - shift.x, y: translate.y - shift.y)
+        var t = CGAffineTransform(translationX: translate.x + layoutOffset.x - shift.x, y: translate.y + layoutOffset.y - shift.y)
         t = t.translatedBy(x: b.midX, y: b.midY).rotated(by: rotate * .pi / 180).scaledBy(x: scale, y: scale).translatedBy(x: -b.midX, y: -b.midY)
         layer?.setAffineTransform(t)
     }

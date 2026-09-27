@@ -796,6 +796,13 @@ impl<D: DataSource> Host<D> {
         for t in receipts {
             let r = &t.receipt;
             batch.at(t.at_ms);
+            // Before the destroys that follow it (LLP 1063): the page reads
+            // the leaving view's geometry before any op of the batch moves it.
+            for exit in &r.exits {
+                if let Some(id) = self.keys.get(&exit.key) {
+                    batch.exit(*id);
+                }
+            }
             for key in &r.destroyed {
                 if let Some(id) = self.keys.remove(key) {
                     if self.heads.remove(&id) {

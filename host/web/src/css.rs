@@ -78,6 +78,26 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                     out.push(';');
                 }
             }
+            // @ref LLP 1063 — not CSS properties: custom properties the page's
+            // presence module reads (`presence-glue.js`), inherited by nothing
+            // it reads, since it reads only the element's own declaration.
+            (StyleId::ExitAnimation, RowValue::Animations(a)) => {
+                if !a.0.is_empty() {
+                    out.push_str("--exact-exit-animation:");
+                    for (i, animation) in a.0.iter().enumerate() {
+                        if i > 0 {
+                            out.push(',');
+                        }
+                        out.push_str(&animation.css(&keyframes_name(&animation.keyframes)));
+                    }
+                    out.push(';');
+                }
+            }
+            (StyleId::LayoutTransition, RowValue::Transitions(t)) => {
+                if let Some(text) = layout_transition_css(t) {
+                    push_text!(&mut out, "--exact-layout-transition:{};", text);
+                }
+            }
             (StyleId::FontFamily, RowValue::Number(index)) => {
                 if let Some(family) = font_names.get(*index as usize) {
                     let value = if is_generic_family(family) {
@@ -366,6 +386,46 @@ fn transition_property(tr: &Transition) -> &'static str {
     }
 }
 
+/// A `layout-transition` row as the presence module reads it: duration and
+/// delay in milliseconds, then a CSS easing (LLP 1063). A spring is its curve
+/// from a unit displacement at rest, as `linear()` over its settle time.
+/// `None` when no declaration covers layout.
+pub fn layout_transition_css(t: &Transitions) -> Option<String> {
+    let tr = t.matching(exact_motion::Property::Layout)?;
+    Some(match &tr.timing {
+        TimingFunction::Easing(e) => format!(
+            "{} {} {}",
+            num((tr.duration * 1000.0) as f32),
+            num((tr.delay * 1000.0) as f32),
+            easing_css(e)
+        ),
+        TimingFunction::Spring(config) => {
+            let (duration, frames) = exact_motion::spring::keyframes(config, 1.0, 0.0, 0.0);
+            // Sixty stops a second: the browser interpolates between them.
+            let step = (frames.len() / (duration * 60.0).ceil().max(1.0) as usize).max(1);
+            let mut stops = String::new();
+            for (i, f) in frames.iter().enumerate() {
+                if i % step == 0 || i + 1 == frames.len() {
+                    if !stops.is_empty() {
+                        stops.push_str(", ");
+                    }
+                    let _ = write!(
+                        stops,
+                        "{} {}%",
+                        num((1.0 - f.value) as f32),
+                        num((f.offset * 100.0) as f32)
+                    );
+                }
+            }
+            format!(
+                "{} {} linear({stops})",
+                num((duration * 1000.0) as f32),
+                num((tr.delay * 1000.0) as f32)
+            )
+        }
+    })
+}
+
 /// A CSS `<easing-function>` from the motion crate's spelling.
 pub fn easing_css(e: &Easing) -> String {
     e.css()
@@ -391,15 +451,18 @@ pub fn keyframes_name(keyframes: &Keyframes) -> String {
     name
 }
 
-/// Each `@keyframes` rule a style's `animation` row plays, as the page names
+/// Each `@keyframes` rule a style's `animation` and `exit-animation` rows play, as the page names
 /// it: `(name, rule)`. A host inserts each name's rule once, before the
 /// declaration that uses it.
 pub fn keyframes_rules(style: &StyleProps) -> Vec<(String, String)> {
-    let Animations(list) = &style.animation;
-    if !style.mask.has(StyleId::Animation) {
-        return Vec::new();
-    }
-    list.iter()
+    let rows = [
+        (StyleId::Animation, &style.animation),
+        // Sent while the node lives, so the rule is there when it leaves.
+        (StyleId::ExitAnimation, &style.exit_animation),
+    ];
+    rows.into_iter()
+        .filter(|(id, _)| style.mask.has(*id))
+        .flat_map(|(_, Animations(list))| list)
         .map(|a| {
             let name = keyframes_name(&a.keyframes);
             let rule = a.keyframes.rule(&name);

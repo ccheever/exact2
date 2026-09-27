@@ -19,6 +19,7 @@ mod layout_equality;
 mod motion;
 mod no_panic;
 mod paragraph_stamp;
+mod presence;
 mod presented_height;
 mod reader;
 mod support {

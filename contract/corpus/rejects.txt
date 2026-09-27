@@ -860,6 +860,14 @@ component A
   view
     text "a" animation=`${name} 1s`
 ---
+== lower-exit-endless
+keyframes leave
+  to
+    opacity=0
+component A
+  view
+    text "a" exit-animation="leave 1s infinite"
+---
 == lower-keyframes
 keyframes grow
   from

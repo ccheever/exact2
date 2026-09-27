@@ -15,6 +15,7 @@ mod lists;
 mod navigation;
 mod page;
 mod parity;
+mod presence;
 mod request;
 mod request_refusal;
 mod springs;

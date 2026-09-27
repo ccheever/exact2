@@ -10,6 +10,9 @@
 //! linearly (CSS Transitions §4, "animation type: by computed value"). The
 //! numeric `height` trial adds a scalar in pixels, with host-owned admission
 //! and layout (LLP 1041 §8.12). Its CSS initial `auto` has no numeric value.
+//! `layout` is not a CSS property: it is a node's laid-out origin in its
+//! parent, which a `layout-transition` row animates (LLP 1063). It is never
+//! authored in `transition` or `@keyframes`, so it is outside [`Property::ALL`].
 
 /// One animatable property.
 #[repr(u8)]
@@ -25,10 +28,15 @@ pub enum Property {
     Opacity = 3,
     /// Numeric CSS `height`, in logical pixels; host admission is explicit.
     Height = 4,
+    /// The laid-out origin in the parent, in points (LLP 1063). Its target is
+    /// layout's answer, observed by a host after layout; only a node's
+    /// `layout-transition` row moves it, never `transition`.
+    Layout = 5,
 }
 
 impl Property {
-    /// Every property, in wire order.
+    /// Every authorable property, in wire order ([`Property::Layout`] is
+    /// the host's, not an author's).
     pub const ALL: [Property; 5] = [
         Property::Translate,
         Property::Scale,
@@ -45,6 +53,7 @@ impl Property {
             Property::Rotate => "rotate",
             Property::Opacity => "opacity",
             Property::Height => "height",
+            Property::Layout => "layout",
         }
     }
 
@@ -58,22 +67,24 @@ impl Property {
         Property::ALL.get(value as usize).copied()
     }
 
-    /// How many components the value carries: two for `translate`, else one.
+    /// How many components the value carries: two for `translate` and
+    /// `layout`, else one.
     pub fn components(self) -> usize {
         match self {
-            Property::Translate => 2,
+            Property::Translate | Property::Layout => 2,
             Property::Scale | Property::Rotate | Property::Opacity | Property::Height => 1,
         }
     }
 
     /// The CSS initial value when numeric. Height initially is `auto`, not
-    /// zero: a host must adopt an eligible authored target explicitly.
+    /// zero: a host must adopt an eligible authored target explicitly. A
+    /// position has no identity.
     pub fn identity(self) -> Option<Value> {
         match self {
             Property::Translate => Some(Value::ZERO),
             Property::Scale | Property::Opacity => Some(Value::scalar(1.0)),
             Property::Rotate => Some(Value::scalar(0.0)),
-            Property::Height => None,
+            Property::Height | Property::Layout => None,
         }
     }
 }

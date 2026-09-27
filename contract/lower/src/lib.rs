@@ -120,9 +120,9 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                             let checked = match tags::attr(&a.name) {
                                 None => Err(unknown_attr(tag, a)),
                                 // A family is resolved against declared fonts.
-                                Some(tags::AttrTarget::Styles([StyleId::Animation])) => {
-                                    keyframes::animation_value(&a.value, table).map(|_| ())
-                                }
+                                Some(tags::AttrTarget::Styles(
+                                    [row @ (StyleId::Animation | StyleId::ExitAnimation)],
+                                )) => keyframes::animation_value(&a.value, table, *row).map(|_| ()),
                                 Some(tags::AttrTarget::Styles(rows))
                                     if rows != [StyleId::FontFamily] =>
                                 {
@@ -1301,8 +1301,8 @@ impl<'a> Lowerer<'a> {
                 }
                 // Keyframe names become the keyframes themselves (LLP 1057 D3).
                 let resolved;
-                let a = if rows == [StyleId::Animation] {
-                    let value = keyframes::animation_value(&a.value, &self.keyframes)?;
+                let a = if let [row @ (StyleId::Animation | StyleId::ExitAnimation)] = rows {
+                    let value = keyframes::animation_value(&a.value, &self.keyframes, *row)?;
                     resolved = Attr { value, ..a.clone() };
                     &resolved
                 } else {

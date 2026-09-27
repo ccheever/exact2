@@ -169,19 +169,37 @@ fn value(a: &Attr) -> Result<Setting, LowerError> {
 /// An `animation` value with every literal resolved to the row's text. A
 /// computed value is refused: which keyframes play is known when the app
 /// compiles, and a condition may still choose between literals.
-pub(crate) fn animation_value(value: &Expr, table: &Table) -> Result<Expr, LowerError> {
+/// `exit-animation` (LLP 1063) resolves the same way, and must end: its node
+/// is removed when it does.
+pub(crate) fn animation_value(
+    value: &Expr,
+    table: &Table,
+    row: StyleId,
+) -> Result<Expr, LowerError> {
+    let attr = if row == StyleId::ExitAnimation {
+        "exit-animation"
+    } else {
+        "animation"
+    };
     Ok(match value {
         Expr::Str(text, span) => {
             let parsed = Animations::parse(&format!("{text}{}", table.rules))
-                .or_else(|e| err(e_id(&e), message(text, &e, table), *span))?;
+                .or_else(|e| err(e_id(&e), message(attr, text, &e, table), *span))?;
+            if row == StyleId::ExitAnimation && parsed.validate_ending().is_err() {
+                return err(
+                    "lower-exit-endless",
+                    format!("`exit-animation=\"{text}\"` never ends (`infinite` or `paused`): a leaving node stays until its exit ends"),
+                    *span,
+                );
+            }
             Expr::Str(parsed.text(), *span)
         }
         // A class choice's side that leaves the row unset.
         Expr::None(_) => value.clone(),
         Expr::Ternary(c, yes, no, span) => Expr::Ternary(
             c.clone(),
-            Box::new(animation_value(yes, table)?),
-            Box::new(animation_value(no, table)?),
+            Box::new(animation_value(yes, table, row)?),
+            Box::new(animation_value(no, table, row)?),
             *span,
         ),
         Expr::Match {
@@ -193,8 +211,8 @@ pub(crate) fn animation_value(value: &Expr, table: &Table) -> Result<Expr, Lower
         } => Expr::Match {
             subject: subject.clone(),
             var: var.clone(),
-            some: Box::new(animation_value(some, table)?),
-            none: Box::new(animation_value(none, table)?),
+            some: Box::new(animation_value(some, table, row)?),
+            none: Box::new(animation_value(none, table, row)?),
             span: *span,
         },
         Expr::Let {
@@ -205,13 +223,13 @@ pub(crate) fn animation_value(value: &Expr, table: &Table) -> Result<Expr, Lower
         } => Expr::Let {
             name: name.clone(),
             value: bound.clone(),
-            body: Box::new(animation_value(body, table)?),
+            body: Box::new(animation_value(body, table, row)?),
             span: *span,
         },
         other => {
             return err(
                 "lower-animation-literal",
-                "`animation` is literal text, or a condition choosing between literals: its keyframes are resolved when the app compiles",
+                format!("`{attr}` is literal text, or a condition choosing between literals: its keyframes are resolved when the app compiles"),
                 other.span(),
             )
         }
@@ -225,12 +243,12 @@ fn e_id(e: &ParseError) -> &'static str {
     }
 }
 
-fn message(text: &str, e: &ParseError, table: &Table) -> String {
+fn message(attr: &str, text: &str, e: &ParseError, table: &Table) -> String {
     match e {
         ParseError::UnknownKeyframes(name) => {
             let declared: Vec<String> = table.by_name.keys().map(|n| format!("`{n}`")).collect();
             format!(
-                "`animation=\"{text}\"` names `{name}`, but no `keyframes {name}` is declared; {}",
+                "`{attr}=\"{text}\"` names `{name}`, but no `keyframes {name}` is declared; {}",
                 if declared.is_empty() {
                     "no keyframes are declared".to_string()
                 } else {
@@ -239,10 +257,10 @@ fn message(text: &str, e: &ParseError, table: &Table) -> String {
             )
         }
         ParseError::SpringInAnimation => format!(
-            "`animation=\"{text}\"`: `spring()` is a `transition` extension; an animation takes a CSS easing"
+            "`{attr}=\"{text}\"`: `spring()` is a `transition` extension; an animation takes a CSS easing"
         ),
         other => format!(
-            "`animation=\"{text}\"` is not a CSS `animation` shorthand (name, duration, easing, delay, iteration count, direction, fill mode, play state): {other:?}"
+            "`{attr}=\"{text}\"` is not a CSS `animation` shorthand (name, duration, easing, delay, iteration count, direction, fill mode, play state): {other:?}"
         ),
     }
 }

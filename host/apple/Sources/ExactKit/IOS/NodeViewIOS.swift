@@ -268,7 +268,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         presenter?.dblclick(id)
     }
     var hoverRecognizer: UIHoverGestureRecognizer?
-    var translate = CGPoint.zero
+    var translate = CGPoint.zero, layoutOffset = CGPoint.zero // layoutOffset: where layout moved it from (LLP 1063)
     var scale: CGFloat = 1
     var rotate: CGFloat = 0
     var contextTransform = CGAffineTransform.identity {
@@ -1260,7 +1260,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     func applyTransform() {
         // CSS's individual transforms: translate, then rotate, then scale,
         // about the center (UIKit's anchor).
-        transform = CGAffineTransform(translationX: translate.x, y: translate.y).rotated(by: rotate * .pi / 180).scaledBy(x: scale, y: scale).concatenating(contextTransform)
+        transform = CGAffineTransform(translationX: translate.x + layoutOffset.x, y: translate.y + layoutOffset.y).rotated(by: rotate * .pi / 180).scaledBy(x: scale, y: scale).concatenating(contextTransform)
     }
 
     override func layoutSubviews() {
