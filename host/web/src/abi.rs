@@ -600,6 +600,15 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// A 2D canvas's geometry from the page (LLP 1056 D4).
+    pub fn canvas_geometry(&mut self, view: u32, width: f64, height: f64, scale: f64) -> u32 {
+        let out = self.host.as_mut().map_or_else(
+            || crate::batch::Batch::new().finish(None, 0.0, Some("not booted")),
+            |host| host.canvas_geometry(view, width, height, scale),
+        );
+        self.emit(out)
+    }
+
     /// Re-answer viewport resources and return the resulting batch.
     /// @ref LLP 1039 D2 — buffers remain host-owned, with no unsafe code.
     pub fn resize(&mut self, width: f64, height: f64, now_ms: f64) -> u32 {
@@ -1103,6 +1112,18 @@ macro_rules! surface_exports {
         #[no_mangle]
         pub extern "C" fn exact_request_active(ticket: f64) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow().request_active(ticket))
+        }
+
+        /// A 2D canvas's content box and device scale (LLP 1056 D4), from
+        /// the page's `ResizeObserver`; returns the batch length.
+        #[no_mangle]
+        pub extern "C" fn exact_canvas_geometry(
+            view: u32,
+            width: f64,
+            height: f64,
+            scale: f64,
+        ) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().canvas_geometry(view, width, height, scale))
         }
 
         /// Publish or clear a named surface record; returns the batch length.

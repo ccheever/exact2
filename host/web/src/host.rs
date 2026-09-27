@@ -20,6 +20,8 @@ use exact_runner::{
     RunnerError, SurfaceOutcome, Timed, Work,
 };
 
+#[path = "canvas2d.rs"]
+mod canvas2d;
 #[path = "document.rs"]
 pub mod document;
 #[path = "element.rs"]
@@ -273,6 +275,8 @@ pub struct Host<D: DataSource> {
     computed: document::Computed,
     /// `@keyframes` rules already in the page's stylesheet (LLP 1055 D7).
     keyframes: SortedSet<String>,
+    /// The 2D canvases the page watches (LLP 1056 D4).
+    canvas2d: canvas2d::Watch,
 }
 
 impl<D: DataSource> Host<D> {
@@ -425,6 +429,7 @@ impl<D: DataSource> Host<D> {
             head_dirty: false,
             computed,
             keyframes: Default::default(),
+            canvas2d: Default::default(),
         };
         // Everything live is new to the page.
         let roots = host.runner.roots();
@@ -457,6 +462,7 @@ impl<D: DataSource> Host<D> {
         for s in host.runner.take_surface_updates() {
             batch.surface(&s);
         }
+        host.canvas_turn(&mut batch);
         // @ref LLP 1038 D7 — drain once, after all commits in this batch.
         if let Some(change) = host.runner.take_router_change() {
             host.location = change.url.clone();
@@ -646,6 +652,8 @@ impl<D: DataSource> Host<D> {
 
     fn advanced(&mut self, a: exact_runner::Advanced) -> String {
         self.now_ms = a.now_ms.max(self.now_ms);
+        // LLP 1056 D5: a canvas that asked for a frame draws at the landed time.
+        self.runner.canvas_frame();
         let error = a.error.map(|e| format!("{e:?}"));
         self.batch_for(&a.receipts, error.as_deref())
     }
@@ -832,6 +840,7 @@ impl<D: DataSource> Host<D> {
         for s in self.runner.take_surface_updates() {
             batch.surface(&s);
         }
+        self.canvas_turn(batch);
         // @ref LLP 1038 D7 — drain once, after all commits in this batch.
         if let Some(change) = self.runner.take_router_change() {
             self.location = change.url.clone();

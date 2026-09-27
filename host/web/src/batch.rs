@@ -367,6 +367,47 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// Watch a 2D canvas's box (LLP 1056 D4): the page reports its geometry.
+    pub fn canvas2d_watch(&mut self, view: u32) {
+        self.ops.push(text!(
+            "{{\"op\":\"canvas2d\",\"id\":{},\"watch\":true}}",
+            view
+        ));
+    }
+
+    /// Whether a 2D canvas wants the page's animation frames (LLP 1056 D5).
+    pub fn canvas2d_frames(&mut self, frames: bool) {
+        self.ops
+            .push(text!("{{\"op\":\"canvas2d\",\"frames\":{}}}", frames));
+    }
+
+    /// A 2D canvas's stamped lists (LLP 1056 D4), base64, in order; `fresh`
+    /// starts a new bitmap at `w`×`h`.
+    pub fn canvas2d(&mut self, c: &exact_runner::CanvasList) {
+        let mut s = text!(
+            "{{\"op\":\"canvas2d\",\"id\":{},\"lifetime\":{},\"generation\":{},\"seq\":{},\"fresh\":{},\"w\":{},\"h\":{},\"scale\":{},\"stretch\":{},\"lists\":[",
+            c.view,
+            Shortest(c.lifetime as f64),
+            c.generation,
+            Shortest(c.seq as f64),
+            c.fresh,
+            c.pixel_width,
+            c.pixel_height,
+            Shortest(c.scale),
+            c.stretch
+        );
+        for (i, l) in c.lists.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            s.push('"');
+            s.push_str(&exact_runner::agent::base64(l));
+            s.push('"');
+        }
+        s.push_str("]}");
+        self.ops.push(s);
+    }
+
     /// A canvas binding, preserving positional values or authored argument names.
     pub fn surface(&mut self, update: &exact_runner::SurfaceUpdate) {
         let mut s = text!("{{\"op\":\"surface\",\"id\":{},\"name\":", update.view);

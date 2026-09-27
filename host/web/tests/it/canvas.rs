@@ -92,7 +92,7 @@ fn surface_inputs_are_published_when_they_change_and_only_then() {
 }
 
 #[test]
-fn the_caltrain_app_boots_with_both_surfaces() {
+fn the_caltrain_app_boots_with_its_gpu_surface_and_a_2d_map() {
     let plan = caltrain::build().unwrap();
     exact_web::link(exact_web_capabilities::ALL);
     let (_, batch) = Host::boot(
@@ -107,11 +107,14 @@ fn the_caltrain_app_boots_with_both_surfaces() {
         "{}",
         &batch[batch.len().saturating_sub(600)..]
     );
+    // The line map is a Canvas 2D surface (LLP 1056): never a GPU surface
+    // op; the page watches its box, and it draws once the box is known.
     assert!(
-        batch.contains("\"name\":\"map\",\"values\":[[["),
-        "the map's inputs start with the station list"
+        batch.contains("\"op\":\"canvas2d\"") && batch.contains("\"watch\":true"),
+        "the map's canvas is watched"
     );
-    assert_eq!(batch.matches("\"op\":\"surface\"").count(), 2);
+    assert!(!batch.contains("\"name\":\"map\""));
+    assert_eq!(batch.matches("\"op\":\"surface\"").count(), 1);
 }
 
 #[test]

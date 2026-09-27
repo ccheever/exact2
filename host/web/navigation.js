@@ -249,9 +249,24 @@ export function afterPaintPieces(load, o) {
   const collections = { commit: items => (items.length ? commit : reconcile)(items) };
   for (const name of ['reset', 'dataReady', 'releaseInteraction']) collections[name] = call('collections', name, false);
   collections.jump = call('collections', 'jump');
+  // @ref LLP 1056 D7 — Canvas 2D's replayer and ResizeObserver: its own
+  // piece, injected two animation frames after the first 2D canvas's op.
+  let c2d = null, c2dLoading = null; const c2dQueue = [];
+  const canvas2d = (op) => {
+    if (c2d) return c2d.op(op);
+    c2dQueue.push(op);
+    c2dLoading ??= new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
+      .then(() => load('./canvas2d-glue.js', 'canvas2dGlue'))
+      .then(make => { c2d = make({ views: o.views, now: o.now, applyBatch: o.applyBatch, generation: o.generation }); for (const q of c2dQueue.splice(0)) c2d.op(q); })
+      .catch(error => { c2dLoading = null; c2dQueue.length = 0; console.error('exact: canvas2d:', error); });
+  };
+  const c2dPending = () => (c2d ? c2d.settled() : c2dLoading?.then(() => c2d?.settled()));
   // `preload`: a plan that uses motion (its wasm exports `exact_motion`) needs
   // them before its first spring. `pending`: the load in flight, else null.
-  return { collections, motion, arrange, preload: start, pending: () => live || !loading ? null : loading };
+  return { collections, motion, arrange, canvas2d, preload: start, pending: () => {
+    const p = live || !loading ? null : loading, c = c2dPending();
+    return p && c ? Promise.all([p, c]) : (p ?? c ?? null);
+  } };
 }
 
 // The eager scrollFollowEnd projection also belongs to this DOM controller.
