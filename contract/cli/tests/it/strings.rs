@@ -218,9 +218,9 @@ fn the_base_locale_matches_without_case_and_is_baked_first() {
     assert_eq!(plan.str(plan.locales[0].name), "pt-br");
     let mut r = boot(plan);
     assert_eq!(text(&r, "title"), "Journal");
-    r.set_place("fr", "Europe/Paris").unwrap();
+    r.set_place("fr", "Europe/Paris", None).unwrap();
     assert_eq!(text(&r, "only"), "Base only");
-    r.set_place("PT-br", "America/Sao_Paulo").unwrap();
+    r.set_place("PT-br", "America/Sao_Paulo", None).unwrap();
     assert_eq!(text(&r, "title"), "Journal");
 }
 
