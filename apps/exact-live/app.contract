@@ -1,5 +1,6 @@
 // Exact Live: one device-local creative workspace, ordinary Exact hosts.
 fn photoFit(bw: number, bh: number, nw: number, nh: number): number = bw > 0 and bh > 0 and nw > 0 and nh > 0 ? min(bw / nw, bh / nh) : 0
+fn photoZoom(scale: number): number = min(max(scale, 1), 4)
 fn photoClamp(value: number, natural: number, fit: number, zoom: number, port: number): number = min(max(value, -max(0, (natural * fit * zoom - port) / 2)), max(0, (natural * fit * zoom - port) / 2))
 
 shape Theme
@@ -668,9 +669,11 @@ component Viewer
         panX = 0
         panY = 0
 
-  action releasePhoto(x: number, y: number, scale: number, vx: number, vy: number, vscale: number) writes panX, panY
-    panX = geometryReady ? photoClamp(x, viewer.naturalWidth, fit, zoom, portWidth) : 0
-    panY = geometryReady ? photoClamp(y, viewer.naturalHeight, fit, zoom, portHeight) : 0
+  // A pinch's scale is adopted between Fit and 4× (LLP 1057.001 §4).
+  action releasePhoto(x: number, y: number, scale: number, vx: number, vy: number, vscale: number) writes zoom, panX, panY
+    zoom = photoZoom(scale)
+    panX = geometryReady ? photoClamp(x, viewer.naturalWidth, fit, photoZoom(scale), portWidth) : 0
+    panY = geometryReady ? photoClamp(y, viewer.naturalHeight, fit, photoZoom(scale), portHeight) : 0
 
   view
     scroll flex=1 min-height=0 testId="viewer-scroll" overflow-x="hidden"
