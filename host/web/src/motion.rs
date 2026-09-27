@@ -360,7 +360,7 @@ impl Motion for Springs {
                 // Registration is generational intent across temporary hidden
                 // or unsupported styles; repeating it is still idempotent.
                 if self.height_owner == Some((node.key, view)) {
-                    return Ok((node.key, view));
+                    return Ok::<_, &'static str>((node.key, view));
                 }
                 kernel
                     .height_target(node.key)
