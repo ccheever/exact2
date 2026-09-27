@@ -920,15 +920,10 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
     /// Apply the final sample and typed release action while held.
-    pub fn height_drag_release(
-        &mut self,
-        token: u64,
-        height: f64,
-        velocity: f64,
-        now_ms: f64,
-    ) -> u32 {
+    /// At the engine's measured velocity (LLP 1057.001 §3).
+    pub fn height_drag_release(&mut self, token: u64, height: f64, now_ms: f64) -> u32 {
         let out = self.host.as_mut().map_or_else(not_booted, |h| {
-            h.dispatch_height_held(token, height, velocity, now_ms)
+            h.dispatch_height_measured(token, height, now_ms)
         });
         self.emit(out)
     }

@@ -260,8 +260,8 @@ macro_rules! host {
         }
         /// Final sample then typed action; the caller ends the token afterward.
         #[no_mangle]
-        pub extern "C" fn exact_height_drag_release(rt: u32, token: u64, height: f64, velocity: f64, now_ms: f64) -> u32 {
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.height_drag_release(token, height, velocity, now_ms), |n| n)
+        pub extern "C" fn exact_height_drag_release(rt: u32, token: u64, height: f64, now_ms: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.height_drag_release(token, height, now_ms), |n| n)
         }
         /// Arrange: catch a handle's row at the List's actual scrollTop.
         #[no_mangle]

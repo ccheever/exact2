@@ -110,6 +110,42 @@ impl<D: DataSource> Host<D> {
         velocity: f64,
         now_ms: f64,
     ) -> Result<Option<String>, EngineError> {
+        self.dispatch_height(serial, handle_view, height, Some(velocity), now_ms)
+    }
+
+    /// The same at the engine's velocity over the heights shown (LLP 1057.001
+    /// §3): `height` is the displayed, CSS-constrained height, which the
+    /// browser tracked into the hold on every move.
+    /// `unused` is the packet's old velocity slot: after the stale checks it
+    /// must be zero.
+    pub fn dispatch_height_measured(
+        &mut self,
+        serial: u64,
+        handle_view: ViewId,
+        height: f64,
+        unused: f64,
+        now_ms: f64,
+    ) -> Result<Option<String>, String> {
+        let live = self.height_drags.active.is_some_and(|a| {
+            a.token.serial() == serial
+                && !a.action_fired
+                && self.height_drag_binding(handle_view) == Some(a.binding)
+        });
+        if live && unused != 0.0 {
+            return Err("height-action velocity is measured; y must be zero".into());
+        }
+        self.dispatch_height(serial, handle_view, height, None, now_ms)
+            .map_err(|e| format!("{e:?}"))
+    }
+
+    fn dispatch_height(
+        &mut self,
+        serial: u64,
+        handle_view: ViewId,
+        height: f64,
+        velocity: Option<f64>,
+        now_ms: f64,
+    ) -> Result<Option<String>, EngineError> {
         self.validate_height_delivery(serial);
         let Some(active) = self.height_drags.active.filter(|a| {
             a.token.serial() == serial
@@ -120,7 +156,7 @@ impl<D: DataSource> Host<D> {
         };
         // Validate both payload fields before the engine can advance. Its own
         // update validates the position range and time atomically.
-        if !velocity.is_finite() {
+        if velocity.is_some_and(|v| !v.is_finite()) {
             return Err(EngineError::NonFinite);
         }
         if !self
@@ -129,6 +165,11 @@ impl<D: DataSource> Host<D> {
         {
             return Ok(None);
         }
+        let velocity = velocity.unwrap_or_else(|| {
+            self.springs
+                .hold_velocity(serial, now_ms / 1000.0)
+                .map_or(0.0, |v| if v.x.is_finite() { v.x } else { 0.0 })
+        });
         self.height_drags.active = Some(Active {
             action_fired: true,
             ..active

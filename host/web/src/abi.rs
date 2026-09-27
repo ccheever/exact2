@@ -678,9 +678,9 @@ impl<D: DataSource> Bridge<D> {
                 decoded.map_err(|_| "malformed motion input".to_string())?;
             if op == 11 {
                 // The thresholds exact2 defines itself (LLP 1057.001 §3).
-                let [knee, resistance, edge] = exact_motion::gesture::CONSTANTS;
+                let [knee, resistance, edge, slop] = exact_motion::gesture::CONSTANTS;
                 return Ok(format!(
-                    "{{\"knee\":{knee},\"resistance\":{resistance},\"edge\":{edge}}}"
+                    "{{\"knee\":{knee},\"resistance\":{resistance},\"edge\":{edge},\"slop\":{slop}}}"
                 ));
             }
             let host = self.host.as_mut().ok_or("not booted")?;
@@ -704,7 +704,8 @@ impl<D: DataSource> Bridge<D> {
                         None => Ok("{\"accepted\":false}".into()),
                     };
                 }
-                return Ok(match host.dispatch_height_held(serial, view, value.x, value.y, now).map_err(|e| format!("{e:?}"))? {
+                // The velocity is the engine's (LLP 1057.001 §3); y is unused.
+                return Ok(match host.dispatch_height_measured(serial, view, value.x, value.y, now)? {
                     Some(batch) => format!("{{\"accepted\":true,\"batch\":{batch}}}"),
                     None => "{\"accepted\":false}".into(),
                 });
@@ -741,6 +742,8 @@ impl<D: DataSource> Bridge<D> {
                 5 => Ok(host.dispatch_held(serial, now)),
                 // Release at the engine's measured velocity (LLP 1057.001 §3).
                 10 => host.end_hold_measured(serial, now),
+                // The constrained value a display shows for the hold.
+                12 => return Ok(format!("{{\"accepted\":{}}}", host.track_hold(serial, value, now))),
                 _ => return Err("invalid motion operation".into()),
             }
             .map_err(|e| format!("{e:?}"))?;

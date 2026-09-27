@@ -31,12 +31,17 @@ impl VelocityTracker {
         self.samples.clear();
     }
 
-    /// Record a sample. Non-finite or out-of-order samples are ignored.
+    /// Record a sample. Non-finite or out-of-order samples are ignored; a
+    /// second sample at the same time replaces the first (the value shown then).
     pub fn push(&mut self, time: f64, value: Value) {
         if !time.is_finite() || !value.is_finite() {
             return;
         }
         if self.samples.last().is_some_and(|(t, _)| time < *t) {
+            return;
+        }
+        if let Some(last) = self.samples.last_mut().filter(|(t, _)| *t == time) {
+            last.1 = value;
             return;
         }
         if self.samples.len() == CAPACITY {

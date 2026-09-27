@@ -1357,7 +1357,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if isSurfaceControl { _ = control("down", point: local(event.locationInWindow), timestamp: event.timestamp); return }
         if canvasInput?.pointer(event, phase: "down") == true { return }
         presenter?.collections.pointerDown(id, event: event)
-        if presenter?.mouseChain.down(self, event: event) == true { return }
+        presenter?.mouseChain.down(self, event: event)
         guard !disabled else { pressed = false; return }
         presenter?.interacting = id
         presenter?.syncLists()

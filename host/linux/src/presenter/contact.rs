@@ -325,7 +325,10 @@ impl<D: DataSource> Presenter<D> {
             x as f64 - contact.origin.0 as f64,
             y as f64 - contact.origin.1 as f64,
         );
-        if contact.hold.is_none() && !contact.panning && dx.abs().max(dy.abs()) > 4. {
+        if contact.hold.is_none()
+            && !contact.panning
+            && dx.abs().max(dy.abs()) > exact_motion::gesture::SLOP
+        {
             // The first candidate whose axis rule accepts begins; the ones
             // before it fall away (LLP 1057.001 §1).
             let rest = std::mem::take(&mut contact.rest);
@@ -347,7 +350,7 @@ impl<D: DataSource> Presenter<D> {
             let dx = x as f64 - from.0 as f64;
             let dy = y as f64 - from.1 as f64;
             contact.position = (x, y);
-            if contact.panning || dx.abs().max(dy.abs()) > 4. {
+            if contact.panning || dx.abs().max(dy.abs()) > exact_motion::gesture::SLOP {
                 contact.panning = true;
                 let view = self.host.kernel().node_by_key(key).unwrap().id;
                 let error = if dx != 0. || dy != 0. {
@@ -372,7 +375,7 @@ impl<D: DataSource> Presenter<D> {
         if contact.hold.is_none() {
             let dx = x as f64 - contact.origin.0 as f64;
             let dy = y as f64 - contact.origin.1 as f64;
-            if dx.abs().max(dy.abs()) <= 4. {
+            if dx.abs().max(dy.abs()) <= exact_motion::gesture::SLOP {
                 self.contact = Some(contact);
                 return Ok(false);
             }

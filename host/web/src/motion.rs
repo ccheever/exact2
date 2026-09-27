@@ -87,6 +87,8 @@ pub trait Motion {
     fn token(&self, serial: u64) -> Option<HoldToken>;
     /// A live hold's measured velocity at `now` (LLP 1057.001 §3).
     fn hold_velocity(&self, serial: u64, now: f64) -> Option<Value>;
+    /// Record the value a constrained display actually shows for a hold.
+    fn track_hold(&mut self, serial: u64, now: f64, shown: Value) -> bool;
     /// Capture a presented value.
     fn begin_hold(
         &mut self,
@@ -184,6 +186,10 @@ impl Motion for Still {
 
     fn hold_velocity(&self, _: u64, _: f64) -> Option<Value> {
         None
+    }
+
+    fn track_hold(&mut self, _: u64, _: f64, _: Value) -> bool {
+        false
     }
 
     fn token(&self, _: u64) -> Option<HoldToken> {
@@ -377,6 +383,11 @@ impl Motion for Springs {
 
     fn hold_velocity(&self, serial: u64, now: f64) -> Option<Value> {
         self.engine.hold_velocity(self.token(serial)?, now)
+    }
+
+    fn track_hold(&mut self, serial: u64, now: f64, shown: Value) -> bool {
+        self.token(serial)
+            .is_some_and(|token| self.engine.track_hold(token, now, shown))
     }
 
     fn token(&self, serial: u64) -> Option<HoldToken> {

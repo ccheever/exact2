@@ -8,6 +8,7 @@ enum Gesture {
     static let knee = exact_gesture_constant(0)
     static let resistance = exact_gesture_constant(1)
     static let edge = exact_gesture_constant(2)
+    static let slop = exact_gesture_constant(3)
 }
 
 struct NativeHold {

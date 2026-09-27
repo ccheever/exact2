@@ -1014,6 +1014,53 @@ if (deckFixture) {
   rmSync(tmp, { recursive: true, force: true });
 }
 
+// 11b. Gesture precedence (LLP 1057.001 §1; the phase-0 exit evidence of LLP
+// 1057.000, apparatus approved by Charlie, 2026-09-27): one contact on a
+// swipe row inside a panning surface. A horizontal drag is the inner swipe's
+// and the pan never fires; a vertical one falls to the pan; a drag that starts
+// on the row's button is neither's (rule 3's boundary); a tap presses it. The
+// same numbers on every host that can hold a contact; iOS without the desktop
+// pointer answers `unsupported`, said so, not faked.
+{
+  const tmp = mkdtempSync(resolve(tmpdir(), 'exact-smoke-'));
+  const plan = resolve(tmp, 'precedence.plan');
+  const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/precedence.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+  if (c.status !== 0) failures.push('the precedence fixture did not compile: ' + c.stderr);
+  else {
+    const g = await open({ host, plan });
+    try {
+      const slots = async () => { const { slots } = await g.state(); return `${slots.replies}/${slots.panned}/${slots.pressed}`; };
+      const drag = async (target, at, moves) => {
+        const down = await g.tap(target, { down: true, at });
+        if (down.delivery === 'unsupported') return false;
+        // A carrier may end a contact nothing took (Linux does): no more phases then.
+        for (const [dx, dy] of moves) if (g.contact) await g.pointer('move', { dx, dy });
+        if (g.contact) await g.pointer('up');
+        await g.clock('settle');
+        return true;
+      };
+      if (!await drag('row', [200, 50], [[20, 0], [100, 0]])) {
+        console.log(`${host} precedence: unsupported (this carrier holds no contact); unverified here`);
+      } else {
+        check(await slots() === '1/0/0', `a horizontal drag on the row: replies/panned/pressed ${await slots()}, expected the swipe alone (1/0/0)`);
+        await drag('row', [200, 50], [[0, 10], [0, 20]]);
+        check(await slots() === '1/30/0', `a vertical drag on the row: ${await slots()}, expected the surface's pan (1/30/0)`);
+        await drag('button', [40, 20], [[20, 0], [100, 0]]);
+        check(await slots() === '1/30/0', `a drag from the row's button: ${await slots()}, expected neither the swipe nor the pan (1/30/0)`);
+        await g.tap('button');
+        await g.clock('settle');
+        check(await slots() === '1/30/1', `a tap on the button: ${await slots()}, expected its press (1/30/1)`);
+        console.log(`${host} precedence: swipe inside pan ${await slots()} (replies/panned/pressed)`);
+      }
+    } catch (error) {
+      failures.push(`the precedence fixture stopped: ${error.message}`);
+    } finally {
+      await g.close();
+    }
+  }
+  rmSync(tmp, { recursive: true, force: true });
+}
+
 // 12. The page's environment (LLP 1008 §9, the insets fixture): a root that
 // says `viewport-fit="cover"` is laid out to the whole screen, its content
 // kept out of the safe areas by `env(safe-area-inset-*)` lengths — on a

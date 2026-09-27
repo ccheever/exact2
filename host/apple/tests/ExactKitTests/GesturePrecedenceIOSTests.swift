@@ -105,5 +105,25 @@ final class GesturePrecedenceIOSTests: XCTestCase {
             withExtendedLifetime(p) {}
         }
     }
+
+    /// Rule 3 on UIKit: an ancestor's pan waits for a descendant's swipe to
+    /// fail; never the other way, and never for a pinch.
+    func testAnAncestorDragRequiresADescendantDragToFail() throws {
+        let p = host([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["pan"]],
+            ["op": "create", "id": 2, "kind": "view", "handlers": ["swiperight"], "style": ["touch_action": "pan-y"]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 200.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 300.0, "h": 100.0]
+        ])
+        let outer = try XCTUnwrap(p.views[1]), inner = try XCTUnwrap(p.views[2])
+        let pan = try XCTUnwrap(outer.layoutPanRecognizer), swipe = try XCTUnwrap(inner.swipeRecognizer)
+        XCTAssertTrue(outer.gestureRecognizer(pan, shouldRequireFailureOf: swipe))
+        XCTAssertFalse(inner.gestureRecognizer(swipe, shouldRequireFailureOf: pan))
+        XCTAssertFalse(outer.gestureRecognizer(pan, shouldRequireFailureOf: UIPinchGestureRecognizer()))
+        XCTAssertTrue(inner.stopsAtPress(swipe) && outer.stopsAtPress(pan))
+        XCTAssertFalse(outer.stopsAtPress(UITapGestureRecognizer()))
+    }
 }
 #endif

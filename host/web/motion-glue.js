@@ -33,7 +33,7 @@ export function motionBytes(facts) {
     for(let i=0;i<6;i++)d.setFloat64(64+i*8,facts.values[i],true);
     d.setFloat64(112,now,true);return bytes;
   }
-  const operations=['begin','move','release','cancel','live','action','height-owner','clear-height-owner','height-begin','height-action','release-measured','gesture'];
+  const operations=['begin','move','release','cancel','live','action','height-owner','clear-height-owner','height-begin','height-action','release-measured','gesture','track'];
   const properties=['translate','scale','rotate','opacity','height'];
   const code=operations.indexOf(op), prop=properties.indexOf(property);
   if(code<0||prop<0) throw Error('invalid motion operation');
@@ -54,13 +54,29 @@ export function motionController({views,now,generation,request,applyBatch,inert,
   // CSS height clamps negative interpolated lengths. Keep every spring sample
   // and its timing; only its displayed length changes, not the engine curve.
   const css=(property,value)=>property==='translate'?`${value[0]}px ${value[1]}px`:property==='rotate'?`${value[0]}deg`:property==='height'?`${Math.max(0,value[0])}px`:String(value[0]);
-  const call=(op,h,value=[0,0])=>request({op,view:h.view,property:h.property,token:h.token??0,x:value[0],y:value[1],now:now()});
+  const call=(op,h,value=[0,0],t=now())=>request({op,view:h.view,property:h.property,token:h.token??0,x:value[0],y:value[1],now:t});
   const local=h=>h && h.generation===generation() && views.get(h.view)===h.el && h.el.isConnected && held.get(key(h.view,h.property))===h;
   const eligible=el=>el?.isConnected&&!el.closest('[disabled]')&&!el.matches(':disabled')&&!inert(el)&&el.getClientRects().length>0&&getComputedStyle(el).visibility==='visible';
   const live=h=>local(h)&&call('live',h).accepted===true;
   // The thresholds exact2 defines itself, from exact_motion::gesture (LLP 1057.001 §3).
   let constants=null;
   const gesture=()=>constants??=request({op:'gesture'});
+  // Precedence rule 3 (LLP 1057.001 §1): a recognizer that does not capture at
+  // down (swipe) marks its pointer 'pending' until it claims or refuses; an
+  // ancestor's recognizer that would capture waits for that verdict.
+  const contacts=()=>(globalThis.exact??={}).contacts??=new Map();
+  const deferred=d=>{
+    if(!d.deferred)return false;
+    const state=contacts().get(d.pointer??[...d.pointers.keys()][0]);
+    if(state==='pending')return true;
+    if(state==='claimed'){drags.get(d.id)?.();return true;}
+    d.deferred=false;
+    for(const pointer of d.pointers?.keys()??[d.pointer])d.el.setPointerCapture(pointer);
+    return false;
+  };
+  // A press handler or control between the contact and an ancestor's
+  // recognizer keeps the contact (rule 3's boundary, as AppKit and Linux do).
+  const pressable=(e,el)=>{const inner=e.target.closest('button,a[href],select,[data-exact-on~="press"]');return !!inner&&inner!==el&&el.contains(inner);};
   function cancelProperty(id,property,el=views.get(id)) {
     const k=key(id,property); animations.get(k)?.cancel(); animations.delete(k);
     // Browser easing is a CSSTransition; other properties continue undisturbed.
@@ -320,7 +336,8 @@ export function motionController({views,now,generation,request,applyBatch,inert,
     },
     move(h,value) {
       if(!local(h)) return false;
-      const reply=call('move',h,value); if(reply.accepted!==true) return false;
+      const t=now(),reply=call('move',h,value,t); if(reply.accepted!==true) return false;
+      h.t=t;
       h.value=value; h.el.style.setProperty(h.property,css(h.property,value));
       if(reply.batch) applyBatch(reply.batch);
       return true;
@@ -510,20 +527,23 @@ export function motionController({views,now,generation,request,applyBatch,inert,
         if(e.button!==0||interactive(e))return;
         const second=drag&&!drag.wheel&&!drag.gesture&&drag.pointers.size===1&&!drag.pointers.has(e.pointerId);
         if(!second&&!e.isPrimary)return;
-        const d=second?drag:arm(e,{x:e.clientX,y:e.clientY});if(!d)return;
+        if(!second&&pressable(e,el))return;
+        const d=second?drag:arm(e,{x:e.clientX,y:e.clientY,id,el,deferred:contacts().get(e.pointerId)==='pending'});if(!d)return;
         d.pointers.set(e.pointerId,[e.clientX,e.clientY]);
-        el.setPointerCapture(e.pointerId);e.preventDefault();
+        if(second&&d.deferred){d.deferred=false;for(const pointer of d.pointers.keys())el.setPointerCapture(pointer);}
+        if(!d.deferred)el.setPointerCapture(e.pointerId);e.preventDefault();
         // A second finger is a pinch: recognized at once, then re-anchored.
         if(second){if(!d.pair&&!begin(d))return;if(drag===d)anchor(d);}
       });
       const move=e=>{
         const d=drag;if(!d||!d.pointers.has(e.pointerId))return false;
         d.pointers.set(e.pointerId,[e.clientX,e.clientY]);
+        if(deferred(d))return false;
         checkGeometry(d.binding);
         if(drag!==d)return false;
         if(!stop.valid()){stop();return false;}
         if(!d.pair) {
-          if(Math.hypot(e.clientX-d.x,e.clientY-d.y)<8)return false;
+          if(Math.hypot(e.clientX-d.x,e.clientY-d.y)<gesture().slop)return false;
           if(!begin(d))return false;
           e.preventDefault();e.stopPropagation();return true;
         }
@@ -581,10 +601,6 @@ export function motionController({views,now,generation,request,applyBatch,inert,
     },
     attachHeightDrag(el,id,on) {
       let drag=null,suppressClick=false;
-      const velocity=d=>{
-        const last=d.samples.at(-1), first=d.samples[0], dt=last[0]-first[0];
-        return dt>0?(last[1]-first[1])*1000/dt:0;
-      };
       const position=d=>sample(d.binding.targetEl,'height')?.[0];
       function stop() {
         const d=drag; drag=null; active.delete(id);
@@ -598,19 +614,20 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       on('pointerdown',e=>{
         const binding=heightBindings.get(id);
         if(!e.isPrimary||e.button!==0||!bindingLive(binding)||e.target.closest('button,a,input,textarea,select,[contenteditable]')) return;
-        stop(); drag={pointer:e.pointerId,x:e.clientX,y:e.clientY,binding}; active.set(id,stop);
+        stop(); drag={pointer:e.pointerId,x:e.clientX,y:e.clientY,binding,id,el,deferred:contacts().get(e.pointerId)==='pending'}; active.set(id,stop);
         // A fast first move can already leave a narrow header. Retain delivery
         // while intent is pending; motion takeover still waits for recognition.
-        el.setPointerCapture(e.pointerId); e.preventDefault();
+        if(!drag.deferred)el.setPointerCapture(e.pointerId); e.preventDefault();
       });
       const move=e=>{
         if(!drag||drag.pointer!==e.pointerId) return false;
+        if(deferred(drag)) return false;
         if(!stop.valid()) { stop(); return false; }
         const current=drag;
-        const dx=e.clientX-drag.x,dy=e.clientY-drag.y;
+        const dx=e.clientX-drag.x,dy=e.clientY-drag.y,slop=gesture().slop;
         if(!drag.h) {
-          if(Math.abs(dx)>8&&Math.abs(dx)>=Math.abs(dy)) { stop(); return false; }
-          if(Math.abs(dy)<8||Math.abs(dy)<=Math.abs(dx)) return false;
+          if(Math.abs(dx)>slop&&Math.abs(dx)>=Math.abs(dy)) { stop(); return false; }
+          if(Math.abs(dy)<=slop||Math.abs(dy)<=Math.abs(dx)) return false;
           const value=position(drag);
           if(!Number.isFinite(value)||value<0) { stop(); return false; }
           const reply=request({op:'height-begin',view:id,property:'height',token:drag.binding.handleKey,x:value,y:0,now:now()});
@@ -618,18 +635,18 @@ export function motionController({views,now,generation,request,applyBatch,inert,
           adopt(reply.target,'height',reply,h=>{current.h=h;});
           if(drag!==current) return false;
           if(!drag.h) { stop(); return false; }
-          drag.origin=e.clientY; drag.base=drag.h.value[0]; drag.samples=[[now(),position(drag)]];
+          drag.origin=e.clientY; drag.base=drag.h.value[0];
           el.setPointerCapture(e.pointerId);
         }
         const value=Math.max(0,Math.min(3.4028234663852886e38,drag.base-(e.clientY-drag.origin)));
         if(!api.move(drag.h,[value,0])) { stop(); return false; }
         if(drag!==current) return false;
         // CSS min/max may clamp a held sample. Release velocity follows actual
-        // displayed height, never the finger's speed beyond that constraint.
-        const shown=position(drag),t=now();
+        // displayed height, never the finger's speed beyond that constraint:
+        // the shown height goes into the engine's hold at the move's instant.
+        const shown=position(drag);
         if(!Number.isFinite(shown)) { stop(); return false; }
-        drag.samples.push([t,shown]);
-        while(drag.samples.length>2&&(drag.samples.length>8||t-drag.samples[0][0]>80)) drag.samples.shift();
+        if(shown!==value) call('track',drag.h,[shown,0],drag.h.t);
         e.preventDefault(); if(e.type==='pointermove') e.stopPropagation(); return true;
       };
       on('pointermove',move);
@@ -638,13 +655,14 @@ export function motionController({views,now,generation,request,applyBatch,inert,
         if(e.type!=='pointerup'||!drag.h) { stop(); return; }
         if(!move(e)) return;
         const d=drag; drag=null; active.delete(id); suppressClick=true;
-        const shown=position(d),v=velocity(d);
+        const shown=position(d);
         // Final constrained sample precedes the synchronous authored snap. The
-        // host checks this handle/target/token again before dispatching it.
+        // host checks this handle/target/token again before dispatching it,
+        // at the engine's velocity over the heights shown (LLP 1057.001 §3).
         if(bindingLive(d.binding)&&live(d.h)&&api.move(d.h,[shown,0])) {
-          const reply=request({op:'height-action',view:id,property:'height',token:d.h.token,x:shown,y:v,now:now()});
+          const reply=request({op:'height-action',view:id,property:'height',token:d.h.token,x:shown,y:0,now:now()});
           if(reply.batch) applyBatch(reply.batch);
-          api.end(d.h,[v,0],reply.accepted!==true);
+          api.end(d.h,'measured',reply.accepted!==true);
         } else api.end(d.h,[0,0],true);
         if(el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
         releaseInteraction(e.pointerId);
@@ -662,6 +680,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       function stop() {
         const ended=drag; drag=null; active.delete(id);
         if(ended) {
+          contacts().delete(ended.pointer);
           if(ended.holds) suppressClick=true;
           for(const h of ended.holds??[]) api.end(h,[0,0],true);
           if(el.hasPointerCapture(ended.pointer)) el.releasePointerCapture(ended.pointer);
@@ -670,18 +689,21 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       }
       drags.set(id,stop);
       on('pointerdown',e=>{
-        if(!e.isPrimary||e.button!==0||!eligible(el)||e.target.closest('input,textarea,[contenteditable]'))return;
+        if(!e.isPrimary||e.button!==0||!eligible(el)||e.target.closest('input,textarea,[contenteditable]')||pressable(e,el))return;
         stop(); drag={pointer:e.pointerId,x:e.clientX,y:e.clientY}; active.set(id,stop);
+        contacts().set(e.pointerId,'pending');
       });
       const move=e=>{
         if(!drag||e.pointerId!==drag.pointer)return false;
         if(!eligible(el)){stop();return false;}
         const dx=e.clientX-drag.x,dy=e.clientY-drag.y;
         if(!drag.holds) {
-          if(Math.abs(dy)>8&&Math.abs(dy)>=Math.abs(dx)){stop();return false;}
-          if(Math.abs(dx)<8||Math.abs(dx)<=Math.abs(dy))return false;
+          const slop=gesture().slop;
+          if(Math.abs(dy)>slop&&Math.abs(dy)>=Math.abs(dx)){stop();return false;}
+          if(Math.abs(dx)<=slop||Math.abs(dx)<=Math.abs(dy))return false;
           if(dx<0 && !(sample(el,'translate')?.[0]>0)){stop();return false;}
           const h=api.begin(id,'translate'); if(!h){stop();return false;}
+          contacts().set(e.pointerId,'claimed');
           drag.holds=[h]; drag.origin=e.clientX; drag.base=[...h.value]; drag.raw=inverse(h.value[0]);
           // One authored companion, at most two additional property holds.
           const indicator=[...el.children].find(n=>n.getAttribute('swipeIndicator')==='true');
@@ -710,6 +732,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
         if(!drag.holds){stop();return;}
         if(e.type==='pointerup'&&!move(e))return;
         const ended=drag; drag=null; active.delete(id); suppressClick=true;
+        contacts().delete(ended.pointer);
         const [h,...companions]=ended.holds, cancel=e.type!=='pointerup';
         api.finish(h,h.value,'measured',!cancel&&h.value[0]>=knee,cancel);
         for(const companion of companions) api.end(companion,'measured',cancel);
@@ -765,9 +788,8 @@ export function arrangeController({views,collections,motion,request,applyBatch,n
     d.phase='terminalizing';clearContact(d);busy=true;
     try {
       const captured=motion.captureReorder(d.frame??[]);
-      const last=d.samples.at(-1),first=d.samples[Math.max(0,d.samples.length-2)],dt=last[0]-first[0];
-      const velocity=cancel||dt<=0?[0,0]:[(last[1]-first[1])*1000/dt,(last[2]-first[2])*1000/dt];
-      let r=call(d,cancel?'reorder-cancel':'reorder-terminal',{rows:captured,vx:velocity[0],vy:velocity[1]});
+      // The release velocity is the engine's (LLP 1057.001 §3).
+      let r=call(d,cancel?'reorder-cancel':'reorder-terminal',{rows:captured});
       if(r.accepted!==true&&!cancel)r=call(d,'reorder-cancel',{rows:captured});
       if(!adoptReply(d,r,captured)){d.phase='active';return;}
       const old=new Map(captured.map(s=>[s.key,s]));
@@ -784,7 +806,6 @@ export function arrangeController({views,collections,motion,request,applyBatch,n
     if(current!==d||d.phase!=='active')return false;
     d.x=x;d.y=y;const m=mapping(d.binding,y);if(current!==d||d.phase!=='active'||m===undefined)return false;if(!m){terminal(d,true);return false;}
     d.map=m;d.x=x;d.y=y;d.value=[d.base[0],d.base[1]+y-d.originY+m.raw-d.originRaw];
-    const t=now();d.samples.push([t,...d.value]);while(d.samples.length>2&&(d.samples.length>8||t-d.samples[0][0]>80))d.samples.shift();
     const source=d.frame?.find(r=>r.key===d.binding.wrapperKey);
     const captured=source?[{...source,value:d.value,el:d.binding.row}]:[];
     // The existing hold is already adopted: use the fixed packet to update Rust,
@@ -859,7 +880,7 @@ export function arrangeController({views,collections,motion,request,applyBatch,n
         const captured=motion.captureReorder([{view:b.wrapper,key:b.wrapperKey,hold:'0'}]);
         if(captured.length!==1){collections.releaseRetainedInteraction(lease);cleanup();return;}
         const d={binding:b,map:m,lease,pointer:e.pointerId,phase:'active',value:captured[0].value,base:captured[0].value,
-          originY:v.clientY,originRaw:m.raw,x:v.clientX,y:v.clientY,samples:[[now(),...captured[0].value]],listeners:events};
+          originY:v.clientY,originRaw:m.raw,x:v.clientX,y:v.clientY,listeners:events};
         current=d;busy=true;let ok;
         try{ok=adoptReply(d,call(d,'reorder-begin'),captured);}finally{busy=false;}
         if(!ok){current=null;collections.releaseRetainedInteraction(lease);cleanup();return;}

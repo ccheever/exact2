@@ -50,24 +50,44 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   return {
     pan(el, id, on) {
       // @ref LLP 1043.000 §3 D8: one coalesced action per display frame.
-      let contact = null, frame = 0;
+      // LLP 1057.001 §1: an inner swipe that is still deciding (its pointer
+      // 'pending' in exact.contacts) goes first; the pan waits for its verdict,
+      // and a pan that began cancels the click (rule 4).
+      let contact = null, frame = 0, suppressClick = false;
+      const contacts = () => (globalThis.exact ??= {}).contacts ??= new Map();
       const live = () => views.get(id) === el && !retiredViews.has(el) && ready() && !inertAncestor(el) && !el.closest(":disabled,[disabled='true']");
       const flush = () => {
         cancelAnimationFrame(frame); frame = 0;
         if (!contact || !live()) { contact = null; return; }
         const [x,y] = contact.to, [px,py] = contact.from;
+        // exact_motion::gesture::SLOP; a pan-only plan links no motion export to ask.
         if (!contact.active && Math.max(Math.abs(x-px),Math.abs(y-py)) <= 4) return;
         contact.active = true; contact.from = [x,y];
         if (x !== px || y !== py) dispatch(id, `${x-px},${y-py}`);
       };
-      on("pointermove", e => { if (contact?.pointer !== e.pointerId) return; contact.to=[e.clientX,e.clientY]; if (!frame) frame=requestAnimationFrame(flush); });
-      on("pointerup", e => { if (contact?.pointer !== e.pointerId) return; contact.to=[e.clientX,e.clientY]; flush(); contact=null; });
+      const waiting = e => {
+        if (!contact.deferred) return false;
+        const state = contacts().get(e.pointerId);
+        if (state === "pending") return true;
+        if (state === "claimed") { contact = null; return true; }
+        contact.deferred = false; el.setPointerCapture(e.pointerId); return false;
+      };
+      on("pointermove", e => { if (contact?.pointer !== e.pointerId || waiting(e)) return; contact.to=[e.clientX,e.clientY]; if (!frame) frame=requestAnimationFrame(flush); });
+      on("pointerup", e => { if (contact?.pointer !== e.pointerId || contact.deferred && contacts().get(e.pointerId) === "claimed") { if (contact?.pointer === e.pointerId) contact = null; return; } contact.to=[e.clientX,e.clientY]; flush(); suppressClick = !!contact?.active; contact=null; });
       on("pointercancel", () => { cancelAnimationFrame(frame); frame=0; contact=null; });
-      on("lostpointercapture", () => { cancelAnimationFrame(frame); frame=0; contact=null; });
+      // A child's implicit touch capture, lost when a deferred pan takes it, bubbles here.
+      on("lostpointercapture", e => { if (e.target !== el) return; cancelAnimationFrame(frame); frame=0; contact=null; });
+      el.addEventListener("click", e => { if (suppressClick) { suppressClick = false; e.preventDefault(); e.stopImmediatePropagation(); } }, true);
       return e => {
-        if (!live() || !e.isPrimary || e.button !== 0 || contact || e.target.closest("input,textarea,button,[contenteditable]")) return;
-        e.preventDefault(); e.stopPropagation(); el.setPointerCapture(e.pointerId);
-        contact = {pointer:e.pointerId,from:[e.clientX,e.clientY],to:[e.clientX,e.clientY],active:false};
+        // Only the click right after a pan is suppressed; a drag makes none.
+        suppressClick = false;
+        if (!live() || !e.isPrimary || e.button !== 0 || contact || el.matches("input,textarea,[contenteditable]")) return;
+        // A control or press handler between the contact and this node keeps it (rule 3).
+        const inner = e.target.closest("input,textarea,select,button,a[href],[contenteditable],[data-exact-on~='press']");
+        if (inner && inner !== el && el.contains(inner)) return;
+        const deferred = contacts().get(e.pointerId) === "pending";
+        e.preventDefault(); e.stopPropagation(); if (!deferred) el.setPointerCapture(e.pointerId);
+        contact = {pointer:e.pointerId,from:[e.clientX,e.clientY],to:[e.clientX,e.clientY],active:false,deferred};
       };
     },
   };

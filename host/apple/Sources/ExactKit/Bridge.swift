@@ -138,8 +138,8 @@ final class Runtime {
     func heightDragUpdate(_ token: UInt64, height: Double, now: Double) -> Batch {
         read(exact_height_drag_update(rt, token, height, now))
     }
-    func heightDragRelease(_ token: UInt64, height: Double, velocity: Double, now: Double) -> Batch {
-        read(exact_height_drag_release(rt, token, height, velocity, now))
+    func heightDragRelease(_ token: UInt64, height: Double, now: Double) -> Batch {
+        read(exact_height_drag_release(rt, token, height, now))
     }
     func reorderBegin(_ handle: UInt32, scrollTop: Double, now: Double) -> Batch {
         read(exact_reorder_begin(rt, handle, scrollTop, now))

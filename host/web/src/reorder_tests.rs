@@ -106,7 +106,7 @@ fn packet(h: &Host<Rows>, b: ReorderBinding, op: u32, now: f64, y: f64) -> Vec<u
         0.,
         y,
         0.,
-        75.,
+        0.,
         now,
     ] {
         v.extend(n.to_le_bytes());

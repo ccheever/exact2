@@ -12,8 +12,12 @@ pub const SWIPE_RESISTANCE: f64 = 0.2;
 /// back gesture (precedence rule 1).
 pub const SWIPE_EDGE: f64 = 20.0;
 
+/// A contact moves more than this, in points or CSS px on either axis,
+/// before a drag it could start is recognized (UIKit's pans keep their own).
+pub const SLOP: f64 = 4.0;
+
 /// In the order the hosts' `gesture` lookups index them.
-pub const CONSTANTS: [f64; 3] = [SWIPE_KNEE, SWIPE_RESISTANCE, SWIPE_EDGE];
+pub const CONSTANTS: [f64; 4] = [SWIPE_KNEE, SWIPE_RESISTANCE, SWIPE_EDGE, SLOP];
 
 /// Presentation after `delta` of finger travel from a hold caught at `base`:
 /// the caught value is inverted through the resistance first, so zero travel

@@ -147,6 +147,10 @@ impl Input {
         if !self.now.is_finite() || self.now < 0. || self.now / 1000. < floor {
             return Err("invalid reorder clock");
         }
+        if self.velocity != Value::ZERO {
+            // Measured by the engine (LLP 1057.001 §3); the slots stay zero.
+            return Err("reorder velocity is measured; its slots must be zero");
+        }
         let pixel = |v: f64| v.is_finite() && v.abs() <= f32::MAX as f64;
         if ![self.y, self.value.x, self.value.y].into_iter().all(pixel)
             || ![self.velocity.x, self.velocity.y]
@@ -408,7 +412,19 @@ impl<D: DataSource> Host<D> {
         let a = self.reorder_drags.active.as_mut().unwrap();
         a.terminal = true;
         a.captured = true;
-        a.velocity = if certified { i.velocity } else { Value::ZERO };
+        // The source row's release velocity is the engine's, over the values
+        // its hold was given (LLP 1057.001 §3), not the packet's.
+        let measured = a
+            .holds
+            .get(&i.binding.wrapper)
+            .and_then(|t| self.springs.hold_velocity(t.serial(), i.now / 1000.))
+            .filter(|v| v.x.is_finite() && v.y.is_finite());
+        let a = self.reorder_drags.active.as_mut().unwrap();
+        a.velocity = if certified {
+            measured.unwrap_or(Value::ZERO)
+        } else {
+            Value::ZERO
+        };
         let token = a.token;
         let result = if certified {
             self.runner.drop_reorder(token, i.geometry.clone())

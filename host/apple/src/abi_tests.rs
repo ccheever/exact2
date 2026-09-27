@@ -622,11 +622,11 @@ fn height_release_abi_separates_synthesis_from_generation_checked_pointer_comple
         .parse()
         .unwrap();
     bridge.height_drag_update(token, 300., 0.);
-    bridge.height_drag_release(token, 320., 200., 0.);
+    bridge.height_drag_release(token, 320., 0.);
     assert!(bridge.has_hold(token));
     bridge.hold_end(token, 0, 200., 0., 0.);
     assert!(!bridge.has_hold(token));
-    let n = bridge.height_drag_release(token, f64::NAN, f64::NAN, f64::NAN);
+    let n = bridge.height_drag_release(token, f64::NAN, f64::NAN);
     let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
     assert!(out.contains("\"error\":null"), "{out}");
     assert_eq!(bridge.host.as_ref().unwrap().engine().now(), 0.);

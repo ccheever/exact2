@@ -555,3 +555,49 @@ fn release_handler_survives_empty_set_clear_set_idref() {
         }
     }
 }
+
+/// LLP 1057.001 §3: the bridge's release velocity is the engine's, over the
+/// heights actually shown: a `max-height` stops the measured motion.
+#[test]
+fn measured_release_velocity_follows_the_constrained_height_shown() {
+    let velocity = |max: &str| {
+        let plan = contract::compile(&format!(
+            r#"component App
+  state size = 200
+  state seen = 0
+  action release(height: number, velocity: number) writes seen
+    seen = velocity
+  view
+    column id="sheet" testId="sheet" height=size {max} box-sizing="border-box" transition="height spring(180, 12, 1)"
+      box testId="header" heightDragFor="sheet" heightrelease=release height=32
+      text `${{seen}}` testId="seen"
+"#
+        ))
+        .unwrap()
+        .encode();
+        let (mut h, _) = Host::boot(
+            &plan,
+            NoData,
+            Box::new(MonospaceMeasurer::default()),
+            800.,
+            900.,
+        )
+        .unwrap();
+        let hold = begin(&mut h, "header");
+        for i in 1..=4 {
+            good(&h.height_drag_update(hold, 200. + 20. * i as f64, 10. * i as f64));
+        }
+        good(&h.dispatch_height_measured(hold, 280., 40.));
+        let Some(exact_runner::Value::Number(v)) = h.runner().slot("seen") else {
+            panic!()
+        };
+        *v
+    };
+    let free = velocity("");
+    assert!((free - 2000.).abs() < 1e-6, "{free}");
+    let clamped = velocity("max-height=230");
+    assert!(
+        clamped < free / 2.,
+        "the shown height stopped at 230: {clamped}"
+    );
+}

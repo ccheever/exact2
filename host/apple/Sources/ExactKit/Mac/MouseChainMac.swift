@@ -51,17 +51,15 @@ final class MouseChain {
         return [p.mouseReorder, p.mouseTransformDrag, p.mouseHeightDrag, p.mouseLayoutPan, p.mouseSwipe]
     }
     /// Arms every recognizer once per event (a `super.mouseDown` reaches the
-    /// ancestors' overrides with the same event). True while a `pan` is armed:
-    /// AppKit arms no `press` on a pan contact, as before.
-    func down(_ node: NodeView, event: NSEvent) -> Bool {
-        if downEvent !== event {
-            downEvent = event
-            let recognizers = ranked
-            for recognizer in recognizers { recognizer.arm(node, event: event) }
-            order = MouseChain.ordered(recognizers.map { $0.armed.flatMap { MouseChain.depth(of: $0, from: node) } })
-                .map { recognizers[$0] }
-        }
-        return presenter?.mouseLayoutPan.armed != nil
+    /// ancestors' overrides with the same event). The `press` arms too, as on
+    /// the web and Linux; a recognizer that engages cancels it (rule 4).
+    func down(_ node: NodeView, event: NSEvent) {
+        guard downEvent !== event else { return }
+        downEvent = event
+        let recognizers = ranked
+        for recognizer in recognizers { recognizer.arm(node, event: event) }
+        order = MouseChain.ordered(recognizers.map { $0.armed.flatMap { MouseChain.depth(of: $0, from: node) } })
+            .map { recognizers[$0] }
     }
     func drag(_ event: NSEvent) -> Bool {
         if let owner = order.first(where: { $0.engaged }) { return owner.drag(event) }
@@ -70,6 +68,11 @@ final class MouseChain {
             if recognizer.engaged {
                 for other in order where other !== recognizer { other.cancel() }
                 order = [recognizer]
+                // A drag must not also dispatch the click armed at down.
+                if let presenter {
+                    presenter.selection.clear()
+                    for view in presenter.views.values where view.pressed { view.pressed = false }
+                }
             }
             return true
         }

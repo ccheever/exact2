@@ -47,7 +47,7 @@ final class MouseTransformDrag {
         guard let candidate, let presenter, presenter.views[candidate.id] === candidate else { return false }
         let point = event.locationInWindow
         if hold == nil {
-            guard hypot(point.x - origin.x, point.y - origin.y) > 4 else { return false }
+            guard hypot(point.x - origin.x, point.y - origin.y) > Gesture.slop else { return false }
             guard let started = TransformDragHold(candidate, time: event.timestamp) else { self.candidate = nil; return false }
             hold = started; origin = point
             presenter.selection.clear()

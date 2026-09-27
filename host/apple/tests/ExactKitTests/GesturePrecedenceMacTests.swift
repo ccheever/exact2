@@ -122,5 +122,28 @@ final class GesturePrecedenceMacTests: XCTestCase {
         XCTAssertEqual(calls.log, [], "reorder refuses a horizontal drag")
         XCTAssertEqual(pans, [10, 20])
     }
+
+    /// Rule 4 on AppKit: a node with `pan` and `press` presses when the pan
+    /// never leaves the slop, and a pan that begins cancels the press.
+    func testAPanNodePressesUnlessThePanBegins() {
+        let p = host([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["press", "pan"]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 100.0]
+        ])
+        var log: [String] = []
+        p.onPress = { log.append("press \($0)") }
+        p.onPan = { _, dx, _ in log.append("pan \(dx)") }
+        let node = p.views[1]!
+        node.mouseDown(with: event(.leftMouseDown, node))
+        node.mouseDragged(with: event(.leftMouseDragged, node, right: 2))
+        node.mouseUp(with: event(.leftMouseUp, node, right: 2))
+        XCTAssertEqual(log, ["press 1"], "inside the slop it is a press")
+        log = []
+        node.mouseDown(with: event(.leftMouseDown, node))
+        node.mouseDragged(with: event(.leftMouseDragged, node, right: 10))
+        node.mouseUp(with: event(.leftMouseUp, node, right: 10))
+        XCTAssertEqual(log, ["pan 10.0"], "a pan that begins cancels the press")
+    }
 }
 #endif

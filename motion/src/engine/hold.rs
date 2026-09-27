@@ -289,6 +289,18 @@ impl Engine {
         )
     }
 
+    /// Record what the host actually displays for a live hold when its
+    /// display constrains the held value (CSS `min`/`max` on a height), so
+    /// [`Engine::hold_velocity`] measures the shown motion. Presentation is
+    /// untouched. `false` for a stale token or a non-finite sample.
+    pub fn track_hold(&mut self, token: HoldToken, now_s: f64, shown: Value) -> bool {
+        if !self.has_hold(token) || !now_s.is_finite() || !shown.is_finite() {
+            return false;
+        }
+        self.track(token, now_s, shown);
+        true
+    }
+
     fn track(&mut self, token: HoldToken, now_s: f64, value: Value) {
         // A replaced or removed hold leaves its tracker; forget those here,
         // among the few live holds, rather than on every removal path.

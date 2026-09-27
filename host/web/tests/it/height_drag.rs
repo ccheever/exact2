@@ -505,7 +505,10 @@ fn binary_height_ops_preserve_key_bits_target_identity_and_once_only_action() {
     );
     assert!(begin.contains("\"value\":[400,0]"), "{begin}");
     let token = serial(&begin);
-    assert!(packet(&mut bridge, 9, view, token, 350.0, -50.0, 110.0).contains("1/350/-50"));
+    // LLP 1057.001 §3: the velocity is measured (400 -> 350 in 10 ms); y is unused.
+    assert!(packet(&mut bridge, 9, view, token, 350.0, -50.0, 110.0).contains("y must be zero"));
+    let released = packet(&mut bridge, 9, view, token, 350.0, 0.0, 110.0);
+    assert!(released.contains("1/350/-5000"), "{released}");
     assert!(
         packet(&mut bridge, 9, view, token, f64::NAN, f64::NAN, f64::NAN)
             .contains("\"accepted\":false")
@@ -782,4 +785,42 @@ fn invalid_stale_delivery_does_not_use_its_future_clock_for_cancellation() {
             .start,
         0.100
     );
+}
+
+/// LLP 1057.001 §3: the browser's sequence (moves, the shown heights tracked
+/// at each move's instant, a last stationary move, then the action) releases
+/// at the engine's velocity over what was shown.
+#[test]
+fn a_measured_release_follows_the_moves_and_tracked_heights() {
+    let (host, _) = boot();
+    let view = id(&host, "handle");
+    let handle = motion_node(key(&host, "handle"));
+    let mut bridge = Bridge::new();
+    bridge.set_links(exact_web::HostLinks::ALL);
+    exact_web::link(exact_web_capabilities::ALL);
+    bridge.boot(
+        &contract::compile(SOURCE).unwrap().encode(),
+        NoData,
+        400.0,
+        800.0,
+        "/",
+    );
+    let token = serial(&packet(&mut bridge, 8, view, handle, 400.0, 0.0, 100.0));
+    for (i, height) in [380.0, 360.0, 340.0, 320.0].into_iter().enumerate() {
+        let t = 110.0 + 10.0 * i as f64;
+        assert!(packet(&mut bridge, 1, 0, token, height, 0.0, t).contains("\"accepted\":true"));
+        assert!(packet(&mut bridge, 12, 0, token, height, 0.0, t).contains("\"accepted\":true"));
+    }
+    assert!(packet(&mut bridge, 1, 0, token, 320.0, 0.0, 145.0).contains("\"accepted\":true"));
+    let released = packet(&mut bridge, 9, view, token, 320.0, 0.0, 150.0);
+    let velocity: f64 = released
+        .split("1/320/")
+        .nth(1)
+        .unwrap_or_else(|| panic!("{released}"))
+        .split(|c: char| c != '-' && c != '.' && !c.is_ascii_digit())
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(velocity < -1000.0, "{velocity}");
 }

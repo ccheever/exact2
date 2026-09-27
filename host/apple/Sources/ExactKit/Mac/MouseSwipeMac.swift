@@ -53,8 +53,8 @@ final class MouseSwipe {
         let point = event.locationInWindow
         if hold == nil {
             let dx = point.x - origin.x, dy = point.y - origin.y
-            if abs(dy) > 4 && abs(dy) >= abs(dx) { self.candidate = nil; return false }
-            guard abs(dx) > 4, SwipeRecognition.accepts(x: Double(dx), y: Double(dy), presentedX: Double(candidate.translate.x)) else { return false }
+            if abs(dy) > Gesture.slop && abs(dy) >= abs(dx) { self.candidate = nil; return false }
+            guard abs(dx) > Gesture.slop, SwipeRecognition.accepts(x: Double(dx), y: Double(dy), presentedX: Double(candidate.translate.x)) else { return false }
             guard let started = SwipeHold(candidate) else { self.candidate = nil; return false }
             hold = started; origin = point
             presenter.selection.clear()

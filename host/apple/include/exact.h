@@ -286,7 +286,8 @@ uint32_t exact_collection_feedback(ExactRuntime rt, size_t len, double now_ms);
 /* Authored header binding, generational keys and live Height token. */
 uint32_t exact_height_drag_begin(ExactRuntime rt, uint64_t handle_key, uint64_t target_key, double now_ms);
 uint32_t exact_height_drag_update(ExactRuntime rt, uint64_t token, double height, double now_ms);
-uint32_t exact_height_drag_release(ExactRuntime rt, uint64_t token, double height, double velocity, double now_ms);
+/* The release velocity is the engine's, over the heights shown (LLP 1057.001 §3). */
+uint32_t exact_height_drag_release(ExactRuntime rt, uint64_t token, double height, double now_ms);
 uint32_t exact_transform_motion(uint32_t rt, uint32_t len);
 /* Arrange (reorderFor / reorderdrop, LLP 1041 §8.5): the platform recognizes
  * the contact on the handle view. scroll_top is the List's actual offset as
@@ -306,7 +307,7 @@ uint32_t exact_hold_update(ExactRuntime rt, uint64_t token, double x, double y, 
  * engine measured over the hold's values (LLP 1057.001 §3). */
 uint32_t exact_hold_end(ExactRuntime rt, uint64_t token, uint32_t cancel, double vx, double vy, double now_ms);
 /* A recognition threshold exact2 defines itself: 0 the swipe knee, 1 its
- * resistance, 2 the leading edge a swipe yields (LLP 1057.001 §3). */
+ * resistance, 2 the leading edge a swipe yields, 3 the drag slop (LLP 1057.001 §3). */
 double exact_gesture_constant(uint32_t which);
 /* The runner's clock: timers. Nonzero until_request stops after a timer that
  * sends, the clock at its due time (an agent's jump; the wall clock passes 0). */
