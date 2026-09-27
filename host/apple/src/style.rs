@@ -322,7 +322,7 @@ pub fn style_json_presented(
     ) {
         StyleMask::INHERITED
     } else {
-        StyleMask::of(StyleId::TextColor)
+        StyleMask::of(StyleId::TextColor).union(StyleMask::of(StyleId::Direction))
     };
     let mut computed = node.computed_style(rows);
     computed.mask.set(StyleId::TextColor);

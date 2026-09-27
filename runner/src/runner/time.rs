@@ -11,6 +11,37 @@ impl<D: DataSource> Runner<D> {
         self.time
     }
 
+    /// The language of the displayed strings. Without tables, language is
+    /// unknown (HTML's empty `lang`), rather than the viewer's preferred locale.
+    pub fn resolved_locale(&self) -> &str {
+        self.plan
+            .locale
+            .and_then(|slot| self.slots.get(slot.0 as usize))
+            .and_then(Value::as_str)
+            .filter(|name| {
+                self.plan
+                    .locales
+                    .iter()
+                    .any(|row| self.plan.str(row.name) == *name)
+            })
+            .or_else(|| self.plan.locales.first().map(|row| self.plan.str(row.name)))
+            .unwrap_or("")
+    }
+
+    /// CSS direction of the resolved table, compiled from CLDR likely subtags.
+    pub fn direction(&self) -> &'static str {
+        if self
+            .plan
+            .locales
+            .iter()
+            .any(|row| row.rtl && self.plan.str(row.name) == self.resolved_locale())
+        {
+            "rtl"
+        } else {
+            "ltr"
+        }
+    }
+
     /// Re-answer every `exactTime` resource in one commit. An invalid fact
     /// is journaled without changing anything.
     pub fn set_time(
@@ -70,9 +101,6 @@ impl<D: DataSource> Runner<D> {
         }
         let changed = place != self.place;
         let previous = std::mem::replace(&mut self.place, place);
-        let which: Vec<usize> = (0..self.plan.resources.len())
-            .filter(|i| changed && self.plan.str(self.plan.resources[*i].source) == SOURCE)
-            .collect();
         // @ref LLP 1060 D4 — an ordinary slot write, so dependency tracking
         // re-renders exactly the `t(...)` readers. The checkpoint the commit
         // takes already holds the new value: a refusal restores it here.
@@ -82,6 +110,12 @@ impl<D: DataSource> Runner<D> {
             let value = Value::str(resolved);
             (self.slots[i] != value).then(|| (i, std::mem::replace(&mut self.slots[i], value)))
         });
+        let which: Vec<usize> = (0..self.plan.resources.len())
+            .filter(|i| {
+                (changed || written.is_some())
+                    && self.plan.str(self.plan.resources[*i].source) == SOURCE
+            })
+            .collect();
         if which.is_empty() && written.is_none() {
             return Ok(None);
         }
@@ -165,7 +199,12 @@ impl<D: DataSource> Runner<D> {
         let mut fields = Vec::with_capacity(ty.fields.len as usize);
         for f in ty.fields.iter() {
             let name = self.plan.str(self.plan.field(f).name);
-            match self.time.field(name).or_else(|| self.place.field(name)) {
+            match self
+                .time
+                .field(name)
+                .or_else(|| self.place.field(name))
+                .or_else(|| (name == "resolvedLocale").then(|| Value::str(self.resolved_locale())))
+            {
                 Some(v) => fields.push(v),
                 None => {
                     return Err(DataError::Unavailable(format!(

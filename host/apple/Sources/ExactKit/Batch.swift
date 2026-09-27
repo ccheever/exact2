@@ -51,7 +51,7 @@ typealias NodeStyle = [String: BatchValue]
 public struct BatchOp {
     enum Kind: String {
         case create, props, style, children, paragraph, frame, content, present, roots, destroy
-        case flow, surface, surfaceWork, command, hold, collections, region, router, title, unknown
+        case flow, surface, surfaceWork, command, hold, collections, region, router, title, language, unknown
         case svg, animations // LLP 1055 D4/D7: an `svg`'s scene; a view's CSS animations
         case canvas2d // LLP 1056 D7: a 2D canvas's stamped lists
         case heightDrag = "height-drag", transformDrag = "transform-drag", retireMotion = "retire-motion", reorder, exit

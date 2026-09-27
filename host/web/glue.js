@@ -560,6 +560,7 @@ function apply(batch) {
       switch (op.op) {
       case "textflow": break; // consumed once after the complete DOM batch
       case "keyframes": motion.keyframes(op.name, op.css); break; // LLP 1055 D7: the page's @keyframes
+      case "language": document.documentElement.lang = op.lang; document.documentElement.dir = op.dir; break;
       case "head": (headGlue ??= loadAfterPaint('./document-glue.js', 'documentHead')).then(head => head(op)); break;
       case "router": navigation.apply(op); break;
       case "create": {

@@ -435,6 +435,16 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if handlers.contains("hover") { presenter?.hover(self, false) }
     }
     /// A control is a leaf, as UIKit makes one: VoiceOver reads its name.
+    override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+        super.accessibilityAttributeNames() + [NSAccessibility.Attribute(rawValue: "AXLanguage")]
+    }
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute.rawValue == "AXLanguage" {
+            let language = presenter?.documentLanguage ?? ""
+            return language.isEmpty ? nil : language
+        }
+        return super.accessibilityAttributeValue(attribute)
+    }
     override func accessibilityChildren() -> [Any]? {
         kind == "button" ? nil : textAccessibilityChildren() ?? super.accessibilityChildren()
     }

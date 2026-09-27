@@ -81,6 +81,16 @@ fn string_list(items: &[&str], out: &mut String) {
 }
 
 impl Batch {
+    /// The resolved strings table owns the document's language and direction.
+    pub fn language(&mut self, lang: &str, dir: &str) {
+        let mut s = String::from("{\"op\":\"language\",\"lang\":");
+        quote(lang, &mut s);
+        s.push_str(",\"dir\":");
+        quote(dir, &mut s);
+        s.push('}');
+        self.ops.push(s);
+    }
+
     pub(crate) fn reorder_drag(
         &mut self,
         view: u32,

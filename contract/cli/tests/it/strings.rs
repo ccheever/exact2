@@ -108,18 +108,19 @@ fn tables_are_baked_base_first_with_only_the_keys_t_names() {
 }
 
 #[test]
-fn an_app_without_t_has_no_tables_and_no_slot() {
+fn data_only_tables_bake_names_but_no_texts() {
     let app = AppDir::new(
         "component App\n  view\n    text \"plain\"\n",
         &[("strings/en.json", EN)],
     );
     let plan = app.compile().unwrap();
-    assert!(plan.locales.is_empty() && plan.texts.is_empty());
-    assert!(plan.locale.is_none());
+    assert_eq!(plan.locales.len(), 1);
+    assert!(plan.texts.is_empty());
+    assert!(plan.locale.is_some());
 }
 
 #[test]
-fn the_base_shows_until_the_host_says_and_a_switch_rerenders_only_t_texts() {
+fn the_base_shows_until_the_host_says_and_a_switch_remeasures_text() {
     let app = AppDir::new(APP, &tables());
     let mut r = boot(app.compile().unwrap());
     assert_eq!(text(&r, "title"), "Journal");
@@ -135,7 +136,7 @@ fn the_base_shows_until_the_host_says_and_a_switch_rerenders_only_t_texts() {
     assert_eq!(text(&r, "fixed"), "fixed");
     let mut touched = receipt.touched.clone();
     touched.sort();
-    let mut t_texts: Vec<_> = ["title", "greeting"]
+    let mut t_texts: Vec<_> = ["title", "greeting", "only", "fixed"]
         .iter()
         .map(|id| r.kernel().find_by_test_id(id)[0])
         .collect();
@@ -339,4 +340,120 @@ fn the_default_agent_place_still_selects_its_table_when_the_base_differs() {
     assert!(r.set_place("en-US", "UTC", Some(0.0)).unwrap().is_some());
     assert_eq!(text(&r, "title"), "Journal");
     assert!(r.set_place("en-US", "UTC", Some(0.0)).unwrap().is_none());
+}
+
+#[test]
+fn mf2_constructs_are_refused_by_name_even_without_t() {
+    for (message, construct) in [
+        (".match $n\none {{One}}\n* {{Many}}", ".match"),
+        (
+            ".input {$n :number}\n.match $n\none {{One}}\n* {{Many}}",
+            ".input",
+        ),
+        (".local $x = {$n}\n{{Hi}}", ".local"),
+        ("{$n :number}", ":number"),
+        ("{#bold}Hi{/bold}", "markup"),
+        ("{n, plural, one {One} other {Many}}", "plural"),
+        ("{$n @foo}", "attributes"),
+        ("{{Hello}}", "quoted pattern"),
+        ("{||}", "literal"),
+        ("bad }", "brace"),
+        (r"bad \q", "escape"),
+    ] {
+        let json = serde_json::json!({"message": message}).to_string();
+        let app = AppDir::new(
+            "component App\n  view\n    text \"plain\"\n",
+            &[("strings/en.json", &json)],
+        );
+        let errors = app.compile().expect_err(construct);
+        assert!(
+            errors.iter().any(|e| e.id == "strings-message"
+                && e.message.contains(construct)
+                && e.message.contains("message")
+                && e.file.as_ref().unwrap().ends_with("en.json")),
+            "{errors:?}"
+        );
+    }
+}
+
+#[test]
+fn mf2_variables_and_escapes_share_the_checked_runtime_grammar() {
+    let json = serde_json::json!({"hi": r"Hi {$name}: \{name\} \\ {name}"}).to_string();
+    let app = AppDir::new(
+        "component App\n  view\n    text t(\"hi\", name=\"Ada\") testId=\"hi\"\n",
+        &[("strings/en.json", &json)],
+    );
+    let r = boot(app.compile().unwrap());
+    assert_eq!(text(&r, "hi"), r"Hi Ada: {name} \ Ada");
+}
+
+#[test]
+fn resolved_locale_is_answered_even_for_tables_used_only_by_data() {
+    let app = AppDir::new("shape Time\n  locale: string\n  resolvedLocale: string\ncomponent App\n  resource time = exactTime() as shape Time\n  view\n    text `${time.locale}|${time.resolvedLocale}` testId=\"place\"\n", &tables());
+    let mut r = boot(app.compile().unwrap());
+    assert_eq!(text(&r, "place"), "en-US|en");
+    r.set_place("fr-CA", "UTC", None).unwrap();
+    assert_eq!(text(&r, "place"), "fr-CA|fr");
+    r.set_place("ar", "UTC", None).unwrap();
+    assert_eq!(text(&r, "place"), "ar|en");
+}
+
+#[test]
+fn cldr_direction_follows_the_resolved_script_and_css_overrides_still_win() {
+    let app = AppDir::new("component App\n  view\n    column testId=\"root\"\n      text t(\"title\") testId=\"title\"\n      text \"CSS\" direction=\"ltr\" testId=\"override\"\n", &[
+        ("strings/en.json", EN), ("strings/ar.json", EN),
+        ("strings/ar-Latn.json", EN), ("strings/he.json", EN),
+        ("strings/fa.json", EN), ("strings/ur.json", EN),
+        ("strings/az-IR.json", EN), ("strings/pa-PK.json", EN),
+    ]);
+    let mut r = boot(app.compile().unwrap());
+    for (locale, lang, dir) in [
+        ("ar-EG", "ar", "rtl"),
+        ("ar-Latn", "ar-Latn", "ltr"),
+        ("he", "he", "rtl"),
+        ("fa", "fa", "rtl"),
+        ("ur", "ur", "rtl"),
+        ("az-IR", "az-IR", "rtl"),
+        ("pa-PK", "pa-PK", "rtl"),
+        ("de", "en", "ltr"),
+    ] {
+        r.set_place(locale, "UTC", None).unwrap();
+        assert_eq!(r.resolved_locale(), lang);
+        assert_eq!(r.direction(), dir, "{locale}");
+        for id in ["root", "title", "override"] {
+            let node = r
+                .kernel()
+                .node_by_key(r.kernel().find_by_test_id(id)[0])
+                .unwrap();
+            let want = if id != "override" && dir == "rtl" {
+                exact_kernel::Direction::Rtl
+            } else {
+                exact_kernel::Direction::Ltr
+            };
+            assert_eq!(
+                node.computed_style(exact_kernel::StyleMask::INHERITED)
+                    .direction,
+                want,
+                "{locale}: {id}"
+            );
+        }
+    }
+    let state = exact_runner::agent::state(&r);
+    assert!(
+        state.contains(r#""language":{"lang":"en","dir":"ltr"}"#),
+        "{state}"
+    );
+    assert!(r.set_place("not a locale", "UTC", None).is_err());
+    assert_eq!(r.resolved_locale(), "en");
+}
+
+#[test]
+fn the_default_place_reanswers_resolved_locale_when_its_table_changes() {
+    let app = AppDir::new("shape Time\n  resolvedLocale: string\ncomponent App\n  resource time = exactTime() as shape Time\n  view\n    text time.resolvedLocale testId=\"locale\"\n", &[
+        ("strings/en.json", EN), ("strings/en-US.json", EN),
+    ]);
+    let mut r = boot(app.compile().unwrap());
+    assert_eq!(text(&r, "locale"), "en");
+    r.set_place("en-US", "UTC", None).unwrap();
+    assert_eq!(text(&r, "locale"), "en-US");
 }

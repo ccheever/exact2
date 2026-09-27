@@ -931,6 +931,25 @@ fn premultiply(r: u8, g: u8, b: u8, a: u8) -> [u8; 4] {
 pub struct Measurer(pub Shared);
 
 impl TextMeasurer for Measurer {
+    fn set_language(&mut self, language: &str) {
+        let mut engine = self.0.borrow_mut();
+        let catalog = engine.catalog.borrow();
+        if catalog.fonts.locale() == language {
+            return;
+        }
+        // Retained paragraphs keep their old catalog for an accepted frame.
+        let mut next = catalog::Catalog::with_fonts(FontSystem::new_with_locale_and_db(
+            language.into(),
+            catalog.fonts.db().clone(),
+        ));
+        next.families = catalog.families.clone();
+        next.declared_faces = catalog.declared_faces.clone();
+        next.sans = catalog.sans.clone();
+        drop(catalog);
+        engine.catalog = Rc::new(RefCell::new(next));
+        engine.paragraphs = cache::Cache::default();
+    }
+
     fn measure_identified(
         &mut self,
         stamp: &ParagraphStamp,

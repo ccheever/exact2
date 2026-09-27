@@ -523,9 +523,10 @@
     },
     {
       "name": "locales",
-      "_comment": "@ref LLP 1060 D3: one strings table per locale (BCP 47 name). Row 0 is the base; the rest are in name order. Only the keys the app's `t` calls name.",
+      "_comment": "@ref LLP 1060 D3: one strings table per locale (BCP 47 name). Row 0 is the base; the rest are in name order. rtl is the CLDR script direction, compiled once. Table names remain for data-only strings. Only the keys the app's `t` calls name.",
       "fields": [
         { "name": "name", "codec": "str" },
+        { "name": "rtl", "codec": "bool" },
         { "name": "texts", "codec": "range:texts" }
       ]
     }

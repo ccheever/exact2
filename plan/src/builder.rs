@@ -365,7 +365,7 @@ impl PlanBuilder {
 
     /// One locale's texts, `(key, text)` sorted by key; the first locale is
     /// the base. @ref LLP 1060 D3.
-    pub fn locale(&mut self, name: &str, texts: &[(&str, &str)]) -> LocalesId {
+    pub fn locale(&mut self, name: &str, rtl: bool, texts: &[(&str, &str)]) -> LocalesId {
         let start = self.plan.texts.len() as u32;
         for (key, text) in texts {
             let key = self.str(key);
@@ -375,6 +375,7 @@ impl PlanBuilder {
         let name = self.str(name);
         self.plan.locales.push(LocalesRow {
             name,
+            rtl,
             texts: TextsRange {
                 start,
                 len: texts.len() as u32,

@@ -230,3 +230,18 @@ fn an_inline_background_covers_each_line_fragment_of_its_run() {
     assert!(rects[0].0 .0 > 1.0, "starts after the plain run");
     assert!(p.run_backgrounds(&[None, None, None]).is_empty());
 }
+
+#[test]
+fn document_language_replaces_the_shaping_catalog_and_cached_paragraphs() {
+    use exact_kernel::TextMeasurer;
+    let shared = TextEngine::shared();
+    let mut measurer = super::Measurer(shared.clone());
+    let old = shared.borrow().catalog.clone();
+    measurer.set_language("ar");
+    let engine = shared.borrow();
+    assert_eq!(engine.catalog.borrow().fonts.locale(), "ar");
+    assert!(!std::rc::Rc::ptr_eq(&old, &engine.catalog));
+    drop(engine);
+    measurer.set_language("en");
+    assert_eq!(shared.borrow().catalog.borrow().fonts.locale(), "en");
+}

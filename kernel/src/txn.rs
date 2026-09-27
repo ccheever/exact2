@@ -480,6 +480,17 @@ pub fn apply(
     root_id: u32,
     epoch: u64,
 ) -> Result<CommitReceipt, ApplyError> {
+    apply_document(target, ops, batch, root_id, epoch, None)
+}
+
+pub(crate) fn apply_document(
+    target: Target<'_>,
+    ops: &[Op],
+    batch: u64,
+    root_id: u32,
+    epoch: u64,
+    language: Option<(&str, crate::Direction)>,
+) -> Result<CommitReceipt, ApplyError> {
     validate(target.arena, ops)?;
     let Target {
         arena,
@@ -752,6 +763,34 @@ pub fn apply(
     })();
     detach.flush(arena, layout, selectors);
     applied?;
+
+    if let Some((lang, direction)) = language {
+        let changed = arena.document_language != lang;
+        let turned = arena.document_style.direction != direction;
+        if changed || turned {
+            arena.document_language = lang.into();
+            arena.document_style.direction = direction;
+            arena.document_style.mask.set(crate::StyleId::Direction);
+            let rows = StyleMask::of(crate::StyleId::Direction);
+            let slots: Vec<_> = arena.iter_live().collect();
+            for slot in slots {
+                if turned
+                    && arena
+                        .inherited_source(slot, crate::StyleId::Direction)
+                        .is_none()
+                {
+                    inherited_changed(arena, layout, slot, rows, &mut receipt);
+                    touched.push(arena.key(slot));
+                } else if changed
+                    && matches!(arena.node_type(slot), NodeType::Text | NodeType::TextInput)
+                {
+                    invalidate_text(arena, layout, slot);
+                    receipt.layout_invalidated = true;
+                    touched.push(arena.key(slot));
+                }
+            }
+        }
+    }
 
     // A later op can destroy an exit's parent: then that op's root leaves
     // (and exits, if it declares one) and this node goes inside it.

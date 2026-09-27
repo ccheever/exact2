@@ -1076,13 +1076,23 @@ impl<D: DataSource> Runner<D> {
         }
         let change = self.router_change()?;
         self.batch += 1;
-        let mut receipt = match self.kernel.apply(0, self.batch, &ops) {
-            Ok(receipt) => receipt,
-            Err(e) => {
-                self.notes.clear();
-                return Err(e.into());
-            }
+        let language = self.resolved_locale().to_owned();
+        let direction = if self.direction() == "rtl" {
+            exact_kernel::Direction::Rtl
+        } else {
+            exact_kernel::Direction::Ltr
         };
+        let mut receipt =
+            match self
+                .kernel
+                .apply_document(0, self.batch, &ops, Some((&language, direction)))
+            {
+                Ok(receipt) => receipt,
+                Err(e) => {
+                    self.notes.clear();
+                    return Err(e.into());
+                }
+            };
         for note in std::mem::take(&mut self.notes) {
             self.log(note);
         }

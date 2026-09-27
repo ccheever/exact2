@@ -520,7 +520,7 @@ fn lower_with_sites(
             l.b.set_slot_owner(l.slots[i], region);
         }
     }
-    l.bake_texts();
+    l.bake_texts()?;
     let plan = l.b.finish().map_err(|e| LowerError {
         id: "lower-invalid-plan",
         message: format!("{e:?}"),

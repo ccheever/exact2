@@ -255,6 +255,9 @@ impl TextMetrics {
 
 /// A host's text engine, injected per kernel.
 pub trait TextMeasurer {
+    /// The resolved document language; an empty language is unknown.
+    fn set_language(&mut self, _language: &str) {}
+
     /// Size a paragraph under an offer.
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics;
 

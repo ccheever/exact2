@@ -514,6 +514,10 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
             None => s.push_str("null"),
         }
     }
+    s.push_str("},\"language\":{\"lang\":");
+    quote(runner.resolved_locale(), &mut s);
+    s.push_str(",\"dir\":");
+    quote(runner.direction(), &mut s);
     s.push_str("},\"derives\":{");
     for (i, row) in plan.derives.iter().enumerate() {
         let name = plan.str(row.name);

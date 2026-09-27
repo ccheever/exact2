@@ -26,6 +26,7 @@ static INITIAL: LazyLock<StyleProps> = LazyLock::new(StyleProps::default);
 use crate::txn::{self, CommitReceipt, Target};
 use crate::wire::{self, Op};
 mod intrinsic;
+mod document;
 mod trim;
 
 /// How many receipts the kernel retains for late readers.
@@ -110,6 +111,7 @@ impl<'a> NodeRef<'a> {
     pub fn computed(&self, id: StyleId) -> RowValue<'a> {
         match self.arena.inherited_source(self.slot, id) {
             Some(s) => self.arena.style(s).get(id),
+            None if self.arena.document_style.mask.has(id) => self.arena.document_style.get(id),
             None => INITIAL.get(id),
         }
     }
@@ -305,53 +307,6 @@ impl Kernel {
             .iter()
             .map(|r| self.arena.local_id(*r))
             .collect()
-    }
-
-    /// Decode one EXWF frame and apply it.
-    pub fn apply_frame(&mut self, bytes: &[u8]) -> Result<CommitReceipt, KernelError> {
-        let frame = wire::decode(bytes)?;
-        self.apply(frame.root_id, frame.batch, &frame.ops)
-    }
-
-    /// Apply ops in-process. Validation covers the whole batch before any write;
-    /// a rejection leaves everything untouched.
-    pub fn apply(
-        &mut self,
-        root_id: u32,
-        batch: u64,
-        ops: &[Op],
-    ) -> Result<CommitReceipt, KernelError> {
-        let next_epoch = self.epoch + 1;
-        let mut unmirrored = Unmirrored;
-        let target = Target {
-            arena: &mut self.arena,
-            layout: match self.layout.as_deref_mut() {
-                Some(layout) => layout,
-                None => &mut unmirrored,
-            },
-            selectors: &mut self.selectors,
-        };
-        let receipt = txn::apply(target, ops, batch, root_id, next_epoch)?;
-        let changed = !receipt.created.is_empty()
-            || !receipt.destroyed.is_empty()
-            || !receipt.touched.is_empty();
-        if changed {
-            self.epoch = next_epoch;
-        }
-        let mut receipt = receipt;
-        receipt.epoch = self.epoch;
-        if self.receipts.len() == RECEIPT_RING {
-            self.receipts.pop_front();
-        }
-        if self
-            .region
-            .as_mut()
-            .is_some_and(|r| !r.observe(&self.arena, &receipt))
-        {
-            self.region = None;
-        }
-        self.receipts.push_back(receipt.clone());
-        Ok(receipt)
     }
 
     /// Register one explicitly sized content region. No schema/authoring change.

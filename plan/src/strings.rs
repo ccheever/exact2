@@ -4,20 +4,25 @@
 
 use crate::{LocalesRow, Plan, PlanError, TypeKind};
 
-/// The `{name}` placeholders in `text`, in order. A name is what a Contract
-/// named argument can spell; any other brace is literal text, so prose
-/// needs no escapes.
+/// Validate the admitted MF2 simple-message subset before a table is baked.
+/// `{name}` is the Contract shorthand for MF2's `{$name}`.
+pub fn validate_message(text: &str) -> Result<(), String> {
+    for piece in pieces(text) {
+        piece?;
+    }
+    Ok(())
+}
+
+/// Variable names in a validated message, in order, excluding escaped braces.
 pub fn placeholders(text: &str) -> impl Iterator<Item = &str> {
     pieces(text).filter_map(|piece| match piece {
-        Piece::Name(name) => Some(name),
-        Piece::Text(_) => None,
+        Ok(Piece::Name { name, .. }) => Some(name),
+        _ => None,
     })
 }
 
-/// `text` with each placeholder replaced by `value(name)`. A name without a
-/// value stays as written: the compiler refuses that for the base table
-/// and for every translation, so it only happens in a plan built by hand.
-/// Refuses an expansion longer than `limit` bytes before allocating it.
+/// Fill a validated message, refusing malformed syntax and an expansion longer
+/// than `limit` bytes before allocating it. Unfilled variables keep their spelling.
 pub fn fill<'v>(
     text: &str,
     value: impl Fn(&str) -> Option<&'v str>,
@@ -26,66 +31,95 @@ pub fn fill<'v>(
     let mut resolved = Vec::new();
     let mut len = 0usize;
     for piece in pieces(text) {
-        let piece = match piece {
-            Piece::Name(name) => value(name).map_or(Piece::Name(name), Piece::Text),
-            piece => piece,
+        let text = match piece.ok()? {
+            Piece::Name { name, raw } => value(name).unwrap_or(raw),
+            Piece::Text(text) => text,
         };
-        let bytes = match piece {
-            Piece::Text(t) => t.len(),
-            Piece::Name(name) => name.len().checked_add(2)?,
-        };
-        len = len.checked_add(bytes).filter(|len| *len <= limit)?;
-        resolved.push(piece);
+        len = len.checked_add(text.len()).filter(|len| *len <= limit)?;
+        resolved.push(text);
     }
     let mut out = String::with_capacity(len);
-    for piece in resolved {
-        match piece {
-            Piece::Text(t) => out.push_str(t),
-            Piece::Name(name) => {
-                out.push('{');
-                out.push_str(name);
-                out.push('}');
-            }
-        }
+    for text in resolved {
+        out.push_str(text);
     }
     Some(out)
 }
 
 enum Piece<'a> {
     Text(&'a str),
-    Name(&'a str),
+    Name { name: &'a str, raw: &'a str },
 }
 
-fn pieces(text: &str) -> impl Iterator<Item = Piece<'_>> {
+fn pieces(text: &str) -> impl Iterator<Item = Result<Piece<'_>, String>> {
     let mut rest = text;
+    let mut first = true;
     std::iter::from_fn(move || {
         if rest.is_empty() {
             return None;
         }
-        let mut from = 0;
-        while let Some(open) = rest[from..].find('{').map(|i| from + i) {
-            let inner = &rest[open + 1..];
-            let name_len = inner
-                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-'))
-                .unwrap_or(inner.len());
-            let name = &inner[..name_len];
-            let is_name = name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
-                && inner[name_len..].starts_with('}');
-            if !is_name {
-                from = open + 1;
-                continue;
+        let result = (|| {
+            if first {
+                first = false;
+                if rest.trim_start().starts_with('.') {
+                    let keyword = rest.split_whitespace().next().unwrap();
+                    return Err(format!(
+                        "MF2 `{keyword}` declarations/matching are not implemented"
+                    ));
+                }
             }
-            if open > 0 {
-                let text = &rest[..open];
-                rest = &rest[open..];
-                return Some(Piece::Text(text));
+            let end = rest.find(['{', '}', '\\', '\0']).unwrap_or(rest.len());
+            if end > 0 {
+                let text = &rest[..end];
+                rest = &rest[end..];
+                return Ok(Piece::Text(text));
             }
-            rest = &inner[name_len + 1..];
-            return Some(Piece::Name(name));
+            if rest.starts_with('\\') {
+                if !matches!(rest.as_bytes().get(1), Some(b'{' | b'}' | b'\\')) {
+                    return Err("invalid MF2 escape; escape only braces and backslashes".into());
+                }
+                let text = &rest[1..2];
+                rest = &rest[2..];
+                return Ok(Piece::Text(text));
+            }
+            if !rest.starts_with('{') {
+                return Err("unescaped closing brace or NUL in MF2 text".into());
+            }
+            if rest.starts_with("{{") {
+                return Err("MF2 quoted pattern is not implemented".into());
+            }
+            let end = rest.find('}').ok_or("unclosed MF2 brace")?;
+            let expression = rest[1..end].trim();
+            if expression.starts_with(['#', '/']) {
+                return Err("MF2 markup is not implemented".into());
+            }
+            if let Some(at) = expression.find(':') {
+                let function = expression[at..].split_whitespace().next().unwrap();
+                return Err(format!("MF2 function `{function}` is not implemented"));
+            }
+            if expression.contains(',') {
+                return Err("plural/select syntax is not implemented; tables use MF2".into());
+            }
+            if expression.contains('@') {
+                return Err("MF2 attributes are not implemented".into());
+            }
+            let name = expression.strip_prefix('$').unwrap_or(expression);
+            if !name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+                || !name
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
+            {
+                return Err(
+                    "MF2 literal or expression is not implemented; use {$name} or {name}".into(),
+                );
+            }
+            let raw = &rest[..=end];
+            rest = &rest[end + 1..];
+            Ok(Piece::Name { name, raw })
+        })();
+        if result.is_err() {
+            rest = "";
         }
-        let text = rest;
-        rest = "";
-        Some(Piece::Text(text))
+        Some(result)
     })
 }
 
@@ -161,6 +195,12 @@ impl Plan {
             }
             let texts = &self.texts[row.texts.start as usize..][..row.texts.len as usize];
             if texts
+                .iter()
+                .any(|text| validate_message(self.str(text.text)).is_err())
+            {
+                return Err(bad("locales", i, "texts"));
+            }
+            if texts
                 .windows(2)
                 .any(|pair| self.str(pair[0].key) >= self.str(pair[1].key))
             {
@@ -176,24 +216,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn placeholders_are_names_in_braces_and_other_braces_are_text() {
-        let text = "Hi {name}, {} {1x} {a b} {count}{_} {{x}}";
+    fn mf2_names_and_escapes_are_shared_by_validation_and_filling() {
+        let text = r"Hi {$name}, {count} \{literal\} \\";
+        validate_message(text).unwrap();
+        assert_eq!(placeholders(text).collect::<Vec<_>>(), ["name", "count"]);
         assert_eq!(
-            placeholders(text).collect::<Vec<_>>(),
-            ["name", "count", "_", "x"]
+            fill(text, |_| Some("Ada"), 100).unwrap(),
+            r"Hi Ada, Ada {literal} \"
         );
-        let filled = fill(
-            text,
-            |n| match n {
-                "name" => Some("Ada"),
-                "count" => Some("3"),
-                "x" => Some("X"),
-                _ => None,
-            },
-            100,
-        )
-        .unwrap();
-        assert_eq!(filled, "Hi Ada, {} {1x} {a b} 3{_} {X}");
+        assert!(fill("{$n :number}", |_| Some("1"), 100).is_none());
+        assert_eq!(
+            fill("{$missing}", |_| None, 10).as_deref(),
+            Some("{$missing}")
+        );
     }
 
     #[test]

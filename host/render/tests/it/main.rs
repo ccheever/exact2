@@ -431,3 +431,20 @@ fn a_route_lists_its_pages_with_its_source() {
         vec![("/".to_string(), false)]
     );
 }
+
+#[test]
+fn rendered_document_sets_html_language_and_direction() {
+    let mut rendered = at(Post::Soon, Duration::from_secs(5));
+    rendered.document.lang = "ar".into();
+    rendered.document.dir = "rtl".into();
+    let shell =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../web/index.html"))
+            .unwrap();
+    let html = exact_render::page(&shell, &rendered).unwrap();
+    assert!(html.contains(r#"<html lang="ar" dir="rtl">"#));
+    rendered.document.lang = "en".into();
+    rendered.document.dir = "ltr".into();
+    assert!(exact_render::page(&shell, &rendered)
+        .unwrap()
+        .contains(r#"<html lang="en" dir="ltr">"#));
+}

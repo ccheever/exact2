@@ -284,3 +284,33 @@ fn a_location_resolves_to_its_route_or_the_not_found_route() {
     let plain = contract::compile("component A\n  view\n    text \"a\"\n").unwrap();
     assert!(route_at(&plain, "/").is_none());
 }
+
+#[test]
+fn resolved_language_is_published_at_boot_and_after_switching() {
+    let mut plan = contract::compile("component App\n  state language = \"en\"\n  view\n    column width=300\n      text \"123\" testId=\"text\"\n").unwrap();
+    plan.locale = Some(exact_plan::SlotsId(0));
+    for rtl in [false, true] {
+        let name = exact_plan::StrId(plan.strings.len() as u32);
+        plan.strings.push(if rtl { "ar" } else { "en" }.into());
+        plan.locales.push(exact_plan::LocalesRow {
+            name,
+            rtl,
+            texts: Default::default(),
+        });
+    }
+    let plan = contract::bake(plan, Says("")).unwrap();
+    let (mut host, batch) = Host::boot(&plan.encode(), Says(""), Default::default(), "/").unwrap();
+    assert!(batch.contains(r#"{"op":"language","lang":"en","dir":"ltr"}"#));
+    let batch = host.set_place("ar-EG", "UTC", None);
+    assert!(
+        batch.contains(r#"{"op":"language","lang":"ar","dir":"rtl"}"#),
+        "{batch}"
+    );
+    let doc = host.document().unwrap();
+    assert_eq!((doc.lang.as_str(), doc.dir.as_str()), ("ar", "rtl"));
+    assert!(!host
+        .set_place("ar-SA", "UTC", None)
+        .contains(r#""op":"language""#));
+    let batch = host.set_place("de", "UTC", None);
+    assert!(batch.contains(r#"{"op":"language","lang":"en","dir":"ltr"}"#));
+}

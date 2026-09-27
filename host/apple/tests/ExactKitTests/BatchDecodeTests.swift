@@ -110,6 +110,7 @@ final class BatchDecodeTests: XCTestCase {
             #"{"op":"collections","items":[{"id":1,"rows":[]}] }"#,
             #"{"op":"region","id":1,"nested":{"number":0.1,"boolean":true,"null":null}}"#,
             #"{"op":"router","top":2,"url":"/path","removed":[1]}"#,
+            #"{"op":"language","lang":"ar","dir":"rtl"}"#,
             #"{"op":"title","title":"A question"}"#,
             #"{"op":"title","title":null}"#,
             #"{"op":"future","id":1,"any":[true,null,{"x":"y"}]}"#

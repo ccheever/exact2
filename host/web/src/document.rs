@@ -41,6 +41,10 @@ use std::fmt;
 /// A projected document.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Document {
+    /// The resolved strings table, or unknown language without tables.
+    pub lang: String,
+    /// CSS direction compiled from the table locale.
+    pub dir: String,
     /// What `#exact-root` holds: the roots' elements, in order, with no
     /// whitespace between elements (a parser keeps whitespace as text).
     pub root: String,
@@ -125,6 +129,8 @@ fn walk<D: DataSource>(
             .map(str::to_owned)
     };
     let document = Document {
+        lang: runner.resolved_locale().into(),
+        dir: runner.direction().into(),
         root: walk.out,
         viewport_fit: prop(PropId::ViewportFit),
         interactive_widget: prop(PropId::InteractiveWidget),

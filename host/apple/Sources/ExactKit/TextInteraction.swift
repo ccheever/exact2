@@ -77,6 +77,7 @@ extension NodeView {
         #else
         let paragraph = UIAccessibilityElement(accessibilityContainer: self)
         paragraph.accessibilityLabel = props["accessibilityLabel"] ?? (text as String)
+        paragraph.accessibilityLanguage = presenter?.documentLanguage
         paragraph.accessibilityTraits = .staticText
         paragraph.accessibilityFrameInContainerSpace = contentBox()
         return [paragraph] + children
@@ -97,6 +98,13 @@ private final class InlineAccessibility: NSAccessibilityElement {
         setAccessibilityLabel(run.props["accessibilityLabel"] ?? text.substring(with: run.range))
         if let href = run.props["href"] { setAccessibilityURL(URL(string: href)) }
     }
+    override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+        super.accessibilityAttributeNames() + [NSAccessibility.Attribute(rawValue: "AXLanguage")]
+    }
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        if attribute.rawValue == "AXLanguage" { return owner?.presenter?.documentLanguage }
+        return super.accessibilityAttributeValue(attribute)
+    }
     override func accessibilityFrame() -> NSRect {
         guard let owner, let run = owner.presenter?.inlineText(id), let window = owner.window else { return .zero }
         let rect = owner.inlineRects(run).reduce(CGRect.null) { $0.union($1) }
@@ -112,6 +120,7 @@ private final class InlineAccessibility: UIAccessibilityElement {
         self.owner = owner; id = run.id
         super.init(accessibilityContainer: owner)
         accessibilityIdentifier = run.props["testId"]
+        accessibilityLanguage = owner.presenter?.documentLanguage
         accessibilityLabel = run.props["accessibilityLabel"] ?? text.substring(with: run.range)
         accessibilityTraits = (run.props["href"] ?? "").isEmpty ? .staticText : .link
     }

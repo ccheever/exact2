@@ -787,25 +787,34 @@ if (!argv.includes('--app-only')) {
   mkdirSync(resolve(tmp, 'strings'));
   writeFileSync(resolve(tmp, 'strings/en.json'), '{"greeting":"Hello"}');
   writeFileSync(resolve(tmp, 'strings/fr.json'), '{"greeting":"Bonjour"}');
-  writeFileSync(source, 'shape Time\n  locale: string\n  timeZone: string\n  seed: number\ncomponent App\n  resource time = exactTime() as shape Time\n  view\n    column\n      text `${time.locale}|${time.timeZone}|${time.seed}` testId="place"\n      text t("greeting") testId="greeting"\n');
+  writeFileSync(resolve(tmp, 'strings/ar.json'), '{"greeting":"مرحبا"}');
+  writeFileSync(source, 'shape Time\n  locale: string\n  resolvedLocale: string\n  timeZone: string\n  seed: number\ncomponent App\n  resource time = exactTime() as shape Time\n  view\n    column\n      text `${time.locale}|${time.resolvedLocale}|${time.timeZone}|${time.seed}` testId="place"\n      text t("greeting") testId="greeting"\n');
   const compiled = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', source, '-o', plan], {cwd:ROOT, encoding:'utf8'});
   check(compiled.status === 0, 'launch facts fixture compiles: ' + compiled.stderr);
-  if (compiled.status === 0) for (const options of [{}, {}, {seed:42, locale:'fr-CA', timeZone:'America/Toronto'}]) {
+  if (compiled.status === 0) for (const options of [{}, {}, {seed:42, locale:'fr-CA', timeZone:'America/Toronto'}, {seed:42, locale:'ar-EG', timeZone:'UTC'}]) {
     const f = await open({host, plan, ...options});
     try {
-      const expected = options.locale ? 'fr-CA|America/Toronto|42' : 'en-US|UTC|0';
+      const lang = options.locale === 'ar-EG' ? 'ar' : options.locale ? 'fr' : 'en';
+      const dir = lang === 'ar' ? 'rtl' : 'ltr';
+      const expected = `${options.locale ?? 'en-US'}|${lang}|${options.timeZone ?? 'UTC'}|${options.seed ?? 1}`;
       const tree = await f.tree();
       check(byTestId(tree, 'place')?.props.text === expected, `launch facts: expected ${expected}, got ${byTestId(tree, 'place')?.props.text}`);
-      check(byTestId(tree, 'greeting')?.props.text === (options.locale ? 'Bonjour' : 'Hello'), 'launch locale selects the translation table');
+      check(byTestId(tree, 'greeting')?.props.text === ({en:'Hello', fr:'Bonjour', ar:'مرحبا'}[lang]), 'launch locale selects the translation table');
+      const language = (await f.state()).language;
+      check(language.lang === lang && language.dir === dir, 'resolved language and direction reach the host');
       if (host === 'web') {
+        const attrs = await f.carrier.evaluate('({lang:document.documentElement.lang,dir:document.documentElement.dir})');
+        check(attrs.lang === lang && attrs.dir === dir, 'the document element carries lang and dir');
         await f.carrier.evaluate('fetch("/__plan").then(r => r.arrayBuffer()).then(b => exact.reload(new Uint8Array(b)))');
         check(byTestId(await f.tree(), 'place')?.props.text === expected, 'web reload retains launch facts');
+        const attrsAfter = await f.carrier.evaluate('({lang:document.documentElement.lang,dir:document.documentElement.dir})');
+        check(attrsAfter.lang === lang && attrsAfter.dir === dir, 'web reload retains lang and dir');
       }
     } catch (error) { check(false, `launch facts fixture: ${error.message}`); }
     finally { await f.close(); }
   }
   rmSync(tmp, {recursive:true, force:true});
-  console.log(`${host} launch facts: defaults, repeated drive, overrides, translation${host === 'web' ? ', reload' : ''}`);
+  console.log(`${host} launch facts: defaults, repeated drive, overrides, translation, lang/dir${host === 'web' ? ', reload' : ''}`);
 }
 
 const tmp = mkdtempSync(resolve(tmpdir(), 'exact-smoke-'));

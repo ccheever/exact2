@@ -111,6 +111,7 @@ pub struct Host<D: DataSource> {
     /// last told (LLP 1048.003 D1): the window or scene title.
     has_heads: bool,
     head_title: Option<String>,
+    language: Option<String>,
     mirror: IdMap<ViewId, Mirror>,
     keys: IdMap<NodeKey, ViewId>,
     inline_runs: IdMap<ViewId, (ViewId, Vec<EventKind>)>,
@@ -372,6 +373,7 @@ impl<D: DataSource> Host<D> {
         let mut host = Host {
             has_heads,
             head_title: None,
+            language: None,
             runner,
             mirror: IdMap::default(),
             keys: IdMap::default(),
@@ -428,6 +430,7 @@ impl<D: DataSource> Host<D> {
         host.roots = host.runner.roots();
         batch.roots(&host.roots.clone());
         host.emit_title(&mut batch);
+        host.emit_language(&mut batch);
         for s in host.runner.take_surface_updates() {
             batch.surface(&s);
         }
@@ -1101,6 +1104,14 @@ impl<D: DataSource> Host<D> {
         }
     }
 
+    fn emit_language(&mut self, batch: &mut Batch) {
+        let language = self.runner.resolved_locale();
+        if self.language.as_deref() != Some(language) {
+            batch.language(language, self.runner.direction());
+            self.language = Some(language.into());
+        }
+    }
+
     fn finish(&self, mut batch: Batch, error: Option<String>) -> String {
         batch.spatial = self.engine.spatial();
         batch.canvas_frames(self.runner.canvas_wants_frame());
@@ -1251,6 +1262,7 @@ impl<D: DataSource> Host<D> {
     /// Persist, then the presentation after every commit in the batch.
     fn commit_finish(&mut self, mut batch: Batch, error: Option<String>) -> String {
         self.persist();
+        self.emit_language(&mut batch);
         self.emit_transform_drags(&mut batch);
         self.present(&mut batch, false);
         self.finish(batch, error)

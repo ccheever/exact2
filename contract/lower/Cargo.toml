@@ -20,3 +20,6 @@ exact-kernel = { path = "../../kernel" }
 exact-plan = { path = "../../plan" }
 exact-motion = { path = "../../motion" }
 exact-num = { path = "../../num" }
+
+# CLDR script direction is baked per table; no locale data ships in a host.
+icu_locale = "=2.3.0"

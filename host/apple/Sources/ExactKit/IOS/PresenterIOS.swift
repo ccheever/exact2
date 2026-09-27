@@ -9,6 +9,8 @@ import CoreText
 import os
 
 final class Presenter {
+    var documentLanguage = ""
+    var documentDirection = "ltr"
     static let signposts = OSSignposter(subsystem: "com.exact.host", category: "scroll")
     var scrollCreatedRows = 0
     var scrollOffscreenRows = 0
@@ -557,6 +559,7 @@ final class Presenter {
     }
 
     func apply(_ batch: Batch) {
+        defer { applyLanguage(batch) }
         if applySnapshots(batch) { return }
         let post = Self.signposts.beginInterval("apply")
         defer { Self.signposts.endInterval("apply", post) }

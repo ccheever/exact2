@@ -125,6 +125,8 @@ final class PageScrollView: NSScrollView {
 ///
 
 final class Presenter {
+    var documentLanguage = ""
+    var documentDirection = "ltr"
     /// Intervals a trace can lay beside its frames (Instruments' os_signpost):
     /// what the main thread spent on a list window, a batch, a text slice.
     static let signposts = OSSignposter(subsystem: "com.exact.host", category: "scroll")
@@ -1046,6 +1048,7 @@ final class Presenter {
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?([(id, size)]) }
 
     func apply(_ batch: Batch) {
+        defer { applyLanguage(batch) }
         let post = Self.signposts.beginInterval("apply", "\(batch.ops.count) ops")
         defer { Self.signposts.endInterval("apply", post) }
         viewport.invalidateDocumentFit()

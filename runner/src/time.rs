@@ -11,7 +11,14 @@ use exact_plan::Value;
 /// Reserved resource source, answered before the app data seam.
 pub const SOURCE: &str = "exactTime";
 /// Fields an app may declare, filled by name.
-pub const FIELDS: &[&str] = &["epochAtZero", "utcOffset", "locale", "timeZone", "seed"];
+pub const FIELDS: &[&str] = &[
+    "epochAtZero",
+    "utcOffset",
+    "locale",
+    "resolvedLocale",
+    "timeZone",
+    "seed",
+];
 
 /// What the host said about the date. Zero until it says: the bake, and a
 /// host that has not supplied it, answer an unknown date as `0`.

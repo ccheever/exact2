@@ -50,8 +50,14 @@ reports the viewer's locale (`set_place`); nothing used it for text.
   BCP 47 tag: `en`, `en-GB`, `pt-BR`. Non-JSON files in `strings/` are
   ignored.
 - **Contents:** a flat object of key → text. `{name}` is a placeholder.
-  A name is `[A-Za-z_][A-Za-z0-9_-]*`, what a Contract named argument can
-  spell. Any other brace is literal text, so prose needs no escapes.
+  Values are MF2 simple messages. Both `{$name}` (MF2's variable spelling)
+  and `{name}` (the Contract shorthand Charlie requested) interpolate a name
+  spelled `[A-Za-z_][A-Za-z0-9_-]*`. Whitespace inside the braces is allowed.
+  `\{`, `\}`, and `\\` escape text; other escapes or unescaped braces refuse.
+  `.match`, `.input`, `.local`, functions, markup, attributes, literals,
+  quoted patterns, and other expressions refuse by name (`strings-message`),
+  including in tables no Contract call reads. The shorthand is the only
+  departure from [MF2 simple-message syntax](https://messageformat.unicode.org/docs/quick-start/).
 - **Base:** `app.json`'s `strings.base`, or `en` when it names none. Every
   `t` is checked against the base table, and every other table falls back
   to it.
@@ -66,6 +72,7 @@ reports the viewer's locale (`set_place`); nothing used it for text.
   | `strings-base-missing` | no table for the base locale |
   | `strings-unknown-key` | a translation's key the base table lacks |
   | `strings-placeholder` | a translation's placeholder its base text lacks |
+  | `strings-message` | unsupported MF2 construct or malformed message, naming the key |
   | `strings-base` | an `app.json` `strings.base` that is not a tag |
 
   A translation may lag the base: a missing key reads the base's text at
@@ -75,10 +82,6 @@ reports the viewer's locale (`set_place`); nothing used it for text.
   warning level. Adding one for this would be the first piece of that
   apparatus, and a translation that is behind is a normal state, not a
   defect.
-- *Rejected:* ICU MessageFormat (plurals, selects). No fixture needs it
-  yet. `{count, plural, …}` is literal text under this grammar, so adding
-  it later changes no accepted table's meaning, except where such text was
-  meant literally.
 
 ### D2 — `t("key", name=value)`: a literal key, named placeholders
 
@@ -116,13 +119,14 @@ reports the viewer's locale (`set_place`); nothing used it for text.
 ### D3 — The plan bakes only what `t` names
 
 - **Tables:**
-  - `locales (name, texts: range)`: row 0 is the base, and the rest are in
+  - `locales (name, rtl, texts: range)`: row 0 is the base, and the rest are in
     name order.
   - `texts (key, text)`: sorted by key within a locale, so lookup is a
     binary search.
 - **Only the keys a `t` call names are baked.** An app that never calls
-  `t` has no rows and no slot, even with a `strings/` directory. Keys only
-  the TypeScript uses stay out of the plan.
+  `t` has no text rows. Locale names, CLDR script directions and the slot
+  remain when tables exist, so data-only translations still resolve through
+  `exactTime`. Keys only the TypeScript uses stay out of the plan.
 - **Validation** (`Plan::validate_texts`):
   - the slot and the tables come together;
   - the slot is a root `string` slot;
@@ -135,7 +139,8 @@ reports the viewer's locale (`set_place`); nothing used it for text.
 
 - **The slot:** the header field `locale` names a root slot, `#locale`.
   The lexer cannot produce the name, so no app name collides with it. The
-  first `t` call lowers it, with the base as its initializer. This is the
+  first `t` call lowers it, with the base as its initializer; table-only apps
+  receive it when the compiler bakes the table names. This is the
   router's model (LLP 1038 D2): a value the runner owns, read through
   ordinary slot dependencies.
 - **Boot:** the slot is filled first, so a state initializer may call `t`.
@@ -153,6 +158,15 @@ reports the viewer's locale (`set_place`); nothing used it for text.
   - A place that resolves to the table already shown writes nothing. With
     no `exactTime` resource, it commits nothing.
   - A refused commit restores both the place and the slot.
+  - The resolved table supplies HTML `lang` and `dir` on the web document
+    element and rendered pages, native accessibility language and direction,
+    and the Linux shaper's locale. Direction is compiled with ICU4X's CLDR
+    likely-subtags and script-direction data; explicit scripts override the
+    language default. The locale data is a compiler dependency only. Native
+    layout inherits this document direction beneath authored CSS overrides.
+    Language changes invalidate native text measurement even for fixed text.
+    Without tables, `lang` and `resolvedLocale` are empty (unknown), and `dir`
+    is `ltr`.
 - **Lookup:** `t` reads the text for (slot, key), or the base's when that
   table lacks the key. A key missing from the base traps. The compiler
   proved that key exists, so this happens only in a hand-built plan.
@@ -169,11 +183,9 @@ reports the viewer's locale (`set_place`); nothing used it for text.
 ### D5 — TypeScript imports the same files
 
 A data module imports the tables it needs. The TypeScript bake captures
-`.json` sources, and the pinned `tsc` and Rolldown both accept JSON
-imports under the bake's settings. The module receives the viewer's locale
-the way it receives any fact: as an argument from Contract, read from
-`exactTime`'s `locale` field. The runner's chain is ten lines, which the
-app keeps beside its imports:
+`.json` sources. Read `exactTime.resolvedLocale` for table selection;
+`exactTime.locale` remains the viewer's locale for date and number formatting.
+Table names retain their authored case, so indexing needs no lookup chain:
 
 ```ts
 import en from './strings/en.json';
@@ -182,35 +194,26 @@ import fr from './strings/fr.json';
 type Key = keyof typeof en;
 const tables: Record<string, Partial<Record<Key, string>>> = { en, fr };
 
-// The runner's chain (LLP 1060 D4): the longest subtag prefix, else the base.
-function table(locale: string): Partial<Record<Key, string>> {
-  for (let tag = locale; tag; tag = tag.slice(0, Math.max(tag.lastIndexOf('-'), 0))) {
-    const name = Object.keys(tables).find(n => n.toLowerCase() === tag.toLowerCase());
-    if (name) return tables[name];
-  }
-  return en;
-}
-
-export function t(locale: string, key: Key, values: Record<string, string | number> = {}): string {
-  return (table(locale)[key] ?? en[key]).replace(/\{([A-Za-z_][A-Za-z0-9_-]*)\}/g,
-    (whole, name: string) => (name in values ? String(values[name]) : whole));
+export function t(resolvedLocale: string, key: Key, values: Record<string, string | number> = {}): string {
+  return (tables[resolvedLocale]?.[key] ?? en[key]).replace(
+    /\\([{}\\])|\{\s*\$?([A-Za-z_][A-Za-z0-9_-]*)\s*\}/g,
+    (whole, escaped: string, name: string) => escaped ?? (name in values ? String(values[name]) : whole));
 }
 ```
 
 ```
 shape Time
   locale: string
+  resolvedLocale: string
 component App
   resource time = exactTime() as shape Time
-  resource summary = weekSummary(time.locale) as shape Summary
+  resource summary = weekSummary(time.resolvedLocale) as shape Summary
 ```
 
-- `keyof typeof en` checks keys at compile time in TypeScript as well.
-- A changed locale changes the resource's arguments, so the source is
-  asked again.
-- *Rejected:* a runtime helper shipped by Exact2. The helper is ten lines
-  an app can read. A shipped one would be a module every TypeScript app
-  pays for, and a second place to keep in step with the runner.
+`resolvedLocale` is the same slot Contract's `t` reads, including at bake and
+boot and during a carried reload. A locale change re-answers `exactTime` in
+the same commit. The in-repo apps have no copied lookup to remove as of
+2026-09-27; this example previously contained the duplicate chain.
 
 ## Unverified
 
@@ -219,6 +222,5 @@ component App
   `strings/*.json` shows at the next `app.contract` save. That session
   also misses edits to `use`d files. The TypeScript dev loop watches every
   captured source, JSON included.
-- **Hosts.** No change was needed: Apple and the web already call
-  `set_place` after boot. This was checked by reading the code, not on a
-  device.
+- Host verification for the 2026-09-27 ruling is recorded in
+  `issues/20260927-strings-messageformat-and-lang.md`.

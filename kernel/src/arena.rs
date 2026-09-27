@@ -64,6 +64,8 @@ pub struct NodeArena {
     /// The page's environment (LLP 1001 §2): what `env()` lengths resolve
     /// to. The host's, not the tree's — a reset keeps it.
     env: Env,
+    pub(crate) document_language: String,
+    pub(crate) document_style: StyleProps,
     // Current metadata only: O(arena slot high-water), never revision history.
     text_revisions: Vec<TextRevisions>,
     text_domain: TextDomain,
@@ -99,6 +101,8 @@ impl Clone for NodeArena {
             by_local: self.by_local.clone(),
             live_count: self.live_count,
             env: self.env,
+            document_language: self.document_language.clone(),
+            document_style: self.document_style.clone(),
             text_revisions: vec![TextRevisions::default(); self.text_revisions.len()],
             text_domain: TextDomain::default(),
             text_serial: 0,
@@ -493,6 +497,10 @@ impl NodeArena {
                 pending = pending.minus(found);
             }
             cur = self.parents[p as usize];
+        }
+        let found = pending.intersect(self.document_style.mask);
+        if !found.is_empty() {
+            copy(&self.document_style, found);
         }
     }
 

@@ -35,6 +35,18 @@ pub fn page(shell: &str, rendered: &Rendered) -> Result<String, String> {
         html.replace_range(at..stop, with);
         Ok(())
     };
+    let lang = rendered
+        .document
+        .lang
+        .replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;");
+    cut(
+        &mut html,
+        "<html",
+        ">",
+        &format!("<html lang=\"{lang}\" dir=\"{}\">", rendered.document.dir),
+    )?;
     // The shell's viewport meta goes before the head, which has its own.
     cut(&mut html, "<meta name=\"viewport\"", ">\n", "")?;
     cut(

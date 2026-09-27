@@ -269,6 +269,7 @@ pub struct Host<D: DataSource> {
     heads: SortedSet<ViewId>,
     /// The head the page was last told, and whether a commit may move it.
     head: exact_runner::Head,
+    language: Option<String>,
     head_dirty: bool,
     /// While the first batch is made: what a page's projection computed for
     /// each view (LLP 1048.000 D6), taken instead of computing it again.
@@ -426,6 +427,7 @@ impl<D: DataSource> Host<D> {
             textflow: String::new(),
             heads: Default::default(),
             head: Default::default(),
+            language: None,
             head_dirty: false,
             computed,
             keyframes: Default::default(),
@@ -943,6 +945,11 @@ impl<D: DataSource> Host<D> {
         if collections != self.collections {
             self.collections = collections;
             batch.collections(&self.collections);
+        }
+        let language = self.runner.resolved_locale();
+        if self.language.as_deref() != Some(language) {
+            batch.language(language, self.runner.direction());
+            self.language = Some(language.into());
         }
         let timers = self.runner.timer_due_ms();
         batch.finish(timers, self.runner.now_ms(), error.as_deref())

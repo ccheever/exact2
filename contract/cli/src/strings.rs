@@ -89,6 +89,15 @@ pub(super) fn load(
         }
         match read_table(path) {
             Ok(table) => {
+                for (key, text) in &table {
+                    if let Err(message) = exact_plan::strings::validate_message(text) {
+                        errors.push(refusal(
+                            "strings-message",
+                            path,
+                            format!("\"{key}\": {message}"),
+                        ));
+                    }
+                }
                 tables.insert(locale.into_owned(), table);
             }
             Err(message) => errors.push(refusal("strings-table", path, message)),

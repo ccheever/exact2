@@ -8,8 +8,7 @@ use exact_plan::Stdlib;
 impl Lowerer<'_> {
     /// `t("key", name=value, …)`, typed already: the locale slot, the key,
     /// and the placeholders as name/value string pairs, into the roster's
-    /// `t`. The slot is made by the first call, so an app that never calls
-    /// `t` has neither it nor tables.
+    /// `t`. The first call makes the slot; data-only tables also receive it.
     pub(crate) fn text_call(
         &mut self,
         asm: &mut Asm,
@@ -18,24 +17,14 @@ impl Lowerer<'_> {
         scope: &Scope,
         locals: &mut u16,
     ) -> Result<Ty, LowerError> {
-        let (Some(Expr::Str(key, _)), Some(strings)) = (args.first(), &self.types.shapes.strings)
-        else {
+        let (Some(Expr::Str(key, _)), Some(_)) = (args.first(), &self.types.shapes.strings) else {
             return err(
                 "lower-strings",
                 "`t` needs its key and the app's tables",
                 span,
             );
         };
-        let slot = match self.locale {
-            Some(slot) => slot,
-            None => {
-                let ty = self.ty_id(&Ty::String)?;
-                let init = self.b.constant(&Value::str(&strings.base));
-                let slot = self.b.slot("#locale", ty, init);
-                self.locale = Some(slot);
-                slot
-            }
-        };
+        let slot = self.locale_slot()?;
         self.texts_used.insert(key.clone());
         asm.load_slot(slot);
         asm.str(self.b.str(key));
@@ -57,12 +46,26 @@ impl Lowerer<'_> {
         Ok(Ty::String)
     }
 
+    fn locale_slot(&mut self) -> Result<exact_plan::SlotsId, LowerError> {
+        if let Some(slot) = self.locale {
+            return Ok(slot);
+        }
+        let ty = self.ty_id(&Ty::String)?;
+        let base = &self.types.shapes.strings.as_ref().expect("strings").base;
+        let init = self.b.constant(&Value::str(base));
+        let slot = self.b.slot("#locale", ty, init);
+        self.locale = Some(slot);
+        Ok(slot)
+    }
+
     /// The tables, base first and the rest in name order, each holding only
-    /// the keys some `t` names; nothing when none does.
-    pub(super) fn bake_texts(&mut self) {
-        let (Some(slot), Some(strings)) = (self.locale, self.types.shapes.strings.clone()) else {
-            return;
+    /// the keys some `t` names. Names and direction remain for data-only tables.
+    pub(super) fn bake_texts(&mut self) -> Result<(), LowerError> {
+        let Some(strings) = self.types.shapes.strings.clone() else {
+            return Ok(());
         };
+        let slot = self.locale_slot()?;
+        let direction = icu_locale::LocaleDirectionality::new_extended();
         let base = strings.tables.get_key_value(&strings.base);
         let others = strings.tables.iter().filter(|(l, _)| **l != strings.base);
         for (locale, table) in base.into_iter().chain(others) {
@@ -71,8 +74,13 @@ impl Lowerer<'_> {
                 .iter()
                 .filter_map(|key| Some((key.as_str(), table.get(key)?.as_str())))
                 .collect();
-            self.b.locale(locale, &texts);
+            let rtl = locale
+                .parse::<icu_locale::Locale>()
+                .ok()
+                .is_some_and(|locale| direction.is_right_to_left(&locale.id));
+            self.b.locale(locale, rtl, &texts);
         }
         self.b.set_locale(slot);
+        Ok(())
     }
 }

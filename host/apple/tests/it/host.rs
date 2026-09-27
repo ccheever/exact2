@@ -1354,3 +1354,39 @@ fn created_listeners_follow_the_final_tree_in_single_and_bulk_batches() {
     }
     assert_eq!(count(&batch, "create"), 1, "single-create path");
 }
+
+#[test]
+fn resolved_language_is_published_at_boot_and_after_switching() {
+    let mut plan = contract::compile("component App\n  state language = \"en\"\n  view\n    column width=300\n      text \"123\" testId=\"text\"\n").unwrap();
+    plan.locale = Some(exact_plan::SlotsId(0));
+    for rtl in [false, true] {
+        let name = exact_plan::StrId(plan.strings.len() as u32);
+        plan.strings.push(if rtl { "ar" } else { "en" }.into());
+        plan.locales.push(exact_plan::LocalesRow {
+            name,
+            rtl,
+            texts: Default::default(),
+        });
+    }
+    let plan = contract::bake(plan, NoData).unwrap();
+    let (mut host, batch) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        400.0,
+        300.0,
+    )
+    .unwrap();
+    assert!(batch.contains(r#"{"op":"language","lang":"en","dir":"ltr"}"#));
+    let batch = host.set_place("ar-EG", "UTC", None);
+    assert!(
+        batch.contains(r#"{"op":"language","lang":"ar","dir":"rtl"}"#),
+        "{batch}"
+    );
+    assert!(batch.contains(r#""direction":"rtl""#), "{batch}");
+    assert!(!host
+        .set_place("ar-SA", "UTC", None)
+        .contains(r#""op":"language""#));
+    let batch = host.set_place("de", "UTC", None);
+    assert!(batch.contains(r#"{"op":"language","lang":"en","dir":"ltr"}"#));
+}
