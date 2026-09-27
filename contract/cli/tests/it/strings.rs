@@ -189,6 +189,48 @@ fn the_manifest_names_the_base() {
 }
 
 #[test]
+fn the_base_locale_matches_without_case_and_is_baked_first() {
+    let app = AppDir::new(
+        APP,
+        &[
+            (
+                "app.json",
+                r#"{"name":"S","app":{"id":"com.exact.s","name":"S"},"strings":{"base":"pt-BR"}}"#,
+            ),
+            ("strings/pt-br.json", EN),
+            ("strings/fr.json", FR),
+        ],
+    );
+    let plan = app.compile().unwrap();
+    assert_eq!(plan.str(plan.locales[0].name), "pt-br");
+    let mut r = boot(plan);
+    assert_eq!(text(&r, "title"), "Journal");
+    r.set_place("fr", "Europe/Paris").unwrap();
+    assert_eq!(text(&r, "only"), "Base only");
+    r.set_place("PT-br", "America/Sao_Paulo").unwrap();
+    assert_eq!(text(&r, "title"), "Journal");
+}
+
+#[test]
+fn interpolation_refuses_expansion_past_the_vms_string_cap() {
+    let src = "component App\n  state label = \"\"\n  action expand(s: string) writes label\n    label = t(\"large\", name=s)\n  view\n    text label\n";
+    let table = serde_json::json!({ "large": "{name}".repeat(1025) }).to_string();
+    let app = AppDir::new(src, &[("strings/en.json", &table)]);
+    let mut r = boot(app.compile().unwrap());
+    let error = r
+        .act("expand", vec![Value::str(&"x".repeat(64 * 1024))])
+        .unwrap_err();
+    assert!(
+        matches!(
+            error,
+            exact_runner::RunnerError::Trap(exact_runner::vm::Trap::StringTooLong { .. })
+        ),
+        "{error:?}"
+    );
+    assert_eq!(r.slot("label"), Some(&Value::str("")));
+}
+
+#[test]
 fn each_call_site_refusal_has_its_id() {
     let cases = [
         ("text t(\"titel\")", "type-strings-unknown-key"),

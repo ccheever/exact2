@@ -156,7 +156,7 @@ pub enum Trap {
         pc: usize,
     },
     NoResult,
-    /// A `Concat` would make a string longer than [`MAX_STRING`] bytes.
+    /// An expression would make a string longer than [`MAX_STRING`] bytes.
     StringTooLong {
         pc: usize,
     },
@@ -761,8 +761,12 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                         Err(stdlib::JoinError::TooLong) => return Err(Trap::StringTooLong { pc }),
                     }
                 } else {
-                    stdlib::call(f, call_args, env.now_ms, env.plan, env.router)
-                        .ok_or(Trap::TypeMismatch { pc, op })?
+                    stdlib::call(f, call_args, env.now_ms, env.plan, env.router).map_err(
+                        |error| match error {
+                            stdlib::CallError::TypeMismatch => Trap::TypeMismatch { pc, op },
+                            stdlib::CallError::StringTooLong => Trap::StringTooLong { pc },
+                        },
+                    )?
                 };
                 stack.truncate(at);
                 stack.push(v);

@@ -17,22 +17,38 @@ pub fn placeholders(text: &str) -> impl Iterator<Item = &str> {
 /// `text` with each placeholder replaced by `value(name)`. A name without a
 /// value stays as written: the compiler refuses that for the base table
 /// and for every translation, so it only happens in a plan built by hand.
-pub fn fill<'v>(text: &str, value: impl Fn(&str) -> Option<&'v str>) -> String {
-    let mut out = String::with_capacity(text.len());
+/// Refuses an expansion longer than `limit` bytes before allocating it.
+pub fn fill<'v>(
+    text: &str,
+    value: impl Fn(&str) -> Option<&'v str>,
+    limit: usize,
+) -> Option<String> {
+    let mut resolved = Vec::new();
+    let mut len = 0usize;
     for piece in pieces(text) {
+        let piece = match piece {
+            Piece::Name(name) => value(name).map_or(Piece::Name(name), Piece::Text),
+            piece => piece,
+        };
+        let bytes = match piece {
+            Piece::Text(t) => t.len(),
+            Piece::Name(name) => name.len().checked_add(2)?,
+        };
+        len = len.checked_add(bytes).filter(|len| *len <= limit)?;
+        resolved.push(piece);
+    }
+    let mut out = String::with_capacity(len);
+    for piece in resolved {
         match piece {
             Piece::Text(t) => out.push_str(t),
-            Piece::Name(name) => match value(name) {
-                Some(v) => out.push_str(v),
-                None => {
-                    out.push('{');
-                    out.push_str(name);
-                    out.push('}');
-                }
-            },
+            Piece::Name(name) => {
+                out.push('{');
+                out.push_str(name);
+                out.push('}');
+            }
         }
     }
-    out
+    Some(out)
 }
 
 enum Piece<'a> {
@@ -166,12 +182,28 @@ mod tests {
             placeholders(text).collect::<Vec<_>>(),
             ["name", "count", "_", "x"]
         );
-        let filled = fill(text, |n| match n {
-            "name" => Some("Ada"),
-            "count" => Some("3"),
-            "x" => Some("X"),
-            _ => None,
-        });
+        let filled = fill(
+            text,
+            |n| match n {
+                "name" => Some("Ada"),
+                "count" => Some("3"),
+                "x" => Some("X"),
+                _ => None,
+            },
+            100,
+        )
+        .unwrap();
         assert_eq!(filled, "Hi Ada, {} {1x} {a b} 3{_} {X}");
+    }
+
+    #[test]
+    fn expansion_counts_bytes_literals_and_unfilled_names_before_allocating() {
+        assert_eq!(fill("{x}{x}", |_| Some("é"), 4).as_deref(), Some("éé"));
+        assert_eq!(fill("{x}{x}", |_| Some("é"), 3), None);
+        assert_eq!(fill("!{x}", |_| Some("abc"), 3), None);
+        assert_eq!(fill("{missing}", |_| None, 8), None);
+        assert_eq!(fill("{missing}", |_| None, 9).as_deref(), Some("{missing}"));
+        assert_eq!(fill("literal", |_| None, 6), None);
+        assert_eq!(fill("{x}", |_| Some(""), 0).as_deref(), Some(""));
     }
 }

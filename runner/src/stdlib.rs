@@ -10,8 +10,52 @@
 use exact_plan::{Plan, Stdlib, Value};
 use std::rc::Rc;
 
-/// Call `f` with `args` (already arity-checked). `None` on a type mismatch.
+/// Why a standard function could not produce its value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallError {
+    /// The arguments do not fit the function.
+    TypeMismatch,
+    /// Interpolation would exceed the VM's string budget.
+    StringTooLong,
+}
+
+/// Call `f` with `args` (already arity-checked).
 pub fn call(
+    f: Stdlib,
+    args: &[Value],
+    now_ms: f64,
+    plan: &Plan,
+    router: Option<&dyn crate::runner::Routing>,
+) -> Result<Value, CallError> {
+    if f == Stdlib::T {
+        // The compiler proved the key and placeholder names. Check the
+        // expanded byte length before allocating the translated string.
+        let text = args
+            .first()
+            .and_then(Value::as_str)
+            .zip(args.get(1).and_then(Value::as_str))
+            .and_then(|(locale, key)| plan.localized(locale, key))
+            .ok_or(CallError::TypeMismatch)?;
+        let Some(Value::List(pairs)) = args.get(2) else {
+            return Err(CallError::TypeMismatch);
+        };
+        return exact_plan::strings::fill(
+            text,
+            |name| {
+                pairs
+                    .chunks_exact(2)
+                    .find(|pair| pair[0].as_str() == Some(name))
+                    .and_then(|pair| pair[1].as_str())
+            },
+            crate::vm::MAX_STRING,
+        )
+        .map(|s| Value::Str(Rc::from(s)))
+        .ok_or(CallError::StringTooLong);
+    }
+    call_value(f, args, now_ms, plan, router).ok_or(CallError::TypeMismatch)
+}
+
+fn call_value(
     f: Stdlib,
     args: &[Value],
     now_ms: f64,
@@ -95,20 +139,7 @@ pub fn call(
         Stdlib::Floor => Value::Number(num(0)?.floor()),
         Stdlib::Max => Value::Number(num(0)?.max(num(1)?)),
         Stdlib::Min => Value::Number(num(0)?.min(num(1)?)),
-        // @ref LLP 1060 D2 — the compiler proved the key is in the base table
-        // and the pairs fill its placeholders; a miss here is a trap.
-        Stdlib::T => {
-            let Value::List(pairs) = args.get(2)? else {
-                return None;
-            };
-            let text = plan.localized(args.first()?.as_str()?, args.get(1)?.as_str()?)?;
-            Value::str(&exact_plan::strings::fill(text, |name| {
-                pairs
-                    .chunks_exact(2)
-                    .find(|pair| pair[0].as_str() == Some(name))
-                    .and_then(|pair| pair[1].as_str())
-            }))
-        }
+        Stdlib::T => unreachable!("interpolation is bounded by call"),
     })
 }
 
@@ -307,7 +338,7 @@ mod tests {
         ] {
             assert_eq!(
                 call(Stdlib::ToString, &[Value::Number(value)], 0.0, &plan, None),
-                Some(Value::str(expected)),
+                Ok(Value::str(expected)),
                 "{value}"
             );
         }
@@ -346,7 +377,7 @@ mod tests {
         ] {
             assert_eq!(
                 call(Stdlib::Length, &[Value::str(text)], 0.0, &plan, None),
-                Some(Value::Number(expected)),
+                Ok(Value::Number(expected)),
                 "{text}"
             );
         }

@@ -94,7 +94,10 @@ pub(super) fn load(
             Err(message) => errors.push(refusal("strings-table", path, message)),
         }
     }
-    let Some(base_table) = tables.get(&base) else {
+    let Some((base, base_table)) = tables
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(&base))
+    else {
         errors.push(refusal(
             "strings-base-missing",
             &dir.join(format!("{base}.json")),
@@ -102,6 +105,7 @@ pub(super) fn load(
         ));
         return Err(errors);
     };
+    let base = base.clone();
     // A translation may lag the base, never lead it: a key or placeholder
     // the base lacks is a typo or a leftover no `t` could ever show.
     for (locale, table) in tables.iter().filter(|(l, _)| **l != base) {
