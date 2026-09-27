@@ -843,6 +843,8 @@ pub enum RowValue<'a> {
     BackgroundImage(&'a crate::gradient::BackgroundImage),
     /// SVG `stroke-dasharray` (LLP 1065).
     DashArray(&'a crate::vector::DashArray),
+    /// SVG `marker-start`, `-mid` or `-end` (LLP 1065).
+    Marker(&'a crate::vector::Marker),
     /// A dimension.
     Dimension(Dimension),
     /// A number (`f32`, `u8`, `u16`, `u32`, `i32` rows).
@@ -882,6 +884,7 @@ impl RowValue<'_> {
             RowValue::Animations(v) => v.is_finite(),
             RowValue::ClipPath(_)
             | RowValue::DashArray(_)
+            | RowValue::Marker(_)
             | RowValue::ShapeOutside(_)
             | RowValue::AspectRatio(_)
             | RowValue::TransformOrigin(_)
@@ -1286,6 +1289,44 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     // (with or without a fallback ratio, or a degenerate one): CSS sizes an
     // `<img>` with one dimension given from the other by that ratio. Only a
     // plain `<ratio>` overrides it; natural ratios are of the content box.
+    // A path in a path is no CSS box: it draws in its parent's coordinate
+    // system, over the parent's content box, as SVG's several `<path>`s in
+    // one `<svg>` do (LLP 1065 D12). The box's own sizing rows do nothing.
+    if let Some(parent) = arena.parent(slot).filter(|p| {
+        arena.node_type(slot) == NodeType::Path && arena.node_type(*p) == NodeType::Path
+    }) {
+        let (p, env) = (arena.style(parent), arena.env());
+        let (zero, auto) = (
+            taffy::style::LengthPercentage::length(0.0),
+            taffy::style::Dimension::auto(),
+        );
+        s.position = taffy::style::Position::Absolute;
+        s.inset = taffy::geometry::Rect {
+            top: p.padding_top.to_lpa(env),
+            right: p.padding_right.to_lpa(env),
+            bottom: p.padding_bottom.to_lpa(env),
+            left: p.padding_left.to_lpa(env),
+        };
+        s.size = taffy::geometry::Size {
+            width: auto,
+            height: auto,
+        };
+        let open = taffy::style::LengthPercentageAuto::auto();
+        s.min_size = taffy::geometry::Size {
+            width: open,
+            height: open,
+        };
+        s.max_size = s.min_size;
+        s.aspect_ratio = None;
+        s.margin = taffy::geometry::Rect::zero();
+        s.padding = taffy::geometry::Rect {
+            top: zero,
+            right: zero,
+            bottom: zero,
+            left: zero,
+        };
+        s.border = s.padding;
+    }
     if arena.node_type(slot).is_replaced() && arena.style(slot).aspect_ratio.defers_to_natural() {
         if let Some((w, h)) = arena.intrinsic(slot) {
             if w > 0.0 && h > 0.0 {

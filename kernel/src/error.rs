@@ -52,6 +52,8 @@ pub enum DecodeError {
     BadBackgroundImage,
     /// Invalid SVG `stroke-dasharray` (LLP 1065).
     BadDashArray,
+    /// Invalid `marker-*` text (LLP 1065).
+    BadMarker,
     /// The frame revision is not one this kernel reads.
     UnsupportedRevision(u16),
     /// The producer was generated from a different schema than this kernel.
@@ -214,6 +216,13 @@ pub enum ApplyError {
     LeafCannotHoldChildren {
         op_index: usize,
         id: ViewId,
+        node_type: NodeType,
+    },
+    /// A `Path` was given a child that is not a `Path` (LLP 1065 D12).
+    PathChildNotPath {
+        op_index: usize,
+        parent: ViewId,
+        child: ViewId,
         node_type: NodeType,
     },
     /// A `Text` was given a child that is not a `Text`. A text node's children
@@ -432,6 +441,10 @@ pub enum StyleValueError {
     },
     /// Not SVG `stroke-dasharray`: `none` or nonnegative numbers (LLP 1065).
     BadDashArray {
+        style: StyleId,
+    },
+    /// Not a marker the compiler wrote (LLP 1065).
+    BadMarker {
         style: StyleId,
     },
     /// Not one outer CSS `box-shadow` exact2 draws; `reason` names what.

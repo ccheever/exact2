@@ -6,7 +6,9 @@ impl NodeType {
     /// Whether `SetChildren` may target this type. A `Text` holds only inline
     /// runs (its `Text` children), which are measured with it, never laid out.
     /// A `Canvas` holds children laid out in its box — the web's
-    /// `layoutsubtree` — that never size it (LLP 1014 D1).
+    /// `layoutsubtree` — that never size it (LLP 1014 D1). A `Path` holds
+    /// only paths, drawn in its coordinate system: SVG's several `<path>`s
+    /// in one `<svg>` (LLP 1065 D12).
     pub fn can_hold_children(self) -> bool {
         matches!(
             self,
@@ -16,6 +18,7 @@ impl NodeType {
                 | NodeType::Pressable
                 | NodeType::Text
                 | NodeType::Canvas
+                | NodeType::Path
         )
     }
 

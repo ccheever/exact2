@@ -669,6 +669,8 @@ final class Presenter {
                     container.insertSubview(child, at: i)
                     current = container.subviews
                 }
+                // A path's own drawing lies under its paths (LLP 1065 D12).
+                if let path = PathView.of(parent) { container.sendSubviewToBack(path) }
             case .surface:
                 if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] ?? []) }
             case .command:

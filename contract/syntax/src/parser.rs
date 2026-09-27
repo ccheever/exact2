@@ -389,6 +389,13 @@ impl Parser {
                     }
                     file.keyframes.push(decl);
                 }
+                TokenKind::Ident(w) if w == "marker" => {
+                    let decl = self.marker_decl()?;
+                    if let Some(first) = file.markers.iter().find(|m| m.name == decl.name) {
+                        return duplicate("marker", &decl.name, decl.span, first.span);
+                    }
+                    file.markers.push(decl);
+                }
                 TokenKind::Ident(w) if w == "fn" => file.fns.push(self.fn_decl()?),
                 TokenKind::Ident(w) if w == "test" => file.tests.push(self.test_decl()?),
                 TokenKind::Ident(w) if w == "component" => {
@@ -407,7 +414,7 @@ impl Parser {
                     return self.err(
                         "syntax-expected-declaration",
                         format!(
-                        "expected `routes`, `font`, `shape`, `style`, `keyframes`, `fn`, `use`, or `component`, found {}",
+                        "expected `routes`, `font`, `shape`, `style`, `keyframes`, `marker`, `fn`, `use`, or `component`, found {}",
                         describe(other)
                     ),
                     )
@@ -497,59 +504,94 @@ impl Parser {
     /// An indented block of `attr=literal` lines, several to a line, each
     /// name once: the body of a `style` or of a keyframe.
     fn literal_attrs(&mut self, owner: &str) -> R<Vec<Attr>> {
-        let lines = self.block(|p| {
-            let mut attrs = Vec::new();
-            while !matches!(p.peek_kind(), TokenKind::Newline | TokenKind::Eof) {
-                let (aname, aspan) = match (p.peek_kind().clone(), p.peek2().clone()) {
-                    (TokenKind::Ident(n), TokenKind::Punct("=")) => (n, p.next().span),
-                    (other, _) => {
-                        return p.err(
-                            "syntax-expected-attr",
-                            format!("expected `attr=literal` in `{owner}`, found {}", describe(&other)),
-                        )
-                    }
-                };
-                p.next();
-                let value = match p.expr()? {
-                    // `-0.2` is a literal to anyone writing a style: fold it, so
-                    // `letter-spacing=-0.2` is a constant like `0.2`.
-                    Expr::Unary(UnOp::Neg, inner, span) if matches!(*inner, Expr::Number(..)) => {
-                        let Expr::Number(n, _) = *inner else { unreachable!() };
-                        Expr::Number(-n, span)
-                    }
-                    other => other,
-                };
-                // A keyframe may call a palette function (`color=accent()`,
-                // `color=tone("strong")`): lowering folds it to its literal
-                // when its arguments are known (LLP 1062 D9).
-                let palette = owner.starts_with("keyframes ") && matches!(&value, Expr::Call(..));
-                if !palette && !matches!(value, Expr::Number(..) | Expr::Str(..) | Expr::Bool(..)) {
-                    return Err(SyntaxError {
-                        id: "contract-style-literal",
-                        message: format!("`{aname}` in `{owner}` must be a literal: a style is constant, and a node's own attribute may compute"),
-                        span: aspan,
-                    });
+        let lines = self.block(|p| p.literal_line(owner))?;
+        let attrs: Vec<Attr> = lines.into_iter().flatten().collect();
+        unique_attrs(&attrs, owner)?;
+        Ok(attrs)
+    }
+
+    /// One line of `attr=literal` pairs, through its newline.
+    fn literal_line(&mut self, owner: &str) -> R<Vec<Attr>> {
+        let mut attrs = Vec::new();
+        while !matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Eof) {
+            let (aname, aspan) = match (self.peek_kind().clone(), self.peek2().clone()) {
+                (TokenKind::Ident(n), TokenKind::Punct("=")) => (n, self.next().span),
+                (other, _) => {
+                    return self.err(
+                        "syntax-expected-attr",
+                        format!(
+                            "expected `attr=literal` in `{owner}`, found {}",
+                            describe(&other)
+                        ),
+                    )
                 }
-                attrs.push(Attr {
-                    name: aname,
-                    value,
+            };
+            self.next();
+            let value = match self.expr()? {
+                // `-0.2` is a literal to anyone writing a style: fold it, so
+                // `letter-spacing=-0.2` is a constant like `0.2`.
+                Expr::Unary(UnOp::Neg, inner, span) if matches!(*inner, Expr::Number(..)) => {
+                    let Expr::Number(n, _) = *inner else {
+                        unreachable!()
+                    };
+                    Expr::Number(-n, span)
+                }
+                other => other,
+            };
+            // A keyframe may call a palette function (`color=accent()`,
+            // `color=tone("strong")`): lowering folds it to its literal
+            // when its arguments are known (LLP 1062 D9).
+            let palette = owner.starts_with("keyframes ") && matches!(&value, Expr::Call(..));
+            if !palette && !matches!(value, Expr::Number(..) | Expr::Str(..) | Expr::Bool(..)) {
+                return Err(SyntaxError {
+                    id: "contract-style-literal",
+                    message: format!("`{aname}` in `{owner}` must be a literal: a style is constant, and a node's own attribute may compute"),
                     span: aspan,
                 });
             }
-            p.newline()?;
-            Ok(attrs)
+            attrs.push(Attr {
+                name: aname,
+                value,
+                span: aspan,
+            });
+        }
+        self.newline()?;
+        Ok(attrs)
+    }
+
+    /// `marker Name`, then lines: `attr=literal` for the marker itself, and
+    /// `path attr=literal …` for each path it draws — SVG's `<marker>` with
+    /// its `<path>`s, indented instead of nested (LLP 1065 D11).
+    fn marker_decl(&mut self) -> R<MarkerDecl> {
+        let span = self.expect_word("marker")?;
+        let name = self.named_ident(span)?;
+        self.newline()?;
+        let owner = format!("marker {name}");
+        let lines = self.required_block(span, "marker", |p| {
+            let span = p.peek().span;
+            let shape = matches!(p.peek_kind(), TokenKind::Ident(w) if w == "path")
+                && !matches!(p.peek2(), TokenKind::Punct("="));
+            if shape {
+                p.next();
+            }
+            Ok((shape, p.literal_line(&owner)?, span))
         })?;
-        let attrs: Vec<Attr> = lines.into_iter().flatten().collect();
-        for (index, attr) in attrs.iter().enumerate() {
-            if attrs[..index].iter().any(|prior| prior.name == attr.name) {
-                return Err(SyntaxError {
-                    id: "syntax-duplicate-attr",
-                    message: format!("attribute `{}` appears twice in `{owner}`", attr.name),
-                    span: attr.span,
-                });
+        let mut decl = MarkerDecl {
+            name,
+            attrs: Vec::new(),
+            paths: Vec::new(),
+            span,
+        };
+        for (shape, attrs, span) in lines {
+            if shape {
+                unique_attrs(&attrs, &format!("{owner}` path `"))?;
+                decl.paths.push(MarkerPathDecl { attrs, span });
+            } else {
+                decl.attrs.extend(attrs);
             }
         }
-        Ok(attrs)
+        unique_attrs(&decl.attrs, &owner)?;
+        Ok(decl)
     }
 
     /// `keyframes Name`, then keyframe blocks: a selector line — `from`,
@@ -1427,4 +1469,18 @@ fn describe(k: &TokenKind) -> String {
         TokenKind::Dedent => "the end of a block".into(),
         TokenKind::Eof => "end of file".into(),
     }
+}
+
+/// Each attribute name once in `owner`.
+fn unique_attrs(attrs: &[Attr], owner: &str) -> R<()> {
+    for (index, attr) in attrs.iter().enumerate() {
+        if attrs[..index].iter().any(|prior| prior.name == attr.name) {
+            return Err(SyntaxError {
+                id: "syntax-duplicate-attr",
+                message: format!("attribute `{}` appears twice in `{owner}`", attr.name),
+                span: attr.span,
+            });
+        }
+    }
+    Ok(())
 }

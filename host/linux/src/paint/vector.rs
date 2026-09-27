@@ -12,7 +12,7 @@
 //! one size and scaled.
 
 use super::{rgba, Painter, Shape, Walk};
-use exact_kernel::vector::{fit, parse_view_box, Command, PathData, PreserveAspectRatio};
+use exact_kernel::vector::{fit, Command, PathData, ShapePaint};
 use exact_kernel::{
     FillRule, NodeRef, PropId, RowValue, StrokeLinecap, StrokeLinejoin, StyleId, StyleMask,
     VectorEffect,
@@ -62,17 +62,9 @@ impl Painter {
             return;
         }
         let data = PathData::parse(node.props.str(PropId::PathData).unwrap_or(""));
-        let aspect = node
-            .props
-            .str(PropId::PreserveAspectRatio)
-            .and_then(PreserveAspectRatio::parse)
-            .unwrap_or_default();
-        let at = fit(
-            node.props.str(PropId::ViewBox).and_then(parse_view_box),
-            aspect,
-            w,
-            h,
-        );
+        // A path in a path draws in the outermost one's coordinate system.
+        let (view_box, aspect) = node.path_viewport();
+        let at = fit(view_box, aspect, w, h);
         let [sx, sy, dx, dy] = at;
         let fitted = Transform::from_row(sx, 0.0, 0.0, sy, x + dx, y + dy);
         let style = node.computed_style(StyleMask::INHERITED);
@@ -122,6 +114,69 @@ impl Painter {
         // SVG clips a path to its viewport, the content box.
         self.backend.push_clip(&Shape::rect(content), ts);
         self.backend.vector(&vector, ts);
+        let context = [
+            vector.fill.as_ref().map(|(c, _)| *c),
+            paint(StyleId::Stroke, Property::Stroke),
+            Some(
+                presented
+                    .paint
+                    .color(Property::Color)
+                    .unwrap_or_else(|| rgba(node.text_color().resolve(self.dark))),
+            ),
+        ];
+        self.markers(node, &data, (start, end), fitted, context, ts);
         self.backend.pop_clip();
+    }
+
+    /// The path's markers (LLP 1065 D11), each clipped to its viewport, in
+    /// SVG's order; one shows while the trim holds its vertex. `context` is
+    /// the path's fill, stroke and `color`, for context paints.
+    fn markers(
+        &mut self,
+        node: &NodeRef<'_>,
+        data: &PathData,
+        (start, end): (f32, f32),
+        fitted: Transform,
+        [fill, stroke, current]: [Option<[u8; 4]>; 3],
+        ts: Transform,
+    ) {
+        let total = data.length();
+        let (from, to) = (f64::from(start) * total, f64::from(end) * total);
+        for (def, placed) in node.path_markers(data) {
+            if !(from <= placed.at + 1e-9 && placed.at <= to + 1e-9 && start < end) {
+                continue;
+            }
+            let [a, b, c, d, e, f] = placed.outer;
+            let outer = fitted.pre_concat(Transform::from_row(a, b, c, d, e, f));
+            let [cx, cy, cw, ch] = placed.clip;
+            self.backend
+                .push_clip(&Shape::rect((cx, cy, cw, ch)), ts.pre_concat(outer));
+            let [sx, sy, dx, dy] = placed.fit;
+            let inner = outer.pre_concat(Transform::from_row(sx, 0.0, 0.0, sy, dx, dy));
+            for shape in &def.shapes {
+                let color = |p: ShapePaint| match p {
+                    ShapePaint::None => None,
+                    ShapePaint::ContextFill => fill,
+                    ShapePaint::ContextStroke => stroke,
+                    ShapePaint::CurrentColor => current,
+                    ShapePaint::Color(c) => Some(rgba(c.resolve(self.dark))),
+                };
+                let commands = || shape.data.commands().to_vec();
+                let paint = VectorPaint {
+                    fill: color(shape.fill).map(|c| (c, commands())),
+                    rule: shape.rule,
+                    stroke: color(shape.stroke).map(|c| (c, commands())),
+                    reveal: None,
+                    width: shape.width,
+                    cap: shape.cap,
+                    join: shape.join,
+                    miter: shape.miter,
+                    fit: inner,
+                    stroke_fit: inner,
+                };
+                self.backend.vector(&paint, ts);
+            }
+            self.backend.pop_clip();
+        }
     }
 }

@@ -412,6 +412,7 @@ pub(crate) fn projection_size(
                     }
                 }
                 RowValue::DashArray(d) => bytes = add_wire(bytes, d.0.len(), 16)?,
+                RowValue::Marker(m) => bytes = add_wire(bytes, m.css().len(), 6)?,
                 RowValue::Transitions(v) => bytes = add_wire(bytes, v.0.len(), 256)?,
                 RowValue::Animations(v) => bytes = add_wire(bytes, v.text().len(), 6)?,
                 RowValue::Tracks(v) => bytes = add_wire(bytes, v.0.len(), 128)?,
@@ -445,6 +446,7 @@ pub(crate) fn projection_size(
                     }
                 }
                 RowValue::DashArray(d) => bytes = add_wire(bytes, d.0.len(), 16)?,
+                RowValue::Marker(m) => bytes = add_wire(bytes, m.css().len(), 6)?,
                 RowValue::Transitions(v) => bytes = add_wire(bytes, v.0.len(), 256)?,
                 RowValue::Animations(v) => bytes = add_wire(bytes, v.text().len(), 6)?,
                 RowValue::Tracks(v) => bytes = add_wire(bytes, v.0.len(), 128)?,

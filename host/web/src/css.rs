@@ -264,7 +264,9 @@ pub(crate) fn css_string(value: &str) -> String {
 fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
     match value {
         RowValue::Vec2(_) => id == StyleId::Translate,
+        // @ref LLP 1065 D11 — a marker is the path's markup, not CSS.
         RowValue::Color2(_)
+        | RowValue::Marker(_)
         | RowValue::Tracks(_)
         | RowValue::Placement(_)
         | RowValue::Transitions(_)
@@ -370,6 +372,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             }
         },
         RowValue::Color2(_)
+        | RowValue::Marker(_)
         | RowValue::Tracks(_)
         | RowValue::Placement(_)
         | RowValue::Transitions(_)
@@ -520,7 +523,7 @@ pub fn keyframes_rules(style: &StyleProps) -> Vec<(String, String)> {
         .collect()
 }
 
-fn dimension(out: &mut String, d: Dimension) {
+pub(crate) fn dimension(out: &mut String, d: Dimension) {
     match d {
         Dimension::Auto => out.push_str("auto"),
         Dimension::Points(p) => {

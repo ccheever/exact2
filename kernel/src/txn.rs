@@ -373,6 +373,14 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                         });
                     }
                     let child_type = staged.require(op_index, *child)?;
+                    if node_type == NodeType::Path && child_type != NodeType::Path {
+                        return Err(ApplyError::PathChildNotPath {
+                            op_index,
+                            parent: *id,
+                            child: *child,
+                            node_type: child_type,
+                        });
+                    }
                     if node_type == NodeType::Text && child_type != NodeType::Text {
                         return Err(ApplyError::InlineRunNotText {
                             op_index,
@@ -559,6 +567,7 @@ pub fn apply(
                         }
                     }
                     touched.push(arena.key(slot));
+                    group_changed(arena, layout, slot, &mut touched);
                 }
                 Op::ClearProp { id, prop } => {
                     let slot = live_slot(arena, op_index, *id)?;
@@ -577,6 +586,7 @@ pub fn apply(
                             }
                         }
                         touched.push(arena.key(slot));
+                        group_changed(arena, layout, slot, &mut touched);
                     }
                 }
                 Op::SetStyle { id, patch } => {
@@ -591,6 +601,7 @@ pub fn apply(
                     style_changed(arena, layout, slot, changed, &mut receipt);
                     touched.push(arena.key(slot));
                     propagate_inherited(arena, layout, slot, changed, &mut touched, &mut receipt);
+                    group_changed(arena, layout, slot, &mut touched);
                 }
                 Op::ClearStyle { id, mask } => {
                     let slot = live_slot(arena, op_index, *id)?;
@@ -604,6 +615,7 @@ pub fn apply(
                     style_changed(arena, layout, slot, changed, &mut receipt);
                     touched.push(arena.key(slot));
                     propagate_inherited(arena, layout, slot, changed, &mut touched, &mut receipt);
+                    group_changed(arena, layout, slot, &mut touched);
                 }
                 Op::SetChildren { id, children } => {
                     let slot = live_slot(arena, op_index, *id)?;
@@ -672,6 +684,14 @@ pub fn apply(
                         sync_children(arena, layout, p);
                         arena.flags_mut(p).insert(NodeFlags::CHILDREN_DIRTY);
                         touched.push(arena.key(p));
+                    }
+                    // A path that arrives in or leaves a path is laid out anew.
+                    for n in new.iter().chain(&old) {
+                        if arena.node_type(*n) == NodeType::Path {
+                            if let Some(node) = arena.taffy(*n) {
+                                layout.restyle(arena, *n, node);
+                            }
+                        }
                     }
                     arena.set_children(slot, new);
                     sync_children(arena, layout, slot);
@@ -957,6 +977,28 @@ fn style_changed(
         if !mask.intersects(StyleMask::TEXT) {
             arena.revise_text(slot, false);
         }
+    }
+}
+
+/// A path's paths draw in its coordinate system over its content box (LLP
+/// 1065 D12): a change to it (its view box, its padding) re-derives theirs
+/// and touches them, so each host redraws them from the kernel.
+fn group_changed(
+    arena: &NodeArena,
+    layout: &mut dyn LayoutMirror,
+    slot: u32,
+    touched: &mut Vec<NodeKey>,
+) {
+    if arena.node_type(slot) != NodeType::Path {
+        return;
+    }
+    let mut stack = arena.children(slot).to_vec();
+    while let Some(s) = stack.pop() {
+        if let Some(node) = arena.taffy(s) {
+            layout.restyle(arena, s, node);
+        }
+        touched.push(arena.key(s));
+        stack.extend_from_slice(arena.children(s));
     }
 }
 

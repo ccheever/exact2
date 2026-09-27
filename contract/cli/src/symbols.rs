@@ -287,6 +287,10 @@ impl<'a> Resolver<'a> {
                 None,
             );
         }
+        for marker in &self.file.markers {
+            self.graph
+                .define("marker", &marker.name, names.name(marker.span), None, None);
+        }
         for f in &self.file.fns {
             self.graph
                 .define("fn", &f.name, names.name(f.span), None, None);

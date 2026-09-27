@@ -418,6 +418,31 @@ impl Backend for Gpu {
         }
         self.scene
             .stroke(&stroke, a, color(*c), None, &vector_path(d));
+        // Vello caps no zero-length subpath: SVG's dot (LLP 1065 D9) is its
+        // cap, a disc or a square as wide as the stroke.
+        let r = f64::from(v.width) / 2.0;
+        for (i, pair) in d.windows(2).enumerate() {
+            use exact_kernel::vector::Command;
+            let [Command::Move(p), Command::Line(q)] = pair else {
+                continue;
+            };
+            // The whole subpath, not a first segment of no length.
+            if p != q || !matches!(d.get(i + 2), None | Some(Command::Move(_))) {
+                continue;
+            }
+            let (x, y) = (f64::from(p[0]), f64::from(p[1]));
+            match v.cap {
+                StrokeLinecap::Round => {
+                    let dot = vello::kurbo::Circle::new((x, y), r);
+                    self.scene.fill(Fill::NonZero, a, color(*c), None, &dot);
+                }
+                StrokeLinecap::Square => {
+                    let dot = Rect::new(x - r, y - r, x + r, y + r);
+                    self.scene.fill(Fill::NonZero, a, color(*c), None, &dot);
+                }
+                StrokeLinecap::Butt => {}
+            }
+        }
         if reveal.is_some() {
             self.scene.pop_layer();
         }

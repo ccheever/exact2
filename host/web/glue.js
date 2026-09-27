@@ -370,7 +370,7 @@ function applyProps(el, set, clear) {
     else if (name === "scrollTop" || name === "scrollLeft") {
       const pending = pendingScrolls.get(el); if (pending) delete pending[name];
     }
-    else if (name === "text" || name === "pathMarkup") el.textContent = "";
+    else if (name === "text") el.textContent = ""; else if (name === "pathMarkup") el.querySelector(":scope>svg[data-exact-path]")?.remove();
     else if (name === "value") writeValue(el, "");
     else if (name === "checked") el.checked = false;
     else if (name === "data-action") { el.removeAttribute(name); el.style.touchAction = ""; }
@@ -386,7 +386,7 @@ function applyProps(el, set, clear) {
       const offset = Number(value);
       if (Number.isFinite(offset)) pendingScrolls.set(el, { ...pendingScrolls.get(el), [name]: offset });
     } else if (name === "text") { if (el.childElementCount === 0 && el.textContent !== value) el.textContent = value;
-    } else if (name === "markupPieces") { renderMarkup(el, value); } else if (name === "pathMarkup") { el.innerHTML = value; // kernel-made numbers only (LLP 1065 D5)
+    } else if (name === "markupPieces") { renderMarkup(el, value); } else if (name === "pathMarkup") { el.querySelector(":scope>svg[data-exact-path]")?.remove(); el.insertAdjacentHTML("afterbegin", value); // kernel-made numbers only, under its paths (LLP 1065 D5, D12)
     } else if (name === "data-action") {
       el.setAttribute(name, value); el.style.touchAction = "none";
     } else if (name === "value") {
@@ -592,7 +592,7 @@ function apply(batch) {
         }
         // Reorder in place: keyed rows keep their elements (and their state).
         // A canvas's surface element is skipped: not a child, never removed.
-        const skip = (n) => { while (n?.hasAttribute("data-surface") || n?.hasAttribute("data-exiting")) n = n.nextElementSibling; return n; }; // a leaving view stays (LLP 1063)
+        const skip = (n) => { while (n?.hasAttribute("data-surface") || n?.hasAttribute("data-exiting") || n?.hasAttribute("data-exact-path")) n = n.nextElementSibling; return n; }; // a leaving view stays (LLP 1063), a path's drawing too
         let cursor = skip(el.firstElementChild);
         for (const child of want) {
           if (child === cursor) { cursor = skip(cursor.nextElementSibling); continue; }

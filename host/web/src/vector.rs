@@ -26,7 +26,7 @@
 //! depends on the node's own `vector-effect` and computed dashes, which the
 //! kernel re-sends when they change, as it does every row.
 
-use exact_kernel::vector::{commands_css, parse_view_box, Command, PathData, PreserveAspectRatio};
+use exact_kernel::vector::{commands_css, Command, PathData};
 use exact_kernel::{NodeRef, PropId, RowValue, SortedMap, StyleId, VectorEffect};
 use exact_num::Shortest32;
 use std::fmt::Write as _;
@@ -49,10 +49,12 @@ svg[data-exact-path] path[data-stroke]{\
 stroke-dasharray:calc(max(0,var(--e) - var(--s) + clamp(0,(var(--e) - var(--l))*1e6 + 1,1))*var(--k)) calc((var(--l) + 2)*var(--k));\
 stroke-dashoffset:calc(0 - var(--s)*var(--k));\
 stroke-opacity:clamp(0,(var(--e) - var(--s))*1e6,1)}\
-svg[data-exact-path] path[data-dot]{stroke-dasharray:none;stroke-opacity:calc(\
+svg[data-exact-path] path:is([data-dot],[data-mark]){--v:calc(\
 clamp(0,(var(--exact-stroke-end)*var(--L) - var(--a))*1e6 + 1,1)*\
 clamp(0,(var(--a) - var(--exact-stroke-start)*var(--L))*1e6 + 1,1)*\
-clamp(0,(var(--exact-stroke-end) - var(--exact-stroke-start))*1e12,1))}";
+clamp(0,(var(--exact-stroke-end) - var(--exact-stroke-start))*1e12,1))}\
+svg[data-exact-path] path[data-dot]{stroke-dasharray:none;stroke-opacity:var(--v)}\
+svg[data-exact-path] path[data-mark]{opacity:var(--v)}";
 
 /// The node's attributes: the markup in place of `d`, `viewBox` and
 /// `preserveAspectRatio`, and a path is decorative (hidden from assistive
@@ -74,12 +76,8 @@ pub(super) fn non_scaling(node: &NodeRef<'_>) -> bool {
 
 fn markup(node: &NodeRef<'_>) -> String {
     let data = PathData::parse(node.props.str(PropId::PathData).unwrap_or(""));
-    let view_box = node.props.str(PropId::ViewBox).and_then(parse_view_box);
-    let aspect = node
-        .props
-        .str(PropId::PreserveAspectRatio)
-        .and_then(PreserveAspectRatio::parse)
-        .unwrap_or_default();
+    // A path in a path draws in the outermost one's coordinate system.
+    let (view_box, aspect) = node.path_viewport();
     let dashed =
         matches!(node.computed(StyleId::StrokeDasharray), RowValue::DashArray(d) if d.dashes());
     let fixed = non_scaling(node);
@@ -155,6 +153,110 @@ fn markup(node: &NodeRef<'_>) -> String {
             data.css()
         );
     }
+    markers(node, &data, &mut out);
     out.push_str("</svg>");
     out
+}
+
+/// SVG's own markers (LLP 1065 D11), so `context-fill`/`context-stroke`
+/// paint the path's moving `fill` and `stroke` as the browser has them. The
+/// kernel says where they go: each vertex is a carrier — a stroke too thin to
+/// paint, from the vertex along the direction `orient="auto"` takes there —
+/// whose `marker-start` is the marker, `markerUnits="userSpaceOnUse"` at the
+/// stroke's width worked in, and which shows while the trim holds its
+/// place, as a dot does.
+fn markers(node: &NodeRef<'_>, data: &PathData, out: &mut String) {
+    use exact_kernel::vector::{Orient, Slot};
+    let rows = [
+        (Slot::Start, StyleId::MarkerStart),
+        (Slot::Mid, StyleId::MarkerMid),
+        (Slot::End, StyleId::MarkerEnd),
+    ];
+    let width = match node.computed(StyleId::StrokeWidth) {
+        RowValue::Number(n) => n as f32,
+        _ => 1.0,
+    };
+    let n = |v: f32| Shortest32(v).to_string();
+    let id = node.id;
+    let mut any = false;
+    for (slot, row) in rows {
+        let RowValue::Marker(marker) = node.computed(row) else {
+            continue;
+        };
+        let Some(def) = marker.def() else { continue };
+        any = true;
+        let k = if def.stroke_units { width } else { 1.0 };
+        let [w, h] = def.size;
+        let view = def.view_box.unwrap_or([0.0, 0.0, w, h]).map(n).join(" ");
+        let orient = match (def.orient, slot) {
+            (Orient::AutoStartReverse, Slot::Start) => "auto-start-reverse".into(),
+            (Orient::Auto | Orient::AutoStartReverse, _) => "auto".into(),
+            (Orient::Angle(a), _) => n(a),
+        };
+        let aspect = match def.view_box {
+            Some(_) => def.aspect.css(),
+            None => "none".into(),
+        };
+        let _ = write!(
+            out,
+            "<marker id=\"exact-mark-{id}-{slot:?}\" markerUnits=\"userSpaceOnUse\" viewBox=\"{view}\" preserveAspectRatio=\"{aspect}\" refX=\"{}\" refY=\"{}\" markerWidth=\"{}\" markerHeight=\"{}\" orient=\"{orient}\" overflow=\"hidden\">",
+            n(def.reference[0]),
+            n(def.reference[1]),
+            n(w * k),
+            n(h * k),
+        );
+        for shape in &def.shapes {
+            let _ = write!(
+                out,
+                "<path d=\"{}\" style=\"vector-effect:none;fill:{};stroke:{};stroke-width:{};stroke-linecap:{};stroke-linejoin:{};stroke-miterlimit:{};fill-rule:{};stroke-dasharray:none\"/>",
+                shape.data.css(),
+                shape.fill.css(),
+                shape.stroke.css(),
+                n(shape.width),
+                shape.cap.name(),
+                shape.join.name(),
+                n(shape.miter),
+                shape.rule.name()
+            );
+        }
+        out.push_str("</marker>");
+    }
+    if !any {
+        return;
+    }
+    // A carrier's length: small against the path, never lost to rounding.
+    let reach = data
+        .commands()
+        .iter()
+        .flat_map(|c| match *c {
+            Command::Move(p) | Command::Line(p) => vec![p],
+            Command::Cubic(a, b, p) => vec![a, b, p],
+            Command::Close => Vec::new(),
+        })
+        .flatten()
+        .fold(1.0f32, |m, v| m.max(v.abs()))
+        * 1e-4;
+    for vertex in data.vertices() {
+        let row = rows
+            .iter()
+            .find(|(s, _)| *s == vertex.slot)
+            .map(|(_, r)| *r);
+        let has = row
+            .is_some_and(|r| matches!(node.computed(r), RowValue::Marker(m) if m.def().is_some()));
+        if !has {
+            continue;
+        }
+        let (sin, cos) = vertex.angle.to_radians().sin_cos();
+        let [x, y] = vertex.point;
+        let _ = write!(
+            out,
+            "<path data-mark d=\"M {} {} L {} {}\" stroke-width=\"0\" marker-start=\"url(#exact-mark-{id}-{:?})\" style=\"--a:{}\"/>",
+            n(x),
+            n(y),
+            n(x + reach * cos as f32),
+            n(y + reach * sin as f32),
+            vertex.slot,
+            n(vertex.at as f32)
+        );
+    }
 }

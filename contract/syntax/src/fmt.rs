@@ -181,6 +181,11 @@ impl<'a> Layout<'a> {
         for style in &file.styles {
             self.attributes.extend(style.attrs.iter().map(|a| a.span));
         }
+        for marker in &file.markers {
+            let paths = marker.paths.iter().flat_map(|p| &p.attrs);
+            self.attributes
+                .extend(marker.attrs.iter().chain(paths).map(|a| a.span));
+        }
         for block in file.keyframes.iter().flat_map(|k| &k.blocks) {
             self.attributes.extend(block.attrs.iter().map(|a| a.span));
             let start = self.position(block.span).unwrap();

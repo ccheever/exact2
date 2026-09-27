@@ -26,6 +26,8 @@ final class VectorLayers {
     let shape = StillShapeLayer()
     let dashes = StillShapeLayer()
     let reveal = StillShapeLayer()
+    let markers = VectorMarkers()
+    private weak var host: CALayer?
     private var data: String?
     private var unit: CGPath?
     private var viewBox: CGRect?
@@ -33,6 +35,7 @@ final class VectorLayers {
     private var nonScaling = false
 
     init(in host: CALayer) {
+        self.host = host
         host.masksToBounds = true // SVG clips a path to its viewport
         host.addSublayer(shape)
         host.addSublayer(dashes)
@@ -45,7 +48,10 @@ final class VectorLayers {
 
     /// A view taken for a new node starts at identity strokes, as every
     /// presentation does (`NodePool.rebind`).
-    func reset() { for layer in [shape, reveal] { layer.strokeStart = 0; layer.strokeEnd = 1 } }
+    func reset() {
+        for layer in [shape, reveal] { layer.strokeStart = 0; layer.strokeEnd = 1 }
+        markers.present(start: 0, end: 1)
+    }
 
     /// A `present` op: the engine's value for this frame.
     func present(_ property: String, _ value: CGFloat) {
@@ -53,6 +59,7 @@ final class VectorLayers {
         for layer in [shape, reveal] {
             if property == "stroke-start" { layer.strokeStart = v } else { layer.strokeEnd = v }
         }
+        if property == "stroke-start" { markers.present(start: Double(v)) } else { markers.present(end: Double(v)) }
     }
 
     /// SVG's painting rows onto the layers. Absent is the initial value (the
@@ -104,6 +111,9 @@ final class VectorLayers {
             layer.miterLimit = CGFloat(style["stroke_miterlimit"]?.number ?? 4)
             layer.lineWidth = CGFloat(style["stroke_width"]?.number ?? 1)
         }
+        if let host { markers.update(props["markers"], in: host) }
+        let current = owner.channels("text_color", dark: dark).map { TextEngine.color($0).cgColor }
+        markers.paint(fill: shape.fillColor, stroke: stroke, current: current, dark: dark)
     }
 
     /// The view box fitted into `size`: the layers' transform, or for a
@@ -116,6 +126,7 @@ final class VectorLayers {
         // `sublayerTransform` turns about its centre on UIKit.
         for layer in [shape, dashes] { layer.setAffineTransform(nonScaling ? .identity : fit) }
         for layer in [shape, dashes, reveal] { layer.path = path }
+        markers.place(fit)
     }
 }
 

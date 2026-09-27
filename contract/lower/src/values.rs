@@ -42,6 +42,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadColor { .. } => "a color is `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb(r, g, b)`, `rgba(r, g, b, a)`, or `transparent`".into(),
         StyleValueError::BadShapeOutside { .. } => "expected none, circle(), ellipse(), inset() with one round radius, or polygon() with at most 64 vertices; lengths are points/px or percentages".into(),
         StyleValueError::BadClipPath { .. } => "expected none or path([nonzero | evenodd,] \"<SVG path data>\") with no error in the data".into(),
+        StyleValueError::BadMarker { .. } => "expected none or url(#name) naming a `marker` declaration".into(),
         StyleValueError::BadDashArray { .. } => "expected none or nonnegative numbers separated by spaces or commas".into(),
         StyleValueError::BadAspectRatio { .. } => "expected auto, a ratio (`16 / 9`, or a number), or both (`auto 4 / 3`); numbers are nonnegative".into(),
         StyleValueError::BadTransformOrigin { .. } => "expected one or two of left, center, right, top, bottom, a px length or a percentage (`left top`, `50% 100%`), then an optional z length".into(),

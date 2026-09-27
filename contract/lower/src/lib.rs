@@ -24,6 +24,7 @@ mod collection;
 pub mod expr;
 mod fonts;
 mod keyframes;
+mod markers;
 mod media;
 mod routes;
 mod sites;
@@ -103,7 +104,9 @@ fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
 /// rows. The driver runs this when an earlier pass refused, so a misspelled
 /// tag or a bad colour is reported in the same run as a type error.
 pub fn lint(file: &File) -> Vec<LowerError> {
-    fn walk(nodes: &[Node], table: &keyframes::Table, errors: &mut Vec<LowerError>) {
+    type Tables = (keyframes::Table, markers::Table);
+    fn walk(nodes: &[Node], tables: &Tables, errors: &mut Vec<LowerError>) {
+        let (table, marks) = tables;
         for n in nodes {
             match n {
                 Node::Element {
@@ -123,6 +126,9 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                 Some(tags::AttrTarget::Styles(
                                     [row @ (StyleId::Animation | StyleId::ExitAnimation)],
                                 )) => keyframes::animation_value(&a.value, table, *row).map(|_| ()),
+                                Some(tags::AttrTarget::Styles(rows)) if tags::is_marker(rows) => {
+                                    markers::marker_value(&a.value, marks, &a.name).map(|_| ())
+                                }
                                 Some(tags::AttrTarget::Styles(rows))
                                     if rows != [StyleId::FontFamily] =>
                                 {
@@ -139,28 +145,31 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                             errors.extend(checked.err());
                         }
                     }
-                    walk(children, table, errors);
+                    walk(children, tables, errors);
                 }
-                Node::Use { children, .. } => walk(children, table, errors),
-                Node::Provide { body, .. } => walk(body, table, errors),
+                Node::Use { children, .. } => walk(children, tables, errors),
+                Node::Provide { body, .. } => walk(body, tables, errors),
                 Node::When {
                     then, otherwise, ..
                 } => {
-                    walk(then, table, errors);
-                    walk(otherwise, table, errors);
+                    walk(then, tables, errors);
+                    walk(otherwise, tables, errors);
                 }
-                Node::Each { body, .. } => walk(body, table, errors),
+                Node::Each { body, .. } => walk(body, tables, errors),
                 Node::Match { some, none, .. } => {
-                    walk(&some.1, table, errors);
-                    walk(none, table, errors);
+                    walk(&some.1, tables, errors);
+                    walk(none, tables, errors);
                 }
                 Node::Children { .. } => {}
             }
         }
     }
     let (table, mut errors) = keyframes::resolve(file);
+    let (marks, refused) = markers::resolve(file);
+    errors.extend(refused);
+    let tables = (table, marks);
     for c in &file.components {
-        walk(&c.view, &table, &mut errors);
+        walk(&c.view, &tables, &mut errors);
     }
     errors.truncate(MAX_REFUSALS);
     errors
@@ -215,6 +224,7 @@ pub(crate) struct Lowerer<'a> {
     pub styles: BTreeMap<String, Vec<Attr>>,
     /// The file's `keyframes` declarations, resolved (LLP 1057).
     keyframes: keyframes::Table,
+    markers: markers::Table,
     /// The file's `fn` declarations, by name, expanded inline at each call
     /// (LLP 1017 P5), each with its body's repeated calls bound once.
     pub fns: BTreeMap<&'a str, (&'a FnDecl, &'a Expr)>,
@@ -326,6 +336,7 @@ fn lower_with_sites(
         actions: Vec::new(),
         styles: BTreeMap::new(),
         keyframes: keyframes::Table::default(),
+        markers: markers::Table::default(),
         fns: file
             .fns
             .iter()
@@ -345,6 +356,9 @@ fn lower_with_sites(
     l.declare_fonts(file, asset_root)?;
     let (table, refused) = keyframes::resolve(file);
     l.keyframes = table;
+    l.errors.extend(refused);
+    let (marks, refused) = markers::resolve(file);
+    l.markers = marks;
     l.errors.extend(refused);
     // Styles: rows only, literal only (the parser holds the second), by name.
     for s in &file.styles {
@@ -929,6 +943,9 @@ impl<'a> Lowerer<'a> {
                         children[0].span(),
                     );
                 }
+                if tag == "path" {
+                    tags::check_path_children(children)?;
+                }
                 if t.node_type.is_text_leaf() {
                     // Regions have no node of their own: a dynamic Markdown
                     // paragraph's each/when still produces only text runs.
@@ -1305,6 +1322,11 @@ impl<'a> Lowerer<'a> {
                 let resolved;
                 let a = if let [row @ (StyleId::Animation | StyleId::ExitAnimation)] = rows {
                     let value = keyframes::animation_value(&a.value, &self.keyframes, *row)?;
+                    resolved = Attr { value, ..a.clone() };
+                    &resolved
+                } else if tags::is_marker(rows) {
+                    // A marker's name becomes the marker (LLP 1065 D11).
+                    let value = markers::marker_value(&a.value, &self.markers, &a.name)?;
                     resolved = Attr { value, ..a.clone() };
                     &resolved
                 } else {

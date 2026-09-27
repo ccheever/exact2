@@ -855,7 +855,11 @@ mod tests {
             (StyleId::StrokeMiterlimit, number(9.0)),
             (StyleId::StrokeDasharray, text("4 2")),
             (StyleId::StrokeDashoffset, number(3.0)),
+            (StyleId::MarkerStart, text(MARK)),
+            (StyleId::MarkerMid, text(MARK)),
+            (StyleId::MarkerEnd, text(MARK)),
         ];
+        const MARK: &str = "marker(m;none;xMidYMid meet;0 0;3 3;strokeWidth;auto)";
         let mut covered = StyleMask::EMPTY;
         for (id, value) in samples {
             covered.set(id);

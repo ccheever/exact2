@@ -46,6 +46,9 @@ pub struct PathData {
     commands: Vec<Command>,
     /// For each subpath in order: the index of its `Move`, and its length.
     subpaths: Vec<(usize, f64)>,
+    /// Commands that continue the one before them: an arc's pieces after its
+    /// first. No vertex lies between them (markers, LLP 1065).
+    seams: Vec<usize>,
     error: Option<PathError>,
 }
 
@@ -54,10 +57,12 @@ impl PathData {
     /// (SVG 2 §9.5.4) and is reported by [`PathData::error`].
     pub fn parse(d: &str) -> PathData {
         let mut commands = Vec::new();
-        let error = Parser::new(d).run(&mut commands).err();
+        let mut parser = Parser::new(d);
+        let error = parser.run(&mut commands).err();
         let mut data = PathData {
             commands,
             subpaths: Vec::new(),
+            seams: parser.seams,
             error,
         };
         data.measure();
@@ -67,6 +72,12 @@ impl PathData {
     /// The normalized commands.
     pub fn commands(&self) -> &[Command] {
         &self.commands
+    }
+
+    /// Indices of commands that continue the command before them (an arc's
+    /// pieces after its first): no vertex lies between the two.
+    pub fn seams(&self) -> &[usize] {
+        &self.seams
     }
 
     /// The first error, if the data had one.
@@ -203,6 +214,7 @@ impl PathData {
         let mut data = PathData {
             commands,
             subpaths: Vec::new(),
+            seams: self.seams.clone(),
             error: self.error,
         };
         data.measure();
@@ -511,6 +523,16 @@ enum Segment {
 }
 
 impl Segment {
+    /// The segment a normalized command draws from `at`; a closepath (or a
+    /// moveto) is the line back to the subpath's `first` point.
+    fn of(at: Point, command: Command, first: Point) -> Segment {
+        match command {
+            Command::Line(p) => Segment::Line(at, p),
+            Command::Cubic(a, b, p) => Segment::Cubic([at, a, b, p]),
+            Command::Close | Command::Move(_) => Segment::Line(at, first),
+        }
+    }
+
     fn start(self) -> Point {
         match self {
             Segment::Line(a, _) => a,
@@ -614,6 +636,10 @@ fn cubic_length(p: [Point; 4], depth: u32) -> f64 {
 struct Parser<'a> {
     text: &'a str,
     at: usize,
+    /// [`PathData::seams`], as the commands are pushed.
+    seams: Vec<usize>,
+    /// Seams of the command being read, by index in its own commands.
+    pending: Vec<usize>,
 }
 
 /// The state SVG's command rules carry from one segment to the next.
@@ -631,7 +657,12 @@ struct Pen {
 
 impl<'a> Parser<'a> {
     fn new(text: &'a str) -> Self {
-        Parser { text, at: 0 }
+        Parser {
+            text,
+            at: 0,
+            seams: Vec::new(),
+            pending: Vec::new(),
+        }
     }
 
     fn peek(&self) -> Option<u8> {
@@ -754,7 +785,8 @@ impl<'a> Parser<'a> {
                     // A malformed set draws nothing, not even the subpath
                     // start a closepath would have implied.
                     segment.truncate(mark);
-                    out.extend(segment);
+                    self.pending.retain(|i| *i < mark);
+                    self.flush(out, segment);
                     return Err(fail);
                 }
                 sets += 1;
@@ -762,10 +794,17 @@ impl<'a> Parser<'a> {
                     break;
                 }
             }
-            out.extend(segment);
+            self.flush(out, segment);
             self.whitespace();
         }
         Ok(())
+    }
+
+    /// One command's commands into the path, its arc seams with them.
+    fn flush(&mut self, out: &mut Vec<Command>, segment: Vec<Command>) {
+        let at = out.len();
+        self.seams.extend(self.pending.drain(..).map(|i| i + at));
+        out.extend(segment);
     }
 
     /// One argument set of one command; `false` on a malformed one.
@@ -875,12 +914,14 @@ impl<'a> Parser<'a> {
                     return false;
                 };
                 let p = abs(p);
+                let first = out.len();
                 arc(pen.at, rx, ry, angle, large, sweep, p, &mut |c1, c2, e| {
                     out.push(match (c1, c2) {
                         (Some(c1), Some(c2)) => Command::Cubic(point(c1), point(c2), point(e)),
                         _ => Command::Line(point(e)),
                     })
                 });
+                self.pending.extend(first + 1..out.len());
                 pen.at = p;
             }
             b'Z' => {
@@ -1007,6 +1048,11 @@ fn arc(
         a = b;
     }
 }
+
+mod marker;
+pub use marker::{
+    markers, Marker, MarkerDef, MarkerShape, Orient, Placed, ShapePaint, Slot, Vertex,
+};
 
 #[cfg(test)]
 mod tests;

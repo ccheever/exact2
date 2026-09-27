@@ -113,5 +113,31 @@ final class PathViewIOSTests: XCTestCase {
         XCTAssertEqual((n.layer.mask as? CAShapeLayer)?.fillRule, .evenOdd)
         XCTAssertNil(n.hitTest(CGPoint(x: 20, y: 20), with: nil), "the hole is outside")
     }
+    func testMarkersArePlacedPaintedByContextAndTrimmed() {
+        // A 10 × 10 square on the line's end (80, 50), `context-stroke`.
+        let markers = "L 70\nD 0\nS M 0 0 L 10 0 L 10 10 L 0 10 Z|context-stroke|none|1|butt|miter|4|nonzero\nI 0 70 1 0 0 1 75 45 0 0 10 10 1 1 0 0"
+        let (_, view) = path(["pathData": "M 10 50 L 80 50", "markers": markers],
+                             ["stroke": [255, 0, 0, 255], "stroke_width": 2, "fill": "none"])
+        XCTAssertTrue(ink(view, 84, 50), "the marker past the line's end")
+        XCTAssertFalse(ink(view, 88, 50))
+        view.present("stroke-end", 0.5)
+        XCTAssertFalse(ink(view, 84, 50), "the pen has not reached its vertex")
+        view.present("stroke-end", 1)
+        XCTAssertTrue(ink(view, 84, 50))
+    }
+
+    func testAPathsDrawingLiesUnderItsPaths() {
+        let p = Presenter()
+        func batch(_ ops: [[String: Any]]) { p.apply(batchFixture(ops: ops, timers: false, motion: false, clock: nil, error: nil)) }
+        batch([
+            ["op": "create", "id": 1, "kind": "path", "props": ["pathData": "M 0 0 L 10 0"]],
+            ["op": "create", "id": 2, "kind": "path", "props": ["pathData": "M 0 5 L 10 5"]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "roots", "ids": [1]],
+        ])
+        let outer = p.views[1]!
+        XCTAssertTrue(outer.subviews.first is PathView, "the outer drawing first, then its paths")
+        XCTAssertTrue(outer.subviews.contains { $0 === p.views[2] })
+    }
 }
 #endif

@@ -2,7 +2,7 @@
 
 **Type:** RFC
 **Status:** Implemented 2026-09-26
-**Systems:** Kernel (`schema.json` node type 7 `Path`, props 8 `pathData`, 122 `viewBox` and 123 `preserveAspectRatio`, style bits 106–112 and 114–118 (113 is `transform-origin`), codecs `paint` and `dash-array`; `kernel/src/vector.rs`, `clip.rs`, `style/paint.rs`; `motion::node_targets`, `paint_targets`), Motion (`Property::StrokeStart`/`StrokeEnd`/`Fill`/`Stroke`), Contract (`path`, `d`, `viewBox`, `preserveAspectRatio`, SVG's painting attributes, `stroke-start`/`stroke-end`, keyframes), Web host (`vector.rs`, `css.rs`, `element.rs`, one `glue.js` line), Apple host (`vector.rs`, `paint.rs`, `VectorPath.swift`, `PathViewIOS.swift`, `PathViewMac.swift`, `ClipPath.swift`), Linux host (`paint/vector.rs`, `paint_motion.rs`, both painters)
+**Systems:** Kernel (`schema.json` node type 7 `Path`, props 8 `pathData`, 122 `viewBox` and 123 `preserveAspectRatio`, style bits 106–112 and 114–121 (113 is `transform-origin`), codecs `paint`, `dash-array` and `marker`; `kernel/src/vector.rs`, `clip.rs`, `style/paint.rs`; `motion::node_targets`, `paint_targets`), Motion (`Property::StrokeStart`/`StrokeEnd`/`Fill`/`Stroke`), Contract (`path`, `d`, `viewBox`, `preserveAspectRatio`, SVG's painting attributes, `stroke-start`/`stroke-end`, keyframes), Web host (`vector.rs`, `css.rs`, `element.rs`, one `glue.js` line), Apple host (`vector.rs`, `paint.rs`, `VectorPath.swift`, `PathViewIOS.swift`, `PathViewMac.swift`, `ClipPath.swift`), Linux host (`paint/vector.rs`, `paint_motion.rs`, both painters)
 **Author:** Claude (Opus 5.5) for Seth Webster
 **Date:** 2026-09-26
 **Related:** LLP 1002/1003 (motion: one representation, two executors), LLP 1057 (keyframes), LLP 1034 (`light-dark()`), LLP 1043.000 (`clip-path`, the other SVG path in the kernel)
@@ -33,13 +33,13 @@ path d="M…" viewBox="0 0 1307 840" … animation="draw 1600ms ease-in-out both
 
 ## Design
 
-**D1 — One node type, a leaf.** `path` is node type 7, renamed from the
+**D1 — One node type.** `path` is node type 7, renamed from the
 never-implemented `Svg` (its prop 8, `svgSource`, became `pathData`). It
-holds no children (`lower-leaf-children`) and has no intrinsic size: a bare
-one is a zero-height block, on every host, so an author sizes it (`width`,
-`height`, or `aspect-ratio`). *Rejected:* a general `<svg>` subtree — groups,
-several shapes, gradients — the product needs one path, and a document model
-is a second layout engine.
+holds only paths (D12) and has no intrinsic size: a bare one is a
+zero-height block, on every host, so an author sizes it (`width`,
+`height`, or `aspect-ratio`). *Rejected:* a general `<svg>` subtree —
+`<g>`, other shapes, gradients — a document model is a second layout
+engine; paths of paths and markers cover what the product draws.
 
 **D2 — SVG's attribute names.** `d` (prop `pathData`), `viewBox` (prop
 122) and `preserveAspectRatio` (prop 123) belong to `path` alone, as do
@@ -197,6 +197,55 @@ mask, on every host. The dashes never move as the trim animates; a cut dash
 ends in the stroke's cap. *Rejected:* dashing the trimmed path (Core
 Animation's own behaviour): the dashes crawl as `stroke-start` moves.
 
+**D11 — Markers: SVG's `<marker>`, declared once.** A file-level
+declaration, like `keyframes`:
+
+```
+marker arrow
+  viewBox="0 0 10 10" refX=5 refY=5 markerWidth=6 markerHeight=6 orient="auto-start-reverse"
+  path d="M0 0 L10 5 L0 10 z" fill="context-stroke"
+path d="…" stroke=ink() marker-end="url(#arrow)"
+```
+
+Its attributes are SVG's (`viewBox`, `preserveAspectRatio`, `refX`/`refY`,
+`markerWidth`/`markerHeight` 3 by default, `markerUnits` `strokeWidth` by
+default or `userSpaceOnUse`, `orient` `auto`, `auto-start-reverse` or an
+angle, 0 by default); each `path` line is a shape with `d` and SVG's
+painting properties at their initial values, `fill` and `stroke` also
+taking SVG 2's `context-fill`/`context-stroke` (the referencing path's own,
+moving or not). Rows `marker_start`/`mid`/`end` (119–121, codec `marker`,
+inherited as CSS has them; `marker` sets all three) hold the marker whole:
+the compiler rewrites `url(#name)` — a literal, or a condition between
+literals — to the row's own text (`vector::Marker`), so nothing looks a name
+up after compiling. Placement is the kernel's (`PathData::vertices`,
+`MarkerDef::place`): SVG 2 §11.6's vertices — start on the path's first,
+end on its last, mid on the rest; a closed subpath's closing point is one,
+an arc's pieces are one segment (`PathData::seams`) — and its directions,
+the bisector where a vertex has both, a closed subpath's start taking its
+closing segment; the transform is vertex · orientation · stroke width ·
+view box fit · `refX`/`refY`, clipped to the marker's viewport. A marker
+shows while the trim holds its vertex (D9's rule), so a pen reaches an
+arrowhead before it appears. Web: SVG's own `<marker>`s (one per slot,
+`markerUnits="userSpaceOnUse"` with the stroke width worked in), each drawn
+by a carrier path at the kernel's vertex along its direction, too thin to
+paint, whose opacity is D9's rule; the browser's context paint follows the
+path's transitions. Apple: `VectorMarkers`, a clipping layer per instance
+from the Rust host's `markers` prop. Linux: the painter draws each instance
+under its transform and viewport clip.
+
+**D12 — Paths of paths.** A `path` may hold paths (only paths: the
+kernel refuses anything else, `PathChildNotPath`; the compiler too), SVG's
+several `<path>`s in one `<svg>`: each child draws in the outermost path's
+coordinate system (`NodeRef::path_viewport`; `viewBox` and
+`preserveAspectRatio` belong to it alone), over its content box, after the
+parent's own drawing, with its own `d`, paint (inherited through the group,
+markers included) and trim. A child is no CSS box: the kernel lays it out
+absolutely over the parent's content box whatever its own box rows say (a
+declared deviation, SVG's), and a change to the parent touches and
+re-derives its paths. The web places the child's `div` the same way and
+keeps the parent's `<svg>` beside its children (`glue.js`); Apple keeps the
+parent's drawing under them.
+
 ## Verified
 
 - Unit and integration tests: parser, view box and fit (every alignment,
@@ -214,7 +263,18 @@ Animation's own behaviour): the dashes crawl as `stroke-start` moves.
   Apple's batch for moving `fill`/`stroke` and their inheritors
   (`host/apple/tests/it/paint.rs`); the UIKit and AppKit path views — fit,
   trim, aspect, non-scaling, paint rows and moving paint, dashes and their
-  mask, dots, an even-odd clip (`PathViewIOSTests`, `PathViewMacTests`).
+  mask, dots, an even-odd clip, markers placed, painted by context and
+  trimmed, a parent's drawing under its paths (`PathViewIOSTests`,
+  `PathViewMacTests`). Markers: parsing, vertices and bisectors, placement
+  (`kernel/src/vector/marker/tests.rs`), rows through the wire, groups'
+  layout and touches (`kernel/tests/it/vector_path.rs`), declarations and
+  refusals (`contract/cli/tests/it/vector_path.rs`), web markup, Apple
+  props, and Linux pixels on the CPU and GPU painters (dots and revealed
+  dashes compared between them).
+- Driven: a demo of markers (`context-stroke` through a `stroke`
+  transition, `auto-start-reverse`, mid dots, the trim) and a path of paths
+  on headless Chrome and the iOS simulator: the same drawing at 0, 500 ms
+  and settled.
 - Driven with `scripts/agent.mjs --plan` on the corpus fixture (three
   subpaths: loop, wave, underline), frames at 500/800/1100 ms and settled:
   headless Chrome, the iOS simulator, macOS and the Linux host each draw the
@@ -223,24 +283,14 @@ Animation's own behaviour): the dashes crawl as `stroke-start` moves.
 
 ## Not done
 
-- Markers (`marker-start`/`-mid`/`-end`) need `<marker>` content — a shape
-  with its own view box, `refX`/`refY`, `markerWidth`/`Height`,
-  `markerUnits` and `orient` — which a leaf `path` cannot hold (D1). An
-  estimate: a file-level `marker` declaration like `keyframes` (syntax,
-  lowering, a row codec), kernel vertex and tangent placement, and three
-  hosts drawing instances — about 1,000 lines. Awaiting a decision.
-- More than one path per node, each with its own paint, in one view box
-  (SVG's several `<path>`s in one `<svg>`): D1 rejected a subtree. Several
-  `path`s stacked by CSS (`position: absolute; inset: 0`, the same
-  `viewBox`) draw today, each with its own trim. A real group — children in
-  the parent's coordinate system, no CSS boxes, perhaps one pen across them
-  — touches layout exemption, the web's `innerHTML` markup (which would
-  replace child elements) and Apple's subview order: about 600 lines.
-  Awaiting a decision.
 - On the web, a non-scaling stroke under `preserveAspectRatio="none"` that
   stretches the axes unevenly trims by the smaller scale; Apple and Linux
-  trim the path as mapped into the box.
-- Linux's Vello painter draws dots, dashes and their reveal, but only the
-  tiny-skia painter's pixels are tested.
+  trim the path as mapped into the box. Not tractable on the web as built:
+  under `non-scaling-stroke` Chrome dashes in pixels and ignores
+  `pathLength`, so the trim needs each subpath's length in pixels, which
+  under uneven scaling depends on the curve and the box's size — neither
+  CSS nor kernel-made markup can say it, and the page runs no layout code.
+- Marker and group placement under `vector-effect: non-scaling-stroke`
+  follows the path's units; SVG 2 leaves markers there loosely specified.
 - On Apple, an ancestor's clip or the node's own `clip-path` applies as for
   any view.

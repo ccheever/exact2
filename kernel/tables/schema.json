@@ -1813,6 +1813,25 @@
       "bit": 118,
       "field": "vector_effect",
       "codec": "enum:VectorEffect"
+    },
+    {
+      "bit": 119,
+      "field": "marker_start",
+      "codec": "marker",
+      "inherited": true,
+      "_comment": "@ref LLP 1065 D11: SVG `marker-start`, the marker on a path's first vertex; the compiler writes the marker in whole."
+    },
+    {
+      "bit": 120,
+      "field": "marker_mid",
+      "codec": "marker",
+      "inherited": true
+    },
+    {
+      "bit": 121,
+      "field": "marker_end",
+      "codec": "marker",
+      "inherited": true
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 background-color, 7 color, 8 border-top-color, 9 border-right-color, 10 border-bottom-color, 11 border-left-color, 12 tint-color, 13 box-shadow, 15 border-color — LLP 1062; 14 is refused; 16 stroke-start, 17 stroke-end, 18 fill, 19 stroke — LLP 1065), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

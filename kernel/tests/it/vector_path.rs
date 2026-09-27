@@ -142,7 +142,8 @@ fn painting_rows_follow_svg_and_cross_the_wire() {
     }
     assert!(!StyleId::StrokeEnd.inherited());
     assert!(!StyleId::VectorEffect.inherited());
-    assert!(!NodeType::Path.can_hold_children());
+    // A path holds paths only (LLP 1065 D12).
+    assert!(NodeType::Path.can_hold_children());
 }
 
 #[test]
@@ -313,4 +314,155 @@ fn fill_and_stroke_are_paint_targets_unless_none() {
     w.transitions(&t);
     assert_eq!(Reader::new(w.as_slice()).transitions().unwrap(), t);
     assert_eq!(w.as_slice()[1], Property::Fill as u8 + 1);
+}
+
+/// A path holds paths, which draw in its coordinate system over its content
+/// box: no CSS boxes of their own (LLP 1065 D12). A change to the outer one
+/// touches them, so hosts redraw them; nothing else may be inside a path.
+#[test]
+fn a_path_holds_paths_over_its_content_box() {
+    use exact_kernel::{ApplyError, KernelError, Offer};
+    let mut kernel = Kernel::with_monospace();
+    let outer = rows(&[
+        (StyleId::Width, StyleValue::Number(200.0)),
+        (StyleId::Height, StyleValue::Number(100.0)),
+        (StyleId::PaddingLeft, StyleValue::Number(10.0)),
+        (StyleId::PaddingTop, StyleValue::Number(5.0)),
+    ]);
+    // The inner path's own box rows do nothing.
+    let inner = rows(&[
+        (StyleId::Width, StyleValue::Number(7.0)),
+        (StyleId::MarginLeft, StyleValue::Number(30.0)),
+    ]);
+    kernel
+        .apply(
+            0,
+            1,
+            &[
+                Op::CreateView {
+                    id: 1,
+                    node_type: NodeType::View,
+                },
+                Op::CreateView {
+                    id: 2,
+                    node_type: NodeType::Path,
+                },
+                Op::CreateView {
+                    id: 3,
+                    node_type: NodeType::Path,
+                },
+                Op::SetStyle {
+                    id: 2,
+                    patch: Box::new(outer),
+                },
+                Op::SetStyle {
+                    id: 3,
+                    patch: Box::new(inner),
+                },
+                Op::SetProp {
+                    id: 2,
+                    prop: PropId::ViewBox,
+                    value: PropValue::Str("0 0 10 10".into()),
+                },
+                Op::SetChildren {
+                    id: 2,
+                    children: vec![3],
+                },
+                Op::SetChildren {
+                    id: 1,
+                    children: vec![2],
+                },
+                Op::AttachRoot { id: 1 },
+            ],
+        )
+        .unwrap();
+    kernel
+        .compute_layout(1, Offer::definite(390.0, 844.0))
+        .unwrap();
+    let f = kernel.node(3).unwrap().frame;
+    // Content-box sizing: the content box is 200 × 100, inside the padding.
+    assert_eq!((f.x, f.y, f.width, f.height), (10.0, 5.0, 200.0, 100.0));
+    let inner = kernel.node(3).unwrap();
+    assert!(inner.in_path());
+    assert_eq!(inner.path_viewport().0, Some([0.0, 0.0, 10.0, 10.0]));
+    // The outer view box changes: the inner path is touched with it.
+    let receipt = kernel
+        .apply(
+            0,
+            2,
+            &[Op::SetProp {
+                id: 2,
+                prop: PropId::ViewBox,
+                value: PropValue::Str("0 0 20 20".into()),
+            }],
+        )
+        .unwrap();
+    assert!(receipt.touched.contains(&kernel.node(3).unwrap().key));
+    // Padding moves the inner box along.
+    kernel
+        .apply(
+            0,
+            3,
+            &[Op::SetStyle {
+                id: 2,
+                patch: Box::new(rows(&[(StyleId::PaddingLeft, StyleValue::Number(20.0))])),
+            }],
+        )
+        .unwrap();
+    kernel
+        .compute_layout(1, Offer::definite(390.0, 844.0))
+        .unwrap();
+    assert_eq!(kernel.node(3).unwrap().frame.x, 20.0);
+    let refused = kernel.apply(
+        0,
+        4,
+        &[
+            Op::CreateView {
+                id: 4,
+                node_type: NodeType::View,
+            },
+            Op::SetChildren {
+                id: 2,
+                children: vec![3, 4],
+            },
+        ],
+    );
+    assert!(
+        matches!(
+            refused,
+            Err(KernelError::Apply(ApplyError::PathChildNotPath { .. }))
+        ),
+        "{refused:?}"
+    );
+}
+
+/// `marker-*` rows cross the wire whole and place on the path's vertices
+/// (LLP 1065 D11).
+#[test]
+fn marker_rows_cross_the_wire_and_place() {
+    let row = "marker(dot;none;xMidYMid meet;1 1;2 2;strokeWidth;0;M0 0 H2 V2 H0 Z|context-stroke|none|1|butt|miter|4|nonzero)";
+    let style = rows(&[
+        (StyleId::MarkerMid, text(row)),
+        (StyleId::StrokeWidth, StyleValue::Number(3.0)),
+    ]);
+    let mut bytes = Writer::new();
+    style.encode_patch(&mut bytes);
+    assert_eq!(
+        StyleProps::decode_patch(&mut Reader::new(bytes.as_slice())).unwrap(),
+        style
+    );
+    assert!(StyleId::MarkerEnd.inherited());
+    assert!(StyleProps::default()
+        .set_dynamic(StyleId::MarkerEnd, &text("url(#dot)"))
+        .is_err());
+    let (kernel, _, _) = path_kernel(style);
+    let node = kernel.node(2).unwrap();
+    let data = exact_kernel::vector::PathData::parse("M0 0 H10 M0 5 H30");
+    // Two subpaths, four vertices: the middle two take `marker-mid`.
+    let placed = node.path_markers(&data);
+    assert_eq!(placed.len(), 2);
+    assert_eq!(
+        placed.iter().map(|(_, p)| p.at).collect::<Vec<_>>(),
+        [10.0, 10.0]
+    );
 }

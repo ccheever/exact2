@@ -196,3 +196,32 @@ fn aspect_dots_dashes_and_non_scaling_strokes_in_the_markup() {
         "{fixed}"
     );
 }
+
+/// SVG's own markers, placed at the kernel's vertices by carriers the trim
+/// shows and hides; a path in a path covers its parent's content box in its
+/// coordinate system, its drawing kept under its paths (LLP 1065 D11, D12).
+#[test]
+fn markers_and_a_path_of_paths_in_the_markup() {
+    let (_, first) = boot_source(
+        "marker arrow\n  viewBox=\"0 0 10 10\" refX=5 refY=5 markerWidth=6 markerHeight=6 orient=\"auto-start-reverse\"\n  path d=\"M0 0 L10 5 L0 10 z\" fill=\"context-stroke\"\ncomponent App\n  view\n    column\n      path testId=\"outer\" width=200 height=100 padding=10 viewBox=\"0 0 20 10\" d=\"M0 0 H20\" stroke=\"#000\" stroke-width=2 marker-start=\"url(#arrow)\" marker-end=\"url(#arrow)\"\n        path testId=\"inner\" d=\"M0 5 H20\" width=7\n",
+    );
+    let outer = create(&first, "outer");
+    // Twice the stroke's width: 12 × 12 user units.
+    for fragment in [
+        r#"<marker id=\"exact-mark-"#,
+        r#"markerUnits=\"userSpaceOnUse\" viewBox=\"0 0 10 10\" preserveAspectRatio=\"xMidYMid meet\" refX=\"5\" refY=\"5\" markerWidth=\"12\" markerHeight=\"12\" orient=\"auto-start-reverse\""#,
+        r#"orient=\"auto\""#,
+        "fill:context-stroke;",
+        r#"<path data-mark d=\"M 0 0 L 0.00"#,
+        r#" 0\" stroke-width=\"0\" marker-start=\"url(#exact-mark-2-Start)\" style=\"--a:0\"/>"#,
+        r#"style=\"--a:20\"/>"#,
+    ] {
+        assert!(outer.contains(fragment), "{fragment}\n{outer}");
+    }
+    let inner = create(&first, "inner");
+    assert!(inner.contains(r#"viewBox=\"0 0 20 10\""#), "{inner}");
+    assert!(
+        inner.contains("position:absolute;top:10px;right:10px;bottom:10px;left:10px;width:auto;"),
+        "{inner}"
+    );
+}

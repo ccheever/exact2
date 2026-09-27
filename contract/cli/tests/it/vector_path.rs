@@ -106,7 +106,7 @@ fn what_is_not_a_drawable_path_is_refused_at_compile_time() {
         (
             app("", "path d=\"M0 0\"\n        text \"a\""),
             "lower-leaf-children",
-            "`path` cannot hold children",
+            "`path` holds only `path`s, not `text`",
         ),
         (
             app("keyframes k\n  to\n    stroke-width=3\n", "path"),
@@ -203,4 +203,115 @@ fn the_rest_of_svg_painting_and_paint_keyframes() {
         glow[1].values,
         [(Property::Fill, Value::rgba(0.0, 0.0, 1.0, 1.0))]
     );
+}
+
+const MARKED: &str = r##"marker arrow
+  viewBox="0 0 10 10" refX=5 refY=5 markerWidth=6 markerHeight=6 orient="auto-start-reverse"
+  path d="M0 0 L10 5 L0 10 z" fill="context-stroke"
+  path d="M2 2 H8" stroke="light-dark(#000, #fff)" stroke-width=0.5 stroke-linecap="round"
+
+style Arrowed
+  marker-end="url(#arrow)"
+
+component App
+  state on = false
+  action go writes on
+    on = true
+  view
+    column
+      button press=go testId="go"
+        text "Go"
+      path testId="group" width=200 height=100 viewBox="0 0 20 10" d="M0 0 H20" stroke="#000"
+        path testId="inner" d="M0 5 H20" class=Arrowed marker-start=(on ? "url(#arrow)" : "none")
+"##;
+
+/// A `marker` declaration becomes the `marker-*` rows' own text, a
+/// condition choosing between markers included; a path holds paths
+/// (LLP 1065 D11, D12).
+#[test]
+fn markers_resolve_into_their_rows_and_a_path_holds_paths() {
+    let plan = contract::compile(MARKED).unwrap();
+    let mut r = Runner::boot(
+        Plan::decode(&plan.encode()).unwrap(),
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel();
+    let inner = k.node_by_key(k.find_by_test_id("inner")[0]).unwrap();
+    let group = k.node_by_key(k.find_by_test_id("group")[0]).unwrap();
+    assert_eq!(inner.parent, Some(group.id));
+    let end = inner.style.marker_end.def().unwrap();
+    assert_eq!(end.name, "arrow");
+    assert_eq!(end.orient, exact_kernel::vector::Orient::AutoStartReverse);
+    assert_eq!(end.shapes.len(), 2);
+    assert_eq!(
+        end.shapes[0].fill,
+        exact_kernel::vector::ShapePaint::ContextStroke
+    );
+    assert!(inner.style.marker_start.def().is_none());
+    let go = k.node_by_key(k.find_by_test_id("go")[0]).unwrap().id;
+    r.dispatch(go, Event::Press).unwrap();
+    let k = r.kernel();
+    let inner = k.node_by_key(k.find_by_test_id("inner")[0]).unwrap();
+    assert_eq!(inner.style.marker_start.def().unwrap().name, "arrow");
+}
+
+#[test]
+fn what_is_not_a_marker_or_a_group_is_refused() {
+    let app = |decls: &str, node: &str| {
+        format!("{decls}component App\n  state on = true\n  view\n    column\n      {node}\n")
+    };
+    let m = "marker m\n  markerWidth=3\n  path d=\"M0 0 H1\"\n";
+    for (source, id, says) in [
+        (
+            app("", "path marker-end=\"url(#nope)\""),
+            "lower-marker-unknown",
+            "no `marker` declares",
+        ),
+        (
+            app(m, "path marker-end=\"#m\""),
+            "lower-attr-value",
+            "`none` or `url(#name)`",
+        ),
+        (
+            app(m, "path marker=(on ? \"url(#m)\" : `url(#${on})`)"),
+            "lower-marker-literal",
+            "resolved when the app compiles",
+        ),
+        (
+            app(
+                "marker m\n  orient=\"sideways\"\n  path d=\"M0 0\"\n",
+                "path",
+            ),
+            "lower-marker",
+            "`orient`",
+        ),
+        (
+            app("marker m\n  size=3\n", "path"),
+            "lower-marker",
+            "no attribute `size`",
+        ),
+        (
+            app("marker m\n  path fill=\"#000\"\n", "path"),
+            "lower-marker",
+            "needs `d`",
+        ),
+        (
+            app("marker m\n  path d=\"M0 0\" fill=\"context-ish\"\n", "path"),
+            "lower-marker",
+            "context-stroke",
+        ),
+        (
+            app("", "path d=\"M0 0\"\n        path viewBox=\"0 0 1 1\""),
+            "lower-attr-tag",
+            "outermost `path`",
+        ),
+    ] {
+        let error = contract::compile(&source).unwrap_err();
+        assert_eq!(error.id, id, "{source}\n{error}");
+        assert!(error.message.contains(says), "{error}");
+    }
 }

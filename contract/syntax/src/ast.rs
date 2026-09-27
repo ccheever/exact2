@@ -38,6 +38,8 @@ pub struct File {
     pub styles: Vec<StyleDecl>,
     /// `keyframes` declarations, in order (LLP 1057).
     pub keyframes: Vec<KeyframesDecl>,
+    /// `marker` declarations, in order (LLP 1065).
+    pub markers: Vec<MarkerDecl>,
     /// `fn` declarations, in order (LLP 1017 P5).
     pub fns: Vec<FnDecl>,
     /// `test` declarations, in order (LLP 1017 P7) — normally in a file of
@@ -259,6 +261,29 @@ pub struct KeyframesDecl {
     pub name: String,
     /// The blocks, as written.
     pub blocks: Vec<KeyframeDecl>,
+    /// Where.
+    pub span: Span,
+}
+
+/// `marker Name` — SVG's `<marker>`: its own attributes (`viewBox`,
+/// `refX`, `orient`, …) and the paths it draws (LLP 1065 D11).
+#[derive(Debug, Clone, PartialEq)]
+pub struct MarkerDecl {
+    /// The name `url(#Name)` refers to.
+    pub name: String,
+    /// The marker's attributes, as literals.
+    pub attrs: Vec<Attr>,
+    /// Its paths, in order.
+    pub paths: Vec<MarkerPathDecl>,
+    /// Where.
+    pub span: Span,
+}
+
+/// One `path` line of a `marker`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MarkerPathDecl {
+    /// Its attributes (`d`, `fill`, …), as literals.
+    pub attrs: Vec<Attr>,
     /// Where.
     pub span: Span,
 }

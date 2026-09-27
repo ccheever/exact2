@@ -96,6 +96,8 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
                     commands.join(",")
                 )
             }
+            // @ref LLP 1065 D11 — placed by the Rust host, a `markers` prop.
+            RowValue::Marker(_) => continue,
             // @ref LLP 1065 — the dashes, in the path's units.
             RowValue::DashArray(d) => format!(
                 "[{}]",

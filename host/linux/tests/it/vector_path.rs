@@ -163,3 +163,139 @@ fn dots_dashes_rules_aspect_fill_motion_and_clip_paths() {
     p.tick(1500.0);
     assert_eq!(at(&mut p, "tint", 20., 10.), [0, 0, 255]);
 }
+
+const MARKED: &str = r##"marker sq
+  refX=5 refY=5 markerWidth=10 markerHeight=10 markerUnits="userSpaceOnUse" orient="auto"
+  path d="M0 0 H10 V10 H0 Z" fill="context-stroke"
+
+component App
+  state on = false
+  action go writes on
+    on = true
+  view
+    column
+      button press=go testId="go" width=20 height=20
+      path testId="line" width=100 height=40 d="M10 20 H80" stroke="#ff0000" stroke-width=2 marker-end="url(#sq)" stroke-end=(on ? 0.5 : 1)
+      path testId="group" width=100 height=50 viewBox="0 0 10 5" d="M0 0 H1" stroke="#000000"
+        path testId="inner" d="M0 0 H10 V5 H0 Z" fill="#0000ff"
+"##;
+
+/// Every painter that can run here: the GPU's when there is one (the fleet
+/// has none; say so rather than fail).
+fn painters() -> Vec<PainterChoice> {
+    let mut v = vec![PainterChoice::Cpu];
+    match exact_linux::gpu::Gpu::new() {
+        Ok(_) => v.push(PainterChoice::Gpu),
+        Err(e) => eprintln!("no GPU here ({e}); the GPU painter's pixels are not checked"),
+    }
+    v
+}
+
+/// A marker at the path's end, in the stroke's colour, gone when the trim
+/// no longer holds its vertex; a path of paths in one coordinate system
+/// (LLP 1065 D11, D12) — on the CPU painter and, where there is one, the GPU.
+#[test]
+fn markers_and_paths_of_paths_on_every_painter() {
+    let plan = contract::compile(MARKED).unwrap();
+    for choice in painters() {
+        let (mut p, error) = Presenter::boot_with(
+            &plan.encode(),
+            NoData,
+            (200., 300.),
+            1.,
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+            choice,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        let id = |p: &Presenter<NoData>, name: &str| {
+            let k = p.host().kernel();
+            k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
+        };
+        let at = |p: &mut Presenter<NoData>, name: &str, x: f32, y: f32| {
+            let node = id(p, name);
+            let r = p.rect_of(node).unwrap();
+            let c = p
+                .frame()
+                .pixel((r.0 + x) as u32, (r.1 + y) as u32)
+                .unwrap()
+                .demultiply();
+            [c.red(), c.green(), c.blue()]
+        };
+        // The square marker, centred on the end (80, 20), 10 across, red.
+        assert_eq!(at(&mut p, "line", 84.0, 24.0), [255, 0, 0], "{choice:?}");
+        assert_eq!(at(&mut p, "line", 84.0, 16.0), [255, 0, 0], "{choice:?}");
+        assert_eq!(
+            at(&mut p, "line", 87.0, 20.0),
+            [255, 255, 255],
+            "{choice:?}"
+        );
+        // The inner path fills the outer one's box through its view box, and
+        // strokes with the stroke it inherits, a unit (ten pixels) wide.
+        assert_eq!(at(&mut p, "group", 50.0, 25.0), [0, 0, 255], "{choice:?}");
+        assert_eq!(at(&mut p, "group", 90.0, 40.0), [0, 0, 255], "{choice:?}");
+        assert_eq!(at(&mut p, "group", 97.0, 25.0), [0, 0, 0], "{choice:?}");
+        let go = id(&p, "go");
+        p.tap(go).unwrap();
+        p.tick(10.0);
+        // Half the line: the marker at its end is not reached.
+        assert_eq!(
+            at(&mut p, "line", 84.0, 24.0),
+            [255, 255, 255],
+            "{choice:?}"
+        );
+        assert_eq!(at(&mut p, "line", 40.0, 20.0), [255, 0, 0], "{choice:?}");
+    }
+}
+
+/// The GPU painter draws what the CPU one does for a dot, dashes the trim
+/// reveals, and a non-scaling stroke (LLP 1065 D7, D9, D10).
+#[test]
+fn the_gpu_painter_draws_dots_and_dashes_as_the_cpu_does() {
+    const SRC: &str = r##"component App
+  view
+    column
+      path testId="dots" width=100 height=20 d="M10 10 Z M30 10 H90" stroke="#000000" stroke-width=10 stroke-linecap="round" fill="none" stroke-end=0.5
+      path testId="dash" width=100 height=20 d="M0 10 H100" stroke="#000000" stroke-width=10 stroke-dasharray="20 10" stroke-end=0.5 fill="none"
+"##;
+    let plan = contract::compile(SRC).unwrap();
+    let frames: Vec<Vec<bool>> = painters()
+        .into_iter()
+        .map(|choice| {
+            let (mut p, _) = Presenter::boot_with(
+                &plan.encode(),
+                NoData,
+                (200., 100.),
+                1.,
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+                choice,
+            )
+            .unwrap();
+            let frame = p.frame();
+            let k = p.host().kernel();
+            let rows: Vec<_> = ["dots", "dash"]
+                .iter()
+                .map(|n| k.node_by_key(k.find_by_test_id(n)[0]).unwrap().id)
+                .collect();
+            let mut ink = Vec::new();
+            for row in rows {
+                let r = p.rect_of(row).unwrap();
+                for x in (2..100).step_by(3) {
+                    let c = frame.pixel(r.0 as u32 + x, r.1 as u32 + 10).unwrap();
+                    ink.push(c.red() < 128);
+                }
+            }
+            ink
+        })
+        .collect();
+    // The dot, the half-drawn line, the first dashes: whatever painter.
+    let cpu = &frames[0];
+    assert!(cpu[3] && !cpu[6] && cpu[10], "{cpu:?}");
+    for gpu in &frames[1..] {
+        let differ = cpu.iter().zip(gpu).filter(|(a, b)| a != b).count();
+        assert!(
+            differ <= 2,
+            "GPU and CPU differ at {differ} samples\n{cpu:?}\n{gpu:?}"
+        );
+    }
+}

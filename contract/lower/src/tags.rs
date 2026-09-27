@@ -397,6 +397,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "stroke-dashoffset" => styles(&[StyleId::StrokeDashoffset]),
         "fill-rule" => styles(&[StyleId::FillRule]),
         "vector-effect" => styles(&[StyleId::VectorEffect]),
+        "marker-start" => styles(&[StyleId::MarkerStart]),
+        "marker-mid" => styles(&[StyleId::MarkerMid]),
+        "marker-end" => styles(&[StyleId::MarkerEnd]),
+        "marker" => styles(MARKERS),
         "stroke-start" => styles(&[StyleId::StrokeStart]),
         "stroke-end" => styles(&[StyleId::StrokeEnd]),
         "white-space" => styles(&[StyleId::WhiteSpace]),
@@ -706,6 +710,14 @@ pub(crate) fn validate_list(
     Ok(())
 }
 
+/// `marker`'s three rows, SVG's shorthand (LLP 1065 D11).
+const MARKERS: &[StyleId] = &[StyleId::MarkerStart, StyleId::MarkerMid, StyleId::MarkerEnd];
+
+/// Whether `rows` are `marker-*` rows, whose value names a declaration.
+pub(crate) fn is_marker(rows: &[StyleId]) -> bool {
+    !rows.is_empty() && rows.iter().all(|r| MARKERS.contains(r))
+}
+
 /// The attributes only `path` takes (LLP 1065 D1): its data, its coordinate
 /// system, and how much of its stroke shows. The painting properties
 /// (`fill`, `stroke`, …) inherit, as SVG's do, so any box may set them.
@@ -777,6 +789,59 @@ pub(crate) fn check_path_attr(
         ),
         _ => Ok(()),
     }
+}
+
+/// A `path`'s children are paths that draw in its coordinate system (LLP
+/// 1065 D12): SVG's several `<path>`s in one `<svg>`. Only the outermost
+/// path has a view box.
+pub(crate) fn check_path_children(
+    children: &[contract_syntax::Node],
+) -> Result<(), super::LowerError> {
+    use contract_syntax::Node;
+    for child in children {
+        match child {
+            Node::Element {
+                tag, attrs, span, ..
+            } => {
+                if tag != "path" {
+                    return super::err(
+                        "lower-leaf-children",
+                        format!("`path` holds only `path`s, not `{tag}`"),
+                        *span,
+                    );
+                }
+                if let Some(a) = attrs
+                    .iter()
+                    .find(|a| matches!(a.name.as_str(), "viewBox" | "preserveAspectRatio"))
+                {
+                    return super::err(
+                        "lower-attr-tag",
+                        format!("`{}` belongs to the outermost `path`: a path in a path draws in its coordinate system", a.name),
+                        a.span,
+                    );
+                }
+            }
+            Node::Each { body, .. } => check_path_children(body)?,
+            Node::When {
+                then, otherwise, ..
+            } => {
+                check_path_children(then)?;
+                check_path_children(otherwise)?;
+            }
+            Node::Match { some, none, .. } => {
+                check_path_children(&some.1)?;
+                check_path_children(none)?;
+            }
+            other => {
+                return super::err(
+                    "lower-leaf-children",
+                    "`path` holds only `path`s",
+                    other.span(),
+                )
+            }
+        }
+    }
+    Ok(())
 }
 
 /// The attributes `head` takes, and only `head` (LLP 1048.003 D1).

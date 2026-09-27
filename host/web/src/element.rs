@@ -28,6 +28,26 @@ pub(super) fn host_css(node: &NodeRef<'_>, mut css: String, tag: &str) -> String
     if node.node_type == NodeType::Canvas {
         css.push_str("isolation:isolate;");
     }
+    // A path in a path is no box: it covers its parent's content box, its
+    // own sizing undone (LLP 1065 D12), as the kernel lays it out.
+    if node.node_type == NodeType::Path {
+        let kernel_parent = node.parent_style().filter(|_| node.in_path());
+        if let Some(parent) = kernel_parent {
+            css.push_str("position:absolute;");
+            for (side, d) in [
+                ("top", parent.padding_top),
+                ("right", parent.padding_right),
+                ("bottom", parent.padding_bottom),
+                ("left", parent.padding_left),
+            ] {
+                css.push_str(side);
+                css.push(':');
+                super::css::dimension(&mut css, d);
+                css.push(';');
+            }
+            css.push_str("width:auto;height:auto;min-width:0;min-height:0;max-width:none;max-height:none;margin:0;padding:0;border:0;");
+        }
+    }
     // A non-scaling stroke reads the box's size in container units (LLP 1065).
     if node.node_type == NodeType::Path && super::vector::non_scaling(node) {
         css.push_str("container-type:size;");

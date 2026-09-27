@@ -1140,6 +1140,8 @@ final class Presenter {
                     }
                 }
                 if collections.owns(id) { collections.orderChildren(want, in: container) }
+                // A path's own drawing lies under its paths (LLP 1065 D12).
+                if let path = PathView.of(parent) { container.addSubview(path, positioned: .below, relativeTo: nil) }
             case .surface:
                 if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] ?? []) }
             case .command:

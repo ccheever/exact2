@@ -396,3 +396,49 @@ fn a_paths_fill_and_stroke_move_as_colours() {
         assert!(op.starts_with("\"unpresent\""), "{op}");
     }
 }
+
+/// A path's markers cross placed (LLP 1065 D11): the path's length, each
+/// marker's shapes once, and each instance's transform, viewport and fit; a
+/// path in a path takes the outer one's view box (D12) and inherits its
+/// markers.
+#[test]
+fn markers_and_a_path_of_paths_cross_as_props() {
+    let src = r##"marker sq
+  refX=5 refY=5 markerWidth=10 markerHeight=10 markerUnits="userSpaceOnUse"
+  path d="M0 0 H10 V10 H0 Z" fill="context-stroke"
+component App
+  view
+    column
+      path testId="outer" width=100 height=50 viewBox="0 0 10 5" d="M0 1 H8" stroke="#ff0000" marker-start="url(#sq)" marker-end="url(#sq)"
+        path testId="inner" d="M0 0 H10"
+"##;
+    let plan = contract::compile(src).unwrap();
+    let (host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.0,
+        874.0,
+    )
+    .unwrap();
+    let (outer, inner) = (view(&host, "outer"), view(&host, "inner"));
+    let create = |id: u32| {
+        first
+            .split("{\"op\":")
+            .find(|op| op.starts_with("\"create\"") && op.contains(&format!("\"id\":{id},")))
+            .unwrap()
+            .to_owned()
+    };
+    let o = create(outer);
+    assert!(
+        o.contains(r#""markers":"L 8\nD 0\nS M 0 0 L 10 0 L 10 10 L 0 10 Z|context-stroke|none|1|butt|miter|4|nonzero\nI 0 0 1 0 0 1 -5 -4 0 0 10 10 1 1 0 0\nI 0 8 1 0 0 1 3 -4 0 0 10 10 1 1 0 0""#),
+        "{o}"
+    );
+    let i = create(inner);
+    assert!(i.contains(r#""viewBox":"0 0 10 5""#), "{i}");
+    // Markers inherit, as SVG's do: the inner path has its own.
+    assert!(
+        i.contains(r#"I 0 10 1 0 0 1 5 -5 0 0 10 10 1 1 0 0""#),
+        "{i}"
+    );
+}
