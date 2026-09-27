@@ -18,7 +18,7 @@ const pieces = afterPaintPieces(loadAfterPaint, { root, views, applyBatch, inert
   wasm(name, bytes) { if (!wasm) return null; new Uint8Array(memory.buffer, wasm.exact_in(bytes.length), bytes.length).set(bytes); return JSON.parse(readOut(wasm[name](bytes.length))); } });
 const { collections, motion, arrange } = pieces, retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
 const presence = presenceLoader(loadAfterPaint, root, batch => applyBatch(batch), log); // exit-animation and layout-transition, after paint at first use (LLP 1063)
-let mediaModule;
+let mediaModule, imageHold; // animated images held to the agent's clock (image-glue.js, LLP 1011.000)
 function syncMedia(el, set = {}, clear = []) {
   if (!(el instanceof HTMLVideoElement)) return;
   el.exactMedia ??= { props: {}, handlers: [] };
@@ -160,7 +160,8 @@ const decoder = new TextDecoder();
 const t0 = performance.now();
 const agentMode = AGENT_ADMITTED && new URL(location.href).searchParams.has("agent");
 let agentClock = agentMode ? 0 : null;
-const { register, seek, settle: settleCandidate } = animationClock(() => agentClock, () => ask({ op: "settle" }).settle, () => presence.live?.sync());
+const { register, seek: seekAnimations, settle: settleCandidate } = animationClock(() => agentClock, () => ask({ op: "settle" }).settle, () => presence.live?.sync());
+const seek = to => { (imageHold ??= loadAfterPaint('./image-glue.js', 'holdImages').then(f => f({ root, now: () => agentClock }))).then(h => h.seek()); seekAnimations(to); };
 const now = () => agentClock ?? performance.now() - t0;
 let bootAttempt = 0;
 let devAssets = null;
@@ -1222,7 +1223,7 @@ function tagged(reply) {
 // the runner says; a timer's refusal is the error. A promise: the driver
 // awaits it.
 async function clock(request) {
-  const settle = !!request.settle;
+  const settle = !!request.settle; if (imageHold) await (await imageHold).ready(); // an animated image starts on the clock it lands at
   const deadline = performance.now() + SETTLE_DEADLINE_MS;
   let world = {};
   const reply = (settled, requests) => ({ clock: agentClock, ...(settled === undefined ? {} : { settled }), ...world.reply, ...(settled === false && world.pending ? { reason: "world" } : settled === false && requests ? { reason: "requests" } : {}) });
@@ -1243,11 +1244,11 @@ async function clock(request) {
     if (batch.error) return { error: `clock: ${batch.error}`, clock: agentClock };
     if (gpuInPlay()) await settleGpu();
     world = globalThis.exact.gpu?.clock?.(settle) ?? {};
-    if (!settle) return reply();
+    if (!settle) { if (imageHold) await (await imageHold).ready(); return reply(); }
     collections.settle(); // every list built and measured where it shows (LLP 1070 G3)
     if (waiting().length) { if (rounds >= 15) return reply(false, true); continue; }
     const next = Math.max(settleCandidate(), world.settleAt ?? agentClock);
-    if (next <= agentClock && !world.pending) { const held = ask({ op: "holds" }); return held.holds?.length ? { ...reply(false), reason: "device", tickets: held.tickets } : reply(true); } // a hold is never waited on (LLP 1069.007 D3)
+    if (next <= agentClock && !world.pending) { if (imageHold) await (await imageHold).ready(); const held = ask({ op: "holds" }); return held.holds?.length ? { ...reply(false), reason: "device", tickets: held.tickets } : reply(true); } // a hold is never waited on (LLP 1069.007 D3)
     if (rounds >= 15) return reply(false);
   }
 }

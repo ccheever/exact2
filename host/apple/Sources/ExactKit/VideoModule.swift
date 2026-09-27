@@ -174,6 +174,7 @@ final class VideoVisibilityHost {
     func remove(_ video: VideoView) { videos.removeValue(forKey: ObjectIdentifier(video)) }
     func reset() { videos.removeAll() }
     func changed() {
+        AnimatedRasters.shared.poke()
         guard !videos.isEmpty, !queued else { return }
         queued = true
         DispatchQueue.main.async { [weak self] in

@@ -90,7 +90,8 @@ extension NodeView {
         }
         if l.frame != shown { l.frame = shown }
         if l.contentsRect != unit { l.contentsRect = unit }
-        if (l.contents as AnyObject?) !== bitmap.image { l.contents = bitmap.image }
+        let frame = AnimatedRasters.shared.frame(for: self) ?? bitmap.image
+        if (l.contents as AnyObject?) !== frame { l.contents = frame }
         if l.cornerRadius != radius { l.cornerRadius = radius }
         if radius > 0, l.maskedCorners != corners { l.maskedCorners = corners }
         let clips = radius > 0

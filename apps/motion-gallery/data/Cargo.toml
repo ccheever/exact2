@@ -1,0 +1,16 @@
+# The motion gallery's data source (LLP 1011.000, LLP 1055 D7): none; every fixture is literal.
+[package]
+name = "motion-gallery-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The motion gallery's data source: none"
+publish = false
+
+[lib]
+name = "motion_gallery_data"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }

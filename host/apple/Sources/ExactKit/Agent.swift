@@ -188,6 +188,7 @@ public final class Agent {
             var raster = session.rasters.diagnostics
             raster["encodedResolverBytes"] = session.app.resolver.encodedCacheBytes
             raster["encodedHTTPCache"] = RasterInput.httpCacheUsage
+            raster["animated"] = AnimatedRasters.shared.diagnostics
             nativeSections["raster"] = raster
             #if os(macOS)
             nativeSections["contentRegion"] = session.regions.diagnostics
@@ -325,6 +326,7 @@ public final class Agent {
         // Settle ends motion: every leaf held mid-fling is made (LLP 1068 §5.1).
         if settle { presenter.leaves.settle() }
         #endif
+        waitForImages()
         var target = req["to"] as? Double
         if settle { target = max(from, self.settle() ?? from) }
         guard var to = target, to.isFinite else { return ["error": "clock needs \"to\" (ms) or \"settle\": true"] }
@@ -343,6 +345,7 @@ public final class Agent {
             let landed = batch.clock ?? to
             session.clock = landed
             session.apply(session.runtime.tick(now: landed))
+            AnimatedRasters.shared.evaluate()
             if let e = batch.error { return ["error": "clock: \(e)", "clock": landed] }
             guard session.canvases.waitUntilReady() else { return ["error": "canvas creation is still in flight"] }
             session.canvases.settle(now: landed)
@@ -406,6 +409,15 @@ public final class Agent {
             if batch.error != nil || !held { return batch }
             steps += 1
         }
+    }
+
+    /// Images on screen land before the clock moves, for up to 3 s: an
+    /// animated one starts on the clock it lands at (LLP 1011.000), and a
+    /// decode is host I/O no clock waits for otherwise.
+    func waitForImages() {
+        let end = Date(timeIntervalSinceNow: 3)
+        while session.rasters.loadingOnScreen > 0 && Date() < end { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
+        AnimatedRasters.shared.evaluate()
     }
 
     /// How many requests the runner has in flight (`state.pending`).

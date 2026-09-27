@@ -159,7 +159,7 @@ private final class RasterBackend: @unchecked Sendable {
                 let plan = try RasterDecodePlan(metadata: metadata, maxPixel: Int(max(work.width, work.height)))
                 guard plan.width == work.width, plan.height == work.height else { throw RasterFailure.reservation }
                 guard exact_raster_is_cancelled(work.permit) == 0 else { throw RasterFailure.decode }
-                return try RasterImage.decode(bytes, metadata: metadata, plan: plan, charge: charge, sourceOwner: source)
+                return try RasterImage.decode(bytes, metadata: metadata, plan: plan, charge: charge, sourceOwner: source, url: input.url)
             }
             let owner = UInt64(UInt(bitPattern: Unmanaged.passRetained(image).toOpaque()))
             _ = exact_raster_complete(work.permit, owner, { value in
@@ -347,6 +347,10 @@ final class RasterLoader {
         backend.release(interest.source.id)
     }
     func invalidate(_ source: String) { backend.invalidate(source) }
+    /// Images on screen still loading (the agent's `clock` waits for them).
+    var loadingOnScreen: Int {
+        interests.values.filter { i in !i.delivered && i.failure == nil && i.view.map { VideoVisibilityHost.fraction($0) > 0 } == true }.count
+    }
     /// Drop every decoded image no view shows (as memory pressure does).
     func trimCold() { backend.trim() }
     func resized(_ view: NodeView) {

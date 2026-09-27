@@ -363,6 +363,7 @@ final class Presenter {
     /// A scroll container moved. Nothing here may take long: AppKit is inside
     /// its scroll synchronizer, and the scrolling thread is waiting on it.
     func scrolled() {
+        AnimatedRasters.shared.poke()
         guard !applying, !inScrollCallback else { return }
         inScrollCallback = true
         defer { inScrollCallback = false }

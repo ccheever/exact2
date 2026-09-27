@@ -365,7 +365,7 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
           const on = (i) => { const b = i.getBoundingClientRect(); return b.bottom > 0 && b.right > 0 && b.top < innerHeight && b.left < innerWidth; };
           const left = () => [...document.images].filter((i) => !i.complete && on(i));
           const end = performance.now() + 3000;
-          while (left().length && performance.now() < end) await new Promise((r) => setTimeout(r, 25));
+          while (left().length && performance.now() < end) await new Promise((r) => setTimeout(r, 25)); await globalThis.exact.imageFrames?.();
           return left().length;
         })()`), 3500);
         await frame();

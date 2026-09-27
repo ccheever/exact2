@@ -143,19 +143,23 @@ private final class RasterOwner {
 }
 
 /// Immutable CG-only payload: safe to destroy on a worker. The `CGImage`, not
-/// merely this wrapper, owns the charge so every alias stays charged.
+/// merely this wrapper, owns the charge so every alias stays charged. An
+/// animated GIF or WebP carries its first frame here and the facts to play
+/// the rest (`RasterAnimation`, LLP 1011.000).
 final class RasterImage: @unchecked Sendable {
     // Cache identity: first frame, EXIF-transformed pixels, normalized sRGB RGBA8.
     static let variant: UInt32 = 1
     let image: CGImage
     let naturalSize: CGSize
     let residentBytes: Int
-    private init(image: CGImage, natural: CGSize, bytes: Int) {
-        self.image = image; naturalSize = natural; residentBytes = bytes
+    let animation: RasterAnimation?
+    private init(image: CGImage, natural: CGSize, bytes: Int, animation: RasterAnimation?) {
+        self.image = image; naturalSize = natural; residentBytes = bytes; self.animation = animation
     }
 
     static func decode(_ bytes: Data, metadata: RasterMetadata, plan: RasterDecodePlan,
-                       charge: any RasterBackingCharge, sourceOwner: (any RasterSourceOwner)? = nil) throws -> RasterImage {
+                       charge: any RasterBackingCharge, sourceOwner: (any RasterSourceOwner)? = nil,
+                       url: URL? = nil) throws -> RasterImage {
         guard bytes.count == metadata.encodedBytes, bytes.count <= RasterMetadata.encodedLimit else { throw RasterFailure.encodedLimit }
         // A file can change between metadata inspection and worker admission.
         // Recheck the actual bytes before asking ImageIO for any pixel buffer.
@@ -167,38 +171,44 @@ final class RasterImage: @unchecked Sendable {
         return try autoreleasepool {
             guard let source = CGImageSourceCreateWithData(bytes as CFData,
                 [kCGImageSourceShouldCache: false] as CFDictionary),
-                let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                    kCGImageSourceCreateThumbnailFromImageAlways: true,
-                    kCGImageSourceCreateThumbnailWithTransform: true,
-                    kCGImageSourceThumbnailMaxPixelSize: plan.maxPixel,
-                    kCGImageSourceShouldCacheImmediately: true,
-                    kCGImageSourceShouldAllowFloat: false,
-                ] as CFDictionary) else { throw RasterFailure.decode }
+                let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions(plan)) else { throw RasterFailure.decode }
             let (staging, overflow) = thumbnail.bytesPerRow.multipliedReportingOverflow(by: thumbnail.height)
             guard !overflow, thumbnail.width <= plan.width, thumbnail.height <= plan.height,
                   staging <= plan.scratchBytes else { throw RasterFailure.reservation }
             // The reservation is charged whole: ImageIO's rows are never wider.
-            if isAdoptable(thumbnail, plan: plan) {
-                // An opaque sRGB thumbnail at the planned size is already the
-                // pixels a draw would make: keep ImageIO's image itself.
-                return RasterImage(image: owner.own(thumbnail), natural: metadata.naturalSize, bytes: plan.outputBytes)
-            }
-            // Draw into a scratch bitmap and keep Core Graphics' copy of it,
-            // as ImageIO does for a thumbnail: CG's image data is memory
-            // Core Animation shares with the render server as it is, where
-            // a bitmap of ours would be copied again at each first commit.
-            // BGRA, premultiplied: Core Animation's own layout, which it
-            // shares without converting.
-            let space = CGColorSpace(name: CGColorSpace.sRGB)!
-            let bitmap = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
-            guard let image = withScratch(plan.outputBytes, { scratch -> CGImage? in
-                guard let context = CGContext(data: scratch, width: plan.width, height: plan.height,
-                    bitsPerComponent: 8, bytesPerRow: plan.stride, space: space, bitmapInfo: bitmap) else { return nil }
-                context.draw(thumbnail, in: CGRect(x: 0, y: 0, width: plan.width, height: plan.height))
-                return context.makeImage()
-            }) else { throw RasterFailure.decode }
-            return RasterImage(image: owner.own(image), natural: metadata.naturalSize, bytes: plan.outputBytes)
+            guard let image = normalized(thumbnail, plan: plan) else { throw RasterFailure.decode }
+            let animation = url.flatMap { RasterAnimation.read(source, url: $0, plan: plan, owner: sourceOwner) }
+            return RasterImage(image: owner.own(image), natural: metadata.naturalSize, bytes: plan.outputBytes, animation: animation)
         }
+    }
+
+    /// ImageIO's reduced decode of one frame at the plan's longest side.
+    static func thumbnailOptions(_ plan: RasterDecodePlan) -> CFDictionary {
+        [kCGImageSourceCreateThumbnailFromImageAlways: true,
+         kCGImageSourceCreateThumbnailWithTransform: true,
+         kCGImageSourceThumbnailMaxPixelSize: plan.maxPixel,
+         kCGImageSourceShouldCacheImmediately: true,
+         kCGImageSourceShouldAllowFloat: false] as CFDictionary
+    }
+
+    /// A decoded frame as Core Animation shares it: an opaque sRGB thumbnail
+    /// at the planned size is already the pixels a draw would make, and is
+    /// kept; anything else is drawn into a scratch bitmap and Core Graphics'
+    /// copy of it kept, as ImageIO does for a thumbnail — CG's image data is
+    /// memory Core Animation shares with the render server as it is, where a
+    /// bitmap of ours would be copied again at each first commit. BGRA,
+    /// premultiplied: Core Animation's own layout, which it shares without
+    /// converting.
+    static func normalized(_ thumbnail: CGImage, plan: RasterDecodePlan) -> CGImage? {
+        if isAdoptable(thumbnail, plan: plan) { return thumbnail }
+        let space = CGColorSpace(name: CGColorSpace.sRGB)!
+        let bitmap = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+        return withScratch(plan.outputBytes, { scratch -> CGImage? in
+            guard let context = CGContext(data: scratch, width: plan.width, height: plan.height,
+                bitsPerComponent: 8, bytesPerRow: plan.stride, space: space, bitmapInfo: bitmap) else { return nil }
+            context.draw(thumbnail, in: CGRect(x: 0, y: 0, width: plan.width, height: plan.height))
+            return context.makeImage()
+        })
     }
 }
 
