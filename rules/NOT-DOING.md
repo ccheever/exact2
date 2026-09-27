@@ -142,6 +142,12 @@ the numbers live outside it. Other benchmark and showcase apps wait behind this
 one. js-framework-benchmark stays out (Charlie, 2026-09-23: "let's skip it"):
 its harness needs a table and Bootstrap class names the web host doesn't emit.
 
+**Expanded (Charlie Cheever, 2026-09-26: approved implementing LLP 1024):**
+native modules — a hyphenated tag is a `NativeView` backed by the app's one
+module artifact — with a photo-editor example as the consumer. Unblocks a
+platform widget without a host change or a new node type. Take: LLP 1024 §7's
+(§Components loses no line; `terminal` and friends stay out as built-in tags).
+
 ## Surfaces
 
 **Expanded (Charlie, 2026-09-13):** replace app Rust below the data seam with

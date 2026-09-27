@@ -544,10 +544,8 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
   rows for cold URL→first-frame and hot seq→first-frame over the LAN (diagnostic,
   never a sixth check).
 
-- LLP 1024 (native modules) is r2 after the 2026-08-31 three-model panel — unanimous,
-  design settled (one app artifact, roster-at-bake, versioned table ABI). What it
-  waits on is Charlie: ratify §6's Q1 leaning, and name a consumer + implementer;
-  D8 does not start without both.
+- LLP 1024 (native modules) landed 2026-09-27 (§9). Unverified: an iPhone device run
+  of a module artifact (AMFI, team signature) and a plan reload on Apple hosts.
 
 - LLP 1026 (dynamic delivery: the app over the wire from a cloud that builds it) is
   Draft r2 (2026-09-02), Charlie's exploration, no implementer. r2 is "both worlds": one

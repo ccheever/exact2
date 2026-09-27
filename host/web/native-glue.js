@@ -99,7 +99,7 @@ globalThis.exact.nativeHost = ({ dispatch, log }) => {
     st.observer.observe(el, { attributes: true, attributeFilter: ['data-nativeviewprops'] });
   }
   return {
-    attach(el) { if (table || failure) attachNow(el); else waiting.add(el); },
+    attach(el) { say(`${el.exactNative.name} #${el.exactNative.id}: loading`); if (table || failure) attachNow(el); else waiting.add(el); },
     destroy(el) {
       const st = el.exactNative;
       waiting.delete(el);

@@ -1223,6 +1223,12 @@ if (existsSync(appTests)) {
   console.log(`${host} tests: ${t.passed} passed, ${t.failed} failed (${app.name}/app.test.contract)`);
 }
 
+// 14. Native modules (LLP 1024 D8): the fixture's whole seam, when the app is it.
+if (app.modules.tags.includes('exact-fixture') && ['web', 'macos', 'ios'].includes(host)) {
+  const { nativeSmoke } = await import('./smoke-native.mjs');
+  await nativeSmoke({ host, open, check, webDist: selectedWebDist });
+}
+
 // The oracle sweep is explicit browser work, never an implicit Cargo pass.
 if (host === 'web' && !argv.includes('--app-only')) {
   const sweep = spawnSync('cargo', ['test', '-p', 'exact-web', '--test', 'it', 'navigation::', '--', '--ignored', '--nocapture'], {
