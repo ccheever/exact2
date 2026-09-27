@@ -399,6 +399,57 @@ fn keyframes_fold_palette_arguments_and_animate_box_shadow() {
     );
 }
 
+#[test]
+fn a_branching_palette_stops_with_a_compile_diagnostic() {
+    let mut source = String::from("fn f0(): number = 0.1\n");
+    for n in 1..=12 {
+        let p = n - 1;
+        source.push_str(&format!("fn f{n}(): number = f{p}() + f{p}() + f{p}()\n"));
+    }
+    source.push_str("keyframes k\n  from opacity=f12()\ncomponent App\n  view\n    text \"a\"\n");
+    let error = contract::compile(&source).unwrap_err();
+    assert_eq!(error.id, "lower-keyframes");
+    assert_eq!(error.pass, "lower");
+}
+
+#[test]
+fn keyframe_folding_matches_the_vms_operators_and_number_text() {
+    for condition in [
+        "-0 == 0",
+        "-0 != 0",
+        "(0 / 0) == (0 / 0)",
+        "(0 / 0) != (0 / 0)",
+        "-5 % 3 == -2",
+        "5 % -3 == 2",
+        "5.5 % 2 == 1.5",
+        "1 + 2 * 3 - 4 / 2 == 5",
+        "1 < 2 && 2 <= 2 && 3 > 2 && 3 >= 3",
+        "!false || false",
+        "\"ab\" + \"cd\" == \"abcd\"",
+        "`${-0}` == \"0\"",
+        "`${0.000001}` == \"0.000001\"",
+        "`${0.0000001}` == \"1e-7\"",
+        "`${1000000000000000000000}` == \"1e+21\"",
+        "`${1 / 0}` == \"inf\"",
+        "`${0 / 0}` == \"NaN\"",
+        "`${true}:${false}:${1.25}` == \"true:false:1.25\"",
+    ] {
+        let source = format!(
+            "fn value(): number = ({condition}) ? 0.25 : 0.75\nkeyframes k\n  from opacity=value()\ncomponent App\n  view\n    text `${{value()}}` testId=\"a\" animation=\"k 1s\"\n"
+        );
+        let r = booted(&source);
+        let (_, row) = animation(&r, "a");
+        let k = r.kernel();
+        let node = k.node_by_key(k.find_by_test_id("a")[0]).unwrap();
+        let runtime: f64 = node.text_runs()[0].text.parse().unwrap();
+        assert_eq!(
+            row.0[0].keyframes.0[0].values,
+            [(Property::Opacity, Value::scalar(runtime))],
+            "{condition}"
+        );
+    }
+}
+
 /// Computed times are not only `animation`'s: a `transition` and an
 /// `exit-animation` template compute theirs too (LLP 1062 D7).
 #[test]

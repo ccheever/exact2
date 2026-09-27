@@ -1,6 +1,6 @@
 # The keyframe constant folder bounds depth but not work, so nested palette functions compile in exponential time
 
-**Status:** Open
+**Status:** Fixed: cap each constant fold at 4,096 expression visits shared across calls; branching-palette and compiler-diagnostic regressions pass, with VM parity tests for operators and corrected decimal/exponent template formatting.
 **Systems:** Contract lowering (`contract/lower/src/keyframes.rs`)
 **Severity:** P3
 **Author:** Claude (Opus 5.5) for Charlie Cheever

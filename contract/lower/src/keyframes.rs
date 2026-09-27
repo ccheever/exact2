@@ -11,7 +11,8 @@ use contract_syntax::{Expr, FnDecl, TemplatePart};
 /// through calls to functions of literal arguments; `None` when anything
 /// along the way is not known when the app compiles.
 pub(crate) fn constant(e: &Expr, fns: &[FnDecl]) -> Option<String> {
-    text(fold(e, fns, &[], 0)?)
+    let mut remaining = FOLD_STEPS;
+    Some(text(fold(e, fns, &[], 0, &mut remaining)?))
 }
 
 /// A value a keyframe knows when the app compiles.
@@ -25,14 +26,25 @@ enum Constant {
 /// Bound depth: a palette function may call another, not recurse forever.
 const FOLD_DEPTH: usize = 16;
 
+/// Bound total expression visits too: a shallow function tree can fan out
+/// exponentially. Every branch and call spends from the same value's budget.
+const FOLD_STEPS: usize = 4096;
+
 /// A keyframe's value as written, through calls to functions of literal
 /// arguments (`color=accent()`, `color=tone("strong", 0.4)`, where each `fn`
 /// is a palette of `light-dark()` strings, conditions and templates): a
 /// palette is written once, and a keyframe is still known when the app
 /// compiles. `None` when anything along the way is not.
-fn fold(e: &Expr, fns: &[FnDecl], env: &[(String, Constant)], depth: usize) -> Option<Constant> {
+fn fold(
+    e: &Expr,
+    fns: &[FnDecl],
+    env: &[(String, Constant)],
+    depth: usize,
+    remaining: &mut usize,
+) -> Option<Constant> {
     use contract_syntax::{BinOp, UnOp};
-    let at = |e: &Expr| fold(e, fns, env, depth);
+    *remaining = remaining.checked_sub(1)?;
+    let mut at = |e: &Expr| fold(e, fns, env, depth, remaining);
     Some(match e {
         Expr::Str(s, _) => Constant::Str(s.clone()),
         Expr::Number(n, _) => Constant::Number(*n),
@@ -43,7 +55,7 @@ fn fold(e: &Expr, fns: &[FnDecl], env: &[(String, Constant)], depth: usize) -> O
             for part in parts {
                 match part {
                     TemplatePart::Text(t) => out.push_str(t),
-                    TemplatePart::Expr(x) => out.push_str(&text(at(x)?)?),
+                    TemplatePart::Expr(x) => out.push_str(&text(at(x)?)),
                 }
             }
             Constant::Str(out)
@@ -58,7 +70,7 @@ fn fold(e: &Expr, fns: &[FnDecl], env: &[(String, Constant)], depth: usize) -> O
         } => {
             let mut inner = env.to_vec();
             inner.push((name.clone(), at(value)?));
-            fold(body, fns, &inner, depth)?
+            fold(body, fns, &inner, depth, remaining)?
         }
         Expr::Unary(op, x, _) => match (op, at(x)?) {
             (UnOp::Neg, Constant::Number(n)) => Constant::Number(-n),
@@ -99,22 +111,42 @@ fn fold(e: &Expr, fns: &[FnDecl], env: &[(String, Constant)], depth: usize) -> O
                 .zip(args)
                 .map(|(p, a)| Some((p.name.clone(), at(a)?)))
                 .collect::<Option<Vec<_>>>()?;
-            fold(&f.body, fns, &bound, depth + 1)?
+            fold(&f.body, fns, &bound, depth + 1, remaining)?
         }
         _ => return None,
     })
 }
 
-/// A constant as a template writes it: the runner's `toString`, for the
-/// numbers it writes as plain decimals.
-fn text(c: Constant) -> Option<String> {
-    Some(match c {
+/// A constant as a template writes it: the runner's `toString`, including
+/// JavaScript's decimal/exponent boundaries and unsigned zero.
+fn text(c: Constant) -> String {
+    match c {
         Constant::Str(s) => s,
         Constant::Bool(b) => b.to_string(),
         Constant::Number(0.0) => "0".into(),
-        Constant::Number(n) if n.is_finite() && (1e-6..1e21).contains(&n.abs()) => {
-            exact_num::Shortest(n).to_string()
+        Constant::Number(n) if n.is_finite() && !(1e-6..1e21).contains(&n.abs()) => {
+            let scientific = exact_num::Exponent(n).to_string();
+            let (mantissa, exponent) = scientific.split_once('e').expect("scientific notation");
+            let exponent: i32 = exponent.parse().expect("decimal exponent");
+            format!("{mantissa}e{exponent:+}")
         }
-        Constant::Number(_) => return None,
-    })
+        Constant::Number(n) => exact_num::Shortest(n).to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repeated_palette_calls_have_a_total_work_bound() {
+        let mut source = String::from("fn f0(): number = 1\n");
+        for n in 1..=12 {
+            let p = n - 1;
+            source.push_str(&format!("fn f{n}(): number = f{p}() + f{p}() + f{p}()\n"));
+        }
+        let file = contract_syntax::parse(&source).unwrap();
+        assert_eq!(constant(&file.fns[12].body, &file.fns), None);
+        assert_eq!(constant(&file.fns[1].body, &file.fns), Some("3".into()));
+    }
 }
