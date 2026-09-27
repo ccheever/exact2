@@ -1347,12 +1347,13 @@
       "default": "fill"
     },
     "WhiteSpace": {
-      "_comment": "@ref LLP 1053 \u00a70 G5: the shorthand of white-space-collapse \u00d7 text-wrap-mode (normal = collapse wrap, pre-wrap = preserve wrap, nowrap = collapse nowrap, pre-line = preserve-breaks wrap).",
+      "_comment": "@ref LLP 1053 \u00a70 G5: the shorthand of white-space-collapse \u00d7 text-wrap-mode (normal = collapse wrap, pre-wrap = preserve wrap, nowrap = collapse nowrap, pre-line = preserve-breaks wrap, pre = preserve nowrap).",
       "values": [
         "normal",
         "pre-wrap",
         "nowrap",
-        "pre-line"
+        "pre-line",
+        "pre"
       ],
       "default": "normal"
     },

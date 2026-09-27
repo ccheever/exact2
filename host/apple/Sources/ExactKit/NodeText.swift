@@ -107,10 +107,10 @@ extension NodeView {
                 }
             }
         }
-        let whiteSpace = ["pre-wrap": 1, "nowrap": 2, "pre-line": 3][style["white_space"]?.string ?? ""] ?? 0
+        let whiteSpace = ["pre-wrap": 1, "nowrap": 2, "pre-line": 3, "pre": 4][style["white_space"]?.string ?? ""] ?? 0
         // CSS collapses white space before shaping, as the measurer does in
         // Rust with the same function (LLP 1053 G5); Markdown keeps its lines.
-        let source = whiteSpace == 1 || props["markup"] == "markdown" ? SourceMap() : SourceMap.collapse(&runs, whiteSpace: whiteSpace)
+        let source = whiteSpace == 1 || whiteSpace == 4 || props["markup"] == "markdown" ? SourceMap() : SourceMap.collapse(&runs, whiteSpace: whiteSpace)
         let lineClamp = Int(number("line_clamp"))
         // `text-overflow: ellipsis` applies to a box that clips its inline overflow.
         let clips = (style["overflow_x"]?.string).map { $0 != "visible" } ?? false

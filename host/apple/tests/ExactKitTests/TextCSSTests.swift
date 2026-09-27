@@ -85,6 +85,59 @@ final class TextCSSTests: XCTestCase {
         XCTAssertEqual(engine.paragraph(s, width: width("one two", numeric: 0) + 1).lines.count, 3, "and it wraps")
     }
 
+    /// `white-space: pre` (LLP 1053 G5): preserve × nowrap. Chrome's widths
+    /// (13px system-ui, headless Chrome 154, `getBoundingClientRect` of an
+    /// inline-block, scripts/fixtures/pre.contract's cases): kept spaces,
+    /// trailing ones included, and lines only where a line feed is.
+    func testPreKeepsEverySpaceAndBreaksOnlyAtLineFeeds() {
+        func pre(_ text: String) -> Spec {
+            var runs = [Run(text: text, size: 13, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)]
+            XCTAssertTrue(SourceMap.collapse(&runs, whiteSpace: 4).edits.isEmpty, "pre collapses nothing")
+            XCTAssertEqual(runs[0].text, text)
+            return Spec(runs: runs, align: 0, lineClamp: 0, color: [0, 0, 0, 255], whiteSpace: 4)
+        }
+        for (text, width, lines) in [("  lead   inner  ", 81.015625, 1), ("one\n\nthree  ", 38.765625, 3),
+                                     ("let a_very_long_line = compute(alpha, beta, gamma, delta);", 360.015625, 1)] {
+            let s = pre(text)
+            let natural = engine.paragraph(s, width: .infinity)
+            XCTAssertEqual(natural.width, width, accuracy: 1.0 / 64 + 1e-9, text)
+            XCTAssertEqual(natural.lines.count, lines, text)
+            // A narrow box wraps nothing: the line overflows it.
+            let narrow = engine.paragraph(s, width: 40)
+            XCTAssertEqual(narrow.lines.count, lines, text)
+            XCTAssertEqual(narrow.width, natural.width, text)
+            XCTAssertEqual(engine.minContentWidth(s), natural.width, "min-content is max-content: \(text)")
+        }
+    }
+
+    /// Tab stops every eight spaces of the face (CSS `tab-size: 8`), from the
+    /// line's start. Chrome's widths, 13px DejaVu Sans (the pinned fixture
+    /// face, as a web font): system-ui's are declared apart (LLP 1053 §0 r3).
+    func testTabsStopEveryEightSpacesAsChromeDoes() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("../../../../scripts/fixtures/fonts/assets/DejaVuSans.ttf").standardized
+        let data = try Data(contentsOf: url)
+        let d = (CTFontManagerCreateFontDescriptorsFromData(data as CFData) as! [CTFontDescriptor])[0]
+        let font = CTFontCreateWithFontDescriptor(d, 13, nil)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.tabStops = []
+        paragraph.defaultTabInterval = TextEngine.tabInterval(font, letterSpacing: 0)
+        for (text, chrome) in [("abcdefghij\tk", 106.71875), ("a\tb", 41.328125), ("\tc", 40.21875), ("\t\tx", 73.828125)] {
+            let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font, .paragraphStyle: paragraph]))
+            XCTAssertEqual(CSSLineBox.layoutWidth(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))), chrome, accuracy: 1.0 / 64 + 1e-9, text)
+        }
+        // Through the engine: a preserved tab in the system monospace face
+        // lands on the stop after "abcdefghij" (ten advances, past two stops).
+        let runs = [Run(text: "abcdefghij\tk", size: 13, weight: 400, family: 5, italic: false, lineHeight: nil, letterSpacing: 0)]
+        let mono = engine.font(runs[0]) as CTFont
+        let interval = TextEngine.tabInterval(mono, letterSpacing: 0)
+        let k = CTLineGetTypographicBounds(CTLineCreateWithAttributedString(NSAttributedString(string: "k", attributes: [.font: mono])), nil, nil, nil)
+        for whiteSpace in [1, 4] {
+            let p = engine.paragraph(Spec(runs: runs, align: 0, lineClamp: 0, color: [0, 0, 0, 255], whiteSpace: whiteSpace), width: .infinity)
+            XCTAssertEqual(p.width, CSSLineBox.layoutWidth(2 * interval + CGFloat(k)), accuracy: 1.0 / 64 + 1e-9, "white-space \(whiteSpace)")
+        }
+    }
+
     func testEllipsisEndsAnOverWideLineOnlyWhereItPaints() {
         var s = spec([run("a nowrap label that is much wider than its box")], whiteSpace: 2)
         s.ellipsis = true

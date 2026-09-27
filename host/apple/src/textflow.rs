@@ -12,12 +12,13 @@ use std::{
 };
 
 /// The ABI's CSS `white-space` (the schema's wire order): 0 normal,
-/// 1 pre-wrap, 2 nowrap, 3 pre-line.
+/// 1 pre-wrap, 2 nowrap, 3 pre-line, 4 pre.
 pub(crate) fn white_space_mode(code: u32) -> exact_textflow::WhiteSpace {
     match code {
         1 => exact_textflow::WhiteSpace::PreWrap,
         2 => exact_textflow::WhiteSpace::Nowrap,
         3 => exact_textflow::WhiteSpace::PreLine,
+        4 => exact_textflow::WhiteSpace::Pre,
         _ => exact_textflow::WhiteSpace::Normal,
     }
 }

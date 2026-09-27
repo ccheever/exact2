@@ -83,7 +83,11 @@ struct Spec: Hashable {
     var color: [Double] // r g b a, 0–255
     var overflowWrap: Int = 0 // CSS: normal, break-word, anywhere
     var direction: Int = 0 // CSS: ltr, rtl
-    var whiteSpace: Int = 0 // CSS: normal, pre-wrap, nowrap, pre-line (runs already collapsed unless pre-wrap)
+    var whiteSpace: Int = 0 // CSS: normal, pre-wrap, nowrap, pre-line, pre (runs already collapsed unless pre-wrap or pre)
+    /// `white-space-collapse: preserve` (pre-wrap, pre): spaces, tabs and breaks are text.
+    var preserves: Bool { whiteSpace == 1 || whiteSpace == 4 }
+    /// `text-wrap-mode: wrap`: soft wrap opportunities may end a line (not nowrap, not pre).
+    var wraps: Bool { whiteSpace != 2 && whiteSpace != 4 }
     var strut: Run? = nil // paragraph minimum line box, including smaller inline runs
     /// CSS `text-overflow: ellipsis` in a clipping box: paint ends an
     /// over-wide line in "…"; never metrics (LLP 1053 G5).
@@ -643,7 +647,34 @@ final class TextEngine {
             offset += length
         }
         TextEngine.setBaseDirection(s, direction: spec.direction)
+        if spec.preserves, s.string.contains("\t"), let first = spec.strut ?? spec.runs.first {
+            setTabStops(s, run: first)
+        }
         return s
+    }
+
+    /// Eight spaces of `font`, letter spacing included: a tab stop's interval.
+    static func tabInterval(_ font: CTFont, letterSpacing: CGFloat) -> CGFloat {
+        let space = CTLineGetTypographicBounds(CTLineCreateWithAttributedString(
+            NSAttributedString(string: " ", attributes: [.font: font])), nil, nil, nil)
+        return 8 * (CGFloat(space) + letterSpacing)
+    }
+
+    /// CSS `tab-size: 8` (its initial value): a preserved tab advances to the
+    /// next multiple of eight spaces of the paragraph's own font, letter
+    /// spacing included, from the line's start. CoreText's default is twelve
+    /// stops 28 pt apart; Chrome's is this (LLP 1053 G5).
+    private func setTabStops(_ s: NSMutableAttributedString, run: Run) {
+        TextEngine.setTabStops(s, interval: TextEngine.tabInterval(font(run) as CTFont, letterSpacing: run.letterSpacing))
+    }
+
+    static func setTabStops(_ s: NSMutableAttributedString, interval: CGFloat) {
+        guard interval > 0, s.length > 0 else { return }
+        let range = NSRange(location: 0, length: s.length)
+        let paragraph = ((s.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+        paragraph.tabStops = []
+        paragraph.defaultTabInterval = interval
+        s.addAttribute(.paragraphStyle, value: paragraph, range: range)
     }
 
     /// CSS `direction: rtl` as the paragraph's base writing direction (LLP
@@ -786,7 +817,7 @@ final class TextEngine {
         var boundaries: [Int] = []
         var boundaryIndex = 0
         // `nowrap` takes no soft break (below), so it needs none of them.
-        if spec.overflowWrap == 0 && spec.whiteSpace != 2 && width.isFinite && breaks == nil && ranges == nil {
+        if spec.overflowWrap == 0 && spec.wraps && width.isFinite && breaks == nil && ranges == nil {
             if let cached = shape.lineBreakBoundaries { boundaries = cached }
             else {
                 boundaries = lineBoundaries(shape.attributed.string as NSString, length: length)
@@ -804,6 +835,10 @@ final class TextEngine {
             } else if spec.whiteSpace == 2 {
                 // CSS nowrap: no soft wrap opportunity, so the whole source is one line.
                 count = length - start
+            } else if spec.whiteSpace == 4 {
+                // CSS pre: preserved like pre-wrap, so a forced break (the
+                // ones CoreText and pre-wrap take) ends a line; nothing else does.
+                count = CTTypesetterSuggestLineBreak(typesetter, start, Double.greatestFiniteMagnitude)
             } else {
                 count = CTTypesetterSuggestLineBreak(typesetter, start, limit)
                 while boundaryIndex < boundaries.count && boundaries[boundaryIndex] < start + count {
@@ -961,8 +996,8 @@ final class TextEngine {
         residency.retireWidths(TextParagraphKey(shape: TextShapeKey(identity: identity, paint: TextPaint(spec)), width: .infinity))
         residency.prepare(estimatedBytes: identity.utf16Count * 32)
         var widest: CGFloat = 0
-        if spec.whiteSpace == 2 {
-            // CSS nowrap has no break opportunity: min-content is max-content.
+        if !spec.wraps {
+            // CSS nowrap and pre have no soft break opportunity: min-content is max-content.
             widest = paragraph(spec, width: .infinity).width
             residency.putMinimum(identity, width: widest)
             return widest

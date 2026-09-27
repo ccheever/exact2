@@ -1,7 +1,7 @@
 # LLP 1053: What the list benchmarks found missing in exact2, and which to add
 
 **Type:** RFC
-**Status:** Draft (r2: dispositions after two reviews, §0)
+**Status:** Draft (r2: dispositions after two reviews, §0; r3: `white-space: pre` built, §0.1)
 **Systems:** Contract (style attribute names, `tags.rs`), Kernel (`kernel/tables/schema.json` styles and enums, text preparation), Apple / web / Linux text engines (no-wrap lines, case mapping, tabular figures), Runner and DataSource (large keyed answers, launch-time values), Bake (input paths)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-09-26 (r1 and r2)
@@ -58,6 +58,32 @@ Astra (`gpt-6-astra`, reasoning max) and Grok (served as `grok-4.6-build`, xhigh
 **Kept:** G10's refusal; the documentation says "copy or materialize", not "link".
 
 **Dropped:** G11 (LLP 1035.006's settings slice, through `Toggle`).
+
+## 0.1 `white-space: pre`, built (r3, 2026-09-27)
+
+r2 deferred `pre` ("can wait"). The Extra Heavy feed benchmark's code row needs it (`~/bench/xheavy/EXACT2-GAPS.md` gap 6): a syntax-highlighted block of many styled runs, one line per source line, clipped by its card and never wrapped. The r2 fallback (one `pre-wrap` text per line in a wide fixed box) loses the web's own spelling, so `pre` is built. Implementer: Claude (Opus 5.5), branch `feat/backdrop-pre`.
+
+**Decisions:**
+- **D-pre1: `pre` is the fifth `WhiteSpace` value, `preserve × nowrap`.** It is appended to the enum (`schema.json`), so the wire codes stay: 0 `normal`, 1 `pre-wrap`, 2 `nowrap`, 3 `pre-line`, 4 `pre`. The walker's model (`exact_textflow::WhiteSpace::Pre`) answers `preserves()`, `preserves_breaks()` and not `wraps()`, and every host asks those, never compares against one value. `break-spaces` still waits.
+- **D-pre2: forced breaks are `pre-wrap`'s.** A line ends where `pre-wrap` would end one at an infinite width, and nowhere else: the walker's hard breaks, CoreText's mandatory breaks, cosmic-text's lines. Nothing collapses (`exact_textflow::collapse` returns `None`).
+- **D-pre3: spaces at a line's end are kept, not hung.** CSS Text 3 §4.1.3 hangs them only under `wrap`; Chrome measures `"three  "` under `pre` as 38.77 px against `"three"`'s 31.61. The walker adds them back to the line (`Prepared::kept`); CoreText's and cosmic-text's typographic widths already include them.
+- **D-pre4: min-content is max-content**, as for `nowrap`: no soft opportunity exists.
+- **D-pre5: tabs stop every eight spaces (`tab-size`'s initial value).** No `tab-size` row is added: nothing asks for another size, and the feed's data has no tabs. Linux's cosmic-text already sets stops at eight of the face's spaces. Apple did not: CoreText's default is twelve stops 28 pt apart. A preserving paragraph (`pre-wrap` or `pre`) with a tab now carries `tabStops = []` and `defaultTabInterval` = 8 × (the strut face's space + letter spacing), in the engine's paragraphs and in the Markdown region worker's alike. The web is native.
+- **D-pre6: overflow is the box's.** A `pre` line wider than its box overflows it, as in CSS. A clipping or scrolling ancestor (`overflow: hidden`, `scroll`) is what bounds it; ellipsis still needs `text-overflow` on a clipping box.
+
+**Parity** (`scripts/fixtures/pre.contract`, each case shrink-wrapped; Chrome 154 headless at 1×):
+
+| Case | Chrome | macOS | iOS | Linux |
+|---|---|---|---|---|
+| `"  lead   inner  "` (system-ui 13) | 81.02 × 16 | 81.02 × 16 | 81.02 × 16 | DejaVu, below |
+| `"one\n\nthree  "` | 38.77 × 48 | 38.77 × 48 | 38.77 × 47 (iOS keeps CoreText's line box, `CSSLineBox`) | |
+| long line, width 220 | one line, overflows | same | same | same |
+| tabs, 13 px DejaVu Sans (`TextCSSTests`) | 106.72, 41.33, 40.22, 73.83 | equal within 1/64 px | | |
+| tabs and spaces, 16 px DejaVu Sans (`css_tests.rs`) | 131.33, 50.84, 90.84, 111, 35.22, 52.5 | | | each Chrome's, rounded up to the whole pixel this engine holds |
+
+**Declared deviations** (also in LLP 1001 §1):
+- **`system-ui` tab stops on Apple are up to 2% narrower.** Chrome sizes a tab from the space of San Francisco's untracked advance (0.28125 em below 20 px, 29.25 px per stop at 13 px); CoreText's system font applies its size-specific tracking to the space too (3.58 px at 13, so 28.64 per stop). A declared face (DejaVu Sans) matches Chrome within 1/64 px; `ui-monospace` stops are eight of its space on both, but CoreText's SF Mono advance (8.04 at 13 px) is not Chrome's (7.83), for every string, not only tabs (QUEUE).
+- **`ui-monospace` line boxes** are 16 px at 13 px on Apple against Chrome's 15 (the code card's lines). This predates `pre` and is queued, not fixed here.
 
 ## 1. Already fixed while benchmarking (context, not proposals)
 

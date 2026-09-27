@@ -45,6 +45,9 @@ final class RegionTextSource: Sendable {
     let direction: Int
     let lineClamp: Int
     let overflowWrap: Int
+    /// A preserved tab's stop interval (CSS `tab-size: 8`), as the engine's
+    /// paragraphs have it; nil when no tab is preserved.
+    let tabInterval: CGFloat?
     let text: String
     let utf16Count: Int
     let sourceUTF8Bytes: Int
@@ -77,6 +80,7 @@ final class RegionTextSource: Sendable {
         strut = base.map(font); strutExplicit = base?.lineHeight != nil
         align = spec.align; direction = spec.direction; lineClamp = spec.lineClamp; overflowWrap = spec.overflowWrap
         text = spec.runs.map(\.text).joined()
+        tabInterval = spec.preserves && text.contains("\t") ? base.map { TextEngine.tabInterval(font($0).value, letterSpacing: $0.letterSpacing) } : nil
         utf16Count = offset
         sourceUTF8Bytes = spec.runs.reduce(0) { $0 + $1.text.utf8.count }
         joinedSourceUTF8Bytes = text.utf8.count
@@ -123,6 +127,7 @@ final class RegionTextSource: Sendable {
             value.append(NSAttributedString(string: run.text, attributes: attributes))
         }
         TextEngine.setBaseDirection(value, direction: direction)
+        if let tabInterval { TextEngine.setTabStops(value, interval: tabInterval) }
         return value
     }
 }

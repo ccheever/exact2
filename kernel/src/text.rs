@@ -325,6 +325,7 @@ impl crate::WhiteSpace {
             crate::WhiteSpace::PreWrap => exact_textflow::WhiteSpace::PreWrap,
             crate::WhiteSpace::Nowrap => exact_textflow::WhiteSpace::Nowrap,
             crate::WhiteSpace::PreLine => exact_textflow::WhiteSpace::PreLine,
+            crate::WhiteSpace::Pre => exact_textflow::WhiteSpace::Pre,
         }
     }
 }
@@ -669,6 +670,19 @@ mod tests {
         ] {
             let m = measure_in("ab  cdef\ng", width, crate::WhiteSpace::Nowrap);
             assert_eq!((m.width, m.height), (54.0, 12.0));
+        }
+    }
+
+    #[test]
+    fn pre_keeps_spaces_and_breaks_only_at_line_feeds() {
+        // @ref LLP 1053 G5 — preserve × nowrap: min-content is max-content.
+        for width in [
+            AxisOffer::MinContent,
+            AxisOffer::Definite(10.0),
+            AxisOffer::MaxContent,
+        ] {
+            let m = measure_in("ab  cdef\n g", width, crate::WhiteSpace::Pre);
+            assert_eq!((m.width, m.height), (48.0, 24.0));
         }
     }
 

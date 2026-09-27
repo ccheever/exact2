@@ -146,7 +146,7 @@ typedef struct ExactMeasureRequest {
     uint8_t align;         /* 0 left, 1 center, 2 right, 3 justify */
     uint32_t line_clamp;   /* 0 = unlimited */
     uint8_t overflow_wrap; /* 0 normal, 1 break-word, 2 anywhere */
-    uint8_t white_space;   /* 0 normal, 1 pre-wrap, 2 nowrap, 3 pre-line; runs arrive collapsed unless 1 */
+    uint8_t white_space;   /* 0 normal, 1 pre-wrap, 2 nowrap, 3 pre-line, 4 pre; runs arrive collapsed unless 1 or 4 */
     uint8_t direction;     /* 0 ltr, 1 rtl */
     const ExactFlowShape *exclusions;
     size_t exclusion_count;
