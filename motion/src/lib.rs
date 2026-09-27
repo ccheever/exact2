@@ -37,6 +37,7 @@ pub mod animation;
 pub mod color;
 pub mod easing;
 pub mod engine;
+pub mod gesture;
 pub mod math;
 pub mod parse;
 pub mod property;

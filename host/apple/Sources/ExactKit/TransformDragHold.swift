@@ -17,11 +17,13 @@ final class TransformDragHold {
     private(set) var ended = false
     private var finishing = false
     private var pin: UInt64?
-    private var samples: TransformDragVelocity
-    private var last = CGPoint.zero
+    /// The newest displayed pair [x, y, scale] and its time. Velocity is the
+    /// engine's (LLP 1057.001 §3), measured over every value sent.
+    private(set) var current: [Double]
+    private var time: Double
     private var queued = false
-    private var pendingMove: (Double, Double, Double)?
-    private var pendingEnd: (Double, Double, Double, Bool)?
+    private var pendingMove: ([Double], Double)?
+    private var pendingEnd: ([Double], Double, Bool)?
 
     init?(_ handle: NodeView, time: Double) {
         guard time.isFinite, let session = handle.presenter?.session, !session.isApplyingPresentation,
@@ -42,7 +44,7 @@ final class TransformDragHold {
             session.apply(reply.batch); return nil
         }
         self.translate = translate; self.scale = scale; self.origin = origin
-        samples = TransformDragVelocity(value: origin.values, time: time)
+        current = origin.values; self.time = time
         let previous = session.transformInputHold
         // Publish BOTH originals before any batch can invalidate/reenter us.
         session.transformInputHold = self
@@ -84,44 +86,54 @@ final class TransformDragHold {
             if session?.isApplyingPresentation == true { schedule(); return }
             let end = pendingEnd, move = pendingMove
             pendingEnd = nil; pendingMove = nil
-            if let end { finish(dx: end.0, dy: end.1, time: end.2, cancel: end.3) }
-            else if let move { _ = self.move(dx: move.0, dy: move.1, time: move.2) }
+            if let end { finish(to: end.0, time: end.1, cancel: end.2) }
+            else if let move { _ = self.move(to: move.0, time: move.1) }
         }
     }
-    @discardableResult func move(dx: Double, dy: Double, time: Double, ending: Bool = false) -> Bool {
-        guard !ended, pendingEnd == nil, time.isFinite, time >= samples.time,
-              let values = origin.moved(dx: dx, dy: dy), let session else { return false }
-        if session.isApplyingPresentation || queued { pendingMove = (dx, dy, time); schedule(); return true }
+    /// A pan by `dx, dy` from the pair's origin.
+    @discardableResult func move(dx: Double, dy: Double, time: Double) -> Bool {
+        guard let values = origin.moved(dx: dx, dy: dy) else { return false }
+        return move(to: values, time: time)
+    }
+    /// Any pair [x, y, scale]: a pan, or a pinch anchored at its focal point.
+    @discardableResult func move(to values: [Double], time: Double) -> Bool {
+        guard !ended, pendingEnd == nil, time.isFinite, time >= self.time,
+              TransformDragPosition(values) != nil, let session else { return false }
+        if session.isApplyingPresentation || queued { pendingMove = (values, time); schedule(); return true }
         guard live && eligible else { if !finishing { cancel() }; return false }
         guard let packet = packet(12, values: values + [0, 0, 0]),
               let reply = session.runtime.transformMotion(packet) else { return false }
         session.apply(reply.batch)
         guard reply.accepted, reply.batch.error == nil, live, eligible,
               let displayed = target?.transformDragModel() else { return false }
-        samples.record(value: displayed.values, time: time, ending: ending)
-        last = CGPoint(x: dx, y: dy)
+        current = displayed.values; self.time = time
         return true
     }
     func finish(dx: Double, dy: Double, time: Double, cancel: Bool) {
+        finish(to: origin.moved(dx: dx, dy: dy) ?? current, time: time, cancel: cancel)
+    }
+    /// The one release while both tokens are live (LLP 1002 D4's photo pair).
+    func finish(to values: [Double], time: Double, cancel: Bool) {
         guard !ended, !finishing, pendingEnd == nil else { return }
         if session?.isApplyingPresentation == true || queued {
-            pendingEnd = (dx, dy, time, cancel); schedule(); return
+            pendingEnd = (values, time, cancel); schedule(); return
         }
         finishing = true
-        let updated = !cancel && move(dx: dx, dy: dy, time: time, ending: true)
+        let updated = !cancel && move(to: values, time: time)
         guard let session else { ended = true; return }
-        var released = false
-        if updated, live, eligible, let packet = packet(13, values: samples.value + samples.velocity),
+        var released = false, velocity = [0.0, 0.0, 0.0]
+        if updated, live, eligible, let packet = packet(13, values: current + [0, 0, 0]),
            let reply = session.runtime.transformMotion(packet) {
             session.apply(reply.batch)
             released = reply.accepted && reply.committed
+            velocity = reply.velocity ?? velocity
         }
         ended = true
         if session.transformInputHold === self { session.transformInputHold = nil }
         if incarnationLive {
             // Action/batch delivery may have replaced either property. The
             // hasHold check and Rust token preflight leave successors untouched.
-            for (token, vx, vy) in [(translate, samples.velocity[0], samples.velocity[1]), (scale, samples.velocity[2], 0)] {
+            for (token, vx, vy) in [(translate, velocity[0], velocity[1]), (scale, velocity[2], 0)] {
                 if session.runtime.hasHold(token) {
                     session.apply(session.runtime.holdEnd(token, cancel: !released, vx: vx, vy: vy, now: session.now()))
                 }
@@ -129,5 +141,5 @@ final class TransformDragHold {
             session.presenter.collections.releaseInteractionLater(ifCurrent: pin)
         }
     }
-    func cancel() { finish(dx: Double(last.x), dy: Double(last.y), time: samples.time, cancel: true) }
+    func cancel() { finish(to: current, time: time, cancel: true) }
 }

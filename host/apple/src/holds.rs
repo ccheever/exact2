@@ -85,6 +85,18 @@ impl<D: DataSource> Host<D> {
         )
     }
 
+    /// Release at the velocity the engine measured over the hold's values, for
+    /// input the platform gives no velocity (LLP 1057.001 §3).
+    pub fn hold_end_measured(&mut self, handle: u64, now_ms: f64) -> String {
+        let velocity = self
+            .holds
+            .get(&handle)
+            .and_then(|t| self.engine.hold_velocity(*t, now_ms / 1000.))
+            .filter(|v| v.x.is_finite() && v.y.is_finite())
+            .unwrap_or(exact_motion::Value::ZERO);
+        self.hold_end(handle, HoldEnd::Release { velocity }, now_ms)
+    }
+
     /// Consume ownership once, after the final sample and any authored action.
     pub fn hold_end(&mut self, handle: u64, end: HoldEnd, now_ms: f64) -> String {
         let mut batch = Batch::new();

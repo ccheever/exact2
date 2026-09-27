@@ -1014,6 +1014,21 @@ impl<D: DataSource> Host<D> {
         Ok(Some(self.hold_batch(now_ms)))
     }
 
+    /// Release at the velocity the engine measured over the hold's values,
+    /// for input the platform gives no velocity (LLP 1057.001 §3).
+    pub fn end_hold_measured(
+        &mut self,
+        serial: u64,
+        now_ms: f64,
+    ) -> Result<Option<String>, EngineError> {
+        let velocity = self
+            .springs
+            .hold_velocity(serial, now_ms / 1000.0)
+            .filter(|v| v.x.is_finite() && v.y.is_finite())
+            .unwrap_or(exact_motion::Value::ZERO);
+        self.end_hold(serial, HoldEnd::Release { velocity }, now_ms)
+    }
+
     /// Return to the latest authored target, even without a kernel receipt.
     pub fn end_hold(
         &mut self,

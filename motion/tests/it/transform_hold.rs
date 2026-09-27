@@ -387,3 +387,45 @@ fn taking_the_pair_does_not_stop_unrelated_opacity_motion() {
     assert_ne!(e.value(NODE, Property::Opacity), Some(opacity));
     assert_eq!(e.spring_descriptor(NODE, Property::Opacity), Some(curve));
 }
+
+/// LLP 1057.001 §3: the pair's release velocity is the engine's own estimate
+/// over the values each token was given (pan and pinch), gone once ended.
+#[test]
+fn a_held_pair_measures_its_own_release_velocity() {
+    let mut e = engine();
+    let pair = e.begin_transform_hold(NODE, 0.0, None).unwrap().unwrap();
+    for i in 1..=5 {
+        let t = i as f64 * 0.01;
+        let moved = [
+            Value::new(300.0 * t, -100.0 * t),
+            Value::scalar(1.0 + 2.0 * t),
+        ];
+        assert!(e.update_transform_hold(pair, t, moved).unwrap());
+    }
+    let translate = e.hold_velocity(pair.translate().token, 0.05).unwrap();
+    let scale = e.hold_velocity(pair.scale().token, 0.05).unwrap();
+    assert!((translate.x - 300.0).abs() < 1e-6 && (translate.y + 100.0).abs() < 1e-6);
+    assert!((scale.x - 2.0).abs() < 1e-6, "scale units per second");
+    assert_eq!(
+        e.hold_velocity(pair.scale().token, 0.5),
+        Some(Value::ZERO),
+        "stale samples age out"
+    );
+    assert!(e.hold_velocity(pair.translate().token, f64::NAN).is_none());
+    e.end_hold(
+        pair.translate().token,
+        0.05,
+        HoldEnd::Release {
+            velocity: translate,
+        },
+    )
+    .unwrap();
+    assert!(
+        e.hold_velocity(pair.translate().token, 0.05).is_none(),
+        "an ended token has none"
+    );
+    assert!(
+        e.hold_velocity(pair.scale().token, 0.05).is_some(),
+        "its partner is independent"
+    );
+}

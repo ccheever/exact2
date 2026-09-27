@@ -980,13 +980,21 @@ impl<D: DataSource> Bridge<D> {
     }
 
     /// Release (or cancel) a live hold after its authored action.
-    pub fn hold_end(&mut self, token: u64, cancel: bool, vx: f64, vy: f64, now_ms: f64) -> u32 {
-        let end = if cancel {
-            exact_motion::HoldEnd::Cancel
-        } else {
-            exact_motion::HoldEnd::Release {
+    /// `cancel`: 0 releases at `vx, vy`, 1 cancels, 2 releases at the
+    /// engine's measured velocity (LLP 1057.001 §3).
+    pub fn hold_end(&mut self, token: u64, cancel: u32, vx: f64, vy: f64, now_ms: f64) -> u32 {
+        let end = match cancel {
+            0 => exact_motion::HoldEnd::Release {
                 velocity: exact_motion::Value::new(vx, vy),
+            },
+            2 => {
+                let out = self
+                    .host
+                    .as_mut()
+                    .map_or_else(not_booted, |h| h.hold_end_measured(token, now_ms));
+                return self.emit(out);
             }
+            _ => exact_motion::HoldEnd::Cancel,
         };
         let out = self
             .host
@@ -1301,3 +1309,11 @@ mod collection_tests;
 
 #[path = "abi_collections.rs"]
 mod collections;
+
+/// `exact_gesture_constant`: a threshold by index, NaN past the end.
+pub fn gesture_constant(which: u32) -> f64 {
+    exact_motion::gesture::CONSTANTS
+        .get(which as usize)
+        .copied()
+        .unwrap_or(f64::NAN)
+}

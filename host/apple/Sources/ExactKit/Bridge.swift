@@ -154,8 +154,9 @@ final class Runtime {
     func holdUpdate(_ token: UInt64, x: Double, y: Double, now: Double) -> Batch {
         read(exact_hold_update(rt, token, x, y, now))
     }
-    func holdEnd(_ token: UInt64, cancel: Bool, vx: Double = 0, vy: Double = 0, now: Double) -> Batch {
-        read(exact_hold_end(rt, token, cancel ? 1 : 0, vx, vy, now))
+    /// `measured`: release at the engine's own velocity estimate (LLP 1057.001 §3).
+    func holdEnd(_ token: UInt64, cancel: Bool, measured: Bool = false, vx: Double = 0, vy: Double = 0, now: Double) -> Batch {
+        read(exact_hold_end(rt, token, cancel ? 1 : measured ? 2 : 0, vx, vy, now))
     }
     func swiperight(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 12, 0, now)) }
     func refresh(_ view: UInt32, now: Double) -> Batch { read(exact_dispatch(rt, view, 22, 0, now)) }

@@ -291,7 +291,12 @@ macro_rules! host {
         /// End ownership once, with velocity in displayed units/second.
         #[no_mangle]
         pub extern "C" fn exact_hold_end(rt: u32, token: u64, cancel: u32, vx: f64, vy: f64, now_ms: f64) -> u32 {
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.hold_end(token, cancel != 0, vx, vy, now_ms), |n| n)
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.hold_end(token, cancel, vx, vy, now_ms), |n| n)
+        }
+        /// A threshold exact2 defines itself, by index (`exact_motion::gesture::CONSTANTS`); NaN past the end.
+        #[no_mangle]
+        pub extern "C" fn exact_gesture_constant(which: u32) -> f64 {
+            $crate::abi::gesture_constant(which)
         }
 
         /// Move the clock; nonzero `until_request` stops after a timer that

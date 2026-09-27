@@ -85,6 +85,8 @@ pub trait Motion {
     ) -> Result<Vec<Lowered>, &'static str>;
     /// A live hold's token.
     fn token(&self, serial: u64) -> Option<HoldToken>;
+    /// A live hold's measured velocity at `now` (LLP 1057.001 §3).
+    fn hold_velocity(&self, serial: u64, now: f64) -> Option<Value>;
     /// Capture a presented value.
     fn begin_hold(
         &mut self,
@@ -178,6 +180,10 @@ impl Motion for Still {
         view: Option<ViewId>,
     ) -> Result<Vec<Lowered>, &'static str> {
         view.map_or(Ok(Vec::new()), |_| Err("motion is not linked"))
+    }
+
+    fn hold_velocity(&self, _: u64, _: f64) -> Option<Value> {
+        None
     }
 
     fn token(&self, _: u64) -> Option<HoldToken> {
@@ -367,6 +373,10 @@ impl Motion for Springs {
         self.reconcile_height(kernel, &mut out);
         self.holds.retain(|_, token| self.engine.has_hold(*token));
         Ok(out)
+    }
+
+    fn hold_velocity(&self, serial: u64, now: f64) -> Option<Value> {
+        self.engine.hold_velocity(self.token(serial)?, now)
     }
 
     fn token(&self, serial: u64) -> Option<HoldToken> {

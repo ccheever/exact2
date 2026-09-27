@@ -676,6 +676,13 @@ impl<D: DataSource> Bridge<D> {
         let out = (|| -> Result<String, String> {
             let (op, view, property, serial, value, now) =
                 decoded.map_err(|_| "malformed motion input".to_string())?;
+            if op == 11 {
+                // The thresholds exact2 defines itself (LLP 1057.001 §3).
+                let [knee, resistance, edge] = exact_motion::gesture::CONSTANTS;
+                return Ok(format!(
+                    "{{\"knee\":{knee},\"resistance\":{resistance},\"edge\":{edge}}}"
+                ));
+            }
             let host = self.host.as_mut().ok_or("not booted")?;
             if op == 8 || op == 9 {
                 if property != Property::Height as u32 {
@@ -732,6 +739,8 @@ impl<D: DataSource> Bridge<D> {
                 3 => host.end_hold(serial, HoldEnd::Cancel, now),
                 4 => return Ok(format!("{{\"accepted\":{}}}", host.has_hold(serial))),
                 5 => Ok(host.dispatch_held(serial, now)),
+                // Release at the engine's measured velocity (LLP 1057.001 §3).
+                10 => host.end_hold_measured(serial, now),
                 _ => return Err("invalid motion operation".into()),
             }
             .map_err(|e| format!("{e:?}"))?;

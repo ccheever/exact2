@@ -4,24 +4,7 @@ use super::*;
 use exact_kernel::{NodeKey, TouchAction};
 use exact_motion::{HoldEnd, Property, Value, VelocityTracker};
 
-// Match native Apple resistance, inverting the caught presentation first so
-// zero displacement is exactly the origin even beyond the 64-point knee.
-fn displacement(base: f64, delta: f64) -> f64 {
-    if delta == 0. {
-        return base;
-    }
-    let origin = if base.abs() <= 64. {
-        base
-    } else {
-        base.signum() * (64. + (base.abs() - 64.) / 0.2)
-    };
-    let at = origin + delta;
-    if at.abs() <= 64. {
-        at
-    } else {
-        at.signum() * (64. + (at.abs() - 64.) * 0.2)
-    }
-}
+use exact_motion::gesture::{swipe_displacement as displacement, SWIPE_KNEE};
 fn indicator(base: f64, caught: f64, progress: f64) -> f64 {
     if progress == caught {
         base
@@ -136,8 +119,8 @@ impl<D: DataSource> Presenter<D> {
         }
         // Tracking presentation after resistance produces displayed units/sec.
         held.velocity.push(now_ms / 1000., value);
-        let progress = (value.x / 64.).clamp(0., 1.);
-        let caught = (held.primary.value.x / 64.).clamp(0., 1.);
+        let progress = (value.x / SWIPE_KNEE).clamp(0., 1.);
+        let caught = (held.primary.value.x / SWIPE_KNEE).clamp(0., 1.);
         let HeldKind::Swipe { companions } = &held.kind else {
             unreachable!()
         };

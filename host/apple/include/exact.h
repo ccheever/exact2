@@ -302,7 +302,12 @@ uint32_t exact_reorder_end(ExactRuntime rt, uint64_t token, uint32_t drop, doubl
 uint32_t exact_hold_begin(ExactRuntime rt, uint32_t view, uint32_t property, double now_ms);
 uint32_t exact_has_hold(ExactRuntime rt, uint64_t token);
 uint32_t exact_hold_update(ExactRuntime rt, uint64_t token, double x, double y, double now_ms);
+/* cancel: 0 releases at vx, vy; 1 cancels; 2 releases at the velocity the
+ * engine measured over the hold's values (LLP 1057.001 §3). */
 uint32_t exact_hold_end(ExactRuntime rt, uint64_t token, uint32_t cancel, double vx, double vy, double now_ms);
+/* A recognition threshold exact2 defines itself: 0 the swipe knee, 1 its
+ * resistance, 2 the leading edge a swipe yields (LLP 1057.001 §3). */
+double exact_gesture_constant(uint32_t which);
 /* The runner's clock: timers. Nonzero until_request stops after a timer that
  * sends, the clock at its due time (an agent's jump; the wall clock passes 0). */
 uint32_t exact_advance(ExactRuntime rt, double now_ms, uint32_t until_request);

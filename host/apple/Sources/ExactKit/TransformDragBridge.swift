@@ -9,12 +9,14 @@ struct TransformDragReply {
     let translate: UInt64?
     let scale: UInt64?
     let value: TransformDragPosition?
+    /// Op 13's release velocity, measured by the engine: [vx, vy, vscale].
+    let velocity: [Double]?
     let batch: Batch
 
     init?(_ data: Data) {
         var accepted = false, committed = false
         var runtime: UInt64?, sequence: UInt64?, translate: UInt64?, scale: UInt64?
-        var value: TransformDragPosition?, batch: Batch?
+        var value: TransformDragPosition?, batch: Batch?, velocity: [Double]?
         do {
             try data.withUnsafeBytes { bytes in
                 var reader = BatchReader(bytes: bytes.bindMemory(to: UInt8.self))
@@ -29,6 +31,7 @@ struct TransformDragReply {
                     case "translateToken": translate = UInt64(try r.string())
                     case "scaleToken": scale = UInt64(try r.string())
                     case "value": value = TransformDragPosition(try r.array { try $0.number() })
+                    case "velocity": velocity = try r.array { try $0.number() }
                     default: try r.skip()
                     }
                 }
@@ -39,6 +42,7 @@ struct TransformDragReply {
         self.accepted = accepted; self.committed = committed
         self.runtime = runtime; self.sequence = sequence; self.translate = translate; self.scale = scale
         self.value = value; self.batch = batch
+        self.velocity = velocity.flatMap { $0.count == 3 && $0.allSatisfy(\.isFinite) ? $0 : nil }
     }
 
 }

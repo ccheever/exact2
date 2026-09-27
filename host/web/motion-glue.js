@@ -33,7 +33,7 @@ export function motionBytes(facts) {
     for(let i=0;i<6;i++)d.setFloat64(64+i*8,facts.values[i],true);
     d.setFloat64(112,now,true);return bytes;
   }
-  const operations=['begin','move','release','cancel','live','action','height-owner','clear-height-owner','height-begin','height-action'];
+  const operations=['begin','move','release','cancel','live','action','height-owner','clear-height-owner','height-begin','height-action','release-measured','gesture'];
   const properties=['translate','scale','rotate','opacity','height'];
   const code=operations.indexOf(op), prop=properties.indexOf(property);
   if(code<0||prop<0) throw Error('invalid motion operation');
@@ -58,6 +58,9 @@ export function motionController({views,now,generation,request,applyBatch,inert,
   const local=h=>h && h.generation===generation() && views.get(h.view)===h.el && h.el.isConnected && held.get(key(h.view,h.property))===h;
   const eligible=el=>el?.isConnected&&!el.closest('[disabled]')&&!el.matches(':disabled')&&!inert(el)&&el.getClientRects().length>0&&getComputedStyle(el).visibility==='visible';
   const live=h=>local(h)&&call('live',h).accepted===true;
+  // The thresholds exact2 defines itself, from exact_motion::gesture (LLP 1057.001 §3).
+  let constants=null;
+  const gesture=()=>constants??=request({op:'gesture'});
   function cancelProperty(id,property,el=views.get(id)) {
     const k=key(id,property); animations.get(k)?.cancel(); animations.delete(k);
     // Browser easing is a CSSTransition; other properties continue undisturbed.
@@ -322,9 +325,11 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       if(reply.batch) applyBatch(reply.batch);
       return true;
     },
+    // velocity 'measured': the engine's own estimate over the held values,
+    // where the platform gives none (LLP 1057.001 §3).
     end(h,velocity=[0,0],cancel=false) {
       if(!local(h)) return false;
-      const reply=call(cancel?'cancel':'release',h,velocity);
+      const reply=call(cancel?'cancel':velocity==='measured'?'release-measured':'release',h,velocity==='measured'?[0,0]:velocity);
       if(!local(h)) return false;
       if(reply.accepted!==true) {
         // A receipt may have cancelled Rust's token before its binding removal
@@ -421,10 +426,8 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       stop.suspend=()=>stop(true);
       stop.valid=()=>!drag||transformLocal(drag.binding)&&drag.binding.admitted&&(!drag.pair||pairLocal(drag));
       drags.set(id,stop);
-      const track=(d,t,v)=>{
-        d.samples.push([t,...v]);
-        while(d.samples.length>2&&(d.samples.length>8||t-d.samples[0][0]>80))d.samples.shift();
-      };
+      // Only time order is kept here; velocity is the engine's (LLP 1057.001 §3).
+      const track=(d,t)=>{d.t=t;};
       const position=(d,e)=>[d.base[0]+e.clientX-d.x,d.base[1]+e.clientY-d.y,d.base[2]];
       function present(d,v) {
         d.pair[0].value=v.slice(0,2);d.pair[1].value=[v[2],0];
@@ -454,18 +457,18 @@ export function motionController({views,now,generation,request,applyBatch,inert,
           adoptPair(d.binding,reply,pair=>{d.pair=pair;d.sequence=d.binding.sequence;});
           if(drag!==d)return false;
           if(!pairLocal(d)){stop();return false;}
-          d.x=e.clientX;d.y=e.clientY;d.base=[...d.pair[0].value,d.pair[1].value[0]];d.samples=[];track(d,t,d.base);
+          d.x=e.clientX;d.y=e.clientY;d.base=[...d.pair[0].value,d.pair[1].value[0]];track(d,t);
           e.preventDefault();e.stopPropagation();return true;
         }
         const value=position(d,e),t=now();
-        if(!finiteTerminal([...value,0,0,0])||!Number.isFinite(t)||t<d.samples.at(-1)[0]){stop();return false;}
+        if(!finiteTerminal([...value,0,0,0])||!Number.isFinite(t)||t<d.t){stop();return false;}
         const reply=request(transformFacts(d.binding,'transform-move',[...value,0,0,0],d.pair,t));
         if(reply.accepted===true)present(d,value);
         if(reply.batch)applyBatch(reply.batch);
         if(drag!==d)return false;
         if(reply.accepted!==true||!pairLocal(d)){stop();return false;}
         const shown=transformSample(getComputedStyle(d.binding.targetEl));
-        if(!shown){stop();return false;}track(d,t,shown);
+        if(!shown){stop();return false;}track(d,t);
         e.preventDefault();e.stopPropagation();return true;
       };
       on('pointermove',move);
@@ -475,18 +478,17 @@ export function motionController({views,now,generation,request,applyBatch,inert,
         checkGeometry(d.binding);if(drag!==d)return;
         if(!pairLocal(d)){stop();return;}
         // Terminal preflight is whole: do NOT send an ordinary final move before
-        // all samples, velocities and time are known valid. Delta is parent-space,
-        // never divided by caught Scale. Primary pan has zero scale velocity.
-        const v=position(d,e),t=now(),samples=[...d.samples,[t,...v]].slice(-8);
-        while(samples.length>2&&t-samples[0][0]>80)samples.shift();
-        const first=samples[0],dt=t-first[0],velocity=dt>0?[(v[0]-first[1])*1000/dt,(v[1]-first[2])*1000/dt,0]:[0,0,0];
-        const values=[...v,...velocity];
-        if(!finiteTerminal(values)||!Number.isFinite(t)||t<d.samples.at(-1)[0]){stop();return;}
+        // the sample and time are known valid. Delta is parent-space, never
+        // divided by caught Scale. The engine measures the release velocity.
+        const v=position(d,e),t=now();
+        const values=[...v,0,0,0];
+        if(!finiteTerminal(values)||!Number.isFinite(t)||t<d.t){stop();return;}
         drag=null;active.delete(id);suppressClick=true;
         const reply=request(transformFacts(d.binding,'transform-action',values,d.pair,t));
         if(reply.accepted===true)present(d,v);
         if(reply.batch)applyBatch(reply.batch);
         const cancel=reply.accepted!==true||reply.committed!==true;
+        const velocity=reply.velocity?.length===3&&reply.velocity.every(Number.isFinite)?reply.velocity:[0,0,0];
         // An action/receipt may replace exactly one property. Independently end
         // each original; local/token checks never retire its replacement.
         api.end(d.pair[0],velocity.slice(0,2),cancel);
@@ -572,15 +574,11 @@ export function motionController({views,now,generation,request,applyBatch,inert,
     },
     attachSwipe(el,id,on) {
       let drag=null,suppressClick=false;
-      const rubber=x=>Math.abs(x)<=64?x:Math.sign(x)*(64+(Math.abs(x)-64)*0.2);
-      const inverse=x=>Math.abs(x)<=64?x:Math.sign(x)*(64+(Math.abs(x)-64)/0.2);
-      const progressOf=x=>Math.max(0,Math.min(1,x/64));
-      const velocity=h=>{const last=h.samples.at(-1);let i=h.samples.length-2;while(i>0&&h.samples[i][1]===last[1]&&h.samples[i][2]===last[2])i--;const first=h.samples[Math.max(0,i)],dt=last[0]-first[0];return dt>0?[(last[1]-first[1])*1000/dt,(last[2]-first[2])*1000/dt]:[0,0];};
-      function track(h,value) {
-        const t=now(); h.samples.push([t,...value]);
-        while(h.samples.length>2&&(h.samples.length>8||t-h.samples[0][0]>80))h.samples.shift();
-        return api.move(h,value);
-      }
+      const {knee,resistance}=gesture();
+      const rubber=x=>Math.abs(x)<=knee?x:Math.sign(x)*(knee+(Math.abs(x)-knee)*resistance);
+      const inverse=x=>Math.abs(x)<=knee?x:Math.sign(x)*(knee+(Math.abs(x)-knee)/resistance);
+      const progressOf=x=>Math.max(0,Math.min(1,x/knee));
+      const track=(h,value)=>api.move(h,value);
       function stop() {
         const ended=drag; drag=null; active.delete(id);
         if(ended) {
@@ -610,7 +608,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
           if(indicator) for(const property of ['opacity','scale']) {
             const h=api.begin(Number(indicator.dataset.view),property); if(h)drag.holds.push(h);
           }
-          for(const h of drag.holds) { h.base=[...h.value]; h.samples=[[now(),...h.value]]; }
+          for(const h of drag.holds) h.base=[...h.value];
           el.setPointerCapture(e.pointerId);
         }
         const h=drag.holds[0], displacement=e.clientX-drag.origin;
@@ -633,8 +631,8 @@ export function motionController({views,now,generation,request,applyBatch,inert,
         if(e.type==='pointerup'&&!move(e))return;
         const ended=drag; drag=null; active.delete(id); suppressClick=true;
         const [h,...companions]=ended.holds, cancel=e.type!=='pointerup';
-        api.finish(h,h.value,velocity(h),!cancel&&h.value[0]>=64,cancel);
-        for(const companion of companions) api.end(companion,velocity(companion),cancel);
+        api.finish(h,h.value,'measured',!cancel&&h.value[0]>=knee,cancel);
+        for(const companion of companions) api.end(companion,'measured',cancel);
         if(el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
       };
       on('pointerup',finish); on('pointercancel',finish); on('lostpointercapture',finish);

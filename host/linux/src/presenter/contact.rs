@@ -501,7 +501,9 @@ impl<D: DataSource> Presenter<D> {
                             .unwrap_or(Value::ZERO)
                             .x;
                         let mut error = None;
-                        if current >= 64. && self.host.has_hold(held.primary.token) {
+                        if current >= exact_motion::gesture::SWIPE_KNEE
+                            && self.host.has_hold(held.primary.token)
+                        {
                             if let Some(retained) = &contact.retained {
                                 let delivered = match &retained.swipe {
                                     Some(target) => self.retained_swipe_dispatch(

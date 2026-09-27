@@ -161,6 +161,9 @@ pub struct Engine {
     // decides per node what its compositor plays faithfully (LLP 1055.000
     // D15: eligibility is per effect, not per property name).
     forced: BTreeSet<u64>,
+    // Held presentations, by hold serial, for a release velocity where the
+    // platform measures none (LLP 1057.001 §3). Only live holds keep one.
+    held: BTreeMap<u64, crate::velocity::VelocityTracker>,
 }
 
 impl Engine {

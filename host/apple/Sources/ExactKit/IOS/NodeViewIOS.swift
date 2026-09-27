@@ -192,7 +192,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if gesture === swipeRecognizer, let pan = gesture as? UIPanGestureRecognizer {
             let velocity = pan.velocity(in: window)
             let start = pan.location(in: window).x - pan.translation(in: window).x
-            return !disabled && start >= 20 && SwipeRecognition.accepts(x: Double(velocity.x), y: Double(velocity.y), presentedX: Double(translate.x)) && !allowsTouchPan(velocity)
+            return !disabled && start >= Gesture.edge && SwipeRecognition.accepts(x: Double(velocity.x), y: Double(velocity.y), presentedX: Double(translate.x)) && !allowsTouchPan(velocity)
         }
         return super.gestureRecognizerShouldBegin(gesture)
     }
@@ -207,7 +207,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             guard let hold = swipeHold else { return }
             let delta = translation - swipeOrigin
             guard hold.move(delta) else { hold.cancel(); swipeHold = nil; return }
-            let armed = hold.mapping.value(delta) >= 64
+            let armed = hold.mapping.value(delta) >= Gesture.knee
             if armed != swipeArmed { swipeFeedback.selectionChanged(); swipeArmed = armed }
         case .ended, .cancelled, .failed:
             let hold = swipeHold; swipeHold = nil; swipeArmed = false

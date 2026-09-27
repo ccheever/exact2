@@ -5,7 +5,9 @@
 //! original Translate/Scale serials u64 at 48/56; six f64 values at 64..104;
 //! clock-ms f64 at 112. All JSON u64s are decimal strings, never JS Numbers.
 //! Ops 10 geometry=[bw,bh,pw,ph,0,0], 11 begin=[x,y,s,0,0,0],
-//! 12 move=[x,y,s,0,0,0], 13 action=[x,y,s,vx,vy,vs], 14 invalidate=[0;6].
+//! 12 move=[x,y,s,0,0,0], 13 action=[x,y,s,0,0,0], 14 invalidate=[0;6].
+//! Op 13's velocities are the engine's own, measured over every value the
+//! pair was given (LLP 1057.001 §3); the reply carries them as `velocity`.
 //! Ops 10/11/14 require zero token fields. Every unused value must equal zero
 //! (+0/-0 accepted; NaN/nonzero refused). Single-property v1 ends remain ends.
 //! Stale identity/sequence/tokens refuse before incoming values/time; malformed
@@ -108,7 +110,7 @@ impl<D: DataSource> Host<D> {
     }
 
     fn transform_input(&mut self, bytes: &[u8]) -> Result<String, &'static str> {
-        let input = Input::decode(bytes)?;
+        let mut input = Input::decode(bytes)?;
         if input.runtime != self.transform_drags.runtime {
             return Ok(self.transform_refused());
         }
@@ -216,6 +218,20 @@ impl<D: DataSource> Host<D> {
             .expect("active pair")
             .action_fired = true;
         self.now_ms = input.now_ms;
+        // The release velocity is the engine's, over every value the pair was
+        // given (LLP 1057.001 §3); finite samples give a finite slope.
+        let now_s = input.now_ms / 1000.0;
+        let [translate, scale] = [active.held.translate(), active.held.scale()].map(|s| {
+            self.engine
+                .hold_velocity(s.token, now_s)
+                .unwrap_or(exact_motion::Value::ZERO)
+        });
+        let measured = [translate.x, translate.y, scale.x];
+        input.values[3..].copy_from_slice(&if measured.iter().all(|v| v.is_finite()) {
+            measured
+        } else {
+            [0.0; 3]
+        });
         // All six values/time passed preflight, both old holds are live, and the
         // action executes while both still own presentation. Do not lower first.
         let (committed, batch) = match self.runner.dispatch(view, input.event()) {
@@ -232,7 +248,8 @@ impl<D: DataSource> Host<D> {
             Err(e) => (false, self.commit(&[], Some(format!("{e:?}")))),
         };
         Ok(format!(
-            "{{\"accepted\":true,\"dispatched\":true,\"committed\":{committed},\"batch\":{batch}}}"
+            "{{\"accepted\":true,\"dispatched\":true,\"committed\":{committed},\"velocity\":[{},{},{}],\"batch\":{batch}}}",
+            input.values[3], input.values[4], input.values[5]
         ))
     }
 

@@ -45,16 +45,15 @@ final class TransformDragTests: XCTestCase {
             XCTAssertNil(TransformDragPosition(x: 0, y: value, scale: 1))
         }
         XCTAssertNotNil(TransformDragPosition(x: -1, y: 1, scale: Double(Float.leastNonzeroMagnitude)))
-        var samples = TransformDragVelocity(value: [0, 0, 2], time: 1)
-        XCTAssertTrue(samples.record(value: [-10, 20, 1.5], time: 1.1))
-        XCTAssertEqual(samples.velocity[0], -100, accuracy: 1e-9)
-        XCTAssertEqual(samples.velocity[1], 200, accuracy: 1e-9)
-        XCTAssertEqual(samples.velocity[2], -5, accuracy: 1e-9)
-        XCTAssertTrue(samples.record(value: [-10, 20, 1.5], time: 1.11, ending: true))
-        XCTAssertEqual(samples.velocity[2], -5, accuracy: 1e-9)
-        XCTAssertFalse(samples.record(value: [0, 0, 0], time: 2))
-        XCTAssertEqual(samples.value, [-10, 20, 1.5])
-        XCTAssertEqual(samples.time, 1.11)
+        // A pinch keeps the content under its focal point there (LLP 1057.001 §4).
+        let origin = try! XCTUnwrap(TransformDragPosition(x: 10, y: -20, scale: 2))
+        let still = try! XCTUnwrap(origin.focused(from: CGPoint(x: 50, y: 30), to: CGPoint(x: 50, y: 30), factor: 1.5))
+        XCTAssertEqual(still.values, [-10, -45, 3], "content 20,25 under the focus stays at 50,30")
+        XCTAssertEqual((50 - still.x) / still.scale, (50 - origin.x) / origin.scale, accuracy: 1e-12)
+        let panned = try! XCTUnwrap(origin.focused(from: CGPoint(x: 5, y: 5), to: CGPoint(x: 25, y: -5), factor: 1))
+        XCTAssertEqual(panned.values, [30, -30, 2], "factor 1 is a pan by the centroid's travel")
+        XCTAssertNil(origin.focused(from: .zero, to: .zero, factor: 0))
+        XCTAssertNil(origin.focused(from: .zero, to: .zero, factor: .nan))
     }
 
     func testBindingKeepsAllGenerationsAndRequiresCoherentUnbind() {
