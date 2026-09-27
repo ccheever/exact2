@@ -315,6 +315,6 @@ node and loads again; the in-flight `Data(contentsOf:)` runs to completion
 and is then dropped by the generation check); remote images on macOS
 beyond that blocking fetch on a background queue (no `URLSession`, no
 headers, no cache); a block-flow image at its intrinsic width (the
-declared deviation, §1); `object-position`; animated images on macOS (the
-first frame paints); `hint`/`role`/`headingLevel` on macOS images; pixel
+declared deviation, §1); `object-position`; animated images on Linux (it
+decodes PNG only; Apple plays GIF and WebP, LLP 1011.000); `hint`/`role`/`headingLevel` on macOS images; pixel
 or screenshot assertions for `object-fit` (§5).
