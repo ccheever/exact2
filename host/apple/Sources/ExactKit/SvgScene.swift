@@ -167,7 +167,6 @@ final class SvgScene {
     /// Each filtered element's picture, by the digest of what drew it.
     private var pictures: [Int: (key: Int, layer: CALayer)] = [:]
     private var specs: [Int: [[String: Any]]] = [:]
-    private var last: [String: Any] = [:]
     /// The view's pixels per point, for gradients drawn as pixels.
     var scale: CGFloat = 2
     /// The presenter's fonts, for SVG text (LLP 1055.000 D11).
@@ -186,7 +185,6 @@ final class SvgScene {
 
     /// Build or update the layers from a scene; unchanged animations keep running.
     func apply(_ scene: [String: Any], dark: Bool, clock: Double?) {
-        last = scene
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         let box = nums(scene["box"])
