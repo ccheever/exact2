@@ -5,7 +5,7 @@
 **Systems:** Kernel (measured leaves, intrinsic size, aspect ratio; Taffy patch 5), Contract (`image` tag), Web host, Apple host (C ABI: `exact_intrinsic`), Build (assets)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-29
-**Revised:** 2026-09-11 (scaled-image scrollable extent and replaced grid sizing; LLP 1035.004 symbol sources, native leaves, tint, units and verification; earlier r2 image decisions retained)
+**Revised:** 2026-09-26 (raster-image `tint-color` on Apple and web); 2026-09-11 (scaled-image scrollable extent and replaced grid sizing; LLP 1035.004 symbol sources, native leaves, tint, units and verification; earlier r2 image decisions retained)
 **Implementer:** Claude (Fable 5), image landing 2026-08-29; Codex, symbol integration 2026-09-10 and replaced-content extent 2026-09-11
 **Related:** LLP 1001 §1 (the `Image` replaced-element rule and its declared block-flow deviation), §6 (measured leaves), LLP 1007 (the web host: `<img>`), LLP 1008 §5 (the Apple presenter: loading, `object-fit`), LLP 1010 (the sibling spec whose shape this follows), `vendor/taffy/EXACT-PATCHES.md` patch 5, `rules/RULES.md` §The web is the standard
 
@@ -89,8 +89,14 @@ tests are the authority.
   `aspect_ratio` (the ratio, over the intrinsic one), `object_fit` (how
   the picture fills the content box: `fill | contain | cover | none |
   scale-down`, default `fill` — paint, not layout), `tint_color` (opaque
-  black initially, not inherited; Apple and web apply it to `symbol:` images,
-  including `light-dark()` pairs; raster-image tint remains unsupported).
+  black initially, not inherited; Apple and web apply it to `symbol:` images
+  and, since 2026-09-26, to raster images, including `light-dark()` pairs).
+  **A tinted raster is a template:** its alpha is the mask, and every
+  opaque pixel takes the tint at that pixel's own alpha; the colours of
+  the bitmap are ignored. Without the row a raster paints its own pixels.
+  `image "assets/wordmark.png" width=120 height=40 object-fit="contain"
+  tint-color="light-dark(#000000, #ffffff)"` is a black-on-transparent
+  wordmark that turns white in dark mode, live.
 
 ## 2. Contract
 
@@ -136,6 +142,23 @@ for the glyph. Computed font size/weight update the SVG; `tint-color` supplies
 the mask's colour. The mask follows the content box and `object-fit`. These
 paths express the roles without copying Apple's artwork.
 
+**Tinted rasters (2026-09-26).** `host_css` (`host/web/src/element.rs`) gives
+an `<img>` whose source is not `symbol:` and whose `tint_color` is set the
+tint as `background-color: var(--exact-tint)` (so `light-dark()` follows the
+page's scheme live), masked by `mask-image: url(<src>)` in the content box
+(`mask-origin`/`mask-clip: content-box`, centred), with `mask-size` from
+`object-fit`: `fill` → `100% 100%`, `contain`/`cover` → the same keyword,
+`none` → `auto`. `scale-down` needs the natural size, which only the page
+knows: the glue (`tintFit`) sets `--exact-tint-fit` to `auto` once the image
+has loaded and fits the content box, else `contain`. The `<img>` still loads
+`src` (its `alt`, load event and broken state are unchanged); its own
+picture moves out of the content box (`object-position`), where the replaced
+element's clip hides it. Deviations: the mask covers the whole element, so a
+tinted image's own background, border and shadow are masked to the picture
+(wrap it to give it a box); a cross-origin `mask-image` is a CORS request, so
+a remote tinted image whose origin sends no CORS headers paints nothing, and
+may be fetched a second time.
+
 ## 4. The Apple host
 
 - **The source policy** (`NodeView.resolveSource`): an `http`/`https`
@@ -171,6 +194,17 @@ paths express the roles without copying Apple's artwork.
   node cannot receive them. `object-fit`, padding and rounded clipping apply to
   the content box; symbols bypass the bitmap drawing path. `layout <node>` reports
   `native.symbol` with renderer class, generated name, intrinsic size and frame.
+- **Tinted rasters** (2026-09-26) use the one decoded bitmap the raster
+  pipeline holds — no second decode, no tinted copy. They paint through
+  `draw(_:)` on both platforms: `RasterGeometry.draw` draws the bitmap into
+  a transparency layer and fills the tint source-in, so the tint keeps each
+  pixel's alpha. On iOS this gives up the untinted image's sublayer
+  (`applyImageLayer`) and costs a backing store of the view's size: a mask
+  layer would say it without one, but a canvas's capture (`render(in:)`,
+  LLP 1014) drops masks and showed the tint's whole rectangle.
+  (`clip(to:mask:)` was also measured wrong for an image with alpha.) The
+  colour is resolved at paint, so an appearance change (which restyles and
+  redisplays the view) re-resolves a `light-dark()` pair.
 - **The ABI** (`exact_intrinsic(view, width, height)`, `exact.h`): a
   finite size with either dimension ≤ 0 clears; a non-finite value reaches
   the kernel and comes back as an `error` (`InvalidIntrinsicSize`), as does
@@ -231,6 +265,19 @@ boundary. AppKit geometry and interaction pass, but its saved captures are
 transparent, so AppKit pixels remain unverified. Receipt and limits:
 `/tmp/messages-symbol-integration/verification.json`.
 
+**Raster tint (2026-09-26):** `host/web/tests/it/host.rs`
+(`a_tinted_raster_is_its_alpha_masking_the_tint`: the mask declarations per
+fit, an untinted raster and a tinted symbol without them, the mask following
+a changed fit); `RasterImageTests.testATintDrawsTheBitmapsAlphaInTheTint`
+(the draw path's pixels at full and half alpha); `BoxLayerIOSTests.
+testATintedImageIsItsAlphaInTheTint` (the view's painted pixels: the
+opaque half in the tint, the clear half clear, a live light→dark change
+re-tinting; removing the row restores the pixel sublayer). Observed, not
+asserted: a temporary Caltrain fixture (all five fits, a padded rounded
+image, light and dark) on headless Chrome and the iOS Simulator, where
+Caltrain's content is a canvas capture. macOS shares the draw path and its
+unit test; its window was not driven.
+
 ## 6. Not in v1 (each declared here)
 
 **2026-09-14 scope change:** bounded raster loading/cache memory is now
@@ -242,8 +289,10 @@ implemented: the current Apple loader below still has no size cap or
 cancellation. Remote-image API expansion, `srcset` and loading-state
 authoring remain outside that slice.
 
-`srcset`/density selection and `image-rendering`; raster-image `tint_color`
-(symbol tint is implemented on Apple/web); Linux symbols; loading states and errors visible to the app (the
+`srcset`/density selection and `image-rendering`; `tint_color` on Linux
+(symbols and rasters: its two backends each draw a bitmap through one
+`image` call, with no mask or tint path, and `paint.rs` is at the line cap —
+a tinted raster paints its own pixels there); Linux symbols; loading states and errors visible to the app (the
 kernel measures an unknown axis as 0; macOS paints nothing and writes a
 line on stderr; the browser paints its own broken-image icon and the
 `alt` text — no `onError`, no placeholder); a size cap or a timeout of

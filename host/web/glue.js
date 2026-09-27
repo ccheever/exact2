@@ -309,12 +309,13 @@ addEventListener("resize", () => {
   requestAnimationFrame(positionContexts);
 });
 visualViewport?.addEventListener("resize", () => requestAnimationFrame(positionContexts));
-const symbolStyle = document.createElement("style");
+const symbolStyle = document.createElement("style"); document.head.append(symbolStyle);
 symbolStyle.textContent = 'img[data-symbol-path]{background-color:var(--exact-symbol-tint,#000)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,100% 100%);mask-origin:content-box;mask-clip:content-box}';
-document.head.append(symbolStyle);
+// A tinted raster's `scale-down` (element.rs `host_css`, LLP 1011 §3): `contain` unless its natural size fits the content box, known once it loads.
+function tintFit(el) { if (!el.style.getPropertyValue("mask-size").includes("--exact-tint-fit")) return; if (!el.complete) { el.addEventListener("load", () => tintFit(el), { once: true }); return; } const cs = getComputedStyle(el); el.style.setProperty("--exact-tint-fit", el.naturalWidth <= el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) && el.naturalHeight <= el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) ? "auto" : "contain"); }
 function refreshSymbols() {
   for (const el of views.values()) {
-    if (!(el instanceof HTMLImageElement) || !el.hasAttribute("data-symbol-path")) continue;
+    if (!(el instanceof HTMLImageElement)) continue; if (!el.hasAttribute("data-symbol-path")) { tintFit(el); continue; }
     const cs = getComputedStyle(el), size = parseFloat(cs.fontSize), weight = Number(cs.fontWeight);
     const path = el.getAttribute("data-symbol-path"), filled = el.hasAttribute("data-symbol-fill"), key = `${path}:${filled}:${size}:${weight}`;
     if (!path && el.symbolRefusal !== el.symbolSource) {
@@ -329,8 +330,7 @@ function refreshSymbols() {
       el.symbolPlaceholder = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}"/>`)}`;
     }
     if (el.getAttribute("src") !== el.symbolPlaceholder) el.src = el.symbolPlaceholder;
-    el.style.setProperty("--exact-symbol-mask", el.symbolMask);
-    el.style.setProperty("--exact-symbol-tint", el.style.getPropertyValue("--exact-tint") || "#000");
+    el.style.setProperty("--exact-symbol-mask", el.symbolMask); el.style.setProperty("--exact-symbol-tint", el.style.getPropertyValue("--exact-tint") || "#000");
     const paddingX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight), paddingY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
     const fits = size <= el.clientWidth - paddingX && size <= el.clientHeight - paddingY;
     const fit = cs.objectFit === "none" || (cs.objectFit === "scale-down" && fits) ? `${size}px ${size}px` : cs.objectFit === "scale-down" ? "contain" : cs.objectFit === "fill" ? "100% 100%" : cs.objectFit;
