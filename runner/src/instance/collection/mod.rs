@@ -76,6 +76,8 @@ struct Mounted {
 pub(crate) struct Collection {
     preview: Option<reorder::Preview>,
     view: ViewId,
+    /// Fixed at creation from the list's style (LLP 1070 H1).
+    axis: ListAxis,
     region: RegionsId,
     index: SizeIndex,
     estimated_height: f64,
@@ -167,14 +169,25 @@ impl Collection {
         let mut enabled = false;
         let mut follow_end = false;
         let mut estimated_height = ESTIMATED_HEIGHT;
+        let mut axis = ListAxis::Vertical;
         for binding in descriptor.bindings.iter().map(|b| plan.binding(b)) {
+            // A flex list is CSS's row (the compiler refuses the other
+            // directions); its main axis is horizontal.
+            if binding.kind == BindingKind::Style
+                && binding.id == exact_kernel::StyleId::Display as u16
+                && u.eval(binding.expr, frames)?.as_str() == Some("flex")
+            {
+                axis = ListAxis::Horizontal;
+            }
             if binding.kind == BindingKind::Prop && binding.id == PropId::Virtualized as u16 {
                 enabled = u.eval(binding.expr, frames)? == Value::Bool(true);
             }
             if binding.kind == BindingKind::Prop && binding.id == PropId::ScrollFollowEnd as u16 {
                 follow_end = u.eval(binding.expr, frames)? == Value::Bool(true);
             }
-            if binding.kind == BindingKind::Prop && binding.id == PropId::EstimatedItemHeight as u16
+            if binding.kind == BindingKind::Prop
+                && (binding.id == PropId::EstimatedItemHeight as u16
+                    || binding.id == PropId::EstimatedItemWidth as u16)
             {
                 let Value::Number(height) = u.eval(binding.expr, frames)? else {
                     return Err(invalid("estimated item height must be a number"));
@@ -210,6 +223,7 @@ impl Collection {
         let mut this = Box::new(Self {
             preview: None,
             view,
+            axis,
             region,
             index: SizeIndex::new(estimated_height).map_err(index_error)?,
             estimated_height,
@@ -592,7 +606,7 @@ impl Collection {
                     }
                     let token = self.index.invalidate_row(&text).map_err(index_error)?;
                     let row = self.create_row(u, position, frames)?;
-                    let wrapper = views::row_wrapper(u, roots_of(&row.roots), &text)?;
+                    let wrapper = views::row_wrapper(u, self.axis, roots_of(&row.roots), &text)?;
                     Mounted {
                         position,
                         wrapper,
@@ -859,6 +873,22 @@ impl Collection {
             self.lose_preview_pin(u)?;
         }
         let previous = self.snapshot();
+        // @ref LLP 1070 H4, Q3 (a): a row list anchors only an estimate
+        // replaced by a first measurement, the jump virtualization makes. A
+        // card measured again moves what follows it, as Chrome, which does
+        // not anchor on the inline axis, moves it. So its re-measurements
+        // land before the anchor is taken.
+        if self.axis == ListAxis::Horizontal && !changed_width {
+            let (again, first): (Vec<_>, Vec<_>) = feedback.measurements.drain(..).partition(|m| {
+                let row = &self.mounted[by_view[&m.view]];
+                self.index
+                    .is_measured(self.index.key(row.position).unwrap())
+            });
+            for measurement in again {
+                self.measure(by_view, measurement)?;
+            }
+            feedback.measurements = first;
+        }
         let anchor_height = self
             .geometry
             .as_ref()
@@ -884,16 +914,7 @@ impl Collection {
         // snapshot supplies the new epoch for the next post-layout feedback.
         if !changed_width {
             for measurement in feedback.measurements.drain(..) {
-                let row = &self.mounted[by_view[&measurement.view]];
-                let key = self.index.key(row.position).unwrap().to_owned();
-                self.index
-                    .set_measured_height(&key, row.token, measurement.size)
-                    .map_err(index_error)?;
-                if measurement.size == 0.0 {
-                    self.zero_heights.insert(key);
-                } else {
-                    self.zero_heights.remove(&key);
-                }
+                self.measure(by_view, measurement)?;
             }
         }
         self.check_preview_height(u)?;
@@ -908,6 +929,24 @@ impl Collection {
             advance(&mut self.revision)?;
         }
         Ok((changed, self.edge_event()?))
+    }
+    /// One mounted row's measured size into the index.
+    fn measure(
+        &mut self,
+        by_view: &BTreeMap<ViewId, usize>,
+        measurement: RowMeasurement,
+    ) -> Result<(), InstanceError> {
+        let row = &self.mounted[by_view[&measurement.view]];
+        let key = self.index.key(row.position).unwrap().to_owned();
+        self.index
+            .set_measured_height(&key, row.token, measurement.size)
+            .map_err(index_error)?;
+        if measurement.size == 0.0 {
+            self.zero_heights.insert(key);
+        } else {
+            self.zero_heights.remove(&key);
+        }
+        Ok(())
     }
     /// The edge a report's geometry reached, if armed and handled.
     fn edge_event(&mut self) -> Result<Option<CollectionEdges>, InstanceError> {
@@ -1040,6 +1079,7 @@ impl Collection {
     fn snapshot(&self) -> CollectionSnapshot {
         CollectionSnapshot {
             view: self.view,
+            axis: self.axis,
             revision: self.revision,
             scroll_sequence: self.geometry.as_ref().map_or(0, |g| g.scroll_sequence),
             count: self.index.len(),

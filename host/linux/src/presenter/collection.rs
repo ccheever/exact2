@@ -738,6 +738,7 @@ mod tests {
     fn snapshot() -> CollectionSnapshot {
         CollectionSnapshot {
             view: 1,
+            axis: exact_runner::ListAxis::Vertical,
             revision: 4,
             scroll_sequence: 2,
             count: 0,

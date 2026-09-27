@@ -1,0 +1,15 @@
+[package]
+name = "carousel-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Carousel's data source: deterministic cards of varied widths"
+publish = false
+
+[lib]
+name = "carousel_data"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }

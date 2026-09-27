@@ -706,6 +706,26 @@ impl<'a> Lowerer<'a> {
                 };
                 tags::validate_list(tag, expanded, *span)?;
                 self.check_collection(tag, expanded, children, *span)?;
+                // A row list is a flex item of its column like any carousel;
+                // CSS's own fix keeps its spacers' extent from widening that
+                // column: `min-width: 0`, unless the author set one (LLP 1070
+                // §3.1).
+                let row_list = (tag == "list"
+                    && collection::row_list(expanded)
+                    && expanded.iter().any(|a| {
+                        a.name == "virtualized" && matches!(a.value, Expr::Bool(true, _))
+                    })
+                    && !expanded.iter().any(|a| a.name == "min-width"))
+                .then(|| {
+                    let mut attrs = expanded.to_vec();
+                    attrs.push(contract_syntax::Attr {
+                        name: "min-width".into(),
+                        value: Expr::Number(0.0, *span),
+                        span: *span,
+                    });
+                    attrs
+                });
+                let expanded = row_list.as_deref().unwrap_or(expanded);
                 let has =
                     |names: &[&str]| expanded.iter().any(|a| names.contains(&a.name.as_str()));
                 let parent_stacks = !matches!(parent_tag, Some("row") | Some("canvas"));

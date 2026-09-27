@@ -526,6 +526,7 @@ fn binary_feedback_roundtrips_and_rejects_malformed_reports() {
 fn snapshot_json_preserves_u64_metadata_as_decimal_strings() {
     let snapshot = CollectionSnapshot {
         view: 1,
+        axis: ListAxis::Vertical,
         revision: (1_u64 << 53) + 1,
         scroll_sequence: u64::MAX - 1,
         count: 3,
@@ -546,7 +547,7 @@ fn snapshot_json_preserves_u64_metadata_as_decimal_strings() {
         pending: true,
     };
     let expected = concat!(
-        r#"{"view":1,"revision":"9007199254740993","scrollSequence":"18446744073709551614","count":3,"totalExtent":96,"rows":["#,
+        r#"{"view":1,"axis":"y","revision":"9007199254740993","scrollSequence":"18446744073709551614","count":3,"totalExtent":96,"rows":["#,
         r#"{"view":2,"root":3,"index":1,"start":32,"size":32,"epoch":"18446744073709551615","measured":true}],"pending":true,"#,
         r#""correction":{"scrollSequence":"9007199254740995","offset":16.5}}"#,
     );

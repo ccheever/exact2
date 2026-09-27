@@ -565,6 +565,11 @@
       "kind": "float"
     },
     {
+      "id": 208,
+      "name": "estimatedItemWidth",
+      "kind": "float"
+    },
+    {
       "id": 81,
       "name": "accessibilityPosInSet",
       "kind": "int"

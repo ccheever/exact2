@@ -163,6 +163,7 @@ impl Tree {
             }
             out.push(CollectionSnapshot {
                 view: c.view,
+                axis: c.axis,
                 revision: c.revision,
                 scroll_sequence: c.geometry.as_ref().map_or(0, |g| g.scroll_sequence),
                 count: c.index.len(),

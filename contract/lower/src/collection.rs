@@ -1,6 +1,25 @@
-//! Conservative initial flow shape for opt-in variable-height collections.
+//! Conservative initial flow shape for opt-in variable-size collections: a
+//! block list scrolls vertically; a flex row scrolls horizontally, CSS's
+//! carousel (LLP 1070 H2).
 use super::{err, values::numeric_literal, LowerError, Lowerer};
 use contract_syntax::{Attr, Expr, Node, Span};
+
+fn literal<'a>(attrs: &'a [Attr], name: &str) -> Option<&'a Attr> {
+    attrs.iter().find(|a| a.name == name)
+}
+fn string(a: &Attr) -> Option<&str> {
+    match &a.value {
+        Expr::Str(s, _) => Some(s),
+        _ => None,
+    }
+}
+
+/// Whether a virtualized list's attributes make it a row list: `display:
+/// flex`, whose `flex-direction` is CSS's default `row`. Only literals
+/// count; the collection's axis is fixed when it is created.
+pub(super) fn row_list(attrs: &[Attr]) -> bool {
+    literal(attrs, "display").and_then(string) == Some("flex")
+}
 
 impl Lowerer<'_> {
     pub(super) fn check_collection(
@@ -23,16 +42,20 @@ impl Lowerer<'_> {
         if matches!(opt.value, Expr::Bool(false, _)) {
             return Ok(());
         }
+        let row = row_list(attrs);
+        self.collection_axis(attrs, row, span)?;
         // Computed bounds are checked by the bake's measured-layout lint.
         // Merely spelling `auto` or a non-growing flex is not a bound.
-        if !attrs.iter().any(|a| match a.name.as_str() {
-            "height" | "max-height" => !matches!(&a.value, Expr::Str(s, _) if s == "auto"),
-            "flex" => numeric_literal(&a.value).is_none_or(|n| n > 0.0),
-            _ => false,
-        }) {
+        if !row
+            && !attrs.iter().any(|a| match a.name.as_str() {
+                "height" | "max-height" => !matches!(&a.value, Expr::Str(s, _) if s == "auto"),
+                "flex" => numeric_literal(&a.value).is_none_or(|n| n > 0.0),
+                _ => false,
+            })
+        {
             return err("lower-collection-unbounded", "a virtualized list needs height, max-height, or flex constraining its vertical scrollport", span);
         }
-        self.collection_flow(attrs, true)?;
+        self.collection_flow(attrs, Some(row))?;
         let [Node::Each { body, .. }] = children else {
             return err(
                 "lower-collection-template",
@@ -56,7 +79,61 @@ impl Lowerer<'_> {
         if let Some((_, rows)) = self.class_rows(attrs).ok().flatten() {
             expanded.extend(rows);
         }
-        self.collection_flow(&expanded, false)
+        self.collection_flow(&expanded, None)
+    }
+
+    /// The rules that make a list's axis CSS's and keep its index's starts
+    /// prefix sums (LLP 1070 H2, §8): a row list is a literal-height flex row,
+    /// left to right, that neither wraps, reverses nor spreads its items.
+    fn collection_axis(&self, attrs: &[Attr], row: bool, span: Span) -> Result<(), LowerError> {
+        if let Some(display) = literal(attrs, "display") {
+            if !matches!(string(display), Some("block" | "flex")) {
+                return err("lower-collection-flow", "a virtualized list's `display` is a literal `block` (it scrolls vertically) or `flex` (a row that scrolls horizontally)", display.span);
+            }
+        }
+        if let Some(direction) = literal(attrs, "flex-direction") {
+            if !row {
+                return err("lower-collection-flow", "`flex-direction` needs `display=\"flex\"` on a virtualized list; CSS ignores it on a block, and the list would silently scroll vertically", direction.span);
+            }
+            if string(direction) != Some("row") {
+                return err("lower-collection-flow", "a virtualized flex list is a `flex-direction: row`; a reversed row is an inverted list, and a column is `display: block`", direction.span);
+            }
+        }
+        let [own, other] = if row {
+            ["estimated-item-width", "estimated-item-height"]
+        } else {
+            ["estimated-item-height", "estimated-item-width"]
+        };
+        if let Some(estimate) = literal(attrs, other) {
+            return err("lower-collection-estimate", format!("`{other}` estimates the other axis; this list scrolls {}, so its estimate is `{own}`", if row { "horizontally" } else { "vertically" }), estimate.span);
+        }
+        if let Some(reorder) = literal(attrs, "reorderdrop").filter(|_| row) {
+            return err("lower-collection-reorder", "reordering is vertical; a virtualized row list refuses `reorderdrop` until a consumer needs it (LLP 1070 §4.7)", reorder.span);
+        }
+        if !row {
+            return Ok(());
+        }
+        if !literal(attrs, "height")
+            .is_some_and(|a| numeric_literal(&a.value).is_some_and(|n| n > 0.0))
+        {
+            return err("lower-collection-cross", "a virtualized row list needs a literal `height`: an auto height would be its tallest mounted item, which changes as items mount", span);
+        }
+        for a in attrs {
+            let refusal = match a.name.as_str() {
+                "flex-wrap" if string(a) != Some("nowrap") => Some("a wrapping virtualized list is a grid, which is not windowed"),
+                "justify-content" if !matches!(string(a), Some("flex-start" | "normal")) => Some("main-axis alignment would move the items' starts; space items with a margin on the row root"),
+                "direction" if string(a) == Some("rtl") => Some("a right-to-left virtualized row list is not windowed yet; its `scrollLeft` counts from the right edge"),
+                _ => None,
+            };
+            if let Some(reason) = refusal {
+                return err(
+                    "lower-collection-flow",
+                    format!("`{}` on a virtualized row list: {reason}", a.name),
+                    a.span,
+                );
+            }
+        }
+        Ok(())
     }
 
     // Component uses and slots have already expanded before lowering. Inspect
@@ -95,16 +172,27 @@ impl Lowerer<'_> {
         Ok(())
     }
 
-    fn collection_flow(&self, attrs: &[Attr], container: bool) -> Result<(), LowerError> {
+    /// `row`: the container's axis (a row list's is horizontal); `None`
+    /// for a row root.
+    fn collection_flow(&self, attrs: &[Attr], row: Option<bool>) -> Result<(), LowerError> {
+        let container = row.is_some();
+        let horizontal = row == Some(true);
+        let main_padding: &[&str] = if horizontal {
+            &["padding", "padding-left", "padding-right"]
+        } else {
+            &["padding", "padding-top", "padding-bottom"]
+        };
         for a in attrs {
             if container
-                && matches!(
-                    a.name.as_str(),
-                    "padding" | "padding-top" | "padding-bottom"
-                )
+                && main_padding.contains(&a.name.as_str())
                 && numeric_literal(&a.value) != Some(0.0)
             {
-                return err("lower-collection-flow", format!("`{}` on a virtualized list container requires literal zero; put top/end spacing inside measured rows until a collection inset policy is supported (padding-left and padding-right remain allowed)", a.name), a.span);
+                let (axis, cross) = if horizontal {
+                    ("left/right", "padding-top and padding-bottom")
+                } else {
+                    ("top/end", "padding-left and padding-right")
+                };
+                return err("lower-collection-flow", format!("`{}` on a virtualized list container requires literal zero; put {axis} spacing inside measured rows until a collection inset policy is supported ({cross} remain allowed)", a.name), a.span);
             }
             let allowed = match a.name.as_str() {
                 "position" => matches!(&a.value, Expr::Str(s, _) if s == "relative"),
@@ -115,12 +203,24 @@ impl Lowerer<'_> {
                 "margin" | "margin-top" | "margin-bottom" => {
                     numeric_literal(&a.value).is_some_and(|v| v >= 0.0)
                 }
-                "display" if container => matches!(&a.value, Expr::Str(s, _) if s == "block"),
+                "display" if container => true, // `collection_axis`
+                "flex-direction" | "flex-wrap" | "justify-content" | "direction" if horizontal => {
+                    true // `collection_axis`
+                }
                 "display" => !matches!(&a.value, Expr::Str(s, _) if s == "contents"),
-                "overflow" | "overflow-y" if container => {
+                "overflow" if container => {
                     matches!(&a.value, Expr::Str(s, _) if s == "scroll" || s == "auto")
                 }
-                "overflow-x" if container => matches!(&a.value, Expr::Str(s, _) if s == "hidden"),
+                // The main axis scrolls; the cross axis is `hidden`, as a
+                // vertical list's `overflow-x` has always been.
+                "overflow-y" | "overflow-x" if container => {
+                    let main = if horizontal {
+                        "overflow-x"
+                    } else {
+                        "overflow-y"
+                    };
+                    matches!(&a.value, Expr::Str(s, _) if if a.name == main { s == "scroll" || s == "auto" } else { s == "hidden" })
+                }
                 "gap" | "row-gap" | "column-gap" if container => {
                     numeric_literal(&a.value) == Some(0.0)
                 }

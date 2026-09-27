@@ -7,6 +7,7 @@ mod borders;
 mod branch;
 mod checkpoint;
 mod collection;
+mod collection_axis;
 mod collection_bounds;
 mod collection_edge_async;
 mod collection_edges;

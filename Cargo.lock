@@ -327,6 +327,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "carousel-apple"
+version = "0.1.0"
+dependencies = [
+ "carousel-data",
+ "contract",
+ "exact-apple",
+ "exact-bake",
+ "exact-logic",
+]
+
+[[package]]
+name = "carousel-data"
+version = "0.1.0"
+dependencies = [
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "carousel-linux"
+version = "0.1.0"
+dependencies = [
+ "carousel-data",
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "exact-logic",
+]
+
+[[package]]
+name = "carousel-web"
+version = "0.1.0"
+dependencies = [
+ "carousel-data",
+ "contract",
+ "exact-bake",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+]
+
+[[package]]
 name = "cc"
 version = "1.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

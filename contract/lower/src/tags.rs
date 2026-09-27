@@ -468,6 +468,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "interactive-widget" => AttrTarget::Prop(p("interactiveWidget")),
         "value" => AttrTarget::Prop(p("value")),
         "estimated-item-height" => AttrTarget::Prop(p("estimatedItemHeight")),
+        // The row-axis twin (LLP 1070 H2): a virtualized row list's estimate.
+        "estimated-item-width" => AttrTarget::Prop(p("estimatedItemWidth")),
         // @ref LLP 1056 D6 (r3): a canvas's explicit bitmap size, HTML's
         // `width`/`height` content attributes (Contract's are the CSS box).
         "bitmap-width" => AttrTarget::Prop(p("bitmapWidth")),
@@ -892,7 +894,12 @@ pub(crate) fn validate_list(
             fixed.span,
         );
     }
-    let Some(estimate) = expanded.iter().find(|a| a.name == "estimated-item-height") else {
+    let Some(estimate) = expanded.iter().find(|a| {
+        matches!(
+            a.name.as_str(),
+            "estimated-item-height" | "estimated-item-width"
+        )
+    }) else {
         return Ok(());
     };
     if tag != "list" {
@@ -908,14 +915,17 @@ pub(crate) fn validate_list(
     {
         return super::err(
             "lower-list-virtualized",
-            "`estimated-item-height` is a virtualized list's estimate; add `virtualized=true` (the windowed list without it is deleted, LLP 1070)",
+            format!("`{}` is a virtualized list's estimate; add `virtualized=true` (the windowed list without it is deleted, LLP 1070)", estimate.name),
             estimate.span,
         );
     }
     if !matches!(estimate.value, Expr::Number(n, _) if n.is_finite() && n > 0.0) {
         return super::err(
             "lower-list-height",
-            "virtualized lists accept one positive literal `estimated-item-height`",
+            format!(
+                "virtualized lists accept one positive literal `{}`",
+                estimate.name
+            ),
             estimate.span,
         );
     }

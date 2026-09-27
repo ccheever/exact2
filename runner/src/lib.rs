@@ -60,8 +60,8 @@ pub use exact_plan::Value;
 pub use head::Head;
 pub use instance::collection::{
     AnchorCorrection, CollectionFeedback, CollectionRow, CollectionSnapshot, FeedbackError,
-    ReorderBinding, ReorderFrame, ReorderGeometry, ReorderProgress, ReorderStart, ReorderToken,
-    ReorderWrapper, RowMeasurement,
+    ListAxis, ReorderBinding, ReorderFrame, ReorderGeometry, ReorderProgress, ReorderStart,
+    ReorderToken, ReorderWrapper, RowMeasurement,
 };
 pub use instance::{ListLinks, SurfaceUpdate, LISTS};
 pub use request::{

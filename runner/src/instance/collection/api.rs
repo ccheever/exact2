@@ -81,11 +81,34 @@ pub struct AnchorCorrection {
     /// Corrected content-relative offset on the main axis.
     pub offset: f64,
 }
+/// The axis a collection scrolls on, fixed when it is created from its
+/// list's style (LLP 1070 H1): `display: block` is vertical, `display:
+/// flex` (a `row`) horizontal. JSON names it as CSS's `scroll-snap-type`
+/// and `overscroll-behavior-x` do: `y` or `x`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ListAxis {
+    /// Rows stack top to bottom; the main axis is `y`.
+    #[default]
+    Vertical,
+    /// Items run left to right; the main axis is `x`.
+    Horizontal,
+}
+impl ListAxis {
+    /// `y` or `x`, as CSS names an axis.
+    pub fn name(self) -> &'static str {
+        match self {
+            ListAxis::Vertical => "y",
+            ListAxis::Horizontal => "x",
+        }
+    }
+}
 /// Current O(mounted rows) host metadata, separate from the ordinary kernel ops.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CollectionSnapshot {
     /// List view and collection identity for this runner lifetime.
     pub view: ViewId,
+    /// The main axis: what `offset`, `start`, `size` and the extent measure.
+    pub axis: ListAxis,
     /// Monotonic revision; old feedback cannot mutate a newer snapshot.
     pub revision: u64,
     /// Last accepted host sequence.
@@ -244,7 +267,7 @@ pub fn snapshots_json(snapshots: &[CollectionSnapshot]) -> String {
         if i > 0 {
             out.push(',');
         }
-        write!(out, "{{\"view\":{},\"revision\":\"{}\",\"scrollSequence\":\"{}\",\"count\":{},\"totalExtent\":{},\"rows\":[", c.view, c.revision, c.scroll_sequence, c.count, exact_num::Shortest(c.total_extent)).unwrap();
+        write!(out, "{{\"view\":{},\"axis\":\"{}\",\"revision\":\"{}\",\"scrollSequence\":\"{}\",\"count\":{},\"totalExtent\":{},\"rows\":[", c.view, c.axis.name(), c.revision, c.scroll_sequence, c.count, exact_num::Shortest(c.total_extent)).unwrap();
         for (i, row) in c.rows.iter().enumerate() {
             if i > 0 {
                 out.push(',');

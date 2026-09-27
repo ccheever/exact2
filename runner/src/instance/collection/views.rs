@@ -22,6 +22,7 @@ pub(super) fn style(
 /// host can select and copy text across rows it has not mounted.
 pub(super) fn row_wrapper(
     u: &mut Update<'_>,
+    axis: ListAxis,
     children: Vec<ViewId>,
     key: &str,
 ) -> Result<ViewId, InstanceError> {
@@ -31,19 +32,36 @@ pub(super) fn row_wrapper(
         node_type: NodeType::View,
     });
     // A flex formatting context encloses positive root margins on all hosts;
-    // no collapsed CSS margin can escape the measured wrapper border box.
-    style(
-        u,
-        view,
-        &[
-            ("display", Value::str("flex")),
-            ("flex_direction", Value::str("column")),
-            ("flex_shrink", Value::Number(0.0)),
-            ("min_width", Value::Number(0.0)),
-            ("width", Value::str("100%")),
-            ("box_sizing", Value::str("border-box")),
-        ],
-    )?;
+    // no collapsed CSS margin can escape the measured wrapper border box. In
+    // a row list the wrapper is a flex item that neither grows nor shrinks
+    // (`flex: none`, as an overflowing carousel's cards are), stretched to
+    // the row's height by the list's own `align-items` (LLP 1070 §3.1).
+    match axis {
+        ListAxis::Vertical => style(
+            u,
+            view,
+            &[
+                ("display", Value::str("flex")),
+                ("flex_direction", Value::str("column")),
+                ("flex_shrink", Value::Number(0.0)),
+                ("min_width", Value::Number(0.0)),
+                ("width", Value::str("100%")),
+                ("box_sizing", Value::str("border-box")),
+            ],
+        )?,
+        ListAxis::Horizontal => style(
+            u,
+            view,
+            &[
+                ("display", Value::str("flex")),
+                ("flex_direction", Value::str("column")),
+                ("flex_grow", Value::Number(0.0)),
+                ("flex_shrink", Value::Number(0.0)),
+                ("min_height", Value::Number(0.0)),
+                ("box_sizing", Value::str("border-box")),
+            ],
+        )?,
+    }
     u.ops.push(Op::SetChildren { id: view, children });
     u.ops.push(Op::SetProp {
         id: view,
@@ -83,7 +101,15 @@ pub(super) fn publish_position(u: &mut Update<'_>, wrapper: ViewId, position: us
         value: PropValue::Int(count as i64),
     });
 }
-fn spacer(u: &mut Update<'_>, height: f64) -> Result<ViewId, InstanceError> {
+/// The main-axis extent of rows not mounted: a spacer's height in a
+/// vertical list, its width in a row list, stretched across the other.
+fn main_size(axis: ListAxis) -> &'static str {
+    match axis {
+        ListAxis::Vertical => "height",
+        ListAxis::Horizontal => "width",
+    }
+}
+fn spacer(u: &mut Update<'_>, axis: ListAxis, size: f64) -> Result<ViewId, InstanceError> {
     let view = u.ids.fresh();
     u.ops.push(Op::CreateView {
         id: view,
@@ -94,15 +120,27 @@ fn spacer(u: &mut Update<'_>, height: f64) -> Result<ViewId, InstanceError> {
         prop: PropId::AccessibilityElementsHidden,
         value: PropValue::Bool(true),
     });
-    style(
-        u,
-        view,
-        &[
-            ("height", Value::Number(height)),
-            ("flex_shrink", Value::Number(0.0)),
-            ("width", Value::str("100%")),
-        ],
-    )?;
+    match axis {
+        ListAxis::Vertical => style(
+            u,
+            view,
+            &[
+                ("height", Value::Number(size)),
+                ("flex_shrink", Value::Number(0.0)),
+                ("width", Value::str("100%")),
+            ],
+        )?,
+        ListAxis::Horizontal => style(
+            u,
+            view,
+            &[
+                ("width", Value::Number(size)),
+                ("flex_grow", Value::Number(0.0)),
+                ("flex_shrink", Value::Number(0.0)),
+                ("align_self", Value::str("stretch")),
+            ],
+        )?,
+    }
     Ok(view)
 }
 impl Collection {
@@ -116,12 +154,12 @@ impl Collection {
             if gap > 0.0 {
                 if let Some((view, old)) = self.spacers.get_mut(spacer_count) {
                     if *old != gap {
-                        style(u, *view, &[("height", Value::Number(gap))])?;
+                        style(u, *view, &[(main_size(self.axis), Value::Number(gap))])?;
                         *old = gap;
                     }
                     children.push(*view);
                 } else {
-                    let view = spacer(u, gap)?;
+                    let view = spacer(u, self.axis, gap)?;
                     self.spacers.push((view, gap));
                     children.push(view);
                 }

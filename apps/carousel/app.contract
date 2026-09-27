@@ -1,0 +1,52 @@
+// Carousel — the LLP 1070 fixture: a horizontal virtualized list written as
+// a web page writes a carousel, a flex row that scrolls on x. 25,000 cards of
+// five widths, estimated at 128, so first measurements replace estimates
+// left of what shows (Q3 (a) anchors them) and an authored `scrollLeft`
+// builds its cards before it moves.
+//
+// "Eager" swaps in the unvirtualized strip of the first 2,000 of the same
+// cards: the oracle. At the same offset, the cards' boxes are the same.
+
+routes nav
+  tab home "/"
+
+shape Card
+  id: string
+  n: number
+  label: string
+  width: number
+  color: string
+
+component Carousel
+  state eager = false
+  state jump = 0
+  resource cards = cards(25000) as shape list<Card>
+  resource few = cards(2000) as shape list<Card>
+  action far writes jump
+    jump = jump + 100000
+  action toggle writes eager
+    eager = not eager
+  view
+    main testId="carousel" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#000000" font-family="system-ui"
+      row flex-shrink=0 align-items="center" gap=8 padding=12
+        text "Cards" flex=1 font-size=17 font-weight=600
+        button press=far testId="far" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="#f3f4f6"
+          text "Far" font-size=13
+        button press=toggle testId="eager" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="#f3f4f6"
+          text (eager ? "Virtualized" : "Eager") font-size=13
+      when eager
+        list display="flex" width="100%" height=132 overflow-x="scroll" overflow-y="hidden" padding-top=8 padding-bottom=8 box-sizing="border-box" scrollbar-width="none" testId="strip"
+          each c in few key=c.id
+            CardView(c=c)
+      else
+        list virtualized=true display="flex" width="100%" height=132 overflow-x="scroll" overflow-y="hidden" estimated-item-width=128 padding-top=8 padding-bottom=8 box-sizing="border-box" scrollbar-width="none" scrollLeft=jump testId="strip"
+          each c in cards key=c.id
+            CardView(c=c)
+      text "A strip of 25,000 cards: only those near the port are built." padding=12 font-size=13 color="#6b7280"
+
+component CardView
+  props
+    c: Card
+  view
+    column testId=`card-${c.n}` width=c.width height=116 flex-shrink=0 margin-right=8 box-sizing="border-box" border-radius=10 background-color=c.color padding=10 justify-content="flex-end"
+      text c.label font-size=14 color="#ffffff" white-space="nowrap"
