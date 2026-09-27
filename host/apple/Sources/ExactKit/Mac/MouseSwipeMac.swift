@@ -5,13 +5,13 @@ import AppKit
 /// on an authored swiperight node; ordinary clicks and vertical drags still pass.
 final class MouseSwipe {
     weak var presenter: Presenter?
-    private weak var candidate: NodeView?
+    private(set) weak var candidate: NodeView?
     private var downEvent: NSEvent?
     private var origin = CGPoint.zero
     private var last = CGPoint.zero
     private var timestamp = 0.0
     private var velocity = 0.0
-    private var hold: SwipeHold?
+    private(set) var hold: SwipeHold?
     private var escape: Any?
     private var inactive: NSObjectProtocol?
 

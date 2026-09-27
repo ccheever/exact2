@@ -5,10 +5,10 @@ import AppKit
 /// keyboard zoom actions and controls keep their existing input paths.
 final class MouseTransformDrag {
     weak var presenter: Presenter?
-    private weak var candidate: NodeView?
+    private(set) weak var candidate: NodeView?
     private var downEvent: NSEvent?
     private var origin = CGPoint.zero
-    private var hold: TransformDragHold?
+    private(set) var hold: TransformDragHold?
     private var escape: Any?
     private var inactive: NSObjectProtocol?
     init(_ presenter: Presenter) {

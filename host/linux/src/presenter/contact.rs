@@ -11,6 +11,24 @@ pub(super) enum Candidate {
     Transform(TransformDragBinding),
     Height { handle: NodeKey, target: NodeKey },
 }
+impl Candidate {
+    fn node(&self) -> NodeKey {
+        match *self {
+            Candidate::Arrange(b) => b.handle,
+            Candidate::Transform(b) => b.handle,
+            Candidate::Height { handle, .. } => handle,
+            Candidate::Swipe(key) | Candidate::Pan(key) => key,
+        }
+    }
+    /// The candidate's own axis rule, at the slop (LLP 1057.001 §1).
+    fn accepts(&self, dx: f64, dy: f64) -> bool {
+        match self {
+            Candidate::Arrange(_) | Candidate::Height { .. } => dy.abs() > dx.abs(),
+            Candidate::Swipe(_) => dx.abs() > dy.abs(),
+            Candidate::Transform(_) | Candidate::Pan(_) => true,
+        }
+    }
+}
 #[derive(Clone, Copy)]
 pub(super) enum HeldKind {
     Arrange(exact_runner::ReorderToken),
@@ -35,6 +53,8 @@ pub(super) struct Hold {
 pub(super) struct Contact {
     hit: NodeKey,
     candidate: Option<Candidate>,
+    /// The candidates after `candidate`, in precedence order, until the slop.
+    rest: Vec<Candidate>,
     origin: (f32, f32),
     position: (f32, f32),
     last_ms: f64,
@@ -171,6 +191,37 @@ impl<D: DataSource> Presenter<D> {
         self.contact.as_ref().map(|c| c.position)
     }
 
+    /// Every candidate of a contact on `hit`: innermost first, then reorder >
+    /// transform > height > pan > swipe on one node (LLP 1057.001 §1).
+    fn candidates(&self, hit: NodeKey) -> Vec<Candidate> {
+        let ranked = [
+            self.arrange_candidate(hit),
+            self.transform_candidate(hit),
+            self.height_candidate(hit),
+            self.pan_candidate(hit),
+            self.swipe_candidate(hit).map(Candidate::Swipe),
+        ];
+        let mut found: Vec<_> = ranked
+            .into_iter()
+            .enumerate()
+            .filter_map(|(rank, c)| Some((self.depth(hit, c?.node())?, rank, c?)))
+            .collect();
+        found.sort_by_key(|&(depth, rank, _)| (depth, rank));
+        found.into_iter().map(|(_, _, c)| c).collect()
+    }
+    fn depth(&self, hit: NodeKey, candidate: NodeKey) -> Option<usize> {
+        let kernel = self.host.kernel();
+        let mut at = kernel.node_by_key(hit);
+        let mut steps = 0;
+        while let Some(node) = at {
+            if node.key == candidate {
+                return Some(steps);
+            }
+            at = node.parent.and_then(|id| kernel.node(id));
+            steps += 1;
+        }
+        None
+    }
     // @ref LLP 1043.000 §3 D8 — ordinary commits move layout, not a motion hold.
     // Nearest explicit pan handler owns one contact; editor/press boundaries stop it.
     fn pan_candidate(&self, hit: NodeKey) -> Option<Candidate> {
@@ -212,6 +263,7 @@ impl<D: DataSource> Presenter<D> {
                 self.contact = Some(Contact {
                     hit,
                     candidate,
+                    rest: Vec::new(),
                     origin: (x, y),
                     position: (x, y),
                     last_ms: now_ms,
@@ -233,19 +285,20 @@ impl<D: DataSource> Presenter<D> {
         if !self.input_live(hit) {
             return Ok(false);
         }
-        let candidate = self
-            .arrange_candidate(hit)
-            .or_else(|| self.pan_candidate(hit))
-            .or_else(|| self.transform_candidate(hit))
-            .or_else(|| self.height_candidate(hit))
-            .or_else(|| self.swipe_candidate(hit).map(Candidate::Swipe));
-        self.prepare_arrange_down(candidate)?;
+        let mut rest = self.candidates(hit);
+        let arrange = rest
+            .iter()
+            .find(|c| matches!(c, Candidate::Arrange(_)))
+            .copied();
+        self.prepare_arrange_down(arrange)?;
         let Some(view) = self.host.kernel().node_by_key(hit).map(|n| n.id) else {
             return Ok(false);
         };
+        let candidate = (!rest.is_empty()).then(|| rest.remove(0));
         self.contact = Some(Contact {
             hit,
             candidate,
+            rest,
             origin: (x, y),
             position: (x, y),
             last_ms: now_ms,
@@ -268,6 +321,23 @@ impl<D: DataSource> Presenter<D> {
         self.pointer_sample(x, y, now_ms)?;
         let mut contact = self.contact.take().unwrap();
         contact.last_ms = now_ms;
+        let (dx, dy) = (
+            x as f64 - contact.origin.0 as f64,
+            y as f64 - contact.origin.1 as f64,
+        );
+        if contact.hold.is_none() && !contact.panning && dx.abs().max(dy.abs()) > 4. {
+            // The first candidate whose axis rule accepts begins; the ones
+            // before it fall away (LLP 1057.001 §1).
+            let rest = std::mem::take(&mut contact.rest);
+            if let Some(next) = contact
+                .candidate
+                .into_iter()
+                .chain(rest)
+                .find(|c| c.accepts(dx, dy))
+            {
+                contact.candidate = Some(next);
+            }
+        }
         if let Some(Candidate::Pan(key)) = contact.candidate {
             let from = if contact.panning {
                 contact.position
@@ -512,3 +582,7 @@ impl<D: DataSource> Presenter<D> {
         result
     }
 }
+
+#[cfg(test)]
+#[path = "precedence_tests.rs"]
+mod precedence_tests;

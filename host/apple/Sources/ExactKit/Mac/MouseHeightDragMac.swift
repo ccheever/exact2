@@ -5,10 +5,10 @@ import AppKit
 /// scrollport is a sibling and keeps ordinary AppKit wheel/selection handling.
 final class MouseHeightDrag {
     weak var presenter: Presenter?
-    private weak var candidate: NodeView?
+    private(set) weak var candidate: NodeView?
     private var downEvent: NSEvent?
     private var origin = CGPoint.zero
-    private var hold: HeightDragHold?
+    private(set) var hold: HeightDragHold?
     private var escape: Any?
     private var inactive: NSObjectProtocol?
 

@@ -161,6 +161,7 @@ final class Presenter {
     lazy var mouseHeightDrag = MouseHeightDrag(self)
     lazy var mouseTransformDrag = MouseTransformDrag(self)
     lazy var mouseReorder = MouseReorder(self)
+    lazy var mouseChain = MouseChain(self)
     /// The one Arrange contact, until its source settles; a test's calls.
     var reorder: ReorderHold?
     var reorderCalls: ReorderCalls?

@@ -1357,11 +1357,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if isSurfaceControl { _ = control("down", point: local(event.locationInWindow), timestamp: event.timestamp); return }
         if canvasInput?.pointer(event, phase: "down") == true { return }
         presenter?.collections.pointerDown(id, event: event)
-        if presenter?.mouseLayoutPan.down(self, event: event) == true { return }
-        presenter?.mouseHeightDrag.down(self, event: event)
-        presenter?.mouseReorder.down(self, event: event)
-        presenter?.mouseTransformDrag.down(self, event: event)
-        presenter?.mouseSwipe.down(self, event: event)
+        if presenter?.mouseChain.down(self, event: event) == true { return }
         guard !disabled else { pressed = false; return }
         presenter?.interacting = id
         presenter?.syncLists()
@@ -1401,11 +1397,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if isSurfaceControl || ownsSurfaceControl { _ = control("move", point: local(event.locationInWindow), timestamp: event.timestamp); return }
         if canvasInput?.pointer(event, phase: "move") == true { return }
         inlinePressed = nil
-        if presenter?.mouseLayoutPan.drag(event) == true { return }
-        if presenter?.mouseTransformDrag.drag(event) == true { return }
-        if presenter?.mouseReorder.drag(event) == true { return }
-        if presenter?.mouseHeightDrag.drag(event) == true { return }
-        if presenter?.mouseSwipe.drag(event) == true { return }
+        if presenter?.mouseChain.drag(event) == true { return }
         if isParagraph && !hasPressableAncestor { presenter?.selection.drag(event) }
         else { super.mouseDragged(with: event) }
     }
@@ -1421,23 +1413,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             presenter?.interacting = 0
             presenter?.syncLists()
         }
-        if presenter?.mouseLayoutPan.up(event) == true { return }
-        if presenter?.mouseTransformDrag.up(event) == true { return }
-        if presenter?.mouseReorder.up(event) == true { return }
-        if presenter?.mouseHeightDrag.up(event) == true { return }
-        if presenter?.mouseSwipe.up(event) == true { return }
+        if presenter?.mouseChain.up(event) == true { return }
         presenter?.collections.releaseInteractionLater()
-        if event.clickCount == 2 {
-            var next: NSView? = self
-            while let view = next {
-                if let node = view as? NodeView, !node.disabled, node.handlers.contains("dblclick") {
-                    node.pressed = false
-                    node.presenter?.dblclick(node.id)
-                    return
-                }
-                next = view.superview
-            }
-        }
+        let double = dblclickTarget(event)
+        defer { dispatchDblclick(double) }
         if let target = svgPressed {
             svgPressed = nil
             // The element has no view of its own: the `svg`'s view stands for it.

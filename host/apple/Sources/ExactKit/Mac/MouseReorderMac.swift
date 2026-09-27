@@ -5,10 +5,10 @@ import AppKit
 
 final class MouseReorder {
     weak var presenter: Presenter?
-    private weak var candidate: NodeView?
+    private(set) weak var candidate: NodeView?
     private var downEvent: NSEvent?
     private var origin = CGPoint.zero
-    private var hold: ReorderHold?
+    private(set) var hold: ReorderHold?
     private var escape: Any?
     private var inactive: NSObjectProtocol?
 

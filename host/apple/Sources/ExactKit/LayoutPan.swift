@@ -5,9 +5,9 @@
 import AppKit
 final class MouseLayoutPan {
     weak var presenter: Presenter?
-    private weak var candidate: NodeView?
+    private(set) weak var candidate: NodeView?
     private var last = CGPoint.zero
-    private var active = false
+    private(set) var active = false
     private var escape: Any?
     private var inactive: NSObjectProtocol?
     init(_ presenter: Presenter) {
