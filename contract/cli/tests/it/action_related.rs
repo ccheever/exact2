@@ -157,7 +157,12 @@ fn all_event_payload_arities_share_the_lowering_rule() {
             refusal(&root("text \"hello\"", &wrong));
         }
     }
-    assert!(contract_analyze::handler_arity("reachstart", 1).is_none());
+    // Edges carry no payload: their action takes exactly the bound arguments.
+    assert_eq!(
+        contract_analyze::handler_arity("reachstart", 1),
+        Some(1..=1)
+    );
+    assert_eq!(contract_analyze::handler_arity("refresh", 2), Some(2..=2));
     assert!(contract_analyze::handler_arity("navigate", 1).is_none());
 }
 

@@ -142,6 +142,14 @@ the numbers live outside it. Other benchmark and showcase apps wait behind this
 one. js-framework-benchmark stays out (Charlie, 2026-09-23: "let's skip it"):
 its harness needs a table and Bootstrap class names the web host doesn't emit.
 
+**Expanded (Charlie, 2026-09-27: "Admit Bluesky as a consumer"):** the Bluesky
+client (`ccheever/bluesky-exact2`, outside the repo, consuming exact2 by path) is
+a consumer. It unblocks what its port asks for (LLP 1054, 1054.000): arguments
+on list edges (1054.000.006, landed with this entry), view-side formatting
+(1054.000.003) and bounded feeds (1058 P4), each still held to its own review.
+Take (proposed with the admission; Charlie may name another): new in-repo
+showcase apps wait behind Bluesky's asks.
+
 **Expanded (Charlie Cheever, 2026-09-26: approved implementing LLP 1024):**
 native modules — a hyphenated tag is a `NativeView` backed by the app's one
 module artifact — with a photo-editor example as the consumer. Unblocks a

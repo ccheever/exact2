@@ -475,15 +475,104 @@ fn an_edge_before_activation_commits_and_activation_asks_its_arguments_once() {
 }
 
 #[test]
-fn edge_handlers_are_list_only_and_take_no_arguments() {
+fn edge_handlers_are_list_only_and_take_their_bound_arguments() {
     for source in [
         SOURCE.replace("list virtualized=true height=320", "column"),
-        SOURCE.replace("reachstart=onStart", "reachstart=change(0, 2)"),
+        // `change` takes two parameters: bare, or with one, is the wrong arity.
         SOURCE.replace("reachstart=onStart", "reachstart=change"),
+        SOURCE.replace("reachstart=onStart", "reachstart=change(0)"),
+        SOURCE.replace("reachstart=onStart", "reachstart=onStart(1)"),
     ] {
         assert!(contract::compile(&source).is_err());
     }
     contract::compile(&SOURCE.replace("virtualized=true", "virtualized=false")).unwrap();
+    contract::compile(&SOURCE.replace("reachstart=onStart", "reachstart=change(0, 2)")).unwrap();
+}
+
+#[test]
+fn an_edge_evaluates_its_arguments_when_it_dispatches() {
+    // LLP 1054.000.006: the value the handler sees is the one at dispatch.
+    let source = SOURCE
+        .replace("reachend=onEnd", "reachend=endAt(mark)")
+        .replace(
+            "  action revise writes revision\n",
+            "  state mark = 0\n  action endAt(n: number) writes ends\n    ends = n\n  action setMark(n: number) writes mark\n    mark = n\n  action revise writes revision\n",
+        );
+    let mut r = boot(&source.replace("reachstart=onStart ", ""));
+    r.act("change", vec![Value::Number(0.), Value::Number(2.)])
+        .unwrap();
+    r.act("setMark", vec![Value::Number(7.)]).unwrap();
+    send(&mut r, 0.);
+    assert_eq!(hits(&r), (0., 7.));
+}
+
+#[test]
+fn a_deferred_edge_reads_its_arguments_when_it_finally_dispatches() {
+    // A start defers the end (see stateful_start_defers_end_once); the end's
+    // bound argument is read when it runs, after the start changed it.
+    let source = SOURCE
+        .replace("reachend=onEnd", "reachend=endAt(mark)")
+        .replace(
+            "  action onStart writes starts, refused\n    starts = starts + 1\n",
+            "  state mark = 0\n  action onStart writes starts, refused, mark\n    starts = starts + 1\n    mark = 5\n",
+        )
+        .replace(
+            "  action revise writes revision\n",
+            "  action endAt(n: number) writes ends\n    ends = n\n  action revise writes revision\n",
+        );
+    let mut r = boot(&source);
+    r.act("change", vec![Value::Number(0.), Value::Number(2.)])
+        .unwrap();
+    send(&mut r, 0.);
+    assert_eq!(hits(&r), (1., 0.), "the start ran and the end waited");
+    send(&mut r, 0.);
+    assert_eq!(
+        hits(&r),
+        (1., 5.),
+        "the end read mark after the start set it"
+    );
+}
+
+#[test]
+fn lists_in_an_each_say_which_one_reached_its_end() {
+    let source = r#"component App
+  state count = 2
+  state revision = 0
+  state refused = false
+  state last = -1
+  state ends = 0
+  resource groups = rows(0, 2, revision, refused) as shape list<number>
+  resource rows = rows(0, count, revision, refused) as shape list<number>
+  action onEnd(which: number) writes last, ends
+    last = which
+    ends = ends + 1
+  view
+    column
+      each g in groups key=g
+        list virtualized=true height=320 reachend=onEnd(g)
+          each x in rows key=x
+            text `${x}` height=32
+"#;
+    let mut r = boot(source);
+    assert_eq!(r.collections().len(), 2);
+    for (i, expected) in [(1usize, 1.), (0, 0.)] {
+        let c = &r.collections()[i];
+        let feedback = CollectionFeedback {
+            view: c.view,
+            revision: c.revision,
+            scroll_sequence: c.scroll_sequence + 1,
+            scroll_top: 0.,
+            port_width: 640.,
+            port_height: 320.,
+            row_width: 640.,
+            measurements: vec![],
+            focus_view: None,
+            interaction_view: None,
+        };
+        assert!(r.collection_feedback(feedback).unwrap().error.is_none());
+        assert_eq!(r.slot("last").unwrap().as_number(), Some(expected));
+    }
+    assert_eq!(r.slot("ends").unwrap().as_number(), Some(2.));
 }
 
 #[test]

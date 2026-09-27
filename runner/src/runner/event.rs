@@ -636,7 +636,8 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Runner-only collection events use the same action transaction and journal
-    /// as host events. They have no payload or authored arguments.
+    /// as host events. They have no payload; their bound arguments are evaluated
+    /// in the list's scope when the edge dispatches (LLP 1054.000.006).
     pub(super) fn dispatch_edge(
         &mut self,
         view: ViewId,
@@ -659,11 +660,17 @@ impl<D: DataSource> Runner<D> {
                 .iter()
                 .map(|h| self.plan.handler(h))
                 .find(|h| h.event == kind)
+                .cloned()
                 .ok_or(RunnerError::NoHandler { view, event: name })?;
             let action = handler.action;
             let _ = write!(what, " ({})", self.plan.str(self.plan.action(action).name));
+            let mut args = Vec::new();
+            for a in handler.args.iter() {
+                let code = self.plan.arg(a).expr;
+                args.push(self.eval(code, &[], &frames)?);
+            }
             let before = super::collection::EdgeState::capture(self, &frames);
-            let receipt = self.run_action(action, Vec::new(), &frames)?;
+            let receipt = self.run_action(action, args, &frames)?;
             changed = before.changed(self);
             Ok(receipt)
         })();

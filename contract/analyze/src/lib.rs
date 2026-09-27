@@ -465,10 +465,9 @@ pub fn handler_payload(attr: &str) -> Option<&'static str> {
 /// The permitted action parameter counts after an event appends its payload.
 /// `None` means that this event forbids the supplied explicit arguments.
 /// Analysis and lowering share this rule, including navigate's optional payload.
+/// A list's edges and a pull to refresh carry no payload, so their action takes
+/// exactly the arguments bound at the site (LLP 1054.000.006).
 pub fn handler_arity(attr: &str, given: usize) -> Option<std::ops::RangeInclusive<usize>> {
-    if matches!(attr, "reachstart" | "reachend" | "refresh") {
-        return (given == 0).then_some(0..=0);
-    }
     if attr == "navigate" {
         return (given == 0).then_some(0..=1);
     }
