@@ -385,6 +385,19 @@ impl Batch {
         ));
     }
 
+    /// Image handles for the page to load for Canvas 2D (LLP 1056 D9).
+    pub fn canvas2d_images(&mut self, srcs: &[String]) {
+        let mut s = String::from("{\"op\":\"canvas2d\",\"images\":[");
+        for (i, src) in srcs.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            quote(src, &mut s);
+        }
+        s.push_str("]}");
+        self.ops.push(s);
+    }
+
     /// Whether a 2D canvas wants the page's animation frames (LLP 1056 D5).
     pub fn canvas2d_frames(&mut self, frames: bool) {
         self.ops

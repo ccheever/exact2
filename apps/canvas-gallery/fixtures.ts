@@ -194,6 +194,7 @@ export const fixtures: Record<string, Fixture> = {
   // Page 5: images, Path2D, patterns, conic gradients, shadows, the
   // clip-extent operators, pixels (LLP 1056 D9, §3 stage 2).
   image(ctx) {
+    ctx.reset(); // an "image" redraw repeats the draw on a kept context
     ctx.drawImage(TILE, 4, 4);
     ctx.drawImage(TILE, 50, 4, 60, 45);
     ctx.drawImage(TILE, 20, 15, 20, 15, 114, 4, 32, 24);
@@ -201,6 +202,7 @@ export const fixtures: Record<string, Fixture> = {
     ctx.imageSmoothingEnabled = true; ctx.globalAlpha = 0.5; ctx.drawImage(TILE, -10, -10, 40, 30, 90, 55, 56, 42);
   },
   pattern(ctx) {
+    ctx.reset(); // an "image" redraw repeats the draw on a kept context
     const p = ctx.createPattern(TILE, "repeat");
     if (p) { ctx.fillStyle = p; ctx.fillRect(0, 0, 70, 100); }
     const q = ctx.createPattern(TILE, "repeat-x");
@@ -227,6 +229,7 @@ export const fixtures: Record<string, Fixture> = {
     ctx.beginPath(); ctx.rect(2, 2, 10, 10); ctx.fill(heart); ctx.fillStyle = "#16a34a"; ctx.fill(); // the current path survives
   },
   shadow(ctx) {
+    ctx.reset(); // an "image" redraw repeats the draw on a kept context
     ctx.shadowColor = "rgba(15, 23, 42, 0.6)"; ctx.shadowBlur = 6; ctx.shadowOffsetX = 4; ctx.shadowOffsetY = 5;
     ctx.fillStyle = "#38bdf8"; ctx.fillRect(10, 10, 50, 34);
     ctx.save(); ctx.translate(100, 30); ctx.scale(2, 2); ctx.rotate(0.3); // offsets and blur ignore the transform
@@ -236,6 +239,7 @@ export const fixtures: Record<string, Fixture> = {
     ctx.shadowBlur = 3; ctx.drawImage(TILE, 100, 62, 40, 30);
   },
   extent(ctx) {
+    ctx.reset(); // an "image" redraw repeats the draw on a kept context
     const ops: GlobalCompositeOperation[] = ["source-in", "source-out", "destination-in", "destination-atop", "copy"];
     ops.forEach((op, i) => {
       const x = i * 30 + 1;

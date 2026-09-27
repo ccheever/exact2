@@ -361,7 +361,7 @@ fn declared_font_identity_reaches_the_readiness_barrier_and_css() {
     let catalog = host.font_catalog();
     assert_eq!(
         catalog,
-        "[{\"family\":\"ExactPlanStack8\",\"source\":\"assets/DejaVuSans.ttf\",\"weight\":400,\"style\":\"normal\"},{\"family\":\"ExactPlanStack8\",\"source\":\"assets/DejaVuSans-Bold.ttf\",\"weight\":700,\"style\":\"normal\"}]"
+        "[{\"family\":\"ExactPlanStack8\",\"declared\":\"Fixture Sans\",\"source\":\"assets/DejaVuSans.ttf\",\"weight\":400,\"style\":\"normal\"},{\"family\":\"ExactPlanStack8\",\"declared\":\"Fixture Sans\",\"source\":\"assets/DejaVuSans-Bold.ttf\",\"weight\":700,\"style\":\"normal\"}]"
     );
     assert!(
         !batch.contains("\"fonts\""),
@@ -378,7 +378,9 @@ fn declared_font_identity_reaches_the_readiness_barrier_and_css() {
         );
     }
     assert!(
-        !batch.contains("Fixture Sans") && !catalog.contains("Fixture Sans"),
+        !batch.contains("Fixture Sans") && !catalog.contains("\"family\":\"Fixture Sans\""),
+        // `declared` only maps a canvas's family name to the stack's alias
+        // (LLP 1056 D8); it is never a FontFace family.
         "the Contract alias must never become a browser font lookup: {batch} {catalog}"
     );
 

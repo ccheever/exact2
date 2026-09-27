@@ -2,6 +2,8 @@ use super::*;
 
 pub(super) struct FontFace {
     pub(super) family: String,
+    /// The family's declared name, which canvas text names (LLP 1056 D8).
+    pub(super) declared: String,
     pub(super) source: String,
     pub(super) weight: u16,
     pub(super) italic: bool,
@@ -65,6 +67,7 @@ pub(super) fn font_faces(plan: &Plan) -> Vec<FontFace> {
             let face = plan.face(face_id);
             out.push(FontFace {
                 family: name.clone(),
+                declared: plan.str(family.name).to_string(),
                 source: plan.str(face.source).to_string(),
                 weight: face.weight,
                 italic: face.italic,
@@ -82,6 +85,8 @@ pub(super) fn font_catalog(faces: &[FontFace]) -> String {
         }
         out.push_str("{\"family\":");
         crate::batch::quote(&face.family, &mut out);
+        out.push_str(",\"declared\":");
+        crate::batch::quote(&face.declared, &mut out);
         out.push_str(",\"source\":");
         crate::batch::quote(&face.source, &mut out);
         let _ = write!(

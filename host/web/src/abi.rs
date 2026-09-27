@@ -629,6 +629,26 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// A Canvas 2D image handle loaded or failed on the page (LLP 1056 D9);
+    /// the payload is in the input buffer.
+    pub fn canvas_image(&mut self, len: usize) -> u32 {
+        let text = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
+        let out = self.host.as_mut().map_or_else(
+            || crate::batch::Batch::new().finish(None, 0.0, Some("not booted")),
+            |host| host.canvas_image(&text),
+        );
+        self.emit(out)
+    }
+
+    /// A font finished loading on the page (LLP 1056 D8).
+    pub fn canvas_fonts(&mut self) -> u32 {
+        let out = self.host.as_mut().map_or_else(
+            || crate::batch::Batch::new().finish(None, 0.0, Some("not booted")),
+            |host| host.canvas_fonts(),
+        );
+        self.emit(out)
+    }
+
     /// Re-answer viewport resources and return the resulting batch. The page
     /// reports the size and the display preferences together, on a change
     /// of either (LLP 1061 D4).
@@ -1201,6 +1221,19 @@ macro_rules! surface_exports {
             scale: f64,
         ) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().canvas_geometry(view, width, height, scale))
+        }
+
+        /// A Canvas 2D image handle loaded or failed (LLP 1056 D9); the
+        /// payload is in the input buffer. Returns the batch length.
+        #[no_mangle]
+        pub extern "C" fn exact_canvas_image(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().canvas_image(len as usize))
+        }
+
+        /// A font finished loading (LLP 1056 D8); returns the batch length.
+        #[no_mangle]
+        pub extern "C" fn exact_canvas_fonts() -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().canvas_fonts())
         }
 
         /// Publish or clear a named surface record; returns the batch length.

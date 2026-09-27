@@ -1230,7 +1230,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   let ptr = wasm.exact_in(plan.length);
   new Uint8Array(memory.buffer, ptr, plan.length).set(plan);
   const faces = JSON.parse(readOut(wasm.exact_plan_fonts(plan.length)));
-  if (faces.error) throw new Error(faces.error);
+  if (faces.error) throw new Error(faces.error); globalThis.exact.fontAliases = Object.fromEntries(faces.map((f) => [f.declared, f.family])); // canvas text names the declared family (LLP 1056 D8)
   const preparedFonts = await prepareFonts(faces, assets);
   const shaderCommit = assets !== null && globalThis.exact.gpu ? await globalThis.exact.gpu.prepareShaders(assets) : null;
   // A retiring optional instance cannot delay boot; its generation guard disposes it.
@@ -1354,7 +1354,7 @@ globalThis.exact = { ...globalThis.exact, mutate, devFirst: () => devFirst(),
   message: (el, text) => { const id = Number(el?.dataset.view); if (inputReady && el && views.get(id) === el && messageViews.has(id)) send(wasm.exact_dispatch(id, 9, writeIn(text), now())); },
   get devAssets() { return devAssets; },
   get ready() { return ready.then(async () => { await moduleReady; if (!inputReady) throw new Error(root.dataset.error || 'data executor not ready'); }); },
-  ...(agentMode ? { agent, agentSettled, now, worldCarry: globalThis.exactWorldCarry } : {}), get wasm() { return wasm; }, stages: () => Object.fromEntries(Object.keys(stages).map(name => [name, stageLoaded(name) ? 'loaded' : 'staged'])), writeIn, send, views, root, generation: 0, pendingSurfaces: [],
+  ...(agentMode ? { agent, agentSettled, now, worldCarry: globalThis.exactWorldCarry } : {}), get wasm() { return wasm; }, assetURL: localAssetURL, stages: () => Object.fromEntries(Object.keys(stages).map(name => [name, stageLoaded(name) ? 'loaded' : 'staged'])), writeIn, send, views, root, generation: 0, pendingSurfaces: [],
 };
 // The GPU module, on demand: a script element after a rendering opportunity
 // (two animation-frame callbacks), never an eager import, and only when a
