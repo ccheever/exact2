@@ -393,8 +393,8 @@ initial value; no row sets another). Declared: under `system-ui` Apple's stops
 are up to 2% narrower than Chrome's, which sizes them from San Francisco's
 untracked space where CoreText's space is tracked (LLP 1053 §0.1).
 `backdrop-filter` is `none` or one `blur()` (LLP 1053.000). Declared: iOS draws
-it as the ultra-thin system material, whose blur, tint and saturation are its
-own (no public arbitrary-radius backdrop blur exists); macOS's Core Image blur
+it as `UIBlurEffect.Style.light`, whose blur and tint are its own (no public
+arbitrary-radius backdrop blur exists; Charlie's ruling, 2026-09-27); macOS's Core Image blur
 matches Chrome's σ but clips the node's children to its border box and sees
 only its parent's subtree as the backdrop; the GPU painter on Linux renders
 the frame once more per backdrop node. The measured bounds are LLP 1053.000 §3.
@@ -709,7 +709,10 @@ within-window blending and window-active-state tracking. AppKit has no ultra-thi
 material; this is a semantic floating-surface fallback, not pixel parity. Authored
 children use the glass content view unless a scroll/canvas already owns their
 container. AppKit supplies appearance and accessibility adaptation. Glass grouping
-is not implemented. Linux currently leaves materials transparent. This explicit
+is not implemented. Since LLP 1053.000 D4 `backgroundMaterial` names every UIKit
+and AppKit material (the schema's `materials` table); a platform without the named
+one draws its stand-in and logs once, and the web and Linux draw the table's stated
+approximation (a blur and a tint; declared approximate). This explicit
 host policy stays the Apple-policy spelling beside CSS `backdrop-filter` (LLP
 1053.000 D3): it is not sugar for a blur, and where a node has both the material
 wins on every host (the web's material rule is `!important` over the inline

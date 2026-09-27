@@ -14,16 +14,106 @@
 //
 // iOS has no public arbitrary-radius backdrop blur (`backgroundFilters` is
 // macOS-only and `CABackdropLayer` is private), so a blur maps to the
-// system material nearest it by measured pixels (ultra-thin), drawn as the node's
+// blur style nearest it by measured pixels (`.light`, Charlie 2026-09-27), drawn as the node's
 // material view under its children: a declared deviation with its measured
 // bound (LLP 1053.000 §3). `backgroundMaterial` stays the host-policy
 // spelling and wins on a node that has both, on every host.
+import CExact
 import CoreGraphics
 #if os(iOS)
 import UIKit
 #else
 import AppKit
 #endif
+
+/// `backgroundMaterial`'s vocabulary (LLP 1053.000 D4): the schema's table,
+/// read through `exact_material_platform`, as this platform's own names.
+enum Materials {
+    #if os(iOS)
+    static let platformCode: UInt8 = 0
+    #else
+    static let platformCode: UInt8 = 1
+    #endif
+
+    /// Whether `name` is a glass effect (`UIGlassEffect`, `NSGlassEffectView`).
+    static func glass(_ name: String?) -> Bool { name == "glass" || name == "glass-clear" }
+
+    /// The schema's name on this platform for `name`, and whether that is a
+    /// stand-in for a material this platform lacks; nil for no such name.
+    static func platform(_ name: String) -> (apple: String, standIn: Bool)? {
+        var bytes = Array(name.utf8)
+        var out: UnsafePointer<UInt8>?
+        let n = exact_material_platform(&bytes, bytes.count, platformCode, &out)
+        guard n > 0, let out else { return nil }
+        let value = String(decoding: UnsafeBufferPointer(start: out, count: n), as: UTF8.self)
+        return value.hasPrefix("~") ? (String(value.dropFirst()), true) : (value, false)
+    }
+
+    private static var noted = Set<String>()
+
+    /// This platform's name for `name`: an unknown name draws `ultra-thin`'s,
+    /// and it or a stand-in is logged once (`log`).
+    static func resolve(_ name: String, log: (String) -> Void) -> String {
+        if let (apple, standIn) = platform(name) {
+            if standIn, noted.insert(name).inserted {
+                log("backgroundMaterial `\(name)` has no material on this platform; drawing \(apple)")
+            }
+            return apple
+        }
+        if noted.insert(name).inserted { log("backgroundMaterial `\(name)` is not a material; drawing ultra-thin") }
+        return platform("ultra-thin")!.apple
+    }
+
+    #if os(iOS)
+    /// A `UIBlurEffect.Style` by its Swift name.
+    static func blurStyle(_ apple: String) -> UIBlurEffect.Style? {
+        switch apple {
+        case "extraLight": .extraLight
+        case "light": .light
+        case "dark": .dark
+        case "regular": .regular
+        case "prominent": .prominent
+        case "systemUltraThinMaterial": .systemUltraThinMaterial
+        case "systemThinMaterial": .systemThinMaterial
+        case "systemMaterial": .systemMaterial
+        case "systemThickMaterial": .systemThickMaterial
+        case "systemChromeMaterial": .systemChromeMaterial
+        case "systemUltraThinMaterialLight": .systemUltraThinMaterialLight
+        case "systemThinMaterialLight": .systemThinMaterialLight
+        case "systemMaterialLight": .systemMaterialLight
+        case "systemThickMaterialLight": .systemThickMaterialLight
+        case "systemChromeMaterialLight": .systemChromeMaterialLight
+        case "systemUltraThinMaterialDark": .systemUltraThinMaterialDark
+        case "systemThinMaterialDark": .systemThinMaterialDark
+        case "systemMaterialDark": .systemMaterialDark
+        case "systemThickMaterialDark": .systemThickMaterialDark
+        case "systemChromeMaterialDark": .systemChromeMaterialDark
+        default: nil
+        }
+    }
+    #else
+    /// An `NSVisualEffectView.Material` by its Swift name.
+    static func material(_ apple: String) -> NSVisualEffectView.Material? {
+        switch apple {
+        case "titlebar": .titlebar
+        case "selection": .selection
+        case "menu": .menu
+        case "popover": .popover
+        case "sidebar": .sidebar
+        case "headerView": .headerView
+        case "sheet": .sheet
+        case "windowBackground": .windowBackground
+        case "hudWindow": .hudWindow
+        case "fullScreenUI": .fullScreenUI
+        case "toolTip": .toolTip
+        case "contentBackground": .contentBackground
+        case "underWindowBackground": .underWindowBackground
+        case "underPageBackground": .underPageBackground
+        default: nil
+        }
+    }
+    #endif
+}
 
 extension NodeView {
     /// The material this node asks for: the host-policy prop, else a
@@ -46,6 +136,21 @@ extension NodeView {
         (materialView as? BackdropEffectView).map { $0.sigma != number("backdrop_blur") } ?? false
     }
 
+    /// The effect for material `kind` (LLP 1053.000 D4): a glass effect on
+    /// iOS 26 (else ultra-thin), otherwise the table's blur style.
+    func materialEffect(_ kind: String, interactive: Bool) -> UIVisualEffect {
+        let apple = Materials.resolve(kind) { [weak self] in self?.presenter?.session?.log($0) }
+        if apple == "glass" || apple == "glassClear" {
+            if #available(iOS 26.0, *) {
+                let glass = UIGlassEffect(style: apple == "glass" ? .regular : .clear)
+                glass.isInteractive = interactive
+                return glass
+            }
+            return UIBlurEffect(style: .systemUltraThinMaterial)
+        }
+        return UIBlurEffect(style: Materials.blurStyle(apple) ?? .systemUltraThinMaterial)
+    }
+
     /// The backdrop blur's effect, nil when this is not a backdrop.
     func backdropEffect() -> UIVisualEffect? {
         guard let view = materialView as? BackdropEffectView else { return nil }
@@ -55,13 +160,13 @@ extension NodeView {
 }
 
 enum Backdrop {
-    /// The material for a blur of σ points. The system materials blur with
-    /// their own Gaussian (σ ≈ 19–33 pt on the iOS 27 simulator, whatever
-    /// σ was asked) and tint, so none is nearer another σ; measured against
-    /// Chrome over the parity page (LLP 1053.000 §3), ultra-thin is nearest
-    /// for a tinted glass and 2–7/255 behind the best for a bare blur, and
-    /// it adapts to the appearance as CSS's `light-dark()` tint would.
-    static func material(sigma _: CGFloat) -> UIBlurEffect.Style { .systemUltraThinMaterial }
+    /// The style for a blur of σ points. The system styles blur with their
+    /// own Gaussian (σ ≈ 19–33 pt on the iOS simulator, whatever σ was
+    /// asked) and tint, so none is nearer another σ. Measured against
+    /// Chrome over the parity page, `.light` is nearest in every case, the
+    /// tinted glass included (LLP 1053.000 §3; Charlie, 2026-09-27: "yes
+    /// switch to regular or light"). It does not follow the appearance.
+    static func material(sigma _: CGFloat) -> UIBlurEffect.Style { .light }
 }
 #else
 import CoreImage

@@ -5,6 +5,7 @@ mod backdrop;
 mod borders;
 mod gradients;
 mod host;
+mod materials;
 mod motion_paint;
 mod paint;
 mod text;

@@ -23,6 +23,25 @@ fn validate(schema: &Schema) {
             "schema: symbol {role}: `-fill` is exactly Apple's `.fill`, beside its role"
         );
     }
+    let mut materials = BTreeSet::new();
+    for [name, ios, macos, blur, saturate, ..] in &schema.materials {
+        assert!(
+            !name.is_empty() && name.bytes().all(|c| c.is_ascii_lowercase() || c == b'-'),
+            "schema: invalid material name {name}"
+        );
+        assert!(materials.insert(name), "schema: duplicate material {name}");
+        for platform in [ios, macos] {
+            let apple = platform.strip_prefix('~').unwrap_or(platform);
+            assert!(
+                !apple.is_empty() && apple.bytes().all(|c| c.is_ascii_alphanumeric()),
+                "schema: material {name}: an Apple name, or `~` and the one drawn instead"
+            );
+        }
+        assert!(
+            blur.parse::<u16>().is_ok() && saturate.parse::<u16>().is_ok(),
+            "schema: material {name}: whole blur and saturate"
+        );
+    }
     assert_eq!(
         schema.schema_version, 1,
         "schema: unsupported schemaVersion"

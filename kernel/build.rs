@@ -23,6 +23,7 @@ struct Schema {
     styles: Vec<StyleRow>,
     opcodes: Vec<OpcodeRow>,
     symbols: Vec<[String; 3]>,
+    materials: Vec<[String; 7]>,
 }
 #[derive(Deserialize)]
 struct NodeTypeRow {
@@ -110,6 +111,20 @@ fn digest(canonical: &str) -> u64 {
     first.copy_from_slice(&bytes[..8]);
     u64::from_le_bytes(first)
 }
+/// `#rrggbb` or `#rrggbbaa` as RGBA.
+fn hex_rgba(hex: &str) -> [u8; 4] {
+    let h = hex
+        .strip_prefix('#')
+        .expect("schema: a tint is #rrggbb[aa]");
+    assert!(matches!(h.len(), 6 | 8), "schema: a tint is #rrggbb[aa]");
+    let byte = |i: usize| u8::from_str_radix(&h[i..i + 2], 16).expect("schema: a tint is hex");
+    [
+        byte(0),
+        byte(2),
+        byte(4),
+        if h.len() == 8 { byte(6) } else { 255 },
+    ]
+}
 fn generate(schema: &Schema, digest: u64) -> String {
     let mut o = String::new();
     let w = &mut o;
@@ -134,6 +149,38 @@ fn generate(schema: &Schema, digest: u64) -> String {
     for [role, apple, path] in &schema.symbols {
         let filled = role.ends_with("-fill");
         writeln!(w, "{role:?} => Some(({apple:?}, {path:?}, {filled})),").unwrap();
+    }
+    writeln!(w, "_ => None, }} }}").unwrap();
+    // @ref LLP 1053.000 D4 — `backgroundMaterial`'s vocabulary.
+    writeln!(
+        w,
+        "/// `backgroundMaterial`'s names, one per platform material (LLP 1053.000 D4).\npub const MATERIALS: &[&str] = &{:?};",
+        schema.materials.iter().map(|row| &row[0]).collect::<Vec<_>>()
+    )
+    .unwrap();
+    w.push_str(concat!(
+        "/// One `backgroundMaterial`: each Apple platform's name for it (`~` when\n",
+        "/// that platform draws another in its place), and the web's and Linux's\n",
+        "/// stated approximation: a blur, a saturation and a tint per scheme.\n",
+        "#[derive(Debug, Clone, Copy, PartialEq)]\n",
+        "pub struct Material {\n",
+        "    /// `UIBlurEffect.Style` (or `glass`, `glassClear`).\n    pub ios: &'static str,\n",
+        "    /// `NSVisualEffectView.Material` (or `glass`, `glassClear`).\n    pub macos: &'static str,\n",
+        "    /// The blur's standard deviation, points.\n    pub blur: f32,\n",
+        "    /// `saturate()`, percent (the web only).\n    pub saturate: f32,\n",
+        "    /// Tint under a light scheme, RGBA.\n    pub light: [u8; 4],\n",
+        "    /// Tint under a dark scheme, RGBA.\n    pub dark: [u8; 4],\n",
+        "}\n",
+    ));
+    writeln!(w, "/// A material by its name; never a platform name.\npub fn material(name: &str) -> Option<Material> {{ match name {{").unwrap();
+    for [name, ios, macos, blur, saturate, light, dark] in &schema.materials {
+        writeln!(
+            w,
+            "{name:?} => Some(Material {{ ios: {ios:?}, macos: {macos:?}, blur: {blur}.0, saturate: {saturate}.0, light: {:?}, dark: {:?} }}),",
+            hex_rgba(light),
+            hex_rgba(dark)
+        )
+        .unwrap();
     }
     writeln!(w, "_ => None, }} }}").unwrap();
     writeln!(

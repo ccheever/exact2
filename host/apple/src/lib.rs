@@ -42,6 +42,7 @@ pub mod delivery;
 pub mod executor;
 pub mod host;
 pub mod markup;
+pub mod material;
 pub mod measure;
 pub mod raster;
 mod raster_exports;

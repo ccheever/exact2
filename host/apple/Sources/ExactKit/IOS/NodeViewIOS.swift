@@ -508,7 +508,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
 
     /// Glass content participates in UIKit's interactive effect. Other
     /// materials remain background siblings of the authored children.
-    var container: UIView { scroll ?? overlay ?? (materialKind == "glass" ? materialView?.contentView : nil) ?? clipBox ?? self }
+    var container: UIView { scroll ?? overlay ?? (Materials.glass(materialKind) ? materialView?.contentView : nil) ?? clipBox ?? self }
 
     /// The canvas this node is painted through, if any: the nearest canvas
     /// above whose overlay holds it.
@@ -680,7 +680,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             if outsideX && (style["overflow_x"]?.string ?? "visible") != "visible" { return nil }
             if outsideY && (style["overflow_y"]?.string ?? "visible") != "visible" { return nil }
             for child in subviews.reversed() {
-                if child === materialView, materialKind == "glass", let contentView = materialView?.contentView {
+                if child === materialView, Materials.glass(materialKind), let contentView = materialView?.contentView {
                     // The effect's UIKit bounds check must not hide authored
                     // children in CSS visible overflow. They remain descendants
                     // of the effect, so its recognizers still see their touches.
@@ -881,8 +881,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
     func updateMaterial() {
         let kind = materialRequest
-        let supported = kind == "ultra-thin" || kind == "glass" || kind == "backdrop"
-        let interactive = kind == "glass" && handlers.contains("press") && !disabled
+        let supported = kind != nil
+        let interactive = Materials.glass(kind) && handlers.contains("press") && !disabled
         if materialKind != (supported ? kind : nil) {
             let children = container.subviews.compactMap { $0 as? NodeView }
             materialView?.removeFromSuperview()
@@ -890,7 +890,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             materialKind = nil
             if supported {
                 let effect = kind == "backdrop" ? BackdropEffectView() : UIVisualEffectView()
-                effect.isUserInteractionEnabled = kind == "glass"
+                effect.isUserInteractionEnabled = Materials.glass(kind)
                 effect.frame = bounds
                 effect.autoresizingMask = [.flexibleWidth, .flexibleHeight]
                 insertSubview(effect, at: 0)
@@ -901,15 +901,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
         guard let materialView else { return }
         if materialView.effect == nil || materialInteractive != interactive || backdropStale {
-            let visual: UIVisualEffect
-            if kind == "glass", #available(iOS 26.0, *) {
-                let glass = UIGlassEffect(style: .regular)
-                glass.isInteractive = interactive
-                visual = glass
-            } else {
-                visual = backdropEffect() ?? UIBlurEffect(style: .systemUltraThinMaterial)
-            }
-            materialView.effect = visual
+            materialView.effect = backdropEffect() ?? materialEffect(kind ?? "ultra-thin", interactive: interactive)
             materialInteractive = interactive
         }
         let radius = number("border_radius", number("border_radius_top_left"))

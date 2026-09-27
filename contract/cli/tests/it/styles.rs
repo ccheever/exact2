@@ -537,4 +537,27 @@ fn pre_and_backdrop_filter_reach_the_kernel_and_the_rest_of_css_filters_is_refus
         assert_eq!(error.id, "lower-attr-value");
         assert!(error.message.contains(named), "{error}");
     }
+    // @ref LLP 1053.000 D4 — every platform material by name; others refused.
+    for name in [
+        "ultra-thin",
+        "chrome-dark",
+        "prominent",
+        "sidebar",
+        "hud-window",
+        "glass-clear",
+    ] {
+        contract::compile(&format!(
+            "component App\n  view\n    box backgroundMaterial=\"{name}\"\n"
+        ))
+        .unwrap();
+    }
+    let error =
+        contract::compile("component App\n  view\n    box backgroundMaterial=\"frosted\"\n")
+            .unwrap_err();
+    assert!(
+        error
+            .message
+            .contains("`backgroundMaterial=\"frosted\"` is not a material; materials: ultra-thin,"),
+        "{error}"
+    );
 }

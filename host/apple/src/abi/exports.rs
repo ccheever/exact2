@@ -20,6 +20,7 @@ macro_rules! host {
         $crate::textflow_exports!();
         $crate::markup_exports!();
         $crate::collapse_exports!();
+        $crate::material_exports!();
         thread_local! {
             static EXACT_RUNTIMES: ::std::cell::RefCell<$crate::abi::Registry<$data>> = ::std::cell::RefCell::new($crate::abi::Registry::default());
         }

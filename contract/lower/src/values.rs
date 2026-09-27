@@ -411,6 +411,21 @@ pub(crate) fn check_prop_value(
             span,
         );
     }
+    // @ref LLP 1053.000 D4 — a material is a name in the schema's table.
+    if prop == PropId::BackgroundMaterial {
+        if let Expr::Str(name, _) = value {
+            if exact_kernel::generated::material(name).is_none() {
+                return err(
+                    "lower-attr-value",
+                    format!(
+                        "`backgroundMaterial=\"{name}\"` is not a material; materials: {}",
+                        exact_kernel::generated::MATERIALS.join(", ")
+                    ),
+                    span,
+                );
+            }
+        }
+    }
     if prop == PropId::ImageSource {
         if let Expr::Str(source, _) = value {
             if let Some(role) = source.strip_prefix("symbol:") {

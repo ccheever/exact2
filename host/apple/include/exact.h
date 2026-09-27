@@ -104,6 +104,11 @@ typedef struct ExactCollapseEdit { size_t utf16, removed; } ExactCollapseEdit;
 size_t exact_text_collapse(const uint8_t *utf8, size_t len, const size_t *lens, size_t count,
     uint8_t white_space, uint8_t *out, size_t *out_lens, ExactCollapseEdit *edits, size_t edit_cap);
 
+/* LLP 1053.000 D4. This platform's name (platform 0 iOS, 1 macOS) for a backgroundMaterial:
+ * its length and static bytes at *out, `~` first when another is drawn in its place; 0 when
+ * the schema has no such material. */
+size_t exact_material_platform(const uint8_t *name, size_t len, uint8_t platform, const uint8_t **out);
+
 /* LLP 1043.000 D5-D7. Same-thread TextShape lifetime, independent of runtime.
  * Non-null buffers must be aligned and valid for their stated counts. */
 typedef struct ExactFlowPair { float x, y; } ExactFlowPair;

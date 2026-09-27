@@ -129,6 +129,7 @@ impl<D: DataSource> Presenter<D> {
                 painted = paint(&mut self.brush);
             }
         }
+        let notes = self.brush.take_notes();
         self.last_frame_succeeded = painted.is_ok();
         let (pixmap, boxes) = match painted {
             Ok(Frame { pixmap, boxes }) => {
@@ -173,6 +174,9 @@ impl<D: DataSource> Presenter<D> {
                     node.id
                 ));
             }
+        }
+        for note in notes {
+            self.host.log(note);
         }
         self.boxes = boxes;
         if self.last_frame_succeeded {

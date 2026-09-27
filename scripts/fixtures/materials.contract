@@ -1,0 +1,32 @@
+// LLP 1053.000 D4's parity page: named `backgroundMaterial`s over a grey
+// backdrop (black and white bars, so the web's `saturate()` is a no-op and
+// the web's and Linux's stated approximation is one picture). Chrome's
+// picture (the web host at 1×) is materials.web.png; Linux's raster test
+// holds both painters to it. On Apple each name draws the platform's own
+// material (the schema's `materials` table), which is the point: the
+// pictures differ there by design.
+component Materials
+  view
+    main testId="materials" position="relative" width=390 height=460 background-color="#ffffff"
+      box position="absolute" left=0 top=0 width=390 height=460 display="flex" flex-direction="row"
+        box width=30 background-color="#000000"
+        box width=30 background-color="#ffffff"
+        box width=30 background-color="#808080"
+        box width=30 background-color="#000000"
+        box width=30 background-color="#ffffff"
+        box width=30 background-color="#404040"
+        box width=30 background-color="#000000"
+        box width=30 background-color="#ffffff"
+        box width=30 background-color="#c0c0c0"
+        box width=30 background-color="#000000"
+        box width=30 background-color="#ffffff"
+        box width=30 background-color="#000000"
+        box width=30 background-color="#ffffff"
+      box testId="ultra-thin" position="absolute" left=20 top=20 width=160 height=90 border-radius=12 backgroundMaterial="ultra-thin"
+      box testId="thin" position="absolute" left=210 top=20 width=160 height=90 backgroundMaterial="thin"
+      box testId="chrome-dark" position="absolute" left=20 top=130 width=160 height=90 backgroundMaterial="chrome-dark"
+      box testId="sidebar" position="absolute" left=210 top=130 width=160 height=90 backgroundMaterial="sidebar"
+      box testId="hud-window" position="absolute" left=20 top=240 width=160 height=90 border-radius=16 backgroundMaterial="hud-window"
+      box testId="prominent" position="absolute" left=210 top=240 width=160 height=90 backgroundMaterial="prominent"
+      box testId="tinted" position="absolute" left=20 top=350 width=160 height=90 background-color="#ff000040" backgroundMaterial="material"
+      box testId="over-blur" position="absolute" left=210 top=350 width=160 height=90 backgroundMaterial="light" backdrop-filter="blur(2px)"
