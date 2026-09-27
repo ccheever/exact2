@@ -70,6 +70,8 @@ component Gallery
     page = 6
   action seven writes page
     page = 7
+  action eight writes page
+    page = 8
   view
     main testId="gallery" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#0f172a" font-family="system-ui"
       row flex-shrink=0 align-items="center" gap=8 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8
@@ -88,6 +90,8 @@ component Gallery
           text "6" font-size=13
         button press=seven testId="page-7" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 7 ? "#e2e8f0" : "#f8fafc")
           text "7" font-size=13
+        button press=eight testId="page-8" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 8 ? "#e2e8f0" : "#f8fafc")
+          text "8" font-size=13
       row flex-wrap="wrap" gap=8 padding-left=12 padding-right=12
         when page == 1
           StageOne()
@@ -103,6 +107,8 @@ component Gallery
           StageSix()
         when page == 7
           StageSeven()
+        when page == 8
+          StageEight()
 
 // Stage 1: geometry, units, transforms, nested viewports, classes.
 component StageOne
@@ -369,3 +375,60 @@ component StageSeven
       path d="M12 34C30 4 60 4 70 24A14 14 0 0 1 100 30" fill="none" stroke="#dc2626" stroke-width=2 marker-start="url(#head)" marker-end="url(#head)"
       polygon points="20,50 50,70 14,74" fill="#bbf7d0" stroke="#16a34a" marker-mid="url(#tick)" marker-start="url(#tick)"
       polyline points="70,70 90,52 110,70" fill="none" stroke="#a855f7" marker="url(#still)"
+
+// Stage 8: masks and patterns (LLP 1055.000 D7, D10), islands on native hosts.
+component StageEight
+  view
+    // A luminance mask: a white disc with a black hole over a bar chart,
+    // and a gradient fading a line chart's area out.
+    svg testId="fx-mask-lum" class=Tile viewBox="0 0 120 80"
+      defs
+        mask id="hole"
+          circle cx=34 cy=40 r=26 fill="#ffffff"
+          circle cx=34 cy=40 r=10 fill="#000000"
+        linearGradient id="fade" x1=0 y1=0 x2=0 y2=1
+          stop offset=0 stop-color="#ffffff"
+          stop offset=1 stop-color="#000000"
+        mask id="fadeout" maskContentUnits="objectBoundingBox"
+          rect width=1 height=1 fill="url(#fade)"
+      rect x=4 y=10 width=60 height=60 fill="#2563eb" mask="url(#hole)"
+      path d="M68 70L68 40L80 30L92 44L104 20L116 32L116 70Z" fill="#16a34a" mask="url(#fadeout)"
+    // An alpha mask in the box's units, and a translucent grey that masks
+    // by luminance times alpha.
+    svg testId="fx-mask-alpha" class=Tile viewBox="0 0 120 80"
+      defs
+        mask id="corner" mask-type="alpha" maskContentUnits="objectBoundingBox"
+          polygon points="0,0 1,0 0,1" fill="#10b981"
+        mask id="veil" maskUnits="userSpaceOnUse" x=64 y=8 width=52 height=64
+          rect x=64 y=8 width=52 height=64 fill="#80808080"
+          rect x=76 y=20 width=28 height=40 fill="#ffffff"
+      rect x=8 y=8 width=48 height=64 fill="#f97316" mask="url(#corner)"
+      rect x=60 y=4 width=60 height=72 fill="#7c3aed" mask="url(#veil)"
+    // A pattern of dots in user space, and one tiled in the box's units.
+    svg testId="fx-pattern-dots" class=Tile viewBox="0 0 120 80"
+      defs
+        pattern id="dots" patternUnits="userSpaceOnUse" width=10 height=10
+          circle cx=5 cy=5 r=3 fill="#0ea5e9"
+        pattern id="checks" width="25%" height="50%"
+          rect width=6 height=6 fill="#f43f5e"
+          rect x=6 y=6 width=6 height=6 fill="#f43f5e"
+      rect x=4 y=4 width=52 height=72 fill="url(#dots)" stroke="#0f172a"
+      rect x=64 y=16 width=48 height=24 fill="url(#checks)"
+      circle cx=88 cy=62 r=14 fill="url(#dots)" stroke="#0ea5e9" stroke-width=1
+    // Hatching: a view box scaled into each tile, turned by
+    // patternTransform; a pattern stroke; a template by href.
+    svg testId="fx-pattern-hatch" class=Tile viewBox="0 0 120 80"
+      defs
+        pattern id="hatch" patternUnits="userSpaceOnUse" width=8 height=8 viewBox="0 0 4 4" patternTransform="rotate(45)"
+          rect width=2 height=4 fill="#334155"
+        pattern id="hatch2" href="#hatch" patternTransform="rotate(-30)"
+      rect x=6 y=6 width=50 height=68 fill="url(#hatch)"
+      ellipse cx=90 cy=40 rx=24 ry=30 fill="url(#hatch2)" stroke="url(#hatch)" stroke-width=6
+    // Not a parity fixture: `foreignObject` is the web's (LLP 1055.000 D13,
+    // §8 ruling 5); native hosts refuse it by name and draw the rest.
+    svg testId="web-foreign" class=Tile viewBox="0 0 120 80"
+      rect width=120 height=80 fill="#e0f2fe"
+      foreignObject x=10 y=10 width=100 height=60
+        column padding=6 background-color="#ffffff" border-radius=6
+          text "HTML in SVG" font-size=12 font-weight=600
+          text "a box, laid out by the page" font-size=9 color="#475569"
