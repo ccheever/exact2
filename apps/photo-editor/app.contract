@@ -1,0 +1,40 @@
+// Photo Editor — the first consumer of native modules (LLP 1024). The main
+// surface is `<photo-editor>`, a native module in the app's own module crate
+// (`modules/`): UIKit gestures on iOS, AppKit on macOS, Pointer Events on
+// the web. The edit lives in the module; it reports its state when a gesture
+// ends, and the Contract shows it. The two buttons are the way to edit
+// without gestures: they change the module's props, never its internals.
+
+component PhotoEditor
+  state turns = 0
+  state resets = 0
+  state edit = "scale 1.00× · rotation 0.0° · pan x 0.00 y 0.00 · crop x 0.00 y 0.00 w 1.00 h 1.00"
+  state edits = 0
+  state ready = false
+  action rotate writes turns
+    turns = turns + 1
+  action reset writes turns, resets
+    turns = 0
+    resets = resets + 1
+  action changed(value: string) writes edit
+    edit = value
+  action told(message: string) writes edits
+    if message == "edited"
+      edits = edits + 1
+  action loaded writes ready
+    ready = true
+  view
+    main testId="photo-editor-app" width="100%" height="100%" display="flex" flex-direction="column" background-color="#111318" color="#f2f3f5" font-family="system-ui"
+      row flex-shrink=0 align-items="center" gap=12 padding-left=16 padding-right=16 padding-top=12 padding-bottom=12
+        text "Photo Editor" flex=1 font-size=19 font-weight=600
+        text (ready ? "Ready" : "Loading…") testId="status" font-size=13 color="#9aa1ad"
+      photo-editor testId="editor" flex=1 min-height=0 width="100%" photo="assets/sample.jpg" turns=turns reset=resets aria-label="Photo. Pinch to zoom, turn two fingers to rotate, drag to move, drag the crop corners or edges, double-tap to reset; the buttons below do the same without gestures" load=loaded change=changed message=told
+      column flex-shrink=0 gap=10 padding=16 background-color="#1a1d24"
+        text "Edit" font-size=12 font-weight=600 color="#9aa1ad"
+        text edit testId="edit" aria-live="polite" font-size=15 font-variant-numeric="tabular-nums"
+        text ("Edited " + toString(edits) + (edits == 1 ? " time" : " times")) testId="edits" font-size=13 color="#9aa1ad"
+        row gap=10
+          button press=rotate testId="rotate" aria-label="Rotate the photo 90 degrees clockwise" padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 border-radius=8 background-color="#2d6cdf" color="#ffffff"
+            text "Rotate 90°" font-size=15 font-weight=600
+          button press=reset testId="reset" aria-label="Reset zoom, rotation, position and crop" padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 border-radius=8 background-color="#2b2f38" color="#ffffff"
+            text "Reset" font-size=15 font-weight=600

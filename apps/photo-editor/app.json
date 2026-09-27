@@ -1,0 +1,44 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Photo Editor",
+  "short_name": "Photo Editor",
+  "id": "com.exact.photoeditor",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#111318",
+  "background_color": "#111318",
+  "app": {
+    "id": "com.exact.photoeditor",
+    "name": "Photo Editor"
+  },
+  "modules": [
+    "photo-editor"
+  ],
+  "host": {
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone",
+        "ipad"
+      ]
+    },
+    "macos": {
+      "minimumOS": "14.0",
+      "window": {
+        "width": 900,
+        "height": 700,
+        "minWidth": 480,
+        "minHeight": 480
+      }
+    },
+    "web": {}
+  },
+  "deploy": {
+    "store": {
+      "web": "0",
+      "macos": "0",
+      "ios": "0",
+      "linux": "0"
+    }
+  }
+}
