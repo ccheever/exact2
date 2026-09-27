@@ -156,11 +156,28 @@ pub(crate) fn specs(
             if !props.contains(&p) {
                 continue;
             }
-            if !first {
-                s.push(',');
+            // A translation is two tracks, one per axis.
+            let parts: &[(usize, &str)] = match p {
+                Property::Translate => &[
+                    (0, "transform.translation.x"),
+                    (1, "transform.translation.y"),
+                ],
+                Property::Opacity => &[(0, "opacity")],
+                Property::StrokeDashoffset => &[(0, "lineDashPhase")],
+                Property::Fill => &[(0, "fillColor")],
+                Property::Stroke => &[(0, "strokeColor")],
+                Property::Scale => &[(0, "transform.scale")],
+                Property::Rotate => &[(0, "transform.rotation.z")],
+                Property::BackgroundColor => &[(0, "backgroundColor")],
+                _ => &[(0, "r")],
+            };
+            for (axis, key) in parts {
+                if !first {
+                    s.push(',');
+                }
+                first = false;
+                spec(play, i, p, underlying(p), *axis, key, &mut s);
             }
-            first = false;
-            spec(play, i, p, underlying(p), &mut s);
         }
     }
     s.push(']');
@@ -172,6 +189,8 @@ fn spec(
     index: usize,
     p: Property,
     (base, scale): (Value, f64),
+    axis: usize,
+    key: &str,
     s: &mut String,
 ) {
     let a = &play.animation;
@@ -192,13 +211,6 @@ fn spec(
             a.iterations / 2.0,
         ),
     };
-    let key = match p {
-        Property::Opacity => "opacity",
-        Property::StrokeDashoffset => "lineDashPhase",
-        Property::Fill => "fillColor",
-        Property::Stroke => "strokeColor",
-        _ => "r",
-    };
     let list = |v: &[f64]| {
         v.iter()
             .map(|n| num(*n as f32))
@@ -213,7 +225,7 @@ fn spec(
                 let [r, g, b, al] = v.to_rgba8();
                 format!("[{r},{g},{b},{}]", ((al as f64) * scale).round() as u8)
             } else {
-                num((v.x * scale) as f32)
+                num(((if axis == 1 { v.y } else { v.x }) * scale) as f32)
             }
         })
         .collect();
@@ -245,12 +257,26 @@ fn spec(
 }
 
 /// Per node, whether Core Animation can play its lowered animations as
-/// CSS does (LLP 1055.000 D15); a node it cannot is sampled by the engine.
+/// CSS does (LLP 1055.000 D15, LLP 1055.001); a node it cannot is sampled by the engine.
 /// An inherited property animated on a container reaches its descendants,
 /// which only a sampled scene shows; a colour lowers only when every colour
 /// in the track, its underlying one included, has one alpha (then Core
 /// Animation's unpremultiplied interpolation is CSS's premultiplied one).
-pub(crate) fn eligibility(kernel: &Kernel, engine: &mut Engine, sync: &MotionSync) {
+///
+/// A box's transform (`box_motion`, iOS) lowers when it turns about its
+/// centre, no layout transition moves it, and nothing in it takes input:
+/// Core Animation moves only the presentation, and UIKit hit-tests the
+/// model, where a browser hit-tests what it shows. Its background colour
+/// lowers when the layer paints it: no border and no `background-image`
+/// (else the view draws its box), every colour of one alpha. An SVG
+/// element's transform is its scene's, which samples it.
+pub(crate) fn eligibility(
+    kernel: &Kernel,
+    engine: &mut Engine,
+    sync: &MotionSync,
+    box_motion: bool,
+    interactive: &dyn Fn(exact_kernel::ViewId) -> bool,
+) {
     for (node, animations) in &sync.animations {
         let key = NodeKey {
             index: *node as u32,
@@ -274,9 +300,14 @@ pub(crate) fn eligibility(kernel: &Kernel, engine: &mut Engine, sync: &MotionSyn
             .0
             .iter()
             .any(|a| a.keyframes.0.iter().any(|f| !f.dark.is_empty()));
-        let sampled = if paired
-            || n.node_type.is_svg_shape()
-                && (served(exact_kernel::StyleId::Fill) || served(exact_kernel::StyleId::Stroke))
+        let svg = n.node_type.is_svg_element() || n.node_type == NodeType::Svg;
+        let boxed = box_motion && props.iter().any(|p| super::svg::BOX_LOWERED.contains(p));
+        let sampled = if paired || (boxed && svg) {
+            true
+        } else if boxed {
+            !box_eligible(kernel, &n, &props, interactive)
+        } else if n.node_type.is_svg_shape()
+            && (served(exact_kernel::StyleId::Fill) || served(exact_kernel::StyleId::Stroke))
         {
             true
         } else if n.node_type.is_svg_shape() {
@@ -312,4 +343,98 @@ pub(crate) fn eligibility(kernel: &Kernel, engine: &mut Engine, sync: &MotionSyn
         };
         engine.set_node_sampled(*node, sampled);
     }
+}
+
+/// Whether Core Animation plays a box's lowered transform and background
+/// colour as CSS does (see [`eligibility`]).
+fn box_eligible(
+    kernel: &Kernel,
+    n: &exact_kernel::NodeRef<'_>,
+    props: &[Property],
+    interactive: &dyn Fn(exact_kernel::ViewId) -> bool,
+) -> bool {
+    let s = n.style;
+    let turns = props
+        .iter()
+        .any(|p| matches!(p, Property::Translate | Property::Scale | Property::Rotate));
+    if turns
+        && (!s.transform_origin.centred()
+            || !s.layout_transition.0.is_empty()
+            || subtree_any(kernel, n.id, interactive))
+    {
+        return false;
+    }
+    if props.contains(&Property::BackgroundColor) {
+        // A side paints only with a style: `border-width`'s initial is 3.
+        let bordered = [
+            (s.border_width_top, s.border_style_top),
+            (s.border_width_right, s.border_style_right),
+            (s.border_width_bottom, s.border_style_bottom),
+            (s.border_width_left, s.border_style_left),
+        ]
+        .iter()
+        .any(|(w, style)| *w > 0.0 && *style != exact_kernel::BorderStyle::None);
+        if bordered || s.background_image.gradient().is_some() {
+            return false;
+        }
+        // The row's own colour is interpolated only where a keyframe at 0% or
+        // 100% leaves it out.
+        let ends = |a: &exact_motion::Animation| {
+            [0.0, 1.0].iter().all(|at| {
+                a.keyframes.0.iter().any(|f| {
+                    f.offset == *at
+                        && f.values
+                            .iter()
+                            .any(|(p, _)| *p == Property::BackgroundColor)
+                })
+            })
+        };
+        let bg = |a: &&exact_motion::Animation| {
+            a.keyframes
+                .properties()
+                .contains(&Property::BackgroundColor)
+        };
+        let own = s.animation.0.iter().filter(bg).any(|a| !ends(a));
+        let targets = if own {
+            exact_kernel::motion::color_targets(n, false)
+        } else {
+            Vec::new()
+        };
+        let alphas: Vec<Option<f64>> = s
+            .animation
+            .0
+            .iter()
+            .flat_map(|a| a.keyframes.0.iter())
+            .flat_map(|f| f.values.iter())
+            .filter(|(p, _)| *p == Property::BackgroundColor)
+            .map(|(_, v)| Some(v.w))
+            .chain(
+                targets
+                    .iter()
+                    .filter(|(p, _)| *p == Property::BackgroundColor)
+                    .map(|(_, v)| v.map(|v| v.w)),
+            )
+            .collect();
+        // Core Animation interpolates unpremultiplied: CSS's premultiplied
+        // interpolation only where every colour has one alpha.
+        if alphas
+            .iter()
+            .any(|a| a.is_none_or(|a| Some(a) != alphas[0]))
+        {
+            return false;
+        }
+    }
+    true
+}
+
+/// Whether `id` or anything under it satisfies `f`.
+fn subtree_any(
+    kernel: &Kernel,
+    id: exact_kernel::ViewId,
+    f: &dyn Fn(exact_kernel::ViewId) -> bool,
+) -> bool {
+    f(id)
+        || kernel
+            .node(id)
+            .is_some_and(|n| n.children().into_iter().any(|c| subtree_any(kernel, c, f)))
 }

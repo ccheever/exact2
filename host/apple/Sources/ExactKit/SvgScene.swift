@@ -64,7 +64,8 @@ private func circle(_ r: Double) -> CGPath {
     return p
 }
 
-/// CSS animations lowered to Core Animation (LLP 1055 D7). A spec's start is
+/// CSS animations lowered to Core Animation (LLP 1055 D7; a box's transform
+/// key paths and background colour, LLP 1055.001). A spec's start is
 /// on the runtime clock (ms / 1000 since `ExactEnv.t0`); a held one (authored
 /// `paused`, or any under an agent-owned clock) is `speed = 0` at its local
 /// time, so a screenshot and a `clock` seek are deterministic.
@@ -105,7 +106,7 @@ enum CssAnimations {
 
     static func make(_ spec: [String: Any], layer: CALayer, clock: Double?) -> CAAnimation? {
         let key = spec["k"] as? String ?? ""
-        let colors = key == "fillColor" || key == "strokeColor"
+        let colors = key == "fillColor" || key == "strokeColor" || key == "backgroundColor"
         let times = nums(spec["t"])
         // A colour track's values are [r,g,b,a] bytes (LLP 1055.000 D6).
         let values: [Any] = colors

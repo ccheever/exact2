@@ -48,8 +48,26 @@ keyframes tour
   to translate="0px 16px" rotate=200 scale=1.1
 
 component Gallery
+  state page = 1
+  action fixtures writes page
+    page = 1
+  action shimmer writes page
+    page = 2
   view
     main testId="gallery" width="100%" height="100%" display="flex" flex-direction="column" gap=12 padding=12 background-color="#ffffff" color="#0f172a" font-family="system-ui"
+      row gap=8
+        button press=fixtures testId="page-1" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 1 ? "#e2e8f0" : "#f8fafc")
+          text "Fixtures" font-size=13
+        button press=shimmer testId="page-2" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color=(page == 2 ? "#e2e8f0" : "#f8fafc")
+          text "Shimmer" font-size=13
+      when page == 1
+        Fixtures()
+      when page == 2
+        Shimmer()
+
+component Fixtures
+  view
+    column gap=12
       text "Images" font-size=15 font-weight=600
       row flex-wrap="wrap" gap=8
         image "assets/spin.gif" testId="fx-gif" class=Tile aria-label="Four frames, uneven delays"
@@ -76,3 +94,33 @@ component Gallery
           box class=Ink height=8 transform-origin="0% 0%" animation="spin 2s linear infinite"
         box testId="fx-held" class=Tile display="flex" align-items="center" justify-content="center"
           box class=Ink animation="spin 1s linear -250ms paused"
+
+// A feed's loading skeleton: every bar swept by a translating highlight,
+// forever — the display link's measure (LLP 1055.001): on iOS Core
+// Animation plays all of it and the engine keeps no frames coming.
+component Shimmer
+  view
+    column gap=10 testId="skeleton"
+      SkeletonRow()
+      SkeletonRow()
+      SkeletonRow()
+      SkeletonRow()
+      SkeletonRow()
+      SkeletonRow()
+      SkeletonRow()
+      SkeletonRow()
+      SkeletonRow()
+      SkeletonRow()
+      SkeletonRow()
+      SkeletonRow()
+
+component SkeletonRow
+  view
+    row gap=10 align-items="center"
+      box width=40 height=40 border-radius=20 background-color="#e2e8f0" overflow="hidden"
+        box width=24 height=40 background-image="linear-gradient(90deg, #e2e8f0, #f8fafc, #e2e8f0)" animation="sweep 1200ms linear infinite"
+      column gap=6 flex=1
+        box height=10 border-radius=5 background-color="#e2e8f0" overflow="hidden"
+          box width=24 height=10 background-image="linear-gradient(90deg, #e2e8f0, #f8fafc, #e2e8f0)" animation="sweep 1200ms linear infinite"
+        box height=10 width=160 border-radius=5 background-color="#e2e8f0" overflow="hidden"
+          box width=24 height=10 background-image="linear-gradient(90deg, #e2e8f0, #f8fafc, #e2e8f0)" animation="sweep 1200ms linear infinite"

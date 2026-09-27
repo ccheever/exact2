@@ -7,8 +7,10 @@
 //! form of its animations. The presenter keeps one `CAShapeLayer` per shape,
 //! diffs by element id, and never restarts an animation whose spec is
 //! unchanged. A box's own `opacity` animation goes out as an `animations`
-//! op on its view. The engine runs lowered for these properties: it tracks
-//! each animation's start and pause, and never samples it per frame.
+//! op on its view, and on iOS its `translate`, `scale`, `rotate` and
+//! `background-color` too ([`BOX_LOWERED`]). The engine runs lowered for
+//! these properties: it tracks each animation's start and pause, and never
+//! samples it per frame.
 
 use super::svg_lower::specs;
 use crate::batch::Batch;
@@ -32,6 +34,29 @@ pub(crate) const LOWERED: [Property; 5] = [
     Property::Stroke,
 ];
 
+/// On iOS, a box's transform and background colour too (LLP 1055.001):
+/// UIKit anchors a view's layer at its centre, CSS's initial
+/// `transform-origin`, and Core Animation's `transform.translation`,
+/// `transform.rotation.z` and `transform.scale` key paths replace one
+/// component of the layer's transform and keep the others, composed
+/// translate, rotate, scale: CSS's individual transform properties. AppKit
+/// anchors a layer at its corner, so macOS samples them.
+pub(crate) const BOX_LOWERED: [Property; 4] = [
+    Property::Translate,
+    Property::Scale,
+    Property::Rotate,
+    Property::BackgroundColor,
+];
+
+/// Every property Core Animation plays on this host.
+pub(crate) fn lowered(box_motion: bool) -> Vec<Property> {
+    let mut all = LOWERED.to_vec();
+    if box_motion {
+        all.extend(BOX_LOWERED);
+    }
+    all
+}
+
 /// A content box: x, y, width, height.
 type Rect = (f32, f32, f32, f32);
 
@@ -52,9 +77,20 @@ pub(crate) struct SvgState {
     /// Whether a `foreignObject` was met: its boxes are then looked for
     /// (LLP 1055.000 D13, refused on this host).
     foreign: bool,
+    /// Whether boxes' transforms and background colours are lowered
+    /// ([`BOX_LOWERED`]): iOS.
+    pub(crate) box_motion: bool,
 }
 
 impl SvgState {
+    /// A host's state; `box_motion` lowers boxes' transforms and colours.
+    pub(crate) fn new(box_motion: bool) -> Self {
+        Self {
+            box_motion,
+            ..Self::default()
+        }
+    }
+
     /// An SVG element's `svg`, marking its scene dirty; `None` for any other node.
     pub(crate) fn element(&mut self, kernel: &Kernel, id: ViewId) -> Option<ViewId> {
         let node = kernel.node(id)?;
@@ -178,9 +214,29 @@ impl SvgState {
             let base = engine
                 .target(key, Property::Opacity)
                 .map_or(node.style.opacity as f64, |v| v.x);
-            let specs = specs(engine, key, &[Property::Opacity], &|_| {
-                (Value::scalar(base), 1.0)
-            });
+            // Each lowered track over the row's own value, in Core
+            // Animation's units: a rotation in radians.
+            let underlying = |p: Property| match p {
+                Property::Opacity => (Value::scalar(base), 1.0),
+                Property::Rotate => (
+                    engine.target(key, p).unwrap_or(Value::ZERO),
+                    std::f64::consts::PI / 180.0,
+                ),
+                Property::Scale => (engine.target(key, p).unwrap_or(Value::scalar(1.0)), 1.0),
+                _ => (engine.target(key, p).unwrap_or(Value::ZERO), 1.0),
+            };
+            let props: &[Property] = if self.box_motion {
+                &[
+                    Property::Opacity,
+                    Property::Translate,
+                    Property::Scale,
+                    Property::Rotate,
+                    Property::BackgroundColor,
+                ]
+            } else {
+                &[Property::Opacity]
+            };
+            let specs = specs(engine, key, props, &underlying);
             if self.box_sent.get(&id) != Some(&specs) {
                 batch.animations(id, &specs);
                 if specs == "[]" {

@@ -51,6 +51,9 @@ use exact_plan::{EventKind, Plan};
 use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, RunnerError, Timed};
 pub use height::{HeightOwnerChange, HeightOwnerDisposition, HeightOwnerError};
 use height_drag::{HeightDrag, HeightHandle};
+#[cfg(test)]
+#[path = "box_motion_tests.rs"]
+mod box_motion_tests;
 #[path = "layout.rs"]
 mod layout;
 #[cfg(test)]
@@ -369,14 +372,14 @@ impl<D: DataSource> Host<D> {
             mirror: IdMap::default(),
             keys: IdMap::default(),
             inline_runs: IdMap::default(),
-            svg: svg::SvgState::default(),
+            svg: svg::SvgState::new(cfg!(target_os = "ios")),
             dirty_paragraphs: BTreeSet::new(),
             pending_layout: IdSet::default(),
             roots: Vec::new(),
             collections_json: "[]".into(),
             engine: {
                 let mut engine = Engine::new();
-                engine.set_lowered_properties(&svg::LOWERED);
+                engine.set_lowered_properties(&svg::lowered(cfg!(target_os = "ios")));
                 engine
             },
             paint: paint::Paint::default(),
@@ -441,7 +444,14 @@ impl<D: DataSource> Host<D> {
         }
         let applied = sync.apply(&mut host.engine);
         debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
-        svg_lower::eligibility(host.runner.kernel(), &mut host.engine, &sync);
+        let runner = &host.runner;
+        svg_lower::eligibility(
+            runner.kernel(),
+            &mut host.engine,
+            &sync,
+            host.svg.box_motion,
+            &|v| !runner.handlers_of(v).is_empty(),
+        );
         host.boot_paint(&order);
         host.reconcile_height_handles(&mut batch, true);
         host.layout(&mut batch).map_err(HostError::Layout)?;
@@ -1179,7 +1189,14 @@ impl<D: DataSource> Host<D> {
             self.spare_exits(&mut sync);
             let applied = sync.apply(&mut self.engine);
             debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
-            svg_lower::eligibility(self.runner.kernel(), &mut self.engine, &sync);
+            let runner = &self.runner;
+            svg_lower::eligibility(
+                runner.kernel(),
+                &mut self.engine,
+                &sync,
+                self.svg.box_motion,
+                &|v| !runner.handlers_of(v).is_empty(),
+            );
             self.play_exits(&mut batch);
             self.seed_layout(&t.receipt, &mut batch);
             self.sync_paint(&t.receipt, &mut batch);
