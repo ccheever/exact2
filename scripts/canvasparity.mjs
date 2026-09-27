@@ -31,6 +31,10 @@ import { boxes, register, shot } from './parity.mjs';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const MEAN = 4, OFF = 0.06, BAND = 32, SLOP = 1, STEPS = 4;
 const BACKDROPS = { light: [255, 255, 255], dark: [0, 0, 0] };
+// Text on Linux is held to SVG's Linux text band (LLP 1056 §4): its own
+// engine's unhinted outlines, not Chrome's rasterizer.
+const TEXT = /^fx-text/;
+const limits = (host, id) => (host.startsWith('linux') && TEXT.test(id) ? { mean: 14, off: 0.16 } : undefined);
 
 /** The page sequence, captured the same way on every host. */
 async function capture(open, host, dir, check, env) {
@@ -191,7 +195,7 @@ async function gallery({ open, check, dir, record, runs }) {
     let got;
     try { got = await capture(open, host, dir, check, env); } catch (error) { check(false, `${label}: ${error.message}`); continue; }
     for (const [key, fixtures] of Object.entries(web.out)) {
-      for (const [id, a] of Object.entries(fixtures)) record(label, key, id, a, got.out[key]?.[id]);
+      for (const [id, a] of Object.entries(fixtures)) record(label, key, id, a, got.out[key]?.[id], limits(label, id));
     }
     const k = Object.values(got.natives)[0]?.k ?? 1;
     if (!scales.has(k)) scales.set(k, direct(dir, k, check));
@@ -200,7 +204,7 @@ async function gallery({ open, check, dir, record, runs }) {
       const { backdrop, step } = keyed(key);
       for (const [id, b] of Object.entries(crops)) {
         const d = directK[step !== null ? `${id}@${step}` : id];
-        if (d && b) record(`${label}@${k}x`, key, id, over(d, BACKDROPS[backdrop], 0), b);
+        if (d && b) record(`${label}@${k}x`, key, id, over(d, BACKDROPS[backdrop], 0), b, limits(label, id));
       }
     }
   }
@@ -211,7 +215,8 @@ async function gallery({ open, check, dir, record, runs }) {
 export async function canvasParity({ open, check, hosts, only }) {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-canvas-parity-'));
   const rows = [];
-  const record = (host, key, id, a, b, limits = { mean: MEAN, off: OFF }) => {
+  const record = (host, key, id, a, b, limits) => {
+    limits ??= { mean: MEAN, off: OFF };
     if (!check(a && b && a.width === b.width && a.height === b.height, `${host} ${key} ${id}: no box to compare (off screen, missing or resized: ${a?.width}×${a?.height} vs ${b?.width}×${b?.height})`)) return;
     const best = register(a, b, { slop: SLOP, band: BAND });
     const ok = best.mean <= limits.mean && best.off <= limits.off;

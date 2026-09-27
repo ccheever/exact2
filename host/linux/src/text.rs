@@ -346,15 +346,49 @@ struct Glyph {
 }
 
 #[derive(Debug, Clone)]
-enum FamilyChoice {
+pub(crate) enum FamilyChoice {
     SansSerif,
     Serif,
     Monospace,
     Declared(String),
 }
 
+/// Canvas 2D's own font system (LLP 1056 D8): the catalog's fonts and
+/// family choices for `plan`, detached from its `Rc` caches so the canvas
+/// text engine can live behind a `Mutex`, with each family name a canvas
+/// `font` may give (the generics and the plan's declared families).
+pub(crate) fn canvas_font_system(
+    plan: &Plan,
+    assets: &Assets,
+) -> (FontSystem, Vec<(String, FamilyChoice)>) {
+    let c = catalog::Catalog::for_assets(plan, assets);
+    let mut names: Vec<(String, FamilyChoice)> = [
+        ("sans-serif", FamilyChoice::SansSerif),
+        ("system-ui", FamilyChoice::SansSerif),
+        ("ui-sans-serif", FamilyChoice::SansSerif),
+        ("ui-rounded", FamilyChoice::SansSerif),
+        ("serif", FamilyChoice::Serif),
+        ("ui-serif", FamilyChoice::Serif),
+        ("monospace", FamilyChoice::Monospace),
+        ("ui-monospace", FamilyChoice::Monospace),
+    ]
+    .into_iter()
+    .map(|(n, f)| (n.to_string(), f))
+    .collect();
+    for (i, stack) in plan.stacks.iter().enumerate() {
+        let member = plan.stack_member(stack.members.iter().next().expect("validated stack"));
+        if let (StackMemberKind::Family, Some(family)) = (member.kind, member.family) {
+            if let Some(choice) = c.families.get(i) {
+                let name = plan.str(plan.familie(family).name).to_string();
+                names.push((name, choice.clone()));
+            }
+        }
+    }
+    (c.fonts, names)
+}
+
 impl FamilyChoice {
-    fn cosmic(&self) -> Family<'_> {
+    pub(crate) fn cosmic(&self) -> Family<'_> {
         match self {
             FamilyChoice::SansSerif => Family::SansSerif,
             FamilyChoice::Serif => Family::Serif,
