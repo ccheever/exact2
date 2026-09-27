@@ -710,10 +710,10 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                         if a.len() + b.len() > MAX_STRING {
                             return Err(Trap::StringTooLong { pc });
                         }
-                        let mut s = String::with_capacity(a.len() + b.len());
-                        s.push_str(&a);
-                        s.push_str(&b);
-                        stack.push(Value::Str(Rc::from(s)));
+                        stack.push(stdlib::assembled(|s| {
+                            s.push_str(&a);
+                            s.push_str(&b);
+                        }));
                     }
                     _ => return Err(Trap::TypeMismatch { pc, op }),
                 }
@@ -747,20 +747,24 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                 if stack.len() < n {
                     return Err(Trap::Arity { pc, expected: n });
                 }
-                let call_args = stack.split_off(stack.len() - n);
+                // The arguments are read where they are, not moved to a
+                // vector of their own: a call is the VM's commonest cost.
+                let at = stack.len() - n;
+                let call_args = &stack[at..];
                 let v = if f == Stdlib::Join {
                     if let Some(Value::List(items)) = call_args.first() {
                         step(&mut steps, items.len(), pc)?;
                     }
-                    match stdlib::join(&call_args, MAX_STRING) {
+                    match stdlib::join(call_args, MAX_STRING) {
                         Ok(v) => v,
                         Err(stdlib::JoinError::Type) => return Err(Trap::TypeMismatch { pc, op }),
                         Err(stdlib::JoinError::TooLong) => return Err(Trap::StringTooLong { pc }),
                     }
                 } else {
-                    stdlib::call(f, &call_args, env.now_ms, env.plan, env.router)
+                    stdlib::call(f, call_args, env.now_ms, env.plan, env.router)
                         .ok_or(Trap::TypeMismatch { pc, op })?
                 };
+                stack.truncate(at);
                 stack.push(v);
             }
             // @ref LLP 1017.003 D5 — a callback body follows inline, to `end`.

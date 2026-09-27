@@ -77,7 +77,7 @@ pub fn call(
             _ => return None,
         }),
         Stdlib::ToString => match args.first()? {
-            Value::Number(n) => Value::str(&format_number(*n)),
+            Value::Number(n) => assembled(|s| push_number(*n, s)),
             Value::Bool(b) => Value::str(if *b { "true" } else { "false" }),
             Value::Str(s) => Value::Str(Rc::clone(s)),
             _ => return None,
@@ -131,22 +131,28 @@ pub fn join(args: &[Value], limit: usize) -> Result<Value, JoinError> {
     if let [Value::Str(only)] = &items[..] {
         return Ok(Value::Str(Rc::clone(only)));
     }
-    let mut out = String::new();
-    for (i, item) in items.iter().enumerate() {
-        if i > 0 {
-            out.push_str(separator);
+    let mut result = Ok(());
+    let v = assembled(|out| {
+        for (i, item) in items.iter().enumerate() {
+            if i > 0 {
+                out.push_str(separator);
+            }
+            match item {
+                Value::Str(s) => out.push_str(s),
+                Value::Number(n) => push_number(*n, out),
+                Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+                _ => {
+                    result = Err(JoinError::Type);
+                    return;
+                }
+            }
+            if out.len() > limit {
+                result = Err(JoinError::TooLong);
+                return;
+            }
         }
-        match item {
-            Value::Str(s) => out.push_str(s),
-            Value::Number(n) => out.push_str(&format_number(*n)),
-            Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
-            _ => return Err(JoinError::Type),
-        }
-        if out.len() > limit {
-            return Err(JoinError::TooLong);
-        }
-    }
-    Ok(Value::str(&out))
+    });
+    result.map(|()| v)
 }
 
 /// A native module's props (LLP 1024 D1): `pairs` alternate key and value,
@@ -196,17 +202,51 @@ pub fn native_props(pairs: &[Value]) -> Option<String> {
 
 /// JavaScript's decimal/exponent boundaries over Rust's shortest-round-trip printer.
 pub fn format_number(n: f64) -> String {
+    let mut out = String::new();
+    push_number(n, &mut out);
+    out
+}
+
+/// [`format_number`], appended to `out`.
+pub fn push_number(n: f64, out: &mut String) {
     if n == 0.0 {
-        "0".into()
+        out.push('0');
     } else if n.is_finite() && (n.abs() >= 1e21 || n.abs() < 1e-6) {
         let scientific = exact_num::Exponent(n).to_string();
         let (mantissa, exponent) = scientific.split_once('e').expect("scientific notation");
         let exponent: i32 = exponent.parse().expect("decimal exponent");
-        format!("{mantissa}e{exponent:+}")
+        out.push_str(&format!("{mantissa}e{exponent:+}"));
     } else {
         // Written without the formatter: an app's numbers are shown on boot.
-        exact_num::text!("{}", exact_num::Shortest(n))
+        exact_num::push_text!(out, "{}", exact_num::Shortest(n));
     }
+}
+
+thread_local! {
+    /// Text a value is assembled in before it is copied, once, into its own
+    /// shared string: a string value costs one allocation, not two.
+    static SCRATCH: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
+}
+
+/// A string value made by `build` in the scratch text.
+pub fn assembled(build: impl FnOnce(&mut String)) -> Value {
+    SCRATCH.with(|s| match s.try_borrow_mut() {
+        Ok(mut s) => {
+            s.clear();
+            build(&mut s);
+            let v = Value::str(&s);
+            // A long one does not keep its capacity.
+            if s.capacity() > 4096 {
+                *s = String::new();
+            }
+            v
+        }
+        Err(_) => {
+            let mut s = String::new();
+            build(&mut s);
+            Value::str(&s)
+        }
+    })
 }
 
 /// `h:mm AM` from milliseconds since the Unix epoch, UTC.
