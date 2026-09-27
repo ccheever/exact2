@@ -62,18 +62,23 @@ impl Presented {
 
     /// The box `(x, y, w, h)` painted through its presentation: CSS's
     /// individual transforms about its center, then outermost the layout
-    /// transition's offset and scale from its top-left corner, as a web FLIP
-    /// places it (LLP 1063).
+    /// transition's offset (LLP 1063).
     pub(super) fn transform(&self, (x, y, w, h): (f32, f32, f32, f32)) -> Transform {
         let (cx, cy) = (x + w / 2.0, y + h / 2.0);
-        let [dx, dy, sx, sy] = self.layout;
-        Transform::from_translate(x + dx, y + dy)
-            .pre_scale(sx, sy)
-            .pre_translate(-x, -y)
-            .pre_translate(cx + self.translate.0, cy + self.translate.1)
+        let [dx, dy, ..] = self.layout;
+        Transform::from_translate(cx + dx + self.translate.0, cy + dy + self.translate.1)
             .pre_rotate(self.rotate)
             .pre_scale(self.scale, self.scale)
             .pre_translate(-cx, -cy)
+    }
+
+    /// The box's surface — its background, border, shadow and the clip it
+    /// puts on its children — at the size a layout transition shows, from
+    /// its top-left corner. Its content and children keep the laid-out
+    /// geometry: a growing card reveals its title, never squashes it.
+    pub(super) fn surface(&self, (x, y, w, h): (f32, f32, f32, f32)) -> (f32, f32, f32, f32) {
+        let [.., sx, sy] = self.layout;
+        (x, y, w * sx, h * sy)
     }
 }
 
@@ -140,23 +145,28 @@ mod tests {
     use tiny_skia::Point;
 
     #[test]
-    fn a_layout_box_is_placed_from_its_top_left_outside_the_authored_transforms() {
+    fn a_layout_transition_moves_the_box_and_sizes_only_its_surface() {
         let map = |p: &Presented, x: f32, y: f32| {
             let mut point = [Point::from_xy(x, y)];
-            p.transform((10.0, 20.0, 100.0, 40.0))
-                .map_points(&mut point);
+            p.transform((10.0, 20.0, 100.0, 40.0)).map_points(&mut point);
             (point[0].x, point[0].y)
         };
         let grow = Presented {
             layout: [5.0, -8.0, 1.0, 0.25],
             ..Presented::IDENTITY
         };
-        // Its top-left moves by the offset; its size is the scaled one.
+        // Moved by the offset, never scaled: its content keeps its size.
         assert_eq!(map(&grow, 10.0, 20.0), (15.0, 12.0));
-        assert_eq!(map(&grow, 110.0, 60.0), (115.0, 22.0));
-        // An authored scale stays about the center, inside the layout box.
-        let both = Presented { scale: 0.5, ..grow };
-        assert_eq!(map(&both, 60.0, 40.0), (65.0, 17.0));
-        assert_eq!(map(&both, 10.0, 20.0), (40.0, 14.5));
+        assert_eq!(map(&grow, 110.0, 60.0), (115.0, 52.0));
+        assert_eq!(
+            grow.surface((10.0, 20.0, 100.0, 40.0)),
+            (10.0, 20.0, 100.0, 10.0)
+        );
+        // An authored scale stays about the center.
+        let both = Presented {
+            scale: 0.5,
+            ..grow
+        };
+        assert_eq!(map(&both, 10.0, 20.0), (40.0, 22.0));
     }
 }

@@ -829,11 +829,14 @@ impl Painter {
         offset: (f32, f32),
         clip_rect: Option<Rect4>,
     ) {
-        let presented = (walk.scene.presented)(node.id).paint;
+        let shown = (walk.scene.presented)(node.id);
+        let presented = shown.paint;
         let paint =
             BoxPaint::capture(node, walk.scene.kernel, self.dark, rect.2).presented(&presented);
         let geometry = paint.geometry(rect);
-        paint.paint(self.backend.as_mut(), &geometry, ts);
+        // @ref LLP 1063 — a layout transition's size is the surface's alone.
+        let surface = paint.geometry(shown.surface(rect));
+        paint.paint(self.backend.as_mut(), &surface, ts);
         let outer = geometry.outer;
         let content = geometry.content;
         let s = node.style;
@@ -989,8 +992,8 @@ impl Painter {
         let clips = ox != Overflow::Visible || oy != Overflow::Visible;
         let mut child_rect = clip_rect;
         if clips {
-            self.backend.push_clip(&outer, ts);
-            let own = bbox(ts, rect);
+            self.backend.push_clip(&surface.outer, ts);
+            let own = bbox(ts, surface.outer.rect);
             child_rect = Some(match clip_rect {
                 Some(c) => intersect(c, own),
                 None => own,

@@ -69,7 +69,7 @@ fn a_sibling_slides_into_a_removed_nodes_place_which_leaves_at_once() {
 }
 
 #[test]
-fn a_growing_box_scales_from_its_old_size_and_a_gained_row_animates_its_first_move() {
+fn a_growing_box_starts_from_its_old_size_and_a_gained_row_animates_its_first_move() {
     let mut h = boot(
         "component App\n  state on = false\n  action go writes on\n    on = true\n  view\n    column\n      button press=go testId=\"go\"\n        text \"Go\"\n      when not on\n        view height=50\n      column testId=\"card\" layout-transition=(on ? \"200ms linear\" : \"none\")\n        text \"Title\"\n        when on\n          view height=150\n",
     );
@@ -84,4 +84,50 @@ fn a_growing_box_scales_from_its_old_size_and_a_gained_row_animates_its_first_mo
     assert!((sy - before / after).abs() < 1e-6, "{sy}");
     h.tick(301.);
     assert_eq!(h.presented(card).layout, [0.0, 0.0, 1.0, 1.0]);
+}
+
+/// Whether the pixel at `(x, y)` is mostly `channel` (0 red, 1 green, 2 blue).
+fn is(frame: &tiny_skia::Pixmap, x: f32, y: f32, channel: usize) -> bool {
+    let c = frame.pixel(x as u32, y as u32).unwrap().demultiply();
+    let rgb = [c.red(), c.green(), c.blue()];
+    rgb[channel] > 200 && (0..3).all(|i| i == channel || rgb[i] < 60)
+}
+
+#[test]
+fn a_growing_box_reveals_its_content_at_its_final_size_and_never_scales_it() {
+    use exact_linux::{presenter::PainterChoice, Presenter};
+    for clips in [true, false] {
+        let overflow = if clips { " overflow=\"hidden\"" } else { "" };
+        let source = format!(
+            "component App\n  state open = false\n  action toggle writes open\n    open = not open\n  view\n    column\n      button press=toggle testId=\"toggle\"\n        text \"Toggle\"\n      column testId=\"card\" width=200 layout-transition=\"1000ms linear\" background-color=\"#0000ff\"{overflow}\n        view testId=\"title\" height=20 width=100 background-color=\"#ff0000\"\n        when open\n          view height=180 width=100 background-color=\"#00ff00\"\n"
+        );
+        let plan = contract::compile(&source).unwrap().encode();
+        let (mut p, _) = Presenter::boot_with(
+            &plan,
+            NoData,
+            (400., 600.),
+            1.,
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        let id = |p: &Presenter<NoData>, name: &str| {
+            let k = p.host().kernel();
+            k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
+        };
+        let card = id(&p, "card");
+        p.tap(id(&p, "toggle")).unwrap();
+        p.tick(500.);
+        let (x, y, ..) = p.rect_of(card).unwrap();
+        let frame = p.frame();
+        // Half way from 20 to 200 high: the surface is 110 high; the title
+        // keeps all 20 of its rows, and the new content keeps its own.
+        assert!(is(&frame, x + 50., y + 19., 0), "the title is not squashed");
+        assert!(is(&frame, x + 150., y + 100., 2), "the surface has grown");
+        assert!(!is(&frame, x + 150., y + 130., 2), "and no further");
+        assert!(is(&frame, x + 50., y + 100., 1), "revealed content");
+        // A clipping box reveals the rest as it grows; one that does not clip
+        // shows it at once, as CSS paints overflow.
+        assert_eq!(is(&frame, x + 50., y + 150., 1), !clips, "clips: {clips}");
+    }
 }
