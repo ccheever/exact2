@@ -30,6 +30,8 @@ pub struct Store {
     /// Device-state observations: secrets and external storage both make
     /// resources device-dependent at bake (LLP 1018 D4 / LLP 1027 D4).
     reads: std::cell::Cell<usize>,
+    /// Of those, draws of secure randomness (LLP 1069.005 D2).
+    entropy: std::cell::Cell<usize>,
     /// Device topics the answer being made watches (`native.watch`, LLP
     /// 1016.002): taken by the runner after each answer.
     topics: std::cell::RefCell<Vec<String>>,
@@ -103,6 +105,7 @@ impl Store {
             writes: Vec::new(),
             revision: 0,
             reads: std::cell::Cell::new(0),
+            entropy: std::cell::Cell::new(0),
             topics: Default::default(),
             undo: Vec::new(),
             copied: 0,
@@ -276,6 +279,19 @@ impl Store {
     /// This changes neither the store revision nor its persisted values.
     pub fn observe_external_read(&self) {
         self.reads.set(self.reads.get() + 1);
+    }
+
+    /// The answer being made drew secure randomness (LLP 1069.005 D2): a
+    /// device read like any other, and one bake compiles no value for, since
+    /// that value would be one draw shared by every install.
+    pub fn observe_entropy(&self) {
+        self.observe_external_read();
+        self.entropy.set(self.entropy.get() + 1);
+    }
+
+    /// How many draws of secure randomness so far.
+    pub fn entropy_draws(&self) -> usize {
+        self.entropy.get()
     }
 
     /// The answer being made watches `topic`: the device announces when it

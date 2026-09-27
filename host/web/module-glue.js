@@ -126,6 +126,8 @@ export async function prepare(payload, admitted, id = nextId++) {
     }
     if (op === 2) { context.reads.push(name); return context.store.get(name); }
     if (op === 5) { context.externalRead = true; return; }
+    // A draw of secure randomness: a device read the runner counts (LLP 1069.005 D2).
+    if (op === 8) { context.entropy = true; return; }
     if (!context.grants.has(name) || name.startsWith('exact.kept.')) return `secret ${name} is not granted`;
     context.writes.push([name, op === 3 ? value : null]);
     if (op === 3) context.store.set(name, value); else context.store.delete(name);
@@ -150,7 +152,7 @@ export async function prepare(payload, admitted, id = nextId++) {
     // arguments are two calls (LLP 1027 D1a).
     const key = r => JSON.stringify([r.target ?? null,r.source,r.args]);
     const finish = (answer, request) => {
-      const result = {...answer, reads:context.reads, writes:context.writes, externalRead:context.externalRead,topics:context.topics};
+      const result = {...answer, reads:context.reads, writes:context.writes, externalRead:context.externalRead,entropy:context.entropy,topics:context.topics};
       const reported = answer.tag === 1 ? context.early.get(answer.ticket) : null;
       for (const drop of context.early.values()) if (drop !== reported) drop();
       if (reported) setTimeout(reported, 0);
@@ -166,7 +168,7 @@ export async function prepare(payload, admitted, id = nextId++) {
     };
     const begin = request => {
       if (disposed) throw new Error('module environment disposed');
-      context = {owner:{},store:new Map(request.store),grants:new Set(request.grants),reads:[],writes:[],externalRead:false,topics:[],requests:new Map(),early:new Map()};
+      context = {owner:{},store:new Map(request.store),grants:new Set(request.grants),reads:[],writes:[],externalRead:false,entropy:false,topics:[],requests:new Map(),early:new Map()};
       if (request.op === 'answer') return JSON.parse(win.__exact_call(request.source,JSON.stringify(request.args)));
       const parked = pending.get(key(request));
       if (!parked) throw new Error('reply for an answer not in flight');

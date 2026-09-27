@@ -517,6 +517,7 @@ impl<D: DataSource> Runner<D> {
                             // not the build's: bake gives it no compiled value
                             // (LLP 1018 D4).
                             let reads_before = self.store.reads();
+                            let draws_before = self.store.entropy_draws();
                             // Asked again in a later pass: an earlier
                             // `Later` answer was never handed out.
                             if let RequestEffect::Later { request, .. } =
@@ -530,6 +531,9 @@ impl<D: DataSource> Runner<D> {
                             force.retain(|forced| *forced != i);
                             if self.store.reads() > reads_before {
                                 self.store_readers[i] = true;
+                            }
+                            if self.store.entropy_draws() > draws_before {
+                                self.entropy_readers[i] = true;
                             }
                             // What a fresh answer watches replaces what the
                             // last one did; its reply's parse may add more.

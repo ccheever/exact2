@@ -15,6 +15,7 @@ mod corpus;
 mod delivery;
 mod diagnostics;
 mod document;
+mod entropy;
 mod first;
 mod flow;
 mod fmt;

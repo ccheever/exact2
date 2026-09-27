@@ -174,6 +174,10 @@ void *exact_js_create(uint32_t max_heap_bytes, HostFn host, void *ctx) {
     auto global = state->rt->global();
     ibex2::jsi_adapter::set_binding(*state->rt, global, "__exact_encode", 20, nullptr);
     ibex2::jsi_adapter::set_binding(*state->rt, global, "__exact_decode", 21, nullptr);
+    // OS entropy for ibex2's `crypto` binding, which the prelude wraps so a
+    // draw counts as a device read (LLP 1069.005 D2). Stateless ops.
+    ibex2::jsi_adapter::set_binding(*state->rt, global, "__ibex2_random_uuid", 70, nullptr);
+    ibex2::jsi_adapter::set_binding(*state->rt, global, "__ibex2_get_random_values", 71, nullptr);
     return state;
   } catch (...) {
     return nullptr;

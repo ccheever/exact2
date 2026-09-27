@@ -289,6 +289,9 @@ pub struct Runner<D: DataSource> {
     /// Which resources consulted the store when they settled (bake gives
     /// them no compiled value, LLP 1018 D4).
     store_readers: Vec<bool>,
+    /// Which resources drew secure randomness when they settled, since boot
+    /// (LLP 1069.005 D2): bake compiles no value for them at all.
+    entropy_readers: Vec<bool>,
     /// The device topics each resource's current answer watches (LLP
     /// 1016.002): an announced topic asks exactly these again.
     watching: Vec<Vec<String>>,
@@ -650,6 +653,7 @@ impl<D: DataSource> Runner<D> {
             refresh_next: Vec::new(),
             reread_next: Vec::new(),
             store,
+            entropy_readers: Vec::new(),
             store_readers,
             stale: Vec::new(),
             awaiting: Vec::new(),
@@ -715,6 +719,7 @@ impl<D: DataSource> Runner<D> {
         let ready = runner.data.ready();
         runner.keeps_answers = !ready || carried.is_some_and(|c| c.keeps_answers);
         runner.stale = vec![false; runner.plan.resources.len()];
+        runner.entropy_readers = vec![false; runner.plan.resources.len()];
         runner.awaiting = vec![false; runner.plan.resources.len()];
         if !ready {
             for (i, &taken) in seeded.iter().enumerate() {
@@ -1045,6 +1050,17 @@ impl<D: DataSource> Runner<D> {
             .iter()
             .position(|r| self.plan.str(r.name) == name)
             .is_some_and(|i| self.store_readers[i])
+    }
+
+    /// Whether resource `name` drew secure randomness (LLP 1069.005 D2):
+    /// a device read whose value bake leaves out of the plan, so no random
+    /// value is shared by every install; the device asks it.
+    pub fn resource_draws_entropy(&self, name: &str) -> bool {
+        self.plan
+            .resources
+            .iter()
+            .position(|r| self.plan.str(r.name) == name)
+            .is_some_and(|i| self.entropy_readers[i])
     }
 
     /// Deterministic instance work counters, separate from layout and host costs.

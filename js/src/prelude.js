@@ -11,7 +11,8 @@
 (function (global) {
   "use strict";
   // (op, a, b) -> string | undefined. Ops: 1 request(ticket, json),
-  // 2 store.get(name), 3 store.set(name, value), 4 store.forget(name), 5 storage capability check.
+  // 2 store.get(name), 3 store.set(name, value), 4 store.forget(name), 5 storage capability check,
+  // 6 native, 7 pure, 8 the answer drew secure randomness.
   var host = global.__exact_host;
   delete global.__exact_host;
 
@@ -37,7 +38,10 @@
   fixed(NativeDate, "now", function () { return refuseAmbient("Date.now()"); });
   fixed(NativeDate.prototype, "constructor", InputDate);
   fixed(global, "Date", InputDate);
-  fixed(global.Math, "random", function () { return refuseAmbient("Math.random()"); });
+  // Not a second door to randomness: `crypto` below is the secure one.
+  fixed(global.Math, "random", function () {
+    throw new Error("Math.random() is unavailable in data sources; pass time or a random seed as an argument, or use crypto.getRandomValues");
+  });
 
   // Intl's formatting methods also default an omitted/undefined date to
   // machine time. Guard the prototype before an app can capture its bound
@@ -68,6 +72,52 @@
       fixed(dateFormat, "formatToParts", explicitFormat(dateFormat.formatToParts, "formatToParts"));
     }
   }
+
+  // --- crypto (LLP 1069.005 D2, D3): secure randomness is a device read --
+  // Each draw inside an answer counts as an external read (op 8), as a secret
+  // or SQLite read does: bake compiles no value that drew one, and the host
+  // asks again on the device. A draw outside an answer (during module
+  // initialization) refuses: it would be one hidden input every answer shares.
+  // The same object on every executor: over ibex2's `crypto` natively, over
+  // the realm's own on the web. `subtle` waits for its digests and keys
+  // (D1, D1b) on all of them; until then no executor has it.
+  var platformCrypto = global.crypto;
+  var fillRandom = platformCrypto.getRandomValues.bind(platformCrypto);
+  // A LAN dev page is not a secure context, so it has no `randomUUID`: the
+  // same v4 bits as ibex2's `format_uuid`, from `getRandomValues`.
+  var platformUuid = typeof platformCrypto.randomUUID === "function"
+    ? platformCrypto.randomUUID.bind(platformCrypto)
+    : function () {
+      var b = fillRandom(new Uint8Array(16)), text = "";
+      b[6] = (b[6] & 0x0f) | 0x40;
+      b[8] = (b[8] & 0x3f) | 0x80;
+      for (var i = 0; i < 16; i++) text += (i === 4 || i === 6 || i === 8 || i === 10 ? "-" : "") + (b[i] < 16 ? "0" : "") + b[i].toString(16);
+      return text;
+    };
+  var initializing = true; // until the executor first calls in
+  function Crypto() { throw new TypeError("Illegal constructor"); }
+  var cryptoObject = Object.create(Crypto.prototype);
+  function draw(receiver, api, take) {
+    if (receiver !== cryptoObject) throw new TypeError("Illegal invocation");
+    if (!currentCall || currentCall.status !== "pending") {
+      throw new Error(api + " is unavailable " + (initializing ? "during module initialization" : "outside an answer") + "; call it inside an answer");
+    }
+    var value = take();
+    host(8, "", "");
+    return value;
+  }
+  Crypto.prototype.getRandomValues = function getRandomValues(view) {
+    return draw(this, "crypto.getRandomValues()", function () { return fillRandom(view); });
+  };
+  Crypto.prototype.randomUUID = function randomUUID() {
+    return draw(this, "crypto.randomUUID()", platformUuid);
+  };
+  Object.defineProperty(Crypto.prototype, Symbol.toStringTag, { value: "Crypto", configurable: true });
+  Object.freeze(cryptoObject);
+  delete global.SubtleCrypto;
+  delete global.CryptoKey;
+  Object.defineProperty(global, "Crypto", { value: Crypto, writable: true, configurable: true });
+  fixed(global, "crypto", cryptoObject);
 
   function fromBase64(text) {
     return Uint8Array.from(global.atob(text), function (c) { return c.charCodeAt(0); });
@@ -275,6 +325,7 @@
   // fetch the answer is waiting on. `__exact_fulfill(ticket, outcomeJson)`
   // resolves that fetch; drain and settle again.
   global.__exact_call = function (source, argsJson) {
+    initializing = false;
     var call = { id: nextCall++, status: "pending", value: undefined, error: undefined, tickets: [], storage: 0 };
     var result;
     currentCall = call;
@@ -323,6 +374,7 @@
   };
   // Canvas 2D (LLP 1056 D1): the module's draw seam, when it exports `draw`.
   global.__exact_draw = function (request) {
+    initializing = false;
     if (!global.exact.drawCanvas) throw new Error("the module exports no draw");
     return global.exact.drawCanvas(request);
   };

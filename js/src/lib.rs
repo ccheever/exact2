@@ -279,6 +279,14 @@ unsafe extern "C" fn host_door(
             }
         }
         7 => pure::call(&a, &b).map(Some),
+        // The answer drew secure randomness (LLP 1069.005 D2): the device's,
+        // so bake compiles none of it. No store (an in-process query): no mark.
+        8 => {
+            if let Some(store) = state.store {
+                (*store).observe_entropy();
+            }
+            Ok(None)
+        }
         other => Err(format!("__exact_host: no op {other}")),
     };
     *out = std::ptr::null_mut();

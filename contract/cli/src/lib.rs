@@ -553,7 +553,12 @@ pub fn bake<D: DataSource>(mut plan: Plan, data: D) -> Result<Plan, BakeError> {
         // its placeholder there; that is not its answer, so a launch asks it.
         // @ref LLP 1054.000.002 D4 — nor is any placeholder, even one shown
         // without a ticket (a source not ready).
-        if pending.contains(&name) || runner.resource_is_placeholder(&name) {
+        // @ref LLP 1069.005 D2 — nor is an answer that drew randomness: its
+        // value would be one draw every install shares.
+        if pending.contains(&name)
+            || runner.resource_is_placeholder(&name)
+            || runner.resource_draws_entropy(&name)
+        {
             continue;
         }
         if let Some(v) = runner.resource(&name) {

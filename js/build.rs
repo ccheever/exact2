@@ -60,6 +60,8 @@ fn main() {
     for file in [
         "include/ibex2_jsi.h",
         "src/engine/ibex2_jsi.cc",
+        "src/bindings/crypto.js",
+        "src/bindings/domexception.js",
         "src/bindings/harden.js",
         "src/bindings/sqlite.js",
         "src/bindings/url.js",
@@ -266,11 +268,15 @@ fn main() {
             script.display()
         );
     };
-    // Pure class shapes share Ibex's URL implementation. All are baked;
-    // the runtime only evaluates bytecode, before any application module.
+    // Pure class shapes share Ibex's URL implementation, and its `crypto`
+    // (ops 70/71, OS entropy) is what the prelude wraps as a counted read
+    // (LLP 1069.005 D2). All are baked; the runtime only evaluates bytecode,
+    // before any application module.
     let prelude = [
         manifest.join("src/pure.js"),
         bindings.join("src/bindings/url.js"),
+        bindings.join("src/bindings/domexception.js"),
+        bindings.join("src/bindings/crypto.js"),
         manifest.join("src/prelude.js"),
     ]
     .iter()
@@ -292,6 +298,7 @@ fn main() {
     for name in [
         "caltrain",
         "castle",
+        "entropy",
         "inputs",
         "ambient-init",
         "storage",

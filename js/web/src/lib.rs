@@ -290,6 +290,10 @@ impl Module {
         if response["externalRead"] == true {
             store.observe_external_read();
         }
+        // LLP 1069.005 D2: the realm's `crypto` drew entropy, as Hermes marks it.
+        if response["entropy"] == true {
+            store.observe_entropy();
+        }
         if let Some(reads) = response["reads"].as_array() {
             for name in reads {
                 if let Some(name) = name.as_str() {
@@ -719,6 +723,20 @@ mod tests {
         assert_eq!(store.reads(), 1);
         assert!(store.snapshot().is_empty());
         assert!(store.take_writes().is_empty());
+    }
+
+    #[test]
+    fn a_realm_entropy_draw_is_a_counted_read() {
+        let mut module = Module::new("test", "", "revision");
+        module
+            .signatures
+            .insert("source".into(), (vec![], Shape::String));
+        let mut store = Store::new("", []);
+        let reply = br#"{"tag":0,"value":"id","entropy":true,"externalRead":false,"reads":[]}"#;
+        assert!(module
+            .step(&mut store, "source", "key".into(), reply)
+            .is_ok());
+        assert_eq!((store.reads(), store.entropy_draws()), (1, 1));
     }
 
     #[test]

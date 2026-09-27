@@ -133,7 +133,7 @@ if(process.env.EXACT_MODULE_ROUTES_ONLY==='1'){
   } finally {server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
   process.exit(0);
 }
-const fixtures=Object.fromEntries(['inputs','castle','caltrain','ambient-init','storage'].map(name=>[name,execFileSync(process.execPath,['./node_modules/.bin/rolldown',`js/tests/fixtures/${name}.ts`,'--format','iife'],{encoding:'utf8',stdio:['ignore','pipe','pipe']})]));
+const fixtures=Object.fromEntries(['inputs','castle','caltrain','ambient-init','storage','entropy'].map(name=>[name,execFileSync(process.execPath,['./node_modules/.bin/rolldown',`js/tests/fixtures/${name}.ts`,'--format','iife'],{encoding:'utf8',stdio:['ignore','pipe','pipe']})]));
 fixtures.oracle=JSON.parse(process.env.EXACT_PARITY);
 const profile = mkdtempSync(resolve(tmpdir(),'exact-module-browser-'));
 const child = spawn(process.env.CHROME, ['--headless=new','--no-sandbox','--remote-debugging-pipe','--no-first-run','--disable-background-networking',`--user-data-dir=${profile}`,'about:blank'],{detached:true,stdio:['ignore','ignore','ignore','pipe','pipe']});
@@ -236,6 +236,25 @@ try {
     const draining=run(stale.continuation);await Promise.resolve();
     inputs.dispose();let dropped=false;try{await draining;}catch{dropped=true;}
     if(!dropped)throw new Error('disposed continuation executed');
+    // LLP 1069.005 D2/D3, as js/tests/it/entropy.rs holds Hermes to: a draw is
+    // a counted read, refused at initialization, and no realm has `subtle`.
+    const entropyIdentity={appId:'test.entropy',grants:'net.fetch https://fixture.exact.test\n'};
+    for(const placement of ['main','worker']){
+      const realm=await prepare(await payload(fixtures.entropy,entropyIdentity),{...entropyIdentity,placement});
+      const ask=(source,args=[],outcome)=>{
+        const started=call({id:realm.id,op:outcome?'resume':'answer',source,args,store:[],grants:[],outcome});
+        if(placement==='worker')call({op:'dispatch',id:realm.id,token:started.continuation,store:[],grants:[]});
+        return checkpoint(started);
+      };
+      for(const form of ['uuid','bytes'])if(!(await ask('atInit',[form])).value?.includes('unavailable during module initialization; call it inside an answer'))throw new Error(`${placement}: ${form} at initialization`);
+      const uuid=await ask('uuid'), later=await ask('uuidLater');
+      if(!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(uuid.value)||uuid.entropy!==true)throw new Error(`${placement}: uuid ${JSON.stringify(uuid)}`);
+      if(later.request?.url!=='https://fixture.exact.test/value'||later.entropy||(await ask('uuidLater',[],response())).entropy!==true)throw new Error(`${placement}: a draw after a fetch`);
+      if((await ask('bytes',[4])).value.split(',').length!==4||(await ask('plain')).entropy!==false)throw new Error(`${placement}: bytes or a plain answer`);
+      if((await ask('refusals')).value!=='QuotaExceededError/TypeMismatchError/TypeError')throw new Error(`${placement}: refusals`);
+      if((await ask('globals')).value!=='undefined/undefined/undefined/[object Crypto]/getRandomValues,randomUUID')throw new Error(`${placement}: crypto's shape`);
+      realm.dispose();
+    }
 
     const castleIdentity={appId:'xyz.castle.test',grants:'net.fetch https://api.castle.xyz\nsecret.keep castle.session\n'};
     const castle=await prepare(await payload(fixtures.castle,castleIdentity),castleIdentity);
