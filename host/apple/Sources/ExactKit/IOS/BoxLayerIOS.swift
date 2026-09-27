@@ -112,18 +112,26 @@ extension NodeView {
         let radius = radii.max() ?? 0
         let oneRadius = radii.allSatisfy { $0 == 0 || abs($0 - radius) < 0.01 }
             && radius <= min(bounds.width, bounds.height) / 2 + 0.01
-        boxDrawn = !(oneBorder && oneRadius) && (fill != nil || widths.contains { $0 > 0 })
+        // A border that draws is under the children, as the web paints it,
+        // unless none can reach it: they are clipped, scrolled, or painted
+        // through a surface. Then it is the layer's own, which Core Animation
+        // paints over the sublayers.
+        let own = clipsToBounds || scroll != nil || overlay != nil
+        // Sides in one colour that differ only in width, square-cornered and
+        // under the children (a row's `border-bottom` separator): each side
+        // a rectangle of one shape layer. Where two sides meet, the web's
+        // mitred join is that same colour, so their union paints the same,
+        // and the view keeps no backing store of its size for a hairline.
+        let drawn = widths.indices.filter { widths[$0] > 0 }
+        let sideColor = drawn.first.map { colors[$0] }
+        let edges = !oneBorder && !own && radii.allSatisfy { $0 == 0 } && drawn.allSatisfy { colors[$0] == sideColor }
+        boxDrawn = !((oneBorder || edges) && oneRadius) && (fill != nil || widths.contains { $0 > 0 })
         let onLayer = !boxDrawn
         var corners: CACornerMask = []
         let masks: [CACornerMask] = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
         for (r, mask) in zip(radii, masks) where r > 0 { corners.insert(mask) }
         let cornerRadius = onLayer && oneRadius ? radius : 0
-        let border = onLayer && width > 0 ? colors[0] : nil
-        // A border stays under the children, as the web paints it, unless
-        // none can reach it: they are clipped, scrolled, or painted through a
-        // surface. Then it is the layer's own, which Core Animation paints
-        // over the sublayers.
-        let own = clipsToBounds || scroll != nil || overlay != nil
+        let border = !onLayer ? nil : edges ? sideColor : width > 0 ? colors[0] : nil
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         let bg = onLayer ? fill : nil
@@ -134,12 +142,26 @@ extension NodeView {
         if layer.borderWidth != ownWidth { layer.borderWidth = ownWidth }
         if ownWidth > 0, layer.borderColor != border { layer.borderColor = border }
         guard let border, !own else { boxBorder?.removeFromSuperlayer(); boxBorder = nil; return }
-        let b = boxBorder ?? CALayer()
+        if let old = boxBorder, (old is CAShapeLayer) != edges { old.removeFromSuperlayer(); boxBorder = nil }
+        let b = boxBorder ?? (edges ? CAShapeLayer() : CALayer())
         if b.superlayer !== layer {
             if let image = imageLayer, image.superlayer === layer { layer.insertSublayer(b, above: image) } else { layer.insertSublayer(b, at: 0) }
             boxBorder = b
         }
         if b.frame != bounds { b.frame = bounds }
+        if let shape = b as? CAShapeLayer {
+            let (w, h) = (bounds.width, bounds.height)
+            let path = CGMutablePath()
+            for rect in [CGRect(x: 0, y: 0, width: w, height: widths[0]),
+                         CGRect(x: w - widths[1], y: 0, width: widths[1], height: h),
+                         CGRect(x: 0, y: h - widths[2], width: w, height: widths[2]),
+                         CGRect(x: 0, y: 0, width: widths[3], height: h)] where rect.width > 0 && rect.height > 0 {
+                path.addRect(rect)
+            }
+            if shape.path != path { shape.path = path }
+            if shape.fillColor != border { shape.fillColor = border }
+            return
+        }
         if b.cornerRadius != cornerRadius { b.cornerRadius = cornerRadius }
         if b.maskedCorners != layer.maskedCorners { b.maskedCorners = layer.maskedCorners }
         if b.borderWidth != width { b.borderWidth = width }

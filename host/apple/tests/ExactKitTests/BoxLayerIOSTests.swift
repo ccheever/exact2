@@ -55,9 +55,26 @@ final class BoxLayerIOSTests: XCTestCase {
         XCTAssertNil(closed.boxBorder)
     }
 
+    /// A row's separator (`border-bottom`) is a rectangle on a shape layer
+    /// under the children: no backing store of the row's size for a hairline.
+    func testSidesInOneColourAreAShapeLayer() throws {
+        let row = node(["background_color": white, "border_width_bottom": 0.5, "border_width_left": 2, "border_color_top": blue])
+        XCTAssertNil(row.layer.contents, "sides in one colour keep no bitmap")
+        XCTAssertEqual(row.layer.backgroundColor?.alpha, 1)
+        let edges = try XCTUnwrap(row.boxBorder as? CAShapeLayer)
+        XCTAssertTrue(row.layer.sublayers?.first === edges, "under the children")
+        XCTAssertEqual(edges.fillColor?.components, row.color("border_color_top", .clear).cgColor.components)
+        let path = try XCTUnwrap(edges.path)
+        XCTAssertTrue(path.contains(CGPoint(x: 150, y: 119.75)), "the bottom side")
+        XCTAssertTrue(path.contains(CGPoint(x: 1, y: 60)), "the left side")
+        XCTAssertFalse(path.contains(CGPoint(x: 150, y: 60)), "nothing inside")
+        XCTAssertFalse(path.contains(CGPoint(x: 299, y: 60)), "no right side")
+    }
+
     func testWhatTheLayerCannotSayStillDraws() {
-        let sides = node(["background_color": white, "border_width_bottom": 1, "border_color_top": blue])
-        XCTAssertNotNil(sides.layer.contents, "a border on one side draws")
+        let sides = node(["background_color": white, "border_width_bottom": 1, "border_width_top": 1,
+            "border_color_top": blue, "border_color_bottom": white])
+        XCTAssertNotNil(sides.layer.contents, "sides in two colours draw")
         XCTAssertNil(sides.layer.backgroundColor, "and so does its background, once")
         let corners = node(["background_color": white, "border_radius_top_left": 8, "border_radius_bottom_right": 20])
         XCTAssertNotNil(corners.layer.contents, "two radii draw")
