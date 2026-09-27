@@ -105,7 +105,12 @@ editing rules are one crate for every host (`markdown/editor/`), shipped on
 the web as its own wasm fetched only when a Markdown textarea mounts: an app
 without an editor pays nothing for it. CodeMirror is not admitted.
 `fileinput` comes off in one form (LLP 1045 D10): an image/video picker for
-captioned figures — no camera, no generic file input. Linux editing is v2
+captioned figures — no camera, no generic file input. **Widened (Charlie,
+2026-09-27, LLP 1069.010):** a picker for the types an app declares in
+`file_handlers`, plus export and import copies to and from `app:/`. Unblocks
+the Markdown reader's remaining surfaces and Fieldnotes' backups. Take: none
+named (Charlie: "idk what to trade it for, maybe relax the limit slightly").
+Still no picker for any file, and no camera. Linux editing is v2
 (Charlie, 2026-09-21): web, iOS and macOS first; Linux reads.
 
 **Expanded (Charlie, 2026-09-21):** ship the full game engine from Black's
@@ -148,7 +153,10 @@ a consumer. It unblocks what its port asks for (LLP 1054, 1054.000): arguments
 on list edges (1054.000.006, landed with this entry), view-side formatting
 (1054.000.003) and bounded feeds (1058 P4), each still held to its own review.
 Take (proposed with the admission; Charlie may name another): new in-repo
-showcase apps wait behind Bluesky's asks.
+showcase apps wait behind Bluesky's asks. **Clarified (Charlie, 2026-09-27,
+LLP 1069.006):** its OAuth sign-in, replacing app passwords, is one of those
+asks: the system-browser auth session and the P-256 keys it needs (LLP
+1069.005). No trade beyond the admission's.
 
 **Expanded (Charlie Cheever, 2026-09-26: approved implementing LLP 1024):**
 native modules — a hyphenated tag is a `NativeView` backed by the app's one
@@ -233,6 +241,10 @@ change can break.
   remain unselected.
 
 **Components** — roughly 15 built-in tags, not 40; roughly 12 Facet components, not 47.
+**Restated (Charlie, 2026-09-27, LLP 1069.001):** the tag count guards against
+invented components, not HTML's own elements. A built-in tag is an HTML
+element with HTML's meaning; `select` and `option` are admitted on that
+reading. Nothing that isn't HTML is added by it.
 
 - No `lottie`, `rive`, `fileinput`, `pager`. Video admitted 2026-09-18
   (Charlie: design video and build a keyboard-resizing player; LLP 1042). Unblocks
@@ -346,24 +358,24 @@ list. **Charlie to rule.**
 
 **Tooling** — no Design Mode, no Guide system, no devtools UI, no TUI host, no blog/CMS.
 
-**Agent API** — 8 operations, not 90:
+**Agent API** — 9 operations, not 90:
 
-`tree` · `screenshot` · `tap` · `type` · `state` · `layout` · `logs` · `clock`
+`tree` · `screenshot` · `tap` · `type` · `state` · `layout` · `logs` · `clock` · `prefer`
 
-**Open (2026-09-27, LLP 1061 D5, LLP 1012 §1):** `prefer`, the user's display
-preferences by CSS's media feature names, was built as a ninth operation without
-taking one of the eight off, against the rule below. A display preference is no
-input, so it is not a form of `tap` or `type`. **Charlie to rule:** take it,
-fold it into another operation, or take it out.
+**Ruled (Charlie, 2026-09-27: "relax the rule and allow a 9th button"; LLP 1061
+D5, LLP 1069.007 §3 P1):** `prefer` stays as the ninth operation, and it is the
+one that sets every device fact by its web name: display preferences, and the
+page and place facts of LLP 1069.000. A new fact is a form of `prefer`, never a
+tenth operation.
 
-**A ninth operation replaces one of the eight, same PR.** A new input is a form of
+**A tenth operation replaces one of the nine, same PR.** A new input is a form of
 `tap` or `type` (a wheel is a `tap`; so would a drag be); a new question is answered
 from `tree`, `state`, or `layout`. The old repo's six primitives grew eighty wire names
 one reasonable "view" at a time; the count is the cost. (Charlie, 2026-08-29.)
 
 Not shipping: session record/replay, causal trace, behavior diff and verify, mutation
 dry-run, contract witness / dataflow / ~~source-map~~ / bindings, accessibility audit, plan
-drag, correlate, visual query, network, perf, preferences, pasteboard, onboarding,
+drag, correlate, visual query, network, perf, pasteboard, onboarding,
 revalidate, code grant/resume/cancel.
 
 Admitted 2026-09-10 (Charlie, LLP 1035 §5; 1035.002 D6, 1035.005 D3): **a

@@ -7,7 +7,7 @@
 **Date:** 2026-08-29
 **Revised:** 2026-08-29 (r2: after the round-1 reviews — the clock made true on both hosts, the contract a host implements, the smoke walked back to what it checks, the private messages named, the numbers dated)
 **Implementer:** Claude (Fable 5); landed 2026-08-29 (this document transcribes it)
-**Related:** `rules/DEFERRED.md` §Agent API (the eight; `clock` replaces `wait`), LLP 1002 D3 (the clock is a seek), LLP 1005 §6 (`dispatch`, `advance`; `act` is for tests), LLP 1007 §3 (the web glue), LLP 1008 §4 (the C ABI this adds one call to), LLP 1010 §5 (the scrolling the smoke holds), LLP 1011 (the image whose box it holds); research: exact1 `llp/0495-acto-on-the-substrate.rfc.md` §4.1
+**Related:** `rules/DEFERRED.md` §Agent API (the nine; `clock` replaces `wait`), LLP 1002 D3 (the clock is a seek), LLP 1005 §6 (`dispatch`, `advance`; `act` is for tests), LLP 1007 §3 (the web glue), LLP 1008 §4 (the C ABI this adds one call to), LLP 1010 §5 (the scrolling the smoke holds), LLP 1011 (the image whose box it holds); research: exact1 `llp/0495-acto-on-the-substrate.rfc.md` §4.1
 
 ## Summary
 
@@ -316,11 +316,10 @@ session setup, not a drive. `Runner::act` runs an action by name for **tests**
 would be another form. `rules/DEFERRED.md` §Agent API binds the count and
 the trade — a ninth operation replaces one of the eight, same PR — and this
 document cites it rather than restating it as a second law. **`prefer`
-(2026-09-27, LLP 1061 D5) is a ninth, pending Charlie's ruling:** a display
-preference is no input, so it is not a form of `tap` or `type`, and a test
-that reads `exactViewport().prefersReducedMotion` needs it on every host; it
-was added without taking one of the eight off, which that rule requires.
-`rules/DEFERRED.md` records it as open.
+(2026-09-27, LLP 1061 D5) is the ninth** (Charlie, 2026-09-27: "relax the
+rule and allow a 9th button"): a display preference is no input, so it is
+not a form of `tap` or `type`. It is the operation that sets every device
+fact (LLP 1069.007 §3 P1), and a tenth now replaces one of the nine.
 
 ## 2. The clock
 
