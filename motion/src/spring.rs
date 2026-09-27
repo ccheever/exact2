@@ -157,6 +157,31 @@ impl SpringConfig {
     }
 }
 
+impl SpringConfig {
+    /// The spring's curve from a unit displacement at rest, as a CSS
+    /// `linear()` easing over its settle time (seconds): sixty stops a
+    /// second, each at the f32 its CSS text carries, so a browser playing
+    /// the text and an engine playing the value agree to the bit. How a
+    /// property no spring drives as physics plays one (LLP 1062 D3), and
+    /// how the web writes a `layout-transition` spring (LLP 1063).
+    pub fn easing(&self) -> (f64, crate::easing::Easing) {
+        use crate::easing::{Easing, LinearStop};
+        let (duration, frames) = keyframes(self, 1.0, 0.0, 0.0);
+        let step = (frames.len() / (duration * 60.0).ceil().max(1.0) as usize).max(1);
+        let f32 = |v: f64| v as f32 as f64;
+        let stops = frames
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| i % step == 0 || i + 1 == frames.len())
+            .map(|(_, f)| LinearStop {
+                input: f32(f.offset),
+                output: f32(1.0 - f.value),
+            })
+            .collect();
+        (duration, Easing::PiecewiseLinear(stops))
+    }
+}
+
 /// One keyframe of a lowered spring: an offset in `[0, 1]` and the absolute
 /// value there. Consecutive keyframes interpolate linearly.
 #[derive(Debug, Clone, Copy, PartialEq)]

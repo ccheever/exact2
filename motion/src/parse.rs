@@ -279,21 +279,40 @@ fn keyframe_blocks(name: &str, inner: &str) -> Result<Keyframes, ParseError> {
                 .into_iter()
                 .find(|p| *p != Property::ShadowColor && p.css_name() == property)
                 .ok_or_else(|| ParseError::UnknownProperty(property.to_string()))?;
-            let (light, night) = match value
-                .strip_prefix("light-dark(")
-                .and_then(|v| v.strip_suffix(')'))
-                .and_then(|v| v.find("),").map(|at| (&v[..at + 1], &v[at + 2..])))
-            {
-                Some((l, d)) if property.is_color() => (l, Some(d.trim())),
-                _ => (value, None),
-            };
-            let value = keyframe_value(property, light.trim()).ok_or_else(|| bad(decl))?;
-            block.values.retain(|(p, _)| *p != property);
-            block.dark.retain(|(p, _)| *p != property);
-            block.values.push((property, value));
-            if let Some(night) = night {
-                let night = keyframe_value(property, night).ok_or_else(|| bad(decl))?;
-                block.dark.push((property, night));
+            // `box-shadow` is `<x>px <y>px <blur>px <colour>`: its geometry,
+            // then its colour half.
+            let mut settings = vec![(property, value)];
+            if property == Property::BoxShadow {
+                let mut rest = value;
+                let mut geometry = [0.0; 3];
+                for c in &mut geometry {
+                    let (head, tail) = rest.split_once(' ').ok_or_else(|| bad(decl))?;
+                    *c = exact_num::parse_f64(head.strip_suffix("px").unwrap_or(head))
+                        .map_err(|_| bad(decl))?;
+                    rest = tail.trim_start();
+                }
+                let [x, y, blur] = geometry;
+                block.values.retain(|(p, _)| *p != property);
+                block.values.push((property, Value::four(x, y, blur, 0.0)));
+                settings = vec![(Property::ShadowColor, rest)];
+            }
+            for (property, value) in settings {
+                let (light, night) = match value
+                    .strip_prefix("light-dark(")
+                    .and_then(|v| v.strip_suffix(')'))
+                    .and_then(|v| v.find("),").map(|at| (&v[..at + 1], &v[at + 2..])))
+                {
+                    Some((l, d)) if property.is_color() => (l, Some(d.trim())),
+                    _ => (value, None),
+                };
+                let value = keyframe_value(property, light.trim()).ok_or_else(|| bad(decl))?;
+                block.values.retain(|(p, _)| *p != property);
+                block.dark.retain(|(p, _)| *p != property);
+                block.values.push((property, value));
+                if let Some(night) = night {
+                    let night = keyframe_value(property, night).ok_or_else(|| bad(decl))?;
+                    block.dark.push((property, night));
+                }
             }
         }
         for selector in rest[..open].split(',') {

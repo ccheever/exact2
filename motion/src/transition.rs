@@ -151,6 +151,25 @@ impl Transition {
             }
     }
 
+    /// The declaration as it governs `property`. A spring on a property no
+    /// spring drives as physics ([`Property::springs`]: paint, a path's
+    /// stroke) is its curve from rest, a `linear()` easing over its settle
+    /// time: the web's CSS plays those properties itself, and CSS interrupts
+    /// an easing from where it is (LLP 1062 D3).
+    pub fn governing(&self, property: Property) -> Transition {
+        match &self.timing {
+            TimingFunction::Spring(config) if !property.springs() => {
+                let (duration, easing) = config.easing();
+                Transition {
+                    duration,
+                    timing: TimingFunction::Easing(easing),
+                    ..self.clone()
+                }
+            }
+            _ => self.clone(),
+        }
+    }
+
     /// Whether a change under this declaration starts a transition at all.
     /// CSS: the combined duration (`max(duration, 0) + delay`) must be
     /// positive. A spring's combined duration is its settle time, never zero.
@@ -173,13 +192,9 @@ impl Transitions {
 
     /// The declaration governing `property`, if any. When several cover it,
     /// the last wins (CSS Transitions §2.1: "the last one is used"). A
-    /// spring governs only what [`Property::springs`]: the web's CSS leaves
-    /// springs out, so an earlier easing still governs a colour there.
+    /// spring on paint plays as [`Transition::governing`] says.
     pub fn matching(&self, property: Property) -> Option<&Transition> {
-        self.0.iter().rev().find(|t| {
-            t.property.covers(property)
-                && (property.springs() || matches!(t.timing, TimingFunction::Easing(_)))
-        })
+        self.0.iter().rev().find(|t| t.property.covers(property))
     }
 
     /// Validate every declaration and the count.

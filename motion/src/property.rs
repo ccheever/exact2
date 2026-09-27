@@ -176,9 +176,10 @@ impl Property {
         )
     }
 
-    /// Whether a `spring()` may drive the property. The web lowers springs
-    /// for these alone and leaves every spring out of its CSS `transition`,
-    /// so no host lets a spring declaration drive a paint property (LLP
+    /// Whether a `spring()` drives the property as physics, carrying
+    /// velocity across an interruption. The web lowers these springs to
+    /// frames; every other property (paint, a path's stroke) plays a spring
+    /// as its curve from rest, a CSS `linear()` easing, on every host (LLP
     /// 1062 D3).
     pub fn springs(self) -> bool {
         matches!(

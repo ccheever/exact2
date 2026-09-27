@@ -64,6 +64,6 @@ fn a_spring_layout_transition_is_its_curve_as_linear() {
     let (_, first) = Host::boot(&plan.encode(), NoData, Default::default(), "/").unwrap();
     let at = first.find("--exact-layout-transition:").expect("declared");
     let value = &first[at..first[at..].find(';').unwrap() + at];
-    assert!(value.contains(" 0 linear(0 0%, "), "{value}");
+    assert!(value.contains(" 0 linear(0 0%,"), "{value}");
     assert!(value.ends_with("1 100%)"), "{value}");
 }
