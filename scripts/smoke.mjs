@@ -335,6 +335,14 @@ if (host === 'deploy') {
 // (unmounted, alive) and pops it (remounted) with both intact; a bad
 // candidate plan is refused and the running apps kept; a session destroyed
 // under the other is refused by name after, and the other still answers.
+// The recorder's sample host (LLP 1067.000 Q6): two sessions, two recorders.
+if ((host === 'host' || host === 'host-ios') && app.modules.tags.includes('waveform-view')) {
+  const { recorderSessions } = await import('./smoke-recorder.mjs');
+  const failures = await recorderSessions({ host, open });
+  for (const f of failures) console.log('  ' + f);
+  console.log(`${host} smoke: ${failures.length ? `${failures.length} failure(s)` : 'ok'} in ${((Date.now() - t0) / 1000).toFixed(1)} s — two sessions, each its own recorder, one outliving the other`);
+  process.exit(failures.length ? 1 : 0);
+}
 if (host === 'host' || host === 'host-ios') {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-host-'));
   const control = resolve(dir, 'control');
@@ -1328,6 +1336,12 @@ if (existsSync(appTests)) {
 if (app.modules.tags.includes('exact-fixture') && ['web', 'macos', 'ios'].includes(host)) {
   const { nativeSmoke } = await import('./smoke-native.mjs');
   await nativeSmoke({ host, open, check, webDist: selectedWebDist });
+}
+
+// 15. The recorder (LLP 1067.000): one native object, a view and functions.
+if (app.modules.tags.includes('waveform-view') && ['web', 'macos', 'ios'].includes(host)) {
+  const { recorderSmoke } = await import('./smoke-recorder.mjs');
+  await recorderSmoke({ host, open, check });
 }
 
 // The oracle sweep is explicit browser work, never an implicit Cargo pass.

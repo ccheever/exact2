@@ -298,6 +298,9 @@ pub struct Runner<D: DataSource> {
     /// Topics the source's native module announced since the host last
     /// applied them, from any thread ([`Runner::listen`]).
     announced: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    /// The native slot for a source that has none of its own (a Rust source):
+    /// the host installs the app module here too (LLP 1067.000 Q9).
+    native: Native,
     /// Deferred resources shown from a placeholder — a kept answer or
     /// the compiled empty-store value — to ask again at `data_ready`.
     stale: Vec<bool>,
@@ -641,6 +644,7 @@ impl<D: DataSource> Runner<D> {
             pending_res: Vec::new(),
             pending_mut: Vec::new(),
             announced: Default::default(),
+            native: Native::default(),
             watching: Vec::new(),
             landed: Vec::new(),
             then_due: Vec::new(),

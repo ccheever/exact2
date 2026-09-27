@@ -692,11 +692,18 @@ impl<D: DataSource> Runner<D> {
         self.data.dispatch(token, &self.store)
     }
 
+    /// Where this app's long native calls go: the source's own slot, or,
+    /// for a source with none (a Rust source), the runner's. The host
+    /// installs the app module in it (LLP 1067.000 Q6, Q9).
+    pub fn native_slot(&self) -> crate::Native {
+        self.data.native().unwrap_or_else(|| self.native.clone())
+    }
+
     /// The work behind a long native call ([`Request::is_native`]): hand its
     /// body to the source's native handler with the reply, on the host's
     /// worker, which returns at once — the module's own thread answers.
     pub fn native_work(&mut self, request: &Request) -> Dispatch {
-        let handler = self.data.native().and_then(|n| n.handler());
+        let handler = self.native_slot().handler();
         let body = request.body.clone();
         Dispatch::Run(crate::Work::Later(Box::new(move |reply| match handler {
             Some(handler) => handler(body, reply),

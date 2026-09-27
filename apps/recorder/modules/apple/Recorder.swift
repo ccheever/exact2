@@ -19,7 +19,7 @@ import UIKit
 
 final class Recorder: ExactModule {
     override class var views: [String: ExactNativeFactory] {
-        ["waveform-view": ExactNativeFactory(snapshot: true) { module, _, events in WaveformView(recorder: module as! Recorder, events: events) }]
+        ["waveform-view": ExactNativeFactory(for: Recorder.self, snapshot: true) { recorder, _, events in WaveformView(recorder: recorder, events: events) }]
     }
 
     static let rate = 20.0 // levels a second
@@ -143,7 +143,7 @@ final class Recorder: ExactModule {
         }
         var takes = list()
         let name = "take-\(takes.count + 1)"
-        let take: [String: Any] = ["name": name, "seconds": (ms / 100).rounded() / 10]
+        let take: [String: Any] = ["name": name, "seconds": (ms / 100).rounded() / 10, "level": Recorder.average(last)]
         takes.append(take)
         try save(takes)
         context.changed("status")
@@ -151,9 +151,16 @@ final class Recorder: ExactModule {
         return ["name": name, "message": "Saved \(label(take))"]
     }
 
+    // A take's average level, in percent: what it shows, and what the smoke
+    // holds equal across hosts, so this module and the web's cannot drift.
+    private static func average(_ levels: [Double]) -> Int {
+        levels.isEmpty ? 0 : Int((100 * levels.reduce(0, +) / Double(levels.count)).rounded())
+    }
+
     private func label(_ take: [String: Any]) -> String {
         let name = (take["name"] as? String ?? "").replacingOccurrences(of: "take-", with: "Take ")
-        return "\(name) · \(String(format: "%.1f", take["seconds"] as? Double ?? 0)) s"
+        let level = (take["level"] as? NSNumber)?.intValue ?? 0
+        return "\(name) · \(String(format: "%.1f", take["seconds"] as? Double ?? 0)) s · level \(level)%"
     }
 
     private func folder() throws -> URL {

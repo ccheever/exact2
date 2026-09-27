@@ -87,6 +87,25 @@ pub struct Request {
 pub const NATIVE_URL: &str = "exact-native:";
 
 impl Request {
+    /// A long native call with this JSON body (`native.later`'s request, for
+    /// a Rust source): the independent lane with a 1 MiB answer (LLP 1067
+    /// D3). The answer is an HTTP-shaped outcome: 200 carries the JSON reply.
+    pub fn native(body: Vec<u8>) -> Request {
+        Request {
+            http: HttpScheduling::Independent {
+                max_response_bytes: 1 << 20,
+            },
+            continuation: None,
+            storage: None,
+            surface: None,
+            grants: None,
+            method: "POST".into(),
+            url: NATIVE_URL.into(),
+            headers: Vec::new(),
+            body,
+        }
+    }
+
     /// A long native call, for the source's native handler, not the network.
     pub fn is_native(&self) -> bool {
         self.url == NATIVE_URL

@@ -7,8 +7,8 @@
 //
 //     final class Recorder: ExactModule {
 //         override class var views: [String: ExactNativeFactory] {
-//             ["waveform-view": ExactNativeFactory { module, props, events in
-//                 WaveformView(recorder: module as! Recorder, events: events) }]
+//             ["waveform-view": ExactNativeFactory(for: Recorder.self) { recorder, props, events in
+//                 WaveformView(recorder: recorder, events: events) }]
 //         }
 //         override func later(_ request: [String: Any], reply: ExactReply) { … }
 //     }
@@ -169,6 +169,15 @@ public struct ExactNativeFactory {
     /// A view that needs nothing from the module.
     public init(snapshot: Bool = false, make: @escaping ([String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
         self.init(snapshot: snapshot) { _, props, events in try make(props, events) }
+    }
+    /// A view of the app's module, typed: `ExactNativeFactory(for: Recorder.self)
+    /// { recorder, props, events in … }`. The session's module is always the
+    /// app's `exactModule`; another type is refused by name.
+    public init<M: ExactModule>(for module: M.Type, snapshot: Bool = false, make: @escaping (M, [String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
+        self.init(snapshot: snapshot) { owner, props, events in
+            guard let typed = owner as? M else { throw ExactNativeRefusal("the session's module is \(type(of: owner)), not \(M.self)") }
+            return try make(typed, props, events)
+        }
     }
 }
 

@@ -578,8 +578,8 @@ impl<D: DataSource> Host<D> {
     }
 
     /// The source's native slot, where the host installs the app module.
-    pub fn native_slot(&self) -> Option<exact_runner::Native> {
-        self.runner.data_ref().native()
+    pub fn native_slot(&self) -> exact_runner::Native {
+        self.runner.native_slot()
     }
 
     /// A long native call's work: the source's native handler, off this thread.

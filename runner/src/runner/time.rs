@@ -134,9 +134,7 @@ impl<D: DataSource> Runner<D> {
     /// [`Runner::apply_announced`] on its own. A source with no native
     /// handle announces nothing.
     pub fn listen(&mut self, wake: std::sync::Arc<dyn Fn() + Send + Sync>) {
-        let Some(native) = self.data.native() else {
-            return;
-        };
+        let native = self.native_slot();
         let queue = self.announced.clone();
         native.on_changed(Some(std::sync::Arc::new(move |topic: &str| {
             let mut queue = queue.lock().unwrap_or_else(|e| e.into_inner());

@@ -101,7 +101,7 @@ const recorder = {
     }
     const takes = await this.list();
     const name = `take-${takes.length + 1}`;
-    const take = { name, seconds: Math.round(ms / 100) / 10 };
+    const take = { name, seconds: Math.round(ms / 100) / 10, level: average(this.last) };
     await this.save(take, blob, [...takes, take]);
     context.changed('status');
     context.changed('takes');
@@ -134,7 +134,10 @@ const recorder = {
   },
 };
 
-const label = (take) => `${take.name.replace('take-', 'Take ')} · ${take.seconds.toFixed(1)} s`;
+// A take's average level, in percent: what it shows, and what the smoke holds
+// equal across hosts, so this module and the Swift one cannot drift apart.
+const average = (levels) => levels.length ? Math.round(100 * levels.reduce((a, b) => a + b, 0) / levels.length) : 0;
+const label = (take) => `${take.name.replace('take-', 'Take ')} · ${take.seconds.toFixed(1)} s · level ${take.level ?? 0}%`;
 
 export function connect({ changed, agent, now }) {
   context.changed = changed;

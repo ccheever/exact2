@@ -505,14 +505,14 @@ impl<D: DataSource> Bridge<D> {
     /// The app module announced `topic` (LLP 1016.002): the live source's
     /// watching answers are asked again.
     pub fn app_changed(&mut self, topic: &str) {
-        if let Some(native) = self.host.as_ref().and_then(|h| h.native_slot()) {
-            native.changed(topic);
+        if let Some(host) = &self.host {
+            host.native_slot().changed(topic);
         }
     }
 
     fn adopt_app_module(&self) {
-        if let Some(native) = self.host.as_ref().and_then(|h| h.native_slot()) {
-            native.host(self.app_module.clone());
+        if let Some(host) = &self.host {
+            host.native_slot().host(self.app_module.clone());
         }
     }
 
