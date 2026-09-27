@@ -1295,7 +1295,9 @@ fn kind_for(node: &NodeRef<'_>) -> &'static str {
         | NodeType::SvgStop
         | NodeType::SvgUse
         | NodeType::SvgSymbol
-        | NodeType::SvgClipPath => "svg-element",
+        | NodeType::SvgClipPath
+        | NodeType::SvgText
+        | NodeType::SvgTSpan => "svg-element",
         NodeType::ScrollView => "scroll",
         NodeType::Text => "text",
         NodeType::Image => "image",

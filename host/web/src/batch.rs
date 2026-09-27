@@ -230,6 +230,8 @@ impl Batch {
                 | "use"
                 | "symbol"
                 | "clipPath"
+                | "text"
+                | "tspan"
         ) {
             s.push_str(",\"ns\":\"http://www.w3.org/2000/svg\"");
         }

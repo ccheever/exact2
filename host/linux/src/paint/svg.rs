@@ -54,6 +54,80 @@ pub struct SvgPaint<'a> {
     pub phase: f32,
 }
 
+impl Painter {
+    /// SVG text (LLP 1055.000 D11): each run shaped as a one-line paragraph
+    /// by the text engine, its chunk anchored by the runs' total advance and
+    /// set on the baseline `dominant-baseline` names. The fill is painted;
+    /// a stroke or a gradient on text is owed on this host.
+    fn svg_text(&mut self, item: &exact_kernel::svg::scene::TextItem, ts: Transform) {
+        use exact_kernel::{DominantBaseline, TextAnchor, WhiteSpace};
+        let mut pen = (0.0f32, 0.0f32);
+        for chunk in &item.chunks {
+            let shaped: Vec<_> = chunk
+                .runs
+                .iter()
+                .map(|r| {
+                    let s = exact_kernel::StyleProps {
+                        font_size: r.style.font_size,
+                        font_weight: r.style.font_weight,
+                        font_style: r.style.font_style,
+                        font_family: r.style.font_family,
+                        letter_spacing: r.style.letter_spacing,
+                        white_space: WhiteSpace::PreWrap,
+                        ..Default::default()
+                    };
+                    let spec = super::text_spec(&s, &r.text);
+                    (self.text.borrow_mut().paragraph(&spec, None), r)
+                })
+                .collect();
+            let width: f32 = shaped.iter().map(|(p, r)| p.width + r.dx).sum();
+            let anchor = match chunk.anchor {
+                TextAnchor::Start => 0.0,
+                TextAnchor::Middle => width / 2.0,
+                TextAnchor::End => width,
+            };
+            let mut x = chunk.x.unwrap_or(pen.0) - anchor;
+            let mut y = chunk.y.unwrap_or(pen.1);
+            // Chrome's baselines from the first run's font: integer ascent
+            // and descent, x-height about half an em (LLP 1055.000 D11).
+            let (ascent, descent, size) = shaped.first().map_or((0.0, 0.0, 0.0), |(p, r)| {
+                let a = p.first_baseline.round();
+                (a, (p.height - p.first_baseline).round(), r.style.font_size)
+            });
+            let shift = match chunk.baseline {
+                DominantBaseline::Middle => 0.53 * size / 2.0,
+                DominantBaseline::Central => (ascent - descent) / 2.0,
+                DominantBaseline::Hanging => 0.8 * ascent,
+                DominantBaseline::Ideographic => -descent,
+                DominantBaseline::Mathematical => ascent / 2.0,
+                _ => 0.0,
+            };
+            for (p, r) in &shaped {
+                x += r.dx;
+                y += r.dy;
+                if let Some(fill) = &r.fill {
+                    let mut c = rgba(fill.color.resolve(self.dark));
+                    c[3] = (c[3] as f32 * fill.opacity).round() as u8;
+                    let palette = [crate::text::RunPaint {
+                        color: c,
+                        source: r.id,
+                    }];
+                    let mut engine = self.text.borrow_mut();
+                    self.backend.text(
+                        &mut engine,
+                        p,
+                        &palette,
+                        (x, y + shift - p.first_baseline),
+                        ts,
+                    );
+                }
+                x += p.width;
+            }
+            pen = (x, y);
+        }
+    }
+}
+
 /// A fill's or stroke's ink: its colour, or its gradient's stops with the
 /// paint's opacity folded in and the gradient mapped into the path's space.
 fn ink(p: Option<&ShapePaint>, dark: bool, to_path: [f32; 6]) -> Option<Ink<'_>> {
@@ -204,6 +278,7 @@ impl Painter {
                     }
                 }
             }
+            Kind::Text(text) => self.svg_text(text, own),
             Kind::Shape(shape) => {
                 let dark = self.dark;
                 // Drawn in the content box's space, the stroke unscaled

@@ -115,6 +115,8 @@ fn element(node: &NodeRef<'_>) -> &'static str {
         NodeType::SvgUse => "use",
         NodeType::SvgSymbol => "symbol",
         NodeType::SvgClipPath => "clipPath",
+        NodeType::SvgText => "text",
+        NodeType::SvgTSpan => "tspan",
         NodeType::ScrollView => "div",
         NodeType::Text => {
             if node.is_inline_run() {
@@ -423,6 +425,10 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
             PropId::SpreadMethod => "spreadMethod",
             PropId::Offset => "offset",
             PropId::ClipPathUnits => "clipPathUnits",
+            PropId::TextX => "x",
+            PropId::TextY => "y",
+            PropId::TextDx => "dx",
+            PropId::TextDy => "dy",
             other => {
                 // Every other prop rides as `data-<name>` so nothing is lost.
                 // Schema names are ASCII (`prop_names_are_ascii`), so ASCII

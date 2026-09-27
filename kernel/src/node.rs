@@ -24,6 +24,8 @@ impl NodeType {
                 | NodeType::SvgLinearGradient
                 | NodeType::SvgRadialGradient
                 | NodeType::SvgClipPath
+                | NodeType::SvgText
+                | NodeType::SvgTSpan
         )
     }
 

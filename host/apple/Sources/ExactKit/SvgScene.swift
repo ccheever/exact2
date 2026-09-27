@@ -5,6 +5,7 @@
 // values and one cubic per segment. This file only builds layers from it, so
 // iOS and macOS share it and no host parses SVG.
 import CoreGraphics
+import CoreText
 import Foundation
 import QuartzCore
 
@@ -150,6 +151,10 @@ final class SvgScene {
     private var last: [String: Any] = [:]
     /// The view's pixels per point, for gradients drawn as pixels.
     var scale: CGFloat = 2
+    /// The presenter's fonts, for SVG text (LLP 1055.000 D11).
+    var fonts: SvgText.Fonts?
+    /// A system font where no presenter's fonts are known.
+    static let systemFonts: SvgText.Fonts = { size, _, _, _ in CTFontCreateUIFontForLanguage(.system, size, nil) ?? CTFontCreateWithName("Helvetica" as CFString, size, nil) }
 
     init() { root.masksToBounds = false; root.anchorPoint = .zero }
 
@@ -209,7 +214,8 @@ final class SvgScene {
         for case let e as [String: Any] in elements {
             let id = Int(num(e["id"]))
             alive.insert(id)
-            let group = e["g"] != nil
+            let text = e["tx"] as? [Any]
+            let group = e["g"] != nil || text != nil
             let layer: CALayer
             if let existing = layers[id], (existing is CAShapeLayer) != group { layer = existing } else {
                 layers[id]?.removeFromSuperlayer()
@@ -217,7 +223,10 @@ final class SvgScene {
                 layers[id] = layer
             }
             layer.opacity = Float(num(e["o"]))
-            if group {
+            if let text {
+                // @ref LLP 1055.000 D11 — text: a layer of glyph outlines per run.
+                SvgText.build(layer, chunks: text, dark: dark, fonts: fonts ?? SvgScene.systemFonts) { color($0, dark: $1) }
+            } else if group {
                 let vp = nums(e["vp"])
                 if vp.count == 4 {
                     // A nested `svg`: its own viewport, clipped unless visible.
@@ -276,6 +285,8 @@ final class SvgScene {
 /// `animations` ops, the agent clock's re-seek, and cleanup when a view goes.
 final class SvgHost {
     private var scenes: [UInt32: SvgScene] = [:]
+    /// The session's fonts, for SVG text: set by the presenter.
+    var fonts: SvgText.Fonts?
     private var boxSpecs: [UInt32: (layer: CALayer, specs: [[String: Any]])] = [:]
     private var boxInstalled: [UInt32: [String: String]] = [:]
     private var seeked: Double?
@@ -285,6 +296,7 @@ final class SvgHost {
         let scene = scenes[id] ?? { let s = SvgScene(); scenes[id] = s; return s }()
         if scene.root.superlayer !== layer { layer.addSublayer(scene.root) }
         scene.scale = max(1, layer.contentsScale)
+        scene.fonts = fonts
         scene.apply(payload["scene"] as? [String: Any] ?? [:], dark: dark, clock: clock)
     }
 

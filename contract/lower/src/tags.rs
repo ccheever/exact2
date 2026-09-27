@@ -182,6 +182,13 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: None,
         },
+        // @ref LLP 1055.000 D11 — a run of SVG text, its string positional.
+        "tspan" => Tag {
+            node_type: NodeType::SvgTSpan,
+            fixed_styles: &[],
+            fixed_props: &[],
+            positional: Some(PropId::Text),
+        },
         "defs" | "linearGradient" | "radialGradient" | "stop" | "use" | "clipPath" => Tag {
             node_type: match name {
                 "defs" => NodeType::SvgDefs,
@@ -437,6 +444,14 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "spreadMethod" => AttrTarget::Prop(p("spreadMethod")),
         "offset" => AttrTarget::Prop(p("offset")),
         "clipPathUnits" => AttrTarget::Prop(p("clipPathUnits")),
+        // @ref LLP 1055.000 D11 — SVG text's positions (`x`, `y`, `dx`,
+        // `dy` on `text`/`tspan` lower to these) and its alignment.
+        "textX" => AttrTarget::Prop(p("textX")),
+        "textY" => AttrTarget::Prop(p("textY")),
+        "textDx" => AttrTarget::Prop(p("textDx")),
+        "textDy" => AttrTarget::Prop(p("textDy")),
+        "text-anchor" => styles(&[StyleId::TextAnchor]),
+        "dominant-baseline" => styles(&[StyleId::DominantBaseline]),
         "clip-rule" => styles(&[StyleId::ClipRule]),
         "stop-color" => styles(&[StyleId::StopColor]),
         "stop-opacity" => styles(&[StyleId::StopOpacity]),

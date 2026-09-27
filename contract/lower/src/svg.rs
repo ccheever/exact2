@@ -32,15 +32,42 @@ pub(crate) fn is_element(tag: &str) -> bool {
             | "use"
             | "symbol"
             | "clipPath"
+            | "tspan"
     )
+}
+
+/// Whether a node under `parent_tag` is inside an `svg`: `inside` says an
+/// `svg` encloses it, for a `text` parent is a box outside one.
+pub(crate) fn in_svg(inside: bool, parent_tag: Option<&str>) -> bool {
+    inside
+        && matches!(
+            parent_tag,
+            Some(
+                "svg"
+                    | "g"
+                    | "defs"
+                    | "symbol"
+                    | "linearGradient"
+                    | "radialGradient"
+                    | "clipPath"
+                    | "text"
+                    | "tspan"
+            )
+        )
 }
 
 /// What an SVG container may hold (LLP 1055.000 D7): a gradient holds
 /// `stop`s only, and a `stop` only sits in a gradient.
 fn holds(parent: &str, child: &str) -> bool {
     match parent {
+        // SVG text holds its runs.
+        "text" | "tspan" => child == "tspan",
         "linearGradient" | "radialGradient" => child == "stop",
-        "svg" | "g" | "defs" | "symbol" => child != "stop" && (is_element(child) || child == "svg"),
+        "svg" | "g" | "defs" | "symbol" => {
+            child != "stop"
+                && child != "tspan"
+                && (is_element(child) || matches!(child, "svg" | "text"))
+        }
         // A clip's children are its geometry: shapes and `use`.
         "clipPath" => matches!(
             child,
@@ -55,7 +82,17 @@ fn holds(parent: &str, child: &str) -> bool {
 pub(crate) fn is_length_prop(attr: &str) -> bool {
     matches!(
         attr,
-        "x1" | "y1" | "x2" | "y2" | "fx" | "fy" | "fr" | "offset"
+        "x1" | "y1"
+            | "x2"
+            | "y2"
+            | "fx"
+            | "fy"
+            | "fr"
+            | "offset"
+            | "textX"
+            | "textY"
+            | "textDx"
+            | "textDy"
     )
 }
 
@@ -79,6 +116,9 @@ fn owners(attr: &str) -> Option<&'static [&'static str]> {
         }
         "offset" | "stop-color" | "stop-opacity" => &["stop"],
         "clipPathUnits" => &["clipPath"],
+        "textX" | "textY" | "textDx" | "textDy" | "text-anchor" | "dominant-baseline" => {
+            &["text", "tspan"]
+        }
         "vector-effect" => &[
             "path", "polyline", "polygon", "circle", "ellipse", "line", "rect",
         ],
@@ -115,6 +155,13 @@ fn shared(attr: &str) -> bool {
             | "paint-order"
             | "clip-path"
             | "clip-rule"
+            | "font-size"
+            | "font-weight"
+            | "font-style"
+            | "font-family"
+            | "letter-spacing"
+            | "text-anchor"
+            | "dominant-baseline"
             | "animation"
             | "transition"
             | "testId"
@@ -219,14 +266,10 @@ impl Lowerer<'_> {
         attrs: &[Attr],
         span: Span,
     ) -> Result<(), LowerError> {
-        let in_svg = matches!(
-            parent_tag,
-            Some(
-                "svg" | "g" | "defs" | "symbol" | "linearGradient" | "radialGradient" | "clipPath"
-            )
-        );
-        // A nested `svg` is an SVG element: a new viewport (LLP 1055.000 D4).
-        let element = is_element(tag) || (tag == "svg" && in_svg);
+        let in_svg = in_svg(self.svg_depth > 0, parent_tag);
+        // A nested `svg` is an SVG element (a new viewport, LLP 1055.000 D4),
+        // and so is `text` inside one (D11).
+        let element = is_element(tag) || (matches!(tag, "svg" | "text") && in_svg);
         if let Some(parent) = parent_tag.filter(|_| in_svg) {
             if !holds(parent, tag) {
                 return err(
@@ -255,6 +298,13 @@ impl Lowerer<'_> {
         for a in attrs {
             // A `clipPath` by reference clips SVG elements (LLP 1055.000 D10);
             // a box's `clip-path` is a path.
+            if matches!(tag, "text" | "tspan") && element && a.name == "rotate" {
+                return err(
+                    "lower-svg-attr",
+                    "per-glyph `rotate` on SVG text is a later stage (LLP 1055.000 §4); rotate the `text` with `transform`",
+                    a.span,
+                );
+            }
             if a.name == "clip-path"
                 && !element
                 && matches!(&a.value, Expr::Str(v, _) if v.trim_start().starts_with("url("))
@@ -455,7 +505,31 @@ impl Lowerer<'_> {
 /// SVG length props take text (LLP 1055.000 D4): a number literal becomes
 /// its text and any other expression is interpolated, so `x1=10`,
 /// `x1="50%"` and `x1=gridX` all lower. `None` when nothing changes.
-pub(crate) fn coerce_lengths(tag: &str, attrs: &[Attr]) -> Option<Vec<Attr>> {
+pub(crate) fn coerce_lengths(tag: &str, in_svg: bool, attrs: &[Attr]) -> Option<Vec<Attr>> {
+    // SVG text's `x`, `y`, `dx`, `dy` are position lists, not geometry
+    // rows (LLP 1055.000 D11): they lower to their own props.
+    let text = tag == "tspan" || (tag == "text" && in_svg);
+    if text {
+        let renamed: Vec<Attr> = attrs
+            .iter()
+            .map(|a| {
+                let name = match a.name.as_str() {
+                    "x" => "textX",
+                    "y" => "textY",
+                    "dx" => "textDx",
+                    "dy" => "textDy",
+                    other => other,
+                };
+                Attr {
+                    name: name.into(),
+                    value: a.value.clone(),
+                    span: a.span,
+                }
+            })
+            .collect();
+        let coerced = coerce_lengths("", false, &renamed);
+        return Some(coerced.unwrap_or(renamed));
+    }
     let svg = is_element(tag) || tag == "svg";
     // A geometry property's presentation attribute is a unitless number
     // (`y="46"`), which CSS's grammar for the row would refuse.

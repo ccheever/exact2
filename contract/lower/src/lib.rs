@@ -116,7 +116,7 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                     if tags::tag(tag).is_none() {
                         errors.push(unknown_tag(tag, *span));
                     } else {
-                        let coerced = svg::coerce_lengths(tag, attrs);
+                        let coerced = svg::coerce_lengths(tag, false, attrs);
                         let attrs = coerced.as_deref().unwrap_or(attrs);
                         for a in attrs.iter().filter(|a| a.name != "class") {
                             let checked = match tags::attr(&a.name) {
@@ -233,6 +233,9 @@ pub(crate) struct Lowerer<'a> {
     /// Refusals so far: an element or attribute that fails is recorded and
     /// its siblings are lowered anyway.
     errors: Vec<LowerError>,
+    /// How many `svg` elements enclose the node being lowered: `text`
+    /// inside one is SVG text, outside a box (LLP 1055.000 D11).
+    pub(crate) svg_depth: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -328,6 +331,7 @@ fn lower_with_sites(
             .map(|(f, body)| (f.name.as_str(), (f, body)))
             .collect(),
         fn_depth: 0,
+        svg_depth: 0,
         each_regions: BTreeMap::new(),
         each_scopes: BTreeMap::new(),
         font_stacks: BTreeMap::new(),
@@ -765,17 +769,23 @@ impl<'a> Lowerer<'a> {
                 }
                 let composed = self.compose_animation(expanded)?;
                 let expanded = composed.as_deref().unwrap_or(expanded);
-                let lengths = svg::coerce_lengths(tag, expanded);
+                let lengths =
+                    svg::coerce_lengths(tag, svg::in_svg(self.svg_depth > 0, parent_tag), expanded);
                 let expanded = lengths.as_deref().unwrap_or(expanded);
                 self.check_svg(tag, parent_tag, expanded, *span)?;
                 // @ref LLP 1055.000 D4 — an `svg` inside an `svg` is a viewport.
-                let t = if tag == "svg" && matches!(parent_tag, Some("svg" | "g")) {
-                    tags::Tag {
+                // Inside an `svg`, `svg` is a viewport and `text` is SVG text
+                // (LLP 1055.000 D4, D11).
+                let t = match tag.as_str() {
+                    "svg" if svg::in_svg(self.svg_depth > 0, parent_tag) => tags::Tag {
                         node_type: NodeType::SvgViewport,
                         ..t
-                    }
-                } else {
-                    t
+                    },
+                    "text" if svg::in_svg(self.svg_depth > 0, parent_tag) => tags::Tag {
+                        node_type: NodeType::SvgText,
+                        ..t
+                    },
+                    _ => t,
                 };
                 tags::validate_list(tag, expanded, children, *span)?;
                 self.check_collection(tag, expanded, children, *span)?;
@@ -995,7 +1005,11 @@ impl<'a> Lowerer<'a> {
                         origins.as_deref().expect("site origins"),
                     ));
                 }
-                self.nodes(children, Some(id), arm, scope, locals, Some(tag))
+                let enters = tag == "svg";
+                self.svg_depth += enters as u32;
+                let lowered = self.nodes(children, Some(id), arm, scope, locals, Some(tag));
+                self.svg_depth -= enters as u32;
+                lowered
             }
             Node::Use { name, span, .. } => err(
                 "lower-uninlined-use",

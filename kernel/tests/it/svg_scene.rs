@@ -624,3 +624,60 @@ fn clips_resolve_in_the_element_space() {
         "a clipPath is never painted"
     );
 }
+
+/// LLP 1055.000 D11: SVG text resolves into chunks of runs: a `tspan` with
+/// its own `y` starts a chunk, white space collapses, `dx` shifts a run.
+#[test]
+fn text_resolves_into_chunks_of_runs() {
+    use exact_kernel::svg::scene::Kind;
+    use NodeType::*;
+    let mut d = Doc::new();
+    let svg = d.node(
+        Svg,
+        &[(StyleId::Width, "100"), (StyleId::Height, "100")],
+        &[],
+    );
+    let text = d.node(
+        SvgText,
+        &[(StyleId::TextAnchor, "middle"), (StyleId::FontSize, "12")],
+        &[(PropId::TextX, "50 60 70"), (PropId::TextY, "10%")],
+    );
+    let a = d.node(SvgTSpan, &[], &[(PropId::Text, "  Q1   revenue ")]);
+    let b = d.node(
+        SvgTSpan,
+        &[(StyleId::Fill, "#16a34a")],
+        &[(PropId::Text, "+4%"), (PropId::TextDx, "2")],
+    );
+    let c = d.node(
+        SvgTSpan,
+        &[],
+        &[(PropId::Text, "next"), (PropId::TextY, "30")],
+    );
+    d.children(text, &[a, b, c]);
+    d.children(svg, &[text]);
+    let k = d.kernel(&[svg], 400.0);
+    let s = resolve(&k, svg);
+    let Kind::Text(t) = &find(&s.items, text).unwrap().kind else {
+        panic!("a text item")
+    };
+    assert_eq!(t.chunks.len(), 2);
+    let first = &t.chunks[0];
+    assert_eq!(
+        (first.x, first.y),
+        (Some(50.0), Some(10.0)),
+        "a list's first value; 10% of 100"
+    );
+    assert_eq!(first.anchor, exact_kernel::TextAnchor::Middle);
+    let texts: Vec<&str> = first.runs.iter().map(|r| r.text.as_str()).collect();
+    assert_eq!(texts, ["Q1 revenue ", "+4%"]);
+    assert_eq!(first.runs[1].dx, 2.0);
+    assert_eq!(
+        first.runs[0].style.font_size, 12.0,
+        "inherited from the text"
+    );
+    assert_eq!(
+        (t.chunks[1].x, t.chunks[1].y),
+        (None, Some(30.0)),
+        "continues on x"
+    );
+}

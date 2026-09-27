@@ -15,7 +15,7 @@ use crate::batch::Batch;
 use crate::style::num;
 use exact_kernel::id::{IdMap, IdSet};
 use exact_kernel::motion::motion_node;
-use exact_kernel::svg::scene::{content_box, Clip, Item, Kind, Shape, ShapePaint};
+use exact_kernel::svg::scene::{content_box, Clip, Item, Kind, Shape, ShapePaint, TextItem};
 use exact_kernel::svg::server::{Server, ServerKind, Spread};
 use exact_kernel::svg::transform::{self as tf, Affine};
 use exact_kernel::svg::{Path, Seg};
@@ -307,6 +307,13 @@ fn element(engine: &Engine, item: &Item, parent_ctm: Affine, s: &mut String) {
             }
         }
         Kind::Shape(shape) => shape_json(engine, key, opacity, item, shape, s),
+        Kind::Text(text) => {
+            let specs = specs(engine, key, &[Property::Opacity], &|_| {
+                (Value::scalar(opacity), 1.0)
+            });
+            let _ = write!(s, ",\"a\":{specs},\"tx\":");
+            text_json(text, s);
+        }
     }
     s.push('}');
 }
@@ -466,6 +473,76 @@ fn server_json(server: &Server, opacity: f32, s: &mut String) {
     );
     affine_json(server.transform, s);
     s.push('}');
+}
+
+/// SVG text (LLP 1055.000 D11): `[{"x","y","an","bl","runs":[{"t","dx",
+/// "dy","fs","fw","ff","it","ls","f","s","w","cap","join","ml"},…]},…]`,
+/// shaped by the presenter with its own fonts.
+fn text_json(text: &TextItem, s: &mut String) {
+    s.push('[');
+    for (i, chunk) in text.chunks.iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        let opt = |v: Option<f32>| v.map_or("null".to_string(), num);
+        let _ = write!(
+            s,
+            "{{\"x\":{},\"y\":{},\"an\":{},\"bl\":{},\"runs\":[",
+            opt(chunk.x),
+            opt(chunk.y),
+            chunk.anchor as u8,
+            chunk.baseline as u8
+        );
+        for (j, run) in chunk.runs.iter().enumerate() {
+            if j > 0 {
+                s.push(',');
+            }
+            s.push_str("{\"t\":");
+            let _ = write!(s, "{}", serde_json_string(&run.text));
+            let _ = write!(
+                s,
+                ",\"dx\":{},\"dy\":{},\"fs\":{},\"fw\":{},\"ff\":{},\"it\":{},\"ls\":{},\"f\":",
+                num(run.dx),
+                num(run.dy),
+                num(run.style.font_size),
+                run.style.font_weight,
+                run.style.font_family,
+                (run.style.font_style != exact_kernel::FontStyle::Normal) as u8,
+                num(run.style.letter_spacing)
+            );
+            paint_json(run.fill.as_ref(), s);
+            s.push_str(",\"s\":");
+            paint_json(run.stroke.as_ref(), s);
+            let _ = write!(
+                s,
+                ",\"w\":{},\"cap\":{},\"join\":{},\"ml\":{}}}",
+                num(run.width),
+                run.cap as u8,
+                run.join as u8,
+                num(run.miter)
+            );
+        }
+        s.push_str("]}");
+    }
+    s.push(']');
+}
+
+/// A JSON string literal.
+fn serde_json_string(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 2);
+    out.push('"');
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            c if (c as u32) < 0x20 => {
+                let _ = write!(out, "\\u{:04x}", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 /// A clip: `{"s":[[path, evenodd],…],"n":clip|null}`, its shapes' union

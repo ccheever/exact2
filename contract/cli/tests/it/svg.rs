@@ -120,7 +120,8 @@ fn refusals_are_named() {
         format!("component A\n  state n = 0\n  action go writes n\n    n = 1\n  view\n    svg width=10 height=10\n      {body}\n")
     };
     assert!(refused("component A\n  view\n    circle r=3\n").contains("lower-svg-content"));
-    assert!(refused(&svg("text \"hi\"")).contains("lower-svg-content"));
+    assert!(refused(&svg("column")).contains("lower-svg-content"));
+    assert!(refused(&svg("text \"hi\" rotate=\"10 20\"")).contains("later stage"));
     assert!(refused(&svg("foreignObject")).contains("deferred"));
     assert!(refused(&svg("animate")).contains("SMIL is refused"));
     assert!(
@@ -273,4 +274,27 @@ fn stage_four_clipping() {
         refused("component A\n  view\n    svg\n      clipPath\n        g\n")
             .contains("does not hold")
     );
+}
+
+// LLP 1055.000 stage 5: SVG text and its runs.
+#[test]
+fn stage_five_text() {
+    let r = boot(
+        "component A\n  view\n    column\n      text \"a box's text\" testId=\"box\"\n      svg width=100 height=40\n        text \"Q1\" testId=\"t\" x=50 y=20 text-anchor=\"middle\" dominant-baseline=\"central\" font-size=12\n        text testId=\"u\" x=4 y=36\n          tspan \"12\" testId=\"s\" dx=2 font-weight=700\n",
+    );
+    let k = r.kernel();
+    let node = |id: &str| k.node_by_key(k.find_by_test_id(id)[0]).unwrap();
+    assert_eq!(
+        node("box").node_type,
+        NodeType::Text,
+        "outside an svg, text is a box"
+    );
+    let t = node("t");
+    assert_eq!(t.node_type, NodeType::SvgText);
+    assert_eq!(t.props.str(PropId::TextX), Some("50"));
+    assert_eq!(t.props.str(PropId::Text), Some("Q1"));
+    assert_eq!(t.style.text_anchor, exact_kernel::TextAnchor::Middle);
+    let s = node("s");
+    assert_eq!(s.node_type, NodeType::SvgTSpan);
+    assert_eq!(s.props.str(PropId::TextDx), Some("2"));
 }

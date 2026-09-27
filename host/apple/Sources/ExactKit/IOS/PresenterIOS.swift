@@ -5,6 +5,7 @@
 // web views, and menus through it.
 #if os(iOS)
 import UIKit
+import CoreText
 import os
 
 final class Presenter {
@@ -563,6 +564,12 @@ final class Presenter {
         navigation.prepare(batch)
         for id in scrollers where !collections.owns(id) { views[id]?.captureScrollPosition() }
         if let e = batch.error { FileHandle.standardError.write(Data("exact: \(e)\n".utf8)) }
+        if let text = session?.text {
+            // SVG text shapes with the session's fonts (LLP 1055.000 D11).
+            svg.fonts = { [weak text] size, weight, family, italic in
+                (text?.font(size: size, weight: weight, family: family, italic: italic)).map { $0 as CTFont } ?? SvgScene.systemFonts(size, weight, family, italic)
+            }
+        }
         svg.seek(clock: session?.clock)
         let outermost = !applying
         applying = true

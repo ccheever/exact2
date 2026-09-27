@@ -29,7 +29,9 @@ use exact_motion::{Property, Value};
 type Circle = (f32, f32, f32);
 
 mod clip;
+mod text;
 pub use clip::{Clip, ClipShape};
+pub use text::{TextChunk, TextItem, TextRun};
 
 /// A host's presented value for a node's property: a running transition's
 /// or a sampled animation's; `None` shows the row.
@@ -132,6 +134,8 @@ pub enum Kind {
     },
     /// A shape.
     Shape(Box<Shape>),
+    /// A `text` element (LLP 1055.000 D11).
+    Text(Box<TextItem>),
 }
 
 /// Paint, resolved: a colour (a `light-dark()` pair kept for the host's
@@ -361,6 +365,7 @@ impl Resolver<'_, '_> {
             NodeType::SvgGroup => Kind::Group(self.children(node, &style, vp, ctm)),
             NodeType::SvgViewport => self.viewport(node, &style, vp, ctm),
             NodeType::SvgUse => self.instance(node, &style, vp, ctm)?,
+            NodeType::SvgText => Kind::Text(Box::new(self.text(node, &style, vp)?)),
             _ => Kind::Shape(Box::new(self.shape(node, &style, vp)?)),
         };
         let clip = if style.clip_path.url().is_some() {
@@ -770,7 +775,7 @@ impl Scene {
                 f(item);
                 match &item.kind {
                     Kind::Group(c) | Kind::Viewport { children: c, .. } => go(c, f),
-                    Kind::Shape(_) => {}
+                    Kind::Shape(_) | Kind::Text(_) => {}
                 }
             }
         }

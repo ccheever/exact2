@@ -48,6 +48,8 @@ impl NodeType {
                 | NodeType::SvgUse
                 | NodeType::SvgSymbol
                 | NodeType::SvgClipPath
+                | NodeType::SvgText
+                | NodeType::SvgTSpan
         )
     }
 
@@ -76,6 +78,7 @@ impl NodeType {
                 | NodeType::SvgStop
                 | NodeType::SvgSymbol
                 | NodeType::SvgClipPath
+                | NodeType::SvgTSpan
         )
     }
 
@@ -91,6 +94,8 @@ impl NodeType {
                 | NodeType::SvgLinearGradient
                 | NodeType::SvgRadialGradient
                 | NodeType::SvgClipPath
+                | NodeType::SvgText
+                | NodeType::SvgTSpan
         )
     }
 
@@ -114,6 +119,8 @@ impl NodeType {
             NodeType::SvgUse => "use",
             NodeType::SvgSymbol => "symbol",
             NodeType::SvgClipPath => "clipPath",
+            NodeType::SvgText => "text",
+            NodeType::SvgTSpan => "tspan",
             _ => return None,
         })
     }
