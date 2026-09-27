@@ -266,7 +266,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var raster: NativeRasterLease?
     var imageSource: String?
     var loadGeneration = 0
-    var pressed = false
+    var pressed = false { didSet { if pressed != oldValue { pressChanged() } } }
+    var press = PressFeedback() // LLP 1061: the feedback `pressed` drives
     // @ref LLP 1038 D6 — projection does not overwrite authored inert.
     var routeInert = false
     var inert: Bool {
@@ -1088,7 +1089,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     func applyStyle(_ s: NodeStyle) {
         defer { video?.update() }
+        let origin = style["transform_origin"]
         style = s
+        if s["transform_origin"] != origin { applyTransform() }
         let uniformBorder = number("border_width")
         hasBoxPaint = s["background_color"] != nil || s["background_image"] != nil
             || number("border_width_top", uniformBorder) > 0
@@ -1400,11 +1403,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if isSurfaceControl || ownsSurfaceControl { _ = control("move", point: local(event.locationInWindow), timestamp: event.timestamp); return }
         if canvasInput?.pointer(event, phase: "move") == true { return }
         inlinePressed = nil
-        if presenter?.mouseLayoutPan.drag(event) == true { return }
-        if presenter?.mouseTransformDrag.drag(event) == true { return }
-        if presenter?.mouseReorder.drag(event) == true { return }
-        if presenter?.mouseHeightDrag.drag(event) == true { return }
-        if presenter?.mouseSwipe.drag(event) == true { return }
+        // A drag a gesture takes ends the press, as a pan cancels a touch.
+        if let p = presenter, p.mouseLayoutPan.drag(event) || p.mouseTransformDrag.drag(event) || p.mouseReorder.drag(event) || p.mouseHeightDrag.drag(event) || p.mouseSwipe.drag(event) { pressed = false; return }
+        pressFollows(inside: pressInside(event.locationInWindow))
         if isParagraph && !hasPressableAncestor { presenter?.selection.drag(event) }
         else { super.mouseDragged(with: event) }
     }
@@ -1446,7 +1447,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         guard !disabled else { pressed = false; return }
         guard pressed else { return super.mouseUp(with: event) }
         pressed = false
-        if bounds.contains(local(event.locationInWindow)) {
+        if pressInside(event.locationInWindow) {
             let canvas = inputCanvas, ownerWindow = window
             presenter?.press(id)
             finishPress(canvas: canvas, window: ownerWindow, pointer: true)

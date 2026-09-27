@@ -9,7 +9,7 @@
 //! [`crate::text`]), an input's value or placeholder and caret, then the
 //! children — clipped when the node's effective overflow is not `visible`,
 //! offset by its scroll position. Motion presentation values become a
-//! transform about the box's center (CSS `translate` · `rotate` · `scale`)
+//! transform about its `transform-origin` (CSS `translate` · `rotate` · `scale`)
 //! and a group opacity (a layer, only when it is not 1). The walk also
 //! records every node's painted box — the transformed bounding box in
 //! viewport points and the clip it was painted under — which is what the
@@ -780,7 +780,8 @@ impl Painter {
             || node.style.shadow_opacity > 0.0
             || !p.paint.is_empty();
         let ts = if p.moves() {
-            ts.pre_concat(p.transform((x, y, w, h)))
+            // About `transform-origin`, the centre unless authored (LLP 1061 D6).
+            ts.pre_concat(p.transform((x, y, w, h), node.style.transform_origin.resolve(w, h)))
         } else {
             ts
         };

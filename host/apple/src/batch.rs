@@ -12,6 +12,9 @@ pub struct Batch {
     /// The views this batch creates: each starts at its presentation's
     /// identity (`Host::present`).
     created: std::collections::HashSet<u32>,
+    /// What moves changes place or size (`Engine::spatial`): the display
+    /// link asks for the panel's full rate (LLP 1061 D4).
+    pub spatial: bool,
 }
 
 pub use exact_runner::agent::quote;
@@ -410,7 +413,8 @@ impl Batch {
 
     /// @ref LLP 1043.000 §3 D8 — carry the runner deadline, not a poll interval.
     /// The batch as one JSON document:
-    /// `{"ops":[…],"timers":bool,"motion":bool,"error":null|"…"}`.
+    /// `{"ops":[…],"timers":bool,"motion":bool,"error":null|"…"}`, with
+    /// `"spatial":true` before `timers` when what moves changes place or size.
     pub fn finish(
         self,
         timer_due_ms: Option<f64>,
@@ -429,6 +433,9 @@ impl Batch {
         s.push(']');
         if let Some(due) = timer_due_ms {
             let _ = write!(s, ",\"timer_due_ms\":{due}");
+        }
+        if self.spatial {
+            s.push_str(",\"spatial\":true");
         }
         let _ = write!(
             s,

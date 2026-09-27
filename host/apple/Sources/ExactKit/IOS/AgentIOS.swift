@@ -709,5 +709,16 @@ extension Agent {
         if req["window"] as? Bool == true { r["window"] = true }
         return r
     }
+
+    /// The system appearance (LLP 1061 D5): the window scene's trait, which
+    /// the window's own style — the app's `setScheme` — overrides, as the
+    /// Settings switch sits beneath an app's choice.
+    func systemScheme(dark: Bool) {
+        guard let window = session.presenter.viewport.window else { return }
+        window.windowScene?.traitOverrides.userInterfaceStyle = dark ? .dark : .light
+        window.updateTraitsIfNeeded()
+        session.view?.updateTraitsIfNeeded()
+    }
+    var systemDark: Bool { session.presenter.viewport.window?.windowScene?.traitCollection.userInterfaceStyle == .dark }
 }
 #endif

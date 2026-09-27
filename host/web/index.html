@@ -55,11 +55,12 @@
   [backgroundMaterial="ultra-thin"] { backdrop-filter: blur(20px) saturate(180%); background-color: light-dark(#ffffff80, #20202080); }
   [backgroundMaterial="glass"] { backdrop-filter: blur(20px) saturate(150%); background-color: light-dark(#ffffffb3, #262629b3); box-shadow: 0 8px 24px #0000000d, inset 0 0 1px light-dark(#ffffffcc, #ffffff33); }
   /* LLP 1061 D3: press feedback. A node with a `press-scale` row carries
-     `--exact-press` and a `transform` transition inline; `transform` is no
-     row's, so it composes with the `translate`/`scale`/`rotate` rows and the
+     `--exact-press` and a `transform` transition inline; the input glue marks
+     the one a pointer holds pressed, inside its box. `transform` is no row's,
+     so it composes with the `translate`/`scale`/`rotate` rows and the
      engine's animations of them. Reduced motion shows no press, as native. */
   @media (prefers-reduced-motion: no-preference) {
-    [style*="--exact-press"]:active:not(:disabled) { transform: scale(var(--exact-press)); }
+    [data-pressed] { transform: scale(var(--exact-press)); }
   }
   [data-scroll="true"] { overflow: auto; }
   /* LLP 1048.003 D4: `scroll document` — the page scrolls, not an inner

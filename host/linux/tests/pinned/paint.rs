@@ -231,6 +231,34 @@ fn motion_presents_as_a_transform_and_a_group_opacity() {
     }
 }
 
+/// LLP 1061 D6: `transform-origin` is the point the transforms turn about;
+/// the painted box (what `layout` reports and hit-testing reads) follows.
+#[test]
+fn transforms_turn_about_the_transform_origin() {
+    let src = "component Origin
+  view
+    column padding=20
+      view width=100 height=40 scale=0.5 transform-origin=\"50%\" testId=\"centre\"
+      view width=100 height=40 scale=0.5 transform-origin=\"left top\" testId=\"corner\"
+      view width=100 height=40 rotate=90 transform-origin=\"0 100%\" testId=\"turned\"
+";
+    for choice in painters() {
+        let mut p = compiled(src, 1.0, choice);
+        let close = |a: (f32, f32, f32, f32), b: (f32, f32, f32, f32)| {
+            let near = |x: f32, y: f32| (x - y).abs() < 0.01;
+            assert!(
+                near(a.0, b.0) && near(a.1, b.1) && near(a.2, b.2) && near(a.3, b.3),
+                "{a:?} vs {b:?} ({choice:?})"
+            );
+        };
+        close(rect(&mut p, "centre"), (45.0, 30.0, 50.0, 20.0));
+        close(rect(&mut p, "corner"), (20.0, 60.0, 50.0, 20.0));
+        // A quarter turn clockwise about the bottom-left corner (20, 140):
+        // the box now hangs below that corner.
+        close(rect(&mut p, "turned"), (20.0, 140.0, 40.0, 100.0));
+    }
+}
+
 #[test]
 fn a_scroll_container_clips_what_it_scrolled_out() {
     for choice in painters() {

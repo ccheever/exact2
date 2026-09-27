@@ -50,6 +50,7 @@ mod height_drag;
 #[cfg(test)]
 mod height_drag_tests;
 mod images;
+mod preferences;
 mod retained_action;
 mod swipe;
 mod transform;
@@ -97,6 +98,9 @@ pub struct Presenter<D: DataSource> {
     pub(crate) control_contact: Option<(ViewId, f32, f32)>,
     boxes: Vec<PaintedBox>,
     pub(crate) dirty: bool,
+    /// The app's `setScheme` (`None`: follow the system) and the system's
+    /// appearance, which only an agent sets here (LLP 1061 D5).
+    pub(crate) scheme: (Option<bool>, bool),
     /// A failed painter's blank fallback cannot bless an update generation.
     last_frame_succeeded: bool,
     pub(crate) display: display_frame::State,
@@ -373,6 +377,7 @@ impl<D: DataSource> Presenter<D> {
             control_bindings: BTreeMap::new(),
             boxes: Vec::new(),
             dirty: true,
+            scheme: (None, false),
             surfaces: Default::default(),
             module: None,
             painted: false,
@@ -661,18 +666,12 @@ impl<D: DataSource> Presenter<D> {
                 }
                 "deliveryActivate" => self.pending_update = true,
                 // The app's chosen appearance is what a `light-dark()` colour
-                // resolves to here (LLP 1034 D2). `system` is no override,
-                // and this host has no system to follow, so it draws light.
-                "setScheme" => {
-                    let dark =
-                        matches!(c.args.first(), Some(exact_plan::Value::Str(s)) if &**s == "dark");
-                    self.dirty |= self.brush.dark != dark;
-                    self.host.set_scheme(dark);
-                    self.brush.dark = dark;
-                    if let Some(error) = self.host.content_region_appearance(self.brush.dark) {
-                        self.host.log(error);
-                    }
-                }
+                // resolves to here (LLP 1034 D2); `system` is no override.
+                "setScheme" => self.app_scheme(match c.args.first() {
+                    Some(exact_plan::Value::Str(s)) if &**s == "dark" => Some(true),
+                    Some(exact_plan::Value::Str(s)) if &**s == "light" => Some(false),
+                    _ => None,
+                }),
                 "copyText" => eprintln!("exact: copyText unsupported on the headless/DRM host"),
                 // `blur()` drops the focus; `blur(id)` only when that node holds it.
                 "blur" => {
@@ -868,17 +867,6 @@ impl<D: DataSource> Presenter<D> {
             self.pointer = pointer;
             self.dirty = true;
         }
-    }
-
-    /// The date, as the clock `now()` reads: Unix ms at clock zero (the
-    /// runner's clock starts at boot) and the local zone's offset, in
-    /// minutes east of UTC, as Apple and the web read theirs (LLP 1054 R12).
-    pub fn set_time(&mut self, epoch_at_zero: f64, utc_offset: f64) -> Option<String> {
-        let error = self.host.set_time(epoch_at_zero, utc_offset);
-        if error.is_some() {
-            return error;
-        }
-        self.after_commit()
     }
 
     /// The viewport changed.

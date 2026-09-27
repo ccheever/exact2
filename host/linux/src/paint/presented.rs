@@ -61,11 +61,15 @@ impl Presented {
     }
 
     /// The box `(x, y, w, h)` painted through its presentation: CSS's
-    /// individual transforms about its center, then outermost the layout
+    /// individual transforms about `origin`, then outermost the layout
     /// transition's offset and scale from its top-left corner, as a web FLIP
     /// places it (LLP 1063).
-    pub(super) fn transform(&self, (x, y, w, h): (f32, f32, f32, f32)) -> Transform {
-        let (cx, cy) = (x + w / 2.0, y + h / 2.0);
+    pub(super) fn transform(
+        &self,
+        (x, y, _, _): (f32, f32, f32, f32),
+        (ox, oy): (f32, f32),
+    ) -> Transform {
+        let (cx, cy) = (x + ox, y + oy);
         let [dx, dy, sx, sy] = self.layout;
         Transform::from_translate(x + dx, y + dy)
             .pre_scale(sx, sy)
@@ -143,7 +147,7 @@ mod tests {
     fn a_layout_box_is_placed_from_its_top_left_outside_the_authored_transforms() {
         let map = |p: &Presented, x: f32, y: f32| {
             let mut point = [Point::from_xy(x, y)];
-            p.transform((10.0, 20.0, 100.0, 40.0))
+            p.transform((10.0, 20.0, 100.0, 40.0), (50.0, 20.0))
                 .map_points(&mut point);
             (point[0].x, point[0].y)
         };

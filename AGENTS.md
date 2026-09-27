@@ -62,7 +62,7 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
 - Verify by running, never by grepping. Fix loops get three rounds, then stop and say so.
 - To see a change work, drive the app: `bun scripts/agent.mjs <web|macos|ios|linux> tree
   "tap change-station" "type station-search Palo" "clock +60000" state logs "screenshot
-  out.png"` — the eight operations of LLP 1012, the same on every host, with the clock
+  out.png"` — the nine operations of LLP 1012, the same on every host, with the clock
   in your hands (`clock settle` instead of waiting). `bun scripts/smoke.mjs
   <web|macos|ios|linux|host>` is the whole app driven that way. The Linux host
   (`cargo build --release -p caltrain-linux`) runs headless anywhere, macOS included.

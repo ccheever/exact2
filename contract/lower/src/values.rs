@@ -43,6 +43,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadShapeOutside { .. } => "expected none, circle(), ellipse(), inset() with one round radius, or polygon() with at most 64 vertices; lengths are points/px or percentages".into(),
         StyleValueError::BadClipPath { .. } => "expected none or path() with explicit absolute M/L/Q/C/Z commands and separated finite coordinates".into(),
         StyleValueError::BadAspectRatio { .. } => "expected auto, a ratio (`16 / 9`, or a number), or both (`auto 4 / 3`); numbers are nonnegative".into(),
+        StyleValueError::BadTransformOrigin { .. } => "expected one or two of left, center, right, top, bottom, a px length or a percentage (`left top`, `50% 100%`), then an optional z length".into(),
         StyleValueError::BadBackgroundImage { .. } => "expected none, linear-gradient(…) or radial-gradient(…)".into(),
         StyleValueError::BadTransition { .. } => "not a CSS `transition` shorthand".into(),
         StyleValueError::BadAnimation { .. } => "not a CSS `animation` shorthand".into(),

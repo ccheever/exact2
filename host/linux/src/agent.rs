@@ -203,12 +203,56 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             p.type_text(id, &text).unwrap_or_else(|e| error(&e))
         }
         Some("clock") => clock(p, line),
+        Some("prefer") => prefer(p, line),
         Some("screenshot") => match field_str(line, "path") {
             Some(path) => p.screenshot(&path).unwrap_or_else(|e| error(&e)),
             None => error("screenshot needs a path"),
         },
         _ => p.host().agent(line),
     }
+}
+
+/// `prefer` (LLP 1061 D5): the user's display preferences by CSS's media
+/// feature names — reduced motion and transparency as `exactViewport()`
+/// answers them, and the system appearance `setScheme("system")` follows.
+/// A feature not named stays as it is; nothing applies unless all are known.
+fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
+    let request: serde_json::Value = serde_json::from_str(line).unwrap_or_default();
+    let Some(media) = request.get("media").and_then(|m| m.as_object()) else {
+        return error("prefer needs media: {\"prefers-reduced-motion\": \"reduce\", …}");
+    };
+    let mut preferences = p.host().runner().viewport().preferences;
+    let mut dark = p.scheme.1;
+    for (name, value) in media {
+        match (name.as_str(), value.as_str().unwrap_or_default()) {
+            ("prefers-reduced-motion", v @ ("reduce" | "no-preference")) => {
+                preferences.reduced_motion = v == "reduce"
+            }
+            ("prefers-reduced-transparency", v @ ("reduce" | "no-preference")) => {
+                preferences.reduced_transparency = v == "reduce"
+            }
+            ("prefers-color-scheme", v @ ("light" | "dark")) => dark = v == "dark",
+            _ => {
+                return error(&format!(
+                    "prefer: {name}: {value} is not a preference this host sets"
+                ))
+            }
+        }
+    }
+    if let Some(e) = p.set_preferences(preferences) {
+        return error(&e);
+    }
+    if media.contains_key("prefers-color-scheme") {
+        p.set_system_scheme(dark);
+    }
+    let preferences = p.host().runner().viewport().preferences;
+    let keyword = |on: bool| if on { "reduce" } else { "no-preference" };
+    serde_json::json!({"media": {
+        "prefers-reduced-motion": keyword(preferences.reduced_motion),
+        "prefers-reduced-transparency": keyword(preferences.reduced_transparency),
+        "prefers-color-scheme": if p.scheme.1 { "dark" } else { "light" },
+    }})
+    .to_string()
 }
 
 /// Actual presenter resize and CPU/GPU frame construction before replying.
@@ -566,6 +610,49 @@ mod tests {
         let logs = handle(&mut p, r#"{"op":"logs"}"#);
         assert_eq!(logs.matches("fulfil ").count(), 5, "{logs}");
         assert!(!logs.contains("dropped"), "{logs}");
+    }
+
+    /// LLP 1061 D5: `prefer` sets what `exactViewport()` answers and the
+    /// system appearance; an unknown feature is refused and nothing applies.
+    #[test]
+    fn prefer_sets_the_display_preferences_by_their_media_names() {
+        let plan = contract::compile(
+            "shape M\n  prefersReducedMotion: bool\ncomponent App\n  resource m = exactViewport() as shape M\n  view\n    text (m.prefersReducedMotion ? \"still\" : \"moving\") testId=\"t\"\n",
+        )
+        .unwrap();
+        let bytes = contract::bake(plan, NoData).unwrap().encode();
+        let (mut p, _) = Presenter::boot_with(
+            &bytes,
+            NoData,
+            (300.0, 300.0),
+            1.0,
+            std::path::PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        let text = |p: &mut Presenter<NoData>| handle(p, r#"{"op":"tree"}"#);
+        assert!(text(&mut p).contains("moving"));
+        let refused = handle(
+            &mut p,
+            r#"{"op":"prefer","media":{"prefers-reduced-motion":"reduce","prefers-contrast":"more"}}"#,
+        );
+        assert!(refused.contains("\"error\""), "{refused}");
+        assert!(text(&mut p).contains("moving"), "nothing applied");
+        let reply: serde_json::Value = serde_json::from_str(&handle(
+            &mut p,
+            r#"{"op":"prefer","media":{"prefers-reduced-motion":"reduce","prefers-color-scheme":"dark"}}"#,
+        ))
+        .unwrap();
+        assert_eq!(reply["media"]["prefers-reduced-motion"], "reduce");
+        assert_eq!(
+            reply["media"]["prefers-reduced-transparency"],
+            "no-preference"
+        );
+        assert_eq!(reply["media"]["prefers-color-scheme"], "dark");
+        assert!(text(&mut p).contains("still"));
+        assert!(p.dark(), "no app override: the system's dark");
+        p.app_scheme(Some(false));
+        assert!(!p.dark(), "the app's own choice wins");
     }
 
     #[test]

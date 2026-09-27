@@ -764,6 +764,22 @@ impl<D: DataSource> Host<D> {
         }
     }
 
+    /// The display preferences (LLP 1061 D5): re-answer `exactViewport()`
+    /// in one commit.
+    pub fn set_preferences(&mut self, preferences: exact_runner::Preferences) -> Option<String> {
+        match self.runner.set_preferences(preferences) {
+            Ok(Some(receipt)) => self.commit(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => None,
+            Err(e) => Some(format!("preferences: {e:?}")),
+        }
+    }
+
     /// Seek presentation. Returns whether the registered Height changed layout;
     /// paint-only properties never trigger layout or text measurement.
     pub fn tick(&mut self, now_ms: f64) -> bool {

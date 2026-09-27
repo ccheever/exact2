@@ -628,6 +628,26 @@ impl Engine {
         self.running.is_empty() && self.animating.is_empty()
     }
 
+    /// Whether anything moving changes where or how big something is —
+    /// `translate`, `scale`, `rotate`, `height`, layout, a stroke's trim —
+    /// which a panel's full rate keeps from juddering (LLP 1061 D4). A fade
+    /// or a colour change reads the same at 60 Hz, so a slow breathing
+    /// opacity need not hold a 120 Hz display at 120 Hz.
+    pub fn spatial(&self) -> bool {
+        let spatial = |p: Property| p != Property::Opacity && !Property::PAINT.contains(&p);
+        self.running.iter().any(|&(_, p)| spatial(p))
+            || self
+                .animating
+                .iter()
+                .flat_map(|node| &self.animations[node])
+                .filter(|p| p.live(self.now))
+                .any(|p| {
+                    Property::ALL
+                        .into_iter()
+                        .any(|q| spatial(q) && p.animation.keyframes.affects(q))
+                })
+    }
+
     /// The clock time at which the last running transition or finite
     /// animation ends, or `None` when there is none. An agent advances here
     /// instead of waiting. An `infinite` animation never ends and is not

@@ -38,7 +38,7 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
     let unset = (0.0, 0.0, 0.0, ColorValue::Fixed(Color::TRANSPARENT), 0.0);
     // @ref LLP 1061 D3 — a press eases `transform`, which no row writes, so it
     // joins the node's own transitions instead of replacing them; the page's
-    // `:active` rule reads `--exact-press`.
+    // `[data-pressed]` rule reads `--exact-press`.
     let press = style.mask.has(StyleId::PressScale) && style.press_scale != 1.0;
     let mut press_pending = press;
     for id in style.mask.iter() {
@@ -330,6 +330,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         RowValue::ClipPath(p) => out.push_str(&p.css()),
         RowValue::ShapeOutside(p) => out.push_str(&p.css()),
         RowValue::AspectRatio(r) => out.push_str(&r.css()),
+        RowValue::TransformOrigin(o) => out.push_str(&o.css()),
         // The kernel's canonical CSS: explicit stops, `#rrggbbaa` colours and
         // `light-dark()` pairs the browser resolves per element (LLP 1034
         // D2); the browser mixes premultiplied, as CSS says (LLP 1056).
@@ -779,7 +780,8 @@ mod declaration_tests {
     }
 
     /// LLP 1053: `aspect-ratio` as authored (never a rounded float),
-    /// `direction`, and the `flex-grow` longhand reach the page as CSS.
+    /// `direction`, the `flex-grow` longhand and `transform-origin` reach
+    /// the page as CSS.
     #[test]
     fn layout_rows_keep_their_css() {
         let t = |s: &str| StyleValue::Text(s.into());
@@ -801,6 +803,19 @@ mod declaration_tests {
                 "aspect-ratio:auto;",
             ),
             (vec![(StyleId::Direction, t("rtl"))], "direction:rtl;"),
+            // LLP 1061 D6: canonical, each axis a percentage or px.
+            (
+                vec![(StyleId::TransformOrigin, t("top left"))],
+                "transform-origin:0% 0%;",
+            ),
+            (
+                vec![(StyleId::TransformOrigin, StyleValue::Percent(25.0))],
+                "transform-origin:25% 50%;",
+            ),
+            (
+                vec![(StyleId::TransformOrigin, t("right 4px 0"))],
+                "transform-origin:100% 4px;",
+            ),
             (
                 vec![(StyleId::FlexGrow, StyleValue::Number(1.0))],
                 "flex-grow:1;",
@@ -836,7 +851,7 @@ mod declaration_tests {
         );
     }
 
-    /// LLP 1061 D3: a press scale is `--exact-press` for the page's `:active`
+    /// LLP 1061 D3: a press scale is `--exact-press` for the page's pressed
     /// rule, plus a `transform` entry appended to the node's own transitions
     /// — never replacing them, and last so it wins over `all`. 1 is none.
     #[test]
