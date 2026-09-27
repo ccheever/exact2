@@ -1,4 +1,5 @@
-//! Primary pan + authored zoom controls; no pinch or wheel-zoom inference.
+//! Primary pan + authored zoom controls; no pinch or wheel-zoom inference:
+//! Linux declares pinch absent (LLP 1057.001 §4; evdev tracks no multitouch).
 use super::contact::{Candidate, HeldKind, Hold};
 use super::*;
 use exact_kernel::{NodeKey, TransformDragBinding};
