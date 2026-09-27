@@ -2,6 +2,20 @@
 import UIKit
 import QuartzCore
 
+/// The photo handle's one contact (LLP 1057.001 §4): the binding's pan, now up
+/// to two fingers, and a `UIPinchGestureRecognizer`, simultaneous with it —
+/// the one built-in simultaneity (precedence rule 6). Both feed the same paired
+/// `TransformDragHold`. Every sample is the pair anchored at the contact's
+/// focal point; the anchor moves whenever a recognizer starts or stops or the
+/// finger count changes, which also absorbs UIKit's centroid jump.
+final class TransformContact {
+    let pinch: UIPinchGestureRecognizer
+    var panning = false, pinching = false
+    /// The pair's value, the focal point (window points) and pinch scale at the anchor.
+    var anchor: (value: TransformDragPosition, focal: CGPoint, scale: CGFloat, touches: Int)?
+    init(_ pinch: UIPinchGestureRecognizer) { self.pinch = pinch }
+}
+
 extension NodeView {
     func transformDragModel() -> TransformDragPosition? {
         TransformDragPosition(x: Double(translate.x), y: Double(translate.y), scale: Double(scale))
@@ -10,37 +24,92 @@ extension NodeView {
         guard rotate == 0, contextTransform.isIdentity else { return nil }
         // UIView applies its anchor separately; this matrix already excludes
         // the center translation unlike the AppKit layer mapping.
-        return TransformDragPosition(matrix: (layer.presentation() ?? layer).affineTransform(), center: .zero)
+        // The render tree's copy only while Core Animation runs a curve on it.
+        let source = layer.animationKeys()?.isEmpty == false ? layer.presentation() ?? layer : layer
+        return TransformDragPosition(matrix: source.affineTransform(), center: .zero)
     }
     func updateTransformDragGesture() {
         if presenter?.transformBindings[id]?.target != nil, transformRecognizer == nil {
             let pan = UIPanGestureRecognizer(target: self, action: #selector(transformDragging(_:)))
-            pan.maximumNumberOfTouches = 1; pan.delegate = self
-            addGestureRecognizer(pan); transformRecognizer = pan
+            pan.maximumNumberOfTouches = 2; pan.delegate = self
+            let pinch = UIPinchGestureRecognizer(target: self, action: #selector(transformDragging(_:)))
+            pinch.delegate = self
+            addGestureRecognizer(pan); addGestureRecognizer(pinch)
+            transformRecognizer = pan; transformContact = TransformContact(pinch)
         } else if presenter?.transformBindings[id]?.target == nil, let pan = transformRecognizer {
             let previous = transformHold; transformHold = nil
             DispatchQueue.main.async { previous?.cancel() }
             removeGestureRecognizer(pan); transformRecognizer = nil
+            if let pinch = transformContact?.pinch { removeGestureRecognizer(pinch) }
+            transformContact = nil
         }
     }
-    @objc func transformDragging(_ pan: UIPanGestureRecognizer) {
-        let point = pan.translation(in: window), time = CACurrentMediaTime()
-        switch pan.state {
+    /// The binding's recognizers: eligible handles only, and the pinch only
+    /// where the platform would not zoom — a node from here up whose
+    /// `touch-action` excludes `pinch-zoom`, as the browser decides (§2).
+    func transformShouldBegin(_ gesture: UIGestureRecognizer) -> Bool? {
+        guard gesture === transformRecognizer || gesture === transformContact?.pinch else { return nil }
+        guard SwipeInput.allows(self), presenter?.transformBindings[id]?.target != nil else { return false }
+        return gesture === transformRecognizer || !allowsPinchZoom
+    }
+    var allowsPinchZoom: Bool {
+        var view: UIView? = self
+        while let current = view {
+            if let node = current as? NodeView {
+                let action = node.style["touch_action"]?.string ?? "auto"
+                if !(action == "auto" || action == "manipulation" || action.hasSuffix("pinch-zoom")) { return false }
+            }
+            view = current.superview
+        }
+        return true
+    }
+    func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        let pair: [UIGestureRecognizer?] = [transformRecognizer, transformContact?.pinch]
+        return pair.contains { $0 === gesture } && pair.contains { $0 === other }
+    }
+    /// The clip's centre in window points: the origin of the focal arithmetic.
+    private var transformCenter: CGPoint? {
+        guard let clipID = presenter?.transformBindings[id]?.clip, let clip = presenter?.views[clipID], let window else { return nil }
+        return clip.convert(CGPoint(x: clip.bounds.midX, y: clip.bounds.midY), to: window)
+    }
+    @objc func transformDragging(_ gesture: UIGestureRecognizer) {
+        guard let contact = transformContact, let pan = transformRecognizer else { return }
+        let time = CACurrentMediaTime(), isPan = gesture === pan
+        func focal() -> CGPoint { (contact.panning ? pan : contact.pinch).location(in: window) }
+        func anchor(_ from: CGPoint? = nil) {
+            guard let hold = transformHold, let value = TransformDragPosition(hold.current) else { return }
+            contact.anchor = (value, from ?? focal(), contact.pinch.scale, gesture.numberOfTouches)
+        }
+        func current() -> [Double]? {
+            guard let anchor = contact.anchor, let center = transformCenter else { return nil }
+            let from = anchor.focal, to = focal()
+            let factor = contact.pinching ? Double(contact.pinch.scale / anchor.scale) : 1
+            return anchor.value.focused(from: CGPoint(x: from.x - center.x, y: from.y - center.y),
+                                        to: CGPoint(x: to.x - center.x, y: to.y - center.y), factor: factor)?.values
+        }
+        switch gesture.state {
         case .began:
-            // UIKit measures translation from touch-down. Preserve the movement
-            // that recognized this pan: a coalesced drag can deliver began/end
-            // at the same nonzero translation, without any changed callback.
-            transformHold?.cancel(); transformOrigin = .zero
-            transformHold = TransformDragHold(self, time: time)
+            if transformHold == nil { transformHold = TransformDragHold(self, time: time) }
+            guard transformHold != nil else { return }
+            if isPan { contact.panning = true } else { contact.pinching = true }
+            // UIKit measures a pan from touch-down: keep the movement that
+            // recognized it (a coalesced drag may begin and end at once).
+            let point = focal(), t = pan.translation(in: window)
+            anchor(isPan && !contact.pinching ? CGPoint(x: point.x - t.x, y: point.y - t.y) : nil)
+            if let values = current(), transformHold?.move(to: values, time: time) != true { transformHold?.cancel(); transformHold = nil }
         case .changed:
             guard let hold = transformHold else { return }
-            if !hold.move(dx: Double(point.x - transformOrigin.x), dy: Double(point.y - transformOrigin.y), time: time) {
-                hold.cancel(); transformHold = nil
+            if contact.anchor?.touches != gesture.numberOfTouches, isPan || !contact.panning { anchor() }
+            guard let values = current(), hold.move(to: values, time: time) else {
+                hold.cancel(); transformHold = nil; contact.panning = false; contact.pinching = false; return
             }
         case .ended, .cancelled, .failed:
-            let previous = transformHold; transformHold = nil
-            previous?.finish(dx: Double(point.x - transformOrigin.x), dy: Double(point.y - transformOrigin.y),
-                time: time, cancel: pan.state != .ended)
+            if isPan { contact.panning = false } else { contact.pinching = false }
+            guard let hold = transformHold else { return }
+            if contact.panning || contact.pinching { anchor(); return }
+            // The last of the pair ends: one release while both tokens are live.
+            transformHold = nil
+            hold.finish(to: hold.current, time: time, cancel: gesture.state != .ended)
         default: break
         }
     }

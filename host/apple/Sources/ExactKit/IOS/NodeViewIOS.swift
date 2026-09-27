@@ -150,7 +150,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var reorderHold: ReorderHold?, reorderOrigin = CGPoint.zero
     var transformRecognizer: UIPanGestureRecognizer?
     var transformHold: TransformDragHold?
-    var transformOrigin = CGPoint.zero
+    var transformContact: TransformContact?
     var swipeOrigin = 0.0
     lazy var swipeFeedback = UISelectionFeedbackGenerator()
     func allowsTouchPan(_ velocity: CGPoint) -> Bool {
@@ -179,9 +179,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     override func gestureRecognizerShouldBegin(_ gesture: UIGestureRecognizer) -> Bool {
         if gesture === layoutPanRecognizer { return SwipeInput.allows(self) }
         if let reorder = reorderShouldBegin(gesture) { return reorder }
-        if gesture === transformRecognizer {
-            return SwipeInput.allows(self) && presenter?.transformBindings[id]?.target != nil
-        }
+        if let transform = transformShouldBegin(gesture) { return transform }
         if gesture === heightRecognizer, let pan = gesture as? UIPanGestureRecognizer {
             let velocity = pan.velocity(in: window), translation = pan.translation(in: window)
             return SwipeInput.allows(self) && HeightDragDirection.accepts(
@@ -225,7 +223,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         var hit = touch.view
         while let current = hit, current !== self {
             if current is UITextView || current is UITextField { return false }
-            if (gestureRecognizer === heightRecognizer || gestureRecognizer === transformRecognizer), current is UIScrollView { return false }
+            if (gestureRecognizer === heightRecognizer || gestureRecognizer === transformRecognizer || gestureRecognizer === transformContact?.pinch), current is UIScrollView { return false }
             hit = current.superview
         }
         return true

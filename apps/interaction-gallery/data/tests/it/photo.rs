@@ -414,7 +414,10 @@ fn a_pinch_release_adopts_its_scale_within_fit_and_four_times() {
     let fit = (800f64 / 1448.).min(400. / 1086.);
     let bound = |side: f64, port: f64, zoom: f64| ((side * fit * zoom - port) / 2.).max(0.);
     release(&mut r, 9999., -9999., 3.);
-    close_to(targets(&r), [bound(1448., 800., 3.), -bound(1086., 400., 3.), 3.]);
+    close_to(
+        targets(&r),
+        [bound(1448., 800., 3.), -bound(1086., 400., 3.), 3.],
+    );
     release(&mut r, 0., 0., 9.);
     close_to(targets(&r), [0., 0., 4.]);
     release(&mut r, 9999., 9999., 0.5);

@@ -1059,7 +1059,7 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
       // takes, so a driver must never be told it sent a gesture when it did
       // not (LLP 0382 — fail closed, loudly).
       if (opts.gesture && !(host === 'macos' || host === 'mac')) throw new Error(`${host} cannot phase a wheel; \`gesture\` is the AppKit carrier's`);
-      if ((opts.contextmenu || opts.dblclick) && !['web', 'ios', 'macos', 'mac'].includes(host)) throw new Error(`${host} does not carry contextmenu/dblclick input`);
+      if ((opts.contextmenu || opts.dblclick) && !['web', 'ios', ...(opts.dblclick ? ['macos', 'mac'] : [])].includes(host)) throw new Error(`${host} does not carry contextmenu/dblclick input`);
       if (opts.pinch !== undefined && !(opts.pinch > 0 && Number.isFinite(opts.pinch))) throw new Error('pinch: expected a positive finite scale');
       if (opts.pinch !== undefined && !['web', 'ios', 'macos', 'mac'].includes(host)) return s.tagged({ tapped: node.id, target, pinch: opts.pinch, delivery: 'unsupported', reason: `${host} has no pinch (LLP 1057.001 §4)`, carrier: host, mode: timing });
       const kind = opts.history !== undefined ? 'history' : opts.pinch !== undefined ? 'pinch' : opts.down ? 'down' : opts.wheel ? 'wheel' : opts.hover ? 'hover' : opts.contextmenu ? 'contextmenu' : opts.dblclick ? 'dblclick' : 'press';

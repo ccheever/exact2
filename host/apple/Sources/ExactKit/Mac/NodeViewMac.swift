@@ -1454,7 +1454,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if canvasInput?.pointer(event, phase: "up") != true { super.otherMouseUp(with: event) }
     }
     override func scrollWheel(with event: NSEvent) {
-        if canvasInput?.wheel(event) != true { super.scrollWheel(with: event) }
+        if canvasInput?.wheel(event) != true, presenter?.mouseTransformDrag.scroll(self, event: event) != true { super.scrollWheel(with: event) }
+    }
+    override func magnify(with event: NSEvent) {
+        if presenter?.mouseTransformDrag.magnify(self, event: event) != true { super.magnify(with: event) }
     }
     func controlTextDidChange(_ obj: Notification) {
         if let editor = field?.currentEditor() as? NSTextView, !editor.hasMarkedText(), let held = pendingValue { writeValue(held, into: editor) }

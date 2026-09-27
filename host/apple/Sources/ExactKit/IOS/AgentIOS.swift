@@ -470,6 +470,18 @@ extension Agent {
             }
             return ["error": "no \(event) handler at view \(v.id)"]
         }
+        if let scale = req["pinch"] as? Double {
+            // UIKit synthesizes no pinch: the recognized scale (LLP 1057.001 §5).
+            var next: UIView? = v
+            while let view = next, !((view as? NodeView).map { presenter.transformBindings[$0.id]?.target != nil } ?? false) { next = view.superview }
+            guard let handle = next as? NodeView, let clipID = presenter.transformBindings[handle.id]?.clip, let clip = presenter.views[clipID] else {
+                return ["error": "no photo binding (transformDragFor) at view \(v.id)"]
+            }
+            let offset = (req["at"] as? [Double]).map { CGPoint(x: $0[0], y: $0[1]) } ?? CGPoint(x: handle.bounds.midX, y: handle.bounds.midY)
+            let point = handle.convert(offset, to: clip)
+            if let error = TransformDragHold.recognizedPinch(handle, scale: scale, focal: CGPoint(x: point.x - clip.bounds.midX, y: point.y - clip.bounds.midY)) { return ["error": error] }
+            return ["tapped": Int(handle.id), "pinch": scale, "at": at, "delivery": "recognized"]
+        }
         if req["hover"] as? Bool == true {
             // The pointer onto the target: the node with a hover handler at
             // the hit point enters, whatever was hovered leaves (UIKit

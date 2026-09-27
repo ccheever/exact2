@@ -143,3 +143,24 @@ final class TransformDragHold {
     }
     func cancel() { finish(to: current, time: time, cancel: true) }
 }
+
+extension TransformDragHold {
+    /// The agent's `tap … pinch <scale>` where the platform offers no pinch to
+    /// synthesize (LLP 1057.001 §5): the recognized scale, about `focal` (from
+    /// the clip's centre, translate space), through the same paired hold and
+    /// its one release as a finger's. Delivery `recognized`; nil when refused.
+    static func recognizedPinch(_ handle: NodeView, scale: Double, focal: CGPoint) -> String? {
+        guard scale.isFinite, scale > 0 else { return "pinch: expected a positive finite scale" }
+        let start = ProcessInfo.processInfo.systemUptime
+        guard let hold = TransformDragHold(handle, time: start), let origin = TransformDragPosition(hold.current) else {
+            return "the photo binding on view \(handle.id) refused to begin (geometry not current, or disabled)"
+        }
+        for step in 1...8 {
+            let factor = 1 + (scale - 1) * Double(step) / 8
+            guard let values = origin.focused(from: focal, to: focal, factor: factor)?.values,
+                  hold.move(to: values, time: start + Double(step) / 60) else { hold.cancel(); return "the pinch was cancelled" }
+        }
+        hold.finish(to: hold.current, time: start + 9 / 60, cancel: false)
+        return nil
+    }
+}

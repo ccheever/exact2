@@ -174,7 +174,8 @@ feedback, never physical admission. `Event::TransformRelease { x, y, scale,
 vx, vy, vscale }` contains parent-space unscaled translation in
 `[-f32::MAX, f32::MAX]`, positive finite scale whose f32 conversion stays
 positive/finite, and finite signed velocities (pixels/sec, scale-units/sec).
-Primary pan supplies zero scale velocity. The two `transform_*_payload` helpers
+Scale velocity is the engine's measured estimate (LLP 1057.001 §3), nonzero
+after a pinch (§4). The two `transform_*_payload` helpers
 parse exact comma tuples; typed dispatch repeats validation before action.
 Contract requires four/six trailing number parameters, including after inlining.
 Generic synthesized events do not prove token, geometry or incarnation liveness.

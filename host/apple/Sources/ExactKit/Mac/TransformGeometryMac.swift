@@ -7,7 +7,10 @@ extension NodeView {
     }
     func transformDragPresentation() -> TransformDragPosition? {
         guard rotate == 0, let layer else { return nil }
-        let matrix = (layer.presentation() ?? layer).affineTransform()
+        // The render tree's copy only while Core Animation runs a curve on it;
+        // otherwise it may not have caught up with the last presented frame
+        // (a pinch caught right after another read the one before).
+        let matrix = (layer.animationKeys()?.isEmpty == false ? layer.presentation() ?? layer : layer).affineTransform()
         return TransformDragPosition(matrix: matrix, center: CGPoint(x: bounds.midX, y: bounds.midY))
     }
 }
