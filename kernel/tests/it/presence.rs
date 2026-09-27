@@ -374,7 +374,11 @@ fn shared_layout_observation_seeds_snaps_hides_and_retires() {
         [0.0, -25.0, 1.0, 0.55]
     );
     k.compute_layout(1, Offer::definite(800.0, 600.0)).unwrap();
-    layout.observe_all(&k, &mut engine, true);
+    assert_eq!(
+        layout.observe_all(&k, &mut engine, true),
+        vec![key],
+        "a resize resets the host's presentation in the same frame"
+    );
     assert!(!engine.is_active(node, Property::Layout), "resize snaps");
     let receipt = k
         .apply(0, 4, &[rows(1, &[(StyleId::Display, "none")])])

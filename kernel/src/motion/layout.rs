@@ -82,8 +82,8 @@ impl LayoutMotion {
                 continue;
             };
             self.tracked.insert(key);
-            if snap {
-                engine.remove_property(node, Property::Layout);
+            if snap && engine.remove_property(node, Property::Layout) {
+                retired.push(key);
             }
             observe_box(engine, key, value);
         }

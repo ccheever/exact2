@@ -132,6 +132,35 @@ fn a_resize_takes_new_places_without_sliding() {
     );
 }
 
+#[test]
+fn a_resize_retires_running_layout_in_its_own_batch() {
+    for width in ["100", "\"100%\""] {
+        let mut host = boot_source(&format!(
+            "component App\n  state moved = false\n  action move writes moved\n    moved = not moved\n  view\n    column\n      button \"Move\" press=move testId=\"move\"\n      view height=(moved ? 80 : 20)\n      view testId=\"box\" width={width} height=(moved ? 100 : 50) layout-transition=\"1s linear\"\n"
+        ));
+        let box_id = view(&host, "box").unwrap();
+        let move_id = view(&host, "move").unwrap();
+        host.dispatch_at(move_id, Event::Press, 0.0);
+        let mid = layout(&host.tick(500.0), box_id).unwrap();
+        assert_ne!(mid[1], 0.0);
+        assert_ne!(mid[3], 1.0);
+        let before = host.runner().kernel().node(box_id).unwrap().frame;
+        let resized = host.resize(300.0, 700.0);
+        let after = host.runner().kernel().node(box_id).unwrap().frame;
+        assert_eq!(before == after, width == "100");
+        assert_eq!(
+            layout(&resized, box_id),
+            Some([0.0, 0.0, 1.0, 1.0]),
+            "width={width}: the resize itself resets the presentation: {resized}"
+        );
+        assert!(resized.contains("\"motion\":false"), "{resized}");
+        let next = host.tick(600.0);
+        assert!(layout(&next, box_id).is_none_or(|v| v == [0.0, 0.0, 1.0, 1.0]));
+        let moved = host.dispatch_at(move_id, Event::Press, 600.0);
+        assert_ne!(layout(&moved, box_id).unwrap(), [0.0, 0.0, 1.0, 1.0]);
+    }
+}
+
 /// The last `present` of `layout` for `id`: offset and scale, `[dx, dy, sx, sy]`.
 fn layout(batch: &str, id: u32) -> Option<[f64; 4]> {
     let marker = format!("\"op\":\"present\",\"id\":{id},\"property\":\"layout\",");

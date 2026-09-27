@@ -87,6 +87,36 @@ fn a_growing_box_starts_from_its_old_size_and_a_gained_row_animates_its_first_mo
     assert_eq!(h.presented(card).layout, [0.0, 0.0, 1.0, 1.0]);
 }
 
+#[test]
+fn a_resize_retires_running_layout_before_the_next_tick() {
+    for width in ["100", "\"100%\""] {
+        let mut h = boot(&format!(
+            "component App\n  state moved = false\n  action move writes moved\n    moved = not moved\n  view\n    column\n      button \"Move\" press=move testId=\"move\"\n      view height=(moved ? 80 : 20)\n      view testId=\"box\" width={width} height=(moved ? 100 : 50) layout-transition=\"1s linear\"\n"
+        ));
+        let box_id = view(&h, "box");
+        let move_id = view(&h, "move");
+        h.dispatch_at(move_id, Event::Press, 0.0);
+        h.tick(500.0);
+        let mid = h.presented(box_id).layout;
+        assert_ne!(mid[1], 0.0);
+        assert_ne!(mid[3], 1.0);
+        let before = h.kernel().node(box_id).unwrap().frame;
+        assert!(h.resize(300.0, 700.0).is_none());
+        let after = h.kernel().node(box_id).unwrap().frame;
+        assert_eq!(before == after, width == "100");
+        assert_eq!(
+            h.presented(box_id).layout,
+            [0.0, 0.0, 1.0, 1.0],
+            "width={width}: the resize itself resets the presentation"
+        );
+        assert!(!h.motion());
+        h.tick(600.0);
+        assert_eq!(h.presented(box_id).layout, [0.0, 0.0, 1.0, 1.0]);
+        h.dispatch_at(move_id, Event::Press, 600.0);
+        assert_ne!(h.presented(box_id).layout, [0.0, 0.0, 1.0, 1.0]);
+    }
+}
+
 /// Whether the pixel at `(x, y)` is mostly `channel` (0 red, 1 green, 2 blue).
 fn is(frame: &tiny_skia::Pixmap, x: f32, y: f32, channel: usize) -> bool {
     let c = frame.pixel(x as u32, y as u32).unwrap().demultiply();

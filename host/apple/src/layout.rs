@@ -167,9 +167,11 @@ impl<D: DataSource> Host<D> {
                 }
             }
             // @ref LLP 1063 — a moved box plays from where it was.
-            self.observe_layout(key, batch);
+            if !self.presence.snap {
+                self.observe_layout(key, batch);
+            }
         }
-        self.presence.snap = false;
+        self.snap_layout(batch);
         // Layout/receipt work may change the live window. Motion-only ticks and
         // stale feedback never traverse the tree to collect this metadata.
         let collections = if self.native_mode() {

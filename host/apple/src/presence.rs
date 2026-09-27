@@ -164,13 +164,23 @@ impl<D: DataSource> Host<D> {
     /// Observe changed boxes after layout; shared policy also observes the
     /// row placed through a moving windowed wrapper.
     pub(super) fn observe_layout(&mut self, key: NodeKey, batch: &mut Batch) {
-        let retired = self.presence.layout.observe(
-            self.runner.kernel(),
-            key,
-            &mut self.engine,
-            self.presence.snap,
-        );
+        let retired =
+            self.presence
+                .layout
+                .observe(self.runner.kernel(), key, &mut self.engine, false);
         self.retire_layout(retired, batch);
+    }
+
+    /// A resize retires every move, even when its target box did not change.
+    /// Send the resets in the resize's batch without waiting for a tick.
+    pub(super) fn snap_layout(&mut self, batch: &mut Batch) {
+        if std::mem::take(&mut self.presence.snap) {
+            let retired =
+                self.presence
+                    .layout
+                    .observe_all(self.runner.kernel(), &mut self.engine, true);
+            self.retire_layout(retired, batch);
+        }
     }
 
     fn retire_layout(&self, retired: Vec<NodeKey>, batch: &mut Batch) {
