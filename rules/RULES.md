@@ -45,8 +45,7 @@ Tracked every commit. A regression is a P0 with a name on it.
 ## Scope
 
 - **`rules/DEFERRED.md` is binding.** Moving something onto the doing-list means writing why
-  (the consumer it unblocks) and naming a take, or Charlie waiving the take in writing
-  (Charlie, 2026-09-27). An addition with neither is not admitted. **[review]**
+  and taking something off, or Charlie's waiver. **[review]**
 - **Delete; don't deprecate.** No compat shims, no migration paths, no legacy branches
   before 1.0. **[review]**
 - **Web is the standard and the dev loop; native is swept.** One Contract source targets
