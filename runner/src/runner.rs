@@ -19,7 +19,7 @@ mod checkpoint;
 mod collection;
 mod source;
 pub use source::{
-    Announce, DataError, DataSource, InFlight, Interrupt, Native, NativeHandler, Target,
+    Announce, DataError, DataSource, InFlight, Interrupt, Native, NativeCall, NativeHandler, Target,
 };
 mod delivery;
 mod kept;

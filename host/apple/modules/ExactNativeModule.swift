@@ -11,15 +11,19 @@
 //                 WaveformView(recorder: recorder, events: events) }]
 //         }
 //         override func later(_ request: [String: Any], reply: ExactReply) { … }
+//         override func call(_ request: [String: Any]) throws -> [String: Any] { … }
 //     }
 //     let exactModule: ExactModule.Type = Recorder.self
 //
 // The host makes one instance per session, at the first view or long call
 // that needs it, and destroys it with the session, after its views. Its
 // views receive it, so a view and a function share one object. Every entry
-// (init, the views' create, props and destroy, `later`, `destroy`) is on the
-// main thread (LLP 1067.000 Q5); long work goes on the module's own queues,
-// and a reply may be sent from any thread, once. `views` is the roster, read
+// (init, the views' create, props and destroy, `later`, `call`, `destroy`) is
+// on the main thread (LLP 1067.000 D4); long work goes on the module's own
+// queues, and a reply may be sent from any thread, once. `call` answers inside
+// the TypeScript answer that asked, within its 100 ms budget, and holds the
+// main thread while it runs: keep it to cheap queries. The web has no
+// synchronous call, so a portable source falls back to `native.later`. `views` is the roster, read
 // once per process. Each view instance subclasses `ExactNativeInstance`.
 import Foundation
 #if os(macOS)
@@ -116,6 +120,11 @@ open class ExactModule {
     /// A long call (`native.later`): start the work and return; reply once.
     open func later(_ request: [String: Any], reply: ExactReply) {
         reply.fail("\(type(of: self)) answers no native.later")
+    }
+    /// A cheap query answered now (`native.call`), on the main thread and
+    /// inside the asking answer's 100 ms budget. Throw to refuse.
+    open func call(_ request: [String: Any]) throws -> [String: Any] {
+        throw ExactNativeRefusal("\(type(of: self)) answers no native.call")
     }
     /// The session is ending; its views are already gone.
     open func destroy() {}
@@ -287,6 +296,26 @@ private let moduleLater: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer
     m.later(request, reply: reply)
 }
 
+private let moduleCall: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int, UnsafeMutableRawPointer?, ExactModuleReplyFn?) -> Void = { raw, body, length, slot, fn in
+    guard let fn else { return }
+    let answer = { (status: UInt32, text: String) in
+        let bytes = Array(text.utf8)
+        bytes.withUnsafeBufferPointer { fn(slot, status, $0.baseAddress, $0.count) }
+    }
+    guard let m = module(raw) else { return answer(500, "no module instance") }
+    let data = body.map { Data(bytes: $0, count: length) } ?? Data()
+    do {
+        guard let request = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return answer(500, "the request was not a JSON object")
+        }
+        let value = try m.call(request)
+        guard JSONSerialization.isValidJSONObject(value) else { return answer(500, "the reply was not JSON") }
+        answer(200, String(decoding: try JSONSerialization.data(withJSONObject: value), as: UTF8.self))
+    } catch {
+        answer(500, String(describing: error))
+    }
+}
+
 /// The ABI major this artifact was built against; the host refuses others.
 private let major: UInt32 = 2
 
@@ -308,6 +337,7 @@ private let table: UnsafeMutableRawPointer = {
     t.storeBytes(of: unsafeBitCast(moduleCreate, to: UnsafeRawPointer.self), toByteOffset: 72, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleDestroy, to: UnsafeRawPointer.self), toByteOffset: 80, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleLater, to: UnsafeRawPointer.self), toByteOffset: 88, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(moduleCall, to: UnsafeRawPointer.self), toByteOffset: 96, as: UnsafeRawPointer.self)
     return t
 }()
 

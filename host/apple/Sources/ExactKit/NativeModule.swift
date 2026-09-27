@@ -25,7 +25,8 @@
 //  80  module_destroy(module)
 //  88  module_later(module, body, len, reply, answer)
 //        answer(reply, status, bytes, len) once, any thread: exact_app_reply
-//  96  call                             reserved, NULL (LLP 1067.000 Q8)
+//  96  module_call(module, body, len, slot, answer)
+//        answer(slot, status, bytes, len) before returning: exact_app_answer
 //
 //   event(ctx, nonce, kind, bytes, len)          kind: EventKind 0–8 — press,
 //     change, hover, focus, blur, key, submit, load, message; change, key and
@@ -80,13 +81,14 @@ private final class NativeTable {
     let moduleCreate: ModuleCreateFn
     let moduleDestroy: ModuleDestroyFn
     let moduleLater: ModuleLaterFn
+    let moduleCall: ModuleLaterFn
 
     private init(path: String, roster: [String: [String: Any]], create: @escaping CreateFn, platformView: @escaping ViewFn,
                  setProps: @escaping SetFn, snapshot: SnapshotFn?, destroy: @escaping DestroyFn,
-                 moduleCreate: @escaping ModuleCreateFn, moduleDestroy: @escaping ModuleDestroyFn, moduleLater: @escaping ModuleLaterFn) {
+                 moduleCreate: @escaping ModuleCreateFn, moduleDestroy: @escaping ModuleDestroyFn, moduleLater: @escaping ModuleLaterFn, moduleCall: @escaping ModuleLaterFn) {
         self.path = path; self.roster = roster; self.create = create; self.platformView = platformView
         self.setProps = setProps; self.snapshot = snapshot; self.destroy = destroy
-        self.moduleCreate = moduleCreate; self.moduleDestroy = moduleDestroy; self.moduleLater = moduleLater
+        self.moduleCreate = moduleCreate; self.moduleDestroy = moduleDestroy; self.moduleLater = moduleLater; self.moduleCall = moduleCall
     }
 
     static func load(path: String) -> Result<NativeTable, NativeFailure> {
@@ -110,7 +112,8 @@ private final class NativeTable {
               let roster = try? JSONSerialization.jsonObject(with: Data(rosterText.utf8)) as? [String: [String: Any]]
         else { return .failure(NativeFailure(state: "unavailable", message: "\(path): unreadable roster")) }
         guard let create = pointer(16), let view = pointer(24), let set = pointer(32), let destroy = pointer(48),
-              let moduleCreate = pointer(72), let moduleDestroy = pointer(80), let moduleLater = pointer(88) else {
+              let moduleCreate = pointer(72), let moduleDestroy = pointer(80), let moduleLater = pointer(88),
+              let moduleCall = pointer(96) else {
             return .failure(NativeFailure(state: "unavailable", message: "\(path): the table lacks a required entry"))
         }
         return .success(NativeTable(
@@ -120,7 +123,8 @@ private final class NativeTable {
             destroy: unsafeBitCast(destroy, to: DestroyFn.self),
             moduleCreate: unsafeBitCast(moduleCreate, to: ModuleCreateFn.self),
             moduleDestroy: unsafeBitCast(moduleDestroy, to: ModuleDestroyFn.self),
-            moduleLater: unsafeBitCast(moduleLater, to: ModuleLaterFn.self)))
+            moduleLater: unsafeBitCast(moduleLater, to: ModuleLaterFn.self),
+            moduleCall: unsafeBitCast(moduleCall, to: ModuleLaterFn.self)))
     }
 }
 
@@ -181,6 +185,23 @@ private let nativeLaterCallback: ExactAppLaterFn = { ctx, body, length, reply in
         }
         natives.later(data, reply: reply)
     }
+}
+
+// A `native.call` arrives on the source's thread: inline when that is the
+// main thread (main placement), else a synchronous hop to it (worker
+// placement). The main thread never waits on a source's owner thread, so the
+// hop cannot deadlock; it costs the call a main-thread turn in its budget.
+private let nativeCallCallback: ExactAppCallFn = { ctx, body, length, slot in
+    let rt = ExactRuntime(UInt(bitPattern: ctx))
+    let data = body.map { Data(bytes: $0, count: length) } ?? Data()
+    let work = {
+        guard let natives = ExactSession.session(for: rt)?.natives else {
+            let bytes = Array("the session ended".utf8)
+            return bytes.withUnsafeBufferPointer { exact_app_answer(slot, 503, $0.baseAddress, $0.count) }
+        }
+        natives.call(data, slot: slot)
+    }
+    if Thread.isMainThread { work() } else { DispatchQueue.main.sync(execute: work) }
 }
 
 private let nativeChangedCallback: NativeTable.ChangedFn = { host, topic, length in
@@ -310,7 +331,19 @@ final class NativeViews {
         guard let session else { return }
         let path = NativeViews.modulePath(session: session)
         guard FileManager.default.fileExists(atPath: path) else { return }
-        exact_set_app_module(session.runtime.rt, nativeLaterCallback, UnsafeMutableRawPointer(bitPattern: UInt(session.runtime.rt)))
+        hasAppModule = true
+        exact_set_app_module(session.runtime.rt, nativeLaterCallback, nativeCallCallback, UnsafeMutableRawPointer(bitPattern: UInt(session.runtime.rt)))
+    }
+
+    private var hasAppModule = false
+
+    /// After first pixel, before data activates: load the artifact and make
+    /// the session's instance, so the first `native.call` pays for neither.
+    /// A first load of a freshly built dylib took 164 ms inside a call's
+    /// 100 ms budget (the sample host, 2026-09-27).
+    func prepareAppModule() {
+        guard hasAppModule, instance == nil, case .success(let table) = self.table() else { return }
+        _ = module(table)
     }
 
     /// A long call, on the main thread: the artifact loads, the instance is
@@ -330,6 +363,26 @@ final class NativeViews {
         case .success(let m):
             body.withUnsafeBytes { b in
                 table.moduleLater(m, b.bindMemory(to: UInt8.self).baseAddress, body.count, reply, { reply, status, bytes, length in exact_app_reply(reply, status, bytes, length) })
+            }
+        }
+    }
+
+    /// A `native.call`, on the main thread: answered before this returns.
+    fileprivate func call(_ body: Data, slot: UnsafeMutableRawPointer?) {
+        let refuse = { (message: String) in
+            let bytes = Array(message.utf8)
+            bytes.withUnsafeBufferPointer { exact_app_answer(slot, 503, $0.baseAddress, $0.count) }
+        }
+        let table: NativeTable
+        switch self.table() {
+        case .failure(let f): return refuse(f.message)
+        case .success(let t): table = t
+        }
+        switch module(table) {
+        case .failure(let f): refuse(f.message)
+        case .success(let m):
+            body.withUnsafeBytes { b in
+                table.moduleCall(m, b.bindMemory(to: UInt8.self).baseAddress, body.count, slot, { slot, status, bytes, length in exact_app_answer(slot, status, bytes, length) })
             }
         }
     }

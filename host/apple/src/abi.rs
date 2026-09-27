@@ -75,6 +75,7 @@ pub struct Bridge<D: DataSource> {
     /// The session's app module (LLP 1067.000 Q6): installed into each
     /// activated source's native slot, so it outlives activations.
     app_module: Option<exact_runner::NativeHandler>,
+    app_call: Option<exact_runner::NativeCall>,
     input: Vec<u8>,
     output: Vec<u8>,
 }
@@ -108,6 +109,7 @@ impl<D: DataSource> Bridge<D> {
             parked: std::collections::BTreeMap::new(),
             launch: None,
             app_module: None,
+            app_call: None,
             input: Vec::new(),
             output: Vec::new(),
         }
@@ -494,11 +496,19 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// The session's app module: `later(ctx, body, len, reply)` takes each
-    /// long native call on the executor's thread and answers it, once, with
-    /// [`crate::app_module::exact_app_reply`] (LLP 1067.000). `None` removes it.
-    pub fn set_app_module(&mut self, later: Option<crate::app_module::LaterFn>, ctx: *mut c_void) {
+    /// The session's app module (LLP 1067.000): `later(ctx, body, len,
+    /// reply)` takes each long native call on the executor's thread and
+    /// answers it once ([`crate::app_module::reply`]); `call` answers a
+    /// `native.call` before it returns ([`crate::app_module::answer`]).
+    /// `None` removes each.
+    pub fn set_app_module(
+        &mut self,
+        later: Option<crate::app_module::LaterFn>,
+        call: Option<crate::app_module::CallFn>,
+        ctx: *mut c_void,
+    ) {
         self.app_module = later.map(|later| crate::app_module::handler(later, ctx));
+        self.app_call = call.map(|call| crate::app_module::caller(call, ctx));
         self.adopt_app_module();
     }
 
@@ -512,7 +522,9 @@ impl<D: DataSource> Bridge<D> {
 
     fn adopt_app_module(&self) {
         if let Some(host) = &self.host {
-            host.native_slot().host(self.app_module.clone());
+            let slot = host.native_slot();
+            slot.host(self.app_module.clone());
+            slot.host_call(self.app_call.clone());
         }
     }
 

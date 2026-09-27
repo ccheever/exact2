@@ -24,6 +24,52 @@ pub fn handler(later: LaterFn, ctx: *mut c_void) -> exact_runner::NativeHandler 
     })
 }
 
+/// `call(ctx, body, len, slot)`: a `native.call`'s JSON body, on the
+/// source's thread. The host answers it before returning (on the main
+/// thread, D4), with `exact_app_answer(slot, …)` ([`answer`]).
+pub type CallFn = extern "C" fn(*mut c_void, *const u8, usize, *mut c_void);
+
+/// Where a synchronous call's answer lands: on the caller's stack.
+#[derive(Default)]
+struct Slot(Option<(u32, Vec<u8>)>);
+
+/// The synchronous call for a session's app module behind `call` and `ctx`.
+pub fn caller(call: CallFn, ctx: *mut c_void) -> exact_runner::NativeCall {
+    let ctx = ctx as usize;
+    std::sync::Arc::new(move |body: &[u8]| {
+        let mut slot = Slot::default();
+        call(
+            ctx as *mut c_void,
+            body.as_ptr(),
+            body.len(),
+            &mut slot as *mut Slot as *mut c_void,
+        );
+        match slot.0 {
+            Some((200, reply)) => Ok(reply),
+            Some((_, message)) => Err(String::from_utf8_lossy(&message).into_owned()),
+            None => Err("the app module did not answer the call".into()),
+        }
+    })
+}
+
+/// Answer a synchronous call, before `call` returns: status 200 carries the
+/// JSON reply, any other a refusal. `slot` came from a [`CallFn`] call still
+/// running; `bytes` is null or valid for `len` bytes. A second answer
+/// replaces the first.
+pub fn answer(slot: *mut c_void, status: u32, bytes: *const u8, len: usize) {
+    if slot.is_null() {
+        return;
+    }
+    let body = if bytes.is_null() || len == 0 {
+        Vec::new()
+    } else {
+        // SAFETY: the caller passes `len` valid bytes for this call.
+        unsafe { std::slice::from_raw_parts(bytes, len) }.to_vec()
+    };
+    // SAFETY: the slot lives on the stack of the `caller` call that is running.
+    unsafe { (*(slot as *mut Slot)).0 = Some((status, body)) };
+}
+
 /// Answer one long native call: `status` 200 carries the JSON reply, any
 /// other status a refusal message that rejects the TypeScript promise.
 /// Consumes `reply`, which came from a [`LaterFn`] call and has not been
@@ -71,6 +117,17 @@ macro_rules! app_module_exports {
         ) {
             $crate::app_module::reply(reply, status, bytes, len)
         }
+
+        /// Answer a synchronous call, before it returns (`include/exact.h`).
+        #[no_mangle]
+        pub extern "C" fn exact_app_answer(
+            slot: *mut ::std::ffi::c_void,
+            status: u32,
+            bytes: *const u8,
+            len: usize,
+        ) {
+            $crate::app_module::answer(slot, status, bytes, len)
+        }
     };
 }
 
@@ -87,6 +144,28 @@ mod tests {
             let text = format!("{{\"echo\":{}}}", String::from_utf8(body).unwrap());
             super::reply(reply as *mut c_void, 200, text.as_ptr(), text.len());
         });
+    }
+
+    extern "C" fn now(ctx: *mut c_void, body: *const u8, len: usize, slot: *mut c_void) {
+        assert_eq!(ctx as usize, 9);
+        let body = unsafe { std::slice::from_raw_parts(body, len) };
+        if body == b"refuse" {
+            let text = b"refused";
+            return super::answer(slot, 500, text.as_ptr(), text.len());
+        }
+        let text = format!("{{\"now\":{}}}", String::from_utf8_lossy(body));
+        super::answer(slot, 200, text.as_ptr(), text.len());
+    }
+
+    extern "C" fn silent(_: *mut c_void, _: *const u8, _: usize, _: *mut c_void) {}
+
+    #[test]
+    fn a_call_answers_on_the_callers_thread_or_refuses() {
+        let call = caller(now, 9 as *mut c_void);
+        assert_eq!(call(b"1").unwrap(), br#"{"now":1}"#);
+        assert_eq!(call(b"refuse").unwrap_err(), "refused");
+        let silent = caller(silent, 9 as *mut c_void);
+        assert!(silent(b"1").unwrap_err().contains("did not answer"));
     }
 
     #[test]

@@ -63,9 +63,11 @@ export async function recorderSmoke({ host, open, check: record_ }) {
     const live = await bars(s, resolve(tmp, 'live.png'));
     check(live > 200, `the waveform draws the live take from the object (${live} red pixels)`);
     // Three seconds of levels at 20 a second never cross the source: it was
-    // asked for its status at boot and once when recording began.
+    // asked for its status at boot and once when recording began. Apple
+    // answers the status with native.call (no request at all); the web has
+    // no synchronous call, so its source falls back to native.later.
     const asks = (await s.logs()).lines.filter((l) => /request \d+ \(status\): POST exact-native:/.test(l)).length;
-    check(asks <= 2, `the source is asked for coarse state only, not levels (${asks} status requests)`);
+    check(host === 'web' ? asks >= 1 && asks <= 2 : asks === 0, `the status is coarse, and answered by ${host === 'web' ? 'native.later' : 'native.call'} (${asks} status requests)`);
     await stop(s);
     check(JSON.stringify(await labels(s)) === JSON.stringify(TAKES.slice(0, 1)), `the first take reads the same on every host: ${JSON.stringify(await labels(s))}`);
     await record(s, 1500);

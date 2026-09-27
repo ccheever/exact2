@@ -790,6 +790,9 @@ public final class ExactSession {
         activatedGeneration = drawnGeneration
         DispatchQueue.main.async { [weak self] in
             guard let self, state != .destroyed, generation == drawnGeneration else { return }
+            // The app module is ready before any source can call it: its load
+            // never lands inside a `native.call`'s budget (LLP 1067.000 D8).
+            natives.prepareAppModule()
             let batch = runtime.dataReady()
             if batch.pending {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in

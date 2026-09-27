@@ -59,15 +59,17 @@ macro_rules! host {
         }
 
         /// The session's app module (LLP 1067.000): `later` takes each long
-        /// native call, and answers it once with `exact_app_reply`. `None`
-        /// removes it.
+        /// native call and answers it once with `exact_app_reply`; `call`
+        /// answers a `native.call` with `exact_app_answer` before returning.
+        /// `None` removes each.
         #[no_mangle]
         pub extern "C" fn exact_set_app_module(
             rt: u32,
             later: ::std::option::Option<$crate::app_module::LaterFn>,
+            call: ::std::option::Option<$crate::app_module::CallFn>,
             ctx: *mut ::std::ffi::c_void,
         ) {
-            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| e.bridge.set_app_module(later, ctx));
+            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| e.bridge.set_app_module(later, call, ctx));
         }
 
         /// The app module announced a topic (LLP 1016.002), on this thread.

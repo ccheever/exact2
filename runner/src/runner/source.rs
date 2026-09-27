@@ -36,12 +36,18 @@ pub struct Native(std::sync::Arc<NativeSlots>);
 pub struct NativeSlots {
     handler: std::sync::Mutex<Option<NativeHandler>>,
     hosted: std::sync::Mutex<Option<NativeHandler>>,
+    hosted_call: std::sync::Mutex<Option<NativeCall>>,
     announce: std::sync::Mutex<Option<Announce>>,
 }
 
 /// Where a host takes the device topics a native module announces
 /// ([`Native::changed`]), from any thread (LLP 1016.002).
 pub type Announce = std::sync::Arc<dyn Fn(&str) + Send + Sync>;
+
+/// The host's app module answering one call now (`native.call`), on the
+/// caller's thread: the request's JSON body in, the JSON reply out, or a
+/// refusal message (LLP 1067.000 D9).
+pub type NativeCall = std::sync::Arc<dyn Fn(&[u8]) -> Result<Vec<u8>, String> + Send + Sync>;
 
 /// A native module's handler for calls that answer later: the request's
 /// JSON body and the reply to send when it is done.
@@ -76,6 +82,21 @@ impl Native {
     /// its own. `None` removes it.
     pub fn host(&self, handler: Option<NativeHandler>) {
         *self.0.hosted.lock().unwrap_or_else(|e| e.into_inner()) = handler;
+    }
+
+    /// The app module's synchronous call, beside [`Native::host`]; `None`
+    /// removes it.
+    pub fn host_call(&self, call: Option<NativeCall>) {
+        *self.0.hosted_call.lock().unwrap_or_else(|e| e.into_inner()) = call;
+    }
+
+    /// The app module's synchronous call, if the host installed one.
+    pub fn hosted_call(&self) -> Option<NativeCall> {
+        self.0
+            .hosted_call
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// Whether the host installed an app module.

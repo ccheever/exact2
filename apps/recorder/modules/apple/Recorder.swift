@@ -55,6 +55,12 @@ final class Recorder: ExactModule {
         return ["available": true, "recording": recording, "message": text]
     }
 
+    // The status is a cheap query: answered now, on the main thread.
+    override func call(_ request: [String: Any]) throws -> [String: Any] {
+        guard request["op"] as? String == "status" else { throw ExactNativeRefusal("the recorder answers only status now") }
+        return status()
+    }
+
     override func later(_ request: [String: Any], reply: ExactReply) {
         switch request["op"] as? String {
         case "status": reply.send(status())

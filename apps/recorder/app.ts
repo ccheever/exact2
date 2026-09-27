@@ -1,7 +1,9 @@
 // The recorder's source (LLP 1067.000): every answer asks the app's one
 // native object, the page module on the web and the Swift module on Apple.
-// Long calls go through `native.later`, which is the only call the web can
-// answer; `native.watch` re-asks an answer when the recorder announces.
+// Work goes through `native.later`, which every host answers; the status is a
+// cheap query, so it asks `native.call` first and falls back to `later` where
+// no synchronous call exists (the web). `native.watch` re-asks an answer when
+// the recorder announces.
 import type { Answer, NativeModule } from './app.contract.d.ts';
 
 export const appId = 'com.exact.recorder';
@@ -21,7 +23,11 @@ const sources: Record<string, (native: Native) => unknown> = {
     const r = recorder(native);
     if (!r) return unavailable;
     r.watch('status');
-    return await r.later({ op: 'status' });
+    try {
+      return r.call({ op: 'status' });
+    } catch {
+      return await r.later({ op: 'status' });
+    }
   },
   async takes(native) {
     const r = recorder(native);

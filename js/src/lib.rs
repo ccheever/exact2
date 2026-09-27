@@ -145,6 +145,8 @@ struct HostState {
     /// The host's app module answers this source's long calls (LLP 1067.000
     /// Q6): `native` is available, and `later` goes to it.
     hosted: bool,
+    /// The host's app module's `native.call`, when it answers one (D9).
+    hosted_call: Option<exact_runner::NativeCall>,
 }
 
 /// A TypeScript data source: bytecode, its bake-time identity, and the
@@ -273,11 +275,12 @@ unsafe extern "C" fn host_door(
                         .map_err(|error| error.to_string())
                         .and_then(|request| module.call(&request))
                         .map(|reply| Some(reply.to_string())),
-                    // LLP 1067.000 Q8: an app module answers only long calls,
-                    // as the web's page module does.
-                    (None, Some(_)) if state.hosted => {
-                        Err("the app's module answers native.later, not native.call".into())
-                    }
+                    // The host's app module, on this thread (LLP 1067.000 D9).
+                    (None, Some(_)) if state.hosted => match &state.hosted_call {
+                        Some(call) => call(b.as_bytes())
+                            .map(|reply| Some(String::from_utf8_lossy(&reply).into_owned())),
+                        None => Err("the app's module answers no native.call".into()),
+                    },
                     _ => Err(
                         "native storage is unavailable during bake or in an unconfigured host"
                             .into(),
@@ -632,6 +635,7 @@ impl Module {
         if self.host.native.is_none() && self.native_slot.hosted() {
             self.host.hosted = true;
             self.host.later = true;
+            self.host.hosted_call = self.native_slot.hosted_call();
         }
         engine
             .load(&self.bytecode)
@@ -656,6 +660,7 @@ impl Module {
         self.host.native = None;
         self.host.later = false;
         self.host.hosted = false;
+        self.host.hosted_call = None;
         self.native_slot.set(None);
         self.parked.clear();
         self.host.requests.clear();
