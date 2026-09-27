@@ -1079,6 +1079,9 @@ dependencies = [
 [[package]]
 name = "exact-svg-raster"
 version = "0.1.0"
+dependencies = [
+ "exact-kernel",
+]
 
 [[package]]
 name = "exact-textflow"

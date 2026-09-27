@@ -323,8 +323,7 @@ pub trait Backend {
     fn damage(&mut self, _previous: &Pixmap, _rects: &[Rect4]) -> bool {
         false
     }
-    /// Begin with an accepted frame for clipped repainting. A false result
-    /// leaves a fresh white frame ready for a full repaint.
+    /// Begin from an accepted frame, clipped; false leaves a white frame to repaint.
     fn begin_damage(
         &mut self,
         width: f32,
@@ -338,12 +337,13 @@ pub trait Backend {
     }
     /// Fill a shape.
     fn fill(&mut self, shape: &Shape, color: [u8; 4], ts: Transform);
-    /// Fill one colour's share of a border (LLP 1053 G2): its region
-    /// even-odd, inside its clip (non-zero) when it has one.
+    /// Fill one colour's share of a border (LLP 1053 G2): its region even-odd, clipped (non-zero).
     fn fill_border(&mut self, part: &border::BorderFill, ts: Transform);
     /// Draw a picture scaled into `dst`, clipped to every shape in `clips`.
     fn image(&mut self, image: &Arc<Bitmap>, dst: Rect4, clips: &[Shape], ts: Transform);
-    /// Composite an internally rendered canvas child, distinct from decoded image assets.
+    /// An SVG island's premultiplied pixels over `dst` in `ts`'s space.
+    fn island_image(&mut self, _pixels: Arc<Pixmap>, _dst: Rect4, _ts: Transform) {}
+    /// Composite a rendered canvas child (not a decoded image asset).
     fn surface_image(&mut self, _pixels: Arc<Pixmap>, _dst: Rect4) {}
     /// Paint a paragraph with its top-left at `origin`.
     fn text(

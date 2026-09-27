@@ -58,6 +58,8 @@ pub enum DecodeError {
     BadPaintOrder,
     /// Invalid SVG `marker-start`/`-mid`/`-end` (LLP 1055.000 D9).
     BadMarker,
+    /// Invalid CSS `filter` (LLP 1055.000 D14).
+    BadFilter,
     /// An `animation` row carried more entries or keyframes than the wire
     /// admits, or a direction/fill byte outside the table (LLP 1055 D5).
     BadAnimation,
@@ -450,6 +452,10 @@ pub enum StyleValueError {
     },
     /// Not `none` or `url(#id)`.
     BadMarker {
+        style: StyleId,
+    },
+    /// Not `none`, `url(#id)` or filter functions.
+    BadFilter {
         style: StyleId,
     },
     /// Not CSS `animation` shorthand.

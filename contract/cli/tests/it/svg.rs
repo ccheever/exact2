@@ -136,7 +136,7 @@ fn refusals_are_named() {
     assert!(refused(&svg("circle r=3 padding=4")).contains("lower-svg-attr"));
     assert!(refused(&svg("rect points=\"0,0\"")).contains("lower-attr-tag"));
     assert!(refused("component A\n  view\n    column points=\"0,0\"\n").contains("lower-attr-tag"));
-    assert!(refused(&svg("filter")).contains("later stage"));
+    assert!(refused(&svg("filter\n        feImage")).contains("later stage"));
     assert!(refused(&svg("hatch")).contains("Chrome does not implement"));
     assert!(refused(&svg("linearGradient\n        rect width=1")).contains("does not hold"));
     assert!(refused(&svg("circle r=3 animation=\"nope 1s\"")).contains("lower-animation-name"));
@@ -366,4 +366,29 @@ fn stage_eight_masks_and_patterns() {
         refused(act).contains("lower-svg-attr"),
         "a mask handles no events"
     );
+}
+
+// LLP 1055.000 stage 9: `filter`, its primitives as `SvgFe` nodes named by
+// their `fe` prop, the renamed attributes, and the filter rows.
+#[test]
+fn stage_nine_filters() {
+    let r = boot(
+        "component A\n  view\n    svg width=10 height=10\n      filter id=\"f\" testId=\"f\" filterUnits=\"userSpaceOnUse\" x=0 y=0 width=10 height=10\n        feFlood testId=\"fl\" flood-color=\"#0f172a\" flood-opacity=0.45 result=\"a\"\n        feOffset testId=\"o\" in=\"a\" dx=3 dy=4\n        feDiffuseLighting testId=\"l\" lighting-color=\"#ffffff\"\n          fePointLight testId=\"p\" x=1 y=2 z=3\n      rect testId=\"r\" width=10 height=10 filter=\"url(#f) blur(2px) drop-shadow(1px 2px 3px #000000)\"\n",
+    );
+    let k = r.kernel();
+    let node = |id: &str| k.node_by_key(k.find_by_test_id(id)[0]).unwrap();
+    assert_eq!(node("f").node_type, NodeType::SvgFilter);
+    let fl = node("fl");
+    assert_eq!(fl.node_type, NodeType::SvgFe);
+    assert_eq!(fl.props.str(PropId::Fe), Some("feFlood"));
+    assert_eq!(fl.style.flood_opacity, 0.45);
+    let o = node("o");
+    assert_eq!(o.props.str(PropId::In), Some("a"));
+    assert_eq!(o.props.str(PropId::FeDx), Some("3"));
+    assert_eq!(node("p").props.str(PropId::LightZ), Some("3"));
+    assert_eq!(node("r").style.filter.0.len(), 3);
+    let svg =
+        |body: &str| format!("component A\n  view\n    svg width=10 height=10\n      {body}\n");
+    assert!(refused(&svg("feFlood")).contains("lower-svg-content"));
+    assert!(refused(&svg("rect filter=\"wobble(2)\"")).contains("lower-attr-value"));
 }

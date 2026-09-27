@@ -17,14 +17,17 @@ import QuartzCore
 final class SvgRasterModule {
     typealias Abi = @convention(c) () -> UInt32
     typealias Mask = @convention(c) (UnsafeMutablePointer<UInt8>?, Int, UInt8) -> Void
+    typealias Filter = @convention(c) (UnsafePointer<Float>?, Int, UnsafeMutablePointer<UInt8>?, Int, Int, Float, Float, Float, Float) -> Int32
     /// The ABI this host speaks (`exact_svg_raster_abi`).
     static let abi: UInt32 = 1
     let mask: Mask
+    let filter: Filter
     /// Milliseconds the load took.
     let loadMs: Double
 
     private init(_ library: UnsafeMutableRawPointer, ms: Double) {
         mask = unsafeBitCast(dlsym(library, "exact_svg_raster_mask")!, to: Mask.self)
+        filter = unsafeBitCast(dlsym(library, "exact_svg_raster_filter")!, to: Filter.self)
         loadMs = ms
     }
 
@@ -41,7 +44,7 @@ final class SvgRasterModule {
             FileHandle.standardError.write(Data("exact svg: the island module is not loaded (\(String(cString: dlerror()))); masks and filters draw nothing\n".utf8))
             return nil
         }
-        guard let abi = dlsym(library, "exact_svg_raster_abi"), dlsym(library, "exact_svg_raster_mask") != nil,
+        guard let abi = dlsym(library, "exact_svg_raster_abi"), dlsym(library, "exact_svg_raster_mask") != nil, dlsym(library, "exact_svg_raster_filter") != nil,
               unsafeBitCast(abi, to: Abi.self)() == SvgRasterModule.abi else {
             FileHandle.standardError.write(Data("exact svg: \(path) is not an exact SVG island module of ABI \(SvgRasterModule.abi)\n".utf8))
             dlclose(library)
@@ -113,6 +116,33 @@ enum SvgIsland {
               let ctx = render(spec["c"] as? [Any] ?? [], rect: rect, transform: t, k: k, flip: true, dark: dark, fonts: fonts),
               let data = ctx.data else { return layer }
         module.mask(data.assumingMemoryBound(to: UInt8.self), ctx.bytesPerRow * ctx.height, num(spec["l"]) != 0 ? 1 : 0)
+        layer.contents = ctx.makeImage()
+        return layer
+    }
+
+    /// A filtered element's picture (LLP 1055.000 D14): the element without
+    /// its effects rendered over the filter region at `k` pixels per user
+    /// unit, run through the chain by the module, as a layer placed on the
+    /// region. Without the module the element draws nothing.
+    static func filter(_ spec: [String: Any], k: CGFloat, dark: Bool, fonts: SvgText.Fonts?) -> CALayer {
+        let layer = CALayer()
+        layer.actions = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull()]
+        let r = nums(spec["r"])
+        guard r.count == 4 else { return layer }
+        let rect = CGRect(x: r[0], y: r[1], width: r[2], height: r[3])
+        layer.anchorPoint = .zero
+        layer.bounds = CGRect(origin: .zero, size: rect.size)
+        layer.position = rect.origin
+        let program = nums(spec["p"]).map(Float.init)
+        guard let module = SvgRasterModule.shared,
+              let ctx = render(spec["c"] as? [Any] ?? [], rect: rect, transform: .identity, k: k, flip: true, dark: dark, fonts: fonts),
+              let data = ctx.data else { return layer }
+        let (w, h) = (ctx.width, ctx.height)
+        let ok = program.withUnsafeBufferPointer { p in
+            module.filter(p.baseAddress, p.count, data.assumingMemoryBound(to: UInt8.self), w, h,
+                          Float(rect.minX), Float(rect.minY), Float(CGFloat(w) / rect.width), Float(CGFloat(h) / rect.height))
+        }
+        guard ok == 0 else { return layer }
         layer.contents = ctx.makeImage()
         return layer
     }

@@ -803,6 +803,7 @@ mod tests {
             (StyleId::MarkerStart, text("url(#a)")),
             (StyleId::MarkerMid, text("url(#a)")),
             (StyleId::MarkerEnd, text("url(#a)")),
+            (StyleId::ColorInterpolationFilters, text("sRGB")),
         ];
         let mut covered = StyleMask::EMPTY;
         for (id, value) in samples {

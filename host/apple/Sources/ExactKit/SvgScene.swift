@@ -164,6 +164,8 @@ final class SvgScene {
     private var installed: [Int: [String: String]] = [:]
     /// Each masked element's mask island, by the digest of what drew it.
     private var islands: [Int: (key: Int, layer: CALayer)] = [:]
+    /// Each filtered element's picture, by the digest of what drew it.
+    private var pictures: [Int: (key: Int, layer: CALayer)] = [:]
     private var specs: [Int: [[String: Any]]] = [:]
     private var last: [String: Any] = [:]
     /// The view's pixels per point, for gradients drawn as pixels.
@@ -196,7 +198,7 @@ final class SvgScene {
         attach(scene["els"] as? [Any] ?? [], to: root, dark: dark, clock: clock, alive: &alive)
         for (id, layer) in layers where !alive.contains(id) {
             layer.removeAllAnimations(); layer.removeFromSuperlayer()
-            layers.removeValue(forKey: id); installed.removeValue(forKey: id); specs.removeValue(forKey: id); islands.removeValue(forKey: id)
+            layers.removeValue(forKey: id); installed.removeValue(forKey: id); specs.removeValue(forKey: id); islands.removeValue(forKey: id); pictures.removeValue(forKey: id)
             if let pair = wrappers.removeValue(forKey: id) { pair.outer.removeFromSuperlayer() }
             node.removeValue(forKey: ObjectIdentifier(layer)); parentOf.removeValue(forKey: id)
             nodeOf.removeValue(forKey: id); pressable.remove(id); passes.remove(id)
@@ -269,7 +271,7 @@ final class SvgScene {
     func reset() {
         for layer in layers.values { layer.removeAllAnimations() }
         root.sublayers?.forEach { $0.removeFromSuperlayer() }
-        layers = [:]; installed = [:]; specs = [:]; wrappers = [:]; islands = [:]
+        layers = [:]; installed = [:]; specs = [:]; wrappers = [:]; islands = [:]; pictures = [:]
         node = [:]; parentOf = [:]; nodeOf = [:]; pressable = []; passes = []
     }
 
@@ -327,6 +329,20 @@ final class SvgScene {
                     layer.sublayerTransform = CATransform3DMakeAffineTransform(view ?? .identity)
                 }
                 attach(e["c"] as? [Any] ?? [], to: layer, dark: dark, clock: clock, alive: &alive, owner: id)
+                // @ref LLP 1055.000 D14 — a filtered element's picture is an island.
+                if let fl = e["fl"] as? [String: Any] {
+                    var h = Hasher()
+                    CssAnimations.digest(fl, into: &h)
+                    h.combine(scale); h.combine(dark)
+                    let key = h.finalize()
+                    let picture = pictures[id].flatMap { $0.key == key ? $0.layer : nil }
+                        ?? SvgIsland.filter(fl, k: CGFloat(num(fl["k"])) * scale, dark: dark, fonts: fonts ?? SvgScene.systemFonts)
+                    if pictures[id]?.layer !== picture { pictures[id]?.layer.removeFromSuperlayer() }
+                    pictures[id] = (key, picture)
+                    if picture.superlayer !== layer { layer.addSublayer(picture) }
+                } else if let old = pictures.removeValue(forKey: id) {
+                    old.layer.removeFromSuperlayer()
+                }
             } else if let shape = layer as? CAShapeLayer {
                 shape.path = path(e["p"])
                 let pos = nums(e["pos"])

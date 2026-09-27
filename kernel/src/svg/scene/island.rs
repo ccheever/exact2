@@ -270,6 +270,7 @@ fn wrapper(node: &NodeRef<'_>, uid: u64, matrix: Affine, ctm: Affine, children: 
         ctm,
         clip: None,
         mask: None,
+        filter: None,
         instance: true,
         kind: Kind::Group(children),
     }

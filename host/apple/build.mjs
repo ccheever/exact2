@@ -869,7 +869,10 @@ function main(args) {
   // dlopens it the first time a mask or filter needs pixel work.
   const svgBuilt = resolve(webBuildDir, svgLoadName);
   const svgTarget = process.env.CARGO_TARGET_DIR ?? resolve(root, 'target');
-  runApple('cargo', ['build', '--release', '-p', 'exact-svg-raster', '--lib', '--target', target, '--target-dir', svgTarget, '--manifest-path', resolve(root, 'Cargo.toml')], { cwd: root, env: { ...process.env, ...cargoEnv } });
+  // Unstripped: Xcode 27's strip leaves this dylib with a mis-aligned
+  // LINKEDIT string pool that dyld refuses (as Cargo.toml says of build
+  // scripts), even at `strip = "debuginfo"`.
+  runApple('cargo', ['build', '--release', '-p', 'exact-svg-raster', '--lib', '--target', target, '--target-dir', svgTarget, '--manifest-path', resolve(root, 'Cargo.toml')], { cwd: root, env: { ...process.env, ...cargoEnv, CARGO_PROFILE_RELEASE_STRIP: 'false' } });
   copyFileSync(resolve(svgTarget, target, 'release', 'libexact_svg_raster.dylib'), svgBuilt);
   const t2 = Date.now();
   const bin = resolve(binDir, product);

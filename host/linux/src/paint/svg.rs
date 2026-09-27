@@ -332,7 +332,7 @@ impl Painter {
         match &item.mask {
             // @ref LLP 1055.000 D10 — a mask is an island.
             Some(mask) => self.svg_masked(item, mask, own, origin),
-            None => self.svg_kind(item, own, origin),
+            None => self.svg_effects(item, own, origin),
         }
         for _ in 0..clips {
             self.backend.pop_clip();

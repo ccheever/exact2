@@ -515,8 +515,12 @@ impl Backend for Gpu {
     }
 
     fn surface_image(&mut self, image: Arc<Pixmap>, dst: Rect4) {
+        self.island_image(image, dst, Transform::identity());
+    }
+
+    // @ref LLP 1055.000 D14 — an island in its element's user space.
+    fn island_image(&mut self, image: Arc<Pixmap>, dst: Rect4, ts: Transform) {
         let clips: &[Shape] = &[];
-        let ts = Transform::identity();
         struct Pixels(Arc<Pixmap>);
         impl AsRef<[u8]> for Pixels {
             fn as_ref(&self) -> &[u8] {

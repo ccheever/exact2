@@ -17,6 +17,53 @@ pub extern "C" fn exact_svg_raster_abi() -> u32 {
     ABI
 }
 
+/// [`crate::filter::run`] over `w × h` premultiplied pixels covering the
+/// filter region, whose origin is `(ox, oy)` in user units at `(sx, sy)`
+/// pixels per unit; the chain is `Filter::encode`'s `n` numbers. 0 when it
+/// ran; 1 when the chain did not decode (the pixels are left alone).
+///
+/// # Safety
+/// `program` must be valid for `n` reads and `pixels` for `w · h · 4`
+/// reads and writes.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn exact_svg_raster_filter(
+    program: *const f32,
+    n: usize,
+    pixels: *mut u8,
+    w: usize,
+    h: usize,
+    ox: f32,
+    oy: f32,
+    sx: f32,
+    sy: f32,
+) -> i32 {
+    if program.is_null() || pixels.is_null() {
+        return 1;
+    }
+    // SAFETY: the caller owns both buffers for this call.
+    let (program, px) = unsafe {
+        (
+            std::slice::from_raw_parts(program, n),
+            std::slice::from_raw_parts_mut(pixels, w * h * 4),
+        )
+    };
+    let Some(filter) = exact_kernel::svg::filter::Filter::decode(program) else {
+        return 1;
+    };
+    crate::filter::run(
+        &filter,
+        px,
+        w,
+        h,
+        crate::filter::Space {
+            origin: (ox, oy),
+            scale: (sx, sy),
+        },
+    );
+    0
+}
+
 /// [`crate::mask_coverage`] over `len` bytes at `pixels`.
 ///
 /// # Safety

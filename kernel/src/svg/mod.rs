@@ -12,6 +12,7 @@ use crate::generated::NodeType;
 use crate::style::{Color, ColorValue};
 use std::fmt::Write as _;
 
+pub mod filter;
 pub mod length;
 mod path;
 mod refs;
@@ -54,6 +55,8 @@ impl NodeType {
                 | NodeType::SvgMask
                 | NodeType::SvgPattern
                 | NodeType::SvgForeignObject
+                | NodeType::SvgFilter
+                | NodeType::SvgFe
         )
     }
 
@@ -89,6 +92,8 @@ impl NodeType {
                 | NodeType::SvgMask
                 | NodeType::SvgPattern
                 | NodeType::SvgForeignObject
+                | NodeType::SvgFilter
+                | NodeType::SvgFe
         )
     }
 
@@ -109,6 +114,8 @@ impl NodeType {
                 | NodeType::SvgMarker
                 | NodeType::SvgMask
                 | NodeType::SvgPattern
+                | NodeType::SvgFilter
+                | NodeType::SvgFe
         )
     }
 
@@ -138,6 +145,8 @@ impl NodeType {
             NodeType::SvgMask => "mask",
             NodeType::SvgPattern => "pattern",
             NodeType::SvgForeignObject => "foreignObject",
+            NodeType::SvgFilter => "filter",
+            NodeType::SvgFe => "fe",
             _ => return None,
         })
     }
@@ -188,6 +197,8 @@ pub enum PaintFallback {
 impl Paint {
     /// `fill`'s initial value.
     pub const BLACK: Paint = Paint::Color(ColorValue::Fixed(Color(0x0000_00ff)));
+    /// `lighting-color`'s initial value.
+    pub const WHITE: Paint = Paint::Color(ColorValue::Fixed(Color(0xffff_ffff)));
 
     /// CSS's grammar for the subset.
     pub fn parse(css: &str) -> Option<Paint> {

@@ -45,6 +45,7 @@ fn parse_codec(s: &str) -> Codec {
         "transform-origin" => Codec::CssValue { path: "crate::svg::TransformOrigin", variant: "TransformOrigin", error: "BadTransformOrigin" },
         "paint-order" => Codec::CssValue { path: "crate::svg::PaintOrder", variant: "PaintOrder", error: "BadPaintOrder" },
         "marker" => Codec::CssValue { path: "crate::svg::MarkerRef", variant: "Marker", error: "BadMarker" },
+        "filter" => Codec::CssValue { path: "crate::svg::filter::FilterList", variant: "Filter", error: "BadFilter" },
         // @ref LLP 1043.000 §3 D1 — one parse/css/default codec for both shapes.
         "clip-path" => Codec::CssValue { path: "crate::clip::ClipPath", variant: "ClipPath", error: "BadClipPath" },
         "aspect-ratio" => Codec::CssValue { path: "crate::ratio::AspectRatio", variant: "AspectRatio", error: "BadAspectRatio" },
@@ -168,7 +169,8 @@ impl Codec {
             Codec::CssValue { variant: "Paint", .. } => match value.as_str() {
                 Some("black") => "crate::svg::Paint::BLACK".into(),
                 Some("none") => "crate::svg::Paint::None".into(),
-                _ => panic!("schema: paint default on `{field}` must be black or none"),
+                Some("white") => "crate::svg::Paint::WHITE".into(),
+                _ => panic!("schema: paint default on `{field}` must be black, white or none"),
             },
             Codec::CssValue { path, .. } => format!("{path}::default()"),
             Codec::Transitions => {

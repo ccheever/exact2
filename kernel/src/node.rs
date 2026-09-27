@@ -30,6 +30,8 @@ impl NodeType {
                 | NodeType::SvgMask
                 | NodeType::SvgPattern
                 | NodeType::SvgForeignObject
+                | NodeType::SvgFilter
+                | NodeType::SvgFe
         )
     }
 

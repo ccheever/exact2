@@ -14,30 +14,61 @@ use contract_syntax::{Attr, Expr, File, Span, TemplatePart};
 use exact_motion::animation::LONGHANDS;
 use exact_motion::{Animation, Animations, Keyframes, Property};
 
+/// The filter primitives and their children (LLP 1055.000 D14), each a
+/// `SvgFe` node whose `fe` prop is its tag.
+pub(crate) const FE: [&str; 24] = [
+    "feBlend",
+    "feColorMatrix",
+    "feComponentTransfer",
+    "feComposite",
+    "feConvolveMatrix",
+    "feDiffuseLighting",
+    "feDisplacementMap",
+    "feDropShadow",
+    "feFlood",
+    "feFuncR",
+    "feFuncG",
+    "feFuncB",
+    "feFuncA",
+    "feGaussianBlur",
+    "feMerge",
+    "feMergeNode",
+    "feMorphology",
+    "feOffset",
+    "feSpecularLighting",
+    "feTile",
+    "feTurbulence",
+    "feDistantLight",
+    "fePointLight",
+    "feSpotLight",
+];
+
 /// The SVG element tags inside an `svg`.
 pub(crate) fn is_element(tag: &str) -> bool {
-    matches!(
-        tag,
-        "g" | "path"
-            | "polyline"
-            | "polygon"
-            | "circle"
-            | "ellipse"
-            | "line"
-            | "rect"
-            | "defs"
-            | "linearGradient"
-            | "radialGradient"
-            | "stop"
-            | "use"
-            | "symbol"
-            | "clipPath"
-            | "marker"
-            | "mask"
-            | "pattern"
-            | "foreignObject"
-            | "tspan"
-    )
+    FE.contains(&tag)
+        || matches!(
+            tag,
+            "g" | "path"
+                | "polyline"
+                | "polygon"
+                | "circle"
+                | "ellipse"
+                | "line"
+                | "rect"
+                | "defs"
+                | "linearGradient"
+                | "radialGradient"
+                | "stop"
+                | "use"
+                | "symbol"
+                | "clipPath"
+                | "marker"
+                | "mask"
+                | "pattern"
+                | "foreignObject"
+                | "filter"
+                | "tspan"
+        )
 }
 
 /// Whether a node under `parent_tag` is inside an `svg`: `inside` says an
@@ -57,6 +88,11 @@ pub(crate) fn in_svg(inside: bool, parent_tag: Option<&str>) -> bool {
                     | "marker"
                     | "mask"
                     | "pattern"
+                    | "filter"
+                    | "feMerge"
+                    | "feComponentTransfer"
+                    | "feDiffuseLighting"
+                    | "feSpecularLighting"
                     | "text"
                     | "tspan"
             )
@@ -70,8 +106,18 @@ fn holds(parent: &str, child: &str) -> bool {
         // SVG text holds its runs.
         "text" | "tspan" => child == "tspan",
         "linearGradient" | "radialGradient" => child == "stop",
+        "filter" => {
+            FE.contains(&child)
+                && !child.starts_with("feFunc")
+                && !child.ends_with("Light")
+                && child != "feMergeNode"
+        }
+        "feMerge" => child == "feMergeNode",
+        "feComponentTransfer" => child.starts_with("feFunc"),
+        "feDiffuseLighting" | "feSpecularLighting" => child.ends_with("Light"),
         "svg" | "g" | "defs" | "symbol" | "marker" | "mask" | "pattern" => {
-            child != "stop"
+            !FE.contains(&child)
+                && child != "stop"
                 && !(child == "foreignObject" && matches!(parent, "defs" | "mask" | "pattern"))
                 && child != "tspan"
                 && (is_element(child) || matches!(child, "svg" | "text"))
@@ -106,8 +152,59 @@ pub(crate) fn is_length_prop(attr: &str) -> bool {
             | "refX"
             | "refY"
             | "orient"
-    )
+    ) || FE_ATTRS.contains(&attr)
 }
+
+/// A filter primitive's attributes, as props holding authored text.
+const FE_ATTRS: [&str; 47] = [
+    "in",
+    "in2",
+    "result",
+    "stdDeviation",
+    "feDx",
+    "feDy",
+    "operator",
+    "k1",
+    "k2",
+    "k3",
+    "k4",
+    "mode",
+    "values",
+    "edgeMode",
+    "feRadius",
+    "tableValues",
+    "slope",
+    "intercept",
+    "amplitude",
+    "exponent",
+    "baseFrequency",
+    "numOctaves",
+    "seed",
+    "stitchTiles",
+    "feScale",
+    "xChannelSelector",
+    "yChannelSelector",
+    "order",
+    "kernelMatrix",
+    "divisor",
+    "bias",
+    "targetX",
+    "targetY",
+    "preserveAlpha",
+    "surfaceScale",
+    "diffuseConstant",
+    "specularConstant",
+    "specularExponent",
+    "azimuth",
+    "elevation",
+    "lightX",
+    "lightY",
+    "lightZ",
+    "pointsAtX",
+    "pointsAtY",
+    "pointsAtZ",
+    "limitingConeAngle",
+];
 
 /// The elements an SVG-specific attribute belongs to.
 fn owners(attr: &str) -> Option<&'static [&'static str]> {
@@ -119,7 +216,32 @@ fn owners(attr: &str) -> Option<&'static [&'static str]> {
         "pathLength" => &[
             "path", "polyline", "polygon", "circle", "ellipse", "line", "rect",
         ],
-        "x" | "y" => &["rect", "svg", "use", "mask", "pattern", "foreignObject"],
+        "x" | "y" => &[
+            "rect",
+            "svg",
+            "use",
+            "mask",
+            "pattern",
+            "foreignObject",
+            "filter",
+            "feBlend",
+            "feColorMatrix",
+            "feComponentTransfer",
+            "feComposite",
+            "feConvolveMatrix",
+            "feDiffuseLighting",
+            "feDisplacementMap",
+            "feDropShadow",
+            "feFlood",
+            "feGaussianBlur",
+            "feMerge",
+            "feMorphology",
+            "feOffset",
+            "feSpecularLighting",
+            "feTile",
+            "feTurbulence",
+        ],
+        "filterUnits" | "primitiveUnits" => &["filter"],
         "rx" | "ry" => &["rect", "ellipse"],
         "x1" | "y1" | "x2" | "y2" => &["line", "linearGradient"],
         "cx" | "cy" => &["circle", "ellipse", "radialGradient"],
@@ -128,7 +250,8 @@ fn owners(attr: &str) -> Option<&'static [&'static str]> {
         "gradientUnits" | "gradientTransform" | "spreadMethod" => {
             &["linearGradient", "radialGradient"]
         }
-        "offset" | "stop-color" | "stop-opacity" => &["stop"],
+        "stop-color" | "stop-opacity" => &["stop"],
+        "offset" => &["stop", "feFuncR", "feFuncG", "feFuncB", "feFuncA"],
         "clipPathUnits" => &["clipPath"],
         "maskUnits" | "maskContentUnits" | "mask-type" => &["mask"],
         "patternUnits" | "patternContentUnits" | "patternTransform" => &["pattern"],
@@ -172,6 +295,11 @@ fn shared(attr: &str) -> bool {
             | "clip-path"
             | "clip-rule"
             | "mask"
+            | "filter"
+            | "flood-color"
+            | "flood-opacity"
+            | "lighting-color"
+            | "color-interpolation-filters"
             | "font-size"
             | "font-weight"
             | "font-style"
@@ -197,7 +325,9 @@ pub(crate) fn refused_tag(tag: &str) -> Option<&'static str> {
         "text" | "tspan" | "textPath" => {
             "text inside `svg` is refused (LLP 1055 D12); put a `text` beside the `svg`"
         }
-        "filter" | "image" => "not in exact2's SVG yet: LLP 1055.000 §4 builds it in a later stage",
+        "image" | "feImage" => {
+            "not in exact2's SVG yet: LLP 1055.000 §4 builds it in a later stage"
+        }
         "hatch" | "hatchpath" | "mesh" | "meshgradient" | "solidcolor" => {
             "refused (LLP 1055.000 §7): Chrome does not implement it"
         }
@@ -360,14 +490,17 @@ impl Lowerer<'_> {
                             | "marker"
                             | "mask"
                             | "pattern"
+                            | "filter"
                             | "tspan"
-                    ))
-                && !(matches!(tag, "rect" | "svg" | "use" | "mask" | "pattern" | "foreignObject")
+                    ) && !FE.contains(&tag))
+                && !((matches!(tag, "rect" | "svg" | "use" | "mask" | "pattern" | "foreignObject" | "filter")
+                    || (FE.contains(&tag) && !tag.starts_with("feFunc") && !tag.ends_with("Light") && tag != "feMergeNode"))
                     && matches!(a.name.as_str(), "width" | "height"))
                 && !(matches!(tag, "use" | "linearGradient" | "radialGradient" | "pattern")
                     && a.name == "href")
                 && !(tag == "svg"
                     && matches!(a.name.as_str(), "overflow" | "overflow-x" | "overflow-y"))
+                && !(FE.contains(&tag) && (is_length_prop(&a.name) || a.name == "type"))
             {
                 let why = if matches!(
                     tags::attr(&a.name),
@@ -548,6 +681,33 @@ pub(crate) fn coerce_lengths(tag: &str, in_svg: bool, attrs: &[Attr]) -> Option<
     // SVG text's `x`, `y`, `dx`, `dy` are position lists, not geometry
     // rows (LLP 1055.000 D11): they lower to their own props.
     let text = tag == "tspan" || (tag == "text" && in_svg);
+    // @ref LLP 1055.000 D14 — a primitive's `dx`, `dy` and `scale`, and a
+    // light's `x`, `y`, `z`, are props: the plain names are rows.
+    if FE.contains(&tag) {
+        let light = tag.ends_with("Light");
+        let renamed: Vec<Attr> = attrs
+            .iter()
+            .map(|a| {
+                let name = match a.name.as_str() {
+                    "dx" => "feDx",
+                    "dy" => "feDy",
+                    "scale" => "feScale",
+                    "radius" => "feRadius",
+                    "x" if light => "lightX",
+                    "y" if light => "lightY",
+                    "z" if light => "lightZ",
+                    other => other,
+                };
+                Attr {
+                    name: name.into(),
+                    value: a.value.clone(),
+                    span: a.span,
+                }
+            })
+            .collect();
+        let coerced = coerce_lengths("g", in_svg, &renamed);
+        return Some(coerced.unwrap_or(renamed));
+    }
     if text {
         let renamed: Vec<Attr> = attrs
             .iter()

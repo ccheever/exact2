@@ -29,6 +29,7 @@ use exact_motion::{Property, Value};
 type Circle = (f32, f32, f32);
 
 mod clip;
+mod filter;
 mod hit;
 mod island;
 mod marker;
@@ -85,6 +86,9 @@ pub struct Item {
     /// `mask: url(#…)`: the mask in the element's user space (LLP
     /// 1055.000 D10), applied inside the clip.
     pub mask: Option<Box<Mask>>,
+    /// `filter`: the chain, in the element's user space (LLP 1055.000
+    /// D14), applied before the clip and the mask.
+    pub filter: Option<Box<super::filter::Filter>>,
     /// A `use`: what it draws is an instance, and hits it as the `use`.
     pub instance: bool,
     /// What it draws.
@@ -426,11 +430,28 @@ impl Resolver<'_, '_> {
         } else {
             None
         };
+        let filter = if style.filter.is_none() {
+            None
+        } else {
+            let (bbox, stroke) = match &kind {
+                Kind::Shape(s) => (
+                    s.path.bounds(),
+                    if s.stroke.is_some() {
+                        s.width / 2.0
+                    } else {
+                        0.0
+                    },
+                ),
+                _ => (self.bbox(node, &style, vp), 0.0),
+            };
+            self.filter(node, bbox, stroke, vp).map(Box::new)
+        };
         Some(Item {
             id: node.id,
             uid: self.uid(node.id),
             clip,
             mask,
+            filter,
             instance: node.node_type == NodeType::SvgUse,
             key,
             opacity,

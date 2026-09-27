@@ -234,9 +234,11 @@ impl Batch {
                 | "mask"
                 | "pattern"
                 | "foreignObject"
+                | "filter"
                 | "text"
                 | "tspan"
-        ) {
+        ) || tag.starts_with("fe")
+        {
             s.push_str(",\"ns\":\"http://www.w3.org/2000/svg\"");
         }
         s.push_str(",\"props\":");

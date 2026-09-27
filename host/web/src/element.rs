@@ -149,6 +149,16 @@ fn element(node: &NodeRef<'_>) -> &'static str {
         NodeType::SvgMask => "mask",
         NodeType::SvgPattern => "pattern",
         NodeType::SvgForeignObject => "foreignObject",
+        NodeType::SvgFilter => "filter",
+        // @ref LLP 1055.000 D14 — a primitive's tag is its `fe` prop.
+        NodeType::SvgFe => {
+            let fe = node.props.str(PropId::Fe).unwrap_or("");
+            FE_TAGS
+                .iter()
+                .find(|t| **t == fe)
+                .copied()
+                .unwrap_or("feFlood")
+        }
         NodeType::SvgText => "text",
         NodeType::SvgTSpan => "tspan",
         NodeType::ScrollView => "div",
@@ -202,6 +212,34 @@ fn heading_level(node: &NodeRef<'_>) -> Option<i64> {
     }
 }
 
+/// The filter primitives' tags (LLP 1055.000 D14), as `fe` holds them.
+const FE_TAGS: [&str; 24] = [
+    "feBlend",
+    "feColorMatrix",
+    "feComponentTransfer",
+    "feComposite",
+    "feConvolveMatrix",
+    "feDiffuseLighting",
+    "feDisplacementMap",
+    "feDropShadow",
+    "feFlood",
+    "feFuncR",
+    "feFuncG",
+    "feFuncB",
+    "feFuncA",
+    "feGaussianBlur",
+    "feMerge",
+    "feMergeNode",
+    "feMorphology",
+    "feOffset",
+    "feSpecularLighting",
+    "feTile",
+    "feTurbulence",
+    "feDistantLight",
+    "fePointLight",
+    "feSpotLight",
+];
+
 /// Props as DOM attributes/properties. Names are the DOM's.
 /// The rows a node's `cssText` carries. A nested `svg` takes `x`, `y`,
 /// `width` and `height` as attributes instead ([`props_for`]): Chrome 154
@@ -218,6 +256,7 @@ pub(super) fn css_style<'a>(
         && !url(&node.style.stroke)
         && node.style.clip_path.url().is_none()
         && node.style.svg_mask.url().is_none()
+        && node.style.filter.is_none()
         && [
             &node.style.marker_start,
             &node.style.marker_mid,
@@ -242,6 +281,14 @@ pub(super) fn css_style<'a>(
     {
         if let Some(c) = exact_kernel::clip::ClipPath::parse(&format!("url(#{})", dom_id(target))) {
             style.clip_path = c;
+        }
+    }
+    // @ref LLP 1055.000 D14 — a filter by the id the page gives it.
+    for f in style.filter.0.iter_mut() {
+        if let exact_kernel::svg::filter::FilterFn::Url(id) = f {
+            if let Some(target) = kernel.resolve_id(node.id, id) {
+                *id = dom_id(target).into();
+            }
         }
     }
     // @ref LLP 1055.000 D10 — a mask by the id the page gives it.
@@ -291,7 +338,9 @@ fn attribute_rows(t: NodeType) -> &'static [(exact_kernel::StyleId, &'static str
         | NodeType::SvgUse
         | NodeType::SvgMask
         | NodeType::SvgPattern
-        | NodeType::SvgForeignObject => &[(X, "x"), (Y, "y"), (Width, "width"), (Height, "height")],
+        | NodeType::SvgForeignObject
+        | NodeType::SvgFilter
+        | NodeType::SvgFe => &[(X, "x"), (Y, "y"), (Width, "width"), (Height, "height")],
         NodeType::SvgRadialGradient => &[(Cx, "cx"), (Cy, "cy"), (R, "r")],
         _ => &[],
     }
@@ -503,6 +552,19 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
             PropId::TextY => "y",
             PropId::TextDx => "dx",
             PropId::TextDy => "dy",
+            // @ref LLP 1055.000 D14 — a primitive's attributes by their SVG
+            // names; `fe` is the tag itself.
+            PropId::Fe => continue,
+            PropId::FeDx => "dx",
+            PropId::FeDy => "dy",
+            PropId::FeScale => "scale",
+            PropId::FeRadius => "radius",
+            PropId::LightX => "x",
+            PropId::LightY => "y",
+            PropId::LightZ => "z",
+            other if matches!(node.node_type, NodeType::SvgFe | NodeType::SvgFilter) => {
+                other.name()
+            }
             other => {
                 // Every other prop rides as `data-<name>` so nothing is lost.
                 // Schema names are ASCII (`prop_names_are_ascii`), so ASCII

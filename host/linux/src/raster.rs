@@ -824,6 +824,25 @@ impl Backend for Raster {
         }
     }
 
+    // @ref LLP 1055.000 D14 — an island in its element's user space.
+    fn island_image(&mut self, image: Arc<Pixmap>, dst: Rect4, ts: Transform) {
+        let (nw, nh) = (image.width() as f32, image.height() as f32);
+        if nw <= 0.0 || nh <= 0.0 || dst.2 <= 0.0 || dst.3 <= 0.0 {
+            return;
+        }
+        let mask = self.clips.last().cloned();
+        let dev = self
+            .device(ts)
+            .pre_concat(Transform::from_translate(dst.0, dst.1).pre_scale(dst.2 / nw, dst.3 / nh));
+        let paint = PixmapPaint {
+            quality: FilterQuality::Bilinear,
+            ..PixmapPaint::default()
+        };
+        if let Some(t) = self.target.as_mut() {
+            t.draw_pixmap(0, 0, image.as_ref().as_ref(), &paint, dev, mask.as_deref());
+        }
+    }
+
     fn surface_image(&mut self, image: Arc<Pixmap>, dst: Rect4) {
         let clips: &[Shape] = &[];
         let ts = Transform::identity();

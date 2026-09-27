@@ -844,3 +844,73 @@ fn masks_and_patterns_resolve_against_the_box() {
     assert_eq!(q.items.len(), 1);
     assert!(find(&s.items, mask).is_none() && find(&s.items, pat).is_none());
 }
+
+/// LLP 1055.000 D14: a filter's region against the box, primitive inputs by
+/// name, and a list whose functions chain after the reference.
+#[test]
+fn filters_resolve_into_one_chain() {
+    use exact_kernel::svg::filter::{Input, Op};
+    use NodeType::*;
+    let mut d = Doc::new();
+    let svg = d.node(
+        Svg,
+        &[(StyleId::Width, "100"), (StyleId::Height, "100")],
+        &[],
+    );
+    let filter = d.node(SvgFilter, &[], &[(PropId::Id, "f")]);
+    let flood = d.node(
+        SvgFe,
+        &[(StyleId::FloodOpacity, "0.5")],
+        &[(PropId::Fe, "feFlood"), (PropId::Result, "wash")],
+    );
+    let offset = d.node(
+        SvgFe,
+        &[],
+        &[
+            (PropId::Fe, "feOffset"),
+            (PropId::In, "SourceAlpha"),
+            (PropId::FeDx, "3"),
+        ],
+    );
+    let comp = d.node(
+        SvgFe,
+        &[],
+        &[
+            (PropId::Fe, "feComposite"),
+            (PropId::In, "wash"),
+            (PropId::Operator, "in"),
+        ],
+    );
+    d.children(filter, &[flood, offset, comp]);
+    let rect = d.node(
+        SvgRect,
+        &[
+            (StyleId::X, "10"),
+            (StyleId::Y, "10"),
+            (StyleId::Width, "50"),
+            (StyleId::Height, "20"),
+            (StyleId::Filter, "url(#f) blur(2px)"),
+        ],
+        &[],
+    );
+    d.children(svg, &[filter, rect]);
+    let k = d.kernel(&[svg], 400.0);
+    let s = resolve(&k, svg);
+    let f = find(&s.items, rect)
+        .unwrap()
+        .filter
+        .as_ref()
+        .expect("filtered");
+    let p = &f.primitives;
+    assert_eq!(p.len(), 4, "three primitives and the blur");
+    assert!(matches!(p[0].op, Op::Flood(c) if (c[3] - 0.5).abs() < 1e-6));
+    assert_eq!(p[1].inputs[0], Input::SourceAlpha);
+    assert!(matches!(p[1].op, Op::Offset(dx, _) if dx == 3.0));
+    // `in="wash"` names the flood; `in2` is the previous result.
+    assert_eq!(p[2].inputs, [Input::Result(0), Input::Result(1)]);
+    // The blur's source is the reference's result.
+    assert_eq!(p[3].inputs[0], Input::Result(2));
+    assert!(p.iter().all(|q| q.linear == (q.op != Op::Blur(2.0, 2.0))));
+    // −10%/−10%/120%/120% of the box, grown by the blur's reach.
+    assert!(f.region.0 <= 5.0 && f.region.2 >= 60.0, "{:?}", f.region);
+}

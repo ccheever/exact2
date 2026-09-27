@@ -6,6 +6,7 @@
 //! (§8 ruling 4 keeps it out of the Apple core only).
 
 use super::{Painter, Rect4, Shape};
+use exact_kernel::svg::filter::Filter;
 use exact_kernel::svg::scene::{Item, Mask, ShapePaint};
 use exact_kernel::svg::transform as tf;
 use std::sync::Arc;
@@ -81,7 +82,7 @@ impl Painter {
             return;
         };
         let Some(mut element) = self.island(rect, |p, shift| {
-            p.svg_kind(item, shift.pre_concat(own), shift.pre_concat(origin));
+            p.svg_effects(item, shift.pre_concat(own), shift.pre_concat(origin));
         }) else {
             return;
         };
@@ -98,6 +99,78 @@ impl Painter {
         exact_svg_raster::mask_coverage(content.data_mut(), mask.luminance);
         exact_svg_raster::apply_coverage(element.data_mut(), content.data(), 4);
         self.backend.surface_image(Arc::new(element), rect);
+    }
+
+    /// A filtered item (LLP 1055.000 D14): what it draws, rendered into an
+    /// island over the filter region in its own user space at the scale it
+    /// shows at, run through the chain, and drawn back in that space.
+    pub(super) fn svg_filtered(
+        &mut self,
+        item: &Item,
+        filter: &Filter,
+        own: Transform,
+        origin: Transform,
+    ) {
+        let (mut rx, mut ry, mut rw, mut rh) = filter.region;
+        if filter.primitives.is_empty() || !(rw > 0.0 && rh > 0.0) {
+            return;
+        }
+        // Unrotated, the island snaps outward to device pixels, as Chrome
+        // lays a filter's pixels on the device's.
+        if own.kx == 0.0 && own.ky == 0.0 && own.sx > 0.0 && own.sy > 0.0 {
+            let (s, dx, dy) = (self.scale, own.tx * self.scale, own.ty * self.scale);
+            let (ax, ay) = (own.sx * s, own.sy * s);
+            let x0 = (rx * ax + dx).floor();
+            let y0 = (ry * ay + dy).floor();
+            let x1 = ((rx + rw) * ax + dx).ceil();
+            let y1 = ((ry + rh) * ay + dy).ceil();
+            (rx, ry, rw, rh) = (
+                (x0 - dx) / ax,
+                (y0 - dy) / ay,
+                (x1 - x0) / ax,
+                (y1 - y0) / ay,
+            );
+        }
+        let det = (own.sx * own.sy - own.kx * own.ky).abs().sqrt();
+        let k = det * self.scale;
+        if !(k.is_finite() && k > 0.0) {
+            return;
+        }
+        let pw = (rw * k).round().clamp(1.0, MAX_SIDE);
+        let ph = (rh * k).round().clamp(1.0, MAX_SIDE);
+        let scale = self.scale;
+        let (sx, sy) = (pw / rw, ph / rh);
+        let Some(mut pixels) = self.island((0.0, 0.0, pw / scale, ph / scale), |p, _| {
+            // User space to island points: the region's corner at 0.
+            let at = Transform::from_scale(sx / scale, sy / scale).pre_translate(-rx, -ry);
+            // A non-scaling stroke draws in `origin`'s space: carry the
+            // same mapping from the element's user space.
+            let inv = own.invert().unwrap_or_default();
+            p.svg_kind(item, at, at.pre_concat(inv).pre_concat(origin));
+        }) else {
+            return;
+        };
+        let (w, h) = (pixels.width() as usize, pixels.height() as usize);
+        exact_svg_raster::filter::run(
+            filter,
+            pixels.data_mut(),
+            w,
+            h,
+            exact_svg_raster::filter::Space {
+                origin: (rx, ry),
+                scale: (w as f32 / rw, h as f32 / rh),
+            },
+        );
+        self.backend
+            .island_image(Arc::new(pixels), (rx, ry, rw, rh), own);
+    }
+
+    /// What an item draws, through its filter when it has one.
+    pub(super) fn svg_effects(&mut self, item: &Item, own: Transform, origin: Transform) {
+        match &item.filter {
+            Some(f) => self.svg_filtered(item, f, own, origin),
+            None => self.svg_kind(item, own, origin),
+        }
     }
 
     /// A pattern paint as an ink (LLP 1055.000 D7): its tile rendered at the

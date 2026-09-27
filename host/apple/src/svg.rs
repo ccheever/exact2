@@ -305,6 +305,7 @@ fn marked(
             ctm: item.ctm,
             clip: None,
             mask: None,
+            filter: None,
             instance: false,
             kind: Kind::Shape(Box::new(sh)),
         }
@@ -334,6 +335,67 @@ fn marked(
     element(engine, press, &group, parent_ctm, s, Role::Marked);
 }
 
+/// A filtered item (LLP 1055.000 D14) as a group standing for it (its
+/// opacity, transform, clip and mask) whose picture is an island: `"fl"`
+/// holds the filter region, points per user unit `k`, the chain as numbers
+/// `p` (`Filter::encode`), and the element without its effects `c`.
+fn filtered(
+    engine: &Engine,
+    press: &IdSet<ViewId>,
+    item: &Item,
+    filter: &exact_kernel::svg::filter::Filter,
+    parent_ctm: Affine,
+    s: &mut String,
+) {
+    let group = Item {
+        kind: Kind::Group(Vec::new()),
+        filter: None,
+        ..item.clone()
+    };
+    let inner = Item {
+        uid: item.uid ^ (1 << 50),
+        opacity: 1.0,
+        transform: None,
+        clip: None,
+        mask: None,
+        filter: None,
+        ..item.clone()
+    };
+    let mut head = String::new();
+    element(engine, press, &group, parent_ctm, &mut head, Role::Item);
+    // The group's object, reopened for the island.
+    head.pop();
+    s.push_str(&head);
+    let (x, y, w, h) = filter.region;
+    let m = item.ctm;
+    let k = (m[0] * m[3] - m[1] * m[2]).abs().sqrt();
+    let _ = write!(
+        s,
+        ",\"fl\":{{\"r\":[{},{},{},{}],\"k\":{},\"p\":[",
+        num(x),
+        num(y),
+        num(w),
+        num(h),
+        num(k)
+    );
+    for (i, v) in filter.encode().iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push_str(&num(*v));
+    }
+    s.push_str("],\"c\":");
+    items(
+        engine,
+        press,
+        std::slice::from_ref(&inner),
+        item.ctm,
+        s,
+        Role::Item,
+    );
+    s.push_str("}}");
+}
+
 /// One item: `id`, group opacity `o`, its transform `tf` (origin `o`, the
 /// individual properties `i`, the list `m`) when it has one, the lowered
 /// animations `a`, then what it draws.
@@ -345,6 +407,9 @@ fn element(
     s: &mut String,
     role: Role,
 ) {
+    if let Some(filter) = &item.filter {
+        return filtered(engine, press, item, filter, parent_ctm, s);
+    }
     if let (Role::Item, Kind::Shape(shape)) = (role, &item.kind) {
         if !shape.markers.is_empty() {
             return marked(engine, press, item, shape, parent_ctm, s);

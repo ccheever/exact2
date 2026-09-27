@@ -48,6 +48,7 @@ fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadDashArray { .. } => "`stroke-dasharray` is `none` or non-negative numbers separated by spaces or commas".into(),
         StyleValueError::BadTransform { .. } => "`transform` is `none` or transform functions: matrix, translate, translateX/Y, scale, scaleX/Y, rotate (with SVG's optional centre), skew, skewX/Y; lengths in user units or px, angles in deg, rad, grad or turn".into(),
         StyleValueError::BadMarker { .. } => "a marker or a mask is `none` or `url(#id)`, naming a `marker` or a `mask`".into(),
+        StyleValueError::BadFilter { .. } => "`filter` is `none`, or `url(#id)` naming a `filter` and the filter functions (blur, brightness, contrast, drop-shadow, grayscale, hue-rotate, invert, opacity, saturate, sepia), in order".into(),
         StyleValueError::BadPaintOrder { .. } => "`paint-order` is `normal`, or `fill`, `stroke` and `markers` in the order they paint".into(),
         StyleValueError::BadTransformOrigin { .. } => "`transform-origin` is one or two of left, center, right, top, bottom, a length or a percentage".into(),
         StyleValueError::BadAnimation { .. } => "not a CSS `animation` shorthand: `<name> <duration> [<easing>] [<delay>] [<count>|infinite] [<direction>] [<fill-mode>] [<play-state>]`".into(),
