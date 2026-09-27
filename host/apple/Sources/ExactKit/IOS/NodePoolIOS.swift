@@ -80,7 +80,10 @@ final class NodePool {
     static let perShape = 8, capacity = 32
     static let kinds: Set<String> = ["view", "text", "image", "button", "scroll", "svg"]
     /// Kinds whose platform view is heavy: a row pools around them (LLP 1068 §4.0).
-    static let leaves: Set<String> = ["video", "iframe", "native", "canvas", "input", "textarea"]
+    /// A 2D canvas (`canvas2d`, LLP 1056 D10) is one until stage 3 pools its
+    /// bitmap: its view and replayer go with the row's node, and the next
+    /// row's canvas is a new view drawn by its own lifetime's lists.
+    static let leaves: Set<String> = ["video", "iframe", "native", "canvas", "canvas2d", "input", "textarea"]
     /// What `state` reports (LLP 1068 §6): parks, takes, evictions, and the
     /// heavy leaves destroyed at a park and built at a take, by kind.
     private(set) var parks = 0, takes = 0, evictions = 0

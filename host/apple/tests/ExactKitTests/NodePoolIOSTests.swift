@@ -178,7 +178,7 @@ final class NodePoolIOSTests: XCTestCase {
     }
 
     func testARowPoolsAroundEachKindOfHeavyLeafWhichIsBuiltFresh() throws {
-        for kind in ["video", "iframe", "native", "canvas", "input", "textarea"] {
+        for kind in ["video", "iframe", "native", "canvas", "canvas2d", "input", "textarea"] {
             let p = listFixture(heavyRowOps(10, kind: kind, y: 0), root: 10)
             let row = try XCTUnwrap(p.views[10]), glyph = try XCTUnwrap(p.views[11])
             let leaf = try XCTUnwrap(p.views[12]), button = try XCTUnwrap(p.views[13])
@@ -202,6 +202,29 @@ final class NodePoolIOSTests: XCTestCase {
             XCTAssertEqual(p.pool.count, 0)
             XCTAssertEqual(p.pool.leavesDropped[kind], 1); XCTAssertEqual(p.pool.leavesBuilt[kind], 1)
         }
+    }
+
+    /// A 2D canvas row (LLP 1056 D10, LLP 1068 §4.0): the canvas is a new
+    /// view with no bitmap of the old row's, a late list for the old canvas
+    /// lands nowhere, and the new canvas draws its own lifetime's lists.
+    func testA2DCanvasRowPoolsAroundAFreshCanvasAndDropsStaleLists() throws {
+        let p = listFixture(heavyRowOps(10, kind: "canvas2d", y: 0), root: 10)
+        let draw = { (id: Int, lifetime: Int) -> [String: Any] in
+            ["op": "canvas2d", "id": id, "lifetime": lifetime, "generation": 0, "seq": 0, "fresh": true,
+             "w": 300, "h": 200, "scale": 2.0, "stretch": false, "box": [0.0, 0.0, 150.0, 100.0], "radii": [0.0, 0.0, 0.0, 0.0], "lists": [String]()]
+        }
+        p.apply(wireBatch([draw(12, 1)]))
+        let old = try XCTUnwrap(p.views[12])
+        XCTAssertEqual(old.layer.sublayers?.filter { $0.contents != nil }.count, 1, "the old canvas shows its bitmap")
+        p.apply(wireBatch([collections([(20, 20)])] + destroy([10, 11, 12, 13]) + heavyRowOps(20, kind: "canvas2d", y: 0)
+            + [["op": "children", "id": 1, "ids": [20]]]))
+        let fresh = try XCTUnwrap(p.views[22])
+        XCTAssertFalse(fresh === old)
+        XCTAssertTrue(fresh.layer.sublayers?.allSatisfy { $0.contents == nil } ?? true, "no bitmap carried into the new canvas")
+        p.apply(wireBatch([draw(12, 1)]))
+        XCTAssertTrue(fresh.layer.sublayers?.allSatisfy { $0.contents == nil } ?? true, "a stale list lands nowhere")
+        p.apply(wireBatch([draw(22, 2)]))
+        XCTAssertEqual(fresh.layer.sublayers?.filter { $0.contents != nil }.count, 1, "the new canvas draws its own")
     }
 
     func testAParkedViewHasNoIncarnationUntilItIsTaken() throws {
