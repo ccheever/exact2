@@ -317,6 +317,9 @@ uint32_t exact_surface_record(ExactRuntime rt, size_t len);
 /* @ref LLP 1027.000.000: the date — Unix ms at clock zero, minutes east of UTC. */
 uint32_t exact_set_time(ExactRuntime rt, double epoch_at_zero, double utc_offset);
 /* @ref LLP 1039: re-answer viewport facts and relayout in the same batch. */
+/// The display's scale and physical memory for Canvas 2D (LLP 1056 D4);
+/// callable before boot. Returns the batch length.
+uint32_t exact_canvas_display(ExactRuntime rt, double scale, double memory);
 uint32_t exact_resize(ExactRuntime rt, float width, float height);
 /* Actual list scrollport and focused/interacting descendants (zero if absent).
    Row heights use the kernel frames already delivered to the presenter. */

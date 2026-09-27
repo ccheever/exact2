@@ -173,6 +173,7 @@ final class Presenter {
     lazy var navigation = NavigationHost(presenter: self)
     /// SVG scenes and CSS animations (LLP 1055 D4, D7).
     let svg = SvgHost()
+    let canvas2d = Canvas2DHost()
     lazy var segments = SegmentHost(self)
     lazy var shortcuts = ShortcutHost(presenter: self)
     lazy var toolbar = WindowToolbarHost(self)
@@ -1119,6 +1120,7 @@ final class Presenter {
                 if collections.owns(id) { collections.orderChildren(want, in: container) }
             case .surface:
                 if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] ?? []) }
+            case .canvas2d: if let v = views[id] { canvas2d.apply(id, op.payload, layer: v.layer) }
             case .svg: if let v = views[id] { svg.scene(id, op.payload, layer: v.layer, dark: v.drawsDark, clock: session?.clock) }
             case .animations: svg.animations(id, op.payload, layer: views[id]?.layer, clock: session?.clock)
             case .command:
@@ -1131,6 +1133,7 @@ final class Presenter {
                 mouseReorder.retire(id)
                 session?.canvases.destroy(view: id)
                 svg.forget(id)
+                canvas2d.forget(id)
                 views[id]?.forget()
                 // Out of the map before out of the window: the editing-ended
                 // notification removal fires finds no view to send for.

@@ -180,7 +180,13 @@ impl<D: DataSource> Host<D> {
         }
         let node = self.runner.kernel().node(id).expect("live");
         let key = node.key;
-        let kind = kind_for(&node);
+        // @ref LLP 1056 D10 — a 2D canvas is a plain view: its bitmap is a
+        // layer's contents under ordinary children, with no Metal or overlay.
+        let kind = if self.runner.is_canvas_2d(id) {
+            "canvas2d"
+        } else {
+            kind_for(&node)
+        };
         let props = props_for(&node);
         let env = self.runner.kernel().env();
         let (style, _skipped) = style::style_json_for(&node, &env);

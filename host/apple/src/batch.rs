@@ -12,6 +12,8 @@ pub struct Batch {
     /// The views this batch creates: each starts at its presentation's
     /// identity (`Host::present`).
     created: std::collections::HashSet<u32>,
+    /// A 2D canvas asked for another frame (LLP 1056 D5).
+    canvas: bool,
 }
 
 pub use exact_runner::agent::quote;
@@ -259,6 +261,39 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// A 2D canvas's stamped lists (LLP 1056 D4): base64, in order, for
+    /// the Core Graphics replayer. `fresh` starts a new bitmap at `w`×`h`;
+    /// `box` is the content box in the view's border box, where it shows.
+    pub fn canvas2d(
+        &mut self,
+        c: &exact_runner::CanvasList,
+        content: (f32, f32, f32, f32),
+        radii: [f32; 4],
+    ) {
+        let mut s = String::new();
+        let _ = write!(
+            s,
+            "{{\"op\":\"canvas2d\",\"id\":{},\"lifetime\":{},\"generation\":{},\"seq\":{},\"fresh\":{},\"w\":{},\"h\":{},\"scale\":{},\"stretch\":{},\"box\":[{},{},{},{}],\"radii\":[{},{},{},{}],\"lists\":[",
+            c.view, c.lifetime, c.generation, c.seq, c.fresh, c.pixel_width, c.pixel_height, c.scale, c.stretch,
+            content.0, content.1, content.2, content.3, radii[0], radii[1], radii[2], radii[3]
+        );
+        for (i, l) in c.lists.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            s.push('"');
+            s.push_str(&exact_runner::agent::base64(l));
+            s.push('"');
+        }
+        s.push_str("]}");
+        self.ops.push(s);
+    }
+
+    /// Whether a 2D canvas wants the next display frame (LLP 1056 D5).
+    pub fn canvas_frames(&mut self, wants: bool) {
+        self.canvas = wants;
+    }
+
     /// A canvas binding, preserving positional values or authored argument names.
     pub fn surface(&mut self, update: &exact_runner::SurfaceUpdate) {
         let mut s = String::new();
@@ -423,7 +458,8 @@ impl Batch {
         }
         let _ = write!(
             s,
-            ",\"timers\":{timers},\"motion\":{motion},\"clock\":{clock_ms},\"error\":"
+            ",\"timers\":{timers},\"motion\":{motion},\"canvas\":{},\"clock\":{clock_ms},\"error\":",
+            self.canvas
         );
         match error {
             Some(e) => quote(e, &mut s),

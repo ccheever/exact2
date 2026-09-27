@@ -1,0 +1,79 @@
+//! Canvas 2D on Apple, the Rust half (LLP 1056 D4, D7): after each turn's
+//! layout, every 2D canvas's geometry from the kernel, its due draws, and
+//! their stamped lists onto the batch as `canvas2d` ops, which the Swift
+//! presenter replays into Core Graphics on the main thread.
+
+use super::*;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// The display's scale and physical memory, as the presenter last said:
+/// process-wide, since every session shares the screen.
+static SCALE: AtomicU64 = AtomicU64::new(0x4000_0000_0000_0000); // 2.0
+static MEMORY: AtomicU64 = AtomicU64::new(8 << 30);
+
+/// What the presenter knows of the display (`exact_canvas_display`).
+pub fn set_display(scale: f64, memory: f64) {
+    if scale.is_finite() && scale > 0.0 {
+        SCALE.store(scale.to_bits(), Ordering::Relaxed);
+    }
+    if memory.is_finite() && memory > 0.0 {
+        MEMORY.store(memory as u64, Ordering::Relaxed);
+    }
+}
+
+fn scale() -> f64 {
+    f64::from_bits(SCALE.load(Ordering::Relaxed))
+}
+
+impl<D: DataSource> Host<D> {
+    /// The limits for this device: WebKit's iOS area on iOS, a quarter of
+    /// physical memory everywhere (LLP 1056 D4, r3).
+    pub(crate) fn canvas_limits(&mut self) {
+        let memory = MEMORY.load(Ordering::Relaxed);
+        self.runner.set_canvas_limits(exact_runner::Limits::native(
+            memory,
+            cfg!(target_os = "ios"),
+        ));
+    }
+
+    /// This turn's canvas work, after layout: geometry, due draws, lists.
+    pub(crate) fn canvas_turn(&mut self, batch: &mut Batch) {
+        if self.runner.plan().surfaces.is_empty() {
+            return;
+        }
+        self.runner.layout_canvases(scale());
+        self.runner.draw_canvases(&|_| true);
+        for c in self.runner.take_canvas_lists() {
+            let (content, radii) =
+                self.runner
+                    .kernel()
+                    .node(c.view)
+                    .map_or(((0.0, 0.0, 0.0, 0.0), [0.0; 4]), |n| {
+                        let b = exact_kernel::svg::scene::content_box(&n);
+                        let s = n.style;
+                        // The content edge's curve: each radius less the inset
+                        // (CSS Backgrounds 3 §5.2), clipping the bitmap as the
+                        // web clips replaced content.
+                        let inset = b.0.max(b.1);
+                        let radii = [
+                            s.border_radius_top_left,
+                            s.border_radius_top_right,
+                            s.border_radius_bottom_right,
+                            s.border_radius_bottom_left,
+                        ]
+                        .map(|r| (r - inset).max(0.0));
+                        (b, radii)
+                    });
+            batch.canvas2d(&c, content, radii);
+        }
+    }
+
+    /// The display changed: canvases redraw at the new scale (a new
+    /// generation, LLP 1056 D4).
+    pub fn canvas_display(&mut self) -> String {
+        self.canvas_limits();
+        let mut batch = Batch::new();
+        self.canvas_turn(&mut batch);
+        self.finish(batch, None)
+    }
+}

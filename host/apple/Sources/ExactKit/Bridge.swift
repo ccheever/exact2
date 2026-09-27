@@ -20,6 +20,8 @@ public struct Batch {
     /// @ref LLP 1043.000 §3 D8 — absolute runner deadline, absent without timers.
     public var timerDueMs: Double? = nil
     public var pending = false
+    /// A 2D canvas wants the next display frame (LLP 1056 D5).
+    public var canvas = false
     init(ops: [BatchOp], timers: Bool, motion: Bool, clock: Double?, error: String?, timerDueMs: Double? = nil, pending: Bool = false) {
         self.ops = ops; self.timers = timers; self.motion = motion; self.clock = clock
         self.error = error; self.timerDueMs = timerDueMs; self.pending = pending
@@ -90,6 +92,8 @@ final class Runtime {
         return data.count
     }
     /// Boot the plan baked into the library under a viewport; the first batch.
+    /// The display's scale and memory for Canvas 2D (LLP 1056 D4).
+    func canvasDisplay(scale: CGFloat, memory: UInt64) -> Batch { read(exact_canvas_display(rt, Double(scale), Double(memory))) }
     func boot(width: CGFloat, height: CGFloat) -> Batch { read(exact_boot(rt, Float(width), Float(height))) }
     /// Boot from plan bytes (the dev loop's restart; LLP 1007 §6): state
     /// carried — transactional, so a refused candidate leaves the running

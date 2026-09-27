@@ -1088,6 +1088,17 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// The display for Canvas 2D (LLP 1056 D4): its scale and memory, for
+    /// every session; a booted host redraws its canvases at the new scale.
+    pub fn canvas_display(&mut self, scale: f64, memory: f64) -> u32 {
+        crate::host::canvas2d::set_display(scale, memory);
+        let out = match self.host.as_mut() {
+            Some(h) => h.canvas_display(),
+            None => "{\"ops\":[],\"timers\":false,\"motion\":false}".to_string(),
+        };
+        self.emit(out)
+    }
+
     /// A motion frame.
     pub fn tick(&mut self, now_ms: f64) -> u32 {
         let out = self

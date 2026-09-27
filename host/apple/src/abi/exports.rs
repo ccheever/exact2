@@ -318,6 +318,13 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_time(epoch_at_zero, utc_offset), |n| n)
         }
 
+        /// The display's scale and physical memory for Canvas 2D (LLP 1056
+        /// D4); callable before boot. Returns the batch length.
+        #[no_mangle]
+        pub extern "C" fn exact_canvas_display(rt: u32, scale: f64, memory: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.canvas_display(scale, memory), |n| n)
+        }
+
         /// The viewport changed; returns the batch length.
         #[no_mangle]
         pub extern "C" fn exact_resize(rt: u32, width: f32, height: f32) -> u32 {

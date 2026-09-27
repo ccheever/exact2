@@ -391,6 +391,20 @@ public final class ExactSession {
         frames.session = self
         runtime.setMeasure(TextEngine.measureText, ctx: text.opaque)
         runtime.setFonts(TextEngine.installFonts, ctx: text.opaque)
+        // LLP 1056 D4: Canvas 2D backs its bitmaps at the display's scale.
+        #if canImport(UIKit)
+        let scale = UIScreen.main.scale
+        #else
+        let scale = NSScreen.main?.backingScaleFactor ?? 2
+        #endif
+        _ = runtime.canvasDisplay(scale: max(1, scale), memory: ProcessInfo.processInfo.physicalMemory)
+        // A window on another display corrects it; the canvases redraw (D4).
+        presenter.canvas2d.onScale = { [weak self] scale in
+            DispatchQueue.main.async {
+                guard let self, self.state != .destroyed else { return }
+                self.apply(self.runtime.canvasDisplay(scale: scale, memory: ProcessInfo.processInfo.physicalMemory))
+            }
+        }
         ExactSession.live[runtime.rt] = WeakSession(self)
         runtime.setWake(ExactSession.wake, ctx: UnsafeMutableRawPointer(bitPattern: UInt(runtime.rt)))
         let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
@@ -647,6 +661,7 @@ public final class ExactSession {
         for op in batch.ops where op.op == .reorder { presenter.reorder?.observe(ReorderState(op.payload)) }
         presenter.reorder?.raiseLifted()
         frames.motion = batch.motion
+        frames.canvas2d = batch.canvas
         // The GPU module: after the first painted frame, only when a canvas exists.
         if firstDrawMs != nil { canvases.loadIfNeeded(); natives.loadIfNeeded(); drainSurfaceWork() } else { DispatchQueue.main.async { [weak self] in guard let self else { return }; canvases.loadIfNeeded(); drainSurfaceWork(); frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames) } }
         timerDue = batch.timerDueMs
@@ -936,6 +951,8 @@ final class Frames: NSObject {
     weak var session: ExactSession?
     var link: CADisplayLink?
     var motion = false
+    /// A 2D canvas asked for a frame (LLP 1056 D5): ticks run while it does.
+    var canvas2d = false
     var timerSoon = false
     private var canvasRequested = false
 
@@ -985,9 +1002,9 @@ final class Frames: NSObject {
             let now = s.now()
             if s.timerDue.map({ now >= $0 }) ?? true { s.apply(s.runtime.advance(now: now)) }
         }
-        if motion { s.apply(s.runtime.tick(now: s.now())) }
+        if motion || canvas2d { s.apply(s.runtime.tick(now: s.now())) }
         let more = s.canvases.tick(now: frameNow)
-        run(motion || timerSoon || more || s.canvases.wantsFrames || s.canvases.lifecycle.needsRetry)
+        run(motion || canvas2d || timerSoon || more || s.canvases.wantsFrames || s.canvases.lifecycle.needsRetry)
     }
 
     #if canImport(UIKit)

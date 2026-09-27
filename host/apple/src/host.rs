@@ -25,6 +25,8 @@ mod arrange;
 #[cfg(test)]
 #[path = "arrange_tests.rs"]
 mod arrange_tests;
+#[path = "canvas2d.rs"]
+pub(crate) mod canvas2d;
 #[path = "content_region/host.rs"]
 mod content_region_host;
 #[path = "height.rs"]
@@ -440,6 +442,8 @@ impl<D: DataSource> Host<D> {
         svg_lower::eligibility(host.runner.kernel(), &mut host.engine, &sync);
         host.reconcile_height_handles(&mut batch, true);
         host.layout(&mut batch).map_err(HostError::Layout)?;
+        host.canvas_limits();
+        host.canvas_turn(&mut batch);
         // A failed first layout is a refused boot, not a partially committed
         // host. In particular, no candidate secret writes escape before this
         // point on a dev reload.
@@ -732,6 +736,7 @@ impl<D: DataSource> Host<D> {
 
     fn advanced(&mut self, a: exact_runner::Advanced) -> String {
         self.now_ms = a.now_ms.max(self.now_ms);
+        self.runner.canvas_frame();
         let error = a.error.map(|e| format!("{e:?}"));
         self.commit(&a.receipts, error)
     }
@@ -991,6 +996,8 @@ impl<D: DataSource> Host<D> {
             return self.arrange_settle();
         }
         let error = self.height_layout_if_needed(&mut batch).err();
+        self.runner.canvas_frame();
+        self.canvas_turn(&mut batch);
         // Only suspended ancestor mappings need a settle recheck. Normal
         // photo Translate/Scale frames keep the existing cheap tick path.
         if self.transform_drags.mapping_pending {
@@ -1013,7 +1020,8 @@ impl<D: DataSource> Host<D> {
         }
     }
 
-    fn finish(&self, batch: Batch, error: Option<String>) -> String {
+    fn finish(&self, mut batch: Batch, error: Option<String>) -> String {
+        batch.canvas_frames(self.runner.canvas_wants_frame());
         batch.finish(
             self.runner.timer_due_ms(),
             !self.engine.quiescent(),
@@ -1135,6 +1143,7 @@ impl<D: DataSource> Host<D> {
         } else {
             self.layout(&mut batch).err()
         };
+        self.canvas_turn(&mut batch);
         for s in self.runner.take_surface_updates() {
             batch.surface(&s);
         }
