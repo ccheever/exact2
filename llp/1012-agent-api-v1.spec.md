@@ -313,12 +313,14 @@ session setup, not a drive. `Runner::act` runs an action by name for **tests**
 (LLP 1005 §6 now says so); an agent never takes it.
 
 **Eight, and a wheel is a form of `tap`** (Charlie, 2026-08-29: "A"). A drag
-would be another form. **Nine since 2026-09-27:** `rules/NOT-DOING.md` is
-retired, and a display preference is no input, so `prefer` is its own
-operation rather than a form of `tap` (LLP 1061 D5); a test that reads
-`exactViewport().prefersReducedMotion` needs it on every host. `rules/NOT-DOING.md` §Agent API binds the count and
+would be another form. `rules/NOT-DOING.md` §Agent API binds the count and
 the trade — a ninth operation replaces one of the eight, same PR — and this
-document cites it rather than restating it as a second law.
+document cites it rather than restating it as a second law. **`prefer`
+(2026-09-27, LLP 1061 D5) is a ninth, pending Charlie's ruling:** a display
+preference is no input, so it is not a form of `tap` or `type`, and a test
+that reads `exactViewport().prefersReducedMotion` needs it on every host; it
+was added without taking one of the eight off, which that rule requires.
+`rules/NOT-DOING.md` records it as open.
 
 ## 2. The clock
 

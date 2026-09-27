@@ -1,8 +1,12 @@
-# LLP 1058: Long native calls, a page module on the web, and Swift modules
+# LLP 1067: Long native calls, a page module on the web, and Swift modules
+
+*Numbered 1058 on its branch; renumbered 2026-09-27 when main's LLP 1058
+(the fast path by default) landed first. D5 was rebuilt on LLP 1024's module
+artifact at the same time.*
 
 **Type:** RFC
 **Status:** Implemented 2026-09-26
-**Systems:** Runner (`Request::is_native`, `DataSource::native`, `Runner::native_work`); TypeScript executor (`NativeModule::later`, `native.later` in the prelude and the generated declarations); the native executor core (hand-off); Apple, Linux and render hosts (routing); Web glue, module realms, build, dev server, static serving (`host.web.native`); `js/native/ExactNative.swift`, `exact_js::swift_native_module!`, `exact_js_bake::swift_native`
+**Systems:** Runner (`Request::is_native`, `DataSource::native`, `Runner::native_work`); TypeScript executor (`NativeModule::later`, `native.later` in the prelude and the generated declarations); the native executor core (hand-off); Apple, Linux and render hosts (routing); Web glue (`native-glue.js`, shared with LLP 1024), module realms, build, dev server (the app's `modules/web/index.js`); `js/native/ExactNative.swift`, `exact_js::swift_native_module!`, `exact_js_bake::swift_native`
 **Author:** Claude (Opus 5.5) for Seth Webster
 **Date:** 2026-09-26
 **Related:** LLP 1027 D8/D10 (the native module seam); LLP 1027.002 D3/D4 (`Work::Later`: the I/O worker is never held while a module computes); LLP 1016 (requests, tickets, `fulfill`); LLP 1024 (native modules as a first-class seam, Draft); grnl's FRICTION.md F3, F8, M1–M3
@@ -17,7 +21,7 @@ a `fetch`, to the URL `exact-native:`.
 - **Apple and Linux:** the host hands the request to the source's native
   handler through the executor's hand-off. No I/O worker waits for it.
 - **The web:** the glue hands the request to the app's *page module*, an
-  ES module declared as `host.web.native`. It runs on the page, where
+  module artifact, `modules/web/index.js` (LLP 1024 D7). It runs on the page, where
   `getUserMedia`, speech recognition and the browser's built-in model are.
   This is the web's first native seam.
 - **Swift:** an app writes one class conforming to `ExactNativeModule`.
@@ -82,16 +86,28 @@ Asking for `native` (op 6, `available`) counts as an external read. The
 bake runs with no module, so an answer that branches on `native` is not
 compiled, and the running host asks it again.
 
-### D5 — The web's page module
+### D5 — The web's page module is the app's module artifact
 
-`host.web.native` names an ES module in the app that exports
-`later(request)`.
+The app's one web module artifact, `modules/web/index.js` (LLP 1024 D7),
+answers `native.later` too: it may export `later(request)` beside the tags
+it serves, and `connect({ changed })` to announce device topics (LLP
+1016.002). There is one artifact and one loader (`native-glue.js`'s
+`artifact()`, an injected module script memoized on the page), so a view
+module and a long call never load the file twice.
 
-- **Build:** copies it into the dist as `native.js`, marks the page with
-  `<meta name="exact-native">`, and serves it as a public file.
-- **Dev server:** serves the current file, so a page reload picks up an edit.
-- **Module realms:** they report `native` present; `call` throws, because
-  nothing on the web answers at once.
+- **Build:** an app with `modules/web/index.js` has that directory copied into the
+  dist's `modules/` and the page marked `<meta name="exact-native"
+  content="./modules/index.js">`, with or without tags in its roster.
+- **Dev server:** serves `/modules/*.js` from the app's `modules/web`, so a
+  page reload picks up an edit.
+- **Module realms:** they report `native` present when the page is marked;
+  `call` throws, because nothing on the web answers at once.
+
+*Changed at the merge with main (2026-09-27):* this was `host.web.native`, a
+second ES module copied as `native.js`. LLP 1024's artifact reached the page
+first, so its path, file and glue stand and `later` rides on them. An app
+moves its `later` export into `modules/web/index.js` and drops
+`host.web.native` from `app.json`.
 
 ### D6 — Swift without plumbing
 
@@ -106,6 +122,17 @@ compiled, and the running host asks it again.
   the app's sources for Cargo's target at the deployment target the host
   build chose (LLP 1036.001 area; the `minimumOS` change). It rebuilds
   only what is stale and links the result.
+
+### D7 — Apple: beside LLP 1024, not through it
+
+LLP 1024's Apple artifact is a view module: a dylib whose
+`exact_native_abi()` table creates platform views for hyphenated tags. This
+seam is a data module's: Swift linked into the app's data crate, answering
+`native.call`/`native.later` through `exact_native_call`/`exact_native_later`.
+They share no symbol or type (`ExactNativeEvents`/`ExactNativeInstance` there,
+`ExactNative`/`ExactNativeModule` here). Whether an app's Swift should be one
+artifact for both is Charlie's call; until then each stays the smallest
+version that works.
 
 ## Not in this RFC
 

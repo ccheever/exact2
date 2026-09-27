@@ -1,11 +1,14 @@
-# LLP 1056: Gradients — CSS `background-image`, one layer, every host
+# LLP 1066: Gradients — CSS `background-image`, one layer, every host
+
+*Numbered 1056 on its branch; renumbered 2026-09-27 when main's LLP 1056
+(Canvas 2D) landed first.*
 
 **Type:** RFC
 **Status:** Implemented 2026-09-26
-**Systems:** Kernel (`schema.json` style bit 101, `kernel/src/gradient.rs`), Contract (`background-image` in `tags.rs`, refusals in `values.rs`), Web host (`css.rs`), Apple host (`style.rs` gradient_json, `Gradient.swift`, `BoxLayerIOS.swift`, the node views' `draw`), Linux host (`paint/gradient.rs`, the tiny-skia and Vello backends)
+**Systems:** Kernel (`schema.json` style bit 144, `kernel/src/gradient.rs`), Contract (`background-image` in `tags.rs`, refusals in `values.rs`), Web host (`css.rs`), Apple host (`style.rs` gradient_json, `Gradient.swift`, `BoxLayerIOS.swift`, the node views' `draw`), Linux host (`paint/gradient.rs`, the tiny-skia and Vello backends)
 **Author:** Claude (Opus 5.5) for Seth Webster
 **Date:** 2026-09-26
-**Related:** LLP 1014 §5 (took the old gradient rows out; this brings one back in CSS's shape), LLP 1034 (`light-dark()` colours, resolved by the host), LLP 1043.000 (`clip-path`, the CSS-text row this copies), LLP 1053 G2 (the border parity page this copies), `rules/NOT-DOING.md` (the gradient line, struck).
+**Related:** LLP 1014 §5 (took the old gradient rows out; this brings one back in CSS's shape), LLP 1034 (`light-dark()` colours, resolved by the host), LLP 1043.000 (`clip-path`, the CSS-text row this copies), LLP 1053 G2 (the border parity page this copies), `rules/NOT-DOING.md` (the gradient line, moved off 2026-09-26; Charlie has not ruled on the take).
 
 ## Summary
 
@@ -21,13 +24,13 @@ border page's band.
 
 ## Design
 
-**D1. One CSS-valued row, bit 101.** `background_image` uses the codec
-`clip-path` and `shape-outside` use (`Codec::CssValue`). The kernel parses the
+**D1. One CSS-valued row, bit 144.** `background_image` has its own codec,
+`background-image`, carrying CSS text on the wire as `clip-path` and
+`shape-outside` do. The kernel parses the
 text into a `BackgroundImage`, validates it, and uses the canonical text as
 the wire form. It is not a layout row. Stops are fixed up when parsed
 (CSS Images 3 §3.5.3: first 0%, last 100%, positions made nondecreasing, runs
-spread evenly), so every host gets the same positions. Bit 100 is held by a
-placeholder that text-transform's row replaces when both land.
+spread evenly), so every host gets the same positions.
 *Rejected:* separate type/angle/colours rows, as in the predecessor. That
 structure is not CSS, and an author could not write what they know.
 

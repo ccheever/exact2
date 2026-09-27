@@ -1,4 +1,7 @@
-# LLP 1055: `box-shadow` and `text-transform`
+# LLP 1064: `box-shadow` and `text-transform`
+
+*Numbered 1055 on its branch; renumbered 2026-09-27 when main's LLP 1055 (SVG
+shapes and CSS animations) landed first.*
 
 **Type:** RFC
 **Status:** Implemented 2026-09-26
@@ -19,7 +22,7 @@ text "Recent" text-transform="uppercase"
 ```
 
 `box-shadow` sets the four shadow rows the kernel already had (bits 57–60),
-which only the web ever drew. `text-transform` is a new row, bit 100.
+which only the web ever drew. `text-transform` is a new row, bit 143.
 
 ## Motivation
 
@@ -86,7 +89,7 @@ into each half of a `light-dark()` pair and the pair is emitted as such, so
 the browser resolves it per element (LLP 1034 D2); it used to take the
 light half. An invisible shadow is `box-shadow:none`.
 
-### D4 — `text_transform`, bit 100
+### D4 — `text_transform`, bit 143
 
 `enum:TextTransform` — `none`, `uppercase`, `lowercase`, `capitalize` —
 inherited, a text row, a layout row: it changes what is measured.

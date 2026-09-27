@@ -44,6 +44,8 @@ Tracked every commit. A regression is a P0 with a name on it.
 
 ## Scope
 
+- **`rules/NOT-DOING.md` is binding.** Moving something onto the doing-list means writing why
+  and taking something off. **[review]**
 - **Delete; don't deprecate.** No compat shims, no migration paths, no legacy branches
   before 1.0. **[review]**
 - **Web is the standard and the dev loop; native is swept.** One Contract source targets

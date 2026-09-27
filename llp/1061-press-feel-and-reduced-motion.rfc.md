@@ -2,10 +2,10 @@
 
 **Type:** RFC
 **Status:** Implemented 2026-09-26; gaps closed 2026-09-27 (AppKit press, the web's pointer rule, the scroll view's quick tap, the rate by what moves, the agent's `prefer`, `transform-origin`; see §Verified)
-**Systems:** Kernel (style rows bit 105 `press_scale`, bit 113 `transform_origin`); Contract (`press-scale`, `transform-origin`); Motion (`Engine::spatial`); Runner (`Viewport.preferences`, `set_preferences`, two `exactViewport` fields); Apple host (`exact_set_preferences`, press feedback on UIKit and AppKit, the display link's rate policy, the batch's `spatial`); Web host (`--exact-press`, the input glue's `data-pressed`, the page's media queries through `exact_boot`/`exact_resize`); Linux host (`transform-origin` in the painter, `prefer`); agent driver (`prefer`, LLP 1012)
+**Systems:** Kernel (style rows bit 147 `press_scale`, bit 120 `transform_origin`, LLP 1055.000's); Contract (`press-scale`, `transform-origin`); Motion (`Engine::spatial`); Runner (`Viewport.preferences`, `set_preferences`, two `exactViewport` fields); Apple host (`exact_set_preferences`, press feedback on UIKit and AppKit, the display link's rate policy, the batch's `spatial`); Web host (`--exact-press`, the input glue's `data-pressed`, the page's media queries through `exact_boot`/`exact_resize`); Linux host (`transform-origin` in the painter, `prefer`); agent driver (`prefer`, LLP 1012)
 **Author:** Claude (Opus 5.5) for Seth Webster
 **Date:** 2026-09-26
-**Related:** LLP 1002 §4 and `rules/NOT-DOING.md` §Motion (reduced motion is the app's choice, not the engine's); LLP 1057 D7 (animations inherit that); LLP 1039 (`exactViewport`, the fact this extends); LLP 1027.000.000 (a host fact told after boot, as the date is); LLP 1009 D4 (frames only while something moves)
+**Related:** LLP 1002 §4 and `rules/NOT-DOING.md` §Motion (reduced motion is the app's choice, not the engine's); LLP 1055 D11 (animations inherit that); LLP 1039 (`exactViewport`, the fact this extends); LLP 1027.000.000 (a host fact told after boot, as the date is); LLP 1009 D4 (frames only while something moves)
 
 ## Summary
 
@@ -18,9 +18,7 @@ fields on the viewport fact:
 
 ```
 keyframes rise
-  from
-    opacity=0
-    translate="0px 8px"
+  from opacity=0 translate="0px 8px"
 
 shape Media
   prefersReducedMotion: bool
@@ -40,7 +38,7 @@ component Feel
 
 ## Decisions
 
-**D1 — `press-scale` is a style row, not CSS.** Bit 105, `f32`, default 1
+**D1 — `press-scale` is a style row, not CSS.** Bit 147, `f32`, default 1
 (none), not inherited, no layout. CSS has no row for it — `:active` is a
 selector, and Contract has no selectors — so the feedback is named for what it
 shows. It is set like any row (literal, expression, `style`, class choice);
@@ -157,11 +155,13 @@ the system, `NSApp.appearance` (macOS, which has no layer beneath the app's
 own); Linux re-answers the runner and keeps a system scheme that
 `setScheme("system")` follows.
 
-**D6 — `transform-origin` is CSS's, in two dimensions** (2026-09-27). Bit 113,
-`crate::origin::TransformOrigin`: one or two of `left`/`center`/`right`/
-`top`/`bottom`, `px` lengths and percentages (keywords in either order), an
-optional `z` length accepted and dropped (it moves nothing a plane's
-transforms show); initially `50% 50%`. The web emits it canonical
+**D6 — `transform-origin` is CSS's, in two dimensions** (2026-09-27). Bit 120,
+main's row and type (`svg::TransformOrigin`, LLP 1055.000 D5), which SVG
+elements and boxes share: one or two of `left`/`center`/`right`/
+`top`/`bottom`, `px` lengths and percentages (keywords in either order, a
+length always x then y), and a `z` of 0; initially `50% 50%` on a box. (This
+branch had its own `origin.rs` with the same grammar; the merge kept main's
+and added `resolve` and `centred` to it.) The web emits it canonical
 (`0% 0%`); UIKit composes the transform about the origin as an offset from
 the centre, its anchor (so `frame` keeps working); AppKit and the Linux
 painter move the origin to the layer's own and back. The press folds into

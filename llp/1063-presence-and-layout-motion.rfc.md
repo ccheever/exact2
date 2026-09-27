@@ -6,7 +6,7 @@
 **Author:** Claude (Opus 5.5) for Seth Webster
 **Date:** 2026-09-26 (gaps closed 2026-09-27: size, windowed rows, the web's
 measure, load, ghost and springs, first moves, XCTests)
-**Related:** LLP 1002/1003 (motion v1), LLP 1057 (keyframe animation — the grammar reused here), LLP 1041 §8.12 (the numeric-height trial, unchanged), `rules/NOT-DOING.md` §Motion
+**Related:** LLP 1002/1003 (motion v1), LLP 1055 D5 (keyframes and `animation` — the grammar reused here), LLP 1041 §8.12 (the numeric-height trial, unchanged), `rules/NOT-DOING.md` §Motion
 
 ## Summary
 
@@ -19,9 +19,7 @@ seekable clock.
 
 ```
 keyframes leave
-  to
-    opacity=0
-    scale=0.96
+  to opacity=0 scale=0.96
 
 style Row
   layout-transition="320ms cubic-bezier(.32,.72,0,1)"
@@ -48,10 +46,11 @@ first seen) and "Second" slides back down.
 
 ## Decisions
 
-**D1 — Two rows, CSS grammar.** `exit-animation` (bit 103, codec
-`animations`) is the `animation` shorthand, its `keyframes` resolved at
-compile time exactly as LLP 1057 D3 resolves `animation` (same parser, same
-lowering, same errors named for the attribute). `layout-transition` (bit 104,
+**D1 — Two rows, CSS grammar.** `exit-animation` (bit 145, codec
+`animations`) is the `animation` shorthand, its names resolved against the
+plan's `keyframes` table by the runner exactly as LLP 1055 D5 resolves
+`animation` (same parser, same table, a literal's unknown name the same
+`lower-animation-name` error). `layout-transition` (bit 146,
 codec `transitions`) is a `transition` shorthand; the last declaration that
 names no property (or `all`) governs, so `layout-transition="320ms
 cubic-bezier(.32,.72,0,1)"` and `"spring(300, 30, 1)"` both work, and one
@@ -107,7 +106,10 @@ removed when the appended animations end.
 `settle_time` includes its end, so `clock settle` waits for it; when the
 engine passes the end, one `destroy` of the ghost lets the presenter drop the
 whole subtree. The presenter needs one new op (`exit`) and one new `present`
-property (`layout`).
+property (`layout`). Since the merge with main's Core Animation executor (LLP 1055 D7), a
+leaving node's animations are the engine's from its exit on: the host marks
+it sampled and hands its lowered ones back (`animations` with none), so
+what it already played keeps running under the same clock as the exit.
 
 **D6 — Layout moves by an offset; size moves the surface alone.** Natively
 a node with the row has its laid-out box observed as `Property::Layout` (four
