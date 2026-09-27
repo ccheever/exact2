@@ -1102,5 +1102,41 @@ final class TextMetricsTests: XCTestCase {
         XCTAssertTrue(nodes.allSatisfy { !$0.textRasterUsesStrips && $0.textRasterFrame.width >= 320 })
     }
 
+    /// A fling leaves the lookup metadata of thousands of labels no view owns;
+    /// rest drops it, and what views and cold measurements hold still answers.
+    func testRestDropsDeadLookupMetadataAndKeepsWhatAnswers() {
+        let engine = TextEngine(resolve: { _ in nil })
+        func spec(_ text: String) -> Spec {
+            Spec(runs: [Run(text: text, size: 13.25, weight: 400, family: 0,
+                            italic: false, lineHeight: 18.125, letterSpacing: 0)],
+                 align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        }
+        var visible: [Paragraph] = []
+        for row in 0..<3000 {
+            autoreleasepool {
+                _ = engine.minContentWidth(spec("row \(row)"))
+                let p = engine.paragraph(spec("row \(row)"), width: 180)
+                engine.accepted(p)
+                visible.append(p)
+                if visible.count > 8 { visible.removeFirst() }
+            }
+        }
+        let before = engine.residencyStats
+        engine.dropColdShaped()
+        let after = engine.residencyStats
+        XCTAssertLessThan(after.metadataEntries, before.metadataEntries / 2)
+        XCTAssertGreaterThan(after.coldEntries, 0, "cold measurements stay")
+        XCTAssertEqual(after.liveParagraphs, 8)
+        for p in visible { XCTAssertTrue(engine.paragraph(spec(p.shape!.spec.runs[0].text), width: 180) === p) }
+        let width = engine.minContentWidth(spec("row 10"))
+        let fresh = TextEngine(resolve: { _ in nil }).minContentWidth(spec("row 10"))
+        XCTAssertEqual(width, fresh)
+        // Admission and eviction work on the renumbered tables.
+        for row in 0..<(TextResidency.maxLookupEntries + 64) { _ = engine.minContentWidth(spec("again \(row)")) }
+        XCTAssertLessThanOrEqual(engine.residencyStats.metadataEntries, TextResidency.maxLookupEntries)
+        let late = engine.paragraph(spec("late"), width: 180)
+        engine.accepted(late)
+        XCTAssertTrue(engine.paragraph(spec("late"), width: 180) === late)
+    }
 }
 #endif
