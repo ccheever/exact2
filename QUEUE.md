@@ -545,7 +545,9 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
   never a sixth check).
 
 - LLP 1024 (native modules) landed 2026-09-27 (§9). Unverified: an iPhone device run
-  of a module artifact (AMFI, team signature) and a plan reload on Apple hosts.
+  of a module artifact (AMFI, team signature), a plan reload on Apple hosts, and the
+  photo editor's trackpad (macOS) and UIKit (iOS) gestures, which the agent cannot
+  yet deliver there (the iOS carrier's contact needs Accessibility permission).
 
 - LLP 1026 (dynamic delivery: the app over the wire from a cloud that builds it) is
   Draft r2 (2026-09-02), Charlie's exploration, no implementer. r2 is "both worlds": one

@@ -175,6 +175,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn native_props_carry_strings_drop_none_and_escape_as_json() {
+        let pairs = [
+            Value::str("a"),
+            Value::Number(1.5),
+            Value::str("b"),
+            Value::Option(None),
+            Value::str("c"),
+            Value::some(Value::Bool(true)),
+            Value::str("d"),
+            Value::str("q\"\\\t\u{1}"),
+        ];
+        assert_eq!(
+            native_props(&pairs).unwrap(),
+            r#"{"a":"1.5","c":"true","d":"q\"\\\t\u0001"}"#
+        );
+        assert_eq!(native_props(&[Value::str("x"), Value::list(vec![])]), None);
+    }
+
+    #[test]
     fn to_string_uses_javascript_decimal_and_exponent_boundaries() {
         let plan = exact_plan::builder::PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1)
             .finish()

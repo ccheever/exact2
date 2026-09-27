@@ -640,8 +640,8 @@ the tokened snapshots of snapshot-bit tags into the iframe capture map
 (`Capture.web`) and hides those live views.
 
 **Web (D7).** The node is the custom element: `tag_for` returns the module
-name (re-checked). A shim in `glue.js` records each module element; two
-animation frames later `native-glue.js` loads, defines each roster tag once
+name (re-checked). A shim in `glue.js` records each module element; after the
+browser’s first paint entry `native-glue.js` loads, defines each roster tag once
 as a bare `HTMLElement` subclass, and injects the app’s module as an inline
 module script with a static import (never an `import()`). Props arrive as
 the element’s `data-nativeviewprops` attribute and are observed; events are
@@ -673,8 +673,11 @@ a copy of the build with its module skewed or removed.
 
 Verified (2026-09-27):
 
-- `bun scripts/smoke.mjs web --app native-fixture --app-only`: ok, 33 of 33
-  native checks (Chrome for Testing 154).
+- `bun scripts/smoke.mjs web --app native-fixture --app-only`: ok, 32 of 32
+  native checks, four runs in a row (Chrome for Testing 154). The web gate
+  was first two animation frames, as the GPU module’s is; the smoke caught
+  the adapter starting about 2 ms before Chrome’s first paint entry, so the
+  gate is now that entry (two frames and 250 ms where Chrome records none).
 - `bun scripts/smoke.mjs macos --app native-fixture --app-only`: ok, 33 of 33.
 - `bun scripts/smoke.mjs ios --app native-fixture --app-only`: ok, 33 of 33
   (iPhone 18 Pro simulator, iOS 27; the artifact in `Frameworks`, ad-hoc
@@ -686,6 +689,34 @@ Verified (2026-09-27):
 
 Not verified: an iPhone device run (AMFI, a team signature), and a plan
 reload on Apple hosts (the web smoke asserts it).
+
+**Consumers (2026-09-27).** `apps/photo-editor` is the named consumer:
+`<photo-editor>` is UIKit on iOS (pinch about the centroid, two-finger
+rotation, a rubber-band pan that flings with its release velocity, crop
+corner and edge handles, double-tap reset), AppKit on macOS (trackpad
+magnify and rotation, mouse drags, double click, wheel zoom; drawn in
+`draw(_:)`, so the ordinary capture sees it and no snapshot bit is needed)
+and Pointer Events on the web. It reports its resting state as `change` and
+`"edited"` as `message` when a gesture ends; the Contract shows the values,
+and its Rotate 90° and Reset buttons — the non-gesture path — reach the
+module only through the computed `turns` and `reset` props.
+`apps/map-demo` is a second: `<native-map>`, MKMapView with the snapshot
+bit (MKMapSnapshotter) on Apple and an OpenStreetMap tile map on the web.
+Both were driven through the agent on web, macOS and the iOS simulator.
+Agent-driven there: the buttons on every host; single-pointer drags (pan,
+fling to the bound, crop handle) on web and macOS; double click and pin
+presses on the web; a pin click on macOS. Two-pointer pinch and rotation ran
+on the web only as synthetic PointerEvents dispatched in the page, which is
+not one of the eight operations. Not verified: trackpad magnify and rotation
+on macOS, every UIKit gesture on iOS (the simulator carrier’s contact needs
+Accessibility permission this machine lacks), and double click on macOS (the
+carrier sends no double click).
+
+One lesson for module authors: an agent-mode host serves requests on the main
+thread back to back, so a module’s wall-clock easing hardly advances inside
+a burst of operations. The photo editor therefore reports where an edit will
+rest when the gesture ends, and eases there afterwards, on a timer in every
+run-loop mode.
 
 **Working set.** §7’s trade was spent on 2026-08-31 (88ccf8c5: 1022 left
 `llp/current/` and 1024 entered), and 1024’s link later left for the
