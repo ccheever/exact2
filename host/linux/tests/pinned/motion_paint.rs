@@ -97,3 +97,71 @@ fn an_appearance_change_transitions_a_light_dark_colour() {
     p.tick(1000.0);
     assert_eq!(pixel(&mut p, 150, 250), [0, 0, 0, 255]);
 }
+
+/// A `currentcolor` border paints the animating `color` frame by frame —
+/// never its own faster `border-color` transition, as its computed value
+/// stays `currentcolor` — and an inline run that inherits it follows (LLP
+/// 1062 D5).
+#[test]
+fn currentcolor_borders_and_inline_runs_follow_an_animating_color() {
+    pin_font();
+    let plan = contract::compile(
+        r##"keyframes lit
+  to
+    box-shadow="0 16px 24px #1d4ed8"
+component App
+  state on = false
+  action toggle writes on
+    on = not on
+  view
+    column testId="page" width=200 height=300
+      column testId="glow" width=40 height=20 animation="lit 1s linear both"
+      column testId="box" width=100 height=60 border-width=4 border-style="solid" color=(on ? "#ffffff" : "#000000") transition="color 1s linear, border-color 200ms linear"
+        text testId="para"
+          text "plain " testId="plain"
+          text "red" color="#ff0000" testId="red"
+      button testId="toggle" press=toggle width=40 height=20
+"##,
+    )
+    .unwrap();
+    let assets = PathBuf::from(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../apps/caltrain/assets"
+    ));
+    let (mut p, error) =
+        Presenter::boot(&plan.encode(), NoData, (200.0, 300.0), 1.0, assets).unwrap();
+    assert!(error.is_none(), "{error:?}");
+    assert_eq!(pixel(&mut p, 1, 30), [0, 0, 0, 255]);
+    let _ = p.tap(view(&p, "toggle")).unwrap();
+    p.tick(500.0);
+    assert_eq!(
+        pixel(&mut p, 1, 30),
+        [128, 128, 128, 255],
+        "the border, halfway"
+    );
+    let grey = Some([128, 128, 128, 255]);
+    assert_eq!(
+        p.host()
+            .presented(view(&p, "plain"))
+            .paint
+            .color(Property::Color),
+        grey
+    );
+    assert_eq!(
+        p.host()
+            .presented(view(&p, "red"))
+            .paint
+            .color(Property::Color),
+        None
+    );
+    // `box-shadow` keyframes, geometry and colour (LLP 1062 D9).
+    let glow = p.host().presented(view(&p, "glow")).paint;
+    assert_eq!(
+        glow.value(Property::BoxShadow),
+        Some(exact_motion::Value::four(0.0, 8.0, 12.0, 0.0))
+    );
+    assert_eq!(glow.color(Property::ShadowColor), Some([29, 78, 216, 128]));
+    p.tick(1000.0);
+    assert_eq!(pixel(&mut p, 1, 30), [255, 255, 255, 255]);
+    assert!(p.host().presented(view(&p, "box")).paint.is_empty());
+}

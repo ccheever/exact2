@@ -1,13 +1,13 @@
 #!/usr/bin/env bun
-// The agent API's driver (LLP 1012): the eight operations —
-//   tree · screenshot · tap · type · state · layout · logs · clock
+// The agent API's driver (LLP 1012): the nine operations —
+//   tree · screenshot · tap · type · state · layout · logs · clock · prefer
 // — against a running app on either host, from one script, with the clock in
 // the driver's hands: nothing moves between two calls unless a call moved it.
 //
 // Usage:  bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--plan <file>] [--world <file>] [--url <page>] [--session <label>] [--json] <op> [<op> …]
 //   tree | layout | state | logs | screenshot <png> [window] | screenshot <path> <canvas> save
 //   tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name>
-//   clock <ms|+ms|settle>
+//   clock <ms|+ms|settle> | prefer <media feature> <value> […]
 // A target is a testId or a view id; each op is one argument (quote it).
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it — instead of a bare
@@ -155,6 +155,7 @@ export function browserDiagnosticNoise(line) {
 // ---------------------------------------------------------------- web
 
 /** The DevTools protocol over Chrome's --remote-debugging-pipe (fd 3 in, fd 4 out; NUL-delimited JSON). A closed pipe or a dead Chrome fails every pending call; every call has a deadline. */
+export const PREFERENCES = { 'prefers-reduced-motion': ['reduce', 'no-preference'], 'prefers-reduced-transparency': ['reduce', 'no-preference'], 'prefers-color-scheme': ['dark', 'light'] }; // `prefer`'s CSS media features and values
 export class Cdp {
   constructor(input, output) {
     this.input = input;
@@ -317,7 +318,7 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
     // The one contact this carrier may hold (LLP 1035.003 D1), and whether
     // Chrome's touch emulation is on — switched on by the first contact.
     let touch = false;
-    let contact = null;
+    let contact = null, emulated = {};
     const ask = async (req) => JSON.parse(await evaluate(`exact.agentSettled(${JSON.stringify(req)}).then((r) => JSON.stringify(r))`));
     return {
       host: 'web', boot: Number(boot), hostLines, evaluate,
@@ -353,6 +354,11 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
         this.boot = Number(boot);
       },
       ask,
+      // The browser's own emulation (LLP 1061 D5), which replaces its whole list: queries, CSS and the glue's listeners see it.
+      async prefer(media) {
+        await call('Emulation.setEmulatedMedia', { features: Object.entries(Object.assign(emulated, media)).map(([name, value]) => ({ name, value })) }); await frame();
+        return { media: await evaluate(`Object.fromEntries(${JSON.stringify(Object.entries(PREFERENCES))}.map(([name, [on, off]]) => [name, matchMedia('(' + name + ': ' + on + ')').matches ? on : off]))`) };
+      },
       async input(id, kind, opts) {
         // @ref LLP 1038 D11 — history.go delivers popstate in the page.
         if (kind === 'history') {
@@ -916,14 +922,11 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
   // depends on. Replies say `mode: "platform"`.
   if (!['agent', 'platform'].includes(timing)) throw new Error(`timing: agent or platform, not ${timing}`);
   if (timing === 'platform') env = { ...(env ?? {}), EXACT_AGENT_TIMING: 'platform' };
-  // A drive has no app storage unless it names a scratch store of its own, kept
-  // apart from the app's real files (`--storage <name>`): a tree under the cache
-  // base on native, kept between drives; on the web, stores in the drive's own
-  // browser profile, which starts empty.
-  if (storage !== undefined) {
-    if (!/^[A-Za-z0-9._-]+$/.test(storage) || ['.', '..'].includes(storage)) throw new Error("--storage: one name of letters, digits, '.', '-' or '_'");
-    if (host !== 'web') env = { ...(env ?? {}), EXACT_AGENT_STORAGE: storage };
-  }
+  // A drive has no app storage unless it names a scratch store of its own, apart from the app's real files
+  // (`--storage <name>`): a tree under the cache base on native, kept between drives; on the web, stores in
+  // the drive's own browser profile, which starts empty.
+  if (storage !== undefined && (!/^[A-Za-z0-9._-]+$/.test(storage) || ['.', '..'].includes(storage))) throw new Error("--storage: one name of letters, digits, '.', '-' or '_'");
+  if (storage !== undefined && host !== 'web') env = { ...(env ?? {}), EXACT_AGENT_STORAGE: storage };
   if (url !== undefined && ['macos', 'mac', 'ios', 'linux', 'host', 'host-ios'].includes(host)) {
     // @ref LLP 1038 D5/D11 — a native scheme/path is a launch location;
     // HTTP(S) keeps the existing development-plan locator form.
@@ -1118,6 +1121,11 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
       s.now = r.clock;
       if (req.settle && r.settled === false) r.diagnostic = r.reason === 'requests' ? 'clock settle gave up on requests still in flight at its bound (20 s native); state shows them under pending, and logs a `request N` with no `fulfil N`' : `clock settle did not reach quiescence: ${JSON.stringify(r.world ?? r)}; state world:* busy shows moving values and busy reasons; state shows held input; logs shows reload/refusals`;
       return r;
+    },
+    /** The user's display preferences by CSS's media feature names (LLP 1061 D5): `{"prefers-reduced-motion": "reduce"}`, `"prefers-reduced-transparency"` likewise, `"prefers-color-scheme": "dark"|"light"` (the system's; an app's `setScheme` still wins). Unnamed features stay. The reply is what the host now reports for all three. */
+    async prefer(media) {
+      for (const [name, value] of Object.entries(media ?? {})) if (!(PREFERENCES[name] ?? []).includes(value)) throw new Error(`prefer: ${name} ${value}: expected ${Object.entries(PREFERENCES).map(([n, v]) => `${n} ${v.join('|')}`).join(', ')}`);
+      return carrier.prefer ? s.tagged(await carrier.prefer(media)) : s.op({ op: 'prefer', media });
     },
     /** Pixels as PNG (second argument true includes the native window), or a canvas carry with `(path, target, "save")`. */
     screenshot: async (path, target = false, form) => {
@@ -1437,7 +1445,7 @@ async function main(argv) {
     return r.failed ? 1 : 0;
   }
   if (!host || !ops.length) {
-    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--storage <name>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name> [for <ms>] | clock <ms|+ms|settle>\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--storage <name>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick] | type <target> <text…> | type <target> key <Name> [for <ms>] | clock <ms|+ms|settle> | prefer <media feature> <value> […]\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
   const s = await open({ host, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, storage: flags.storage });
@@ -1471,7 +1479,8 @@ async function main(argv) {
           break;
         case 'type': r = await s.type(...typeArguments(args)); break;
         case 'clock': r = await s.clock(args[0] ?? 'settle'); break;
-        default: throw new Error(`unknown op: ${op} (tree, layout, state, logs, screenshot, tap, type, clock)`);
+        case 'prefer': r = await s.prefer(Object.fromEntries(args.flatMap((a, i) => i % 2 ? [] : [[a, args[i + 1]]]))); break;
+        default: throw new Error(`unknown op: ${op} (tree, layout, state, logs, screenshot, tap, type, clock, prefer)`);
       }
       console.log(flags.json ? JSON.stringify(r) : render(op, r));
     }

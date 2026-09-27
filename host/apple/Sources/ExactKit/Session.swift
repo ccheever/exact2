@@ -419,7 +419,7 @@ public final class ExactSession {
             // moves that is most frames. Skip the presenter's finalization
             // pass for it, as the windowed list does (`onList`), unless the
             // clock or the motion it reports is news.
-            if batch.ops.isEmpty && batch.error == nil && batch.motion == frames.motion && batch.timerDueMs == timerDue { return }
+            if batch.ops.isEmpty && batch.error == nil && batch.motion == frames.motion && batch.spatial == frames.spatial && batch.timerDueMs == timerDue { return }
             apply(batch)
         }
         presenter.onPress = { [unowned self] id in apply(runtime.press(id, now: now())) }
@@ -631,6 +631,7 @@ public final class ExactSession {
         for op in batch.ops where op.op == .reorder { presenter.reorder?.observe(ReorderState(op.payload)) }
         presenter.reorder?.raiseLifted()
         frames.motion = batch.motion
+        frames.spatial = batch.spatial
         // The GPU module: after the first painted frame, only when a canvas exists.
         if firstDrawMs != nil { canvases.loadIfNeeded(); drainSurfaceWork() } else { DispatchQueue.main.async { [weak self] in guard let self else { return }; canvases.loadIfNeeded(); drainSurfaceWork(); frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames) } }
         timerDue = batch.timerDueMs
@@ -642,6 +643,10 @@ public final class ExactSession {
             while !pendingSurfaceRecords.isEmpty {
                 let (name, json) = pendingSurfaceRecords.removeFirst()
                 apply(runtime.surfaceRecord(name, json))
+            }
+            while !pendingViewDark.isEmpty {
+                let (id, dark) = pendingViewDark.removeFirst()
+                apply(runtime.viewScheme(id, dark: dark))
             }
             presenter.collections.flush()
             // Route projection and all structural/style changes are now final.
@@ -781,7 +786,7 @@ public final class ExactSession {
         apply(runtime.setPlace(locale: locale, timeZone: TimeZone.current.identifier, seed: launchSeed))
         tellPreferences()
     }
-    /// @ref LLP 1061 D4 — told after every boot, as the date is, and on each
+    /// @ref LLP 1061 D5 — told after every boot, as the date is, and on each
     /// change: in the same main-thread turn as the boot batch, so the first
     /// frame on screen already reads the user's preferences.
     func tellPreferences() {
@@ -791,7 +796,21 @@ public final class ExactSession {
     public func resize(_ size: CGSize) { guard booted, state != .destroyed else { return }; apply(runtime.resize(width: size.width, height: size.height)) }
     public func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) { guard booted, state != .destroyed else { return }; apply(runtime.insets(top: top, right: right, bottom: bottom, left: left)) }
     /// The view's appearance, for paint motion's `light-dark()` (LLP 1062).
-    public func scheme(dark: Bool) { guard booted, state != .destroyed else { return }; apply(runtime.scheme(dark: dark)) }
+    public func scheme(dark: Bool) { guard booted, state != .destroyed else { return }; schemeDark = dark; apply(runtime.scheme(dark: dark)) }
+    /// The appearance last reported for the session, and each node view
+    /// found painting motion in another (a sheet's override, say), by id.
+    private(set) var schemeDark: Bool?
+    private(set) var viewDark: [UInt32: Bool] = [:]
+    private var pendingViewDark: [(UInt32, Bool)] = []
+    /// A view painting motion: when its own appearance is not the one its
+    /// node's colours resolve by, say so after the batch (LLP 1062 D4).
+    func noteAppearance(_ view: NodeView) {
+        guard let session = schemeDark else { return }
+        let dark = view.drawsDark
+        guard dark != viewDark[view.id] ?? session else { return }
+        viewDark[view.id] = dark == session ? nil : dark
+        pendingViewDark.append((view.id, dark))
+    }
     /// The agent API's runner half (LLP 1012): `tree`, `state`, `logs`, `settle`.
     public func agent(_ request: String) -> String { runtime.agent(request) }
     /// A line for the runner's journal (LLP 1012 §3; LLP 1035.001 D6): a
@@ -934,7 +953,7 @@ struct SessionTimerTrace {
 final class Frames: NSObject {
     weak var session: ExactSession?
     var link: CADisplayLink?
-    var motion = false
+    var motion = false, spatial = false
     var timerSoon = false
     private var canvasRequested = false
 
@@ -1026,13 +1045,17 @@ final class Frames: NSObject {
         }
         #if canImport(UIKit)
         if let link {
-            // Motion asks for the panel's full rate while it runs, as a canvas
-            // does: at `.default` a ProMotion iPhone presents a transition at
-            // 60 Hz. The link exists only while something wants frames, so an
-            // idle app drops to no link at all, not to 120 Hz (LLP 1061 D3).
-            let fullRate = fpsMode || motion || session?.canvases.wantsFrames == true
+            // Motion that changes place or size asks for the panel's full
+            // rate while it runs, as a canvas does: at `.default` a ProMotion
+            // iPhone presents a slide at 60 Hz. A fade or a colour change
+            // reads the same at 60, so paint-only motion — a breathing loop
+            // that runs for minutes — asks no more. The link exists only
+            // while something wants frames, so an idle app drops to no link
+            // at all (LLP 1061 D4).
+            let fullRate = fpsMode || (motion && spatial) || session?.canvases.wantsFrames == true
             let rate = Float(min(120, session?.presenter.viewport.window?.screen.maximumFramesPerSecond ?? 60))
-            link.preferredFrameRateRange = fullRate ? CAFrameRateRange(minimum: min(80, rate), maximum: rate, preferred: rate) : .default
+            link.preferredFrameRateRange = fullRate ? CAFrameRateRange(minimum: min(80, rate), maximum: rate, preferred: rate)
+                : motion ? CAFrameRateRange(minimum: min(30, rate), maximum: min(60, rate), preferred: min(60, rate)) : .default
         }
         #endif
     }

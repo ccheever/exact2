@@ -20,6 +20,8 @@ public struct Batch {
     /// @ref LLP 1043.000 §3 D8 — absolute runner deadline, absent without timers.
     public var timerDueMs: Double? = nil
     public var pending = false
+    /// What moves changes place or size: the panel's full rate (LLP 1061 D4).
+    public var spatial = false
     init(ops: [BatchOp], timers: Bool, motion: Bool, clock: Double?, error: String?, timerDueMs: Double? = nil, pending: Bool = false) {
         self.ops = ops; self.timers = timers; self.motion = motion; self.clock = clock
         self.error = error; self.timerDueMs = timerDueMs; self.pending = pending
@@ -241,6 +243,7 @@ final class Runtime {
     func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) -> Batch { read(exact_insets(rt, Float(top), Float(right), Float(bottom), Float(left))) }
     func tick(now: Double) -> Batch { read(exact_tick(rt, now)) }
     func scheme(dark: Bool) -> Batch { read(exact_scheme(rt, dark ? 1 : 0)) }
+    func viewScheme(_ view: UInt32, dark: Bool) -> Batch { read(exact_view_scheme(rt, view, dark ? 1 : 0)) }
     /// Images' intrinsic sizes (nil clears one), under one layout.
     func intrinsics(_ sizes: [(UInt32, CGSize?)]) -> Batch {
         var bytes = Data(capacity: sizes.count * 12)

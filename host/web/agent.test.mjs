@@ -499,8 +499,8 @@ function inputFixture() {
   // `page` is a built document being adopted (LLP 1048.000 D6); this page was not built.
   const f = vm.createContext({ inputReady: false, inputHandlers: null, page: null,
     views: new Map([[7, el]]), retiredViews: new WeakSet(), frames, sent, captured, el,
-    root: { querySelectorAll: () => buttons },
-    document: { addEventListener(kind, fn) { f.keydown = fn; }, activeElement: { closest: () => null } },
+    root: { querySelectorAll: () => buttons, addEventListener() {} }, // press feedback's listener: press.test.mjs drives it
+    document: { addEventListener(kind, fn) { if (kind === 'keydown') f.keydown = fn; }, activeElement: { closest: () => null } },
     HTMLIFrameElement: class {}, HTMLInputElement: class {}, HTMLTextAreaElement: class {}, HTMLButtonElement: class {},
     inertAncestor: node => node.inert, getComputedStyle: () => ({ visibility: 'visible' }),
     requestAnimationFrame(fn) { frames.set(++serial, fn); return serial; },

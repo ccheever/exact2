@@ -75,7 +75,7 @@ extension NodeView {
         #else
         let host = layer
         #endif
-        guard let host, let color = shadowColor, bounds.width > 0, bounds.height > 0 else {
+        guard let host, surface == nil, let color = shadowColor, bounds.width > 0, bounds.height > 0 else {
             shadowCaster?.removeFromSuperlayer(); shadowCaster = nil; return
         }
         let caster = shadowCaster ?? ShadowCaster()

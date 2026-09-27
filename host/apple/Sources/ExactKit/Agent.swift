@@ -4,12 +4,13 @@
 // and are answered in order on the main thread; the clock is the last
 // `clock` value: no timer advances the runner, events carry the agent's
 // time, the engine is seeked to it. `tree`, `state`, `logs`, and `settle`
-// go to the library (`exact_agent`); `clock` moves both clocks here;
+// go to the library (`exact_agent`); `clock` moves both clocks here, and
+// `prefer` sets the display preferences (LLP 1061 D5);
 // `layout`, `tap`, `type`, and `screenshot` are the platform's
 // (`AgentMac.swift`, `AgentIOS.swift`), being about what it renders and
 // its input path. One `Agent` per session (LLP 1031 D9); the carrier
 // routes a request to a session by its host-owned `session` label when
-// there is more than one — routing, not a ninth operation.
+// there is more than one — routing, not a tenth operation.
 import Foundation
 import CoreFoundation
 
@@ -127,6 +128,7 @@ public final class Agent {
             Agent.reply(tagged(r))
         case "type": let r = releaseCanvasKey(req) ?? type(req); session.canvases.settle(now: session.now()); Agent.reply(tagged(r))
         case "clock": Agent.reply(tagged(clock(req)))
+        case "prefer": Agent.reply(tagged(prefer(req)))
         case "screenshot": Agent.reply(tagged(screenshot(req)))
         case "logs":
             var forward = req
@@ -225,6 +227,32 @@ public final class Agent {
     /// point: advance to when the last transition in flight ends, and if
     /// the timers crossed on the way started more, again — bounded, and
     /// `settled: false` when the bound is hit.
+    /// `prefer` (LLP 1061 D5): the user's display preferences by CSS's media
+    /// feature names. Reduced motion and transparency stand in for the
+    /// accessibility settings, for this process; the colour scheme is the
+    /// system's appearance, beneath the app's own `setScheme`. A feature not
+    /// named stays as it is; nothing applies unless every one is known.
+    func prefer(_ req: [String: Any]) -> [String: Any] {
+        guard let media = req["media"] as? [String: String] else { return ["error": "prefer needs media: {\"prefers-reduced-motion\": \"reduce\", …}"] }
+        var (motion, transparency) = (DisplayPreferences.reducedMotion, DisplayPreferences.reducedTransparency)
+        var dark: Bool?
+        for (name, value) in media {
+            switch (name, value) {
+            case ("prefers-reduced-motion", "reduce"), ("prefers-reduced-motion", "no-preference"): motion = value == "reduce"
+            case ("prefers-reduced-transparency", "reduce"), ("prefers-reduced-transparency", "no-preference"): transparency = value == "reduce"
+            case ("prefers-color-scheme", "light"), ("prefers-color-scheme", "dark"): dark = value == "dark"
+            default: return ["error": "prefer: \(name): \(value) is not a preference this host sets"]
+            }
+        }
+        DisplayPreferences.agent = (motion, transparency)
+        session.tellPreferences()
+        if let dark { systemScheme(dark: dark) }
+        let keyword = { (on: Bool) in on ? "reduce" : "no-preference" }
+        return ["media": ["prefers-reduced-motion": keyword(DisplayPreferences.reducedMotion),
+                          "prefers-reduced-transparency": keyword(DisplayPreferences.reducedTransparency),
+                          "prefers-color-scheme": systemDark ? "dark" : "light"]]
+    }
+
     func clock(_ req: [String: Any]) -> [String: Any] {
         let from = session.clock ?? 0
         let settle = req["settle"] as? Bool == true

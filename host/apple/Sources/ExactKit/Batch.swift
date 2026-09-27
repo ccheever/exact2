@@ -66,6 +66,8 @@ public struct BatchOp {
     var runs: [InlineText] = []
     var x = 0.0, y = 0.0, w = 0.0, h = 0.0
     var property = ""
+    /// A `present`/`unpresent` for an inline run its paragraph (`id`) paints.
+    var run: UInt32?
     // Rare adapters retain their existing input shape. Common ops never build it.
     var payload: [String: Any] = [:]
 

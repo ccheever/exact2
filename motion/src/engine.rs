@@ -182,8 +182,10 @@ pub struct Engine {
     // Each node's `layout-transition` declaration (LLP 1063): the only thing
     // that moves `Property::Layout`, so `transition: all` never covers layout.
     layout: BTreeMap<u64, Transition>,
-    // The appearance a keyframe's `light-dark()` colour takes (LLP 1062 D9).
+    // The appearance a keyframe's `light-dark()` colour takes (LLP 1062 D9),
+    // and the nodes whose own appearance differs from it.
     dark: bool,
+    node_dark: BTreeMap<u64, bool>,
 }
 
 impl Engine {
@@ -207,13 +209,44 @@ impl Engine {
         if !playing {
             return;
         }
-        for (node, list) in &mut self.animations {
-            for p in list.iter_mut().filter(|p| p.dark != dark) {
-                p.dark = dark;
-                for block in &p.animation.keyframes.blocks {
-                    for (property, _) in &block.dark {
-                        self.dirty.insert((*node, *property));
-                    }
+        let nodes: Vec<u64> = self
+            .animations
+            .keys()
+            .copied()
+            .filter(|n| !self.node_dark.contains_key(n))
+            .collect();
+        for node in nodes {
+            self.redark(node, dark);
+        }
+    }
+
+    /// One node's own appearance, where it differs from the host's (`None`:
+    /// the host's again): a view whose appearance is not its window's (LLP
+    /// 1062 D4). With `playing`, its playing animations take it in place, as
+    /// [`Engine::set_dark`]'s first report does.
+    pub fn set_node_dark(&mut self, node: u64, dark: Option<bool>, playing: bool) {
+        match dark {
+            Some(dark) => self.node_dark.insert(node, dark),
+            None => self.node_dark.remove(&node),
+        };
+        if playing {
+            self.redark(node, self.dark_of(node));
+        }
+    }
+
+    fn dark_of(&self, node: u64) -> bool {
+        self.node_dark.get(&node).copied().unwrap_or(self.dark)
+    }
+
+    fn redark(&mut self, node: u64, dark: bool) {
+        let Some(list) = self.animations.get_mut(&node) else {
+            return;
+        };
+        for p in list.iter_mut().filter(|p| p.dark != dark) {
+            p.dark = dark;
+            for block in &p.animation.keyframes.blocks {
+                for (property, _) in &block.dark {
+                    self.dirty.insert((node, *property));
                 }
             }
         }
@@ -290,7 +323,7 @@ impl Engine {
                         animation,
                         start: now,
                         paused: paused.then_some(0.0),
-                        dark: self.dark,
+                        dark: self.dark_of(node),
                     },
                 }
             })
@@ -337,6 +370,7 @@ impl Engine {
 
     /// Forget a node entirely.
     pub fn remove(&mut self, node: u64) {
+        self.node_dark.remove(&node);
         self.transitions.remove(&node);
         self.layout.remove(&node);
         self.animations.remove(&node);
@@ -413,7 +447,7 @@ impl Engine {
                 .and_then(|t| t.matching(change.property))
         }
         .filter(|t| t.starts())
-        .cloned();
+        .map(|t| t.governing(change.property));
 
         let Some(slot) = self.slots.get_mut(&key) else {
             self.slots.insert(
@@ -626,6 +660,26 @@ impl Engine {
     /// host's frames running for as long as it plays.
     pub fn quiescent(&self) -> bool {
         self.running.is_empty() && self.animating.is_empty()
+    }
+
+    /// Whether anything moving changes where or how big something is —
+    /// `translate`, `scale`, `rotate`, `height`, layout, a stroke's trim —
+    /// which a panel's full rate keeps from juddering (LLP 1061 D4). A fade
+    /// or a colour change reads the same at 60 Hz, so a slow breathing
+    /// opacity need not hold a 120 Hz display at 120 Hz.
+    pub fn spatial(&self) -> bool {
+        let spatial = |p: Property| p != Property::Opacity && !Property::PAINT.contains(&p);
+        self.running.iter().any(|&(_, p)| spatial(p))
+            || self
+                .animating
+                .iter()
+                .flat_map(|node| &self.animations[node])
+                .filter(|p| p.live(self.now))
+                .any(|p| {
+                    Property::ALL
+                        .into_iter()
+                        .any(|q| spatial(q) && p.animation.keyframes.affects(q))
+                })
     }
 
     /// The clock time at which the last running transition or finite

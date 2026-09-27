@@ -453,6 +453,7 @@ fn row_json(v: RowValue<'_>, out: &mut String) {
         }
         RowValue::ClipPath(p) => quote(&p.css(), out),
         RowValue::AspectRatio(r) => quote(&r.css(), out),
+        RowValue::TransformOrigin(o) => quote(&o.css(), out),
         RowValue::BackgroundImage(g) => quote(&g.css(), out),
         RowValue::ShapeOutside(p) => quote(&p.css(), out),
         RowValue::Transitions(_) => quote("(transition)", out),

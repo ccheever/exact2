@@ -433,6 +433,7 @@ impl<D: DataSource> Host<D> {
         host.present(&mut batch, true);
         let timers = host.runner.timer_due_ms();
         let motion = !host.engine.quiescent();
+        batch.spatial = host.engine.spatial();
         let clock = host.runner.now_ms();
         Ok((host, batch.finish(timers, motion, clock, None)))
     }
@@ -1067,7 +1068,8 @@ impl<D: DataSource> Host<D> {
         }
     }
 
-    fn finish(&self, batch: Batch, error: Option<String>) -> String {
+    fn finish(&self, mut batch: Batch, error: Option<String>) -> String {
+        batch.spatial = self.engine.spatial();
         batch.finish(
             self.runner.timer_due_ms(),
             !self.engine.quiescent(),

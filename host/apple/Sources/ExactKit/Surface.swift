@@ -44,13 +44,7 @@ final class SurfaceLayer: CALayer {
 }
 
 extension NodeView {
-    private var hostLayer: CALayer? {
-        #if os(iOS)
-        return layer
-        #else
-        return layer
-        #endif
-    }
+    private var hostLayer: CALayer? { layer }
 
     /// The surface at `layoutScale` of the laid-out size; none at one.
     func applySurface() {
@@ -64,7 +58,7 @@ extension NodeView {
         let box = CGRect(x: 0, y: 0, width: bounds.width * layoutScale.x, height: bounds.height * layoutScale.y)
         if s.frame != box { s.frame = box }
         #if os(iOS)
-        s.contentsScale = window?.screen.scale ?? UIScreen.main.scale
+        s.contentsScale = traitCollection.displayScale
         #else
         s.contentsScale = window?.backingScaleFactor ?? 2
         #endif
@@ -80,11 +74,7 @@ extension NodeView {
         surface = nil
         CATransaction.begin(); CATransaction.setDisableActions(true)
         if s.clipped?.mask === s.clip { s.clipped?.mask = nil }
-        #if os(iOS)
         if s.clippedSelf { clipsToBounds = true }
-        #else
-        if s.clippedSelf { clipsToBounds = true }
-        #endif
         s.removeFromSuperlayer()
         CATransaction.commit()
         surfaceChanged()
@@ -153,11 +143,7 @@ extension NodeView {
     /// masked instead, keeping the node's shadow unclipped.
     private func clipSurface(_ s: SurfaceLayer, _ outline: CGPath) {
         s.clip.path = outline
-        #if os(iOS)
         let scroller: CALayer? = scroll?.layer
-        #else
-        let scroller: CALayer? = scroll?.layer
-        #endif
         let target: CALayer?
         if let box = clipBox?.layer { target = box }
         else if let scroller { target = scroller }

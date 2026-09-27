@@ -332,6 +332,15 @@ pub fn cases() -> Vec<Case> {
             rgba(255, 255, 255, 0.25),
             &mid,
         ),
+        // A spring on paint is its curve from rest as `linear()` (LLP 1062 D3).
+        single(
+            "color-spring",
+            Property::BackgroundColor,
+            "background-color spring(180, 12, 1)",
+            rgba(0, 0, 0, 1.0),
+            rgba(255, 128, 0, 1.0),
+            &[0.05, 0.1, 0.2, 0.3, 0.45],
+        ),
         keyframes(
             "kf-color",
             Property::BackgroundColor,

@@ -187,8 +187,8 @@ pub enum AnimationError {
     /// A keyframe named a property twice.
     DuplicateProperty(Property),
     /// A keyframe named a property keyframes do not animate (numeric
-    /// `height` is a transition-only trial, LLP 1002 D7; `box-shadow` is a
-    /// transition's, LLP 1062).
+    /// `height` is a transition-only trial, LLP 1002 D7), or half of a
+    /// `box-shadow` without the other.
     NotAnimatable(Property),
     /// A scalar property carried a second component.
     InvalidValueShape,
@@ -254,10 +254,16 @@ impl Keyframes {
                 easing.validate().map_err(AnimationError::Easing)?;
             }
             for (i, (property, value)) in block.values.iter().enumerate() {
-                if matches!(
-                    property,
-                    Property::Height | Property::BoxShadow | Property::ShadowColor
-                ) {
+                // `box-shadow` is one declaration: its geometry and colour
+                // are set together or not at all.
+                let half = match property {
+                    Property::BoxShadow => Some(Property::ShadowColor),
+                    Property::ShadowColor => Some(Property::BoxShadow),
+                    _ => None,
+                };
+                if *property == Property::Height
+                    || half.is_some_and(|h| !block.values.iter().any(|(p, _)| *p == h))
+                {
                     return Err(AnimationError::NotAnimatable(*property));
                 }
                 if block.values[..i].iter().any(|(p, _)| p == property) {
@@ -302,20 +308,42 @@ impl Keyframes {
         for block in &self.blocks {
             css_number(&mut out, block.offset * 100.0);
             out.push_str("%{");
-            for (property, value) in &block.values {
+            let color = |out: &mut String, p: Property, value: Value| match block
+                .dark
+                .iter()
+                .find(|(q, _)| *q == p)
+            {
+                Some((_, night)) => {
+                    out.push_str("light-dark(");
+                    rgba_css(out, value);
+                    out.push(',');
+                    rgba_css(out, *night);
+                    out.push(')');
+                }
+                None => rgba_css(out, value),
+            };
+            // The shadow's colour is written in its `box-shadow`.
+            for (property, value) in block
+                .values
+                .iter()
+                .filter(|(p, _)| *p != Property::ShadowColor)
+            {
                 out.push_str(property.css_name());
                 out.push(':');
                 match property {
-                    p if p.is_color() => match block.dark.iter().find(|(q, _)| q == p) {
-                        Some((_, night)) => {
-                            out.push_str("light-dark(");
-                            rgba_css(&mut out, *value);
-                            out.push(',');
-                            rgba_css(&mut out, *night);
-                            out.push(')');
+                    p if p.is_color() => color(&mut out, *p, *value),
+                    Property::BoxShadow => {
+                        for c in [value.x, value.y, value.z] {
+                            css_number(&mut out, c);
+                            out.push_str("px ");
                         }
-                        None => rgba_css(&mut out, *value),
-                    },
+                        let shade = block.get(Property::ShadowColor, false);
+                        color(
+                            &mut out,
+                            Property::ShadowColor,
+                            shade.expect("validated pair"),
+                        );
+                    }
                     Property::Translate => {
                         css_number(&mut out, value.x);
                         out.push_str("px ");

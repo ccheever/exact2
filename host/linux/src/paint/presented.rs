@@ -61,10 +61,15 @@ impl Presented {
     }
 
     /// The box `(x, y, w, h)` painted through its presentation: CSS's
-    /// individual transforms about its center, then outermost the layout
-    /// transition's offset (LLP 1063).
-    pub(super) fn transform(&self, (x, y, w, h): (f32, f32, f32, f32)) -> Transform {
-        let (cx, cy) = (x + w / 2.0, y + h / 2.0);
+    /// individual transforms about `origin`, then outermost the layout
+    /// transition's offset (LLP 1063); its size is the surface's alone
+    /// ([`Presented::surface`]).
+    pub(super) fn transform(
+        &self,
+        (x, y, _, _): (f32, f32, f32, f32),
+        (ox, oy): (f32, f32),
+    ) -> Transform {
+        let (cx, cy) = (x + ox, y + oy);
         let [dx, dy, ..] = self.layout;
         Transform::from_translate(cx + dx + self.translate.0, cy + dy + self.translate.1)
             .pre_rotate(self.rotate)
@@ -102,6 +107,11 @@ impl PaintValues {
     /// Whether anything is presented over the rows.
     pub fn is_empty(&self) -> bool {
         self.0.iter().all(Option::is_none)
+    }
+
+    /// A presented value, if one is.
+    pub fn value(&self, property: Property) -> Option<Value> {
+        self.0[Self::slot(property)]
     }
 
     /// A presented colour, straight 8-bit channels.
@@ -148,7 +158,8 @@ mod tests {
     fn a_layout_transition_moves_the_box_and_sizes_only_its_surface() {
         let map = |p: &Presented, x: f32, y: f32| {
             let mut point = [Point::from_xy(x, y)];
-            p.transform((10.0, 20.0, 100.0, 40.0)).map_points(&mut point);
+            p.transform((10.0, 20.0, 100.0, 40.0), (50.0, 20.0))
+                .map_points(&mut point);
             (point[0].x, point[0].y)
         };
         let grow = Presented {
@@ -163,10 +174,7 @@ mod tests {
             (10.0, 20.0, 100.0, 10.0)
         );
         // An authored scale stays about the center.
-        let both = Presented {
-            scale: 0.5,
-            ..grow
-        };
+        let both = Presented { scale: 0.5, ..grow };
         assert_eq!(map(&both, 10.0, 20.0), (40.0, 22.0));
     }
 }

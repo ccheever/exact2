@@ -86,3 +86,31 @@ fn an_animation_is_presented_from_boot_and_stops_when_its_row_does() {
         "untouched: {on}"
     );
 }
+
+/// LLP 1061 D4: the batch says whether what moves changes place or size.
+/// A breathing fade keeps frames coming but not at the panel's full rate; a
+/// slide asks for it.
+#[test]
+fn a_fade_is_motion_and_a_slide_is_spatial() {
+    let src = "keyframes breathe\n  from\n    opacity=0.6\n  50%\n    opacity=1\n  to\n    opacity=0.6\ncomponent A\n  state sliding = false\n  action slide writes sliding\n    sliding = not sliding\n  view\n    column\n      button press=slide testId=\"slide\"\n        text \"Slide\"\n      text \"Breathe\" animation=\"breathe 4.2s ease-in-out infinite\"\n      text \"Card\" transition=\"translate 300ms ease\" translate=(sliding ? \"0px 40px\" : \"0px 0px\")\n";
+    let plan = contract::compile(src).unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    assert!(
+        first.contains("\"motion\":true") && !first.contains("\"spatial\""),
+        "{first}"
+    );
+    let slid = host.dispatch_at(view(&host, "slide"), Event::Press, 100.0);
+    assert!(slid.contains("\"spatial\":true"), "{slid}");
+    let settled = host.tick(1000.0);
+    assert!(
+        settled.contains("\"motion\":true") && !settled.contains("\"spatial\""),
+        "{settled}"
+    );
+}

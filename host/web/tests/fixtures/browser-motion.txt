@@ -119,6 +119,11 @@ sample color-border-shorthand 0.25 9 133 9 0.9
 sample color-border-shorthand 0.5 51 153 51 0.627
 sample color-border-shorthand 0.75 160 208 160 0.35
 sample color-border-shorthand 0.9 236 246 236 0.267
+sample color-spring 0.05 46 23 0 1
+sample color-spring 0.1 139 70 0 1
+sample color-spring 0.2 255 143 0 1
+sample color-spring 0.3 255 152 0 1
+sample color-spring 0.45 251 126 0 1
 sample kf-color 0.1 253 253 254 0.99
 sample kf-color 0.5 173 176 237 0.753
 sample kf-color 0.9 19 29 202 0.514

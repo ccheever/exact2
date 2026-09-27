@@ -46,15 +46,9 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
             RowValue::ShapeOutside(_) => continue, // LLP 1043.000 M3
             // Layout only (LLP 1053 G1): the kernel sizes the box.
             RowValue::AspectRatio(_) => continue,
-            RowValue::Dimension(d) => match d.resolve(env) {
-                Dimension::Auto => "\"auto\"".to_string(),
-                Dimension::Points(p) => num(p),
-                Dimension::Percent(p) => format!("{{\"pct\":{}}}", num(p)),
-                Dimension::Calc(p, x) => {
-                    format!("{{\"pct\":{},\"px\":{}}}", num(p), num(x))
-                }
-                Dimension::Env(..) => unreachable!("resolved"),
-            },
+            RowValue::Dimension(d) => dimension(d.resolve(env)),
+            // @ref LLP 1061 D6 — `[x, y]`, each points or `{"pct": n}`.
+            RowValue::TransformOrigin(o) => format!("[{},{}]", dimension(o.x), dimension(o.y)),
             RowValue::Color(c) => format!("[{},{},{},{}]", c.r(), c.g(), c.b(), c.a()),
             // A colour a row holds (LLP 1034 D1/D2). A fixed one crosses as
             // the four channels it always did; a `light-dark()` pair crosses
@@ -121,6 +115,16 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
     }
     out.push('}');
     (out, skipped)
+}
+
+fn dimension(d: Dimension) -> String {
+    match d {
+        Dimension::Auto => "\"auto\"".to_string(),
+        Dimension::Points(p) => num(p),
+        Dimension::Percent(p) => format!("{{\"pct\":{}}}", num(p)),
+        Dimension::Calc(p, x) => format!("{{\"pct\":{},\"px\":{}}}", num(p), num(x)),
+        Dimension::Env(..) => unreachable!("resolved"),
+    }
 }
 
 /// A node's effective overflow per axis — the kernel's own rule

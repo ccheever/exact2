@@ -226,7 +226,7 @@ impl ListWindow {
             u,
             region,
             self.keys[index].clone(),
-            self.items[index].clone(),
+            (self.items[index].clone(), index),
             frames,
         )?;
         row.dup = self.duplicates[index];
@@ -555,15 +555,18 @@ impl ListWindow {
         for index in &wanted {
             let top = self.heights.offset(*index);
             let mut row = if let Some((mut row, was, of)) = old.remove(index) {
-                if refresh {
+                // A row the records moved reads its new position (LLP 1062 D8).
+                let moved = row.frame.index != Some(*index);
+                if refresh || moved {
                     let item = Some(self.items[*index].clone());
                     // An equivalent item keeps its object for nested memos.
                     let dirty = !crate::compare::equivalent_opt(&row.frame.item, &item);
                     if dirty {
                         row.frame.item = item;
                     }
+                    row.frame.index = Some(*index);
                     let body = &u.sites.deps.bodies[region.0 as usize];
-                    update_row(u, &mut row, frames, dirty, body)?;
+                    update_row(u, &mut row, frames, dirty || moved, body)?;
                 } else if was == top && of == count {
                     // Where it was, as many as there were: nothing to say.
                     rows.push(row);
@@ -741,13 +744,14 @@ impl Row {
         u: &mut Update<'_>,
         region: RegionsId,
         key: Value,
-        item: Value,
+        (item, index): (Value, usize),
         frames: &[Frame],
     ) -> Result<Self, InstanceError> {
         let plan = u.env.plan;
         let slots: RowSlots = Rc::new(RefCell::new(BTreeMap::new()));
         let frame = Frame {
             item: Some(item),
+            index: Some(index),
             region: Some(region.0),
             row: Some(slots.clone()),
             ..Frame::default()

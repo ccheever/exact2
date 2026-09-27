@@ -3,28 +3,14 @@
 // no lookup by id, focus or accessibility finds them, but stay in the window
 // where they were, above their old siblings, taking no input, until the
 // host's `destroy` of the leaving view ends the exit and drops them all.
-// Its `present` ops keep coming until then: the engine animates it. A view's
-// transform is here too: its own transforms, and outermost a layout
-// transition's box (the `layout` present op's offset and scale).
+// Its `present` ops keep coming until then: the engine animates it.
+// A view's transform, with a layout transition's box, is in `PressFeedback.swift`.
 #if os(iOS)
 import UIKit
 
 struct Leaving {
     let view: NodeView
     let members: [NodeView]
-}
-
-extension NodeView {
-    func applyTransform() {
-        // CSS's individual transforms: translate, then rotate, then scale,
-        // about the center (UIKit's anchor); a press folds into the scale.
-        // Outermost, a layout transition's offset and scale from the box's
-        // top-left corner, as a web FLIP places it (LLP 1063).
-        let own = CGAffineTransform(translationX: translate.x, y: translate.y).rotated(by: rotate * .pi / 180).scaledBy(x: scale * pressFactor, y: scale * pressFactor)
-        let half = bounds.size
-        let flip = CGAffineTransform(scaleX: layoutScale.x, y: layoutScale.y).concatenating(CGAffineTransform(translationX: layoutOffset.x + (layoutScale.x - 1) * half.width / 2, y: layoutOffset.y + (layoutScale.y - 1) * half.height / 2))
-        transform = own.concatenating(flip).concatenating(contextTransform)
-    }
 }
 
 extension Presenter {
