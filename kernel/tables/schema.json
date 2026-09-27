@@ -87,6 +87,16 @@
     {
       "id": 20,
       "name": "SvgRect"
+    },
+    {
+      "id": 21,
+      "name": "SvgEllipse",
+      "_comment": "@ref LLP 1055.000 D4: SVG 2 `ellipse`."
+    },
+    {
+      "id": 22,
+      "name": "SvgViewport",
+      "_comment": "@ref LLP 1055.000 D4: an `svg` inside an `svg`, a new SVG viewport; never a box."
     }
   ],
   "_propKinds": "str | bool | int (i64) | float (f64). `measure: true` marks props whose change invalidates a text leaf's intrinsic size.",
@@ -723,44 +733,25 @@
       "kind": "float"
     },
     {
-      "id": 127,
-      "name": "x",
-      "kind": "float"
-    },
-    {
-      "id": 128,
-      "name": "y",
-      "kind": "float"
-    },
-    {
       "id": 129,
       "name": "x1",
-      "kind": "float"
+      "kind": "str",
+      "_comment": "@ref LLP 1055.000 D4: SVG length attributes CSS cannot set: the authored text (a number, a unit, or a percentage of the viewport), parsed by kernel/src/svg/length.rs."
     },
     {
       "id": 130,
       "name": "y1",
-      "kind": "float"
+      "kind": "str"
     },
     {
       "id": 131,
       "name": "x2",
-      "kind": "float"
+      "kind": "str"
     },
     {
       "id": 132,
       "name": "y2",
-      "kind": "float"
-    },
-    {
-      "id": 133,
-      "name": "rx",
-      "kind": "float"
-    },
-    {
-      "id": 134,
-      "name": "ry",
-      "kind": "float"
+      "kind": "str"
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
@@ -1060,9 +1051,34 @@
         "evenodd"
       ],
       "default": "nonzero"
+    },
+    "TransformBox": {
+      "values": [
+        "view-box",
+        "fill-box",
+        "stroke-box",
+        "content-box",
+        "border-box"
+      ],
+      "default": "view-box"
+    },
+    "VectorEffect": {
+      "values": [
+        "none",
+        "non-scaling-stroke"
+      ],
+      "default": "none"
+    },
+    "Visibility": {
+      "values": [
+        "visible",
+        "hidden",
+        "collapse"
+      ],
+      "default": "visible"
     }
   },
-  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (grid track list) | placement (grid line placement) | aspect-ratio (CSS text: auto, a ratio, or both) | paint (CSS text: none, currentcolor, or a colour) | dasharray (CSS text: none or a list of numbers) | animations (`_animations`) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance \u2014 a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard).",
+  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (grid track list) | placement (grid line placement) | aspect-ratio (CSS text: auto, a ratio, or both) | paint (CSS text: none, currentcolor, or a colour) | dasharray (CSS text: none or a list of numbers) | transform (CSS text: a transform list) | transform-origin (CSS text: one to three lengths, percentages or keywords) | animations (`_animations`) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance \u2014 a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard).",
   "styles": [
     {
       "bit": 0,
@@ -1821,20 +1837,20 @@
     {
       "bit": 111,
       "field": "cx",
-      "codec": "f32",
+      "codec": "dimension",
       "default": 0,
-      "_comment": "SVG 2 geometry properties: CSS can set, and so animate, a circle's centre and radius."
+      "_comment": "SVG 2 geometry properties (LLP 1055.000 D4): lengths in user units or percentages of the nearest viewport."
     },
     {
       "bit": 112,
       "field": "cy",
-      "codec": "f32",
+      "codec": "dimension",
       "default": 0
     },
     {
       "bit": 113,
       "field": "r",
-      "codec": "f32",
+      "codec": "dimension",
       "default": 0
     },
     {
@@ -1842,6 +1858,63 @@
       "field": "animation",
       "codec": "animations",
       "_comment": "@ref LLP 1055 D5: CSS `animation`, each entry with its resolved @keyframes (grammar: `_animations`)."
+    },
+    {
+      "bit": 115,
+      "field": "x",
+      "codec": "dimension",
+      "default": 0,
+      "_comment": "@ref LLP 1055.000 D4: SVG 2 geometry properties x, y, rx, ry as CSS rows."
+    },
+    {
+      "bit": 116,
+      "field": "y",
+      "codec": "dimension",
+      "default": 0
+    },
+    {
+      "bit": 117,
+      "field": "rx",
+      "codec": "dimension",
+      "admitsAuto": true,
+      "default": "auto"
+    },
+    {
+      "bit": 118,
+      "field": "ry",
+      "codec": "dimension",
+      "admitsAuto": true,
+      "default": "auto"
+    },
+    {
+      "bit": 119,
+      "field": "transform",
+      "codec": "transform",
+      "_comment": "@ref LLP 1055.000 D5: CSS `transform` on SVG elements; SVG's attribute grammar is its presentation attribute."
+    },
+    {
+      "bit": 120,
+      "field": "transform_origin",
+      "codec": "transform-origin",
+      "_comment": "CSS `transform-origin`; an SVG element without the row takes the UA's `0 0`."
+    },
+    {
+      "bit": 121,
+      "field": "transform_box",
+      "codec": "enum:TransformBox"
+    },
+    {
+      "bit": 122,
+      "field": "vector_effect",
+      "codec": "enum:VectorEffect",
+      "_comment": "@ref LLP 1055.000 D5: SVG 2 `vector-effect`: none | non-scaling-stroke."
+    },
+    {
+      "bit": 123,
+      "field": "visibility",
+      "codec": "enum:Visibility",
+      "inherited": true,
+      "_comment": "CSS `visibility`, honoured by SVG elements (LLP 1055.000 D19)."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
@@ -2016,8 +2089,7 @@
       "filter",
       "slider.horizontal.3",
       "M4 6h9m4 0h3m-3 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM4 12h3m4 0h9m-9 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0ZM4 18h8m4 0h4m-4 0a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z"
-    ]
-,
+    ],
     [
       "heart",
       "heart",

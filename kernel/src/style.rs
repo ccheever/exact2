@@ -499,6 +499,9 @@ impl StyleValue {
                     parse_pixel_length(t.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']))
                         .map(Dimension::Points)
                 })
+                // CSS's absolute units (96 px to the inch) and a percentage
+                // written as text (LLP 1055.000 D4).
+                .or_else(|| absolute_length(t.trim_matches(['\t', '\n', '\u{c}', '\r', ' '])))
                 .ok_or(StyleValueError::WrongKind {
                     style,
                     expected: "number, px length, percent, auto, calc(<percent> ± <px>), or env(safe-area-inset-*)",
@@ -568,6 +571,27 @@ impl StyleValue {
 }
 
 // CSS pixel length or unitless zero, shared by dimensions and translation.
+/// A CSS length in an absolute unit (96 px to the inch), or a percentage
+/// written as text, with the CSS number grammar `px` lengths use (LLP
+/// 1055.000 D4). Unitless text stays refused.
+fn absolute_length(token: &str) -> Option<Dimension> {
+    let number = |n: &str| parse_pixel_length(&format!("{n}px"));
+    if let Some(n) = token.strip_suffix('%') {
+        return number(n).map(Dimension::Percent);
+    }
+    let split = token.len().checked_sub(2)?;
+    let (n, unit) = (token.get(..split)?, token.get(split..)?);
+    let scale = match unit.to_ascii_lowercase().as_str() {
+        "in" => 96.0,
+        "cm" => 96.0 / 2.54,
+        "mm" => 96.0 / 25.4,
+        "pt" => 96.0 / 72.0,
+        "pc" => 16.0,
+        _ => return None,
+    };
+    number(n).map(|v| Dimension::Points(v * scale))
+}
+
 fn parse_pixel_length(token: &str) -> Option<f32> {
     let pixels = token
         .get(token.len().saturating_sub(2)..)
@@ -791,6 +815,10 @@ pub enum RowValue<'a> {
     Paint(&'a crate::svg::Paint),
     /// SVG `stroke-dasharray` (LLP 1055 D2).
     DashArray(&'a crate::svg::DashArray),
+    /// CSS `transform` on an SVG element (LLP 1055.000 D5).
+    Transform(&'a crate::svg::TransformList),
+    /// CSS `transform-origin` (LLP 1055.000 D5).
+    TransformOrigin(&'a crate::svg::TransformOrigin),
     /// A dimension.
     Dimension(Dimension),
     /// A number (`f32`, `u8`, `u16`, `u32`, `i32` rows).
@@ -829,6 +857,8 @@ impl RowValue<'_> {
             RowValue::Transitions(v) => v.is_finite(),
             RowValue::Animations(v) => v.is_finite(),
             RowValue::DashArray(v) => v.0.iter().all(|n| n.is_finite()),
+            RowValue::Transform(v) => v.is_finite(),
+            RowValue::TransformOrigin(v) => v.is_finite(),
             RowValue::Paint(_)
             | RowValue::ClipPath(_)
             | RowValue::ShapeOutside(_)
@@ -1239,6 +1269,10 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
                 s.aspect_ratio = Some(w / h);
                 s.aspect_ratio_content_box = true;
             }
+        } else if let Some(ratio) = crate::svg::natural_ratio(arena, slot) {
+            // @ref LLP 1055.000 D4 — an `svg`'s view box is its natural ratio.
+            s.aspect_ratio = Some(ratio);
+            s.aspect_ratio_content_box = true;
         }
     }
     if arena.is_root(slot)

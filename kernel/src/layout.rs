@@ -738,101 +738,121 @@ impl LayoutTree {
                 // exactly upstream's border-box known dimensions (old Patch 7).
                 _ => inputs.known_dimensions.height.is_some(),
             };
-            let mut output = taffy::compute_leaf_layout(
-                inputs,
-                style,
-                |_, _| 0.0,
-                |known, space| {
-                    let Some(context) = context else {
-                        return Size::ZERO;
-                    };
-                    // Clear on the first actual measurement of this pass. A cache
-                    // hit retains the proof of the pass that produced that layout.
-                    if context.pass != pass {
-                        context.pass = pass;
-                        context.height_measured = false;
-                    }
-                    context.height_measured |= !height_known;
-                    let slot = context.slot;
-                    if arena.node_type(slot).is_replaced() {
-                        // A replaced element: its intrinsic size where nothing
-                        // is known (Taffy has already applied the aspect ratio
-                        // to a known dimension); nothing at all before it loads,
-                        // as a broken `<img>` is 0×0.
-                        let Some((iw, ih)) = arena.intrinsic(slot).or_else(|| {
-                            // A bare <video> and a bare <svg> are 300×150.
-                            matches!(arena.node_type(slot), NodeType::Video | NodeType::Svg)
-                                .then_some((300.0, 150.0))
-                        }) else {
+            let mut output =
+                taffy::compute_leaf_layout(
+                    inputs,
+                    style,
+                    |_, _| 0.0,
+                    |known, space| {
+                        let Some(context) = context else {
                             return Size::ZERO;
                         };
-                        return Size {
-                            width: known.width.unwrap_or(iw),
-                            height: known.height.unwrap_or(ih),
-                        };
-                    }
-                    let width = if arena.node_type(slot) == NodeType::TextInput
-                        && arena.style(slot).field_sizing == FieldSizing::Fixed
-                    {
-                        // A control's preferred row count does not increase when
-                        // CSS constrains its width below the preferred columns.
-                        AxisOffer::MaxContent
-                    } else {
-                        // The leaf engine has folded its known border-box size
-                        // into content space, less padding and border. Wrap where
-                        // the host paints, not at the wider border box.
-                        from_available(space.width)
-                    };
-                    let height = from_available(space.height);
-                    // Reuse before flattening runs or crossing the host seam. Height
-                    // stays in the key, and the 0.14 proof above updates on hits too.
-                    let metrics = if let Some(cached) = context
-                        .measurements
-                        .iter()
-                        .find(|m| m.width == width && m.height == height)
-                    {
-                        cached.metrics
-                    } else {
-                        runs.clear();
-                        arena.text_runs(slot, &mut runs);
-                        if runs.is_empty() {
-                            return Size::ZERO;
+                        // Clear on the first actual measurement of this pass. A cache
+                        // hit retains the proof of the pass that produced that layout.
+                        if context.pass != pass {
+                            context.pass = pass;
+                            context.height_measured = false;
                         }
-                        // Direction and alignment inherit (a paragraph inside a
-                        // centred column centres, as in CSS); the rest are its own.
-                        let paragraph = arena.paragraph(slot);
-                        let request = TextMeasureRequest {
-                            exclusions: &[],
-                            runs: &runs,
-                            paragraph,
-                            width,
-                            height,
-                        };
-                        let metrics = match arena.paragraph_stamp(slot) {
-                            Some(stamp) => measurer.measure_identified(&stamp, &request),
-                            None => measurer.measure(&request),
-                        };
-                        if !metrics.is_valid() {
-                            invalid_metrics.get_or_insert_with(|| arena.local_id(slot));
-                            return Size::ZERO;
+                        context.height_measured |= !height_known;
+                        let slot = context.slot;
+                        if let (None, Some(ratio)) = (
+                            arena.intrinsic(slot),
+                            crate::svg::natural_ratio(arena, slot),
+                        ) {
+                            // @ref LLP 1055.000 D4 — an `svg` with a view box has a
+                            // natural ratio and no natural size: it fills the
+                            // offered width (CSS Sizing's stretch fit, as Chrome
+                            // sizes one), else the 300 px default object width.
+                            let width = known.width.or(known.height.map(|h| h * ratio)).unwrap_or(
+                                match space.width {
+                                    taffy::style::AvailableSpace::Definite(w) => w,
+                                    _ => 300.0,
+                                },
+                            );
+                            return Size {
+                                width,
+                                height: known.height.unwrap_or(width / ratio),
+                            };
                         }
-                        if context.measurements.len() == LEAF_OFFERS {
-                            context.measurements.remove(0);
+                        if arena.node_type(slot).is_replaced() {
+                            // A replaced element: its intrinsic size where nothing
+                            // is known (Taffy has already applied the aspect ratio
+                            // to a known dimension); nothing at all before it loads,
+                            // as a broken `<img>` is 0×0.
+                            let Some((iw, ih)) = arena.intrinsic(slot).or_else(|| {
+                                // A bare <video> and a bare <svg> are 300×150.
+                                matches!(arena.node_type(slot), NodeType::Video | NodeType::Svg)
+                                    .then_some((300.0, 150.0))
+                            }) else {
+                                return Size::ZERO;
+                            };
+                            return Size {
+                                width: known.width.unwrap_or(iw),
+                                height: known.height.unwrap_or(ih),
+                            };
                         }
-                        context.measurements.push(Measurement {
-                            width,
-                            height,
-                            metrics,
-                        });
-                        metrics
-                    };
-                    first_baseline = metrics.first_baseline;
-                    Size {
-                        width: metrics.width,
-                        height: metrics.height,
-                    }
-                },
-            );
+                        let width = if arena.node_type(slot) == NodeType::TextInput
+                            && arena.style(slot).field_sizing == FieldSizing::Fixed
+                        {
+                            // A control's preferred row count does not increase when
+                            // CSS constrains its width below the preferred columns.
+                            AxisOffer::MaxContent
+                        } else {
+                            // The leaf engine has folded its known border-box size
+                            // into content space, less padding and border. Wrap where
+                            // the host paints, not at the wider border box.
+                            from_available(space.width)
+                        };
+                        let height = from_available(space.height);
+                        // Reuse before flattening runs or crossing the host seam. Height
+                        // stays in the key, and the 0.14 proof above updates on hits too.
+                        let metrics = if let Some(cached) = context
+                            .measurements
+                            .iter()
+                            .find(|m| m.width == width && m.height == height)
+                        {
+                            cached.metrics
+                        } else {
+                            runs.clear();
+                            arena.text_runs(slot, &mut runs);
+                            if runs.is_empty() {
+                                return Size::ZERO;
+                            }
+                            // Direction and alignment inherit (a paragraph inside a
+                            // centred column centres, as in CSS); the rest are its own.
+                            let paragraph = arena.paragraph(slot);
+                            let request = TextMeasureRequest {
+                                exclusions: &[],
+                                runs: &runs,
+                                paragraph,
+                                width,
+                                height,
+                            };
+                            let metrics = match arena.paragraph_stamp(slot) {
+                                Some(stamp) => measurer.measure_identified(&stamp, &request),
+                                None => measurer.measure(&request),
+                            };
+                            if !metrics.is_valid() {
+                                invalid_metrics.get_or_insert_with(|| arena.local_id(slot));
+                                return Size::ZERO;
+                            }
+                            if context.measurements.len() == LEAF_OFFERS {
+                                context.measurements.remove(0);
+                            }
+                            context.measurements.push(Measurement {
+                                width,
+                                height,
+                                metrics,
+                            });
+                            metrics
+                        };
+                        first_baseline = metrics.first_baseline;
+                        Size {
+                            width: metrics.width,
+                            height: metrics.height,
+                        }
+                    },
+                );
             // Patch 2's separate API is unnecessary: the upstream callback owns
             // LayoutOutput, including baselines in border-box coordinates.
             let inset = style

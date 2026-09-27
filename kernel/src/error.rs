@@ -50,6 +50,10 @@ pub enum DecodeError {
     BadPaint,
     /// Invalid SVG `stroke-dasharray` (LLP 1055 D2).
     BadDashArray,
+    /// Invalid CSS `transform` list (LLP 1055.000 D5).
+    BadTransform,
+    /// Invalid CSS `transform-origin` (LLP 1055.000 D5).
+    BadTransformOrigin,
     /// An `animation` row carried more entries or keyframes than the wire
     /// admits, or a direction/fill byte outside the table (LLP 1055 D5).
     BadAnimation,
@@ -426,6 +430,14 @@ pub enum StyleValueError {
     },
     /// Not SVG `stroke-dasharray`: `none` or non-negative numbers.
     BadDashArray {
+        style: StyleId,
+    },
+    /// Not a CSS or SVG transform list.
+    BadTransform {
+        style: StyleId,
+    },
+    /// Not CSS `transform-origin`.
+    BadTransformOrigin {
         style: StyleId,
     },
     /// Not CSS `animation` shorthand.

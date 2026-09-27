@@ -97,8 +97,10 @@ impl Kernel {
         mask.set(StyleId::StrokeDashoffset);
         let offset = node.computed_style(mask).stroke_dashoffset;
         let mut out = vec![(Property::StrokeDashoffset, Value::scalar(offset as f64))];
-        if node.node_type == NodeType::SvgCircle {
-            out.push((Property::R, Value::scalar(node.style.r as f64)));
+        // `r` animates as a length in user units; a percentage radius
+        // resolves against its viewport at paint time and is not a target.
+        if let (NodeType::SvgCircle, Dimension::Points(r)) = (node.node_type, node.style.r) {
+            out.push((Property::R, Value::scalar(r as f64)));
         }
         out
     }

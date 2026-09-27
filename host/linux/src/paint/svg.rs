@@ -1,11 +1,13 @@
-//! An `svg`'s content in the paint walk (LLP 1055 D4): its elements drawn
-//! in the view box's space inside the content box, clipped to the box when
-//! the `svg`'s overflow is not visible, each shape through
-//! [`Backend::svg_path`]; `g` opacity is a group, as in CSS.
+//! An `svg`'s content in the paint walk (LLP 1055 D4, LLP 1055.000 D1): the
+//! kernel resolves the scene, and this paints it inside the content box,
+//! clipped to the box when the `svg`'s overflow is not visible, each shape
+//! through [`Backend::svg_path`]; group opacity is a group, as in CSS.
 
 use super::{effective_overflow, rgba, Painter, Rect4, Shape, Walk};
-use exact_kernel::svg::{circle, dash_scale, geometry, view_box, view_box_transform, Paint, Path};
-use exact_kernel::{NodeRef, NodeType, Overflow, PropId, StyleId, StyleMask};
+use exact_kernel::svg::scene::{self, Item, Kind, ShapePaint};
+use exact_kernel::svg::Path;
+use exact_kernel::{NodeKey, NodeRef, Overflow};
+use exact_motion::{Property, Value};
 use tiny_skia::Transform;
 
 /// One shape as a backend paints it: path in user units, paint resolved.
@@ -32,20 +34,9 @@ pub struct SvgPaint<'a> {
     pub phase: f32,
 }
 
-const ROWS: [StyleId; 12] = [
-    StyleId::Fill,
-    StyleId::Stroke,
-    StyleId::StrokeWidth,
-    StyleId::StrokeLinecap,
-    StyleId::StrokeLinejoin,
-    StyleId::StrokeMiterlimit,
-    StyleId::StrokeDasharray,
-    StyleId::StrokeDashoffset,
-    StyleId::FillOpacity,
-    StyleId::StrokeOpacity,
-    StyleId::FillRule,
-    StyleId::TextColor,
-];
+fn affine(t: [f32; 6]) -> Transform {
+    Transform::from_row(t[0], t[1], t[2], t[3], t[4], t[5])
+}
 
 impl Painter {
     pub(super) fn svg(
@@ -56,86 +47,113 @@ impl Painter {
         content: Rect4,
         ts: Transform,
     ) {
-        let Some(t) = view_box_transform(
-            view_box(node.props),
-            node.props.str(PropId::PreserveAspectRatio),
-            content.2,
-            content.3,
-        ) else {
-            return;
+        let kernel = walk.scene.kernel;
+        let presented = walk.scene.presented;
+        let value = |key: NodeKey, p: Property| -> Option<Value> {
+            let id = kernel.node_by_key(key)?.id;
+            let v = presented(id);
+            Some(match p {
+                Property::Opacity => Value::scalar(v.opacity as f64),
+                Property::Translate => Value::new(v.translate.0 as f64, v.translate.1 as f64),
+                Property::Scale => Value::scalar(v.scale as f64),
+                Property::Rotate => Value::scalar(v.rotate as f64),
+                Property::R => Value::scalar(v.svg.0? as f64),
+                Property::StrokeDashoffset => Value::scalar(v.svg.1? as f64),
+                Property::Height => return None,
+            })
         };
+        let scene = scene::resolve(kernel, node, content, &value);
+        if scene.view.is_none() {
+            return;
+        }
         let (ox, oy) = effective_overflow(node);
         let clips = ox != Overflow::Visible || oy != Overflow::Visible;
         if clips {
             self.backend.push_clip(&Shape::rect(rect), ts);
         }
-        let space = ts
-            .pre_translate(content.0, content.1)
-            .pre_concat(Transform::from_row(t[0], t[1], t[2], t[3], t[4], t[5]));
-        for child in node.children() {
-            self.svg_element(walk, child, space);
+        let origin = ts.pre_translate(content.0, content.1);
+        let space = origin.pre_concat(affine(
+            scene.view.unwrap_or(exact_kernel::svg::transform::IDENTITY),
+        ));
+        for item in &scene.items {
+            self.svg_item(item, space, origin);
         }
         if clips {
             self.backend.pop_clip();
         }
     }
 
-    fn svg_element(&mut self, walk: &mut Walk<'_, '_>, id: exact_kernel::ViewId, ts: Transform) {
-        let Some(node) = walk.scene.kernel.node(id) else {
+    /// One item in its parent's space `ts`; `origin` is the content box's
+    /// space, where a non-scaling stroke is drawn.
+    fn svg_item(&mut self, item: &Item, ts: Transform, origin: Transform) {
+        if item.opacity <= 0.0 {
             return;
+        }
+        if item.opacity < 1.0 {
+            self.backend.push_opacity(item.opacity);
+        }
+        let own = match &item.transform {
+            Some(t) => ts.pre_concat(affine(t.affine())),
+            None => ts,
         };
-        let p = (walk.scene.presented)(id);
-        let opacity = p.opacity.clamp(0.0, 1.0);
-        if opacity <= 0.0 {
-            return;
-        }
-        if opacity < 1.0 {
-            self.backend.push_opacity(opacity);
-        }
-        if node.node_type == NodeType::SvgGroup {
-            for child in node.children() {
-                self.svg_element(walk, child, ts);
+        match &item.kind {
+            Kind::Group(children) => {
+                for child in children {
+                    self.svg_item(child, own, origin);
+                }
             }
-        } else {
-            let mut mask = StyleMask::EMPTY;
-            for row in ROWS {
-                mask.set(row);
+            Kind::Viewport {
+                rect,
+                view,
+                clip,
+                children,
+            } => {
+                if let Some(view) = view {
+                    if *clip {
+                        self.backend.push_clip(&Shape::rect(*rect), own);
+                    }
+                    let inner = own.pre_concat(affine(*view));
+                    for child in children {
+                        self.svg_item(child, inner, origin);
+                    }
+                    if *clip {
+                        self.backend.pop_clip();
+                    }
+                }
             }
-            let s = node.computed_style(mask);
-            let path = if node.node_type == NodeType::SvgCircle {
-                circle(
-                    node.style.cx,
-                    node.style.cy,
-                    p.svg.0.unwrap_or(node.style.r),
-                )
-            } else {
-                geometry(node.node_type, node.props, &s)
-            };
-            if let Some(path) = path {
-                let scale = dash_scale(&path, node.props);
-                let color = |paint: &Paint, alpha: f32| {
-                    paint.resolve(s.text_color, self.dark).map(|c| {
-                        let mut c = rgba(c);
-                        c[3] = (c[3] as f32 * alpha.clamp(0.0, 1.0)).round() as u8;
+            Kind::Shape(shape) => {
+                let color = |p: Option<&ShapePaint>| {
+                    p.map(|p| {
+                        let mut c = rgba(p.color.resolve(self.dark));
+                        c[3] = (c[3] as f32 * p.opacity).round() as u8;
                         c
                     })
                 };
-                let shape = SvgPaint {
-                    path: &path,
-                    fill: color(&s.fill, s.fill_opacity),
-                    even_odd: s.fill_rule == exact_kernel::FillRule::Evenodd,
-                    stroke: color(&s.stroke, s.stroke_opacity),
-                    width: s.stroke_width.max(0.0),
-                    cap: s.stroke_linecap as u8,
-                    join: s.stroke_linejoin as u8,
-                    miter: s.stroke_miterlimit.max(1.0),
-                    dash: s.stroke_dasharray.pattern(scale),
-                    phase: p.svg.1.unwrap_or(s.stroke_dashoffset) * scale,
+                let mapped;
+                let (path, space) = if shape.non_scaling {
+                    // Drawn in the content box's space, the stroke unscaled
+                    // (LLP 1055.000 D5).
+                    mapped = shape.path.transformed(item.ctm);
+                    (&mapped, origin)
+                } else {
+                    (&shape.path, own)
                 };
-                self.backend.svg_path(&shape, ts);
+                let paint = SvgPaint {
+                    path,
+                    fill: color(shape.fill.as_ref()),
+                    even_odd: shape.fill_rule == exact_kernel::FillRule::Evenodd,
+                    stroke: color(shape.stroke.as_ref()),
+                    width: shape.width,
+                    cap: shape.cap as u8,
+                    join: shape.join as u8,
+                    miter: shape.miter,
+                    dash: shape.dash.clone(),
+                    phase: shape.dash_offset,
+                };
+                self.backend.svg_path(&paint, space);
             }
         }
-        if opacity < 1.0 {
+        if item.opacity < 1.0 {
             self.backend.pop_opacity();
         }
     }

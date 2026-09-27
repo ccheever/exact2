@@ -18,8 +18,14 @@ use exact_motion::{Animation, Animations, Keyframes, Property};
 pub(crate) fn is_element(tag: &str) -> bool {
     matches!(
         tag,
-        "g" | "path" | "polyline" | "polygon" | "circle" | "line" | "rect"
+        "g" | "path" | "polyline" | "polygon" | "circle" | "ellipse" | "line" | "rect"
     )
+}
+
+/// SVG length attributes CSS cannot set: props holding the authored text
+/// (LLP 1055.000 D4), so a number and `"50%"` are both accepted.
+pub(crate) fn is_length_prop(attr: &str) -> bool {
+    matches!(attr, "x1" | "y1" | "x2" | "y2")
 }
 
 /// The elements an SVG-specific attribute belongs to.
@@ -28,10 +34,17 @@ fn owners(attr: &str) -> Option<&'static [&'static str]> {
         "viewBox" | "preserveAspectRatio" => &["svg"],
         "points" => &["polyline", "polygon"],
         "d" => &["path"],
-        "pathLength" => &["path", "polyline", "polygon", "circle", "line", "rect"],
-        "x" | "y" | "rx" | "ry" => &["rect"],
+        "pathLength" => &[
+            "path", "polyline", "polygon", "circle", "ellipse", "line", "rect",
+        ],
+        "x" | "y" => &["rect", "svg"],
+        "rx" | "ry" => &["rect", "ellipse"],
         "x1" | "y1" | "x2" | "y2" => &["line"],
-        "cx" | "cy" | "r" => &["circle"],
+        "cx" | "cy" => &["circle", "ellipse"],
+        "r" => &["circle"],
+        "vector-effect" => &[
+            "path", "polyline", "polygon", "circle", "ellipse", "line", "rect",
+        ],
         _ => return None,
     })
 }
@@ -54,6 +67,14 @@ fn shared(attr: &str) -> bool {
             | "fill-rule"
             | "opacity"
             | "color"
+            | "transform"
+            | "transform-origin"
+            | "transform-box"
+            | "translate"
+            | "rotate"
+            | "scale"
+            | "visibility"
+            | "display"
             | "animation"
             | "transition"
             | "testId"
@@ -64,7 +85,6 @@ fn shared(attr: &str) -> bool {
 /// A named refusal for an SVG tag outside the subset (LLP 1055 D12).
 pub(crate) fn refused_tag(tag: &str) -> Option<&'static str> {
     Some(match tag {
-        "ellipse" => "`ellipse` is not in exact2's SVG subset yet (LLP 1055 D1); a `path` with two arcs draws one",
         "text" | "tspan" | "textPath" => "text inside `svg` is refused (LLP 1055 D12); put a `text` beside the `svg`",
         "use" | "symbol" | "defs" | "clipPath" | "mask" | "pattern" | "marker"
         | "linearGradient" | "radialGradient" | "filter" | "foreignObject" | "image" => {
@@ -153,19 +173,20 @@ impl Lowerer<'_> {
         span: Span,
     ) -> Result<(), LowerError> {
         let in_svg = matches!(parent_tag, Some("svg" | "g"));
-        if is_element(tag) && !in_svg {
+        // A nested `svg` is an SVG element: a new viewport (LLP 1055.000 D4).
+        let element = is_element(tag) || (tag == "svg" && in_svg);
+        if tag != "svg" && is_element(tag) && !in_svg {
             return err(
                 "lower-svg-content",
                 format!("`{tag}` is an SVG element: it goes inside an `svg` or a `g`"),
                 span,
             );
         }
-        if in_svg && !is_element(tag) {
+        if in_svg && !element {
             return err(
                 "lower-svg-content",
                 format!(
-                    "an `svg` or `g` holds SVG elements (g, path, polyline, polygon, circle, line, rect), not `{tag}`{}",
-                    if tag == "svg" { "; nested `svg` is refused (LLP 1055 D3)" } else { "" }
+                    "an `svg` or `g` holds SVG elements (svg, g, path, polyline, polygon, circle, ellipse, line, rect), not `{tag}`"
                 ),
                 span,
             );
@@ -183,9 +204,11 @@ impl Lowerer<'_> {
                         a.span,
                     );
                 }
-            } else if is_element(tag)
+            } else if element
                 && !shared(&a.name)
-                && !(tag == "rect" && matches!(a.name.as_str(), "width" | "height"))
+                && !(matches!(tag, "rect" | "svg") && matches!(a.name.as_str(), "width" | "height"))
+                && !(tag == "svg"
+                    && matches!(a.name.as_str(), "overflow" | "overflow-x" | "overflow-y"))
             {
                 let why = if matches!(tags::attr(&a.name), Some(tags::AttrTarget::Handler(_))) {
                     "SVG elements are decorative in v1: the `svg` is the one hit and accessibility box (LLP 1055 D3)"
@@ -225,7 +248,7 @@ impl Lowerer<'_> {
                     let transforms = properties.iter().any(|p| {
                         matches!(p, Property::Translate | Property::Scale | Property::Rotate)
                     });
-                    if is_element(tag) && transforms {
+                    if (is_element(tag) || tag == "svg") && transforms {
                         return err(
                             "lower-animation-target",
                             format!("`keyframes {}` animates a transform, and SVG elements take no transform in v1 (LLP 1055 D1)", a.name),
@@ -347,6 +370,57 @@ impl Lowerer<'_> {
         });
         Ok(Some(out))
     }
+}
+
+/// SVG length props take text (LLP 1055.000 D4): a number literal becomes
+/// its text and any other expression is interpolated, so `x1=10`,
+/// `x1="50%"` and `x1=gridX` all lower. `None` when nothing changes.
+pub(crate) fn coerce_lengths(tag: &str, attrs: &[Attr]) -> Option<Vec<Attr>> {
+    let svg = is_element(tag) || tag == "svg";
+    // A geometry property's presentation attribute is a unitless number
+    // (`y="46"`), which CSS's grammar for the row would refuse.
+    let unitless = |a: &Attr| {
+        svg && matches!(
+            a.name.as_str(),
+            "x" | "y" | "rx" | "ry" | "cx" | "cy" | "r" | "width" | "height"
+        ) && matches!(&a.value, Expr::Str(t, _) if exact_num::parse_f64(t.trim()).is_ok_and(f64::is_finite))
+    };
+    if !attrs
+        .iter()
+        .any(|a| unitless(a) || (is_length_prop(&a.name) && !matches!(a.value, Expr::Str(..))))
+    {
+        return None;
+    }
+    Some(
+        attrs
+            .iter()
+            .map(|a| {
+                if unitless(a) {
+                    let Expr::Str(t, span) = &a.value else {
+                        unreachable!("unitless is a string")
+                    };
+                    return Attr {
+                        name: a.name.clone(),
+                        value: Expr::Number(exact_num::parse_f64(t.trim()).unwrap_or(0.0), *span),
+                        span: a.span,
+                    };
+                }
+                if !is_length_prop(&a.name) {
+                    return a.clone();
+                }
+                let value = match &a.value {
+                    Expr::Str(..) => a.value.clone(),
+                    Expr::Number(n, span) => Expr::Str(exact_num::Shortest(*n).to_string(), *span),
+                    other => Expr::Template(vec![TemplatePart::Expr(other.clone())], a.span),
+                };
+                Attr {
+                    name: a.name.clone(),
+                    value,
+                    span: a.span,
+                }
+            })
+            .collect(),
+    )
 }
 
 /// One longhand's text from an animation (for a composed template).

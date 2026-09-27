@@ -18,6 +18,7 @@ impl NodeType {
                 | NodeType::Canvas
                 | NodeType::Svg
                 | NodeType::SvgGroup
+                | NodeType::SvgViewport
         )
     }
 

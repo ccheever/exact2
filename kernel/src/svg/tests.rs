@@ -107,16 +107,20 @@ fn geometry_reads_the_node() {
     let mut props = PropList::default();
     props.set(PropId::Points, PropValue::Str("0,32 48,0 96,16".into()));
     let style = StyleProps::default();
-    let p = geometry(crate::NodeType::SvgPolyline, &props, &style).unwrap();
+    let vp = Viewport {
+        width: 100.0,
+        height: 50.0,
+    };
+    let p = geometry(crate::NodeType::SvgPolyline, &props, &style, vp).unwrap();
     assert_eq!(p.0.len(), 3);
     props.set(PropId::PathLength, PropValue::Float(1.0));
     close(dash_scale(&p, &props) as f64, p.length(), 1e-4);
-    let mut rect = PropList::default();
-    rect.set(PropId::Rx, PropValue::Float(4.0));
+    let rect = PropList::default();
     let mut rs = StyleProps::default();
+    rs.rx = crate::Dimension::Points(4.0);
     rs.width = crate::Dimension::Points(20.0);
     rs.height = crate::Dimension::Points(6.0);
-    let r = geometry(crate::NodeType::SvgRect, &rect, &rs).unwrap();
+    let r = geometry(crate::NodeType::SvgRect, &rect, &rs, vp).unwrap();
     // ry takes rx (auto), and is clamped to half the height.
     assert_eq!(r.0[0], Seg::Move(4.0, 0.0));
     assert_eq!(
@@ -211,4 +215,66 @@ fn paint_and_dasharray_grammar() {
         "a zero sum is solid"
     );
     assert_eq!(DashArray::parse("1").unwrap().css(), "1");
+}
+
+#[test]
+fn lengths_take_units_and_percentages() {
+    use super::length::Length;
+    assert_eq!(Length::parse("12"), Some(Length::Units(12.0)));
+    assert_eq!(Length::parse("12px"), Some(Length::Units(12.0)));
+    assert_eq!(Length::parse("1in"), Some(Length::Units(96.0)));
+    assert_eq!(Length::parse("72pt"), Some(Length::Units(96.0)));
+    assert_eq!(Length::parse("1pc"), Some(Length::Units(16.0)));
+    close(
+        Length::parse("2.54cm").unwrap().resolve(0.0) as f64,
+        96.0,
+        1e-3,
+    );
+    assert_eq!(Length::parse("1e1"), Some(Length::Units(10.0)));
+    assert_eq!(Length::parse("50%"), Some(Length::Percent(50.0)));
+    assert_eq!(Length::Percent(50.0).resolve(30.0), 15.0);
+    // Font-relative and viewport units wait for a consumer (LLP 1055.000 D4).
+    for refused in ["2em", "1ex", "3vw", "px", ""] {
+        assert_eq!(Length::parse(refused), None, "{refused}");
+    }
+}
+
+#[test]
+fn transform_lists_read_both_grammars() {
+    use super::transform::{TransformFn, TransformList, TransformOrigin};
+    let svg = TransformList::parse("rotate(30 10 10), translate(5,2)scale(2)").unwrap();
+    assert_eq!(
+        svg.0,
+        vec![
+            TransformFn::Rotate(30.0, 10.0, 10.0),
+            TransformFn::Translate(5.0, 2.0),
+            TransformFn::Scale(2.0, 2.0)
+        ]
+    );
+    let css = TransformList::parse("rotate(0.5turn) translateX(4px) skew(10deg, 1grad)").unwrap();
+    assert_eq!(css.0[0], TransformFn::Rotate(180.0, 0.0, 0.0));
+    assert_eq!(css.0[1], TransformFn::Translate(4.0, 0.0));
+    assert_eq!(css.0[2], TransformFn::Skew(10.0, 0.9));
+    // The web host emits CSS: a centred rotate is its three functions.
+    assert_eq!(
+        TransformList::parse("rotate(30 10 10)").unwrap().css(),
+        "translate(10px, 10px) rotate(30deg) translate(-10px, -10px)"
+    );
+    assert_eq!(TransformList::parse("none").unwrap().css(), "none");
+    for bad in [
+        "rotate(1 2)",
+        "translate(10%)",
+        "spin(3)",
+        "matrix(1 2 3)",
+        "rotate(4",
+    ] {
+        assert!(TransformList::parse(bad).is_none(), "{bad}");
+    }
+    let o = |t: &str| TransformOrigin::parse(t).map(|o| o.point((0.0, 0.0, 100.0, 50.0)));
+    assert_eq!(o("center"), Some((50.0, 25.0)));
+    assert_eq!(o("top left"), Some((0.0, 0.0)));
+    assert_eq!(o("bottom"), Some((50.0, 50.0)));
+    assert_eq!(o("10px 20%"), Some((10.0, 10.0)));
+    assert_eq!(o("right 5 0"), Some((100.0, 5.0)));
+    assert_eq!(o("left right"), None);
 }

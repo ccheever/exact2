@@ -14,11 +14,10 @@ use crate::batch::Batch;
 use crate::style::num;
 use exact_kernel::id::{IdMap, IdSet};
 use exact_kernel::motion::motion_node;
-use exact_kernel::svg::{dash_scale, geometry, view_box, view_box_transform, Paint, Path, Seg};
-use exact_kernel::{
-    BorderStyle, ColorValue, Dimension, Kernel, NodeRef, NodeType, PropId, StyleId, StyleMask,
-    StyleProps, ViewId,
-};
+use exact_kernel::svg::scene::{content_box, Item, Kind, Shape, ShapePaint};
+use exact_kernel::svg::transform::{self as tf, Affine};
+use exact_kernel::svg::{Path, Seg};
+use exact_kernel::{ColorValue, Dimension, Kernel, NodeKey, NodeRef, NodeType, StyleProps, ViewId};
 use exact_motion::animation::Keyframe;
 use exact_motion::{AnimationPlay, Easing, Engine, Property, Value};
 use std::fmt::Write as _;
@@ -26,6 +25,9 @@ use std::fmt::Write as _;
 /// The properties Core Animation plays for a CSS animation on Apple.
 pub(crate) const LOWERED: [Property; 3] =
     [Property::Opacity, Property::StrokeDashoffset, Property::R];
+
+/// A content box: x, y, width, height.
+type Rect = (f32, f32, f32, f32);
 
 /// What the Apple host knows about SVG scenes and lowered animations.
 #[derive(Debug, Default)]
@@ -35,7 +37,7 @@ pub(crate) struct SvgState {
     /// Scenes to rebuild.
     dirty: IdSet<ViewId>,
     /// The last scene sent per `svg`, and its content box.
-    sent: IdMap<ViewId, (String, (f32, f32, f32, f32))>,
+    sent: IdMap<ViewId, (String, Rect)>,
     /// Boxes whose lowered animations may have changed, and their last spec.
     boxes: IdSet<ViewId>,
     box_sent: IdMap<ViewId, String>,
@@ -140,36 +142,13 @@ impl SvgState {
     }
 }
 
-/// The content box inside the `svg`'s border box: x, y, width, height.
-fn content_box(node: &NodeRef<'_>) -> (f32, f32, f32, f32) {
-    let s = node.style;
-    let len = |d: Dimension| match d {
-        Dimension::Points(p) => p,
-        Dimension::Percent(p) => node.frame.width * p / 100.0,
-        _ => 0.0,
-    };
-    // A border takes space only when its style draws one (CSS: `none` and
-    // `hidden` compute the width to zero, whatever `medium` says).
-    let border = |w: f32, style: BorderStyle| match style {
-        BorderStyle::None | BorderStyle::Hidden => 0.0,
-        _ => w,
-    };
-    let left = len(s.padding_left) + border(s.border_width_left, s.border_style_left);
-    let top = len(s.padding_top) + border(s.border_width_top, s.border_style_top);
-    let w = node.frame.width
-        - left
-        - len(s.padding_right)
-        - border(s.border_width_right, s.border_style_right);
-    let h = node.frame.height
-        - top
-        - len(s.padding_bottom)
-        - border(s.border_width_bottom, s.border_style_bottom);
-    (left, top, w.max(0.0), h.max(0.0))
-}
-
 /// `{"box":[x,y,w,h],"t":[a,b,c,d,e,f]|null,"els":[…]}`: `t` null renders
-/// nothing (a view box with no area).
+/// nothing (a view box with no area). The scene is the kernel's resolved
+/// one (LLP 1055.000 D1); this only serializes it with the lowered
+/// animations of each item.
 fn scene(kernel: &Kernel, engine: &Engine, node: &NodeRef<'_>, bx: (f32, f32, f32, f32)) -> String {
+    let presented = |key: NodeKey, p: Property| engine.value(motion_node(key), p);
+    let resolved = exact_kernel::svg::scene::resolve(kernel, node, bx, &presented);
     let mut s = String::new();
     let _ = write!(
         s,
@@ -179,141 +158,168 @@ fn scene(kernel: &Kernel, engine: &Engine, node: &NodeRef<'_>, bx: (f32, f32, f3
         num(bx.2),
         num(bx.3)
     );
-    match view_box_transform(
-        view_box(node.props),
-        node.props.str(PropId::PreserveAspectRatio),
-        bx.2,
-        bx.3,
-    ) {
-        Some(t) => {
-            let _ = write!(
-                s,
-                "[{},{},{},{},{},{}]",
-                num(t[0]),
-                num(t[1]),
-                num(t[2]),
-                num(t[3]),
-                num(t[4]),
-                num(t[5])
-            );
-        }
+    match resolved.view {
+        Some(t) => affine_json(t, &mut s),
         None => s.push_str("null"),
     }
     s.push_str(",\"els\":");
-    children(kernel, engine, node, &mut s);
+    items(
+        engine,
+        &resolved.items,
+        resolved.view.unwrap_or(tf::IDENTITY),
+        &mut s,
+    );
     s.push('}');
     s
 }
 
-fn children(kernel: &Kernel, engine: &Engine, node: &NodeRef<'_>, s: &mut String) {
+fn affine_json(t: Affine, s: &mut String) {
+    let _ = write!(
+        s,
+        "[{},{},{},{},{},{}]",
+        num(t[0]),
+        num(t[1]),
+        num(t[2]),
+        num(t[3]),
+        num(t[4]),
+        num(t[5])
+    );
+}
+
+fn items(engine: &Engine, list: &[Item], parent_ctm: Affine, s: &mut String) {
     s.push('[');
-    for (i, child) in node.children().into_iter().enumerate() {
+    for (i, item) in list.iter().enumerate() {
         if i > 0 {
             s.push(',');
         }
-        if let Some(c) = kernel.node(child) {
-            element(kernel, engine, &c, s);
-        } else {
-            s.push_str("null");
-        }
+        element(engine, item, parent_ctm, s);
     }
     s.push(']');
 }
 
-const PAINT_ROWS: [StyleId; 12] = [
-    StyleId::Fill,
-    StyleId::Stroke,
-    StyleId::StrokeWidth,
-    StyleId::StrokeLinecap,
-    StyleId::StrokeLinejoin,
-    StyleId::StrokeMiterlimit,
-    StyleId::StrokeDasharray,
-    StyleId::StrokeDashoffset,
-    StyleId::FillOpacity,
-    StyleId::StrokeOpacity,
-    StyleId::FillRule,
-    StyleId::TextColor,
-];
+/// One item: `id`, group opacity `o`, its transform `tf` (origin `o`, the
+/// individual properties `i`, the list `m`) when it has one, the lowered
+/// animations `a`, then what it draws.
+fn element(engine: &Engine, item: &Item, parent_ctm: Affine, s: &mut String) {
+    let key = motion_node(item.key);
+    let opacity = item.opacity as f64;
+    let _ = write!(s, "{{\"id\":{},\"o\":{}", item.id, num(item.opacity));
+    let shape = match &item.kind {
+        Kind::Shape(shape) => Some(shape.as_ref()),
+        _ => None,
+    };
+    let non_scaling = shape.is_some_and(|sh| sh.non_scaling);
+    match (&item.transform, non_scaling) {
+        (_, true) => {
+            // A non-scaling stroke is drawn in the content box's space: the
+            // path comes mapped through the item's ctm, and the layer undoes
+            // its parents' (LLP 1055.000 D5).
+            s.push_str(",\"inv\":");
+            affine_json(tf::invert(parent_ctm).unwrap_or(tf::IDENTITY), s);
+        }
+        (Some(t), false) => {
+            let _ = write!(
+                s,
+                ",\"tf\":{{\"o\":[{},{}],\"i\":",
+                num(t.origin.0),
+                num(t.origin.1)
+            );
+            affine_json(t.individual(), s);
+            s.push_str(",\"m\":");
+            affine_json(t.matrix, s);
+            s.push('}');
+        }
+        (None, false) => {}
+    }
+    match &item.kind {
+        Kind::Group(children) => {
+            let specs = specs(engine, key, &[Property::Opacity], &|_| (opacity, 1.0));
+            let _ = write!(s, ",\"g\":1,\"a\":{specs},\"c\":");
+            items(engine, children, item.ctm, s);
+        }
+        Kind::Viewport {
+            rect,
+            view,
+            clip,
+            children,
+        } => {
+            let specs = specs(engine, key, &[Property::Opacity], &|_| (opacity, 1.0));
+            let _ = write!(
+                s,
+                ",\"g\":1,\"vp\":[{},{},{},{}],\"clip\":{},\"a\":{specs},\"t\":",
+                num(rect.0),
+                num(rect.1),
+                num(rect.2),
+                num(rect.3),
+                *clip as u8
+            );
+            match view {
+                // The layer sits at the rect's origin; its sublayers take
+                // the view box without that translation.
+                Some(v) => affine_json(tf::mul(tf::translate(-rect.0, -rect.1), *v), s),
+                None => s.push_str("null"),
+            }
+            s.push_str(",\"c\":");
+            match view {
+                Some(v) => items(engine, children, tf::mul(item.ctm, *v), s),
+                None => s.push_str("[]"),
+            }
+        }
+        Kind::Shape(shape) => shape_json(engine, key, opacity, item, shape, s),
+    }
+    s.push('}');
+}
 
-fn element(kernel: &Kernel, engine: &Engine, node: &NodeRef<'_>, s: &mut String) {
-    let key = motion_node(node.key);
-    // The engine's value (a transition may be running), else the row's.
-    let value = |p: Property, fallback: f32| engine.value(key, p).map_or(fallback as f64, |v| v.x);
-    let opacity = value(Property::Opacity, node.style.opacity).clamp(0.0, 1.0);
-    let _ = write!(s, "{{\"id\":{},\"o\":{}", node.id, num(opacity as f32));
-    if node.node_type == NodeType::SvgGroup {
-        let specs = specs(engine, key, &[Property::Opacity], &|_| (opacity, 1.0));
-        let _ = write!(s, ",\"g\":1,\"a\":{specs},\"c\":");
-        children(kernel, engine, node, s);
-        s.push('}');
-        return;
-    }
-    let mut mask = StyleMask::EMPTY;
-    for row in PAINT_ROWS {
-        mask.set(row);
-    }
-    let computed = node.computed_style(mask);
-    let circle = node.node_type == NodeType::SvgCircle;
+fn shape_json(engine: &Engine, key: u64, opacity: f64, item: &Item, shape: &Shape, s: &mut String) {
     // A circle is drawn about the origin and placed at its centre, so a
     // moving pulse and an `r` animation never fight over one path.
-    let r = value(Property::R, node.style.r).max(0.0);
-    let path = if circle {
-        exact_kernel::svg::circle(0.0, 0.0, r as f32)
-    } else {
-        geometry(node.node_type, node.props, &computed)
+    let centered = shape.circle.filter(|_| !shape.non_scaling);
+    let path = match centered {
+        Some((_, _, r)) => exact_kernel::svg::circle(0.0, 0.0, r),
+        None if shape.non_scaling => Some(shape.path.transformed(item.ctm)),
+        None => Some(shape.path.clone()),
     };
-    let scale = path.as_ref().map_or(1.0, |p| dash_scale(p, node.props)) as f64;
-    let offset = value(Property::StrokeDashoffset, computed.stroke_dashoffset);
     s.push_str(",\"p\":");
     path_json(path.as_ref(), s);
-    if circle {
-        let _ = write!(
-            s,
-            ",\"pos\":[{},{}]",
-            num(node.style.cx),
-            num(node.style.cy)
-        );
+    if let Some((cx, cy, _)) = centered {
+        let _ = write!(s, ",\"pos\":[{},{}]", num(cx), num(cy));
     }
     s.push_str(",\"f\":");
-    paint_json(
-        &computed.fill,
-        computed.text_color,
-        computed.fill_opacity,
-        s,
-    );
+    paint_json(shape.fill.as_ref(), s);
     s.push_str(",\"s\":");
-    paint_json(
-        &computed.stroke,
-        computed.text_color,
-        computed.stroke_opacity,
-        s,
-    );
-    let pattern = computed.stroke_dasharray.pattern(scale as f32);
-    let dash: Vec<String> = pattern.iter().map(|v| num(*v)).collect();
+    paint_json(shape.stroke.as_ref(), s);
+    let dash: Vec<String> = shape.dash.iter().map(|v| num(*v)).collect();
     let _ = write!(
         s,
         ",\"w\":{},\"cap\":{},\"join\":{},\"ml\":{},\"rule\":{},\"dash\":[{}],\"ph\":{}",
-        num(computed.stroke_width.max(0.0)),
-        computed.stroke_linecap as u8,
-        computed.stroke_linejoin as u8,
-        num(computed.stroke_miterlimit.max(1.0)),
-        computed.fill_rule as u8,
+        num(shape.width),
+        shape.cap as u8,
+        shape.join as u8,
+        num(shape.miter),
+        shape.fill_rule as u8,
         dash.join(","),
-        num((offset * scale) as f32)
+        num(shape.dash_offset)
     );
+    let scale = shape.dash_scale as f64;
+    let offset = if scale > 0.0 {
+        shape.dash_offset as f64 / scale
+    } else {
+        0.0
+    };
+    let r = shape.circle.map_or(0.0, |c| c.2 as f64);
     let underlying = |p: Property| match p {
         Property::Opacity => (opacity, 1.0),
         Property::StrokeDashoffset => (offset, scale),
         Property::R => (r, 1.0),
         _ => (0.0, 1.0),
     };
-    let props: &[Property] = if circle {
+    let props: &[Property] = if centered.is_some() {
         &LOWERED
     } else {
         &[Property::Opacity, Property::StrokeDashoffset]
     };
     let specs = specs(engine, key, props, &underlying);
-    let _ = write!(s, ",\"a\":{specs}}}");
+    let _ = write!(s, ",\"a\":{specs}");
 }
 
 fn path_json(path: Option<&Path>, s: &mut String) {
@@ -339,17 +345,15 @@ fn path_json(path: Option<&Path>, s: &mut String) {
     s.push(']');
 }
 
-/// Paint as the presenter's colour: `null` for none; `currentcolor`
-/// resolved to the element's `color`; the paint's opacity folded into alpha.
-/// A `light-dark()` pair stays a pair, resolved by the presenter.
-fn paint_json(paint: &Paint, color: ColorValue, opacity: f32, s: &mut String) {
-    let value = match paint {
-        Paint::None => return s.push_str("null"),
-        Paint::CurrentColor => color,
-        Paint::Color(c) => *c,
+/// Paint as the presenter's colour: `null` for none; the paint's opacity
+/// folded into alpha. A `light-dark()` pair stays a pair, resolved by the
+/// presenter.
+fn paint_json(paint: Option<&ShapePaint>, s: &mut String) {
+    let Some(paint) = paint else {
+        return s.push_str("null");
     };
-    let a = |alpha: u8| ((alpha as f32) * opacity.clamp(0.0, 1.0)).round() as u8;
-    match value {
+    let a = |alpha: u8| ((alpha as f32) * paint.opacity).round() as u8;
+    match paint.color {
         ColorValue::Fixed(c) => {
             let _ = write!(s, "[{},{},{},{}]", c.r(), c.g(), c.b(), a(c.a()));
         }
@@ -578,7 +582,10 @@ fn spec(
 pub(crate) fn row(style: &StyleProps, p: Property) -> Value {
     match p {
         Property::Opacity => Value::scalar(style.opacity as f64),
-        Property::R => Value::scalar(style.r as f64),
+        Property::R => Value::scalar(match style.r {
+            Dimension::Points(r) => r as f64,
+            _ => 0.0,
+        }),
         Property::StrokeDashoffset => Value::scalar(style.stroke_dashoffset as f64),
         _ => Value::ZERO,
     }

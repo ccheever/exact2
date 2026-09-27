@@ -399,6 +399,100 @@ impl Path {
         }
         total
     }
+
+    /// The exact bounding box of the geometry (SVG 2 §8.10's fill box):
+    /// `(x, y, width, height)`, or `None` for an empty path. A cubic's
+    /// extremes are found where its derivative is zero, not at its control
+    /// points.
+    pub fn bounds(&self) -> Option<(f32, f32, f32, f32)> {
+        let mut b: Option<(f64, f64, f64, f64)> = None;
+        let mut add = |x: f64, y: f64| {
+            b = Some(match b {
+                None => (x, y, x, y),
+                Some((a, c, d, e)) => (a.min(x), c.min(y), d.max(x), e.max(y)),
+            });
+        };
+        let (mut cx, mut cy) = (0.0f64, 0.0f64);
+        for seg in &self.0 {
+            match *seg {
+                Seg::Move(x, y) | Seg::Line(x, y) => {
+                    (cx, cy) = (x as f64, y as f64);
+                    add(cx, cy);
+                }
+                Seg::Cubic(x1, y1, x2, y2, x, y) => {
+                    let (x1, y1, x2, y2, x, y) = (
+                        x1 as f64, y1 as f64, x2 as f64, y2 as f64, x as f64, y as f64,
+                    );
+                    add(x, y);
+                    for t in cubic_extrema(cx, x1, x2, x)
+                        .into_iter()
+                        .chain(cubic_extrema(cy, y1, y2, y))
+                        .flatten()
+                    {
+                        let at = |a: f64, b: f64, c: f64, d: f64| {
+                            let u = 1.0 - t;
+                            u * u * u * a
+                                + 3.0 * u * u * t * b
+                                + 3.0 * u * t * t * c
+                                + t * t * t * d
+                        };
+                        add(at(cx, x1, x2, x), at(cy, y1, y2, y));
+                    }
+                    (cx, cy) = (x, y);
+                }
+                Seg::Close => {}
+            }
+        }
+        b.map(|(x0, y0, x1, y1)| (x0 as f32, y0 as f32, (x1 - x0) as f32, (y1 - y0) as f32))
+    }
+
+    /// Every point through an affine `[a, b, c, d, e, f]`.
+    pub fn transformed(&self, m: [f32; 6]) -> Path {
+        let p = |x: f32, y: f32| (m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]);
+        Path(
+            self.0
+                .iter()
+                .map(|s| match *s {
+                    Seg::Move(x, y) => {
+                        let (x, y) = p(x, y);
+                        Seg::Move(x, y)
+                    }
+                    Seg::Line(x, y) => {
+                        let (x, y) = p(x, y);
+                        Seg::Line(x, y)
+                    }
+                    Seg::Cubic(a, b, c, d, x, y) => {
+                        let (a, b) = p(a, b);
+                        let (c, d) = p(c, d);
+                        let (x, y) = p(x, y);
+                        Seg::Cubic(a, b, c, d, x, y)
+                    }
+                    Seg::Close => Seg::Close,
+                })
+                .collect(),
+        )
+    }
+}
+
+/// The parameters in (0, 1) where one coordinate of a cubic is extreme.
+fn cubic_extrema(p0: f64, p1: f64, p2: f64, p3: f64) -> [Option<f64>; 2] {
+    // B'(t)/3 = a t² + b t + c
+    let a = -p0 + 3.0 * p1 - 3.0 * p2 + p3;
+    let b = 2.0 * (p0 - 2.0 * p1 + p2);
+    let c = p1 - p0;
+    let inside = |t: f64| (t > 0.0 && t < 1.0).then_some(t);
+    if a.abs() < 1e-12 {
+        if b.abs() < 1e-12 {
+            return [None, None];
+        }
+        return [inside(-c / b), None];
+    }
+    let disc = b * b - 4.0 * a * c;
+    if disc < 0.0 {
+        return [None, None];
+    }
+    let r = disc.sqrt();
+    [inside((-b + r) / (2.0 * a)), inside((-b - r) / (2.0 * a))]
 }
 
 fn cubic_length(p: [(f64, f64); 4], depth: u32) -> f64 {

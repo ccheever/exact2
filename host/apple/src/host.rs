@@ -1267,7 +1267,9 @@ fn kind_for(node: &NodeRef<'_>) -> &'static str {
         | NodeType::SvgPolygon
         | NodeType::SvgCircle
         | NodeType::SvgLine
-        | NodeType::SvgRect => "svg-element",
+        | NodeType::SvgRect
+        | NodeType::SvgEllipse
+        | NodeType::SvgViewport => "svg-element",
         NodeType::ScrollView => "scroll",
         NodeType::Text => "text",
         NodeType::Image => "image",

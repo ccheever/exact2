@@ -105,6 +105,8 @@ fn element(node: &NodeRef<'_>) -> &'static str {
         NodeType::SvgCircle => "circle",
         NodeType::SvgLine => "line",
         NodeType::SvgRect => "rect",
+        NodeType::SvgEllipse => "ellipse",
+        NodeType::SvgViewport => "svg",
         NodeType::ScrollView => "div",
         NodeType::Text => {
             if node.is_inline_run() {
@@ -157,8 +159,49 @@ fn heading_level(node: &NodeRef<'_>) -> Option<i64> {
 }
 
 /// Props as DOM attributes/properties. Names are the DOM's.
+/// The rows a node's `cssText` carries. A nested `svg` takes `x`, `y`,
+/// `width` and `height` as attributes instead ([`props_for`]): Chrome 154
+/// lays one out from its attributes and ignores those CSS properties
+/// (LLP 1055.000 D4).
+pub(super) fn css_style<'a>(node: &NodeRef<'a>) -> std::borrow::Cow<'a, exact_kernel::StyleProps> {
+    if node.node_type != NodeType::SvgViewport {
+        return std::borrow::Cow::Borrowed(node.style);
+    }
+    let mut style = node.style.clone();
+    let mut mask = exact_kernel::StyleMask::EMPTY;
+    for row in VIEWPORT_ROWS {
+        mask.set(row.0);
+    }
+    style.clear(mask);
+    std::borrow::Cow::Owned(style)
+}
+
+const VIEWPORT_ROWS: [(exact_kernel::StyleId, &str); 4] = [
+    (exact_kernel::StyleId::X, "x"),
+    (exact_kernel::StyleId::Y, "y"),
+    (exact_kernel::StyleId::Width, "width"),
+    (exact_kernel::StyleId::Height, "height"),
+];
+
 pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
     let mut out = SortedMap::new();
+    if node.node_type == NodeType::SvgViewport {
+        for (row, name) in VIEWPORT_ROWS {
+            if !node.style.mask.has(row) {
+                continue;
+            }
+            let text = match node.style.get(row) {
+                exact_kernel::RowValue::Dimension(exact_kernel::Dimension::Points(v)) => {
+                    exact_num::Shortest(v as f64).to_string()
+                }
+                exact_kernel::RowValue::Dimension(exact_kernel::Dimension::Percent(p)) => {
+                    format!("{}%", exact_num::Shortest(p as f64))
+                }
+                _ => continue,
+            };
+            out.insert(name.into(), text);
+        }
+    }
     if node.style.wrap_flow == exact_kernel::WrapFlow::Both {
         out.insert("data-wrap-flow".into(), "both".into());
     }
@@ -301,14 +344,10 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
             PropId::Points => "points",
             PropId::D => "d",
             PropId::PathLength => "pathLength",
-            PropId::X => "x",
-            PropId::Y => "y",
             PropId::X1 => "x1",
             PropId::Y1 => "y1",
             PropId::X2 => "x2",
             PropId::Y2 => "y2",
-            PropId::Rx => "rx",
-            PropId::Ry => "ry",
             other => {
                 // Every other prop rides as `data-<name>` so nothing is lost.
                 // Schema names are ASCII (`prop_names_are_ascii`), so ASCII

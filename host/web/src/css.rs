@@ -289,6 +289,8 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         RowValue::AspectRatio(r) => out.push_str(&r.css()),
         RowValue::Paint(p) => out.push_str(&p.css()),
         RowValue::DashArray(d) => out.push_str(&d.css()),
+        RowValue::Transform(t) => out.push_str(&t.css()),
+        RowValue::TransformOrigin(t) => out.push_str(&t.css()),
         RowValue::Vec2(v) => {
             num_into(out, v.x);
             out.push_str("px ");

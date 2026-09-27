@@ -3,6 +3,7 @@
 //! @ref LLP 1055 D1; SVG 2 §10 (basic shapes and the paths they are
 //! equivalent to), §9.5.1 (`pathLength`), §8.2 (the viewBox equations)
 
+use super::length::{self, Viewport};
 use super::path::{parse_d, parse_points, Path, Seg};
 use crate::generated::{NodeType, PropId};
 use crate::props::PropList;
@@ -13,9 +14,15 @@ use crate::StyleProps;
 const KAPPA: f32 = 0.552_284_8;
 
 /// A shape node's path in user units, or `None` when it renders nothing
-/// (`r` ≤ 0, a rect with no area, fewer than two points).
-pub fn geometry(node_type: NodeType, props: &PropList, style: &StyleProps) -> Option<Path> {
-    let f = |id: PropId| props.get(id).and_then(|v| v.as_float()).unwrap_or(0.0) as f32;
+/// (`r` ≤ 0, a rect with no area, fewer than two points). Lengths resolve
+/// against the nearest viewport (`vp`, SVG 2 §8.9).
+pub fn geometry(
+    node_type: NodeType,
+    props: &PropList,
+    style: &StyleProps,
+    vp: Viewport,
+) -> Option<Path> {
+    let prop = |id: PropId, basis: f32| length::prop(props.str(id), basis);
     match node_type {
         NodeType::SvgPath => {
             let path = parse_d(props.str(PropId::D)?);
@@ -27,34 +34,55 @@ pub fn geometry(node_type: NodeType, props: &PropList, style: &StyleProps) -> Op
                 .then(|| Path::polyline(&points, node_type == NodeType::SvgPolygon))
         }
         NodeType::SvgLine => Some(Path(vec![
-            Seg::Move(f(PropId::X1), f(PropId::Y1)),
-            Seg::Line(f(PropId::X2), f(PropId::Y2)),
+            Seg::Move(prop(PropId::X1, vp.width), prop(PropId::Y1, vp.height)),
+            Seg::Line(prop(PropId::X2, vp.width), prop(PropId::Y2, vp.height)),
         ])),
-        NodeType::SvgCircle => circle(style.cx, style.cy, style.r),
+        NodeType::SvgCircle => circle(vp.x(style.cx), vp.y(style.cy), vp.d(style.r)),
+        NodeType::SvgEllipse => {
+            let (rx, ry) = radii(style, vp);
+            ellipse(vp.x(style.cx), vp.y(style.cy), rx, ry)
+        }
         NodeType::SvgRect => {
-            let len = |d: Dimension| match d {
-                Dimension::Points(v) => v,
-                _ => 0.0,
-            };
-            let rx = props
-                .get(PropId::Rx)
-                .and_then(|v| v.as_float())
-                .map(|v| v as f32);
-            let ry = props
-                .get(PropId::Ry)
-                .and_then(|v| v.as_float())
-                .map(|v| v as f32);
+            let (rx, ry) = radii(style, vp);
             rect(
-                f(PropId::X),
-                f(PropId::Y),
-                len(style.width),
-                len(style.height),
+                vp.x(style.x),
+                vp.y(style.y),
+                vp.x(style.width),
+                vp.y(style.height),
                 rx,
                 ry,
             )
         }
         _ => None,
     }
+}
+
+/// `rx` and `ry` as authored: `None` for `auto` (or a negative length,
+/// which is an error SVG renders as `auto`).
+fn radii(style: &StyleProps, vp: Viewport) -> (Option<f32>, Option<f32>) {
+    let r = |d: Dimension, v: f32| (!matches!(d, Dimension::Auto) && v >= 0.0).then_some(v);
+    (r(style.rx, vp.x(style.rx)), r(style.ry, vp.y(style.ry)))
+}
+
+/// An ellipse as SVG 2 §10.4 draws it; an `auto` radius takes the other's.
+pub fn ellipse(cx: f32, cy: f32, rx: Option<f32>, ry: Option<f32>) -> Option<Path> {
+    let (rx, ry) = match (rx, ry) {
+        (Some(a), Some(b)) => (a, b),
+        (Some(a), None) | (None, Some(a)) => (a, a),
+        (None, None) => return None,
+    };
+    if rx.is_nan() || ry.is_nan() || rx <= 0.0 || ry <= 0.0 {
+        return None;
+    }
+    let (kx, ky) = (rx * KAPPA, ry * KAPPA);
+    Some(Path(vec![
+        Seg::Move(cx + rx, cy),
+        Seg::Cubic(cx + rx, cy + ky, cx + kx, cy + ry, cx, cy + ry),
+        Seg::Cubic(cx - kx, cy + ry, cx - rx, cy + ky, cx - rx, cy),
+        Seg::Cubic(cx - rx, cy - ky, cx - kx, cy - ry, cx, cy - ry),
+        Seg::Cubic(cx + kx, cy - ry, cx + rx, cy - ky, cx + rx, cy),
+        Seg::Close,
+    ]))
 }
 
 /// A circle as SVG 2 §10.3 draws it: from (cx + r, cy), toward positive y.
@@ -138,9 +166,20 @@ pub struct ViewBox {
 /// An `svg`'s `viewBox`: four numbers separated by whitespace and/or a
 /// comma. A negative width or height invalidates it (`None`, as if absent).
 pub fn view_box(props: &PropList) -> Option<ViewBox> {
-    let n = parse_points(props.str(PropId::ViewBox)?);
+    // Exactly four numbers: a view box has no points-list error recovery.
+    let n: Vec<f32> = props
+        .str(PropId::ViewBox)?
+        .split(|c: char| c == ',' || c.is_ascii_whitespace())
+        .filter(|p| !p.is_empty())
+        .map(|p| {
+            exact_num::parse_f64(p)
+                .ok()
+                .map(|v| v as f32)
+                .filter(|v| v.is_finite())
+        })
+        .collect::<Option<_>>()?;
     match n.as_slice() {
-        [(x, y), (w, h)] if *w >= 0.0 && *h >= 0.0 => Some(ViewBox {
+        [x, y, w, h] if *w >= 0.0 && *h >= 0.0 => Some(ViewBox {
             x: *x,
             y: *y,
             width: *w,

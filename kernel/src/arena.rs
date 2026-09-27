@@ -794,6 +794,7 @@ mod tests {
             (StyleId::FillOpacity, number(0.5)),
             (StyleId::StrokeOpacity, number(0.5)),
             (StyleId::FillRule, text("evenodd")),
+            (StyleId::Visibility, text("hidden")),
         ];
         let mut covered = StyleMask::EMPTY;
         for (id, value) in samples {

@@ -456,6 +456,8 @@ fn row_json(v: RowValue<'_>, out: &mut String) {
         RowValue::Transitions(_) => quote("(transition)", out),
         RowValue::Paint(p) => quote(&p.css(), out),
         RowValue::DashArray(d) => quote(&d.css(), out),
+        RowValue::Transform(t) => quote(&t.css(), out),
+        RowValue::TransformOrigin(t) => quote(&t.css(), out),
         RowValue::Animations(a) => quote(&a.css(), out),
         RowValue::Color2(_) | RowValue::Tracks(_) | RowValue::Placement(_) => quote("(grid)", out),
     }

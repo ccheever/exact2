@@ -176,7 +176,7 @@ impl<D: DataSource> Walk<'_, D> {
             _ => {}
         }
         let props = props_for(&node);
-        let (text, _) = css::css_text(node.style, &self.fonts);
+        let (text, _) = css::css_text(&super::css_style(&node), &self.fonts);
         let mut style = host_css(&node, text, tag);
         let kept = self.computed.is_some().then(|| style.clone());
         // `glue.js` create: a canvas is a `div` holding the surface element.

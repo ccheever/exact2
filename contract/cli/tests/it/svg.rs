@@ -86,7 +86,7 @@ fn the_sparkline_compiles_to_nodes_rows_and_resolved_animations() {
     );
     assert_eq!(draw.keyframes.0.len(), 2, "the rule rides with the row");
     let ring = node("ring");
-    assert_eq!(ring.style.r, 3.0);
+    assert_eq!(ring.style.r, exact_kernel::Dimension::Points(3.0));
     let breathe = &ring.style.animation.0[0];
     assert!(breathe.iterations.is_infinite());
     assert_eq!(
@@ -121,7 +121,7 @@ fn refusals_are_named() {
     };
     assert!(refused("component A\n  view\n    circle r=3\n").contains("lower-svg-content"));
     assert!(refused(&svg("text \"hi\"")).contains("lower-svg-content"));
-    assert!(refused(&svg("ellipse")).contains("not in exact2's SVG subset"));
+    assert!(refused(&svg("foreignObject")).contains("refused"));
     assert!(refused(&svg("animate")).contains("SMIL is refused"));
     assert!(
         refused(&svg("circle r=3 press=go")).contains("lower-svg-attr"),
@@ -141,4 +141,68 @@ fn refusals_are_named() {
         refused("keyframes k\n  120% opacity=1\ncomponent A\n  view\n    column\n")
             .contains("syntax-keyframe-selector")
     );
+}
+
+// LLP 1055.000 stage 1: ellipse, nested viewports, geometry rows and
+// lengths, transforms in both grammars, `class=` on SVG elements, and SVG
+// inside a component.
+const STAGE1: &str = "\
+style Accent
+  fill=\"#ff0000\"
+  stroke=\"#000000\"
+
+component A
+  state w = 40
+  view
+    svg testId=\"root\" viewBox=\"0 0 100 50\"
+      ellipse testId=\"e\" cx=50 cy=\"50%\" rx=10 class=Accent transform=\"rotate(30 50 25)\" transform-box=\"fill-box\" transform-origin=\"center\"
+      rect testId=\"r\" x=\"10%\" y=2 width=w height=\"1in\" rx=2 rotate=15
+      g testId=\"g\" transform=\"translate(10px, 5px) scale(2)\" visibility=\"hidden\"
+        Tick(at=w)
+      svg testId=\"inner\" x=5 y=5 width=\"50%\" height=20 viewBox=\"0 0 10 10\" overflow=\"visible\"
+        circle cx=5 cy=5 r=\"50%\"
+
+component Tick
+  props
+    at: number
+  view
+    line testId=\"tick\" x1=at x2=at y1=\"0\" y2=\"100%\" vector-effect=\"non-scaling-stroke\"
+";
+
+#[test]
+fn stage_one_geometry_transforms_and_classes() {
+    use exact_kernel::Dimension::{Percent, Points};
+    let r = boot(STAGE1);
+    let k = r.kernel();
+    let node = |id: &str| k.node_by_key(k.find_by_test_id(id)[0]).unwrap();
+    let e = node("e");
+    assert_eq!(e.node_type, NodeType::SvgEllipse);
+    assert_eq!(
+        (e.style.cx, e.style.cy, e.style.rx),
+        (Points(50.0), Percent(50.0), Points(10.0))
+    );
+    assert_eq!(e.style.ry, exact_kernel::Dimension::Auto);
+    assert_eq!(e.style.fill.css(), "#ff0000ff", "the class's rows apply");
+    assert_eq!(
+        e.style.transform.css(),
+        "translate(50px, 25px) rotate(30deg) translate(-50px, -25px)"
+    );
+    assert_eq!(e.style.transform_box, exact_kernel::TransformBox::FillBox);
+    let rect = node("r");
+    assert_eq!((rect.style.x, rect.style.y), (Percent(10.0), Points(2.0)));
+    assert_eq!(rect.style.height, Points(96.0), "1in is 96 user units");
+    assert_eq!((rect.style.width, rect.style.rotate), (Points(40.0), 15.0));
+    // A component's root inside a `g`; a computed number is a length's text.
+    let tick = node("tick");
+    assert_eq!(tick.node_type, NodeType::SvgLine);
+    assert_eq!(tick.props.str(PropId::X1), Some("40"));
+    assert_eq!(tick.props.str(PropId::Y2), Some("100%"));
+    assert_eq!(
+        tick.style.vector_effect,
+        exact_kernel::VectorEffect::NonScalingStroke
+    );
+    assert_eq!(node("g").style.visibility, exact_kernel::Visibility::Hidden);
+    let inner = node("inner");
+    assert_eq!(inner.node_type, NodeType::SvgViewport);
+    assert_eq!(inner.style.width, Percent(50.0));
 }

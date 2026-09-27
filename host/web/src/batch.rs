@@ -214,7 +214,7 @@ impl Batch {
         quote(tag, &mut s);
         if matches!(
             tag,
-            "svg" | "g" | "path" | "polyline" | "polygon" | "circle" | "line" | "rect"
+            "svg" | "g" | "path" | "polyline" | "polygon" | "circle" | "ellipse" | "line" | "rect"
         ) {
             s.push_str(",\"ns\":\"http://www.w3.org/2000/svg\"");
         }

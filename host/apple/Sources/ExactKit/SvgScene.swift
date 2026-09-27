@@ -124,16 +124,27 @@ enum CssAnimations {
     }
 }
 
+private func affine(_ v: Any?) -> CGAffineTransform? {
+    let t = nums(v)
+    return t.count == 6 ? CGAffineTransform(a: t[0], b: t[1], c: t[2], d: t[3], tx: t[4], ty: t[5]) : nil
+}
+
 /// One `svg` view's scene: a content-box layer whose sublayer transform is
-/// the view box, a `CAShapeLayer` per shape and a `CALayer` per `g`.
+/// the view box, a `CAShapeLayer` per shape, a `CALayer` per `g` and nested
+/// `svg`, and a pair of layers around an element with a transform (LLP
+/// 1055.000 D5): the outer takes the individual properties, the inner the
+/// `transform` list, both about the transform origin. Every container's
+/// anchor is its bounds' origin, so a sublayer transform applies from there.
 final class SvgScene {
     let root = still(CALayer())
     private var layers: [Int: CALayer] = [:]
+    /// The transform pair around an element, by id.
+    private var wrappers: [Int: (outer: CALayer, inner: CALayer)] = [:]
     private var installed: [Int: [String: String]] = [:]
     private var specs: [Int: [[String: Any]]] = [:]
     private var last: [String: Any] = [:]
 
-    init() { root.masksToBounds = false }
+    init() { root.masksToBounds = false; root.anchorPoint = .zero }
 
     /// Build or update the layers from a scene; unchanged animations keep running.
     func apply(_ scene: [String: Any], dark: Bool, clock: Double?) {
@@ -141,7 +152,7 @@ final class SvgScene {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         let box = nums(scene["box"])
-        if box.count == 4 { root.frame = CGRect(x: box[0], y: box[1], width: box[2], height: box[3]) }
+        if box.count == 4 { root.bounds = CGRect(x: 0, y: 0, width: box[2], height: box[3]); root.position = CGPoint(x: box[0], y: box[1]) }
         let t = nums(scene["t"])
         root.isHidden = t.count != 6
         if t.count == 6 { root.sublayerTransform = CATransform3DMakeAffineTransform(CGAffineTransform(a: t[0], b: t[1], c: t[2], d: t[3], tx: t[4], ty: t[5])) }
@@ -150,6 +161,7 @@ final class SvgScene {
         for (id, layer) in layers where !alive.contains(id) {
             layer.removeAllAnimations(); layer.removeFromSuperlayer()
             layers.removeValue(forKey: id); installed.removeValue(forKey: id); specs.removeValue(forKey: id)
+            if let pair = wrappers.removeValue(forKey: id) { pair.outer.removeFromSuperlayer() }
         }
     }
 
@@ -162,7 +174,27 @@ final class SvgScene {
     func reset() {
         for layer in layers.values { layer.removeAllAnimations() }
         root.sublayers?.forEach { $0.removeFromSuperlayer() }
-        layers = [:]; installed = [:]; specs = [:]
+        layers = [:]; installed = [:]; specs = [:]; wrappers = [:]
+    }
+
+    /// The layer to place for an element: itself, or the outer of its
+    /// transform pair, the element inside the inner.
+    private func wrap(_ id: Int, _ layer: CALayer, _ tf: [String: Any]?) -> CALayer {
+        guard let tf else {
+            if let pair = wrappers.removeValue(forKey: id) { pair.outer.removeFromSuperlayer() }
+            return layer
+        }
+        let pair = wrappers[id] ?? { let p = (outer: still(CALayer()), inner: still(CALayer())); p.outer.addSublayer(p.inner); wrappers[id] = p; return p }()
+        let o = nums(tf["o"])
+        let origin = o.count == 2 ? CGPoint(x: o[0], y: o[1]) : .zero
+        for l in [pair.outer, pair.inner] {
+            l.bounds = CGRect(origin: origin, size: .zero)
+            l.position = origin
+        }
+        pair.outer.setAffineTransform(affine(tf["i"]) ?? .identity)
+        pair.inner.setAffineTransform(affine(tf["m"]) ?? .identity)
+        if layer.superlayer !== pair.inner { layer.removeFromSuperlayer(); pair.inner.addSublayer(layer) }
+        return pair.outer
     }
 
     private func attach(_ elements: [Any], to parent: CALayer, dark: Bool, clock: Double?, alive: inout Set<Int>) {
@@ -179,6 +211,17 @@ final class SvgScene {
             }
             layer.opacity = Float(num(e["o"]))
             if group {
+                let vp = nums(e["vp"])
+                if vp.count == 4 {
+                    // A nested `svg`: its own viewport, clipped unless visible.
+                    layer.anchorPoint = .zero
+                    layer.bounds = CGRect(x: 0, y: 0, width: vp[2], height: vp[3])
+                    layer.position = CGPoint(x: vp[0], y: vp[1])
+                    layer.masksToBounds = num(e["clip"]) != 0
+                    let view = affine(e["t"])
+                    layer.isHidden = view == nil
+                    layer.sublayerTransform = CATransform3DMakeAffineTransform(view ?? .identity)
+                }
                 attach(e["c"] as? [Any] ?? [], to: layer, dark: dark, clock: clock, alive: &alive)
             } else if let shape = layer as? CAShapeLayer {
                 shape.path = path(e["p"])
@@ -195,10 +238,15 @@ final class SvgScene {
                 shape.lineDashPattern = dash.isEmpty ? nil : dash.map { NSNumber(value: $0) }
                 shape.lineDashPhase = CGFloat(num(e["ph"]))
             }
+            if let shape = layer as? CAShapeLayer {
+                // A non-scaling stroke: the path is in the content box's
+                // space, and the layer undoes its parents' transforms.
+                shape.setAffineTransform(affine(e["inv"]) ?? .identity)
+            }
             let list = e["a"] as? [[String: Any]] ?? []
             specs[id] = list
             CssAnimations.apply(list, to: layer, clock: clock, installed: &installed[id, default: [:]])
-            order.append(layer)
+            order.append(wrap(id, layer, e["tf"] as? [String: Any]))
         }
         // Paint order is document order.
         if parent.sublayers?.map(ObjectIdentifier.init) != order.map(ObjectIdentifier.init) {

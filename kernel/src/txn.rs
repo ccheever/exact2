@@ -367,7 +367,7 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                     }
                     // @ref LLP 1055 D3 — an `svg` or `g` holds SVG elements
                     // and nothing else; an SVG element lives only there.
-                    let svg_parent = matches!(node_type, NodeType::Svg | NodeType::SvgGroup);
+                    let svg_parent = node_type.is_svg_container();
                     if svg_parent != child_type.is_svg_element() {
                         return Err(ApplyError::SvgContent {
                             op_index,
@@ -538,6 +538,7 @@ pub fn apply(
                         );
                     }
                     arena.flags_mut(slot).insert(NodeFlags::PROPS_DIRTY);
+                    view_box_changed(arena, layout, slot, *prop, &mut receipt);
                     if prop.affects_measure() {
                         invalidate_text(arena, layout, slot);
                         receipt.layout_invalidated = true;
@@ -556,6 +557,7 @@ pub fn apply(
                             selectors.update(slot, old.as_str(), None);
                         }
                         arena.flags_mut(slot).insert(NodeFlags::PROPS_DIRTY);
+                        view_box_changed(arena, layout, slot, *prop, &mut receipt);
                         if prop.affects_measure() {
                             invalidate_text(arena, layout, slot);
                             receipt.layout_invalidated = true;
@@ -867,6 +869,26 @@ fn inherited_after_move(
         touched.push(arena.key(slot));
         propagate_inherited(arena, layout, slot, changed, touched, receipt);
     }
+}
+
+/// An `svg`'s `viewBox` is its natural aspect ratio (LLP 1055.000 D4): a
+/// change restyles and re-measures the box.
+fn view_box_changed(
+    arena: &mut NodeArena,
+    layout: &mut dyn LayoutMirror,
+    slot: u32,
+    prop: PropId,
+    receipt: &mut CommitReceipt,
+) {
+    if prop != PropId::ViewBox || arena.node_type(slot) != NodeType::Svg {
+        return;
+    }
+    arena.flags_mut(slot).insert(NodeFlags::STYLE_DIRTY);
+    if let Some(node) = arena.taffy(slot) {
+        layout.restyle(arena, slot, node);
+        layout.mark_dirty(node);
+    }
+    receipt.layout_invalidated = true;
 }
 
 fn style_changed(

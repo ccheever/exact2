@@ -34,7 +34,7 @@ pub use sites::{Declared, NodeSite, Origin, Sites};
 use contract_analyze::Analysis;
 use contract_syntax::{Attr, Expr, File, FnDecl, Node, Span, Stmt, TaskKind};
 use contract_types::{Checked, Ref, Scope, Ty, Types};
-use exact_kernel::StyleId;
+use exact_kernel::{NodeType, StyleId};
 use exact_plan::asm::Asm;
 use exact_plan::builder::PlanBuilder;
 use exact_plan::{
@@ -116,6 +116,8 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                     if tags::tag(tag).is_none() {
                         errors.push(unknown_tag(tag, *span));
                     } else {
+                        let coerced = svg::coerce_lengths(tag, attrs);
+                        let attrs = coerced.as_deref().unwrap_or(attrs);
                         for a in attrs.iter().filter(|a| a.name != "class") {
                             let checked = match tags::attr(&a.name) {
                                 None => Err(unknown_attr(tag, a)),
@@ -763,7 +765,18 @@ impl<'a> Lowerer<'a> {
                 }
                 let composed = self.compose_animation(expanded)?;
                 let expanded = composed.as_deref().unwrap_or(expanded);
+                let lengths = svg::coerce_lengths(tag, expanded);
+                let expanded = lengths.as_deref().unwrap_or(expanded);
                 self.check_svg(tag, parent_tag, expanded, *span)?;
+                // @ref LLP 1055.000 D4 — an `svg` inside an `svg` is a viewport.
+                let t = if tag == "svg" && matches!(parent_tag, Some("svg" | "g")) {
+                    tags::Tag {
+                        node_type: NodeType::SvgViewport,
+                        ..t
+                    }
+                } else {
+                    t
+                };
                 tags::validate_list(tag, expanded, children, *span)?;
                 self.check_collection(tag, expanded, children, *span)?;
                 let has =

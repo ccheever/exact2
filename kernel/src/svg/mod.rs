@@ -12,11 +12,17 @@ use crate::generated::NodeType;
 use crate::style::{Color, ColorValue};
 use std::fmt::Write as _;
 
+pub mod length;
 mod path;
+pub mod scene;
 mod shape;
+pub mod transform;
 
+pub use length::{Length, Viewport};
 pub use path::{parse_d, parse_points, Path, Seg};
-pub use shape::{circle, dash_scale, geometry, view_box, view_box_transform, ViewBox};
+pub use scene::{Item, Kind, Scene, Shape, Transform};
+pub use shape::{circle, dash_scale, ellipse, geometry, view_box, view_box_transform, ViewBox};
+pub use transform::{Affine, TransformList, TransformOrigin};
 
 impl NodeType {
     /// An element inside an `svg`: `g` or a shape (LLP 1055 D3). Never laid
@@ -31,12 +37,22 @@ impl NodeType {
                 | NodeType::SvgCircle
                 | NodeType::SvgLine
                 | NodeType::SvgRect
+                | NodeType::SvgEllipse
+                | NodeType::SvgViewport
         )
     }
 
-    /// A shape that draws a path (every SVG element but `g`).
+    /// A shape that draws a path.
     pub fn is_svg_shape(self) -> bool {
-        self.is_svg_element() && self != NodeType::SvgGroup
+        self.is_svg_element() && !self.is_svg_container()
+    }
+
+    /// An SVG element that holds SVG elements: `svg` (root or nested) and `g`.
+    pub fn is_svg_container(self) -> bool {
+        matches!(
+            self,
+            NodeType::Svg | NodeType::SvgGroup | NodeType::SvgViewport
+        )
     }
 
     /// The SVG element name.
@@ -50,9 +66,21 @@ impl NodeType {
             NodeType::SvgCircle => "circle",
             NodeType::SvgLine => "line",
             NodeType::SvgRect => "rect",
+            NodeType::SvgEllipse => "ellipse",
+            NodeType::SvgViewport => "svg",
             _ => return None,
         })
     }
+}
+
+/// An `svg` box's natural aspect ratio, width over height, from a view box
+/// with area (LLP 1055.000 D4); `None` for any other node.
+pub(crate) fn natural_ratio(arena: &crate::arena::NodeArena, slot: u32) -> Option<f32> {
+    if arena.node_type(slot) != NodeType::Svg {
+        return None;
+    }
+    let vb = view_box(arena.props(slot))?;
+    (vb.width > 0.0 && vb.height > 0.0).then(|| vb.width / vb.height)
 }
 
 /// SVG paint (`fill`, `stroke`): `none`, `currentcolor`, or a colour.
