@@ -270,7 +270,8 @@ function fixture(agentMode = true) {
     requestAnimationFrame: () => events.push('raf'), clearInterval() {},
     ready: Promise.resolve(), moduleReady: Promise.resolve(), inputReady: true, logicInfo: null, activeModule: null,
     page: null, // a built document's boot (LLP 1048.000 D6); these pages have none
-    loadStage: () => Promise.resolve(), // every stage linked (LLP 1047.000 §9)
+    loadStage: () => Promise.resolve(), stageLoaded: () => true, // every stage linked (LLP 1047.000 §9)
+    preferences: () => '{}',
   });
   vm.runInContext(source.match(/^let gpuLoading = .*$/m)[0] + '\n' + ['nodeDetail', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
   return context;
@@ -316,6 +317,18 @@ test('ordinary reads and inputs are synchronous; the awaited entry returns the s
   await pending;
   f.wasm = null;
   expect(f.exact.agent({ op: 'state' })).toEqual({ error: 'not booted' });
+});
+
+test('only calls before the inspection stage arrives wait for it; later ones are synchronous again', async () => {
+  const f = fixture();
+  let loaded = false, loads = 0;
+  f.stageLoaded = () => loaded;
+  f.loadStage = () => { loads++; loaded = true; return Promise.resolve(); };
+  const first = f.exact.agent({ op: 'state' });
+  expect(typeof first.then).toBe('function');
+  expect((await first).slots.backPresses).toBe(3);
+  plain(f.exact.agent({ op: 'state' }));
+  expect(loads).toBe(1);
 });
 
 test('pending module and settlement leave synchronous reads usable with last settled facts', async () => {
@@ -594,13 +607,13 @@ async function startupFixture(rustOnly = false) {
     inputReady: false, inputHandlers: null, wasm: null, memory: null, logicInfo: null,
     moduleLoader: null, activeModule: null, timerFactory: null, agentMode: false,
     performance: { now: () => 1 }, t0: 0, URL, localStorage: { length: 0 }, AbortController,
-    fetch: async () => ({}), WebAssembly: { instantiateStreaming: async () => ({ instance: { exports } }) },
+    fetch: async () => ({}), WebAssembly: { instantiateStreaming: async () => ({ instance: { exports } }), Module: { customSections: () => [] } },
     moduleCall() {}, rustImports: {}, readOut: value => value,
     boot: async () => events.push('boot'), loadGpuIfNeeded() {}, startClock() {}, httpHelpers() {}, pieces: { pending: () => null },
     requestAnimationFrame: fn => frames.push(fn), console: { error: error => errors.push(String(error)) },
     motion: { commit() {} }, collections: { dataReady: () => events.push('collections') },
     applyBatch: () => events.push('batch'), inertAncestor: () => false, focusAutofocus() {},
-    resolveModuleReady: () => events.push('ready'), page: null,
+    resolveModuleReady: () => events.push('ready'), page: null, pageNative: undefined,
     loadAfterPaint(file) {
       loads.push(file);
       if (file === './input-glue.js') return input.promise;

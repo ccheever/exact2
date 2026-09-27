@@ -1119,7 +1119,7 @@ async function waitForInflight(deadline) {
   return helpers ? helpers.waitForInflight(inflight, deadline) : false;
 }
 async function settleGpu() { loadGpuIfNeeded(); await gpuLoading; await globalThis.exact.gpu?.settled(); }
-async function agent(request) { await loadStage('inspection'); return agentMode && gpuInPlay() ? settleGpu().then(() => agentNow(request)) : agentNow(request); }
+function agent(request) { if (!stageLoaded('inspection')) return loadStage('inspection').then(() => agent(request)); return agentMode && gpuInPlay() ? settleGpu().then(() => agentNow(request)) : agentNow(request); } // synchronous once inspection is in (LLP 1043.000 D7/D8)
 function agentNow(request) { const r = agentReply(request), decorate = globalThis.exact.gpu?.decorate; return decorate ? decorate(request, r) : r; }
 function agentReply(request) {
   try {
