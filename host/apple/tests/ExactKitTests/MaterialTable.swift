@@ -25,6 +25,12 @@ enum MaterialTable {
         XCTAssertEqual(Materials.resolve("not-a-material-\(column)") { logged.append($0) }, Materials.platform("ultra-thin")!.apple)
         XCTAssertEqual(Materials.resolve("not-a-material-\(column)") { logged.append($0) }, Materials.platform("ultra-thin")!.apple)
         XCTAssertEqual(logged.count, 1, "said once")
+        // A table name drawn as a stand-in is silent; the agent's state shows it.
+        let standIn = try XCTUnwrap(rows.first { $0[column].hasPrefix("~") }?[0])
+        XCTAssertNotNil(Materials.resolve(standIn) { logged.append($0) })
+        XCTAssertEqual(logged.count, 1, "a stand-in is not logged (Charlie: \"ok, (b)\")")
+        XCTAssertEqual(Materials.agentMaterial(standIn)["standIn"] as? Bool, true)
+        XCTAssertEqual(Materials.agentMaterial("not-a-material")["unknown"] as? Bool, true)
     }
 }
 

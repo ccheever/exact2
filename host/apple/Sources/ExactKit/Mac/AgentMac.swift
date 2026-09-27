@@ -291,6 +291,7 @@ extension Agent {
         }
         if v.materialRequest != nil {
             native["effect"] = v.appliedMaterial
+            if let m = v.props["backgroundMaterial"] { native["material"] = Materials.agentMaterial(m) }
         }
         node["native"] = native
         node["observed"] = ["clock": session.now(), "wall": Date().timeIntervalSince1970 * 1000]

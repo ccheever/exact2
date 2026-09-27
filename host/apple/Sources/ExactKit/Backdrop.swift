@@ -51,17 +51,23 @@ enum Materials {
 
     private static var noted = Set<String>()
 
-    /// This platform's name for `name`: an unknown name draws `ultra-thin`'s,
-    /// and it or a stand-in is logged once (`log`).
+    /// This platform's name for `name`: a stand-in where the table names
+    /// one, silently (Charlie, 2026-09-27: "ok, (b)"; the agent's `state`
+    /// shows it, `agentMaterial`); an unknown name draws `ultra-thin`'s and
+    /// is logged once (`log`).
     static func resolve(_ name: String, log: (String) -> Void) -> String {
-        if let (apple, standIn) = platform(name) {
-            if standIn, noted.insert(name).inserted {
-                log("backgroundMaterial `\(name)` has no material on this platform; drawing \(apple)")
-            }
-            return apple
-        }
+        if let (apple, _) = platform(name) { return apple }
         if noted.insert(name).inserted { log("backgroundMaterial `\(name)` is not a material; drawing ultra-thin") }
         return platform("ultra-thin")!.apple
+    }
+
+    /// What the agent's `state` reports for material `name`: the platform's
+    /// material, a stand-in marked as one, or the fallback for an unknown name.
+    static func agentMaterial(_ name: String) -> [String: Any] {
+        guard let (apple, standIn) = platform(name) else {
+            return ["name": name, "drawn": platform("ultra-thin")!.apple, "unknown": true]
+        }
+        return ["name": name, "drawn": apple, "standIn": standIn]
     }
 
     #if os(iOS)
