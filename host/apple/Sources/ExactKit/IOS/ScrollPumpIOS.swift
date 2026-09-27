@@ -131,6 +131,10 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
 
     func batchApplied() {
         batchPending = true
+        // A list that never scrolls, or whose rows change in place (live
+        // prices), leaves launch's pixels and replaced labels in the caches
+        // just the same: rest after a change as after a scroll.
+        armRest(after: Self.restDelay)
         guard !reporting else { return }
         syncLists(limit: ExactEnv.agentFreezes ? 0 : 1)
     }
@@ -192,9 +196,10 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         value.add(to: .main, forMode: .common)
         link = value
     }
-    /// Once scrolling has been still for `restDelay`, the session trims its
-    /// caches to what shows, as a browser discards the decoded images of
-    /// content it scrolled past; what comes back into view is made again.
+    /// Once scrolling has been still for `restDelay` after a scroll or a
+    /// batch, the session trims its caches to what shows, as a browser
+    /// discards the decoded images of content it scrolled past; what comes
+    /// back into view is made again.
     private func armRest(after delay: TimeInterval) {
         guard restTimer == nil else { return }
         restTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
