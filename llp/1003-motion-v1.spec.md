@@ -24,7 +24,8 @@ Codec `transitions`; type `exact_motion::Transitions` (re-exported as
 `exact_kernel::Transitions`); no default (empty = CSS's initial value, which
 starts nothing). Wire grammar (`kernel/src/wire/codec.rs`): count u8 (≤ 8),
 then per declaration property u8 (0 `all`, 1 `translate`, 2 `scale`, 3
-`rotate`, 4 `opacity`, 5 `height`), duration f32 seconds, delay f32 seconds, easing u8:
+`rotate`, 4 `opacity`, 5 `height`; 6–13 the paint properties and 15
+`border-color`, LLP 1062), duration f32 seconds, delay f32 seconds, easing u8:
 0 `linear`, 1 `ease`, 2 `ease-in`, 3 `ease-out`, 4 `ease-in-out`,
 5 `cubic-bezier` + 4×f32, 6 `steps` + u16 count + u8 position (0 `jump-start`,
 1 `jump-end`, 2 `jump-none`, 3 `jump-both`), 7 `spring` + f32 stiffness,

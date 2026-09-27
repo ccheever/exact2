@@ -278,6 +278,11 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   velocity; nothing else needs a driver. `@keyframes` moved 2026-09-26 (LLP 1057):
   unblocks a step that breathes while it runs and an entry that fades in when it
   appears (grnl's port), as real CSS on the web and on the one engine natively.
+  Paint moved 2026-09-26 (LLP 1062, Seth): colour and `box-shadow` transitions and
+  colour keyframes repaint and never lay out, so they are not the layout
+  transitions above, and they close a parity gap: the browser already eased a
+  colour under `transition: all` while native hosts snapped it. Still behind the
+  sheet: every property that moves layout.
 - **Reduced-motion policy in the engine.** The producer emits `transition: none`
   when the host reports the preference, as a stylesheet's media query would.
 - **A Core Animation executor.** Permitted by LLP 1002 D2, not built; the Apple
