@@ -407,7 +407,11 @@ prefix relationship of the controller lists, whatever verb produced it: an
 `open` that extends the current stack animates as a push, one that replaces
 it swaps. *Amended 2026-09-26:* a replacement that keeps the stack's root
 and puts a new screen on top (a finished capture giving way to what it
-wrote) arrives as UIKit's push; only a change of root — a tab — swaps. **macOS and
+wrote) arrives as UIKit's push; only a change of root — a tab — swaps. *Also amended 2026-09-27:* a completed swipe
+dispatches Back to the source's replacement when the app replaced the swiped
+screen in place while the finger was down (same depth, the source's node gone);
+otherwise the replacement was pushed back in as the pop landed. A newly
+selected route that replaced nothing still keeps LLP 1035.001 D2's rule. **macOS and
 Linux:** adopt the web's rule (`glue.js:824-836`): every route but the
 selected one, and the one beneath a modal, is hidden and inert. Without it
 the rows would paint on top of each other on the two hosts that never
