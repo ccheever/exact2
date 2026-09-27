@@ -1081,6 +1081,7 @@ fn forwarded_action_hints_link_the_supplied_argument_through_props_and_providers
 fn action_hints_respect_call_intrinsics_and_function_precedence() {
     for (name, typo, global) in [
         ("pending", "pendign", ""),
+        ("failed", "fialed", ""),
         ("path", "paht", ""),
         ("save", "svae", "fn save(): number = 1\n"),
     ] {

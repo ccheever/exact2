@@ -93,12 +93,6 @@ impl<D: DataSource> Runner<D> {
                 // Keep the standing answer's arguments. Failure suppresses
                 // another ask independently of that answer's store revision.
                 self.failed_args[i] = failed_args;
-                // A placeholder that stood in for the answer stands for it
-                // now (LLP 1054.000.002 D4 lets one stand only while an
-                // answer is on the way).
-                if let Some(state) = self.resources[i].as_mut() {
-                    state.placeholder = false;
-                }
                 "it keeps its last value"
             }
             Target::Mutation(_) => "it ends unsent",

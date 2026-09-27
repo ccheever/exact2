@@ -13,6 +13,7 @@ pub(super) struct Settled {
     slots: Vec<Value>,
     now_ms: f64,
     pending_res: Vec<bool>,
+    failed_res: Vec<bool>,
     pending_mut: Vec<bool>,
     store_readers: Vec<bool>,
     resource_args: Vec<Vec<Value>>,
@@ -194,6 +195,9 @@ impl<D: DataSource> Runner<D> {
             Input::PendingResource(r) => {
                 now.resources[r] && base.pending_res[r] == now.pending_res[r]
             }
+            Input::FailedResource(r) => {
+                now.resources[r] && base.failed_res[r] == self.failed_args[r].is_some()
+            }
             Input::PendingMutation(m) => base.pending_mut[m] == self.pending_mut[m],
             Input::Clock => base.now_ms.to_bits() == self.now_ms.to_bits(),
         })
@@ -281,6 +285,7 @@ impl<D: DataSource> Runner<D> {
                             frames: &[],
                             now_ms: self.now_ms,
                             pending_resources: &pending_res,
+                            failed_resources: &self.failed_args,
                             pending_mutations: &self.pending_mut,
                             store_dependent_derives: &derive_store_dependent,
                             store_dependent_resources: &self.store_readers,
@@ -350,6 +355,7 @@ impl<D: DataSource> Runner<D> {
                                 frames: &[],
                                 now_ms: self.now_ms,
                                 pending_resources: &pending_res,
+                                failed_resources: &self.failed_args,
                                 pending_mutations: &self.pending_mut,
                                 store_dependent_derives: &derive_store_dependent,
                                 store_dependent_resources: &self.store_readers,
@@ -649,6 +655,7 @@ impl<D: DataSource> Runner<D> {
                 slots: self.slots.clone(),
                 now_ms: self.now_ms,
                 pending_res,
+                failed_res: self.failed_args.iter().map(Option::is_some).collect(),
                 pending_mut: self.pending_mut.clone(),
                 store_readers,
                 resource_args,

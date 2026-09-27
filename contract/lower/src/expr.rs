@@ -177,6 +177,20 @@ pub(crate) fn compile(
             if contract_types::strings::is_text_call(name, scope) {
                 return l.text_call(asm, args, *span, scope, locals);
             }
+            if name == "failed" {
+                let [Expr::Ident(target, _)] = args.as_slice() else {
+                    return err("lower-failed", "`failed(x)` names one resource", *span);
+                };
+                let Some((Ref::Resource(i), _)) = scope.lookup(target) else {
+                    return err(
+                        "lower-failed",
+                        format!("`{target}` is not a resource"),
+                        *span,
+                    );
+                };
+                asm.failed_resource(l.resources[i as usize]);
+                return Ok(Ty::Bool);
+            }
             if name == "pending" {
                 // Typed already: one name, a resource or a mutation.
                 let Some(Expr::Ident(target, _)) = args.first() else {

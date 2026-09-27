@@ -105,6 +105,8 @@ pub struct Env<'a> {
     pub now_ms: f64,
     /// Whether each resource has a request in flight (LLP 1016 D3).
     pub pending_resources: &'a [bool],
+    /// Arguments whose latest request failed, by resource (LLP 1054.000.002).
+    pub failed_resources: &'a [Option<Vec<Value>>],
     /// Whether each mutation has a request in flight.
     pub pending_mutations: &'a [bool],
     /// Store dependence of settled derives, for bake provenance propagation.
@@ -854,15 +856,18 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                 out.sends.push((m, source, sargs));
             }
             Opcode::Refresh => out.refreshes.push(args[0] as u32),
-            Opcode::PendingResource => {
+            Opcode::PendingResource | Opcode::FailedResource => {
                 // Known once the resource settled this pass, like its value.
                 let i = args[0] as usize;
                 if env.resources.get(i).is_none_or(Option::is_none) {
                     return Err(Trap::Pending { pc });
                 }
-                stack.push(Value::Bool(
-                    env.pending_resources.get(i).copied().unwrap_or(false),
-                ));
+                let flag = if op == Opcode::FailedResource {
+                    env.failed_resources.get(i).is_some_and(Option::is_some)
+                } else {
+                    env.pending_resources.get(i).copied().unwrap_or(false)
+                };
+                stack.push(Value::Bool(flag));
             }
             Opcode::PendingMutation => stack.push(Value::Bool(
                 env.pending_mutations
@@ -942,6 +947,7 @@ mod tests {
             frames: &[],
             now_ms: 0.0,
             pending_resources: &[],
+            failed_resources: &[],
             pending_mutations: &[],
             store_dependent_derives: &[],
             store_dependent_resources: &[],
@@ -1043,6 +1049,7 @@ mod tests {
             frames: &[],
             now_ms: 0.0,
             pending_resources: &[],
+            failed_resources: &[],
             pending_mutations: &[],
             store_dependent_derives: &[],
             store_dependent_resources: &[],
@@ -1244,6 +1251,7 @@ mod tests {
                 frames: &[],
                 now_ms: 0.0,
                 pending_resources: &[],
+                failed_resources: &[],
                 pending_mutations: &[],
                 store_dependent_derives: &[],
                 store_dependent_resources: &[],

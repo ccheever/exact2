@@ -216,7 +216,15 @@ the one where the reply lands (`type-refreshes-not-resource`,
 `type-refreshes-duplicate`). A resource's `else` is a source call over values
 (LLP 1048.003 D6) or `empty(field=value, …)`, its type's zero with named fields
 replaced by constants (LLP 1054.000.002); without `else`, the zero shows while
-it is pending. **Actions.**
+it is pending. `failed(resource)` (LLP 1054.000.002, ruled 2026-09-27) reads
+whether the latest request for the current arguments failed without an
+answer. It takes one resource name (`type-failed-argument` otherwise), not a
+mutation or value, and returns `bool`. A failed request keeps the last value
+or placeholder with `pending` false and `failed` true; a placeholder remains
+a placeholder. Changed arguments or `refresh` clear the failure and allow a
+new request; a successful answer clears it too. A failure the source shapes
+into an answer is an answer, not `failed`. Like `pending`, this is a compiler
+call, not a value-taking roster entry. **Actions.**
 `action name(params) writes a, b` with a body of `slot = expr`
 assignments, `send`/`refresh` statements, `name(args)` commands, and — since
 2026-08-30, LLP 1017 P2 — `if cond` … `else` … and `match option` with `case
@@ -355,7 +363,7 @@ keep their existing precedence. Valid calls do not build these diagnostic lists.
 An unknown function call retains `type-unknown-function` and its original span.
 For ASCII misspellings of 3–64 bytes, it suggests a single insertion, deletion,
 substitution or adjacent transposition only when one available global name fits:
-a declared `fn`, an admitted roster call, or the compiler calls `pending` and
+a declared `fn`, an admitted roster call, or the compiler calls `pending`, `failed` and
 `path`. Router-only calls, including intrinsic `path`, require `routes`. Scoped action names, including conservative stems of lifted instance
 names, veto ambiguous suggestions; action names themselves are not offered, and
 a generated name (spelled with `#`, which no author can write) never is. This avoids exposing generated names or treating the
@@ -364,7 +372,7 @@ valid calls do no suggestion work. Suggested replacements still undergo normal
 compilation; no typo is accepted as an alias.
 
 The driver now enriches action-valued refusals from the original authored tree:
-Call hints exclude intrinsic `pending`/`path` and global-function collisions; bare
+Call hints exclude intrinsic `pending`/`failed`/`path` and global-function collisions; bare
 action references and timers retain those legal action spellings. This follows the
 refused expression kind even when a bare prop is called downstream.
 Handlers, action props and timers offer one unambiguous action spelling under the

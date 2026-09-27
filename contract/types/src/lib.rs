@@ -630,6 +630,24 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
             if strings::is_text_call(name, scope) {
                 return strings::check_call(args, *span, scope, shapes);
             }
+            if name == "failed" {
+                // Like `pending`, this reads a resource's status, not its value.
+                let [Expr::Ident(target, tspan)] = args.as_slice() else {
+                    return err(
+                        "type-failed-argument",
+                        "`failed(x)` names one resource",
+                        *span,
+                    );
+                };
+                return match scope.lookup(target) {
+                    Some((Ref::Resource(_), _)) => Ok(Ty::Bool),
+                    _ => err(
+                        "type-failed-argument",
+                        format!("`{target}` is not a resource"),
+                        *tspan,
+                    ),
+                };
+            }
             if name == "pending" {
                 // `pending(x)`: whether resource or mutation `x` has a
                 // request in flight (LLP 1016 D3). Not a roster call: its

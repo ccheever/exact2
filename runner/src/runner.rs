@@ -189,7 +189,7 @@ struct ResourceState {
     value: crate::held::Held,
     /// Store revision this answer observed; checked only for known readers.
     store_revision: u64,
-    /// A placeholder shown while the answer is on the way, never an answer
+    /// A placeholder shown before an answer, including after failure, never an answer
     /// to reuse, carry or compile (LLP 1054.000.002 D4).
     placeholder: bool,
 }
@@ -1121,6 +1121,7 @@ impl<D: DataSource> Runner<D> {
             frames,
             now_ms: self.now_ms,
             pending_resources: &self.pending_res,
+            failed_resources: &self.failed_args,
             pending_mutations: &self.pending_mut,
             store_dependent_derives: &[],
             store_dependent_resources: &[],

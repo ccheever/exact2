@@ -846,6 +846,12 @@
       ]
     },
     {
+      "name": "FailedResource",
+      "operands": [
+        "idx:resources"
+      ]
+    },
+    {
       "name": "NativeProps",
       "operands": [
         "u32"

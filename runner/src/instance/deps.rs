@@ -3,7 +3,7 @@
 //!
 //! @ref LLP 1005 §8 (the Deps table and dirty-set sweep)
 //!
-//! An input is a root slot, a derive, a resource, a pending flag or the
+//! An input is a root slot, a derive, a resource, a status flag or the
 //! clock: one bit each in [`Bits`]. What a code body reads of its enclosing
 //! scopes is a mask of relative frame depths (bit 0 is the innermost frame in
 //! force where it runs; bit 63 stands for every frame from there out). A row
@@ -66,8 +66,11 @@ impl Layout {
     fn pending_mutation(&self, i: usize) -> usize {
         self.slots + self.derives + 2 * self.resources + i
     }
+    fn failed_resource(&self, i: usize) -> usize {
+        self.slots + self.derives + 2 * self.resources + self.mutations + i
+    }
     fn clock(&self) -> usize {
-        self.slots + self.derives + 2 * self.resources + self.mutations
+        self.slots + self.derives + 3 * self.resources + self.mutations
     }
     fn width(&self) -> usize {
         self.clock() + 1
@@ -168,6 +171,7 @@ pub(crate) enum Input {
     Resource(usize),
     PendingResource(usize),
     PendingMutation(usize),
+    FailedResource(usize),
     Clock,
 }
 
@@ -264,12 +268,14 @@ impl Deps {
         (0..l.width()).filter(|i| reads.bits.get(*i)).map(move |i| {
             let (d, r, m) = (l.derive(0), l.resource(0), l.pending_resource(0));
             let (pm, clock) = (l.pending_mutation(0), l.clock());
+            let failed = l.failed_resource(0);
             match i {
                 _ if i < d => Input::Slot(i),
                 _ if i < r => Input::Derive(i - d),
                 _ if i < m => Input::Resource(i - r),
                 _ if i < pm => Input::PendingResource(i - m),
-                _ if i < clock => Input::PendingMutation(i - pm),
+                _ if i < failed => Input::PendingMutation(i - pm),
+                _ if i < clock => Input::FailedResource(i - failed),
                 _ => Input::Clock,
             }
         })
@@ -331,6 +337,16 @@ impl Deps {
                 bits.set(layout.pending_mutation(i));
             }
         }
+        for (i, (old, new)) in seen
+            .failed_resources
+            .iter()
+            .zip(env.failed_resources)
+            .enumerate()
+        {
+            if *old != new.is_some() {
+                bits.set(layout.failed_resource(i));
+            }
+        }
         if seen.now_ms.to_bits() != env.now_ms.to_bits() {
             bits.set(layout.clock());
         }
@@ -367,6 +383,10 @@ fn scan(plan: &Plan, layout: Layout, code: Code) -> Reads {
                 reads.bits.set(layout.pending_resource(index));
             }
             Opcode::PendingMutation => reads.bits.set(layout.pending_mutation(index)),
+            Opcode::FailedResource => {
+                reads.bits.set(layout.resource(index));
+                reads.bits.set(layout.failed_resource(index));
+            }
             Opcode::Call if Stdlib::from_wire(index as u8) == Some(Stdlib::Now) => {
                 reads.bits.set(layout.clock())
             }
@@ -402,6 +422,7 @@ pub struct Seen {
     resources: Vec<Option<Held>>,
     pending_resources: Vec<bool>,
     pending_mutations: Vec<bool>,
+    failed_resources: Vec<bool>,
     now_ms: f64,
 }
 
@@ -423,6 +444,7 @@ impl Seen {
             resources: env.resources.to_vec(),
             pending_resources: env.pending_resources.to_vec(),
             pending_mutations: env.pending_mutations.to_vec(),
+            failed_resources: env.failed_resources.iter().map(Option::is_some).collect(),
             now_ms: env.now_ms,
         }
     }

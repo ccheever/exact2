@@ -187,6 +187,11 @@ impl Asm {
         self.op(Opcode::PendingMutation, &[Arg::Idx(m.0)])
     }
 
+    /// Push whether a resource's latest request for its current arguments failed.
+    pub fn failed_resource(&mut self, r: ResourcesId) -> &mut Self {
+        self.op(Opcode::FailedResource, &[Arg::Idx(r.0)])
+    }
+
     /// Pop into the locals stack.
     pub fn bind_local(&mut self) -> &mut Self {
         self.simple(Opcode::BindLocal)

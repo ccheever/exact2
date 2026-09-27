@@ -104,7 +104,10 @@ impl<D: DataSource> Runner<D> {
                 }
                 continue;
             }
-            if let Some(state) = state.as_ref().filter(|_| !self.pending_res[i]) {
+            if let Some(state) = state
+                .as_ref()
+                .filter(|state| !self.pending_res[i] && !state.placeholder)
+            {
                 answers.push((
                     name.to_string(),
                     source.to_string(),

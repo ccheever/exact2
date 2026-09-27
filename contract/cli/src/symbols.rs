@@ -880,7 +880,7 @@ pub(crate) fn authored_action_hint(file: &File, mut error: CompileError) -> Comp
         for candidate in names {
             if shadowed.contains(&candidate)
                 || (call
-                    && (matches!(candidate, "pending" | "path")
+                    && (matches!(candidate, "pending" | "failed" | "path")
                         || file.fns.iter().any(|f| f.name == candidate)))
                 || !contract_syntax::one_spelling_edit(name.as_bytes(), candidate.as_bytes())
             {

@@ -14,5 +14,5 @@ component Blog
   view
     column testId="blog"
       text post.title testId="title"
-      text (pending(post) ? "loading" : "ready") testId="state"
+      text (failed(post) ? "failed" : pending(post) ? "loading" : "ready") testId="state"
       text `${length(comments)} comments` testId="comments"

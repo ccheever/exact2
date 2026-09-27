@@ -96,7 +96,7 @@ fn ok() -> Outcome {
     })
 }
 
-fn text_of(r: &Runner<Blog>, test_id: &str) -> String {
+fn text_of<D: DataSource>(r: &Runner<D>, test_id: &str) -> String {
     let k = r.kernel();
     let key = k.find_by_test_id(test_id).into_iter().next().unwrap();
     k.node_by_key(key)
@@ -424,6 +424,15 @@ impl DataSource for FailedSearch {
             store.set("revision", args[0].as_str().unwrap())?;
             return Ok(Answer::Now(Value::Bool(true)));
         }
+        if source == "report" {
+            return Ok(Answer::Now(args[0].clone()));
+        }
+        if source == "rows" {
+            return Ok(Answer::Now(Value::list(vec![
+                Value::Number(1.0),
+                Value::Number(2.0),
+            ])));
+        }
         self.asks += 1;
         if args[0].as_str() == Some("broken") {
             return Err(DataError::Unavailable("query refused".into()));
@@ -527,38 +536,171 @@ fn a_failed_store_reader_waits_for_changed_arguments_or_refresh() {
 }
 
 #[test]
-fn a_failed_placeholder_still_becomes_nonpending_until_refresh() {
-    // This is the current behavior, pending Charlie's placeholder ruling.
-    let plan = contract::compile(&corpus()).unwrap();
-    let mut r = boot(
-        &plan,
-        Blog {
-            refuse_failures: true,
-            ..Default::default()
-        },
-        "/post/7",
-    )
-    .unwrap();
-    let ticket = r
-        .take_requests()
-        .iter()
-        .find(|q| q.target == "post")
-        .unwrap()
-        .ticket;
-    r.fulfill(
-        ticket,
-        Outcome::Failed {
-            kind: FailureKind::Network,
-            message: "offline".into(),
-        },
-    )
-    .unwrap();
-    assert_eq!(text_of(&r, "title"), "");
-    assert_eq!(text_of(&r, "state"), "ready");
-    assert!(r.take_requests().is_empty());
-    assert!(r
-        .document_checkpoint("/post/7")
-        .answers
-        .iter()
-        .any(|(name, ..)| name == "post"));
+fn a_failed_placeholder_stays_a_placeholder_without_becoming_an_answer() {
+    for (placeholder, title) in [
+        ("else emptyPost()", ""),
+        ("", ""),
+        ("else empty(title=\"Waiting\")", "Waiting"),
+    ] {
+        let src = corpus()
+            .replace("else emptyPost()", placeholder)
+            .replace("  view", "  action retry\n    refresh post\n  view");
+        let plan = contract::compile(&src).unwrap();
+        let mut r = boot(
+            &plan,
+            Blog {
+                refuse_failures: true,
+                ..Default::default()
+            },
+            "/post/7",
+        )
+        .unwrap();
+        let ticket = r
+            .take_requests()
+            .iter()
+            .find(|q| q.target == "post")
+            .unwrap()
+            .ticket;
+        r.fulfill(
+            ticket,
+            Outcome::Failed {
+                kind: FailureKind::Network,
+                message: "offline".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(text_of(&r, "title"), title);
+        assert_eq!(text_of(&r, "state"), "failed");
+        assert!(!r.pending().iter().any(|(name, _)| name == "post"));
+        assert!(r.take_requests().is_empty());
+        assert!(r.resource_is_placeholder("post"));
+        assert!(!r.carry().resources.iter().any(|(name, ..)| name == "post"));
+        assert!(!r
+            .document_checkpoint("/post/7")
+            .answers
+            .iter()
+            .any(|(name, ..)| name == "post"));
+        r.act("retry", vec![]).unwrap();
+        assert_eq!(text_of(&r, "state"), "loading");
+        assert!(r.resource_is_placeholder("post"));
+        let ticket = r.take_requests()[0].ticket;
+        r.fulfill(ticket, ok()).unwrap();
+        assert_eq!(text_of(&r, "state"), "ready");
+        assert_eq!(text_of(&r, "title"), "Hello");
+        assert!(!r.resource_is_placeholder("post"));
+    }
+}
+
+#[test]
+fn failed_search_is_readable_and_clears_on_changed_arguments_refresh_and_success() {
+    let src = r#"component App
+  state query = "Menlo Park"
+  resource results = search(query) as shape string
+  derive unavailable = failed(results)
+  resource status = report(failed(results)) as shape bool
+  resource rows = rows() as shape list<number>
+  mutation changed as shape bool
+  action search(q: string) writes query
+    query = q
+  action touch(v: string) writes changed
+    send changed = touch(v)
+  action retry
+    refresh results
+  view
+    column
+      text `${results}/${pending(results)}/${failed(results)}` testId="state"
+      text `${unavailable}/${status}` testId="derived"
+      each n in rows key=n
+        text `${failed(results)}` testId=`row-${n}`
+      when failed(results)
+        text "Couldn't load" testId="failure"
+"#;
+    for full in [false, true] {
+        let mut r = Runner::boot(
+            contract::compile(src).unwrap(),
+            FailedSearch {
+                stored: true,
+                ..Default::default()
+            },
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        r.set_full_evaluation(full);
+        let check = |r: &Runner<FailedSearch>, value: &str, pending: bool, failed: bool| {
+            assert_eq!(text_of(r, "state"), format!("{value}/{pending}/{failed}"));
+            assert_eq!(text_of(r, "derived"), format!("{failed}/{failed}"));
+            for row in ["row-1", "row-2"] {
+                assert_eq!(text_of(r, row), failed.to_string());
+            }
+            assert_eq!(!r.kernel().find_by_test_id("failure").is_empty(), failed);
+        };
+        check(&r, "", true, false);
+        let ticket = r.take_requests()[0].ticket;
+        r.fulfill(ticket, ok()).unwrap();
+        check(&r, "", false, true);
+        assert!(r.resource_is_placeholder("results"));
+        assert!(!r
+            .document_checkpoint("/")
+            .answers
+            .iter()
+            .any(|(name, ..)| name == "results"));
+        assert!(r.act("search", vec![Value::str("broken")]).is_err());
+        check(&r, "", false, true);
+        let asks = r.data().asks;
+        r.act("touch", vec![Value::str("one")]).unwrap();
+        check(&r, "", false, true);
+        assert_eq!(r.data().asks, asks);
+        assert!(r.take_requests().is_empty());
+
+        r.act("search", vec![Value::str("Menlo")]).unwrap();
+        check(&r, "", true, false);
+        let ticket = r.take_requests()[0].ticket;
+        r.fulfill(ticket, ok()).unwrap();
+        check(&r, "", false, true);
+        r.act("retry", vec![]).unwrap();
+        check(&r, "", true, false);
+        let ticket = r.take_requests()[0].ticket;
+        r.data().succeed = true;
+        r.fulfill(ticket, ok()).unwrap();
+        check(&r, "new answer", false, false);
+        assert!(!r.resource_is_placeholder("results"));
+        assert_eq!(
+            r.document_checkpoint("/").answers[0].2,
+            [Value::str("Menlo")]
+        );
+
+        r.data().succeed = false;
+        r.act("search", vec![Value::str("Menlo Park")]).unwrap();
+        check(&r, "new answer", true, false);
+        let ticket = r.take_requests()[0].ticket;
+        r.fulfill(ticket, ok()).unwrap();
+        check(&r, "new answer", false, true);
+        assert!(!r.resource_is_placeholder("results"));
+        assert_eq!(
+            r.document_checkpoint("/").answers[0].2,
+            [Value::str("Menlo")]
+        );
+        r.act("search", vec![Value::str("Menl")]).unwrap();
+        check(&r, "standing", false, false);
+    }
+}
+
+#[test]
+fn failed_names_one_resource() {
+    let src = "component App\n  state query = \"Menl\"\n  resource results = search(query) as shape string\n  mutation changed as shape bool\n  view\n    text `${failed(results)}`\n";
+    for expression in [
+        "failed()",
+        "failed(results, results)",
+        "failed(query)",
+        "failed(changed)",
+        "failed(1)",
+        "failed(missing)",
+    ] {
+        let error = contract::compile(&src.replace("failed(results)", expression)).unwrap_err();
+        assert_eq!(error.id, "type-failed-argument", "{expression}: {error}");
+    }
+    let error = contract::compile(&src.replace("failed(results)", "faild(results)")).unwrap_err();
+    assert!(error.message.contains("did you mean `failed`?"), "{error}");
 }
