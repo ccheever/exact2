@@ -391,6 +391,9 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
                 num_into(out, *n as f32);
                 out.push_str("deg");
             }
+            // @ref LLP 1053.000 D1 — `none` is 0, which paints nothing and
+            // makes no backdrop root, where `blur(0px)` would.
+            StyleId::BackdropBlur if *n == 0.0 => out.push_str("none"),
             StyleId::BackdropBlur => {
                 out.push_str("blur(");
                 num_into(out, *n as f32);

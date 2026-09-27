@@ -115,6 +115,9 @@ struct BoxPaint {
     gradient: Option<gradient::Captured>,
     padding: [f32; 4],
     shadow: Option<shadow::ShadowPaint>,
+    /// `backdrop-filter: blur(σ)`, σ in points; 0 for none, or under a
+    /// host material, which wins (LLP 1053.000 D3).
+    backdrop: f32,
 }
 struct BoxGeometry {
     outer: Shape,
@@ -158,6 +161,11 @@ impl BoxPaint {
             background: rgba(s.background_color.resolve(dark)),
             gradient: gradient::Captured::capture(s, dark),
             shadow: shadow::ShadowPaint::capture(s, dark),
+            backdrop: if node.props.str(PropId::BackgroundMaterial).is_some() {
+                0.0
+            } else {
+                s.backdrop_blur.max(0.0)
+            },
             padding: [
                 pad(s.padding_top),
                 pad(s.padding_right),
@@ -184,6 +192,10 @@ impl BoxPaint {
     fn paint(&self, backend: &mut dyn Backend, geometry: &BoxGeometry, ts: Transform) {
         for band in self.shadow_fills(geometry) {
             backend.fill_border(&band, ts);
+        }
+        // @ref LLP 1053.000 D2 — the backdrop blurs under the background.
+        if self.backdrop > 0.0 {
+            backend.backdrop_blur(&geometry.outer, self.backdrop, ts);
         }
         self.emit(geometry, |shape, color| backend.fill(&shape, color, ts));
         if let Some(g) = &self.gradient {
@@ -337,6 +349,10 @@ pub trait Backend {
     fn fill(&mut self, shape: &Shape, color: [u8; 4], ts: Transform);
     /// Fill a shape with a gradient placed in its coordinates (LLP 1066).
     fn fill_gradient(&mut self, shape: &Shape, gradient: &gradient::GradientPaint, ts: Transform);
+    /// CSS `backdrop-filter: blur(σ)` (LLP 1053.000 D2): what is painted
+    /// under `shape` so far, blurred (σ in points, mirrored edges) and put
+    /// back inside it, under the current clip.
+    fn backdrop_blur(&mut self, _shape: &Shape, _sigma: f32, _ts: Transform) {}
     /// Fill one colour's share of a border (LLP 1053 G2): its region even-odd, clipped (non-zero).
     fn fill_border(&mut self, part: &border::BorderFill, ts: Transform);
     /// Draw a picture scaled into `dst`, clipped to every shape in `clips`.
@@ -749,6 +765,8 @@ impl Painter {
             || p.opacity != 1.0
             || node.node_type == NodeType::Image
             || node.style.shadow_opacity > 0.0
+            // A backdrop reads what is under it, beyond any damage.
+            || node.style.backdrop_blur > 0.0
             || !p.colors.is_empty();
         let ts = if p.moves() {
             // About `transform-origin`, the centre unless authored (LLP 1061 D6).

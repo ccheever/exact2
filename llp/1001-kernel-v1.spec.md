@@ -388,7 +388,16 @@ every host. Declared: with unequal radii, UIKit and AppKit clip to the unrounded
 box, since a layer's single corner radius cannot carry four and `layer.mask`
 already carries `clip-path` (LLP 1054.000 R7). Web flowed text with
 `tabular-nums` keeps ordinary layout: canvas cannot measure the feature
-(LLP 1053 §0 G4, G5).
+(LLP 1053 §0 G4, G5). A preserved tab stops every eight spaces (`tab-size`'s
+initial value; no row sets another). Declared: under `system-ui` Apple's stops
+are up to 2% narrower than Chrome's, which sizes them from San Francisco's
+untracked space where CoreText's space is tracked (LLP 1053 §0.1).
+`backdrop-filter` is `none` or one `blur()` (LLP 1053.000). Declared: iOS draws
+it as the ultra-thin system material, whose blur, tint and saturation are its
+own (no public arbitrary-radius backdrop blur exists); macOS's Core Image blur
+matches Chrome's σ but clips the node's children to its border box and sees
+only its parent's subtree as the backdrop; the GPU painter on Linux renders
+the frame once more per backdrop node. The measured bounds are LLP 1053.000 §3.
 
 ## 2. The data model (WS-A)
 
@@ -701,8 +710,10 @@ material; this is a semantic floating-surface fallback, not pixel parity. Author
 children use the glass content view unless a scroll/canvas already owns their
 container. AppKit supplies appearance and accessibility adaptation. Glass grouping
 is not implemented. Linux currently leaves materials transparent. This explicit
-host policy does not alter the existing CSS `backdrop-blur` style row or claim
-pixel parity between a UIKit material and a CSS filter.
+host policy stays the Apple-policy spelling beside CSS `backdrop-filter` (LLP
+1053.000 D3): it is not sugar for a blur, and where a node has both the material
+wins on every host (the web's material rule is `!important` over the inline
+blur).
 
 ### Window toolbars
 

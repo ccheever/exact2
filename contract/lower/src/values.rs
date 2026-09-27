@@ -55,6 +55,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadAnimation { .. } => "not a CSS `animation` shorthand: `<name> <duration> [<easing>] [<delay>] [<count>|infinite] [<direction>] [<fill-mode>] [<play-state>]`".into(),
         StyleValueError::Unsupported { .. } => "this row has no dynamic form".into(),
         StyleValueError::BadBoxShadow { reason, .. } => (*reason).into(),
+        StyleValueError::BadBackdropFilter { reason, .. } => (*reason).into(),
     }
 }
 

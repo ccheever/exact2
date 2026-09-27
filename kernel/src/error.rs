@@ -441,6 +441,11 @@ pub enum StyleValueError {
         style: StyleId,
         reason: &'static str,
     },
+    /// Not CSS `backdrop-filter` as exact2 builds it; `reason` names what.
+    BadBackdropFilter {
+        style: StyleId,
+        reason: &'static str,
+    },
     /// Not SVG paint: `none`, `currentcolor`, or a colour.
     BadPaint {
         style: StyleId,

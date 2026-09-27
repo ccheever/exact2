@@ -501,6 +501,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     // Transparency and Increase Contrast; do not freeze the effective appearance.
     var appliedMaterial: String {
         guard let materialView, materialView.superview === self else {
+            if (layer?.backgroundFilters?.count ?? 0) > 0 { return "backgroundFilters(CIGaussianBlur)" }
             return props["backgroundMaterial"] == nil ? "none" : "unsupported"
         }
         if #available(macOS 26.0, *), materialView is NSGlassEffectView { return "NSGlassEffectView(.regular)" }
@@ -509,6 +510,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     func updateMaterial() {
         let requested = props["backgroundMaterial"]
+        defer { applyBackdrop() }
         let kind = requested == "glass" || requested == "ultra-thin" ? requested : nil
         if materialKind != kind {
             let children = container.subviews.compactMap { $0 as? NodeView }

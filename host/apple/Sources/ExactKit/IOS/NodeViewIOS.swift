@@ -880,8 +880,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
     }
     func updateMaterial() {
-        let kind = props["backgroundMaterial"]
-        let supported = kind == "ultra-thin" || kind == "glass"
+        let kind = materialRequest
+        let supported = kind == "ultra-thin" || kind == "glass" || kind == "backdrop"
         let interactive = kind == "glass" && handlers.contains("press") && !disabled
         if materialKind != (supported ? kind : nil) {
             let children = container.subviews.compactMap { $0 as? NodeView }
@@ -889,7 +889,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             materialView = nil
             materialKind = nil
             if supported {
-                let effect = UIVisualEffectView()
+                let effect = kind == "backdrop" ? BackdropEffectView() : UIVisualEffectView()
                 effect.isUserInteractionEnabled = kind == "glass"
                 effect.frame = bounds
                 effect.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -900,14 +900,14 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             for (index, child) in children.enumerated() { container.insertSubview(child, at: index) }
         }
         guard let materialView else { return }
-        if materialView.effect == nil || materialInteractive != interactive {
+        if materialView.effect == nil || materialInteractive != interactive || backdropStale {
             let visual: UIVisualEffect
             if kind == "glass", #available(iOS 26.0, *) {
                 let glass = UIGlassEffect(style: .regular)
                 glass.isInteractive = interactive
                 visual = glass
             } else {
-                visual = UIBlurEffect(style: .systemUltraThinMaterial)
+                visual = backdropEffect() ?? UIBlurEffect(style: .systemUltraThinMaterial)
             }
             materialView.effect = visual
             materialInteractive = interactive

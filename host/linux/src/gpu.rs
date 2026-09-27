@@ -16,6 +16,7 @@ use crate::image::Bitmap;
 use crate::paint::border::{BorderFill, PathOp};
 use crate::paint::{Backend, Rect4, Shape, POINTER};
 use crate::text::{Paragraph, RunPaint, TextEngine};
+mod backdrop;
 mod images;
 use crate::paint::GradientPaint;
 use exact_kernel::gradient::Geometry;
@@ -55,6 +56,9 @@ pub struct Gpu {
     /// 2D canvas snapshots as image brushes, by snapshot identity (LLP 1056
     /// D7): a new revision is a new `Arc`, so a new upload.
     canvas_brushes: std::collections::HashMap<usize, (Arc<Pixmap>, vello::peniko::ImageBrush)>,
+    /// The clip and opacity layers open in the scene (a backdrop flush
+    /// pushes them again, LLP 1053.000 D2).
+    layers: Vec<backdrop::Layer>,
     /// The adapter's name.
     pub adapter: String,
     /// The wgpu backend's name (`Vulkan`, `Metal`, …).
@@ -199,6 +203,7 @@ impl Gpu {
             target: None,
             images: ImageCache::default(),
             canvas_brushes: Default::default(),
+            layers: Vec::new(),
             adapter: info.name.clone(),
             api: format!("{:?}", info.backend),
             device_ms,
@@ -206,6 +211,86 @@ impl Gpu {
             cached,
             last_ms: (0.0, 0.0),
         })
+    }
+
+    /// Render `scene` and read it back: the frame's pixels.
+    fn render_scene(&mut self, scene: &vello::Scene) -> Result<Pixmap, String> {
+        let width = ((self.width * self.scale).round() as u32).max(1);
+        let height = ((self.height * self.scale).round() as u32).max(1);
+        let t0 = Instant::now();
+        let (device, queue) = (self.device.clone(), self.queue.clone());
+        let result = {
+            let target = self.target(width, height);
+            let view = target.view.clone();
+            self.renderer
+                .render_to_texture(
+                    &device,
+                    &queue,
+                    scene,
+                    &view,
+                    &RenderParams {
+                        base_color: Color::WHITE,
+                        width,
+                        height,
+                        antialiasing_method: AaConfig::Area,
+                    },
+                )
+                .map_err(|e| format!("vello render: {e}"))
+        };
+        result?;
+        let target = self.target.as_ref().expect("rendered into it");
+        let mut encoder = device.create_command_encoder(&Default::default());
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &target.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &target.buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(target.padded),
+                    rows_per_image: None,
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        queue.submit([encoder.finish()]);
+        let encode_ms = t0.elapsed().as_secs_f64() * 1000.0;
+        let t1 = Instant::now();
+        let slice = target.buffer.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |r| {
+            let _ = tx.send(r);
+        });
+        device
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: None,
+            })
+            .map_err(|e| format!("poll: {e}"))?;
+        rx.recv()
+            .map_err(|_| "readback: no answer".to_string())?
+            .map_err(|e| format!("readback: {e}"))?;
+        let mut data = Vec::with_capacity((width * height * 4) as usize);
+        {
+            let mapped = slice.get_mapped_range();
+            for row in 0..height as usize {
+                let at = row * target.padded as usize;
+                data.extend_from_slice(&mapped[at..at + (width * 4) as usize]);
+            }
+        }
+        target.buffer.unmap();
+        self.last_ms = (encode_ms, t1.elapsed().as_secs_f64() * 1000.0);
+        IntSize::from_wh(width, height)
+            .and_then(|s| Pixmap::from_vec(data, s))
+            .ok_or_else(|| "readback: not a pixmap".to_string())
     }
 
     fn affine(&self, ts: Transform) -> Affine {
@@ -346,6 +431,7 @@ impl Backend for Gpu {
         self.width = width;
         self.height = height;
         self.scene.reset();
+        self.layers.clear();
         let renderer = &mut self.renderer;
         self.images
             .begin(|image| renderer.unregister_texture(image));
@@ -742,7 +828,11 @@ impl Backend for Gpu {
         } else {
             shape(s)
         };
-        self.scene.push_clip_layer(Fill::NonZero, a, &clip);
+        self.push_recorded(backdrop::Layer::Clip(Fill::NonZero, a, clip));
+    }
+
+    fn backdrop_blur(&mut self, s: &Shape, sigma: f32, ts: Transform) {
+        self.blur_backdrop(s, sigma, ts);
     }
 
     fn push_css_clip(&mut self, path: &exact_kernel::clip::ClipPath, ts: Transform) -> bool {
@@ -762,7 +852,8 @@ impl Backend for Gpu {
             exact_kernel::FillRule::Evenodd => Fill::EvenOdd,
             exact_kernel::FillRule::Nonzero => Fill::NonZero,
         };
-        self.scene.push_clip_layer(rule, self.affine(ts), &b);
+        let a = self.affine(ts);
+        self.push_recorded(backdrop::Layer::Clip(rule, a, b));
         true
     }
 
@@ -793,7 +884,7 @@ impl Backend for Gpu {
             } else {
                 Fill::NonZero
             };
-            self.scene.push_clip_layer(rule, a, &b);
+            self.push_recorded(backdrop::Layer::Clip(rule, a, b));
             pushed += 1;
             level = c.then.as_deref();
         }
@@ -801,22 +892,15 @@ impl Backend for Gpu {
     }
 
     fn pop_clip(&mut self) {
-        self.scene.pop_layer();
+        self.pop_recorded();
     }
 
     fn push_opacity(&mut self, alpha: f32) {
-        let whole = Rect::new(
-            0.0,
-            0.0,
-            (self.width * self.scale) as f64,
-            (self.height * self.scale) as f64,
-        );
-        self.scene
-            .push_layer(Fill::NonZero, Mix::Normal, alpha, Affine::IDENTITY, &whole);
+        self.push_recorded(backdrop::Layer::Opacity(alpha));
     }
 
     fn pop_opacity(&mut self) {
-        self.scene.pop_layer();
+        self.pop_recorded();
     }
 
     fn pointer(&mut self, x: f32, y: f32) {
@@ -840,86 +924,12 @@ impl Backend for Gpu {
     }
 
     fn finish(&mut self) -> Result<Pixmap, String> {
-        let width = ((self.width * self.scale).round() as u32).max(1);
-        let height = ((self.height * self.scale).round() as u32).max(1);
-        let t0 = Instant::now();
         if self.image_refused {
             return Err("GPU image descriptor capacity exceeded".into());
         }
         let scene = std::mem::take(&mut self.scene);
-        let (device, queue) = (self.device.clone(), self.queue.clone());
-        let result = {
-            let target = self.target(width, height);
-            let view = target.view.clone();
-            self.renderer
-                .render_to_texture(
-                    &device,
-                    &queue,
-                    &scene,
-                    &view,
-                    &RenderParams {
-                        base_color: Color::WHITE,
-                        width,
-                        height,
-                        antialiasing_method: AaConfig::Area,
-                    },
-                )
-                .map_err(|e| format!("vello render: {e}"))
-        };
+        let result = self.render_scene(&scene);
         self.scene = scene;
-        result?;
-        let target = self.target.as_ref().expect("rendered into it");
-        let mut encoder = device.create_command_encoder(&Default::default());
-        encoder.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo {
-                texture: &target.texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyBufferInfo {
-                buffer: &target.buffer,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(target.padded),
-                    rows_per_image: None,
-                },
-            },
-            wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-        );
-        queue.submit([encoder.finish()]);
-        let encode_ms = t0.elapsed().as_secs_f64() * 1000.0;
-        let t1 = Instant::now();
-        let slice = target.buffer.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |r| {
-            let _ = tx.send(r);
-        });
-        device
-            .poll(wgpu::PollType::Wait {
-                submission_index: None,
-                timeout: None,
-            })
-            .map_err(|e| format!("poll: {e}"))?;
-        rx.recv()
-            .map_err(|_| "readback: no answer".to_string())?
-            .map_err(|e| format!("readback: {e}"))?;
-        let mut data = Vec::with_capacity((width * height * 4) as usize);
-        {
-            let mapped = slice.get_mapped_range();
-            for row in 0..height as usize {
-                let at = row * target.padded as usize;
-                data.extend_from_slice(&mapped[at..at + (width * 4) as usize]);
-            }
-        }
-        target.buffer.unmap();
-        self.last_ms = (encode_ms, t1.elapsed().as_secs_f64() * 1000.0);
-        IntSize::from_wh(width, height)
-            .and_then(|s| Pixmap::from_vec(data, s))
-            .ok_or_else(|| "readback: not a pixmap".to_string())
+        result
     }
 }
