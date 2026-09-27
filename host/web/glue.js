@@ -806,7 +806,7 @@ function apply(batch) {
     // `scroll-behavior: smooth` (the row's CSS) animates the assignment itself (CSSOM View §7),
     // once; the agent's clock cannot seek that animation, so under it the scroll lands at once.
     for (const [name, offset] of Object.entries(offsets)) if (el[name] !== offset) {
-      if (name === "scrollTop" && lists.get(el)?.window === false) jumps.push([Number(el.dataset.view), offset]);
+      if (name === "scrollTop" && lists.has(el)) jumps.push([Number(el.dataset.view), offset]);
       else if (agentMode && el.style.scrollBehavior === "smooth") el.scrollTo({ [name === "scrollTop" ? "top" : "left"]: offset, behavior: "instant" });
       else el[name] = offset;
     }
