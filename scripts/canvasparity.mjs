@@ -31,10 +31,14 @@ import { boxes, register, shot } from './parity.mjs';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const MEAN = 4, OFF = 0.06, BAND = 32, SLOP = 1, STEPS = 4;
 const BACKDROPS = { light: [255, 255, 255], dark: [0, 0, 0] };
-// Text on Linux is held to SVG's Linux text band (LLP 1056 §4): its own
-// engine's unhinted outlines, not Chrome's rasterizer.
+// Text is held to a text band where the host's rasterizer is not Chrome's
+// (LLP 1056 §4, §8.2): on Linux SVG's Linux text band (unhinted outlines);
+// on Apple a declared band (Charlie, 2026-09-27), because Core Graphics
+// strokes glyph outlines with more ink than Skia's glyph masks carry.
 const TEXT = /^fx-text/;
-const limits = (host, id) => (host.startsWith('linux') && TEXT.test(id) ? { mean: 14, off: 0.16 } : undefined);
+const limits = (host, id) => (!TEXT.test(id) ? undefined
+  : host.startsWith('linux') ? { mean: 14, off: 0.16 }
+  : host.startsWith('macos') || host.startsWith('ios') ? { mean: 8, off: 0.12 } : undefined);
 
 /** The page sequence, captured the same way on every host. */
 async function capture(open, host, dir, check, env) {

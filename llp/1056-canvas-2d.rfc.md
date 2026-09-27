@@ -670,7 +670,13 @@ What stage 2 ships, and where it differs from the text above. `QUEUE.md` lists w
   - **Linux** (cpu and gpu identical): pages 1–3 unchanged (worst 0.81); page 5 mean 0.48, worst 1.46; page 4 (text) mean 1.79, worst 4.94, 8.1% worst. That is inside SVG's Linux text band (mean 14, 16%), which the smoke now holds Linux text to, as §4 says.
   - **macOS:** mean 0.56, worst 5.31; at 2× against `direct.html` mean 0.48, worst 3.97.
   - **iOS:** mean 0.50, worst 6.04; at 3× mean 0.37, worst 3.92.
-  - Every Apple crop is within §4's bands except `fx-textstyle` on white. Its glyph positions and bounds match Chrome's; Core Graphics strokes the 1 px `strokeText` with about 27% more ink than Skia. Whether Apple gets a text band, as Linux has, is a question for Charlie.
+  - Every Apple crop is within §4's default bands except `fx-textstyle` on white: macOS 5.31 (7.84% off), macOS 2× 3.97 (6.29%), iOS 6.04 (9.28%), iOS 3× 3.92 (5.36%). Its glyph positions and bounds match Chrome's. The residue is the 1 px `strokeText` "Stroke", which carries 1.66× Chrome's ink.
+- **The Apple text band (Charlie, 2026-09-27).** Charlie ruled "(b) is ok": emulate Chrome's `strokeText` by stroking each glyph's Core Text outline as an ordinary Core Graphics path with the context's line style, falling back to (a), a declared Apple text band, if three rounds did not bring `fx-textstyle` within §4's bands. The rounds:
+  1. **Outlines stroked as a path.** This is how the replayer already draws `strokeText`: the glyph outlines from `CTFontCreatePathForGlyph`, stroked with the context's width, join, cap, miter and dash. It measures as above.
+  2. **Skia's glyph-mask contrast.** A probe drew the stroked outlines into a coverage mask with a gamma curve, against Chrome's own 1× crop. It lowers the ink but not the difference: at best 11.75/255 on the stroke's region, against 18.24 without the curve.
+  3. **Where the residue is.** The same probe varied the line width. Chrome's stroke carries the ink of a Core Graphics stroke about 0.6 px wide, and still differs by about 6/255 in shape at the best width. So the difference is Skia's rasterization of glyph masks, not the stroke's geometry, and a path stroke cannot remove it.
+
+  So Apple takes (a). `smoke.mjs canvas` holds Apple's `fx-text*` crops to a declared band of mean 8/255 and 12% of pixels off by more than 32. It is above the measured worst (6.04, 9.28%), and tighter than Linux's text band (14, 16%). The replayer keeps drawing `strokeText` as outlines stroked as a path, which is Chrome's model.
   - **Caltrain's line map** is unchanged: Linux 0.25 (cpu) and 0.31 (gpu), macOS 0.26, iOS 0.23.
 
 ## 9. `rules/DEFERRED.md`: the admission
