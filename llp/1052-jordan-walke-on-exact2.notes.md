@@ -85,6 +85,43 @@ something that went wrong in exact1.
   only. The follow-up is LLP 1051 (the research, with a ball flung against a
   wall worked through) and LLP 1051.000 (an implementation outline).
 
+## Measured since, 2026-09-27
+
+**Wasm memory at 100,000 records, on the web.** This is part of the data
+measurement above. `apps/messages-stress` ran at 100,000 logical messages in
+desktop Chrome. Its data is a Rust source inside the wasm, so nothing crosses
+to TypeScript here. The probes were scratch scripts, not in the repo. They
+read the app's exported memory, captured at instantiation, and the JS heap
+over CDP (`Runtime.getHeapUsage`) while scrolling the whole history.
+
+| Mode | Wasm linear memory | JS heap |
+|---|---|---|
+| Boot | 3.9 MB | 2.8 MB |
+| Virtualized transcript: the whole history supplied | 65.1 MB, then 65.7 across repeated full scrolls | 3–7 MB; 3 MB after GC |
+| The same, then back to 100 messages | 71.1 MB | 2.8 MB |
+| The same, then 100,000 again | 71.1 MB | 3.0 MB |
+| Bounded: at most 200 records resident, walked through all 977 windows, from message 99,800 to 0 | 5.1 MB, flat from about the 270th window | peak 12 MB; 4 MB at rest |
+
+- **Memory levels off in both modes.** Freed memory is reused inside the
+  wasm: a second 100,000 cost nothing new.
+- **Jordan's eviction point holds, in one sense.** Wasm memory never goes
+  back. A page that once held 100,000 records keeps about 71 MB until it
+  reloads. Evicting inside the wasm helps reuse but returns nothing to the
+  browser.
+- **Granularity is what matters, as LLP 1027.003 found.** Windowed answers
+  held the walk to 5.1 MB against 65–71 MB for the whole history, and they
+  are LLP 1027.004's rule.
+
+Not measured yet:
+- **Crossing cost at this scale.** `messages-stress` has no TypeScript side.
+  Messages can't reach 100,000 records today: Hermes' 64 MiB heap and 100 ms
+  call budget (`js/src/lib.rs`), Snapback's 512-record edit limit, and a
+  transcript that isn't virtualized. It needs a TypeScript-data variant of the
+  stress app.
+- **A device.** The iPad Pro is shared with the heavy-list lanes on another
+  Mac. The repo has no memory tooling for a device: those lanes measure
+  `phys_footprint` with a harness outside it.
+
 ## To ask Jordan
 
 1. **Preflex.** What it takes and returns, and how it stays in agreement with
