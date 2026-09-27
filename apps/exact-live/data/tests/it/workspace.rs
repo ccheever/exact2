@@ -11,10 +11,7 @@ fn boot(width: f64) -> Runner<Live> {
         baked,
         Live::default(),
         Kernel::with_monospace(),
-        Viewport {
-            width,
-            height: 844.,
-        },
+        Viewport::sized(width, 844.),
         "/",
     )
     .unwrap()

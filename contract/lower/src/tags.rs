@@ -527,6 +527,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "translate" => styles(&[StyleId::Translate]),
         "scale" => styles(&[StyleId::Scale]),
         "rotate" => styles(&[StyleId::Rotate]),
+        // @ref LLP 1061 D1 — host-owned press feedback; not a motion target.
+        "press-scale" => styles(&[StyleId::PressScale]),
         _ => return None,
     })
 }

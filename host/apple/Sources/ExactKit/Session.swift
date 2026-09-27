@@ -372,6 +372,7 @@ public final class ExactSession {
 
     /// Live sessions by handle: what a wake looks up (a stranger's is dropped).
     nonisolated(unsafe) private static var live: [ExactRuntime: WeakSession] = [:]
+    private var preferenceObservers: [NSObjectProtocol] = []
 
     init(app: ExactApp, label: String) {
         self.app = app
@@ -391,6 +392,7 @@ public final class ExactSession {
         ExactSession.live[runtime.rt] = WeakSession(self)
         runtime.setWake(ExactSession.wake, ctx: UnsafeMutableRawPointer(bitPattern: UInt(runtime.rt)))
         wire()
+        preferenceObservers = DisplayPreferences.observe { [weak self] in self?.tellPreferences() }
     }
 
     deinit { destroy() }
@@ -777,6 +779,14 @@ public final class ExactSession {
         let locale = Locale.preferredLanguages.first ?? Locale.current.identifier(.bcp47)
         // The launch's seed: explicit entropy for ids, from the system's secure source.
         apply(runtime.setPlace(locale: locale, timeZone: TimeZone.current.identifier, seed: launchSeed))
+        tellPreferences()
+    }
+    /// @ref LLP 1061 D4 — told after every boot, as the date is, and on each
+    /// change: in the same main-thread turn as the boot batch, so the first
+    /// frame on screen already reads the user's preferences.
+    func tellPreferences() {
+        guard booted, state != .destroyed else { return }
+        apply(runtime.setPreferences(DisplayPreferences.bits))
     }
     public func resize(_ size: CGSize) { guard booted, state != .destroyed else { return }; apply(runtime.resize(width: size.width, height: size.height)) }
     public func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) { guard booted, state != .destroyed else { return }; apply(runtime.insets(top: top, right: right, bottom: bottom, left: left)) }
@@ -868,6 +878,7 @@ public final class ExactSession {
         clockTimer?.invalidate()
         clockTimer = nil
         frames.run(false)
+        DisplayPreferences.forget(preferenceObservers)
         presenter.reset()
         ExactSession.live.removeValue(forKey: runtime.rt)
         rasters.shutdown()
@@ -1013,7 +1024,11 @@ final class Frames: NSObject {
         }
         #if canImport(UIKit)
         if let link {
-            let fullRate = fpsMode || session?.canvases.wantsFrames == true
+            // Motion asks for the panel's full rate while it runs, as a canvas
+            // does: at `.default` a ProMotion iPhone presents a transition at
+            // 60 Hz. The link exists only while something wants frames, so an
+            // idle app drops to no link at all, not to 120 Hz (LLP 1061 D3).
+            let fullRate = fpsMode || motion || session?.canvases.wantsFrames == true
             let rate = Float(min(120, session?.presenter.viewport.window?.screen.maximumFramesPerSecond ?? 60))
             link.preferredFrameRateRange = fullRate ? CAFrameRateRange(minimum: min(80, rate), maximum: rate, preferred: rate) : .default
         }

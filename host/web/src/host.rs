@@ -667,24 +667,31 @@ impl<D: DataSource> Host<D> {
         self.batch_for(&receipts, error.as_deref())
     }
 
-    /// @ref LLP 1039 D2
-    pub fn resize(&mut self, width: f64, height: f64, now_ms: f64) -> String {
+    /// The size and the display preferences, in one batch.
+    /// @ref LLP 1039 D2; LLP 1061 D4
+    pub fn resize(&mut self, viewport: exact_runner::Viewport, now_ms: f64) -> String {
         let a = self.runner.advance_timed(now_ms);
         self.now_ms = a.now_ms.max(self.now_ms);
         let mut receipts = a.receipts;
         let mut error = a.error.map(|e| format!("{e:?}"));
-        match self.runner.set_viewport(width, height) {
-            Ok(Some(receipt)) => receipts.push(Timed {
-                at_ms: self.now_ms,
-                receipt,
-            }),
-            Ok(None) => {}
-            Err(e) => {
-                let viewport_error = format!("viewport: {e:?}");
-                error = Some(match error {
-                    Some(timer_error) => format!("{timer_error}; {viewport_error}"),
-                    None => viewport_error,
-                });
+        let answers = [
+            self.runner.set_viewport(viewport.width, viewport.height),
+            self.runner.set_preferences(viewport.preferences),
+        ];
+        for answer in answers {
+            match answer {
+                Ok(Some(receipt)) => receipts.push(Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }),
+                Ok(None) => {}
+                Err(e) => {
+                    let viewport_error = format!("viewport: {e:?}");
+                    error = Some(match error {
+                        Some(timer_error) => format!("{timer_error}; {viewport_error}"),
+                        None => viewport_error,
+                    });
+                }
             }
         }
         self.batch_for(&receipts, error.as_deref())

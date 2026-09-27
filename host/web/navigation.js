@@ -313,8 +313,15 @@ export function refuseURL(el, name, value) {
   if (name === "src") el.setAttribute(name, "about:blank"); else el.removeAttribute(name);
 }
 // `@keyframes` named by content, each inserted once, kept across a restart (LLP 1057 D5).
-const keyframesSheet = document.head.appendChild(document.createElement("style")), keyframeNames = new Set();
-export function keyframes(op) { if (!keyframeNames.has(op.name)) { keyframeNames.add(op.name); keyframesSheet.sheet.insertRule(op.css, keyframesSheet.sheet.cssRules.length); } }
+// The sheet is made at the first rule, not at import: this module is also imported where there is
+// no document (tests, workers).
+let keyframesSheet = null; const keyframeNames = new Set();
+export function keyframes(op) {
+  if (keyframeNames.has(op.name)) return;
+  keyframeNames.add(op.name);
+  keyframesSheet ??= document.head.appendChild(document.createElement("style"));
+  keyframesSheet.sheet.insertRule(op.css, keyframesSheet.sheet.cssRules.length);
+}
 
 export function renderMarkup(el, json) {
   let pieces;
@@ -443,3 +450,12 @@ export function environment() {
     "keyboard-inset-height": r2(Math.max(0, innerHeight - (visualViewport?.height ?? innerHeight))),
   };
 }
+
+// @ref LLP 1061 D4 — the user's display preferences as the page's media
+// queries report them: bit 0 `prefers-reduced-motion: reduce`, bit 1
+// `prefers-reduced-transparency: reduce` (a browser that does not know the
+// feature answers no preference, as CSS does). Told with each boot and resize.
+let preferenceQueries;
+const queries = () => (preferenceQueries ??= ["(prefers-reduced-motion: reduce)", "(prefers-reduced-transparency: reduce)"].map((q) => matchMedia(q)));
+export const preferences = () => queries().reduce((bits, q, i) => bits | (q.matches ? 1 << i : 0), 0);
+export const onPreferences = (changed) => queries().forEach((q) => q.addEventListener("change", changed));
