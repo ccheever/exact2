@@ -274,6 +274,13 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   Take: other animated layout properties and decorative effects remain behind
   that consumer. The first increment accepts several numeric samples; automatic
   content-height measurement and host adoption remain unfinished.
+  **Moved in part (Seth, 2026-09-26, LLP 1063):** a laid-out box's *position*
+  in its parent animates under an explicit `layout-transition` row (FLIP: a
+  presentation offset, never a relayout per frame), and a removed node may play
+  an `exit-animation` before it goes. Unblocks grnl's list edits and a motion
+  designer's enter/leave without a timer faking either. Take: animated *size*
+  (width/height interpolation beyond the sheet and accordion above), shared-
+  element transitions and route-pop exits stay out.
 - **Decay, sequence, and repeat drivers; ~~`@keyframes`~~.** A spring carries release
   velocity; nothing else needs a driver. `@keyframes` moved 2026-09-26 (LLP 1057):
   unblocks a step that breathes while it runs and an entry that fades in when it
