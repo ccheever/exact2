@@ -32,6 +32,7 @@ use tiny_skia::{Pixmap, Point, Transform};
 pub mod border;
 pub(crate) mod damage;
 mod inline;
+mod placed;
 mod region;
 mod svg;
 use inline::{presented_color, presented_text_colors, text_backgrounds, text_palette};
@@ -345,6 +346,8 @@ pub trait Backend {
     fn island_image(&mut self, _pixels: Arc<Pixmap>, _dst: Rect4, _ts: Transform, _mode: u8) {}
     /// Composite a rendered canvas child (not a decoded image asset).
     fn surface_image(&mut self, _pixels: Arc<Pixmap>, _dst: Rect4) {}
+    /// Composite a 2D canvas's bitmap into `dst`, clipped (LLP 1056 D7).
+    fn canvas(&mut self, _pixels: &Arc<Pixmap>, _dst: Rect4, _clips: &[Shape], _ts: Transform) {}
     /// Paint a paragraph with its top-left at `origin`.
     fn text(
         &mut self,
@@ -427,6 +430,8 @@ pub struct Painter {
     pub dark: bool,
     backend: Box<dyn Backend>,
     pub(crate) placements: BTreeMap<ViewId, crate::placement::Placement>,
+    /// Each 2D canvas's latest bitmap (LLP 1056).
+    pub(crate) canvases: BTreeMap<ViewId, crate::canvas2d::CanvasPaint>,
     viewport: (f32, f32),
     cpu_ms: Option<f64>,
     // One generational source, lifted only inside its existing List clip.
@@ -489,6 +494,7 @@ impl Painter {
             region_frame: None,
             damage: Default::default(),
             placements: BTreeMap::new(),
+            canvases: BTreeMap::new(),
             viewport: (0., 0.),
             cpu_ms: None,
         }
@@ -690,76 +696,6 @@ impl Painter {
         })
     }
 
-    fn placed(
-        &mut self,
-        walk: &mut Walk<'_, '_>,
-        id: ViewId,
-        ts: Transform,
-        offset: (f32, f32),
-        clip: Option<Rect4>,
-    ) -> bool {
-        use crate::placement::{self, Placement};
-        let Some(p) = self.placements.get(&id).copied() else {
-            return false;
-        };
-        let Placement::Visible {
-            h,
-            canvas,
-            clip_depth,
-            ..
-        } = p
-        else {
-            return true;
-        };
-        let Some(node) = walk.scene.kernel.node(id) else {
-            return true;
-        };
-        let Some(parent) = walk.scene.kernel.node(canvas) else {
-            return true;
-        };
-        let h = placement::compose(h, ts, parent.frame.x - offset.0, parent.frame.y - offset.1);
-        let Some(inv) = placement::inverse(h) else {
-            return true;
-        };
-        let f = node.frame;
-        if f.width <= 0. || f.height <= 0. {
-            return true;
-        }
-        let mut painter = Painter::new(
-            self.text.clone(),
-            self.scale,
-            Box::new(crate::raster::Raster::transparent()),
-        );
-        painter.dark = self.dark;
-        painter.placements = self.placements.clone();
-        painter.placements.remove(&id);
-        painter.viewport = (f.width, f.height);
-        painter.backend.begin(f.width, f.height, self.scale);
-        let mut child_walk = Walk {
-            scene: walk.scene,
-            boxes: Vec::new(),
-            text: BTreeMap::new(),
-            skip: None,
-            replay: None,
-        };
-        painter.node(&mut child_walk, id, Transform::identity(), (f.x, f.y), None);
-        walk.text.extend(child_walk.text);
-        if let Ok(source) = painter.backend.finish() {
-            if let Some((pixels, rect)) =
-                placement::warp_clipped(&source, h, clip_depth, self.scale, self.viewport)
-            {
-                self.backend.surface_image(Arc::new(pixels), rect);
-            }
-        }
-        for mut b in child_walk.boxes {
-            b.projective = Some((inv, b.rect, b.clip, clip_depth));
-            b.rect = placement::clipped_bounds(&h, clip_depth, b.rect);
-            b.clip = clip;
-            walk.boxes.push(b);
-        }
-        true
-    }
-
     fn node(
         &mut self,
         walk: &mut Walk<'_, '_>,
@@ -868,6 +804,13 @@ impl Painter {
         let content = geometry.content;
         let s = node.style;
         match node.node_type {
+            // @ref LLP 1056 D7 — a 2D canvas's kept bitmap fills its content box.
+            NodeType::Canvas => {
+                if let Some(c) = self.canvases.get(&node.id) {
+                    let clips = [Shape::rect(content), outer];
+                    self.backend.canvas(&c.pixels, content, &clips, ts);
+                }
+            }
             NodeType::Image => {
                 if let Some(img) = walk.scene.images.get(&node.id) {
                     if let Some(dst) = object_fit(img.natural(), s.object_fit, content) {

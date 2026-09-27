@@ -469,6 +469,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "value" => AttrTarget::Prop(p("value")),
         "item-height" => AttrTarget::Prop(p("itemHeight")),
         "estimated-item-height" => AttrTarget::Prop(p("estimatedItemHeight")),
+        // @ref LLP 1056 D6 (r3): a canvas's explicit bitmap size, HTML's
+        // `width`/`height` content attributes (Contract's are the CSS box).
+        "bitmap-width" => AttrTarget::Prop(p("bitmapWidth")),
+        "bitmap-height" => AttrTarget::Prop(p("bitmapHeight")),
         "scrollTop" => AttrTarget::Prop(p("scrollTop")),
         "scrollLeft" => AttrTarget::Prop(p("scrollLeft")),
         "swipeContent" => AttrTarget::Prop(p("swipeContent")),

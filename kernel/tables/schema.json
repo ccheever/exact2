@@ -822,6 +822,8 @@
       "name": "y2",
       "kind": "str"
     },
+    {"id": 133, "name": "bitmapWidth", "kind": "int", "_comment": "@ref LLP 1056 D6 (r3): a canvas's explicit bitmap width, the web canvas `width` attribute; the bitmap is stretched to the content box."},
+    {"id": 134, "name": "bitmapHeight", "kind": "int"},
     {
       "id": 135,
       "name": "fx",

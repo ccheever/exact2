@@ -399,6 +399,42 @@ impl<D: DataSource> Runner<D> {
         r.framed_at = None;
     }
 
+    /// A native host's geometry for every 2D canvas, from the kernel's
+    /// layout in this turn (LLP 1056 D4): the content box, the device
+    /// `scale`, and an explicit bitmap size from `bitmap-width` and
+    /// `bitmap-height` (D6, r3; an unset one is the web's default, 300 or
+    /// 150).
+    pub fn layout_canvases(&mut self, scale: f64) {
+        for view in self.canvas_views() {
+            let Some(node) = self.kernel.node(view) else {
+                continue;
+            };
+            let (_, _, w, h) = exact_kernel::svg::scene::content_box(&node);
+            let int = |id| match node.props.get(id) {
+                Some(exact_kernel::PropValue::Int(v)) => {
+                    Some((*v).clamp(0, u32::MAX as i64) as u32)
+                }
+                Some(exact_kernel::PropValue::Float(v)) if v.is_finite() => Some(v.max(0.0) as u32),
+                _ => None,
+            };
+            let (bw, bh) = (
+                int(exact_kernel::PropId::BitmapWidth),
+                int(exact_kernel::PropId::BitmapHeight),
+            );
+            let bitmap =
+                (bw.is_some() || bh.is_some()).then(|| (bw.unwrap_or(300), bh.unwrap_or(150)));
+            self.set_canvas_geometry(
+                view,
+                Geometry {
+                    width: w as f64,
+                    height: h as f64,
+                    scale,
+                    bitmap,
+                },
+            );
+        }
+    }
+
     /// The host presented a frame (LLP 1056 D5): every canvas that asked
     /// for one is due, once per clock value.
     pub fn canvas_frame(&mut self) {

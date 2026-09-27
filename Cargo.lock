@@ -869,6 +869,7 @@ dependencies = [
  "cosmic-text",
  "drm",
  "evdev",
+ "exact-canvas",
  "exact-data",
  "exact-kernel",
  "exact-motion",

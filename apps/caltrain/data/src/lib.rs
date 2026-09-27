@@ -17,6 +17,8 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod map;
+
 use exact_runner::{DataError, DataSource, Value};
 
 /// One station on the corridor.
@@ -244,6 +246,24 @@ fn finite_number(args: &[Value], i: usize) -> Result<f64, DataError> {
 impl DataSource for Caltrain {
     fn app_id(&self) -> &str {
         "com.exact.caltrain"
+    }
+
+    /// The line map is a Canvas 2D surface (LLP 1056).
+    fn canvas_surfaces(&self) -> Vec<(String, usize)> {
+        vec![("map".into(), 4)]
+    }
+
+    fn draw_2d(
+        &mut self,
+        surface: &str,
+        args: &[Value],
+        ctx: &exact_runner::exact_canvas::Context2d,
+        frame: &exact_runner::exact_canvas::Frame,
+    ) -> Result<bool, exact_runner::exact_canvas::DrawError> {
+        match surface {
+            "map" => map::draw(args, ctx, frame),
+            other => Err(format!("no 2D surface `{other}`").into()),
+        }
     }
 
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {

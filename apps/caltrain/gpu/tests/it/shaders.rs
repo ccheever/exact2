@@ -4,7 +4,7 @@
 //! tells a color edit from a bindings edit, and the registry refuses the
 //! latter by name.
 
-use caltrain_gpu::shaders::{aurora, map, SHADERS};
+use caltrain_gpu::shaders::{aurora, SHADERS};
 use exact_gpu::shaders::interface_digest;
 use exact_gpu::wgpu;
 
@@ -108,30 +108,4 @@ fn a_color_edit_keeps_the_interface_and_a_bindings_edit_is_refused_by_name() {
     );
     // Put the file's own text back for any fixture that follows.
     exact_gpu::shaders::set_shader("aurora", source, Some(aurora::INTERFACE_DIGEST)).unwrap();
-}
-
-#[test]
-fn the_map_vertex_is_one_interleaved_buffer() {
-    assert_eq!(map::Vertex::SIZE, 24);
-    let l = map::Vertex::LAYOUT;
-    assert_eq!(l.array_stride, 24);
-    assert_eq!(l.attributes.len(), 2);
-    let a = |i: usize| {
-        (
-            l.attributes[i].format,
-            l.attributes[i].offset,
-            l.attributes[i].shader_location,
-        )
-    };
-    assert_eq!(a(0), (wgpu::VertexFormat::Float32x2, 0, 0));
-    assert_eq!(a(1), (wgpu::VertexFormat::Float32x4, 8, 1));
-    let v = map::Vertex {
-        position: [1.0, 2.0],
-        color: [3.0, 4.0, 5.0, 6.0],
-    };
-    let expect: Vec<u8> = [1f32, 2.0, 3.0, 4.0, 5.0, 6.0]
-        .iter()
-        .flat_map(|f| f.to_le_bytes())
-        .collect();
-    assert_eq!(v.bytes().to_vec(), expect);
 }

@@ -70,6 +70,8 @@ pub struct Host<D: DataSource> {
     data_activated: bool,
     router_op: Option<exact_runner::RouterChange>,
     navigation: crate::navigation::Navigation,
+    /// The 2D canvases' bitmaps (LLP 1056 D7).
+    canvas2d: crate::canvas2d::Canvases,
 }
 
 impl<D: DataSource> Host<D> {
@@ -169,7 +171,10 @@ impl<D: DataSource> Host<D> {
             data_activated: false,
             router_op: None,
             navigation: Default::default(),
+            canvas2d: Default::default(),
         };
+        host.runner
+            .set_canvas_limits(exact_runner::Limits::native(physical_memory(), false));
         // The engine hears the whole tree once: values, no transitions.
         let mut sync = MotionSync::default();
         host.discover_height_handles();
@@ -236,6 +241,38 @@ impl<D: DataSource> Host<D> {
     /// §3): `deliveryCheck`, `deliveryActivate`, `setScheme`.
     pub fn take_commands(&mut self) -> Vec<exact_runner::Command> {
         self.runner.take_commands()
+    }
+
+    /// Canvas 2D after this turn's layout (LLP 1056 D4): the kernel's
+    /// content boxes at `scale`, a presented frame for canvases that asked
+    /// (`frame`), the due draws, and their lists replayed. Whether any
+    /// bitmap changed.
+    pub(crate) fn sync_canvases(&mut self, scale: f64, frame: bool) -> bool {
+        if !self.runner.plan().surfaces.is_empty() {
+            self.runner.layout_canvases(scale);
+            if frame {
+                self.runner.canvas_frame();
+            }
+            self.runner.draw_canvases(&|_| true);
+        }
+        let lists = self.runner.take_canvas_lists();
+        let changed = !lists.is_empty();
+        for e in self.canvas2d.apply(lists) {
+            self.runner.log(e);
+        }
+        let live = self.runner.canvas_views();
+        self.canvas2d.retain(&live);
+        changed
+    }
+
+    /// Each 2D canvas's latest bitmap, for the painters.
+    pub(crate) fn canvas_snapshots(&self) -> BTreeMap<ViewId, crate::canvas2d::CanvasPaint> {
+        self.canvas2d.snapshots()
+    }
+
+    /// Whether a 2D canvas asked for another frame (LLP 1056 D5).
+    pub fn canvas_wants_frame(&self) -> bool {
+        self.runner.canvas_wants_frame()
     }
 
     /// The runner.
@@ -873,4 +910,18 @@ impl<D: DataSource> Host<D> {
         }
         order
     }
+}
+
+/// Physical memory in bytes, for the canvas budget (LLP 1056 D4): a quarter
+/// of it, as WebKit charged on iOS. Linux reports it in `/proc/meminfo`;
+/// elsewhere (the host run on a Mac) 8 GiB is assumed.
+fn physical_memory() -> u64 {
+    std::fs::read_to_string("/proc/meminfo")
+        .ok()
+        .and_then(|m| {
+            let line = m.lines().find(|l| l.starts_with("MemTotal:"))?;
+            let kb: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+            Some(kb * 1024)
+        })
+        .unwrap_or(8 << 30)
 }

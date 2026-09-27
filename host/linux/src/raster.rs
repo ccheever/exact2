@@ -865,8 +865,10 @@ impl Backend for Raster {
     }
 
     fn surface_image(&mut self, image: Arc<Pixmap>, dst: Rect4) {
-        let clips: &[Shape] = &[];
-        let ts = Transform::identity();
+        self.canvas(&image, dst, &[], Transform::identity());
+    }
+
+    fn canvas(&mut self, image: &Arc<Pixmap>, dst: Rect4, clips: &[Shape], ts: Transform) {
         let (nw, nh) = (image.width() as f32, image.height() as f32);
         if nw <= 0.0 || nh <= 0.0 || dst.2 <= 0.0 || dst.3 <= 0.0 {
             return;

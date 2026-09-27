@@ -20,6 +20,7 @@ name = "exact_linux"
 crate-type = ["rlib"]
 
 [dependencies]
+exact-canvas = { path = "../../canvas" }
 exact-data = { path = "../../data" }
 exact-kernel = { path = "../../kernel" }
 exact-textflow = { path = "../../textflow" }

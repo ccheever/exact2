@@ -50,6 +50,9 @@ pub struct Gpu {
     /// Image brushes by the picture's address, each entry holding the
     /// picture so the address cannot be reused while the brush is cached.
     images: ImageCache,
+    /// 2D canvas snapshots as image brushes, by snapshot identity (LLP 1056
+    /// D7): a new revision is a new `Arc`, so a new upload.
+    canvas_brushes: std::collections::HashMap<usize, (Arc<Pixmap>, vello::peniko::ImageBrush)>,
     /// The adapter's name.
     pub adapter: String,
     /// The wgpu backend's name (`Vulkan`, `Metal`, …).
@@ -193,6 +196,7 @@ impl Gpu {
             height: 1.0,
             target: None,
             images: ImageCache::default(),
+            canvas_brushes: Default::default(),
             adapter: info.name.clone(),
             api: format!("{:?}", info.backend),
             device_ms,
@@ -501,6 +505,48 @@ impl Backend for Gpu {
             self.image_refused = true;
             return;
         };
+        let a = self.affine(ts);
+        for c in clips {
+            self.scene.push_clip_layer(Fill::NonZero, a, &shape(c));
+        }
+        let place = a
+            * Affine::translate((dst.0 as f64, dst.1 as f64))
+            * Affine::scale_non_uniform(dst.2 as f64 / nw, dst.3 as f64 / nh);
+        self.scene.draw_image(&brush, place);
+        for _ in clips {
+            self.scene.pop_layer();
+        }
+    }
+
+    fn canvas(&mut self, image: &Arc<Pixmap>, dst: Rect4, clips: &[Shape], ts: Transform) {
+        struct Pixels(Arc<Pixmap>);
+        impl AsRef<[u8]> for Pixels {
+            fn as_ref(&self) -> &[u8] {
+                self.0.data()
+            }
+        }
+        let (nw, nh) = (image.width() as f64, image.height() as f64);
+        if nw <= 0.0 || nh <= 0.0 || dst.2 <= 0.0 || dst.3 <= 0.0 {
+            return;
+        }
+        // A snapshot no painter holds any more is dropped with its brush.
+        self.canvas_brushes
+            .retain(|_, (pixels, _)| Arc::strong_count(pixels) > 1);
+        let brush = self
+            .canvas_brushes
+            .entry(Arc::as_ptr(image) as usize)
+            .or_insert_with(|| {
+                let brush = vello::peniko::ImageBrush::new(vello::peniko::ImageData {
+                    data: vello::peniko::Blob::new(Arc::new(Pixels(image.clone()))),
+                    format: vello::peniko::ImageFormat::Rgba8,
+                    alpha_type: vello::peniko::ImageAlphaType::AlphaPremultiplied,
+                    width: image.width(),
+                    height: image.height(),
+                });
+                (image.clone(), brush)
+            })
+            .1
+            .clone();
         let a = self.affine(ts);
         for c in clips {
             self.scene.push_clip_layer(Fill::NonZero, a, &shape(c));
