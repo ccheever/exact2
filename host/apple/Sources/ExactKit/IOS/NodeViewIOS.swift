@@ -11,8 +11,9 @@ import ImageIO
 import UIKit
 
 final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollViewDelegate, UIGestureRecognizerDelegate {
-    /// The kernel's id; a parked view takes a new row's (`NodePool`).
+    /// The kernel's id; a parked view takes a new row's and a new incarnation (`NodePool`, LLP 1068 §4.9).
     var id: UInt32
+    var incarnation = NodePool.issue()
     let firstDraw: () -> Void
     let kind: String
     var inlineText: [InlineText] = []
@@ -166,7 +167,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
     @objc func doubleClicked(_ gesture: UITapGestureRecognizer) {
         guard gesture.state == .ended, !disabled else { return } // then after this touch's own press
-        DispatchQueue.main.async { [weak self] in if let self, !self.disabled, self.presenter?.views[self.id] === self { self.presenter?.dblclick(self.id) } }
+        DispatchQueue.main.async { [weak self, token = incarnation] in if let self, self.incarnation == token, !self.disabled, self.presenter?.views[self.id] === self { self.presenter?.dblclick(self.id) } }
     }
     var translate = CGPoint.zero
     var scale: CGFloat = 1
@@ -494,8 +495,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             addSubview(f)
             field = f
         }
-        if kind == "video" { video = VideoView(owner: self) }
-        embedPlatformView(presenter)
+        presenter.leaves.embed(self) // a video's player, an iframe's web view, a module's box (LLP 1068 §5.1)
     }
     required init?(coder: NSCoder) { nil }
 
@@ -566,10 +566,10 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     private func queueScrollEvent() {
         guard handlers.contains("scroll"), !scrollEventQueued else { return }
         scrollEventQueued = true
-        DispatchQueue.main.async { [weak self] in
+        DispatchQueue.main.async { [weak self, token = incarnation] in
             guard let self else { return }
             self.scrollEventQueued = false
-            self.sendScrollEvent()
+            if self.incarnation == token { self.sendScrollEvent() }
         }
     }
 
@@ -1110,7 +1110,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     @objc func pulledToRefresh() {
         presenter?.refresh(id)
         // An app that starts nothing leaves `refreshing` false: end promptly.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in self?.updateRefresh() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self, token = incarnation] in if self?.incarnation == token { self?.updateRefresh() } }
     }
 
     func needScroll() {
