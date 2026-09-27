@@ -636,7 +636,6 @@ function apply(batch) {
       case "storage": {
         const requestIncarnation=incarnation;
         const p=Promise.resolve().then(async()=>{
-          if(agentMode)throw new Error('storage is unavailable in agent mode');
           await moduleReady; if(!inputReady)throw new Error('data executor is unavailable');
           if(requestIncarnation!==incarnation)throw new Error('storage source unloaded');
           if(!storageRequests){

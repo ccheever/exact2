@@ -10,6 +10,8 @@ import vm from 'node:vm';
 import { render, sourceMapReader, identifyInspectedNode } from '../../scripts/agent.mjs';
 import { retainDevGeneration, readDevGeneration, readDevGenerationAsync } from './serve.mjs';
 import { focusController } from './navigation.js';
+import { storageKey } from './storage-environment.js';
+import { open } from '../../scripts/agent.mjs';
 
 const mapAt = (digest, line = 12) => ({digest, nodes: [{file: '/app/ui/bubble.contract', line, col: 3, end_col: 9, component: 'Bubble',
   chain: [{file: '/app/app.contract', line: 45, col: 5, end_col: 11, component: 'App'}],
@@ -871,4 +873,13 @@ test('a virtualized list takes logical selection but never windowed feedback', (
   expect(f.reports).toHaveLength(0);
   expect(f.lists.get(el).observer).toBeUndefined();
   expect(f.listeners.has('copy')).toBe(true);
+});
+
+test("a drive's storage is only a scratch store it names, apart from the app's own", async () => {
+  expect(storageKey('com.example.app', 'http://127.0.0.1:1/')).toBe('com.example.app');
+  expect(storageKey('com.example.app', 'http://127.0.0.1:1/?agent=1')).toBeNull();
+  expect(storageKey('com.example.app', 'http://127.0.0.1:1/?agent=1&storage=run-2.a')).toBe('com.example.app/agent/run-2.a');
+  expect(storageKey('com.example.app', 'http://127.0.0.1:1/?storage=x')).toBe('com.example.app'); // only a drive's is scratch
+  for (const name of ['', '.', '..', 'a/b', '%2e%2e']) expect(() => storageKey('com.example.app', `http://127.0.0.1:1/?agent=1&storage=${name}`)).toThrow('storage: one name');
+  for (const host of ['web', 'linux']) await expect(open({ host, storage: '../x' })).rejects.toThrow('--storage: one name');
 });

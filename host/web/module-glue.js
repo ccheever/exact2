@@ -2,6 +2,7 @@
 // LLP 1027.000 D3. Trusted app code, NOT a security sandbox. No page or
 // guest builtin is patched. Loaded only after the page's first pixel.
 import { createStorage } from './storage.js';
+import { storageKey } from './storage-environment.js';
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const realms = new Map();
 const turns = new Map();
@@ -230,7 +231,7 @@ async function prepareWorker(payload, admitted, id, before, meta) {
   worker.onmessageerror = () => fail('module worker message failed');
   const ready = new Promise((resolve, reject) => waiting.set(0, { resolve, reject }));
   worker.postMessage({ op: 'init', token: 0, prelude: before, script: decoder.decode(payload.script), admitted,
-    agent: new URL(location.href).searchParams.has('agent') });
+    storage: storageKey(admitted.appId, location.href) });
   try { await ready; } catch (error) { worker.terminate(); throw error; }
   const realm = { frame: null, meta, id, placement: 'worker',
     forget(inFlight) {

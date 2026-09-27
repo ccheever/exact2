@@ -44,7 +44,7 @@ function init(message) {
   for (const name of ['XMLHttpRequest', 'WebSocket', 'EventSource', 'setTimeout', 'setInterval', 'requestAnimationFrame']) {
     Object.defineProperty(self, name, { value: () => { throw new Error(`${name} is unavailable in data sources`); }, configurable: false });
   }
-  storage = createStorage(self, admitted, () => context.owner, message.agent);
+  storage = createStorage(self, admitted, () => context.owner, message.storage);
   evaluate(message.prelude);
   self.__exact_storage = storage.capability;
   self.__exact_install_storage();

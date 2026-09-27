@@ -204,7 +204,7 @@ export async function assertWebDistApp(dist, app) {
   if (!await builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, ".exact-build.json")}; run EXACT_APP_DIR=${shellQuote(app.dir)} EXACT_WEB_DIST=${shellQuote(resolve(dist))} bun host/web/build.mjs ${app.crate('web')}`);
 }
 
-async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webDist, onProcess, reuse }) {
+async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webDist, onProcess, reuse, storage }) {
   if (reuse) {
     try { await reuse.reset(); return reuse; }
     catch (error) { await reuse.close(); throw error; }
@@ -297,6 +297,7 @@ async function openWeb({ plan, world, size = [420, 900], url: pageURL, app, webD
     // named — the dev server, so a drive can watch an edit arrive.
     const page = pageURL ? new URL(pageURL) : new URL(`http://127.0.0.1:${port}/`);
     page.searchParams.set('agent', '1');
+    if (storage !== undefined) page.searchParams.set('storage', storage);
     await call('Page.navigate', { url: page.href });
     // The first frame: the glue stamps the root when it is in the DOM. A fresh profile's first launch can be slow.
     const t = Date.now();
@@ -915,11 +916,13 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
   // depends on. Replies say `mode: "platform"`.
   if (!['agent', 'platform'].includes(timing)) throw new Error(`timing: agent or platform, not ${timing}`);
   if (timing === 'platform') env = { ...(env ?? {}), EXACT_AGENT_TIMING: 'platform' };
-  // A drive has no app storage unless it names a scratch tree of its own, kept
-  // apart from the app's real files (`--storage <name>`).
+  // A drive has no app storage unless it names a scratch store of its own, kept
+  // apart from the app's real files (`--storage <name>`): a tree under the cache
+  // base on native, kept between drives; on the web, stores in the drive's own
+  // browser profile, which starts empty.
   if (storage !== undefined) {
-    if (host === 'web') throw new Error('--storage: native hosts only; a web drive has no storage yet');
-    env = { ...(env ?? {}), EXACT_AGENT_STORAGE: storage };
+    if (!/^[A-Za-z0-9._-]+$/.test(storage) || ['.', '..'].includes(storage)) throw new Error("--storage: one name of letters, digits, '.', '-' or '_'");
+    if (host !== 'web') env = { ...(env ?? {}), EXACT_AGENT_STORAGE: storage };
   }
   if (url !== undefined && ['macos', 'mac', 'ios', 'linux', 'host', 'host-ios'].includes(host)) {
     // @ref LLP 1038 D5/D11 — a native scheme/path is a launch location;
@@ -929,7 +932,7 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
       env = developmentLaunchEnvironment(['--run', '--url', url], env ?? {});
     } else env = { ...(env ?? {}), EXACT_LAUNCH_URL: url };
   }
-  const carrier = device ? await openStdio({ host: 'ios', plan, world, size, env, app, device, phone: pick, onProcess }) : host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, size, env, app, onProcess }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session, onProcess }) : host === 'host-ios' ? await openIOS({ plan, app, env, session, hostFixture: true, onProcess }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app, onProcess }) : host === 'ios' ? await openIOS({ plan, env, app, size, onProcess }) : await openWeb({ plan, world, size, url, app, webDist, onProcess, reuse });
+  const carrier = device ? await openStdio({ host: 'ios', plan, world, size, env, app, device, phone: pick, onProcess }) : host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, size, env, app, onProcess }) : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session, onProcess }) : host === 'host-ios' ? await openIOS({ plan, app, env, session, hostFixture: true, onProcess }) : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app, onProcess }) : host === 'ios' ? await openIOS({ plan, env, app, size, onProcess }) : await openWeb({ plan, world, size, url, app, webDist, onProcess, reuse, storage });
   const mapLocator = plan ?? (url && /^https?:\/\//i.test(url) ? url : env?.EXACT_DEV_PLAN ?? process.env.EXACT_DEV_PLAN)
     ?? (carrier.host === 'web' ? resolve(webDist ?? resolve(ROOT, 'host/web/dist'), 'app.plan') : null);
   const sourceMaps = sourceMapReader(mapLocator);
