@@ -1,0 +1,88 @@
+// Sparkline — the LLP 1055 fixture: a coin row with an inline SVG chart that
+// draws in when the row mounts and a ring that breathes at the last point,
+// written as a web developer writes it (`svg` + `polyline`, `pathLength=1`
+// with `stroke-dasharray`/`stroke-dashoffset`, CSS `@keyframes`). Chrome is
+// the oracle: the same Contract on the web is the reference picture.
+//
+// `Freeze` pins every animation (the draw-in done, the ring at a fixed phase
+// by a paused animation with a negative delay), so screenshots match across
+// hosts with no clock. `Tick` moves every third coin's series: those charts
+// redraw at once, with no draw-in replay, and their pulse moves with them.
+
+routes nav
+  tab home "/"
+
+shape Coin
+  id: string
+  name: string
+  ticker: string
+  letter: string
+  color: string
+  price: string
+  change: string
+  up: bool
+  points: string
+  lastX: number
+  lastY: number
+
+keyframes draw
+  from stroke-dashoffset=1
+  to stroke-dashoffset=0
+
+keyframes breathe
+  from r=3 opacity=0.5
+  to r=9 opacity=0
+
+// The same rule under a second name: switching to it starts a new animation
+// at local time zero, which the frozen phase needs (a re-timed `breathe`
+// would keep its running start).
+keyframes breatheStill
+  from r=3 opacity=0.5
+  to r=9 opacity=0
+
+component Sparkline
+  state frozen = false
+  state version = 0
+  resource coins = coins(version) as shape list<Coin>
+  action toggleFreeze writes frozen
+    frozen = not frozen
+  action tick writes version
+    version = version + 1
+  view
+    main testId="sparkline" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#000000" font-family="system-ui"
+      row flex-shrink=0 align-items="center" gap=8 padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 border-bottom-style="solid" border-bottom-width=1 border-color="#e5e7eb"
+        text "Markets" flex=1 font-size=17 font-weight=600
+        button press=tick testId="tick" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="#f3f4f6"
+          text "Tick" font-size=13
+        button press=toggleFreeze testId="freeze" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="#f3f4f6"
+          text (frozen ? "Run" : "Freeze") font-size=13
+      list id="rows" virtualized=true estimated-item-height=64 testId="rows" flex=1 min-height=0 width="100%" overflow-x="hidden"
+        each c in coins key=c.id
+          CoinRow(c=c, frozen=frozen)
+
+component CoinRow
+  props
+    c: Coin
+    frozen: bool
+  view
+    row testId=`row-${c.id}` width="100%" height=64 flex-shrink=0 box-sizing="border-box" padding-left=16 padding-right=16 gap=12 align-items="center" border-bottom-style="solid" border-bottom-width=1 border-color="#e5e7eb"
+      row width=32 height=32 flex-shrink=0 border-radius=16 background-color=c.color align-items="center" justify-content="center"
+        text c.letter font-size=15 font-weight=600 color="#ffffff"
+      column flex=1 min-width=0 gap=2
+        text c.name white-space="nowrap" font-size=16 font-weight=600
+        text c.ticker white-space="nowrap" font-size=13 color="#6b7280"
+      Chart(c=c, frozen=frozen)
+      column width=104 flex-shrink=0 align-items="flex-end" gap=4
+        text c.price white-space="nowrap" font-size=16 font-weight=600 font-variant-numeric="tabular-nums"
+        text c.change white-space="nowrap" padding-top=2 padding-bottom=2 padding-left=6 padding-right=6 border-radius=4 font-size=12 font-weight=600 color="#ffffff" background-color=(c.up ? "#16a34a" : "#dc2626")
+
+// 96 × 32; the ring reaches past the box, so the svg does not clip.
+component Chart
+  props
+    c: Coin
+    frozen: bool
+  view
+    svg testId=`chart-${c.id}` width=96 height=32 flex-shrink=0 viewBox="0 0 96 32" overflow="visible" color=(c.up ? "#16a34a" : "#dc2626")
+      polyline testId=`line-${c.id}` points=c.points fill="none" stroke="currentcolor" stroke-width=1.5 stroke-linejoin="round" stroke-linecap="round" pathLength=1 stroke-dasharray="1" animation=(frozen ? "none" : "draw 600ms ease-out both")
+      circle cx=c.lastX cy=c.lastY r=3 fill="currentcolor"
+      circle testId=`ring-${c.id}` cx=c.lastX cy=c.lastY r=3 fill="none" stroke="currentcolor" stroke-width=1.5 opacity=0 animation=(frozen ? "breatheStill 1200ms ease-out -300ms infinite paused" : "breathe 1200ms ease-out 600ms infinite")
