@@ -2,10 +2,11 @@
 //! and throws Chrome gave (LLP 1056 §4). The TypeScript recorder runs the
 //! same file through `cases.mjs`.
 
-use exact_canvas::{CanvasGradient, Context2d, DomMatrix, Radius, Style};
+use exact_canvas::{list, CanvasGradient, CanvasWindingRule, Context2d, DomMatrix, Radius, Style};
 
 #[derive(Debug, Clone)]
 enum V {
+    B(bool),
     N(f64),
     S(String),
     L(Vec<V>),
@@ -45,6 +46,11 @@ fn parse_value(s: &str) -> (V, &str) {
             }
         }
         return (V::P(x, y), &rest[end + 1..]);
+    }
+    for (word, v) in [("true", V::B(true)), ("false", V::B(false))] {
+        if let Some(rest) = s.strip_prefix(word) {
+            return (v, rest);
+        }
     }
     if let Some(rest) = s.strip_prefix('g') {
         return (V::G, rest);
@@ -122,6 +128,14 @@ fn call(ctx: &Context2d, g: &mut Option<CanvasGradient>, line: &str) -> R {
     let (name, a) = line.split_once('(').unwrap();
     let a = args(a.strip_suffix(')').unwrap());
     let f = |i: usize| n(&a[i]);
+    let b = |i: usize| matches!(&a[i], V::B(true));
+    let rule = |v: &V| {
+        if s(v) == "evenodd" {
+            CanvasWindingRule::Evenodd
+        } else {
+            CanvasWindingRule::Nonzero
+        }
+    };
     match name {
         "g.addColorStop" => g.as_ref().unwrap().add_color_stop_f64(f(0), s(&a[1]))?,
         "save" => ctx.save(),
@@ -137,9 +151,31 @@ fn call(ctx: &Context2d, g: &mut Option<CanvasGradient>, line: &str) -> R {
             let V::L(items) = &a[0] else { panic!() };
             ctx.set_line_dash(&items.iter().map(n).collect::<Vec<_>>())?
         }
+        "arc" if a.len() == 6 => ctx.arc_with_anticlockwise(f(0), f(1), f(2), f(3), f(4), b(5))?,
         "arc" => ctx.arc(f(0), f(1), f(2), f(3), f(4))?,
+        "ellipse" if a.len() == 8 => {
+            ctx.ellipse_with_anticlockwise(f(0), f(1), f(2), f(3), f(4), f(5), f(6), b(7))?
+        }
         "ellipse" => ctx.ellipse(f(0), f(1), f(2), f(3), f(4), f(5), f(6))?,
+        "beginPath" => ctx.begin_path(),
+        "moveTo" => ctx.move_to(f(0), f(1)),
+        "lineTo" => ctx.line_to(f(0), f(1)),
+        "quadraticCurveTo" => ctx.quadratic_curve_to(f(0), f(1), f(2), f(3)),
+        "bezierCurveTo" => ctx.bezier_curve_to(f(0), f(1), f(2), f(3), f(4), f(5)),
+        "closePath" => ctx.close_path(),
+        "rect" => ctx.rect(f(0), f(1), f(2), f(3)),
+        "fill" if a.is_empty() => ctx.fill(),
+        "fill" => ctx.fill_with_canvas_winding_rule(rule(&a[0])),
+        "stroke" => ctx.stroke(),
+        "clip" if a.is_empty() => ctx.clip(),
+        "clip" => ctx.clip_with_canvas_winding_rule(rule(&a[0])),
+        "fillRect" => ctx.fill_rect(f(0), f(1), f(2), f(3)),
+        "strokeRect" => ctx.stroke_rect(f(0), f(1), f(2), f(3)),
+        "clearRect" => ctx.clear_rect(f(0), f(1), f(2), f(3)),
         "arcTo" => ctx.arc_to(f(0), f(1), f(2), f(3), f(4))?,
+        "roundRect" if matches!(a[4], V::N(_)) => {
+            ctx.round_rect_with_f64(f(0), f(1), f(2), f(3), f(4))?
+        }
         "roundRect" => {
             let V::L(items) = &a[4] else { panic!() };
             let radii: Vec<Radius> = items
@@ -189,6 +225,102 @@ fn query(ctx: &Context2d, q: &str) -> String {
         }
         other => panic!("query {other}"),
     }
+}
+
+/// Every case's lists from the Rust recorder, by case name.
+fn rust_lists(text: &str) -> Vec<(String, Vec<Vec<u8>>)> {
+    let mut out: Vec<(String, Vec<Vec<u8>>)> = Vec::new();
+    let mut ctx = Context2d::new();
+    let mut g = None;
+    for raw in text.lines().chain(std::iter::once("## end")) {
+        let line = raw.trim();
+        if let Some(n) = line.strip_prefix("## ") {
+            if let Some(last) = out.last_mut() {
+                last.1 = ctx.take_lists();
+            }
+            out.push((n.to_string(), Vec::new()));
+            ctx = Context2d::new();
+            g = None;
+            continue;
+        }
+        if line.is_empty() || line.starts_with('#') || line.starts_with("? ") {
+            continue;
+        }
+        let stmt = line.rsplit_once(" ! ").map_or(line, |(c, _)| c.trim());
+        let _ = call(&ctx, &mut g, stmt);
+    }
+    out.pop();
+    out
+}
+
+/// The TypeScript recorder's lists for the same cases (`bun cases.mjs
+/// --lists`) equal the Rust recorder's: the same records, operands equal to
+/// 1e-9 (the two languages' `sin`/`cos` may differ in the last bit).
+#[test]
+fn the_typescript_recorder_writes_the_rust_recorders_lists() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+    let out = std::process::Command::new(std::env::var("BUN").unwrap_or_else(|_| "bun".into()))
+        .arg(dir.join("cases.mjs"))
+        .arg("--lists")
+        .output()
+        .expect("bun runs the TypeScript recorder (the repo pins it)");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let js = String::from_utf8(out.stdout).unwrap();
+    let mut failures = Vec::new();
+    for (name, lists) in rust_lists(include_str!("cases.txt")) {
+        let key = format!("{:?}:", name);
+        let Some(at) = js.find(&key) else {
+            failures.push(format!("{name}: missing from the TypeScript run"));
+            continue;
+        };
+        let rest = &js[at + key.len()..];
+        let array = &rest[..rest.find(']').unwrap() + 1];
+        let hexes: Vec<&str> = array
+            .trim_matches(|c| c == '[' || c == ']')
+            .split(',')
+            .filter(|s| !s.is_empty())
+            .map(|s| s.trim_matches('"'))
+            .collect();
+        if hexes.len() != lists.len() {
+            failures.push(format!(
+                "{name}: {} lists in TypeScript, {} in Rust",
+                hexes.len(),
+                lists.len()
+            ));
+            continue;
+        }
+        for (hex, rust) in hexes.iter().zip(&lists) {
+            let bytes: Vec<u8> = (0..hex.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+                .collect();
+            let (a, b) = (list::records(&bytes).unwrap(), list::records(rust).unwrap());
+            if a.len() != b.len() {
+                failures.push(format!(
+                    "{name}: {} records in TypeScript, {} in Rust",
+                    a.len(),
+                    b.len()
+                ));
+                continue;
+            }
+            for (i, (x, y)) in a.iter().zip(&b).enumerate() {
+                let close = x.op == y.op
+                    && x.len() == y.len()
+                    && x.operands()
+                        .zip(y.operands())
+                        .all(|(p, q)| (p - q).abs() <= 1e-9 * (1.0 + q.abs()));
+                if !close {
+                    failures.push(format!("{name}: record {i}: TypeScript {x:?}, Rust {y:?}"));
+                    break;
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 #[test]

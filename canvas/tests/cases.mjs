@@ -47,6 +47,19 @@ export function runCases(make, cases = parseCases()) {
   return cases.map((c) => ({ name: c.name, fail: (0, eval)(caseSource(c))(make()) }));
 }
 
+// `--lists`: every case against the TypeScript recorder, its list bytes as
+// hex by case name (what canvas/tests/cases.rs compares with Rust's).
+if (process.argv.includes('--lists')) {
+  const { Recorder } = await import('../recorder.js');
+  const out = {};
+  for (const c of parseCases()) {
+    const rec = new Recorder();
+    (0, eval)(caseSource(c))(rec);
+    out[c.name] = rec._.take().map((l) => Buffer.from(l).toString('hex'));
+  }
+  console.log(JSON.stringify(out));
+}
+
 if (process.argv.includes('--chrome')) {
   const cases = parseCases();
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-canvas-cases-'));

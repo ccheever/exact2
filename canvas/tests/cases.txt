@@ -121,3 +121,40 @@ g.addColorStop(NaN, "red") ! TypeError
 g.addColorStop(0, "red")
 fillStyle = g
 ? fillStyle => [object CanvasGradient]
+
+## geometry resolves the same in both languages
+translate(5, 7)
+rotate(0.3)
+scale(2, 1.5)
+beginPath()
+moveTo(1, 2)
+lineTo(30, 4)
+quadraticCurveTo(10, 20, 3, 9)
+bezierCurveTo(1, 2, 3, 4, 5, 6)
+arc(20, 20, 10, 0.5, 5.5, true)
+arc(20, 20, 10, -1, 1)
+ellipse(40, 10, 12, 4, 0.7, 0, 3, false)
+arcTo(60, 10, 60, 40, 8)
+arcTo(60, 40, 60, 80, 8)
+closePath()
+rect(2, 3, 10, -4)
+roundRect(10, 10, -30, 20, [4, {x: 6, y: 2}, 8])
+roundRect(0, 0, 10, 10, 50)
+fill("evenodd")
+stroke()
+clip()
+fillRect(1, 1, 2, 2)
+strokeRect(0, 0, 5, 0)
+clearRect(0, 0, 4, 4)
+setTransform(0, 0, 0, 1, 0, 0)
+lineTo(9, 9)
+fill()
+resetTransform()
+setLineDash([1, 2, 3])
+lineDashOffset = 1
+g = createRadialGradient(5, 5, 1, 9, 9, 6)
+g.addColorStop(0.25, "hsl(30 80% 50%)")
+g.addColorStop(0.25, "#0f08")
+strokeStyle = g
+globalCompositeOperation = "copy"
+globalCompositeOperation = "xor"
