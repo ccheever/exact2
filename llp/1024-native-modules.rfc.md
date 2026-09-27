@@ -603,9 +603,17 @@ leaves its key out, JSON escaping of `"`, `\` and C0 only.
   that is a function of state”. The photo editor is that consumer: its
   Rotate 90° and Reset controls are state the module must see. A leftover
   may be any string, number or bool expression, or an option of one; the
-  aggregate is still one object, replaced whole.
-- **Deviation — the roster is declared in `app.json`**, `"modules": ["tag",
-  …]`, the shape GPU modules took in LLP 1009 D6, rather than emitted by the
+  aggregate is still one object, replaced whole. Two guardrails come with it
+  (Charlie, 2026-09-27; not yet enforced, see QUEUE):
+  - **Props are not an animation channel.** A prop that changes every frame
+    is a defect. Continuous motion lives inside the module; props carry
+    state that changes at interaction boundaries (the photo editor's turn
+    count and reset counter, a map's pins).
+  - **One update has a size budget.** An aggregate over it is refused with a
+    named module status, the way rejected props already are. Per-key diffs
+    wait for a module whose updates measurably need them.
+- **Deviation — the roster is declared in `app.json`** (kept, Charlie,
+  2026-09-27), `"modules": ["tag", …]`, the shape GPU modules took in LLP 1009 D6, rather than emitted by the
   module crate’s build. The compiler reads it where it reads the app’s
   directory (`contract/cli/src/native.rs`, on every compile of an app path:
   the dev loop and every host’s `build.rs`), so `bake-unknown-module` names

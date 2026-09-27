@@ -748,3 +748,5 @@ and the Linux headless CPU renderer without claiming display frame timing.
   [footnote indexing cost](issues/20260924-markdown-footnote-index-quadratic.md),
   [kept-answer Unicode panic](issues/20260924-kept-answer-unicode-panic.md), and
   [render clock initialization](issues/20260924-render-clock-zero.md).
+
+- LLP 1024 §9 guardrails (Charlie, 2026-09-27): enforce the prop update size budget (a named refusal status) and flag per-frame prop churn in the journal. Neither is enforced yet.
