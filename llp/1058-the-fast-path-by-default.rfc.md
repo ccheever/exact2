@@ -1,11 +1,11 @@
-# LLP 1056: The fast path by default
+# LLP 1058: The fast path by default
 
 **Type:** RFC (analysis and plan)
 **Status:** Draft
 **Systems:** The data seam as authors meet it: Contract (roster, edge handlers, `contract build`'s report), runner (the agent's `state`), authoring notes; the Bluesky port and RealWorld as the demonstrations
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-09-26
-**Related:** LLP 1054 (the Bluesky field report) and its children 1054.000.000 (declared refreshes), .003 (dates, numbers and durations in the roster), .004 (narrower refreshes: withdrawn in favor of this plan's P5), .005 (`trim`), .006 (arguments on list edges); LLP 1027 (TypeScript sources), 1027.003 (value transfer, measured), 1027.004 (bounded answers); LLP 1047 (pay for what you use); LLP 1012 (agent API); reviews `llp/reviews/1054.000.003-004.*`, `llp/reviews/1056-*`
+**Related:** LLP 1054 (the Bluesky field report) and its children 1054.000.000 (declared refreshes), .003 (dates, numbers and durations in the roster), .004 (narrower refreshes: withdrawn in favor of this plan's P5), .005 (`trim`), .006 (arguments on list edges); LLP 1027 (TypeScript sources), 1027.003 (value transfer, measured), 1027.004 (bounded answers); LLP 1047 (pay for what you use); LLP 1012 (agent API); reviews `llp/reviews/1054.000.003-004.*`, `llp/reviews/1058-*`
 
 ## Summary
 

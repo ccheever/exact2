@@ -1,4 +1,4 @@
-# Panel: LLP 1056 with 1054.000.003 r2, .004 (withdrawn), .005, .006, 2026-09-26 (astra)
+# Panel: LLP 1058 (numbered 1056 when reviewed) with 1054.000.003 r2, .004 (withdrawn), .005, .006, 2026-09-26 (astra)
 
 - **Family:** OpenAI, GPT-6 Astra at maximum reasoning effort, through the Codex CLI: `codex exec -m gpt-6-astra -c model_reasoning_effort=max -s read-only -o <out> "<brief>" < /dev/null`, from the working tree at `5a303070`.
 - **Brief:** the shared panel brief (see the grok artifact's header).
