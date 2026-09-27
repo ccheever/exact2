@@ -1138,5 +1138,58 @@ final class TextMetricsTests: XCTestCase {
         engine.accepted(late)
         XCTAssertTrue(engine.paragraph(spec("late"), width: 180) === late)
     }
+
+    /// Past two screens of shaped text a measured paragraph leaves only its
+    /// answer and lines: measured again it is not typeset, a worker gets its
+    /// breaks, paint breaks there, and rest lets the lines go.
+    func testShapedTextBeyondTwoScreensLeavesAnswersThatNeedNoTypesetting() {
+        let engine = TextEngine(resolve: { _ in nil })
+        engine.fitShaped(visibleParagraphs: 1)
+        func measure(_ text: String) -> ExactMetrics {
+            let bytes = Array(text.utf8)
+            return bytes.withUnsafeBufferPointer { bytes in
+                var run = ExactTextRun()
+                run.text = bytes.baseAddress; run.len = bytes.count
+                run.font_size = 15; run.font_weight = 500
+                var strut = run; strut.text = nil; strut.len = 0
+                return withUnsafePointer(to: &run) { run in
+                    var request = ExactMeasureRequest()
+                    request.runs = run; request.count = 1; request.strut = strut
+                    request.width = 60; request.height = -1
+                    return engine.measure(request)
+                }
+            }
+        }
+        func spec(_ text: String) -> Spec {
+            Spec(runs: [Run(text: text, size: 15, weight: 500, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)],
+                 align: 0, lineClamp: 0, color: [0, 0, 0, 255], strut: Run(text: "", size: 15, weight: 500, family: 0,
+                 italic: false, lineHeight: nil, letterSpacing: 0))
+        }
+        let label = { (i: Int) in "Coin number \(i) wraps" }
+        var first: [ExactMetrics] = []
+        for i in 0..<1000 { first.append(measure(label(i))) }
+        let stats = engine.residencyStats
+        XCTAssertLessThanOrEqual(stats.coldEntries - stats.scalarEntries, TextResidency.minShaped)
+        XCTAssertGreaterThan(stats.scalarEntries, 700, "evicted paragraphs leave answers")
+        let hits = engine.measureHits, typeset = engine.residencyStats.coldEntries - engine.residencyStats.scalarEntries
+        for i in 0..<300 {
+            let again = measure(label(i))
+            XCTAssertEqual(again.width, first[i].width); XCTAssertEqual(again.height, first[i].height)
+            XCTAssertEqual(again.baseline, first[i].baseline)
+        }
+        XCTAssertEqual(engine.measureHits - hits, 300, "an answer measures without typesetting")
+        XCTAssertEqual(engine.residencyStats.coldEntries - engine.residencyStats.scalarEntries, typeset)
+        let lines = engine.measuredBreaks(spec(label(3)), width: 60)
+        let painted = TextEngine(resolve: { _ in nil }).paragraph(spec(label(3)), width: 60)
+        XCTAssertGreaterThan(painted.lines.count, 1)
+        XCTAssertEqual(lines?.0.map(\.location), painted.lines.map { CTLineGetStringRange($0).location })
+        XCTAssertEqual(lines?.0.map(\.length), painted.lines.map { CTLineGetStringRange($0).length })
+        XCTAssertEqual(lines?.1, painted.baselines)
+        let repainted = engine.paragraph(spec(label(3)), width: 60)
+        XCTAssertEqual(repainted.baselines, painted.baselines)
+        XCTAssertEqual(Float(repainted.height), first[3].height)
+        engine.dropColdShaped()
+        XCTAssertNil(engine.measuredBreaks(spec(label(5)), width: 60), "rest lets kept lines go")
+    }
 }
 #endif

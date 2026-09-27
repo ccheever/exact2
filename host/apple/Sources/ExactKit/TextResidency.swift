@@ -226,8 +226,14 @@ private final class TextScalar {
     let identity: TextIdentity
     let metrics: ExactMetrics
     let minimum: CGFloat?
-    init(_ identity: TextIdentity, _ metrics: ExactMetrics, minimum: CGFloat? = nil) {
-        self.identity = identity; self.metrics = metrics; self.minimum = minimum
+    /// What is left of a measured paragraph whose shaped form went (its
+    /// `CTTypesetter` and `CTLine`s, a few kilobytes): where its lines break
+    /// and their baselines. A worker rasters from these and paint lays its
+    /// lines there, so the paragraph coming back is not typeset again.
+    let lines: (ranges: [CFRange], baselines: [CGFloat])?
+    init(_ identity: TextIdentity, _ metrics: ExactMetrics, minimum: CGFloat? = nil,
+         lines: (ranges: [CFRange], baselines: [CGFloat])? = nil) {
+        self.identity = identity; self.metrics = metrics; self.minimum = minimum; self.lines = lines
     }
 }
 
@@ -289,9 +295,25 @@ struct TextResidencyStats {
 /// Cold entries and weak lookup metadata have separate count caps. Forgetting a
 /// lookup never releases a view/checkpoint-owned Paragraph; it may cost a later
 /// remeasurement. Dead weak metadata cannot grow with historical row count.
+///
+/// Cold values are two lists. Shaped text (sources and paragraphs) is what a
+/// measurement leaves: a list's travel leaves thousands, a few kilobytes each,
+/// and what reuses them is a paragraph measured again. So they are held to
+/// `shapedLimit`, which the host scales to the paragraphs a screen shows
+/// (`fitShaped`), the most recently measured first: those in the direction
+/// of travel and the screens just passed. A paragraph that goes leaves its
+/// answer (a few hundred bytes: metrics, line breaks, baselines) on the other
+/// list, so a list that comes back is measured and rastered without being
+/// typeset again. Answers are held to `maxColdEntries` with everything else.
 struct TextResidency {
     static let defaultSoftTargetBytes = 64 * 1024 * 1024
     static let maxColdEntries = 4096
+    /// Two screens of shaped text behind the travel: a paragraph measured
+    /// leaves a source and a paragraph (`fitShaped`).
+    static let shapedPerParagraph = 4
+    /// Below this the entries within one layout pass (a paragraph offered
+    /// several widths) would evict each other.
+    static let minShaped = 256
     static let maxLookupEntries = 8192
     static let maxIdentities = 4096
     // A measurement crosses several indexes. Sweep only when admitting a new
@@ -333,13 +355,20 @@ struct TextResidency {
         let opaque: Int
     }
     private var entries: [TextEntryKey: Int32] = [:]
-    private struct Links { var previous: Int32 = -1, next: Int32 = -1, colder: Int32 = -1, warmer: Int32 = -1 }
+    /// `colder`/`warmer` link an entry into its cold list (shaped or answers);
+    /// `stamp` orders the two lists' entries against each other.
+    private struct Links { var previous: Int32 = -1, next: Int32 = -1, colder: Int32 = -1, warmer: Int32 = -1, stamp: UInt64 = 0 }
     private var slab: [Entry?] = []
     private var links: [Links] = []
     private var vacant: [Int32] = []
     private var first: Int32 = -1, last: Int32 = -1, sweepEntry: Int32 = -1
+    /// The shaped list, coldest first; the answers list.
     private var coldFirst: Int32 = -1, coldLast: Int32 = -1
-    private var coldCount = 0
+    private var answerFirst: Int32 = -1, answerLast: Int32 = -1
+    private var coldCount = 0, shapedCount = 0
+    private var clock: UInt64 = 0
+    /// At most this many cold shaped values (`fitShaped`).
+    private(set) var shapedLimit = Self.maxColdEntries
     // Retirement visits layouts only; saved scalar answers need no width retirement.
     private var coldLayouts: [TextIdentityToken: Set<TextEntryKey>] = [:]
     private var geometryIndex: [TextGeometryKey: Set<TextEntryKey>] = [:]
@@ -478,9 +507,17 @@ struct TextResidency {
         put(.scalar(identity.token, kind), .scalar(TextScalar(identity, metrics)))
     }
     private mutating func put(_ key: TextEntryKey, _ value: TextValue) {
+        insert(key, value)
+        trim(incoming: 0, keeping: key)
+        capLookups()
+    }
+    private mutating func capLookups() {
+        while entries.count > Self.maxLookupEntries, first >= 0 { removeEntry(at: first) }
+    }
+    private mutating func insert(_ key: TextEntryKey, _ value: TextValue) {
         removeEntry(key)
         let i: Int32
-        let entry = Entry(key: key, value: value), link = Links(previous: last, colder: coldLast)
+        let entry = Entry(key: key, value: value), link = Links(previous: last)
         if let reused = vacant.popLast() {
             i = reused; slab[Int(i)] = entry; links[Int(i)] = link
         } else {
@@ -489,15 +526,29 @@ struct TextResidency {
         entries[key] = i
         if last >= 0 { links[Int(last)].next = i } else { first = i }
         last = i
-        if coldLast >= 0 { links[Int(coldLast)].warmer = i } else { coldFirst = i }
-        coldLast = i; coldCount += 1
-        if value.shape != nil { coldLayouts[value.identity.token, default: []].insert(key) }
+        linkCold(i, shaped: value.shape != nil)
+        coldCount += 1
+        if value.shape != nil {
+            shapedCount += 1
+            coldLayouts[value.identity.token, default: []].insert(key)
+        }
         if case .paragraph(let p) = key {
             geometryIndex[TextGeometryKey(token: p.shape.token, widthBits: p.widthBits), default: []].insert(key)
         }
         charge(value, adding: true)
-        trim(incoming: 0, keeping: key)
-        while entries.count > Self.maxLookupEntries, first >= 0 { removeEntry(at: first) }
+    }
+    /// Hold cold shaped text to what `visibleParagraphs` paragraphs on a
+    /// screen need: two screens' worth, never fewer than `minShaped`.
+    mutating func fitShaped(visibleParagraphs: Int) {
+        shapedLimit = min(Self.maxColdEntries, max(Self.minShaped, visibleParagraphs * Self.shapedPerParagraph))
+        trim(incoming: 0, keeping: nil)
+    }
+    /// A paragraph's answer at its width, with the lines it broke into, if
+    /// its shaped form has gone. Measuring and rastering it need no more.
+    mutating func answerLines(_ identity: TextIdentity, width: CGFloat) -> ([CFRange], [CGFloat])? {
+        let kind = TextScalarKind.definite(Double(width == 0 ? 0 : width).bitPattern)
+        guard case .scalar(let s) = get(.scalar(identity.token, kind)), let lines = s.lines else { return nil }
+        return (lines.ranges, lines.baselines)
     }
     /// Lazy walker storage becomes part of the resident shape's existing charge.
     mutating func refresh(_ shape: TextShape) {
@@ -527,17 +578,19 @@ struct TextResidency {
     /// Memory pressure: every cold value goes; views keep what they show.
     mutating func dropCold() {
         while coldFirst >= 0 { removeCold(at: coldFirst) }
+        while answerFirst >= 0 { removeCold(at: answerFirst) }
         compact()
     }
-    /// At rest: cold shaped text goes; cold measurements (a few bytes each,
-    /// what a row coming back needs first) stay.
+    /// At rest: cold shaped text goes, and the lines kept of shaped text that
+    /// went before; cold measurements (a few bytes each, what a row coming
+    /// back needs first) stay.
     mutating func dropColdShaped() {
-        var i = coldFirst
+        while coldFirst >= 0 { removeCold(at: coldFirst) }
+        var i = answerFirst
         while i >= 0 {
             let current = i
             i = links[Int(i)].warmer
-            if case .scalar? = slab[Int(current)]?.cold { continue }
-            removeCold(at: current)
+            if case .scalar(let s)? = slab[Int(current)]?.cold, s.lines != nil { removeCold(at: current) }
         }
         compact()
     }
@@ -560,11 +613,30 @@ struct TextResidency {
         let allowance = max(0, softTargetBytes - min(softTargetBytes, incoming))
         // O(1) when no eviction is needed; O(evictions) under pressure. One
         // current oversize value is preserved, as before, and stats expose it.
-        while ownedBudget + opaqueBudget > allowance || coldCount > Self.maxColdEntries {
-            guard coldFirst >= 0, slab[Int(coldFirst)]?.key != keeping else { break }
+        while ownedBudget + opaqueBudget > allowance || coldCount > Self.maxColdEntries || shapedCount > shapedLimit {
+            // Past the shaped limit the coldest shaped value goes and leaves
+            // its answer; past the others the coldest value of either list.
+            let shaped = shapedCount > shapedLimit
+            let i = shaped || answerFirst < 0 ? coldFirst
+                : coldFirst < 0 ? answerFirst
+                : links[Int(coldFirst)].stamp < links[Int(answerFirst)].stamp ? coldFirst : answerFirst
+            guard i >= 0, slab[Int(i)]?.key != keeping else { break }
             maintenanceVisits &+= 1
-            removeCold(at: coldFirst)
+            if shaped { evict(at: i) } else { removeCold(at: i) }
         }
+        capLookups()
+    }
+    /// A cold paragraph at a width leaves its answer; anything else just goes.
+    private mutating func evict(at i: Int32) {
+        guard case .paragraph(let p)? = slab[Int(i)]?.cold, let key = p.residencyKey, let shape = p.shape,
+              Double(bitPattern: key.widthBits).isFinite else { removeCold(at: i); return }
+        removeCold(at: i)
+        let answer = TextEntryKey.scalar(shape.identity.token, .definite(key.widthBits))
+        guard entries[answer] == nil else { return }
+        let lines = shape.spec.lineClamp == 0 && p.origins.isEmpty
+            ? (p.lines.map { CTLineGetStringRange($0) }, p.baselines) : nil
+        let metrics = ExactMetrics(width: Float(p.width), height: Float(p.height), baseline: Float(p.firstBaseline))
+        insert(answer, .scalar(TextScalar(shape.identity, metrics, lines: lines)))
     }
     private mutating func touch(_ i: Int32) {
         guard i != last else { return }
@@ -575,25 +647,39 @@ struct TextResidency {
         if last >= 0 { links[Int(last)].next = i }
         last = i
     }
-    private mutating func touchCold(_ i: Int32) {
-        guard i != coldLast else { return }
+    private func isShaped(_ i: Int32) -> Bool {
+        if case .scalar? = slab[Int(i)]?.cold { return false }
+        return true
+    }
+    /// Append `i` at the warm end of its cold list.
+    private mutating func linkCold(_ i: Int32, shaped: Bool) {
+        clock &+= 1
+        let tail = shaped ? coldLast : answerLast
+        links[Int(i)].colder = tail; links[Int(i)].warmer = -1; links[Int(i)].stamp = clock
+        if tail >= 0 { links[Int(tail)].warmer = i } else if shaped { coldFirst = i } else { answerFirst = i }
+        if shaped { coldLast = i } else { answerLast = i }
+    }
+    private mutating func unlinkCold(_ i: Int32, shaped: Bool) {
         let e = links[Int(i)]
-        if e.colder >= 0 { links[Int(e.colder)].warmer = e.warmer } else { coldFirst = e.warmer }
-        if e.warmer >= 0 { links[Int(e.warmer)].colder = e.colder }
-        links[Int(i)].colder = coldLast; links[Int(i)].warmer = -1
-        if coldLast >= 0 { links[Int(coldLast)].warmer = i }
-        coldLast = i
+        if e.colder >= 0 { links[Int(e.colder)].warmer = e.warmer } else if shaped { coldFirst = e.warmer } else { answerFirst = e.warmer }
+        if e.warmer >= 0 { links[Int(e.warmer)].colder = e.colder } else if shaped { coldLast = e.colder } else { answerLast = e.colder }
+        links[Int(i)].colder = -1; links[Int(i)].warmer = -1
+    }
+    private mutating func touchCold(_ i: Int32) {
+        let shaped = isShaped(i)
+        guard i != (shaped ? coldLast : answerLast) else { return }
+        unlinkCold(i, shaped: shaped)
+        linkCold(i, shaped: shaped)
     }
     private mutating func removeCold(_ key: TextEntryKey) {
         if let i = entries[key] { removeCold(at: i) }
     }
     private mutating func removeCold(at i: Int32) {
         guard let value = slab[Int(i)]?.cold, let key = slab[Int(i)]?.key else { return }
-        let e = links[Int(i)]
-        if e.colder >= 0 { links[Int(e.colder)].warmer = e.warmer } else { coldFirst = e.warmer }
-        if e.warmer >= 0 { links[Int(e.warmer)].colder = e.colder } else { coldLast = e.colder }
-        slab[Int(i)]?.cold = nil; links[Int(i)].colder = -1; links[Int(i)].warmer = -1
+        unlinkCold(i, shaped: value.shape != nil)
+        slab[Int(i)]?.cold = nil
         if value.shape != nil {
+            shapedCount -= 1
             coldLayouts[value.identity.token]?.remove(key)
             if coldLayouts[value.identity.token]?.isEmpty == true { coldLayouts.removeValue(forKey: value.identity.token) }
         }

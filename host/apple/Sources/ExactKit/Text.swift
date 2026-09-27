@@ -391,6 +391,9 @@ final class TextEngine {
     func dropCold() { residency.dropCold() }
     /// At rest (`ExactSession.rest`): shaped text no view holds goes.
     func dropColdShaped() { residency.dropColdShaped() }
+    /// A screen shows about `visibleParagraphs` paragraphs: cold shaped
+    /// text is held to two screens of them (`TextResidency.fitShaped`).
+    func fitShaped(visibleParagraphs: Int) { residency.fitShaped(visibleParagraphs: visibleParagraphs) }
     private var catalog: [Int: [RegisteredFace]] = [:]
     /// Where a declared face's relative source resolves: the app's resolver
     /// (LLP 1031 D1 — the committed complete generation, else the root).
@@ -651,7 +654,7 @@ final class TextEngine {
         guard spec.lineClamp == 0 else { return nil }
         let identity = residency.identity(spec)
         if let kept = measuredBreakCache[MeasuredBreakKey(token: identity.token, width: width)] { return kept }
-        guard let measured = residency.geometry(identity, width: width) else { return nil }
+        guard let measured = residency.geometry(identity, width: width) else { return residency.answerLines(identity, width: width) }
         return (measured.lines.map { CTLineGetStringRange($0) }, measured.baselines)
     }
 
@@ -705,7 +708,8 @@ final class TextEngine {
         residency.retireWidths(key)
         let shape = shape(key.shape, identity: identity)
         residency.prepare(estimatedBytes: identity.utf16Count * 64)
-        let ranges = spec.lineClamp == 0 ? measuredBreakCache[MeasuredBreakKey(token: identity.token, width: width)]?.0 : nil
+        let ranges = spec.lineClamp == 0
+            ? measuredBreakCache[MeasuredBreakKey(token: identity.token, width: width)]?.0 ?? residency.answerLines(identity, width: width)?.0 : nil
         let p = layout(shape, width: width, breaks: breaks, ranges: ranges)
         shape.lastParagraph = p
         if width.isFinite { residency.put(p) }
