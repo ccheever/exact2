@@ -596,7 +596,8 @@ struct TextResidency {
     }
     /// At rest or under pressure: the lookup metadata of values no one owns
     /// any more goes too (a fling leaves thousands of entries, each with its
-    /// key's arrays). Their slots and buckets stay for the next admissions.
+    /// key's arrays), and the tables a fling grew give back what is left
+    /// empty: a later fling grows them again, a doubling at a time.
     private mutating func compact() {
         var i = first
         while i >= 0 {
@@ -605,6 +606,39 @@ struct TextResidency {
             if slab[Int(current)]?.dead == true { removeEntry(at: current) }
         }
         for (token, e) in identityEntries where e.weak.value == nil { removeIdentity(token) }
+        if slab.count > 2 * max(entries.count, Self.minShaped) { renumber() }
+        Self.shrink(&identityEntries); Self.shrink(&identities); Self.shrink(&geometryIndex)
+        Self.shrink(&coldLayouts); Self.shrink(&coldSources); Self.shrink(&coldShapes)
+    }
+    private static func shrink<K, V>(_ table: inout [K: V]) {
+        guard table.capacity > 2 * max(table.count, minShaped) else { return }
+        var smaller = [K: V](minimumCapacity: table.count)
+        for (k, v) in table { smaller[k] = v }
+        table = smaller
+    }
+    /// The live entries renumbered from zero in recency order: the slab,
+    /// its links and the key table sized to them. Every link, list end and
+    /// the sweep keep pointing at the same entries.
+    private mutating func renumber() {
+        var index = [Int32](repeating: -1, count: slab.count)
+        var packed: [Entry?] = [], packedLinks: [Links] = []
+        packed.reserveCapacity(entries.count); packedLinks.reserveCapacity(entries.count)
+        var i = first
+        while i >= 0 {
+            index[Int(i)] = Int32(packed.count)
+            packed.append(slab[Int(i)]); packedLinks.append(links[Int(i)])
+            i = links[Int(i)].next
+        }
+        func at(_ old: Int32) -> Int32 { old >= 0 ? index[Int(old)] : -1 }
+        for j in packedLinks.indices {
+            let l = packedLinks[j]
+            packedLinks[j] = Links(previous: at(l.previous), next: at(l.next), colder: at(l.colder), warmer: at(l.warmer), stamp: l.stamp)
+        }
+        first = at(first); last = at(last); sweepEntry = at(sweepEntry)
+        coldFirst = at(coldFirst); coldLast = at(coldLast); answerFirst = at(answerFirst); answerLast = at(answerLast)
+        var keys = [TextEntryKey: Int32](minimumCapacity: packed.count)
+        for (j, entry) in packed.enumerated() { if let entry { keys[entry.key] = Int32(j) } }
+        entries = keys; slab = packed; links = packedLinks; vacant = []
     }
     mutating func prepare(estimatedBytes: Int) {
         trim(incoming: estimatedBytes, keeping: nil)
