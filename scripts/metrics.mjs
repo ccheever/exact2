@@ -8,6 +8,7 @@
  *   bun scripts/metrics.mjs            table
  *   bun scripts/metrics.mjs --json     one JSON object
  *   bun scripts/metrics.mjs --app <name> measure that resolved app
+ *   bun scripts/metrics.mjs --flow     Stage 2 still/serial-propagation layouts, no browser
  *   bun scripts/metrics.mjs --scaling  runner workloads (300/3000/10000 rows), no browser
  *   bun scripts/metrics.mjs --list-memory  fresh-process eager/windowed heap/RSS comparison (25/1000/25000)
  *   bun scripts/metrics.mjs --list-memory --collections --repeats 3 --json
@@ -92,7 +93,7 @@ const appName = process.argv.includes('--app') ? process.argv[process.argv.index
 const app = resolveApp(appName);
 // The child uses the captured scripts and inputs; only this invocation's
 // resolved root bypasses capture. Foreign inherited markers cannot do so.
-if (!process.argv.includes('--scaling') && !process.argv.includes('--list-memory') && process.env.EXACT_DIAGNOSTIC_ROOT !== ROOT) {
+if (!process.argv.includes('--flow') && !process.argv.includes('--scaling') && !process.argv.includes('--list-memory') && process.env.EXACT_DIAGNOSTIC_ROOT !== ROOT) {
   const code = await withAppFixture(app, async ({ exactRoot, env }) => {
     // The captured source excludes node_modules. Resolve the pinned toolchain
     // inside this private checkout, rather than borrowing the live workspace.
@@ -265,6 +266,28 @@ if (process.argv.includes('--scaling')) {
     console.log(`Caltrain fixed synthetic runner scaling — ${JSON.stringify(out.identity)}`);
     for (const r of out.scaling) console.log(`  ${r.rows} rows / ${r.action}: runner ${r.runner_update_ms.p50}/${r.runner_update_ms.p95} ms p50/p95; layout ${r.layout_ms.p50}; web+runner ${r.web_runner_and_batch_ms.p50}; requests ${r.source_requests.p50}; touched ${r.touched.p50}`);
     console.log(out.scaling_note);
+  }
+  process.exit(0);
+}
+// Fixed kernel workload, independent of the selected app. The focused mode
+// uses this worktree; the ordinary run uses the captured source above.
+const flowRun = spawnSync('cargo', ['run', '-q', '--release', '-p', 'caltrain-web', '--bin', 'metrics', '--', '--flow'],
+  { cwd: ROOT, encoding: 'utf8', env: { ...developmentBuildEnv(), EXACT_APP_DIR: resolve(ROOT, 'apps/caltrain') } });
+if (flowRun.status !== 0) { console.error(flowRun.error?.message ?? flowRun.stderr); process.exit(flowRun.status ?? 1); }
+Object.assign(out, JSON.parse(flowRun.stdout.trim().split('\n').pop()));
+out.flow_note = 'Native release kernel + MonospaceMeasurer, no host paint or platform font shaping. Fixed block page: 400px wide; 8 or 32 auto-height paragraphs (192px each without flow), same number of absolute full-width 192px inset(0) exclusions at y=384*i. This adversarial arrangement forces one relayout per leaf; the conservative bound is leaves + exclusions + 2, not a claim that the fixture exhausts it or bounds arbitrary page size/text/shape complexity. Cold means fresh tree/cache (construction excluded); moved shifts the first shape down 19.2px (commit excluded). Still reuses settled geometry; plain_still disables wrap-flow on the same boxes. Each median has 21 samples after one discarded warmup; still samples average 100 layouts. Raw elapsed ms, extra-layout passes, whole target-set comparisons and text measurement calls are retained. One comparison is a sweep over targets, not constant work. Timings include complete compute_layout and publication, exclude fixture setup/builds, and may include contention from other processes.';
+const flowRows = () => out.flow.map(r => [
+  `flow: ${r.leaves} leaves / ${r.phase}`,
+  `${(r.p50_ms * 1000).toFixed(2)} µs`,
+  `p50; ${r.exclusions} shapes; extra passes ${Math.min(...r.passes)}..${Math.max(...r.passes)} / bound ${r.bound}; comparisons ${Math.min(...r.comparisons)}..${Math.max(...r.comparisons)}; measures ${Math.min(...r.measurements)}..${Math.max(...r.measurements)}`,
+]);
+if (process.argv.includes('--flow')) {
+  out.identity.binary_sha256 = sha256(readFileSync(resolve(process.env.CARGO_TARGET_DIR ?? resolve(ROOT, 'target'), 'release/metrics')));
+  if (json) console.log(JSON.stringify(out));
+  else {
+    console.log(`Stage 2 flow metrics — ${JSON.stringify(out.identity)}`);
+    for (const [label, time, note] of flowRows()) console.log(`  ${label}: ${time}; ${note}`);
+    console.log(out.flow_note);
   }
   process.exit(0);
 }
@@ -838,6 +861,7 @@ const rows = [
   ['decode + validate the plan', ms(out.decode_ms), ''],
   ['runner boot → first frame', ms(out.boot_ms), Number.isFinite(out.nodes) ? `${out.nodes} nodes, ${out.text_nodes} text` : ''],
   ['layout 390×844 (Taffy)', ms(out.layout_ms), ''],
+  ...flowRows(),
   ['update: screen swap (press)', ms(out.update_ms), `budget ${budget('Dev restart')}`],
   ['update: inherited row on the root', ms(out.inherit_ms), Number.isFinite(out.inherit_touched) ? `${out.inherit_touched} nodes re-derived (text-color; LLP 1035.000 D2)` : ''],
   ['tick: advance 1 s', ms(out.tick_ms), ''],

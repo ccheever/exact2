@@ -374,6 +374,8 @@ impl RegionState {
                 updated,
                 flow_changed,
                 flow_skipped,
+                flow_passes: 0,
+                flow_comparisons: 0,
             },
             origin,
             selection,

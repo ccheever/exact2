@@ -91,6 +91,10 @@ fn view_of(k: &Kernel, test_id: &str) -> u32 {
 }
 
 fn main() {
+    if std::env::args().any(|arg| arg == "--flow") {
+        flow_metrics();
+        return;
+    }
     // A native tool that boots the whole plan links every capability (LLP 1047 D7).
     exact_web::link(exact_web_capabilities::ALL);
     if let Some(index) = std::env::args().position(|arg| arg == "--collection-memory") {
@@ -1033,4 +1037,179 @@ component Item
     samples.clear();
     collection_phase(None, &identity, "runner_dropped", &samples, "");
     MEASURE_HEAP.store(false, Relaxed);
+}
+
+// LLP 1043.000 §8: force serial propagation, one extra layout per paragraph.
+// A 400px-wide paragraph is 192px tall without exclusions. Full-width 192px
+// bars alternate with 192px gaps, so every settled paragraph doubles in height.
+const FLOW_PROSE: &str = "There is an hour when the garden belongs to neither day nor night. \
+The visitors have gone, but the birds have not yet settled. Every leaf holds a different \
+green, and the paths remember the weight of the afternoon. I used to think a garden was \
+a collection of things. Now I think it is mostly a collection of spaces: the pause \
+between two branches, the warmth beside a wall.";
+
+struct FlowMeasure {
+    calls: Rc<Cell<usize>>,
+    inner: exact_kernel::MonospaceMeasurer,
+}
+impl exact_kernel::TextMeasurer for FlowMeasure {
+    fn measure(
+        &mut self,
+        request: &exact_kernel::TextMeasureRequest<'_>,
+    ) -> exact_kernel::TextMetrics {
+        self.calls.set(self.calls.get() + 1);
+        self.inner.measure(request)
+    }
+}
+fn flow_patch(
+    id: u32,
+    rows: &[(exact_kernel::StyleId, exact_kernel::StyleValue)],
+) -> exact_kernel::Op {
+    let mut patch = exact_kernel::StyleProps::default();
+    for (row, value) in rows {
+        patch.set_dynamic(*row, value).unwrap();
+    }
+    exact_kernel::Op::SetStyle {
+        id,
+        patch: Box::new(patch),
+    }
+}
+fn flow_page(leaves: u32, wrap: bool, calls: Rc<Cell<usize>>) -> Kernel {
+    use exact_kernel::{NodeType, Op, PropValue, StyleId as S, StyleValue as V};
+    let mut ops = vec![
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        },
+        flow_patch(1, &[(S::Width, V::Number(400.))]),
+    ];
+    let mut children = Vec::new();
+    for i in 0..leaves {
+        let shape = 2 + i * 2;
+        let leaf = shape + 1;
+        ops.extend([
+            Op::CreateView {
+                id: shape,
+                node_type: NodeType::View,
+            },
+            flow_patch(
+                shape,
+                &[
+                    (S::PositionType, V::Text("absolute".into())),
+                    (
+                        S::WrapFlow,
+                        V::Text(if wrap { "both" } else { "auto" }.into()),
+                    ),
+                    (S::ShapeOutside, V::Text("inset(0)".into())),
+                    (S::Left, V::Number(0.)),
+                    (S::Top, V::Number(i as f64 * 384.)),
+                    (S::Width, V::Number(400.)),
+                    (S::Height, V::Number(192.)),
+                ],
+            ),
+            Op::CreateView {
+                id: leaf,
+                node_type: NodeType::Text,
+            },
+            Op::SetProp {
+                id: leaf,
+                prop: PropId::Text,
+                value: PropValue::Str(FLOW_PROSE.into()),
+            },
+        ]);
+        children.extend([shape, leaf]);
+    }
+    ops.extend([
+        Op::SetChildren { id: 1, children },
+        Op::AttachRoot { id: 1 },
+    ]);
+    let mut kernel = Kernel::new(Box::new(FlowMeasure {
+        calls,
+        inner: exact_kernel::MonospaceMeasurer::default(),
+    }));
+    kernel.apply(0, 0, &ops).unwrap();
+    kernel
+}
+fn flow_layout(kernel: &mut Kernel) -> exact_kernel::LayoutReceipt {
+    kernel
+        .compute_layout(1, Offer::definite(800., 2000.))
+        .unwrap()
+}
+fn flow_metrics() {
+    use exact_kernel::{StyleId, StyleValue};
+    let mut rows = Vec::new();
+    for leaves in [8, 32] {
+        for phase in ["cold", "still", "moved", "plain_still"] {
+            let calls = Rc::new(Cell::new(0));
+            let mut samples = Vec::new();
+            let mut pass_counts = Vec::new();
+            let mut comparison_counts = Vec::new();
+            let mut measurements = Vec::new();
+            // The first sample warms code/allocator pages and is discarded.
+            for sample in 0..22 {
+                let mut kernel = flow_page(leaves, phase != "plain_still", calls.clone());
+                if phase != "cold" {
+                    flow_layout(&mut kernel);
+                }
+                if phase == "moved" {
+                    kernel
+                        .apply(
+                            0,
+                            0,
+                            &[flow_patch(2, &[(StyleId::Top, StyleValue::Number(19.2))])],
+                        )
+                        .unwrap();
+                }
+                calls.set(0);
+                let iterations = if phase.ends_with("still") { 100 } else { 1 };
+                let ((passes, comparisons), elapsed) = time(|| {
+                    let mut counts = (0, 0);
+                    for _ in 0..iterations {
+                        let receipt = flow_layout(&mut kernel);
+                        assert!(receipt.flow_skipped.is_empty());
+                        counts.0 += receipt.flow_passes;
+                        counts.1 += receipt.flow_comparisons;
+                    }
+                    counts
+                });
+                if phase == "cold" {
+                    assert_eq!(passes, leaves as usize);
+                    assert_eq!(comparisons, leaves as usize + 1);
+                    for i in 0..leaves {
+                        let node = kernel.node(3 + i * 2).unwrap();
+                        assert_eq!(node.frame.height, 384.);
+                        assert!(!node.flow_shapes().is_empty());
+                        assert_eq!(node.flow_refusal(), None);
+                    }
+                } else if phase.ends_with("still") {
+                    assert_eq!(passes, 0);
+                    assert_eq!(comparisons, if phase == "still" { iterations } else { 0 });
+                    assert_eq!(calls.get(), 0);
+                }
+                assert!(passes <= iterations * (leaves as usize * 2 + 2));
+                if sample > 0 {
+                    samples.push(elapsed / iterations as f64);
+                    pass_counts.push(passes / iterations);
+                    comparison_counts.push(comparisons / iterations);
+                    measurements.push(calls.get() / iterations);
+                }
+            }
+            let raw = samples
+                .iter()
+                .map(|x| format!("{x:.9}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            rows.push(format!(
+                "{{\"leaves\":{leaves},\"exclusions\":{},\"phase\":\"{phase}\",\"bound\":{},\"p50_ms\":{:.9},\"raw_ms\":[{raw}],\"passes\":{pass_counts:?},\"comparisons\":{comparison_counts:?},\"measurements\":{measurements:?}}}",
+                if phase == "plain_still" { 0 } else { leaves },
+                if phase == "plain_still" { 0 } else { leaves * 2 + 2 }, p50(samples),
+            ));
+        }
+    }
+    println!("{{\"flow\":[{}]}}", rows.join(","));
+}
+
+#[test]
+fn flow_metrics_exercises_serial_settlement_and_cached_layout() {
+    flow_metrics();
 }

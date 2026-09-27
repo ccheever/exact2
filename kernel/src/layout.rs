@@ -48,6 +48,11 @@ pub struct LayoutReceipt {
     /// Intersecting auto-height paragraphs that auto-height flow refused, in
     /// preorder; each names its `FlowRefusal` (LLP 1043.000 §8).
     pub flow_skipped: Vec<NodeKey>,
+    /// Additional Taffy layouts performed by auto-height flow settlement.
+    pub flow_passes: usize,
+    /// Whole target-set comparisons, including the final comparison.
+    /// Zero when settlement is skipped (no exclusions or a content region).
+    pub flow_comparisons: usize,
 }
 
 fn to_available(offer: AxisOffer) -> AvailableSpace {
@@ -1024,7 +1029,8 @@ impl LayoutTree {
     /// @ref LLP 1043.000 §8 — measure admitted auto-height leaves around the
     /// shapes their settled frames resolve to. Each pass re-lays out only
     /// leaves whose shapes changed (Taffy's caches keep the rest), so a still
-    /// layout costs one comparison and a moving shape one extra pass. Under
+    /// layout costs one comparison sweep; changes can propagate through later
+    /// leaves. Under
     /// the admission rule a leaf's shapes depend only on content before it,
     /// so pass k fixes the k-th admitted leaf in document order: the loop ends
     /// within one pass per leaf (plus one per shape a leaf grows into), and
@@ -1038,10 +1044,10 @@ impl LayoutTree {
         offer: Offer,
         arena: &NodeArena,
         measurer: &mut dyn TextMeasurer,
-    ) -> Result<(), LayoutError> {
+    ) -> Result<(usize, usize), LayoutError> {
         self.unsettled.clear();
         if arena.exclusion_slots.is_empty() && self.flowing.is_empty() {
-            return Ok(());
+            return Ok((0, 0));
         }
         let exclusions = crate::flow::visible_exclusions(arena, root_slot);
         let contexts = crate::flow::contexts(arena, &exclusions);
@@ -1083,13 +1089,13 @@ impl LayoutTree {
                     .filter(|s| !targets.contains_key(s) && under_root(*s)),
             );
             if changed.is_empty() {
-                return Ok(());
+                return Ok((passes, passes + 1));
             }
             bound = bound.max(targets.len() + exclusions.len() + 2);
             if passes == bound {
                 debug_assert!(false, "wrap-flow did not settle in {passes} passes");
                 self.unsettled.extend(changed);
-                return Ok(());
+                return Ok((passes, passes + 1));
             }
             for slot in changed {
                 let shapes = targets.remove(&slot).unwrap_or_default();
@@ -1159,8 +1165,12 @@ pub fn compute(
         .taffy(root_slot)
         .ok_or_else(|| LayoutError::Engine("root has no engine node".into()))?;
     tree.compute(root, offer, arena, measurer)?;
-    tree.settle_flow(root, root_slot, offer, arena, measurer)?;
-    Ok(publication::publish(arena, tree, root_slot))
+    let (flow_passes, flow_comparisons) =
+        tree.settle_flow(root, root_slot, offer, arena, measurer)?;
+    let mut receipt = publication::publish(arena, tree, root_slot);
+    receipt.flow_passes = flow_passes;
+    receipt.flow_comparisons = flow_comparisons;
+    Ok(receipt)
 }
 
 #[cfg(test)]

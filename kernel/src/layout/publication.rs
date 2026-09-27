@@ -136,5 +136,7 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
         updated,
         flow_changed,
         flow_skipped,
+        flow_passes: 0,
+        flow_comparisons: 0,
     }
 }

@@ -295,9 +295,12 @@ fn a_still_layout_measures_nothing_and_a_moved_shape_measures_only_its_context()
     let count = Rc::new(Cell::new(0));
     let mut k = Kernel::new(Box::new(Count(count.clone())));
     k.apply(0, 0, &article(0.)).unwrap();
-    layout(&mut k);
+    let first = layout(&mut k);
+    assert!(first.flow_passes > 0);
     count.set(0);
-    layout(&mut k);
+    let still = layout(&mut k);
+    assert_eq!(still.flow_passes, 0);
+    assert_eq!(still.flow_comparisons, 1);
     assert_eq!(count.get(), 0);
     k.apply(0, 0, &[patch(2, &[(StyleId::Left, n(30.))])])
         .unwrap();
@@ -561,4 +564,51 @@ fn seeded_articles_settle_to_the_fresh_fixed_point() {
     // A generator that never reaches an exclusion proves nothing.
     assert!(flowed > 300, "{flowed} flowed leaf layouts");
     println!("seeded articles: 120 seeds x 5 rounds, {flowed} flowed leaf layouts equal to fresh");
+}
+
+#[test]
+fn full_width_exclusions_force_one_relayout_per_flowed_leaf() {
+    for leaves in [8, 32] {
+        let mut ops = vec![
+            create(1, NodeType::View),
+            patch(1, &[(StyleId::Width, n(400.))]),
+        ];
+        let mut ids = Vec::new();
+        for i in 0..leaves {
+            let shape = 2 + i * 2;
+            let leaf = shape + 1;
+            ops.extend([
+                create(shape, NodeType::View),
+                exclusion(shape, 0., i as f64 * 384., 400., 192.),
+                patch(shape, &[(StyleId::ShapeMargin, n(0.))]),
+                create(leaf, NodeType::Text),
+                text(leaf, PROSE),
+            ]);
+            ids.extend([shape, leaf]);
+        }
+        ops.extend([children(1, &ids), Op::AttachRoot { id: 1 }]);
+        let mut k = Kernel::with_monospace();
+        k.apply(0, 0, &ops).unwrap();
+        let first = layout(&mut k);
+        // Each ordinary paragraph is 192px. Bars alternate with those gaps;
+        // growth propagates to one more paragraph on every settlement pass.
+        assert_eq!(first.flow_passes, leaves as usize);
+        assert_eq!(first.flow_comparisons, leaves as usize + 1);
+        assert_eq!(first.flow_changed.len(), leaves as usize);
+        assert!(first.flow_skipped.is_empty());
+        for i in 0..leaves {
+            assert_eq!(frame(&k, 3 + i * 2).height, painted(&k, 3 + i * 2).1);
+        }
+        let still = layout(&mut k);
+        assert_eq!((still.flow_passes, still.flow_comparisons), (0, 1));
+        assert!(still.changed.is_empty());
+        assert!(still.flow_changed.is_empty());
+        let disabled: Vec<_> = (0..leaves)
+            .map(|i| patch(2 + i * 2, &[(StyleId::WrapFlow, t("auto"))]))
+            .collect();
+        k.apply(0, 0, &disabled).unwrap();
+        assert_eq!(layout(&mut k).flow_passes, 1);
+        let plain = layout(&mut k);
+        assert_eq!((plain.flow_passes, plain.flow_comparisons), (0, 0));
+    }
 }
