@@ -1,0 +1,13 @@
+# Canvas 2D (LLP 1056): the recorder, the list format, the canvas colour
+# parser and f64 path geometry. A leaf: nothing above it, no dependencies.
+[package]
+name = "exact-canvas"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Canvas 2D: the recorder, the list format, colours and path geometry (LLP 1056)"
+publish = false
+
+[lib]
+name = "exact_canvas"
+crate-type = ["rlib"]

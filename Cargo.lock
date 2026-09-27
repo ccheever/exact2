@@ -732,6 +732,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-canvas"
+version = "0.1.0"
+
+[[package]]
 name = "exact-data"
 version = "0.1.0"
 dependencies = [
