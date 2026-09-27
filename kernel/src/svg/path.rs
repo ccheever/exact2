@@ -246,7 +246,7 @@ fn parse(d: &str) -> (Path, Vec<usize>, bool) {
             }
             _ => break,
         }
-        assert!(lx.i > start, "a path command must consume input");
+        debug_assert!(lx.i > start, "a path command must consume input");
         last_ctrl = ctrl;
         cmd = Some(c);
         ends.push(out.len());
