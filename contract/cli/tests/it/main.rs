@@ -39,6 +39,7 @@ mod source_locations;
 mod source_map;
 mod styles;
 mod surface;
+mod svg;
 mod symbols;
 mod tests_decl;
 mod time;

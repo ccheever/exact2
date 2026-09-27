@@ -26,6 +26,7 @@ mod fonts;
 mod media;
 mod routes;
 mod sites;
+mod svg;
 pub mod tags;
 mod values;
 pub use sites::{Declared, NodeSite, Origin, Sites};
@@ -62,6 +63,7 @@ impl std::fmt::Display for LowerError {
 
 fn unknown_tag(tag: &str, span: Span) -> LowerError {
     let hint = tags::html_tag(tag)
+        .or_else(|| svg::refused_tag(tag))
         .map(|spelled| format!("; {spelled}"))
         .or_else(|| tags::similar_tag(tag).map(|n| format!("; did you mean `{n}`?")))
         .unwrap_or_default();
@@ -208,6 +210,8 @@ pub(crate) struct Lowerer<'a> {
     pub actions: Vec<exact_plan::ActionsId>,
     /// The file's `style` declarations, by name (LLP 1017 P6).
     pub styles: BTreeMap<String, Vec<Attr>>,
+    /// The `keyframes` declarations, by name, with what each animates (LLP 1055 D5).
+    pub keyframes: BTreeMap<String, Vec<exact_motion::Property>>,
     /// The file's `fn` declarations, by name, expanded inline at each call
     /// (LLP 1017 P5), each with its body's repeated calls bound once.
     pub fns: BTreeMap<&'a str, (&'a FnDecl, &'a Expr)>,
@@ -314,6 +318,7 @@ fn lower_with_sites(
         mutation_slots: Vec::new(),
         actions: Vec::new(),
         styles: BTreeMap::new(),
+        keyframes: BTreeMap::new(),
         fns: file
             .fns
             .iter()
@@ -363,6 +368,8 @@ fn lower_with_sites(
             });
         }
     }
+    let refused = l.declare_keyframes(file);
+    l.errors.extend(refused);
     // Shapes first, in declaration order, so type ids are stable.
     for s in &file.shapes {
         l.ty_id(&Ty::Record(s.name.clone()))?;
@@ -737,6 +744,9 @@ impl<'a> Lowerer<'a> {
                         }
                     }
                 }
+                let composed = self.compose_animation(expanded)?;
+                let expanded = composed.as_deref().unwrap_or(expanded);
+                self.check_svg(tag, parent_tag, expanded, *span)?;
                 tags::validate_list(tag, expanded, children, *span)?;
                 self.check_collection(tag, expanded, children, *span)?;
                 let has =

@@ -160,6 +160,31 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: Some(PropId::ImageSource),
         },
+        // @ref LLP 1055 D1/D3 — inline SVG: a 300×150 replaced box that
+        // clips, as the UA's `svg:not(:root) { overflow: hidden }` does.
+        "svg" => Tag {
+            node_type: NodeType::Svg,
+            fixed_styles: &[
+                (StyleId::OverflowX, "hidden"),
+                (StyleId::OverflowY, "hidden"),
+            ],
+            fixed_props: &[],
+            positional: None,
+        },
+        "g" | "path" | "polyline" | "polygon" | "circle" | "line" | "rect" => Tag {
+            node_type: match name {
+                "g" => NodeType::SvgGroup,
+                "path" => NodeType::SvgPath,
+                "polyline" => NodeType::SvgPolyline,
+                "polygon" => NodeType::SvgPolygon,
+                "circle" => NodeType::SvgCircle,
+                "line" => NodeType::SvgLine,
+                _ => NodeType::SvgRect,
+            },
+            fixed_styles: &[],
+            fixed_props: &[],
+            positional: None,
+        },
         // @ref LLP 1048.003 D1 — the document's metadata: no space, no children.
         "head" => Tag {
             node_type: NodeType::Head,
@@ -373,6 +398,46 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-selected" => AttrTarget::Prop(p("accessibilitySelected")),
         "aria-expanded" => AttrTarget::Prop(p("accessibilityExpanded")),
         "aria-hidden" => AttrTarget::Prop(p("accessibilityElementsHidden")),
+        // SVG 2 attributes CSS cannot set (LLP 1055 D1/D2), by their SVG names.
+        "viewBox" => AttrTarget::Prop(p("viewBox")),
+        "preserveAspectRatio" => AttrTarget::Prop(p("preserveAspectRatio")),
+        "points" => AttrTarget::Prop(p("points")),
+        "d" => AttrTarget::Prop(p("d")),
+        "pathLength" => AttrTarget::Prop(p("pathLength")),
+        "x" => AttrTarget::Prop(p("x")),
+        "y" => AttrTarget::Prop(p("y")),
+        "x1" => AttrTarget::Prop(p("x1")),
+        "y1" => AttrTarget::Prop(p("y1")),
+        "x2" => AttrTarget::Prop(p("x2")),
+        "y2" => AttrTarget::Prop(p("y2")),
+        "rx" => AttrTarget::Prop(p("rx")),
+        "ry" => AttrTarget::Prop(p("ry")),
+        // SVG 2 presentation and geometry properties: CSS rows (LLP 1055 D2).
+        "fill" => styles(&[StyleId::Fill]),
+        "stroke" => styles(&[StyleId::Stroke]),
+        "stroke-width" => styles(&[StyleId::StrokeWidth]),
+        "stroke-linecap" => styles(&[StyleId::StrokeLinecap]),
+        "stroke-linejoin" => styles(&[StyleId::StrokeLinejoin]),
+        "stroke-miterlimit" => styles(&[StyleId::StrokeMiterlimit]),
+        "stroke-dasharray" => styles(&[StyleId::StrokeDasharray]),
+        "stroke-dashoffset" => styles(&[StyleId::StrokeDashoffset]),
+        "fill-opacity" => styles(&[StyleId::FillOpacity]),
+        "stroke-opacity" => styles(&[StyleId::StrokeOpacity]),
+        "fill-rule" => styles(&[StyleId::FillRule]),
+        "cx" => styles(&[StyleId::Cx]),
+        "cy" => styles(&[StyleId::Cy]),
+        "r" => styles(&[StyleId::R]),
+        // CSS Animations (LLP 1055 D5): the shorthand is the row; the
+        // longhands compose into it before lowering (`svg::compose_animation`).
+        "animation"
+        | "animation-name"
+        | "animation-duration"
+        | "animation-timing-function"
+        | "animation-delay"
+        | "animation-iteration-count"
+        | "animation-direction"
+        | "animation-fill-mode"
+        | "animation-play-state" => styles(&[StyleId::Animation]),
         // style rows, by their CSS property names
         "white-space" => styles(&[StyleId::WhiteSpace]),
         "overflow-wrap" => styles(&[StyleId::OverflowWrap]),

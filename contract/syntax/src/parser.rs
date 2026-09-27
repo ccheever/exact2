@@ -9,6 +9,7 @@ use crate::lexer::{template_expr_end, LexError, Lexer, Token, TokenKind};
 use crate::Span;
 
 mod expr;
+mod keyframes;
 #[path = "routes.rs"]
 mod routes;
 mod steps;
@@ -368,6 +369,13 @@ impl Parser {
                 }
                 TokenKind::Ident(w) if w == "shape" => file.shapes.push(self.shape()?),
                 TokenKind::Ident(w) if w == "style" => file.styles.push(self.style()?),
+                TokenKind::Ident(w) if w == "keyframes" => {
+                    let decl = self.keyframes_decl()?;
+                    if let Some(first) = file.keyframes.iter().find(|k| k.name == decl.name) {
+                        return duplicate("keyframes", &decl.name, decl.span, first.span);
+                    }
+                    file.keyframes.push(decl);
+                }
                 TokenKind::Ident(w) if w == "fn" => file.fns.push(self.fn_decl()?),
                 TokenKind::Ident(w) if w == "test" => file.tests.push(self.test_decl()?),
                 TokenKind::Ident(w) if w == "component" => {
@@ -386,7 +394,7 @@ impl Parser {
                     return self.err(
                         "syntax-expected-declaration",
                         format!(
-                        "expected `routes`, `font`, `shape`, `style`, `fn`, `use`, or `component`, found {}",
+                        "expected `routes`, `font`, `shape`, `style`, `keyframes`, `fn`, `use`, or `component`, found {}",
                         describe(other)
                     ),
                     )

@@ -206,6 +206,12 @@ impl Loader<'_> {
             fonts: declarations!(fonts),
             shapes: declarations!(shapes),
             styles: declarations!(styles),
+            // CSS `@keyframes` are global by name: every loaded file's.
+            keyframes: self
+                .files
+                .iter_mut()
+                .flat_map(|file| std::mem::take(&mut file.keyframes))
+                .collect(),
             fns: declarations!(fns),
             components: declarations!(components),
         }

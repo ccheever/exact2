@@ -95,3 +95,32 @@ pub fn set_style(
         .map_err(BridgeError::Style)?;
     Ok(style)
 }
+
+/// The plan's `@keyframes` by name, parsed once per plan (LLP 1055 D5).
+#[derive(Debug, Default)]
+pub struct KeyframesTable(Vec<(String, exact_motion::Keyframes)>);
+
+/// Parse the plan's `keyframes` table. The compiler validated every row; one
+/// that no longer parses (a plan from another evaluator) names nothing.
+pub fn keyframes(plan: &exact_plan::Plan) -> KeyframesTable {
+    KeyframesTable(
+        plan.keyframes
+            .iter()
+            .filter_map(|row| {
+                let rule = exact_motion::Keyframes::parse(plan.str(row.css)).ok()?;
+                Some((plan.str(row.name).to_string(), rule))
+            })
+            .collect(),
+    )
+}
+
+impl KeyframesTable {
+    /// Give an `animation` row its keyframes; a name no rule has starts no
+    /// animation, as in CSS, and is returned as a journal line.
+    pub fn resolve(&self, row: &mut exact_motion::Animations) -> Vec<String> {
+        row.resolve(|name| self.0.iter().find(|(n, _)| n == name).map(|(_, k)| k))
+            .into_iter()
+            .map(|name| format!("animation-name `{name}` matches no keyframes: no animation"))
+            .collect()
+    }
+}

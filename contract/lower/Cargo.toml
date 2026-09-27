@@ -18,3 +18,5 @@ contract-syntax = { path = "../syntax" }
 contract-types = { path = "../types" }
 exact-kernel = { path = "../../kernel" }
 exact-plan = { path = "../../plan" }
+exact-motion = { path = "../../motion" }
+exact-num = { path = "../../num" }

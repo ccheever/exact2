@@ -1,0 +1,376 @@
+//! Inline SVG and CSS animations in Contract (LLP 1055).
+//!
+//! @ref LLP 1055 D1 (the subset and where each attribute belongs), D3 (the
+//! content model), D5 (`keyframes` and the `animation` longhands), D12 (what
+//! is refused, by name)
+//!
+//! `keyframes Name` lowers to one plan row of CSS text; `animation` and its
+//! longhands lower to one `animation` row per node, composed here; an SVG
+//! element may sit only in an `svg` or `g`, takes only what applies to it,
+//! and handles no events (its `svg` is the one hit and accessibility box).
+
+use crate::{err, tags, LowerError, Lowerer};
+use contract_syntax::{Attr, Expr, File, Span, TemplatePart};
+use exact_motion::animation::LONGHANDS;
+use exact_motion::{Animation, Animations, Keyframes, Property};
+
+/// The SVG element tags inside an `svg`.
+pub(crate) fn is_element(tag: &str) -> bool {
+    matches!(
+        tag,
+        "g" | "path" | "polyline" | "polygon" | "circle" | "line" | "rect"
+    )
+}
+
+/// The elements an SVG-specific attribute belongs to.
+fn owners(attr: &str) -> Option<&'static [&'static str]> {
+    Some(match attr {
+        "viewBox" | "preserveAspectRatio" => &["svg"],
+        "points" => &["polyline", "polygon"],
+        "d" => &["path"],
+        "pathLength" => &["path", "polyline", "polygon", "circle", "line", "rect"],
+        "x" | "y" | "rx" | "ry" => &["rect"],
+        "x1" | "y1" | "x2" | "y2" => &["line"],
+        "cx" | "cy" | "r" => &["circle"],
+        _ => return None,
+    })
+}
+
+/// What an SVG element takes besides its own geometry: paint, opacity,
+/// motion, identity.
+fn shared(attr: &str) -> bool {
+    matches!(
+        attr,
+        "fill"
+            | "stroke"
+            | "stroke-width"
+            | "stroke-linecap"
+            | "stroke-linejoin"
+            | "stroke-miterlimit"
+            | "stroke-dasharray"
+            | "stroke-dashoffset"
+            | "fill-opacity"
+            | "stroke-opacity"
+            | "fill-rule"
+            | "opacity"
+            | "color"
+            | "animation"
+            | "transition"
+            | "testId"
+            | "id"
+    )
+}
+
+/// A named refusal for an SVG tag outside the subset (LLP 1055 D12).
+pub(crate) fn refused_tag(tag: &str) -> Option<&'static str> {
+    Some(match tag {
+        "ellipse" => "`ellipse` is not in exact2's SVG subset yet (LLP 1055 D1); a `path` with two arcs draws one",
+        "text" | "tspan" | "textPath" => "text inside `svg` is refused (LLP 1055 D12); put a `text` beside the `svg`",
+        "use" | "symbol" | "defs" | "clipPath" | "mask" | "pattern" | "marker"
+        | "linearGradient" | "radialGradient" | "filter" | "foreignObject" | "image" => {
+            "paint servers, references, masks, filters and embedded content are refused in SVG (LLP 1055 D12)"
+        }
+        "animate" | "animateTransform" | "animateMotion" | "set" => {
+            "SMIL is refused (LLP 1055 D12): declare `keyframes` and set `animation`"
+        }
+        _ => return None,
+    })
+}
+
+impl Lowerer<'_> {
+    /// Every `keyframes` declaration to a plan row of CSS text, validated by
+    /// the evaluator that will sample it.
+    pub(crate) fn declare_keyframes(&mut self, file: &File) -> Vec<LowerError> {
+        let mut errors = Vec::new();
+        for decl in &file.keyframes {
+            if self.keyframes.contains_key(&decl.name) {
+                errors.push(LowerError {
+                    id: "lower-keyframes-duplicate",
+                    message: format!("`keyframes {}` is declared twice", decl.name),
+                    span: decl.span,
+                });
+                continue;
+            }
+            let mut css = String::new();
+            let mut ok = true;
+            for frame in &decl.frames {
+                let selectors: Vec<String> = frame
+                    .selectors
+                    .iter()
+                    .map(|s| format!("{}%", exact_num::Shortest(*s)))
+                    .collect();
+                css.push_str(&selectors.join(","));
+                css.push('{');
+                for a in &frame.attrs {
+                    let known = a.name == "animation-timing-function"
+                        || Property::from_name(&a.name).is_some_and(|p| p != Property::Height);
+                    if !known {
+                        ok = false;
+                        errors.push(LowerError {
+                            id: "lower-keyframe-property",
+                            message: format!(
+                                "`{}` cannot animate: keyframes take opacity, translate, scale, rotate, stroke-dashoffset, r and animation-timing-function (LLP 1055 D6)",
+                                a.name
+                            ),
+                            span: a.span,
+                        });
+                        continue;
+                    }
+                    let value = match &a.value {
+                        Expr::Number(n, _) => exact_num::Shortest(*n).to_string(),
+                        Expr::Str(s, _) => s.clone(),
+                        _ => unreachable!("the parser admits literals only"),
+                    };
+                    css.push_str(&format!("{}:{value};", a.name));
+                }
+                css.push('}');
+            }
+            if !ok {
+                continue;
+            }
+            match Keyframes::parse(&css) {
+                Ok(rule) => {
+                    self.b.keyframes(&decl.name, &rule.css());
+                    self.keyframes.insert(decl.name.clone(), rule.properties());
+                }
+                Err(e) => errors.push(LowerError {
+                    id: "lower-keyframes",
+                    message: format!("`keyframes {}`: {e:?}", decl.name),
+                    span: decl.span,
+                }),
+            }
+        }
+        errors
+    }
+
+    /// The content model, where SVG attributes go, and the `animation` names
+    /// a node names, checked before its attributes lower.
+    pub(crate) fn check_svg(
+        &self,
+        tag: &str,
+        parent_tag: Option<&str>,
+        attrs: &[Attr],
+        span: Span,
+    ) -> Result<(), LowerError> {
+        let in_svg = matches!(parent_tag, Some("svg" | "g"));
+        if is_element(tag) && !in_svg {
+            return err(
+                "lower-svg-content",
+                format!("`{tag}` is an SVG element: it goes inside an `svg` or a `g`"),
+                span,
+            );
+        }
+        if in_svg && !is_element(tag) {
+            return err(
+                "lower-svg-content",
+                format!(
+                    "an `svg` or `g` holds SVG elements (g, path, polyline, polygon, circle, line, rect), not `{tag}`{}",
+                    if tag == "svg" { "; nested `svg` is refused (LLP 1055 D3)" } else { "" }
+                ),
+                span,
+            );
+        }
+        for a in attrs {
+            if let Some(owners) = owners(&a.name) {
+                if !owners.contains(&tag) {
+                    return err(
+                        "lower-attr-tag",
+                        format!(
+                            "`{}` belongs to {}, not `{tag}`",
+                            a.name,
+                            owners.join(" or ")
+                        ),
+                        a.span,
+                    );
+                }
+            } else if is_element(tag)
+                && !shared(&a.name)
+                && !(tag == "rect" && matches!(a.name.as_str(), "width" | "height"))
+            {
+                let why = if matches!(tags::attr(&a.name), Some(tags::AttrTarget::Handler(_))) {
+                    "SVG elements are decorative in v1: the `svg` is the one hit and accessibility box (LLP 1055 D3)"
+                } else {
+                    "it does not apply to an SVG element"
+                };
+                return err(
+                    "lower-svg-attr",
+                    format!("`{}` on `{tag}`: {why}", a.name),
+                    a.span,
+                );
+            }
+            if a.name == "animation" {
+                self.check_animation_names(tag, &a.value)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn check_animation_names(&self, tag: &str, value: &Expr) -> Result<(), LowerError> {
+        match value {
+            Expr::Str(text, span) => {
+                let Ok(list) = Animations::parse(text) else {
+                    return Ok(()); // the row's own check names the grammar
+                };
+                for a in &list.0 {
+                    let Some(properties) = self.keyframes.get(&a.name) else {
+                        return err(
+                            "lower-animation-name",
+                            format!(
+                                "`animation` names `{}`, and no `keyframes {}` is declared",
+                                a.name, a.name
+                            ),
+                            *span,
+                        );
+                    };
+                    let transforms = properties.iter().any(|p| {
+                        matches!(p, Property::Translate | Property::Scale | Property::Rotate)
+                    });
+                    if is_element(tag) && transforms {
+                        return err(
+                            "lower-animation-target",
+                            format!("`keyframes {}` animates a transform, and SVG elements take no transform in v1 (LLP 1055 D1)", a.name),
+                            *span,
+                        );
+                    }
+                }
+                Ok(())
+            }
+            Expr::Ternary(_, yes, no, _) => {
+                self.check_animation_names(tag, yes)?;
+                self.check_animation_names(tag, no)
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// `animation` and its longhands as one `animation` attribute (LLP 1055
+    /// D5), or `None` when no longhand is set. A longhand overrides the
+    /// shorthand's part whatever the order (a Contract rule; CSS goes by
+    /// declaration order). Literal lists follow CSS: the names set the count
+    /// and other lists repeat to it. A computed part makes one animation.
+    pub(crate) fn compose_animation(
+        &self,
+        attrs: &[Attr],
+    ) -> Result<Option<Vec<Attr>>, LowerError> {
+        let longs: Vec<&Attr> = attrs
+            .iter()
+            .filter(|a| LONGHANDS.contains(&a.name.as_str()))
+            .collect();
+        let Some(first) = longs.first() else {
+            return Ok(None);
+        };
+        let short = attrs.iter().find(|a| a.name == "animation");
+        let literal = |e: &Expr| matches!(e, Expr::Str(..) | Expr::Number(..));
+        let text = |e: &Expr| match e {
+            Expr::Str(s, _) => s.clone(),
+            Expr::Number(n, _) => exact_num::Shortest(*n).to_string(),
+            _ => String::new(),
+        };
+        let bad = |span: Span, message: String| LowerError {
+            id: "lower-animation-longhand",
+            message,
+            span,
+        };
+        let base: Vec<Animation> = match short {
+            Some(s) if literal(&s.value) => Animations::parse(&text(&s.value))
+                .map_err(|e| bad(s.span, format!("`animation`: {e:?}")))?
+                .0,
+            Some(s) => {
+                return Err(bad(
+                    s.span,
+                    "a computed `animation` cannot be combined with longhands: write every part as a longhand".into(),
+                ))
+            }
+            None => Vec::new(),
+        };
+        let value = if short.is_none_or(|s| literal(&s.value))
+            && longs.iter().all(|a| literal(&a.value))
+        {
+            let mut list = base;
+            if let Some(names) = longs.iter().find(|a| a.name == "animation-name") {
+                let names: Vec<String> = text(&names.value)
+                    .split(',')
+                    .map(|n| n.trim().to_string())
+                    .collect();
+                list = names
+                    .iter()
+                    .enumerate()
+                    .map(|(i, n)| {
+                        let mut a = list.get(i).cloned().unwrap_or_default();
+                        a.name = n.clone();
+                        a
+                    })
+                    .collect();
+            }
+            for a in longs.iter().filter(|a| a.name != "animation-name") {
+                let items: Vec<String> = text(&a.value)
+                    .split(',')
+                    .map(|v| v.trim().to_string())
+                    .collect();
+                for (i, entry) in list.iter_mut().enumerate() {
+                    entry
+                        .set_longhand(&a.name, &items[i % items.len()])
+                        .map_err(|e| bad(a.span, format!("`{}`: {e:?}", a.name)))?;
+                }
+            }
+            list.retain(|a| a.name != "none");
+            Expr::Str(Animations(list).css(), first.span)
+        } else {
+            // One animation, its parts in shorthand order; a literal list
+            // cannot be combined with a computed part.
+            let defaults = base.into_iter().next().unwrap_or_default();
+            let mut parts = Vec::new();
+            for (i, name) in LONGHANDS.iter().enumerate() {
+                if i > 0 {
+                    parts.push(TemplatePart::Text(" ".into()));
+                }
+                match longs.iter().find(|a| a.name == *name) {
+                    Some(a) if literal(&a.value) && text(&a.value).contains(',') => {
+                        return Err(bad(a.span, format!("`{}` is a list, and another part is computed: a computed animation is one animation", a.name)))
+                    }
+                    Some(a) if literal(&a.value) => parts.push(TemplatePart::Text(text(&a.value))),
+                    Some(a) => parts.push(TemplatePart::Expr(a.value.clone())),
+                    None => parts.push(TemplatePart::Text(default_part(&defaults, i))),
+                }
+            }
+            Expr::Template(parts, first.span)
+        };
+        let mut out: Vec<Attr> = attrs
+            .iter()
+            .filter(|a| a.name != "animation" && !LONGHANDS.contains(&a.name.as_str()))
+            .cloned()
+            .collect();
+        out.push(Attr {
+            name: "animation".into(),
+            value,
+            span: first.span,
+        });
+        Ok(Some(out))
+    }
+}
+
+/// One longhand's text from an animation (for a composed template).
+fn default_part(a: &Animation, index: usize) -> String {
+    match index {
+        0 => {
+            if a.name.is_empty() {
+                "none".into()
+            } else {
+                a.name.clone()
+            }
+        }
+        1 => format!("{}s", exact_num::Shortest(a.duration)),
+        2 => exact_motion::animation::easing_css(&a.easing),
+        3 => format!("{}s", exact_num::Shortest(a.delay)),
+        4 => {
+            if a.iterations.is_infinite() {
+                "infinite".into()
+            } else {
+                exact_num::Shortest(a.iterations).to_string()
+            }
+        }
+        5 => a.direction.name().into(),
+        6 => a.fill.name().into(),
+        _ => if a.paused { "paused" } else { "running" }.into(),
+    }
+}

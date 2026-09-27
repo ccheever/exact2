@@ -44,6 +44,9 @@ fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadClipPath { .. } => "expected none or path() with explicit absolute M/L/Q/C/Z commands and separated finite coordinates".into(),
         StyleValueError::BadAspectRatio { .. } => "expected auto, a ratio (`16 / 9`, or a number), or both (`auto 4 / 3`); numbers are nonnegative".into(),
         StyleValueError::BadTransition { .. } => "not a CSS `transition` shorthand".into(),
+        StyleValueError::BadPaint { .. } => "SVG paint is `none`, `currentcolor`, or a colour (`#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `light-dark()`); paint servers (`url(#…)`) are refused (LLP 1055 D12)".into(),
+        StyleValueError::BadDashArray { .. } => "`stroke-dasharray` is `none` or non-negative numbers separated by spaces or commas".into(),
+        StyleValueError::BadAnimation { .. } => "not a CSS `animation` shorthand: `<name> <duration> [<easing>] [<delay>] [<count>|infinite] [<direction>] [<fill-mode>] [<play-state>]`".into(),
         StyleValueError::Unsupported { .. } => "this row has no dynamic form".into(),
     }
 }

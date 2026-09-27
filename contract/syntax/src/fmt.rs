@@ -178,6 +178,11 @@ impl<'a> Layout<'a> {
         for style in &file.styles {
             self.attributes.extend(style.attrs.iter().map(|a| a.span));
         }
+        for rule in &file.keyframes {
+            for frame in &rule.frames {
+                self.attributes.extend(frame.attrs.iter().map(|a| a.span));
+            }
+        }
         for component in &file.components {
             for ty in component
                 .props

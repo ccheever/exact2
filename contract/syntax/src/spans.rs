@@ -81,7 +81,9 @@ macro_rules! structs {
 }
 structs! {
     NameSpans { names, sources }
-    File { names, routes, uses, fonts, shapes, styles, fns, tests, components }
+    File { names, routes, uses, fonts, shapes, styles, keyframes, fns, tests, components }
+    KeyframesDecl { name, frames, span }
+    KeyframeDecl { selectors, attrs, span }
     RoutesDecl { slot, rows, span }
     RouteDecl { name, pattern, parent, tab, notfound, fields, span }
     FontDecl { name, faces, span }

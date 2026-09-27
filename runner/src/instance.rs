@@ -428,6 +428,8 @@ pub struct SiteIndex {
     sites: Vec<(u32, Site)>,
     /// What every binding and site reads.
     deps: Deps,
+    /// The plan's `@keyframes`, parsed once (LLP 1055 D5).
+    keyframes: bridge::KeyframesTable,
 }
 
 impl SiteIndex {
@@ -466,6 +468,7 @@ impl SiteIndex {
             groups,
             sites,
             deps: Deps::default(),
+            keyframes: bridge::keyframes(plan),
         };
         index.deps = Deps::new(plan, &index);
         index
@@ -746,6 +749,10 @@ impl NodeInst {
                 BindingKind::Style => {
                     let p = patch.get_or_insert_with(StyleProps::default);
                     match bridge::set_style(p, binding.id, &value, plan.stacks.len()) {
+                        Ok(exact_kernel::StyleId::Animation) => {
+                            let dropped = u.sites.keyframes.resolve(&mut p.animation);
+                            u.notes.extend(dropped);
+                        }
                         Ok(_) => {}
                         Err(
                             bridge::BridgeError::Style(_) | bridge::BridgeError::StyleKind { .. },
