@@ -89,7 +89,7 @@ fn only_named_paint_is_adopted_with_computed_resolved_targets() {
         got(Property::BackgroundColor),
         Some(rgba(255, 255, 255, 1.0))
     );
-    // `color` inherited from the root; `currentcolor` borders are it too.
+    // `color` inherited from the root; a `currentcolor` border's target is it too.
     assert_eq!(got(Property::Color), Some(rgba(0x11, 0x22, 0x33, 1.0)));
     assert_eq!(got(Property::BorderLeftColor), got(Property::Color));
     assert_eq!(
@@ -194,4 +194,51 @@ fn paint_transition_names_and_colour_keyframes_round_trip_the_wire() {
     assert_eq!(from.values[0].1.x, 1.0);
     assert_eq!(from.dark[0].0, Property::BackgroundColor);
     assert!((from.dark[0].1.y - 128.0 / 255.0).abs() < 1e-6, "{from:?}");
+}
+
+/// An `exit-animation` that names a colour owns it while the node lives, so
+/// the engine has the value its exit plays over when the node leaves (LLP
+/// 1063). A `currentcolor` side that draws is the host's to paint in the
+/// presented `color`.
+#[test]
+fn an_exit_owns_its_colours_and_currentcolor_sides_follow_color() {
+    let mut k = Kernel::with_monospace();
+    let ops = [
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 1,
+            patch: {
+                let mut s = patch(&[
+                    (StyleId::BackgroundColor, "#ffffff"),
+                    (StyleId::BorderColorLeft, "#ff0000"),
+                    (StyleId::BorderStyleTop, "solid"),
+                    (StyleId::BorderStyleLeft, "solid"),
+                    (
+                        StyleId::ExitAnimation,
+                    "fade 200ms both @keyframes fade{to{background-color:rgba(0,0,0,0);opacity:0}}",
+                    ),
+                ]);
+                for id in [StyleId::BorderWidthTop, StyleId::BorderWidthLeft] {
+                    s.set_dynamic(id, &StyleValue::Number(2.0)).unwrap();
+                }
+                s
+            },
+        },
+        Op::AttachRoot { id: 1 },
+    ];
+    let receipt = k.apply(0, 1, &ops).unwrap();
+    let key = k.node(1).unwrap().key;
+    let mut owners = PaintOwners::default();
+    let sync = k.paint_sync(&receipt, false, &mut owners);
+    let one = motion_node(key);
+    assert!(owners.owns(one, Property::BackgroundColor));
+    assert_eq!(
+        sync.changes.iter().map(|c| c.property).collect::<Vec<_>>(),
+        [Property::BackgroundColor]
+    );
+    // Top draws in currentcolor; left has its own; right and bottom draw nothing.
+    assert_eq!(k.current_color_sides(key), [Property::BorderTopColor]);
 }
