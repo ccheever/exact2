@@ -1,10 +1,14 @@
-//! CSS `clip-path`: `none` or an absolute SVG path, in CSS pixels.
+//! CSS `clip-path`: `none`, an absolute SVG path in CSS pixels, or (on
+//! an SVG element) a `clipPath` by reference, `url(#id)` (LLP 1055.000 D10).
 //! The parsed commands also cross the Apple batch, so presenters do not parse CSS.
+
+use crate::svg::{Paint, PaintFallback};
 
 /// A validated clipping path. The initial value has no clipping.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ClipPath {
     commands: Vec<(char, Vec<f32>)>,
+    url: Option<Box<str>>,
 }
 
 impl ClipPath {
@@ -14,6 +18,12 @@ impl ClipPath {
         let css = css.trim();
         if css == "none" {
             return Some(Self::default());
+        }
+        if let Some(Paint::Url(id, PaintFallback::Default)) = Paint::parse(css) {
+            return Some(Self {
+                commands: Vec::new(),
+                url: Some(id),
+            });
         }
         let inner = css.strip_prefix("path(")?.strip_suffix(')')?.trim();
         let quote = inner.chars().next()?;
@@ -60,7 +70,15 @@ impl ClipPath {
         if commands.is_empty() {
             return None;
         }
-        Some(Self { commands })
+        Some(Self {
+            commands,
+            url: None,
+        })
+    }
+
+    /// The `clipPath` a `url(#id)` names, if this is one.
+    pub fn url(&self) -> Option<&str> {
+        self.url.as_deref()
     }
 
     /// Empty for `none`; otherwise drawing commands in border-box coordinates.
@@ -70,6 +88,9 @@ impl ClipPath {
 
     /// Canonical, validated CSS (also the wire representation).
     pub fn css(&self) -> String {
+        if let Some(id) = &self.url {
+            return format!("url(#{id})");
+        }
         if self.commands.is_empty() {
             return "none".into();
         }

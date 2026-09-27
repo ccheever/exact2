@@ -69,6 +69,23 @@ enum SvgPaint {
         }
     }
 
+    /// A `clip-path` as a mask (LLP 1055.000 D10): one opaque shape per clip
+    /// child, so the mask is their union, and the clip's own clip as the
+    /// mask's mask. No shapes masks everything.
+    static func clip(_ v: Any?, path: ([Any]) -> CGPath) -> CALayer? {
+        guard let c = v as? [String: Any] else { return nil }
+        let container = quiet(CALayer())
+        for case let s as [Any] in c["s"] as? [Any] ?? [] where s.count == 2 {
+            let shape = quiet(CAShapeLayer())
+            shape.path = path(s[0] as? [Any] ?? [])
+            shape.fillColor = CGColor(gray: 0, alpha: 1)
+            shape.fillRule = ((s[1] as? NSNumber)?.intValue ?? 0) == 1 ? .evenOdd : .nonZero
+            container.addSublayer(shape)
+        }
+        container.mask = clip(c["n"], path: path)
+        return container
+    }
+
     private static func strokeLayer(_ path: CGPath, like shape: CAShapeLayer) -> CAShapeLayer {
         let line = quiet(CAShapeLayer())
         line.path = path; line.fillColor = nil

@@ -114,6 +114,7 @@ fn element(node: &NodeRef<'_>) -> &'static str {
         NodeType::SvgStop => "stop",
         NodeType::SvgUse => "use",
         NodeType::SvgSymbol => "symbol",
+        NodeType::SvgClipPath => "clipPath",
         NodeType::ScrollView => "div",
         NodeType::Text => {
             if node.is_inline_run() {
@@ -176,7 +177,11 @@ pub(super) fn css_style<'a>(
 ) -> std::borrow::Cow<'a, exact_kernel::StyleProps> {
     let as_attributes = attribute_rows(node.node_type);
     let url = |p: &Paint| matches!(p, Paint::Url(..));
-    if as_attributes.is_empty() && !url(&node.style.fill) && !url(&node.style.stroke) {
+    if as_attributes.is_empty()
+        && !url(&node.style.fill)
+        && !url(&node.style.stroke)
+        && node.style.clip_path.url().is_none()
+    {
         return std::borrow::Cow::Borrowed(node.style);
     }
     let mut style = node.style.clone();
@@ -185,6 +190,16 @@ pub(super) fn css_style<'a>(
         mask.set(row.0);
     }
     style.clear(mask);
+    // @ref LLP 1055.000 D10 — a clipPath by the id the page gives it.
+    if let Some(target) = style
+        .clip_path
+        .url()
+        .and_then(|id| kernel.resolve_id(node.id, id))
+    {
+        if let Some(c) = exact_kernel::clip::ClipPath::parse(&format!("url(#{})", dom_id(target))) {
+            style.clip_path = c;
+        }
+    }
     // @ref LLP 1055.000 D3 — a paint server by the id the page gives it.
     for paint in [&mut style.fill, &mut style.stroke] {
         if let Paint::Url(id, fallback) = paint {
@@ -407,6 +422,7 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
             PropId::GradientTransform => "gradientTransform",
             PropId::SpreadMethod => "spreadMethod",
             PropId::Offset => "offset",
+            PropId::ClipPathUnits => "clipPathUnits",
             other => {
                 // Every other prop rides as `data-<name>` so nothing is lost.
                 // Schema names are ASCII (`prop_names_are_ascii`), so ASCII

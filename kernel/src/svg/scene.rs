@@ -28,6 +28,9 @@ use exact_motion::{Property, Value};
 /// A circle's centre and radius.
 type Circle = (f32, f32, f32);
 
+mod clip;
+pub use clip::{Clip, ClipShape};
+
 /// A host's presented value for a node's property: a running transition's
 /// or a sampled animation's; `None` shows the row.
 pub type Presented<'a> = &'a dyn Fn(NodeKey, Property) -> Option<Value>;
@@ -65,6 +68,8 @@ pub struct Item {
     /// The element's user space to the `svg`'s content box, its own
     /// transform included (a non-scaling stroke and hit testing use it).
     pub ctm: Affine,
+    /// `clip-path: url(#…)`: the clip in the element's user space.
+    pub clip: Option<Box<Clip>>,
     /// What it draws.
     pub kind: Kind,
 }
@@ -358,9 +363,19 @@ impl Resolver<'_, '_> {
             NodeType::SvgUse => self.instance(node, &style, vp, ctm)?,
             _ => Kind::Shape(Box::new(self.shape(node, &style, vp)?)),
         };
+        let clip = if style.clip_path.url().is_some() {
+            let bbox = match &kind {
+                Kind::Shape(s) => s.path.bounds(),
+                _ => self.bbox(node, &style, vp),
+            };
+            self.clip(node, bbox, vp, 0).map(Box::new)
+        } else {
+            None
+        };
         Some(Item {
             id: node.id,
             uid: self.uid(node.id),
+            clip,
             key,
             opacity,
             transform,

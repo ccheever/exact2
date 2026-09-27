@@ -23,6 +23,7 @@ impl NodeType {
                 | NodeType::SvgSymbol
                 | NodeType::SvgLinearGradient
                 | NodeType::SvgRadialGradient
+                | NodeType::SvgClipPath
         )
     }
 

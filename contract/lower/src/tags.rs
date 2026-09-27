@@ -182,9 +182,10 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: None,
         },
-        "defs" | "linearGradient" | "radialGradient" | "stop" | "use" => Tag {
+        "defs" | "linearGradient" | "radialGradient" | "stop" | "use" | "clipPath" => Tag {
             node_type: match name {
                 "defs" => NodeType::SvgDefs,
+                "clipPath" => NodeType::SvgClipPath,
                 "linearGradient" => NodeType::SvgLinearGradient,
                 "radialGradient" => NodeType::SvgRadialGradient,
                 "stop" => NodeType::SvgStop,
@@ -435,6 +436,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "gradientTransform" => AttrTarget::Prop(p("gradientTransform")),
         "spreadMethod" => AttrTarget::Prop(p("spreadMethod")),
         "offset" => AttrTarget::Prop(p("offset")),
+        "clipPathUnits" => AttrTarget::Prop(p("clipPathUnits")),
+        "clip-rule" => styles(&[StyleId::ClipRule]),
         "stop-color" => styles(&[StyleId::StopColor]),
         "stop-opacity" => styles(&[StyleId::StopOpacity]),
         "paint-order" => styles(&[StyleId::PaintOrder]),

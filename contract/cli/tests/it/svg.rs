@@ -130,7 +130,7 @@ fn refusals_are_named() {
     assert!(refused(&svg("circle r=3 padding=4")).contains("lower-svg-attr"));
     assert!(refused(&svg("rect points=\"0,0\"")).contains("lower-attr-tag"));
     assert!(refused("component A\n  view\n    column points=\"0,0\"\n").contains("lower-attr-tag"));
-    assert!(refused(&svg("clipPath")).contains("later stage"));
+    assert!(refused(&svg("mask")).contains("later stage"));
     assert!(refused(&svg("hatch")).contains("Chrome does not implement"));
     assert!(refused(&svg("linearGradient\n        rect width=1")).contains("does not hold"));
     assert!(refused(&svg("circle r=3 animation=\"nope 1s\"")).contains("lower-animation-name"));
@@ -253,5 +253,24 @@ fn stage_three_references_and_servers() {
             .and_then(|t| k.node(t))
             .map(|n| n.node_type),
         Some(NodeType::SvgSymbol)
+    );
+}
+
+// LLP 1055.000 stage 4: clipPath and clip-path on SVG elements.
+#[test]
+fn stage_four_clipping() {
+    let r = boot(
+        "component A\n  view\n    svg width=10 height=10\n      clipPath id=\"c\" clipPathUnits=\"objectBoundingBox\"\n        circle cx=0.5 cy=0.5 r=0.5 clip-rule=\"evenodd\"\n      rect testId=\"r\" width=4 height=4 clip-path=\"url(#c)\"\n",
+    );
+    let k = r.kernel();
+    let rect = k.node_by_key(k.find_by_test_id("r")[0]).unwrap();
+    assert_eq!(rect.style.clip_path.url(), Some("c"));
+    assert!(
+        refused("component A\n  view\n    column clip-path=\"url(#c)\"\n")
+            .contains("clips SVG elements")
+    );
+    assert!(
+        refused("component A\n  view\n    svg\n      clipPath\n        g\n")
+            .contains("does not hold")
     );
 }

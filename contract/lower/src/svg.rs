@@ -31,6 +31,7 @@ pub(crate) fn is_element(tag: &str) -> bool {
             | "stop"
             | "use"
             | "symbol"
+            | "clipPath"
     )
 }
 
@@ -40,6 +41,11 @@ fn holds(parent: &str, child: &str) -> bool {
     match parent {
         "linearGradient" | "radialGradient" => child == "stop",
         "svg" | "g" | "defs" | "symbol" => child != "stop" && (is_element(child) || child == "svg"),
+        // A clip's children are its geometry: shapes and `use`.
+        "clipPath" => matches!(
+            child,
+            "path" | "polyline" | "polygon" | "circle" | "ellipse" | "line" | "rect" | "use"
+        ),
         _ => false,
     }
 }
@@ -72,6 +78,7 @@ fn owners(attr: &str) -> Option<&'static [&'static str]> {
             &["linearGradient", "radialGradient"]
         }
         "offset" | "stop-color" | "stop-opacity" => &["stop"],
+        "clipPathUnits" => &["clipPath"],
         "vector-effect" => &[
             "path", "polyline", "polygon", "circle", "ellipse", "line", "rect",
         ],
@@ -106,6 +113,8 @@ fn shared(attr: &str) -> bool {
             | "visibility"
             | "display"
             | "paint-order"
+            | "clip-path"
+            | "clip-rule"
             | "animation"
             | "transition"
             | "testId"
@@ -119,7 +128,7 @@ pub(crate) fn refused_tag(tag: &str) -> Option<&'static str> {
         "text" | "tspan" | "textPath" => {
             "text inside `svg` is refused (LLP 1055 D12); put a `text` beside the `svg`"
         }
-        "clipPath" | "mask" | "pattern" | "marker" | "filter" | "image" => {
+        "mask" | "pattern" | "marker" | "filter" | "image" => {
             "not in exact2's SVG yet: LLP 1055.000 §4 builds it in a later stage"
         }
         "foreignObject" => {
@@ -212,7 +221,9 @@ impl Lowerer<'_> {
     ) -> Result<(), LowerError> {
         let in_svg = matches!(
             parent_tag,
-            Some("svg" | "g" | "defs" | "symbol" | "linearGradient" | "radialGradient")
+            Some(
+                "svg" | "g" | "defs" | "symbol" | "linearGradient" | "radialGradient" | "clipPath"
+            )
         );
         // A nested `svg` is an SVG element: a new viewport (LLP 1055.000 D4).
         let element = is_element(tag) || (tag == "svg" && in_svg);
@@ -242,6 +253,18 @@ impl Lowerer<'_> {
             );
         }
         for a in attrs {
+            // A `clipPath` by reference clips SVG elements (LLP 1055.000 D10);
+            // a box's `clip-path` is a path.
+            if a.name == "clip-path"
+                && !element
+                && matches!(&a.value, Expr::Str(v, _) if v.trim_start().starts_with("url("))
+            {
+                return err(
+                    "lower-attr-value",
+                    "`clip-path: url(#…)` clips SVG elements; a box takes `path(\"…\")`",
+                    a.span,
+                );
+            }
             if let Some(owners) = owners(&a.name) {
                 if !owners.contains(&tag) {
                     return err(

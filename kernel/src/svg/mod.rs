@@ -47,6 +47,7 @@ impl NodeType {
                 | NodeType::SvgStop
                 | NodeType::SvgUse
                 | NodeType::SvgSymbol
+                | NodeType::SvgClipPath
         )
     }
 
@@ -74,6 +75,7 @@ impl NodeType {
                 | NodeType::SvgRadialGradient
                 | NodeType::SvgStop
                 | NodeType::SvgSymbol
+                | NodeType::SvgClipPath
         )
     }
 
@@ -88,6 +90,7 @@ impl NodeType {
                 | NodeType::SvgSymbol
                 | NodeType::SvgLinearGradient
                 | NodeType::SvgRadialGradient
+                | NodeType::SvgClipPath
         )
     }
 
@@ -110,6 +113,7 @@ impl NodeType {
             NodeType::SvgStop => "stop",
             NodeType::SvgUse => "use",
             NodeType::SvgSymbol => "symbol",
+            NodeType::SvgClipPath => "clipPath",
             _ => return None,
         })
     }

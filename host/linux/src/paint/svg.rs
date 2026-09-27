@@ -175,6 +175,10 @@ impl Painter {
             Some(t) => ts.pre_concat(affine(t.affine())),
             None => ts,
         };
+        let clips = item
+            .clip
+            .as_ref()
+            .map_or(0, |c| self.backend.push_svg_clip(c, own));
         match &item.kind {
             Kind::Group(children) => {
                 for child in children {
@@ -231,6 +235,9 @@ impl Painter {
                 };
                 self.backend.svg_path(&paint, space);
             }
+        }
+        for _ in 0..clips {
+            self.backend.pop_clip();
         }
         if item.opacity < 1.0 {
             self.backend.pop_opacity();

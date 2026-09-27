@@ -257,6 +257,8 @@ final class SvgScene {
                 // space, and the layer undoes its parents' transforms.
                 shape.setAffineTransform(affine(e["inv"]) ?? .identity)
             }
+            // @ref LLP 1055.000 D10 — a clip is the layer's mask.
+            layer.mask = SvgPaint.clip(e["cl"]) { path($0) }
             let list = e["a"] as? [[String: Any]] ?? []
             specs[id] = list
             CssAnimations.apply(list, to: layer, clock: clock, installed: &installed[id, default: [:]])

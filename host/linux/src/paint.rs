@@ -356,6 +356,12 @@ pub trait Backend {
     );
     /// Paint one SVG shape in `ts`'s space (LLP 1055 D4).
     fn svg_path(&mut self, _shape: &SvgPaint<'_>, _ts: Transform) {}
+    /// Clip to an SVG `clipPath` in `ts`'s space until as many pops as this
+    /// returns (LLP 1055.000 D10): the union of its shapes, intersected with
+    /// its own clip and with whatever clip is in force.
+    fn push_svg_clip(&mut self, _clip: &exact_kernel::svg::scene::Clip, _ts: Transform) -> usize {
+        0
+    }
     /// Clip everything until the matching pop to a shape.
     fn push_clip(&mut self, shape: &Shape, ts: Transform);
     /// Push the kernel's validated CSS path in border-box coordinates.

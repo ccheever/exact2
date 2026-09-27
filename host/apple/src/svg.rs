@@ -15,7 +15,7 @@ use crate::batch::Batch;
 use crate::style::num;
 use exact_kernel::id::{IdMap, IdSet};
 use exact_kernel::motion::motion_node;
-use exact_kernel::svg::scene::{content_box, Item, Kind, Shape, ShapePaint};
+use exact_kernel::svg::scene::{content_box, Clip, Item, Kind, Shape, ShapePaint};
 use exact_kernel::svg::server::{Server, ServerKind, Spread};
 use exact_kernel::svg::transform::{self as tf, Affine};
 use exact_kernel::svg::{Path, Seg};
@@ -254,6 +254,20 @@ fn element(engine: &Engine, item: &Item, parent_ctm: Affine, s: &mut String) {
         }
         (None, false) => {}
     }
+    if let Some(clip) = &item.clip {
+        // In the layer's own space: a centred circle's is about its centre,
+        // a non-scaling stroke's the content box's.
+        let clip = match &item.kind {
+            Kind::Shape(sh) if sh.non_scaling => clip.transformed(item.ctm),
+            Kind::Shape(sh) => match sh.circle {
+                Some((cx, cy, _)) => clip.transformed(tf::translate(-cx, -cy)),
+                None => (**clip).clone(),
+            },
+            _ => (**clip).clone(),
+        };
+        s.push_str(",\"cl\":");
+        clip_json(&clip, s);
+    }
     match &item.kind {
         Kind::Group(children) => {
             let specs = specs(engine, key, &[Property::Opacity], &|_| {
@@ -451,6 +465,26 @@ fn server_json(server: &Server, opacity: f32, s: &mut String) {
         }
     );
     affine_json(server.transform, s);
+    s.push('}');
+}
+
+/// A clip: `{"s":[[path, evenodd],…],"n":clip|null}`, its shapes' union
+/// intersected with `n` (LLP 1055.000 D10).
+fn clip_json(clip: &Clip, s: &mut String) {
+    s.push_str("{\"s\":[");
+    for (i, shape) in clip.shapes.iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        s.push('[');
+        path_json(Some(&shape.path), s);
+        let _ = write!(s, ",{}]", shape.even_odd as u8);
+    }
+    s.push_str("],\"n\":");
+    match &clip.then {
+        Some(t) => clip_json(t, s),
+        None => s.push_str("null"),
+    }
     s.push('}');
 }
 

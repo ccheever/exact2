@@ -290,6 +290,13 @@ impl Raster {
 
 // A new path mask is zero outside its control bounds. Include AA slack;
 // tiny-skia tiles above 8191 pixels, so retain full-mask work beyond that range.
+/// `mask` times `other`, coverage by coverage: an intersection.
+fn multiply(mask: &mut Mask, other: &Mask) {
+    for (a, b) in mask.data_mut().iter_mut().zip(other.data()) {
+        *a = ((*a as u16 * *b as u16 + 127) / 255) as u8;
+    }
+}
+
 fn intersect_mask(mask: &mut Mask, parent: &Mask, path: &Path, dev: Transform) {
     let (width, height) = (mask.width() as usize, mask.height() as usize);
     let bounds = if width <= 8191 && height <= 8191 {
@@ -923,6 +930,60 @@ impl Backend for Raster {
                 self.height as f32,
             )));
         true
+    }
+
+    // @ref LLP 1055.000 D10 — an SVG clip: the union of its shapes as one
+    // coverage mask, multiplied by its own clip's and the one in force.
+    fn push_svg_clip(&mut self, clip: &exact_kernel::svg::scene::Clip, ts: Transform) -> usize {
+        fn union(
+            r: &Raster,
+            clip: &exact_kernel::svg::scene::Clip,
+            dev: Transform,
+        ) -> Option<Mask> {
+            let mut mask = Mask::new(r.width, r.height)?;
+            for shape in &clip.shapes {
+                let mut b = PathBuilder::new();
+                for seg in &shape.path.0 {
+                    match *seg {
+                        exact_kernel::svg::Seg::Move(x, y) => b.move_to(x, y),
+                        exact_kernel::svg::Seg::Line(x, y) => b.line_to(x, y),
+                        exact_kernel::svg::Seg::Cubic(a, c, d, e, x, y) => {
+                            b.cubic_to(a, c, d, e, x, y)
+                        }
+                        exact_kernel::svg::Seg::Close => b.close(),
+                    }
+                }
+                if let Some(path) = b.finish() {
+                    let rule = if shape.even_odd {
+                        FillRule::EvenOdd
+                    } else {
+                        FillRule::Winding
+                    };
+                    mask.fill_path(&path, rule, true, dev);
+                }
+            }
+            if let Some(then) = &clip.then {
+                let inner = union(r, then, dev)?;
+                multiply(&mut mask, &inner);
+            }
+            Some(mask)
+        }
+        let dev = self.device(ts);
+        let Some(mut mask) = union(self, clip, dev) else {
+            return 0;
+        };
+        if let Some(parent) = self.clips.last() {
+            multiply(&mut mask, parent);
+        }
+        self.clips.push(Rc::new(mask));
+        self.text_clips
+            .push(self.text_clips.last().copied().unwrap_or((
+                0.,
+                0.,
+                self.width as f32,
+                self.height as f32,
+            )));
+        1
     }
 
     fn pop_clip(&mut self) {

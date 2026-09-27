@@ -791,6 +791,11 @@ mod tests {
 
     #[test]
     fn reserved_mask_bits_are_rejected() {
+        // With the rows exactly filling the mask's words there is no
+        // reserved bit to set.
+        if StyleMask::RESERVED == StyleMask::EMPTY {
+            return;
+        }
         let mut w = Writer::new();
         w.style_mask(StyleMask::RESERVED);
         let bytes = w.into_vec();

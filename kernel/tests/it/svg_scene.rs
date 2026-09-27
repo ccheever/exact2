@@ -545,3 +545,82 @@ fn references_resolve_nearest_and_instances_inherit_from_their_use() {
     assert_eq!(rgb(inst.fill.clone().unwrap().color), [0, 255, 0]);
     assert!(children[0].uid != dot as u64, "an instance has its own key");
 }
+
+/// LLP 1055.000 D10: a `clipPath` resolves to its children's union in the
+/// clipped element's user space, `objectBoundingBox` mapped to its box, its
+/// own `clip-path` intersected; a missing one does not clip.
+#[test]
+fn clips_resolve_in_the_element_space() {
+    use NodeType::*;
+    let mut d = Doc::new();
+    let svg = d.node(
+        Svg,
+        &[(StyleId::Width, "100"), (StyleId::Height, "100")],
+        &[],
+    );
+    let clip = d.node(
+        SvgClipPath,
+        &[(StyleId::ClipPath, "url(#outer)")],
+        &[
+            (PropId::Id, "c"),
+            (PropId::ClipPathUnits, "objectBoundingBox"),
+        ],
+    );
+    let disc = d.node(
+        SvgCircle,
+        &[
+            (StyleId::Cx, "0.5"),
+            (StyleId::Cy, "0.5"),
+            (StyleId::R, "0.5"),
+        ],
+        &[],
+    );
+    d.children(clip, &[disc]);
+    let outer = d.node(SvgClipPath, &[], &[(PropId::Id, "outer")]);
+    let half = d.node(
+        SvgRect,
+        &[(StyleId::Width, "50"), (StyleId::Height, "100")],
+        &[],
+    );
+    d.children(outer, &[half]);
+    let rect = d.node(
+        SvgRect,
+        &[
+            (StyleId::X, "20"),
+            (StyleId::Y, "20"),
+            (StyleId::Width, "40"),
+            (StyleId::Height, "40"),
+            (StyleId::ClipPath, "url(#c)"),
+        ],
+        &[],
+    );
+    let loose = d.node(
+        SvgRect,
+        &[
+            (StyleId::Width, "10"),
+            (StyleId::Height, "10"),
+            (StyleId::ClipPath, "url(#nowhere)"),
+        ],
+        &[],
+    );
+    d.children(svg, &[clip, outer, rect, loose]);
+    let k = d.kernel(&[svg], 400.0);
+    let s = resolve(&k, svg);
+    let c = find(&s.items, rect)
+        .unwrap()
+        .clip
+        .as_ref()
+        .expect("clipped");
+    // The unit disc on the 40×40 box at (20, 20).
+    assert_eq!(c.shapes[0].path.bounds(), Some((20.0, 20.0, 40.0, 40.0)));
+    let then = c.then.as_ref().expect("the clipPath's own clip");
+    assert_eq!(then.shapes[0].path.bounds(), Some((0.0, 0.0, 50.0, 100.0)));
+    assert!(
+        find(&s.items, loose).unwrap().clip.is_none(),
+        "a missing clip does not clip"
+    );
+    assert!(
+        find(&s.items, clip).is_none(),
+        "a clipPath is never painted"
+    );
+}
