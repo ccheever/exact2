@@ -656,7 +656,7 @@ function apply(batch) {
           return service.run(op.payload,op.scope);
         }).then(bytes=>safelyFulfill(requestIncarnation,op.ticket,5,0,"",bytes))
           .catch(error=>safelyFulfill(requestIncarnation,op.ticket,3,0,"",encoder.encode(String(error))));
-        inflight.add(p);p.finally(()=>inflight.delete(p));break;
+        track(p,op.ticket);break;
       }
       case "refuse": { deferFulfill(incarnation, op.ticket, 2, 0, "", encoder.encode(op.message)); break; }
       case "continue": {
@@ -664,8 +664,7 @@ function apply(batch) {
         const p = Promise.resolve().then(() => moduleLoader.run(op.token))
           .then(result => safelyFulfill(requestIncarnation, op.ticket, 0, 200, "", encoder.encode(JSON.stringify(result))))
           .catch(error => safelyFulfill(requestIncarnation, op.ticket, 3, 0, "", encoder.encode(String(error))));
-        inflight.add(p);
-        p.finally(() => inflight.delete(p));
+        track(p, op.ticket);
         break;
       }
       case "surfaceWork": {
@@ -684,18 +683,23 @@ function apply(batch) {
           return exact.gpu.surfaceWork(op.name,op.mode,bytes,()=>requestIncarnation===incarnation&&wasm.exact_request_active(op.ticket)===1);
         }).then(bytes=>safelyFulfill(requestIncarnation,op.ticket,op.mode==="capture"?6:7,0,"",bytes??new Uint8Array()))
           .catch(error=>safelyFulfill(requestIncarnation,op.ticket,error.kind??3,0,"",encoder.encode(String(error.message??error))));
-        inflight.add(p);p.finally(()=>inflight.delete(p));break;
+        track(p,op.ticket);break;
       }
       case "request": {
-        const requestIncarnation = incarnation;
+        // A safe read the runner lets go of is aborted after the commit that
+        // forgot it (`letGo`), as the native executor does: a write that
+        // was sent was sent, and runs on, uncounted (LLP 1016 D5).
+        const requestIncarnation = incarnation, controller = new AbortController();
         const host = {
-          grants, granted, loadPageNative, moduleLoader, localAssetURL, controllers,
+          grants, granted, loadPageNative, moduleLoader, localAssetURL, controllers, controller,
           active: () => requestIncarnation === incarnation,
         };
+        controllers.add(controller);
+        if (op.url !== "exact-native:" && /^(GET|HEAD)$/i.test(op.method)) forgettable.set(controller, op.ticket);
         const p = httpHelpers().then(({ request }) => request(op, host))
           .then(r => safelyFulfill(requestIncarnation, op.ticket, r.kind, r.status, r.headers, r.body))
           .catch(error => safelyFulfill(requestIncarnation, op.ticket, 1, 0, "", encoder.encode(String(error))));
-        inflight.add(p); p.finally(() => inflight.delete(p));
+        track(p, op.ticket); p.finally(() => { forgettable.delete(controller); controllers.delete(controller); });
         break;
       }
       case "command": {
@@ -797,7 +801,7 @@ function apply(batch) {
 function applyBatch(batch) {
   if (page?.hold(batch) || presence.hold(batch)) return { timers: batch.timers, batch }; textflow?.beforeBatch(batch);
   globalThis.exact.applyDepth = (globalThis.exact.applyDepth ?? 0) + 1; try {
-  const timers = apply(batch);
+  const timers = apply(batch); letGo();
   motion.commit(); arrange.commit();
   if (agentMode) {
     // What the ops since the last marker started belongs to that marker's
@@ -856,8 +860,16 @@ function commitFonts(faces) {
 let grants = [];
 let storageRequests = null;
 const inflight = new Set();
-const controllers = new Set();
+const controllers = new Set(), forgettable = new Map();
 let incarnation = 0;
+// A ticket's work, in flight while the runner holds the ticket (LLP 1016 D5):
+// a superseded or forgotten one never holds `clock settle`. Work without a
+// ticket counts until it ends.
+function track(p, ticket) { if (ticket != null) { p.ticket = ticket; p.owner = incarnation; } inflight.add(p); p.finally(() => inflight.delete(p)); }
+const holds = (ticket, owner = incarnation) => owner === incarnation && wasm?.exact_request_active(ticket) === 1;
+const waiting = () => [...inflight].filter(p => p.ticket == null || holds(p.ticket, p.owner));
+// After each commit: abort the reads whose tickets the runner let go of.
+function letGo() { for (const [controller, ticket] of forgettable) if (!holds(ticket)) { forgettable.delete(controller); controller.abort(); } }
 const HOST_WORK_BYTES=16*1024*1024, HOST_WORK_BASE64=4*Math.ceil(HOST_WORK_BYTES/3);
 // A `net.fetch` grant: an origin matched whole, or `scheme://*.domain` (every host strictly under one
 // domain of 2+ labels), as ibex2 matches natively (its patch 1, LLP 1054.000 R5). Copied in module-glue.js.
@@ -1081,11 +1093,11 @@ function guestType(frame, request) {
 }
 const SETTLE_DEADLINE_MS = 20_000;
 async function waitForInflight(deadline) {
-  if (!inflight.size) return true;
+  if (!waiting().length) return true;
   let timer;
   const helpers = await Promise.race([httpHelpers(), new Promise(resolve => { timer = setTimeout(() => resolve(null), Math.max(0, deadline - performance.now())); })]);
   clearTimeout(timer);
-  return helpers ? helpers.waitForInflight(inflight, deadline) : false;
+  return helpers ? helpers.waitForInflight(waiting, deadline) : false;
 }
 async function settleGpu() { loadGpuIfNeeded(); await gpuLoading; await globalThis.exact.gpu?.settled(); }
 function agent(request) { if (!stageLoaded('inspection')) return loadStage('inspection').then(() => agent(request)); return agentMode && gpuInPlay() ? settleGpu().then(() => agentNow(request)) : agentNow(request); } // synchronous once inspection is in (LLP 1043.000 D7/D8)
@@ -1227,7 +1239,7 @@ async function clock(request) {
     if (gpuInPlay()) await settleGpu();
     world = globalThis.exact.gpu?.clock?.(settle) ?? {};
     if (!settle) return reply();
-    if (inflight.size) { if (rounds >= 15) return reply(false, true); continue; }
+    if (waiting().length) { if (rounds >= 15) return reply(false, true); continue; }
     const next = Math.max(settleCandidate(), world.settleAt ?? agentClock);
     if (next <= agentClock && !world.pending) return reply(true);
     if (rounds >= 15) return reply(false);
@@ -1325,7 +1337,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   if(storageRequests){storageRequests.then(s=>s.dispose()).catch(()=>{});storageRequests=null;}
   grants = [];
   for (const controller of controllers) controller.abort();
-  controllers.clear();
+  controllers.clear(); forgettable.clear();
   inflight.clear();
   if (!page?.holding) root.replaceChildren();
   commitFonts(preparedFonts);

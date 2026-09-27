@@ -9,13 +9,15 @@ export async function boundedHttpBody(response, limit) {
   const bytes=new Uint8Array(size); let at=0; for(const chunk of chunks) { bytes.set(chunk,at); at+=chunk.length; } return bytes;
 }
 
-export async function waitForInflight(inflight, deadline) {
-  while (inflight.size) {
+// `waiting()` is the work still counted; a promise it drops (a ticket the
+// runner let go of) stops holding the wait at the next commit or settle.
+export async function waitForInflight(waiting, deadline) {
+  for (let now = waiting(); now.length; now = waiting()) {
     const remaining = deadline - performance.now();
     if (remaining <= 0) return false;
     let timer;
     const completed = await Promise.race([
-      Promise.race([...inflight]).then(() => true),
+      Promise.race(now).then(() => true),
       new Promise((resolve) => { timer = setTimeout(() => resolve(false), remaining); }),
     ]);
     clearTimeout(timer);
@@ -26,7 +28,7 @@ export async function waitForInflight(inflight, deadline) {
 
 // Network and page-module requests share admission and the byte ceiling.
 // Called after the enclosing batch, so even an immediate refusal cannot re-enter it.
-export async function request(op, { grants, granted, loadPageNative, moduleLoader, localAssetURL, controllers, active = () => true }) {
+export async function request(op, { grants, granted, loadPageNative, moduleLoader, localAssetURL, controllers, controller = new AbortController(), active = () => true }) {
   const encoder = new TextEncoder();
   const failed = (kind, message) => ({ kind, status: 0, headers: '', body: encoder.encode(String(message?.message ?? message)) });
   const { method, url, headers, body, cache } = op;
@@ -50,7 +52,6 @@ export async function request(op, { grants, granted, loadPageNative, moduleLoade
   let decodedBody;
   try { if (body) decodedBody = Uint8Array.from(atob(body), c => c.charCodeAt(0)); }
   catch (error) { return failed(4, `invalid request body: ${error}`); }
-  const controller = new AbortController();
   controllers.add(controller);
   const init = { method, headers, redirect: 'error', cache: cache === 'reload' ? 'reload' : 'default', signal: controller.signal };
   if (decodedBody) init.body = decodedBody;

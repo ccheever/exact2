@@ -51,19 +51,21 @@ try {
   await app.tap('navigate-away');
   assert.equal((await app.state()).derives.pendingCount,0);
   assert.equal((await app.tree()).nodes.filter(n=>n.props.testId==='lane-0').length,0);
-  // Navigation forgot the old tickets, and a native host lets go of their
+  // Navigation forgot the old tickets, and every host lets go of their
   // work: the held reads are aborted and the queued ones never sent, so a
-  // full-capacity cohort is admitted again with nothing released.
+  // full-capacity cohort is admitted again with nothing released, and
+  // `clock settle` is not held by them (LLP 1016 D5).
   let oldRelease=null;
-  if(host!=='web') {
+  {
     const deadline=Date.now()+20000;
     for (;;) {
       oldRelease=await (await fetch('http://127.0.0.1:4320/api/stats')).json();
       if(oldRelease.held===0) break;
-      if(Date.now()>deadline) throw Error('forgotten native reads were not aborted: '+JSON.stringify(oldRelease));
+      if(Date.now()>deadline) throw Error('forgotten reads were not aborted: '+JSON.stringify(oldRelease));
       await Bun.sleep(10);
     }
-    assert.ok(oldRelease.abandoned>=2,'both held native reads should be aborted');
+    assert.ok(oldRelease.abandoned>=2,'the held reads should be aborted');
+    assert.equal((await app.clock('settle')).settled,true);
   }
   await app.tap('start-wave');
   const second=await until(s=>s.derives.pendingCount===lanes,'remounted pending');
@@ -81,7 +83,7 @@ try {
   }
   const logs=await app.logs();
   const dropped=logs.lines.filter(line=>String(line).includes('dropped: no such request')).length;
-  // A native host drops forgotten work before it replies; the browser doesn't.
+  // A native host drops forgotten work before it replies; the browser answers an aborted read, which the runner drops.
   if(host==='web') assert.ok(dropped>0,'old replies should be logged as dropped');
   await app.tap('errors-50');
   await app.tap('start-wave');

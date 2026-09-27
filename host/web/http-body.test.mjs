@@ -15,12 +15,21 @@ test('an over-limit stream is cancelled before its remainder is collected',async
 });
 
 test('settlement returns after completions and refuses a never-settling request at its deadline', async () => {
-  const pending = new Set();
+  const pending = new Set(), all = () => [...pending];
   const complete = Promise.resolve().then(() => pending.delete(complete));
   pending.add(complete);
-  assert.equal(await waitForInflight(pending, performance.now() + 1000), true);
+  assert.equal(await waitForInflight(all, performance.now() + 1000), true);
   pending.add(new Promise(() => {}));
-  assert.equal(await waitForInflight(pending, performance.now()), false);
+  assert.equal(await waitForInflight(all, performance.now()), false);
+});
+
+test('work the runner let go of stops holding the wait (LLP 1016 D5)', async () => {
+  // A hung read, and an answer whose commit forgets it: the hung one is still in flight, no longer counted.
+  const inflight = new Set(), counted = new Set(), hung = new Promise(() => {});
+  const answer = Promise.resolve().then(() => { counted.delete(hung); inflight.delete(answer); });
+  for (const p of [hung, answer]) { inflight.add(p); counted.add(p); }
+  assert.equal(await waitForInflight(() => [...inflight].filter(p => counted.has(p)), performance.now() + 1000), true);
+  assert.equal(inflight.has(hung), true);
 });
 
 test('ordered HTTP defaults to the native ceiling and cancels oversized bodies', async () => {

@@ -194,17 +194,15 @@ impl<D: DataSource> Bridge<D> {
         self.emit(batch)
     }
 
-    /// Whether the current runner still owns a request ticket.
+    /// Whether the current runner still holds a request ticket (LLP 1016 D5).
     pub fn request_active(&self, ticket: f64) -> u32 {
         u32::from(
             ticket.is_finite()
                 && ticket >= 0.0
-                && self.host.as_ref().is_some_and(|host| {
-                    host.runner()
-                        .pending()
-                        .iter()
-                        .any(|(_, held)| *held == ticket as u64)
-                }),
+                && self
+                    .host
+                    .as_ref()
+                    .is_some_and(|host| host.runner().holds(ticket as u64)),
         )
     }
 
@@ -1040,6 +1038,14 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow_mut().fulfill(ticket, kind, status, hlen as usize, blen as usize, now_ms))
         }
 
+        /// Whether the runner still holds request `ticket`: the page asks
+        /// after each commit and lets go of the work for one it doesn't
+        /// (LLP 1016 D5), and its `clock settle` waits only on held ones.
+        #[no_mangle]
+        pub extern "C" fn exact_request_active(ticket: f64) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow().request_active(ticket))
+        }
+
         /// The viewport or the display preferences (bit 0 reduced motion,
         /// bit 1 reduced transparency) changed; returns the batch length.
         #[no_mangle]
@@ -1185,12 +1191,6 @@ macro_rules! list_exports {
 #[macro_export]
 macro_rules! surface_exports {
     () => {
-        /// Whether a presenter-owned operation may still affect its surface.
-        #[no_mangle]
-        pub extern "C" fn exact_request_active(ticket: f64) -> u32 {
-            EXACT_BRIDGE.with(|b| b.borrow().request_active(ticket))
-        }
-
         /// A 2D canvas's content box and device scale (LLP 1056 D4), from
         /// the page's `ResizeObserver`; returns the batch length.
         #[no_mangle]

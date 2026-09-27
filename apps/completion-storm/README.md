@@ -63,7 +63,7 @@ Wave opening, release and inspection remain ordered on a separate transport, so
 This is transport concurrency; native module continuations and storage still
 share the ordered worker. HTTP methods and origins do not infer independence.
 
-Navigation forgets the old tickets, and a native host lets go of their work:
+Navigation forgets the old tickets, and every host lets go of their work:
 held reads are aborted, queued ones are never sent and undrained results are
 dropped, so another full cohort is admitted at once. Work that can't be dropped
 (an ordered write) still runs and keeps its reservation until it ends. At the
