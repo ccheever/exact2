@@ -109,27 +109,40 @@ engine passes the end, one `destroy` of the ghost lets the presenter drop the
 whole subtree. The presenter needs one new op (`exit`) and one new `present`
 property (`layout`).
 
-**D6 — Layout is FLIP on a presentation offset and scale.** Natively a node
-with the row has its laid-out box observed as `Property::Layout` (four
+**D6 — Layout moves by an offset; size moves the surface alone.** Natively
+a node with the row has its laid-out box observed as `Property::Layout` (four
 components: origin in its parent, width, height; `Kernel::layout_box`) after
 each layout that moved or resized it; the engine's transition rules give
 first seen, interruption from the current presentation and springs (settling
 per axis in points) for free. The presenter gets `layout` as the shown box's
-offset from the laid-out origin and scale of the laid-out size, applied
-outermost from the box's top-left corner, so it composes with authored
-`translate`/`scale`/`rotate`, a moving parent carries its children (only
-relative motion animates), and nothing is laid out per frame. A growing box
-therefore grows as a web FLIP of size does: by a scale, its content scaled
-with it until it lands (no counter-scale of children). On the web
-`presence-glue.js` measures every declaring element before and after each
-batch, sub-pixel and transform-free: its bounding rect, its own transforms
-taken off through its computed style, its ancestors' scale divided out
-(ancestors are assumed unrotated), and plays the difference as additive
-(`composite: "add"`) `translate` and `scale` from its origin, residual and
-velocity included on interrupt. A spring is lowered by the module per move
-from its displacement and velocity in points, on the engine's 240 Hz grid and
-rest threshold, so both settle at the same time. A windowed list's row root
-is placed in the list content, not its wrapper (which only positions it), so
+offset from the laid-out origin, applied outermost as a translation (it
+composes with authored `translate`/`scale`/`rotate`, and a moving parent
+carries its children: only relative motion animates), and its size as a
+ratio of the laid-out one. The size is the box's *surface* only, as a UIKit
+or SwiftUI frame animation shows it: its background, border, radius, shadow
+and — when it clips — the clip on its children take the shown size from the
+top-left corner, while the view keeps its laid-out frame, so its content and
+children stay at their final geometry and move only by their own
+transitions. A growing card reveals its body under its title; nothing is
+ever scaled, and nothing is laid out per frame. On Apple a `SurfaceLayer`
+under everything the node holds paints the surface (Core Animation's own
+properties where they can say the box, else drawn as the node draws it)
+while the node paints none, and a clipping node's clip becomes a mask of the
+shown box (`Surface.swift`); Linux paints the box at the shown size and
+clips children to it (`Presented::surface`). On the web `presence-glue.js`
+measures every declaring element before and after each batch, sub-pixel and
+transform-free: its bounding rect with its own transforms taken off through
+its computed style, and its ancestors' 2D maps (rotation and skew included)
+undone; plays a move as an additive (`composite: "add"`) `translate`,
+residual and velocity included on interrupt; and plays a size change on a
+stand-in behind the element — the element's background, border, radius,
+shadow and own transforms on an absolutely placed box inside a zero-size
+anchor before it, sized by keyframes, with the element's own surface
+transparent and its children clipped by an animated `clip-path: inset()`
+when it clips. A spring is lowered by the module per move from its
+displacement and velocity in points, on the engine's 240 Hz grid and rest
+threshold, so both settle at the same time. A windowed list's row root is
+placed in the list content, not its wrapper (which only positions it), so
 rows slide when one leaves. A resize takes new boxes without animating
 (native and web alike: the web never measures a resize).
 
@@ -167,19 +180,31 @@ a leaving screen where the platform does not.
 
 - `motion/tests/it/presence.rs`, `kernel/tests/it/presence.rs`,
   `contract/cli/tests/it/presence.rs`, `host/{apple,linux,web}/tests/it/presence.rs`,
-  `host/linux/src/paint/presented.rs` (the painted box), and the XCTests
-  `PresenceIOSTests`/`PresenceMacTests` (the presenters' `exit`, `destroy`,
-  and `layout` ops).
+  `host/linux/src/paint/presented.rs` (the painted box), the Linux pixel test
+  (a growing card, clipping and not: its title keeps all its rows, its
+  surface is the shown height, its body revealed only as it clips), and the
+  XCTests `PresenceIOSTests`/`PresenceMacTests` (the presenters' `exit`,
+  `destroy` and `layout` ops; the surface at the shown size, the node's own
+  off, the clip a mask, a drawn surface upright).
 - iOS simulator (UIKit presenter, `scripts/agent.mjs ios`, the same cases):
   at 150 ms the exit plays over the node's still-running spin while the
   accordion card grows from its old size and the node that gained the row
   slides; `clock settle` lands at 720.83 ms, the spring's settle for its 18
   point move, the same as the web's.
+- iOS simulator, after the surface change: mid-grow and mid-shrink, every
+  card's title at full size; a clipping, rounded, shadowed card's surface and
+  clip at the shown height with its body revealed under it; a card with a
+  red top and blue bottom border (a drawn surface) upright at the shown size.
 - Headless Chrome (an outside app with every case, driven over CDP): an exit
   appended after a spinning node's infinite `animation`, which keeps its time,
   with `transition: all` and no transition started; a spring slide lowered to
-  721 ms for 18 points, as `SpringConfig::settle_time` gives natively; an
-  accordion card 34 → 154 points shown at 34, 94 at mid-time, 154 at the end; a
+  721 ms for 18 points, as `SpringConfig::settle_time` gives natively; a
+  clipping, rounded, bordered, shadowed card growing 34 → 154 points: at
+  mid-time its title still 18 high, its stand-in 94 high with the card's
+  background, radius, border and shadow while the card paints none, its body
+  clipped by `inset(0 0 60px round 12px)`, all gone at the end; shrinking
+  back, the surface shrinks over its content; a node in a container turned
+  90° moving by its own 30 points (the old measure swapped the axes); a
   node gaining the row moving 37.39 points (sub-pixel) from its old place; a
   windowed row leaving as its wrapper while the row below slides 40 points;
   the presence module's fetch held while an exit arrives: the batch waits and
@@ -188,8 +213,9 @@ a leaving screen where the platform does not.
 
 ## Known gaps
 
-- A size change scales its content until it lands (a web FLIP's look); no
-  child is counter-scaled.
-- Web: the measure assumes unrotated ancestors, and a size change's origin
-  ignores an authored `translate` on the same element (the error is that
-  translate times the change of scale).
+- Web: the stand-in paints below all of its parent's in-flow content
+  (`z-index: -1` in the parent, isolated for the while), so an earlier
+  sibling's content that overflows onto a box whose size is moving shows over
+  that box's surface, where CSS and the native hosts paint the surface above
+  an earlier sibling's backgrounds. Painting it in tree order needs an
+  in-flow box, which a flex `gap` or grid would lay out.

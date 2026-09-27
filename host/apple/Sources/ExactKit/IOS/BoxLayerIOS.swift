@@ -103,7 +103,7 @@ extension NodeView {
     /// box `draw(_:)` does not paint can have. A view that paints through
     /// `draw(_:)` paints the gradient there instead, in the same place.
     func applyGradientLayer() {
-        guard !drawsPaint, let gradient = Gradient(style["background_image"]) else {
+        guard !drawsPaint, surface == nil, let gradient = Gradient(style["background_image"]) else {
             boxGradient?.removeFromSuperlayer(); boxGradient = nil; return
         }
         CATransaction.begin(); CATransaction.setDisableActions(true)
@@ -139,13 +139,15 @@ extension NodeView {
         let oneRadius = radii.allSatisfy { $0 == 0 || abs($0 - radius) < 0.01 }
             && radius <= min(bounds.width, bounds.height) / 2 + 0.01
         let gradient = style["background_image"] != nil
-        boxDrawn = !(oneBorder && oneRadius) && (fill != nil || gradient || widths.contains { $0 > 0 })
+        // A layout transition's size shows the surface on its own layer.
+        let away = surface != nil
+        boxDrawn = !away && !(oneBorder && oneRadius) && (fill != nil || gradient || widths.contains { $0 > 0 })
         let onLayer = !boxDrawn
         var corners: CACornerMask = []
         let masks: [CACornerMask] = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
         for (r, mask) in zip(radii, masks) where r > 0 { corners.insert(mask) }
         let cornerRadius = onLayer && oneRadius ? radius : 0
-        let border = onLayer && width > 0 ? colors[0] : nil
+        let border = onLayer && width > 0 && !away ? colors[0] : nil
         // A border stays under the children, as the web paints it, unless
         // none can reach it: they are clipped, scrolled, or painted through a
         // surface. Then it is the layer's own, which Core Animation paints
@@ -158,7 +160,7 @@ extension NodeView {
             box.layer.cornerRadius = cornerRadius
             box.layer.maskedCorners = corners
         }
-        let bg = onLayer ? fill : nil
+        let bg = onLayer && !away ? fill : nil
         if layer.backgroundColor != bg { layer.backgroundColor = bg }
         if layer.cornerRadius != cornerRadius { layer.cornerRadius = cornerRadius }
         if cornerRadius > 0, layer.maskedCorners != corners { layer.maskedCorners = corners }

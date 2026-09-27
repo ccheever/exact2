@@ -160,7 +160,7 @@ fn boot_source(source: &str) -> Host<NoData> {
 }
 
 #[test]
-fn a_box_that_grows_scales_from_its_old_size_while_it_moves() {
+fn a_box_that_grows_starts_its_surface_at_its_old_size() {
     let mut host = boot_source(
         "component App\n  state open = false\n  action toggle writes open\n    open = not open\n  view\n    column\n      button press=toggle testId=\"toggle\"\n        text \"Toggle\"\n      column testId=\"card\" layout-transition=\"400ms linear\"\n        text \"Title\"\n        when open\n          view height=120\n",
     );

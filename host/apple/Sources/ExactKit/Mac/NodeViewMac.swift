@@ -208,6 +208,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var clipPath: CGPath?, clipRule = CGPathFillRule.winding
     var handlers: Set<String> = []
     var translate = CGPoint.zero, layoutOffset = CGPoint.zero, layoutScale = CGPoint(x: 1, y: 1) // layout*: the box layout moved it from (LLP 1063)
+    var surface: SurfaceLayer? // its surface at a layout transition's size (`Surface.swift`)
     var arrangeShift = CGPoint.zero
     var scale: CGFloat = 1
     var rotate: CGFloat = 0
@@ -1284,7 +1285,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let rounded = ["top_left", "top_right", "bottom_right", "bottom_left"].contains { number("border_radius_" + $0) > 0 }
         let path = roundedPath(in: bounds)
         let bg = color("background_color", .clear)
-        if bg.alphaComponent > 0 {
+        // A layout transition's size shows the surface on its own layer.
+        if bg.alphaComponent > 0, surface == nil {
             bg.setFill()
             if rounded { path.fill() } else { NSGraphicsContext.current?.cgContext.fill(bounds) }
         }
@@ -1296,7 +1298,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let top = color("border_color_top", .clear)
         let colors = ["top", "right", "bottom", "left"].map { color("border_color_" + $0, top).cgColor }
         let radii = ["top_left", "top_right", "bottom_right", "bottom_left"].map { number("border_radius_" + $0) }
-        if let ctx = NSGraphicsContext.current?.cgContext {
+        if let ctx = NSGraphicsContext.current?.cgContext, surface == nil {
             BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii)
         }
         if kind == "image", symbolView == nil, let bitmap = raster?.image {
