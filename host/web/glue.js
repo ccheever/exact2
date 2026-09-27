@@ -7,9 +7,6 @@ let httpModule;
 function httpHelpers() {
   return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
 }
-async function boundedHttpBody(response, limit) {
-  return (await httpHelpers()).boundedHttpBody(response, limit);
-}
 const root = document.getElementById("exact-root");
 const views = new Map(); // view id -> element
 // Springs, holds, drags and virtualized collections: after-paint pieces, fetched on first use (LLP 1047 D5).
@@ -33,12 +30,26 @@ const messageViews = new Set(), messageFrames = new Set(); // the latter: iframe
 let messageListening = false;
 let wasm = null, memory = null, inputReady = false, inputHandlers;
 // Native modules (LLP 1024 D3): a module node is its custom element, empty until the adapter and the app's module load after first paint (the browser's paint entry; two frames and a beat where it records none).
+let nativePaint = null;
+function afterNativePaint() {
+  return nativePaint ??= new Promise(resolve => {
+    let observer;
+    const done = () => { observer?.disconnect(); resolve(); };
+    try { observer = new PerformanceObserver(() => requestAnimationFrame(done)); observer.observe({ type: 'paint', buffered: true }); } catch {}
+    requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(done, 250)));
+  });
+}
 let nativeHost = null; function nativeCreate(el, id) { const st = el.exactNative = { id, name: el.localName, state: "loading", status() { return { name: this.name, state: this.state, ...(this.error ? { error: this.error } : {}) }; }, destroy() { this.destroyed = true; nativeHost?.then(h => h.destroy(el)); } };
-  (nativeHost ??= new Promise(r => { try { new PerformanceObserver((l, o) => { o.disconnect(); requestAnimationFrame(r); }).observe({ type: 'paint', buffered: true }); } catch {} requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 250))); }).then(() => loadAfterPaint('./native-glue.js', 'nativeHost')).then(make => make({ log, dispatch(el, kind, text) { const id = Number(el.dataset.view); if (inputReady && views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, kind, text == null ? 0 : writeIn(text), now())); } }))).then(h => h.attach(el), e => { st.state = "unavailable"; st.error = String(e?.message ?? e); log(`native ${st.name} #${id}: unavailable: ${st.error}`); }); }
+  (nativeHost ??= afterNativePaint().then(() => loadAfterPaint('./native-glue.js', 'nativeHost')).then(make => make({ log, dispatch(el, kind, text) { const id = Number(el.dataset.view); if (inputReady && views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, kind, text == null ? 0 : writeIn(text), now())); } }))).then(h => h.attach(el), e => { nativeHost = null; st.state = "unavailable"; st.error = String(e?.message ?? e); log(`native ${st.name} #${id}: unavailable: ${st.error}`); }); }
 const authoredDisabled = new WeakMap();
 let logicInfo = null, moduleLoader = null, activeModule = null, moduleResponse = new Uint8Array();
-const pageNative = Boolean(document.querySelector('meta[name="exact-native"]')); let pageNativeModule = null; // the app's module artifact answers `native.later` too (LLP 1067 D5), loaded after paint at first use (native-glue.js)
-const loadPageNative = () => pageNativeModule ??= loadAfterPaint('./native-glue.js', 'pageNative').then((load) => load(pageNative, (topic) => { if (inputReady && wasm.exact_changed) applyBatch(JSON.parse(readOut(wasm.exact_changed(writeIn(String(topic)))))); }));
+const pageNative = Boolean(document.querySelector('meta[name="exact-native"]'));
+let pageNativeModule = null;
+const loadPageNative = () => pageNativeModule ??= afterNativePaint().then(() => loadAfterPaint('./native-glue.js', 'pageNative'))
+  .then(load => load(pageNative, {
+    ready: () => inputReady, generation: () => incarnation,
+    changed: topic => { if (wasm.exact_changed) applyBatch(JSON.parse(readOut(wasm.exact_changed(writeIn(topic))))); },
+  })).catch(error => { pageNativeModule = null; throw error; });
 let rustLoader = null, rustLoading = null;
 const rustImports = Object.fromEntries(['load', 'call', 'read', 'drop'].map(name => [name, (...args) => {
   if (!rustLoader) throw new Error('Rust module loader is not ready');
@@ -675,34 +686,15 @@ function apply(batch) {
         inflight.add(p);p.finally(()=>inflight.delete(p));break;
       }
       case "request": {
-        // Host and source scopes both admit the request (LLP 1027.001 D2).
-        const { ticket, method, url, headers, body, cache } = op, requestIncarnation = incarnation;
-        if (url === "exact-native:") { // a long native call is the app's own page module's, not the network's
-          const p = loadPageNative().then((native) => native.later(body)).then((reply) => safelyFulfill(requestIncarnation, ticket, 0, 200, "", encoder.encode(reply)), (e) => safelyFulfill(requestIncarnation, ticket, 0, 500, "", encoder.encode(String(e?.message ?? e)))); inflight.add(p); p.finally(() => inflight.delete(p)); break; }
-        const scopeValid = op.scope == null || typeof op.scope === 'string' && op.scope.split('\n').map(s=>s.trim()).filter(Boolean).every(s=>grants.map(g=>g.trim()).includes(s));
-        // Plain bundled-asset GETs use the immutable app namespace.
-        const asset = method === 'GET' && !body && Object.keys(headers).length === 0 && /^\/assets\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/.test(url);
-        if (!scopeValid || !asset && (!granted(url) || !granted(url,op.scope))) {
-          deferFulfill(requestIncarnation, ticket, 2, 0, "", encoder.encode(`refused by grant: ${url}`));
-          break;
-        }
-        if (op.nativeHttp === "independent" && (!Number.isInteger(op.maxResponseBytes) || op.maxResponseBytes < 1 || op.maxResponseBytes > 64 * 1024 * 1024)) { deferFulfill(requestIncarnation, ticket, 2, 0, "", encoder.encode("invalid independent HTTP response limit")); break; }
-        let decodedBody;
-        try {
-          if (body) decodedBody = Uint8Array.from(atob(body), (c) => c.charCodeAt(0));
-        } catch (e) {
-          deferFulfill(requestIncarnation, ticket, 4, 0, "", encoder.encode(`invalid request body: ${String(e)}`));
-          throw e;
-        }
-        const controller = new AbortController();
-        controllers.add(controller);
-        const init = { method, headers, redirect: "error", cache: cache === "reload" ? "reload" : "default", signal: controller.signal };
-        if (decodedBody) init.body = decodedBody;
-        const p = (!asset && moduleLoader?.claim?.(url, init) || fetch(asset ? localAssetURL(url) : url, init)) // a data source's GET may already be in flight
-          .then(async (r) => safelyFulfill(requestIncarnation, ticket, 0, r.status, [...r.headers].map(([k, v]) => `${k}: ${v}`).join("\n"), await boundedHttpBody(r, op.maxResponseBytes)))
-          .catch((e) => safelyFulfill(requestIncarnation, ticket, controller.signal.aborted ? 4 : 1, 0, "", encoder.encode(String(e?.message ?? e))));
-        inflight.add(p);
-        p.finally(() => { inflight.delete(p); controllers.delete(controller); });
+        const requestIncarnation = incarnation;
+        const host = {
+          grants, granted, loadPageNative, moduleLoader, localAssetURL, controllers,
+          active: () => requestIncarnation === incarnation,
+        };
+        const p = httpHelpers().then(({ request }) => request(op, host))
+          .then(r => safelyFulfill(requestIncarnation, op.ticket, r.kind, r.status, r.headers, r.body))
+          .catch(error => safelyFulfill(requestIncarnation, op.ticket, 1, 0, "", encoder.encode(String(error))));
+        inflight.add(p); p.finally(() => inflight.delete(p));
         break;
       }
       case "command": {
@@ -1250,7 +1242,10 @@ function activateData() {
   const batch = JSON.parse(readOut(wasm.exact_data_ready()));
   if (batch.error) throw new Error(batch.error);
   page?.release(applyBatch); applyBatch(batch);
-  const ready = () => { setInputReady(true); collections.dataReady(); root.dataset.moduleReady = 'true'; };
+  const ready = () => {
+    setInputReady(true); collections.dataReady(); root.dataset.moduleReady = 'true';
+    if (pageNative) loadPageNative().then(native => native.drain()).catch(error => log(`native: ${error}`));
+  };
   const pending = pieces.pending(); // pieces this tree first uses: input waits for their handlers (LLP 1047 D5)
   return pending ? pending.then(ready) : ready();
 }
