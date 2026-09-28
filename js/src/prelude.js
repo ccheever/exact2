@@ -73,27 +73,36 @@
     }
   }
 
-  // --- crypto (LLP 1069.005 D2, D3): secure randomness is a device read --
+  // --- crypto (LLP 1069.005): digests are pure; entropy is a device read ---
   // Each draw inside an answer counts as an external read (op 8), as a secret
   // or SQLite read does: bake compiles no value that drew one, and the host
   // asks again on the device. A draw outside an answer (during module
-  // initialization) refuses: it would be one hidden input every answer shares.
-  // The same object on every executor: over ibex2's `crypto` natively, over
-  // the realm's own on the web. `subtle` waits for its digests and keys
-  // (D1, D1b) on all of them; until then no executor has it.
+  // initialization) refuses: it would be one hidden input every answer shares
+  // (D2, D3). `subtle` has what is built, the same on every executor: over
+  // ibex2's `crypto` and the bytes door natively, over the realm's own on the
+  // web. Every other `subtle` member refuses by name (D1).
   var platformCrypto = global.crypto;
   var fillRandom = platformCrypto.getRandomValues.bind(platformCrypto);
+  var platformSubtle = platformCrypto.subtle; // the web's, in a secure context
+  // Natively: `(op, name, arrayBuffer) -> string`, the byte work in Rust.
+  var bytesDoor = global.__exact_bytes;
+  delete global.__exact_bytes;
+  // A LAN dev page (no secure context): the dev protocol's SHA-256, which
+  // module integrity already uses there. `(Uint8Array) -> Promise<hex>`.
+  var pageDigest = global.__exact_digest;
+  delete global.__exact_digest;
+  function formatUuid(b) {
+    var text = "";
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    for (var i = 0; i < 16; i++) text += (i === 4 || i === 6 || i === 8 || i === 10 ? "-" : "") + (b[i] < 16 ? "0" : "") + b[i].toString(16);
+    return text;
+  }
   // A LAN dev page is not a secure context, so it has no `randomUUID`: the
   // same v4 bits as ibex2's `format_uuid`, from `getRandomValues`.
   var platformUuid = typeof platformCrypto.randomUUID === "function"
     ? platformCrypto.randomUUID.bind(platformCrypto)
-    : function () {
-      var b = fillRandom(new Uint8Array(16)), text = "";
-      b[6] = (b[6] & 0x0f) | 0x40;
-      b[8] = (b[8] & 0x3f) | 0x80;
-      for (var i = 0; i < 16; i++) text += (i === 4 || i === 6 || i === 8 || i === 10 ? "-" : "") + (b[i] < 16 ? "0" : "") + b[i].toString(16);
-      return text;
-    };
+    : function () { return formatUuid(fillRandom(new Uint8Array(16))); };
   var initializing = true; // until the executor first calls in
   function Crypto() { throw new TypeError("Illegal constructor"); }
   var cryptoObject = Object.create(Crypto.prototype);
@@ -112,10 +121,87 @@
   Crypto.prototype.randomUUID = function randomUUID() {
     return draw(this, "crypto.randomUUID()", platformUuid);
   };
+
+  // Host work an answer waits on that is neither a fetch nor storage (the
+  // browser's digest settles in a later task): on the web it joins the
+  // answer's storage turn, so the answer is pending on it, not on nothing.
+  // Natively the work is already done and the promise settles in the drain.
+  function hostWork(promise) {
+    var call = currentCall;
+    var work = nativeStorage && nativeStorage.work;
+    if (!call || call.status !== "pending" || typeof work !== "function") return promise;
+    call.storage++;
+    return work(promise).then(function (value) {
+      currentCall = call;
+      call.storage--;
+      return value;
+    }, function (error) {
+      currentCall = call;
+      call.storage--;
+      throw error;
+    });
+  }
+  function hexBuffer(hex) {
+    var bytes = new Uint8Array(hex.length / 2);
+    for (var i = 0; i < bytes.length; i++) bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+    return bytes.buffer;
+  }
+  // A BufferSource's bytes, copied now: later writes to it change nothing.
+  function copyBytes(data, api) {
+    if (data instanceof ArrayBuffer) return data.slice(0);
+    if (ArrayBuffer.isView(data)) return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+    throw new TypeError(api + ": the data is not an ArrayBuffer or ArrayBufferView");
+  }
+  function algorithmName(algorithm) {
+    var name = typeof algorithm === "string" ? algorithm : algorithm && algorithm.name;
+    if (typeof name !== "string") throw new TypeError("an algorithm is a name or an object with a name");
+    return name;
+  }
+  var DIGESTS = { "SHA-256": 1, "SHA-384": 1, "SHA-512": 1 };
+  function SubtleCrypto() { throw new TypeError("Illegal constructor"); }
+  var subtleObject = Object.create(SubtleCrypto.prototype);
+  function subtleCall(receiver, run) {
+    try {
+      if (receiver !== subtleObject) throw new TypeError("Illegal invocation");
+      return Promise.resolve(run());
+    } catch (e) {
+      return Promise.reject(e);
+    }
+  }
+  // Every member the web has; each refuses by name until it is built here.
+  ["encrypt", "decrypt", "sign", "verify", "digest", "generateKey", "deriveKey", "deriveBits",
+    "importKey", "exportKey", "wrapKey", "unwrapKey"].forEach(function (member) {
+    SubtleCrypto.prototype[member] = function () {
+      return subtleCall(this, function () {
+        throw new DOMException("crypto.subtle." + member + "() is unavailable in data sources", "NotSupportedError");
+      });
+    };
+  });
+  SubtleCrypto.prototype.digest = function digest(algorithm, data) {
+    return subtleCall(this, function () {
+      var given = algorithmName(algorithm), name = given.toUpperCase();
+      if (!DIGESTS[name]) throw new DOMException("crypto.subtle.digest(): " + given + " is unavailable in data sources; use SHA-256, SHA-384 or SHA-512", "NotSupportedError");
+      var bytes = copyBytes(data, "crypto.subtle.digest()");
+      if (bytesDoor) return hexBuffer(bytesDoor(1, name, bytes));
+      if (platformSubtle) return hostWork(platformSubtle.digest(name, bytes));
+      if (name === "SHA-256" && pageDigest) return hostWork(pageDigest(new Uint8Array(bytes))).then(hexBuffer);
+      throw new DOMException("crypto.subtle.digest(): " + name + " needs a secure context (HTTPS or localhost)", "NotSupportedError");
+    });
+  };
+  Object.defineProperty(SubtleCrypto.prototype, Symbol.toStringTag, { value: "SubtleCrypto", configurable: true });
+  Object.freeze(subtleObject);
+  Object.defineProperty(Crypto.prototype, "subtle", {
+    get: function () {
+      if (this !== cryptoObject) throw new TypeError("Illegal invocation");
+      return subtleObject;
+    },
+    enumerable: true,
+    configurable: true,
+  });
   Object.defineProperty(Crypto.prototype, Symbol.toStringTag, { value: "Crypto", configurable: true });
   Object.freeze(cryptoObject);
-  delete global.SubtleCrypto;
-  delete global.CryptoKey;
+  delete global.CryptoKey; // until its keys are built (D1b)
+  Object.defineProperty(global, "SubtleCrypto", { value: SubtleCrypto, writable: true, configurable: true });
   Object.defineProperty(global, "Crypto", { value: Crypto, writable: true, configurable: true });
   fixed(global, "crypto", cryptoObject);
 

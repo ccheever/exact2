@@ -138,6 +138,9 @@ export async function prepare(payload, admitted, id = nextId++) {
     for (const key of ['XMLHttpRequest', 'WebSocket', 'EventSource', 'setTimeout', 'setInterval', 'requestAnimationFrame']) {
       Object.defineProperty(win, key, { value: () => { throw new Error(`${key} is unavailable in data sources`); }, configurable: false });
     }
+    // A LAN dev page has no `crypto.subtle`: the realm's SHA-256 digest is
+    // the dev protocol's, as module integrity's is (LLP 1069.005 D1).
+    if (!win.crypto.subtle && globalThis.exact.moduleDigest) win.__exact_digest = bytes => globalThis.exact.moduleDigest(bytes);
     for (const source of [before, decoder.decode(payload.script)]) {
       const script = win.document.createElement('script'); script.textContent = source; win.document.head.append(script);
       if (initializationError) throw new Error(initializationError);
@@ -244,6 +247,13 @@ async function prepareWorker(payload, admitted, id, before, meta) {
   let disposed = false;
   const fail = message => { for (const w of waiting.values()) w.reject(new Error(message)); waiting.clear(); };
   worker.onmessage = ({ data }) => {
+    // The worker's SHA-256 on a LAN dev page, which has no `crypto.subtle`
+    // (LLP 1069.005 D1): the dev protocol's, here on the page.
+    if (data.op === 'digest') {
+      Promise.resolve().then(() => globalThis.exact.moduleDigest(data.bytes)).then(hex => worker.postMessage({ op: 'digest', id: data.id, hex }),
+        error => worker.postMessage({ op: 'digest', id: data.id, error: String(error?.message ?? error) }));
+      return;
+    }
     const w = waiting.get(data.token); if (!w) return;
     waiting.delete(data.token);
     if (data.error !== undefined) w.reject(new Error(data.error)); else w.resolve(data.result);
@@ -252,7 +262,7 @@ async function prepareWorker(payload, admitted, id, before, meta) {
   worker.onmessageerror = () => fail('module worker message failed');
   const ready = new Promise((resolve, reject) => waiting.set(0, { resolve, reject }));
   worker.postMessage({ op: 'init', token: 0, prelude: before, script: decoder.decode(payload.script), admitted,
-    storage: storageKey(admitted.appId, location.href) });
+    storage: storageKey(admitted.appId, location.href), pageDigest: !!globalThis.exact.moduleDigest });
   try { await ready; } catch (error) { worker.terminate(); throw error; }
   const realm = { frame: null, meta, id, placement: 'worker',
     forget(inFlight) {

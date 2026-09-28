@@ -12,6 +12,9 @@ const checkpoint = () => new Promise(resolve => {
 });
 let context = null, storage = null, admitted = null, tail = Promise.resolve();
 const pending = new Map();
+// The page's SHA-256 digests in flight, on a LAN dev page (see `init`).
+const digests = new Map();
+let nextDigest = 1;
 // The runner's target first: two targets asking one source with equal
 // arguments are two calls (LLP 1027 D1a).
 const key = r => JSON.stringify([r.target ?? null, r.source, r.args]);
@@ -47,6 +50,15 @@ function init(message) {
     Object.defineProperty(self, name, { value: () => { throw new Error(`${name} is unavailable in data sources`); }, configurable: false });
   }
   storage = createStorage(self, admitted, () => context.owner, message.storage);
+  // A LAN dev page has no `crypto.subtle`: SHA-256 is the dev protocol's,
+  // asked of the page (LLP 1069.005 D1).
+  if (!self.crypto.subtle && message.pageDigest) {
+    self.__exact_digest = bytes => new Promise((resolve, reject) => {
+      const id = nextDigest++;
+      digests.set(id, { resolve, reject });
+      postMessage({ op: 'digest', id, bytes });
+    });
+  }
   evaluate(message.prelude);
   self.__exact_storage = storage.capability;
   self.__exact_install_storage();
@@ -106,6 +118,11 @@ async function turn(request) {
 }
 
 self.onmessage = ({ data }) => {
+  if (data.op === 'digest') {
+    const waiter = digests.get(data.id); digests.delete(data.id);
+    if (data.error !== undefined) waiter?.reject(new Error(data.error)); else waiter?.resolve(data.hex);
+    return;
+  }
   if (data.op === 'init') {
     try { init(data); postMessage({ token: 0, result: { ok: true } }); }
     catch (error) { postMessage({ token: 0, error: String(error?.message ?? error) }); }

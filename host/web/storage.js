@@ -27,17 +27,29 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
     if (disposed) throw unavailable();
     return sqlite = createSqlite(key, admitted.grants);
   });
+  // A completion waits in its answer's queue until the answer's checkpoint.
+  const completion = owner => (complete, cleanup = () => {}) => {
+    if (disposed || retired.has(owner)) { cleanup(); return; }
+    const queue = queues.get(owner) || []; queue.push({complete, cleanup}); queues.set(owner, queue);
+    waiters.get(owner)?.(); waiters.delete(owner);
+  };
+  // Host work an answer waits on that is not storage (a browser digest, LLP
+  // 1069.005 D1) completes the same way; it needs no store, so the agent's
+  // storage refusal does not apply.
+  function work(promise) {
+    if (disposed) return win.Promise.reject(unavailable());
+    const ready = completion(scope());
+    return new win.Promise((resolve, reject) => {
+      Promise.resolve(promise).then(value => ready(() => resolve(value)), e => ready(() => reject(e)));
+    });
+  }
   function enqueue(invoke, convert = clone, discard = () => {}) {
     if (disposed) return win.Promise.reject(unavailable());
     if (key == null) return win.Promise.reject(error({message:agentStorageRefusal}));
     const owner = scope();
     const active = () => { if (disposed || retired.has(owner)) throw unavailable(); };
     return new win.Promise((resolve, reject) => {
-      const ready = (complete, cleanup = () => {}) => {
-        if (disposed || retired.has(owner)) { cleanup(); return; }
-        const queue = queues.get(owner) || []; queue.push({complete, cleanup}); queues.set(owner, queue);
-        waiters.get(owner)?.(); waiters.delete(owner);
-      };
+      const ready = completion(owner);
       Promise.resolve().then(() => { active(); return invoke(active); }).then(
         value => ready(() => { try { resolve(convert(value)); } catch(e) { discard(value); reject(error(e)); } }, () => discard(value)),
         e => ready(() => reject(error(e))),
@@ -72,7 +84,7 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
   return {
     capability: Object.freeze({fs:Object.freeze(files),sqlite:Object.freeze({open:path => enqueue(async active => {
       const backend = await databaseSystem(); active(); return backend.open(path);
-    }, database, closeDiscarded)})}),
+    }, database, closeDiscarded)}),work}),
     async deliver(owner) {
       if (disposed || retired.has(owner)) throw unavailable();
       if (!queues.get(owner)?.length) await new Promise(resolve => waiters.set(owner,resolve));

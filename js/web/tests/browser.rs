@@ -36,6 +36,7 @@ fn browser_modules_guard_their_own_builtins_and_refuse_bad_candidates() {
             "EXACT_PARITY",
             serde_json::to_string(&caltrain::oracle()).unwrap(),
         )
+        .env("EXACT_DIGESTS", expected_digests())
         .current_dir(root)
         .output()
         .unwrap();
@@ -48,6 +49,23 @@ fn browser_modules_guard_their_own_builtins_and_refuse_bad_candidates() {
     );
 }
 
+/// The entropy fixture's `digests`, as `js/tests/it/entropy.rs` computes
+/// them for Hermes (LLP 1069.005 D1): each SHA-2 size over the empty string,
+/// `abc` and 1 MiB of `i % 251`, then SHA-256 of `abc` twice more.
+fn expected_digests() -> String {
+    use sha2::Digest;
+    let large: Vec<u8> = (0..1usize << 20).map(|i| (i % 251) as u8).collect();
+    let inputs: [&[u8]; 3] = [b"", b"abc", &large];
+    let hex = |bytes: &[u8]| bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let mut lines: Vec<String> = Vec::new();
+    lines.extend(inputs.iter().map(|i| hex(&sha2::Sha256::digest(i))));
+    lines.extend(inputs.iter().map(|i| hex(&sha2::Sha384::digest(i))));
+    lines.extend(inputs.iter().map(|i| hex(&sha2::Sha512::digest(i))));
+    lines.push(hex(&sha2::Sha256::digest(b"abc")));
+    lines.push(hex(&sha2::Sha256::digest(b"abc")));
+    lines.join("\n")
+}
+
 const PROBE: &str = r#"
 import { Cdp } from './scripts/agent.mjs';
 import { webHostFiles } from './scripts/app.mjs';
@@ -56,6 +74,7 @@ import { createServer } from 'node:http';
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
+import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 const routes = Object.fromEntries(['/','/startup/'].flatMap(prefix=>
   Object.entries(webHostFiles()).map(([name,source])=>[prefix+name,source])));
@@ -101,6 +120,11 @@ const startupStub=()=>{
 const startupPage=hostPage.replace('<script type="module" src="./glue.js"></script>',`<script>(${startupStub.toString()})()</script><script type="module" src="/startup/glue.js"></script>`);
 const server = createServer((req,res)=>{
   const path=new URL(req.url,'http://fixture.invalid').pathname;
+  // The dev protocol's SHA-256 for a page with no `crypto.subtle` (LLP 1069.005 D1).
+  if(path==='/sha256'&&req.method==='POST'){
+    const hash=createHash('sha256');req.on('data',chunk=>hash.update(chunk));
+    req.on('end',()=>{res.setHeader('content-type','text/plain');res.end(hash.digest('hex'));});return;
+  }
   if(path==='/startup/storage-request.js'){
     res.setHeader('content-type','text/javascript');
     res.end(`startup.storageBeforePaint=!document.getElementById('exact-root').dataset.frameCallbackMs;globalThis.exact.createStorageRequests=(app,grants)=>({run:async()=>{startup.storageRuns++;return new Uint8Array();},dispose(){}});`);return;
@@ -135,8 +159,9 @@ if(process.env.EXACT_MODULE_ROUTES_ONLY==='1'){
 }
 const fixtures=Object.fromEntries(['inputs','castle','caltrain','ambient-init','storage','entropy'].map(name=>[name,execFileSync(process.execPath,['./node_modules/.bin/rolldown',`js/tests/fixtures/${name}.ts`,'--format','iife'],{encoding:'utf8',stdio:['ignore','pipe','pipe']})]));
 fixtures.oracle=JSON.parse(process.env.EXACT_PARITY);
+fixtures.digests=process.env.EXACT_DIGESTS;
 const profile = mkdtempSync(resolve(tmpdir(),'exact-module-browser-'));
-const child = spawn(process.env.CHROME, ['--headless=new','--no-sandbox','--remote-debugging-pipe','--no-first-run','--disable-background-networking',`--user-data-dir=${profile}`,'about:blank'],{detached:true,stdio:['ignore','ignore','ignore','pipe','pipe']});
+const child = spawn(process.env.CHROME, ['--headless=new','--no-sandbox','--remote-debugging-pipe','--no-first-run','--disable-background-networking','--host-resolver-rules=MAP lan.test 127.0.0.1',`--user-data-dir=${profile}`,'about:blank'],{detached:true,stdio:['ignore','ignore','ignore','pipe','pipe']});
 const cdp = new Cdp(child.stdio[3],child.stdio[4]);
 const exited = new Promise(r=>child.on('exit',()=>{cdp.fail('browser closed');r();}));
 try {
@@ -252,7 +277,13 @@ try {
       if(later.request?.url!=='https://fixture.exact.test/value'||later.entropy||(await ask('uuidLater',[],response())).entropy!==true)throw new Error(`${placement}: a draw after a fetch`);
       if((await ask('bytes',[4])).value.split(',').length!==4||(await ask('plain')).entropy!==false)throw new Error(`${placement}: bytes or a plain answer`);
       if((await ask('refusals')).value!=='QuotaExceededError/TypeMismatchError/TypeError')throw new Error(`${placement}: refusals`);
-      if((await ask('globals')).value!=='undefined/undefined/undefined/[object Crypto]/getRandomValues,randomUUID')throw new Error(`${placement}: crypto's shape`);
+      if((await ask('globals')).value!=='object/function/undefined/[object Crypto]/getRandomValues,randomUUID,subtle/[object SubtleCrypto]')throw new Error(`${placement}: crypto's shape`);
+      // D1: digests, the same bytes as Hermes; the rest of `subtle` refuses by name.
+      if((await ask('atInit',['digest'])).value!=='ran: function')throw new Error(`${placement}: a digest at initialization`);
+      const digested=await ask('digests');
+      if(digested.value!==fixtures.digests||digested.entropy||digested.externalRead)throw new Error(`${placement}: digests ${JSON.stringify(digested).slice(0,400)}`);
+      if((await ask('digestRefusals')).value!=='NotSupportedError/NotSupportedError/TypeError/TypeError/NotSupportedError/NotSupportedError')throw new Error(`${placement}: digest refusals`);
+      if((await ask('digestLater')).request?.url!=='https://fixture.exact.test/value'||(await ask('digestLater',[],response())).value!=='ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad')throw new Error(`${placement}: a digest after a fetch`);
       realm.dispose();
     }
 
@@ -643,6 +674,40 @@ try {
   })()`,returnByValue:true,awaitPromise:true});
   assert.equal(persisted.exceptionDetails,undefined,JSON.stringify(persisted.exceptionDetails));
   assert.equal(persisted.result.value,true,'storage survives full page reload');
+  // LLP 1069.005 D1 on a LAN dev page: plain HTTP to a name that is not
+  // loopback is no secure context, so neither realm has `crypto.subtle`.
+  // SHA-256 is the dev protocol's (here the fixture server's); SHA-384
+  // refuses by name; `randomUUID` is formed from `getRandomValues`.
+  await call('Page.navigate',{url:`http://lan.test:${server.address().port}/`});
+  const lanProbe=async(fixture)=>{
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+    if(isSecureContext||globalThis.crypto.subtle)throw new Error('lan.test is a secure context');
+    const encode=s=>new TextEncoder().encode(s);
+    const sha=async bytes=>(await fetch('/sha256',{method:'POST',body:bytes})).text();
+    globalThis.exact??={};globalThis.exact.moduleDigest=sha;
+    const {prepare,call,run}=await import('/module-glue.js');
+    const identity={appId:'test.entropy',grants:'net.fetch https://fixture.exact.test\n'};
+    const script=encode(fixture);
+    const payload={script,receipt:encode(JSON.stringify({version:1,abi:1,...identity,module:{sha256:'a'.repeat(64)},web:{file:'app.js',bytes:script.length,sha256:await sha(script)}}))};
+    const seen=[];
+    for(const placement of ['main','worker']){
+      const realm=await prepare(payload,{...identity,placement});
+      const ask=async source=>{
+        let result=call({id:realm.id,op:'answer',source,args:[],store:[],grants:[]});
+        if(placement==='worker')call({op:'dispatch',id:realm.id,token:result.continuation,store:[],grants:[]});
+        for(let i=0;result.continuation&&i<20;i++)result=await run(result.continuation);
+        return result;
+      };
+      seen.push(`${placement} ${(await ask('lan')).value} ${/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test((await ask('uuid')).value)}`);
+      realm.dispose();
+    }
+    return seen;
+  };
+  const lan=await call('Runtime.evaluate',{expression:`(${lanProbe.toString()})(${JSON.stringify(fixtures.entropy)})`,returnByValue:true,awaitPromise:true});
+  assert.equal(lan.exceptionDetails,undefined,JSON.stringify(lan.exceptionDetails));
+  const abc='ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
+  assert.deepEqual(lan.result.value,[`main ${abc}/NotSupportedError true`,`worker ${abc}/NotSupportedError true`],'a LAN page digests SHA-256 through the dev protocol');
+  console.log(JSON.stringify({lan:lan.result.value}));
   console.log(JSON.stringify(result.result.value));
   const evaluate=async expression=>{
     const result=await call('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});

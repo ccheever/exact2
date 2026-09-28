@@ -46,6 +46,7 @@
 
 #![deny(missing_docs)]
 
+mod crypto;
 mod engine;
 mod native;
 mod paired;
@@ -647,7 +648,9 @@ impl Module {
     fn load_engine(&mut self) -> Result<Watched, String> {
         let ctx = &mut *self.host as *mut HostState as *mut c_void;
         let host: HostFn = host_door;
-        let engine = Engine::new(self.max_heap, host, ctx).map_err(|e| format!("exact-js: {e}"))?;
+        let bytes: engine::BytesFn = crypto::bytes_door;
+        let engine =
+            Engine::new(self.max_heap, host, bytes, ctx).map_err(|e| format!("exact-js: {e}"))?;
         // Reachable before anything runs in it: module initialization is
         // application code too.
         let mut engine = Watched::new(engine, self.watch.clone());

@@ -16,8 +16,24 @@ mod real {
         *mut *mut c_char,
     ) -> i32;
 
+    /// The door for byte input (`__exact_bytes`, LLP 1069.005 D1):
+    /// `(ctx, op, a, bytes, len, out)`, with the host door's result rules.
+    pub type BytesFn = unsafe extern "C" fn(
+        *mut c_void,
+        u32,
+        *const c_char,
+        *const u8,
+        usize,
+        *mut *mut c_char,
+    ) -> i32;
+
     extern "C" {
-        fn exact_js_create(max_heap_bytes: u32, host: HostFn, ctx: *mut c_void) -> *mut c_void;
+        fn exact_js_create(
+            max_heap_bytes: u32,
+            host: HostFn,
+            bytes: BytesFn,
+            ctx: *mut c_void,
+        ) -> *mut c_void;
         fn exact_js_load(h: *mut c_void, data: *const u8, len: usize, out: *mut *mut c_char)
             -> i32;
         fn exact_js_string(h: *mut c_void, name: *const c_char, out: *mut *mut c_char) -> i32;
@@ -100,11 +116,16 @@ mod real {
     }
 
     impl Engine {
-        pub fn new(max_heap_bytes: u32, host: HostFn, ctx: *mut c_void) -> Result<Engine, String> {
+        pub fn new(
+            max_heap_bytes: u32,
+            host: HostFn,
+            bytes: BytesFn,
+            ctx: *mut c_void,
+        ) -> Result<Engine, String> {
             // SAFETY: the shim returns null or a pointer we own until destroy;
             // `ctx` must outlive the engine, which `Module` guarantees by
             // boxing it for its own lifetime.
-            let h = unsafe { exact_js_create(max_heap_bytes, host, ctx) };
+            let h = unsafe { exact_js_create(max_heap_bytes, host, bytes, ctx) };
             if h.is_null() {
                 return Err("the Hermes runtime could not be created".into());
             }
@@ -341,6 +362,16 @@ mod real {
         *mut *mut c_char,
     ) -> i32;
 
+    /// The bytes door's signature, likewise.
+    pub type BytesFn = unsafe extern "C" fn(
+        *mut c_void,
+        u32,
+        *const c_char,
+        *const u8,
+        usize,
+        *mut *mut c_char,
+    ) -> i32;
+
     /// No engine in this binary: every operation refuses by name.
     pub struct Engine(());
 
@@ -358,6 +389,7 @@ mod real {
         pub fn new(
             _max_heap_bytes: u32,
             _host: HostFn,
+            _bytes: BytesFn,
             _ctx: *mut c_void,
         ) -> Result<Engine, String> {
             Err(NONE.into())
@@ -399,7 +431,7 @@ mod real {
     }
 }
 
-pub(crate) use real::{Engine, HostFn, Raw};
+pub(crate) use real::{BytesFn, Engine, HostFn, Raw};
 
 /// Whether this binary links an engine at all.
 pub const ENGINE_LINKED: bool = cfg!(exact_js_engine);

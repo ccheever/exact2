@@ -33,6 +33,10 @@ private:
 
 // (ctx, op, a, b, out) -> 0 with `out` null (undefined) or a malloc'd string.
 typedef int (*HostFn)(void *ctx, uint32_t op, const char *a, const char *b, char **out);
+// (ctx, op, a, bytes, len, out): the host door for byte input (LLP 1069.005:
+// a digest's data, a key's handle and a message to sign). Same result rules.
+typedef int (*BytesFn)(void *ctx, uint32_t op, const char *a, const uint8_t *bytes, size_t len,
+                       char **out);
 
 struct CapturedString {
   std::string path;
@@ -43,6 +47,7 @@ struct State {
   std::unique_ptr<facebook::hermes::HermesRuntime> rt;
   std::vector<std::string> log;
   HostFn host;
+  BytesFn bytes;
   void *ctx;
   // Destroy the adapter (and its JSI roots) before the runtime.
   std::unique_ptr<ibex2::jsi_adapter::Adapter> storage;
@@ -146,6 +151,33 @@ void install_host(State *state) {
           }));
 }
 
+// `__exact_bytes(op, a, arrayBuffer)`: the door for bytes, which the string
+// door cannot carry (LLP 1069.005 D1). The prelude takes it too.
+void install_bytes(State *state) {
+  jsi::Runtime &rt = *state->rt;
+  rt.global().setProperty(
+      rt, "__exact_bytes",
+      jsi::Function::createFromHostFunction(
+          rt, jsi::PropNameID::forAscii(rt, "__exact_bytes"), 3,
+          [state](jsi::Runtime &rt, const jsi::Value &, const jsi::Value *args,
+                  size_t count) -> jsi::Value {
+            if (count < 3 || !args[0].isNumber() || !args[1].isString() || !args[2].isObject() ||
+                !args[2].getObject(rt).isArrayBuffer(rt)) {
+              throw jsi::JSError(rt, "__exact_bytes(op, a, bytes) takes a number, a string and an ArrayBuffer");
+            }
+            std::string a = args[1].getString(rt).utf8(rt);
+            auto buffer = args[2].getObject(rt).getArrayBuffer(rt);
+            char *out = nullptr;
+            int status = state->bytes(state->ctx, static_cast<uint32_t>(args[0].getNumber()),
+                                      a.c_str(), buffer.data(rt), buffer.size(rt), &out);
+            std::string text = out ? std::string(out) : std::string();
+            if (out) std::free(out);
+            if (status != 0) throw jsi::JSError(rt, text);
+            if (!out) return jsi::Value::undefined();
+            return jsi::String::createFromUtf8(rt, text);
+          }));
+}
+
 int fail(char **out, const std::string &message, int code) {
   if (out) *out = dup(message);
   return code;
@@ -155,7 +187,7 @@ int fail(char **out, const std::string &message, int code) {
 
 extern "C" {
 
-void *exact_js_create(uint32_t max_heap_bytes, HostFn host, void *ctx) {
+void *exact_js_create(uint32_t max_heap_bytes, HostFn host, BytesFn bytes, void *ctx) {
   try {
     auto gc = ::hermes::vm::GCConfig::Builder().withMaxHeapSize(max_heap_bytes).build();
     auto config = ::hermes::vm::RuntimeConfig::Builder()
@@ -165,9 +197,10 @@ void *exact_js_create(uint32_t max_heap_bytes, HostFn host, void *ctx) {
                       .build();
     auto rt = facebook::hermes::makeHermesRuntimeNoThrow(config);
     if (!rt) return nullptr;
-    auto *state = new State{std::move(rt), {}, host, ctx, nullptr, max_heap_bytes, 0, {}};
+    auto *state = new State{std::move(rt), {}, host, bytes, ctx, nullptr, max_heap_bytes, 0, {}};
     install_console(state);
     install_host(state);
+    install_bytes(state);
     install_capture(state);
     // Pure Ibex text bindings preserve typed buffers without JSON byte arrays.
     // No task queue or grants are required by these synchronous operations.

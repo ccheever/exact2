@@ -11,6 +11,8 @@ use exact_runner::{Answer, DataSource, Outcome, Response, Runner, Store};
 
 const HBC: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/entropy.hbc"));
 const APP: &str = "test.entropy";
+/// `crypto`'s shape, the same string the browser realms answer.
+const GLOBALS: &str = "object/function/undefined/[object Crypto]/getRandomValues,randomUUID,subtle/[object SubtleCrypto]";
 const GRANTS: &str = "net.fetch https://fixture.exact.test\n";
 
 const SRC: &str = r#"
@@ -18,6 +20,7 @@ component App
   state form = "uuid"
   resource id = uuid() as shape string
   resource plain = plain() as shape string
+  resource abc = abcDigest() as shape string
   mutation result as shape string
   action atInit writes result
     send result = atInit(form)
@@ -29,10 +32,17 @@ component App
     send result = refusals()
   action describe writes result
     send result = globals()
+  action digests writes result
+    send result = digests()
+  action digestRefusals writes result
+    send result = digestRefusals()
+  action digestLater writes result
+    send result = digestLater()
   view
     column
       text id testId="id"
       text plain testId="plain"
+      text abc testId="abc"
 "#;
 
 fn plan() -> Plan {
@@ -96,10 +106,7 @@ fn a_draw_is_a_counted_read_and_refuses_during_initialization() {
     for (source, expected) in [
         ("plain", "no randomness"),
         ("refusals", "QuotaExceededError/TypeMismatchError/TypeError"),
-        (
-            "globals",
-            "undefined/undefined/undefined/[object Crypto]/getRandomValues,randomUUID",
-        ),
+        ("globals", GLOBALS),
     ] {
         assert_eq!(
             text(module.answer(&mut store, source, &[]).unwrap()),
@@ -138,6 +145,8 @@ fn bake_compiles_no_random_value_and_the_device_asks() {
     assert_eq!(row("id").initial.len, 0, "a draw is not compiled");
     assert!(row("id").reader, "and it is the device's to answer");
     assert!(row("plain").initial.len > 0 && !row("plain").reader);
+    // D1: a digest is pure, so bake compiles its value like any other.
+    assert!(row("abc").initial.len > 0 && !row("abc").reader);
 
     let runner = Runner::boot(
         a,
@@ -151,4 +160,63 @@ fn bake_compiles_no_random_value_and_the_device_asks() {
     assert!(is_v4(&id), "{id}");
     assert!(runner.resource_reads_store("id"));
     assert!(runner.resource_draws_entropy("id") && !runner.resource_draws_entropy("plain"));
+}
+
+/// What the fixture's `digests` answers: each SHA-2 size over the empty
+/// string, `abc` and 1 MiB of `i % 251`, then SHA-256 of `abc` twice more
+/// (an algorithm object with a lowercase name over a view, and a buffer).
+fn expected_digests() -> String {
+    use sha2::Digest;
+    let large: Vec<u8> = (0..1usize << 20).map(|i| (i % 251) as u8).collect();
+    let inputs: [&[u8]; 3] = [b"", b"abc", &large];
+    let hex = |bytes: &[u8]| bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let mut lines = Vec::new();
+    for input in inputs {
+        lines.push(hex(&sha2::Sha256::digest(input)));
+    }
+    for input in inputs {
+        lines.push(hex(&sha2::Sha384::digest(input)));
+    }
+    for input in inputs {
+        lines.push(hex(&sha2::Sha512::digest(input)));
+    }
+    lines.push(hex(&sha2::Sha256::digest(b"abc")));
+    lines.push(hex(&sha2::Sha256::digest(b"abc")));
+    lines.join("\n")
+}
+
+#[test]
+fn a_digest_is_pure_on_every_input_and_refuses_the_rest_by_name() {
+    let mut module = module();
+    assert_eq!(
+        module.query("atInit", &[Value::str("digest")]).unwrap(),
+        Value::str("ran: function"),
+        "a digest is allowed during module initialization"
+    );
+    let mut store = Store::new(GRANTS, vec![]);
+    let mut answer = |source: &str| text(module.answer(&mut store, source, &[]).unwrap());
+    assert_eq!(answer("digests"), expected_digests());
+    assert_eq!(
+        answer("digestRefusals"),
+        "NotSupportedError/NotSupportedError/TypeError/TypeError/NotSupportedError/NotSupportedError"
+    );
+    assert_eq!(
+        (store.reads(), store.entropy_draws()),
+        (0, 0),
+        "a digest is no read"
+    );
+    // After a fetch, in the answer the fetch resumes.
+    assert!(matches!(
+        module.answer(&mut store, "digestLater", &[]),
+        Ok(Answer::Later(_))
+    ));
+    let reply = Outcome::Response(Response {
+        status: 200,
+        headers: vec![],
+        body: vec![],
+    });
+    assert_eq!(
+        text(module.parse(&mut store, "digestLater", &[], reply).unwrap()),
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    );
 }
