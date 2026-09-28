@@ -1,7 +1,7 @@
-#!/usr/bin/env bun
 // Proves caps rules fire in throwaway repositories and a clean repo passes;
-// also exercises the shared build and launch helpers, and runs the
-// publisher's cases in deploy.test.mjs.
+// also exercises the shared build and launch helpers.
+// `bun test ./scripts/caps.test.mjs`.
+import { test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
@@ -101,27 +101,16 @@ const cases = [
   ['a clean repository passes', { 'rules/RULES.md': GOOD_RULES, 'src/ok.js': 'const a = 1;\n' }, null],
 ];
 
-let failed = 0;
-let total = cases.length;
+// Each case is checked while the file loads and reported as a bun:test test.
+function result(name, ok, detail = '') {
+  test(name, () => { if (!ok) throw new Error(detail || `${name}: failed`); });
+}
 for (const [name, files, expect] of cases) {
   const dir = repo(files);
   const { out, code } = run(dir);
   rmSync(dir, { recursive: true, force: true });
   const ok = expect ? (code === 1 && out.includes(expect)) : code === 0;
-  if (!ok) {
-    failed += 1;
-    console.log(`FAIL  ${name}`);
-    console.log(`      expected ${expect ? `code 1 with "${expect}"` : 'code 0'}, got code ${code}`);
-    console.log(out.split('\n').map((l) => '      | ' + l).join('\n'));
-  } else {
-    console.log(`ok    ${name}`);
-  }
-}
-
-function result(name, ok, detail = '') {
-  total += 1;
-  if (ok) console.log(`ok    ${name}`);
-  else { failed += 1; console.log(`FAIL  ${name}`); if (detail) console.log(detail); }
+  result(name, ok, `expected ${expect ? `code 1 with "${expect}"` : 'code 0'}, got code ${code}\n${out}`);
 }
 async function rejects(action, matches) {
   try { await action(); return false; } catch (error) { return matches(error); }
@@ -129,7 +118,9 @@ async function rejects(action, matches) {
 // The boot check's parser must see every valid spelling that can execute.
 const BOOT_RULES = GOOD_RULES.replace('| Cold start to interactive | 100ms |', '| Cold start to interactive | 100ms |\n| App JS executed before first pixel | none |');
 function boot(html, files = {}) {
-  const dir = repo({ 'rules/RULES.md': BOOT_RULES, 'host/web/index.html': html, 'host/web/glue.js': '', 'host/web/document-glue.js': '', ...files });
+  // The pinned capture script is the one boot.mjs checks every page against.
+  const capture = readFileSync(join(dirname(BOOT), '../host/web/capture.js'), 'utf8');
+  const dir = repo({ 'rules/RULES.md': BOOT_RULES, 'host/web/index.html': html, 'host/web/glue.js': '', 'host/web/document-glue.js': '', 'host/web/capture.js': capture, ...files });
   mkdirSync(join(dir, 'scripts'), { recursive: true });
   const fixtureBoot = join(dir, 'scripts/boot.mjs');
   copyFileSync(BOOT, fixtureBoot);
@@ -700,7 +691,3 @@ for (const [name, html, files, expectCode, expect] of [
   rmSync(dir, { recursive: true, force: true });
   result('Apple packages reject linked static files and roots', copied && appRefused && hostRefused && danglingRootRefused);
 }
-const installs = spawnSync(process.execPath, ['test', join(dirname(CAPS), 'install-page.test.mjs')], { encoding: 'utf8' }); if (installs.status !== 0) console.error(installs.stdout, installs.stderr); result('install page configuration and publication', installs.status === 0);
-const deploys = spawnSync(process.execPath, [join(dirname(CAPS), 'deploy.test.mjs')], { encoding: 'utf8' }); if (deploys.status !== 0) console.error(deploys.stdout, deploys.stderr); result('publisher and origin cases (deploy.test.mjs)', deploys.status === 0);
-console.log(`\n${total - failed}/${total} passed`);
-process.exit(failed ? 1 : 0);

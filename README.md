@@ -9,8 +9,8 @@ install commands when they're missing:
 then `cargo +nightly-2026-08-21 fetch` on that toolchain's `library/Cargo.toml`.
 Node and npm are not required. Rolldown remains the app bundler; the existing
 build, serve, watch, and reload scripts run under Bun. Run tooling unit tests with
-`bun test ./scripts/install-page.test.mjs ./scripts/rust.test.mjs`; the explicit
-paths keep Bun from searching generated fixture checkouts. This is the source
+`bun test ./scripts/`; the explicit path keeps Bun from searching generated
+fixture checkouts. This is the source
 tooling installation; a standalone CLI distribution is not packaged yet.
 
 Snapback4 consumers use release **0.2.30**: the CLI and browser device are pinned

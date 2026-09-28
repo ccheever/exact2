@@ -1,9 +1,8 @@
-#!/usr/bin/env bun
 // The publisher and its origin, driven: stream heads, admission and sequence
 // allocation, classification tables, signing keys, source snapshots, stream
 // commits and origin handles (`scripts/deploy.mjs`, `scripts/origin.mjs`).
-// `bun scripts/caps.test.mjs` runs this file too; alone:
-// `bun scripts/deploy.test.mjs`.
+// `bun test ./scripts/deploy.test.mjs`.
+import { test } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign as cryptoSign } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, renameSync, writeFileSync, rmSync, symlinkSync, utimesSync } from 'node:fs';
@@ -20,12 +19,9 @@ const fixtureBuild = (id, bundle) => ({version:1,compat:{id,inputs:{store:{L:'A'
   graph:{version:1,sources:{},artifacts:[{name:'app.plan',requires:{},sha256:bundle.plan.sha256,bytes:bundle.plan.bytes?.length??0}]},binary:{sha256:'0'.repeat(64)}});
 const DEPLOY = join(dirname(fileURLToPath(import.meta.url)), 'deploy.mjs');
 
-let failed = 0;
-let total = 0;
+// Each case is checked while the file loads and reported as a bun:test test.
 function result(name, ok, detail = '') {
-  total += 1;
-  if (ok) console.log(`ok    ${name}`);
-  else { failed += 1; console.log(`FAIL  ${name}`); if (detail) console.log(detail); }
+  test(name, () => { if (!ok) throw new Error(detail || `${name}: failed`); });
 }
 async function rejects(action, matches) {
   try { await action(); return false; } catch (error) { return matches(error); }
@@ -920,5 +916,3 @@ async function rejects(action, matches) {
     shown.join('\n'));
 }
 
-console.log(`\n${total - failed}/${total} passed`);
-process.exit(failed ? 1 : 0);
