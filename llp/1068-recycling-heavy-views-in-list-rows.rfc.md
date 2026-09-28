@@ -809,7 +809,7 @@ its cells only just before they appear.
 
   The iPad's footprint peak rose (64 → 81 MB); not yet explained.
 
-## 6.1 Stage 4 proposal: flat leaf boxes (Draft, 2026-09-28; not built)
+## 6.1 Stage 4: flat leaf boxes (proposed 2026-09-28; built the same day, see §6.2)
 
 **Why.** On an iPhone 13 Pro Max a live row of the Extra Heavy feed (about
 200 nodes: 96 wave bars, three SVG rings, two playheads, text) costs 20–30
@@ -877,6 +877,61 @@ main-thread mount cost worth a second presentation path for boxes? If yes,
 step 1 is `BoxLayerIOS.swift` plus `NodePoolIOS` treating a flat leaf as
 nothing to park, with tests in `NodePoolIOSTests` for promotion, ordering
 among view siblings, and hits.
+
+## 6.2 Flat leaf boxes as built (2026-09-28, `perf/flat-leaves`)
+
+The coordinator accepted both steps under Charlie's standing rule, since
+SwiftUI draws these shapes in its display list. Both are built as §6.1
+describes, iOS only (`FlatLeavesIOS.swift`).
+
+**What is built.**
+- **Which boxes.** A node is flat only when the batch that creates it
+  also places it under a plain box (a `view` or `button` that neither
+  scrolls, captures for a canvas nor carries a surface). It must have no
+  children and nothing a layer cannot say. Any op other than the box's own
+  (create, children, frame, content, style, destroy, present) excludes it,
+  and so does being the target of a drag binding.
+- **Laid in at the batch's end.** A parent's flat leaves are laid into its
+  layer when the batch ends (`flush`), in tree order among its views.
+- **Promotion.** A promoted leaf takes its view's place in the same batch.
+- **The pool.** Flat leaves are left out of a row's shape on both sides.
+- **Step 2.** Two or more adjacent leaves with one fill, one radius on all
+  four corners, full opacity and shown are one `CAShapeLayer` of their boxes.
+
+**Parity.** Against Chrome, on an out-of-repo fixture of runs, at 1 px per
+point with the smokes' bands:
+- Step 1's 3x crops are byte-identical to views.
+- Step 2 is within 0.07/255 of the views' error on every crop the views
+  pass, and 0.09 to 0.37/255 from the views at 3x.
+- A 1.5 pt wide pill at fractional x fails the band as views too (9.6/255
+  as views, 7.4 as a run). That comes from its fractional edges.
+- The iOS smokes (app, SVG, canvas, motion) pass.
+
+**Measured** on the Extra Heavy feed's live rows, three rounds each, against
+origin/main with lazy heavy leaves:
+
+| | fling fps | late/s | main-thread ms/s |
+|---|---|---|---|
+| iPhone 13 Pro Max, before | 107.7 | 9.2 | 405 |
+| step 1 | 106.8 | 8.5 | 391 |
+| step 2 | 106.5 | 8.2 | 390 |
+| SwiftUI | 118.2 | 1.0 | 421 |
+| M1 iPad Pro, before | 119.1 (48k: 40) | 0.7 | 411 |
+| step 2 | 119.1 (48k: 65) | 0.8 | 392 |
+
+The presenter's share fell about as §6.1 bounded it, in a Time Profiler
+window (ms/s):
+- pool take and retire: 34 → 16;
+- `NodeLayer.display`: 37 → 19;
+- UIKit layout and display: 47 → 23;
+- the Core Animation commit: 63 → 43.
+
+The flat leaves themselves cost about 11. So the iPad gains at 48k pt/s
+(40 → 65 fps, SwiftUI 34). The iPhone does not: its misses are the row's
+mount as one lump, and the lump's larger half remains. That half is the
+runner's report (45), the host commit (64) and the batch decode (34), all
+of which scale with nodes, not layers. Closing it is resumable rows (LLP
+1050.000 D3's separate project) or a cheaper node path, not presentation.
 
 ## 7. `rules/DEFERRED.md`
 
