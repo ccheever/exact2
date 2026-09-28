@@ -42,7 +42,7 @@ const page = `<style>
   @keyframes pulse { from { opacity:1 } to { opacity:.2 } }
 </style><div id="exact-root"></div>
 <script type="module">
-  import { presenceLoader, animationClock } from './navigation.js';
+  import { presenceLoader, animationClock, settleValue } from './navigation.js';
   window.exact = {};
   await import('./presence-glue.js');
   const root = document.getElementById('exact-root'), views = new Map();
