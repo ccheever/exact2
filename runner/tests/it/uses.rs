@@ -161,6 +161,21 @@ fn filter_and_clip_path_are_linked_by_use() {
 }
 
 #[test]
+fn css_animations_are_linked_by_use() {
+    // @ref LLP 1055 D5 — the web core carries neither grammar unless a plan animates.
+    assert!(!used("component A\n  view\n    box opacity=0.5\n").has(Capability::Animations));
+    // `none` parses too, so a binding alone links the grammar.
+    assert!(used("component A\n  view\n    box animation=\"none\"\n").has(Capability::Animations));
+    assert!(used(
+        "keyframes fade\n  from opacity=0\ncomponent A\n  view\n    box animation=\"fade 1s\"\n"
+    )
+    .has(Capability::Animations));
+    assert!(
+        used("component A\n  view\n    box exit-animation=\"none\"\n").has(Capability::Animations)
+    );
+}
+
+#[test]
 fn a_set_names_what_it_holds_beyond_another() {
     let markdown = Uses::NONE.with(Capability::Markdown);
     assert!(markdown.beyond(markdown).is_empty());

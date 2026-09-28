@@ -46,6 +46,7 @@ pub mod spring;
 pub mod transition;
 pub mod velocity;
 
+pub use animation::link as link_animations;
 pub use animation::{
     Animation, AnimationError, Animations, Direction, FillMode, Keyframes, Phase, MAX_ANIMATIONS,
     MAX_KEYFRAMES,

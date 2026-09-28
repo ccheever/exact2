@@ -68,6 +68,8 @@ pub struct Linked {
     /// `filter`'s and `clip-path`'s grammars (LLP 1055.000 D10, D14):
     /// linked at [`link`].
     pub effects: Option<fn()>,
+    /// CSS animations' grammars (LLP 1055 D5): linked at [`link`].
+    pub animations: Option<fn()>,
 }
 
 /// `backgroundMaterial`'s pair: a material's CSS variables appended to a
@@ -99,6 +101,7 @@ impl Linked {
         timelines: None,
         text_transform: None,
         effects: None,
+        animations: None,
     };
 
     /// The capabilities registered here.
@@ -149,6 +152,9 @@ impl Linked {
         if self.effects.is_some() {
             uses = uses.with(Capability::Effects);
         }
+        if self.animations.is_some() {
+            uses = uses.with(Capability::Animations);
+        }
         uses
     }
 }
@@ -174,6 +180,9 @@ pub fn link(linked: Linked) {
         link();
     }
     if let Some(link) = linked.effects {
+        link();
+    }
+    if let Some(link) = linked.animations {
         link();
     }
     LINKED.with(|cell| cell.set(linked));

@@ -11,6 +11,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod animations;
 pub mod auth;
 pub mod backdrop;
 pub mod canvas_colors;
@@ -61,5 +62,6 @@ pub const ALL: exact_web::Linked = linked!(
     picker,
     timelines,
     text_transform,
-    effects
+    effects,
+    animations
 );

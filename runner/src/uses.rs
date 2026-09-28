@@ -61,11 +61,15 @@ pub enum Capability {
     /// `filter` and `clip-path` (LLP 1055.000 D10, D14): their grammars, for
     /// a plan that binds either row.
     Effects,
+    /// CSS animations (LLP 1055 D5): the `animation` shorthand's and
+    /// `@keyframes`' grammars, for a plan that declares keyframes or binds
+    /// `animation` or `exit-animation`.
+    Animations,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 15] = [
+    pub const ALL: [Capability; 16] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
@@ -81,6 +85,7 @@ impl Capability {
         Capability::Timelines,
         Capability::TextTransform,
         Capability::Effects,
+        Capability::Animations,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -101,6 +106,7 @@ impl Capability {
             Capability::Timelines => "timelines",
             Capability::TextTransform => "text_transform",
             Capability::Effects => "effects",
+            Capability::Animations => "animations",
         }
     }
 
@@ -159,6 +165,9 @@ impl fmt::Display for Uses {
 /// The capabilities `plan` uses (LLP 1047 D2).
 pub fn uses(plan: &Plan) -> Uses {
     let mut uses = Uses::NONE;
+    if !plan.keyframes.is_empty() {
+        uses = uses.with(Capability::Animations);
+    }
     if plan.router.is_some() {
         uses = uses.with(Capability::Router);
     }
@@ -215,6 +224,12 @@ pub fn uses(plan: &Plan) -> Uses {
                     Some(StyleId::Filter | StyleId::ClipPath)
                 ) {
                     uses = uses.with(Capability::Effects);
+                }
+                if matches!(
+                    StyleId::from_bit(u32::from(binding.id)),
+                    Some(StyleId::Animation | StyleId::ExitAnimation)
+                ) {
+                    uses = uses.with(Capability::Animations);
                 }
                 if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::Transition)
                     && can_be(binding, &|v| v.contains("spring"))

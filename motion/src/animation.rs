@@ -19,7 +19,7 @@ use crate::easing::{Easing, EasingError};
 use crate::property::{Property, Value};
 
 mod parse;
-pub use parse::{easing_css, value_css, LONGHANDS};
+pub use parse::{easing_css, link, value_css, LONGHANDS};
 
 /// Most animations one node may declare.
 pub const MAX_ANIMATIONS: usize = 8;

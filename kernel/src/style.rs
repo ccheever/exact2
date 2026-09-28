@@ -379,7 +379,7 @@ impl Color {
 /// The `transition` row's type: CSS `transition` declarations, owned by
 /// `exact-motion` so the evaluator and the kernel share one definition. The
 /// kernel owns the bytes (`wire::codec`); the engine owns the semantics.
-pub use exact_motion::{Animations, Transitions};
+pub use exact_motion::{link_animations, Animations, Transitions};
 
 /// An untyped style value from a producer that resolves rows by id — a plan
 /// runner, a compiler lowering a literal, a TypeScript encoder. Exactly one

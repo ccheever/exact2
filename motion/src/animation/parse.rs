@@ -17,10 +17,59 @@ use crate::transition::TimingFunction;
 use exact_num::Shortest;
 use std::fmt::Write as _;
 
+/// A grammar: the value, or why CSS refuses the text.
+type Grammar<T> = fn(&str) -> Result<T, ParseError>;
+
+/// The two grammars a link registers.
+struct Grammars {
+    animations: Grammar<Animations>,
+    keyframes: Grammar<Keyframes>,
+}
+
+const GRAMMARS: Grammars = Grammars {
+    animations: Animations::grammar,
+    keyframes: Keyframes::grammar,
+};
+
+/// The grammars, once linked ([`link`]). Only a wasm artifact reads it.
+#[cfg(target_arch = "wasm32")]
+static LINKED: std::sync::OnceLock<&'static Grammars> = std::sync::OnceLock::new();
+
+/// Link the `animation` shorthand's and `@keyframes`' grammars (LLP 1047
+/// D2, linked by use): ~5 KiB of a web core that none of Caltrain, RealWorld
+/// or the video player animates with. A web artifact links them when its
+/// plan declares keyframes or binds `animation` or `exit-animation`, and a
+/// plan that does so unlinked is refused at boot (D6), so an unlinked
+/// artifact never parses one. Native artifacts and the compiler parse
+/// without it.
+pub fn link() {
+    #[cfg(target_arch = "wasm32")]
+    let _ = LINKED.set(&GRAMMARS);
+}
+
+/// `text` by the grammar `pick` names, on the web once linked.
+fn parse_linked<T>(text: &str, pick: fn(&Grammars) -> Grammar<T>) -> Result<T, ParseError> {
+    #[cfg(target_arch = "wasm32")]
+    return LINKED.get().map_or_else(
+        || {
+            Err(ParseError::BadShape(
+                "CSS animations are not linked into this artifact (LLP 1047 D6)".into(),
+            ))
+        },
+        |grammars| pick(grammars)(text),
+    );
+    #[cfg(not(target_arch = "wasm32"))]
+    pick(&GRAMMARS)(text)
+}
+
 impl Animations {
     /// Parse the shorthand. Names stay unresolved (no keyframes) until
-    /// [`Animations::resolve`].
+    /// [`Animations::resolve`]. On the web, once linked ([`link`]).
     pub fn parse(text: &str) -> Result<Animations, ParseError> {
+        parse_linked(text, |g| g.animations)
+    }
+
+    fn grammar(text: &str) -> Result<Animations, ParseError> {
         let text = text.trim();
         if text.is_empty() || text == "none" {
             return Ok(Animations::NONE);
@@ -179,7 +228,12 @@ impl Keyframes {
     /// Parse a keyframes body: `<selectors>{<property>:<value>;…}…`. Keyframes
     /// sharing an offset and timing function merge (a later value wins); the
     /// result is in offset order, stable for equal offsets.
+    /// On the web, once linked ([`link`]).
     pub fn parse(text: &str) -> Result<Keyframes, ParseError> {
+        parse_linked(text, |g| g.keyframes)
+    }
+
+    fn grammar(text: &str) -> Result<Keyframes, ParseError> {
         let mut frames: Vec<Keyframe> = Vec::new();
         let mut rest = text.trim();
         while !rest.is_empty() {
