@@ -53,6 +53,23 @@ extension ExactSession {
     }
 }
 
+#if canImport(UIKit)
+extension ExactSession {
+    /// A document from Files ("Open in", LLP 1069.010 slice 4): minted
+    /// exactly, under its security scope, and delivered to the `open-file`
+    /// node once the session has booted (a cold launch brings it first).
+    public func openDocument(_ url: URL, tries: Int = 200) {
+        guard state != .destroyed else { return }
+        guard booted else {
+            if tries > 0 { DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in self?.openDocument(url, tries: tries - 1) } }
+            return
+        }
+        guard let doc = mintDocument(url) else { log("open-file: refused: \(url.lastPathComponent) is not a file"); return }
+        if !change(testId: "open-file", value: doc) { log("open-file: refused: this app has no `open-file` field") }
+    }
+}
+#endif
+
 extension Picker {
     /// `showOpenFilePicker(id[, multiple])`, `showDirectoryPicker(id)`,
     /// `showSaveFilePicker(id, suggestedName)`, from any action.

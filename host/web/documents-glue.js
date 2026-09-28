@@ -105,7 +105,14 @@ function types() {
 globalThis.exact.documents = {
   mint, run,
   install(host) {
-    // host: { dispatch(id, kind, payload), log(line) }
+    // host: { dispatch(id, kind, payload), log(line), openFile(value) }
+    // The files an installed app was launched with (`file_handlers`,
+    // `launchQueue`, LLP 1069.010 slice 4), each opened as a document.
+    globalThis.launchQueue?.setConsumer((params) => {
+      for (const handle of params.files ?? []) {
+        if (!host.openFile(mint(handle))) host.log('open-file: refused: this app has no `open-file` field');
+      }
+    });
     const chosen = (view, name, found) => {
       if (!found.length) { host.log(`${name}: cancelled`); return host.dispatch(view, 27, ''); }
       host.log(`${name}: chosen`);

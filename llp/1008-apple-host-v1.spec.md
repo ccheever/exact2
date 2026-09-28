@@ -401,7 +401,9 @@ folder), a picker's choice is minted exactly (`mintDocument`), and
 `destroy` forgets the session's handles (`forgetDocuments`). The three
 pickers are `NSOpenPanel`/`NSSavePanel` sheets on macOS and document pickers
 opening in place on iOS; every chosen URL stays under its security scope
-while the session lives.
+while the session lives. The iOS `Info.plist` declares the manifest's
+document types with `LSSupportsOpeningDocumentsInPlace`, and a file URL
+reaching the scene (Files "Open in") opens at `open-file` (slice 4).
 
 `copyText(text)` (2026-09-10, Messages) is also handled inside the session,
 after its committed batch. Exactly one string is required. iOS assigns it to

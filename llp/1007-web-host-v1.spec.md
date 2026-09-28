@@ -408,7 +408,10 @@ same door, then `documents-glue.js` calls the browser's own picker with the
 manifest's `file_handlers` as `types` and keeps each handle, minting its
 `doc:/<n>/<name>` path; `storage-request.js` runs a `doc:` storage request
 on the handle under `fs.read doc:/` / `fs.write doc:/`. A browser without
-the picker refuses and fires `cancel`.
+the picker refuses and fires `cancel`. The build's `manifest.json` carries
+`file_handlers` (files only) and `launch_handler`; after first pixel a page
+with `launchQueue` opens each launched file at `open-file` (LLP 1069.010
+slice 4).
 
 `selectText("html-id")` uses the same post-batch target and eligibility checks
 as `focus`, then focuses the input/textarea and calls its native `select()`.

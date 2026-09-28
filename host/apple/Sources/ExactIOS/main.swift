@@ -223,7 +223,10 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         let incoming = connectionOptions.urlContexts.first?.url
             ?? connectionOptions.userActivities.first(where: { $0.activityType == NSUserActivityTypeBrowsingWeb })?.webpageURL
             ?? environment["EXACT_LAUNCH_URL"].flatMap { URL(string: $0) }
-        if let url = incoming, !ExactDevelopmentLink.claims(url) { ExactIOS.session.openURL(url) }
+        // A file is a document from Files ("Open in"), opened in place
+        // (LLP 1069.010 slice 4); it lands once the session has booted.
+        if let url = incoming, url.isFileURL { ExactIOS.session.openDocument(url) }
+        else if let url = incoming, !ExactDevelopmentLink.claims(url) { ExactIOS.session.openURL(url) }
         ExactEnv.stamp("before boot")
         let w = UIWindow(windowScene: ws)
         // The launch screen's colour until the first frame names the canvas,
@@ -264,6 +267,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         if userActivity.activityType == NSUserActivityTypeBrowsingWeb, let url = userActivity.webpageURL { open(url) }
     }
     private func open(_ url: URL) {
+        if url.isFileURL { ExactIOS.session.openDocument(url); return }
         if !ExactDevelopmentLink.open(url) { ExactIOS.session.openURL(url) }
     }
     /// Seen again: the canvases follow (`Canvases.visible`).

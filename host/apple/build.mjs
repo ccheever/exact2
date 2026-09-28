@@ -528,6 +528,15 @@ export const infoPlist = (app, device = false, { executable = 'ExactIOS', id = a
     dict.NSLocalNetworkUsageDescription = typeof ios.localNetworking === 'string' ? ios.localNetworking : 'Connects to your dev server on the local network.';
   }
   if (ios.backgroundModes?.length) dict.UIBackgroundModes = ios.backgroundModes;
+  // The manifest's `file_handlers`, as on the Mac, opened in place from
+  // Files ("Open in", LLP 1069.010 slice 4), and the non-system types they
+  // name (Markdown) imported so Files can match them.
+  if (documentTypes(app).length) {
+    dict.CFBundleDocumentTypes = documentTypes(app);
+    dict.LSSupportsOpeningDocumentsInPlace = true;
+    const imported = importedTypes(app);
+    if (imported.length) dict.UTImportedTypeDeclarations = imported;
+  }
   Object.assign(dict, openingLinks(app, 'ios', development));
   Object.assign(dict, usageKeys(reach));
   Object.assign(dict, icon);
@@ -599,6 +608,20 @@ export function documentTypes(app) {
       ...(extensions.length ? { CFBundleTypeExtensions: extensions } : {}),
     };
   });
+}
+
+/** `UTImportedTypeDeclarations` for the non-`public.` types `file_handlers`
+ *  names (Markdown's `net.daringfireball.markdown`), which iOS does not
+ *  declare itself: its extensions and MIME type, conforming to plain text. */
+export function importedTypes(app) {
+  return (app.manifest.file_handlers ?? []).flatMap((handler) => Object.entries(handler.accept)
+    .filter(([mime]) => UTIS[mime] && !UTIS[mime].startsWith('public.'))
+    .map(([mime, extensions]) => ({
+      UTTypeIdentifier: UTIS[mime],
+      UTTypeDescription: handler.name ?? mime,
+      UTTypeConformsTo: ['public.plain-text'],
+      UTTypeTagSpecification: { 'public.filename-extension': extensions.map((e) => e.replace(/^\./, '')), 'public.mime-type': [mime] },
+    })));
 }
 
 /** The manifest's `launch_handler.client_mode` (LLP 1069.010 D4): the first
