@@ -49,7 +49,7 @@ export function applyCollectionFeedback(batch, applyBatch) {
 export function collectionController({ root, views, report, settled=()=>{},
   requestFrame = fn => requestAnimationFrame(fn), cancelFrame = id => cancelAnimationFrame(id), now = () => performance.now() }) {
   const states = new Map(), dirty = new Set(), waiting = new Set(), rowOwners = new WeakMap(), doc = root.ownerDocument;
-  let frame = null, delivering = false, interaction = null, reportsLeft = 4, notification=false;
+  let frame = null, delivering = false, interaction = null, reportsLeft = 4, notification=false, reported = 0;
   // LLP 1050.000 stage 1. The browser scrolls on its own thread and never
   // waits for rows (the declared deviation), so each frame's reports share a
   // slice of time: every row a report owes (what shows, the pins), then as
@@ -215,7 +215,7 @@ export function collectionController({ root, views, report, settled=()=>{},
         : Math.max(1, fits(s, deadline - now()), rowsToCover(s, rects, g, v * interval * 2 / 1000)) };
       let bytes;
       try { bytes = collectionBytes(facts, fill); } catch { continue; }
-      s.budget--; reportsLeft--;
+      s.budget--; reportsLeft--; reported++;
       for (const el of s.observed.keys()) if (!measuredSizes.has(el)) s.observed.set(el, size(el));
       measuredSizes.clear();
       delivering = true;
@@ -418,6 +418,19 @@ export function collectionController({ root, views, report, settled=()=>{},
       const s = states.get(view);
       if (s && s.port === s.el && AXES[s.axis].offset === name) jumpTo(s, at);
       else { const el = views.get(view); if (el) el[name] = at; }
+    },
+    // The agent's `clock settle` (LLP 1070 G3): report every list until a
+    // round sends nothing, reading layout now rather than waiting for the
+    // frames a real page would have run, so what shows is built and
+    // measured when the agent reads it. Bounded, like the native pumps'.
+    settle() {
+      for (let round = 0; round < 8; round++) {
+        const before = reported;
+        reportsLeft = 4 * Math.max(1, states.size);
+        for (const s of states.values()) enqueue(s, true);
+        if (!delivering) flush(true);
+        if (reported === before) break;
+      }
     },
     dataReady() {
       // A refused pre-activation action stays armed. Retry unchanged geometry

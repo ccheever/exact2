@@ -1189,6 +1189,7 @@ async function clock(request) {
     if (gpuInPlay()) await settleGpu();
     world = globalThis.exact.gpu?.clock?.(settle) ?? {};
     if (!settle) return reply();
+    collections.settle(); // every list built and measured where it shows (LLP 1070 G3)
     if (waiting().length) { if (rounds >= 15) return reply(false, true); continue; }
     const next = Math.max(settleCandidate(), world.settleAt ?? agentClock);
     if (next <= agentClock && !world.pending) return reply(true);

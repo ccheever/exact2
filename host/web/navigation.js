@@ -247,7 +247,7 @@ export function afterPaintPieces(load, o) {
   // Every first batch commits the (empty) collection set: a use only with items.
   const commit = call('collections', 'commit'), reconcile = call('collections', 'commit', false);
   const collections = { commit: items => (items.length ? commit : reconcile)(items) };
-  for (const name of ['reset', 'dataReady', 'releaseInteraction']) collections[name] = call('collections', name, false);
+  for (const name of ['reset', 'dataReady', 'releaseInteraction', 'settle']) collections[name] = call('collections', name, false);
   collections.jump = call('collections', 'jump');
   // @ref LLP 1056 D7 — Canvas 2D's replayer and ResizeObserver: its own
   // piece, injected two animation frames after the first 2D canvas's op.
