@@ -544,29 +544,39 @@ answers; cold; unthrottled / 4× CPU with 150 ms and 1.6 Mbps):
 | Video player | 69 / 610 | 59 / 583 | 102 / 2,022 |
 | Caltrain | 89 / 602 (FCP 524) | 71 / 640 (FCP 300, pre-rendered) | 267 / 2,728 (FCP 384) |
 
-**The two renderers** (`render-bench.mjs`: every request renders; one
-server, concurrency as noted; `rust` is the native render host with one
-render worker for Caltrain, four for RealWorld; `js` is one Bun process):
+**The two renderers** (`render-bench.mjs`: every request renders,
+`Cache-Control: no-store`; `rust` is the native render host, one render
+worker for Caltrain, four for RealWorld; `js` is one Bun process; after the
+render-host fixes below):
 
-| | Caltrain `/` rust | Caltrain `/` js | RealWorld `/` rust | RealWorld `/` js | RealWorld article rust | RealWorld article js |
+| | Caltrain `/` rust | Caltrain `/` js | RealWorld `/` rust (warm realms) | RealWorld `/` js | RealWorld article rust (warm) | RealWorld article js |
 |---|---|---|---|---|---|---|
-| Cold start → first page (ms) | 38–150 | 25 | 765 | 539 | 587 | 543 |
-| Latency p50 / p95 (ms) | 48 / 90 (render 1.7) | 4 / 5 | 554 / 597 | 172 / 522 | 560 / 603 | 174 / 528 |
-| CPU per page (ms) | 1.7–2.7 | 7–11 | 42 | 6 | 36 | 8 |
-| Throughput (pages/s) | 464 at 32 | 280 at 32 | 7.2 at 4 | 17.3 at 4 | 7.2 at 4 | 17.4 at 4 |
-| Resident memory warm → end (MB) | 70 → 70 | 66 → 250 | 76 → 230 | 51 → 66 | 76 → 224 | 58 → 73 |
+| Cold start → first page (ms) | 151 (10 when hot on disk) | 25–32 | 545 | 559 | 522 | 565 |
+| Latency p50 / p95 (ms), concurrency 1 | 2 / 2 | 4 / 5 | — | — | — | — |
+| Latency p50 / p95 (ms), concurrency 32 or 4 | 46 / 48 | 111 / 118 | 174 / 189 | 176 / 524 | 174 / 186 | 175 / 525 |
+| CPU per page (ms) | 2.4–2.5 | 7.7–10.9 | 6.7 (7.9 fresh realms) | 14.2 | 6.3 (7.5 fresh) | 14.2 |
+| Throughput (pages/s) | 688 at 32 | 285 at 32 | 22.5 at 4 | 17.2 at 4 | 22.4 at 4 | 17.2 at 4 |
+| Resident memory warm → end (MB) | 46 → 71 | 66 → 255 | 81 → 86 | 53 → 72 | 81 → 84 | 57 → 78 |
 | Page bytes (raw) | 58,231 | 36,977 | 78,207 | 44,698 | 52,688 | 39,567 |
 | Build time, warm (s) | ~1.0 | ~0.5 | — | — | — | — |
 
-- Rust's own render is 1.7 ms for Caltrain; about 45 ms of its end-to-end
-  latency sits in the server's request path before the render (not found
-  in three rounds; TCP_NODELAY did not change it).
-- RealWorld's renders wait on the API. The JS server reuses its HTTP
-  connections to the API, the native executor makes a new one per render;
-  most of the latency gap is that, not rendering. The Rust server's CPU per
-  page is the Hermes module realm it builds per render.
-- The JS server's memory grows under concurrent Caltrain renders (a VM
-  context and a module instance per render); not tuned.
+What changed in the render host, measured before and after:
+- **The accept loop polled** with a 10 ms sleep, which an idle macOS
+  process's timer coalescing stretched to 60–70 ms before a request was
+  accepted: Caltrain's p50 at concurrency 1 went from 48 ms to 2 ms with a
+  blocking accept (a drain wakes it with its own connection). TCP_NODELAY is
+  set too; alone it changed nothing.
+- **A fresh executor per render** meant a new TLS connection to the API for
+  every source: a worker now keeps the executors of renders that settled.
+  RealWorld's p50 went from 528–554 ms to 174–181 ms and its CPU per page
+  from 16 ms to about 5–8 ms.
+- **The first table's CPU was mostly brotli-11** of each re-kept page (a
+  `no-cache` request re-renders and re-keeps a `cached` route); `no-store`
+  renders without keeping.
+- **Warm realms** (`EXACT_RENDER_REALMS=warm`) render the next page with the
+  last settled data source instead of a new module realm, about 1.2 ms less
+  CPU per page. It relaxes LLP 1048.000 D10's fresh realm per render, so it
+  is off by default and is for anonymous pages only.
 - (a) as wasm on a JS edge runtime, *estimate*: the render host's core is
   about the size of `app.wasm` (~290 KB brotli) plus the app's data module,
   and its TypeScript sources would need the edge runtime's own engine
@@ -584,15 +594,18 @@ render worker for Caltrain, four for RealWorld; `js` is one Bun process):
 | A resource that answers later | the checkpoint lists it pending; the runtime asks after adoption | the same, from the runtime's own tickets |
 | Documents (1048.003) | the head, canonical, og, robots, status, sitemap, 404 are the render host's | title, description and 404 only; the rest is a gap |
 | Single source of truth | two renderers of one plan; the harness guards parity | one implementation renders and adopts |
-| Per-request CPU | 2 ms (Caltrain), 36–42 ms (RealWorld, Hermes) | 7–11 ms (Caltrain), 6–8 ms (RealWorld) |
+| Per-request CPU | 2.4 ms (Caltrain), 6–8 ms (RealWorld) | 8–11 ms (Caltrain), 14 ms (RealWorld) |
+| Per-request latency | Caltrain 2 ms; RealWorld p95 186 ms | Caltrain 4 ms; RealWorld p95 525 ms |
 
-**Recommendation.** Keep (a) as the default, as ruled: it is the renderer
-native hosts and the documents code already trust, it renders Caltrain at a
-fifth of (b)'s CPU, and the harness holds its pages to the JavaScript
-runtime's DOM. Keep (b) for JS edge runtimes and TypeScript-heavy apps,
-where it was cheaper per page here (no Hermes realm per render). The
-remaining gap is (b)'s documents: head fields, canonical URLs and sitemaps
-come only from (a) today.
+**Recommendation.** Keep (a) as the default, as ruled. After the fixes
+above it is ahead of (b) on every per-request row: about a third of the
+CPU, two to three times Caltrain's throughput, a third higher RealWorld
+throughput and a flat p95. It is also the renderer native hosts and the
+documents code already trust, and the harness holds its pages to the
+JavaScript runtime's DOM. Keep (b) for JS edge runtimes and
+TypeScript-heavy deployments where a native binary can't run. The remaining
+gap is (b)'s documents: head fields, canonical URLs and sitemaps come only
+from (a) today.
 
 ## 8. Open questions for Charlie
 
