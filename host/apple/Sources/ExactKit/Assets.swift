@@ -96,6 +96,14 @@ public final class AssetResolver {
         } catch { lastRefusal = lastRefusal ?? "verified asset materialization failed: \(error)"; return nil }
     }
 
+    /// The asset's file in the signed bundle, when this is the embedded
+    /// generation and the file is there; a complete generation has none.
+    func bundledURL(_ name: String) -> URL? {
+        lock.lock(); defer { lock.unlock() }
+        guard !isComplete, let url = embeddedURL(name), FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url
+    }
+
     /// The complete shader names, without loading the optional GPU module.
     func shaderSources() -> [String: Data] {
         let names: [String]

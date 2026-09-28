@@ -333,6 +333,7 @@ public final class ExactApp {
 
     /// A local asset as pinned bytes, verified before any native consumer uses it.
     func assetBytes(_ name: String) -> Data? { resolver.bytes(name) }
+    func bundledAsset(_ name: String) -> URL? { resolver.bundledURL(name) }
 
     /// Path-only native consumers receive a private materialization of those
     /// same pinned bytes; removed names never reach the embedded directory.
@@ -430,7 +431,8 @@ public final class ExactSession {
         self.app = app
         self.label = label
         runtime = Runtime()
-        text = TextEngine(resolve: { [weak app] source in app?.resolveAsset(source) }, read: { [weak app] source in app?.assetBytes(source) })
+        text = TextEngine(resolve: { [weak app] source in app?.resolveAsset(source) }, read: { [weak app] source in app?.assetBytes(source) },
+                          bundled: { [weak app] source in app?.bundledAsset(source) })
         presenter = Presenter()
         canvases = Canvases()
         webviews = WebViews()
@@ -638,7 +640,7 @@ public final class ExactSession {
         // The running tree's focus, read before the candidate replaces it.
         keptFocus = booted ? presenter.focusPlace(tree: agent("{\"op\":\"tree\"}")) : nil
         let module = module ?? app.lastModule
-        let candidate = TextEngine(resolve: { resolver.url($0) }, read: { resolver.bytes($0) })
+        let candidate = TextEngine(resolve: { resolver.url($0) }, read: { resolver.bytes($0) }, bundled: { resolver.bundledURL($0) })
         runtime.setMeasure(TextEngine.measureText, ctx: candidate.opaque)
         runtime.setFonts(TextEngine.installFonts, ctx: candidate.opaque)
         let viewport = size ?? presenter.viewportSize

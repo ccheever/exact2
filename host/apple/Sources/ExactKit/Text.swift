@@ -411,6 +411,11 @@ final class TextEngine {
     /// (LLP 1031 D1 — the committed complete generation, else the root).
     let resolve: (String) -> URL?
     let read: (String) -> Data?
+    /// A face's file in the signed app bundle, when the generation is the
+    /// embedded one (LLP 1019 D5: the descriptor from the sandboxed URL).
+    /// CoreText maps it, so its pages stay clean; a delivered generation has
+    /// none and binds the verified bytes instead.
+    let bundled: (String) -> URL?
     private var pendingFonts: [URL] = []
     /// Native callback entries, native cache hits, and native cache/layout time
     /// since session start. Rust identified-metric hits bypass this callback;
@@ -423,9 +428,11 @@ final class TextEngine {
     private var lineBreaker: CFStringTokenizer?
 
     init(resolve: @escaping (String) -> URL?, read: ((String) -> Data?)? = nil,
+         bundled: @escaping (String) -> URL? = { _ in nil },
          coldTextTargetBytes: Int = TextResidency.defaultSoftTargetBytes) {
         residency = TextResidency(softTargetBytes: coldTextTargetBytes)
         self.resolve = resolve
+        self.bundled = bundled
         self.read = read ?? { name in resolve(name).flatMap { try? Data(contentsOf: $0) } }
     }
 
@@ -495,9 +502,7 @@ final class TextEngine {
             guard let sourceBytes = row.source else { failed.insert(stack); continue }
             let source = String(decoding: UnsafeBufferPointer(start: sourceBytes, count: row.source_len), as: UTF8.self)
             guard URL(string: source)?.scheme == nil, !source.hasPrefix("/"),
-                  let bytes = read(source),
-                  let descriptors = CTFontManagerCreateFontDescriptorsFromData(bytes as CFData) as? [CTFontDescriptor],
-                  let descriptor = descriptors.first else {
+                  let descriptors = descriptors(source), let descriptor = descriptors.first else {
                 failed.insert(stack)
                 continue
             }
@@ -510,6 +515,15 @@ final class TextEngine {
             fputs("[Fonts] font.registration.failed: stack=\(stack)\n", stderr)
         }
         catalog = staged
+    }
+
+    /// A declared face's descriptors: from its bundled file, else its bytes.
+    private func descriptors(_ source: String) -> [CTFontDescriptor]? {
+        if let file = bundled(source) {
+            return CTFontManagerCreateFontDescriptorsFromURL(file as CFURL) as? [CTFontDescriptor]
+        }
+        guard let bytes = read(source) else { return nil }
+        return CTFontManagerCreateFontDescriptorsFromData(bytes as CFData) as? [CTFontDescriptor]
     }
 
     private func fontURL(_ source: String) -> URL? {
