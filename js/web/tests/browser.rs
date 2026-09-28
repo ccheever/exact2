@@ -900,11 +900,16 @@ try {
       assert.equal(active.dispatch.some(event=>event.id===3&&event.kind===1),true,'ready input dispatches edits');
       assert.equal(active.value.includes('ready'),true);assert.equal(active.disabled,true,'authored disabled state survives activation');
       assert.deepEqual(await evaluate(`['disabled-on-activation','enabled-on-activation'].map(id=>document.getElementById(id).disabled)`),[true,false],'activation prop changes override originally authored disabled state');
+      // The range is controlled (LLP 1069.001): an edit reaches the app, and the
+      // control shows the app's value, which this stub never changes.
+      const rangeEdits=`startup.dispatch.filter(event=>event.id===6&&event.kind===1).map(event=>event.value)`;
       await rangeKeyboard();
-      assert.equal(await evaluate(`document.getElementById('range').value`),'51','activated range accepts native keyboard editing');
+      assert.deepEqual(await evaluate(rangeEdits),['51'],'activated range accepts native keyboard editing');
+      assert.equal(await evaluate(`document.getElementById('range').value`),'50','the range shows the value the app holds');
       await click('range');
-      assert.equal(await evaluate(`Number(document.getElementById('range').value)<51`),true,'activated range accepts native pointer editing');
-      assert.equal(await evaluate(`startup.dispatch.filter(event=>event.id===6&&event.kind===1).length`),2,'keyboard and pointer range edits both dispatch');
+      const edits=await evaluate(rangeEdits);
+      assert.equal(edits.length,2,'keyboard and pointer range edits both dispatch');
+      assert.equal(Number(edits[1])<50,true,'activated range accepts native pointer editing');
       await click('enabled-on-activation');
       assert.equal(await evaluate(`startup.dispatch.some(event=>event.id===8&&event.kind===0)`),true,'activation can enable an originally disabled button');
       const count=await evaluate('startup.dispatch.length');await click('disabled');await click('disabled-on-activation');
