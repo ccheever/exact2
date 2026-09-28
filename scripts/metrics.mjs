@@ -753,7 +753,13 @@ if (long) {
 // against the commit: on 2026-09-27 RealWorld's core had grown 30% in a day
 // and nothing said so (LLP 1047.000 §9). Each is the size that day plus 2 KiB.
 // Raise one only on purpose, with the reason here; lower it when a cut lands.
-const WEB_CORE_KIB = { realworld: 295, 'video-player': 240, caltrain: 303 };
+// Raised 2026-09-28 (Charlie, option (c): raise to reality and cut): a day of
+// platform features (LLP 1069's auth, pickers, documents, share, streams,
+// controls, the agent's production gate; rem/em; formatters) grew every core
+// ~15 KiB past its line, and d4ef1636 linked the optional ones by use (QUEUE:
+// new optional web capabilities link by use). Each is now that size plus ~2 KiB;
+// a size lane is cutting the core, and lowers these when its cuts land.
+const WEB_CORE_KIB = { realworld: 312, 'video-player': 258, caltrain: 320 };
 
 // 8. Long: web bytes by capability (LLP 1047 D9), for the three apps the
 // size work tracks. Each app's app.wasm as shipped (raw, gzip, brotli-11),
