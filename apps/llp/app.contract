@@ -163,10 +163,15 @@ component Llp
   derive searching = query != ""
   derive sectioned = doc.section >= 0
   derive hasOutline = not isEmpty(doc.outline)
+  // The window says which project is open, not just which app this is
+  // (LLP 1033 D7): the folder the corpus lives in, from `head` (LLP
+  // 1069.010 D6).
+  derive title = index.project != "" ? `LLP — ${index.project}` : "LLP"
 
   view
     provide theme = theme
       main testId="llp-main" width="100%" height="100%" background-color=theme.page
+        head title=title
         column width="100%" height="100%"
           header width="100%" padding=10 gap=8 background-color=theme.chrome border-bottom-style="solid" border-bottom-width=1 border-color=theme.edge box-sizing="border-box"
             row gap=8 align-items="center" width="100%"

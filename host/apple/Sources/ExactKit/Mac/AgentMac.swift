@@ -54,7 +54,8 @@ extension Agent {
     /// `sessions` are what a request's `session` label routes among; the
     /// first is the default.
     public static func startStdio(sessions: [(String, ExactSession)]) {
-        routes = sessions
+        // Sessions that joined before the carrier started (`route`) stay.
+        routes = sessions + routes.filter { joined in !sessions.contains { $0.0 == joined.0 } }
         Thread { serve(fd: 0) }.start()
     }
 

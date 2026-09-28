@@ -19,6 +19,7 @@
       "accept": { "text/markdown": [".md", ".markdown"] }
     }
   ],
+  "launch_handler": { "client_mode": "navigate-new" },
   "app": { "id": "com.exact.llp", "name": "LLP", "command": "llpview" },
   "host": {
     "macos": { "minimumOS": "14.0", "window": { "width": 1280, "height": 860, "minWidth": 720, "minHeight": 400 } },

@@ -24,6 +24,7 @@
       "accept": { "inode/directory": [] }
     }
   ],
+  "launch_handler": { "client_mode": "navigate-new" },
   "app": { "id": "com.exact.markdown", "name": "Markdown", "command": "mdview" },
   "host": {
     "macos": { "minimumOS": "14.0", "window": { "width": 1000, "height": 760, "minWidth": 480, "minHeight": 360 } },

@@ -43,6 +43,19 @@ public final class Agent {
     /// The sessions a carrier routes among, by label; the first is the default.
     nonisolated(unsafe) static var routes: [(String, ExactSession)] = []
 
+    /// A session that joined after the carrier started (a document's own
+    /// window, LLP 1069.010 D4) routes by its label from now on; `nil`
+    /// forgets the label when its window closes.
+    public static func route(_ label: String, _ session: ExactSession?) {
+        routes.removeAll { $0.0 == label }
+        if let session { routes.append((label, session)) }
+    }
+
+    /// What the adapter that owns the windows observes, added to every
+    /// session's `state` (its windows and their sessions, Open Recent):
+    /// observations, never a second model.
+    nonisolated(unsafe) public static var hostState: (() -> [String: Any])?
+
     /// Serve requests from `fd` until it closes — on the calling thread:
     /// each line is answered on the main thread before the next is read.
     /// The stream closing ends the process, and says so on stderr: a driver
@@ -164,6 +177,7 @@ public final class Agent {
             let json = (try? JSONSerialization.data(withJSONObject: forward)).map { String(decoding: $0, as: UTF8.self) } ?? line
             var reply = session.agent(json)
             var nativeSections = stateSections()
+            for (key, value) in Agent.hostState?() ?? [:] { nativeSections[key] = value }
             nativeSections["presence"] = presenter.presenceObservation()
             nativeSections["media"] = presenter.views.compactMap { id, view in view.video.map { ["id": id, "state": $0.state()] as [String: Any] } }
             var raster = session.rasters.diagnostics

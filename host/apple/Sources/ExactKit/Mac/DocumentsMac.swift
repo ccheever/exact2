@@ -55,21 +55,33 @@ public enum ExactDocuments {
         urls.filter(\.isFileURL).map(\.standardizedFileURL.path)
     }
 
-    /// What the window is called once something is open: the app's name and
-    /// the folder the opened thing lives in — "LLP — exact2" for a corpus at
-    /// `~/projects/exact2/llp`, "Markdown — exact2" for a file in it. The
-    /// folder rather than the file because a reader shows the filename in
-    /// its own chrome, and because it is the project you have open that you
-    /// pick out of a window list. Empty when there is nothing above it.
-    public static func windowTitle(for path: String) -> String {
-        // An empty path is not the working directory: `URL(fileURLWithPath:)`
-        // resolves one against the process's cwd, which would title the
-        // window after wherever the app happened to be launched from.
-        guard !path.isEmpty else { return ExactEnv.appName }
-        let folder = URL(fileURLWithPath: path).standardizedFileURL.deletingLastPathComponent()
-        let name = folder.lastPathComponent
-        guard !name.isEmpty, name != "/" else { return ExactEnv.appName }
-        return "\(ExactEnv.appName) — \(name)"
+    /// Where a document lands (LLP 1069.010 D4): the manifest's W3C
+    /// `launch_handler.client_mode`, baked as `ExactLaunchMode` —
+    /// `navigate-new` gives each document its own window and session,
+    /// `navigate-existing` (the default) the window in front,
+    /// `focus-existing` the window in front unless it already shows one.
+    public static var launchMode: String {
+        ExactEnv.appMetadata["ExactLaunchMode"] as? String ?? "navigate-existing"
+    }
+
+    /// The host's router: every route in (Launch Services, the command
+    /// line, ⌘O, Open Recent) hands its paths here, and the adapter that
+    /// owns the windows decides which session each lands in. Unset, a path
+    /// goes to the session the menu serves.
+    nonisolated(unsafe) public static var route: (([String]) -> Void)?
+
+    /// File ▸ Open Recent (LLP 1069.010 D5): AppKit's own list, kept by
+    /// `NSDocumentController` with no `NSDocument` behind it. A file URL the
+    /// user chose is exactly what a security-scoped bookmark is made from,
+    /// so a sandboxed build can keep this list the same way (ruled: the Mac
+    /// App Store stays possible; no sandbox work now).
+    public static func noteRecent(_ path: String) {
+        NSDocumentController.shared.noteNewRecentDocumentURL(URL(fileURLWithPath: path))
+    }
+
+    /// What Open Recent lists, newest first.
+    public static var recent: [String] {
+        NSDocumentController.shared.recentDocumentURLs.map(\.path)
     }
 
     /// Hand each path to the app, in order. Returns whether every one
@@ -82,6 +94,8 @@ public enum ExactDocuments {
             if !session.change(testId: testId, value: path) {
                 FileHandle.standardError.write(Data("exact: \(ExactEnv.appName) has no `\(testId)` field to open \(path) with\n".utf8))
                 delivered = false
+            } else if FileManager.default.fileExists(atPath: path) {
+                noteRecent(path)
             }
         }
         return delivered
@@ -90,7 +104,7 @@ public enum ExactDocuments {
     /// File ▸ Open… — the panel, offering exactly what the manifest
     /// declares. Cancelling delivers nothing, which is what keeps the
     /// document already open (LLP 1033's milestone).
-    public static func open(into session: ExactSession) {
+    public static func open(into session: ExactSession?) {
         let declared = types
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
@@ -105,7 +119,8 @@ public enum ExactDocuments {
         }
         panel.prompt = "Open"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        deliver([url.standardizedFileURL.path], to: session)
+        let path = url.standardizedFileURL.path
+        if let route { route([path]) } else if let session { deliver([path], to: session) }
     }
 }
 #endif

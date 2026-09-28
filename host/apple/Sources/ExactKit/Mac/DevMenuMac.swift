@@ -43,12 +43,49 @@ final class EditMenuTarget: NSObject {
     }
 }
 
+/// File ▸ Open Recent without `NSDocument` (LLP 1069.010 D5): the list is
+/// `NSDocumentController`'s own — what `noteNewRecentDocumentURL` adds to,
+/// what the Dock's menu shows, what "Clear Menu" empties — drawn here with
+/// public API. AppKit fills its own recent menu only for one a nib names
+/// (or one named through a private selector, which the Mac App Store
+/// refuses; ruled: nothing here may make that harder). Choosing an entry is
+/// one more route in, to the same router as Launch Services' (LLP 1033 D3).
+final class RecentMenu: NSObject, NSMenuDelegate {
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let urls = NSDocumentController.shared.recentDocumentURLs
+        let names = urls.map { FileManager.default.displayName(atPath: $0.path) }
+        for (url, name) in zip(urls, names) {
+            // Two of the same name say which folder each is in, as AppKit's
+            // own menu does.
+            let title = names.filter { $0 == name }.count > 1 ? "\(name) — \(url.deletingLastPathComponent().lastPathComponent)" : name
+            let item = menu.addItem(withTitle: title, action: #selector(open(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = url
+            let icon = NSWorkspace.shared.icon(forFile: url.path)
+            icon.size = NSSize(width: 16, height: 16)
+            item.image = icon
+        }
+        if !urls.isEmpty { menu.addItem(.separator()) }
+        let clear = menu.addItem(withTitle: "Clear Menu", action: #selector(NSDocumentController.clearRecentDocuments(_:)), keyEquivalent: "")
+        clear.target = NSDocumentController.shared
+    }
+
+    @objc func open(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        let path = url.standardizedFileURL.path
+        if let route = ExactDocuments.route { route([path]) }
+        else if let session = DevMenu.session { ExactDocuments.deliver([path], to: session) }
+    }
+}
+
 public enum DevMenu {
     static let target = DevMenuTarget()
     static let editTarget = EditMenuTarget()
     public static var enabled: Bool { ExactEnv.environment["EXACT_DEV_MENU"] != "0" }
-    /// The session the menu reloads and describes.
-    nonisolated(unsafe) static weak var session: ExactSession?
+    /// The session the menu reloads, describes and opens into: the key
+    /// window's, which the adapter that owns the windows keeps current.
+    nonisolated(unsafe) public static weak var session: ExactSession?
     /// Where a reload without a connection restarts from: the dev loop's
     /// plan file (`EXACT_DEV_PLAN`) or `EXACT_PLAN`, else the baked plan.
     nonisolated(unsafe) static var planPath: String?
@@ -85,7 +122,14 @@ public enum DevMenu {
         // (`file_handlers`, LLP 1033) — that is what ⌘O means on this
         // platform, and Develop ▸ Open Project… takes ⇧⌘O behind it.
         if documents {
+            // ⌘N and the tab bar's + open an empty window where each
+            // document has its own (LLP 1069.010 D4): `newWindowForTab:`
+            // goes up the responder chain to the adapter that owns them.
+            if ExactDocuments.launchMode == "navigate-new" {
+                file.addItem(withTitle: "New Window", action: #selector(NSResponder.newWindowForTab(_:)), keyEquivalent: "n")
+            }
             file.addItem(withTitle: "Open…", action: #selector(DevMenuTarget.openDocument(_:)), keyEquivalent: "o").target = target
+            file.addItem(withTitle: "Open Recent", action: nil, keyEquivalent: "").submenu = recentMenu()
             file.addItem(.separator())
         }
         file.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
@@ -134,6 +178,25 @@ public enum DevMenu {
         return bar
     }
 
+    /// File ▸ Open Recent (LLP 1069.010 D5): `NSDocumentController`'s
+    /// list, drawn by `RecentMenu` each time the menu opens.
+    static let recent = RecentMenu()
+    static func recentMenu() -> NSMenu {
+        let menu = NSMenu(title: "Open Recent")
+        menu.delegate = recent
+        recent.menuNeedsUpdate(menu)
+        return menu
+    }
+
+    /// What File ▸ Open Recent shows now, drawn as it is when the menu
+    /// opens: its items' titles (the agent's `state`, LLP 1069.010).
+    public static var openRecentTitles: [String] {
+        guard let menu = NSApp.mainMenu?.items.lazy.compactMap({ $0.submenu?.item(withTitle: "Open Recent")?.submenu }).first
+        else { return [] }
+        menu.delegate?.menuNeedsUpdate?(menu)
+        return menu.items.map { $0.isSeparatorItem ? "—" : $0.title }
+    }
+
     /// The typed URL — the affordance a physical device actually uses
     /// (LLP 1023 Stage 1): seeded with the last value, kept in defaults.
     static func openProject() {
@@ -156,7 +219,6 @@ public enum DevMenu {
 
     /// File ▸ Open… — the app's own documents (LLP 1033), not a project.
     static func openDocument() {
-        guard let session else { return }
         ExactDocuments.open(into: session)
     }
 

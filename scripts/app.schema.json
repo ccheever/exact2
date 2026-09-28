@@ -167,6 +167,19 @@
         "additionalProperties": false
       }
     },
+    "launch_handler": {
+      "type": "object",
+      "description": "The W3C Web App Manifest's launch handler: where a launch or an opened document lands. `navigate-new` opens each document in its own window with its own session (LLP 1069.010 D4); `navigate-existing`, the default, delivers it to the window in front; `focus-existing` brings that window forward and delivers nothing to a window already showing a document.",
+      "properties": {
+        "client_mode": {
+          "oneOf": [
+            { "enum": ["auto", "navigate-new", "navigate-existing", "focus-existing"] },
+            { "type": "array", "items": { "enum": ["auto", "navigate-new", "navigate-existing", "focus-existing"] } }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
     "app": {
       "type": "object",
       "required": [

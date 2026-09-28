@@ -592,6 +592,14 @@ export function documentTypes(app) {
   });
 }
 
+/** The manifest's `launch_handler.client_mode` (LLP 1069.010 D4): the first
+ *  mode the Mac host has, as the W3C list is read; `auto` and absence are
+ *  the host's default, `navigate-existing`. */
+export function launchMode(app) {
+  const modes = [app.manifest.launch_handler?.client_mode ?? []].flat();
+  return modes.find((m) => m !== 'auto') ?? 'navigate-existing';
+}
+
 /** The app icon from the manifest's first square icon of at least 512 px
  * (`icons`, the web manifest's own field): loose PNGs named by
  * `CFBundleIcons` on iOS, an `.icns` built by `iconutil` on macOS. Returns
@@ -690,7 +698,7 @@ export const macInfoPlist = (app, { development = null, icon = {} } = {}) => pli
   // as `host.ios.permissions` writes them for iOS.
   ...(app.manifest.host?.macos?.permissions ?? {}),
   ...(app.manifest.host?.macos?.window ? { ExactWindow: app.manifest.host.macos.window } : {}),
-  ...(documentTypes(app).length ? { CFBundleDocumentTypes: documentTypes(app) } : {}),
+  ...(documentTypes(app).length ? { CFBundleDocumentTypes: documentTypes(app), ExactLaunchMode: launchMode(app) } : {}),
   ...openingLinks(app, 'macos', development),
 });
 

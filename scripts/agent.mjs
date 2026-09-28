@@ -4,7 +4,7 @@
 // — against a running app on either host, from one script, with the clock in
 // the driver's hands: nothing moves between two calls unless a call moved it.
 //
-// Usage:  bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--plan <file>] [--world <file>] [--url <page>] [--session <label>] [--json] <op> [<op> …]
+// Usage:  bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--plan <file>] [--world <file>] [--url <page>] [--session <label>] [--open <document> …] [--json] <op> [<op> …]
 //   tree | layout | state | logs | screenshot <png> [window] | screenshot <path> <canvas> save
 //   tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name>
 //   tap @N <choice> | type @N <value>   (a held device request, by ticket: LLP 1069.007 D4)
@@ -414,7 +414,7 @@ const bootRefusal = (error) => 'the app booted with an error: ' + error +
   (/UnsupportedVersion|FormatDigestMismatch|KernelSchemaMismatch/.test(error) ? ' (the plan and the host binary were built from different formats: rebuild the host)' : '');
 
 /** One JSON-lines protocol over stdio on macOS/Linux, or a phone's outbound socket. */
-async function openStdio({ host, plan, world, size, app, env: extra = {}, session, device = false, phone: pick, onProcess }) {
+async function openStdio({ host, plan, world, size, app, env: extra = {}, session, documents = [], device = false, phone: pick, onProcess }) {
   const a = resolveApp(app);
   const linux = host === 'linux';
   const sample = host === 'host';
@@ -454,7 +454,7 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
   const child = device
     ? spawn('xcrun', ['devicectl', 'device', 'process', 'launch', '--quiet', '--console', '--terminate-existing', '--device', ph.udid,
         '--environment-variables', JSON.stringify({ ...(size ? { EXACT_WINDOW_WIDTH: env.EXACT_WINDOW_WIDTH, EXACT_WINDOW_HEIGHT: env.EXACT_WINDOW_HEIGHT } : {}), ...extra, EXACT_AGENT: '1', ...bridge.env }), a.id], { stdio: ['pipe', 'pipe', 'pipe'] })
-    : spawn(bin, linux && env.EXACT_LAUNCH_URL ? [env.EXACT_LAUNCH_URL] : [], { env, stdio: ['pipe', 'pipe', 'pipe'] });
+    : spawn(bin, linux && env.EXACT_LAUNCH_URL ? [env.EXACT_LAUNCH_URL] : documents, { env, stdio: ['pipe', 'pipe', 'pipe'] });
   onProcess?.(child);
   const hostLines = [];
   child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l) hostLines.push('app: ' + l); });
@@ -806,7 +806,7 @@ export async function tapRefusal(session, target, error) {
 /** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `url` opens
  * the same app address on each host; `plan` boots a local compiled contract;
  * `env` adds to a native host's environment. @ref LLP 1030.000 §7 */
-export async function open({onProcess,  host = 'web', plan, world, size, env, app, session, url, webDist, reuse, device = false, phone: pick, timing = 'agent', storage, seed, locale, timeZone, epoch } = {}) {
+export async function open({onProcess,  host = 'web', plan, world, size, env, app, session, documents, url, webDist, reuse, device = false, phone: pick, timing = 'agent', storage, seed, locale, timeZone, epoch } = {}) {
   const facts = launchFacts({seed, locale, timeZone, epoch, env});
   env = {...env, ...launchEnvironment(facts)};
   if (world && !['web','mac','macos','ios','linux'].includes(host)) throw new Error(`world restore unavailable on this host yet: ${host}`);
@@ -831,7 +831,9 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
     } else env = { ...(env ?? {}), EXACT_LAUNCH_URL: url };
   }
   const carrier = device ? await openStdio({ host: 'ios', plan, world, size, env, app, device, phone: pick, onProcess })
-    : host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, size, env, app, onProcess })
+    // `documents` are the Mac's command line, a terminal's route in (LLP
+    // 1033 D3); each window's session then routes by its label (LLP 1069.010).
+    : host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, size, env, app, session, documents, onProcess })
     : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session, onProcess })
     : host === 'host-ios' ? await openIOS({ plan, app, env, session, hostFixture: true, onProcess })
     : host === 'linux' ? await openStdio({ host: 'linux', plan, size, env, app, onProcess })
@@ -1247,10 +1249,10 @@ async function main(argv) {
     return r.failed ? 1 : 0;
   }
   if (!host || !ops.length) {
-    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name> [for <ms>] | tap @N <choice> | type @N <value> | clock <ms|+ms|settle> | prefer <media feature or page fact> <value> […]\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--open <document>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name> [for <ms>] | tap @N <choice> | type @N <value> | clock <ms|+ms|settle> | prefer <media feature or page fact> <value> […]\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
-  const s = await open({ host, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch });
+  const s = await open({ host, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, documents: flags.open, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch });
   let at = 0;
   try {
     for (const [k, line] of ops.entries()) {

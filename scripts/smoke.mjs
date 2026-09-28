@@ -1344,6 +1344,31 @@ if (app.modules.tags.includes('waveform-view') && ['web', 'macos', 'ios'].includ
   await recorderSmoke({ host, open, check });
 }
 
+// 16. Documents in windows of their own (LLP 1069.010 slice 1), for an app
+// whose manifest says `navigate-new`: two documents on the command line
+// open two windows, each read through the carrier by its session's label;
+// each window's title is its `head`'s; Open Recent lists both.
+if (host === 'macos' && [app.manifest.launch_handler?.client_mode].flat()[0] === 'navigate-new') {
+  const docs = [resolve(app.dir, 'README.md'), resolve(ROOT, 'llp/1000-exact2-root.explainer.md')];
+  const d = await open({ host, documents: docs });
+  try {
+    await d.clock('settle');
+    const seen = (await d.state()).documents;
+    check(seen?.windows?.length === 2, `documents: two windows for two documents, got ${JSON.stringify(seen?.windows)}`);
+    for (const [i, w] of (seen?.windows ?? []).entries()) {
+      d.session = w.session;
+      const tree = await d.tree();
+      const head = tree.nodes.find((n) => n.type === 'Head')?.props.headTitle;
+      check(w.document === docs[i] && byTestId(tree, 'open-file')?.props.value === docs[i], `documents: session ${w.session} shows ${byTestId(tree, 'open-file')?.props.value}, not ${docs[i]}`);
+      check(head && w.title === head, `documents: window ${w.session} is titled ${JSON.stringify(w.title)}, its head ${JSON.stringify(head)}`);
+    }
+    const names = docs.map((p) => p.split('/').pop());
+    check(docs.every((p) => seen?.recent?.includes(p)) && names.every((n) => seen?.openRecentMenu?.includes(n)), `documents: Open Recent lists ${JSON.stringify(seen?.openRecentMenu)}`);
+    const second = seen?.windows?.[1];
+    console.log(`${host} documents: ${seen?.windows?.map((w) => `${w.session} "${w.title}"`).join(', ')}; the second session's first pixel ${second?.firstPixelMs} ms, footprint ${((seen?.footprint - second?.footprintBefore) / 1048576).toFixed(1)} MB since it was asked for`);
+  } catch (error) { check(false, `documents: ${error.message}`); } finally { await d.close(); }
+}
+
 // The oracle sweep is explicit browser work, never an implicit Cargo pass.
 if (host === 'web' && !argv.includes('--app-only')) {
   const sweep = spawnSync('cargo', ['test', '-p', 'exact-web', '--test', 'it', 'navigation::', '--', '--ignored', '--nocapture'], {

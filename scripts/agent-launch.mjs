@@ -12,6 +12,7 @@ export function parseFlags(argv) {
     else if (argv[i] === '--size') flags.size = argv[++i].split('x').map(Number);
     else if (argv[i] === '--test') flags.test = argv[++i];
     else if (argv[i] === '--session') flags.session = argv[++i];
+    else if (argv[i] === '--open') (flags.open ??= []).push(resolve(argv[++i]));
     else if (argv[i] === '--url') flags.url = argv[++i];
     else if (argv[i] === '--device') flags.device = true;
     else if (argv[i] === '--seed') flags.seed = Number(argv[++i]);

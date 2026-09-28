@@ -91,16 +91,8 @@ final class Adapter: ExactSessionDelegate {
     }
 }
 let adapter = Adapter()
-let session = exact.makeSession(delegate: adapter, label: "main")
-if ExactEnv.agentFreezes { session.clock = 0 }
 let launchURL = ExactEnv.environment["EXACT_LAUNCH_URL"].flatMap { URL(string: $0) }
 var launchDevelopmentURL: URL?
-if let url = launchURL {
-    if ExactDevelopmentLink.claims(url) { launchDevelopmentURL = url }
-    else { session.openURL(url) }
-}
-let view = ExactView(session: session)
-ExactEnv.stamp("Presenter (NSScrollView)")
 
 let windowConfig = ExactEnv.appMetadata["ExactWindow"] as? [String: Any] ?? [:]
 func windowDimension(_ name: String, fallback: Double) -> CGFloat {
@@ -110,28 +102,173 @@ func windowDimension(_ name: String, fallback: Double) -> CGFloat {
     return CGFloat(value.isFinite && value > 0 && value <= 16384 ? value : fallback)
 }
 let size = NSSize(width: windowDimension("width", fallback: 420), height: windowDimension("height", fallback: 860))
-let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-// Present the reading surface at its final size as soon as it is ready.
-window.animationBehavior = .none
-// Nothing restores this window — a session boots its plan and the frame has
-// its own autosave below — so AppKit's restoration has nothing to keep for it.
-// Left on, a scroll view invalidates restorable state as it scrolls and AppKit
-// flushes it every so often on the main thread, waiting on the window server
-// as it does: 19 and 25 ms, measured, at the same second of two scrolls.
-window.isRestorable = false
-ExactEnv.stamp("NSWindow")
-window.title = ExactEnv.appName
-if !agentMode && !smoke && !windowConfig.isEmpty {
-    let minimum = NSSize(width: windowDimension("minWidth", fallback: 1), height: windowDimension("minHeight", fallback: 1))
-    window.contentMinSize = minimum
-    window.setContentSize(NSSize(width: max(size.width, minimum.width), height: max(size.height, minimum.height)))
+
+/// The process's physical footprint, what Activity Monitor calls its
+/// memory: what a second session costs is read as the difference.
+func footprint() -> UInt64 {
+    var info = task_vm_info_data_t()
+    var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+    let kr = withUnsafeMutablePointer(to: &info) {
+        $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
+    }
+    return kr == KERN_SUCCESS ? info.phys_footprint : 0
 }
-// Nothing is focused at launch — the web's rule (a page focuses no field on
-// load). AppKit would otherwise make the first key view the first responder
-// when the window becomes key, and a canvas holding an input would show a
-// caret from its first frame (found by the readback fixture, LLP 1014).
-window.initialFirstResponder = view
-window.autorecalculatesKeyViewLoop = false
+
+/// One window: its own session and view (LLP 1031 D1). The first is the
+/// app's; under `launch_handler`'s `navigate-new` every further document
+/// gets one of these (LLP 1069.010 D4), and the windows share one
+/// `tabbingIdentifier`, so AppKit's window tabs come with them.
+final class DocumentWindow: NSObject, NSWindowDelegate {
+    let label: String
+    let session: ExactSession
+    let view: ExactView
+    let window: NSWindow
+    /// The document delivered here last; `nil` while the window shows the
+    /// app's own start, which the next document takes rather than opening
+    /// a window beside it.
+    var document: String?
+    /// When this window was asked for (ms on the process clock) and the
+    /// process's footprint just before: a later session's time to first
+    /// pixel and its memory are measured from these.
+    let openedMs = ExactEnv.wall()
+    let footprintBefore = footprint()
+    private var stamped = false
+
+    init(label: String, first: Bool) {
+        self.label = label
+        session = exact.makeSession(delegate: adapter, label: label)
+        if ExactEnv.agentFreezes { session.clock = 0 }
+        if first, let url = launchURL {
+            if ExactDevelopmentLink.claims(url) { launchDevelopmentURL = url }
+            else { session.openURL(url) }
+        }
+        view = ExactView(session: session)
+        if first { ExactEnv.stamp("Presenter (NSScrollView)") }
+        window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        super.init()
+        // Present the reading surface at its final size as soon as it is ready.
+        window.animationBehavior = .none
+        // Nothing restores this window — a session boots its plan and the frame has
+        // its own autosave below — so AppKit's restoration has nothing to keep for it.
+        // Left on, a scroll view invalidates restorable state as it scrolls and AppKit
+        // flushes it every so often on the main thread, waiting on the window server
+        // as it does: 19 and 25 ms, measured, at the same second of two scrolls.
+        window.isRestorable = false
+        // An embedder's window is released by its owner; this one is held by
+        // `windows` until it closes.
+        window.isReleasedWhenClosed = false
+        if first { ExactEnv.stamp("NSWindow") }
+        // Until the app's `head` names it (LLP 1069.010 D6), the app's name.
+        window.title = ExactEnv.appName
+        window.tabbingIdentifier = ExactEnv.appMetadata["CFBundleIdentifier"] as? String ?? ExactEnv.appName
+        if !agentMode && !smoke && !windowConfig.isEmpty {
+            let minimum = NSSize(width: windowDimension("minWidth", fallback: 1), height: windowDimension("minHeight", fallback: 1))
+            window.contentMinSize = minimum
+            window.setContentSize(NSSize(width: max(size.width, minimum.width), height: max(size.height, minimum.height)))
+        }
+        // Nothing is focused at launch — the web's rule (a page focuses no field on
+        // load). AppKit would otherwise make the first key view the first responder
+        // when the window becomes key, and a canvas holding an input would show a
+        // caret from its first frame (found by the readback fixture, LLP 1014).
+        window.initialFirstResponder = view
+        window.autorecalculatesKeyViewLoop = false
+        window.delegate = self
+        view.onViewportFit = { [weak self] in self?.coverChrome() }
+        // Attaching the view can boot its embedded plan before this hook is installed.
+        // Apply the current value even when the explicit boot keeps the same value.
+        coverChrome()
+    }
+
+    /// `viewport-fit=cover` (LLP 1008 §9): the window's content includes the
+    /// titlebar, the titlebar is transparent, and its height is the top safe-area
+    /// inset — the same mapping a phone uses for the status bar. Anything else
+    /// keeps a normal titled window and zero insets. The window is the adapter's;
+    /// the insets are the view's (`ExactView.syncInsets`).
+    func coverChrome() {
+        let cover = view.viewportFit == "cover"
+        if cover {
+            if !window.styleMask.contains(.fullSizeContentView) { window.styleMask.insert(.fullSizeContentView) }
+            window.titlebarAppearsTransparent = !view.hasWindowToolbar
+            window.titleVisibility = view.hasWindowToolbar ? .visible : .hidden
+            window.backgroundColor = session.pageBackground
+            if #available(macOS 11.0, *) { window.titlebarSeparatorStyle = view.hasWindowToolbar ? .automatic : .none }
+        } else {
+            if window.styleMask.contains(.fullSizeContentView) { window.styleMask.remove(.fullSizeContentView) }
+            window.titlebarAppearsTransparent = false
+            window.titleVisibility = .visible
+            if #available(macOS 11.0, *) { window.titlebarSeparatorStyle = .automatic }
+        }
+        if view.hasWindowToolbar { window.toolbarStyle = .unifiedCompact }
+        view.syncInsets()
+    }
+
+    /// The view goes into the window once its session has booted (the
+    /// first window's boot is `finishLaunching`'s), then the window's
+    /// chrome follows the app's.
+    func attach() {
+        window.contentView = view
+        view.attachWindowToolbar(to: window)
+    }
+
+    /// Hand documents to this window's session.
+    @discardableResult
+    func deliver(_ paths: [String]) -> Bool {
+        guard !paths.isEmpty, ExactDocuments.deliver(paths, to: session) else { return false }
+        document = paths.last
+        return true
+    }
+
+    /// In front — never activated under a script (LLP 1012), so a running
+    /// smoke never takes the focus from whoever is typing.
+    func front() {
+        if agentMode { window.orderFrontRegardless() } else {
+            window.makeKeyAndOrderFront(nil)
+            app.activate(ignoringOtherApps: true)
+        }
+    }
+
+    /// What the agent's `state` says of this window (LLP 1069.010).
+    var observed: [String: Any] {
+        var row: [String: Any] = [
+            "session": label, "title": window.title, "document": document ?? NSNull(),
+            "key": window.isKeyWindow, "tabs": window.tabbedWindows?.count ?? 1,
+            "footprintBefore": footprintBefore,
+        ]
+        // The first window's is from the process's start (what `metrics`
+        // reports); a later one's from when it was asked for.
+        if let drawn = session.firstDrawMs { row["firstPixelMs"] = ((drawn - (label == "main" ? 0 : openedMs)) * 10).rounded() / 10 }
+        return row
+    }
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        DevMenu.session = session
+        if !stamped, label == "main" { stamped = true; ExactEnv.stamp("windowDidBecomeKey") }
+        agentReady()
+    }
+    /// Seen again, or no longer: the canvases follow (`Canvases.visible`).
+    func windowDidChangeOcclusionState(_ notification: Notification) {
+        session.occlusionChanged()
+    }
+    /// A closed window takes its session with it (LLP 1031 D2): its runner,
+    /// its views, its label on the carrier.
+    func windowWillClose(_ notification: Notification) {
+        Agent.route(label, nil)
+        // After AppKit has finished closing the window this holds.
+        DispatchQueue.main.async { [self] in
+            windows.removeAll { $0 === self }
+            if DevMenu.session === session { DevMenu.session = windows.last?.session }
+            session.destroy()
+        }
+    }
+}
+
+let firstWindow = DocumentWindow(label: "main", first: true)
+/// Every open window, oldest first.
+var windows = [firstWindow]
+var windowCount = 1
+let session = firstWindow.session
+let view = firstWindow.view
+let window = firstWindow.window
 window.center()
 if !agentMode && !smoke && !windowConfig.isEmpty,
    let identity = ExactEnv.appMetadata["CFBundleIdentifier"] as? String {
@@ -148,79 +285,117 @@ if agentMode {
 }
 ExactEnv.stamp("center")
 
-final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+/// The window documents go to without a new one: the key window's, else
+/// the newest.
+func frontWindow() -> DocumentWindow? {
+    windows.first { $0.window.isKeyWindow } ?? windows.first { $0.window.isMainWindow } ?? windows.last
+}
+
+/// A window of its own (LLP 1069.010 D4): a new session, booted at the
+/// window's size from the plan the first one runs, then shown beside the
+/// window in front — or as a tab of it when its tab bar is showing.
+@discardableResult
+func openWindow(asTab: Bool = false) -> DocumentWindow {
+    windowCount += 1
+    let beside = frontWindow()
+    let w = DocumentWindow(label: "window-\(windowCount)", first: false)
+    let size = w.window.contentLayoutRect.size
+    if let path = ExactEnv.environment["EXACT_PLAN"], !ExactDevelopmentPlan(path).hasModule,
+       let bytes = FileManager.default.contents(atPath: path) {
+        w.session.boot(plan: bytes, size: size)
+    } else {
+        w.session.boot(size: size)
+    }
+    w.attach()
+    w.coverChrome()
+    windows.append(w)
+    Agent.route(w.label, w.session)
+    if let beside {
+        if asTab || beside.window.tabGroup?.isTabBarVisible == true {
+            beside.window.addTabbedWindow(w.window, ordered: .above)
+        } else {
+            w.window.setFrameTopLeftPoint(beside.window.cascadeTopLeft(from: NSPoint(x: beside.window.frame.minX, y: beside.window.frame.maxY)))
+        }
+    } else {
+        w.window.center()
+    }
+    w.front()
+    return w
+}
+
+/// Every route in ends here (LLP 1033 D3; the router `ExactDocuments.route`
+/// names): the manifest's `launch_handler.client_mode` decides where each
+/// document lands (LLP 1069.010 D4).
+func route(_ paths: [String]) {
+    guard !paths.isEmpty else { return }
+    let front = frontWindow()
+    switch ExactDocuments.launchMode {
+    case "navigate-new":
+        for path in paths {
+            // The window in front takes the document when it shows none yet;
+            // otherwise the document has a window of its own.
+            let target = frontWindow().flatMap { $0.document == nil ? $0 : nil } ?? openWindow()
+            target.deliver([path])
+            target.front()
+        }
+    case "focus-existing":
+        guard let front else { return }
+        if front.document == nil { front.deliver(paths) }
+        front.front()
+    default:
+        guard let front, front.deliver(paths) else { return }
+        front.front()
+    }
+}
+ExactDocuments.route = { route($0) }
+Agent.hostState = {
+    ["documents": [
+        "launchMode": ExactDocuments.launchMode,
+        "windows": windows.map(\.observed),
+        "recent": ExactDocuments.recent,
+        "openRecentMenu": DevMenu.openRecentTitles,
+        "footprint": footprint(),
+    ] as [String: Any]]
+}
+
+final class Delegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
     func applicationDidFinishLaunching(_ notification: Notification) {
         ExactEnv.stamp("didFinishLaunching")
         finishLaunching()
     }
     /// Launch Services brought something: a development link, or documents —
-    /// a Finder double-click, an Open With, `open -a`, or a second `mdview`
-    /// while this one runs. A document arriving now is why the app comes
-    /// forward; one that opens nothing leaves the window where it was.
+    /// a Finder double-click, an Open With, `open -a`, a second `mdview`
+    /// while this one runs, or File ▸ Open Recent. A document arriving now is
+    /// why the app comes forward; one that opens nothing leaves the window
+    /// where it was.
     func application(_ application: NSApplication, open urls: [URL]) {
         if let url = urls.first, ExactDevelopmentLink.claims(url) {
             if !session.booted { launchDevelopmentURL = url; return }
             ExactDevelopmentLink.open(url)
-            front(application)
+            frontWindow()?.front()
             return
         }
         // @ref LLP 1038 D8 — Launch Services delivers cold URLs before didFinishLaunching.
         if let url = urls.first(where: { !$0.isFileURL }) {
-            if session.openURL(url) { front(application) }
+            if session.openURL(url) { frontWindow()?.front() }
             return
         }
         let documents = ExactDocuments.paths(of: urls)
         if !session.booted { launchDocuments += documents; return }
-        guard !documents.isEmpty, ExactDocuments.deliver(documents, to: session) else { return }
-        if let first = documents.first { application.windows.first?.title = ExactDocuments.windowTitle(for: first) }
-        front(application)
+        route(documents)
     }
 
-    private func front(_ application: NSApplication) {
-        guard session.booted else { return }
-        application.windows.first?.makeKeyAndOrderFront(nil)
-        application.activate(ignoringOtherApps: true)
-    }
-    func windowDidBecomeKey(_ notification: Notification) {
-        if !ExactEnv.stamps.contains(where: { $0.0 == "windowDidBecomeKey" }) { ExactEnv.stamp("windowDidBecomeKey") }
-        agentReady()
-    }
-    /// Seen again, or no longer: the canvases follow (`Canvases.visible`).
-    func windowDidChangeOcclusionState(_ notification: Notification) {
-        session.occlusionChanged()
+    /// File ▸ New Window (⌘N) and the tab bar's +: an empty window, where
+    /// each document has its own (LLP 1069.010 D4).
+    @objc func newWindowForTab(_ sender: Any?) {
+        guard ExactDocuments.launchMode == "navigate-new" else { return }
+        openWindow(asTab: sender is NSWindow)
     }
 }
-/// `viewport-fit=cover` (LLP 1008 §9): the window's content includes the
-/// titlebar, the titlebar is transparent, and its height is the top safe-area
-/// inset — the same mapping a phone uses for the status bar. Anything else
-/// keeps a normal titled window and zero insets. The window is the adapter's;
-/// the insets are the view's (`ExactView.syncInsets`).
-func coverChrome() {
-    let cover = view.viewportFit == "cover"
-    if cover {
-        if !window.styleMask.contains(.fullSizeContentView) { window.styleMask.insert(.fullSizeContentView) }
-        window.titlebarAppearsTransparent = !view.hasWindowToolbar
-        window.titleVisibility = view.hasWindowToolbar ? .visible : .hidden
-        window.backgroundColor = session.pageBackground
-        if #available(macOS 11.0, *) { window.titlebarSeparatorStyle = view.hasWindowToolbar ? .automatic : .none }
-    } else {
-        if window.styleMask.contains(.fullSizeContentView) { window.styleMask.remove(.fullSizeContentView) }
-        window.titlebarAppearsTransparent = false
-        window.titleVisibility = .visible
-        if #available(macOS 11.0, *) { window.titlebarSeparatorStyle = .automatic }
-    }
-    if view.hasWindowToolbar { window.toolbarStyle = .unifiedCompact }
-    view.syncInsets()
-}
-view.onViewportFit = { coverChrome() }
-// Attaching the view can boot its embedded plan before this hook is installed.
-// Apply the current value even when the explicit boot keeps the same value.
-coverChrome()
 
 let delegate = Delegate()
 app.delegate = delegate
-window.delegate = delegate
 
 var planWatch: DispatchSourceTimer?
 var devPlanPath: String?
@@ -277,8 +452,7 @@ func finishLaunching() {
     }()
     // Boot the selected plan before attachment can auto-boot the embedded one.
     // A session mounts once, including its one autofocus attempt.
-    window.contentView = view
-    view.attachWindowToolbar(to: window)
+    firstWindow.attach()
     ExactEnv.stamp("contentView")
     let rustMs = session.rustMs
     let applyMs = session.applyMs
@@ -286,23 +460,19 @@ func finishLaunching() {
     // Becoming key can synchronously announce readiness. Initialize the guard
     // before ordering the window, not afterward (two stdin readers otherwise).
     if !launchDocuments.isEmpty {
-        ExactDocuments.deliver(launchDocuments, to: session)
-        window.title = ExactDocuments.windowTitle(for: launchDocuments[0])
+        route(launchDocuments)
         launchDocuments.removeAll()
     }
     // The documents named on the command line, now that the first frame has
     // mounted the app's own nodes. Launch Services' route into a *running* app is
     // `application(_:open urls:)` above; a terminal's is this, and the two are
-    // the same from here down. Not under a script or the smoke: those drive the
-    // app themselves and a stray argument is not a document. @ref LLP 1033 D3
-    if !agentMode && !smoke {
-        let opened = ExactDocuments.paths(in: CommandLine.arguments)
-        ExactDocuments.deliver(opened, to: session)
-        // The window says which project is open, not just which app this is
-        // (LLP 1033 D7). The path the OS handed over is the one to name it by.
-        if let first = opened.first { window.title = ExactDocuments.windowTitle(for: first) }
+    // the same from here down — and a script's (`agent.mjs --open`), whose
+    // driver names the whole command line. Not under the boot smoke, which
+    // measures the app's own start. @ref LLP 1033 D3
+    if !smoke {
+        route(ExactDocuments.paths(in: CommandLine.arguments))
     }
-    coverChrome()
+    firstWindow.coverChrome()
     window.makeKeyAndOrderFront(nil)
     if let url = launchDevelopmentURL {
         launchDevelopmentURL = nil
