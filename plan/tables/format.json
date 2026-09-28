@@ -890,11 +890,10 @@
       "returns": "number"
     },
     {
-      "name": "formatClockTime",
-      "params": [
-        "number"
-      ],
-      "returns": "string"
+      "name": "formatTime",
+      "params": ["number", "number", "\"short\""],
+      "returns": "string",
+      "_comment": "@ref LLP 1054.000.003 D1/D7: `h:mm AM` of (epochMs, utcOffset minutes east), as Intl.DateTimeFormat(\"en-US\", { timeZone: <the offset>, timeStyle: \"short\" }) prints it. Core: every app links it, as it linked formatClockTime. A parameter spelled as string literals (`\"a\" | \"b\"`) is a string the compiler requires written as one of them."
     },
     {
       "name": "formatCountdownMinutes",
@@ -1100,6 +1099,18 @@
       "params": ["any", "string"],
       "returns": "string",
       "_comment": "@ref LLP 1017.003 D4: the web's `Array.prototype.join` over a list of strings, numbers or bools, each printed as `toString` prints it."
+    },
+    {
+      "name": "formatDate",
+      "params": ["number", "number", "\"medium\" | \"month-year\""],
+      "returns": "string",
+      "_comment": "@ref LLP 1054.000.003 D2/D7/D8: the calendar date of (epochMs, utcOffset), as Intl.DateTimeFormat(\"en-US\") prints it: `medium` is { dateStyle: \"medium\" }, `month-year` is { month: \"long\", year: \"numeric\" }. The linked capability `format`."
+    },
+    {
+      "name": "formatNumber",
+      "params": ["number", "\"compact\""],
+      "returns": "string",
+      "_comment": "@ref LLP 1054.000.003 D3/D7/D8: Intl.NumberFormat(\"en-US\", { notation: \"compact\", roundingMode: \"trunc\", signDisplay: \"negative\" }). The linked capability `format`."
     }
   ],
   "_sources": "LLP 1027 D2: the data seam's signatures. One row per data-source name the app's `resource` and `send` declarations use, with the parameter types and the result type every use agrees on (the compiler refuses a disagreement by name). An executor that marshals by shape \u2014 the TypeScript module's \u2014 reads this table at bind; a Rust crate ignores it. formatVersion 3.",

@@ -47,6 +47,7 @@ mod conform;
 pub mod delivery;
 pub mod device;
 pub mod file_pickers;
+mod format;
 pub mod head;
 pub mod held;
 pub mod instance;
@@ -69,6 +70,7 @@ pub mod vm;
 pub use delivery::Delivery;
 pub use exact_canvas;
 pub use exact_plan::Value;
+pub use format::formatting;
 pub use head::Head;
 pub use instance::collection::{
     AnchorCorrection, CollectionFeedback, CollectionRow, CollectionSnapshot, FeedbackError,
@@ -85,10 +87,10 @@ pub use request::{
 pub use runner::{
     canvas_engine, routing, Advanced, Announce, CanvasEngine, CanvasLink, CanvasList, Carried,
     Checkpoint, Command, ControlValue, DataError, DataSource, DrawReply, DrawRequest, Drawn, Event,
-    Geometry, Hold, HoldAnswer, InFlight, Interrupt, Limits, ListTextPosition, Native, NativeCall,
-    NativeHandler, Picked, PickerRequest, RouterChange, RouterLink, Routing, Runner, RunnerError,
-    RunnerLinks, StreamCount, SurfaceAnswer, Target, Timed, JOURNAL_RING, MAX_CLOCK_MS, PICKED,
-    TIMER_FIRE_LIMIT,
+    FormatLink, Geometry, Hold, HoldAnswer, InFlight, Interrupt, Limits, ListTextPosition, Native,
+    NativeCall, NativeHandler, Picked, PickerRequest, RouterChange, RouterLink, Routing, Runner,
+    RunnerError, RunnerLinks, StreamCount, SurfaceAnswer, Target, Timed, JOURNAL_RING,
+    MAX_CLOCK_MS, PICKED, TIMER_FIRE_LIMIT,
 };
 pub use store::{Store, StoreError, StoreWrite};
 pub use uses::{uses, Capability, Uses};

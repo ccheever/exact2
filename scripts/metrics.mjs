@@ -770,6 +770,7 @@ if (long) {
       ['drag', /^exact_web::host::(height_drag|transform_drag|reorder_drag)$/],
       ['collections', /^exact_runner::(instance::collection|runner::(collection|lists|reorder))/],
       ['router', /^(exact_route::|exact_runner::runner::router$)/],
+      ['format', /^exact_runner::format(::|$)/],
       ['surfaces', /^exact_runner::(surface_record|runner::surface_record)$/],
       ['inspection', /^(exact_runner::(agent|compare)$|sha2::)/],
       ['documents', /^exact_web::host::(document|page)$/],

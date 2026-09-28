@@ -91,6 +91,8 @@ pub struct Env<'a> {
     pub router: Option<&'a dyn crate::runner::Routing>,
     /// The list engines, when this artifact links them (LLP 1047.000 §9).
     pub lists: Option<&'static crate::instance::ListLinks>,
+    /// The `format` capability, when linked (LLP 1054.000.003 D8).
+    pub format: crate::runner::FormatLink,
     /// State slots by index.
     pub slots: &'a [Value],
     /// Derives by index; `None` while not yet settled this update.
@@ -763,12 +765,11 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                         Err(stdlib::JoinError::TooLong) => return Err(Trap::StringTooLong { pc }),
                     }
                 } else {
-                    stdlib::call(f, call_args, env.now_ms, env.plan, env.router).map_err(
-                        |error| match error {
+                    stdlib::call(f, call_args, env.now_ms, env.plan, env.router, env.format)
+                        .map_err(|error| match error {
                             stdlib::CallError::TypeMismatch => Trap::TypeMismatch { pc, op },
                             stdlib::CallError::StringTooLong => Trap::StringTooLong { pc },
-                        },
-                    )?
+                        })?
                 };
                 stack.truncate(at);
                 stack.push(v);
@@ -940,6 +941,7 @@ mod tests {
             strings: &strings,
             router: None,
             lists: None,
+            format: None,
             slots: &[],
             derives: &[],
             resources: &[],
@@ -1042,6 +1044,7 @@ mod tests {
             strings: &strings,
             router: None,
             lists: None,
+            format: None,
             slots: &[],
             derives: &[],
             resources: &[],
@@ -1244,6 +1247,7 @@ mod tests {
                 strings: &strings,
                 router: None,
                 lists: None,
+                format: None,
                 slots: &[],
                 derives: &[],
                 resources: &[],

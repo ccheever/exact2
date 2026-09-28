@@ -14,7 +14,7 @@ pub fn method_fix(name: &str) -> String {
         "length" => "write `length(xs)`: Contract spells the web's `.length` as a roster function".into(),
         "includes" => "write `contains(s, t)` for text; `includes` on a list is refused (LLP 1017.003)".into(),
         "toString" => "write `toString(x)`".into(),
-        "trim" => "write `trim(s)` once LLP 1054.000.005 lands".into(),
+        "trim" => "write `trim(s)`".into(),
         _ => match refusal(name) {
             Some(why) => why,
             None => format!(
@@ -37,7 +37,7 @@ pub fn refusal(name: &str) -> Option<String> {
             "write `{name}(a, b)` for two numbers; `Math.{name}(...xs)` over a list is refused (LLP 1017.003): compute it in the data source, as the crypto port keeps `lo` and `hi` beside its series"
         ),
         "toFixed" | "toPrecision" => format!(
-            "`{name}` is refused (LLP 1017.003); round with `floor(v * 100 + 0.5) / 100` and print it with `toString` (or a template), or use `formatNumber` once LLP 1054.000.003 lands"
+            "`{name}` is refused (LLP 1017.003); round with `floor(v * 100 + 0.5) / 100` and print it with `toString` (or a template), or, for a count, `formatNumber(n, \"compact\")` prints `1.2K` (LLP 1054.000.003)"
         ),
         _ => return None,
     })

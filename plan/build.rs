@@ -210,20 +210,31 @@ fn validate(schema: &Schema) {
     let mut fns = BTreeSet::new();
     for f in &schema.stdlib {
         assert!(fns.insert(&f.name), "format: duplicate stdlib `{}`", f.name);
-        for t in f.params.iter().chain(std::iter::once(&f.returns)) {
+        let returns = std::iter::once((&f.returns, false));
+        for (t, param) in f.params.iter().map(|p| (p, true)).chain(returns) {
+            // A parameter spelled as string literals, `"a" | "b"` (LLP
+            // 1054.000.003 D9): a string the compiler requires written as one.
+            let literals = param
+                && t.split(" | ").all(|l| {
+                    l.len() > 2
+                        && l.starts_with('"')
+                        && l.ends_with('"')
+                        && !l[1..l.len() - 1].contains('"')
+                });
             assert!(
-                matches!(
-                    t.as_str(),
-                    "number"
-                        | "string"
-                        | "bool"
-                        | "any"
-                        | "Router"
-                        | "Entry"
-                        | "list<Router>"
-                        | "list<Entry>"
-                        | "list<string>"
-                ),
+                literals
+                    || matches!(
+                        t.as_str(),
+                        "number"
+                            | "string"
+                            | "bool"
+                            | "any"
+                            | "Router"
+                            | "Entry"
+                            | "list<Router>"
+                            | "list<Entry>"
+                            | "list<string>"
+                    ),
                 "format: stdlib `{}` type `{t}`",
                 f.name
             );
@@ -333,7 +344,7 @@ fn main() {
                 "    pub fn params(self) -> &'static [&'static str] {{ match self {{"
             );
             for f in &schema.stdlib {
-                let ps: Vec<String> = f.params.iter().map(|p| format!("\"{p}\"")).collect();
+                let ps: Vec<String> = f.params.iter().map(|p| format!("{p:?}")).collect();
                 let _ = writeln!(
                     w,
                     "        Stdlib::{} => &[{}],",
@@ -531,6 +542,22 @@ fn main() {
     let _ = writeln!(w, "    pub fn code(&self, c: Code) -> &[u8] {{ &self.code[c.offset as usize..(c.offset + c.len) as usize] }}");
     let _ = writeln!(w, "    /// The bytes of one data range.");
     let _ = writeln!(w, "    pub fn bytes(&self, b: Bytes) -> &[u8] {{ &self.data[b.offset as usize..(b.offset + b.len) as usize] }}");
+    // Every code range a row names: what a scan of the plan's calls walks,
+    // one validated body at a time (LLP 1054.000.003 D8). Plain loops and a
+    // `dyn` callback: this is in every web core, and an iterator chain or a
+    // generic callback is compiled once per table.
+    let _ = writeln!(w, "    /// Call `f` with every code range a table row names, table by table: each one a validated body, so a walk of each is a walk of every instruction a run can reach.");
+    let _ = write!(w, "    pub fn each_code(&self, f: &mut dyn FnMut(Code)) {{");
+    for t in &schema.tables {
+        for fl in t
+            .fields
+            .iter()
+            .filter(|fl| matches!(parse_codec(&fl.codec), Codec::Code))
+        {
+            let _ = write!(w, " for r in &self.{} {{ f(r.{}); }}", t.name, fl.name);
+        }
+    }
+    let _ = writeln!(w, " }}");
 
     // encode
     let _ = writeln!(w, "    /// Canonical encoding: header, pools, then every table in declaration order with fixed-width fields. Deterministic for equal plans.");

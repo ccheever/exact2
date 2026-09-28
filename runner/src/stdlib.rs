@@ -3,9 +3,10 @@
 //! @ref LLP 1004 D4 (formatting is a roster entry, added by fixture)
 //!
 //! Every entry the plan format's `stdlib` table names has exactly one body
-//! here or in the router conversion module. Time formatting is UTC and locale-free by design: the v1 app
-//! is a schedule board, and a deterministic string is what the corpus and the
-//! agent compare.
+//! here, in the router conversion module, or in the linked `format` module
+//! (LLP 1054.000.003 D8). Formatting is `en-US` at a fixed UTC offset the
+//! call names, by design: a deterministic string is what the corpus and the
+//! agent compare, and the web's `Intl` is its oracle.
 
 use exact_plan::{Plan, Stdlib, Value};
 use std::rc::Rc;
@@ -26,6 +27,7 @@ pub fn call(
     now_ms: f64,
     plan: &Plan,
     router: Option<&dyn crate::runner::Routing>,
+    format: crate::runner::FormatLink,
 ) -> Result<Value, CallError> {
     if f == Stdlib::T {
         // The compiler proved the key and placeholder names. Check the
@@ -52,7 +54,7 @@ pub fn call(
         .map(|s| Value::Str(Rc::from(s)))
         .ok_or(CallError::StringTooLong);
     }
-    call_value(f, args, now_ms, plan, router).ok_or(CallError::TypeMismatch)
+    call_value(f, args, now_ms, plan, router, format).ok_or(CallError::TypeMismatch)
 }
 
 fn call_value(
@@ -61,6 +63,7 @@ fn call_value(
     now_ms: f64,
     plan: &Plan,
     router: Option<&dyn crate::runner::Routing>,
+    format: crate::runner::FormatLink,
 ) -> Option<Value> {
     let num = |i: usize| args.get(i).and_then(Value::as_number);
     Some(match f {
@@ -103,7 +106,12 @@ fn call_value(
             _ => return None,
         },
         Stdlib::Now => Value::Number(now_ms),
-        Stdlib::FormatClockTime => Value::str(&format_clock_time(num(0)?)),
+        Stdlib::FormatTime => match args.get(2)?.as_str()? {
+            "short" => format_time(num(0)?, num(1)?),
+            _ => return None,
+        },
+        // @ref LLP 1054.000.003 D8 — the linked capability, or a trap.
+        Stdlib::FormatDate | Stdlib::FormatNumber => return format?(f, args),
         Stdlib::FormatCountdownMinutes => {
             let minutes = ((num(0)? - num(1)?) / 60_000.0).ceil().max(0.0);
             Value::str(&format!("{}", minutes as i64))
@@ -311,19 +319,55 @@ fn is_js_space(c: char) -> bool {
     )
 }
 
-/// `h:mm AM` from milliseconds since the Unix epoch, UTC.
-pub fn format_clock_time(ms: f64) -> String {
-    let seconds = (ms / 1000.0).floor() as i64;
-    let day_seconds = seconds.rem_euclid(86_400);
-    let hours = day_seconds / 3600;
-    let minutes = (day_seconds % 3600) / 60;
-    let (h12, suffix) = match hours {
-        0 => (12, "AM"),
-        1..=11 => (hours, "AM"),
-        12 => (12, "PM"),
-        _ => (hours - 12, "PM"),
+/// The first and last wall times a date or time is formatted at:
+/// 0001-01-01T00:00 and 9999-12-31T23:59:59.999 (LLP 1054.000.003 D7).
+const FIRST_WALL_MS: f64 = -62_135_596_800_000.0;
+const LAST_WALL_MS: f64 = 253_402_300_799_999.0;
+
+/// The wall time of `epoch_ms` at `utc_offset` minutes east, in the one
+/// order LLP 1054.000.003 D7 names:
+/// 1. a non-finite argument, or an offset past ±18 h, is invalid;
+/// 2. the instant is clipped first, as ECMA-262's TimeClip does (truncated
+///    toward zero, so `-0.5` is the epoch), as `new Date(epochMs)` is;
+/// 3. then shifted by `utc_offset × 60,000` ms, as a fixed-offset
+///    `timeZone` shifts it;
+/// 4. and the shifted wall time must fall in years 1–9999.
+///
+/// There is no zero sentinel: `0` is 1970-01-01T00:00Z, as it is to `Intl`.
+/// `None` is invalid, which every entry prints as `""`.
+pub(crate) fn wall_ms(epoch_ms: f64, utc_offset: f64) -> Option<f64> {
+    if !epoch_ms.is_finite() || !utc_offset.is_finite() || utc_offset.abs() > 1080.0 {
+        return None;
+    }
+    let wall = epoch_ms.trunc() + utc_offset * 60_000.0;
+    (FIRST_WALL_MS..=LAST_WALL_MS)
+        .contains(&wall)
+        .then_some(wall)
+}
+
+/// `formatTime(epochMs, utcOffset, "short")`: `h:mm AM`, as
+/// `Intl.DateTimeFormat("en-US", { timeStyle: "short" })` prints it in a
+/// fixed-offset zone, with U+0020 before the day period
+/// (@ref LLP 1054.000.003 D1, D7).
+pub fn format_time(epoch_ms: f64, utc_offset: f64) -> Value {
+    let Some(wall) = wall_ms(epoch_ms, utc_offset) else {
+        return Value::str("");
     };
-    format!("{h12}:{minutes:02} {suffix}")
+    let minutes = (wall.rem_euclid(86_400_000.0) / 60_000.0).floor() as u32;
+    let (hours, minutes) = (minutes / 60, minutes % 60);
+    let (h12, suffix) = match hours {
+        0 => (12, " AM"),
+        1..=11 => (hours, " AM"),
+        12 => (12, " PM"),
+        _ => (hours - 12, " PM"),
+    };
+    let mut out = String::with_capacity(8);
+    push_number(f64::from(h12), &mut out);
+    out.push(':');
+    out.push(char::from(b'0' + (minutes / 10) as u8));
+    out.push(char::from(b'0' + (minutes % 10) as u8));
+    out.push_str(suffix);
+    Value::str(&out)
 }
 
 #[cfg(test)]
@@ -368,7 +412,14 @@ mod tests {
             (f64::MIN_POSITIVE, "2.2250738585072014e-308"),
         ] {
             assert_eq!(
-                call(Stdlib::ToString, &[Value::Number(value)], 0.0, &plan, None),
+                call(
+                    Stdlib::ToString,
+                    &[Value::Number(value)],
+                    0.0,
+                    &plan,
+                    None,
+                    None
+                ),
                 Ok(Value::str(expected)),
                 "{value}"
             );
@@ -407,7 +458,7 @@ mod tests {
             ("a👍🏽", 5.0),
         ] {
             assert_eq!(
-                call(Stdlib::Length, &[Value::str(text)], 0.0, &plan, None),
+                call(Stdlib::Length, &[Value::str(text)], 0.0, &plan, None, None),
                 Ok(Value::Number(expected)),
                 "{text}"
             );
@@ -418,7 +469,7 @@ mod tests {
         let plan = exact_plan::builder::PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1)
             .finish()
             .unwrap();
-        let trim = |text: &str| call(Stdlib::Trim, &[Value::str(text)], 0.0, &plan, None);
+        let trim = |text: &str| call(Stdlib::Trim, &[Value::str(text)], 0.0, &plan, None, None);
         // Every code point `(c + "x").trim() === "x"` holds for, from Bun.
         let js = "\u{9}\u{a}\u{b}\u{c}\u{d}\u{20}\u{a0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200a}\u{2028}\u{2029}\u{202f}\u{205f}\u{3000}\u{feff}";
         assert_eq!(js.chars().count(), 25);
@@ -442,9 +493,14 @@ mod tests {
         }
         // Nothing to strip: the same string, not a copy.
         let s: Rc<str> = Rc::from("kept");
-        let Ok(Value::Str(out)) =
-            call(Stdlib::Trim, &[Value::Str(Rc::clone(&s))], 0.0, &plan, None)
-        else {
+        let Ok(Value::Str(out)) = call(
+            Stdlib::Trim,
+            &[Value::Str(Rc::clone(&s))],
+            0.0,
+            &plan,
+            None,
+            None,
+        ) else {
             panic!("trim answers a string");
         };
         assert!(Rc::ptr_eq(&s, &out));

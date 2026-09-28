@@ -275,7 +275,7 @@ component Content
                     row gap=8 align-items="flex-end"
                       text formatCountdownMinutes(d.at, nowMs) font-size=30 font-weight=800
                       text "min" font-size=13 color="#666666"
-                    text `${formatClockTime(d.at)} · Train ${d.train} · ${d.service} to ${d.headsign}` font-size=13 color="#444444"
+                    text `${formatTime(d.at, 0, "short")} · Train ${d.train} · ${d.service} to ${d.headsign}` font-size=13 color="#444444"
           else
             DirectionCard(title="Northbound", board=northBoard, nowMs=nowMs, testId="board-north")
           DirectionCard(title="Southbound", board=southBoard, nowMs=nowMs, testId="board-south")
@@ -317,7 +317,7 @@ component DirectionCard
         each d in board key=d.id
           row gap=8 align-items="flex-end" testId=`dep-${d.id}`
             text formatCountdownMinutes(d.at, nowMs) font-size=28 font-weight=700 testId=`countdown-${d.id}`
-            text `min · ${formatClockTime(d.at)} · Train ${d.train} · ${d.service} to ${d.headsign}` font-size=13 color="#666666"
+            text `min · ${formatTime(d.at, 0, "short")} · Train ${d.train} · ${d.service} to ${d.headsign}` font-size=13 color="#666666"
 
 component StationRow
   props

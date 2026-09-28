@@ -23,12 +23,18 @@ component A
 == type-arity
 component A
   view
-    text formatClockTime(1, 2)
+    text formatTime(1, 2)
 ---
 == type-argument
 component A
   view
-    text formatClockTime("no")
+    text formatTime("no", 0, "short")
+---
+== type-format-style
+component A
+  state kind = "medium"
+  view
+    text formatDate(0, 0, kind)
 ---
 == type-operand
 component A

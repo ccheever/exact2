@@ -840,8 +840,8 @@ fn unknown_functions_suggest_only_one_available_global_spelling() {
         ("lenght", "length", "\"hello\""),
         ("toStrng", "toString", "42"),
         ("toStringg", "toString", "42"),
-        ("formatClokTime", "formatClockTime", "0"),
-        ("formatClocXTime", "formatClockTime", "0"),
+        ("formatTiem", "formatTime", "0, 0, \"short\""),
+        ("formatTme", "formatTime", "0, 0, \"short\""),
     ] {
         let source = format!("component Row\n  view\n    text `é ${{{typo}({argument})}}`\n");
         let path = app.write("row.contract", &source).canonicalize().unwrap();

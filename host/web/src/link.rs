@@ -36,6 +36,9 @@ pub struct Linked {
     pub canvas: exact_runner::CanvasLink,
     /// The router (LLP 1038): the runner's routing for a plan with routes.
     pub router: exact_runner::RouterLink,
+    /// `formatDate` and `formatNumber` (LLP 1054.000.003 D8): the runner's
+    /// bodies for a plan that calls one.
+    pub format: exact_runner::FormatLink,
     /// Inspection (LLP 1012): the agent API's reads. Not a plan's use: the
     /// entry links it by policy, in production too (LLP 1047 §10, Q3).
     pub inspection: bool,
@@ -54,6 +57,7 @@ impl Linked {
         surface_answer: None,
         canvas: None,
         router: None,
+        format: None,
         inspection: false,
         canvas_colors: None,
     };
@@ -78,6 +82,9 @@ impl Linked {
         }
         if self.router.is_some() {
             uses = uses.with(Capability::Router);
+        }
+        if self.format.is_some() {
+            uses = uses.with(Capability::Format);
         }
         uses
     }
@@ -114,6 +121,7 @@ pub(crate) fn link_for_tests() {
         surface_answer: exact_runner::RunnerLinks::ALL.surface_answer,
         canvas: exact_runner::RunnerLinks::ALL.canvas,
         router: exact_runner::RunnerLinks::ALL.router,
+        format: exact_runner::RunnerLinks::ALL.format,
         inspection: true,
         ..linked()
     });
@@ -126,6 +134,7 @@ pub(crate) fn runner_links() -> exact_runner::RunnerLinks {
         router: linked().router,
         lists: linked().collections,
         canvas: linked().canvas,
+        format: linked().format,
     }
 }
 
@@ -167,5 +176,18 @@ mod tests {
             matches!(&refused, Err(HostError::Unlinked(names)) if names == "motion, drag"),
             "{refused:?}"
         );
+        // LLP 1054.000.003 D8: `formatNumber` is `format`'s; `formatTime` the core's.
+        let count =
+            contract::compile("component A\n  view\n    text formatNumber(1250, \"compact\")\n")
+                .unwrap()
+                .encode();
+        let refused = Host::boot(&count, (), Default::default(), "/").map(|_| ());
+        assert!(
+            matches!(&refused, Err(HostError::Unlinked(names)) if names == "format"),
+            "{refused:?}"
+        );
+        let time = contract::compile("component A\n  view\n    text formatTime(0, 0, \"short\")\n")
+            .unwrap();
+        assert!(Host::boot(&time.encode(), (), Default::default(), "/").is_ok());
     }
 }

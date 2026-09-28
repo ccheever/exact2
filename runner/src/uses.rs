@@ -11,7 +11,7 @@
 //! might select, so the set is never smaller than what a run can reach.
 
 use exact_kernel::{PropId, StyleId};
-use exact_plan::{BindingKind, EventKind, Opcode, Plan, StrId};
+use exact_plan::{BindingKind, EventKind, Opcode, Plan, Stdlib, StrId};
 use std::fmt;
 
 /// A capability beyond the core, linked into an artifact only when its plan
@@ -35,17 +35,21 @@ pub enum Capability {
     Surfaces,
     /// The router (LLP 1038): a plan that declares `routes`.
     Router,
+    /// `formatDate` and `formatNumber` (LLP 1054.000.003 D8): a plan whose
+    /// code calls one.
+    Format,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 6] = [
+    pub const ALL: [Capability; 7] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
         Capability::Drag,
         Capability::Surfaces,
         Capability::Router,
+        Capability::Format,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -57,6 +61,7 @@ impl Capability {
             Capability::Drag => "drag",
             Capability::Surfaces => "surfaces",
             Capability::Router => "router",
+            Capability::Format => "format",
         }
     }
 
@@ -173,7 +178,29 @@ pub fn uses(plan: &Plan) -> Uses {
     {
         uses = uses.with(Capability::Collections);
     }
+    if calls_format(plan) {
+        uses = uses.with(Capability::Format);
+    }
     uses
+}
+
+/// Whether any code range calls a `format` entry: each validated body walked
+/// whole, so no call a run can reach is missed.
+fn calls_format(plan: &Plan) -> bool {
+    let mut calls = false;
+    plan.each_code(&mut |code| {
+        calls = calls
+            || crate::vm::instructions(plan.code(code)).any(|i| {
+                i.is_ok_and(|i| {
+                    i.op == Opcode::Call
+                        && matches!(
+                            Stdlib::from_wire(i.args[0] as u8),
+                            Some(Stdlib::FormatDate | Stdlib::FormatNumber)
+                        )
+                })
+            });
+    });
+    calls
 }
 
 /// The boolean a binding always evaluates to, when its code is one constant:

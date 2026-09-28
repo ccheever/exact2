@@ -85,6 +85,28 @@ fn the_router_is_a_plan_with_routes() {
 }
 
 #[test]
+fn format_is_a_call_of_format_date_or_format_number_anywhere() {
+    // `formatTime` is the core's, as `formatClockTime` was (LLP 1054.000.003 D1).
+    let time = used("component A\n  view\n    text formatTime(0, 0, \"short\")\n");
+    assert_eq!(time, Uses::NONE);
+    let date = used("component A\n  view\n    text formatDate(0, 0, \"medium\")\n");
+    assert_eq!(date.to_string(), "format");
+    // In an action's body, a derive, a callback and an inlined `fn` too.
+    let action = used(
+        "component A\n  state s = \"\"\n  action set writes s\n    s = formatNumber(1250, \"compact\")\n  view\n    button s press=set\n",
+    );
+    assert!(action.has(Capability::Format));
+    let callback = used(
+        "component A\n  resource xs = xs() as shape list<number>\n  derive ys = map(xs, x => formatNumber(x, \"compact\"))\n  view\n    text join(ys, \",\")\n",
+    );
+    assert!(callback.has(Capability::Format));
+    let wrapped = used(
+        "fn count(n: number): string = formatNumber(n, \"compact\")\ncomponent A\n  view\n    text count(3)\n",
+    );
+    assert!(wrapped.has(Capability::Format));
+}
+
+#[test]
 fn a_set_names_what_it_holds_beyond_another() {
     let markdown = Uses::NONE.with(Capability::Markdown);
     assert!(markdown.beyond(markdown).is_empty());

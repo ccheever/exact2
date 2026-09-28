@@ -24,6 +24,7 @@ mod flow;
 mod fmt;
 mod fns;
 mod fonts;
+mod format;
 mod function_graph;
 mod height_binding;
 mod insets;
