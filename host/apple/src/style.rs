@@ -33,6 +33,59 @@ pub struct Skipped {
 /// The style dictionary for a node's set rows, as a JSON object, plus what
 /// was skipped.
 pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
+    style_json_sized(style, env, false)
+}
+
+/// Layout rows no Apple presenter reads: the kernel sized and placed the
+/// box, and the frame op carries the result. Leaving them out is fewer
+/// bytes to write and read per node, and the dictionaries of a template's
+/// instances that differ only in size (a waveform's bars) come out equal.
+/// `width` and `height` still cross for a `video` (`keep_size`): its view
+/// asks whether its box waits on its metadata (`HeavyLeaves.created`).
+fn presenter_ignores(name: &str) -> bool {
+    matches!(
+        name,
+        "min_width"
+            | "min_height"
+            | "max_width"
+            | "max_height"
+            | "margin_top"
+            | "margin_right"
+            | "margin_bottom"
+            | "margin_left"
+            | "flex_direction"
+            | "flex_wrap"
+            | "justify_content"
+            | "align_items"
+            | "align_self"
+            | "align_content"
+            | "flex_grow"
+            | "flex_shrink"
+            | "flex_basis"
+            | "top"
+            | "right"
+            | "bottom"
+            | "left"
+            | "row_gap"
+            | "column_gap"
+            | "box_sizing"
+            | "grid_auto_flow"
+            | "grid_template_columns"
+            | "grid_template_rows"
+            | "grid_column"
+            | "grid_row"
+            | "justify_items"
+            | "field_sizing"
+            | "text_transform"
+            | "border_style_top"
+            | "border_style_right"
+            | "border_style_bottom"
+            | "border_style_left"
+    )
+}
+
+/// [`style_json`], with `width` and `height` kept when `keep_size`.
+pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (String, Vec<Skipped>) {
     // Written in place: a list row's mount builds one of these per node,
     // and a `String` per value (`format!`) was most of its cost.
     let mut out = String::with_capacity(256);
@@ -45,7 +98,10 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
         if matches!(id, StyleId::WrapFlow | StyleId::ShapeMargin) {
             continue;
         }
-        if matches!(name, "translate" | "scale" | "rotate" | "opacity") {
+        if matches!(name, "translate" | "scale" | "rotate" | "opacity") || presenter_ignores(name) {
+            continue;
+        }
+        if !keep_size && matches!(name, "width" | "height") {
             continue;
         }
         let mark = out.len();
@@ -459,7 +515,7 @@ pub fn style_json_presented(
             computed.mask.set(id);
         }
     }
-    let (mut json, skipped) = style_json(&computed, env);
+    let (mut json, skipped) = style_json_sized(&computed, env, node.node_type == NodeType::Video);
     let (x, y) = effective_overflow(node);
     let name = |o: Overflow| match o {
         Overflow::Visible => "visible",

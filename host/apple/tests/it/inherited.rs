@@ -272,7 +272,13 @@ fn border_layout_paint_and_current_color_follow_live_style_changes() {
         let batch = host.dispatch(view(&host, control), Event::Press);
         assert_eq!(size(&host, wide), (120.0, 80.0));
         assert_eq!(size(&host, default), (120.0, 80.0));
-        assert!(op(&batch, wide).contains("\"border_width_top\":0"));
+        if control == "hidden" {
+            assert!(op(&batch, wide).contains("\"border_width_top\":0"));
+        } else {
+            // `hidden` to `none` paints the same box: the presenter gets no
+            // style (it never reads `border-style`, the widths say it).
+            assert_eq!(count(&batch, "style"), 0, "{batch}");
+        }
     }
 }
 
