@@ -24,6 +24,9 @@ pub struct Scope {
     pub frames: Vec<Frame>,
     /// Whether this is an action body (writes and commands are allowed).
     pub action: bool,
+    /// The JavaScript object holding the row slots in force (LLP 1017 P4c:
+    /// a slot owned by an `each` lives on its row), by slot index.
+    pub rows: Option<String>,
 }
 
 /// One region frame's getters.
@@ -45,6 +48,14 @@ impl Uses {
         self.names.insert(name.to_string());
         name.to_string()
     }
+}
+
+/// Whether `code` reads or writes a row slot.
+pub fn touches_rows(plan: &Plan, code: &[u8]) -> bool {
+    instructions(code).flatten().any(|i| {
+        matches!(i.op, Opcode::LoadSlot | Opcode::StoreSlot)
+            && plan.slots[i.args[0] as usize].owner.is_some()
+    })
 }
 
 /// A JavaScript function expression for `code` (`() => …`, or `(p0, …) =>`
@@ -276,11 +287,11 @@ impl Translator<'_> {
                 Opcode::LoadSlot => {
                     let slot = &self.plan.slots[x.args[0] as usize];
                     if slot.owner.is_some() {
-                        return Err(
-                            "per-row state (a slot owned by an `each`) is not in the spike".into(),
-                        );
+                        let rows = self.scope.rows.clone().ok_or("a row slot read with no row in force")?;
+                        self.push(format!("{rows}[{}]()", x.args[0]))
+                    } else {
+                        self.push(format!("s_{}()", x.args[0]))
                     }
-                    self.push(format!("s_{}()", x.args[0]))
                 }
                 Opcode::LoadDerive => self.push(format!("d_{}()", x.args[0])),
                 Opcode::LoadResource => self.push(format!("r_{}()", x.args[0])),
@@ -407,14 +418,14 @@ impl Translator<'_> {
                     };
                     let body = inner.range(ins, i + 1, j)?;
                     let body = match body {
-                        Body::Expr(e) if inner.out.is_empty() => e,
+                        Body::Expr(e) if inner.out.is_empty() => paren_object(&e),
                         Body::Expr(e) => {
                             inner.out.push_str(&format!("return {e};"));
                             format!("{{{}{}}}", inner.decls(), inner.out)
                         }
                         Body::Stmts => format!("{{{}{}}}", inner.decls(), inner.out),
                     };
-                    let f = format!("(l{base},l{})=>{}", base + 1, paren_object(&body));
+                    let f = format!("(l{base},l{})=>{body}", base + 1);
                     let m = if x.op == Opcode::Map { "map" } else { "filter" };
                     self.push(format!("{list}.{m}({f})"));
                     i = j;
@@ -427,7 +438,13 @@ impl Translator<'_> {
                     let v = self.pop()?;
                     self.flush();
                     let w = self.uses.rt("W");
-                    self.out.push_str(&format!("{w}(s_{},{v});", x.args[0]));
+                    let target = if self.plan.slots[x.args[0] as usize].owner.is_some() {
+                        let rows = self.scope.rows.clone().ok_or("a row slot write with no row in force")?;
+                        format!("{rows}[{}]", x.args[0])
+                    } else {
+                        format!("s_{}", x.args[0])
+                    };
+                    self.out.push_str(&format!("{w}({target},{v});"));
                 }
                 Opcode::Command => {
                     if !self.scope.action {
@@ -448,7 +465,8 @@ impl Translator<'_> {
                 }
                 Opcode::Refresh => {
                     self.flush();
-                    self.out.push_str(&format!("r_{}.refresh();", x.args[0]));
+                    let r = self.uses.rt("R");
+                    self.out.push_str(&format!("{r}(r_{});", x.args[0]));
                 }
                 Opcode::PendingResource => self.push(format!("r_{}.p()", x.args[0])),
                 Opcode::FailedResource => self.push(format!("r_{}.f()", x.args[0])),
@@ -465,7 +483,23 @@ impl Translator<'_> {
                     }
                     dead = true;
                 }
-                op @ (Opcode::Send | Opcode::PendingMutation | Opcode::NativeProps) => {
+                Opcode::Send => {
+                    if !self.scope.action {
+                        return Err("a send outside an action".into());
+                    }
+                    let source = self.plan.str(exact_plan::StrId(x.args[1] as u32)).to_string();
+                    let args = self.popn(x.args[2] as usize)?;
+                    self.flush();
+                    let m = self.uses.rt("M");
+                    self.out.push_str(&format!(
+                        "{m}(m_{},{},[{}]);",
+                        x.args[0],
+                        serde_json::to_string(&source).unwrap(),
+                        args.join(",")
+                    ));
+                }
+                Opcode::PendingMutation => self.push(format!("m_{}.p()", x.args[0])),
+                op @ Opcode::NativeProps => {
                     return Err(format!("{op:?} is not in the spike"))
                 }
             }

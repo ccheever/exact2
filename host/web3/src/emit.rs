@@ -173,12 +173,10 @@ struct Em<'a> {
     out: String,
     classes: Vec<String>,
     warnings: Vec<String>,
+    row_actions: std::collections::BTreeSet<usize>,
 }
 
 pub fn emit(plan: &Plan) -> Result<Output, String> {
-    if !plan.mutations.is_empty() {
-        return Err("mutations (`send`) are not in the spike".into());
-    }
     let sites = Sites::new(plan)?;
     let mut warnings = Vec::new();
     let parts = style::project(plan, &sites, &mut warnings)?;
@@ -190,6 +188,7 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         out: String::new(),
         classes: Vec::new(),
         warnings,
+        row_actions: Default::default(),
     };
     let top = Scope::default();
     let action = Scope {
@@ -199,10 +198,13 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
     let mut body = String::new();
     // Slots, in order: an initializer reads only earlier slots.
     for (i, r) in plan.slots.iter().enumerate() {
+        if r.owner.is_some() {
+            continue; // a row slot lives on its row
+        }
         let init = code::expression(plan, plan.code(r.init), &top, &mut em.uses)
             .map_err(|e| format!("slot {}: {e}", plan.str(r.name)))?;
         let sig = em.uses.rt("sig");
-        let _ = write!(body, "const s_{i}={sig}({init});");
+        let _ = write!(body, "const s_{i}={sig}({init},{});", serde_json::to_string(&type_code(plan, r.ty)).unwrap());
         if plan.router.map(|s| s.0 as usize) == Some(i) {
             em.warnings.push(format!(
                 "slot {} is the router: its launch value is the initializer's, not `Router::launch` (no router in the spike)",
@@ -214,7 +216,7 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         let f = code::function(plan, plan.code(r.body), &top, 0, &mut em.uses)
             .map_err(|e| format!("derive {}: {e}", plan.str(r.name)))?;
         let memo = em.uses.rt("memo");
-        let _ = write!(body, "const d_{i}={memo}({f});");
+        let _ = write!(body, "const d_{i}={memo}({f},{});", serde_json::to_string(&type_code(plan, r.ty)).unwrap());
     }
     for (i, r) in plan.resources.iter().enumerate() {
         let mut args = Vec::new();
@@ -238,28 +240,52 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         let res = em.uses.rt("res");
         let _ = write!(
             body,
-            "const r_{i}={res}({},()=>[{}],{initial},{initial_args});",
+            "const r_{i}={res}({},{},()=>[{}],{initial},{initial_args},{});",
+            serde_json::to_string(plan.str(r.name)).unwrap(),
             serde_json::to_string(plan.str(r.source)).unwrap(),
-            args.join(",")
+            args.join(","),
+            serde_json::to_string(&type_code(plan, r.ty)).unwrap()
+        );
+    }
+    for (i, m) in plan.mutations.iter().enumerate() {
+        let refreshes: Vec<String> = m
+            .refreshes
+            .iter()
+            .map(|x| format!("r_{}", plan.mutation_refreshes[x.0 as usize].resource.0))
+            .collect();
+        let mt = em.uses.rt("mut");
+        let _ = write!(
+            body,
+            "const m_{i}={mt}({},s_{},[{}],{});",
+            serde_json::to_string(plan.str(m.name)).unwrap(),
+            m.slot.0,
+            refreshes.join(","),
+            serde_json::to_string(&type_code(plan, m.ty)).unwrap()
         );
     }
     for (i, r) in plan.actions.iter().enumerate() {
-        let f = code::function(
-            plan,
-            plan.code(r.body),
-            &action,
-            r.params.len as usize,
-            &mut em.uses,
-        )
-        .map_err(|e| format!("action {}: {e}", plan.str(r.name)))?;
+        // An action that touches row slots takes the row in force first.
+        let rows = code::touches_rows(plan, plan.code(r.body));
+        let scope = Scope { rows: rows.then(|| "$r".to_string()), ..action.clone() };
+        let mut f = code::function(plan, plan.code(r.body), &scope, r.params.len as usize, &mut em.uses)
+            .map_err(|e| format!("action {}: {e}", plan.str(r.name)))?;
+        if rows {
+            em.row_actions.insert(i);
+            f = f.replacen('(', "($r,", 1).replace("($r,)", "($r)");
+        }
         let act = em.uses.rt("act");
         let _ = write!(body, "const a_{i}={act}({f});");
     }
+    for (i, m) in plan.mutations.iter().enumerate() {
+        if let Some(a) = m.then {
+            let _ = write!(body, "m_{i}.then=a_{};", a.0);
+        }
+    }
     em.out.clear();
-    em.node(sites.root, "R", &top)?;
+    em.node(sites.root, "$R", &top)?;
     let view = std::mem::take(&mut em.out);
     let mount = em.uses.rt("mount");
-    let _ = write!(body, "{mount}(R=>{{{view}}});");
+    let _ = write!(body, "{mount}($R=>{{{view}}});");
     // The state's getters, for the agent (names live in `names.js`).
     let list = |p: &str, n: usize| {
         (0..n)
@@ -270,7 +296,7 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
     let _ = write!(
         body,
         "const $state=[[{}],[{}],[{}]];",
-        list("s", plan.slots.len()),
+        plan.slots.iter().enumerate().filter(|(_, r)| r.owner.is_none()).map(|(i, _)| format!("s_{i}")).collect::<Vec<_>>().join(","),
         list("d", plan.derives.len()),
         list("r", plan.resources.len())
     );
@@ -317,10 +343,10 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
     };
     let names_js = format!(
         "export default[{},{},{}];export const types=[{},{},{}];\n",
-        names(plan.slots.iter().map(|r| plan.str(r.name)).collect()),
+        names(plan.slots.iter().filter(|r| r.owner.is_none()).map(|r| plan.str(r.name)).collect()),
         names(plan.derives.iter().map(|r| plan.str(r.name)).collect()),
         names(plan.resources.iter().map(|r| plan.str(r.name)).collect()),
-        types(plan.slots.iter().map(|r| r.ty).collect()),
+        types(plan.slots.iter().filter(|r| r.owner.is_none()).map(|r| r.ty).collect()),
         types(plan.derives.iter().map(|r| r.ty).collect()),
         types(plan.resources.iter().map(|r| r.ty).collect())
     );
@@ -644,6 +670,9 @@ impl Em<'_> {
                 }
             }
             let on = self.uses.rt("on");
+            if self.row_actions.contains(&(h.action.0 as usize)) {
+                args.insert(0, scope.rows.clone().unwrap_or_else(|| "{}".into()));
+            }
             let handler = if args.is_empty() {
                 format!("a_{}", h.action.0)
             } else {
@@ -714,7 +743,28 @@ impl Em<'_> {
                 });
                 let key = code::expression(plan, plan.code(row.key), &inner, &mut self.uses)
                     .map_err(|x| format!("region {r} key: {x}"))?;
+                // The row's own slots, started from their initializers when
+                // the row is created and kept with its key (LLP 1017 P4c).
+                let mut own = Vec::new();
+                for (k, slot) in plan.slots.iter().enumerate() {
+                    if slot.owner.map(|o| o.0) == Some(r) {
+                        let init = code::expression(plan, plan.code(slot.init), &inner, &mut self.uses)
+                            .map_err(|x| format!("row slot {}: {x}", plan.str(slot.name)))?;
+                        let sig = self.uses.rt("sig");
+                        own.push(format!("{k}:{sig}({init})"));
+                    }
+                }
+                let mut rows_decl = String::new();
+                if !own.is_empty() {
+                    let name = format!("$r{r}");
+                    rows_decl = match &scope.rows {
+                        Some(outer) => format!("const {name}={{...{outer},{}}};", own.join(",")),
+                        None => format!("const {name}={{{}}};", own.join(",")),
+                    };
+                    inner.rows = Some(name);
+                }
                 let saved = std::mem::take(&mut self.out);
+                self.out.push_str(&rows_decl);
                 self.children(self.sites.of_arm(arms[0]), "p", &inner)?;
                 let built = std::mem::replace(&mut self.out, saved);
                 let each = self.uses.rt("each");

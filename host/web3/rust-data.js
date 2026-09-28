@@ -10,6 +10,7 @@ function writer() {
   const room = n => { if (at + n > buf.length) { const b = new Uint8Array((at + n) * 2); b.set(buf); buf = b; } };
   const w = {
     u8(v) { room(1); buf[at++] = v; },
+    u16(v) { room(2); new DataView(buf.buffer).setUint16(at, v, true); at += 2; },
     u32(v) { room(4); new DataView(buf.buffer).setUint32(at, v, true); at += 4; },
     f64(v) { room(8); new DataView(buf.buffer).setFloat64(at, v, true); at += 8; },
     bytes(b) { w.u32(b.length); room(b.length); buf.set(b, at); at += b.length; },
@@ -44,6 +45,7 @@ function reader(b) {
     u32: () => { const v = d.getUint32(at, true); at += 4; return v; },
     f64: () => { const v = d.getFloat64(at, true); at += 8; return v; },
     str: () => { const n = r.u32(), s = text.decode(b.subarray(at, at + n)); at += n; return s; },
+    bytes: n => { const x = b.slice(at, at + n); at += n; return x; },
     value() {
       const tag = r.u8();
       if (tag === 0) return r.f64();
@@ -78,21 +80,52 @@ export async function install(data, sources) {
     if (r.u32() !== ABI) throw new Error('logic ABI version differs');
     return r;
   };
+  // A result (`read_result`): now, or an HTTP request for the host to run.
   const result = r => {
     const tag = r.u8();
     if (tag === 0) return { v: r.value() };
     if (tag >= 2 && tag <= 4) throw new Error(r.str());
-    throw new Error(`a Rust answer of kind ${tag} (host work) is not carried by the spike`);
+    if (tag === 1 || tag === 6 || tag === 9) {
+      const http = tag === 1 ? 'ordered' : `independent:${r.u32()}`;
+      if (r.u8()) r.str(); else r.str();
+      const method = r.str(), url = r.str(), headers = [];
+      for (let n = r.u32(); n--;) headers.push([r.str(), r.str()]);
+      const n = r.u32(), body = r.bytes(n);
+      return { req: { method, url, headers, body: text.decode(body), raw: body, http, stream: tag === 9 } };
+    }
+    throw new Error(`a Rust answer of kind ${tag} (storage or surface work) is not carried by the spike`);
   };
   const op = (code, fill) => { const w = writer(); w.u32(ABI); w.u8(code); fill?.(w); return call(w.done()); };
-  let r = op(1, w => w.bytes(new Uint8Array(plan))); r.u8(); result(r);
+  let r = op(0); r.u8(); const meta = [r.str(), r.str()];
+  r = op(1, w => w.bytes(new Uint8Array(plan))); r.u8(); result(r);
   r = op(2); r.u8(); result(r);
-  data.answer = (source, args) => {
-    const r = op(3, w => { w.str(source); w.u8(6); w.u32(args.length); const t = sources[source] ?? ''; let i = 0; for (const a of args) i = encode(w, a, t, i); w.u32(0); });
+  // One call (`call_request`): source, arguments by type, the store's
+  // snapshot; its reply (`call_reply`): a store read, writes, the result.
+  const callWith = (code, source, args, store, outcome) => {
+    const r = op(code, w => {
+      w.str(source); w.u8(6); w.u32(args.length);
+      const t = sources[source] ?? ''; let i = 0; for (const a of args) i = encode(w, a, t, i);
+      const pairs = [...store.map].filter(([k]) => !k.startsWith('kept.'));
+      w.u32(pairs.length); for (const [k, v] of pairs) { w.str(k); w.str(v); }
+      if (outcome) {
+        if (outcome.failed) { w.u8(1); w.str(outcome.message); }
+        else { w.u8(0); w.u16(outcome.status); w.u32(outcome.headers.length); for (const [k, v] of outcome.headers) { w.str(k); w.str(v); } w.bytes(outcome.body); }
+      }
+    });
     if (r.u8() !== 2) throw new Error('expected a call reply');
-    r.u8(); // observed a store read
-    if (r.u32() !== 0) throw new Error('a Rust store write is not carried by the spike');
-    return result(r);
+    const observed = r.u8() === 1;
+    for (let n = r.u32(); n--;) { const k = r.str(); store.set(k, r.u8() ? r.str() : null); }
+    const out = result(r);
+    if (observed) out.store = true;
+    return out;
   };
+  data.answer = (source, args, store) => callWith(3, source, args, store);
+  data.parse = (source, args, outcome, store) => callWith(4, source, args, store, outcome);
+  // The host runs the request (`glue.js` `ask`): the browser's fetch.
+  data.fetch = async req => {
+    const res = await fetch(req.url, { method: req.method, headers: req.headers, body: ['GET', 'HEAD'].includes(req.method) ? undefined : req.raw });
+    return { status: res.status, headers: [...res.headers], body: new Uint8Array(await res.arrayBuffer()) };
+  };
+  data.grants = meta[1];
   for (const f of data.q.splice(0)) f();
 }

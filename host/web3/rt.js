@@ -47,11 +47,13 @@ function drop(n) {
 }
 function dispose(n) { n.gone = 1; drop(n); }
 function run(n) {
+  if (n.busy) throw new Refusal("a cycle: a derive or resource reads itself");
   drop(n);
   const [l, o] = [Listener, Owner];
   Listener = Owner = n;
+  n.busy = 1;
   let v;
-  try { v = n.fn(n.v); } finally { Listener = l; Owner = o; }
+  try { v = n.fn(n.v); } finally { Listener = l; Owner = o; n.busy = 0; }
   if (!n.effect && !eq(n.v, v)) { n.v = v; for (const o of n.obs) o.s = DIRTY; }
 }
 function stale(n, state) {
@@ -74,10 +76,16 @@ function flush() {
 }
 function untracked(f) { const l = Listener; Listener = null; try { return f(); } finally { Listener = l; } }
 
-/** A slot: a getter, `.n` its node. */
-export function sig(v) { const n = node(null, v); const g = () => read(n); g.n = n; return g; }
-/** A derive: lazy, cached, equal results keep their object. */
-export function memo(fn) { const n = node(fn); return () => read(n); }
+/** A slot: a getter, `.n` its node; `t` its declared type (writes conform). */
+export function sig(v, t) { const n = node(null, v); n.t = t; const g = () => read(n); g.n = n; return g; }
+const Settle = [];
+/** A derive: lazy, cached, equal results keep their object; settled at
+ * every commit before the tree; its value conforms to its type. */
+export function memo(fn, t) {
+  const n = node(t ? () => { const v = fn(); if (!conforms(v, t)) throw new Refusal("a derive's value does not conform to its type"); return v; } : fn);
+  Settle.push(n);
+  return () => read(n);
+}
 export function effect(fn) { const n = node(fn, undefined, 1); fresh(n); return n; }
 /** A scope whose effects `dispose` ends, owned by `parent` (a region's
  * arms and rows belong to the region's scope, never to its effect, which
@@ -92,22 +100,78 @@ function scope(f, parent = Owner) {
 function end(n) { dispose(n); const k = n.up?.kids; if (k) k.splice(k.indexOf(n), 1); }
 
 // ---------------------------------------------------------------- commits
-let Writes = null, Commands = [];
+/** A typed refusal: the commit rolls back (LLP 1005 §6 atomicity). */
+export class Refusal extends Error {}
+/** Whether `v` conforms to type code `t` (`n b s u ?T [T {T…}`), from `i`;
+ * numbers are finite, as the runner's shape checks require. */
+export function conforms(v, t, i = [0]) {
+  const c = t[i[0]++];
+  if (c === "n") return typeof v === "number" && isFinite(v);
+  if (c === "b") return typeof v === "boolean";
+  if (c === "s") return typeof v === "string";
+  if (c === "u") return v == null;
+  if (c === "?") { if (v == null) { skip(t, i); return true; } return conforms(v, t, i); }
+  if (c === "[") { const at = i[0]; if (!Array.isArray(v)) return false; for (const x of v) { i[0] = at; if (!conforms(x, t, i)) return false; } i[0] = at; skip(t, i); return true; }
+  if (c === "{") { let k = 0; for (; t[i[0]] !== "}"; k++) if (!Array.isArray(v) || !conforms(v[k], t, i)) return false; i[0]++; return v.length === k; }
+  return true;
+}
+function skip(t, i) { const c = t[i[0]++]; if (c === "?" || c === "[") skip(t, i); else if (c === "{") { while (t[i[0]] !== "}") skip(t, i); i[0]++; } }
+
+let Writes = null, Commands = [], Out = [], Landed = [], Sends = [], Refresh = [], Poisoned = false;
 export const journal = [];
+const say = line => journal.push(`t=${clock.now} ${line}`);
 /** A write inside an action: collected, applied at commit. */
 export function W(s, v) { Writes.push([s.n, v]); }
 /** A host command inside an action: run after the commit. */
 export function C(name, args) { Commands.push([name, args]); }
-/** One commit: `f` runs, its writes land, the tree updates, its commands run. */
-export function commit(f) {
-  const outer = Writes;
-  Writes = [];
-  try { untracked(f); for (const [n, v] of Writes) write(n, v); }
-  finally { const w = Writes; Writes = outer; if (!outer) flush(); }
-  if (!outer) for (const c of Commands.splice(0)) command(...c);
+/** `refresh r`: forced at this commit's settlement (merged, LLP 1054.000.000 D2). */
+export function R(r) { Refresh.push(r.r ?? r); }
+/** Pull every derive and resource in plan order: the settlement pass. */
+function settle() { for (const n of Settle) fresh(n); }
+/** One commit: `f` runs; its writes, sends and refreshes land; settlement
+ * runs; a refusal anywhere up to here puts everything back and leaves the
+ * tree untouched; then the tree updates, requests go out, commands run. */
+export function commit(f, what = "commit") {
+  if (Writes) return f();
+  if (Poisoned) return say(`refused ${what}: the runner is poisoned; reload`);
+  Writes = []; Commands = []; Out = []; Landed = []; Sends = []; Refresh = [];
+  const undo = [], saved = Resources.map(r => r.save()), store = Store.save();
+  let ok = true;
+  try {
+    untracked(f);
+    for (const [n, v] of Writes) {
+      if (n.t && !conforms(v, n.t)) throw new Refusal(`a write does not conform to its slot's type: ${JSON.stringify(v)}`);
+      undo.push([n, n.v]); write(n, v);
+      if (n.m && !n.landing) n.m.forget(undo);
+    }
+    for (const [m, source, args] of Sends) m.send(source, args, undo);
+    for (const r of Refresh) r.force(undo);
+    settle();
+    // A store write re-asks the resources that read the store, until quiet.
+    for (let k = 0; Store.dirty && k < 4; k++) { Store.dirty = false; for (const r of Resources) if (r.store) r.revise(undo); settle(); }
+  } catch (e) {
+    ok = false;
+    for (const [n, v] of undo.reverse()) write(n, v);
+    Resources.forEach((r, k) => r.restore(saved[k]));
+    Store.restore(store);
+    Out = []; Commands = []; Landed = [];
+    say(`refused ${what}: ${e.message}`);
+    if (!(e instanceof Refusal)) console.error(e);
+    try { settle(); } catch {}
+  }
+  const [out, cmds, landed] = [Out, Commands, Landed];
+  Writes = null;
+  try { flush(); } catch (e) { Poisoned = true; say(`poisoned: ${e.message}`); console.error(e); return false; }
+  if (!ok) return false;
+  Store.persist();
+  for (const go of out) go();
+  for (const c of cmds) command(...c);
+  // An answer's `then` runs as its own commit, after this one stood.
+  for (const m of landed) if (m.then) setTimeout(() => m.then());
+  return true;
 }
 /** An action: each call is one commit. */
-export function act(fn) { return (...a) => commit(() => fn(...a)); }
+export function act(fn) { return (...a) => commit(() => fn(...a), "action"); }
 const Hosts = {
   focus: id => document.getElementById(id)?.focus(),
   blur: id => document.getElementById(id)?.blur(),
@@ -116,8 +180,8 @@ const Hosts = {
 };
 function command(name, args) {
   const f = Hosts[name];
-  journal.push(`command ${name}`);
-  if (f) f(...args); else journal.push(`refused: ${name} is not a command this runtime carries`);
+  say(`command ${name}`);
+  if (f) f(...args); else say(`refused: ${name} is not a command this runtime carries`);
 }
 
 // ---------------------------------------------------------------- the clock and timers
@@ -148,42 +212,145 @@ function drive() {
 }
 
 // ---------------------------------------------------------------- the data seam
-/** The app's data sources: `answer(source, args)` returns `{v}` now, a
- * Promise for later, or `null` while the source is not ready; `ready(f)`
- * calls `f` once it is. */
-export const data = { answer: () => null, q: [], ready: f => data.q.push(f) };
-/** A resource. */
-export function res(source, args, initial, initialArgs) {
-  const bump = sig(0);
-  const pending = sig(false), failed = sig(null);
-  let value = initial, settled = initialArgs, ticket = 0, waiting = false;
-  const m = memo(() => {
-    bump();
-    const a = args();
-    if (settled !== undefined && eq(a, settled)) return value;
-    const t = ++ticket;
-    let r;
-    try { r = data.answer(source, a); }
-    catch (e) { journal.push(`resource ${source}: ${e.message}`); later(() => W(failed, String(e.message))); return value; }
-    if (r && "v" in r) { settled = a; value = r.v; later(() => { W(pending, false); W(failed, null); }); return value; }
-    if (r && r.then) {
-      later(() => W(pending, true));
-      r.then(v => { if (t === ticket) commit(() => { settled = a; value = v; W(pending, false); W(bump, bump.n.v + 1); }); },
-        e => { if (t === ticket) commit(() => { W(failed, String(e?.message ?? e)); W(pending, false); }); });
-      return value;
-    }
-    // Not ready: keep the value (stale), ask again when the source is.
-    later(() => W(pending, true));
-    if (!waiting) { waiting = true; data.ready(() => { waiting = false; commit(() => W(bump, bump.n.v + 1)); }); }
-    return value;
+/** The app's data sources (LLP 1016). `answer(source, args, store)` gives
+ * `{v}` now, `{req}` (an HTTP request the host runs, then `parse`s),
+ * a Promise (an executor-local continuation: TypeScript), or `null` while
+ * the source is not ready; `ready(f)` calls `f` once it is. */
+export const data = { answer: () => null, parse: null, q: [], ready: f => data.q.push(f) };
+/** The durable store (LLP 1018): name → text, persisted as the web host
+ * does (`localStorage` "exact.secret.<name>") after a commit stands. */
+export const Store = {
+  map: new Map(), writes: [], dirty: false,
+  get(k) { return this.map.get(k); },
+  set(k, v) { if (v == null) this.map.delete(k); else this.map.set(k, v); this.writes.push([k, v]); this.dirty = true; },
+  save() { return [new Map(this.map), this.writes.length]; },
+  restore([m, n]) { this.map = m; this.writes.length = n; this.dirty = false; },
+  persist() { for (const [k, v] of this.writes.splice(0)) try { v == null ? localStorage.removeItem("exact.secret." + k) : localStorage.setItem("exact.secret." + k, v); } catch {} },
+  load() { try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith("exact.secret.")) this.map.set(k.slice(13), localStorage.getItem(k)); } } catch {} },
+};
+const Resources = [];
+let Ticket = 0;
+const sameReq = (a, b) => a && b && a.method === b.method && a.url === b.url && a.body === b.body && JSON.stringify(a.headers) === JSON.stringify(b.headers) && a.http === b.http;
+/** Run a request after the commit publishes; `land(outcome)` on reply. */
+function send(t, land) {
+  Out.push(() => {
+    if (t.req) data.fetch(t.req).then(land, e => land({ failed: 1, message: String(e?.message ?? e) }));
+    else t.promise.then(v => land({ v }), e => land({ error: String(e?.message ?? e) }));
   });
-  m.p = pending; m.f = () => failed() != null;
-  m.refresh = () => { settled = undefined; W(bump, bump.n.v + 1); };
+}
+function ask(source, args) {
+  const a = data.answer(source, args, Store);
+  if (a && a.then) { const p = a; return { promise: p }; }
+  return a;
+}
+/** A resource: its value, the arguments it settled with, one ticket in flight. */
+export function res(name, source, args, initial, initialArgs, type) {
+  const ver = sig(0), pend = sig(false), fail = sig(null);
+  const r = { value: initial, settled: initialArgs, ticket: null, forced: false, reread: false, rev: false, store: false };
+  const flag = (s, v, undo) => { if (!eq(s.n.v, v)) { undo?.push([s.n, s.n.v]); write(s.n, v); } };
+  const take = (v, a) => {
+    if (type && !conforms(v, type)) throw new Refusal(`${name}: the answer does not conform to its shape`);
+    r.value = v; r.settled = a;
+  };
+  const land = t => outcome => commit(() => {
+    if (r.ticket !== t) return say(`dropped reply for ${name}: ticket ${t.id} is no longer held`);
+    const p = outcome.v !== undefined ? { v: outcome.v } : outcome.error ? (() => { throw new Refusal(outcome.error); })() : data.parse(source, t.args, outcome, Store);
+    if (p.req) { t.req = p.req; t.id = ++Ticket; send(t, land(t)); return; }
+    take(p.v, t.args); r.ticket = null;
+    W(pend, false); W(fail, null); W(ver, ver.n.v + 1);
+  }, `reply ${name}`);
+  const m = memo(() => {
+    ver();
+    const a = args();
+    const forced = r.forced, reread = r.reread, rev = r.rev;
+    r.forced = r.reread = r.rev = false;
+    if (!forced && !reread && !rev) {
+      if (r.settled !== undefined && eq(a, r.settled)) return r.value;
+      if (r.ticket && eq(a, r.ticket.args)) return r.value;
+    }
+    let ans;
+    try { ans = ask(source, a); }
+    catch (e) { if (e instanceof Refusal) throw e; flag(fail, String(e.message)); say(`resource ${name}: ${e.message}`); return r.value; }
+    if (ans && ans.store) r.store = true;
+    if (ans && "v" in ans) {
+      take(ans.v, a);
+      if (r.ticket && !reread) { say(`forget ticket ${r.ticket.id} (${name})`); r.ticket = null; }
+      if (!r.ticket) flag(pend, false);
+      flag(fail, null);
+      return r.value;
+    }
+    // A declared refresh at a send re-reads: a request is discarded, and one in flight stays.
+    if (reread) return r.value;
+    if (ans && ans.req && !forced && !rev && r.ticket?.req && !eq(a, r.ticket.args) && sameReq(ans.req, r.ticket.req)) {
+      say(`keep request ${r.ticket.id} (${name}): the same request for newer arguments`);
+      r.ticket.args = a;
+      return r.value;
+    }
+    if (ans && (ans.req || ans.promise)) {
+      if (r.value === undefined) throw new Refusal(`${name} answers later and has no value to keep`);
+      const t = { id: ++Ticket, args: a, req: ans.req, promise: ans.promise };
+      if (r.ticket) say(`forget ticket ${r.ticket.id} (${name})`);
+      r.ticket = t; flag(pend, true); send(t, land(t));
+      return r.value;
+    }
+    // The source is not ready: the compiled value stands, stale, and the
+    // resource is asked again, forced, when it is (LLP 1027 D4).
+    if (r.value === undefined) throw new Refusal(`${name}: no value at boot and the source is not ready`);
+    flag(pend, true);
+    if (!r.waiting) { r.waiting = true; data.ready(() => { r.waiting = false; commit(() => { r.forced = true; W(ver, ver.n.v + 1); W(pend, false); }, `data ready ${name}`); }); }
+    return r.value;
+  }, type);
+  Object.assign(r, {
+    save: () => [r.value, r.settled, r.ticket, r.ticket?.args, r.store],
+    restore: x => { [r.value, r.settled, r.ticket] = x; if (r.ticket) r.ticket.args = x[3]; r.store = x[4]; },
+    force: undo => { r.forced = true; flag(ver, ver.n.v + 1, undo); },
+    reread_: undo => { r.reread = true; flag(ver, ver.n.v + 1, undo); },
+    revise: undo => { r.rev = true; flag(ver, ver.n.v + 1, undo); },
+  });
+  Resources.push(r);
+  m.p = () => (m(), pend());
+  m.f = () => (m(), fail() != null);
+  m.r = r;
   return m;
 }
-// Flag writes a settling resource makes: their own commit, after this one.
-const Later = [];
-function later(f) { if (Later.push(f) === 1) queueMicrotask(() => commit(() => { for (const g of Later.splice(0)) g(); })); }
+/** A mutation (LLP 1016): its slot (`option<T>`), the resources it
+ * declares it refreshes, and one ticket per send, the newest winning. */
+export function mut(name, slot, refreshes, type) {
+  const pend = sig(false);
+  const m = { ticket: null, then: null };
+  slot.n.m = m;
+  const landWrite = (v, undo) => { slot.n.landing = 1; try { undo.push([slot.n, slot.n.v]); write(slot.n, v); } finally { slot.n.landing = 0; } Landed.push(m); };
+  const land = t => outcome => commit(() => {
+    if (m.ticket !== t) return say(`dropped reply for ${name}: ticket ${t.id} is no longer held`);
+    const p = outcome.v !== undefined ? { v: outcome.v } : outcome.error ? (() => { throw new Refusal(outcome.error); })() : data.parse(t.source, t.args, outcome, Store);
+    if (p.req) { t.req = p.req; send(t, land(t)); return; }
+    if (type && !conforms(p.v, type)) throw new Refusal(`${name}: the answer does not conform to its shape`);
+    m.ticket = null; W(pend, false);
+    slot.n.landing = 1; W(slot, p.v); Landed.push(m);
+    // At the reply, the declared refreshes are forced (LLP 1054.000.000 D1).
+    for (const r of refreshes) R(r.r);
+    queueMicrotask(() => { slot.n.landing = 0; });
+  }, `reply ${name}`);
+  Object.assign(m, {
+    forget(undo) { if (m.ticket) { say(`forget ticket ${m.ticket.id} (${name})`); m.ticket = null; undo.push([pend.n, pend.n.v]); write(pend.n, false); } },
+    send(source, args, undo) {
+      const a = ask(source, args);
+      if (a && "v" in a) {
+        if (type && !conforms(a.v, type)) throw new Refusal(`${name}: the answer does not conform to its shape`);
+        landWrite(a.v, undo);
+      } else if (a && (a.req || a.promise)) {
+        const t = { id: ++Ticket, source, args, req: a.req, promise: a.promise };
+        m.ticket = t; undo.push([pend.n, pend.n.v]); write(pend.n, true); send(t, land(t));
+      } else throw new Refusal(`${name}: its source is not ready`);
+      // At the send, the declared refreshes re-read (D1).
+      for (const r of refreshes) r.r.reread_(undo);
+    },
+  });
+  m.p = () => pend();
+  return m;
+}
+/** `send m = source(args)` inside an action: asked at commit, after its writes. */
+export function M(m, source, args) { Sends.push([m, source, args]); }
 
 // ---------------------------------------------------------------- the DOM
 const SVG = "http://www.w3.org/2000/svg";
@@ -224,8 +391,11 @@ export function S(e, prop, unit, f) {
   effect(() => {
     const v = f();
     if (v == null) return e.style.removeProperty(prop);
-    // A value the row refuses is invalid at computed-value time: unset (LLP 1005 §6).
+    // A value the row refuses is invalid at computed-value time: unset,
+    // never the earlier declaration (LLP 1005 §6).
+    e.style.removeProperty(prop);
     e.style.setProperty(prop, typeof v === "number" ? v + unit : String(v));
+    if (!e.style.getPropertyValue(prop)) say(`unset ${prop}: ${JSON.stringify(v)} is not a value it takes`);
   });
 }
 /** An event handler: the DOM event the live host listens to (`glue.js` `attach`). */
@@ -344,7 +514,10 @@ export function mount(f) {
   const root = document.getElementById("exact-root");
   start = performance.now();
   clock.agent = new URLSearchParams(location.search).has("agent");
-  commit(() => scope(() => f(root)));
+  Store.load();
+  let built = false;
+  commit(() => { scope(() => f(root)); built = true; }, "boot");
+  if (!built) throw new Error("boot refused: " + journal.at(-1));
   root.dataset.bootMs = String(Math.round(performance.now()));
 }
 

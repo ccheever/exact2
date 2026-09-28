@@ -91,7 +91,7 @@ async function target(t, report) {
   const dir = resolve(out, t.name); mkdirSync(dir, { recursive: true });
   const build = spawnSync('bun', ['host/web3/build.mjs', t.app, ...(t.contract ? ['--plan', t.plan, '--data', t.wasm] : ['--plan', resolve(t.wasm, 'app.plan')]), '--out', resolve('/tmp/exact3-dist', t.name)], { cwd: root, encoding: 'utf8' });
   report.targets[t.name] = { jsBuild: build.status === 0, warnings: (build.stderr.match(/^warning: .*/gm) ?? []).length };
-  if (build.status !== 0) return fail('js-build', (build.stderr.match(/^[^\n]*: .*$/m)?.[0] ?? build.stderr).trim().slice(0, 400));
+  if (build.status !== 0) return fail('js-build', (build.stderr.split('\n').find(l => /\.plan: |\.contract:|^error/.test(l)) ?? build.stderr.slice(-300)).trim().slice(0, 400));
   const [ws, js] = await Promise.all([serve(t.wasm), serve(resolve('/tmp/exact3-dist', t.name))]);
   let W, J;
   try {

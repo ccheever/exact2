@@ -31,7 +31,10 @@ const cargo = spawnSync('cargo', ['run', '-q', '-p', 'exact-web3', '--', 'js', i
 if (cargo.status !== 0) process.exit(cargo.status ?? 1);
 cpSync(resolve(here, 'rt.js'), resolve(gen, 'rt.js'));
 const manifest = JSON.parse(readFileSync(resolve(appDir, 'app.json'), 'utf8'));
-const rust = !!manifest.rust?.module;
+// Rust data: the app's own module (`rust.module`), or a module generated
+// from the DataSource its web build bakes with (host/web3/module.mjs).
+const bakes = existsSync(resolve(appDir, 'web/build.rs')) && /contract::bake\(\s*plan,/.test(readFileSync(resolve(appDir, 'web/build.rs'), 'utf8'));
+const rust = !!manifest.rust?.module || bakes;
 writeFileSync(resolve(gen, 'main.js'), [
   "import app, { sources, wait } from './app.js';",
   "import { data, journal, clock, advance, commit } from './rt.js';",
@@ -71,10 +74,12 @@ if (existsSync(resolve(appDir, 'assets'))) cpSync(resolve(appDir, 'assets'), res
 if (existsSync(resolve(appDir, 'deck'))) cpSync(resolve(appDir, 'deck'), resolve(out, 'deck'), { recursive: true });
 // The Rust data module and the plan it binds, from the wasm build the baked plan came from.
 // `--data <dist>` names another wasm build's module (a synthetic plan over an app's sources).
-if (rust && opt('--plan')) {
-  const from = resolve(opt('--data') ?? dirname(resolve(opt('--plan'))));
+if (rust) {
   mkdirSync(resolve(out, 'rust/wasm'), { recursive: true });
-  cpSync(resolve(from, 'rust/wasm/app.module.wasm'), resolve(out, 'rust/wasm/app.module.wasm'));
-  cpSync(resolve(opt('--plan')), resolve(out, 'app.plan'));
+  const from = opt('--data') ?? (opt('--plan') && dirname(resolve(opt('--plan'))));
+  const built = from && existsSync(resolve(from, 'rust/wasm/app.module.wasm')) ? resolve(from, 'rust/wasm/app.module.wasm') : (await import('./module.mjs')).buildModule(app);
+  cpSync(built, resolve(out, 'rust/wasm/app.module.wasm'));
+  if (opt('--plan')) cpSync(resolve(opt('--plan')), resolve(out, 'app.plan'));
+  else if (spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', input, '-o', resolve(out, 'app.plan')], { cwd: root, stdio: 'inherit' }).status !== 0) process.exit(1);
 }
 console.log(`${out}: built`);
