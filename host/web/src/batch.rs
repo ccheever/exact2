@@ -354,8 +354,46 @@ impl Batch {
         values: &[(f64, f64)],
         pair: bool,
     ) {
+        self.animate_op(None, id, property, (delay_ms, duration_ms), values, pair);
+    }
+
+    /// A spring's frames as [`Batch::animate`] writes them, with `"at":ms`
+    /// after `property`: the host's clock when the spring was lowered, which
+    /// `delay` counts from. The page starts its animation there, as the
+    /// engine did, not when the browser next commits a pending animation.
+    pub fn spring(
+        &mut self,
+        at_ms: f64,
+        id: u32,
+        property: &str,
+        (delay_ms, duration_ms): (f64, f64),
+        values: &[(f64, f64)],
+    ) {
+        let pair = property == "translate";
+        self.animate_op(
+            Some(at_ms),
+            id,
+            property,
+            (delay_ms, duration_ms),
+            values,
+            pair,
+        );
+    }
+
+    fn animate_op(
+        &mut self,
+        at_ms: Option<f64>,
+        id: u32,
+        property: &str,
+        (delay_ms, duration_ms): (f64, f64),
+        values: &[(f64, f64)],
+        pair: bool,
+    ) {
         let mut s = text!("{{\"op\":\"animate\",\"id\":{},\"property\":", id);
         quote(property, &mut s);
+        if let Some(at_ms) = at_ms {
+            push_text!(&mut s, ",\"at\":{}", Shortest(at_ms));
+        }
         let (delay_ms, duration_ms) = (Shortest(delay_ms), Shortest(duration_ms));
         push_text!(
             &mut s,

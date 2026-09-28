@@ -1287,18 +1287,18 @@ impl<D: DataSource> Host<D> {
                 Lowered::Start {
                     view,
                     property,
+                    at,
                     delay,
                     duration,
                     values,
                 } => {
                     let pairs: Vec<(f64, f64)> = values.iter().map(|v| (v.x, v.y)).collect();
-                    batch.animate(
+                    batch.spring(
+                        at * 1000.0,
                         view,
                         property.name(),
-                        delay * 1000.0,
-                        duration * 1000.0,
+                        (delay * 1000.0, duration * 1000.0),
                         &pairs,
-                        property == Property::Translate,
                     );
                 }
                 Lowered::Cancel { view, property } => {

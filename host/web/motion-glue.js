@@ -179,7 +179,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
   // sought in each frame while it runs: its easing is the browser's, not
   // frames this glue holds.
   if(typeof document?.addEventListener==='function')document.addEventListener('transitionrun',e=>{if(e.propertyName==='translate'&&e.target.style?.getPropertyValue('--exact-drag-timeline'))kickTimelines();});
-  function follow(id,el,op) {
+  function follow(id,el,op,source) {
     const [name,axis='y']=timelineName(el);
     if(!name||op.values.length<2)return;
     const at=op.values.map(v=>axis==='x'?v[0]:v[1]),made=[];let seek=false;
@@ -194,7 +194,9 @@ export function motionController({views,now,generation,request,applyBatch,inert,
         const keyframes=animation.effect.getKeyframes().map(({computedOffset,...k})=>k);
         // Added to the paused animation it stands in for, it would count twice.
         if(easing===null||animation.effect.composite!=='replace'||keyframes.some(k=>k.composite==='add'||k.composite==='accumulate')){seek=true;continue;}
-        made.push(c.animate(keyframes,{delay:op.delay,duration:op.duration,easing,fill:'both'}));
+        const f=c.animate(keyframes,{delay:op.delay,duration:op.duration,easing,fill:'both'});
+        if(source.startTime!==null)f.startTime=source.startTime;
+        made.push(f);
       }
     }
     if(made.length) {
@@ -525,9 +527,15 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       const el=views.get(id); if(!el) return;
       const animation=el.animate(op.values.map(value=>({[cssProperty(el,property)]:css(property,property==='translate'?value:[value,0])})),
         {delay:op.delay,duration:op.duration,easing:'linear',fill:'backwards'});
+      // Started where the engine lowered it (`at`, the host's clock), not
+      // when the browser next commits a pending animation, two frames later
+      // after a release: then the page shows the engine's value, and a catch
+      // mid-spring adopts what is on screen. The agent's clock seeks it
+      // instead.
+      if(Number.isFinite(op.at))animation.startTime=performance.now()-now()+op.at;
       animations.set(k,animation);
       animation.finished.then(()=>{if(animations.get(k)===animation) animations.delete(k);},()=>{});
-      if(property==='translate'&&el.style.getPropertyValue('--exact-drag-timeline'))follow(id,el,op);
+      if(property==='translate'&&el.style.getPropertyValue('--exact-drag-timeline'))follow(id,el,op,animation);
     },
     // Authored eligibility can disappear without a dirty Engine frame. Retire
     // only this property, restoring current authoring and other held overlays.

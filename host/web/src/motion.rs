@@ -34,6 +34,9 @@ pub enum Lowered {
         view: ViewId,
         /// The property.
         property: Property,
+        /// The engine's clock when this was lowered, seconds: `delay`
+        /// counts from here.
+        at: f64,
         /// Seconds before the first frame.
         delay: f64,
         /// Seconds from the first frame to the last.
@@ -599,6 +602,7 @@ impl Motion for Springs {
                     out.push(Lowered::Start {
                         view,
                         property: p.property,
+                        at: now,
                         delay: (frames.start - now).max(0.0),
                         duration: frames.duration,
                         values: frames.values,

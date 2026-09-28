@@ -161,6 +161,18 @@ fn cases() -> Vec<(&'static str, String)> {
             "animate-stop",
             one(|b| b.animate(10, "scale", 0.0, 0.0, &[], false)),
         ),
+        (
+            "spring",
+            one(|b| {
+                b.spring(
+                    2500.5,
+                    9,
+                    "translate",
+                    (0.0, 300.0),
+                    &[(0.1, 0.2), (0.0, 0.0)],
+                )
+            }),
+        ),
         ("retire-motion", one(|b| b.retire_motion(11, "transform"))),
         ("surface", one(|b| b.surface(&surface))),
         ("request", one(|b| b.request(&request(41, http, true)))),
@@ -309,6 +321,10 @@ const GOLDEN: &[(&str, &str)] = &[
     (
         "animate-stop",
         r#"{"ops":[{"op":"animate","id":10,"property":"scale","delay":0,"duration":0,"values":[]}],"timers":false,"clock":0,"error":null}"#,
+    ),
+    (
+        "spring",
+        r#"{"ops":[{"op":"animate","id":9,"property":"translate","at":2500.5,"delay":0,"duration":300,"values":[[0.1,0.2],[0,0]]}],"timers":false,"clock":0,"error":null}"#,
     ),
     (
         "retire-motion",
