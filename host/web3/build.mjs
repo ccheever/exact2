@@ -19,7 +19,7 @@ const root = resolve(here, '../..');
 const args = process.argv.slice(2);
 const app = args[0];
 const opt = (name) => { const i = args.indexOf(name); return i < 0 ? null : args[i + 1]; };
-if (!app) { console.error('usage: bun host/web3/build.mjs <app> [--plan <app.plan>] [--out <dir>]'); process.exit(2); }
+if (!app) { console.error('usage: bun host/web3/build.mjs <app> [--plan <app.plan>] [--out <dir>] [--inline]'); process.exit(2); }
 const appDir = resolve(root, 'apps', app);
 const out = resolve(opt('--out') ?? `/tmp/exact3-dist/${app}`);
 const gen = resolve(out, '.gen');
@@ -61,7 +61,7 @@ writeFileSync(resolve(out, 'index.html'), `<!doctype html>
 <meta name="viewport" content="${viewport}">
 <style>${base}${css}</style>
 <div id="exact-root"></div>
-<script type="module" src="./app.js"></script>
+${args.includes('--inline') ? `<script type="module">${readFileSync(resolve(out, 'app.js'), 'utf8').replaceAll('</script', '<\\/script')}</script>` : '<script type="module" src="./app.js"></script>'}
 `);
 if (existsSync(resolve(appDir, 'assets'))) cpSync(resolve(appDir, 'assets'), resolve(out, 'assets'), { recursive: true });
 if (existsSync(resolve(appDir, 'deck'))) cpSync(resolve(appDir, 'deck'), resolve(out, 'deck'), { recursive: true });
