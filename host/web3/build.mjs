@@ -33,7 +33,7 @@ cpSync(resolve(here, 'rt.js'), resolve(gen, 'rt.js'));
 const manifest = JSON.parse(readFileSync(resolve(appDir, 'app.json'), 'utf8'));
 const rust = !!manifest.rust?.module;
 writeFileSync(resolve(gen, 'main.js'), [
-  "import app from './app.js';",
+  "import app" + (rust ? ', { sources }' : '') + " from './app.js';",
   "import { data, journal, clock, advance, commit } from './rt.js';",
   'app();',
   // The agent adapter, only when the agent drives the page.
@@ -41,7 +41,7 @@ writeFileSync(resolve(gen, 'main.js'), [
   "if (clock.agent) globalThis.exact.ready = import('./agent.js').then(m => m.install(globalThis.exact));",
   ...(rust ? [
     // Rust data: loaded after first pixel, asked synchronously once ready.
-    "requestAnimationFrame(() => setTimeout(() => import('./rust-data.js').then(m => m.install(data, app.sources))));",
+    "requestAnimationFrame(() => setTimeout(() => import('./rust-data.js').then(m => m.install(data, sources))));",
   ] : []),
 ].join('\n'));
 for (const f of ['agent.js', 'rust-data.js']) cpSync(resolve(here, f), resolve(gen, f));
@@ -65,4 +65,11 @@ writeFileSync(resolve(out, 'index.html'), `<!doctype html>
 `);
 if (existsSync(resolve(appDir, 'assets'))) cpSync(resolve(appDir, 'assets'), resolve(out, 'assets'), { recursive: true });
 if (existsSync(resolve(appDir, 'deck'))) cpSync(resolve(appDir, 'deck'), resolve(out, 'deck'), { recursive: true });
+// The Rust data module and the plan it binds, from the wasm build the baked plan came from.
+if (rust && opt('--plan')) {
+  const from = dirname(resolve(opt('--plan')));
+  mkdirSync(resolve(out, 'rust/wasm'), { recursive: true });
+  cpSync(resolve(from, 'rust/wasm/app.module.wasm'), resolve(out, 'rust/wasm/app.module.wasm'));
+  cpSync(resolve(from, 'app.plan'), resolve(out, 'app.plan'));
+}
 console.log(`${out}: built`);

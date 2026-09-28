@@ -27,7 +27,7 @@ export function eq(a, b) {
 
 function node(fn, v, effect) {
   const n = { fn, v, effect, s: fn ? DIRTY : CLEAN, src: [], obs: new Set(), kids: null, gone: 0 };
-  if (Owner) (Owner.kids ??= []).push(n);
+  if (Owner) { (Owner.kids ??= []).push(n); n.up = Owner; }
   return n;
 }
 function read(n) {
@@ -79,8 +79,17 @@ export function sig(v) { const n = node(null, v); const g = () => read(n); g.n =
 /** A derive: lazy, cached, equal results keep their object. */
 export function memo(fn) { const n = node(fn); return () => read(n); }
 export function effect(fn) { const n = node(fn, undefined, 1); fresh(n); return n; }
-/** A scope whose effects `dispose` ends. */
-function scope(f) { const n = node(null); const o = Owner; Owner = n; try { f(); } finally { Owner = o; } return n; }
+/** A scope whose effects `dispose` ends, owned by `parent` (a region's
+ * arms and rows belong to the region's scope, never to its effect, which
+ * drops what it owns each time it reruns). */
+function scope(f, parent = Owner) {
+  const o = Owner; Owner = parent;
+  const n = node(null);
+  Owner = n;
+  try { f(); } finally { Owner = o; }
+  return n;
+}
+function end(n) { dispose(n); const k = n.up?.kids; if (k) k.splice(k.indexOf(n), 1); }
 
 // ---------------------------------------------------------------- commits
 let Writes = null, Commands = [];
@@ -142,7 +151,7 @@ function drive() {
 /** The app's data sources: `answer(source, args)` returns `{v}` now, a
  * Promise for later, or `null` while the source is not ready; `ready(f)`
  * calls `f` once it is. */
-export const data = { answer: () => null, ready: () => {} };
+export const data = { answer: () => null, q: [], ready: f => data.q.push(f) };
 /** A resource. */
 export function res(source, args, initial, initialArgs) {
   const bump = sig(0);
@@ -254,26 +263,26 @@ function range(p) {
   return [a, b];
 }
 function clear(a, b) { while (a.nextSibling !== b) a.nextSibling.remove(); }
-function build(b, f) {
+function build(b, f, own) {
   const frag = document.createDocumentFragment();
-  const s = scope(() => f(frag));
+  const s = scope(() => f(frag), own);
   b.before(frag);
   return s;
 }
 /** `when`: arm 0 while the subject holds, else arm 1 (or nothing). */
 export function when(p, subject, a0, a1) {
-  const [a, b] = range(p);
+  const [a, b] = range(p), own = Owner;
   let arm = -1, s = null;
   effect(() => {
     const want = subject() ? 0 : a1 ? 1 : -1;
     if (want === arm) return;
     arm = want;
-    untracked(() => { if (s) dispose(s); clear(a, b); s = want < 0 ? null : build(b, want ? a1 : a0); });
+    untracked(() => { if (s) end(s); clear(a, b); s = want < 0 ? null : build(b, want ? a1 : a0, own); });
   });
 }
 /** `match`: arm 0 with the bound value while the subject is `some`, else arm 1. */
 export function match(p, subject, a0, a1) {
-  const [a, b] = range(p);
+  const [a, b] = range(p), own = Owner;
   let arm = -1, s = null;
   const bound = sig(null);
   effect(() => {
@@ -281,13 +290,13 @@ export function match(p, subject, a0, a1) {
     if (v != null) write(bound.n, v);
     if (want === arm) return;
     arm = want;
-    untracked(() => { if (s) dispose(s); clear(a, b); s = want < 0 ? null : build(b, want ? a1 : p2 => a0(p2, bound)); });
+    untracked(() => { if (s) end(s); clear(a, b); s = want < 0 ? null : build(b, want ? a1 : p2 => a0(p2, bound), own); });
   });
 }
 /** `each`: rows by key in item order; a kept row keeps its elements, its
  * item and position are signals its bindings read. */
 export function each(p, list, key, row) {
-  const [a, b] = range(p);
+  const [a, b] = range(p), own = Owner;
   let rows = new Map();
   effect(() => {
     const items = list();
@@ -304,13 +313,13 @@ export function each(p, list, key, row) {
           r = { item: sig(item), index: sig(i), start: document.createComment(""), end: document.createComment("") };
           const frag = document.createDocumentFragment();
           frag.append(r.start);
-          r.s = scope(() => row(frag, r.item, r.index));
+          r.s = scope(() => row(frag, r.item, r.index), own);
           frag.append(r.end);
           r.frag = frag;
         }
         next.set(k, r);
       });
-      for (const r of rows.values()) { dispose(r.s); let n = r.start; while (n) { const m = n.nextSibling; n.remove(); if (n === r.end) break; n = m; } }
+      for (const r of rows.values()) { end(r.s); let n = r.start; while (n) { const m = n.nextSibling; n.remove(); if (n === r.end) break; n = m; } }
       // Order: walk the rows, moving a row only when it is not already next.
       let at = a;
       for (const r of next.values()) {
