@@ -362,13 +362,22 @@ CSS timeline has a drag as its source (LLP 1057.002 §6.10).
 - **An endless animation is refused** (`lower-timeline-endless`). CSS gives
   it no duration on a progress-based timeline and shows its end; a computed
   one that reaches a host holds its start.
-- **Names are global** until `timeline-scope` (D4, phase 3).
-- **Without a source, the start.** A timeline whose source is absent holds
-  its consumer at the range start. CSS would leave the animation without
-  effect.
+- **Names scope as CSS scopes them** (D4): `timeline-scope`, bit 153, is
+  CSS's row, and a consumer's name resolves to the nearest ancestor-or-self
+  that declares or scopes it, in the kernel and in the web's glue alike.
+  `all` follows the specification's text; Chrome 154 does not parse it.
+- **A name that finds no single source is Chrome's.** An inactive timeline
+  (a scope with no declaring descendant, or several) leaves the animation
+  without effect; with no timeline in scope, the animation keeps the time
+  it has, 0 when new. Declared: when a lost timeline is found again, the
+  animation follows it. Chrome leaves it paused (at 0%, where Web
+  Animations 2 holds its last progress), which would freeze a follower
+  whose source a commit replaced.
 - **The web lowers no timeline.** The consumer's CSS animation is paused and
   seeked where the drag writes its held value, and once per frame while a
   release spring runs; phase 2 (D3) removes that per-frame seek.
+  `timeline-scope` is emitted as CSS too, for the timelines the browser
+  will resolve (D5), and as `--exact-timeline-scope` for the glue's lookup.
 
 Declared deviations, each because the engine cannot express the CSS value:
 `position` has no `static` (Taffy positions an absolute child against its parent,
