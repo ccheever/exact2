@@ -446,7 +446,7 @@ export function md(e, f) {
 }
 async function markdown() {
   const bytes = globalThis.__files ? globalThis.__files("markdown.wasm") : await fetch("./markdown.wasm").then(r => r.arrayBuffer());
-  const { instance: { exports: x } } = await WebAssembly.instantiate(bytes, {});
+  const made = await WebAssembly.instantiate(bytes, {}), x = (made.instance ?? made).exports;
   return source => {
     const b = new TextEncoder().encode(source), p = x.alloc(b.length);
     new Uint8Array(x.memory.buffer, p, b.length).set(b);

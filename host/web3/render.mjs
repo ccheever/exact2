@@ -24,7 +24,9 @@ export function renderer(dist) {
   const script = new vm.Script(readFileSync(resolve(dist, '.gen/server.js'), 'utf8'), { filename: 'server.js' });
   const shell = readFileSync(resolve(dist, existsSync(resolve(dist, 'shell.html')) ? 'shell.html' : 'index.html'), 'utf8');
   const capture = readFileSync(new URL('./capture.js', import.meta.url), 'utf8').trim();
-  const files = p => readFileSync(resolve(dist, p.replace(/^\.?\//, '')));
+  // A dist file once; a wasm compiled once, instantiated per render.
+  const cache = new Map();
+  const files = p => { let v = cache.get(p); if (!v) { v = readFileSync(resolve(dist, p.replace(/^\.?\//, ''))); if (p.endsWith('.wasm')) v = new WebAssembly.Module(v); cache.set(p, v); } return v; };
   const name = /<title>([^<]*)<\/title>/.exec(shell)?.[1] ?? '';
   return async function render(location, deadline = DEADLINE) {
     const document = createDocument();

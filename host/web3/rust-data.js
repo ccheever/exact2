@@ -63,7 +63,8 @@ function reader(b) {
 
 export async function install(data, sources, load = p => fetch(p).then(r => r.arrayBuffer())) {
   const [wasm, plan] = await Promise.all([load('./rust/wasm/app.module.wasm'), load('./app.plan')]);
-  const { instance } = await WebAssembly.instantiate(wasm, {});
+  // Bytes, or a module a renderer compiled once for every render.
+  const made = await WebAssembly.instantiate(wasm, {}), instance = made.instance ?? made;
   const e = instance.exports;
   if (e.exact_logic_abi() !== ABI) throw new Error(`Rust module ABI ${e.exact_logic_abi()} is not ${ABI}`);
   const session = e.exact_logic_create();

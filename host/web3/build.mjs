@@ -113,6 +113,8 @@ if (rust) {
 // `--render js` runs this runtime under Bun (render.mjs). Either page adopts.
 const pages = JSON.parse(readFileSync(resolve(gen, 'pages.json'), 'utf8'));
 const how = opt('--render') ?? 'rust';
+// The shell a page is composed over stays as shell.html (a render server's, too).
+if (pages.length) cpSync(resolve(out, 'index.html'), resolve(out, 'shell.html'));
 if (pages.length && how === 'rust') {
   const bin = `${app}-render`;
   const at = [['linux', `${app}-linux`], ['web', `${app}-web`]].find(([dir]) => existsSync(resolve(appDir, dir, 'src/bin', `${bin}.rs`)));

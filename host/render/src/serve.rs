@@ -219,6 +219,9 @@ impl Server {
                 }
                 Err(_) => continue,
             };
+            // Headers and body are separate writes: without this, Nagle holds
+            // the body for the client's delayed ACK (~40 ms a page, measured).
+            let _ = stream.set_nodelay(true);
             // An accepted socket inherits the listener's mode on macOS.
             let _ = stream.set_nonblocking(false);
             let (state, ready) = &*waiting;
