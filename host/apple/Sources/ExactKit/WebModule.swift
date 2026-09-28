@@ -211,17 +211,34 @@ final class WebViews {
         entry.src = src
         entry.sandbox = sandbox
         entry.initialized = true
-        guard let module, let handle = entry.handle else { return }
-        if changedSrc || changedSandbox { entry.loading = true }
-        if let src, URL(string: src)?.scheme == nil, !src.hasPrefix("//"), let resolver = session?.app.resolver {
-            let path = src.components(separatedBy: "?")[0].components(separatedBy: "#")[0]
-            let name = path.hasPrefix("/") ? String(path.dropFirst()) : path
+        guard let module, let handle = entry.handle, changedSrc || changedSandbox else { return }
+        entry.loading = true
+        guard changedSrc else { send(sandbox, to: handle, using: module.setSandbox); return }
+        guard let src, URL(string: src)?.scheme == nil, !src.hasPrefix("//"), let resolver = session?.app.resolver else {
+            send(nil, to: handle, using: module.setDocument)
+            if changedSandbox { send(sandbox, to: handle, using: module.setSandbox) }
+            send(src, to: handle, using: module.setSrc)
+            return
+        }
+        // A local document is read off the main thread, once per `src`
+        // (a row mounting read its file on the main thread at every
+        // update); `src` reaches the arm with it, and the frame shows
+        // loading until then.
+        let path = src.components(separatedBy: "?")[0].components(separatedBy: "#")[0]
+        let name = path.hasPrefix("/") ? String(path.dropFirst()) : path
+        let id = owner.id
+        WebViews.reads.async { [weak self] in
             let document = resolver.bytes(name).map { String(decoding: $0, as: UTF8.self) } ?? ""
-            send(document, to: handle, using: module.setDocument)
-        } else { send(nil, to: handle, using: module.setDocument) }
-        if changedSandbox { send(sandbox, to: handle, using: module.setSandbox) }
-        if changedSrc { send(src, to: handle, using: module.setSrc) }
+            DispatchQueue.main.async {
+                guard let self, let entry = self.entries[id], entry.src == src, let handle = entry.handle, let module = self.module else { return }
+                self.send(document, to: handle, using: module.setDocument)
+                self.send(entry.sandbox, to: handle, using: module.setSandbox)
+                self.send(src, to: handle, using: module.setSrc)
+            }
+        }
     }
+
+    private static let reads = DispatchQueue(label: "exact.web.documents", qos: .userInitiated)
 
     private static func browserSource(_ source: String?) -> String? {
         guard let source, source.hasPrefix("//") else { return source }
