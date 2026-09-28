@@ -11,7 +11,8 @@ for (const host of ['Mac','IOS']) test(`${host} clears zero-sized and display-no
   const end=source.indexOf('            let hidden = child.isHidden',start);
   const branch=source.slice(start,end);
   const swift=`struct Rect { var width: Double; var height: Double }
-struct Child { var frame: Rect; var style: [String:Any]; var props: [String:String] = [:] }
+enum BatchValue { case string(String); var string: String? { if case .string(let s) = self { return s }; return nil } } // ExactKit's style value, reduced
+struct Child { var frame: Rect; var style: [String:BatchValue]; var props: [String:String] = [:] }
 struct Entry { var id: UInt32 = 1 }
 final class Module {
  var cleared: [UInt32] = []
@@ -22,7 +23,7 @@ final class Module {
 }
 let m=Module(), e=Entry()
 let children=[Child(frame:Rect(width:20,height:20),style:[:]),
- Child(frame:Rect(width:0,height:0),style:[:]),Child(frame:Rect(width:20,height:20),style:["display":"none"])]
+ Child(frame:Rect(width:0,height:0),style:[:]),Child(frame:Rect(width:20,height:20),style:["display":.string("none")])]
 var captured=0
 func capture() -> Bool {
 ${branch}
