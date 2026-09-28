@@ -185,7 +185,7 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         let restriction = sandbox.map { " sandbox=\"\(attribute($0))\"" } ?? ""
         let expectedOrigin = javascript(guestOrigin(remote: remote, local: local != nil))
         return """
-        <!doctype html><meta charset="utf-8">
+        <!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
         <style>html,body,iframe{margin:0;width:100%;height:100%;border:0;display:block}body{overflow:hidden}</style>
         <iframe id="exact-frame"\(source)\(restriction)></iframe>
         <script>
