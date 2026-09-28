@@ -5,8 +5,8 @@ import UIKit
 /// on a `pan` node only. UIKit synthesizes no touch (LLP 1008 §9), so the
 /// contact is `recognized`: its deltas take the presenter's pan path, as
 /// `ContactLayoutPan`'s do, and `up` releases at the engine's tracker over the
-/// synthesized samples, spaced `ms / steps` apart on a synthetic clock
-/// (LLP 1057.001 §3). Every other contact stays `unsupported`.
+/// synthesized samples, spaced `ms / steps` apart on the contact's own clock,
+/// never the wall time between requests (LLP 1057.001 §3). Every other contact stays `unsupported`.
 struct AgentPan {
     weak var node: NodeView?
     /// The contact in the viewport's space, and its synthetic time in seconds.
@@ -89,6 +89,10 @@ extension Agent {
         case "up":
             panContact = nil
             if contact.began {
+                // The lift is one frame after the last move, where it lands
+                // on the web and AppKit carriers too.
+                contact.t += 1.0 / 60
+                presenter.onPanSample?(false, Double(contact.at.x), Double(contact.at.y), contact.t)
                 let (vx, vy) = presenter.panVelocity?(contact.t) ?? (0, 0)
                 presenter.panRelease(node.id, vx, vy)
                 return ["phase": "up", "at": point(contact.at), "delivery": "recognized", "velocity": [vx, vy]]

@@ -36,6 +36,10 @@ public final class Agent {
     /// `nil` between contacts. AppKit holds it as a real mouse button; UIKit
     /// cannot hold one and says so.
     var contact: CGPoint? = nil
+    #if os(macOS)
+    /// The held contact's event time, seconds on `systemUptime`'s clock.
+    var contactClock: Double = 0
+    #endif
     weak var canvasContact: NodeView?
     var keyReleases: [String: () -> [String: Any]] = [:]
 

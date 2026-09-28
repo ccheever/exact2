@@ -317,8 +317,12 @@ extension Agent {
         guard let win = presenter.viewport.window else { return ["error": "no window"] }
         let clip = presenter.viewport.contentView
         let toWindow = { (p: CGPoint) -> NSPoint in clip.convert(NSPoint(x: p.x + clip.bounds.origin.x, y: p.y + clip.bounds.origin.y), to: nil) }
-        let send = { (type: NSEvent.EventType, p: CGPoint) in
-            let t = ProcessInfo.processInfo.systemUptime
+        // The contact's own timeline (LLP 1057 §10.6): a timed move's events
+        // are stamped at its declared pace and the lift one frame after the
+        // last move, so the engine's tracker measures the driven flick, not
+        // the driver's round trips between requests.
+        let send = { [self] (type: NSEvent.EventType, p: CGPoint) in
+            let t = contactClock
             if let e = NSEvent.mouseEvent(with: type, location: toWindow(p), modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1) {
                 win.sendEvent(e)
             }
@@ -331,6 +335,7 @@ extension Agent {
             if presenter.toolbar.suppresses(v) { return ["error": "native toolbar geometry is system-owned; use tap host activation"] }
             let b = box(v)
             let p = CGPoint(x: req["x"] as? Double ?? b.midX, y: req["y"] as? Double ?? b.midY)
+            contactClock = ProcessInfo.processInfo.systemUptime
             send(.leftMouseDown, p)
             contact = p
             return ["contact": Int(v.id), "phase": "down", "at": at(p), "delivery": "platform"]
@@ -342,6 +347,7 @@ extension Agent {
             let steps = max(1, Int(ms / 16))
             for i in 1...steps {
                 let t = CGFloat(i) / CGFloat(steps)
+                contactClock += ms / 1000 / Double(steps)
                 send(.leftMouseDragged, CGPoint(x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t))
                 if ms > 0 { RunLoop.main.run(until: Date(timeIntervalSinceNow: ms / 1000 / Double(steps))) }
             }
@@ -351,14 +357,17 @@ extension Agent {
             guard let p = contact else { return ["error": "no contact is down"] }
             let ms = max(0, req["ms"] as? Double ?? 0)
             if ms > 0 { RunLoop.main.run(until: Date(timeIntervalSinceNow: ms / 1000)) }
+            contactClock += ms / 1000
             return ["phase": "hold", "at": at(p), "delivery": "platform"]
         case "up":
             guard let p = contact else { return ["error": "no contact is down"] }
+            contactClock += 1.0 / 60
             send(.leftMouseUp, p)
             contact = nil
             return ["phase": "up", "at": at(p), "delivery": "platform"]
         case "cancel":
             guard let p = contact else { return ["error": "no contact is down"] }
+            contactClock += 1.0 / 60
             send(.leftMouseUp, p)
             contact = nil
             return ["phase": "cancel", "at": at(p), "delivery": "platform"]
