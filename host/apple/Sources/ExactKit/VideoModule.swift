@@ -40,6 +40,39 @@ private final class VideoModule {
     }()
 }
 
+/// Chrome's rule for a muted video its `autoplay` attribute started, with
+/// `paused` unbound (LLP 1042 §3, ruled 2026-09-28): it plays only while some
+/// of it is in the viewport, and one that loads off screen starts when first
+/// seen. A pause or play the rule did not ask for (native controls, the end
+/// of a video without `loop`) ends the rule, as HTML's pause() and play()
+/// clear the element's can-autoplay flag. Measured in Chrome 154.
+struct OffscreenAutoplay {
+    /// The playback is still the autoplay attribute's.
+    private(set) var armed = false
+    /// Paused by this rule.
+    private(set) var holding = false
+    /// The pauses (true) and plays the rule asked for and has not yet seen.
+    private var expected: [Bool] = []
+    /// A new source: armed when the autoplay attribute starts it.
+    mutating func load(autoplay: Bool) { armed = autoplay; holding = false; expected = [] }
+    mutating func disarm() { armed = false; holding = false; expected = [] }
+    /// Whether the rule changes its request for this visibility: true to
+    /// pause, false to resume, nil for no change.
+    mutating func visible(_ visible: Bool) -> Bool? {
+        guard armed, holding == visible else { return nil }
+        holding = !visible
+        expected.append(holding)
+        if expected.count > 4 { expected.removeFirst() }
+        return holding
+    }
+    /// The engine reported a pause (true) or a play (false).
+    mutating func observed(paused: Bool) {
+        guard armed else { return }
+        if let i = expected.firstIndex(of: paused) { expected.removeFirst(i + 1); return }
+        if paused != holding { disarm() }
+    }
+}
+
 final class VideoView {
     weak var owner: NodeView?
     private var handle: UnsafeMutableRawPointer?
@@ -48,6 +81,13 @@ final class VideoView {
     private var observed: [String: Any] = ["unavailable": true]
     private var intrinsicSize: CGSize?
     private var visibilityBlocked = false
+    private var autoplay = OffscreenAutoplay()
+    private var autoplaySource: String?
+    /// The rule applies: armed, muted, `paused` unbound.
+    private var autoplayRule: Bool {
+        guard let owner else { return false }
+        return autoplay.armed && owner.props["paused"] == nil && owner.props["muted"] == "true"
+    }
     /// The last source resolved per name (`src`, `poster`): its authored text
     /// and what it resolved to. A resolution reads the file system.
     private var resolved: [String: (source: String, url: URL?)] = [:]
@@ -60,6 +100,10 @@ final class VideoView {
         return CGFloat(value)
     }
     func refreshVisibility() {
+        if visibilityThreshold == nil, autoplayRule, let owner {
+            if autoplay.holding == (VideoVisibilityHost.fraction(owner) > 0) { update() }
+            return
+        }
         guard let threshold = visibilityThreshold, let owner else { return }
         let ratio = VideoVisibilityHost.fraction(owner)
         let blocked = ratio <= 0 || ratio < threshold
@@ -107,12 +151,25 @@ final class VideoView {
     func update() {
         guard let owner, let module = VideoModule.shared, let handle else { return }
         var props = owner.props
+        if props["src"] != autoplaySource {
+            autoplaySource = props["src"]
+            autoplay.load(autoplay: props["autoplay"] == "true")
+        }
+        if props["paused"] != nil { autoplay.disarm() }
         if let threshold = visibilityThreshold {
             if owner.presenter?.videoVisibility == nil { owner.presenter?.videoVisibility = VideoVisibilityHost() }
             owner.presenter?.videoVisibility?.track(self)
             let ratio = VideoVisibilityHost.fraction(owner)
             visibilityBlocked = ratio <= 0 || ratio < threshold
             if visibilityBlocked { props["paused"] = "true" }
+        } else if autoplayRule {
+            visibilityBlocked = false
+            if owner.presenter?.videoVisibility == nil { owner.presenter?.videoVisibility = VideoVisibilityHost() }
+            owner.presenter?.videoVisibility?.track(self)
+            // The request crosses once: "true" while held, "false" in the
+            // update that resumes, then nothing (a removed `paused` is no command).
+            if let hold = autoplay.visible(VideoVisibilityHost.fraction(owner) > 0) { props["paused"] = hold ? "true" : "false" }
+            else if autoplay.holding { props["paused"] = "true" }
         } else {
             visibilityBlocked = false
             owner.presenter?.videoVisibility?.remove(self)
@@ -129,7 +186,8 @@ final class VideoView {
                 if name == "src" && url == nil { props["sourceError"] = "Unsupported media source" }
             }
         }
-        let listeners = owner.handlers.intersection(Self.events)
+        var listeners = owner.handlers.intersection(Self.events)
+        if autoplayRule { listeners.formUnion(["pause", "play"]) }
         if !listeners.isEmpty { props["exactListeners"] = listeners.sorted().joined(separator: " ") }
         guard props != last else { return }
         last = props
@@ -144,6 +202,7 @@ final class VideoView {
             result["intersectionRatio"] = VideoVisibilityHost.fraction(owner)
             result["visibilityPaused"] = visibilityBlocked
         }
+        if autoplayRule { result["autoplayOffscreenPaused"] = autoplay.holding }
         return result
     }
     private func receive(_ message: [String: Any]) {
@@ -157,6 +216,11 @@ final class VideoView {
                 guard let self, let owner, owner.video === self else { return }
                 owner.presenter?.intrinsic(owner.id, size)
             }
+        }
+        if let event = message["event"] as? String, event == "pause" || event == "play" {
+            let was = autoplay.armed
+            autoplay.observed(paused: event == "pause")
+            if was && !autoplay.armed { DispatchQueue.main.async { [weak self] in self?.update() } }
         }
         guard let event = message["event"] as? String, owner.handlers.contains(event) else { return }
         let payload = message["payload"] as? String ?? ""
