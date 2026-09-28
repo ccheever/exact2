@@ -14,7 +14,7 @@ final class MarkupEditorTests: XCTestCase {
         node.makeTextArea()
         node.props["markup"] = "markdown"
         node.props["value"] = source
-        node.handlers = ["change"]
+        node.handlers = ["input"] // each source change; `change` is the commit (LLP 1069.001)
         node.applyTextArea()
         node.layoutTextArea()
         let window = NSWindow(contentRect: node.frame, styleMask: [.titled], backing: .buffered, defer: false)
@@ -31,7 +31,7 @@ final class MarkupEditorTests: XCTestCase {
         let (node, f, window, presenter) = editor("hello 🎉", selection: NSRange(location: 0, length: 5))
         defer { window.close() }
         var changes: [String] = []
-        presenter.onChange = { _, value in changes.append(value) }
+        presenter.onInput = { _, value in changes.append(value) }
         XCTAssertNotNil(f.textLayoutManager)
         XCTAssertTrue(node.formatMarkup("bold"))
         XCTAssertEqual(f.string, "**hello** 🎉")
@@ -71,7 +71,7 @@ final class MarkupEditorTests: XCTestCase {
         presenter.session = session
         defer { window.close(); session.destroy() }
         var reported: [String] = []
-        presenter.onChange = { _, value in
+        presenter.onInput = { _, value in
             reported.append(value)
             node.props["value"] = value
             node.applyTextArea()

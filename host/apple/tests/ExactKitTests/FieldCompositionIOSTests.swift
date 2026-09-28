@@ -16,12 +16,13 @@ final class FieldCompositionIOSTests: XCTestCase {
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
         let node = NodeView(id: 1, kind: "input", presenter: p)
         node.frame = CGRect(x: 0, y: 0, width: 300, height: 44)
-        node.handlers = ["change"]
+        node.handlers = ["input"]
         window.addSubview(node); p.views[node.id] = node
         window.makeKeyAndVisible()
-        // A controlled input, as Caltrain's search is: the app echoes what it hears.
+        // A controlled input, as Caltrain's search is: the app echoes what it
+        // hears per keystroke (`input`; `change` is the commit, LLP 1069.001).
         var heard: [String] = []
-        p.onChange = { [unowned node] _, value in
+        p.onInput = { [unowned node] _, value in
             heard.append(value)
             node.applyProps(set: ["value": value], clear: [])
         }
