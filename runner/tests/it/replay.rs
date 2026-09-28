@@ -300,8 +300,8 @@ fn run<D: DataSource>(r: &mut Runner<D>) -> (Vec<Step>, Vec<String>) {
     let res = format!("{:?}", r.dispatch(v, Event::Press));
     step(r, "press change-station", res);
     let v = view(r, "station-search");
-    let res = format!("{:?}", r.dispatch(v, Event::Change("Palo".into())));
-    let ticket = step(r, "change station-search", res)
+    let res = format!("{:?}", r.dispatch(v, Event::Input("Palo".into())));
+    let ticket = step(r, "input station-search", res)
         .iter()
         .find(|q| q.target == "matches")
         .expect("the search went out as a request")
@@ -344,7 +344,7 @@ fn two_runs_of_the_same_calls_agree() {
         let from = s.rfind(&format!("\"{name}\":[")).unwrap();
         s[from..from + s[from..].find(']').unwrap() + 1].to_owned()
     };
-    assert_eq!(list("change station-search", "matches"), "\"matches\":[]");
+    assert_eq!(list("input station-search", "matches"), "\"matches\":[]");
     assert!(list("fulfill search", "matches").contains("Palo Alto"));
     assert_ne!(
         list("advance 412", "northBoard"),
