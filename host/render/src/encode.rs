@@ -368,6 +368,12 @@ impl Variants {
                     gzip: None,
                 };
                 self.known.lock().unwrap().insert(file.to_path_buf(), entry);
+                // A file new or changed since bind (a dist rebuilt under a
+                // running server) gets its variants made as at bind; until
+                // then it goes as it is.
+                if compressible {
+                    self.warm(vec![file.to_path_buf()]);
+                }
                 tag
             }
         };
@@ -500,5 +506,33 @@ mod tests {
         let (encoding, out) = now(page.as_bytes(), accepts).unwrap();
         assert_eq!(encoding, Encoding::Br);
         assert!(out.len() < page.len() / 4);
+    }
+
+    #[test]
+    fn a_file_changed_after_bind_gets_its_variants_made() {
+        let dir =
+            std::env::temp_dir().join(format!("exact-render-variants-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("app.js");
+        std::fs::write(&file, "export const a = 'the same words';\n".repeat(200)).unwrap();
+        let variants = Variants::default();
+        let accepts = Accepts::parse("br");
+        // Never warmed: the first answer goes as it is, and makes the variant.
+        assert!(variants
+            .serve(&file, accepts, true)
+            .unwrap()
+            .encoding
+            .is_none());
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while variants
+            .serve(&file, accepts, true)
+            .unwrap()
+            .encoding
+            .is_none()
+        {
+            assert!(std::time::Instant::now() < until, "no variant made");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
