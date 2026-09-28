@@ -783,6 +783,32 @@ Trial values, to be replaced by the iPad's numbers.
 - **Measured separately** on the iPad: the app's footprint, WebContent
   processes, and GPU memory (`BENCH_VM=1`).
 
+## 5.2 Heavy leaves near the viewport only (as built 2026-09-28, `perf/webview-direct`)
+
+The collection builds a row one viewport behind what shows and one to three
+ahead (the lead, `LEAD_SECONDS`), and keeps it until it is two viewports
+away (LLP 1050.000 §6). That is right for rows: never blank. For a heavy
+leaf it meant a web view per row across four to five viewports, each a
+WebContent process rendering. SwiftUI's `List` (a collection view) makes
+its cells only just before they appear.
+
+- **The rule.** A video, web view or native-module view in a collection's
+  row is made when its row comes within a quarter viewport of what shows,
+  or at once when it is pressed or focused, when the agent settles, or when
+  §5.1's in-motion rule lets it. The row, its box and everything else in it
+  are built as before. A leaf, once made, stays until its row retires.
+- **Checked** after each batch (rows are placed by then, so a leaf that is
+  near is made in the same frame as its row) and on scroll. At rest with
+  only far leaves waiting, no display link runs.
+- **Measured** on the Extra Heavy feed's web view rows, three rounds:
+
+  | | fling fps | at 12k pt/s | main-thread ms/s |
+  |---|---|---|---|
+  | iPhone 13 Pro Max | 91.9 → 97.6 (SwiftUI 97.4) | 70 → 95 (SwiftUI 102) | 266 → 250 (SwiftUI 280) |
+  | M1 iPad Pro | 93.4 → 100.5 (SwiftUI 95.8) | 79 → 116 (SwiftUI 99) | — |
+
+  The iPad's footprint peak rose (64 → 81 MB); not yet explained.
+
 ## 7. `rules/DEFERRED.md`
 
 Nothing comes off the list: every kind here is already admitted (video

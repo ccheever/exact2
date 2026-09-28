@@ -18,6 +18,14 @@
 // - retirement: a row retired first makes nothing;
 // - the agent: `state` lists the waiting leaves (`pool.pendingLeaves`, and
 //   `native.pending` on the node); `clock settle` makes every one.
+// Near the viewport only (2026-09-28, the Extra Heavy feed; LLP 1068
+// §5.2): a heavy leaf in a collection's row is made when its row comes
+// within a quarter viewport of what shows, as UIKit's collection view
+// prepares a cell just before it appears, not when the collection's lead
+// builds its row one to three viewports ahead. The row, its box and the
+// rest of its content are built as before (LLP 1050.000's never-blank rule
+// is about rows; this is a leaf, as above). Once made, a leaf stays until
+// its row retires.
 // A kind is measured at each creation (the median of its last five, the
 // process's first of each kind, which pays for loading, left out); one not
 // yet measured, a GPU canvas, a 2D canvas and an editor are never held, and a
@@ -65,6 +73,16 @@ final class HeavyLeaves: NSObject, UIGestureRecognizerDelegate {
         if node.kind == "video" || node.kind == "iframe", hold(node) { return }
         make(node)
     }
+
+    /// A batch applied: rows are placed now, so leaves near the viewport
+    /// are made, in the same frame as their rows.
+    func batchApplied() {
+        guard !pending.isEmpty else { return }
+        releaseNear(limit: .max)
+        if !pending.isEmpty { start() }
+    }
+    /// The list moved: a held leaf may have come near.
+    func scrolled() { if !pending.isEmpty { start() } }
     private func make(_ node: NodeView) {
         guard node.kind == "video" || node.kind == "iframe" else { node.embedPlatformView(presenter); return }
         let started = CACurrentMediaTime()
@@ -76,8 +94,7 @@ final class HeavyLeaves: NSObject, UIGestureRecognizerDelegate {
     /// frame, in a collection's row, while that list moves.
     func hold(_ node: NodeView) -> Bool {
         guard Self.held.contains(node.kind), pending[node.id] == nil, !presenter.swipeActions.assistive,
-              let cost = Self.cost(node.kind), cost > frame,
-              let list = presenter.pool.list(creating: node.id) ?? list(holding: node), moving(list) else { return false }
+              presenter.pool.list(creating: node.id) ?? list(holding: node) != nil else { return false }
         let press = UILongPressGestureRecognizer(target: self, action: #selector(pressed(_:)))
         press.minimumPressDuration = 0
         press.cancelsTouchesInView = false
@@ -110,6 +127,30 @@ final class HeavyLeaves: NSObject, UIGestureRecognizerDelegate {
             v = current.superview
         }
         return nil
+    }
+    /// A leaf whose kind costs more than a frame to make waits while its
+    /// list moves (§5.1).
+    private func costly(_ node: NodeView) -> Bool {
+        guard let cost = Self.cost(node.kind), cost > frame, let list = list(holding: node) else { return false }
+        return moving(list)
+    }
+    /// Within a quarter viewport of what the window shows, and whether it shows.
+    private func near(_ node: NodeView) -> (near: Bool, visible: Bool) {
+        guard let window = node.window else { return (false, false) }
+        let box = node.convert(node.bounds, to: nil)
+        let shown = window.bounds
+        return (box.intersects(shown.insetBy(dx: -shown.width / 4, dy: -shown.height / 4)), box.intersects(shown))
+    }
+    /// Makes the near leaves that need not wait, visible first, up to `limit`.
+    private func releaseNear(limit: Int) {
+        var ready: [(id: UInt32, visible: Bool)] = []
+        for (id, entry) in pending {
+            guard let node = entry.node, presenter.views[id] === node else { ready.append((id, false)); continue }
+            let n = near(node)
+            if n.near, !costly(node) { ready.append((id, n.visible)) }
+        }
+        ready.sort { ($0.visible ? 0 : 1, $0.id) < ($1.visible ? 0 : 1, $1.id) }
+        for r in ready.prefix(limit) { release(r.id) }
     }
     /// A drag or a fling faster than a viewport a second.
     private func moving(_ list: NodeView) -> Bool {
@@ -146,16 +187,17 @@ final class HeavyLeaves: NSObject, UIGestureRecognizerDelegate {
     /// at once when focus moved into it or its row went.
     fileprivate func tick() {
         guard !presenter.applying else { return }
-        var next: (id: UInt32, visible: Bool)?
         for (id, entry) in pending.sorted(by: { $0.key < $1.key }) {
             guard let node = entry.node, presenter.views[id] === node else { release(id); continue }
-            if presenter.pendingFocusNode === node || presenter.editing === node { release(id); continue }
-            if let list = list(holding: node), moving(list) { continue }
-            let visible = node.window.map { node.convert(node.bounds, to: nil).intersects($0.bounds) } ?? false
-            if next == nil || (visible && next?.visible == false) { next = (id, visible) }
+            if presenter.pendingFocusNode === node || presenter.editing === node { release(id) }
         }
-        if let next { release(next.id) }
-        if pending.isEmpty { link?.invalidate(); link = nil }
+        releaseNear(limit: 1)
+        // Far leaves wait for the list to move (`scrolled`), not a frame each.
+        let waiting = pending.values.contains { entry in
+            guard let node = entry.node else { return false }
+            return near(node).near || list(holding: node).map { $0.scroll?.isDragging == true || $0.scroll?.isDecelerating == true } ?? false
+        }
+        if pending.isEmpty || !waiting { link?.invalidate(); link = nil }
     }
     @objc private func pressed(_ press: UILongPressGestureRecognizer) {
         guard press.state == .began, let id = pending.first(where: { $0.value.press === press })?.key else { return }

@@ -619,6 +619,7 @@ final class Presenter {
                 waiting = []
                 for (id, f) in q where id.map({ textHost($0) != nil }) ?? true { f() }
                 scrollPump.batchApplied()
+                leaves.batchApplied()
                 flushPendingFocus()
             }
         }
