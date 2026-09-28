@@ -131,7 +131,7 @@ publish = false
 build = "build.rs"
 
 [lib]
-crate-type = ["staticlib", "rlib"]
+crate-type = ["rlib"]
 
 [dependencies]
 exact-logic = ${dep('apple', 'logic')}
