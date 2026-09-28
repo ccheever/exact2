@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="referrer" content="no-referrer">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Signing in</title>
+<!-- LLP 1069.006 D4: the app's auth callback page, served at exactly
+/.exact/auth/callback. Its script is an external same-origin file: the CSP
+has no 'unsafe-inline'. It never prints the URL. -->
+<script src="./callback.js"></script>
+<p style="font:17px system-ui;margin:2em">Signing in…</p>
+</html>

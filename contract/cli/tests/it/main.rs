@@ -2,6 +2,7 @@
 
 mod action_related;
 mod announce;
+mod auth;
 mod baked_release;
 mod borders;
 mod branch;

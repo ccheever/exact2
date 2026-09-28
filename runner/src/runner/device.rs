@@ -33,6 +33,9 @@ pub struct Hold {
     pub choices: Vec<String>,
     /// Whether `type @t <value>` answers it.
     pub takes_value: bool,
+    /// An HTTP-shaped request held under its own ticket (an auth session,
+    /// LLP 1069.006 D7): retired when the runner forgets that ticket.
+    pub request: bool,
 }
 
 /// How the agent answered a hold.
@@ -78,8 +81,27 @@ impl<D: DataSource> Runner<D> {
             args: args.to_owned(),
             choices: choices.iter().map(|c| c.to_string()).collect(),
             takes_value,
+            request: false,
         });
         ticket
+    }
+
+    /// Hold an HTTP-shaped request the runner already ticketed (an auth
+    /// session): the agent answers it by that ticket, with a value or
+    /// `cancel`; it leaves the clock's wait set, and is retired with its
+    /// ticket (superseded, or its resource gone).
+    pub fn hold_request(&mut self, ticket: u64, capability: &str, name: &str, args: &str) {
+        self.log(format!("device {capability} {ticket} held (agent)"));
+        self.device_holds.push(Hold {
+            ticket,
+            capability: capability.to_owned(),
+            name: name.to_owned(),
+            node: None,
+            args: args.to_owned(),
+            choices: Vec::new(),
+            takes_value: true,
+            request: true,
+        });
     }
 
     /// Every device request held for the agent, oldest first.
@@ -154,6 +176,14 @@ impl<D: DataSource> Runner<D> {
                 let n = paths.len();
                 format!("answered: {n} {}", if n == 1 { "item" } else { "items" })
             }
+            // An auth callback is checked as a host checks a completion
+            // (LLP 1069.006 D3, D7), before the hold is spent.
+            HoldAnswer::Value(v) if hold.capability == "auth" => {
+                if let Err(e) = crate::auth::check_answer(self, ticket, v) {
+                    return Err(format!("@{ticket} (auth): {e}"));
+                }
+                "answered: a callback".to_owned()
+            }
             HoldAnswer::Value(_) if hold.takes_value => "answered: a value".to_owned(),
             HoldAnswer::Value(_) => {
                 return Err(format!(
@@ -164,15 +194,25 @@ impl<D: DataSource> Runner<D> {
         };
         let hold = self.device_holds.remove(pos);
         self.log(format!("device {} {ticket} {line}", hold.capability));
+        if hold.capability == "auth" {
+            match answer {
+                HoldAnswer::Value(url) => crate::auth::settle(self, ticket, 200, url),
+                HoldAnswer::Choice(_) => crate::auth::settle(self, ticket, 499, "cancelled"),
+            }
+        }
         Ok(hold)
     }
 
     /// Retire every hold whose node is gone (after a commit).
     pub(super) fn retire_holds(&mut self) {
         let kernel = &self.kernel;
+        let pending = &self.pending;
         let (live, gone): (Vec<_>, Vec<_>) = std::mem::take(&mut self.device_holds)
             .into_iter()
-            .partition(|h| h.node.is_none_or(|id| kernel.node(id).is_some()));
+            .partition(|h| {
+                h.node.is_none_or(|id| kernel.node(id).is_some())
+                    && (!h.request || pending.iter().any(|p| p.ticket == h.ticket))
+            });
         self.device_holds = live;
         for hold in gone {
             self.log(format!(

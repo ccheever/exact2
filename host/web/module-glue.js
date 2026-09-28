@@ -133,6 +133,8 @@ export async function prepare(payload, admitted, id = nextId++) {
     if (op === 8) { context.entropy = true; return; }
     // Under the agent, the realm's repeatable random bytes (LLP 1069.005 D2b).
     if (op === 11) return stream ? hex(stream(Number(value))) : undefined;
+    // `authCallback()`: this page's callback page, a device fact (LLP 1069.006 D2).
+    if (op === 12) { if (name !== 'callback') return; context.externalRead = true; return `${location.origin}/.exact/auth/callback`; }
     if (!context.grants.has(name) || name.startsWith('exact.kept.')) return `secret ${name} is not granted`;
     context.writes.push([name, op === 3 ? value : null]);
     if (op === 3) context.store.set(name, value); else context.store.delete(name);

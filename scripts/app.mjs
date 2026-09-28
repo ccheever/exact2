@@ -256,7 +256,7 @@ const WEB_HOST_GROUPS = {
   base: ['glue.js', 'navigation.js', 'textflow-glue.js', 'timer-glue.js', 'input-glue.js',
     'http-body.js', 'media-glue.js', 'list-selection.js', 'markup-editor.js', 'document-glue.js',
     'motion-glue.js', 'collection-glue.js', 'canvas2d-glue.js', 'presence-glue.js', 'picker-glue.js',
-    'documents-glue.js'],
+    'documents-glue.js', 'auth-glue.js'],
   module: ['module-glue.js', 'module-worker.js', 'module-prelude.js'],
   storage: ['storage-request.js', 'storage.js', 'storage-environment.js', 'storage-fs.js', 'storage-sqlite.js',
     'storage-worker.js', 'sqlite3.mjs', 'sqlite3.wasm'],
@@ -265,6 +265,28 @@ const WEB_HOST_GROUPS = {
   gpuModules: ['gpu-modules.js'],
   native: ['native-glue.js'],
 };
+
+/** The AT Protocol client-metadata documents an app with auth sessions
+ * serves beside its callback page (LLP 1069.006 D6; after review, item 3):
+ * one per `application_type`, since a document names one type and a `web`
+ * client's redirect URIs are https only. `client-metadata.native` lists the
+ * private-use schemes and claimed https callbacks, `client-metadata.web` the
+ * origin's `/.exact/auth/callback`; each `client_id` is its own URL on the
+ * manifest's origin. Nothing without an origin, or for a type with no
+ * callback. The scope is the manifest's `auth.scope` (default `atproto`). */
+export function authClientMetadata(app, callbacks) {
+  if (!app.origin) return {};
+  const origin = new URL(app.origin).origin, page = `${origin}/.exact/auth/callback`;
+  const base = (type) => ({
+    client_id: `${origin}/.exact/auth/client-metadata.${type}.json`, client_name: app.displayName, client_uri: origin,
+    application_type: type, grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'],
+    scope: app.manifest.auth?.scope ?? 'atproto', token_endpoint_auth_method: 'none', dpop_bound_access_tokens: true,
+  });
+  const native = callbacks.filter((c) => !c.startsWith('http:') && c !== page);
+  const web = callbacks.filter((c) => c === page);
+  return Object.fromEntries([['client-metadata.native', native, 'native'], ['client-metadata.web', web, 'web']]
+    .filter(([, uris]) => uris.length).map(([name, uris, type]) => [name, { ...base(type), redirect_uris: uris }]));
+}
 
 /** A build's module artifact against the app's roster (LLP 1024 D1, D8.4):
  * a roster tag the artifact has no factory for fails a release build, named,

@@ -15,7 +15,7 @@ import { gzipSync } from 'node:zlib';
 import { rolldown } from 'rolldown';
 import { minifySync } from 'rolldown/experimental';
 import { writeInstallPages } from '../../scripts/install-page.mjs';
-import { checkModuleRoster, gpuModules, rustPolicy, webHostFiles } from '../../scripts/app.mjs';
+import { authClientMetadata, checkModuleRoster, gpuModules, rustPolicy, webHostFiles } from '../../scripts/app.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
 import { webDist, copyShaders, bakeOutput, buildBake, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp, wasmRemapFlags, WEB_STD, WEB_TOOLCHAIN, webToolchainEnv } from '../../scripts/app.mjs';
 import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
@@ -333,9 +333,29 @@ if (buildLocations.length && renderAt) {
 // the manifest when the iOS host claims the domain and names its team; a
 // static origin file Apple's CDN fetches, never a dev-server claim.
 const ios = app.manifest.host?.ios ?? {};
-if (ios.associatedDomains && ios.team) {
+// @ref LLP 1069.006 D2 — a claimed https auth callback on Apple needs this
+// origin's `webcredentials` entry too (not `applinks:`, which stays routing).
+const authReach = bakedReceipt.reach?.auth ?? {};
+const webcredentials = (authReach.callbacks ?? []).some((c) => app.origin && c.startsWith(new URL(app.origin).origin + '/'));
+if ((ios.associatedDomains || webcredentials) && ios.team) {
   mkdirSync(resolve(stage, '.well-known'), { recursive: true });
-  writeFileSync(resolve(stage, '.well-known/apple-app-site-association'), JSON.stringify({ applinks: { details: [{ appIDs: [`${ios.team}.${app.id}`], components: [{ '/': '*' }] }] } }) + '\n');
+  writeFileSync(resolve(stage, '.well-known/apple-app-site-association'), JSON.stringify({
+    ...(ios.associatedDomains ? { applinks: { details: [{ appIDs: [`${ios.team}.${app.id}`], components: [{ '/': '*' }] }] } } : {}),
+    ...(webcredentials ? { webcredentials: { apps: [`${ios.team}.${app.id}`] } } : {}),
+  }) + '\n');
+}
+// The web's auth callback page and the two client-metadata documents
+// (LLP 1069.006 D4; after review, item 3: one client id per
+// `application_type`, since the AT Protocol's metadata names one type and
+// a `web` client's redirect URIs are https only).
+let authNote = '';
+if (authReach.sessions) {
+  mkdirSync(resolve(stage, '.exact/auth'), { recursive: true });
+  copyFileSync(resolve(root, 'host/web/auth-callback.html'), resolve(stage, '.exact/auth/callback'));
+  copyFileSync(resolve(root, 'host/web/auth-callback.js'), resolve(stage, '.exact/auth/callback.js'));
+  const docs = authClientMetadata(app, authReach.callbacks ?? []);
+  for (const [name, doc] of Object.entries(docs)) writeFileSync(resolve(stage, `.exact/auth/${name}.json`), JSON.stringify(doc, null, 2) + '\n');
+  authNote = `; auth: callback page${Object.keys(docs).length ? `, client metadata (${Object.keys(docs).join(', ')})` : ' (no origin: no client metadata)'}`;
 }
 
 // The app's GPU module (LLP 1009 D2): a second wasm the page fetches on
@@ -396,4 +416,4 @@ try {
 rmSync(previous, { recursive: true, force: true });
 const textFlowWasm = readFileSync(resolve(dist, 'textflow.wasm'));
 const markdownEditor = readFileSync(resolve(dist, 'markup-editor.wasm'));
-console.log(`${relative(process.cwd(), dist) || "."}: app.wasm ${kib(wasm.length)} (${kib(gzipSync(wasm, { level: 9 }).length)} gzip; ${optNote}), index.html, glue.js, app.plan ${kib(planBytes.length)}, exact.json; documents: ${documentNote}; GPU: ${gpuNote}; modules: ${moduleNote}; markup-editor.wasm ${kib(markdownEditor.length)} (${kib(gzipSync(markdownEditor, { level: 9 }).length)} gzip), on demand; textflow.wasm ${kib(textFlowWasm.length)} (${kib(gzipSync(textFlowWasm, { level: 9 }).length)} gzip), on demand`);
+console.log(`${relative(process.cwd(), dist) || "."}: app.wasm ${kib(wasm.length)} (${kib(gzipSync(wasm, { level: 9 }).length)} gzip; ${optNote}), index.html, glue.js, app.plan ${kib(planBytes.length)}, exact.json; documents: ${documentNote}${authNote}; GPU: ${gpuNote}; modules: ${moduleNote}; markup-editor.wasm ${kib(markdownEditor.length)} (${kib(gzipSync(markdownEditor, { level: 9 }).length)} gzip), on demand; textflow.wasm ${kib(textFlowWasm.length)} (${kib(gzipSync(textFlowWasm, { level: 9 }).length)} gzip), on demand`);

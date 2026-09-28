@@ -87,6 +87,16 @@ pub fn typescript(plan: &Plan) -> Result<String, String> {
            get(name: string): string | null;\n\
            set(name: string, value: string): void;\n\
            forget(name: string): void;\n\
+           /** Keep a P-256 pair under the `secret.keep <name>` grant (LLP 1069.005 D1b). */\n\
+           keepKey(name: string, pair: CryptoKeyPair): Promise<void>;\n\
+           /** The pair kept under `name`, its private key non-extractable. */\n\
+           key(name: string): Promise<CryptoKeyPair | null>;\n\
+         }\n\
+         declare global {\n\
+           /** Sign in through the system browser (LLP 1069.006): the callback URL, or a rejection whose `status` is 499 cancelled, 403, 409, 428, 501 or 502. */\n\
+           function openAuthSession(url: string, options: { callback: string; state: string; ephemeral?: boolean }): Promise<string>;\n\
+           /** This carrier's auth callback, known before PAR (LLP 1069.006 D2). */\n\
+           function authCallback(): string;\n\
          }\n\
          export interface NativeModule { readonly available: boolean; call(request: Record<string, unknown>): Record<string, unknown>; later(request: Record<string, unknown>): Promise<Record<string, unknown>>; watch(topic: string): void }\n\
          /** One server-sent event of a stream answer, or its end (`type: \"error\"`, LLP 1016.000). */\n\

@@ -682,7 +682,7 @@ function apply(batch) {
         }
         break;
       }
-      case "grants": { grants = op.lines; break; }
+      case "grants": { grants = op.lines; if (grants.some(l => /^\s*auth\.session /.test(l))) authHost ??= afterNativePaint().then(() => loadAfterPaint('./auth-glue.js', 'authHost')).then(h => authHost = h); break; } case "auth": { const inc = incarnation, env = { agent: agentMode, log, call: r => JSON.parse(readOut(wasm.exact_auth(writeIn(JSON.stringify(r))))), deliver: t => deferFulfill(inc, t, 9, 0, "", new Uint8Array()), active: t => holds(t, inc) }; if (authHost?.arm) authHost.arm(op, env); else if (agentMode && authHost) authHost.then(h => h.arm(op, env)); else { env.call({ op: "arm", ticket: op.ticket, origin: location.origin, popup: false }); env.deliver(op.ticket); } break; } // LLP 1069.006 D4: armed in the press's call stack; unloaded glue is 428
       case "store": {
         // A secret the app kept or forgot (LLP 1018 D6): `localStorage`,
         // origin-scoped, is the web's secret store. Never in agent mode — a
@@ -939,7 +939,7 @@ let grants = [];
 let storageRequests = null;
 const inflight = new Set();
 const controllers = new Set(), forgettable = new Map();
-let incarnation = 0;
+let incarnation = 0, authHost = null; // auth-glue.js once an auth.session grant asks for it (LLP 1069.006 D4)
 // A ticket's work, in flight while the runner holds the ticket (LLP 1016 D5):
 // a superseded or forgotten one never holds `clock settle`. Work without a
 // ticket counts until it ends.
@@ -1107,7 +1107,7 @@ function agentReply(request) {
     if (!wasm) return { error: "not booted" };
     if (request.entity !== undefined || request.world === true || request.contact !== undefined) return globalThis.exact.gpu?.handle(request, ask, tagged) ?? { error: `view ${request.id} has no world` };
     if ((request.op === "tap" || request.op === "type") && request.ticket !== undefined) { // a held device request, by ticket (LLP 1069.007 D4)
-      const { files, ...held } = request, r = ask(held); // a picker's answer is delivered once the runner took it (LLP 1069.002 D9)
+      const { files, ...held } = request, r = ask(held); if (r.capability === "auth") deferFulfill(incarnation, r.ticket, 9, 0, "", new Uint8Array()); // a picker's answer is delivered once the runner took it (LLP 1069.002 D9); an auth answer, the runner settled (LLP 1069.006 D7)
       const picked = { "open-file": "showOpenFilePicker", "open-directory": "showDirectoryPicker", "save-file": "showSaveFilePicker" }[r.capability];
       if (picked && r.node != null) return documentsGlue().then(m => m.answer(r, picked, files)).then(() => tagged(r)); // LLP 1069.010 D2
       if (r.capability === "export" && r.node != null) return picker().then(m => m.answerSave(r, held.text)).then(out => tagged({ ...r, ...out })); // LLP 1069.010 D3: the bytes go back to the driver

@@ -67,7 +67,11 @@ impl AgentStream {
     /// every native host also reads for `exactTime().seed`. A seed that is
     /// not an integer below 2^53 is 1, as the Apple host takes it.
     pub fn agent_seed() -> Option<u64> {
-        if std::env::var("EXACT_AGENT").as_deref() != Ok("1") {
+        // `EXACT_DEVICE=real` (LLP 1069.007 D8): a drive that reaches the
+        // real device reaches it with OS entropy (LLP 1069.006 D7).
+        if std::env::var("EXACT_AGENT").as_deref() != Ok("1")
+            || std::env::var("EXACT_DEVICE").as_deref() == Ok("real")
+        {
             return None;
         }
         Some(

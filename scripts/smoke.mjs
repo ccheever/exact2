@@ -1420,6 +1420,13 @@ if (app.modules.tags.includes('waveform-view') && ['web', 'macos', 'ios'].includ
   await recorderSmoke({ host, open, check });
 }
 
+// 17. Signing in (LLP 1069.006): PAR, DPoP and PKCE against the fixture server, held for the agent.
+if (app.id === 'com.exact.authfixture' && ['web', 'macos', 'ios'].includes(host)) {
+  const { authSmoke } = await import('./smoke-auth.mjs');
+  await authSmoke({ host, open, check });
+  if (host === 'web') await (await import('./smoke-auth.mjs')).authPopupWeb({ webDist: selectedWebDist, check });
+}
+
 // 16. Documents in windows of their own (LLP 1069.010 slice 1), for an app
 // whose manifest says `navigate-new`: two documents on the command line
 // open two windows, each read through the carrier by its session's label;

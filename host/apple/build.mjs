@@ -423,7 +423,7 @@ function openingLinks(app, platform, development) {
 }
 
 /** The entitlements a device build signs with (LLP 1030 D1's host-metadata row): the identity the profile grants, and what the manifest's `host.ios` claims — associated domains for the app's origin when it says so. Generated, never committed. */
-export const entitlements = (app, team, debuggable = true) => {
+export const entitlements = (app, team, debuggable = true, reach = null) => {
   const ios = app.manifest.host?.ios ?? {};
   const dict = {
     'application-identifier': `${team}.${app.id}`,
@@ -433,7 +433,10 @@ export const entitlements = (app, team, debuggable = true) => {
   };
   // @ref LLP 1038 D8 — explicit applinks entries, or the declared origin.
   const domains = Array.isArray(ios.associatedDomains) ? ios.associatedDomains : ios.associatedDomains && app.origin ? [`applinks:${new URL(app.origin).host}`] : [];
-  if (domains.length) dict['com.apple.developer.associated-domains'] = domains;
+  // @ref LLP 1069.006 D2 — a claimed https auth callback needs `webcredentials:`
+  // (the bake's derivation from the `auth.callback` grants, LLP 1069.008).
+  const all = [...new Set([...domains, ...(reach?.auth?.associatedDomains ?? [])])];
+  if (all.length) dict['com.apple.developer.associated-domains'] = all;
   return plistFile(dict);
 };
 
@@ -469,7 +472,12 @@ export function writeUsageStrings(reach, dir) {
  * refused). Null when the app grants no such device. */
 export const macReleaseEntitlements = (compat) => {
   const names = compat?.reach?.entitlements ?? [];
-  return names.length ? plistFile(Object.fromEntries(names.map((name) => [name, true]))) : null;
+  // An https auth callback's `webcredentials:` domain (LLP 1069.006 D2),
+  // which a Developer ID build signs only with a profile that grants it.
+  const domains = compat?.reach?.auth?.associatedDomains ?? [];
+  if (!names.length && !domains.length) return null;
+  return plistFile({ ...Object.fromEntries(names.map((name) => [name, true])),
+    ...(domains.length ? { 'com.apple.developer.associated-domains': domains } : {}) });
 };
 
 /** Build with Xcode when `xcode-select` names the Command Line Tools, which
@@ -1192,7 +1200,7 @@ function main(args) {
     const ent = resolve(binDir, host ? 'host-entitlements.plist' : 'entitlements.plist');
     if (device) {
       copyFileSync(signingProfile.path, resolve(assembled, 'embedded.mobileprovision'));
-      writeFileSync(ent, entitlements({ ...app, id }, signingProfile.team, signingProfile.dev));
+      writeFileSync(ent, entitlements({ ...app, id }, signingProfile.team, signingProfile.dev, bakedCompat.reach));
     }
     verifyBakeFiles(bakedCompat, bakedPlan, listAssets(assembled, true));
     assertAppleIdentity(app, resolve(assembled, host ? 'ExactHostIOS' : 'ExactIOS'), bakedCompat.id);

@@ -423,6 +423,12 @@ uint32_t exact_log(ExactRuntime rt, size_t len);
  * {"ticket":N} (held for the agent) / {"present":true,…}. */
 uint32_t exact_command(ExactRuntime rt, size_t len);
 
+/* An auth session's word (LLP 1069.006), JSON in the input buffer:
+ * {"op":"hold","ticket":N} under the agent, or {"op":"done","ticket":N,
+ * "url":…} / {"op":"done","ticket":N,"status":N,"message":…}. Returns 0; the
+ * executor wakes and the next pump delivers the answer. */
+uint32_t exact_auth(ExactRuntime rt, size_t len);
+
 /* Optional delivery composition (LLP 1030 D4). L=0 returns NULL: no store,
  * keys, selection, check or networking implementation is linked. The higher
  * update adapter supplies these calls only when the app chooses L=A. */

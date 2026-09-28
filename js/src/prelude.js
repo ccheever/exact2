@@ -13,7 +13,8 @@
   // (op, a, b) -> string | undefined. Ops: 1 request(ticket, json),
   // 2 store.get(name), 3 store.set(name, value), 4 store.forget(name), 5 storage capability check,
   // 6 native, 7 pure, 8 the answer drew secure randomness, 9/10 canvas text and images,
-  // 11 the agent's repeatable random bytes (hex; undefined outside the agent).
+  // 11 the agent's repeatable random bytes (hex; undefined outside the agent),
+  // 12 the carrier's auth callback ("callback") or a web worker realm's placement.
   var host = global.__exact_host;
   delete global.__exact_host;
 
@@ -463,6 +464,40 @@
     call.tickets.push(ticket);
     if (stream) call.stream = stream;
     return new Promise(function (resolve, reject) { pending.set(ticket, { resolve: resolve, reject: reject, call: call }); });
+  };
+
+  // --- signing in through the system browser (LLP 1069.006) ---------------
+  // `authCallback()` is this carrier's callback, known before PAR: a native
+  // build's granted `auth.callback`, the web's `<origin>/.exact/auth/callback`
+  // (D2); a device fact, so bake compiles no answer that asks.
+  // `openAuthSession(url, {callback, state, ephemeral})` is a request to
+  // `exact-auth:` on the independent lane, as `native.later` is (D1): it
+  // resolves with the callback URL (200) or rejects with the status and
+  // message (499 cancelled, 403, 409, 428, 501, 502) as `error.status`.
+  global.authCallback = function authCallback() {
+    if (!currentCall || currentCall.status !== "pending") throw new Error("authCallback() is unavailable " + (initializing ? "during module initialization" : "outside an answer") + "; call it inside an answer");
+    var callback = host(12, "callback", "");
+    if (callback === undefined) throw new Error("authCallback(): the grants name no auth.callback");
+    return callback;
+  };
+  global.openAuthSession = function openAuthSession(url, options) {
+    var o = options || {};
+    if (host(12, "placement", "") === "worker") {
+      return Promise.reject(new Error("openAuthSession() is unavailable in a worker-placed source on the web: its popup opens in the press's call stack (LLP 1069.006); place this source on main"));
+    }
+    if (typeof o.callback !== "string" || typeof o.state !== "string" || !o.state) {
+      return Promise.reject(new TypeError("openAuthSession(url, {callback, state}): callback is authCallback() and state a non-empty string"));
+    }
+    var body = JSON.stringify({ url: String(url), callback: o.callback, state: o.state, ephemeral: !!o.ephemeral });
+    return global.fetch("exact-auth:", { method: "POST", body: body, exactIndependentHttp: { maxResponseBytes: 65536 } })
+      .then(function (r) {
+        return r.text().then(function (t) {
+          if (r.status === 200) return t;
+          var e = new Error(t || "the auth session failed");
+          Object.defineProperty(e, "status", { value: r.status, enumerable: true });
+          throw e;
+        });
+      });
   };
 
   // --- the store (LLP 1018): reads counted, writes grant-checked, in Rust -

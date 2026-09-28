@@ -14,6 +14,15 @@ pub struct Batch {
 }
 
 /// Validate before token translation or storage/continuation serialization.
+impl Batch {
+    /// `{"op":"auth","ticket":N}`: an auth session for the page to arm and
+    /// open inside this batch, in the press's call stack (LLP 1069.006 D4).
+    pub fn auth(&mut self, ticket: u64) {
+        self.ops
+            .push(format!("{{\"op\":\"auth\",\"ticket\":{ticket}}}"));
+    }
+}
+
 pub(crate) fn request_refusal(request: &exact_runner::Request) -> Option<&'static str> {
     if let exact_runner::HttpScheduling::Independent { max_response_bytes } = request.http {
         if request.storage.is_some() || request.continuation.is_some() {

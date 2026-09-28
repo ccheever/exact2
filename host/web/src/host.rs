@@ -20,6 +20,8 @@ use exact_runner::{
     RunnerError, SurfaceOutcome, Timed, Work,
 };
 
+#[path = "auth.rs"]
+mod auth;
 #[path = "canvas2d.rs"]
 mod canvas2d;
 mod fonts;
@@ -283,6 +285,8 @@ pub struct Host<D: DataSource> {
     /// Requests whose continuation a source held at dispatch (LLP 1027.002
     /// D3): released after a later commit, by token.
     parked: SortedMap<u64, RequestOut>,
+    /// `exact-auth:` requests handed to the page, until it asks (`auth.rs`).
+    auth_out: Vec<RequestOut>,
     location: String,
     collections: String,
     /// Head nodes (LLP 1048.003 D1): the page's `<head>`, never an element.
@@ -443,6 +447,7 @@ impl<D: DataSource> Host<D> {
             font_names,
             font_catalog,
             parked: SortedMap::new(),
+            auth_out: Vec::new(),
             location: launch.into(),
             collections: String::new(),
             exclusions: Default::default(),
@@ -999,6 +1004,9 @@ impl<D: DataSource> Host<D> {
             batch.refuse(r.ticket, message);
             return;
         }
+        if r.request.is_auth() {
+            return self.emit_auth(r, batch);
+        }
         let Some(token) = r.request.continuation else {
             batch.request(&r);
             return;
@@ -1196,7 +1204,14 @@ impl<D: DataSource> Host<D> {
         now_ms: f64,
     ) -> String {
         self.now_ms = now_ms.max(self.now_ms);
-        let outcome = outcome_from(kind, status, headers, body);
+        // Kind 9: the answer the runner settled for an auth session (`auth.rs`).
+        let outcome = match kind {
+            9 => match exact_runner::auth::take_settled(&mut self.runner, ticket) {
+                Some(outcome) => outcome,
+                None => return self.batch_for(&[], None),
+            },
+            _ => outcome_from(kind, status, headers, body),
+        };
         match self.runner.fulfill(ticket, outcome) {
             Ok(Some(receipt)) => {
                 let at_ms = self.now_ms;

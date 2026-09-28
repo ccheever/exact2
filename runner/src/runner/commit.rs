@@ -745,6 +745,7 @@ impl<D: DataSource> Runner<D> {
     pub fn pending(&self) -> Vec<(String, u64)> {
         self.pending
             .iter()
+            .filter(|p| !self.device_holds.iter().any(|h| h.ticket == p.ticket))
             .map(|p| (self.target_name(p.target), p.ticket))
             .collect()
     }
@@ -752,16 +753,20 @@ impl<D: DataSource> Runner<D> {
     /// Whether any request is in flight (the agent's `settle` waits on it).
     /// An open stream counts only until its first message (LLP 1016.000
     /// D5): after that it is open, not in flight, or `settle` never ends.
+    /// A request held for the agent (LLP 1069.007 D3) is not I/O either: no
+    /// clock waits on it.
     pub fn has_pending(&self) -> bool {
-        self.pending.iter().any(PendingReq::in_flight)
+        self.pending
+            .iter()
+            .any(|p| p.in_flight() && !self.device_holds.iter().any(|h| h.ticket == p.ticket))
     }
 
     /// The requests in flight, as `has_pending` counts them: the agent's
-    /// `state.pending`.
+    /// `state.pending` (a held request is listed there under `device`).
     pub fn in_flight(&self) -> Vec<(String, u64)> {
         self.pending
             .iter()
-            .filter(|p| p.in_flight())
+            .filter(|p| p.in_flight() && !self.device_holds.iter().any(|h| h.ticket == p.ticket))
             .map(|p| (self.target_name(p.target), p.ticket))
             .collect()
     }

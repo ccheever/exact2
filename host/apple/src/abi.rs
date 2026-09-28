@@ -220,7 +220,12 @@ impl<D: DataSource> Bridge<D> {
             }
             let admitted = h.grants();
             let mut presenter = crate::batch::Batch::new();
+            Self::auth_forgotten(h, &mut presenter);
             for r in h.take_requests() {
+                if r.request.is_auth() {
+                    Self::auth_arm(h, x, &mut presenter, &r);
+                    continue;
+                }
                 if let Some(surface) = r.request.surface.as_deref() {
                     let oversized = matches!(surface, SurfaceRequest::Restore { bytes, .. } if bytes.len() > MAX_HOST_WORK_BYTES);
                     let refusal = oversized
@@ -1286,6 +1291,10 @@ impl<D: DataSource> Bridge<D> {
             Some(h) => h.answer_hold(&request).unwrap_or_else(|| h.agent(&request)),
             None => exact_runner::agent::error("not booted"),
         };
+        // An answered auth hold is delivered by the next pump (LLP 1069.006 D7).
+        if out.contains("\"capability\":\"auth\"") {
+            self.executor.as_ref().inspect(|x| x.notify());
+        }
         self.emit(out)
     }
 }

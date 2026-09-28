@@ -870,6 +870,17 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// The page's word on an auth session (`exact_auth`, LLP 1069.006 D4).
+    pub fn auth(&mut self, len: usize) -> u32 {
+        let request =
+            String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
+        let out = match self.host.as_mut() {
+            Some(h) => h.auth(&request),
+            None => exact_runner::agent::error("not booted"),
+        };
+        self.emit(out)
+    }
+
     /// A page line into the runner's journal (`exact_log`).
     pub fn log(&mut self, len: usize) -> u32 {
         let line = String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
@@ -1134,6 +1145,13 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_command(len: u32) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().command(len as usize))
+        }
+
+        /// An auth session's arm or report (LLP 1069.006 D4), JSON in the
+        /// input buffer; the output is the runner's word, not a batch.
+        #[no_mangle]
+        pub extern "C" fn exact_auth(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().auth(len as usize))
         }
     };
 }

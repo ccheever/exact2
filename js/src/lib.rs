@@ -154,9 +154,10 @@ struct HostState {
     /// Under the agent, the repeatable stream `crypto` draws from instead
     /// of the OS (LLP 1069.005 D2b); this instance's, from its start.
     agent: Option<exact_data::crypto::AgentStream>,
-    /// `CryptoKey` handles (LLP 1069.005 D1b): the keys a source generated,
-    /// imported or read back, by index; never on the JavaScript heap.
+    /// `CryptoKey`s by handle, never on the heap (LLP 1069.005 D1b).
     keys: Vec<exact_data::crypto::EcKey>,
+    /// `authCallback()`: this native build's, from the grants (LLP 1069.006).
+    auth_callback: Option<String>,
 }
 
 /// A TypeScript data source: bytecode, its bake-time identity, and the
@@ -322,6 +323,7 @@ unsafe extern "C" fn host_door(
             crypto::hex(&bytes)
         })),
         10 => Ok(canvas_image(state.canvas.as_ref(), &a)),
+        12 => Ok(crypto::auth_callback(state, &a)),
         other => Err(format!("__exact_host: no op {other}")),
     };
     *out = std::ptr::null_mut();
@@ -503,16 +505,21 @@ impl Module {
     /// at [`Module::load`]. Under the agent (`EXACT_AGENT=1`) its `crypto`
     /// draws the agent's repeatable stream (LLP 1069.005 D2b).
     pub fn new(bytecode: Vec<u8>, app_id: impl Into<String>, grants: impl Into<String>) -> Module {
+        let grants = grants.into();
+        let auth_callback = exact_runner::auth::carrier_callback(&grants, None);
         let module = Module {
             revision: format!("{:x}", Sha256::digest(&bytecode)),
             bytecode,
             app_id: app_id.into(),
-            grants: grants.into(),
+            grants,
             engine: None,
             watch: Arc::default(),
             storage: None,
             directories: None,
-            host: Box::default(),
+            host: Box::new(HostState {
+                auth_callback,
+                ..HostState::default()
+            }),
             native_factory: None,
             native_slot: Default::default(),
             plan: None,

@@ -136,21 +136,66 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
             usage.insert((*key).into(), json!(purposes[grant.purpose]));
         }
         // iOS needs none today; push's `aps-environment` joins when LLP 1069
-        // §5 #9 lands, and `auth.*`'s associated domains with LLP 1069.006.
+        // §5 #9 lands. `auth.*`'s associated domains are `reach.auth` (below).
         if platform == "macos" {
             entitlements.extend(grant.device.hardened);
         }
     }
     entitlements.sort_unstable();
     entitlements.dedup();
+    let auth = auth(&ceiling, platform, compat)?;
     compat.reach = json!({
         "base": base,
         "locales": strings.as_ref().map(|s| s.tables.keys().cloned().collect::<Vec<_>>()),
         "rows": rows,
         "usage": usage,
         "entitlements": entitlements,
+        "auth": auth,
     });
     Ok(())
+}
+
+/// `auth.*` through the same table (LLP 1069.006 D2; LLP 1069.008 D2's
+/// `auth` rows): every callback, for the web build's two client-metadata
+/// documents (one per `application_type`, ruled); and on Apple the
+/// `webcredentials:<host>` associated domain each claimed https callback
+/// needs (`ASWebAuthenticationSession.Callback.https`), which the build
+/// signs with and the web build's AASA answers. A private-use scheme needs
+/// nothing, on purpose. The web refuses `auth.session` in a worker-placed
+/// TypeScript source: its popup must open in the press's call stack
+/// (after review, item 2), so it fails here, not at the press.
+fn auth(ceiling: &str, platform: &str, compat: &Compat) -> Result<Value, String> {
+    let callbacks = exact_runner::auth::callbacks(ceiling);
+    let sessions = ceiling
+        .lines()
+        .any(|l| l.trim().starts_with("auth.session "));
+    let typescript = compat.inputs["javascriptGrants"]
+        .as_str()
+        .or(compat.inputs["grantCeiling"].as_str())
+        .is_some_and(|g| g.lines().any(|l| l.trim().starts_with("auth.session ")));
+    if platform == "web"
+        && typescript
+        && compat.inputs["typescriptPlacement"].as_str() == Some("worker")
+    {
+        return Err("grant-auth: `auth.session` in a worker-placed TypeScript source: on the web `openAuthSession` opens its popup in the press's call stack, which a worker is not in (LLP 1069.006); place the source on main (`typescript.placement`)".into());
+    }
+    let webcredentials: Vec<String> = callbacks
+        .iter()
+        .filter_map(|c| c.strip_prefix("https://"))
+        .filter_map(|rest| rest.split('/').next())
+        .filter(|host| {
+            !matches!(
+                host.split(':').next(),
+                Some("localhost" | "127.0.0.1" | "[::1]")
+            )
+        })
+        .map(|host| format!("webcredentials:{host}"))
+        .collect();
+    Ok(json!({
+        "sessions": sessions,
+        "callbacks": callbacks,
+        "associatedDomains": if matches!(platform, "ios" | "macos") { webcredentials } else { Vec::new() },
+    }))
 }
 
 /// Who enforces a device line: the OS's prompt (from the key the build
@@ -173,7 +218,9 @@ fn family_enforcement(line: &str) -> &'static str {
     match line.split_whitespace().next().unwrap_or_default() {
         "net.fetch" => "runtime (all hosts); CSP (served web)",
         "surface.read" | "surface.write" => "presenter",
-        // `auth.*` (LLP 1069.006) joins here: the host's `exact-auth:` arm.
+        "auth.session" | "auth.callback" => {
+            "the host's exact-auth: arm (Apple, web; Linux answers 501)"
+        }
         _ => "runtime",
     }
 }
@@ -308,5 +355,36 @@ mod tests {
             json!({"NSSpeechRecognitionUsageDescription": {"en": "Transcribes."}})
         );
         assert_eq!(ios.reach["entitlements"], json!([]));
+    }
+
+    #[test]
+    fn auth_lines_derive_callbacks_and_apple_s_webcredentials() {
+        let grants = "auth.session https://bsky.social\nauth.callback social.exact.x:/oauth\nauth.callback https://app.example/.exact/auth/callback\nauth.callback http://127.0.0.1:9/cb";
+        let dir = tempdir::Dir::new();
+        let mut ios = compat(grants);
+        derive(&dir.0, "ios", &mut ios).unwrap();
+        assert_eq!(ios.id, "old", "no purpose, no id move");
+        assert_eq!(
+            ios.reach["auth"]["associatedDomains"],
+            json!(["webcredentials:app.example"])
+        );
+        assert_eq!(ios.reach["auth"]["callbacks"].as_array().unwrap().len(), 3);
+        assert!(ios.reach["rows"][0]["enforced"]
+            .as_str()
+            .unwrap()
+            .contains("exact-auth:"));
+        let mut web = compat(grants);
+        derive(&dir.0, "web", &mut web).unwrap();
+        assert_eq!(web.reach["auth"]["associatedDomains"], json!([]));
+        web.inputs["typescriptPlacement"] = json!("worker");
+        assert!(derive(&dir.0, "web", &mut web)
+            .unwrap_err()
+            .starts_with("grant-auth: "));
+        let mut native = compat(grants);
+        native.inputs["typescriptPlacement"] = json!("worker");
+        assert!(
+            derive(&dir.0, "macos", &mut native).is_ok(),
+            "a native worker opens its sheet"
+        );
     }
 }

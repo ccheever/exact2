@@ -722,6 +722,14 @@ impl<D: DataSource> Presenter<D> {
                 self.surfaces.enqueue(r, &admitted);
                 continue;
             }
+            // No system browser here (LLP 1069.006 D5): 501, delivered by
+            // the next pump as an admission answer.
+            if r.request.is_auth() {
+                let runner = self.host.runner_mut();
+                exact_runner::auth::arm(runner, &r, false, exact_runner::auth::Browser::None, None);
+                self.executor.notify();
+                continue;
+            }
             let dispatch = match r.request.continuation {
                 Some(token) => self.host.dispatch_work(token),
                 None if r.request.is_native() => self.host.native_work(&r.request),

@@ -24,6 +24,16 @@ fn digest(name: &str, data: &[u8]) -> Result<String, String> {
     Ok(hex(&exact_data::crypto::digest(sha, data)))
 }
 
+/// Host op 12: `authCallback()` (LLP 1069.006 D2), this native build's
+/// callback, a device fact, so bake compiles no answer that asks.
+/// (`placement` is the web worker realm's question alone.)
+pub(crate) fn auth_callback(state: &mut HostState, what: &str) -> Option<String> {
+    let store = state.store.filter(|_| what == "callback")?;
+    // SAFETY: the store the seam handed this call outlives the call.
+    unsafe { (*store).observe_external_read() };
+    state.auth_callback.clone()
+}
+
 pub(crate) fn hex(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut text = String::with_capacity(bytes.len() * 2);

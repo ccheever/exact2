@@ -418,6 +418,8 @@ public final class ExactSession {
     func retireInputHold(_ hold: SwipeHold) { inputHolds.remove(hold) }
     private var pendingSurfaceRecords: [(String, String?)] = []
     private var pendingSurfaceWork: [([String: Any], Int)] = []
+    /// Authentication sessions this session opened (`Auth.swift`, LLP 1069.006).
+    lazy var authSessions: AuthSessions = { let s = AuthSessions(); s.owner = self; return s }()
 
     /// Live sessions by handle: what a wake looks up (a stranger's is dropped).
     nonisolated(unsafe) private static var live: [ExactRuntime: WeakSession] = [:]
@@ -720,6 +722,11 @@ public final class ExactSession {
         regions.prepare(batch)
         #endif
         for op in batch.ops where op.op == .surfaceWork { pendingSurfaceWork.append((op.payload, generation)) }
+        // Opened once the batch is applied, off this session's window (LLP 1069.006 D3).
+        for op in batch.ops where op.op == .auth {
+            let payload = op.payload
+            DispatchQueue.main.async { [weak self] in if let self, state != .destroyed { authOp(payload) } }
+        }
         presenter.apply(batch)
         if !batch.canvasImages.isEmpty { presenter.canvas2d.load(batch.canvasImages) }
         for op in batch.ops where op.op == .reorder { presenter.reorder?.observe(ReorderState(op.payload)) }
@@ -1031,6 +1038,7 @@ public final class ExactSession {
         guard state != .destroyed else { return }
         state = .destroyed
         generation += 1
+        cancelAuthSessions()
         clockTimer?.invalidate()
         clockTimer = nil
         frames.run(false)

@@ -17,6 +17,11 @@ impl<D: DataSource> Runner<D> {
     /// one its parse refuses too lets the ticket go (`release_refused`); an
     /// independent one retains its ticket (LLP 1027.002) and is not retried.
     pub fn take_request_refusal(&mut self, allow_ordered: bool) -> Option<(u64, Outcome)> {
+        // An auth session's answer (LLP 1069.006), settled by the runner or
+        // reported by the host, rides the same path.
+        if let Some(settled) = crate::auth::take_any_settled(self) {
+            return Some(settled);
+        }
         let pending = self.pending.iter_mut().find(|p| {
             p.refusal
                 .is_some_and(|(_, ordered)| !ordered || allow_ordered)
@@ -111,9 +116,10 @@ impl<D: DataSource> Runner<D> {
 
     /// More refused admissions need a future host pump.
     pub fn has_request_refusals(&self, allow_ordered: bool) -> bool {
-        self.pending.iter().any(|p| {
-            p.refusal
-                .is_some_and(|(_, ordered)| !ordered || allow_ordered)
-        })
+        self.auth.has_settled_for(|t| self.holds(t))
+            || self.pending.iter().any(|p| {
+                p.refusal
+                    .is_some_and(|(_, ordered)| !ordered || allow_ordered)
+            })
     }
 }

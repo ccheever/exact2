@@ -39,6 +39,7 @@
 #![deny(missing_docs)]
 
 pub mod agent;
+pub mod auth;
 pub mod bridge;
 pub mod commands;
 pub mod compare;

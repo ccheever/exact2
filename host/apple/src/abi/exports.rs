@@ -473,6 +473,13 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, true, |b, _| b.log(len), |_| 0)
         }
 
+        /// An auth session's word (LLP 1069.006): `hold` under the agent, or
+        /// `done` with the callback URL or a status; JSON in the input buffer.
+        #[no_mangle]
+        pub extern "C" fn exact_auth(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, true, |b, _| b.auth(len), |_| 0)
+        }
+
         /// A command's data (`share`, LLP 1069.003; `saveFile`, LLP
         /// 1069.010), JSON in the input buffer; returns the ruling's length
         /// (`refused`, `ticket`, `present`).

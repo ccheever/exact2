@@ -472,6 +472,11 @@ impl<D: DataSource> Host<D> {
         &self.runner
     }
 
+    /// The runner, mutably: an auth session's arm (LLP 1069.006).
+    pub fn runner_mut(&mut self) -> &mut Runner<D> {
+        &mut self.runner
+    }
+
     /// `tap @t` or `type @t` (LLP 1069.007 D4): the agent answers a held
     /// device request, consumed here; the reply names the requesting node,
     /// where the Swift capability arm delivers it (a picker's `change` or

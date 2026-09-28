@@ -326,6 +326,25 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// `{"op":"auth","ticket":N,"url":…,"callback":…,"ephemeral":…}`: open
+    /// an authentication session (LLP 1069.006 D3). The `state` stays in
+    /// Rust, which checks the completion.
+    pub fn auth(&mut self, ticket: u64, session: &exact_runner::auth::Session) {
+        let mut s = format!("{{\"op\":\"auth\",\"ticket\":{ticket},\"url\":");
+        quote(&session.url, &mut s);
+        s.push_str(",\"callback\":");
+        quote(&session.callback, &mut s);
+        s.push_str(&format!(",\"ephemeral\":{}}}", session.ephemeral));
+        self.ops.push(s);
+    }
+
+    /// `{"op":"auth","ticket":N,"cancel":true}`: the runner let go of it.
+    pub fn auth_cancel(&mut self, ticket: u64) {
+        self.ops.push(format!(
+            "{{\"op\":\"auth\",\"ticket\":{ticket},\"cancel\":true}}"
+        ));
+    }
+
     /// Presenter-owned capture or restore work for one named surface.
     pub fn surface_work(&mut self, request: &exact_runner::RequestOut, refusal: Option<&str>) {
         let Some(work) = request.request.surface.as_deref() else {

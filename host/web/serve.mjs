@@ -36,6 +36,9 @@ const REQUIRED_BUILD_FILES = ['app.plan', 'app.wasm', 'exact.json', 'glue.js', '
 // one dot path a client fetches. Inside it every other dot name (the
 // stream's `.lock`) stays private.
 const UPDATE_TREE = '/.exact/';
+// The web's auth callback page and its script (LLP 1069.006 D4), under the
+// update tree: never stored, and sent with no referrer.
+export const AUTH_CALLBACK = '/.exact/auth/callback';
 
 /** Dev-only opening instructions. Never infers installation or publishes a
  * build. `links` are the token-bearing opening links this Mac's development
@@ -580,6 +583,8 @@ export function webContentType(route) {
   if (route === '/exact.json') return 'application/vnd.exact.envelope+json';
   if (route === '/manifest.json') return 'application/manifest+json';
   if (route === '/.well-known/apple-app-site-association') return 'application/json';
+  // The auth callback page (LLP 1069.006 D4): one static page at exactly this path.
+  if (route === AUTH_CALLBACK) return 'text/html';
   return {
     '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json',
     '.wasm': 'application/wasm', '.plan': 'application/vnd.exact.plan',
@@ -733,7 +738,8 @@ export async function serveStatic(dist, req, res, listener, compression = null) 
   }
   const vary = [index && 'Accept', compressed && 'Accept-Encoding'].filter(Boolean).join(', ');
   const headers = { 'content-type': type, 'cache-control': webCacheControl(found), etag: `"${digest}${encoding ? `-${encoding}` : ''}"`,
-    ...(vary ? { vary } : {}), ...(encoding ? { 'content-encoding': encoding } : {}) };
+    ...(vary ? { vary } : {}), ...(encoding ? { 'content-encoding': encoding } : {}),
+    ...(found.route.startsWith(AUTH_CALLBACK) ? { 'referrer-policy': 'no-referrer' } : {}) };
   if (matchesETag(req.headers['if-none-match'], headers.etag)) {
     const { 'content-type': _, 'content-encoding': __, ...validators } = headers;
     res.writeHead(304, validators); res.end(); return;

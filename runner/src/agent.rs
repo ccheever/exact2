@@ -145,7 +145,7 @@ pub fn answer<D: DataSource>(
             None => return Some((error(&format!("type @{ticket} needs a value")), None)),
         }
     };
-    if runner.holds(ticket) {
+    if runner.holds(ticket) && !runner.device_holds().iter().any(|h| h.ticket == ticket) {
         let e = format!("@{ticket} is a network request; only a held device request is answered");
         return Some((error(&e), None));
     }

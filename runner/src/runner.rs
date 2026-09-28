@@ -381,6 +381,8 @@ pub struct Runner<D: DataSource> {
     journal: std::collections::VecDeque<String>,
     /// Device requests held for the agent (LLP 1069.007 D3): not I/O.
     device_holds: Vec<device::Hold>,
+    /// Auth sessions (LLP 1069.006): live ones, and answers to deliver.
+    auth: crate::auth::Sessions,
     /// The view whose event is being dispatched, stamped on the commands
     /// its action issues (LLP 1069.003 D3).
     input_source: Option<ViewId>,
@@ -731,6 +733,7 @@ impl<D: DataSource> Runner<D> {
             derive_store_dependent: Vec::new(),
             journal: std::collections::VecDeque::new(),
             device_holds: Vec::new(),
+            auth: Default::default(),
             input_source: None,
             journal_start: 0,
             flow_warned: Default::default(),
@@ -852,6 +855,11 @@ impl<D: DataSource> Runner<D> {
             runner.log(note);
         }
         Ok(runner)
+    }
+
+    /// The auth sessions this runner keeps (LLP 1069.006; [`crate::auth`]).
+    pub fn auth_mut(&mut self) -> &mut crate::auth::Sessions {
+        &mut self.auth
     }
 
     /// Append a line to the journal the agent API's `logs` reads, stamped

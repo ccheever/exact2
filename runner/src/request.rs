@@ -23,6 +23,7 @@ pub fn io_grants(spec: &str) -> String {
         .map(str::trim)
         .filter(|line| !line.starts_with("surface.read ") && !line.starts_with("surface.write "))
         .filter(|line| !crate::device::is_device_line(line))
+        .filter(|line| !line.starts_with("auth."))
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>()
         .join("\n")
@@ -130,6 +131,26 @@ impl Request {
             body,
             stream: false,
         }
+    }
+
+    /// An auth session (`openAuthSession`, LLP 1069.006 D1): the body is
+    /// [`crate::auth::Session`]'s JSON; the independent lane, a 64 KiB reply.
+    pub fn auth(body: Vec<u8>) -> Request {
+        Request {
+            url: crate::auth::AUTH_URL.into(),
+            http: HttpScheduling::Independent {
+                max_response_bytes: 64 << 10,
+            },
+            ..Request::native(body)
+        }
+    }
+
+    /// An auth session, for the host's auth arm, not the network.
+    pub fn is_auth(&self) -> bool {
+        self.url == crate::auth::AUTH_URL
+            && self.continuation.is_none()
+            && self.storage.is_none()
+            && self.surface.is_none()
     }
 
     /// A long native call, for the source's native handler, not the network.
@@ -715,7 +736,7 @@ mod tests {
             .contains("multiple host-work kinds"));
         assert_eq!(
             io_grants(
-                "fs.read app:/data\nsurface.read world\ndevice.microphone p\nsurface.write world"
+                "fs.read app:/data\nsurface.read world\ndevice.microphone p\nsurface.write world\nauth.session https://x.test\nauth.callback a.b:/c"
             ),
             "fs.read app:/data"
         );

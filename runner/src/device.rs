@@ -10,8 +10,8 @@
 //! (LLP 1060), never prose, so the line stays one line and the text is
 //! translatable; the bake refuses a key the base table lacks.
 //!
-//! `auth.*` lines (LLP 1069.006) derive through a table of their own when
-//! that RFC lands: associated domains and Sign in with Apple, no purpose text.
+//! `auth.*` lines (LLP 1069.006) are stripped the same way and checked by
+//! `crate::auth`; the bake derives their associated domains (`reach.auth`).
 //!
 //! [`io_grants`]: crate::io_grants
 

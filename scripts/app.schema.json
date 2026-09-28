@@ -571,6 +571,12 @@
         }
       }
     },
+    "auth": {
+      "description": "Signing in through the system browser (LLP 1069.006): the scope the client-metadata documents name.",
+      "type": "object",
+      "properties": { "scope": { "type": "string" } },
+      "additionalProperties": false
+    },
     "typescript": {
       "type": "object",
       "properties": {

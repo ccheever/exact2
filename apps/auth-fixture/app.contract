@@ -1,0 +1,48 @@
+// The auth fixture (LLP 1069.006): an OAuth sign-in with PAR, DPoP and
+// PKCE against a local fixture authorization server (`fixture.mjs`),
+// the way the Bluesky port would sign in. Preparing does discovery, the
+// DPoP key and PAR; the press opens the system browser (a popup on the
+// web) with `openAuthSession`, and its answer exchanges the code.
+
+shape Time
+  epochAtZero: number
+shape Session
+  signedIn: bool
+  handle: string
+shape Result
+  ok: bool
+  message: string
+
+component AuthFixture
+  resource time = exactTime() as shape Time
+  resource session = currentSession() as shape Session
+  mutation prepared as shape Result
+  mutation signed as shape Result refreshes session
+  mutation left as shape Result refreshes session
+  derive busy = pending(prepared) or pending(signed)
+  action prepare writes prepared
+    send prepared = prepareSignIn(time.epochAtZero + now())
+  action signIn writes signed
+    send signed = signIn(time.epochAtZero + now())
+  action signOut writes left
+    send left = signOut()
+  view
+    column testId="auth" width="100%" height="100%" gap=14 padding=24 box-sizing="border-box" background-color="#f5f6f8" color="#1d2a3a" font-family="system-ui"
+      text "Auth Fixture" font-size=24 font-weight=600
+      text (session.signedIn ? "Signed in as " + session.handle : "Signed out") testId="session" font-size=16
+      button press=prepare disabled=busy testId="prepare" padding=12 border-radius=8 background-color="#dfe5ee"
+        text "Prepare sign-in"
+      button press=signIn disabled=busy testId="sign-in" padding=12 border-radius=8 background-color="#2f6fd6"
+        text "Sign in" color="#ffffff" font-weight=600
+      button press=signOut testId="sign-out" padding=12 border-radius=8 background-color="#dfe5ee"
+        text "Sign out"
+      match prepared
+        case some(p)
+          text p.message testId="prepared" font-size=14
+        case none
+          text "" font-size=14
+      match signed
+        case some(s)
+          text s.message testId="signed" font-size=14 color=(s.ok ? "#1a7f37" : "#b42318")
+        case none
+          text "" font-size=14

@@ -653,15 +653,20 @@ fn respond<D: DataSource>(request: &Request, shared: &Shared, data: fn() -> D) -
         };
         // Other files aren't content-addressed yet (D10): revalidated, by
         // their ETags.
-        let cache = match named {
-            true => "public, max-age=31536000, immutable",
-            false => "no-cache",
+        let auth = path.starts_with(AUTH_CALLBACK);
+        let cache = match (named, auth) {
+            (true, _) => "public, max-age=31536000, immutable",
+            (false, true) => "no-store",
+            (false, false) => "no-cache",
         };
         let mut headers = vec![
             ("Content-Type", kind.into()),
             ("Cache-Control", cache.into()),
             ("ETag", etag.clone()),
         ];
+        if auth {
+            headers.push(("Referrer-Policy", "no-referrer".into()));
+        }
         if named && !request.cdn {
             // The next build is sent against this one (crate::generations).
             headers.push(("Use-As-Dictionary", "match=\"/app.wasm\"".into()));
@@ -1177,6 +1182,10 @@ fn named_build(target: &str, tag: &str) -> bool {
     })
 }
 
+/// The web's auth callback page (LLP 1069.006 D4), served with no referrer
+/// and never stored, as its script is.
+const AUTH_CALLBACK: &str = "/.exact/auth/callback";
+
 fn static_file(dist: &Path, path: &str) -> Option<(PathBuf, &'static str)> {
     let decoded = percent_decode(path, false)?;
     if decoded.split('/').any(|part| part == ".." || part == ".") || decoded.contains('\\') {
@@ -1195,6 +1204,10 @@ fn static_file(dist: &Path, path: &str) -> Option<(PathBuf, &'static str)> {
     let extension = file.extension().and_then(|e| e.to_str()).unwrap_or("");
     if extension == "html" && !exact {
         return None;
+    }
+    // The auth callback page (LLP 1069.006 D4): one page at exactly this path.
+    if decoded == AUTH_CALLBACK {
+        return Some((file.clone(), content_type("html")));
     }
     Some((file.clone(), content_type(extension)))
 }
