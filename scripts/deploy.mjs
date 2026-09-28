@@ -491,6 +491,15 @@ export function materializeSnapshot(snapshot, run, app, cache = null) {
   // (game/app/shells.lock), still locked and offline.
   if (manifest.game) gameShells(dir, manifest.game, resolve(exactRoot, 'game'));
   assertMaterializedCargoClosure([workspace, exactRoot], sourceRoot, target, {workspace, manifest});
+  // node_modules is an output, never captured; a TypeScript app's bake runs
+  // Rolldown from it and ships SQLite WASM out of it. Install exactly what the
+  // captured bun.lock pins, from Bun's cache, into the captured tree.
+  for (const root of new Set([exactRoot, workspace])) {
+    if (!existsSync(resolve(root, 'package.json')) || !existsSync(resolve(root, 'bun.lock'))) continue;
+    const installed = spawnSync(process.execPath, ['install', '--frozen-lockfile', '--prefer-offline'], {
+      cwd: root, env: sealedSourceEnv(sourceRoot), stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' });
+    if (installed.status !== 0) refuse(`${root}: bun install --frozen-lockfile failed in the captured source: ${(installed.stderr || installed.stdout || installed.error?.message || '').trim()}`);
+  }
   return {
     exactRoot, sourceRoot,
     // Identity and policy are deliberately not copied from the launcher's

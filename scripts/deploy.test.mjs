@@ -376,19 +376,23 @@ async function rejects(action, matches) {
 
 { // Edit diagnostics own and remove large captured Git trees, including on callback failure.
   const app = resolveApp('caltrain'), previous = process.env.CARGO_TARGET_DIR;
-  let source, run, isolated = false, caught = false;
+  let source, run, isolated = false, installed = false, caught = false;
   try {
     await withAppFixture(app, async f => {
       source = f.sourceRoot; run = f.run;
       isolated = f.app.dir !== app.dir && f.env.EXACT_APP_DIR === f.app.dir
         && f.env.CARGO_TARGET_DIR.startsWith(run + '/') && f.env.EXACT_WEB_DIST.startsWith(source + '/')
         && spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: f.app.dir, env: f.env, encoding: 'utf8' }).stdout.trim() === source;
+      // The capture carries the pinned node_modules (a TypeScript bake runs
+      // Rolldown from it), installed as an output, not committed as source.
+      installed = existsSync(join(f.exactRoot, 'node_modules/.bin/rolldown'))
+        && spawnSync('git', ['ls-files', 'node_modules'], { cwd: f.exactRoot, env: f.env, encoding: 'utf8' }).stdout === '';
       writeFileSync(join(f.app.dir, 'diagnostic-private.txt'), 'captured only');
       for (let i = 0; i < 5000; i++) writeFileSync(join(source, `cleanup-${i}`), 'private');
       throw new Error('expected diagnostic callback failure');
     });
   } catch (error) { caught = error.message === 'expected diagnostic callback failure'; }
-  result('diagnostic source and outputs are isolated and cleaned on failure', isolated && caught
+  result('diagnostic source and outputs are isolated and cleaned on failure', isolated && installed && caught
     && !existsSync(source ?? '/missing') && !existsSync(run ?? '/missing')
     && !existsSync(join(app.dir, 'diagnostic-private.txt')) && process.env.CARGO_TARGET_DIR === previous);
 }

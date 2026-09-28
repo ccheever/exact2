@@ -1096,7 +1096,9 @@ async function fixtureRun(app, use, run, key) {
       if (result.status !== 0) throw new Error(`diagnostic git ${args[0]}: ${result.stderr || result.error?.message}`);
       return result.stdout;
     };
-    for (const args of [['init', '-q', '-b', 'main'], ['add', '-f', '-A'], ['commit', '-qm', 'Captured diagnostic source']]) git(args);
+    // The capture's installed node_modules is an output, as in the live checkout.
+    const installed = [...new Set([fixture.exactRoot, fixture.app.workspace])].map((root) => `:(exclude)${relative(fixture.sourceRoot, resolve(root, 'node_modules'))}`);
+    for (const args of [['init', '-q', '-b', 'main'], ['add', '-f', '-A', '--', '.', ...installed], ['commit', '-qm', 'Captured diagnostic source']]) git(args);
     const manifest = readManifest(fixture.app.dir, app.name);
     return await use({ ...fixture, run, env, git, snapshot, app: { ...app, ...fixture.app,
       target: env.CARGO_TARGET_DIR, manifest, id: manifest.app.id, displayName: manifest.app.name,
