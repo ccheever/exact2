@@ -661,6 +661,13 @@ extension Agent {
             // its own windows without the Screen Recording permission that
             // `screencapture` (another process) needs.
             guard let window = v.window else { return ["error": "the session's view is not in a window"] }
+            // The window server shows what the last committed transaction
+            // held one refresh after it composites: commit now (a tap's
+            // change, a canvas replay that just landed), then let two
+            // refreshes pass, or the picture is the frame before.
+            CATransaction.flush()
+            let refresh = 1 / Double(max(30, window.screen?.maximumFramesPerSecond ?? 60))
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 2 * refresh + 0.004))
             guard let image = Self.ownWindowImage(window.windowNumber) else { return ["error": "the window server gave no picture of window \(window.windowNumber)"] }
             guard let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return ["error": "no PNG"] }
             do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
