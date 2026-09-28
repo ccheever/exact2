@@ -61,7 +61,11 @@ fn main() -> ExitCode {
                 eprintln!("{out}: {e}");
                 return ExitCode::from(1);
             }
-            for (name, text) in [("app.js", &out_files.js), ("app.css", &out_files.css)] {
+            for (name, text) in [
+                ("app.js", &out_files.js),
+                ("app.css", &out_files.css),
+                ("names.js", &out_files.names),
+            ] {
                 if let Err(e) = std::fs::write(dir.join(name), text) {
                     eprintln!("{name}: {e}");
                     return ExitCode::from(1);

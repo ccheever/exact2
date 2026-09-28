@@ -5,7 +5,9 @@
 //! plan's static rows through this at build, so its stylesheet is this
 //! host's CSS, never a second mapping.
 
-use super::{browser_kernel, css_style, font_names, host_css, in_button, props_for, svg_props, tag_for};
+use super::{
+    browser_kernel, css_style, font_names, host_css, in_button, props_for, svg_props, tag_for,
+};
 use exact_kernel::{Kernel, SortedMap, ViewId};
 use exact_plan::Plan;
 

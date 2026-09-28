@@ -8,7 +8,9 @@
 //! the tag, props and CSS the live host would compute. A binding that is an
 //! expression is left out, and emitted as an effect instead.
 
-use exact_kernel::{Kernel, NodeType, Op, PropId, PropKind, PropValue, StyleCodec, StyleId, ViewId};
+use exact_kernel::{
+    Kernel, NodeType, Op, PropId, PropKind, PropValue, StyleCodec, StyleId, ViewId,
+};
 use exact_plan::{BindingKind, Opcode, Plan};
 use exact_runner::bridge;
 use exact_runner::vm::instructions;
@@ -50,7 +52,12 @@ fn sample(kind: PropKind) -> PropValue {
 /// flattened into their parent.
 pub fn element_children(plan: &Plan, sites: &crate::emit::Sites) -> Vec<Vec<u32>> {
     let mut out = vec![Vec::new(); plan.nodes.len()];
-    fn flatten(plan: &Plan, sites: &crate::emit::Sites, list: &[crate::emit::Site], into: &mut Vec<u32>) {
+    fn flatten(
+        plan: &Plan,
+        sites: &crate::emit::Sites,
+        list: &[crate::emit::Site],
+        into: &mut Vec<u32>,
+    ) {
         for s in list {
             match s {
                 crate::emit::Site::Node(n) => into.push(*n),
@@ -76,11 +83,14 @@ pub fn project(
 ) -> Result<Vec<Option<Parts>>, String> {
     let mut kernel: Kernel = template::kernel();
     let mut ops = Vec::new();
-    let view = |i: usize| -> ViewId { (i as u32 + 1).into() };
+    let view = |i: usize| -> ViewId { i as u32 + 1 };
     let stacks = plan.stacks.len();
     for (i, node) in plan.nodes.iter().enumerate() {
         let node_type = NodeType::from_wire(node.node_type).ok_or("unknown node type")?;
-        ops.push(Op::CreateView { id: view(i), node_type });
+        ops.push(Op::CreateView {
+            id: view(i),
+            node_type,
+        });
         let mut patch = exact_kernel::StyleProps::default();
         let mut styled = false;
         for b in node.bindings.iter() {
@@ -88,14 +98,22 @@ pub fn project(
             let code = plan.code(row.expr);
             match (row.kind, literal(plan, code)) {
                 (BindingKind::Prop, Some(v)) => {
-                    let (prop, value) = bridge::prop_value(row.id, &v)
-                        .map_err(|e| format!("node {i}: {e:?}"))?;
-                    ops.push(Op::SetProp { id: view(i), prop, value });
+                    let (prop, value) =
+                        bridge::prop_value(row.id, &v).map_err(|e| format!("node {i}: {e:?}"))?;
+                    ops.push(Op::SetProp {
+                        id: view(i),
+                        prop,
+                        value,
+                    });
                 }
                 (BindingKind::Prop, None) => {
                     let prop = PropId::from_wire(row.id).ok_or("unknown prop")?;
                     if decides_tag(prop) {
-                        ops.push(Op::SetProp { id: view(i), prop, value: sample(prop.kind()) });
+                        ops.push(Op::SetProp {
+                            id: view(i),
+                            prop,
+                            value: sample(prop.kind()),
+                        });
                     }
                 }
                 (BindingKind::Style, Some(v)) => {
@@ -107,7 +125,10 @@ pub fn project(
             }
         }
         if styled {
-            ops.push(Op::SetStyle { id: view(i), patch: Box::new(patch) });
+            ops.push(Op::SetStyle {
+                id: view(i),
+                patch: Box::new(patch),
+            });
         }
     }
     for (i, children) in element_children(plan, sites).into_iter().enumerate() {
@@ -118,8 +139,12 @@ pub fn project(
             });
         }
     }
-    ops.push(Op::AttachRoot { id: view(sites.root as usize) });
-    kernel.apply(0, 1, &ops).map_err(|e| format!("kernel refused the static tree: {e:?}"))?;
+    ops.push(Op::AttachRoot {
+        id: view(sites.root as usize),
+    });
+    kernel
+        .apply(0, 1, &ops)
+        .map_err(|e| format!("kernel refused the static tree: {e:?}"))?;
     let mut out = Vec::with_capacity(plan.nodes.len());
     for (i, node) in plan.nodes.iter().enumerate() {
         if NodeType::from_wire(node.node_type) == Some(NodeType::Head) {
@@ -132,14 +157,17 @@ pub fn project(
             let row = plan.binding(b);
             if row.kind == BindingKind::Prop && literal(plan, plan.code(row.expr)).is_none() {
                 if let Some(prop) = PropId::from_wire(row.id).filter(|p| decides_tag(*p)) {
-                    if let Ok(name) = prop_name(NodeType::from_wire(node.node_type).unwrap(), prop) {
+                    if let Ok(name) = prop_name(NodeType::from_wire(node.node_type).unwrap(), prop)
+                    {
                         parts.props.remove(&name);
                     }
                 }
             }
         }
         for (row, reason) in &parts.skipped {
-            warnings.push(format!("node {i}: style row {row} skipped by the web host: {reason}"));
+            warnings.push(format!(
+                "node {i}: style row {row} skipped by the web host: {reason}"
+            ));
         }
         out.push(Some(parts));
     }
@@ -151,10 +179,14 @@ pub fn project(
 pub fn prop_name(node_type: NodeType, prop: PropId) -> Result<String, String> {
     let keys = |with: bool| -> Result<Vec<String>, String> {
         let mut k = template::kernel();
-        let id: ViewId = 1u32.into();
+        let id: ViewId = 1;
         let mut ops = vec![Op::CreateView { id, node_type }, Op::AttachRoot { id }];
         if with {
-            ops.push(Op::SetProp { id, prop, value: sample(prop.kind()) });
+            ops.push(Op::SetProp {
+                id,
+                prop,
+                value: sample(prop.kind()),
+            });
         }
         k.apply(0, 1, &ops).map_err(|e| format!("{e:?}"))?;
         // The plan only matters for fonts, which a lone node has none of.
@@ -173,7 +205,13 @@ pub fn prop_name(node_type: NodeType, prop: PropId) -> Result<String, String> {
     after
         .into_iter()
         .find(|k| !before.contains(k))
-        .ok_or_else(|| format!("prop {} has no DOM name on {}", prop.name(), node_type.name()))
+        .ok_or_else(|| {
+            format!(
+                "prop {} has no DOM name on {}",
+                prop.name(),
+                node_type.name()
+            )
+        })
 }
 
 /// How the runtime formats a dynamic style row's value, and its CSS name:
@@ -184,9 +222,19 @@ pub fn style_row(id: u16) -> Result<(String, char), String> {
     let row = StyleId::from_bit(id as u32).ok_or("unknown style row")?;
     let kind = match row.codec() {
         StyleCodec::Dimension => 'd',
-        StyleCodec::Enum | StyleCodec::ColorValue | StyleCodec::Rgba8 | StyleCodec::KeywordColor => 's',
-        StyleCodec::F32 | StyleCodec::U8 | StyleCodec::U16 | StyleCodec::U32 | StyleCodec::I32 => 'n',
-        c => return Err(format!("a dynamic `{}` ({c:?}) is not in the spike", row.name())),
+        StyleCodec::Enum
+        | StyleCodec::ColorValue
+        | StyleCodec::Rgba8
+        | StyleCodec::KeywordColor => 's',
+        StyleCodec::F32 | StyleCodec::U8 | StyleCodec::U16 | StyleCodec::U32 | StyleCodec::I32 => {
+            'n'
+        }
+        c => {
+            return Err(format!(
+                "a dynamic `{}` ({c:?}) is not in the spike",
+                row.name()
+            ))
+        }
     };
     if matches!(
         row,
@@ -199,7 +247,10 @@ pub fn style_row(id: u16) -> Result<(String, char), String> {
             | StyleId::PressScale
             | StyleId::FontVariantNumeric
     ) {
-        return Err(format!("a dynamic `{}` composes with other rows; not in the spike", row.name()));
+        return Err(format!(
+            "a dynamic `{}` composes with other rows; not in the spike",
+            row.name()
+        ));
     }
     Ok((css_property(row), kind))
 }

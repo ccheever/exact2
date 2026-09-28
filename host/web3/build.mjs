@@ -35,9 +35,9 @@ const rust = !!manifest.rust?.module;
 writeFileSync(resolve(gen, 'main.js'), [
   "import app" + (rust ? ', { sources }' : '') + " from './app.js';",
   "import { data, journal, clock, advance, commit } from './rt.js';",
-  'app();',
+  'const state = app();',
   // The agent adapter, only when the agent drives the page.
-  "globalThis.exact = { ready: true, journal, clock, advance, commit, data };",
+  "globalThis.exact = { ready: true, journal, clock, advance, commit, data, state };",
   "if (clock.agent) globalThis.exact.ready = import('./agent.js').then(m => m.install(globalThis.exact));",
   ...(rust ? [
     // Rust data: loaded after first pixel, asked synchronously once ready.

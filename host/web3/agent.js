@@ -2,6 +2,7 @@
 // the spike carries them): `exact.agentSettled(request)` answers what
 // `scripts/agent.mjs web` asks. Input and screenshots stay the carrier's own
 // (CDP). Loaded only under `?agent`; never part of an app's boot bytes.
+import names from './names.js';
 const TYPES = { BUTTON: 'Pressable', INPUT: 'TextInput', TEXTAREA: 'TextInput', VIDEO: 'Video', IMG: 'Image', IFRAME: 'WebView', A: 'Pressable' };
 export function install(exact) {
   const ids = new WeakMap(), views = new Map();
@@ -9,15 +10,23 @@ export function install(exact) {
   const id = el => { let i = ids.get(el); if (!i) { i = next++; ids.set(el, i); } views.set(i, el); return i; };
   const kids = el => [...el.children].filter(c => !c.hasAttribute('data-surface'));
   const type = el => el.hasAttribute('data-exact-text') ? 'Text' : el.querySelector(':scope > canvas[data-surface]') ? 'Canvas' : el.dataset.scroll ? 'ScrollView' : TYPES[el.tagName] ?? 'View';
-  const record = el => {
+  const record = (el, depth) => {
     const props = {};
     if (el.dataset.testid) props.testId = el.dataset.testid;
     if (el.hasAttribute('aria-label')) props.accessibilityLabel = el.getAttribute('aria-label');
     if (type(el) === 'Text') props.text = el.textContent;
     if ('value' in el && el.tagName !== 'BUTTON') props.value = el.value;
-    return { id: id(el), type: type(el), props, children: kids(el).map(id) };
+    const n = { id: id(el), type: type(el), depth, props };
+    if (el.dataset.exactOn) n.handlers = el.dataset.exactOn.split(' ');
+    if (document.activeElement === el) n.focused = true;
+    return n;
   };
-  const all = () => { const out = []; const walk = el => { out.push(record(el)); kids(el).forEach(walk); }; kids(document.getElementById('exact-root')).forEach(walk); return out; };
+  const all = () => {
+    const out = [];
+    const walk = (el, d) => { const n = record(el, d); out.push(n); n.children = kids(el).map(c => walk(c, d + 1).id); return n; };
+    kids(document.getElementById('exact-root')).forEach(el => walk(el, 0));
+    return out;
+  };
   const tags = () => ({ clock: exact.clock.now, epoch: 1 });
   exact.views = views;
   exact.agentSettled = async (req) => {
@@ -45,7 +54,10 @@ export function install(exact) {
         return { clock: exact.clock.now };
       }
       case 'tags': return tags();
-      case 'state': return { note: 'the spike does not name state for the agent', ...tags() };
+      case 'state': {
+        const [slots, derives, resources] = names.map((list, k) => Object.fromEntries(list.map((n, i) => [n, exact.state[k][i]()])));
+        return { slots, derives, resources, ...tags() };
+      }
       case 'prefer': return { page: {} };
       default: return { error: `${req.op} is not carried by the exact3 spike` };
     }

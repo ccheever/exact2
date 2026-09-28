@@ -75,10 +75,29 @@ pub fn function(
     Ok(wrap(&format!("({})", ps.join(",")), &t, body))
 }
 
+/// `code` as one JavaScript expression evaluated where it is written: the
+/// expression itself for straight-line code, else an immediately called
+/// function.
+pub fn expression(
+    plan: &Plan,
+    code: &[u8],
+    scope: &Scope,
+    uses: &mut Uses,
+) -> Result<String, String> {
+    let f = function(plan, code, scope, 0, uses)?;
+    Ok(match f.strip_prefix("()=>") {
+        Some(e) if !e.starts_with('{') => e.to_string(),
+        _ => format!("({f})()"),
+    })
+}
+
 fn wrap(head: &str, t: &Translator<'_>, body: Body) -> String {
     match body {
         Body::Expr(e) if t.out.is_empty() => format!("{head}=>{}", paren_object(&e)),
-        _ => format!("{head}=>{{{}{}}}", t.decls(), t.out),
+        _ => {
+            let out = t.out.strip_suffix("return;").unwrap_or(&t.out);
+            format!("{head}=>{{{}{out}}}", t.decls())
+        }
     }
 }
 
@@ -115,7 +134,8 @@ fn reg(d: usize) -> String {
 
 impl Translator<'_> {
     fn decls(&self) -> String {
-        let mut names: Vec<String> = (0..self.max_depth).map(reg).collect();
+        let used = |r: &String| self.out.contains(&format!("{r}="));
+        let mut names: Vec<String> = (0..self.max_depth).map(reg).filter(used).collect();
         if let Some(m) = self.max_local {
             names.extend((self.base_local..=m).map(|k| format!("l{k}")));
         }
@@ -132,7 +152,9 @@ impl Translator<'_> {
     }
 
     fn pop(&mut self) -> Result<String, String> {
-        self.stack.pop().ok_or_else(|| "stack underflow".to_string())
+        self.stack
+            .pop()
+            .ok_or_else(|| "stack underflow".to_string())
     }
 
     fn popn(&mut self, n: usize) -> Result<Vec<String>, String> {
@@ -227,9 +249,12 @@ impl Translator<'_> {
                 }
                 dead = false;
             }
-            let mut opening: Vec<(usize, usize)> =
-                targets.iter().filter(|(s, _)| *s == x.pc).copied().collect();
-            opening.sort_by(|a, b| b.1.cmp(&a.1));
+            let mut opening: Vec<(usize, usize)> = targets
+                .iter()
+                .filter(|(s, _)| *s == x.pc)
+                .copied()
+                .collect();
+            opening.sort_by_key(|e| std::cmp::Reverse(e.1));
             for (_, t) in &opening {
                 self.out.push_str(&format!("{}:{{", label(*t)));
             }
@@ -251,7 +276,9 @@ impl Translator<'_> {
                 Opcode::LoadSlot => {
                     let slot = &self.plan.slots[x.args[0] as usize];
                     if slot.owner.is_some() {
-                        return Err("per-row state (a slot owned by an `each`) is not in the spike".into());
+                        return Err(
+                            "per-row state (a slot owned by an `each`) is not in the spike".into(),
+                        );
                     }
                     self.push(format!("s_{}()", x.args[0]))
                 }
@@ -326,7 +353,8 @@ impl Translator<'_> {
                 Opcode::Jump => {
                     self.flush();
                     record(self, x.args[0] as usize);
-                    self.out.push_str(&format!("break {};", label(x.args[0] as usize)));
+                    self.out
+                        .push_str(&format!("break {};", label(x.args[0] as usize)));
                     dead = true;
                 }
                 Opcode::JumpIfFalse => {
@@ -340,8 +368,10 @@ impl Translator<'_> {
                     self.flush();
                     record(self, x.args[0] as usize);
                     let top = self.stack.last().ok_or("stack underflow")?.clone();
-                    self.out
-                        .push_str(&format!("if({top}==null)break {};", label(x.args[0] as usize)));
+                    self.out.push_str(&format!(
+                        "if({top}==null)break {};",
+                        label(x.args[0] as usize)
+                    ));
                 }
                 Opcode::Pop => {
                     self.pop()?;
@@ -403,7 +433,10 @@ impl Translator<'_> {
                     if !self.scope.action {
                         return Err("a command outside an action".into());
                     }
-                    let name = self.plan.str(exact_plan::StrId(x.args[0] as u32)).to_string();
+                    let name = self
+                        .plan
+                        .str(exact_plan::StrId(x.args[0] as u32))
+                        .to_string();
                     let args = self.popn(x.args[1] as usize)?;
                     self.flush();
                     let c = self.uses.rt("C");

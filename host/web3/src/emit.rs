@@ -80,6 +80,7 @@ impl Sites {
 
 pub struct Output {
     pub js: String,
+    pub names: String,
     pub css: String,
     pub viewport: Option<String>,
     pub warnings: Vec<String>,
@@ -96,7 +97,10 @@ pub fn value_js(v: &Value) -> String {
         Value::Option(None) => "null".into(),
         Value::Option(Some(x)) => value_js(x),
         Value::List(items) | Value::Record(items) => {
-            format!("[{}]", items.iter().map(value_js).collect::<Vec<_>>().join(","))
+            format!(
+                "[{}]",
+                items.iter().map(value_js).collect::<Vec<_>>().join(",")
+            )
         }
     }
 }
@@ -105,24 +109,48 @@ pub fn dump(plan: &Plan) {
     let mut uses = Uses::default();
     let s = Scope::default();
     let f = |code: exact_plan::Code, uses: &mut Uses, scope: &Scope, params: usize| {
-        code::function(plan, plan.code(code), scope, params, uses).unwrap_or_else(|e| format!("<{e}>"))
+        code::function(plan, plan.code(code), scope, params, uses)
+            .unwrap_or_else(|e| format!("<{e}>"))
     };
     eprintln!("router: {:?}", plan.router);
     for (i, r) in plan.slots.iter().enumerate() {
-        eprintln!("slot {i} {} = {}", plan.str(r.name), f(r.init, &mut uses, &s, 0));
+        eprintln!(
+            "slot {i} {} = {}",
+            plan.str(r.name),
+            f(r.init, &mut uses, &s, 0)
+        );
     }
     for (i, r) in plan.derives.iter().enumerate() {
-        eprintln!("derive {i} {} = {}", plan.str(r.name), f(r.body, &mut uses, &s, 0));
+        eprintln!(
+            "derive {i} {} = {}",
+            plan.str(r.name),
+            f(r.body, &mut uses, &s, 0)
+        );
     }
     for (i, r) in plan.resources.iter().enumerate() {
-        eprintln!("resource {i} {} = {}(..{})", plan.str(r.name), plan.str(r.source), r.args.len);
+        eprintln!(
+            "resource {i} {} = {}(..{})",
+            plan.str(r.name),
+            plan.str(r.source),
+            r.args.len
+        );
     }
-    let a = Scope { action: true, ..Scope::default() };
+    let a = Scope {
+        action: true,
+        ..Scope::default()
+    };
     for (i, r) in plan.actions.iter().enumerate() {
-        eprintln!("action {i} {} = {}", plan.str(r.name), f(r.body, &mut uses, &a, r.params.len as usize));
+        eprintln!(
+            "action {i} {} = {}",
+            plan.str(r.name),
+            f(r.body, &mut uses, &a, r.params.len as usize)
+        );
     }
     for (i, r) in plan.regions.iter().enumerate() {
-        eprintln!("region {i} {:?} parent {:?} arm {:?} order {} arms {:?}", r.kind, r.parent, r.arm, r.order, r.arms);
+        eprintln!(
+            "region {i} {:?} parent {:?} arm {:?} order {} arms {:?}",
+            r.kind, r.parent, r.arm, r.order, r.arms
+        );
     }
     for (i, n) in plan.nodes.iter().enumerate() {
         eprintln!(
@@ -164,14 +192,17 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         warnings,
     };
     let top = Scope::default();
-    let action = Scope { action: true, ..Scope::default() };
+    let action = Scope {
+        action: true,
+        ..Scope::default()
+    };
     let mut body = String::new();
     // Slots, in order: an initializer reads only earlier slots.
     for (i, r) in plan.slots.iter().enumerate() {
-        let init = code::function(plan, plan.code(r.init), &top, 0, &mut em.uses)
+        let init = code::expression(plan, plan.code(r.init), &top, &mut em.uses)
             .map_err(|e| format!("slot {}: {e}", plan.str(r.name)))?;
         let sig = em.uses.rt("sig");
-        let _ = write!(body, "const s_{i}={sig}(({init})());");
+        let _ = write!(body, "const s_{i}={sig}({init});");
         if plan.router.map(|s| s.0 as usize) == Some(i) {
             em.warnings.push(format!(
                 "slot {} is the router: its launch value is the initializer's, not `Router::launch` (no router in the spike)",
@@ -188,9 +219,9 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
     for (i, r) in plan.resources.iter().enumerate() {
         let mut args = Vec::new();
         for a in r.args.iter() {
-            let f = code::function(plan, plan.code(plan.arg(a).expr), &top, 0, &mut em.uses)
+            let f = code::expression(plan, plan.code(plan.arg(a).expr), &top, &mut em.uses)
                 .map_err(|e| format!("resource {}: {e}", plan.str(r.name)))?;
-            args.push(format!("({f})()"));
+            args.push(f);
         }
         let initial = plan.bytes(r.initial);
         let initial = if initial.is_empty() {
@@ -213,8 +244,14 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         );
     }
     for (i, r) in plan.actions.iter().enumerate() {
-        let f = code::function(plan, plan.code(r.body), &action, r.params.len as usize, &mut em.uses)
-            .map_err(|e| format!("action {}: {e}", plan.str(r.name)))?;
+        let f = code::function(
+            plan,
+            plan.code(r.body),
+            &action,
+            r.params.len as usize,
+            &mut em.uses,
+        )
+        .map_err(|e| format!("action {}: {e}", plan.str(r.name)))?;
         let act = em.uses.rt("act");
         let _ = write!(body, "const a_{i}={act}({f});");
     }
@@ -223,9 +260,27 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
     let view = std::mem::take(&mut em.out);
     let mount = em.uses.rt("mount");
     let _ = write!(body, "{mount}(R=>{{{view}}});");
+    // The state's getters, for the agent (names live in `names.js`).
+    let list = |p: &str, n: usize| {
+        (0..n)
+            .map(|i| format!("{p}_{i}"))
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    let _ = write!(
+        body,
+        "const $state=[[{}],[{}],[{}]];",
+        list("s", plan.slots.len()),
+        list("d", plan.derives.len()),
+        list("r", plan.resources.len())
+    );
     for t in plan.timers.iter() {
         let every = em.uses.rt("every");
-        let _ = write!(body, "{every}({},a_{},{});", t.interval_ms, t.action.0, t.once as u8);
+        let _ = write!(
+            body,
+            "{every}({},a_{},{});",
+            t.interval_ms, t.action.0, t.once as u8
+        );
     }
     let viewport = em.parts[sites.root as usize].as_ref().and_then(|p| {
         let fit = p.props.get("viewportFit");
@@ -245,12 +300,27 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
     // encoded by type (records and lists are both arrays here).
     let mut sources = Vec::new();
     for r in plan.sources.iter() {
-        let params: Vec<String> = r.params.iter().map(|p| type_code(plan, plan.source_params[p.0 as usize].ty)).collect();
-        sources.push(format!("{}:{}", serde_json::to_string(plan.str(r.name)).unwrap(), serde_json::to_string(&params.concat()).unwrap()));
+        let params: Vec<String> = r
+            .params
+            .iter()
+            .map(|p| type_code(plan, plan.source_params[p.0 as usize].ty))
+            .collect();
+        sources.push(format!(
+            "{}:{}",
+            serde_json::to_string(plan.str(r.name)).unwrap(),
+            serde_json::to_string(&params.concat()).unwrap()
+        ));
     }
+    let names = |v: Vec<&str>| serde_json::to_string(&v).unwrap();
+    let names_js = format!(
+        "export default[{},{},{}];\n",
+        names(plan.slots.iter().map(|r| plan.str(r.name)).collect()),
+        names(plan.derives.iter().map(|r| plan.str(r.name)).collect()),
+        names(plan.resources.iter().map(|r| plan.str(r.name)).collect())
+    );
     let imports: Vec<String> = em.uses.names.iter().cloned().collect();
     let js = format!(
-        "// Generated by exact-web3 from the app's plan. Do not edit.\nimport{{{}}}from\"./rt.js\";\nexport const sources={{{}}};export default function(){{{body}}}\n",
+        "// Generated by exact-web3 from the app's plan. Do not edit.\nimport{{{}}}from\"./rt.js\";\nexport const sources={{{}}};export default function(){{{body}return $state}}\n",
         imports.join(","),
         sources.join(",")
     );
@@ -259,7 +329,13 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         let _ = write!(css, ".c{}{{{c}}}", i + 1);
     }
     css.push('}');
-    Ok(Output { js, css, viewport, warnings: em.warnings })
+    Ok(Output {
+        js,
+        css,
+        names: names_js,
+        viewport,
+        warnings: em.warnings,
+    })
 }
 
 /// A type as the data module client reads it: `n` number, `b` bool, `s`
@@ -271,10 +347,18 @@ fn type_code(plan: &Plan, ty: exact_plan::TypesId) -> String {
         exact_plan::TypeKind::Bool => "b".into(),
         exact_plan::TypeKind::String => "s".into(),
         exact_plan::TypeKind::Unit => "u".into(),
-        exact_plan::TypeKind::Option => format!("?{}", type_code(plan, t.elem.expect("option element"))),
-        exact_plan::TypeKind::List => format!("[{}", type_code(plan, t.elem.expect("list element"))),
+        exact_plan::TypeKind::Option => {
+            format!("?{}", type_code(plan, t.elem.expect("option element")))
+        }
+        exact_plan::TypeKind::List => {
+            format!("[{}", type_code(plan, t.elem.expect("list element")))
+        }
         exact_plan::TypeKind::Record => {
-            let fields: String = t.fields.iter().map(|f| type_code(plan, plan.fields[f.0 as usize].ty)).collect();
+            let fields: String = t
+                .fields
+                .iter()
+                .map(|f| type_code(plan, plan.fields[f.0 as usize].ty))
+                .collect();
             format!("{{{fields}}}")
         }
     }
@@ -317,7 +401,12 @@ fn attributes(
                     attrs.push((name.clone(), String::new()));
                 }
             }
-            "autoplay" | "controls" | "loop" | "muted" | "playsinline" | "disablepictureinpicture"
+            "autoplay"
+            | "controls"
+            | "loop"
+            | "muted"
+            | "playsinline"
+            | "disablepictureinpicture"
             | "disableremoteplayback"
                 if element == "video" =>
             {
@@ -347,7 +436,7 @@ impl Em<'_> {
     }
 
     fn children(&mut self, list: &[Site], parent: &str, scope: &Scope) -> Result<(), String> {
-        for s in list.to_vec() {
+        for s in list.iter().copied() {
             match s {
                 Site::Node(n) => self.node(n, parent, scope)?,
                 Site::Region(r) => self.region(r, parent, scope)?,
@@ -380,7 +469,10 @@ impl Em<'_> {
                         serde_json::to_string(prop.name()).unwrap(),
                         serde_json::to_string(&*s).unwrap()
                     )),
-                    _ => self.warnings.push(format!("head {}: a dynamic head field is not in the spike", prop.name())),
+                    _ => self.warnings.push(format!(
+                        "head {}: a dynamic head field is not in the spike",
+                        prop.name()
+                    )),
                 }
             }
             let hd = self.uses.rt("hd");
@@ -388,7 +480,11 @@ impl Em<'_> {
             return Ok(());
         }
         let parts = self.parts[i as usize].clone().ok_or("no parts")?;
-        let element = if parts.tag == "canvas" { "div" } else { parts.tag.as_str() };
+        let element = if parts.tag == "canvas" {
+            "div"
+        } else {
+            parts.tag.as_str()
+        };
         let (mut attrs, content, extra) = attributes(element, &parts.props);
         let mut css = parts.css.clone();
         css.push_str(&extra);
@@ -402,12 +498,18 @@ impl Em<'_> {
                 kinds.iter().map(|k| k.name()).collect::<Vec<_>>().join(" "),
             ));
         }
-        if kinds.iter().any(|k| matches!(k, EventKind::Focus | EventKind::Blur | EventKind::Key))
+        if kinds
+            .iter()
+            .any(|k| matches!(k, EventKind::Focus | EventKind::Blur | EventKind::Key))
             && !matches!(element, "input" | "button")
         {
             attrs.push(("tabindex".into(), "0".into()));
         }
-        let class = if css.is_empty() { "0".to_string() } else { format!("{}", self.class(&css) + 1) };
+        let class = if css.is_empty() {
+            "0".to_string()
+        } else {
+            format!("{}", self.class(&css) + 1)
+        };
         let attrs_js = if attrs.is_empty() {
             "0".to_string()
         } else {
@@ -424,10 +526,15 @@ impl Em<'_> {
                     .join(",")
             )
         };
-        let text = content.map(|t| serde_json::to_string(&t).unwrap()).unwrap_or("0".into());
+        let text = content
+            .map(|t| serde_json::to_string(&t).unwrap())
+            .unwrap_or("0".into());
         let h = self.uses.rt("h");
         let e = format!("e{i}");
-        let _ = write!(self.out, "const {e}={h}({parent},\"{element}\",{class},{attrs_js},{text});");
+        let _ = write!(
+            self.out,
+            "const {e}={h}({parent},\"{element}\",{class},{attrs_js},{text});"
+        );
         if parts.tag == "canvas" {
             let cv = self.uses.rt("cv");
             let _ = write!(self.out, "{cv}({e});");
@@ -440,16 +547,23 @@ impl Em<'_> {
             if style::literal(plan, plan.code(b.expr)).is_some() {
                 continue;
             }
-            let f = self.f(b.expr, scope).map_err(|x| format!("node {i}: {x}"))?;
+            let f = self
+                .f(b.expr, scope)
+                .map_err(|x| format!("node {i}: {x}"))?;
             match b.kind {
                 BindingKind::Prop => {
                     let prop = PropId::from_wire(b.id).ok_or("unknown prop")?;
                     let name = style::prop_name(node_type, prop)?;
                     let p = self.uses.rt("P");
-                    let _ = write!(self.out, "{p}({e},{},{f});", serde_json::to_string(&name).unwrap());
+                    let _ = write!(
+                        self.out,
+                        "{p}({e},{},{f});",
+                        serde_json::to_string(&name).unwrap()
+                    );
                 }
                 BindingKind::Style => {
-                    let (name, kind) = style::style_row(b.id).map_err(|x| format!("node {i}: {x}"))?;
+                    let (name, kind) =
+                        style::style_row(b.id).map_err(|x| format!("node {i}: {x}"))?;
                     let s = self.uses.rt("S");
                     let _ = write!(self.out, "{s}({e},\"{name}\",\"{kind}\",{f});");
                 }
@@ -459,8 +573,8 @@ impl Em<'_> {
             let h = plan.handler(h);
             let mut args = Vec::new();
             for a in h.args.iter() {
-                let f = self.f(plan.arg(a).expr, scope)?;
-                args.push(format!("({f})()"));
+                let f = code::expression(plan, plan.code(plan.arg(a).expr), scope, &mut self.uses)?;
+                args.push(f);
             }
             match h.event {
                 EventKind::Press
@@ -489,17 +603,21 @@ impl Em<'_> {
                 | EventKind::Seeked
                 | EventKind::Ratechange
                 | EventKind::Volumechange => {}
-                k => return Err(format!("node {i}: the `{}` event is not in the spike", k.name())),
+                k => {
+                    return Err(format!(
+                        "node {i}: the `{}` event is not in the spike",
+                        k.name()
+                    ))
+                }
             }
             let on = self.uses.rt("on");
-            args.push("...v".into());
-            let _ = write!(
-                self.out,
-                "{on}({e},\"{}\",(...v)=>a_{}({}));",
-                h.event.name(),
-                h.action.0,
-                args.join(",")
-            );
+            let handler = if args.is_empty() {
+                format!("a_{}", h.action.0)
+            } else {
+                args.push("...v".into());
+                format!("(...v)=>a_{}({})", h.action.0, args.join(","))
+            };
+            let _ = write!(self.out, "{on}({e},\"{}\",{handler});", h.event.name());
         }
         self.children(self.sites.of_node(i), &e, scope)?;
         Ok(())
@@ -508,18 +626,25 @@ impl Em<'_> {
     fn region(&mut self, r: u32, parent: &str, scope: &Scope) -> Result<(), String> {
         let plan = self.plan;
         let row = &plan.regions[r as usize];
-        let subject = self.f(row.subject, scope).map_err(|x| format!("region {r}: {x}"))?;
+        let subject = self
+            .f(row.subject, scope)
+            .map_err(|x| format!("region {r}: {x}"))?;
         let arms: Vec<u32> = row.arms.iter().map(|a| a.0).collect();
         match row.kind {
             RegionKind::When | RegionKind::Match => {
                 let bound = (row.kind == RegionKind::Match).then(|| format!("b{r}"));
                 let mut inner = scope.clone();
-                inner.frames.push(Frame { bound: bound.clone(), ..Frame::default() });
+                inner.frames.push(Frame {
+                    bound: bound.clone(),
+                    ..Frame::default()
+                });
                 let mut bodies = Vec::new();
                 for (k, arm) in arms.iter().enumerate() {
                     let saved = std::mem::take(&mut self.out);
                     // `match`'s none arm holds no binding.
-                    let sc = if k == 0 { inner.clone() } else {
+                    let sc = if k == 0 {
+                        inner.clone()
+                    } else {
                         let mut s = scope.clone();
                         s.frames.push(Frame::default());
                         s
@@ -535,8 +660,16 @@ impl Em<'_> {
                 while bodies.len() < 2 {
                     bodies.push("0".into());
                 }
-                let f = self.uses.rt(if row.kind == RegionKind::When { "when" } else { "match" });
-                let _ = write!(self.out, "{f}({parent},{subject},{},{});", bodies[0], bodies[1]);
+                let f = self.uses.rt(if row.kind == RegionKind::When {
+                    "when"
+                } else {
+                    "match"
+                });
+                let _ = write!(
+                    self.out,
+                    "{f}({parent},{subject},{},{});",
+                    bodies[0], bodies[1]
+                );
             }
             RegionKind::Each => {
                 let (item, index) = (format!("i{r}"), format!("x{r}"));
@@ -546,7 +679,7 @@ impl Em<'_> {
                     index: Some(index.clone()),
                     bound: None,
                 });
-                let key = code::function(plan, plan.code(row.key), &inner, 0, &mut self.uses)
+                let key = code::expression(plan, plan.code(row.key), &inner, &mut self.uses)
                     .map_err(|x| format!("region {r} key: {x}"))?;
                 let saved = std::mem::take(&mut self.out);
                 self.children(self.sites.of_arm(arms[0]), "p", &inner)?;
@@ -554,7 +687,7 @@ impl Em<'_> {
                 let each = self.uses.rt("each");
                 let _ = write!(
                     self.out,
-                    "{each}({parent},{subject},({item},{index})=>({key})(),(p,{item},{index})=>{{{built}}});"
+                    "{each}({parent},{subject},({item},{index})=>{key},(p,{item},{index})=>{{{built}}});"
                 );
             }
         }
