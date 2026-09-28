@@ -491,6 +491,35 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         let _ = write!(css, ".c{}{{{c}}}", i + 1);
     }
     css.push('}');
+    // The plan's `@keyframes` (LLP 1055 D5, D7), as the document's head
+    // carries them: the browser runs `animation` rows.
+    for row in &plan.keyframes {
+        if let Ok(frames) = exact_motion::Keyframes::parse(plan.str(row.css)) {
+            let text = frames.css();
+            let _ = write!(css, "@keyframes {}{{{text}}}", plan.str(row.name));
+            // A pressable node plays the copy that also animates
+            // `--exact-scale` (exact_web::css::keyframes_name).
+            if text.contains("scale:") {
+                let mut press = String::new();
+                let mut rest = text.as_str();
+                while let Some(at) = rest.find("scale:") {
+                    let Some(end) = rest[at..].find(';').map(|e| at + e) else {
+                        break;
+                    };
+                    press.push_str(&rest[..=end]);
+                    press.push_str("--exact-");
+                    press.push_str(&rest[at..=end]);
+                    rest = &rest[end + 1..];
+                }
+                press.push_str(rest);
+                let _ = write!(
+                    css,
+                    "@keyframes {}-exact-press{{{press}}}",
+                    plan.str(row.name)
+                );
+            }
+        }
+    }
     Ok(Output {
         js,
         css,
@@ -694,11 +723,7 @@ impl Em<'_> {
         let plan = self.plan;
         let row = &plan.nodes[i as usize];
         let node_type = NodeType::from_wire(row.node_type).ok_or("unknown node type")?;
-        if row.surface.is_some() {
-            self.warnings.push(format!(
-                "node {i}: a canvas surface (GPU, a loaded capability) is not drawn; its children are"
-            ));
-        }
+
         if node_type == NodeType::Head {
             let mut fields = Vec::new();
             for b in row.bindings.iter() {
@@ -782,6 +807,32 @@ impl Em<'_> {
         if parts.tag == "canvas" {
             let cv = self.uses.rt("cv");
             let _ = write!(self.out, "{cv}({e});");
+        }
+        // Its surface's inputs, named or positional (LLP 1009 D2).
+        if let Some(sf) = row.surface {
+            let sf = &plan.surfaces[sf.0 as usize];
+            let named = sf.mode == exact_plan::SurfaceArgsMode::Named;
+            let mut values = Vec::new();
+            for a in sf.args.iter() {
+                let a = &plan.surface_args[a.0 as usize];
+                let v = code::expression(plan, plan.code(a.expr), scope, &mut self.uses)?;
+                values.push(if named {
+                    format!("{}:{v}", serde_json::to_string(plan.str(a.name)).unwrap())
+                } else {
+                    v
+                });
+            }
+            let gs = self.uses.rt("gs");
+            let body = if named {
+                format!("({{{}}})", values.join(","))
+            } else {
+                format!("[{}]", values.join(","))
+            };
+            let _ = write!(
+                self.out,
+                "{gs}({e},{},()=>{body});",
+                serde_json::to_string(plan.str(sf.name)).unwrap()
+            );
         }
         if element == "video" && parts.props.get("muted").map(String::as_str) == Some("true") {
             let _ = write!(self.out, "{e}.muted=!0;");

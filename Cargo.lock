@@ -1328,6 +1328,7 @@ version = "0.1.0"
 dependencies = [
  "contract",
  "exact-kernel",
+ "exact-motion",
  "exact-plan",
  "exact-runner",
  "exact-web",

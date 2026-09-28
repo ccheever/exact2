@@ -39,11 +39,11 @@ const rust = !!manifest.rust?.module || bakes;
 const ts = !rust && existsSync(resolve(appDir, 'app.ts'));
 writeFileSync(resolve(gen, 'main.js'), [
   "import app, { sources, wait } from './app.js';",
-  "import { data, journal, clock, advance, commit, inflight } from './rt.js';",
+  "import { data, journal, clock, advance, commit, inflight, Views, viewId } from './rt.js';",
   ...(ts ? ["import { install as ts } from './ts-data.js';", 'ts(data);'] : []),
   "const start = () => {",
   "  const state = app();",
-  "  globalThis.exact = { ready: true, journal, clock, advance, commit, data, state, inflight };",
+  "  globalThis.exact = Object.assign(globalThis.exact ?? {}, { ready: true, journal, clock, advance, commit, data, state, inflight, views: Views, viewId });",
   // The agent adapter, only when the agent drives the page.
   "  if (clock.agent) globalThis.exact.ready = import('./agent.js').then(m => m.install(globalThis.exact));",
   "};",
@@ -98,6 +98,13 @@ writeFileSync(resolve(out, 'index.html'), `<!doctype html>
 ${args.includes('--inline') ? `<script type="module">${readFileSync(resolve(out, 'app.js'), 'utf8').replaceAll('</script', '<\\/script')}</script>` : '<script type="module" src="./app.js"></script>'}
 `);
 if (existsSync(resolve(gen, 'markdown.flag'))) cpSync((await import('./module.mjs')).buildMarkdown(), resolve(out, 'markdown.wasm'));
+// The app's GPU module, as its wasm build made it, with the web host's glue (a loaded capability).
+const gpuFrom = opt('--data') ?? (opt('--plan') && dirname(resolve(opt('--plan'))));
+if (gpuFrom && existsSync(resolve(gpuFrom, 'gpu.js'))) {
+  for (const f of ['gpu.js', 'gpu_bg.wasm']) cpSync(resolve(gpuFrom, f), resolve(out, f));
+  for (const f of ['gpu-glue.js', 'gpu-assets.js', 'pace.js']) cpSync(resolve(root, 'host/web', f), resolve(out, f));
+  if (existsSync(resolve(gpuFrom, 'shaders'))) cpSync(resolve(gpuFrom, 'shaders'), resolve(out, 'shaders'), { recursive: true });
+}
 if (existsSync(resolve(appDir, 'assets'))) cpSync(resolve(appDir, 'assets'), resolve(out, 'assets'), { recursive: true });
 if (existsSync(resolve(appDir, 'deck'))) cpSync(resolve(appDir, 'deck'), resolve(out, 'deck'), { recursive: true });
 // The Rust data module and the plan it binds, from the wasm build the baked plan came from.

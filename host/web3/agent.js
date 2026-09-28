@@ -7,9 +7,7 @@ import names, { types } from './names.js';
 const typed = (v, t) => v == null || typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? typed(v, t[1]) : v.map(x => typed(x, t[1]))) : Object.fromEntries(Object.keys(t).map((k, i) => [k, typed(v[i], t[k])]));
 const TYPES = { TEMPLATE: 'Head', BUTTON: 'Pressable', INPUT: 'TextInput', TEXTAREA: 'TextInput', VIDEO: 'Video', IMG: 'Image', IFRAME: 'WebView', A: 'Pressable' };
 export function install(exact) {
-  const ids = new WeakMap(), views = new Map();
-  let next = 1;
-  const id = el => { let i = ids.get(el); if (!i) { i = next++; ids.set(el, i); } views.set(i, el); return i; };
+  const views = exact.views, id = exact.viewId;
   // A Markdown text's pieces are its content, not views.
   const kids = el => el.getAttribute('markup') === 'markdown' ? [] : [...el.children].filter(c => !c.hasAttribute('data-surface'));
   const type = el => el.hasAttribute('data-exact-text') ? 'Text' : el.querySelector(':scope > canvas[data-surface]') ? 'Canvas' : el.dataset.scroll ? 'ScrollView' : TYPES[el.tagName] ?? 'View';

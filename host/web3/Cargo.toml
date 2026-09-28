@@ -17,6 +17,7 @@ path = "src/main.rs"
 [dependencies]
 contract = { path = "../../contract/cli" }
 exact-kernel = { path = "../../kernel" }
+exact-motion = { path = "../../motion" }
 exact-plan = { path = "../../plan" }
 exact-runner = { path = "../../runner" }
 exact-web = { path = "../web" }

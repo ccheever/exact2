@@ -46,7 +46,9 @@ function drop(n) {
   n.src = [];
   if (n.kids) { for (const k of n.kids) dispose(k); n.kids = null; }
 }
-function dispose(n) { n.gone = 1; drop(n); }
+function dispose(n) { n.gone = 1; drop(n); if (n.ends) for (const f of n.ends.splice(0)) f(); }
+/** Run `f` when the scope that owns this code ends (a region's arm or row). */
+function onEnd(f) { if (Owner) (Owner.ends ??= []).push(f); }
 function run(n) {
   if (n.busy) throw new Refusal("a cycle: a derive or resource reads itself");
   drop(n);
@@ -453,6 +455,39 @@ async function markdown() {
     const n = x.pieces(p, b.length);
     return new TextDecoder().decode(new Uint8Array(x.memory.buffer, x.output(), n));
   };
+}
+/** Views by id, one id space for the agent and the GPU module (the web
+ * host's `exact.views`): an element gets an id when either first asks. */
+export const Views = new Map();
+const Ids = new WeakMap();
+let NextView = 1;
+export function viewId(e) { let i = Ids.get(e); if (!i) { i = NextView++; Ids.set(e, i); } Views.set(i, e); return i; }
+/** A canvas's surface (LLP 1009 D2): its inputs, evaluated as the runner
+ * evaluates them (records as arrays), to the app's GPU module — the web
+ * host's own `gpu-glue.js` over `gpu.js`, fetched after the first painted
+ * frame, only when a canvas is on the page (a loaded capability). */
+let Gpu = null;
+export function gs(e, name, values) {
+  const id = viewId(e);
+  onEnd(() => { try { globalThis.exact?.gpu?.destroy(id); } catch (err) { say(`gpu: ${err.message}`); } });
+  effect(() => {
+    const v = values();
+    const x = globalThis.exact ??= {};
+    // Published after the commit applied, as the runner publishes surface
+    // inputs: the canvas is in the document by then.
+    if (x.gpu) return queueMicrotask(() => { try { e.isConnected && x.gpu.surface(id, name, v); } catch (err) { say(`gpu: ${err.message}`); } });
+    const pending = x.pendingSurfaces ??= [], queued = pending.find(p => p.id === id);
+    if (queued) queued.values = v; else pending.push({ id, name, values: v, generation: 0 });
+    if (!Gpu && typeof requestAnimationFrame === "function" && !globalThis.__exactRender) {
+      x.views = Views; x.generation = 0; x.devAssets = null; x.root = document.getElementById("exact-root");
+      // A surface's published records reach the runner in the wasm host
+      // (LLP 1009 D6); this runtime has no source reading them yet: dropped.
+      x.wasm ??= { exact_surface_record: () => 0 }; x.writeIn ??= () => 0; x.send ??= () => {};
+      if (clock.agent) x.now = () => clock.now;
+      inflight.n++;
+      Gpu = new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))).then(() => import(new URL("gpu-glue.js", document.baseURI).href)).then(() => x.gpu?.settled?.()).catch(err => say(`gpu: ${err.message}`)).finally(() => inflight.n--);
+    }
+  });
 }
 /** A dynamic style row: a number takes the unit css.rs gives the row. */
 export function S(e, prop, unit, f) {
