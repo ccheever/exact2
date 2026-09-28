@@ -112,7 +112,7 @@ fn delegated_requests_and_grants_use_the_same_configured_origins() {
     let mut jobs = source();
     assert_eq!(
         jobs.grants(),
-        "net.fetch https://jobs-data.example.test\nnet.fetch https://jobs-control.example.test"
+        "net.fetch https://jobs-data.example.test\nnet.fetch https://jobs-control.example.test\nnet.websocket wss://jobs-control.example.test"
     );
     assert_ne!(
         jobs.grants(),
@@ -162,7 +162,7 @@ fn isolated_defaults_never_share_the_old_fixture() {
     );
     assert_eq!(
         jobs.grants(),
-        "net.fetch http://127.0.0.1:4339\nnet.fetch http://127.0.0.1:4340"
+        "net.fetch http://127.0.0.1:4339\nnet.fetch http://127.0.0.1:4340\nnet.websocket ws://127.0.0.1:4340"
     );
     let configured =
         Jobs::new(JobOrigins::parse(include_str!("../../../job-origins.txt")).unwrap());

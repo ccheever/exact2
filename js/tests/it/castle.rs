@@ -245,6 +245,38 @@ fn a_stream_answer_maps_each_event_and_its_end() {
         .is_err());
 }
 
+/// LLP 1069.004 slice 3: the spelling of a socket is its URL. A text frame
+/// is a `message` event; the far side's close is the end.
+#[test]
+fn a_socket_answer_is_a_stream_to_a_wss_url() {
+    let mut m = module();
+    m.bind(&contract::compile("component App\n  resource feed = socket(\"7\") as shape string\n  view\n    text feed\n").unwrap());
+    let mut s = store();
+    let args = [Value::str("7")];
+    let request = later(m.answer(&mut s, "socket", &args).unwrap());
+    assert!(request.stream);
+    assert_eq!(request.url, "wss://jetstream.castle.xyz/subscribe?cursor=7");
+    assert_eq!(
+        now(m
+            .parse(
+                &mut s,
+                "socket",
+                &args,
+                event("", "{\"kind\":\"commit\"}", 0)
+            )
+            .unwrap()),
+        Value::str("message:{\"kind\":\"commit\"}")
+    );
+    let closed = Outcome::Failed {
+        kind: FailureKind::Network,
+        message: "the socket closed (1000)".into(),
+    };
+    assert_eq!(
+        now(m.parse(&mut s, "socket", &args, closed).unwrap()),
+        Value::str("closed: the socket closed (1000)")
+    );
+}
+
 /// Through the runner: three events commit three times, the stream stays
 /// held, and a newer argument forgets the stream's call in the module.
 #[test]

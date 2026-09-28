@@ -55,6 +55,7 @@ libc = "0.2"
 ureq = { version = "=3.4.0", default-features = false, features = ["rustls"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-native-certs = "0.7"
+webpki-roots = "1"
 serde_json = "1"
 sha2 = "0.10"
 
@@ -76,6 +77,9 @@ ureq = { version = "=3.4.0", default-features = false, features = ["rustls"] }
 # machine has none. The same rustls ureq pins, so one copy is linked.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-native-certs = "0.7"
+# The compiled-in roots for a socket's own TLS where the machine has none
+# (the copy ureq already links).
+webpki-roots = "1"
 
 [features]
 default = ["loader"]

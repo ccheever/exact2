@@ -71,6 +71,51 @@ async function readEvents(response, limit, message, controller) {
   } finally { reader.releaseLock?.(); }
 }
 
+// A WebSocket that only listens (LLP 1016.000 D3; LLP 1069.004 slice 3),
+// owned here, never by the module realm. Each text message is a message;
+// messages that arrive before the last was handed over coalesce to the
+// newest (D4). A binary message, or one over the ceiling, ends it refused;
+// the far side's close ends it as natively (`the socket closed (1000)`); an
+// abort (the runner let the ticket go) closes it. Nothing is ever sent.
+export function readSocket(url, limit, message, controller) {
+  const encoder = new TextEncoder();
+  const failed = (kind, text) => ({ kind, status: 0, headers: '', body: encoder.encode(text) });
+  return new Promise((resolve) => {
+    let socket, opened = false, ended = false, newest = null, coalesced = 0, timer = null;
+    const flush = () => {
+      clearTimeout(timer); timer = null;
+      if (newest === null || ended) return;
+      const m = { event: '', id: '', data: newest, coalesced };
+      newest = null; coalesced = 0; message(m);
+    };
+    const end = (outcome) => {
+      if (ended) return;
+      ended = true; clearTimeout(timer);
+      controller.signal.removeEventListener('abort', abort);
+      try { socket?.close(1000); } catch {}
+      resolve(outcome);
+    };
+    const abort = () => end(failed(4, 'request aborted'));
+    if (controller.signal.aborted) return abort();
+    try { socket = new WebSocket(url); } catch (error) { return end(failed(1, String(error?.message ?? error))); }
+    socket.binaryType = 'arraybuffer';
+    controller.signal.addEventListener('abort', abort);
+    socket.onopen = () => { opened = true; };
+    socket.onmessage = (e) => {
+      if (ended) return;
+      if (typeof e.data !== 'string') return end(failed(2, "a binary message: a socket's messages are text"));
+      if (e.data.length > limit || encoder.encode(e.data).length > limit) return end(failed(2, 'a message exceeds the response ceiling'));
+      if (newest !== null) coalesced++;
+      newest = e.data;
+      timer ??= setTimeout(flush, 0);
+    };
+    socket.onclose = (e) => {
+      flush();
+      end(failed(1, !opened ? 'the socket did not open' : e.reason ? `the socket closed (${e.code}: ${e.reason})` : `the socket closed (${e.code})`));
+    };
+  });
+}
+
 // `waiting()` is the work still counted; a promise it drops (a ticket the
 // runner let go of) stops holding the wait at the next commit or settle.
 export async function waitForInflight(waiting, deadline) {
@@ -111,6 +156,9 @@ export async function request(op, { grants, granted, loadPageNative, moduleLoade
     try { return { kind: 0, status: response.status, headers: '', body: await boundedHttpBody(response, op.maxResponseBytes) }; }
     catch (error) { return failed(2, error); }
   }
+  // A socket is a stream whose URL is `ws:` or `wss:` (its grant was
+  // `net.websocket`, above); its method, headers and body are not sent.
+  if (op.stream && /^wss?:/i.test(url)) return readSocket(url, op.maxResponseBytes ?? 1024 * 1024, message, controller);
   let decodedBody;
   try { if (body) decodedBody = Uint8Array.from(atob(body), c => c.charCodeAt(0)); }
   catch (error) { return failed(4, `invalid request body: ${error}`); }

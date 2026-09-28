@@ -7,7 +7,7 @@
   sibling `../ibex` checkout. The compiler includes `src/bindings/storage.d.ts`
   as text, `exact-js` compiles `src/engine/ibex2_jsi.cc` and the binding
   scripts, and seven manifests depend on the crates.
-- **Patches:** one, below. Otherwise the copy is the commit's tracked tree,
+- **Patches:** two, below. Otherwise the copy is the commit's tracked tree,
   byte for byte, plus this file.
 - **Not vendored:** the Hermes engine and `hermesc` builds. They are
   hand-built outputs in the ibex checkout (`ios/Frameworks-vanilla`,
@@ -47,4 +47,30 @@ going through the entryway costs a hop.
   passes the pattern through as CSP's own `*.` (subdomains only).
 - There is no public-suffix check: `*.co.uk` or `*.github.io` would parse.
   The app writer is trusted to name a domain they mean.
+
+## Patch 2: a listening WebSocket under `net.websocket` — to upstream
+
+Exact's LLP 1069.004 slice 3 (2026-09-27): Bluesky's Jetstream is the
+consumer, and `net.websocket <origin>` was parsed and checked but opened
+nothing.
+
+- `src/stdlib/websocket.rs`: `Incoming` (text, binary, too large, closed),
+  `MessageSource`, `SocketTransport`, and `open`, which admits
+  `Operation::WebSocket` for a `ws:`/`wss:` URL on every open (a handshake
+  follows no redirect). `accept_key` (RFC 6455's SHA-1 accept) for a
+  client and a test peer. Receive-only: nothing is sent but the handshake,
+  a pong, and the closing handshake.
+- `src/host.rs`: `Bindings::websocket` carries the grant, over the host's
+  socket transport (`Host::with_socket_transport` for a test's own).
+- `src/transport/darwin_websocket.rs` + `src/engine/darwin_websocket.mm`:
+  `NSURLSessionWebSocketTask` on Apple, an ephemeral session per socket that
+  refuses redirects; the ceiling is the task's `maximumMessageSize`.
+- `src/transport/websocket.rs`: off Apple, TCP (the rustls transport's
+  cancellable connect) and rustls with the same native trust store,
+  `webpki-roots` where the machine has none; loaded on the first `wss:`.
+  Built in tests on Apple too.
+- Tests: `stdlib::websocket::tests`, `transport::websocket::tests` (a local
+  peer: upgrade, fragments, a ping, extended length, the closing handshake,
+  an over-limit and a binary message, a refused handshake, a dropped
+  connection, an abort) run on both transports.
 

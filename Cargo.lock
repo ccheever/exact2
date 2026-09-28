@@ -1635,6 +1635,7 @@ dependencies = [
  "socket2",
  "ureq",
  "url",
+ "webpki-roots",
 ]
 
 [[package]]

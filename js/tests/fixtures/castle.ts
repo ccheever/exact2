@@ -116,6 +116,12 @@ function answer(source: string, args: unknown[], store: Store): unknown {
       exactStream: (e: { type: string; data: string; lastEventId: string; coalesced: number; message?: string }) =>
         e.type === "error" ? `ended: ${e.message}` : `${e.type} ${e.lastEventId}:${e.data}:${e.coalesced}:${store.get("castle.session") ?? "-"}`,
     } as RequestInit);
+    // A socket is the same answer with a `wss:` URL (LLP 1069.004 slice 3):
+    // Jetstream's shape, the cursor a query parameter.
+    case "socket": return fetch("wss://jetstream.castle.xyz/subscribe?cursor=" + args[0], {
+      exactStream: (e: { type: string; data: string; message?: string }) =>
+        e.type === "error" ? `closed: ${e.message}` : `${e.type}:${e.data}`,
+    } as RequestInit);
     case "scheduled": return fetch("https://api.castle.xyz/search/" + args[0], {
       method: "POST",
       ...(args[2] ? { exactIndependentHttp: { maxResponseBytes: args[1] } } : {}),

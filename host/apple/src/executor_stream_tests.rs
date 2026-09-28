@@ -516,3 +516,133 @@ fn forgetting_a_platform_stream_closes_its_connection() {
         std::thread::sleep(Duration::from_millis(5));
     }
 }
+
+/// A local WebSocket peer (LLP 1069.004 slice 3): `/three` sends three text
+/// frames a little apart then closes; `/binary` sends a binary frame;
+/// `/hold` sends one and reports on `gone` when the client goes.
+fn socket_peer() -> (u16, Receiver<()>) {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (closed, gone) = channel();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let (mut s, closed) = (stream.unwrap(), closed.clone());
+            std::thread::spawn(move || {
+                let (mut head, mut byte) = (Vec::new(), [0u8; 1]);
+                while !head.ends_with(b"\r\n\r\n") && s.read(&mut byte).unwrap_or(0) == 1 {
+                    head.push(byte[0]);
+                }
+                let head = String::from_utf8_lossy(&head).to_string();
+                let key = head
+                    .lines()
+                    .find_map(|l| l.strip_prefix("Sec-WebSocket-Key: "))
+                    .unwrap_or("")
+                    .trim();
+                let accept = ibex2::stdlib::websocket::accept_key(key);
+                let _ = write!(s, "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n");
+                let frame = |opcode: u8, payload: &[u8]| {
+                    let mut f = vec![0x80 | opcode, payload.len() as u8];
+                    f.extend_from_slice(payload);
+                    f
+                };
+                if head.contains("/three") {
+                    for n in 1..=3 {
+                        std::thread::sleep(Duration::from_millis(40));
+                        let _ = s.write_all(&frame(1, format!("{{\"n\":{n}}}").as_bytes()));
+                    }
+                    let _ = s.write_all(&frame(8, &1000u16.to_be_bytes()));
+                } else if head.contains("/binary") {
+                    let _ = s.write_all(&frame(2, &[1, 2, 3]));
+                } else {
+                    let _ = s.write_all(&frame(1, b"held"));
+                }
+                s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+                let mut buf = [0u8; 256];
+                while matches!(s.read(&mut buf), Ok(n) if n > 0) {}
+                let _ = closed.send(());
+            });
+        }
+    });
+    (port, gone)
+}
+
+fn socket(port: u16, path: &str) -> RequestOut {
+    let mut out = stream(1, path, 4096);
+    out.request.url = format!("ws://127.0.0.1:{port}{path}");
+    out
+}
+
+fn socket_platform(port: u16, grants: &str) -> (Core, Receiver<()>) {
+    let (wake, woke) = channel();
+    let grants = grants.replace("{port}", &port.to_string());
+    let core = Core::start(
+        None,
+        &grants,
+        Box::new(move || {
+            let _ = wake.send(());
+        }),
+    );
+    (core, woke)
+}
+
+#[test]
+fn a_local_socket_arrives_message_by_message_and_its_close_ends_it() {
+    let (port, _) = socket_peer();
+    let (core, woke) = socket_platform(port, "net.websocket ws://127.0.0.1:{port}");
+    core.run_owned(socket(port, "/three"), None).unwrap();
+    let mut seen = vec![];
+    loop {
+        match next(&core, &woke).1 {
+            Outcome::Message(m) => {
+                assert_eq!((m.event.as_str(), m.id.as_str()), ("", ""));
+                seen.push(m.data);
+            }
+            Outcome::Failed { kind, message } => {
+                assert_eq!(
+                    (kind, message.as_str()),
+                    (FailureKind::Network, "the socket closed (1000)")
+                );
+                break;
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+    assert_eq!(seen, [r#"{"n":1}"#, r#"{"n":2}"#, r#"{"n":3}"#]);
+    assert!(settled(&core));
+}
+
+#[test]
+fn a_socket_needs_its_own_grant_and_takes_only_text() {
+    let (port, _) = socket_peer();
+    // A fetch grant for the same origin admits no socket.
+    let (core, woke) = socket_platform(port, "net.fetch http://127.0.0.1:{port}");
+    core.run_owned(socket(port, "/three"), None).unwrap();
+    assert!(matches!(
+        next(&core, &woke).1,
+        Outcome::Failed { kind: FailureKind::Refused, ref message } if message.contains("net.websocket")
+    ));
+    let (core, woke) = socket_platform(port, "net.websocket ws://127.0.0.1:{port}");
+    core.run_owned(socket(port, "/binary"), None).unwrap();
+    assert!(matches!(
+        next(&core, &woke).1,
+        Outcome::Failed { kind: FailureKind::Refused, ref message } if message.contains("binary")
+    ));
+    assert!(settled(&core));
+}
+
+#[test]
+fn forgetting_a_socket_closes_its_connection() {
+    let (port, gone) = socket_peer();
+    let (core, woke) = socket_platform(port, "net.websocket ws://127.0.0.1:{port}");
+    core.run_owned(socket(port, "/hold"), None).unwrap();
+    assert_eq!(data(&next(&core, &woke).1), ("held", 0));
+    core.forget(|_| false);
+    gone.recv_timeout(Duration::from_secs(5))
+        .expect("the server saw the socket close");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !settled(&core) {
+        assert!(Instant::now() < deadline, "the reservation was kept");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}

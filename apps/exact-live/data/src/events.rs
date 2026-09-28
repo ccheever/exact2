@@ -5,6 +5,11 @@
 //! in the log re-asks from the cursor with `Last-Event-ID` (D6), and the
 //! server answers every entry after it in one event. "On trial" (1069.004
 //! Decided 3): the counters here are what the smoke measures.
+//!
+//! `jobFrames(wave)` is the same reading over a WebSocket (slice 3), in
+//! Jetstream's shape: a `ws:` URL is the whole difference to the host, each
+//! text frame carries the newest sequence as `cursor`, and a re-ask passes
+//! the cursor as a query parameter instead of a header.
 use completion_storm_data::CONTROL;
 use exact_plan::Value;
 use exact_runner::{Answer, DataError, Message, Outcome, Request};
@@ -14,6 +19,8 @@ use exact_runner::{Answer, DataError, Message, Outcome, Request};
 /// said it had.
 #[derive(Default)]
 struct Log {
+    /// Read over a WebSocket (`jobFrames`), not server-sent events.
+    socket: bool,
     wave: u64,
     status: String,
     counts: [f64; 4],
@@ -27,7 +34,8 @@ struct Log {
     last: String,
 }
 
-/// `jobEvents(wave)`: the open stream's reading, or `idle` with no wave.
+/// `jobEvents(wave)` (or `jobFrames(wave)`): the open stream's reading, or
+/// `idle` with no wave.
 #[derive(Default)]
 pub struct Events {
     log: Log,
@@ -38,10 +46,22 @@ fn unavailable(message: impl Into<String>) -> DataError {
 }
 
 impl Events {
+    /// `jobFrames`: the same reading over a WebSocket.
+    pub fn socket() -> Self {
+        Self {
+            log: Log {
+                socket: true,
+                ..Log::default()
+            },
+        }
+    }
+
     fn wave(args: &[Value]) -> Result<u64, DataError> {
         match args.first() {
             Some(Value::Number(n)) if *n >= 0. && n.fract() == 0. => Ok(*n as u64),
-            _ => Err(DataError::BadArguments("jobEvents(wave)".into())),
+            _ => Err(DataError::BadArguments(
+                "jobEvents(wave), jobFrames(wave)".into(),
+            )),
         }
     }
 
@@ -50,6 +70,7 @@ impl Events {
         if self.log.wave != wave {
             self.log = Log {
                 wave,
+                socket: self.log.socket,
                 ..Log::default()
             };
         }
@@ -59,6 +80,16 @@ impl Events {
     /// Open (or reopen, from the cursor) the stream for a wave.
     fn open(log: &mut Log, status: &str) -> Answer {
         log.status = status.into();
+        if log.socket {
+            // Jetstream's spelling: the cursor is a query parameter. The
+            // origin maps to `ws:`/`wss:` with the build's (`jobs.rs`).
+            let cursor = match log.cursor {
+                0 => String::new(),
+                n => format!("&cursor={n}"),
+            };
+            let url = format!("{CONTROL}/api/frames?wave={}{cursor}", log.wave);
+            return Answer::stream(Request::get(&url).independent_http(64 << 10));
+        }
         let mut request = Request::get(&format!("{CONTROL}/api/events?wave={}", log.wave))
             .independent_http(64 << 10);
         if log.cursor > 0 {
@@ -87,7 +118,10 @@ impl Events {
         let log = self.log(Self::wave(args)?);
         let status = match outcome {
             Outcome::Message(m) => return log.message(m),
-            Outcome::Failed { message, .. } if message == "the event stream ended" => {
+            Outcome::Failed { message, .. }
+                if message == "the event stream ended"
+                    || message.starts_with("the socket closed") =>
+            {
                 "ended".to_string()
             }
             Outcome::Failed { message, .. } => format!("disconnected: {message}"),
@@ -103,7 +137,9 @@ impl Log {
         self.messages += 1;
         self.coalesced += u64::from(m.coalesced);
         let json = Json::parse(&m.data).ok_or_else(|| unavailable("jobEvents: malformed event"))?;
-        self.server = self.server.max(m.id.parse().unwrap_or(0));
+        self.server = (self.server)
+            .max(m.id.parse().unwrap_or(0))
+            .max(json.number("cursor") as u64);
         let entries = json.entries();
         // A gap: what came is past the cursor. Re-ask from it; the server
         // sends everything after it in one event (LLP 1016.000 D6).
@@ -275,5 +311,48 @@ mod tests {
             field(&e.answer(&[Value::Number(0.)]).unwrap(), 1),
             Value::str("idle")
         );
+    }
+
+    #[test]
+    fn a_socket_re_asks_with_a_cursor_parameter_and_its_close_ends_it() {
+        let url = |a: &Answer| match a {
+            Answer::Later(r) if r.stream && r.headers.is_empty() => r.url.clone(),
+            other => panic!("a stream: {other:?}"),
+        };
+        let mut e = Events::socket();
+        let args = [Value::Number(3.)];
+        let first = e.answer(&args).unwrap();
+        assert!(
+            url(&first).ends_with("/api/frames?wave=3"),
+            "{}",
+            url(&first)
+        );
+        // A frame has no id: the newest sequence is its `cursor` field.
+        let frame = |seqs| {
+            message(
+                0,
+                &event(seqs).replace("\"entries\"", "\"cursor\":5,\"entries\""),
+                0,
+            )
+        };
+        e.parse(&args, frame(1..=2)).unwrap();
+        let gap = e.parse(&args, frame(5..=5)).unwrap();
+        assert!(
+            url(&gap).ends_with("/api/frames?wave=3&cursor=2"),
+            "{}",
+            url(&gap)
+        );
+        let whole = e.parse(&args, frame(3..=5)).unwrap();
+        assert_eq!(field(&whole, 6), Value::Number(5.));
+        assert_eq!(field(&whole, 7), Value::Number(5.), "the frame's cursor");
+        let closed = Outcome::Failed {
+            kind: exact_runner::FailureKind::Network,
+            message: "the socket closed (1006)".into(),
+        };
+        assert_eq!(
+            field(&e.parse(&args, closed).unwrap(), 1),
+            Value::str("ended")
+        );
+        assert!(url(&e.answer(&args).unwrap()).ends_with("&cursor=5"));
     }
 }

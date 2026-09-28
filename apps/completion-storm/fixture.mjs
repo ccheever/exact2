@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 // Two loopback listeners: held data cannot starve the control connection pool.
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 import { readStaticFileAsync, serveStatic } from '../../host/web/serve.mjs';
@@ -21,12 +22,31 @@ export async function createFixture({port=4319, controlPort=4320, maxWaves=8, ma
     events.sent++;
     res.write(`id: ${wave.log.length}\ndata: ${JSON.stringify({...counts(wave), entries})}\n\n`);
   };
+  // The same progress over a WebSocket (LLP 1069.004 slice 3), in Jetstream's
+  // shape: `/api/frames?wave=N[&cursor=K]` sends one text frame per change
+  // with the counts, the newest sequence as `cursor`, and the entries after
+  // the reader's cursor; a reconnect with `cursor` gets every entry after it.
+  const frames = {sent:0, opened:0, resumed:0, dropped:0};
+  const frame = (op, payload) => {
+    const n = payload.length, head = n < 126 ? Buffer.from([0x80|op, n]) : Buffer.alloc(n < 65536 ? 4 : 10);
+    if (n >= 126) { head[0] = 0x80|op; if (n < 65536) { head[1] = 126; head.writeUInt16BE(n, 2); } else { head[1] = 127; head.writeBigUInt64BE(BigInt(n), 2); } }
+    return Buffer.concat([head, payload]);
+  };
+  const sendFrame = (socket, wave, entries) => {
+    frames.sent++;
+    socket.write(frame(1, Buffer.from(JSON.stringify({...counts(wave), cursor:wave.log.length, entries}))));
+  };
   const note = (wave, lane, what) => {
     const entry = {seq:wave.log.length + 1, lane, what};
     wave.log.push(entry);
     for (const res of wave.readers) sendEvent(res, wave, [entry]);
+    for (const socket of wave.sockets) sendFrame(socket, wave, [entry]);
   };
-  const endReaders = (wave) => { for (const res of wave.readers) res.end(); wave.readers.clear(); };
+  const endReaders = (wave) => {
+    for (const res of wave.readers) res.end();
+    for (const socket of wave.sockets) socket.end(frame(8, Buffer.from([0x03, 0xe8])));
+    wave.readers.clear(); wave.sockets.clear();
+  };
   const heldCount = () => [...waves.values()].reduce((n, w) => n + w.held.size, 0);
   const snapshot = (message='Fixture snapshot') => ({message, received, issued, held:heldCount(), rejected, abandoned, waves:waves.size});
   const json = (res, status, body) => { res.writeHead(status, {...headers,'content-type':'application/json'}); res.end(JSON.stringify(body)); };
@@ -95,10 +115,10 @@ export async function createFixture({port=4319, controlPort=4320, maxWaves=8, ma
       const count=integer(url,'count',1,128), errors=integer(url,'errors',0,100);
       if (count===null || errors===null) return reject(res,400,'count: 1–128; errors: 0–100; integers only');
       if (waves.size>=maxWaves) return reject(res,429,'Fixture wave limit reached; release or wait for expiry');
-      const wave={id:nextWave++,count,errors,released:false,seen:new Set(),held:new Map(),finished:0,log:[],readers:new Set()};
+      const wave={id:nextWave++,count,errors,released:false,seen:new Set(),held:new Map(),finished:0,log:[],readers:new Set(),sockets:new Set()};
       wave.timer=setTimeout(()=>expire(wave),holdMs);
       waves.set(wave.id,wave); known.set(wave.id,wave);
-      for (const [id,old] of known) if (known.size>16 && !waves.has(id)) { for (const r of old.readers) r.destroy(); known.delete(id); }
+      for (const [id,old] of known) if (known.size>16 && !waves.has(id)) { for (const r of [...old.readers, ...old.sockets]) r.destroy(); known.delete(id); }
       return json(res,200,{id:wave.id,count});
     }
     if (url.pathname==='/api/release' && req.method==='POST') {
@@ -133,16 +153,35 @@ export async function createFixture({port=4319, controlPort=4320, maxWaves=8, ma
       let dropped=0;
       for (const wave of known.values()) for (const reader of wave.readers) { reader.destroy(); dropped++; }
       events.dropped+=dropped;
-      return json(res,200,{dropped});
+      let sockets=0; // and every socket, with no close frame (a 1006, as a browser says)
+      for (const wave of known.values()) for (const socket of wave.sockets) { socket.destroy(); sockets++; }
+      frames.dropped+=sockets;
+      return json(res,200,{dropped,sockets});
     }
     if (url.pathname.startsWith('/api/')) return reject(res,404,'Unknown control endpoint or method');
     if (dist===null) { res.writeHead(404,headers); res.end('API-only fixture'); return; }
     serveStatic(dist,req,res);
   });
+  controlServer.on('upgrade', (req, socket) => {
+    const url=new URL(req.url, 'http://fixture'), key=req.headers['sec-websocket-key'];
+    const wave=url.pathname==='/api/frames' ? known.get(integer(url,'wave',1,Number.MAX_SAFE_INTEGER)) : undefined;
+    socket.on('error', () => {});
+    if (!wave || !key) { rejected++; socket.end('HTTP/1.1 410 Gone\r\nContent-Length: 0\r\nConnection: close\r\n\r\n'); return; }
+    const raw=url.searchParams.get('cursor');
+    const cursor=/^\d+$/.test(raw ?? '') ? Math.min(Number(raw), wave.log.length) : 0;
+    frames.opened++; if (raw !== null) frames.resumed++;
+    const accept=createHash('sha1').update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest('base64');
+    socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
+    // The client only ever closes: answer its close and hang up.
+    socket.on('data', (d) => { if ((d[0] & 0x0f) === 8) socket.end(frame(8, Buffer.from([0x03, 0xe8]))); });
+    socket.once('close', () => wave.sockets.delete(socket));
+    sendFrame(socket, wave, wave.log.slice(cursor));
+    wave.sockets.add(socket);
+  });
   const listen = server => new Promise((ok,fail) => { server.once('error',fail); server.listen(server===dataServer?port:controlPort,'127.0.0.1',ok); });
   const close = async () => {
     for (const wave of [...waves.values()]) expire(wave);
-    for (const wave of known.values()) for (const reader of wave.readers) reader.destroy();
+    for (const wave of known.values()) for (const reader of [...wave.readers, ...wave.sockets]) reader.destroy();
     await Promise.all([dataServer,controlServer].map(server=>new Promise(ok=> { server.close(ok); server.closeAllConnections(); })));
   };
   try { await listen(dataServer); await listen(controlServer); }
@@ -153,6 +192,8 @@ export async function createFixture({port=4319, controlPort=4320, maxWaves=8, ma
     events,
     log:(id)=>known.get(id)?.log.length ?? null,
     readers:(id)=>known.get(id)?.readers.size ?? 0,
+    frames,
+    sockets:(id)=>known.get(id)?.sockets.size ?? 0,
     close,
   };
 }

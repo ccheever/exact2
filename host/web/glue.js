@@ -742,20 +742,20 @@ function apply(batch) {
         // forgot it (`letGo`), as the native executor does: a write that
         // was sent was sent, and runs on, uncounted (LLP 1016 D5).
         const requestIncarnation = incarnation, controller = new AbortController();
-        let p, messages = 0;
+        let p, first, messages = 0; const opened = new Promise(r => { first = r; });
         const host = {
           grants, granted, loadPageNative, moduleLoader, localAssetURL, controllers, controller,
           active: () => requestIncarnation === incarnation,
-          // A stream's message (LLP 1016.000): after its first, the stream is
-          // open, not in flight, so `clock settle` stops waiting on it (D5).
-          message: (m) => { if (messages++ === 0) inflight.delete(p); safelyFulfill(requestIncarnation, op.ticket, 8, 0, `event: ${m.event}\nid: ${m.id}\ncoalesced: ${m.coalesced}`, encoder.encode(m.data)); },
+          // A stream's message (LLP 1016.000): after its first, the stream is open, not in flight, so `clock settle`
+          // stops waiting on it (D5) — what is counted ends there, so a wait already racing it wakes (LLP 1069.004).
+          message: (m) => { if (messages++ === 0) first(); safelyFulfill(requestIncarnation, op.ticket, 8, 0, `event: ${m.event}\nid: ${m.id}\ncoalesced: ${m.coalesced}`, encoder.encode(m.data)); },
         };
         controllers.add(controller);
         if (op.url !== "exact-native:" && /^(GET|HEAD)$/i.test(op.method)) forgettable.set(controller, op.ticket);
         p = httpHelpers().then(({ request }) => request(op, host))
           .then(r => safelyFulfill(requestIncarnation, op.ticket, r.kind, r.status, r.headers, r.body))
           .catch(error => safelyFulfill(requestIncarnation, op.ticket, 1, 0, "", encoder.encode(String(error))));
-        track(p, op.ticket); p.finally(() => { forgettable.delete(controller); controllers.delete(controller); });
+        track(Promise.race([p, opened]), op.ticket); p.finally(() => { forgettable.delete(controller); controllers.delete(controller); });
         break;
       }
       case "command": {
@@ -958,7 +958,7 @@ function grantAdmits(granted, url) {
 function granted(url, scope = null) {
   return (scope == null ? grants : scope.split("\n")).map(g=>g.trim()).some((g) => {
     const [kind, granted] = g.split(/\s+/, 2);
-    return kind === "net.fetch" && !!granted && grantAdmits(granted, url);
+    return kind === (/^wss?:/i.test(url) ? "net.websocket" : "net.fetch") && !!granted && grantAdmits(granted, url); // a socket's own grant (LLP 1069.004)
   });
 }
 function surfaceGranted(op) {

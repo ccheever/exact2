@@ -250,7 +250,7 @@ impl<In: WireTransport> Connector<In> for CancellableConnector {
     }
 }
 
-fn connect_socket(
+pub(crate) fn connect_socket(
     address: std::net::SocketAddr,
     timeout: Duration,
     signal: &AbortSignal,

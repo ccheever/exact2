@@ -1246,12 +1246,12 @@ pub(crate) fn content_type(extension: &str) -> &'static str {
 
 /// The pages' Content-Security-Policy (D11): scripts only from the app's
 /// origin (the only inline scripts are inert data), the wasm, and fetches
-/// to the origins the app's grants name.
+/// and sockets to the origins the app's grants name.
 fn csp(grants: &str, dist: &Path) -> String {
     let mut connect = String::from("'self'");
     for line in grants.lines() {
         let mut words = line.split_whitespace();
-        if words.next() != Some("net.fetch") {
+        if !matches!(words.next(), Some("net.fetch" | "net.websocket")) {
             continue;
         }
         if let Some(target) = words.next() {
@@ -1287,6 +1287,18 @@ fn csp(grants: &str, dist: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_socket_grant_is_a_connect_source() {
+        let policy = csp(
+            "net.fetch https://api.test\nnet.websocket wss://jetstream.test\nfs.read /x",
+            Path::new("/nonexistent"),
+        );
+        assert!(
+            policy.contains("connect-src 'self' https://api.test wss://jetstream.test;"),
+            "{policy}"
+        );
+    }
 
     #[test]
     fn the_cache_budget_counts_each_page_s_variants() {

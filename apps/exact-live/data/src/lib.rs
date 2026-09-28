@@ -19,6 +19,8 @@ pub struct Live {
     history: ReusableMessagesStress,
     jobs: Jobs,
     events: events::Events,
+    /// The same progress over a WebSocket (LLP 1069.004 slice 3).
+    frames: events::Events,
     runbook: runbook::Runbook,
 }
 
@@ -59,6 +61,7 @@ impl Default for Live {
             history: ReusableMessagesStress::default(),
             jobs: Jobs::default(),
             events: events::Events::default(),
+            frames: events::Events::socket(),
             runbook: runbook::Runbook::default(),
         }
     }
@@ -69,6 +72,16 @@ fn job_source(name: &str) -> bool {
         name,
         "openWave" | "releaseWave" | "fixtureStats" | "completion" | "counters"
     )
+}
+
+impl Live {
+    /// The progress reading a stream source names: events, or frames.
+    fn stream(&mut self, source: &str) -> &mut events::Events {
+        match source {
+            "jobFrames" => &mut self.frames,
+            _ => &mut self.events,
+        }
+    }
 }
 
 impl DataSource for Live {
@@ -112,7 +125,7 @@ impl DataSource for Live {
                 self.gallery.query(source, args)
             }
             name if job_source(name) => self.jobs.query(source, args),
-            "jobEvents" => match self.events.answer(args)? {
+            "jobEvents" | "jobFrames" => match self.stream(source).answer(args)? {
                 Answer::Now(value) => Ok(value),
                 Answer::Later(_) => Err(DataError::Unavailable(
                     "jobEvents streams; ask it with answer".into(),
@@ -130,8 +143,8 @@ impl DataSource for Live {
     ) -> Result<Answer, DataError> {
         if job_source(source) {
             self.jobs.answer(store, source, args)
-        } else if source == "jobEvents" {
-            let answer = self.events.answer(args)?;
+        } else if matches!(source, "jobEvents" | "jobFrames") {
+            let answer = self.stream(source).answer(args)?;
             self.jobs.relay(answer)
         } else if source == "runbook" {
             self.runbook.answer(store, args)
@@ -149,8 +162,8 @@ impl DataSource for Live {
     ) -> Result<Answer, DataError> {
         if job_source(source) {
             self.jobs.parse(store, source, args, outcome)
-        } else if source == "jobEvents" {
-            let answer = self.events.parse(args, outcome)?;
+        } else if matches!(source, "jobEvents" | "jobFrames") {
+            let answer = self.stream(source).parse(args, outcome)?;
             self.jobs.relay(answer)
         } else if source == "runbook" {
             self.runbook.parse(store, args, outcome)

@@ -45,6 +45,17 @@ fn main() {
             .flag("-x")
             .flag("objective-c++")
             .compile("ibex2_darwin_http");
+        // A listening WebSocket (Exact's LLP 1016.000 D3), the same way.
+        println!("cargo:rerun-if-changed=src/engine/darwin_websocket.mm");
+        cc::Build::new()
+            .cpp(true)
+            .file("src/engine/darwin_websocket.mm")
+            .flag("-std=c++17")
+            .flag("-stdlib=libc++")
+            .flag("-fobjc-arc")
+            .flag("-x")
+            .flag("objective-c++")
+            .compile("ibex2_darwin_websocket");
     }
     // The Keychain behind `SecretStore` (LLP 0069 §3): the same shape, one
     // more framework.

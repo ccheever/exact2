@@ -40,7 +40,9 @@ impl JobOrigins {
         {
             return Err(bad_origins());
         }
-        let grants = format!("net.fetch {data}\nnet.fetch {control}");
+        // The progress socket is the control origin's, as `ws:`/`wss:`.
+        let socket = control.replacen("http", "ws", 1);
+        let grants = format!("net.fetch {data}\nnet.fetch {control}\nnet.websocket {socket}");
         Ok(Self {
             data,
             control,
@@ -67,8 +69,14 @@ impl JobOrigins {
             } else {
                 matches!(
                     path,
-                    "/api/open" | "/api/release" | "/api/stats" | "/api/events"
+                    "/api/open" | "/api/release" | "/api/stats" | "/api/events" | "/api/frames"
                 )
+            };
+            let new = match path {
+                // A socket (LLP 1069.004 slice 3): the same origin as `ws:`/`wss:`.
+                "/api/frames" if request.stream => new.replacen("http", "ws", 1),
+                "/api/frames" => return None,
+                _ => new.to_string(),
             };
             (known && !suffix.contains('#') && !suffix.chars().any(char::is_control))
                 .then(|| format!("{new}{suffix}"))

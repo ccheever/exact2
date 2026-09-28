@@ -25,12 +25,14 @@ use crate::kv::{self, KvStore};
 use crate::secrets::{self, SecretStore};
 use crate::stdlib::fetch::{self, Request, Response, Transport};
 use crate::stdlib::fs::{self, FsOp, FsResult, Stat};
+use crate::stdlib::websocket::{self, MessageSource, SocketTransport};
 
 /// The host: the platform's transport, its secret store, and its kv store,
 /// and nothing else. One per process is the expected shape; it is the
 /// analogue of the runtime, without an engine.
 pub struct Host {
     transport: Arc<dyn Transport>,
+    sockets: Arc<dyn SocketTransport>,
     secrets: Arc<dyn SecretStore>,
     kv: Arc<dyn KvStore>,
     app_directories: Option<Arc<crate::stdlib::app_fs::AppDirectories>>,
@@ -48,11 +50,18 @@ impl Host {
     pub fn with_transport(transport: Box<dyn Transport>) -> Self {
         Self {
             transport: Arc::from(transport),
+            sockets: Arc::from(websocket::default_transport()),
             secrets: Arc::from(secrets::default_store()),
             kv: Arc::from(kv::default_store()),
             app_directories: None,
             sqlite_provider: None,
         }
+    }
+
+    /// This host's sockets over another transport (a test's own).
+    pub fn with_socket_transport(mut self, transport: Box<dyn SocketTransport>) -> Self {
+        self.sockets = Arc::from(transport);
+        self
     }
 
     /// This host over another secret store — the memory store for a consumer
@@ -110,6 +119,10 @@ impl Host {
                 store: Arc::clone(&self.kv),
                 grants: Arc::clone(&grants),
             },
+            websocket: WebSocket {
+                transport: Arc::clone(&self.sockets),
+                grants: Arc::clone(&grants),
+            },
             env: Env { grants },
         }
     }
@@ -130,6 +143,34 @@ pub struct Bindings {
     pub secrets: Secrets,
     pub kv: Kv,
     pub env: Env,
+    pub websocket: WebSocket,
+}
+
+/// A listening WebSocket, carrying its grant (`net.websocket <origin>`,
+/// LLP 1016.000 D3). Every open is admitted, a reconnect included.
+#[derive(Clone)]
+pub struct WebSocket {
+    transport: Arc<dyn SocketTransport>,
+    grants: Arc<GrantSet>,
+}
+
+impl WebSocket {
+    /// Open `url` (`ws:` or `wss:`); each message may be up to `max_message`
+    /// bytes. Aborting `signal` ends the open or the read in progress.
+    pub fn open(
+        &self,
+        url: &str,
+        max_message: usize,
+        signal: &crate::stdlib::abort::AbortSignal,
+    ) -> Result<Box<dyn MessageSource>, HostError> {
+        websocket::open(
+            self.transport.as_ref(),
+            &self.grants,
+            url,
+            max_message,
+            signal,
+        )
+    }
 }
 
 /// The secrets a consumer keeps across launches, carrying their grant

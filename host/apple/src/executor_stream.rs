@@ -4,11 +4,33 @@
 //! open stream holds no I/O worker (LLP 1067 D3). Each event is one
 //! `Outcome::Message` to the ticket; anything that ends the body ends the
 //! stream. The host never reconnects on its own (1069.004 slice 2).
+//!
+//! A `ws:` or `wss:` URL is a WebSocket instead (1069.004 slice 3), admitted
+//! by `net.websocket`: each text message is one `Message`, and the far
+//! side's close, a binary message or one over the ceiling ends it. Nothing
+//! is sent: the request's method, headers and body are not used, as a
+//! browser's `WebSocket` could not send them either.
 use super::{
     check_headers, complete, failed, fetch_failure, fetch_request, message, Shared, MAX_BODY,
 };
 use exact_runner::{FailureKind, HttpScheduling, Message, Outcome, Request, Response};
-use ibex2::stdlib::{abort::AbortController, fetch::StreamingResponse};
+use ibex2::stdlib::{
+    abort::AbortController,
+    fetch::StreamingResponse,
+    websocket::{Incoming, MessageSource},
+};
+
+/// What a stream opened as.
+enum Opened {
+    Events(StreamingResponse, usize),
+    Socket(Box<dyn MessageSource>),
+}
+
+/// A WebSocket's URL (the scheme is the whole spelling: LLP 1069.004).
+pub(super) fn is_socket(url: &str) -> bool {
+    let scheme = url.split(':').next().unwrap_or("");
+    scheme.eq_ignore_ascii_case("ws") || scheme.eq_ignore_ascii_case("wss")
+}
 
 /// A stream's own thread: it opens with a transport of its own (so it never
 /// waits behind held replies for a worker or a lease), then reads to the end.
@@ -41,15 +63,90 @@ pub(super) fn run(
                 .map_err(|e| format!("the app's grants did not parse: {e}"))
         });
         match bindings {
-            Ok(b) => open(Ok(&b), request, forced, &abort).map(|(r, limit)| (r, limit, b)),
+            Ok(b) if is_socket(&request.url) => open_socket(&b, request, &abort).map(|s| (s, b)),
+            Ok(b) => open(Ok(&b), request, forced, &abort)
+                .map(|(r, limit)| (Opened::Events(r, limit), b)),
             Err(message) => Err(failed(FailureKind::Refused, message)),
         }
     }))
     .unwrap_or_else(|_| Err(failed(FailureKind::Aborted, "the stream opener panicked")));
     match opened {
         // The bindings live as long as the body they opened.
-        Ok((response, limit, _bindings)) => read_events(shared, ticket, response, limit, abort),
+        Ok((Opened::Events(response, limit), _bindings)) => {
+            read_events(shared, ticket, response, limit, abort)
+        }
+        Ok((Opened::Socket(socket), _bindings)) => read_socket(shared, ticket, socket, abort),
         Err(outcome) => complete(shared, ticket, outcome),
+    }
+}
+
+/// Open a WebSocket, admitted by `net.websocket`; its ceiling is per message.
+fn open_socket(
+    b: &ibex2::host::Bindings,
+    request: Request,
+    abort: &AbortController,
+) -> Result<Opened, Outcome> {
+    let limit = match request.http {
+        HttpScheduling::Ordered => MAX_BODY,
+        HttpScheduling::Independent { max_response_bytes } => max_response_bytes as usize,
+    };
+    b.websocket
+        .open(&request.url, limit, &abort.signal())
+        .map(Opened::Socket)
+        .map_err(|e| fetch_failure(e, abort))
+}
+
+/// Read an open socket to its end, delivering each text message.
+fn read_socket(
+    shared: &Shared,
+    ticket: u64,
+    mut socket: Box<dyn MessageSource>,
+    abort: AbortController,
+) {
+    let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| loop {
+        match socket.next() {
+            Ok(Incoming::Text(data)) => {
+                let m = Message {
+                    data,
+                    ..Message::default()
+                };
+                if !message(shared, ticket, m) {
+                    return failed(FailureKind::Aborted, "the stream was let go");
+                }
+            }
+            Ok(Incoming::Binary(_)) => {
+                return failed(
+                    FailureKind::Refused,
+                    "a binary message: a socket's messages are text",
+                )
+            }
+            Ok(Incoming::TooLarge) => {
+                return failed(
+                    FailureKind::Refused,
+                    "a message exceeds the response ceiling",
+                )
+            }
+            Ok(Incoming::Closed { code, reason }) => {
+                return failed(FailureKind::Network, socket_closed(code, &reason))
+            }
+            Err(_) if abort.signal().aborted() => {
+                return failed(FailureKind::Aborted, "native request aborted")
+            }
+            Err(e) => return failed(FailureKind::Network, e.to_string()),
+        }
+    }))
+    .unwrap_or_else(|_| failed(FailureKind::Aborted, "the stream reader panicked"));
+    drop(socket);
+    complete(shared, ticket, run);
+}
+
+/// How a socket's close reads, on every host: `the socket closed (1000)`,
+/// or with the far side's reason after a colon.
+pub fn socket_closed(code: u16, reason: &str) -> String {
+    if reason.is_empty() {
+        format!("the socket closed ({code})")
+    } else {
+        format!("the socket closed ({code}: {reason})")
     }
 }
 

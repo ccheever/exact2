@@ -94,3 +94,60 @@ test('a stream delivers each read as its newest event, then its end', async () =
   assert.equal(end.kind, 1);
   assert.equal(new TextDecoder().decode(end.body), 'the event stream ended');
 });
+
+// A local WebSocket peer (LLP 1069.004 slice 3): `/three` sends `a`, then
+// `b c d` in one write, then a close; `/binary` a binary frame; `/hold`
+// one message, then waits for the client to go.
+async function socketPeer() {
+  const { createServer } = await import('node:http');
+  const { createHash } = await import('node:crypto');
+  const frame = (op, payload) => Buffer.concat([Buffer.from([0x80 | op, payload.length]), payload]);
+  const gone = [];
+  const server = createServer((_, res) => res.end());
+  server.on('upgrade', (req, socket) => {
+    const accept = createHash('sha1').update(req.headers['sec-websocket-key'] + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
+    socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
+    socket.on('close', () => gone.push(req.url));
+    socket.on('error', () => {});
+    // The client's close: answer it and hang up (a server's half of the handshake).
+    socket.on('data', (d) => { if ((d[0] & 0x0f) === 8) socket.end(frame(8, Buffer.from([0x03, 0xe8]))); });
+    if (req.url === '/binary') return socket.write(frame(2, Buffer.from([1, 2, 3])));
+    if (req.url === '/hold') return socket.write(frame(1, Buffer.from('held')));
+    socket.write(frame(1, Buffer.from('a')));
+    setTimeout(() => {
+      socket.write(Buffer.concat(['b', 'c', 'd'].map((s) => frame(1, Buffer.from(s)))));
+      setTimeout(() => socket.write(frame(8, Buffer.from([0x03, 0xe8]))), 30);
+    }, 30);
+  });
+  await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
+  return { url: `ws://127.0.0.1:${server.address().port}`, gone, close: () => server.close() };
+}
+
+test('a socket delivers text messages, coalescing a burst, then its close (LLP 1069.004)', async () => {
+  const { request } = await import('./http-body.js');
+  const peer = await socketPeer();
+  const open = (path, sent, controller = new AbortController()) => request(
+    { method: 'GET', url: `${peer.url}${path}`, headers: [], body: '', stream: true, maxResponseBytes: 64 },
+    { grants: [], granted: (url) => /^ws:/.test(url), controllers: new Set(), controller, message: (m) => sent.push(m) },
+  );
+  const text = (r) => new TextDecoder().decode(r.body);
+  try {
+    const sent = [];
+    const end = await open('/three', sent);
+    assert.deepEqual(sent[0], { event: '', id: '', data: 'a', coalesced: 0 });
+    assert.equal(sent.at(-1).data, 'd', 'the newest of a burst');
+    assert.equal(sent.reduce((n, m) => n + 1 + m.coalesced, 0), 4, 'every message delivered or counted');
+    assert.deepEqual([end.kind, text(end)], [1, 'the socket closed (1000)']);
+    const binary = await open('/binary', []);
+    assert.deepEqual([binary.kind, text(binary)], [2, "a binary message: a socket's messages are text"]);
+    // Letting the ticket go aborts it, and the far side sees the socket close.
+    const controller = new AbortController(), held = [];
+    const done = open('/hold', held, controller);
+    while (!held.length) await new Promise((r) => setTimeout(r, 5));
+    controller.abort();
+    assert.equal((await done).kind, 4);
+    for (let i = 0; i < 200 && !peer.gone.includes('/hold'); i++) await new Promise((r) => setTimeout(r, 5));
+    assert.ok(peer.gone.includes('/hold'), 'the peer saw the socket close');
+  } finally { peer.close(); }
+});
+

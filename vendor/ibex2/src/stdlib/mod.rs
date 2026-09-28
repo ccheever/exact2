@@ -19,6 +19,7 @@ pub(crate) mod intl_datetime;
 pub mod text;
 pub mod timers;
 pub mod url;
+pub mod websocket;
 
 pub mod abort;
 mod fetch_body;
