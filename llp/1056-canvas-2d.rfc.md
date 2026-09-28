@@ -684,6 +684,16 @@ What stage 2 ships, and where it differs from the text above. `QUEUE.md` lists w
   So Apple takes (a). `smoke.mjs canvas` holds Apple's `fx-text*` crops to a declared band of mean 8/255 and 12% of pixels off by more than 32. It is above the measured worst (6.04, 9.28%), and tighter than Linux's text band (14, 16%). The replayer keeps drawing `strokeText` as outlines stroked as a path, which is Chrome's model.
   - **Caltrain's line map** is unchanged: Linux 0.25 (cpu) and 0.31 (gpu), macOS 0.26, iOS 0.23.
 
+## 8.3 Stage 4, Apple replay off the main thread, as built (2026-09-28, `perf/row-mount`)
+
+The fixture §8 asks for is the Extra Heavy feed's canvas rows (`~/bench/xheavy`): on an iPhone 13 Pro Max at 3× their replay held 130 ms/s of the main thread in a fling, and the feed lost to SwiftUI (104.5 against 112.7 fps).
+
+- **Replay runs on one serial queue per presenter** (`Canvas2DHost`), in the order the lists arrived; the replayer and its bitmap are touched only there. A replay reads a snapshot made on the main thread when its lists arrive: the decoded images, and the Core Text fonts its `font` records resolve to. The text engine is not read off the main thread.
+- **The row's box, mask and scale still apply with its batch.** Its pixels land when the replay ends, on the main thread, a frame later at most; an older replay of a canvas never shows over a newer one. So D4's "presented drawn" becomes "presented with its box, drawn within a frame", declared here. A row built in the lead is drawn before it scrolls in.
+- **The agent waits for them.** `state.pending`'s count and `clock settle` include replays not yet shown, and `screenshot` waits for them.
+- **Measured** (the feed's canvas rows, fling, two rounds of base and SwiftUI): iPhone 104.5 → 119.0 fps (SwiftUI 112.7), main thread 337 → 209 ms/s, late frames 9.6 → 1.0 a second. Chrome parity is unchanged (`smoke.mjs canvas`).
+- The same change stops a bitmap being cleared while it is still blank (a fresh bitmap is zeroed; `reset` on one clears nothing).
+
 ## 9. `rules/DEFERRED.md`: the admission
 
 Admitted by Charlie on 2026-09-27 (§0.1). The text below is in §Components, after the SVG entry:

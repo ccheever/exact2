@@ -6,6 +6,7 @@
 // canvases that asked. `putImageData` writes raw backing pixels: no
 // transform, clip, alpha, compositing or shadow.
 import CoreGraphics
+import CoreText
 import Foundation
 import ImageIO
 import QuartzCore
@@ -67,8 +68,20 @@ extension Canvas2DReplayer {
 /// image handles they draw, and cleanup when a view goes. The bitmap shows
 /// in a sublayer below the view's children, framed to the content box.
 final class Canvas2DHost: Canvas2DEnv {
+    /// The replayers, by view id: touched only on `replay`.
     private var replayers: [UInt32: Canvas2DReplayer] = [:]
     private var layers: [UInt32: CALayer] = [:]
+    /// Replay runs off the main thread, in order (LLP 1056 §8 stage 4, as
+    /// built): a list row's canvas cost 130 ms/s of an iPhone's main thread
+    /// in a fling. The row's box, mask and scale apply with its batch; its
+    /// pixels land when the replay ends, a frame later at most, and the
+    /// agent's settle waits for them (`loadingCount`).
+    private let replay = DispatchQueue(label: "exact.canvas2d.replay", qos: .userInitiated)
+    /// Replays dispatched and not yet shown.
+    private var pending = 0
+    /// Each canvas's latest dispatched replay: an older one's pixels are
+    /// never shown over a newer one's.
+    private var sequence: [UInt32: Int] = [:]
     /// Lists that could not be read, for `logs`.
     var errors: [String] = []
     /// The views' real scale differs from what the canvases were drawn at.
@@ -83,10 +96,11 @@ final class Canvas2DHost: Canvas2DEnv {
     private var images: [String: CGImage] = [:]
     private var loading: Set<String> = []
 
-    var canvasText: CanvasText? { textEngine?()?.canvasText }
+    func canvasFont(_ f: Canvas2DFont) -> CTFont? { textEngine?()?.canvasText.font(f) }
     func canvasImage(_ src: String) -> CGImage? { images[src] }
-    /// Handles being decoded: the agent's settle waits for them.
-    var loadingCount: Int { loading.count }
+    /// Handles being decoded and replays not yet shown: the agent's settle
+    /// waits for them.
+    var loadingCount: Int { loading.count + pending }
 
     /// Decode the handles the runner asked for, off the main thread.
     func load(_ srcs: [String]) {
@@ -121,17 +135,9 @@ final class Canvas2DHost: Canvas2DEnv {
         guard let parent else { return }
         let num = { (key: String) -> Double in (payload[key] as? NSNumber)?.doubleValue ?? 0 }
         let lifetime = UInt64(num("lifetime")), generation = UInt32(num("generation"))
-        if (payload["fresh"] as? NSNumber)?.boolValue == true {
-            replayers[id] = Canvas2DReplayer(width: Int(num("w")), height: Int(num("h")), scale: num("scale"),
-                                             lifetime: lifetime, generation: generation)
-        }
-        guard let r = replayers[id], r.lifetime == lifetime, r.generation == generation else { return }
-        r.env = self
-        for case let text as String in payload["lists"] as? [Any] ?? [] {
-            guard let data = Data(base64Encoded: text), r.apply(data) else {
-                errors.append("canvas \(id): unreadable list"); continue
-            }
-        }
+        let fresh = (payload["fresh"] as? NSNumber)?.boolValue == true
+        let (w, h, scale) = (Int(num("w")), Int(num("h")), num("scale"))
+        let lists = (payload["lists"] as? [Any] ?? []).compactMap { $0 as? String }.map { Data(base64Encoded: $0) }
         let layer = layers[id] ?? {
             let l = CALayer(); l.delegate = Instant.shared; l.contentsGravity = .resize
             l.magnificationFilter = .linear; l.minificationFilter = .linear
@@ -150,12 +156,44 @@ final class Canvas2DHost: Canvas2DEnv {
         } else {
             layer.mask = nil
         }
-        layer.contentsScale = max(1, num("scale"))
-        layer.contents = r.image()
+        layer.contentsScale = max(1, scale)
         let actual = parent.contentsScale
-        if (payload["stretch"] as? NSNumber)?.boolValue != true, actual >= 1, abs(actual - num("scale")) > 0.01, actual != reported {
+        if (payload["stretch"] as? NSNumber)?.boolValue != true, actual >= 1, abs(actual - scale) > 0.01, actual != reported {
             reported = actual
             onScale?(actual)
+        }
+        // What the replay reads, resolved here: the decoded images, and the
+        // fonts its text sets (the text engine is the main thread's).
+        var fonts: [Canvas2DFont: CTFont] = [:]
+        for case let data? in lists {
+            for f in Canvas2DReplayer.fonts(in: data) where fonts[f] == nil { fonts[f] = canvasFont(f) }
+        }
+        let env = Canvas2DSnapshot(images: images, fonts: fonts)
+        let seq = (sequence[id] ?? 0) + 1
+        sequence[id] = seq
+        pending += 1
+        replay.async { [weak self] in
+            guard let self else { return }
+            if fresh {
+                self.replayers[id] = Canvas2DReplayer(width: w, height: h, scale: scale, lifetime: lifetime, generation: generation)
+            }
+            var image: CGImage?, unreadable = 0
+            if let r = self.replayers[id], r.lifetime == lifetime, r.generation == generation {
+                r.env = env
+                for data in lists {
+                    guard let data, r.apply(data) else { unreadable += 1; continue }
+                }
+                r.env = nil
+                image = r.image()
+            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.pending -= 1
+                for _ in 0..<unreadable { self.errors.append("canvas \(id): unreadable list") }
+                // The newest replay of a canvas still mounted shows.
+                guard let image, self.sequence[id] == seq, let layer = self.layers[id] else { return }
+                layer.contents = image
+            }
         }
     }
 
@@ -178,8 +216,25 @@ final class Canvas2DHost: Canvas2DEnv {
         return p
     }
 
+    /// An agent's picture waits for the replays already dispatched to show.
+    func waitForReplays(timeout: TimeInterval = 1) {
+        let end = Date(timeIntervalSinceNow: timeout)
+        while pending > 0 && Date() < end { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.002)) }
+    }
+
     func forget(_ id: UInt32) {
-        replayers.removeValue(forKey: id)
+        replay.async { [weak self] in self?.replayers.removeValue(forKey: id) }
+        sequence.removeValue(forKey: id)
         layers.removeValue(forKey: id)?.removeFromSuperlayer()
     }
+}
+
+/// What one replay reads off the main thread: the images and fonts as they
+/// were when its lists arrived.
+private final class Canvas2DSnapshot: Canvas2DEnv {
+    let images: [String: CGImage]
+    let fonts: [Canvas2DFont: CTFont]
+    init(images: [String: CGImage], fonts: [Canvas2DFont: CTFont]) { self.images = images; self.fonts = fonts }
+    func canvasFont(_ f: Canvas2DFont) -> CTFont? { fonts[f] }
+    func canvasImage(_ src: String) -> CGImage? { images[src] }
 }

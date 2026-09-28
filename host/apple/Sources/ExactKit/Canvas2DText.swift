@@ -68,8 +68,11 @@ final class CanvasText {
     }
 
     /// One run as a Core Text line, with the canvas's base direction.
-    func line(_ f: Canvas2DFont, _ text: String, rtl: Bool) -> CTLine {
-        let font = self.font(f)
+    func line(_ f: Canvas2DFont, _ text: String, rtl: Bool) -> CTLine { CanvasText.line(font(f), f, text, rtl: rtl) }
+
+    /// One run in a resolved font. Pure Core Text: a replay off the main
+    /// thread calls it with a font resolved on the main thread.
+    static func line(_ font: CTFont, _ f: Canvas2DFont, _ text: String, rtl: Bool) -> CTLine {
         let s = NSMutableAttributedString(string: text)
         let all = NSRange(location: 0, length: s.length)
         var attrs: [NSAttributedString.Key: Any] = [
@@ -123,7 +126,7 @@ final class CanvasText {
 
     /// The run's glyph outlines in line space (y up), for a stroked run
     /// with a gradient or pattern.
-    func outline(_ line: CTLine) -> CGPath {
+    static func outline(_ line: CTLine) -> CGPath {
         let path = CGMutablePath()
         for case let run as CTRun in CTLineGetGlyphRuns(line) as [AnyObject] {
             let attrs = CTRunGetAttributes(run) as NSDictionary
@@ -166,9 +169,8 @@ extension Canvas2DReplayer {
     /// `fillText`/`strokeText`: the run from its left end on its alphabetic
     /// baseline (`x`, `y` in user space), squeezed by `scaleX` about it.
     func drawText(_ c: CGContext, fill: Bool, x: Double, y: Double, scaleX: Double, rtl: Bool, text: String) {
-        guard let fonts = env?.canvasText else { return }
-        let font = state.font
-        let line = fonts.line(font, text, rtl: rtl)
+        guard let resolved = env?.canvasFont(state.font) else { return }
+        let line = CanvasText.line(resolved, state.font, text, rtl: rtl)
         let style = fill ? state.fill : state.stroke
         render(c) { c in
             c.concatenate(state.author)
@@ -185,18 +187,18 @@ extension Canvas2DReplayer {
                 // The outlines stroked as a path is: Core Text's own stroke
                 // mode draws heavier than the canvas's line width.
                 c.scaleBy(x: 1, y: -1)
-                c.addPath(fonts.outline(line))
+                c.addPath(CanvasText.outline(line))
                 c.setStrokeColor(color)
                 c.strokePath()
             case (_, true):
                 c.scaleBy(x: 1, y: -1)
-                c.addPath(fonts.outline(line))
+                c.addPath(CanvasText.outline(line))
                 c.clip()
                 resetToBase(c)
                 paintArea(c, style)
             case (_, false):
                 c.scaleBy(x: 1, y: -1)
-                c.addPath(fonts.outline(line))
+                c.addPath(CanvasText.outline(line))
                 c.replacePathWithStrokedPath()
                 c.clip()
                 resetToBase(c)

@@ -63,6 +63,23 @@ struct Canvas2DFont: Hashable {
     var families = ["sans-serif"]
 }
 
+extension Canvas2DFont {
+    /// A `Font` record's style.
+    init(record n: [Double], count: Int) {
+        self.init()
+        size = n[0]; weight = Int(n[1]); style = Int(n[2]); stretch = n[3]; caps = Int(n[4])
+        kerning = Int(n[5]); rendering = Int(n[6]); letterSpacing = n[7]; wordSpacing = n[8]
+        families = canvas2DText(n, from: 9, count: count).split(separator: ",").map(String.init)
+    }
+}
+
+/// A record's code points from `from` on, as a string.
+func canvas2DText(_ n: [Double], from: Int, count: Int) -> String {
+    var s = String.UnicodeScalarView()
+    for i in from..<max(from, count) { if let u = Unicode.Scalar(UInt32(max(0, n[i]))) { s.append(u) } }
+    return String(s)
+}
+
 /// What the replayer keeps beside Core Graphics' own state stack (which
 /// holds the clip): everything a paint applies at the paint.
 struct Canvas2DState {
@@ -83,7 +100,8 @@ let canvas2DBitmapInfo = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmap
 /// What a replayer draws with beyond its list: the session's fonts and its
 /// decoded image handles (the presenter's `Canvas2DHost`).
 protocol Canvas2DEnv: AnyObject {
-    var canvasText: CanvasText? { get }
+    /// The Core Text font a `font` record resolves to.
+    func canvasFont(_ f: Canvas2DFont) -> CTFont?
     func canvasImage(_ src: String) -> CGImage?
 }
 
@@ -137,16 +155,12 @@ final class Canvas2DReplayer {
 
     private func rect(_ n: [Double]) -> CGRect { CGRect(x: n[0], y: n[1], width: n[2], height: n[3]) }
 
-    private func text(_ n: [Double], from: Int, count: Int) -> String {
-        var s = String.UnicodeScalarView()
-        for i in from..<max(from, count) { if let u = Unicode.Scalar(UInt32(max(0, n[i]))) { s.append(u) } }
-        return String(s)
-    }
+    private func text(_ n: [Double], from: Int, count: Int) -> String { canvas2DText(n, from: from, count: count) }
 
-    /// Apply one list; false when it is not one this reader can read.
-    func apply(_ data: Data) -> Bool {
-        guard let c = context else { return true }
-        return data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) -> Bool in
+    /// Read one list's records in order; false when it is not one this
+    /// reader can read.
+    static func read(_ data: Data, _ record: (Canvas2DOp, [Double], Int) -> Void) -> Bool {
+        data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) -> Bool in
             guard raw.count >= 8, raw.loadUnaligned(fromByteOffset: 0, as: UInt32.self).littleEndian == 0x4432_4345,
                   raw.loadUnaligned(fromByteOffset: 4, as: UInt32.self).littleEndian == 1 else { return false }
             var at = 8
@@ -159,10 +173,23 @@ final class Canvas2DReplayer {
                 if n.count < count { n = [Double](repeating: 0, count: count) }
                 for i in 0..<count { n[i] = Double(bitPattern: raw.loadUnaligned(fromByteOffset: at + i * 8, as: UInt64.self).littleEndian) }
                 at += count * 8
-                step(c, op, n, count)
+                record(op, n, count)
             }
             return at == raw.count
         }
+    }
+
+    /// The fonts a list sets, in order: what its text needs resolved.
+    static func fonts(in data: Data) -> [Canvas2DFont] {
+        var out: [Canvas2DFont] = []
+        _ = read(data) { op, n, count in if op == .font { out.append(Canvas2DFont(record: n, count: count)) } }
+        return out
+    }
+
+    /// Apply one list; false when it is not one this reader can read.
+    func apply(_ data: Data) -> Bool {
+        guard let c = context else { return true }
+        return Canvas2DReplayer.read(data) { op, n, count in step(c, op, n, count) }
     }
 
     // swiftlint:disable:next cyclomatic_complexity function_body_length
@@ -253,12 +280,7 @@ final class Canvas2DReplayer {
             c.addRect(rect(n))
             c.fillPath()
             c.restoreGState()
-        case .font:
-            var f = Canvas2DFont()
-            f.size = n[0]; f.weight = Int(n[1]); f.style = Int(n[2]); f.stretch = n[3]; f.caps = Int(n[4])
-            f.kerning = Int(n[5]); f.rendering = Int(n[6]); f.letterSpacing = n[7]; f.wordSpacing = n[8]
-            f.families = text(n, from: 9, count: count).split(separator: ",").map(String.init)
-            state.font = f
+        case .font: state.font = Canvas2DFont(record: n, count: count)
         case .fillText, .strokeText:
             guard count >= 4 else { break }
             drawText(c, fill: op == .fillText, x: n[0], y: n[1], scaleX: n[2], rtl: n[3] != 0, text: text(n, from: 4, count: count))

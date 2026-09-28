@@ -652,6 +652,7 @@ extension Agent {
     }
 
     func screenshot(_ req: [String: Any]) -> [String: Any] {
+        presenter.canvas2d.waitForReplays()
         guard let path = req["path"] as? String else { return ["error": "screenshot needs a path"] }
         let v = presenter.viewport
         if req["window"] as? Bool == true {

@@ -214,6 +214,7 @@ final class NodePoolIOSTests: XCTestCase {
              "w": 300, "h": 200, "scale": 2.0, "stretch": false, "box": [0.0, 0.0, 150.0, 100.0], "radii": [0.0, 0.0, 0.0, 0.0], "lists": [String]()]
         }
         p.apply(wireBatch([draw(12, 1)]))
+        p.canvas2d.waitForReplays()  // replay runs off the main thread (LLP 1056 §8.3)
         let old = try XCTUnwrap(p.views[12])
         XCTAssertEqual(old.layer.sublayers?.filter { $0.contents != nil }.count, 1, "the old canvas shows its bitmap")
         p.apply(wireBatch([collections([(20, 20)])] + destroy([10, 11, 12, 13]) + heavyRowOps(20, kind: "canvas2d", y: 0)
@@ -222,8 +223,10 @@ final class NodePoolIOSTests: XCTestCase {
         XCTAssertFalse(fresh === old)
         XCTAssertTrue(fresh.layer.sublayers?.allSatisfy { $0.contents == nil } ?? true, "no bitmap carried into the new canvas")
         p.apply(wireBatch([draw(12, 1)]))
+        p.canvas2d.waitForReplays()
         XCTAssertTrue(fresh.layer.sublayers?.allSatisfy { $0.contents == nil } ?? true, "a stale list lands nowhere")
         p.apply(wireBatch([draw(22, 2)]))
+        p.canvas2d.waitForReplays()
         XCTAssertEqual(fresh.layer.sublayers?.filter { $0.contents != nil }.count, 1, "the new canvas draws its own")
     }
 
