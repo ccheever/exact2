@@ -645,6 +645,16 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// The root font size in CSS pixels (LLP 1069.000 D3): the document
+    /// element's computed `font-size`.
+    pub fn set_root_font_size(&mut self, px: f64) -> u32 {
+        let out = self.host.as_mut().map_or_else(
+            || exact_runner::agent::error("not booted"),
+            |h| h.set_root_font_size(px),
+        );
+        self.emit(out)
+    }
+
     /// A topic the page module announced, in the input buffer.
     pub fn changed(&mut self, len: usize) -> u32 {
         let Ok(topic) = std::str::from_utf8(&self.input[..len.min(self.input.len())]) else {
@@ -1056,6 +1066,13 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_set_page(bits: u32) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().set_page(bits))
+        }
+
+        /// The root font size in CSS pixels (LLP 1069.000 D3); returns the
+        /// batch length.
+        #[no_mangle]
+        pub extern "C" fn exact_set_root_font_size(px: f64) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().set_root_font_size(px))
         }
 
         /// A topic the page module announced, in the input buffer.

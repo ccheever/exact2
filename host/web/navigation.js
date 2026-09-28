@@ -537,8 +537,12 @@ export const onPreferences = (changed) => queries().forEach(([q]) => q.addEventL
 // agent the drive's values stand in (visible, online, a share sheet: LLP
 // 1069.000 D6), set by `prefer`'s `page` group; the machine is never read.
 export function pageReporter(agent, platform = globalThis) {
-  const facts = { "visibility-state": "visible", online: true, "can-share": true };
-  const read = () => agent ? facts : { "visibility-state": platform.document.visibilityState === "hidden" ? "hidden" : "visible", online: platform.navigator.onLine !== false, "can-share": typeof platform.navigator.share === "function" };
+  const facts = { "visibility-state": "visible", online: true, "can-share": true, "root-font-size": 16 };
+  // @ref LLP 1069.000 D3 — the root font size: the document element's
+  // computed `font-size`, the browser's setting unless a page sets it; under
+  // the agent the drive sets it on the element (`prefer root-font-size`).
+  const rootFontSize = () => agent ? facts["root-font-size"] : parseFloat(platform.getComputedStyle(platform.document.documentElement).fontSize) || 16;
+  const read = () => agent ? { ...facts } : { "visibility-state": platform.document.visibilityState === "hidden" ? "hidden" : "visible", online: platform.navigator.onLine !== false, "can-share": typeof platform.navigator.share === "function" };
   const bits = () => { const f = read(); return (f["visibility-state"] === "hidden" ? 1 : 0) | (f.online ? 0 : 2) | (f["can-share"] ? 4 : 0); };
   const prefer = (page) => {
     const next = { ...facts };
@@ -546,12 +550,14 @@ export function pageReporter(agent, platform = globalThis) {
       const value = String(raw);
       if (name === "visibility-state" && (value === "visible" || value === "hidden")) next[name] = value;
       else if ((name === "online" || name === "can-share") && (value === "true" || value === "false")) next[name] = value === "true";
+      else if (name === "root-font-size" && Number(value) > 0 && Number.isFinite(Number(value))) next[name] = Number(value);
       else throw new Error(`prefer: ${name}: ${value} is not a page fact this host sets`);
     }
     Object.assign(facts, next);
+    if (page?.["root-font-size"] !== undefined) platform.document.documentElement.style.fontSize = `${facts["root-font-size"]}px`;
   };
   const onChange = (changed) => { if (agent) return; platform.document.addEventListener("visibilitychange", changed); platform.addEventListener("online", changed); platform.addEventListener("offline", changed); };
-  return { bits, read, prefer, onChange };
+  return { bits, read: () => ({ ...read(), "root-font-size": rootFontSize() }), prefer, onChange, rootFontSize };
 }
 
 // The page launch owns its seed; a new runner during development reuses it.

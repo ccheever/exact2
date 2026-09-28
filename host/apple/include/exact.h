@@ -366,6 +366,8 @@ uint32_t exact_set_preferences(ExactRuntime rt, uint32_t bits);
 /* @ref LLP 1069.000 D2: the page's facts, told after boot and on each change —
  * bit 0 hidden, bit 1 offline, bit 2 a share sheet. */
 uint32_t exact_set_page(ExactRuntime rt, uint32_t bits);
+/* @ref LLP 1069.000 D3: the root font size `rem` follows, in points. */
+uint32_t exact_set_root_font_size(ExactRuntime rt, double px);
 /* @ref LLP 1039: re-answer viewport facts and relayout in the same batch. */
 /// The display's scale and physical memory for Canvas 2D (LLP 1056 D4);
 /// callable before boot. Returns the batch length.

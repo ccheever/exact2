@@ -371,6 +371,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_preferences(bits), |n| n)
         }
 
+        /// The root font size in points (Dynamic Type on iOS, 16 on the Mac).
+        #[no_mangle]
+        pub extern "C" fn exact_set_root_font_size(rt: u32, px: f64) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_root_font_size(px), |n| n)
+        }
+
         /// The page's facts: bit 0 hidden, bit 1 offline, bit 2 a share sheet.
         #[no_mangle]
         pub extern "C" fn exact_set_page(rt: u32, bits: u32) -> u32 {

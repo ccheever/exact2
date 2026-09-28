@@ -1123,6 +1123,15 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// The root font size in points (LLP 1069.000 D3): a relayout.
+    pub fn set_root_font_size(&mut self, px: f64) -> u32 {
+        let out = self
+            .host
+            .as_mut()
+            .map_or_else(not_booted, |h| h.set_root_font_size(px));
+        self.emit(out)
+    }
+
     /// The page's facts changed or became known (LLP 1069.000 D2): bit 0
     /// hidden, bit 1 offline, bit 2 a share sheet.
     pub fn set_page(&mut self, bits: u32) -> u32 {

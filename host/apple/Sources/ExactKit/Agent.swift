@@ -268,11 +268,12 @@ public final class Agent {
         }
         var facts = PageFacts.agent
         for (name, raw) in page ?? [:] {
-            let value = (raw as? Bool).map { $0 ? "true" : "false" } ?? "\(raw)"
+            let value = name == "root-font-size" ? "\(raw)" : (raw as? Bool).map { $0 ? "true" : "false" } ?? "\(raw)"
             switch (name, value) {
             case ("visibility-state", "visible"), ("visibility-state", "hidden"): facts.hidden = value == "hidden"
             case ("online", "true"), ("online", "false"): facts.onLine = value == "true"
             case ("can-share", "true"), ("can-share", "false"): facts.canShare = value == "true"
+            case ("root-font-size", _) where (Double(value) ?? 0) > 0 && Double(value)!.isFinite: facts.rootFontSize = Double(value)!
             default: return ["error": "prefer: \(name): \(value) is not a page fact this host sets"]
             }
         }
@@ -287,7 +288,7 @@ public final class Agent {
                           "prefers-contrast": DisplayPreferences.contrast,
                           "prefers-color-scheme": systemDark ? "dark" : "light"],
                 "page": ["visibility-state": PageFacts.hidden ? "hidden" : "visible",
-                         "online": PageFacts.onLine, "can-share": PageFacts.canShare]]
+                         "online": PageFacts.onLine, "can-share": PageFacts.canShare, "root-font-size": PageFacts.rootFontSize]]
     }
 
     func clock(_ req: [String: Any]) -> [String: Any] {

@@ -722,6 +722,23 @@ impl<D: DataSource> Host<D> {
         self.batch_for(&receipts, error.as_deref())
     }
 
+    /// The root font size `rem` follows (LLP 1069.000 D3): a relayout in one
+    /// batch, no resource asked again.
+    pub fn set_root_font_size(&mut self, px: f64) -> String {
+        let (receipts, error) = match self.runner.set_root_font_size(px) {
+            Ok(Some(receipt)) => (
+                vec![Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => (vec![], None),
+            Err(e) => (vec![], Some(format!("root font size: {e:?}"))),
+        };
+        self.batch_for(&receipts, error.as_deref())
+    }
+
     /// The page module says `topic` changed (LLP 1016.002): the resources
     /// watching it are asked again, in one batch.
     pub fn changed(&mut self, topic: &str) -> String {

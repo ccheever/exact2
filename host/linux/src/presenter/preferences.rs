@@ -26,6 +26,9 @@ impl<D: DataSource> Presenter<D> {
         if let Some(error) = host.set_page(page) {
             return Err(HostError::Layout(error));
         }
+        if let Some(error) = host.set_root_font_size(runner.root_font_size()) {
+            return Err(HostError::Layout(error));
+        }
         let time = self.host.runner().wall_time();
         if let Some(error) = host.set_place(self.host.runner().place()) {
             return Err(HostError::Layout(error));
@@ -62,6 +65,16 @@ impl<D: DataSource> Presenter<D> {
     /// them: re-answered in one commit.
     pub fn set_page(&mut self, page: exact_runner::Page) -> Option<String> {
         let error = self.host.set_page(page);
+        if error.is_some() {
+            return error;
+        }
+        self.after_commit()
+    }
+
+    /// The root font size `rem` lengths follow (LLP 1069.000 D3): 16 here,
+    /// as a browser's `medium`, unless an agent says otherwise.
+    pub fn set_root_font_size(&mut self, px: f64) -> Option<String> {
+        let error = self.host.set_root_font_size(px);
         if error.is_some() {
             return error;
         }

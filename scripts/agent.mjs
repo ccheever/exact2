@@ -59,7 +59,7 @@ export function browserDiagnosticNoise(line) {
 /** Every host's display preferences at launch under the agent (LLP 1069.007 D2). */
 export const LAUNCH_MEDIA = { 'prefers-reduced-motion': 'no-preference', 'prefers-reduced-transparency': 'no-preference', 'prefers-color-scheme': 'light', 'prefers-contrast': 'no-preference' };
 export const PREFERENCES = { 'prefers-reduced-motion': ['reduce', 'no-preference'], 'prefers-reduced-transparency': ['reduce', 'no-preference'], 'prefers-contrast': ['more', 'less', 'custom', 'no-preference'], 'prefers-color-scheme': ['dark', 'light'] }; // `prefer`'s CSS media features and values
-export const PAGE_FACTS = { 'visibility-state': ['visible', 'hidden'], online: ['true', 'false'], 'can-share': ['true', 'false'] }; // `prefer`'s page group (LLP 1069.000 D2, D6; LLP 1069.007 D2)
+export const PAGE_FACTS = { 'visibility-state': ['visible', 'hidden'], online: ['true', 'false'], 'can-share': ['true', 'false'], 'root-font-size': ['<px>'] }; // `prefer`'s page group (LLP 1069.000 D2, D3, D6; LLP 1069.007 D2)
 /** Refuse to drive anything but a complete, authenticated build of the
  * selected app. The build marker binds every public runtime artifact. */
 export async function assertWebDistApp(dist, app) {
@@ -1033,13 +1033,14 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
       if (req.settle && r.settled === false) r.diagnostic = r.reason === 'device' ? `clock settle stops at held device requests (${(r.tickets ?? []).map(t => '@' + t).join(' ')}); state shows them under pending; answer with tap @N <choice> or type @N <value>` : r.reason === 'requests' ? 'clock settle gave up on requests still in flight at its bound (20 s native); state shows them under pending, and logs a `request N` with no `fulfil N`' : `clock settle did not reach quiescence: ${JSON.stringify(r.world ?? r)}; state world:* busy shows moving values and busy reasons; state shows held input; logs shows reload/refusals`;
       return r;
     },
-    /** The device facts by their web names (LLP 1061 D5; LLP 1069.000 D6), grouped on the wire as LLP 1069.007 D2 groups them. `media`: `{"prefers-reduced-motion": "reduce"}`, `"prefers-reduced-transparency"` likewise, `"prefers-contrast": "more"|"less"|"custom"|"no-preference"`, `"prefers-color-scheme": "dark"|"light"` (the system's; an app's `setScheme` still wins). `page`: `"visibility-state": "visible"|"hidden"`, `online` and `can-share` `"true"|"false"`. Unnamed facts stay. The reply is what the host now reports, by group. */
+    /** The device facts by their web names (LLP 1061 D5; LLP 1069.000 D6), grouped on the wire as LLP 1069.007 D2 groups them. `media`: `{"prefers-reduced-motion": "reduce"}`, `"prefers-reduced-transparency"` likewise, `"prefers-contrast": "more"|"less"|"custom"|"no-preference"`, `"prefers-color-scheme": "dark"|"light"` (the system's; an app's `setScheme` still wins). `page`: `"visibility-state": "visible"|"hidden"`, `online` and `can-share` `"true"|"false"`, `"root-font-size"` in px (what `rem` follows). Unnamed facts stay. The reply is what the host now reports, by group. */
     async prefer(facts) {
       const media = {}, page = {};
       const expected = () => Object.entries({ ...PREFERENCES, ...PAGE_FACTS }).map(([n, v]) => `${n} ${v.join('|')}`).join(', ');
       for (const [name, value] of Object.entries(facts ?? {})) {
         if ((PREFERENCES[name] ?? []).includes(value)) media[name] = value;
         else if ((PAGE_FACTS[name] ?? []).includes(String(value))) page[name] = PAGE_FACTS[name][0] === 'true' ? String(value) === 'true' : String(value);
+        else if (name === 'root-font-size' && Number(value) > 0 && Number.isFinite(Number(value))) page[name] = Number(value);
         else throw new Error(`prefer: ${name} ${value}: expected ${expected()}`);
       }
       if (carrier.prefer) return s.tagged(await carrier.prefer(media, page));

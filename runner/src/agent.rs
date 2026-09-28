@@ -606,14 +606,15 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
     let (media, page) = (runner.viewport().preferences, runner.page());
     let _ = write!(
         s,
-        "}},\"device\":{{\"prefersReducedMotion\":{},\"prefersReducedTransparency\":{},\"prefersContrast\":\"{}\",\"prefersColorScheme\":\"{}\",\"visibilityState\":\"{}\",\"onLine\":{},\"canShare\":{}",
+        "}},\"device\":{{\"prefersReducedMotion\":{},\"prefersReducedTransparency\":{},\"prefersContrast\":\"{}\",\"prefersColorScheme\":\"{}\",\"visibilityState\":\"{}\",\"onLine\":{},\"canShare\":{},\"rootFontSize\":{}",
         media.reduced_motion,
         media.reduced_transparency,
         media.contrast.keyword(),
         media.color_scheme(),
         page.visibility_state(),
         page.on_line,
-        page.can_share
+        page.can_share,
+        num(runner.root_font_size())
     );
     s.push_str("},\"derives\":{");
     for (i, row) in plan.derives.iter().enumerate() {

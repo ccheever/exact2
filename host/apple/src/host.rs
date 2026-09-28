@@ -900,6 +900,22 @@ impl<D: DataSource> Host<D> {
         }
     }
 
+    /// The root font size `rem` follows (LLP 1069.000 D3): a relayout in
+    /// one commit, no resource asked again; the same size commits nothing.
+    pub fn set_root_font_size(&mut self, px: f64) -> String {
+        match self.runner.set_root_font_size(px) {
+            Ok(Some(receipt)) => self.commit(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => self.finish(Batch::new(), None),
+            Err(e) => self.finish(Batch::new(), Some(format!("root font size: {e:?}"))),
+        }
+    }
+
     /// The viewer's locale and zone, beside the date: one commit when it changes.
     pub fn set_place(&mut self, locale: &str, time_zone: &str, seed: Option<f64>) -> String {
         let (receipts, error) = match self.runner.set_place(locale, time_zone, seed) {

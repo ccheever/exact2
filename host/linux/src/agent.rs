@@ -254,6 +254,7 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     let (media, page_facts) = (media.unwrap_or(&empty), page_facts.unwrap_or(&empty));
     let mut preferences = p.host().runner().viewport().preferences;
     let mut page = p.host().runner().page();
+    let mut root_font_size = None;
     let mut dark = p.scheme.1;
     for (name, value) in media {
         match (name.as_str(), value.as_str().unwrap_or_default()) {
@@ -288,6 +289,9 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             ("visibility-state", v @ ("visible" | "hidden")) => page.hidden = v == "hidden",
             ("online", v @ ("true" | "false")) => page.on_line = v == "true",
             ("can-share", v @ ("true" | "false")) => page.can_share = v == "true",
+            ("root-font-size", v) if v.parse::<f64>().is_ok_and(|n| n.is_finite() && n > 0.0) => {
+                root_font_size = v.parse::<f64>().ok()
+            }
             _ => {
                 return error(&format!(
                     "prefer: {name}: {value} is not a page fact this host sets"
@@ -301,6 +305,11 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     }
     if let Some(e) = p.set_page(page) {
         return error(&e);
+    }
+    if let Some(px) = root_font_size {
+        if let Some(e) = p.set_root_font_size(px) {
+            return error(&e);
+        }
     }
     if media.contains_key("prefers-color-scheme") {
         p.set_system_scheme(dark);
@@ -319,6 +328,7 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         "visibility-state": page.visibility_state(),
         "online": page.on_line,
         "can-share": page.can_share,
+        "root-font-size": p.host().runner().root_font_size(),
     }})
     .to_string()
 }
@@ -810,6 +820,18 @@ mod tests {
         assert_eq!(state["device"]["prefersColorScheme"], "dark");
         assert_eq!(state["device"]["visibilityState"], "hidden");
         let refused = handle(&mut p, r#"{"op":"prefer","page":{"online":"maybe"}}"#);
+        assert!(refused.contains("\"error\""), "{refused}");
+        // LLP 1069.000 D3: the root font size is layout, not a resource.
+        let reply: serde_json::Value = serde_json::from_str(&handle(
+            &mut p,
+            r#"{"op":"prefer","page":{"root-font-size":24}}"#,
+        ))
+        .unwrap();
+        assert_eq!(reply["page"]["root-font-size"], 24.0);
+        let state: serde_json::Value =
+            serde_json::from_str(&handle(&mut p, r#"{"op":"state"}"#)).unwrap();
+        assert_eq!(state["device"]["rootFontSize"], 24);
+        let refused = handle(&mut p, r#"{"op":"prefer","page":{"root-font-size":0}}"#);
         assert!(refused.contains("\"error\""), "{refused}");
     }
 
