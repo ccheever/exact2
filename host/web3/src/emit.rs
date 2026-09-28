@@ -81,6 +81,11 @@ impl Sites {
 pub struct Output {
     pub js: String,
     pub names: String,
+    /// The locations rendered at build (`render=build` routes without
+    /// parameters, and the not-found page), as JSON.
+    pub pages: String,
+    /// Whether a node renders Markdown (the page fetches `markdown.wasm`).
+    pub markdown: bool,
     pub css: String,
     pub viewport: Option<String>,
     pub warnings: Vec<String>,
@@ -174,6 +179,7 @@ struct Em<'a> {
     classes: Vec<String>,
     warnings: Vec<String>,
     row_actions: std::collections::BTreeSet<usize>,
+    markdown: bool,
 }
 
 pub fn emit(plan: &Plan) -> Result<Output, String> {
@@ -189,6 +195,7 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         classes: Vec::new(),
         warnings,
         row_actions: Default::default(),
+        markdown: false,
     };
     let top = Scope::default();
     let action = Scope {
@@ -422,9 +429,24 @@ pub fn emit(plan: &Plan) -> Result<Output, String> {
         js,
         css,
         names: names_js,
+        pages: build_pages(plan),
+        markdown: em.markdown,
         viewport,
         warnings: em.warnings,
     })
+}
+
+fn build_pages(plan: &Plan) -> String {
+    let rows: Vec<String> = plan
+        .routes
+        .iter()
+        .filter(|r| r.render == exact_plan::RenderPolicy::Build && !plan.str(r.pattern).contains(':'))
+        .map(|r| {
+            let location = if r.notfound { "/404" } else { plan.str(r.pattern) };
+            format!("{{\"location\":{},\"notfound\":{}}}", serde_json::to_string(location).unwrap(), r.notfound)
+        })
+        .collect();
+    format!("[{}]", rows.join(","))
 }
 
 /// The type's zero, as the runner's `zero` makes it.
@@ -672,6 +694,17 @@ impl Em<'_> {
         if element == "video" && parts.props.get("muted").map(String::as_str) == Some("true") {
             let _ = write!(self.out, "{e}.muted=!0;");
         }
+        // A `markup="markdown"` text builds its pieces (LLP 1045 D3).
+        let markdown = node_type == NodeType::Text
+            && row.bindings.iter().any(|b| {
+                let b = plan.binding(b);
+                b.kind == BindingKind::Prop
+                    && b.id == PropId::Markup as u16
+                    && matches!(style::literal(plan, plan.code(b.expr)), Some(Value::Str(s)) if &*s == "markdown")
+            });
+        if markdown {
+            self.markdown = true;
+        }
         for b in row.bindings.iter() {
             let b = plan.binding(b);
             if style::literal(plan, plan.code(b.expr)).is_some() {
@@ -681,6 +714,10 @@ impl Em<'_> {
                 .f(b.expr, scope)
                 .map_err(|x| format!("node {i}: {x}"))?;
             match b.kind {
+                BindingKind::Prop if markdown && b.id == PropId::Text as u16 => {
+                    let md = self.uses.rt("md");
+                    let _ = write!(self.out, "{md}({e},{f});");
+                }
                 BindingKind::Prop => {
                     let prop = PropId::from_wire(b.id).ok_or("unknown prop")?;
                     let name = style::prop_name(node_type, prop)?;

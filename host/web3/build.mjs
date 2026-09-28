@@ -19,7 +19,7 @@ const root = resolve(here, '../..');
 const args = process.argv.slice(2);
 const app = args[0];
 const opt = (name) => { const i = args.indexOf(name); return i < 0 ? null : args[i + 1]; };
-if (!app) { console.error('usage: bun host/web3/build.mjs <app> [--plan <app.plan> | --contract <file>] [--out <dir>] [--inline]'); process.exit(2); }
+if (!app) { console.error('usage: bun host/web3/build.mjs <app> [--plan <app.plan> | --contract <file>] [--out <dir>] [--inline] [--render rust|js]'); process.exit(2); }
 const appDir = resolve(root, 'apps', app);
 const out = resolve(opt('--out') ?? `/tmp/exact3-dist/${app}`);
 const gen = resolve(out, '.gen');
@@ -95,6 +95,7 @@ writeFileSync(resolve(out, 'index.html'), `<!doctype html>
 <div id="exact-root"></div>
 ${args.includes('--inline') ? `<script type="module">${readFileSync(resolve(out, 'app.js'), 'utf8').replaceAll('</script', '<\\/script')}</script>` : '<script type="module" src="./app.js"></script>'}
 `);
+if (existsSync(resolve(gen, 'markdown.flag'))) cpSync((await import('./module.mjs')).buildMarkdown(), resolve(out, 'markdown.wasm'));
 if (existsSync(resolve(appDir, 'assets'))) cpSync(resolve(appDir, 'assets'), resolve(out, 'assets'), { recursive: true });
 if (existsSync(resolve(appDir, 'deck'))) cpSync(resolve(appDir, 'deck'), resolve(out, 'deck'), { recursive: true });
 // The Rust data module and the plan it binds, from the wasm build the baked plan came from.
@@ -106,5 +107,29 @@ if (rust) {
   cpSync(built, resolve(out, 'rust/wasm/app.module.wasm'));
   if (opt('--plan')) cpSync(resolve(opt('--plan')), resolve(out, 'app.plan'));
   else if (spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', input, '-o', resolve(out, 'app.plan')], { cwd: root, stdio: 'inherit' }).status !== 0) process.exit(1);
+}
+// Pages at build (LLP 1048.000): `--render rust` (the default) runs the app's
+// native render entry (`<app>-render`, exact_render) over this shell;
+// `--render js` runs this runtime under Bun (render.mjs). Either page adopts.
+const pages = JSON.parse(readFileSync(resolve(gen, 'pages.json'), 'utf8'));
+const how = opt('--render') ?? 'rust';
+if (pages.length && how === 'rust') {
+  const bin = `${app}-render`;
+  const at = [['linux', `${app}-linux`], ['web', `${app}-web`]].find(([dir]) => existsSync(resolve(appDir, dir, 'src/bin', `${bin}.rs`)));
+  if (!at) { console.error(`--render rust: ${app} has no ${bin} entry; use --render js`); process.exit(1); }
+  const plan = opt('--plan') ? resolve(opt('--plan')) : resolve(out, 'app.plan');
+  const r = spawnSync('cargo', ['run', '--release', '-q', '-p', at[1], '--bin', bin, '--', '--plan', plan, '--name', manifest.name, '--shell', resolve(out, 'index.html'), '--build'],
+    { cwd: root, encoding: 'utf8', maxBuffer: 256 << 20, env: { ...process.env, EXACT_UPDATE_TRUST: 'development' } });
+  if (r.status !== 0) { console.error(r.stderr); process.exit(1); }
+  for (const doc of r.stdout.split('\n').filter(Boolean).map(l => JSON.parse(l))) {
+    if (doc.error) { console.error(`${bin} ${doc.location}: ${doc.error}`); process.exit(1); }
+    const file = doc.notfound ? '404.html' : `${decodeURIComponent(doc.location).replace(/^\/|\/$/g, '')}/index.html`.replace(/^\//, '');
+    mkdirSync(dirname(resolve(out, file)), { recursive: true });
+    writeFileSync(resolve(out, file), doc.page);
+  }
+  console.log(`${out}: ${pages.length} pages rendered by ${bin}`);
+} else if (pages.length && how === 'js') {
+  const r = spawnSync('bun', [resolve(here, 'render.mjs'), out, '--build'], { cwd: root, stdio: 'inherit' });
+  if (r.status !== 0) process.exit(1);
 }
 console.log(`${out}: built`);

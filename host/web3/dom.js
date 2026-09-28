@@ -22,6 +22,8 @@ class Node {
   }
   removeChild(n) { const i = this.childNodes.indexOf(n); if (i >= 0) this.childNodes.splice(i, 1); n.parentNode = null; return n; }
   remove() { this.parentNode?.removeChild(this); }
+  appendChild(n) { this.insertBefore(n, null); return n; }
+  replaceChildren(...nodes) { for (const c of this.childNodes) c.parentNode = null; this.childNodes = []; this.append(...nodes); }
   before(...nodes) { for (const n of nodes) this.parentNode.insertBefore(n, this); }
   after(...nodes) { const next = this.nextSibling; for (const n of nodes) this.parentNode.insertBefore(n, next); }
   get textContent() { return this.childNodes.map(c => c.textContent).join(''); }
@@ -36,6 +38,9 @@ class Style {
   setProperty(k, v) { if (v !== '' && v != null) this.map.set(k, String(v)); }
   removeProperty(k) { this.map.delete(k); }
   getPropertyValue(k) { return this.map.get(k) ?? ''; }
+  set fontSize(v) { this.setProperty('font-size', v); } set fontWeight(v) { this.setProperty('font-weight', v); }
+  set fontStyle(v) { this.setProperty('font-style', v); } set fontFamily(v) { this.setProperty('font-family', v); }
+  set textDecoration(v) { this.setProperty('text-decoration', v); } set opacity(v) { this.setProperty('opacity', v); }
   get cssText() { return [...this.map].map(([k, v]) => `${k}:${v};`).join(''); }
   set cssText(t) { this.map.clear(); for (const d of t.split(';')) { const i = d.indexOf(':'); if (i > 0) this.map.set(d.slice(0, i).trim(), d.slice(i + 1).trim()); } }
 }
@@ -56,6 +61,7 @@ class Element extends Node {
   get checked() { return this.hasAttribute('checked'); }
   set muted(v) {} pause() {} play() { return Promise.resolve(); }
   set className(v) { this.setAttribute('class', v); }
+  set href(v) { this.setAttribute('href', v); }
   html() {
     // A head is the page's <head>, never an element in the root (as document.rs).
     if (this.localName === 'template') return '';

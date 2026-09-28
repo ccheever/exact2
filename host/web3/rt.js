@@ -1,3 +1,4 @@
+import { renderMarkup } from "./navigation.js";
 // The exact3 web spike's runtime: fine-grained signals over the DOM, for a
 // plan compiled ahead of time by `exact-web3`. Everything here is imported
 // by name, so an app's bundle carries only what its generated module uses.
@@ -426,6 +427,32 @@ export function P(e, name, f) {
     else if (v == null) e.removeAttribute(name);
     else if (e.getAttribute(name) !== v) e.setAttribute(name, v);
   });
+}
+/** A `markup="markdown"` text (LLP 1045 D3): its source as pieces, built
+ * into spans by the web host's own `renderMarkup`; the pieces come from the
+ * web host's Markdown, a wasm fetched at the first such node (a loaded
+ * capability). A rendered page's spans stand until the source changes. */
+let Markdown = null;
+export function md(e, f) {
+  let first = Adopt && e.childElementCount > 0;
+  effect(() => {
+    const v = f() ?? "";
+    e.$source = v;
+    if (first) { first = false; return; }
+    if (!Markdown) e.textContent = v;
+    inflight.n++;
+    (Markdown ??= markdown()).then(pieces => { if (f() === v) renderMarkup(e, pieces(v)); }).finally(() => inflight.n--);
+  });
+}
+async function markdown() {
+  const bytes = globalThis.__files ? globalThis.__files("markdown.wasm") : await fetch("./markdown.wasm").then(r => r.arrayBuffer());
+  const { instance: { exports: x } } = await WebAssembly.instantiate(bytes, {});
+  return source => {
+    const b = new TextEncoder().encode(source), p = x.alloc(b.length);
+    new Uint8Array(x.memory.buffer, p, b.length).set(b);
+    const n = x.pieces(p, b.length);
+    return new TextDecoder().decode(new Uint8Array(x.memory.buffer, x.output(), n));
+  };
 }
 /** A dynamic style row: a number takes the unit css.rs gives the row. */
 export function S(e, prop, unit, f) {

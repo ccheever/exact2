@@ -10,6 +10,14 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
+// The web toolchain's size build (scripts/app.mjs WEB_TOOLCHAIN): std built
+// for size, panics abort without text.
+const WEB = /WEB_TOOLCHAIN\s*=\s*'([^']+)'/.exec(readFileSync(resolve(root, 'scripts/app.mjs'), 'utf8'))?.[1];
+function cargoWasm(manifest) {
+  return spawnSync('cargo', [...(WEB ? [`+${WEB}`] : []), 'build', '--release', '--target', 'wasm32-unknown-unknown', '--manifest-path', manifest,
+    ...(WEB ? ['-Zbuild-std=std,panic_abort', '-Zbuild-std-features=optimize_for_size'] : [])],
+  { stdio: ['ignore', 'inherit', 'inherit'], env: { ...process.env, CARGO_TARGET_DIR: '/tmp/e3-mod/target-web', ...(WEB ? { RUSTFLAGS: '-Zunstable-options -Cpanic=immediate-abort -Zlocation-detail=none' } : {}) } });
+}
 
 export function buildModule(app, out = `/tmp/e3-mod/${app}`) {
   const build = readFileSync(resolve(root, 'apps', app, 'web/build.rs'), 'utf8');
@@ -44,14 +52,65 @@ ${patch}
 `);
   writeFileSync(resolve(crate, 'src/lib.rs'), `exact_logic_abi::export!(${ty}, ${expr});\n`);
   if (!existsSync(resolve(crate, 'Cargo.lock'))) cpSync(resolve(root, 'Cargo.lock'), resolve(crate, 'Cargo.lock'));
-  const r = spawnSync('cargo', ['build', '--release', '--target', 'wasm32-unknown-unknown', '--manifest-path', resolve(crate, 'Cargo.toml')],
-    { stdio: ['ignore', 'inherit', 'inherit'], env: { ...process.env, CARGO_TARGET_DIR: '/tmp/e3-mod/target' } });
+  const r = cargoWasm(resolve(crate, 'Cargo.toml'));
   if (r.status !== 0) throw new Error(`${app}: the module did not build`);
-  const wasm = `/tmp/e3-mod/target/wasm32-unknown-unknown/release/exact3_module_${app.replaceAll('-', '_')}.wasm`;
+  const wasm = `/tmp/e3-mod/target-web/wasm32-unknown-unknown/release/exact3_module_${app.replaceAll('-', '_')}.wasm`;
   cpSync(wasm, resolve(out, 'app.module.wasm'));
   const opt = spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', resolve(out, 'app.module.wasm'), '-o', resolve(out, 'app.module.wasm')]);
   if (opt.status !== 0) process.stderr.write('module: wasm-opt unavailable or failed; unoptimized\n');
   return resolve(out, 'app.module.wasm');
+}
+
+/** Markdown pieces (LLP 1045 D3) as a loaded capability for the runtime:
+ * the web host's own `exact_web_capabilities::markdown::pieces`, exported
+ * alone from a wasm module the page fetches on its first Markdown node. */
+export function buildMarkdown(out = '/tmp/e3-mod/markdown') {
+  const crate = resolve(out, 'crate');
+  mkdirSync(resolve(crate, 'src'), { recursive: true });
+  const ws = readFileSync(resolve(root, 'Cargo.toml'), 'utf8');
+  const patch = ws.slice(ws.indexOf('[patch.crates-io]')).split('\n[')[0].replace(/path = "vendor/g, `path = "${root}/vendor`);
+  writeFileSync(resolve(crate, 'Cargo.toml'), `[package]
+name = "exact3-markdown"
+version = "0.1.0"
+edition = "2021"
+publish = false
+[lib]
+crate-type = ["cdylib"]
+[dependencies]
+exact-web-capabilities = { path = "${resolve(root, 'host/web-capabilities')}" }
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+[workspace]
+${ws.slice(ws.indexOf('[workspace.dependencies]')).split('\n[workspace.package]')[0]}
+${patch}
+`);
+  writeFileSync(resolve(crate, 'src/lib.rs'), `//! Generated: Markdown pieces for the exact3 runtime.
+static mut OUT: Vec<u8> = Vec::new();
+#[no_mangle]
+pub extern "C" fn alloc(len: usize) -> *mut u8 { let mut v = Vec::<u8>::with_capacity(len); let p = v.as_mut_ptr(); std::mem::forget(v); p }
+/// # Safety: \`ptr\` holds \`len\` UTF-8 bytes from \`alloc\`.
+#[no_mangle]
+pub unsafe extern "C" fn pieces(ptr: *mut u8, len: usize) -> usize {
+    let source = String::from_utf8_lossy(std::slice::from_raw_parts(ptr, len)).into_owned();
+    drop(Vec::from_raw_parts(ptr, len, len));
+    OUT = exact_web_capabilities::markdown::pieces(&source).into_bytes();
+    #[allow(static_mut_refs)]
+    OUT.len()
+}
+#[no_mangle]
+#[allow(static_mut_refs)]
+pub extern "C" fn output() -> *const u8 { unsafe { OUT.as_ptr() } }
+`);
+  if (!existsSync(resolve(crate, 'Cargo.lock'))) cpSync(resolve(root, 'Cargo.lock'), resolve(crate, 'Cargo.lock'));
+  const r = cargoWasm(resolve(crate, 'Cargo.toml'));
+  if (r.status !== 0) throw new Error('markdown.wasm did not build');
+  cpSync('/tmp/e3-mod/target-web/wasm32-unknown-unknown/release/exact3_markdown.wasm', resolve(out, 'markdown.wasm'));
+  spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', resolve(out, 'markdown.wasm'), '-o', resolve(out, 'markdown.wasm')]);
+  return resolve(out, 'markdown.wasm');
 }
 
 if (import.meta.main) {

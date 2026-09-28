@@ -65,11 +65,15 @@ fn main() -> ExitCode {
                 ("app.js", &out_files.js),
                 ("app.css", &out_files.css),
                 ("names.js", &out_files.names),
+                ("pages.json", &out_files.pages),
             ] {
                 if let Err(e) = std::fs::write(dir.join(name), text) {
                     eprintln!("{name}: {e}");
                     return ExitCode::from(1);
                 }
+            }
+            if out_files.markdown {
+                let _ = std::fs::write(dir.join("markdown.flag"), "");
             }
             if let Some(meta) = &out_files.viewport {
                 let _ = std::fs::write(dir.join("viewport.txt"), meta);

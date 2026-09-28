@@ -10,14 +10,15 @@ export function install(exact) {
   const ids = new WeakMap(), views = new Map();
   let next = 1;
   const id = el => { let i = ids.get(el); if (!i) { i = next++; ids.set(el, i); } views.set(i, el); return i; };
-  const kids = el => [...el.children].filter(c => !c.hasAttribute('data-surface'));
+  // A Markdown text's pieces are its content, not views.
+  const kids = el => el.getAttribute('markup') === 'markdown' ? [] : [...el.children].filter(c => !c.hasAttribute('data-surface'));
   const type = el => el.hasAttribute('data-exact-text') ? 'Text' : el.querySelector(':scope > canvas[data-surface]') ? 'Canvas' : el.dataset.scroll ? 'ScrollView' : TYPES[el.tagName] ?? 'View';
   const record = (el, depth) => {
     const props = {};
     if (el.dataset.testid) props.testId = el.dataset.testid;
     if (el.hasAttribute('aria-label')) props.accessibilityLabel = el.getAttribute('aria-label');
     else if (el.tagName === 'IMG' && el.getAttribute('alt')) props.accessibilityLabel = el.getAttribute('alt');
-    if (type(el) === 'Text') props.text = el.textContent;
+    if (type(el) === 'Text') props.text = el.$source ?? el.textContent;
     if ('value' in el && el.tagName !== 'BUTTON') props.value = el.value;
     const n = { id: id(el), type: type(el), depth, props };
     if (el.dataset.exactOn) n.handlers = el.dataset.exactOn.split(' ');
