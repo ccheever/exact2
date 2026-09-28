@@ -44,6 +44,20 @@ const LEAD_SECONDS: f64 = 0.25;
 /// with any report, whatever its limit.
 const FAR_VIEWPORTS: f64 = 2.0;
 
+/// Whether this scope is a virtualized list's row: an inner list's (LLP
+/// 1070), whose first rows are bounded by its own literal size.
+fn in_collection_row(plan: &Plan, frames: &[Frame]) -> bool {
+    frames.iter().filter_map(|f| f.region).any(|region| {
+        plan.region(RegionsId(region)).parent.is_some_and(|node| {
+            plan.node(node)
+                .bindings
+                .iter()
+                .map(|b| plan.binding(b))
+                .any(|b| b.kind == BindingKind::Prop && b.id == PropId::Virtualized as u16)
+        })
+    })
+}
+
 /// How far the window reaches past the viewport, before and after it: one
 /// viewport each side, and toward the side the list travels, a quarter
 /// second of that travel more, up to two viewports.
@@ -85,6 +99,8 @@ pub(crate) struct Collection {
     index: SizeIndex,
     estimated_height: f64,
     bootstrap_rows: usize,
+    /// The list's literal size along its axis, when it declares one.
+    declared_port: Option<f64>,
     items: Items,
     keys: Vec<Value>,
     /// Positions whose key repeats an earlier one, and which repeat.
@@ -219,7 +235,27 @@ impl Collection {
         let mut follow_end = false;
         let mut estimated_height = ESTIMATED_HEIGHT;
         let mut axis = ListAxis::Vertical;
+        // The list's own literal size on each axis (`height=399`), which
+        // bounds the rows its first frame needs: [vertical, horizontal].
+        let mut declared: [Option<f64>; 2] = [None, None];
         for binding in descriptor.bindings.iter().map(|b| plan.binding(b)) {
+            if binding.kind == BindingKind::Style {
+                use exact_kernel::StyleId;
+                let slot = match binding.id {
+                    id if id == StyleId::Height as u16 || id == StyleId::MaxHeight as u16 => {
+                        Some(0)
+                    }
+                    id if id == StyleId::Width as u16 || id == StyleId::MaxWidth as u16 => Some(1),
+                    _ => None,
+                };
+                if let Some(slot) = slot {
+                    if let Value::Number(n) = u.eval(binding.expr, frames)? {
+                        if n.is_finite() && n > 0.0 {
+                            declared[slot] = Some(declared[slot].map_or(n, |d: f64| d.min(n)));
+                        }
+                    }
+                }
+            }
             // A flex list is CSS's row (the compiler refuses the other
             // directions); its main axis is horizontal.
             if binding.kind == BindingKind::Style
@@ -270,6 +306,10 @@ impl Collection {
         }
         let inner = traversal::validate_nesting(plan, u.sites, region)?;
         let nested = inner.is_some();
+        let port = declared[match axis {
+            ListAxis::Vertical => 0,
+            ListAxis::Horizontal => 1,
+        }];
         let manual = descriptor
             .bindings
             .iter()
@@ -294,7 +334,12 @@ impl Collection {
             // rows. Actual nested-scrollport feedback determines the real window.
             bootstrap_rows: ((BOOTSTRAP_ROWS as f64 * ESTIMATED_HEIGHT / estimated_height)
                 .ceil()
+                .min(
+                    port.filter(|_| in_collection_row(plan, frames))
+                        .map_or(f64::INFINITY, |p| (p / estimated_height).ceil() + 1.0),
+                )
                 .clamp(1.0, BOOTSTRAP_ROWS as f64)) as usize,
+            declared_port: port,
             items: Items::default(),
             keys: Vec::new(),
             dups: BTreeMap::new(),

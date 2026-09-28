@@ -316,3 +316,16 @@ fn while_the_feed_moves_an_inner_list_builds_only_what_it_owes() {
         "at rest the overscan fills"
     );
 }
+
+/// An inner list's first rows, before any host lays it out, are what its own
+/// literal size shows, not the outer port's: a 100 pt inbox in a 600 pt feed
+/// builds two rows and one more, not seven.
+#[test]
+fn an_inner_list_first_builds_what_its_own_size_shows() {
+    let inbox = "list virtualized=true height=100 estimated-item-height=100 testId=`inbox-${p.id}`";
+    let mut r = boot(inbox, 100);
+    feed_at(&mut r, 0.0);
+    let inbox = view(&r, "inbox-0").expect("row 0's inbox");
+    let rows = snapshot(&r, inbox).unwrap().rows.len();
+    assert_eq!(rows, 2, "ceil(100 / 100) + 1 rows");
+}

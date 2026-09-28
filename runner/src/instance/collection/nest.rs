@@ -248,6 +248,8 @@ impl Collection {
             let mut again = false;
             if let Some((main, cross)) = port {
                 let estimate = if inner.axis == self.axis { main } else { cross };
+                // Its own literal size bounds it more tightly (a 399 pt inbox).
+                let estimate = inner.declared_port.map_or(estimate, |d| d.min(estimate));
                 let rows = ((estimate / inner.estimated_height).ceil() as usize + 1).clamp(1, 64);
                 if rows > inner.bootstrap_rows && inner.geometry.is_none() {
                     inner.bootstrap_rows = rows;
