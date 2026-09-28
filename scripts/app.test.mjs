@@ -168,7 +168,7 @@ async function fixture(body) {
     return resolve(root, dir);
   };
   try {
-    for (const path of ['scripts/app.mjs','scripts/filesystem.mjs','scripts/rust.mjs','scripts/install-page.mjs','scripts/app.schema.json','game/app/shells.mjs','game/.cargo/config.toml']) {
+    for (const path of ['scripts/app.mjs','scripts/filesystem.mjs','scripts/rust.mjs','scripts/install-page.mjs','scripts/sweep.mjs','scripts/app.schema.json','game/app/shells.mjs','game/.cargo/config.toml']) {
       write(path, readFileSync(resolve(import.meta.dir,'..',path)));
     }
     const { resolveApp: localResolveApp, cargoReproducibilityFlags: flags } = await import(resolve(root,'scripts/app.mjs'));
