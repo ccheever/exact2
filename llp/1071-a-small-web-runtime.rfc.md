@@ -607,6 +607,53 @@ TypeScript-heavy deployments where a native binary can't run. The remaining
 gap is (b)'s documents: head fields, canonical URLs and sitemaps come only
 from (a) today.
 
+**Steps 4 and 5: the router and loaded capabilities** (measured after both):
+- **Router.** `route/src`'s table, chain and six verbs are ported; history is
+  the web host's own `navigation.js`. A synthetic plan (tabs, a deep chain,
+  parameters, a query, a modal, refused verbs, history back, reselecting a
+  tab) is equal to the Rust runner on all 20 steps; RealWorld's scenario on
+  all 21.
+- **GPU surfaces** run through the web host's `gpu-glue.js` over the app's
+  own `gpu.js`/`gpu_bg.wasm`, fetched after the first painted frame, only
+  when a canvas is on the page (as the wasm build loads them: 12.3 + 12.6 +
+  102.3 KB brotli for Caltrain). Caltrain's aurora and Weatherlight's sky
+  render as the wasm build does; Weatherlight (TypeScript and GPU) is equal
+  on all 8 steps.
+- **Motion.** `@keyframes` from the plan are in the stylesheet, and CSS
+  animations are held to the agent's clock; Motion Gallery's keyframe tiles
+  now match. Springs, presence and layout transitions (`motion-glue.js`)
+  are not wired.
+- **Bytes and time after step 5** (brotli; mobile profile): video player
+  6,107 before interactive, 605 ms to answer (wasm 1,976); Caltrain 20,110
+  before interactive (page 6,054 + `app.js` 13,655), 640 ms, FCP 380 ms
+  (wasm 2,716, FCP 384); RealWorld `app.js` 19,172.
+
+**Conformance, the last full run** (every app with a wasm build, `conform.mjs`):
+
+| | apps |
+|---|---|
+| every step equal | RealWorld 21/21, Weatherlight 8/8, completion-storm 8/8, video player 4/4; synthetic: router 20/20, regions 8/8, rows 7/7, styles 4/4, timers 3/3 |
+| state, tree and layout equal; pixels differ | Caltrain (its Canvas 2D line map), Motion Gallery (animated images) |
+| runs, differs | Typetour (1 px text: declared fonts not loaded), Update Lab (a TypeScript and a Rust source in one app), Carousel (a virtualized list rendered whole) |
+| refused at build, by name | native modules (native-fixture, photo-editor, map-demo), dynamic `line-height` (exact-live, llp, markdown), dynamic SVG `fill` (svg-gallery), dynamic `clip-path` (reflow), dynamic `animation` (sparkline), `timeline-scope` (interaction-gallery), events `pan` (textflow), `select` (markdown-stress), `cancel` (fieldnotes), `reachstart` (messages-stress) |
+
+**What is left, estimated** (*estimates*, runtime bytes brotli):
+
+| Gap | Work | Bytes |
+|---|---|---|
+| Canvas 2D surfaces: a `draw` op on the logic ABI, `canvas2d-glue.js` reused | 3–5 days | ~0.5 KB core; 3.8 KB loaded |
+| Virtualized collections: the window, measurement and anchoring engine | 1–2 weeks | 4–6 KB, loaded |
+| Declared fonts (the web host's font loading reused) | 1–2 days | <1 KB |
+| Animated images on the agent's clock (`image-glue.js`) | 1 day | loaded |
+| Surface records back to sources | 1–2 days | <0.5 KB |
+| Dynamic composite rows (line-height, clip-path, SVG paint, animation, timeline scope) | 2–3 days | ~1 KB |
+| Native modules (NativeProps, custom elements) | 3–5 days | ~1 KB + loaded adapter |
+| Events: pan, select, cancel, reachstart/end, drags | ~1 week | loaded (`input-glue.js`, `motion-glue.js`) |
+| TypeScript and Rust sources in one app | 1–2 days | <0.5 KB |
+| Springs, presence, layout transitions (`motion-glue.js`) | ~1 week | loaded, 11 KB |
+| (b)'s documents: canonical, og, robots, status, sitemap | 2–3 days | build-time only |
+| Dev reload and state carry, delivery (`exactDelivery`, `deliveryActivate`), the rest of the agent | 1–2 weeks | agent-only / <1 KB |
+
 ## 8. Open questions for Charlie
 
 1. **The name.** Is this Exact 3, or an exact2 web target? Nothing native
