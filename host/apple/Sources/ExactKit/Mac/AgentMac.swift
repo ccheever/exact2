@@ -527,6 +527,7 @@ extension Agent {
         guard presenter.toolbar.visible(v), !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
         if session.canvases.wantsInput(v.id) { return canvasType(v, req) }
+        if req["key"] == nil, let reply = presenter.controls.type(v, req["text"] as? String ?? "") { return reply }
         if v.props["editable"] == "false", req["key"] == nil { return ["error": "view \(v.id) is readonly"] }
         // @ref LLP 1038 D11 — type on the root delivers a location.
         if v.props["navigationBack"] != nil, req["key"] == nil {

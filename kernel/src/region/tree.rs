@@ -47,7 +47,7 @@ impl Derived {
             }
         }
         for &s in &slots {
-            if arena.node_type(s) == NodeType::Text {
+            if matches!(arena.node_type(s), NodeType::Text | NodeType::Control) {
                 continue;
             }
             let children = if Some(s) == cut {

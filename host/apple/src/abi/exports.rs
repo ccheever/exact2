@@ -480,6 +480,13 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, true, |b, _| b.auth(len), |_| 0)
         }
 
+        /// A select's options and the one it shows (LLP 1069.001 D5), JSON;
+        /// returns its length.
+        #[no_mangle]
+        pub extern "C" fn exact_select_options(rt: u32, view: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.select_options(view), |n| n)
+        }
+
         /// A command's data (`share`, LLP 1069.003; `saveFile`, LLP
         /// 1069.010), JSON in the input buffer; returns the ruling's length
         /// (`refused`, `ticket`, `present`).

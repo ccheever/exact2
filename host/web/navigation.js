@@ -682,3 +682,27 @@ export function guestType(frame, request) {
   target.dispatchEvent(new guest.Event("change", { bubbles: true, composed: true }));
   return { typed: request.id, guest: true, value: "value" in target ? target.value : target.textContent };
 }
+
+// @ref LLP 1069.001 D4 — a select (and the range and date inputs) is
+// controlled: the committed `value` is authoritative, so the element shows
+// it again after the options change, and after an action that refused.
+const VALUED = new Set(["range", "date", "time", "datetime-local"]);
+export const valuedControl = (el) => el instanceof HTMLSelectElement || (el instanceof HTMLInputElement && VALUED.has(el.type));
+export function settleValue(el) {
+  const c = el instanceof HTMLOptionElement ? el.parentElement : el;
+  if (c && valuedControl(c) && c.exactValue !== undefined && c.value !== c.exactValue) c.value = c.exactValue;
+}
+// D9: `type <id> <value>` sets a control's value as the platform would on a
+// choice or a release: HTML's `input`, then `change`. A select takes one of
+// its enabled options' values, and nothing else.
+export function typeControl(el, request) {
+  const text = String(request.text ?? ""), id = request.id;
+  if (el.disabled || inertAncestor(el)) return { handled: true, error: `view ${id} is disabled or inert` };
+  if (el instanceof HTMLSelectElement && ![...el.options].some((o) => o.value === text && !o.disabled))
+    return { handled: true, error: `select ${id} has no enabled option ${JSON.stringify(text)} (options: ${[...el.options].map((o) => JSON.stringify(o.value)).join(", ")})` };
+  el.value = text;
+  if (el.value !== text && el instanceof HTMLInputElement && el.type !== "range") return { handled: true, error: `${JSON.stringify(text)} is not a value an input type=${el.type} takes; it sanitized to ${JSON.stringify(el.value)}` };
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+  return { typed: id, value: el.value, delivery: "recognized", handled: true };
+}

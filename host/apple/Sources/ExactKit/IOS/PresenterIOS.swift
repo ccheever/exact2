@@ -500,6 +500,12 @@ final class Presenter {
         if change { onChange?(id, value) }
     }
     func checked(_ id: UInt32, _ on: Bool) { onChecked?(id, on) }
+    /// A select's, range's or date's new value (LLP 1069.001 D4): HTML's
+    /// `input` as it moves, `change` as it is committed.
+    var onControlValue: ((UInt32, String, Bool, Bool) -> Void)?
+    func controlValue(_ id: UInt32, _ value: String, input: Bool, change: Bool) { onControlValue?(id, value, input, change) }
+    /// A select's options and the one it shows, read from the kernel.
+    var selectOptions: ((UInt32) -> SelectMenu)?
 
     /// An event a view reports: sent only while the presenter still has the
     /// view (the platform fires editing-ended as a destroyed field leaves the

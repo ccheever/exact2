@@ -133,7 +133,7 @@ pub enum ControlValue {
 
 impl ControlValue {
     /// The value as the action receives it.
-    fn value(&self) -> Value {
+    pub(super) fn value(&self) -> Value {
         match self {
             Self::Text(text) => Value::str(text),
             Self::Checked(on) => Value::Bool(*on),
@@ -787,14 +787,6 @@ impl<D: DataSource> Runner<D> {
             return Err(RunnerError::InvalidEvent { event });
         }
         let (node, frames) = self.find(view).ok_or(RunnerError::UnknownView(view))?;
-        // @ref LLP 1069.001 D4 — a checkbox reports a bool, a text field its
-        // text; the other is refused by name, never coerced.
-        // @ref LLP 1069.002 D3 — a file input's `change` carries its files,
-        // and only a file input's.
-        let file_input = self.kernel.node(view).is_some_and(|n| {
-            n.node_type == exact_kernel::NodeType::Control
-                && n.props.str(exact_kernel::PropId::Type) == Some("file")
-        });
         // HTML's `cancel`: a file input's dismissed picker, or the element
         // a `saveFile` names when its panel is dismissed (LLP 1069.010 D3).
         if matches!(event, Event::Cancel) {
@@ -809,28 +801,18 @@ impl<D: DataSource> Runner<D> {
                 return Ok(CommitReceipt::default());
             }
         }
-        if let Event::Input(value) | Event::Change(value) = &event {
-            let control = self
-                .kernel
-                .node(view)
-                .is_some_and(|n| n.node_type == exact_kernel::NodeType::Control && !file_input);
-            if control != matches!(value, ControlValue::Checked(_))
-                || file_input != matches!(value, ControlValue::Files(_))
-            {
-                return Err(RunnerError::InvalidEvent {
-                    event: if matches!(event, Event::Input(_)) {
-                        "input"
-                    } else {
-                        "change"
-                    },
-                });
-            }
-        }
+        // @ref LLP 1069.001 D4, LLP 1069.002 D3 — each control's payload is
+        // its own kind's, held to HTML's rules (`control.rs`).
+        let control = match &event {
+            Event::Input(value) => Some(self.control_payload(view, "input", value)?),
+            Event::Change(value) => Some(self.control_payload(view, "change", value)?),
+            _ => None,
+        };
         let (kind, payload, name) = match &event {
             Event::ReorderDrop { .. } => (EventKind::Reorderdrop, None, "reorderdrop"),
             Event::Press => (EventKind::Press, None, "press"),
-            Event::Input(value) => (EventKind::Input, Some(value.value()), "input"),
-            Event::Change(value) => (EventKind::Change, Some(value.value()), "change"),
+            Event::Input(_) => (EventKind::Input, control, "input"),
+            Event::Change(_) => (EventKind::Change, control, "change"),
             Event::Cancel => (EventKind::Cancel, None, "cancel"),
             Event::Select {
                 formats,

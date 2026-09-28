@@ -154,3 +154,138 @@ fn the_compiler_names_what_a_control_takes() {
     ))
     .is_ok());
 }
+
+/// Themes from the data seam: `id`, `name`, in the shape's order.
+struct Themes;
+
+impl DataSource for Themes {
+    fn query(&mut self, source: &str, _args: &[Value]) -> Result<Value, DataError> {
+        match source {
+            "themes" => Ok(Value::list(
+                [("light", "Light"), ("dark", "Dark")]
+                    .into_iter()
+                    .map(|(id, name)| Value::record(vec![Value::str(id), Value::str(name)]))
+                    .collect(),
+            )),
+            _ => Err(DataError::UnknownSource(source.to_string())),
+        }
+    }
+}
+
+const THEME: &str = r#"shape Theme
+  id: string
+  name: string
+
+component App
+  resource themes = themes() as shape list<Theme>
+  state theme = "system"
+  state moves = 0
+  action setTheme(value: string) writes theme, moves
+    theme = value
+    moves = moves + 1
+  action refuse(value: string) writes moves
+    moves = moves + 1
+  view
+    column
+      select value=theme change=setTheme testId="theme" aria-label="Theme"
+        option value="system"
+          text "System"
+        each t in themes key=t.id
+          option t.name value=t.id testId=`theme-${t.id}`
+        option "Sepia" value="sepia" disabled=true
+      select value=theme input=refuse testId="fixed" aria-label="Fixed"
+        option "System" value="system"
+        option "Dark" value="dark"
+      text `${moves}` testId="moves"
+"#;
+
+fn themed() -> Runner<Themes> {
+    Runner::boot(
+        contract::compile(THEME).unwrap_or_else(|e| panic!("{e}")),
+        Themes,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap()
+}
+
+fn view_in<D: DataSource>(r: &Runner<D>, test_id: &str) -> u32 {
+    let key = r.kernel().find_by_test_id(test_id)[0];
+    r.kernel().node_by_key(key).unwrap().id
+}
+
+#[test]
+fn a_select_is_a_control_whose_options_are_its_children() {
+    let r = themed();
+    let theme = view_in(&r, "theme");
+    let node = r.kernel().node(theme).unwrap();
+    assert_eq!(node.node_type, NodeType::Control);
+    assert_eq!(node.props.str(PropId::Type), Some("select"));
+    assert_eq!(node.props.str(PropId::AccessibilityRole), Some("combobox"));
+    // `each` and keys work: the options are nodes, never laid out.
+    let choices = r.kernel().select_choices(theme);
+    let values: Vec<_> = choices.iter().map(|c| c.value.as_str()).collect();
+    assert_eq!(values, ["system", "light", "dark", "sepia"]);
+    let labels: Vec<_> = choices.iter().map(|c| c.label.as_str()).collect();
+    assert_eq!(labels, ["System", "Light", "Dark", "Sepia"]);
+    assert!(choices[3].disabled && !choices[1].disabled);
+    let dark = r.kernel().node(view_in(&r, "theme-dark")).unwrap();
+    assert_eq!(dark.style.display, exact_kernel::Display::None);
+    assert_eq!(dark.props.str(PropId::SemanticTag), Some("option"));
+    assert_eq!(
+        r.kernel().select_chosen(theme).map(|c| c.label),
+        Some("System".into())
+    );
+}
+
+#[test]
+fn a_select_carries_the_chosen_value_and_refuses_what_no_option_has() {
+    let mut r = themed();
+    let theme = view_in(&r, "theme");
+    r.dispatch(theme, Event::Change("dark".into())).unwrap();
+    assert_eq!(
+        r.kernel().node(theme).unwrap().props.str(PropId::Value),
+        Some("dark")
+    );
+    for (value, why) in [("bogus", "no option"), ("sepia", "disabled")] {
+        let refused = r.dispatch(theme, Event::Change(value.into())).unwrap_err();
+        match refused {
+            RunnerError::InvalidValue { event, reason } => {
+                assert_eq!(event, "change");
+                assert!(reason.contains(why), "{reason}");
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+    let refused = r.dispatch(theme, Event::Change(true.into())).unwrap_err();
+    assert!(matches!(
+        refused,
+        RunnerError::InvalidEvent { event: "change" }
+    ));
+    // An action that writes nothing leaves `value` where it was: the host
+    // shows the committed option again (D4).
+    let fixed = view_in(&r, "fixed");
+    r.dispatch(fixed, Event::Input("system".into())).unwrap();
+    assert_eq!(
+        r.kernel().node(fixed).unwrap().props.str(PropId::Value),
+        Some("dark")
+    );
+}
+
+#[test]
+fn option_and_select_keep_htmls_content_model() {
+    let refused = |view: &str| {
+        let src = format!("component App\n  state v = \"a\"\n  view\n    column\n{view}");
+        contract::compile(&src).unwrap_err().to_string()
+    };
+    let e = refused("      option \"A\" value=\"a\"\n");
+    assert!(e.contains("lower-option-parent"), "{e}");
+    let e = refused("      select value=v\n        text \"A\"\n");
+    assert!(
+        e.contains("lower-option-parent") && e.contains("text"),
+        "{e}"
+    );
+    let e = refused("      select value=v type=\"x\"\n        option \"A\"\n");
+    assert!(e.contains("lower-attr-tag"), "{e}");
+}

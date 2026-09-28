@@ -8,13 +8,15 @@ import AppKit
 
 final class ControlHost: NSObject {
     unowned let presenter: Presenter
-    private var controls: [UInt32: NSControl] = [:]
+    var controls: [UInt32: NSControl] = [:]
+    /// Which control each node shows (`ControlKinds`), to remake it when that changes.
+    private var kinds: [UInt32: String] = [:]
     /// The size last reported per control, so each is published once.
     private var reported: [UInt32: CGSize] = [:]
+    /// A select's menu as last built, so a batch that leaves it alone does not rebuild it.
+    var menus: [UInt32: SelectMenu] = [:]
 
     init(_ presenter: Presenter) { self.presenter = presenter }
-
-    private func isSwitch(_ node: NodeView) -> Bool { node.props["accessibilityRole"] == "switch" }
 
     private func isOn(_ control: NSControl) -> Bool {
         ((control as? NSSwitch)?.state ?? (control as? NSButton)?.state) == .on
@@ -26,32 +28,37 @@ final class ControlHost: NSObject {
         if let b = control as? NSButton, b.state != state { b.state = state }
     }
 
-    /// The control the node shows, made (or remade, when `switch` changes).
+    /// The control the node shows, made (or remade, when its kind changes).
     private func control(for node: NodeView) -> NSControl {
-        let wantSwitch = isSwitch(node)
-        if let existing = controls[node.id], (existing is NSSwitch) == wantSwitch { return existing }
+        let kind = ControlKinds.kind(node.props)
+        if let existing = controls[node.id], kinds[node.id] == kind { return existing }
         controls.removeValue(forKey: node.id)?.removeFromSuperview()
+        menus.removeValue(forKey: node.id)
         let made: NSControl
-        if wantSwitch {
-            made = NSSwitch()
-        } else {
+        switch kind {
+        case "switch": made = NSSwitch()
+        case "checkbox":
             let box = NSButton(checkboxWithTitle: "", target: nil, action: nil)
             box.imagePosition = .imageOnly
             made = box
+        default: made = makeValueControl(kind)
         }
         made.tag = Int(node.id)
         made.target = self
-        made.action = #selector(changed(_:))
+        made.action = kind == "switch" || kind == "checkbox" ? #selector(changed(_:)) : #selector(valueChanged(_:))
         controls[node.id] = made
+        kinds[node.id] = kind
         return made
     }
 
     func sync() {
-        let owners = presenter.carrying("type:checkbox").filter { $0.kind == "control" }
+        let owners = ControlKinds.indexed.flatMap { presenter.carrying($0) }.filter { $0.kind == "control" }
         let live = Set(owners.map(\.id))
         for id in Array(controls.keys) where !live.contains(id) {
             controls.removeValue(forKey: id)?.removeFromSuperview()
             reported.removeValue(forKey: id)
+            kinds.removeValue(forKey: id)
+            menus.removeValue(forKey: id)
         }
         var sizes: [(UInt32, CGSize?)] = []
         for owner in owners {
@@ -62,14 +69,18 @@ final class ControlHost: NSObject {
                 continue
             }
             if control.superview !== owner { owner.addSubview(control) }
-            if let on = owner.props["checked"].map({ $0 == "true" }) { setOn(control, on) }
             let accent = owner.channels("accent_color").map { TextEngine.color($0) }
-            // NSSwitch takes the system accent; AppKit gives it no tint.
-            (control as? NSButton)?.contentTintColor = accent
+            if control is NSSwitch || kinds[owner.id] == "checkbox" {
+                if let on = owner.props["checked"].map({ $0 == "true" }) { setOn(control, on) }
+                // NSSwitch takes the system accent; AppKit gives it no tint.
+                (control as? NSButton)?.contentTintColor = accent
+            } else {
+                configureValue(control, owner, accent: accent)
+            }
             control.isEnabled = !owner.disabled
             control.setAccessibilityLabel(owner.props["accessibilityLabel"])
             control.setAccessibilityIdentifier(owner.props["testId"])
-            let natural = control.intrinsicContentSize
+            let natural = naturalSize(control)
             let box = owner.contentBox()
             control.frame = CGRect(x: box.midX - natural.width / 2, y: box.midY - natural.height / 2,
                                    width: natural.width, height: natural.height)
@@ -95,6 +106,7 @@ final class ControlHost: NSObject {
     func activate(_ node: NodeView) -> Bool? {
         guard let control = controls[node.id] else { return nil }
         guard control.window != nil, control.isEnabled, !node.inert, !control.isHiddenOrHasHiddenAncestor else { return false }
+        if kinds[node.id] != "checkbox" && kinds[node.id] != "switch" { return openValue(control) }
         if let b = control as? NSButton { b.performClick(nil) } else {
             setOn(control, !isOn(control))
             changed(control)
@@ -104,6 +116,9 @@ final class ControlHost: NSObject {
 
     func observation(_ node: NodeView) -> [String: Any]? {
         guard let control = controls[node.id] else { return nil }
+        if let value = valueObservation(control) {
+            return value.merging(["size": [Agent.r2(control.frame.width), Agent.r2(control.frame.height)]]) { a, _ in a }
+        }
         return ["view": control is NSSwitch ? "NSSwitch" : "NSButton(checkbox)", "on": isOn(control),
                 "size": [Agent.r2(control.frame.width), Agent.r2(control.frame.height)]]
     }
@@ -112,6 +127,8 @@ final class ControlHost: NSObject {
         for control in controls.values { control.removeFromSuperview() }
         controls.removeAll()
         reported.removeAll()
+        kinds.removeAll()
+        menus.removeAll()
     }
 }
 #endif

@@ -102,6 +102,8 @@ pub struct Presenter<D: DataSource> {
     /// Unbound checkboxes' own states, as a browser keeps an uncontrolled
     /// control's (LLP 1069.001 D4); a bound one draws its `checked`.
     pub(crate) controls: BTreeMap<ViewId, bool>,
+    /// The select whose menu is open (LLP 1069.001 D7).
+    pub(crate) menu: Option<ViewId>,
     autofocus_processed: std::collections::BTreeSet<ViewId>,
     pointer: Option<(f32, f32)>,
     /// The nodes with a `hover` handler under the pointer, innermost first.
@@ -387,6 +389,7 @@ impl<D: DataSource> Presenter<D> {
             focus: None,
             edited: None,
             controls: BTreeMap::new(),
+            menu: None,
             autofocus_processed: Default::default(),
             pointer: None,
             hovered: Vec::new(),
@@ -691,6 +694,7 @@ impl<D: DataSource> Presenter<D> {
 
     fn finish_commit(&mut self) -> Option<String> {
         let error = self.service_commit();
+        self.size_controls();
         self.queue_collections();
         let refined = self.refine_collections();
         let geometry = self.refresh_transform_geometry();

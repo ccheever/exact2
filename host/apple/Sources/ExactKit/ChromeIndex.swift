@@ -12,7 +12,7 @@ struct ChromeIndex {
     /// `main` or `header` a tag, so these are indexed by that value, never by
     /// presence.
     static let values = [("role:tablist", "accessibilityRole", "tablist"), ("tag:dialog", "semanticTag", "dialog"),
-                         ("type:checkbox", "type", "checkbox")]
+                         ("type:checkbox", "type", "checkbox"), ("type:select", "type", "select")]
     private var byKey: [String: Set<UInt32>] = [:]
     /// The views carrying each `id` value, and the values whose carriers
     /// changed since `takeChangedNames` — what resolves a name without

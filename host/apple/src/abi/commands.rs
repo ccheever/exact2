@@ -1,7 +1,8 @@
 //! The session's command-side calls on the bridge: a command that shows
 //! system UI about to run (`share`, LLP 1069.003; `saveFile`, LLP 1069.010),
-//! an auth session's arm and report (LLP 1069.006), and a host line into
-//! the runner's journal.
+//! an auth session's arm and report (LLP 1069.006), a host line into the
+//! runner's journal, and a select's options for the menu the presenter
+//! builds (LLP 1069.001 D5).
 use super::Bridge;
 use exact_runner::auth::{self, Arm, Browser};
 use exact_runner::DataSource;
@@ -73,6 +74,39 @@ impl<D: DataSource> Bridge<D> {
             x.notify();
         }
         0
+    }
+
+    /// A select's options (`exact_select_options`), as JSON in the output
+    /// buffer: `[{"value","label","disabled"}]` in order, and which one it
+    /// shows (`chosen`, an index or null). Not a batch: nothing changes.
+    pub fn select_options(&mut self, view: u32) -> u32 {
+        let quote = exact_runner::agent::quote;
+        let mut json = String::from("{\"options\":[");
+        let mut chosen = None;
+        if let Some(h) = self.host.as_ref() {
+            let kernel = h.runner().kernel();
+            let shown = kernel.select_chosen(view).map(|c| c.view);
+            for (i, c) in kernel.select_choices(view).iter().enumerate() {
+                if Some(c.view) == shown {
+                    chosen = Some(i);
+                }
+                json.push_str(if i == 0 {
+                    "{\"value\":"
+                } else {
+                    ",{\"value\":"
+                });
+                quote(&c.value, &mut json);
+                json.push_str(",\"label\":");
+                quote(&c.label, &mut json);
+                json.push_str(&format!(",\"disabled\":{}}}", c.disabled));
+            }
+        }
+        json.push_str(&match chosen {
+            Some(i) => format!("],\"chosen\":{i}}}"),
+            None => "],\"chosen\":null}".into(),
+        });
+        self.output = json.into_bytes();
+        self.output.len() as u32
     }
 
     /// A host line into the runner's journal (`exact_log`).

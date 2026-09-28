@@ -8,6 +8,7 @@
 
 mod admission;
 mod commit;
+mod control;
 mod event;
 mod reorder;
 mod reorder_codec;
@@ -118,6 +119,12 @@ pub enum RunnerError {
     /// A typed host event carries invalid numeric values. No action ran.
     InvalidEvent {
         event: &'static str,
+    },
+    /// A control's `input` or `change` carries a value it could never
+    /// report (LLP 1069.001 D4): a select's value no enabled option has.
+    InvalidValue {
+        event: &'static str,
+        reason: String,
     },
     NoHandler {
         view: ViewId,

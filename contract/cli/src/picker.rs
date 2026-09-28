@@ -104,8 +104,8 @@ pub(super) fn check(file: &File, app_root: Option<&Path>) -> Result<(), Vec<Comp
     };
     let mut errors = Vec::new();
     for (list, span) in used {
-        for token in contract_lower::tags::accept_tokens(&list) {
-            if contract_lower::tags::media_accept(&token) || declared.contains(&token) {
+        for token in contract_lower::controls::accept_tokens(&list) {
+            if contract_lower::controls::media_accept(&token) || declared.contains(&token) {
                 continue;
             }
             let listed = if declared.is_empty() {
@@ -117,7 +117,7 @@ pub(super) fn check(file: &File, app_root: Option<&Path>) -> Result<(), Vec<Comp
                 "bake-picker-accept",
                 format!(
                     "`accept` names `{token}`, which is neither an image or video type nor one the app opens ({listed}): {}",
-                    contract_lower::tags::PICKER_ADMISSION
+                    contract_lower::controls::PICKER_ADMISSION
                 ),
                 span,
             ));

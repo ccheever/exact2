@@ -430,6 +430,7 @@ extension Agent {
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
            let activated = presenter.controls.activate(node) {
+            if let unsupported = presenter.controls.unopened(node) { return unsupported }
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "control"]
                 : ["error": "control #\(id) is disabled, inert or not shown"]
         }
@@ -624,6 +625,7 @@ extension Agent {
             }
             return ["typed":v.id, "key":key, "delivery":"recognized"]
         }
+        if req["key"] == nil, let reply = presenter.controls.type(v, req["text"] as? String ?? "") { return reply }
         if v.props["editable"] == "false", req["key"] == nil || ["Enter", "Backspace"].contains(req["key"] as? String ?? "") { return ["error": "view \(v.id) is readonly"] }
         // @ref LLP 1038 D11 — type on the root delivers a location.
         if v.props["navigationBack"] != nil, req["key"] == nil {

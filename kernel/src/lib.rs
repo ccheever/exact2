@@ -29,6 +29,7 @@
 
 pub mod arena;
 pub mod clip;
+pub mod control;
 pub mod error;
 pub mod export;
 mod flow;
@@ -53,6 +54,7 @@ pub mod transform;
 pub mod txn;
 pub mod wire;
 
+pub use control::{Choice, ControlKind};
 pub use error::{
     ApplyError, DecodeError, KernelError, LayoutError, StyleDomainError, StyleValueError,
 };

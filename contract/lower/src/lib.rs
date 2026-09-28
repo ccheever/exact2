@@ -21,6 +21,7 @@
 
 mod class;
 mod collection;
+pub mod controls;
 pub mod expr;
 mod fonts;
 mod keyframes;
@@ -706,12 +707,9 @@ impl<'a> Lowerer<'a> {
                 };
                 // @ref LLP 1069.001 D1 — `input`'s `type` is a literal: a text
                 // type is a text field, `checkbox` a form control.
-                let control = tags::input_control(tag, expanded)?;
-                let t = match control {
-                    Some("file") => tags::file_tag(),
-                    Some(_) => tags::control_tag(),
-                    None => t,
-                };
+                let control = controls::control(tag, expanded)?;
+                let t = control.map_or(t.clone(), |kind| controls::tag(kind, t.clone()));
+                controls::check_nesting(tag, parent_tag, *span)?;
                 tags::validate_list(tag, expanded, *span)?;
                 self.check_collection(tag, expanded, children, *span)?;
                 // A row list is a flex item of its column like any carousel;
@@ -816,36 +814,9 @@ impl<'a> Lowerer<'a> {
                         });
                         &[][..]
                     }
-                    // @ref LLP 1069.001 D1 — HTML's `switch`: the checkbox is
-                    // drawn as a switch, and ARIA hears one either way.
-                    [word] if contract_syntax::is_input_switch(tag, word) => {
-                        if control != Some("checkbox") {
-                            return err(
-                                "lower-attr-tag",
-                                "`switch` belongs to `input type=\"checkbox\"`",
-                                word.span(),
-                            );
-                        }
-                        bindings.push(BindingsRow {
-                            kind: BindingKind::Prop,
-                            id: exact_kernel::PropId::AccessibilityRole as u16,
-                            expr: self.fixed(false, "switch"),
-                        });
-                        &[][..]
-                    }
-                    // @ref LLP 1069.002 D1 — HTML's `multiple` on a file input.
-                    [word] if contract_syntax::is_input_multiple(tag, word) => {
-                        let owner = "`multiple` belongs to `input type=\"file\"`";
-                        (control == Some("file"))
-                            .then_some(())
-                            .map_or_else(|| err("lower-attr-tag", owner, word.span()), Ok)?;
-                        bindings.push(BindingsRow {
-                            kind: BindingKind::Prop,
-                            id: exact_kernel::PropId::Multiple as u16,
-                            expr: self.b.constant(&Value::Bool(true)),
-                        });
-                        &[][..]
-                    }
+                    // @ref LLP 1069.001 D1, LLP 1069.002 D1 — HTML's `switch`
+                    // and `multiple`.
+                    [word] if self.control_word(tag, word, control, &mut bindings)? => &[][..],
                     all => all,
                 };
                 if let Some(first) = positional.first() {
@@ -905,24 +876,10 @@ impl<'a> Lowerer<'a> {
                         origins.resize(bindings.len(), origin);
                     }
                 }
-                // @ref LLP 1069.001 D8 — a control's checked state is its
-                // accessibility state on every host.
-                if control.is_some() {
-                    let checked = exact_kernel::PropId::Checked as u16;
-                    if let Some(b) = bindings
-                        .iter()
-                        .rev()
-                        .find(|b| b.kind == BindingKind::Prop && b.id == checked)
-                    {
-                        let expr = b.expr;
-                        bindings.push(BindingsRow {
-                            kind: BindingKind::Prop,
-                            id: exact_kernel::PropId::AccessibilityChecked as u16,
-                            expr,
-                        });
-                        if let Some(origins) = &mut origins {
-                            origins.resize(bindings.len(), Origin::Own);
-                        }
+                // @ref LLP 1069.001 D8 — rows a control derives.
+                if control.is_some() && controls::derived_rows(&mut bindings) {
+                    if let Some(origins) = &mut origins {
+                        origins.resize(bindings.len(), Origin::Own);
                     }
                 }
                 if t.node_type == NodeType::NativeView {

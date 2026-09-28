@@ -6,7 +6,9 @@ impl NodeType {
     /// Whether `SetChildren` may target this type. A `Text` holds only inline
     /// runs (its `Text` children), which are measured with it, never laid out.
     /// A `Canvas` holds children laid out in its box — the web's
-    /// `layoutsubtree` — that never size it (LLP 1014 D1).
+    /// `layoutsubtree` — that never size it (LLP 1014 D1). A `Control` holds
+    /// a `select`'s options, which a closed select never lays out (LLP
+    /// 1069.001 D2).
     pub fn can_hold_children(self) -> bool {
         matches!(
             self,
@@ -15,6 +17,7 @@ impl NodeType {
                 | NodeType::List
                 | NodeType::Pressable
                 | NodeType::Text
+                | NodeType::Control
                 | NodeType::Canvas
                 | NodeType::Svg
                 | NodeType::SvgGroup
@@ -79,9 +82,11 @@ impl NodeType {
     }
 
     /// Whether this node's children are laid out as boxes: not a paragraph's
-    /// inline runs, and not an `svg`'s content (LLP 1055 D3).
+    /// inline runs, not an `svg`'s content (LLP 1055 D3), and not a
+    /// `select`'s options (LLP 1069.001 D2).
     pub fn lays_out_children(self) -> bool {
-        self != NodeType::Text && self != NodeType::Svg && !self.is_svg_element()
+        !matches!(self, NodeType::Text | NodeType::Svg | NodeType::Control)
+            && !self.is_svg_element()
     }
 
     /// Whether the node is a scroll container by default (overflow on its
@@ -125,7 +130,9 @@ mod tests {
         // A form control is a measured leaf with no natural ratio.
         assert!(NodeType::Control.is_measured_leaf());
         assert!(!NodeType::Control.is_replaced());
-        assert!(!NodeType::Control.can_hold_children());
+        // Its children are a select's options, never laid out.
+        assert!(NodeType::Control.can_hold_children());
+        assert!(!NodeType::Control.lays_out_children());
         assert!(NodeType::ScrollView.scrolls_by_default());
         // A canvas holds children (LLP 1014 D1) and is measured as a
         // replaced element: its size is never its content's.

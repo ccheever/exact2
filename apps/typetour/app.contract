@@ -30,6 +30,7 @@ component TypeTour
   state airplane = false
   state wifi = true
   state bluetooth = true
+  state appearance = "system"
 
   action go(target: string) writes screen, thread
     screen = target
@@ -57,6 +58,10 @@ component TypeTour
     wifi = not wifi
   action setBluetooth(on: bool) writes bluetooth
     bluetooth = on
+  // The platform's pop-up menu chooses the scheme (LLP 1069.001 slice 2).
+  action setAppearance(value: string) writes appearance
+    appearance = value
+    setScheme(value)
 
   view
     main testId="typetour" viewport-fit="cover" interactive-widget="resizes-content" width="100%" height="100%" box-sizing="border-box" display="flex" flex-direction="column" overflow="hidden" font-family="Exposure Sans" font-size=17 color="light-dark(#000000, #ffffff)" background-color="light-dark(#f2f2f7, #000000)"
@@ -191,6 +196,12 @@ component TypeTour
             box width=88
           scroll flex=1 min-height=0
             column padding=16 gap=22 padding-bottom=32
+              row border-radius=12 background-color="light-dark(#ffffff, #1c1c1e)" padding-left=16 padding-right=16 min-height=44 align-items="center" justify-content="space-between" gap=12
+                text "Appearance" font-size=(17 * scale) flex=1 min-width=0
+                select value=appearance change=setAppearance testId="appearance" aria-label="Appearance" accent-color="light-dark(#1c1c1e, #e5e5ea)" flex-shrink=0
+                  option "Automatic" value="system"
+                  option "Light" value="light"
+                  option "Dark" value="dark"
               column border-radius=12 background-color="light-dark(#ffffff, #1c1c1e)" padding=16 gap=14
                 text "TEXT SIZE" font-size=13 color="light-dark(#6e6e73, #98989d)"
                 row justify-content="space-between" align-items="flex-end"

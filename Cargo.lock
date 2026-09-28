@@ -3794,6 +3794,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "typetour-linux"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "exact-logic",
+ "typetour-data",
+]
+
+[[package]]
 name = "typetour-web"
 version = "0.1.0"
 dependencies = [

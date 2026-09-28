@@ -24,7 +24,7 @@ use taffy::TraversePartialTree;
 
 use crate::arena::NodeArena;
 use crate::error::LayoutError;
-use crate::generated::{FieldSizing, NodeType, PropId};
+use crate::generated::{FieldSizing, NodeType};
 use crate::id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer};
 use crate::kernel::PresentedHeight;
 use crate::style::taffy_style;
@@ -845,18 +845,11 @@ impl LayoutTree {
                     if arena.node_type(slot) == NodeType::Control {
                         // @ref LLP 1069.001 D3 — the platform's size for its
                         // control (CSS leaves it to the UA), each axis
-                        // overridden by a known one. Until the host
-                        // reports: Chrome's 13×13 checkbox, and Safari's
-                        // 38×22 desktop switch (Linux paints these).
-                        let switch = arena
-                            .props(slot)
-                            .get(PropId::AccessibilityRole)
-                            .and_then(|v| v.as_str())
-                            == Some("switch");
-                        let (iw, ih) = arena.intrinsic(slot).unwrap_or(if switch {
-                            (38.0, 22.0)
-                        } else {
-                            (13.0, 13.0)
+                        // overridden by a known one; until the host
+                        // reports, the kind's default.
+                        let (iw, ih) = arena.intrinsic(slot).unwrap_or_else(|| {
+                            crate::ControlKind::of(NodeType::Control, arena.props(slot))
+                                .map_or((13.0, 13.0), crate::ControlKind::default_size)
                         });
                         return Size {
                             width: known.width.unwrap_or(iw),
@@ -1122,7 +1115,8 @@ impl LayoutTree {
             arena.set_taffy(*slot, Some(node));
         }
         for slot in &slots {
-            if arena.node_type(*slot) == NodeType::Text {
+            // Inline runs and a select's options are never laid out.
+            if matches!(arena.node_type(*slot), NodeType::Text | NodeType::Control) {
                 continue;
             }
             let children: Vec<NodeId> = arena

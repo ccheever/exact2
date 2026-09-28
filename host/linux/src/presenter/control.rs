@@ -28,6 +28,12 @@ impl<D: DataSource> Presenter<D> {
         if node.props.bool(PropId::Disabled) == Some(true) {
             return true;
         }
+        // A select's press opens its menu (D7).
+        if node.props.str(PropId::Type) == Some("select") {
+            self.menu = Some(id);
+            self.dirty = true;
+            return true;
+        }
         let bound = node.props.bool(PropId::Checked);
         let on = !bound
             .or_else(|| self.controls.get(&id).copied())
@@ -54,5 +60,164 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         true
+    }
+
+    /// A control's value set as the platform would on a choice or a
+    /// release (LLP 1069.001 D4, D9): HTML's `input` then `change`, each
+    /// where the node hears it; the runner's refusal (a value no option
+    /// has) is the error.
+    pub(crate) fn set_control_value(&mut self, id: ViewId, value: &str) -> Result<String, String> {
+        let node = self.host.kernel().node(id).ok_or(format!("no view {id}"))?;
+        if node.props.bool(PropId::Disabled) == Some(true) {
+            return Err(format!("view {id} is disabled"));
+        }
+        if node.props.str(PropId::Type) == Some("select") {
+            let choices = self.host.kernel().select_choices(id);
+            if !choices.iter().any(|c| c.value == value && !c.disabled) {
+                return Err(format!(
+                    "select {id} has no enabled option {value:?} (options: {})",
+                    choices
+                        .iter()
+                        .map(|c| format!("{:?}", c.value))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+        }
+        self.menu = None;
+        let now = self.host.now();
+        let mut error = None;
+        for (event, kind) in [
+            (Event::Input(value.into()), EventKind::Input),
+            (Event::Change(value.into()), EventKind::Change),
+        ] {
+            if self.host.runner().handlers_of(id).contains(&kind) {
+                error = error.or(self.host.dispatch_at(id, event, now));
+            }
+        }
+        let after = self.after_commit();
+        if let Some(e) = error.or(after) {
+            return Err(e);
+        }
+        let shown = self
+            .host
+            .kernel()
+            .node(id)
+            .and_then(|n| n.props.str(PropId::Value).map(str::to_owned))
+            .unwrap_or_default();
+        Ok(format!(
+            "{{\"typed\":{id},\"value\":{},\"delivery\":\"recognized\"}}",
+            {
+                let mut s = String::new();
+                quote(&shown, &mut s);
+                s
+            }
+        ))
+    }
+
+    /// The open menu's rows and panel, under its select's painted box (above
+    /// it when it would leave the viewport), as wide as the widest label.
+    fn menu_geometry(&self) -> Option<(ViewId, crate::paint::control::MenuPaint)> {
+        use crate::paint::control::{accent, MenuPaint, MENU_PAD};
+        let id = self.menu?;
+        let node = self.host.kernel().node(id)?;
+        let b = self.boxes.iter().find(|b| b.id == id)?;
+        let style = node.computed_style(exact_kernel::StyleMask::INHERITED);
+        let choices = self.host.kernel().select_choices(id);
+        let chosen = self.host.kernel().select_chosen(id).map(|c| c.view);
+        let mut text = self.text.borrow_mut();
+        let mut width = b.rect.2;
+        let mut row = 0f32;
+        for c in &choices {
+            let p = text.paragraph(&crate::paint::text_spec(&style, &c.label), None);
+            width = width.max(p.width + 32.0);
+            row = row.max(p.height + 8.0);
+        }
+        let height = row * choices.len() as f32 + 2.0 * MENU_PAD;
+        let (x, y, _, h) = b.rect;
+        let below = y + h + 2.0;
+        let top = if below + height > self.viewport.1 {
+            (y - 2.0 - height).max(0.0)
+        } else {
+            below
+        };
+        Some((
+            id,
+            MenuPaint {
+                rect: (x.min(self.viewport.0 - width).max(0.0), top, width, height),
+                row,
+                chosen: choices.iter().position(|c| Some(c.view) == chosen),
+                rows: choices.into_iter().map(|c| (c.label, c.disabled)).collect(),
+                accent: accent(&node, self.brush.dark),
+                style,
+            },
+        ))
+    }
+
+    pub(crate) fn menu_paint(&self) -> Option<crate::paint::control::MenuPaint> {
+        self.menu_geometry().map(|(_, m)| m)
+    }
+
+    /// A press while a menu is open: a row chooses it, anywhere else only
+    /// closes the menu, as a light-dismiss popup does. `None` when no menu
+    /// is open.
+    pub(crate) fn menu_press(&mut self, x: f32, y: f32) -> Option<ViewId> {
+        let (id, menu) = self.menu_geometry().or_else(|| {
+            self.menu = None;
+            None
+        })?;
+        self.menu = None;
+        self.dirty = true;
+        let (mx, my, mw, _) = menu.rect;
+        let row = ((y - my - crate::paint::control::MENU_PAD) / menu.row).floor();
+        if x >= mx && x < mx + mw && row >= 0.0 && (row as usize) < menu.rows.len() {
+            let (_, disabled) = &menu.rows[row as usize];
+            if !disabled {
+                let value = self.host.kernel().select_choices(id)[row as usize]
+                    .value
+                    .clone();
+                if let Err(e) = self.set_control_value(id, &value) {
+                    self.host.log(format!("select: {e}"));
+                }
+            }
+        }
+        Some(id)
+    }
+
+    /// Each select's size, which Linux reports as the other hosts do (LLP
+    /// 1069.001 D3): its widest option in its own font, with room for the
+    /// chevron and Chrome's padding.
+    pub(crate) fn size_controls(&mut self) {
+        let mut sizes = Vec::new();
+        {
+            let kernel = self.host.kernel();
+            let mut text = self.text.borrow_mut();
+            for id in self.host.preorder() {
+                let Some(node) = kernel.node(id) else {
+                    continue;
+                };
+                if node.node_type != NodeType::Control
+                    || node.props.str(PropId::Type) != Some("select")
+                {
+                    continue;
+                }
+                let style = node.computed_style(exact_kernel::StyleMask::INHERITED);
+                let (mut w, mut h) = (0f32, 0f32);
+                for c in kernel.select_choices(id) {
+                    let p = text.paragraph(&crate::paint::text_spec(&style, &c.label), None);
+                    w = w.max(p.width);
+                    h = h.max(p.height);
+                }
+                if h == 0.0 {
+                    h = style.font_size * 1.2;
+                }
+                sizes.push((id, ((w + 30.0).ceil(), (h + 6.0).ceil())));
+            }
+        }
+        for (id, size) in sizes {
+            if let Some(e) = self.host.set_intrinsic(id, Some(size)) {
+                self.host.log(e);
+            }
+        }
     }
 }

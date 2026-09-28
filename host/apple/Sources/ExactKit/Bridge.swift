@@ -276,6 +276,11 @@ final class Runtime {
     func tick(now: Double) -> Batch { read(exact_tick(rt, now)) }
     func scheme(dark: Bool) -> Batch { read(exact_scheme(rt, dark ? 1 : 0)) }
     func viewScheme(_ view: UInt32, dark: Bool) -> Batch { read(exact_view_scheme(rt, view, dark ? 1 : 0)) }
+    /// A select's options and the one it shows (LLP 1069.001 D5).
+    func selectOptions(_ view: UInt32) -> SelectMenu {
+        let len = exact_select_options(rt, view)
+        return SelectMenu(json: Data(bytes: exact_out(rt), count: Int(len)))
+    }
     /// Host intrinsic sizes (nil clears one), under one layout.
     func intrinsics(_ sizes: [(UInt32, CGSize?)]) -> Batch {
         var bytes = Data(capacity: sizes.count * 12)

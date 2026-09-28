@@ -62,32 +62,43 @@ final class ExactCheckbox: UIControl {
 
 final class ControlHost: NSObject {
     unowned let presenter: Presenter
-    private var controls: [UInt32: UIControl] = [:]
+    var controls: [UInt32: UIControl] = [:]
+    /// Which control each node shows (`ControlKinds`), to remake it when that changes.
+    private var kinds: [UInt32: String] = [:]
     /// The size last reported per control, so each is published once.
     private var reported: [UInt32: CGSize] = [:]
+    /// A select's menu as last built, so a batch that leaves it alone does not rebuild it.
+    var menus: [UInt32: SelectMenu] = [:]
 
     init(_ presenter: Presenter) { self.presenter = presenter }
 
-    private func isSwitch(_ node: NodeView) -> Bool { node.props["accessibilityRole"] == "switch" }
-
-    /// The control the node shows, made (or remade, when `switch` changes).
+    /// The control the node shows, made (or remade, when its kind changes).
     private func control(for node: NodeView) -> UIControl {
-        let wantSwitch = isSwitch(node)
-        if let existing = controls[node.id], (existing is UISwitch) == wantSwitch { return existing }
+        let kind = ControlKinds.kind(node.props)
+        if let existing = controls[node.id], kinds[node.id] == kind { return existing }
         controls.removeValue(forKey: node.id)?.removeFromSuperview()
-        let made: UIControl = wantSwitch ? UISwitch() : ExactCheckbox(frame: .zero)
+        menus.removeValue(forKey: node.id)
+        let made: UIControl
+        switch kind {
+        case "switch": made = UISwitch()
+        case "checkbox": made = ExactCheckbox(frame: .zero)
+        default: made = makeValueControl(kind, node.id)
+        }
         made.tag = Int(node.id)
-        made.addTarget(self, action: #selector(changed(_:)), for: .valueChanged)
+        if kind == "switch" || kind == "checkbox" { made.addTarget(self, action: #selector(changed(_:)), for: .valueChanged) }
         controls[node.id] = made
+        kinds[node.id] = kind
         return made
     }
 
     func sync() {
-        let owners = presenter.carrying("type:checkbox").filter { $0.kind == "control" }
+        let owners = ControlKinds.indexed.flatMap { presenter.carrying($0) }.filter { $0.kind == "control" }
         let live = Set(owners.map(\.id))
         for id in Array(controls.keys) where !live.contains(id) {
             controls.removeValue(forKey: id)?.removeFromSuperview()
             reported.removeValue(forKey: id)
+            kinds.removeValue(forKey: id)
+            menus.removeValue(forKey: id)
         }
         var sizes: [(UInt32, CGSize?)] = []
         for owner in owners {
@@ -107,11 +118,13 @@ final class ControlHost: NSObject {
             } else if let c = control as? ExactCheckbox {
                 if let on { c.isOn = on }
                 c.accent = accent
+            } else {
+                configureValue(control, owner, accent: accent)
             }
             control.isEnabled = !owner.disabled
             control.accessibilityLabel = owner.props["accessibilityLabel"]
             control.accessibilityIdentifier = owner.props["testId"]
-            let natural = control.intrinsicContentSize
+            let natural = naturalSize(control, owner)
             let box = owner.contentBox()
             control.frame = CGRect(x: box.midX - natural.width / 2, y: box.midY - natural.height / 2,
                                    width: natural.width, height: natural.height)
@@ -142,12 +155,16 @@ final class ControlHost: NSObject {
         guard let control = controls[node.id] else { return nil }
         guard control.window != nil, control.isEnabled, !node.inert else { return false }
         if let s = control as? UISwitch { s.setOn(!s.isOn, animated: false); s.sendActions(for: .valueChanged) }
-        else { control.sendActions(for: .touchUpInside) }
+        else if control is ExactCheckbox { control.sendActions(for: .touchUpInside) }
+        else { return openValue(control) }
         return true
     }
 
     func observation(_ node: NodeView) -> [String: Any]? {
         guard let control = controls[node.id] else { return nil }
+        if let value = valueObservation(control) {
+            return value.merging(["size": [Agent.r2(control.bounds.width), Agent.r2(control.bounds.height)]]) { a, _ in a }
+        }
         let on = (control as? UISwitch)?.isOn ?? (control as? ExactCheckbox)?.isOn ?? false
         return ["view": control is UISwitch ? "UISwitch" : "checkbox", "on": on,
                 "size": [Agent.r2(control.bounds.width), Agent.r2(control.bounds.height)]]
@@ -157,6 +174,8 @@ final class ControlHost: NSObject {
         for control in controls.values { control.removeFromSuperview() }
         controls.removeAll()
         reported.removeAll()
+        kinds.removeAll()
+        menus.removeAll()
     }
 }
 #endif

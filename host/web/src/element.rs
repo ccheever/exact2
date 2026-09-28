@@ -259,6 +259,9 @@ fn element(node: &NodeRef<'_>) -> &'static str {
         NodeType::Text => {
             if node.is_inline_run() {
                 "span"
+            } else if exact_kernel::control::is_option(node) {
+                // @ref LLP 1069.001 D2 — the select's own options.
+                "option"
             } else {
                 match heading_level(node) {
                     Some(1) => "h1",
@@ -274,6 +277,7 @@ fn element(node: &NodeRef<'_>) -> &'static str {
         NodeType::Image => "img",
         NodeType::TextInput => "input",
         NodeType::Pressable => "button",
+        NodeType::Control if node.props.str(PropId::Type) == Some("select") => "select",
         NodeType::Control => "input",
         NodeType::Canvas => "canvas",
         NodeType::WebView => "iframe",
@@ -345,6 +349,15 @@ pub(super) fn css_style<'a>(
 ) -> std::borrow::Cow<'a, exact_kernel::StyleProps> {
     let as_attributes = attribute_rows(node.node_type);
     let url = |p: &Paint| matches!(p, Paint::Url(..));
+    // @ref LLP 1069.001 D2 — an option is `display: none` to layout, never
+    // to the browser's menu, which a hidden `<option>` leaves out.
+    if exact_kernel::control::is_option(node) {
+        let mut style = node.style.clone();
+        let mut mask = exact_kernel::StyleMask::EMPTY;
+        mask.set(exact_kernel::StyleId::Display);
+        style.clear(mask);
+        return std::borrow::Cow::Owned(style);
+    }
     if as_attributes.is_empty()
         && !url(&node.style.fill)
         && !url(&node.style.stroke)
@@ -480,7 +493,10 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
     if node.style.wrap_flow == exact_kernel::WrapFlow::Both {
         out.insert("data-wrap-flow".into(), "both".into());
     }
-    if node.node_type == NodeType::Text && !node.is_inline_run() {
+    if node.node_type == NodeType::Text
+        && !node.is_inline_run()
+        && !exact_kernel::control::is_option(node)
+    {
         out.insert("data-exact-text".into(), String::new());
     }
     // A `markup="markdown"` text node paints its source as pieces the page
@@ -675,7 +691,10 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
     if node.node_type.scrolls_by_default() {
         out.insert("data-scroll".into(), "true".into());
     }
-    if node.node_type == NodeType::Control {
+    if element(node) == "select" {
+        // A `<select>` is its own kind; its `type` is not an attribute.
+        out.remove("type");
+    } else if node.node_type == NodeType::Control {
         out.get_or_insert_with("type".into(), || "checkbox".into());
         // @ref LLP 1069.001 D1 — WebKit's `switch`; a browser without it
         // draws a checkbox that ARIA still hears as a switch.

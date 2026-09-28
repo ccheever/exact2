@@ -669,9 +669,13 @@ pub fn is_input_multiple(tag: &str, positional: &Expr) -> bool {
 /// The form control an `input` is, by its literal `type` (LLP 1069.001 D1):
 /// `Some("checkbox")` for a checkbox (a switch is one too), whose `change`
 /// and `input` carry a bool; `Some("file")` for a file input (LLP 1069.002
-/// D1), whose `change` carries a `list<Picked>`; `None` for a text field or
-/// any other element.
+/// D1), whose `change` carries a `list<Picked>`; `Some("select")` for a
+/// `select`, whose `change` and `input` carry the chosen option's value;
+/// `None` for a text field or any other element.
 pub fn input_control(tag: &str, attrs: &[Attr]) -> Option<&'static str> {
+    if tag == "select" {
+        return Some("select");
+    }
     if tag != "input" {
         return None;
     }

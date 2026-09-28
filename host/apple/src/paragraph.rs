@@ -3,6 +3,21 @@
 use super::*;
 
 impl<D: DataSource> Host<D> {
+    /// An `option` or a run in one (LLP 1069.001 D2): a select's menu item,
+    /// which the presenter reads from the kernel (`exact_select_options`),
+    /// never a view.
+    fn option_part(&self, id: ViewId) -> bool {
+        let kernel = self.runner.kernel();
+        let mut at = kernel.node(id);
+        while let Some(node) = at.filter(|n| n.node_type == NodeType::Text) {
+            if exact_kernel::control::is_option(&node) {
+                return true;
+            }
+            at = node.parent.and_then(|p| kernel.node(p));
+        }
+        false
+    }
+
     pub(super) fn paragraph_owner(&self, id: ViewId) -> Option<ViewId> {
         let kernel = self.runner.kernel();
         let mut node = kernel.node(id)?;
@@ -164,6 +179,11 @@ impl<D: DataSource> Host<D> {
             self.svg.handlers(id, events.contains(&EventKind::Press));
             return;
         }
+        if self.option_part(id) {
+            let key = self.runner.kernel().node(id).expect("live").key;
+            self.keys.insert(key, id);
+            return;
+        }
         self.queue_layout(id);
         if let Some(owner) = self.paragraph_owner(id) {
             self.dirty_paragraphs.insert(owner);
@@ -220,7 +240,7 @@ impl<D: DataSource> Host<D> {
     }
 
     pub(super) fn update(&mut self, id: ViewId, batch: &mut Batch) {
-        if self.svg.element(self.runner.kernel(), id).is_some() {
+        if self.svg.element(self.runner.kernel(), id).is_some() || self.option_part(id) {
             return;
         }
         self.queue_layout(id);
@@ -271,6 +291,10 @@ impl<D: DataSource> Host<D> {
         let node_type = self.runner.kernel().node(id).expect("live").node_type;
         if node_type == NodeType::Svg || node_type.is_svg_element() {
             self.svg.element(self.runner.kernel(), id);
+            return;
+        }
+        // A select's options are its menu's, not views (LLP 1069.001 D2).
+        if node_type == NodeType::Control {
             return;
         }
         let children = self.runner.kernel().node(id).expect("live").children();

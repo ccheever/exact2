@@ -30,7 +30,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use tiny_skia::{Pixmap, Point, Transform};
 pub mod border;
-mod control;
+pub(crate) mod control;
 pub(crate) mod damage;
 pub mod gradient;
 pub use gradient::GradientPaint;
@@ -327,6 +327,8 @@ pub struct Scene<'a> {
     pub focus: Option<ViewId>,
     /// Unbound checkboxes' own states, which the host keeps (LLP 1069.001 D4).
     pub controls: &'a BTreeMap<ViewId, bool>,
+    /// A select's open menu, painted over everything (LLP 1069.001 D7).
+    pub menu: Option<control::MenuPaint>,
     /// The pointer, in viewport points, when the host draws one.
     pub pointer: Option<(f32, f32)>,
 }
@@ -725,6 +727,9 @@ impl Painter {
         for root in scene.roots {
             self.node(&mut walk, *root, Transform::identity(), scene.page, None);
         }
+        if let Some(menu) = &scene.menu {
+            self.menu(menu);
+        }
         if let Some((px, py)) = scene.pointer {
             self.backend.pointer(px, py);
         }
@@ -1026,6 +1031,10 @@ impl Painter {
                 }
             }
             NodeType::Svg => self.svg(walk, node, rect, content, ts),
+            NodeType::Control if node.props.str(PropId::Type) == Some("select") => {
+                let label = walk.scene.kernel.select_chosen(node.id).map(|c| c.label);
+                self.field_control(node, content, ts, label.as_deref().unwrap_or(""), true);
+            }
             NodeType::Control => control::paint(
                 self.backend.as_mut(),
                 node,

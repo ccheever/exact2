@@ -25,6 +25,10 @@ impl<D: DataSource> Presenter<D> {
             }
             return Ok(format!("{{\"typed\":{id},\"delivery\":\"recognized\"}}"));
         }
+        // @ref LLP 1069.001 D9 — a select's value, as a choice sets it.
+        if node.node_type == NodeType::Control {
+            return self.set_control_value(id, text);
+        }
         if node.node_type != NodeType::TextInput {
             return Err(format!("view {id} is not an input"));
         }

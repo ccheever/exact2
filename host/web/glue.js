@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { guestOutline, guestTap, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, pageReporter } from "./navigation.js";
+import { guestOutline, guestTap, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, pageReporter, valuedControl, settleValue, typeControl } from "./navigation.js";
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let httpModule, pickerModule, documentsModule; // the file picker (LLP 1069.002) and documents (LLP 1069.010), loaded on first use
 const picker = () => pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path), log }));
@@ -392,7 +392,7 @@ const composing = new WeakSet(), heldValues = new WeakMap(), compositionFlush = 
 function writeValue(el, value) {
   if (el.exactMarkup) { el.exactMarkup.setValue(value); return; } if (el instanceof HTMLTextAreaElement) el.exactSourceValue = String(value);
   const old = el.value; if (old === value) { heldValues.delete(el); return; } if (composing.has(el)) { heldValues.set(el, value); return; } heldValues.delete(el);
-  if (typeof el.setRangeText !== "function" || old === "" || document.activeElement !== el) { el.value = value; return; }
+  if (typeof el.setRangeText !== "function" || valuedControl(el) || old === "" || document.activeElement !== el) { el.value = value; return; }
   let a = 0, z = 0; while (a < old.length && a < value.length && old[a] === value[a]) a++; while (z < old.length - a && z < value.length - a && old[old.length - 1 - z] === value[value.length - 1 - z]) z++;
   const end = old.length - z, text = value.slice(a, value.length - z), { selectionStart: s0, selectionEnd: s1 } = el, carry = (p) => p <= a ? p : p >= end ? p + text.length - (end - a) : a + text.length;
   el.setRangeText(text, a, end, "preserve"); if (el.value !== value) el.value = value; else el.setSelectionRange(carry(s0), Math.max(carry(s0), carry(s1))); }
@@ -420,7 +420,7 @@ function applyProps(el, set, clear) {
       const pending = pendingScrolls.get(el); if (pending) delete pending[name];
     }
     else if (name === "text") el.textContent = "";
-    else if (name === "value") writeValue(el, "");
+    else if (name === "value") { el.exactValue = undefined; writeValue(el, ""); }
     else if (name === "checked") { el.exactChecked = undefined; el.checked = false; }
     else if (name === "data-action") { el.removeAttribute(name); el.style.touchAction = ""; }
     else if (name === "autofocus") { el.exactAutofocus = false; el.removeAttribute(name); }
@@ -439,7 +439,7 @@ function applyProps(el, set, clear) {
     } else if (name === "data-action") {
       el.setAttribute(name, value); el.style.touchAction = "none";
     } else if (name === "value") {
-      writeValue(el, value);
+      writeValue(el, value); if (valuedControl(el)) el.exactValue = value;
     } else if (name === "checked") {
       el.exactChecked = value === "true"; el.checked = el.exactChecked;
     } else if (name === "inert") {
@@ -466,7 +466,7 @@ function applyProps(el, set, clear) {
     if (source === null) el.removeAttribute("src");
   }
   if (el instanceof HTMLIFrameElement) commitGuestOrigin(el);
-  syncMarkup(el);
+  settleValue(el); syncMarkup(el);
   if ((set && ("viewportFit" in set || "interactiveWidget" in set)) || clear?.some((n) => n === "viewportFit" || n === "interactiveWidget")) syncViewportFit();
 }
 function ensureMessageListener() {
@@ -559,7 +559,7 @@ function attach(el, id, handlers) {
       });
     } else if (kind === "change") {
       // HTML's `change`: a text field's value committed, on blur or Enter.
-      on("change", () => { const n = writeIn(el.value); send(wasm.exact_dispatch(id, 1, n, now())); });
+      on("change", () => { const n = writeIn(el.value); send(wasm.exact_dispatch(id, 1, n, now())); settleValue(el); });
     } else if (kind === "input") {
       on("input", (e) => {
         const value = el.value;
@@ -570,7 +570,7 @@ function attach(el, id, handlers) {
           if (clusters.length !== 1 || !(/\p{Emoji_Presentation}/u.test(value)
             || (/[\uFE0F\u20E3]/u.test(value) && /\p{Emoji}/u.test(value)))) return;
         }
-        const n = writeIn(value); send(wasm.exact_dispatch(id, 23, n, now()));
+        const n = writeIn(value); send(wasm.exact_dispatch(id, 23, n, now())); settleValue(el);
       });
     } else if (kind === "hover") {
       // pointerenter/pointerleave: the element's own, not a bubbling mouseover.
@@ -660,6 +660,7 @@ function apply(batch) {
           el.insertBefore(child, cursor);
         }
         while (cursor) { const next = skip(cursor.nextElementSibling); cursor.remove(); cursor = next; }
+        settleValue(el); // a select shows its committed value among its new options
         break;
       }
       case "animate": { motion.animate(op); break; }
@@ -1181,6 +1182,7 @@ function agentReply(request) {
           const batch = globalThis.exact.navigate(request.text ?? "");
           return { typed: request.id, delivery: "recognized", handled: true, ...(batch.error ? { error: batch.error } : {}) };
         }
+        if (valuedControl(frame) && request.key == null) return typeControl(frame, request); // LLP 1069.001 D9
         return frame instanceof HTMLIFrameElement ? guestType(frame, request) : { guest: false };
       }
       case "clock": // then the offset at the new virtual date, in case it crossed a DST change (LLP 1069.007 D2)

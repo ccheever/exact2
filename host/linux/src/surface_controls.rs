@@ -471,6 +471,10 @@ impl<D: DataSource> Presenter<D> {
 
     /// Pointer activation returns HUD button focus to its input canvas after press.
     pub fn press_at(&mut self, x: f32, y: f32, now_ms: f64) -> Option<ViewId> {
+        // An open select menu takes the press: a row, or light dismiss.
+        if let Some(select) = self.menu_press(x, y) {
+            return Some(select);
+        }
         let hit = self.hit(x, y)?;
         if crate::navigation::popover_invoker(self.host.kernel(), hit) {
             self.host.log(crate::navigation::POPOVER_UNSUPPORTED);

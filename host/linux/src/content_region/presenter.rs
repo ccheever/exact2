@@ -73,6 +73,7 @@ impl<D: DataSource> Presenter<D> {
             self.focus,
         );
         let model_scroll = deferred.then(|| self.collection_paint_scroll()).flatten();
+        let menu = self.menu_paint();
         let host = &self.host;
         let presented = |id: ViewId| host.presented(id);
         let scene = Scene {
@@ -86,6 +87,7 @@ impl<D: DataSource> Presenter<D> {
             focus: self.focus,
             pointer: self.pointer,
             controls: &self.controls,
+            menu,
         };
         let region = host.content_region();
         let feedback_before = region.is_some_and(|r| r.publication_painted());

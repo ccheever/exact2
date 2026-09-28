@@ -1,0 +1,25 @@
+# Type Tour on Linux: one executable with the runner, the kernel, the data
+# crate, the baked plan (written by build.rs, never committed), and the
+# host's painter — the painted form controls' consumer (LLP 1069.001 D7).
+[package]
+name = "typetour-linux"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Type Tour on the Linux host: the app's executable"
+publish = false
+build = "build.rs"
+
+[[bin]]
+name = "typetour-linux"
+path = "src/main.rs"
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+typetour-data = { path = "../data" }
+exact-linux = { path = "../../../host/linux" }
+
+[build-dependencies]
+typetour-data = { path = "../data" }
+contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }
