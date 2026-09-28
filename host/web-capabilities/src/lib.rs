@@ -11,12 +11,14 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod backdrop;
 pub mod canvas_colors;
 pub mod collections;
 pub mod drag;
 pub mod format;
 pub mod inspection;
 pub mod markdown;
+pub mod materials;
 pub mod motion;
 pub mod router;
 pub mod surfaces;
@@ -43,5 +45,7 @@ pub const ALL: exact_web::Linked = linked!(
     router,
     format,
     inspection,
-    canvas_colors
+    canvas_colors,
+    materials,
+    backdrop
 );

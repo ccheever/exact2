@@ -45,7 +45,17 @@ pub struct Linked {
     /// Canvas 2D's wide colour forms (LLP 1056 §8.2), linked when the data
     /// crate's source names one: registered at [`link`].
     pub canvas_colors: Option<fn()>,
+    /// `backgroundMaterial` (LLP 1053.000 D4): a material's CSS variables
+    /// appended to a node's style, and the line to log, once, for a name
+    /// the table lacks.
+    pub materials: Option<Materials>,
+    /// `backdrop-filter`'s grammar (LLP 1053.000 D1): linked at [`link`].
+    pub backdrop: Option<fn()>,
 }
+
+/// `backgroundMaterial`'s pair: a material's CSS variables appended to a
+/// style, and the line to log, once, for a name the table lacks.
+pub type Materials = (fn(&mut String, &str), fn(&str) -> Option<String>);
 
 impl Linked {
     /// The core alone.
@@ -60,6 +70,8 @@ impl Linked {
         format: None,
         inspection: false,
         canvas_colors: None,
+        materials: None,
+        backdrop: None,
     };
 
     /// The capabilities registered here.
@@ -86,6 +98,12 @@ impl Linked {
         if self.format.is_some() {
             uses = uses.with(Capability::Format);
         }
+        if self.materials.is_some() {
+            uses = uses.with(Capability::Materials);
+        }
+        if self.backdrop.is_some() {
+            uses = uses.with(Capability::Backdrop);
+        }
         uses
     }
 }
@@ -99,6 +117,9 @@ thread_local! {
 /// Register what this artifact links: its entry does before every boot.
 pub fn link(linked: Linked) {
     if let Some(link) = linked.canvas_colors {
+        link();
+    }
+    if let Some(link) = linked.backdrop {
         link();
     }
     LINKED.with(|cell| cell.set(linked));

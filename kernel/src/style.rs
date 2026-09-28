@@ -18,6 +18,7 @@ use crate::generated::{
 };
 
 mod backdrop;
+pub use backdrop::link as link_backdrop_filter;
 pub mod relative;
 mod shadow;
 pub use shadow::BoxShadow;
@@ -444,7 +445,7 @@ impl StyleValue {
         // @ref LLP 1053.000 D1 — CSS `backdrop-filter`: `none` or one `blur()`.
         if style == StyleId::BackdropBlur {
             return match self {
-                StyleValue::Text(t) => backdrop::parse(t)
+                StyleValue::Text(t) => backdrop::parse_linked(t)
                     .map_err(|reason| StyleValueError::BadBackdropFilter { style, reason }),
                 StyleValue::Number(n) if (*n as f32).is_finite() && *n >= 0.0 => Ok(*n as f32),
                 _ => Err(StyleValueError::BadBackdropFilter {

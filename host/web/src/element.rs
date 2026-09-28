@@ -68,8 +68,12 @@ pub(super) fn host_css(node: &NodeRef<'_>, mut css: String, tag: &str) -> String
             css.push_str(";mask-repeat:no-repeat;mask-position:center;mask-origin:content-box;mask-clip:content-box;object-position:-100000px 0;");
         }
     }
-    if let Some(name) = node.props.str(PropId::BackgroundMaterial) {
-        material_css(&mut css, name);
+    // @ref LLP 1053.000 D4 — linked when the plan names a material.
+    if let (Some(name), Some(material)) = (
+        node.props.str(PropId::BackgroundMaterial),
+        crate::link::linked().materials,
+    ) {
+        (material.0)(&mut css, name);
     }
     css
 }
@@ -115,26 +119,6 @@ fn canvas_css(node: &NodeRef<'_>, css: &mut String) {
             css.push_str("height:fit-content;");
         }
     }
-}
-
-/// `backgroundMaterial` on the web (LLP 1053.000 D4): the schema's stated
-/// approximation of the named material, as the variables the page's one
-/// `[backgroundMaterial]` rule reads. A name the table lacks (only a computed
-/// one reaches here) draws `ultra-thin`; the host logs it once.
-pub(super) fn material_css(css: &mut String, name: &str) {
-    use std::fmt::Write as _;
-    let m = exact_kernel::generated::material(name)
-        .or_else(|| exact_kernel::generated::material("ultra-thin"))
-        .expect("the schema declares ultra-thin");
-    let hex = |c: [u8; 4]| format!("#{:02x}{:02x}{:02x}{:02x}", c[0], c[1], c[2], c[3]);
-    let _ = write!(
-        css,
-        "--exact-material-blur:{}px;--exact-material-saturate:{}%;--exact-material-light:{};--exact-material-dark:{};",
-        m.blur,
-        m.saturate,
-        hex(m.light),
-        hex(m.dark)
-    );
 }
 
 /// The element for a node: its type, refined by `semanticTag`. A `<button>`
@@ -737,22 +721,5 @@ mod name_tests {
         for prop in exact_kernel::PropId::ALL {
             assert!(prop.name().is_ascii(), "{}", prop.name());
         }
-    }
-}
-
-#[cfg(test)]
-mod material_tests {
-    #[test]
-    fn a_material_is_its_tables_variables_and_an_unknown_one_ultra_thins() {
-        let css = |name| {
-            let mut css = String::new();
-            super::material_css(&mut css, name);
-            css
-        };
-        assert_eq!(
-            css("sidebar"),
-            "--exact-material-blur:30px;--exact-material-saturate:180%;--exact-material-light:#eeeeeeb3;--exact-material-dark:#1e1e1eb3;"
-        );
-        assert_eq!(css("frosted"), css("ultra-thin"));
     }
 }

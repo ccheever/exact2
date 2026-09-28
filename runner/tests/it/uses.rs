@@ -107,6 +107,21 @@ fn format_is_a_call_of_format_date_or_format_number_anywhere() {
 }
 
 #[test]
+fn materials_and_backdrop_filter_are_linked_by_use() {
+    // @ref LLP 1053.000 §2 — the web core carries neither unless a plan names one.
+    let plain = used("component A\n  view\n    text \"a\" white-space=\"pre\"\n");
+    assert!(!plain.has(Capability::Materials) && !plain.has(Capability::Backdrop));
+    assert!(
+        used("component A\n  view\n    box backgroundMaterial=\"thin\"\n")
+            .has(Capability::Materials)
+    );
+    assert!(
+        used("component A\n  view\n    box backdrop-filter=\"blur(4px)\"\n")
+            .has(Capability::Backdrop)
+    );
+}
+
+#[test]
 fn a_set_names_what_it_holds_beyond_another() {
     let markdown = Uses::NONE.with(Capability::Markdown);
     assert!(markdown.beyond(markdown).is_empty());

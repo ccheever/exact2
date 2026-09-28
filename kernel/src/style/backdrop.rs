@@ -8,6 +8,29 @@
 
 use super::parse_pixel_length;
 
+/// The grammar, once linked ([`link`]).
+static LINKED: std::sync::OnceLock<Parse> = std::sync::OnceLock::new();
+
+/// The grammar's signature: σ, or the reason a value is refused.
+type Parse = fn(&str) -> Result<f32, &'static str>;
+
+/// Link `backdrop-filter`'s grammar and its named refusals: until a host
+/// calls this, a text value for the row is refused as unlinked. The
+/// compiler and the native hosts link it at start; a web artifact links it
+/// when its plan uses the row (LLP 1047 D2, linked by use; the web core's
+/// budget, LLP 1053.000 §2).
+pub fn link() {
+    let _ = LINKED.set(parse);
+}
+
+/// [`parse`], if linked.
+pub(crate) fn parse_linked(text: &str) -> Result<f32, &'static str> {
+    LINKED.get().map_or(
+        Err("`backdrop-filter` is not linked into this artifact (LLP 1053.000 §2)"),
+        |parse| parse(text),
+    )
+}
+
 /// The blur's standard deviation in points; 0 for `none`.
 pub(crate) fn parse(text: &str) -> Result<f32, &'static str> {
     let text = text.trim();

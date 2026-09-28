@@ -15,6 +15,7 @@ name = "exact_web_capabilities"
 crate-type = ["rlib"]
 
 [dependencies]
+exact-kernel = { path = "../../kernel" }
 exact-markdown = { path = "../../markdown" }
 exact-runner = { path = "../../runner" }
 exact-web = { path = "../web" }

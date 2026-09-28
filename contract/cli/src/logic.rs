@@ -127,7 +127,12 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
             Capability::Collections => entry.push_str("::exact_web::list_exports!();\n"),
             Capability::Surfaces => entry.push_str("::exact_web::surface_exports!();\n"),
             // Drag's input rides motion's export; the others have none.
-            Capability::Markdown | Capability::Drag | Capability::Router | Capability::Format => {}
+            Capability::Markdown
+            | Capability::Drag
+            | Capability::Router
+            | Capability::Format
+            | Capability::Materials
+            | Capability::Backdrop => {}
         }
     }
     entry

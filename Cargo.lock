@@ -1304,6 +1304,7 @@ dependencies = [
 name = "exact-web-capabilities"
 version = "0.1.0"
 dependencies = [
+ "exact-kernel",
  "exact-markdown",
  "exact-runner",
  "exact-web",

@@ -328,6 +328,8 @@ pub(crate) fn check_style_value(
                 span,
             );
         }
+        // The compiler checks every row's grammar (LLP 1053.000 §2).
+        exact_kernel::style::link_backdrop_filter();
         let literal = match value {
             expr if numeric_literal(expr).is_some() => {
                 Some(StyleValue::Number(numeric_literal(expr).unwrap()))

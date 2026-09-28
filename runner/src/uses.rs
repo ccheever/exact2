@@ -38,11 +38,16 @@ pub enum Capability {
     /// `formatDate` and `formatNumber` (LLP 1054.000.003 D8): a plan whose
     /// code calls one.
     Format,
+    /// `backgroundMaterial` (LLP 1053.000 D4): the materials table, and on
+    /// the web its approximation's CSS.
+    Materials,
+    /// `backdrop-filter` (LLP 1053.000 D1): its grammar and named refusals.
+    Backdrop,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 7] = [
+    pub const ALL: [Capability; 9] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
@@ -50,6 +55,8 @@ impl Capability {
         Capability::Surfaces,
         Capability::Router,
         Capability::Format,
+        Capability::Materials,
+        Capability::Backdrop,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -62,6 +69,8 @@ impl Capability {
             Capability::Surfaces => "surfaces",
             Capability::Router => "router",
             Capability::Format => "format",
+            Capability::Materials => "materials",
+            Capability::Backdrop => "backdrop",
         }
     }
 
@@ -148,9 +157,13 @@ pub fn uses(plan: &Plan) -> Uses {
                 {
                     uses = uses.with(Capability::Collections);
                 }
+                Some(PropId::BackgroundMaterial) => uses = uses.with(Capability::Materials),
                 _ => {}
             },
             BindingKind::Style => {
+                if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::BackdropBlur) {
+                    uses = uses.with(Capability::Backdrop);
+                }
                 if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::Transition)
                     && can_be(binding, &|v| v.contains("spring"))
                 {
