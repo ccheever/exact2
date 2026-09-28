@@ -242,7 +242,7 @@ impl DataSource for Keys {
 #[test]
 fn a_virtualized_row_whose_item_left_exits_and_the_rows_after_it_slide() {
     let plan = contract::compile(
-        "keyframes leave\n  to opacity=0\n\nshape Item\n  id: string\n\ncomponent App\n  state short = false\n  action cut writes short\n    short = true\n  resource keys = keys(short) as shape list<Item>\n  view\n    column\n      button press=cut testId=\"cut\"\n        text \"Cut\"\n      list virtualized=true height=300 estimated-item-height=40 overflow-x=\"hidden\" testId=\"list\"\n        each k in keys key=k.id\n          text k.id testId=`row-${k.id}` layout-transition=\"200ms linear\" exit-animation=\"leave 100ms linear both\"\n",
+        "keyframes leave\n  to opacity=0\n\nshape Item\n  id: string\n\ncomponent App\n  state short = false\n  action cut writes short\n    short = true\n  resource keys = keys(short) as shape list<Item>\n  view\n    column\n      button press=cut testId=\"cut\"\n        text \"Cut\"\n      list virtualized=true height=300 estimated-item-height=40 overflow-x=\"hidden\" testId=\"list\"\n        each k in keys key=k.id\n          text k.id testId=`row-${k.id}` height=40 layout-transition=\"200ms linear\" exit-animation=\"leave 100ms linear both\"\n",
     )
     .unwrap();
     let (mut host, _) = Host::boot(
@@ -258,28 +258,40 @@ fn a_virtualized_row_whose_item_left_exits_and_the_rows_after_it_slide() {
         let key = *k.find_by_test_id(name).first()?;
         Some(k.node_by_key(key).unwrap()).map(|n| (n.id, n.parent.unwrap()))
     };
-    let snapshot = host.runner().collections().remove(0);
-    let feedback = exact_runner::CollectionFeedback {
-        view: snapshot.view,
-        revision: snapshot.revision,
-        scroll_sequence: snapshot.scroll_sequence + 1,
-        offset: 0.0,
-        port_cross: 390.0,
-        port_main: 300.0,
-        cross: 390.0,
-        measurements: snapshot
-            .rows
-            .iter()
-            .map(|r| exact_runner::RowMeasurement {
-                view: r.view,
-                epoch: r.epoch,
-                size: 40.0,
-            })
-            .collect(),
-        focus_view: None,
-        interaction_view: None,
+    // A row is its content's height, 40, as the host measures it. The first
+    // report sets the list's width, which retires every measurement epoch
+    // published before it; the rows are measured in the next.
+    let report = |host: &mut Host<Keys>| {
+        let snapshot = host.runner().collections().remove(0);
+        let feedback = exact_runner::CollectionFeedback {
+            view: snapshot.view,
+            revision: snapshot.revision,
+            scroll_sequence: snapshot.scroll_sequence + 1,
+            offset: 0.0,
+            port_cross: 390.0,
+            port_main: 300.0,
+            cross: 390.0,
+            measurements: snapshot
+                .rows
+                .iter()
+                .map(|r| exact_runner::RowMeasurement {
+                    view: r.view,
+                    epoch: r.epoch,
+                    size: 40.0,
+                })
+                .collect(),
+            focus_view: None,
+            interaction_view: None,
+        };
+        host.collection_feedback(&feedback.encode().unwrap(), 0.0);
     };
-    host.collection_feedback(&feedback.encode().unwrap(), 0.0);
+    report(&mut host);
+    report(&mut host);
+    let rows = host.runner().collections().remove(0).rows;
+    assert!(
+        rows.iter().all(|r| r.measured && r.size == 40.0),
+        "{rows:?}"
+    );
     let (_, b_wrapper) = find(&host, "row-b").expect("mounted");
     let (c, _) = find(&host, "row-c").unwrap();
     let cut = view(&host, "cut").unwrap();
