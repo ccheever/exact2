@@ -1134,6 +1134,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         presenter?.videoVisibility?.changed()
         if field != nil { field?.frame = contentBox() }
         video?.layout()
+        if kind == "native" { presenter?.session?.natives.laidOut(self) }
         layoutTextArea()
         layoutSymbol()
     }

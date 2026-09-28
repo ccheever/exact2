@@ -310,6 +310,86 @@ final class NodePoolIOSTests: XCTestCase {
         for root in roots.dropFirst() { XCTAssertTrue(p.pool.isParked(root)) }
     }
 
+    /// A native-module tag that opts into reuse (LLP 1068 §4.8, §4.9): a
+    /// retired node's instance is reset and parked out of the window, the
+    /// next node of the tag takes it with its props as a first mount, the
+    /// view transparent until `load`; a callback the instance issues while
+    /// parked never reaches the next node, one issued after the take does;
+    /// an instance serves a bounded number of rows; a tag without the opt-in
+    /// is destroyed as before.
+    func testANativeTagThatOptsInIsResetAndLentToTheNextNode() throws {
+        FakeModule.reset()
+        FakeModule.table.withUnsafeBytes { NativeViews.install(table: $0.baseAddress!) }
+        let p = Presenter()
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        p.viewport.frame = window.bounds; window.addSubview(p.viewport); window.makeKeyAndVisible()
+        let natives = NativeViews()
+        natives.install(module: UnsafeMutableRawPointer(bitPattern: 1)!)
+        var loads: [UInt32] = []
+        p.onLoad = { loads.append($0) }
+        func node(_ id: UInt32, _ tag: String, _ props: String) -> NodeView {
+            let v = NodeView(id: id, kind: "native", presenter: p)
+            v.frame = CGRect(x: 0, y: 0, width: 200, height: 100)
+            p.viewport.addSubview(v); p.views[id] = v
+            v.handlers = ["load"]
+            natives.create(owner: v)
+            v.props = ["nativeViewModuleName": tag, "nativeViewProps": props]
+            natives.update(v)
+            return v
+        }
+        func retire(_ v: NodeView) { natives.destroy(id: v.id); p.views[v.id] = nil; v.removeFromSuperview() }
+        let settle = {
+            let delivered = self.expectation(description: "callbacks delivered")
+            DispatchQueue.main.async { delivered.fulfill() }
+            self.wait(for: [delivered], timeout: 2)
+        }
+
+        let a = node(10, "fake-map", #"{"place":"a"}"#)
+        XCTAssertEqual(FakeModule.made.count, 1)
+        let first = FakeModule.made[0]
+        XCTAssertTrue(first.view.superview === a)
+        retire(a)
+        XCTAssertEqual(first.resets, 1, "reset at the park")
+        XCTAssertNil(first.view.superview, "parked out of the window")
+        XCTAssertFalse(first.destroyed)
+        first.send(7) // a load issued while parked
+        let b = node(20, "fake-map", #"{"place":"b"}"#)
+        XCTAssertEqual(FakeModule.made.count, 1, "no new instance: the parked one is taken")
+        XCTAssertTrue(first.view.superview === b)
+        XCTAssertEqual(first.props.last, #"{"place":"b"}"#, "the new node's props, whole")
+        XCTAssertEqual(first.view.alpha, 0, "transparent until the instance says nothing of the last row shows")
+        settle()
+        XCTAssertEqual(loads, [], "the parked instance's load reaches no node")
+        XCTAssertEqual(first.view.alpha, 0)
+        first.send(7)
+        settle()
+        XCTAssertEqual(loads, [20], "a load after the take reaches the new node")
+        XCTAssertEqual(first.view.alpha, 1)
+
+        // Bounded: made once and reused up to the limit, then destroyed.
+        var last = b
+        for i in 1..<NativeViews.reuseLimit {
+            retire(last)
+            last = node(UInt32(30 + i), "fake-map", "{}")
+        }
+        XCTAssertEqual(FakeModule.made.count, 1)
+        XCTAssertEqual(first.resets, NativeViews.reuseLimit)
+        retire(last)
+        XCTAssertTrue(first.destroyed, "past its limit the instance goes")
+        _ = node(90, "fake-map", "{}")
+        XCTAssertEqual(FakeModule.made.count, 2)
+
+        // A tag without the opt-in is destroyed at its node's destroy.
+        let plain = node(100, "fake-plain", "{}")
+        let made = try XCTUnwrap(FakeModule.made.last)
+        retire(plain)
+        XCTAssertTrue(made.destroyed); XCTAssertEqual(made.resets, 0)
+        XCTAssertEqual(natives.observation["reused"] as? Int, NativeViews.reuseLimit)
+        natives.drainParked()
+        NativeViews.uninstallTable()
+        window.isHidden = true
+    }
+
     func testHeavyLeafCostsLeaveOutEachKindsFirstCreation() {
         let kind = "test-kind-\(UUID().uuidString)"
         HeavyLeaves.record(kind, 0.5)
@@ -317,5 +397,56 @@ final class NodePoolIOSTests: XCTestCase {
         for s in [0.001, 0.02, 0.003, 0.004, 0.030, 0.002] { HeavyLeaves.record(kind, s) }
         XCTAssertEqual(HeavyLeaves.cost(kind), 0.004, "the median of the last five")
     }
+}
+
+/// A module table in memory for the reuse test: two tags, `fake-map`
+/// (reuse) and `fake-plain`, each instance a plain view that records what
+/// the host asked of it.
+private enum FakeModule {
+    final class Instance {
+        let view = UIView()
+        let nonce: UInt32
+        let event: @convention(c) (UnsafeMutableRawPointer?, UInt32, UInt32, UnsafePointer<UInt8>?, UInt32) -> Void
+        var props: [String] = []
+        var resets = 0
+        var destroyed = false
+        init(nonce: UInt32, event: @escaping @convention(c) (UnsafeMutableRawPointer?, UInt32, UInt32, UnsafePointer<UInt8>?, UInt32) -> Void) {
+            self.nonce = nonce; self.event = event
+        }
+        func send(_ kind: UInt32) { event(nil, nonce, kind, nil, 0) }
+    }
+    nonisolated(unsafe) static var made: [Instance] = []
+    static func reset() { made = [] }
+    static func instance(_ raw: UnsafeMutableRawPointer?) -> Instance { Unmanaged<Instance>.fromOpaque(raw!).takeUnretainedValue() }
+    static let roster = strdup(#"{"fake-map":{"snapshot":false,"reuse":true},"fake-plain":{"snapshot":false}}"#)!
+    static let table: [UInt8] = {
+        var t = [UInt8](repeating: 0, count: 112)
+        func put<T>(_ value: T, _ offset: Int) { withUnsafeBytes(of: value) { for (i, b) in $0.enumerated() { t[offset + i] = b } } }
+        let create: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UInt8>?, UInt32,
+                                    (@convention(c) (UnsafeMutableRawPointer?, UInt32, UInt32, UnsafePointer<UInt8>?, UInt32) -> Void)?,
+                                    UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> UnsafeMutableRawPointer? = {
+            _, _, _, json, length, event, _, _, nonce, _, _ in
+            let made = Instance(nonce: nonce, event: event!)
+            made.props.append(String(decoding: UnsafeBufferPointer(start: json, count: Int(length)), as: UTF8.self))
+            FakeModule.made.append(made)
+            return Unmanaged.passRetained(made).toOpaque()
+        }
+        let view: @convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer? = { Unmanaged.passUnretained(FakeModule.instance($0).view).toOpaque() }
+        let set: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> Int32 = { raw, json, length, _, _ in
+            FakeModule.instance(raw).props.append(String(decoding: UnsafeBufferPointer(start: json, count: Int(length)), as: UTF8.self)); return 0
+        }
+        let destroy: @convention(c) (UnsafeMutableRawPointer?) -> Void = { raw in
+            FakeModule.instance(raw).destroyed = true; Unmanaged<Instance>.fromOpaque(raw!).release()
+        }
+        let none: @convention(c) (UnsafeMutableRawPointer?) -> Void = { _ in }
+        let reuse: @convention(c) (UnsafeMutableRawPointer?) -> Int32 = { FakeModule.instance($0).resets += 1; return 0 }
+        put(UInt32(2), 0); put(UInt32(112), 4); put(UnsafeRawPointer(roster), 8)
+        put(unsafeBitCast(create, to: UnsafeRawPointer.self), 16); put(unsafeBitCast(view, to: UnsafeRawPointer.self), 24)
+        put(unsafeBitCast(set, to: UnsafeRawPointer.self), 32); put(unsafeBitCast(destroy, to: UnsafeRawPointer.self), 48)
+        // The module entries are never called here (the test installs an instance).
+        for offset in [72, 80, 88, 96] { put(unsafeBitCast(none, to: UnsafeRawPointer.self), offset) }
+        put(unsafeBitCast(reuse, to: UnsafeRawPointer.self), 104)
+        return t
+    }()
 }
 #endif

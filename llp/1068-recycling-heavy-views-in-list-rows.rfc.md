@@ -1,7 +1,7 @@
 # LLP 1068: Recycling heavy native views in list rows
 
 **Type:** RFC
-**Status:** Accepted (r3: Charlie's rulings of 2026-09-27 on §10, recorded in §0.1; "for now", with a revisit left open. r2 folded two reviews, §0). Stage 1 built, with Q2's deviation (§0.2)
+**Status:** Accepted (r3: Charlie's rulings of 2026-09-27 on §10, recorded in §0.1; "for now", with a revisit left open. r2 folded two reviews, §0). Stage 1 built, with Q2's deviation (§0.2); stage 3's native-module opt-in built, `NativeMap` its adopter (§0.3)
 **Systems:** Apple host (`NodePoolIOS.swift` and its reset contract; `NodeViewIOS.swift`'s material, scroll and field views; `GpuIOS.swift`'s canvases; the video, web and native-module arms), GPU module ABI (LLP 1009: stage 3 only), native-module ABI (LLP 1024: one optional entry, stage 3 only), Runner (none), Contract (none)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Implementer:** Claude (Opus 5.5), stage 1 from 2026-09-27 on `feat/heavy-pool-stage1`; later stages by the lane that builds the Extra Heavy feed (`~/bench/xheavy`), each behind its gate
@@ -206,6 +206,97 @@ is the only way the probe exercises §5.1. M1 iPad Pro 12.9", 120 Hz:
 
 What stage 2 inherits: the GPU profile (Q4), scroll views and fields
 (§4.2, §4.3), and the Extra Heavy ladder once that app exists.
+
+## 0.3 Stage 3: the native-module opt-in, as built (2026-09-27, `perf/xheavy-maps`)
+
+Q5's gate: the iPad showed the saving. In the Extra Heavy feed's
+preliminary round (17 kinds, `fling`), exact2 spent 958 ms/s of process CPU
+against SwiftUI's 624; about 360 ms/s of it was MapKit decoding tiles on
+background threads for a new `MKMapView` per map row that scrolled in, and
+the map's creation was a third of `Presenter.apply`.
+
+**Measured first, with a prototype** (the xheavy app, `fling 0`, one run
+each, M1 iPad Pro 12.9"; CPU and main ms/s, footprint peak/end MB, maps made
+a second; the base made 1.6 maps/s at 962 CPU, 372/253 MB):
+
+| Variant | CPU | main | peak / end | maps/s |
+|---|---|---|---|---|
+| reuse without a limit, parked hidden in the window | 658 | 418 | 705 / 620 | 0.1 |
+| reuse without a limit, parked out of the window | 610 | 391 | 549 / 502 | 0.1 |
+| each instance reused 8 times, out of the window | 672 | 390 | 498 / 422 | 0.2 |
+| each instance reused 4 times, out of the window | 728 | 405 | 446 / 294 | 0.4 |
+
+A reused map keeps what it drew for every region it has shown: unbounded
+reuse saved the most CPU and grew the footprint by a quarter of a gigabyte
+over one fling. So an instance serves a bounded number of rows. With
+fresh maps, the fling's footprint came back to 250–260 MB after a 370 MB
+peak, so the "destroyed maps are not released promptly" of §3 (simulator,
+a scratch probe) did not reproduce on the iPad.
+
+**As built:**
+- **Table** (LLP 1067.000 moved the module entries to 72–96): the optional
+  entry is at offset 104 (`size ≥ 112`; major 2), and the roster bit is
+  `{"native-map": {"snapshot": true, "reuse": true}}`, set by
+  `ExactNativeFactory(…, reuse: true)`; the instance overrides
+  `prepareForReuse()`.
+- **Pooled by tag** in the session's `NativeViews` (the app has one
+  artifact): 2 parked at most, each instance made once and reused 4 times,
+  then destroyed. A parked view leaves the window (in the window it cost
+  more CPU and memory); a memory warning, the background and the module's
+  destruction drop every parked instance. A tag with a parked instance is
+  never held mid-fling (§5.1): the take costs a tenth of a creation.
+- **Incarnations (§4.9):** the module's nonce is fixed for its instance's
+  life; the host maps it to the incarnation now current, under a lock,
+  when a callback is *issued* (on the module's thread), and delivers it
+  only to that incarnation. Park zeroes the mapping before
+  `prepare_for_reuse` runs; the take issues a never-used token.
+- **Pixels:** the reset empties the Metal layers under the `MKMapView`
+  (MapKit's last drawable otherwise stays until it draws again), so the map
+  shows its own blank ground, as a new map does, until the new region
+  draws; a simulator capture after the emptying showed the ground and no
+  tiles. The host keeps a taken view transparent until the instance's
+  `load`, which `NativeMap` sends with the first mount, as a new one does.
+  `mapViewDidFinishRenderingMap` was tried as the signal and fired for only
+  a third of takes.
+- **Size:** a taken view keeps its size until its new node is laid out
+  (`NativeViews.laidOut`): resizing an `MKMapView` to nothing and back cost
+  13 ms/s of the main thread at 6k–24k pt/s.
+- **`NativeMap`'s reset:** selection, annotations, overlays, user location
+  and tracking, map type, interaction flags, accessibility label, camera
+  heading and pitch, its props cache; the next props are a first mount (no
+  animated region change, then `load`).
+- **Counted:** `state.pool.native` (made, reused, parks, dropped, parked
+  by tag, cap, limit). Test: `NodePoolIOSTests` (a module table in memory:
+  park, take, a parked instance's `load` dropped and a taken one's
+  delivered, the limit, a tag without the opt-in).
+
+**Measured** on the iPad, base (origin/main `bb922e0c`) against this, two
+interleaved rounds each, `BENCH_KINDS=17`, `BENCH_DELAY=15`:
+
+| | fps | late frames/s | CPU ms/s | main ms/s | peak / end MB | maps made/s |
+|---|---|---|---|---|---|---|
+| `fling`, base | 104.3 | 8.9 | 962 | 430 | 372 / 253 | 1.6 |
+| `fling`, reuse | 103.4–106.8 | 8.4–11.0 | 700–710 | 387–389 | 422–427 / 305 | 0.3–0.4 |
+| `ladder`, base | 79.1 | 14.1 | 1,197 | 595 | 361 / 250 | 3.5 |
+| `ladder`, reuse | 85.7–86.1 | 14.6–15.1 | 967–995 | 549–552 | 426–445 / 277–284 | 0.7–0.8 |
+| `rest`, base / reuse | 119.9 / 119.9 | 0 / 0 | 405 / 400 | 268 / 264 | 63 / 64 | 0 / 0 |
+
+(Reuse ran in two series an hour apart; both ranges are shown.)
+Time Profiler, 12k–24k pt/s: MapKit's background work 296 → 180 ms/s
+(SwiftUI's 178), `renderSceneSync` on the main thread 85 → 78 (SwiftUI's
+42: MapKit draws each visible map every frame, which reuse does not change).
+
+**With the mid-fling hold engaged** (the probe's coast, `BENCH_COAST=1`,
+one round): base 110.0 fps at 493 ms/s, reuse 109.5 at 502; both made 0.1
+maps a second, because §5.1 holds every map while the list flies. Under a
+real fling the saving moves to where the held maps are made — as the list
+slows and at rest — which the probe's scripted segments do not measure;
+the scripted fling above, like a slow drag under a viewport a second,
+creates them as they scroll in.
+
+**The trade:** 26% less process CPU in a fling, 17% in the ladder, for
+about 50 MB more peak and end footprint: one parked and a few more
+long-lived maps, each holding what it drew.
 
 ## 1. What the pool is today
 
@@ -552,7 +643,7 @@ bugs than gains"); `react-native-maps` destroys its map on recycle.
 The opt-in, if stage 2's run shows map rows still costing frames when the
 list comes to rest (the map's 20–47 ms then lands on the settle frame):
 - **Table:** one optional entry at offset 72 (`size ≥ 80`, the major stays
-  1), and a roster bit per tag (`{"native-map": {"reuse": true}}`):
+  1; built at 104 after LLP 1067.000, §0.3), and a roster bit per tag (`{"native-map": {"reuse": true}}`):
   `prepare_for_reuse(handle) → i32`, 0 when the instance is now as if
   created with no props.
 - **Pooled by artifact and tag**, never by `kind == "native"` alone.
@@ -564,11 +655,14 @@ list comes to rest (the map's 20–47 ms then lands on the settle frame):
   as a first mount (for `NativeMap`, `first: true`: no animated region
   change, and its `load` event, `NativeMap.swift:42–66`).
 - **Pixels:** the view stays hidden until the module reports the new
-  content ready; a map's last tiles otherwise show under the new region.
+  content ready; a map's last tiles otherwise show under the new region
+  (as built, §0.3: the map's Metal layers are emptied at the reset, and the
+  host's transparency ends at `load`).
 - **`NativeMap`'s reset:** props cache, annotations, overlays, selection and
   callouts, the annotation-view reuse queue's views, camera, user location
   and tracking, `mapType` and interaction flags, pending snapshot work.
-- **Cap 1** (17 MB on the simulator, 59 MB on the Mac).
+- **Cap 1** (17 MB on the simulator, 59 MB on the Mac). Built with 2, and
+  each instance reused at most 4 times (§0.3).
 
 ### 4.9 Incarnations (every pooled heavy object)
 
@@ -671,7 +765,7 @@ Trial values, to be replaced by the iPad's numbers.
   | text field / area (stage 2) | 4 | a feed rarely shows more |
   | GPU layer (stage 3, if built) | 2 | about 6.3 MB of drawables each at C = 600, 220 pt, 2×, three BGRA drawables |
   | video player (stage 3, if built) | 2 | 1 MB in the app; decoders are shared hardware |
-  | native-module view (stage 3, opt-in) | 1 | 17 MB on the simulator, 59 MB on the Mac |
+  | native-module view (stage 3, opt-in) | 2, each reused 4 times (§0.3) | 17 MB on the simulator, 59 MB on the Mac; a reused map grows with each region it shows |
 
   A kind at its cap evicts its least recently parked view (with its tree)
   rather than refusing the newer one. These caps bound *parked* views only;

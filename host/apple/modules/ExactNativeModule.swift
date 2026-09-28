@@ -25,6 +25,12 @@
 // main thread while it runs: keep it to cheap queries. The web has no
 // synchronous call, so a portable source falls back to `native.later`. `views` is the roster, read
 // once per process. Each view instance subclasses `ExactNativeInstance`.
+//
+// A factory that sets `reuse` opts its tag into reuse in a list (LLP 1068
+// §4.8): the instance's `prepareForReuse` makes it as if created with no
+// props, the next `setProps` is a first mount, and `events.load()` follows
+// once no pixel of the last row's shows (the host keeps the view
+// transparent until then).
 import Foundation
 #if os(macOS)
 import AppKit
@@ -164,26 +170,34 @@ open class ExactNativeInstance {
     open func snapshot() throws -> Data { throw ExactNativeRefusal("no snapshot") }
     /// Last call. The events object is dead to the host after this.
     open func destroy() {}
+    /// Reuse (a factory with `reuse`, LLP 1068 §4.8): the instance is now as
+    /// if created with no props; throw to refuse, and the host destroys it.
+    /// The next `setProps` is a first mount, and `events.load()` follows once
+    /// nothing of the last row shows. Events sent before that mount are dropped.
+    open func prepareForReuse() throws { throw ExactNativeRefusal("no reuse") }
 }
 
-/// A roster entry: how to make an instance from the session's module, and
-/// whether it answers snapshots.
+/// A roster entry: how to make an instance from the session's module,
+/// whether it answers snapshots, and whether a list may reuse it (LLP 1068
+/// §4.8).
 public struct ExactNativeFactory {
     public let snapshot: Bool
+    public let reuse: Bool
     public let make: (ExactModule, [String: String], ExactNativeEvents) throws -> ExactNativeInstance
-    public init(snapshot: Bool = false, make: @escaping (ExactModule, [String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
+    public init(snapshot: Bool = false, reuse: Bool = false, make: @escaping (ExactModule, [String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
         self.snapshot = snapshot
+        self.reuse = reuse
         self.make = make
     }
     /// A view that needs nothing from the module.
-    public init(snapshot: Bool = false, make: @escaping ([String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
-        self.init(snapshot: snapshot) { _, props, events in try make(props, events) }
+    public init(snapshot: Bool = false, reuse: Bool = false, make: @escaping ([String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
+        self.init(snapshot: snapshot, reuse: reuse) { _, props, events in try make(props, events) }
     }
     /// A view of the app's module, typed: `ExactNativeFactory(for: Recorder.self)
     /// { recorder, props, events in … }`. The session's module is always the
     /// app's `exactModule`; another type is refused by name.
-    public init<M: ExactModule>(for module: M.Type, snapshot: Bool = false, make: @escaping (M, [String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
-        self.init(snapshot: snapshot) { owner, props, events in
+    public init<M: ExactModule>(for module: M.Type, snapshot: Bool = false, reuse: Bool = false, make: @escaping (M, [String: String], ExactNativeEvents) throws -> ExactNativeInstance) {
+        self.init(snapshot: snapshot, reuse: reuse) { owner, props, events in
             guard let typed = owner as? M else { throw ExactNativeRefusal("the session's module is \(type(of: owner)), not \(M.self)") }
             return try make(typed, props, events)
         }
@@ -316,14 +330,19 @@ private let moduleCall: @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<
     }
 }
 
+private let prepareForReuse: @convention(c) (UnsafeMutableRawPointer?) -> Int32 = { raw in
+    guard let h = handle(raw) else { return 1 }
+    do { try h.instance.prepareForReuse(); return 0 } catch { return 1 }
+}
+
 /// The ABI major this artifact was built against; the host refuses others.
 private let major: UInt32 = 2
 
 private let table: UnsafeMutableRawPointer = {
     let text = "{" + roster.keys.sorted().map { tag in
-        "\"\(tag)\":{\"snapshot\":\(roster[tag]!.snapshot)}"
+        "\"\(tag)\":{\"snapshot\":\(roster[tag]!.snapshot),\"reuse\":\(roster[tag]!.reuse)}"
     }.joined(separator: ",") + "}"
-    let size = 104
+    let size = 112
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
     t.storeBytes(of: major, as: UInt32.self)
@@ -338,6 +357,7 @@ private let table: UnsafeMutableRawPointer = {
     t.storeBytes(of: unsafeBitCast(moduleDestroy, to: UnsafeRawPointer.self), toByteOffset: 80, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleLater, to: UnsafeRawPointer.self), toByteOffset: 88, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleCall, to: UnsafeRawPointer.self), toByteOffset: 96, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(prepareForReuse, to: UnsafeRawPointer.self), toByteOffset: 104, as: UnsafeRawPointer.self)
     return t
 }()
 

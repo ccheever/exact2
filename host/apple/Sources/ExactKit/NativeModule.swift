@@ -27,6 +27,9 @@
 //        answer(reply, status, bytes, len) once, any thread: exact_app_reply
 //  96  module_call(module, body, len, slot, answer)
 //        answer(slot, status, bytes, len) before returning: exact_app_answer
+// 104  prepare_for_reuse(handle) → 0 reset, else refused   size ≥ 112; nullable
+//        (LLP 1068 §4.8): as if created with no props; the next set_props is
+//        a first mount, and `load` follows once no pixel of the last row shows
 //
 //   event(ctx, nonce, kind, bytes, len)          kind: EventKind 0–8 — press,
 //     change, hover, focus, blur, key, submit, load, message; change, key and
@@ -37,6 +40,16 @@
 // thread: the bytes are copied, the call hops to the main queue, and an
 // invalidated nonce (a destroyed instance) is dropped and logged. The
 // artifact is never closed (D5).
+//
+// Reuse (iOS, LLP 1068 §4.8, §4.9): a tag whose roster entry says `reuse`
+// is pooled by tag (the app has one artifact). At a destroy the instance's
+// incarnation ends first (a callback it issues from then on is dropped),
+// then `prepare_for_reuse` resets it and its view leaves the window; a
+// later node of the tag takes it under a never-used incarnation, its props
+// applied as a first mount, the view transparent until the instance's
+// `load`. A module's nonce is fixed for its instance's life; each callback
+// captures the incarnation current for that nonce when it is issued, and is
+// delivered only to that one.
 import CExact
 import Foundation
 #if os(macOS)
@@ -63,6 +76,7 @@ private final class NativeTable {
     typealias SetFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> Int32
     typealias SnapshotFn = @convention(c) (UnsafeMutableRawPointer?, UInt32) -> Void
     typealias DestroyFn = @convention(c) (UnsafeMutableRawPointer?) -> Void
+    typealias ReuseFn = @convention(c) (UnsafeMutableRawPointer?) -> Int32
     typealias AbiFn = @convention(c) () -> UnsafeRawPointer?
     typealias ChangedFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
     typealias NowFn = @convention(c) (UnsafeMutableRawPointer?) -> Double
@@ -82,6 +96,7 @@ private final class NativeTable {
     let moduleDestroy: ModuleDestroyFn
     let moduleLater: ModuleLaterFn
     let moduleCall: ModuleLaterFn
+    var prepareForReuse: ReuseFn?
 
     private init(path: String, roster: [String: [String: Any]], create: @escaping CreateFn, platformView: @escaping ViewFn,
                  setProps: @escaping SetFn, snapshot: SnapshotFn?, destroy: @escaping DestroyFn,
@@ -102,6 +117,11 @@ private final class NativeTable {
         guard let entry = dlsym(library, "exact_native_abi"),
               let table = unsafeBitCast(entry, to: AbiFn.self)()
         else { return .failure(NativeFailure(state: "unavailable", message: "\(path) exports no exact_native_abi table")) }
+        return read(table, path: path)
+    }
+
+    /// A table in memory: the artifact's, or a test's.
+    static func read(_ table: UnsafeRawPointer, path: String) -> Result<NativeTable, NativeFailure> {
         let major = table.load(as: UInt32.self), size = table.load(fromByteOffset: 4, as: UInt32.self)
         guard major == NativeTable.major else {
             return .failure(NativeFailure(state: "unavailable", message: "module ABI \(major), host ABI \(NativeTable.major)"))
@@ -116,7 +136,7 @@ private final class NativeTable {
               let moduleCall = pointer(96) else {
             return .failure(NativeFailure(state: "unavailable", message: "\(path): the table lacks a required entry"))
         }
-        return .success(NativeTable(
+        let loaded = NativeTable(
             path: path, roster: roster, create: unsafeBitCast(create, to: CreateFn.self),
             platformView: unsafeBitCast(view, to: ViewFn.self), setProps: unsafeBitCast(set, to: SetFn.self),
             snapshot: pointer(40).map { unsafeBitCast($0, to: SnapshotFn.self) },
@@ -124,7 +144,9 @@ private final class NativeTable {
             moduleCreate: unsafeBitCast(moduleCreate, to: ModuleCreateFn.self),
             moduleDestroy: unsafeBitCast(moduleDestroy, to: ModuleDestroyFn.self),
             moduleLater: unsafeBitCast(moduleLater, to: ModuleLaterFn.self),
-            moduleCall: unsafeBitCast(moduleCall, to: ModuleLaterFn.self)))
+            moduleCall: unsafeBitCast(moduleCall, to: ModuleLaterFn.self))
+        loaded.prepareForReuse = size >= 112 ? pointer(104).map { unsafeBitCast($0, to: ReuseFn.self) } : nil
+        return .success(loaded)
     }
 }
 
@@ -134,7 +156,16 @@ private final class NativeEntry {
     var name = ""
     var state = "loading"
     var error: String?
+    /// The incarnation token callbacks are delivered under; `instance` is
+    /// the nonce the module was created with (they differ after a reuse).
     var nonce: UInt32 = 0
+    var instance: UInt32 = 0
+    /// A reused view, transparent until the instance's `load`; how many
+    /// rows it has served since it was made.
+    var revealing = false
+    var uses = 0
+    /// Taken before its node had a box (`laidOut`).
+    var sizing = false
     var handle: UnsafeMutableRawPointer?
     var view: NativePlatformView?
     var props = "{}"
@@ -155,11 +186,18 @@ private enum NativeProcess {
     nonisolated(unsafe) static var owners: [UInt32: WeakNatives] = [:]
     nonisolated(unsafe) static var retired: [UInt32: WeakNatives] = [:]
     nonisolated(unsafe) static var next: UInt32 = 1
+    /// Module nonce → its current incarnation (0 while parked), read on the
+    /// calling thread when a callback is issued (LLP 1068 §4.9).
+    nonisolated(unsafe) static var live: [UInt32: UInt32] = [:]
+    static let lock = NSLock()
+    static func incarnation(_ nonce: UInt32) -> UInt32 { lock.lock(); defer { lock.unlock() }; return live[nonce] ?? 0 }
+    static func set(_ nonce: UInt32, _ token: UInt32?) { lock.lock(); live[nonce] = token; lock.unlock() }
 }
 private final class WeakNatives { weak var natives: NativeViews?; init(_ n: NativeViews) { natives = n } }
 
-private let nativeEventCallback: NativeEventFn = { _, nonce, kind, bytes, length in
+private let nativeEventCallback: NativeEventFn = { _, instance, kind, bytes, length in
     let data = bytes.map { Data(bytes: $0, count: Int(length)) } ?? Data()
+    let nonce = NativeProcess.incarnation(instance)
     // Never synchronously: the host enters the runner through the presenter's gate.
     DispatchQueue.main.async {
         if let natives = NativeProcess.owners[nonce]?.natives { natives.received(nonce: nonce, kind: kind, data: data) }
@@ -167,8 +205,9 @@ private let nativeEventCallback: NativeEventFn = { _, nonce, kind, bytes, length
     }
 }
 
-private let nativeReplyCallback: NativeReplyFn = { _, nonce, token, kind, bytes, length in
+private let nativeReplyCallback: NativeReplyFn = { _, instance, token, kind, bytes, length in
     let data = bytes.map { Data(bytes: $0, count: Int(length)) } ?? Data()
+    let nonce = NativeProcess.incarnation(instance)
     let deliver: () -> Void = { NativeProcess.owners[nonce]?.natives?.replied(token: token, kind: kind, data: data) }
     if Thread.isMainThread { deliver() } else { DispatchQueue.main.async(execute: deliver) }
 }
@@ -223,6 +262,15 @@ final class NativeViews {
     private var gateOpen = false
     private var waits: [UInt32: NativeWait] = [:]
     private var nextToken: UInt32 = 1
+    /// Since launch (`state.pool.native`): instances created, taken from the
+    /// pool, parked, and parked ones destroyed.
+    private(set) var made = 0, reused = 0, parks = 0, dropped = 0
+    #if os(iOS)
+    /// Parked instances by tag, oldest first.
+    fileprivate var parked: [String: [NativeEntry]] = [:]
+    fileprivate var observers: [NSObjectProtocol] = []
+    deinit { for o in observers { NotificationCenter.default.removeObserver(o) } }
+    #endif
     private static let kinds = ["press", "change", "hover", "focus", "blur", "key", "submit", "load", "message"]
 
     private func log(_ line: String) {
@@ -389,6 +437,9 @@ final class NativeViews {
 
     /// Session teardown, after the views and the runtime: the module goes last.
     func destroyModule() {
+        #if os(iOS)
+        drainParked()
+        #endif
         guard let instance, case .success(let table)? = NativeProcess.table else { return }
         self.instance = nil
         table.moduleDestroy(instance)
@@ -418,10 +469,15 @@ final class NativeViews {
         }
         entry.snapshotBit = caps["snapshot"] as? Bool == true && table.snapshot != nil
         let started = CFAbsoluteTimeGetCurrent()
+        #if os(iOS)
+        if reuse(entry, table: table, owner: owner) { return }
+        #endif
         let nonce = NativeProcess.next
         NativeProcess.next &+= 1
         NativeProcess.owners[nonce] = WeakNatives(self)
+        NativeProcess.set(nonce, nonce)
         entry.nonce = nonce
+        entry.instance = nonce
         let props = owner.props["nativeViewProps"] ?? "{}"
         var error = [UInt8](repeating: 0, count: 512)
         let tag = Data(entry.name.utf8), json = Data(props.utf8)
@@ -431,12 +487,14 @@ final class NativeViews {
         } }
         guard let handle else {
             NativeProcess.owners.removeValue(forKey: nonce)
+            NativeProcess.set(nonce, nil)
             entry.nonce = 0
             return fail(entry, "error", "create refused: \(String(cString: error.map { CChar(bitPattern: $0) }))")
         }
         guard let raw = table.platformView(handle) else {
             table.destroy(handle)
             NativeProcess.owners.removeValue(forKey: nonce)
+            NativeProcess.set(nonce, nil)
             entry.nonce = 0
             return fail(entry, "error", "\(entry.name) returned no platform view")
         }
@@ -454,6 +512,7 @@ final class NativeViews {
         entry.props = props
         entry.state = "ready"
         entry.error = nil
+        made += 1
         measured?("native", CFAbsoluteTimeGetCurrent() - started)
         log("\(entry.name) #\(entry.id): ready")
     }
@@ -462,6 +521,14 @@ final class NativeViews {
     /// answers whether `owner`'s instance waits, `measured` hears each
     /// creation's cost, and `release` makes a held instance now, from the
     /// owner's latest props.
+    #if os(macOS)
+    func canReuse(_ name: String) -> Bool { false }
+    #endif
+    /// Tests: the process's table from memory, and this session's module
+    /// instance, without an artifact or a runtime.
+    static func install(table: UnsafeRawPointer) { NativeProcess.table = NativeTable.read(table, path: "test") }
+    static func uninstallTable() { NativeProcess.table = nil }
+    func install(module: UnsafeMutableRawPointer) { instance = module; gateOpen = true }
     var holds: ((NodeView) -> Bool)?
     var measured: ((String, TimeInterval) -> Void)?
     func release(_ owner: NodeView) {
@@ -477,7 +544,7 @@ final class NativeViews {
         if entry.name.isEmpty, entry.state == "loading" {
             entry.name = owner.props["nativeViewModuleName"] ?? ""
             log("\(entry.name) #\(owner.id): loading")
-            if gateOpen, holds?(owner) != true { attach(entry) }
+            if gateOpen, canReuse(entry.name) || holds?(owner) != true { attach(entry) }
             return
         }
         guard let handle = entry.handle, case .success(let table)? = NativeProcess.table else { return }
@@ -501,6 +568,10 @@ final class NativeViews {
             NativeProcess.owners.removeValue(forKey: entry.nonce)
             NativeProcess.retired[entry.nonce] = WeakNatives(self)
         }
+        #if os(iOS)
+        if park(entry) { return }
+        #endif
+        if entry.instance != 0 { NativeProcess.set(entry.instance, nil) }
         entry.view?.removeFromSuperview()
         if let handle = entry.handle, case .success(let table)? = NativeProcess.table {
             table.destroy(handle)
@@ -519,6 +590,9 @@ final class NativeViews {
               let presenter = owner.presenter, presenter.views[entry.id] === owner
         else { return dropped(nonce: nonce, kind: kind) }
         guard kind < NativeViews.kinds.count else { return log("\(entry.name) #\(entry.id): refused event kind \(kind)") }
+        #if os(iOS)
+        if kind == 7, entry.revealing { entry.revealing = false; entry.view?.alpha = 1 }
+        #endif
         let name = NativeViews.kinds[Int(kind)], text = String(decoding: data, as: UTF8.self), id = entry.id
         guard owner.handlers.contains(name) else { return }
         switch kind {
@@ -618,3 +692,114 @@ extension NodeView {
         presenter?.session?.natives.destroy(id: id)
     }
 }
+
+#if os(iOS)
+extension NativeViews {
+    /// Parked instances per tag, and the rows one instance serves before it
+    /// is destroyed (LLP 1068 §6, measured on the iPad, §0.3): an instance
+    /// keeps what it drew for every region it showed — a map served without
+    /// a limit took the Extra Heavy fling's footprint from 257 MB to 502 —
+    /// and four reuses keep the end footprint at a fresh map's while making
+    /// a fifth as many.
+    static let reuseCap = 2, reuseLimit = 4
+
+    /// Whether a parked instance of `name` waits: taking one costs about a
+    /// tenth of a creation, so it is never held mid-fling (LLP 1068 §5.1).
+    func canReuse(_ name: String) -> Bool { !(parked[name]?.isEmpty ?? true) }
+
+    /// A destroyed entry's instance parks, if its tag is reused, it was
+    /// ready and in a window, and the module reset it. Its incarnation has
+    /// ended before the reset runs.
+    fileprivate func park(_ entry: NativeEntry) -> Bool {
+        guard entry.uses < Self.reuseLimit, entry.state == "ready", let handle = entry.handle, let view = entry.view, view.window != nil,
+              case .success(let table)? = NativeProcess.table, let prepare = table.prepareForReuse,
+              table.roster[entry.name]?["reuse"] as? Bool == true else { return false }
+        NativeProcess.set(entry.instance, 0)
+        guard prepare(handle) == 0 else {
+            log("\(entry.name) #\(entry.id): reuse refused")
+            return false
+        }
+        var list = parked[entry.name] ?? []
+        if list.count >= Self.reuseCap { discard(list.removeFirst()) }
+        view.alpha = 1
+        view.removeFromSuperview()
+        entry.nonce = 0; entry.revealing = false; entry.sizing = false; entry.owner = nil
+        view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        list.append(entry)
+        parked[entry.name] = list
+        parks += 1
+        observe()
+        return true
+    }
+
+    /// `entry` takes a parked instance of its tag: a new incarnation, the
+    /// props as a first mount, and the view transparent until `load`.
+    fileprivate func reuse(_ entry: NativeEntry, table: NativeTable, owner: NodeView) -> Bool {
+        guard var list = parked[entry.name], !list.isEmpty else { return false }
+        let from = list.removeLast()
+        parked[entry.name] = list.isEmpty ? nil : list
+        guard let handle = from.handle, let view = from.view else { return false }
+        let token = NativeProcess.next
+        NativeProcess.next &+= 1
+        NativeProcess.owners[token] = WeakNatives(self)
+        entry.nonce = token
+        entry.instance = from.instance
+        entry.handle = handle
+        entry.view = view
+        entry.snapshotBit = from.snapshotBit
+        entry.uses = from.uses + 1
+        NativeProcess.set(from.instance, token)
+        let props = owner.props["nativeViewProps"] ?? "{}"
+        var error = [UInt8](repeating: 0, count: 512)
+        let json = Data(props.utf8)
+        view.alpha = 0
+        entry.revealing = true
+        // A new node has no box yet: the view keeps its size, which is most
+        // often the next row's, until the node is laid out (`laidOut`) — a
+        // map's resize to nothing and back costs as much as its reset.
+        if owner.bounds.isEmpty { view.autoresizingMask = []; entry.sizing = true } else { view.frame = owner.bounds }
+        owner.addSubview(view)
+        let status = json.withUnsafeBytes { p in table.setProps(handle, p.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count), &error, UInt32(error.count)) }
+        entry.props = props
+        entry.state = "ready"
+        entry.error = nil
+        reused += 1
+        if status != 0 { fail(entry, "error", "props refused: \(String(cString: error.map { CChar(bitPattern: $0) }))") }
+        log("\(entry.name) #\(entry.id): ready (reused)")
+        return true
+    }
+
+    /// `owner` was laid out: a taken view that kept its size takes the box.
+    func laidOut(_ owner: NodeView) {
+        guard let entry = entries[owner.id], entry.sizing, let view = entry.view, !owner.bounds.isEmpty else { return }
+        entry.sizing = false
+        view.frame = owner.bounds
+        view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    }
+
+    /// A parked instance is destroyed: past the cap, on memory pressure, in
+    /// the background.
+    private func discard(_ entry: NativeEntry) {
+        NativeProcess.set(entry.instance, nil)
+        entry.view?.removeFromSuperview()
+        if let handle = entry.handle, case .success(let table)? = NativeProcess.table { table.destroy(handle) }
+        entry.handle = nil
+        dropped += 1
+    }
+    func drainParked() {
+        for entry in parked.values.joined() { discard(entry) }
+        parked.removeAll()
+    }
+    private func observe() {
+        guard observers.isEmpty else { return }
+        for name in [UIApplication.didReceiveMemoryWarningNotification, UIApplication.didEnterBackgroundNotification] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.drainParked() })
+        }
+    }
+    /// `state.pool.native`.
+    var observation: [String: Any] {
+        ["made": made, "reused": reused, "parks": parks, "dropped": dropped,
+         "parked": parked.mapValues(\.count), "cap": Self.reuseCap, "limit": Self.reuseLimit]
+    }
+}
+#endif

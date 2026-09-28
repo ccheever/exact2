@@ -5,6 +5,15 @@
 // selects and centres without an event. MapKit draws with Metal, which the
 // host's ordinary capture cannot see, so the tag answers snapshots
 // (MKMapSnapshotter, the pins drawn on top).
+//
+// The tag opts into reuse in a list (LLP 1068 §4.8): creating an MKMapView
+// costs 20–47 ms of main thread and its churn retains memory, so a retired
+// row's map is reset and lent to the next map row. The reset leaves nothing
+// a new map would not have — no pins, selection, camera, map type, user
+// location or interaction flags of the last row — and the next props are a
+// first mount, and `load` follows it. The reset empties MapKit's Metal layer,
+// so until the new region draws the map shows its own blank ground, as a new
+// map does, never the last row's tiles.
 import Foundation
 import MapKit
 #if os(macOS)
@@ -15,7 +24,7 @@ import UIKit
 
 final class MapModule: ExactModule {
     override class var views: [String: ExactNativeFactory] {
-        ["native-map": ExactNativeFactory(snapshot: true) { props, events in NativeMap(props: props, events: events) }]
+        ["native-map": ExactNativeFactory(snapshot: true, reuse: true) { props, events in NativeMap(props: props, events: events) }]
     }
 }
 let exactModule: ExactModule.Type = MapModule.self
@@ -41,6 +50,8 @@ final class NativeMap: ExactNativeInstance {
     private let delegate = MapDelegate()
     private var props: [String: String] = [:]
     private var applying = false
+    /// Reset for reuse: the next props are a first mount (LLP 1068 §4.8).
+    private var fresh = false
 
     init(props: [String: String], events: ExactNativeEvents) {
         super.init(events: events)
@@ -58,7 +69,46 @@ final class NativeMap: ExactNativeInstance {
 
     override var view: ExactNativeView { map }
 
-    override func setProps(_ props: [String: String]) throws { apply(props, first: false) }
+    override func setProps(_ props: [String: String]) throws {
+        guard fresh else { return apply(props, first: false) }
+        fresh = false
+        apply(props, first: true)
+        events.load()
+    }
+
+    /// As if created with no props: nothing of the last row's map stays.
+    override func prepareForReuse() throws {
+        applying = true
+        defer { applying = false }
+        for a in map.selectedAnnotations { map.deselectAnnotation(a, animated: false) }
+        map.removeAnnotations(map.annotations)
+        map.removeOverlays(map.overlays)
+        map.showsUserLocation = false
+        #if !os(macOS)
+        if map.userTrackingMode != .none { map.setUserTrackingMode(.none, animated: false) }
+        #endif
+        map.mapType = .standard
+        map.isScrollEnabled = true; map.isZoomEnabled = true; map.isRotateEnabled = true; map.isPitchEnabled = true
+        #if os(macOS)
+        map.setAccessibilityLabel("Map of stores")
+        #else
+        map.isUserInteractionEnabled = true
+        map.accessibilityLabel = "Map of stores"
+        #endif
+        // The last row's tiles: MapKit's drawable stays in its Metal layer
+        // until it draws again, so the layer is emptied, and the map shows
+        // its own blank ground, as a new map does, until the new region draws.
+        func empty(_ layer: CALayer) {
+            if layer is CAMetalLayer { layer.contents = nil }
+            layer.sublayers?.forEach(empty)
+        }
+        (map.layer as CALayer?).map(empty)
+        let camera = map.camera.copy() as! MKMapCamera
+        camera.heading = 0; camera.pitch = 0
+        map.setCamera(camera, animated: false)
+        props = [:]
+        fresh = true
+    }
 
     private func apply(_ next: [String: String], first: Bool) {
         applying = true
