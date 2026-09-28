@@ -1311,6 +1311,15 @@ dependencies = [
  "exact-markdown",
  "exact-runner",
  "exact-web",
+ "exact-web-geometry",
+]
+
+[[package]]
+name = "exact-web-geometry"
+version = "0.1.0"
+dependencies = [
+ "exact-kernel",
+ "exact-runner",
 ]
 
 [[package]]

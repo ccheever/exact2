@@ -148,7 +148,7 @@ if (spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-
 const planOut = resolve(stage, 'app.plan');
 const wasm = readFileSync(out);
 const unbooted = () => { throw new Error('app logic ran while extracting baked bytes'); };
-const { instance } = await WebAssembly.instantiate(wasm, { exact_js: { call: unbooted }, exact_rust: { load: unbooted, call: unbooted, read: unbooted, drop: unbooted }, exact_data: { random: unbooted, agent_seed: unbooted } });
+const { instance } = await WebAssembly.instantiate(wasm, { exact_js: { call: unbooted }, exact_rust: { load: unbooted, call: unbooted, read: unbooted, drop: unbooted }, exact_data: { random: unbooted, agent_seed: unbooted }, exact_geometry: { read: unbooted } });
 const exports = instance.exports;
 if (typeof exports.exact_plan !== 'function' || typeof exports.exact_out !== 'function' || !(exports.memory instanceof WebAssembly.Memory)) {
   throw new Error('the web wasm does not export exact_plan, exact_out, and memory');

@@ -72,6 +72,9 @@ pub struct Linked {
     pub animations: Option<fn()>,
     /// `background-image`'s gradient grammar (LLP 1066): linked at [`link`].
     pub gradients: Option<fn()>,
+    /// `frame` and `measure` (LLP 1051.000 D4): the page's answers, through
+    /// one import `geometry-glue.js` answers.
+    pub geometry: exact_runner::GeometryLink,
 }
 
 /// `backgroundMaterial`'s pair: a material's CSS variables appended to a
@@ -105,6 +108,7 @@ impl Linked {
         effects: None,
         animations: None,
         gradients: None,
+        geometry: None,
     };
 
     /// The capabilities registered here.
@@ -160,6 +164,9 @@ impl Linked {
         }
         if self.gradients.is_some() {
             uses = uses.with(Capability::Gradients);
+        }
+        if self.geometry.is_some() {
+            uses = uses.with(Capability::Geometry);
         }
         uses
     }
@@ -228,7 +235,7 @@ pub(crate) fn runner_links() -> exact_runner::RunnerLinks {
         lists: linked().collections,
         canvas: linked().canvas,
         format: linked().format,
-        geometry: None,
+        geometry: linked().geometry,
     }
 }
 

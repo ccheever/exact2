@@ -335,3 +335,5 @@ function createPresence(root) {
 }
 
 if (globalThis.exact) globalThis.exact.presence = createPresence;
+// The layout-box measure, shared with geometry reads (geometry-glue.js, LLP 1051.000 D4).
+export { measure, size };

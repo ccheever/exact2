@@ -20,6 +20,7 @@ pub mod documents;
 pub mod drag;
 pub mod effects;
 pub mod format;
+pub mod geometry;
 pub mod gradients;
 pub mod inspection;
 pub mod markdown;
@@ -65,5 +66,6 @@ pub const ALL: exact_web::Linked = linked!(
     text_transform,
     effects,
     animations,
-    gradients
+    gradients,
+    geometry
 );

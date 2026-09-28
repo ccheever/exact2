@@ -1,0 +1,14 @@
+# The web's geometry reads (LLP 1051.000 D4): one synchronous import the page
+# answers. `exact-web` and the capabilities crate forbid `unsafe`, and calling
+# an import needs it, so the import lives here alone, as TypeScript's does in
+# `exact-js-web`. Linked only when an app's plan reads geometry.
+[package]
+name = "exact-web-geometry"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+exact-kernel = { path = "../../kernel" }
+exact-runner = { path = "../../runner" }

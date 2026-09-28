@@ -686,7 +686,7 @@ async function startupFixture(rustOnly = false) {
     moduleLoader: null, activeModule: null, timerFactory: null, agentMode: false,
     performance: { now: () => 1 }, t0: 0, URL, localStorage: { length: 0 }, AbortController,
     document: { querySelectorAll: () => [] }, // no preload: the glue fetches ./app.wasm
-    fetch: async () => ({}), WebAssembly: { instantiateStreaming: async () => ({ instance: { exports } }), Module: { customSections: () => [] } },
+    fetch: async () => ({}), WebAssembly: { instantiateStreaming: async () => ({ instance: { exports } }), Module: { customSections: () => [], imports: () => [] } },
     moduleCall() {}, rustImports: {}, dataImports: {}, readOut: value => value,
     boot: async () => events.push('boot'), loadGpuIfNeeded() {}, startClock() {}, httpHelpers() {}, pieces: { pending: () => null },
     requestAnimationFrame: fn => frames.push(fn), console: { error: error => errors.push(String(error)) },

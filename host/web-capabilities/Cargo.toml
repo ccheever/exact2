@@ -19,3 +19,4 @@ exact-kernel = { path = "../../kernel" }
 exact-markdown = { path = "../../markdown" }
 exact-runner = { path = "../../runner" }
 exact-web = { path = "../web" }
+exact-web-geometry = { path = "../web-geometry" }

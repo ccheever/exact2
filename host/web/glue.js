@@ -18,7 +18,7 @@ const pieces = afterPaintPieces(loadAfterPaint, { root, views, applyBatch, inert
   wasm(name, bytes) { if (!wasm) return null; new Uint8Array(memory.buffer, wasm.exact_in(bytes.length), bytes.length).set(bytes); return JSON.parse(readOut(wasm[name](bytes.length))); } });
 const { collections, motion, arrange } = pieces, retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
 const presence = presenceLoader(loadAfterPaint, root, batch => applyBatch(batch), log); // exit-animation and layout-transition, after paint at first use (LLP 1063)
-let mediaModule, imageHold; // animated images held to the agent's clock (image-glue.js, LLP 1011.000)
+let mediaModule, imageHold, geometry = null; // animated images held to the agent's clock (image-glue.js, LLP 1011.000); geometry reads (geometry-glue.js, LLP 1051.000 D4)
 function syncMedia(el, set = {}, clear = []) {
   if (!(el instanceof HTMLVideoElement)) return;
   el.exactMedia ??= { props: {}, handlers: [] };
@@ -1432,13 +1432,13 @@ async function main() {
   // again: a task after Stop (`navigateerror`, fired mid-stop) or Back from the
   // bfcache (`pageshow`); a 204 or a download says nothing, so after a second.
   // The page names the build in its preload (`./app.wasm?v=…`, LLP 1047.000 §9), so this file is the same across builds.
-  const preload = () => [...document.querySelectorAll('link[rel="preload"]')].find(l => new URL(l.href).pathname.endsWith("/app.wasm")), url = new URL(preload()?.href ?? "./app.wasm", import.meta.url), imports = { exact_js: { call: moduleCall }, exact_rust: rustImports, exact_data: dataImports }, aborted = e => e?.name === "AbortError";
+  const preload = () => [...document.querySelectorAll('link[rel="preload"]')].find(l => new URL(l.href).pathname.endsWith("/app.wasm")), url = new URL(preload()?.href ?? "./app.wasm", import.meta.url), imports = { exact_js: { call: moduleCall }, exact_rust: rustImports, exact_data: dataImports, exact_geometry: { read: (op, view, out) => geometry?.read(op, views.get(view), new Float64Array(memory.buffer, out, 4)) ?? 0 } }, aborted = e => e?.name === "AbortError";
   const download = () => { const stop = new AbortController(); globalThis.navigation?.addEventListener("navigate", e => e.destination.sameDocument || e.downloadRequest != null || (stop.abort(), preload()?.remove()), { signal: stop.signal }); return fetch(url, { signal: stop.signal }); };
   const stayed = () => new Promise(done => { const later = () => setTimeout(done); globalThis.navigation?.addEventListener("navigateerror", later, { once: true }); addEventListener("pageshow", later, { once: true }); setTimeout(done, 1000); });
   let response = (globalThis.exact.runtime ??= download()).then(r => r.url === url.href ? r : download(), e => aborted(e) ? Promise.reject(e) : download()), instance;
   let compiled; for (;;) try { ({ instance, module: compiled } = await WebAssembly.instantiateStreaming(response, imports)); break; } catch (e) { if (!aborted(e)) throw e; await stayed(); response = download(); }
   wasm = instance.exports; const [staged] = WebAssembly.Module.customSections(compiled, 'exact.stages'); if (staged) stages = JSON.parse(new TextDecoder().decode(staged)).stages;
-  memory = wasm.memory;
+  memory = wasm.memory; if (WebAssembly.Module.imports(compiled).some(i => i.module === "exact_geometry")) requestAnimationFrame(() => loadAfterPaint('./geometry-glue.js', 'geometry').then(create => { geometry = create(root); })); // an artifact whose actions read geometry imports it (LLP 1051.000 D4)
   globalThis.exact.compat = JSON.parse(readOut(wasm.exact_compat()));
   logicInfo = typeof wasm.exact_module_artifact === 'function' && wasm.exact_logic ? { ...JSON.parse(readOut(wasm.exact_logic())), native: pageNative } : null;
   setInputReady(false); // Every data executor activates after the baked first pixel.
