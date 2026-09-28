@@ -151,7 +151,8 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
             | Capability::Timelines
             | Capability::TextTransform
             | Capability::Effects
-            | Capability::Animations => {}
+            | Capability::Animations
+            | Capability::Gradients => {}
         }
     }
     entry

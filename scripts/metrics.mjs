@@ -768,8 +768,9 @@ if (long) {
 // Unicode case tables into every core), 3.3–6.1 KiB; then Canvas 2D's list
 // checks print their numbers through exact-num, and core's Grisu and Dragon
 // leave Caltrain's, 5.0 KiB; then `filter` and `clip-path` linked by use,
-// 3.5–3.9 KiB; then CSS animations' grammars linked by use, 4.6–5.0 KiB.
-const WEB_CORE_KIB = { realworld: 286, 'video-player': 232, caltrain: 292 };
+// 3.5–3.9 KiB; then CSS animations' grammars linked by use, 4.6–5.0 KiB; then
+// `background-image`'s gradients linked by use, 2.6–2.8 KiB.
+const WEB_CORE_KIB = { realworld: 284, 'video-player': 229, caltrain: 290 };
 
 // 8. Long: web bytes by capability (LLP 1047 D9), for the three apps the
 // size work tracks. Each app's app.wasm as shipped (raw, gzip, brotli-11),

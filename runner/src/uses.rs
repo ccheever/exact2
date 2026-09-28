@@ -65,11 +65,14 @@ pub enum Capability {
     /// `@keyframes`' grammars, for a plan that declares keyframes or binds
     /// `animation` or `exit-animation`.
     Animations,
+    /// `background-image`'s gradients (LLP 1066): its grammar, for a plan
+    /// that binds the row.
+    Gradients,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 16] = [
+    pub const ALL: [Capability; 17] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
@@ -86,6 +89,7 @@ impl Capability {
         Capability::TextTransform,
         Capability::Effects,
         Capability::Animations,
+        Capability::Gradients,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -107,6 +111,7 @@ impl Capability {
             Capability::TextTransform => "text_transform",
             Capability::Effects => "effects",
             Capability::Animations => "animations",
+            Capability::Gradients => "gradients",
         }
     }
 
@@ -230,6 +235,9 @@ pub fn uses(plan: &Plan) -> Uses {
                     Some(StyleId::Animation | StyleId::ExitAnimation)
                 ) {
                     uses = uses.with(Capability::Animations);
+                }
+                if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::BackgroundImage) {
+                    uses = uses.with(Capability::Gradients);
                 }
                 if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::Transition)
                     && can_be(binding, &|v| v.contains("spring"))

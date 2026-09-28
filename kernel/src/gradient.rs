@@ -118,9 +118,29 @@ pub enum Geometry {
     },
 }
 
+/// The grammar, once linked ([`link`]). Only a wasm artifact reads it.
+#[cfg(target_arch = "wasm32")]
+static LINKED: std::sync::OnceLock<fn(&str) -> Option<BackgroundImage>> =
+    std::sync::OnceLock::new();
+
+/// Link `background-image`'s gradient grammar (LLP 1047 D2, linked by use):
+/// ~3 KiB of a web core that none of Caltrain, RealWorld or the video player
+/// paints with. A web artifact links it when its plan binds the row, and a
+/// plan that binds it unlinked is refused at boot (D6), so an unlinked
+/// artifact never parses one. Native artifacts and the compiler parse
+/// without it.
+pub fn link() {
+    #[cfg(target_arch = "wasm32")]
+    let _ = LINKED.set(|css| BackgroundImage::check(css).ok());
+}
+
 impl BackgroundImage {
     /// The row's parse, as every codec's: `None` for anything not drawn.
+    /// On the web, once linked ([`link`]).
     pub fn parse(css: &str) -> Option<Self> {
+        #[cfg(target_arch = "wasm32")]
+        return LINKED.get().and_then(|parse| parse(css));
+        #[cfg(not(target_arch = "wasm32"))]
         Self::check(css).ok()
     }
 

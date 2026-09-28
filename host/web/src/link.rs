@@ -70,6 +70,8 @@ pub struct Linked {
     pub effects: Option<fn()>,
     /// CSS animations' grammars (LLP 1055 D5): linked at [`link`].
     pub animations: Option<fn()>,
+    /// `background-image`'s gradient grammar (LLP 1066): linked at [`link`].
+    pub gradients: Option<fn()>,
 }
 
 /// `backgroundMaterial`'s pair: a material's CSS variables appended to a
@@ -102,6 +104,7 @@ impl Linked {
         text_transform: None,
         effects: None,
         animations: None,
+        gradients: None,
     };
 
     /// The capabilities registered here.
@@ -155,6 +158,9 @@ impl Linked {
         if self.animations.is_some() {
             uses = uses.with(Capability::Animations);
         }
+        if self.gradients.is_some() {
+            uses = uses.with(Capability::Gradients);
+        }
         uses
     }
 }
@@ -183,6 +189,9 @@ pub fn link(linked: Linked) {
         link();
     }
     if let Some(link) = linked.animations {
+        link();
+    }
+    if let Some(link) = linked.gradients {
         link();
     }
     LINKED.with(|cell| cell.set(linked));

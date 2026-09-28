@@ -176,6 +176,16 @@ fn css_animations_are_linked_by_use() {
 }
 
 #[test]
+fn gradients_are_linked_by_use() {
+    // @ref LLP 1066 — the web core carries no gradient grammar unless a plan binds the row.
+    assert!(!used("component A\n  view\n    box opacity=0.5\n").has(Capability::Gradients));
+    assert!(used(
+        "component A\n  view\n    view background-image=\"linear-gradient(#000, #fff)\"\n"
+    )
+    .has(Capability::Gradients));
+}
+
+#[test]
 fn a_set_names_what_it_holds_beyond_another() {
     let markdown = Uses::NONE.with(Capability::Markdown);
     assert!(markdown.beyond(markdown).is_empty());
