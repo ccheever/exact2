@@ -34,12 +34,12 @@ beforeAll(async () => {
   await call('Page.navigate', { url: `http://127.0.0.1:${server.port}` });
   await evaluate(`Promise.all([import('/collection-glue.js'), import('/motion-glue.js')]).then(([c, m]) => { globalThis.createController = c.collectionController; globalThis.applyCollectionFeedback = c.applyCollectionFeedback; globalThis.createMotion = m.motionController; globalThis.createArrange = m.arrangeController; })`);
   await evaluate(`(${setup})()`);
-});
+}, 60_000); // hang bounds: Chrome's launch and exit are awaited as events, and take longer than 5 s under load
 afterAll(async () => {
   if (child && child.exitCode === null) { const exit = new Promise(r => child.once('exit', r)); child.kill(); await exit; }
   server?.stop(true);
   if (dir) rmSync(dir, { recursive: true, force: true });
-});
+}, 60_000);
 function setup() {
   globalThis.fixture = (options = {}) => {
     globalThis.f?.controller?.dispose();
