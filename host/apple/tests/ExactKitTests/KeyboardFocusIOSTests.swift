@@ -87,8 +87,12 @@ final class KeyboardFocusIOSTests: XCTestCase {
         input.frame = CGRect(x: 0, y: 50, width: 200, height: 40)
         p.root.addSubview(input); p.views[input.id] = input
         let editor = try XCTUnwrap(input.field)
-        XCTAssertTrue(p.viewport.focusItems(in: all).contains { $0 === p.root }, "a field in the window opens the search")
-        XCTAssertTrue(input.focusItems(in: all).contains { $0 === editor })
+        XCTAssertTrue(p.viewport.focusItems(in: all).contains { $0 === editor }, "a field in the window is what the search is given")
+        XCTAssertFalse(p.viewport.focusItems(in: all).contains { $0 === p.root || $0 === button }, "and none of exact2's own views")
+        XCTAssertTrue(p.viewport.focusItems(in: CGRect(x: 0, y: 0, width: 400, height: 45)).isEmpty, "only where it is")
+        input.isHidden = true
+        XCTAssertTrue(p.viewport.focusItems(in: all).isEmpty, "nor a hidden one")
+        input.isHidden = false
         input.removeFromSuperview()
         XCTAssertTrue(p.viewport.focusItems(in: all).isEmpty, "and it closes when the field leaves")
     }

@@ -13,9 +13,13 @@
 // session's views, answers the search with no items unless a view UIKit
 // can focus may be in the window: anything exact2 did not make itself (a
 // field, a text area, a web view, a segmented control, a menu's button, a
-// swipe's table, a platform view). Then the search is UIKit's own, as
-// before. Only the viewport answers: UIKit logs, at every init, each view
-// of a class that answers `focusItems(in:)`.
+// swipe's table, a platform view). Then the search is given those views
+// alone, each a focus item container of its own: a feed that always holds a
+// field, a web view, a map or a player otherwise had UIKit walk every view
+// of the session for each update — 30–40 ms a second of an iPad's main
+// thread in a fast fling of the Extra Heavy feed — to reach the few it can
+// focus. Only the viewport answers: UIKit logs, at every init, each view of
+// a class that answers `focusItems(in:)`.
 #if os(iOS)
 import UIKit
 
@@ -33,14 +37,20 @@ enum FocusSearch {
         candidates.add(view)
     }
 
-    /// The child focus items `container` gives UIKit's focus search.
-    fileprivate static func items(_ container: UIView, _ own: () -> [any UIFocusItem]) -> [any UIFocusItem] {
-        guard let window = container.window, candidates.allObjects.contains(where: { $0.window === window }) else { return [] }
-        return own()
+    /// The focus items `container` gives UIKit's focus search: the views
+    /// UIKit may focus inside it, shown and in `rect`.
+    fileprivate static func items(_ container: UIView, in rect: CGRect) -> [any UIFocusItem] {
+        guard let window = container.window else { return [] }
+        return candidates.allObjects.filter { view in
+            guard view.window === window, view.isDescendant(of: container) else { return false }
+            var v: UIView? = view
+            while let current = v, current !== container { if current.isHidden || current.alpha < 0.01 { return false }; v = current.superview }
+            return container.convert(view.bounds, from: view).intersects(rect)
+        }
     }
 }
 /// A session's viewport (`Presenter.viewport`), which answers the search.
 final class Viewport: ScrollView {
-    override func focusItems(in rect: CGRect) -> [any UIFocusItem] { FocusSearch.items(self) { super.focusItems(in: rect) } }
+    override func focusItems(in rect: CGRect) -> [any UIFocusItem] { FocusSearch.items(self, in: rect) }
 }
 #endif
