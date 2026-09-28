@@ -14,7 +14,7 @@ const root = document.getElementById("exact-root");
 const views = new Map(); // view id -> element
 // Springs, holds, drags and virtualized collections: after-paint pieces, fetched on first use (LLP 1047 D5).
 const pieces = afterPaintPieces(loadAfterPaint, { root, views, applyBatch, inert: inertAncestor, now: () => now(), generation: () => incarnation, ready: () => inputReady,
-  replayed() { motion.commit(); arrange.commit(); if (agentMode) { register(agentClock); seek(agentClock); } },
+  replayed() { motion.commit(); arrange.commit(); if (agentMode) { register(agentClock); seek(agentClock); } else motion.followTimelines(); },
   wasm(name, bytes) { if (!wasm) return null; new Uint8Array(memory.buffer, wasm.exact_in(bytes.length), bytes.length).set(bytes); return JSON.parse(readOut(wasm[name](bytes.length))); } });
 const { collections, motion, arrange } = pieces, retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
 const presence = presenceLoader(loadAfterPaint, root, batch => applyBatch(batch), log); // exit-animation and layout-transition, after paint at first use (LLP 1063)
@@ -887,7 +887,7 @@ function applyBatch(batch) {
     register(agentClock);
     if (batch.clock != null && batch.clock > agentClock) agentClock = batch.clock;
     seek(agentClock);arrange.commit();
-  }
+  } else motion.followTimelines(); // a commit can move a timeline's scope (LLP 1057.003 D4); the agent's seek follows them
   flowBatch(batch);
   return { timers, batch };
   } finally { if (--globalThis.exact.applyDepth === 0) { globalThis.exact.gpu?.drainRecords(); globalThis.exact.gpu?.layout?.(); } }

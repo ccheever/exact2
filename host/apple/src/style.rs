@@ -103,7 +103,8 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
             // @ref LLP 1057.003 D2 — drag timelines are the engine's too.
             RowValue::DragTimeline(_)
             | RowValue::AnimationTimeline(_)
-            | RowValue::AnimationRange(_) => continue,
+            | RowValue::AnimationRange(_)
+            | RowValue::TimelineScope(_) => continue,
             // @ref LLP 1055 D4/D7 — the `svg` scene and CA specs carry these.
             RowValue::Paint(_)
             | RowValue::DashArray(_)

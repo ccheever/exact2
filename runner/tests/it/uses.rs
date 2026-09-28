@@ -129,6 +129,8 @@ fn drag_timelines_are_linked_by_use() {
         "drag-timeline=\"--dismiss\"",
         "animation-timeline=\"--dismiss\"",
         "animation-range=\"0px 300px\"",
+        "timeline-scope=\"--dismiss\"",
+        "timeline-scope=\"all\"",
     ] {
         let set = used(&format!("component A\n  view\n    box {row}\n"));
         assert!(

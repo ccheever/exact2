@@ -1,4 +1,4 @@
-//! Animation timelines a drag drives (LLP 1057.003 D1).
+//! Animation timelines a drag drives (LLP 1057.003 D1, D4).
 //!
 //! CSS scroll-driven animations (CSS Animations 2, Scroll-driven Animations
 //! §3) name a timeline on a scroller (`scroll-timeline: <name> <axis>`) and
@@ -15,34 +15,47 @@
 //! - `animation-range: normal | <length> <length>` on the consumer: the
 //!   positions where its animations are at 0% and 100%; outside them the
 //!   progress clamps.
+//! - `timeline-scope: none | all | <dashed-ident>#`, CSS's: names declared
+//!   below a node, in scope for the node's subtree.
 //!
 //! The engine evaluates a consumer in the frame its source moves (D2); no
 //! app code runs per frame. `animation-range` takes lengths only: a drag
-//! has no scroll range for CSS's `cover` or percentages to name.
+//! has no scroll range for CSS's `cover` or percentages to name. Names
+//! resolve as CSS resolves them, in the kernel ([`lookup`], D4), so the
+//! engine hears a node, never a name.
 //!
-//! The grammar is linked by use (LLP 1047 D2): until a host calls [`link`],
-//! a text value for any of the three rows is refused as a bad value. The
-//! compiler and the native hosts link it at start; a web artifact links it
-//! when its plan sets one of the rows, which a plan that sets none never
-//! reaches (D6).
+//! The grammar and the lookup are linked by use (LLP 1047 D2): until a host
+//! calls [`link`], a text value for any of the four rows is refused as a
+//! bad value and no name resolves. The compiler and the native hosts link
+//! it at start; a web artifact links it when its plan sets one of the rows,
+//! which a plan that sets none never reaches (D6).
+
+mod lookup;
+/// What a name resolves to, as the engine takes it ([`crate::Kernel::timeline_of`]).
+pub use exact_motion::NamedTimeline;
+pub(crate) use lookup::{refresh, rows, Registry};
 
 use std::fmt::Write;
 
-/// The three rows' grammar, once linked ([`link`]).
+/// The four rows' grammar and the name lookup, once linked ([`link`]).
 static LINKED: std::sync::OnceLock<Grammar> = std::sync::OnceLock::new();
 
 struct Grammar {
     drag: fn(&str) -> Option<DragTimeline>,
     timeline: fn(&str) -> Option<AnimationTimeline>,
     range: fn(&str) -> Option<AnimationRange>,
+    scope: fn(&str) -> Option<TimelineScope>,
+    resolve: lookup::Resolve,
 }
 
-/// Link the three rows' grammar into this artifact.
+/// Link the four rows' grammar and the name lookup into this artifact.
 pub fn link() {
     let _ = LINKED.set(Grammar {
         drag: DragTimeline::parse_text,
         timeline: AnimationTimeline::parse_text,
         range: AnimationRange::parse_text,
+        scope: TimelineScope::parse_text,
+        resolve: lookup::resolve,
     });
 }
 
@@ -186,12 +199,71 @@ impl AnimationRange {
     }
 }
 
+/// `timeline-scope` (Scroll-driven Animations 1 §4.2): the timeline names a
+/// node declares in scope for its subtree.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum TimelineScope {
+    /// `none`: no change in scope.
+    #[default]
+    None,
+    /// `all`: every name a descendant declares.
+    All,
+    /// A list of `<dashed-ident>`s, as its canonical text: `--a, --b`. One
+    /// string, not a list of them, is less code in every artifact that
+    /// carries the row and sets none (LLP 1047 D9).
+    Names(String),
+}
+
+impl TimelineScope {
+    /// `none`, `all`, or a comma-separated list of `<dashed-ident>`s;
+    /// `None` also while unlinked.
+    pub fn parse(css: &str) -> Option<Self> {
+        (LINKED.get()?.scope)(css)
+    }
+
+    fn parse_text(css: &str) -> Option<Self> {
+        let t = css.trim();
+        if t.eq_ignore_ascii_case("none") {
+            return Some(Self::None);
+        }
+        if t.eq_ignore_ascii_case("all") {
+            return Some(Self::All);
+        }
+        let mut names = String::new();
+        for name in t.split(',') {
+            if !names.is_empty() {
+                names.push_str(", ");
+            }
+            names.push_str(&dashed(name.trim())?);
+        }
+        Some(Self::Names(names))
+    }
+
+    /// The declaration's value.
+    pub fn css(&self) -> String {
+        match self {
+            Self::None => "none".into(),
+            Self::All => "all".into(),
+            Self::Names(names) => names.clone(),
+        }
+    }
+
+    /// Whether it scopes `name`: `all` scopes every name.
+    fn scopes(&self, name: &str) -> bool {
+        match self {
+            Self::None => false,
+            Self::All => true,
+            Self::Names(names) => names.split(", ").any(|n| n == name),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn the_three_rows_round_trip() {
+    fn the_four_rows_round_trip() {
         link();
         let d = DragTimeline::parse("--dismiss y").unwrap();
         assert_eq!(d.name.as_deref(), Some("--dismiss"));
@@ -213,5 +285,13 @@ mod tests {
         assert_eq!(r.progress(-20.0), Some(0.0));
         assert_eq!(r.progress(900.0), Some(1.0));
         assert_eq!(AnimationRange::parse("10 10"), None);
+        let s = TimelineScope::parse(" --a,--b ").unwrap();
+        assert_eq!(s.css(), "--a, --b");
+        assert_eq!(TimelineScope::parse(&s.css()), Some(s));
+        assert_eq!(TimelineScope::parse("ALL"), Some(TimelineScope::All));
+        assert_eq!(TimelineScope::parse("none"), Some(TimelineScope::None));
+        for bad in ["", "--a --b", "--a,", "a", "--a, all", "none, --a"] {
+            assert_eq!(TimelineScope::parse(bad), None, "{bad:?}");
+        }
     }
 }

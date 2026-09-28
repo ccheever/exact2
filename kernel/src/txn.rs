@@ -68,6 +68,11 @@ pub struct CommitReceipt {
     /// Live nodes whose `display` changed: their descendants' animations
     /// are cancelled or restarted (LLP 1055.000 D15; CSS Animations 1 §3).
     pub display_changed: Vec<NodeKey>,
+    /// Consumers whose `animation-timeline` name resolves to another
+    /// timeline after this commit, beyond those it created or touched (LLP
+    /// 1057.003 D4): a node inserted, removed or moved, or a row set on
+    /// another node, can change what a name finds.
+    pub timelines: Vec<NodeKey>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

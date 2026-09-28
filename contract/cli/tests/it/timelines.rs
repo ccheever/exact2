@@ -1,9 +1,12 @@
-//! Drag timelines in Contract (LLP 1057.003 D1): `drag-timeline`,
-//! `animation-timeline` and `animation-range` reach the kernel's rows, and a
+//! Drag timelines in Contract (LLP 1057.003 D1, D4): `drag-timeline`,
+//! `animation-timeline`, `animation-range` and `timeline-scope` reach the
+//! kernel's rows, the siblings' name resolves through the scope, and a
 //! timeline drives paint rows only (Q1): a bound animation whose keyframes
 //! animate layout or geometry is refused when the app compiles.
 
-use exact_kernel::timeline::{AnimationRange, AnimationTimeline, Axis, DragTimeline};
+use exact_kernel::timeline::{
+    AnimationRange, AnimationTimeline, Axis, DragTimeline, TimelineScope,
+};
 use exact_kernel::Kernel;
 use exact_plan::{Plan, Value};
 use exact_runner::{agent, DataError, DataSource, Event, Runner};
@@ -15,7 +18,7 @@ impl DataSource for NoData {
     }
 }
 
-const APP: &str = "keyframes fade\n  from opacity=1\n  to opacity=0 background-color=\"#000\"\ncomponent App\n  state zoom = 1\n  action zoomIn writes zoom\n    zoom = 2\n  view\n    column\n      box testId=\"backdrop\" animation=(zoom == 1 ? \"fade 1s linear both\" : \"none\") animation-timeline=\"--dismiss\" animation-range=\"0 300px\"\n      box testId=\"photo\" drag-timeline=\"--dismiss\" translate=\"0px 0px\"\n      button testId=\"zoom\" press=zoomIn\n        text \"2×\"\n";
+const APP: &str = "keyframes fade\n  from opacity=1\n  to opacity=0 background-color=\"#000\"\ncomponent App\n  state zoom = 1\n  action zoomIn writes zoom\n    zoom = 2\n  view\n    column testId=\"clip\" timeline-scope=\"--dismiss\"\n      box testId=\"backdrop\" animation=(zoom == 1 ? \"fade 1s linear both\" : \"none\") animation-timeline=\"--dismiss\" animation-range=\"0 300px\"\n      box testId=\"photo\" drag-timeline=\"--dismiss\" translate=\"0px 0px\"\n      button testId=\"zoom\" press=zoomIn\n        text \"2×\"\n";
 
 #[test]
 fn the_rows_reach_the_kernel_and_a_computed_animation_keeps_its_binding() {
@@ -49,6 +52,18 @@ fn the_rows_reach_the_kernel_and_a_computed_animation_keeps_its_binding() {
     );
     assert_eq!(backdrop.animation_range, AnimationRange(Some([0.0, 300.0])));
     assert_eq!(backdrop.animation.0[0].name, "fade");
+    assert_eq!(
+        style(&r, "clip").timeline_scope,
+        TimelineScope::Names("--dismiss".into())
+    );
+    // The backdrop and the photo are siblings: the clip's scope finds it.
+    let k = r.kernel();
+    assert_eq!(
+        k.timeline_of(k.find_by_test_id("backdrop")[0]),
+        Some(exact_motion::NamedTimeline::Source(
+            exact_kernel::motion_node(k.find_by_test_id("photo")[0])
+        ))
+    );
     // The agent's node shows each row as its CSS text.
     let shown = |test_id: &str, row: &str| {
         let k = r.kernel();
@@ -59,6 +74,7 @@ fn the_rows_reach_the_kernel_and_a_computed_animation_keeps_its_binding() {
     assert_eq!(shown("photo", "drag_timeline"), "--dismiss y");
     assert_eq!(shown("backdrop", "animation_timeline"), "--dismiss");
     assert_eq!(shown("backdrop", "animation_range"), "0px 300px");
+    assert_eq!(shown("clip", "timeline_scope"), "--dismiss");
     let k = r.kernel();
     let zoom = k.node_by_key(k.find_by_test_id("zoom")[0]).unwrap().id;
     r.dispatch(zoom, Event::Press).unwrap();
@@ -124,6 +140,9 @@ fn a_row_outside_its_grammar_is_refused_by_name() {
         ("drag-timeline=\"--dismiss z\"", "drag-timeline"),
         ("animation-timeline=\"scroll()\"", "animation-timeline"),
         ("animation-range=\"0% 100%\"", "animation-range"),
+        ("timeline-scope=\"--a --b\"", "timeline-scope"),
+        ("timeline-scope=\"dismiss\"", "timeline-scope"),
+        ("timelineScope=\"--a\"", "timeline-scope"),
     ] {
         let error = contract::compile(&format!(
             "component App\n  view\n    column\n      box {attr}\n"

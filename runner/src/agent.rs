@@ -602,6 +602,7 @@ fn row_json(v: RowValue<'_>, out: &mut String) {
         RowValue::DragTimeline(d) => quote(&d.css(), out),
         RowValue::AnimationTimeline(t) => quote(&t.css(), out),
         RowValue::AnimationRange(r) => quote(&r.css(), out),
+        RowValue::TimelineScope(s) => quote(&s.css(), out),
         RowValue::BackgroundImage(g) => quote(&g.css(), out),
         RowValue::ShapeOutside(p) => quote(&p.css(), out),
         RowValue::Transitions(_) => quote("(transition)", out),

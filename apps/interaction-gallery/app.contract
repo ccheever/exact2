@@ -14,6 +14,13 @@ keyframes viewerFade
   from opacity=1
   to opacity=0
 
+// LLP 1057.003 D4: a list of cards, each with its own timeline. Every row
+// scopes `--swipe`, so its label follows its own card's drag and no other
+// row's: one name, four timelines.
+keyframes swipeReveal
+  from opacity=0 scale=0.8
+  to opacity=1 scale=1
+
 shape Media
   prefersReducedMotion: bool
 
@@ -156,6 +163,12 @@ component InteractionGallery
                 column gap=6
                   text "Places to pause." font-size=32 font-weight=600 color=theme.ink
                   text "Six studies in light, texture and distance. Open a photograph to look a little closer." font-size=14 color=theme.muted
+                column gap=8 testId="swipe-list"
+                  text "Swipe a study aside to reveal what it keeps." font-size=12 color=theme.muted
+                  SwipeRow(n=1)
+                  SwipeRow(n=2)
+                  SwipeRow(n=3)
+                  SwipeRow(n=4)
                 row flex-wrap="wrap" gap=18 align-items="flex-start"
                   each photo in rows key=photo.id
                     PhotoCard(photo=photo, returned=(gallery.returnId == photo.id), command=command)
@@ -262,6 +275,27 @@ component PhotoCard
         text photo.title font-size=17 font-weight=600 color=theme.ink
         text photo.subtitle font-size=11 color=theme.muted
 
+// LLP 1057.003 D4: the card drives `--swipe` with its horizontal translate
+// as a swipe holds it, and the label behind it follows over the swipe's
+// 64-point knee. Past the knee, a release keeps the study and the card
+// springs back, the label with it. A swipe holds any row: the transform
+// drag has one target per window (LLP 1002 D7).
+component SwipeRow
+  inject
+    theme: Theme
+  props
+    n: number
+  state kept = false
+  action keep writes kept
+    kept = not kept
+  view
+    box testId=`swipe-row-${n}` timeline-scope="--swipe" width="100%" height=56 flex-shrink=0 position="relative" overflow="hidden" padding=0 border-width=0 box-sizing="border-box" border-radius=10 background-color=theme.wash
+      row testId=`swipe-label-${n}` position="absolute" left=0 top=0 width=64 height="100%" align-items="center" justify-content="center" animation="swipeReveal 1s linear both" animation-timeline="--swipe" animation-range="0px 64px"
+        text (kept ? "Undo" : "Keep") font-size=13 font-weight=600 color=theme.accent
+      box testId=`swipe-card-${n}` swiperight=keep touch-action="pan-y" aria-label=`Swipe study ${n} to ${kept ? "undo keeping it" : "keep it"}` width="100%" height="100%" position="relative" display="flex" flex-direction="row" align-items="center" gap=8 padding-left=16 border-width=0 margin=0 box-sizing="border-box" background-color=theme.card transition="translate spring(300, 30, 1)" drag-timeline="--swipe x"
+        text `Study ${n}` font-size=15 font-weight=600 color=theme.ink
+        text (kept ? "kept" : "") testId=`swipe-kept-${n}` font-size=11 color=theme.muted
+
 component Viewer
   inject
     theme: Theme
@@ -335,8 +369,10 @@ component Viewer
             text "Center and fit" font-size=12 color=theme.ink
         // Zoomed, a drag pans and the backdrop stays. At Fit a pinch's
         // translate fades it too: the timeline reads the translate, not
-        // which gesture made it (LLP 1057.003 D6, LLP 1057.000).
-        box testId="viewer-clip" width="100%" height=410 flex-shrink=0 position="relative" overflow="hidden" padding=0 border-width=0 box-sizing="border-box" border-radius=12
+        // which gesture made it (LLP 1057.003 D6, LLP 1057.000). The photo
+        // and the backdrop are siblings, so the clip scopes `--dismiss` for
+        // both, as CSS's `timeline-scope` does (D4).
+        box testId="viewer-clip" timeline-scope="--dismiss" width="100%" height=410 flex-shrink=0 position="relative" overflow="hidden" padding=0 border-width=0 box-sizing="border-box" border-radius=12
           box testId="viewer-backdrop" position="absolute" left=0 top=0 width="100%" height="100%" padding=0 border-width=0 box-sizing="border-box" background-color="#172521" animation=(zoom == 1 ? "viewerFade 1s linear both" : "none") animation-timeline="--dismiss" animation-range="0px 300px"
           box id="viewer-transform" testId="viewer-transform" width="100%" height="100%" position="relative" padding=0 border-width=0 margin=0 box-sizing="border-box" translate=`${panX}px ${panY}px` scale=zoom transition="translate spring(300, 30, 1), scale spring(300, 30, 1)" drag-timeline="--dismiss y"
             image viewer.photo.asset aria-label=viewer.photo.alt position="absolute" left=0 top=0 width="100%" height="100%" object-fit="contain" testId="viewer-image"

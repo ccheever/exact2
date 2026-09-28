@@ -56,6 +56,7 @@ fn parse_codec(s: &str) -> Codec {
         "drag-timeline" => Codec::CssValue { path: "crate::timeline::DragTimeline", variant: "DragTimeline", error: "BadDragTimeline" },
         "animation-timeline" => Codec::CssValue { path: "crate::timeline::AnimationTimeline", variant: "AnimationTimeline", error: "BadAnimationTimeline" },
         "animation-range" => Codec::CssValue { path: "crate::timeline::AnimationRange", variant: "AnimationRange", error: "BadAnimationRange" },
+        "timeline-scope" => Codec::CssValue { path: "crate::timeline::TimelineScope", variant: "TimelineScope", error: "BadTimelineScope" },
         other => match other.strip_prefix("enum:") {
             Some(name) => Codec::Enum(name.to_string()),
             None => panic!("schema: unknown codec `{other}`"),

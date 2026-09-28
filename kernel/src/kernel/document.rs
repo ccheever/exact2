@@ -57,6 +57,9 @@ impl Kernel {
         }
         let mut receipt = receipt;
         receipt.epoch = self.epoch;
+        // @ref LLP 1057.003 D4 — timeline names resolve against the tree
+        // this commit left.
+        receipt.timelines = crate::timeline::refresh(&mut self.arena, &receipt);
         if self.receipts.len() == RECEIPT_RING {
             self.receipts.pop_front();
         }

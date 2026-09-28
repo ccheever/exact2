@@ -818,6 +818,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "drag-timeline" => styles(&[StyleId::DragTimeline]),
         "animation-timeline" => styles(&[StyleId::AnimationTimeline]),
         "animation-range" => styles(&[StyleId::AnimationRange]),
+        // @ref LLP 1057.003 D4 — CSS `timeline-scope`.
+        "timeline-scope" => styles(&[StyleId::TimelineScope]),
         "display" => styles(&[StyleId::Display]),
         "align-items" => styles(&[StyleId::AlignItems]),
         "align-self" => styles(&[StyleId::AlignSelf]),
@@ -903,6 +905,7 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "dragTimeline" => "drag-timeline",
         "animationTimeline" => "animation-timeline",
         "animationRange" => "animation-range",
+        "timelineScope" => "timeline-scope",
         "transformOrigin" => "transform-origin",
         "align" | "alignItems" => "align-items",
         "alignSelf" => "align-self",

@@ -2,7 +2,7 @@
 //! restart only when the name comes back, re-time in place, pause and resume,
 //! lowered hosts never sampled, and infinite animations never settle.
 
-use exact_motion::{Animations, Change, Engine, Keyframes, Property, Value};
+use exact_motion::{Animations, Change, Engine, Keyframes, NamedTimeline, Property, Value};
 
 const NODE: u64 = 3;
 
@@ -466,8 +466,8 @@ fn a_drag_timeline_holds_its_consumer_at_the_drag() {
     .unwrap();
     observe(&mut e, Property::Opacity, 1.0);
     e.set_animations(NODE, &row("fade 1s linear both")).unwrap();
-    e.set_drag_timeline(SOURCE, Some(("--dismiss", false)));
-    e.set_animation_timeline(NODE, Some(("--dismiss", [0.0, 300.0])));
+    e.set_drag_timeline(SOURCE, Some(false));
+    e.set_animation_timeline(NODE, Some((NamedTimeline::Source(SOURCE), [0.0, 300.0])));
     assert!(e.quiescent(), "a bound animation keeps no clock busy");
     assert_eq!(opacity(&mut e), Some(0.0));
     e.advance(5.0).unwrap();
@@ -535,8 +535,8 @@ fn a_drag_timeline_spans_the_whole_animation_on_its_axis() {
     };
     at(&mut e, 60.0);
     observe(&mut e, Property::Opacity, 1.0);
-    e.set_drag_timeline(SOURCE, Some(("--swipe", true)));
-    e.set_animation_timeline(NODE, Some(("--swipe", [-100.0, 100.0])));
+    e.set_drag_timeline(SOURCE, Some(true));
+    e.set_animation_timeline(NODE, Some((NamedTimeline::Source(SOURCE), [-100.0, 100.0])));
     let near = |e: &mut Engine, want: f64| {
         let got = opacity(e).unwrap();
         assert!((got - want).abs() < 1e-9, "{got} != {want}");
@@ -566,4 +566,64 @@ fn a_drag_timeline_spans_the_whole_animation_on_its_axis() {
         .unwrap();
     near(&mut e, 0.0);
     assert!(e.quiescent(), "and keeps no clock busy");
+}
+
+// LLP 1057.003 D4: what a name that finds no single source shows, as Chrome
+// 154 shows it (the phase 3 probe). Inactive (a scope with no declaring
+// descendant, or two): no effect, whatever the fill. Missing (no timeline in
+// scope): the time the animation has, where its source left it, or out of
+// effect after an inactive one, and 0 when it is new.
+#[test]
+fn an_inactive_timeline_has_no_effect_and_a_missing_one_keeps_its_time() {
+    const SOURCE: u64 = 9;
+    let mut e = Engine::new();
+    e.observe(Change {
+        node: SOURCE,
+        property: Property::Translate,
+        value: Value::new(0.0, 120.0),
+        velocity: None,
+    })
+    .unwrap();
+    observe(&mut e, Property::Opacity, 0.55);
+    e.set_animations(NODE, &row("fade 1s linear both")).unwrap();
+    e.set_drag_timeline(SOURCE, Some(false));
+    let range = [0.0, 300.0];
+    // New and missing: time 0, the fade's start.
+    e.set_animation_timeline(NODE, Some((NamedTimeline::Missing, range)));
+    assert_eq!(opacity(&mut e), Some(0.0));
+    // Found: 120 of 300 is 40% of the fade.
+    e.set_animation_timeline(NODE, Some((NamedTimeline::Source(SOURCE), range)));
+    assert!((opacity(&mut e).unwrap() - 0.4).abs() < 1e-9);
+    // Lost: it keeps that time, and the source no longer moves it.
+    e.set_animation_timeline(NODE, Some((NamedTimeline::Missing, range)));
+    e.observe(Change {
+        node: SOURCE,
+        property: Property::Translate,
+        value: Value::new(0.0, 240.0),
+        velocity: None,
+    })
+    .unwrap();
+    assert_eq!(opacity(&mut e), None, "nothing changed");
+    assert!((e.sampled_value(NODE, Property::Opacity).unwrap().x - 0.4).abs() < 1e-9);
+    // Inactive: no effect, the property's own value, fill or not.
+    e.set_animation_timeline(NODE, Some((NamedTimeline::Inactive, range)));
+    assert_eq!(opacity(&mut e), Some(0.55));
+    // Missing after inactive: still none; a new animation starts at 0.
+    e.set_animation_timeline(NODE, Some((NamedTimeline::Missing, range)));
+    e.frame();
+    assert_eq!(e.sampled_value(NODE, Property::Opacity).unwrap().x, 0.55);
+    e.set_animations(NODE, &row("fade 1s linear both, fade 1s linear both"))
+        .unwrap();
+    assert_eq!(opacity(&mut e), Some(0.0), "the second, new, at 0");
+    // Found again: both follow, and the clock never moves them.
+    e.set_animation_timeline(NODE, Some((NamedTimeline::Source(SOURCE), range)));
+    assert!((opacity(&mut e).unwrap() - 0.8).abs() < 1e-9);
+    e.advance(3.0).unwrap();
+    assert_eq!(opacity(&mut e), None);
+    assert!(e.quiescent());
+    // Unbound from an inactive timeline: back on the clock from its start.
+    e.set_animation_timeline(NODE, Some((NamedTimeline::Inactive, range)));
+    e.set_animation_timeline(NODE, None);
+    e.advance(3.25).unwrap();
+    assert!((opacity(&mut e).unwrap() - 0.25).abs() < 1e-9);
 }

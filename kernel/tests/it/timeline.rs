@@ -1,11 +1,13 @@
-//! Drag timelines through the kernel (LLP 1057.003 D1, D2): the three rows
-//! parse as CSS text, refuse what is not their grammar, round-trip through
-//! EXWF, and reach the engine with the node's other motion rows, so a
-//! consumer follows its source's hold in the frame it moves, is handed back
-//! to the clock when its row is cleared, and holds its start once the source
-//! is destroyed.
+//! Drag timelines through the kernel (LLP 1057.003 D1, D2, D4): the four
+//! rows parse as CSS text, refuse what is not their grammar, round-trip
+//! through EXWF, and reach the engine with the node's other motion rows, so
+//! a consumer follows its source's hold in the frame it moves, is handed
+//! back to the clock when its row is cleared, and has no effect once the
+//! source its parent's scope found is destroyed.
 
-use exact_kernel::timeline::{AnimationRange, AnimationTimeline, Axis, DragTimeline};
+use exact_kernel::timeline::{
+    AnimationRange, AnimationTimeline, Axis, DragTimeline, TimelineScope,
+};
 use exact_kernel::{
     motion_node, wire, CommitReceipt, Kernel, NodeType, Op, StyleId, StyleProps, StyleValue,
     StyleValueError,
@@ -45,6 +47,11 @@ fn tree(k: &mut Kernel) -> CommitReceipt {
             create(1),
             create(SOURCE),
             create(CONSUMER),
+            // The two are siblings: their parent scopes the name (D4).
+            Op::SetStyle {
+                id: 1,
+                patch: rows(&[(StyleId::TimelineScope, "--dismiss")]),
+            },
             Op::SetStyle {
                 id: SOURCE,
                 patch: rows(&[(StyleId::DragTimeline, "--dismiss y")]),
@@ -89,11 +96,15 @@ fn the_rows_are_css_text_and_refuse_what_is_not_their_grammar() {
         (StyleId::AnimationTimeline, "auto", "auto"),
         (StyleId::AnimationRange, "-300 300px", "-300px 300px"),
         (StyleId::AnimationRange, "normal", "normal"),
+        (StyleId::TimelineScope, "--a,--b", "--a, --b"),
+        (StyleId::TimelineScope, "all", "all"),
+        (StyleId::TimelineScope, "none", "none"),
     ] {
         s.set_dynamic(id, &StyleValue::Text(css.into())).unwrap();
         let written = match id {
             StyleId::DragTimeline => s.drag_timeline.css(),
             StyleId::AnimationTimeline => s.animation_timeline.css(),
+            StyleId::TimelineScope => s.timeline_scope.css(),
             _ => s.animation_range.css(),
         };
         assert_eq!(written, canonical, "{css}");
@@ -107,6 +118,8 @@ fn the_rows_are_css_text_and_refuse_what_is_not_their_grammar() {
         (StyleId::AnimationRange, "0px"),
         (StyleId::AnimationRange, "10px 10px"),
         (StyleId::AnimationRange, "0% 100%"),
+        (StyleId::TimelineScope, "--a --b"),
+        (StyleId::TimelineScope, "--a, all"),
     ] {
         let refused = s.set_dynamic(id, &StyleValue::Text(css.into()));
         assert!(
@@ -114,7 +127,8 @@ fn the_rows_are_css_text_and_refuse_what_is_not_their_grammar() {
                 refused,
                 Err(StyleValueError::BadDragTimeline { .. }
                     | StyleValueError::BadAnimationTimeline { .. }
-                    | StyleValueError::BadAnimationRange { .. })
+                    | StyleValueError::BadAnimationRange { .. }
+                    | StyleValueError::BadTimelineScope { .. })
             ),
             "{css}: {refused:?}"
         );
@@ -135,6 +149,7 @@ fn the_rows_round_trip_through_the_wire() {
                 (StyleId::DragTimeline, "--pan x"),
                 (StyleId::AnimationTimeline, "--dismiss"),
                 (StyleId::AnimationRange, "-40px 260.5px"),
+                (StyleId::TimelineScope, "--pan, --dismiss"),
             ]),
         },
         Op::AttachRoot { id: 1 },
@@ -153,6 +168,10 @@ fn the_rows_round_trip_through_the_wire() {
         AnimationTimeline(Some("--dismiss".into()))
     );
     assert_eq!(style.animation_range, AnimationRange(Some([-40.0, 260.5])));
+    assert_eq!(
+        style.timeline_scope,
+        TimelineScope::Names("--pan, --dismiss".into())
+    );
 }
 
 #[test]
@@ -195,8 +214,10 @@ fn a_consumer_follows_its_source_hold_until_its_row_is_cleared() {
     assert!((shown - 0.25).abs() < 1e-9, "{shown}");
 }
 
+/// Chrome shows an inactive timeline's animation not in effect: the scope
+/// that found the source finds none once it is destroyed.
 #[test]
-fn a_consumer_whose_source_is_destroyed_holds_its_start() {
+fn a_consumer_whose_scoped_source_is_destroyed_has_no_effect() {
     let mut k = Kernel::with_monospace();
     let receipt = tree(&mut k);
     let source = motion_node(k.node(SOURCE).unwrap().key);
@@ -225,6 +246,11 @@ fn a_consumer_whose_source_is_destroyed_holds_its_start() {
         .unwrap();
     k.motion_sync(&gone).apply(&mut e).unwrap();
     assert!(e.timeline_bound(consumer), "still bound, to no source");
+    assert_eq!(
+        k.timeline_of(k.node(CONSUMER).unwrap().key),
+        Some(exact_motion::NamedTimeline::Inactive)
+    );
+    // Its own opacity, 1, where the fade held 0.2.
     assert_eq!(opacity(&mut e, consumer), Some(1.0));
     e.advance(5.0).unwrap();
     assert_eq!(

@@ -364,6 +364,11 @@ impl Animation {
     /// The directed progress at local time `t`, or `None` when the animation
     /// has no effect then (outside its active interval without a fill).
     pub fn directed_progress(&self, t: f64) -> Option<f64> {
+        // An unresolved local time (NaN) is the idle phase: no effect (Web
+        // Animations 1, animation effect phases).
+        if t.is_nan() {
+            return None;
+        }
         let ad = self.active_duration();
         let phase = self.phase(t);
         let active = match phase {

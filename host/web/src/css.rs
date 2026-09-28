@@ -126,6 +126,20 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                     push_text!(&mut out, "--exact-animation-range:{};", r.css());
                 }
             }
+            // @ref LLP 1057.003 D4 — CSS's own row, for the timelines the
+            // browser resolves (scroll timelines, D5), and a custom property
+            // the drag code's lookup reads (motion-glue.js `timelineSource`).
+            (StyleId::TimelineScope, RowValue::TimelineScope(s)) => {
+                if **s != exact_kernel::timeline::TimelineScope::None {
+                    let s = s.css();
+                    push_text!(
+                        &mut out,
+                        "timeline-scope:{};--exact-timeline-scope:{};",
+                        s,
+                        s
+                    );
+                }
+            }
             (StyleId::LayoutTransition, RowValue::Transitions(t)) => {
                 if let Some(text) = layout_transition_css(t) {
                     push_text!(&mut out, "--exact-layout-transition:{};", text);
@@ -319,7 +333,8 @@ fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
         | RowValue::Animations(_)
         | RowValue::DragTimeline(_)
         | RowValue::AnimationTimeline(_)
-        | RowValue::AnimationRange(_) => false,
+        | RowValue::AnimationRange(_)
+        | RowValue::TimelineScope(_) => false,
         _ => true,
     }
 }
@@ -384,6 +399,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         RowValue::DragTimeline(d) => out.push_str(&d.css()),
         RowValue::AnimationTimeline(t) => out.push_str(&t.css()),
         RowValue::AnimationRange(r) => out.push_str(&r.css()),
+        RowValue::TimelineScope(s) => out.push_str(&s.css()),
         RowValue::Paint(p) => out.push_str(&p.css()),
         RowValue::DashArray(d) => out.push_str(&d.css()),
         RowValue::Transform(t) => out.push_str(&t.css()),

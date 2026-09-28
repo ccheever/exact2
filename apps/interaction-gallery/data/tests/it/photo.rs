@@ -478,6 +478,14 @@ fn a_release_at_fit_dismisses_or_springs_back_and_the_backdrop_follows_only_at_f
         .drag_timeline
         .css();
     assert_eq!(source, "--dismiss y");
+    // The backdrop and the photo are siblings: the clip scopes `--dismiss`
+    // for both (LLP 1057.003 D4).
+    assert_eq!(
+        r.kernel().timeline_of(key(&r, "viewer-backdrop")),
+        Some(exact_kernel::timeline::NamedTimeline::Source(motion_node(
+            key(&r, "viewer-transform")
+        )))
+    );
     for (y, vy, expected) in [
         (100., 300., 0.),
         (-200., -1200., 0.),
@@ -496,4 +504,20 @@ fn a_release_at_fit_dismisses_or_springs_back_and_the_backdrop_follows_only_at_f
     close_to(targets(&r), [0., 150f64.min(most), 2.]);
     press(&mut r, "viewer-zoom-fit");
     assert_eq!(backdrop(&r), bound(Some("viewerFade")));
+}
+
+// LLP 1057.003 D4: four rows drive one name, and each row's label resolves
+// it to its own card: each row's `timeline-scope` captures the card below it.
+#[test]
+fn each_swipe_row_label_follows_its_own_card() {
+    let r = boot();
+    for n in 1..=4 {
+        assert_eq!(
+            r.kernel().timeline_of(key(&r, &format!("swipe-label-{n}"))),
+            Some(exact_kernel::timeline::NamedTimeline::Source(motion_node(
+                key(&r, &format!("swipe-card-{n}"))
+            ))),
+            "row {n}"
+        );
+    }
 }

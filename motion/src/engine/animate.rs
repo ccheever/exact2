@@ -24,7 +24,8 @@ pub struct AnimationPlay {
     pub animation: Animation,
     /// Engine time the animation started (its local time zero).
     pub start: f64,
-    /// While paused, the local time it holds.
+    /// While paused, the local time it holds. NaN is an unresolved time
+    /// (an inactive timeline's, LLP 1057.003 D4): the animation has no effect.
     pub hold: Option<f64>,
     /// The appearance its `light-dark()` keyframes took when it started, as
     /// a browser resolves a rule once (LLP 1062 D9).
@@ -65,6 +66,9 @@ impl Engine {
             .validate()
             .map_err(|_| EngineError::InvalidAnimation)?;
         let now = self.now;
+        // A timeline-bound play keeps its held time: the timeline, not the
+        // row's play state, holds it (LLP 1057.003 D2).
+        let bound = self.timeline_bound(node);
         let old = self.animations.remove(&node).unwrap_or_default();
         if old.is_empty() && animations.0.is_empty() {
             return Ok(());
@@ -86,6 +90,7 @@ impl Engine {
                     used[i] = true;
                     let prior = &old[i];
                     let (start, hold) = match (prior.hold, a.paused) {
+                        (hold, _) if bound => (prior.start, hold),
                         (None, true) => (prior.start, Some(now - prior.start)),
                         (Some(held), false) => (now - held, None),
                         (hold, _) => (prior.start, hold),

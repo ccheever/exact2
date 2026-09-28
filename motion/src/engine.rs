@@ -25,6 +25,7 @@ mod hold;
 mod timeline;
 pub use animate::AnimationPlay;
 pub use hold::{HoldEnd, HoldStart, HoldToken, TransformHold};
+pub use timeline::NamedTimeline;
 
 /// One animatable row's new target, as committed by the kernel.
 #[derive(Debug, Clone, Copy, PartialEq)]

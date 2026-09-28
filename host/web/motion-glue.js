@@ -129,9 +129,25 @@ export function motionController({views,now,generation,request,applyBatch,inert,
   // animation frame while the spring runs (`kickTimelines`).
   const timelineSources='[style*="--exact-drag-timeline"]';
   const timelineName=el=>el.style.getPropertyValue('--exact-drag-timeline').trim().split(/\s+/);
-  // The source a consumer's name resolves to: the last declared in the
-  // document (names are global until `timeline-scope`, D4).
-  const timelineSource=(consumer,name)=>[...document.querySelectorAll(timelineSources)].filter(el=>timelineName(el)[0]===name).pop()??null;
+  // @ref LLP 1057.003 D4 — the source a consumer's name resolves to, as CSS
+  // scopes names and as the kernel's `lookup` does: walking up from the
+  // consumer, the first element that declares the name or scopes it
+  // (`--exact-timeline-scope`) decides. A scope's source is the one
+  // declaring element whose nearest scope of the name, itself included, is
+  // that scope; none or several are an inactive timeline (null), but `all`
+  // declares only the names below it. No timeline in scope is undefined.
+  const scopes=(el,name)=>{const s=el.style.getPropertyValue('--exact-timeline-scope').trim();return s==='all'?2:s.split(/\s*,\s*/).includes(name)?1:0;};
+  const timelineSource=(consumer,name)=>{
+    for(let el=consumer;el?.style;el=el.parentElement) {
+      if(timelineName(el)[0]===name)return el;
+      const scope=scopes(el,name);
+      if(!scope)continue;
+      const found=[...el.querySelectorAll(timelineSources)].filter(s=>{if(timelineName(s)[0]!==name)return false;while(!scopes(s,name))s=s.parentElement;return s===el;});
+      if(found.length===1)return found[0];
+      if(found.length||scope===1)return null;
+    }
+  };
+  const inactive=new WeakMap();
   let timelineFrame=0;
   const kickTimelines=()=>{if(!timelineFrame&&typeof requestAnimationFrame==='function'&&typeof document!=='undefined'&&document.querySelector(timelineSources))
     timelineFrame=requestAnimationFrame(()=>{timelineFrame=0;if(followTimelines())kickTimelines();});};
@@ -146,20 +162,29 @@ export function motionController({views,now,generation,request,applyBatch,inert,
         v=t[0]==='none'?[0,0]:[parseFloat(t[0]),parseFloat(t[1]??'0')];
         moving||=el.getAnimations().some(a=>a.playState==='running');
       }
-      sources.set(name,axis==='x'?v[0]:v[1]);
+      sources.set(el,axis==='x'?v[0]:v[1]);
     }
     for(const el of document.querySelectorAll('[style*="--exact-animation-timeline"]')) {
       const name=el.style.getPropertyValue('--exact-animation-timeline').trim();
       const range=el.style.getPropertyValue('--exact-animation-range').trim().split(/\s+/).map(parseFloat);
       if(range.length!==2||range[1]===range[0])continue;
-      // Without a source the timeline holds its start, as the engine's does.
-      const at=sources.has(name)?sources.get(name):range[0];
+      // No timeline in scope: the animations keep the time they have (0 if
+      // new), as Chrome's and the engine's do.
+      const source=timelineSource(el,name);
+      if(source===undefined)continue;
       // Unclamped, and over the delay and active interval together, as a CSS
       // scroll timeline maps them; an endless animation holds its start
       // (motion's `seek_timeline`).
-      const p=(at-range[0])/(range[1]-range[0]);
-      for(const a of el.getAnimations()) {
-        const t=a.animationName===undefined?null:a.effect?.getComputedTiming();
+      const p=(sources.get(source)-range[0])/(range[1]-range[0]);
+      // An inactive timeline: not in effect, whatever the fill (Chrome's
+      // unresolved time). Cancelled, and revived when the name resolves
+      // again, unless its CSS has since dropped or replaced it.
+      const parked=inactive.get(el)??[],live=el.getAnimations().filter(a=>a.animationName!==undefined);
+      if(!source){for(const a of live)a.cancel();inactive.set(el,[...parked,...live]);continue;}
+      inactive.delete(el);
+      const names=parked.length?getComputedStyle(el).animationName.split(/,\s*/):[];
+      for(const a of [...live,...parked.filter(a=>names.includes(a.animationName)&&!live.some(b=>b.animationName===a.animationName))]) {
+        const t=a.effect?.getComputedTiming();
         if(!t)continue;
         if(a.playState!=='paused')a.pause();
         a.currentTime=Number.isFinite(t.endTime)?p*t.endTime:Math.max(0,t.delay);
@@ -821,7 +846,13 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       const rubber=x=>Math.abs(x)<=knee?x:Math.sign(x)*(knee+(Math.abs(x)-knee)*resistance);
       const inverse=x=>Math.abs(x)<=knee?x:Math.sign(x)*(knee+(Math.abs(x)-knee)/resistance);
       const progressOf=x=>Math.max(0,Math.min(1,x/knee));
-      const track=(h,value)=>api.move(h,value);
+      // A swiped card may drive a drag timeline (LLP 1057.003 D4's list):
+      // its consumers follow in this event, as the transform drag's `present`.
+      const track=(h,value)=>{
+        if(!api.move(h,value))return false;
+        if(h.property==='translate'&&h.el.style.getPropertyValue('--exact-drag-timeline'))followTimelines();
+        return true;
+      };
       function stop() {
         const ended=drag; drag=null; active.delete(id);
         if(ended) {

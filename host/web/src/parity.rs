@@ -632,8 +632,11 @@ pub fn engine_samples(case: &Case) -> Vec<(f64, Value)> {
         .set_animations(1, &case.animations)
         .expect("a valid case");
     if let Some(range) = case.timeline {
-        engine.set_drag_timeline(SOURCE, Some(("--t", false)));
-        engine.set_animation_timeline(1, Some(("--t", range)));
+        engine.set_drag_timeline(SOURCE, Some(false));
+        engine.set_animation_timeline(
+            1,
+            Some((exact_motion::NamedTimeline::Source(SOURCE), range)),
+        );
     }
     let mut out = Vec::new();
     for step in &case.steps {

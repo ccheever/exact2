@@ -867,6 +867,8 @@ pub enum RowValue<'a> {
     AnimationTimeline(&'a crate::timeline::AnimationTimeline),
     /// CSS `animation-range` (LLP 1057.003).
     AnimationRange(&'a crate::timeline::AnimationRange),
+    /// CSS `timeline-scope` (LLP 1057.003 D4).
+    TimelineScope(&'a crate::timeline::TimelineScope),
     /// SVG paint (LLP 1055 D2).
     Paint(&'a crate::svg::Paint),
     /// SVG `stroke-dasharray` (LLP 1055 D2).
@@ -933,6 +935,7 @@ impl RowValue<'_> {
             | RowValue::AspectRatio(_)
             | RowValue::DragTimeline(_)
             | RowValue::AnimationTimeline(_)
+            | RowValue::TimelineScope(_)
             | RowValue::BackgroundImage(_)
             | RowValue::Color(_)
             | RowValue::ColorValue(_)

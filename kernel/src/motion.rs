@@ -66,9 +66,10 @@ pub struct MotionSync {
     pub layout: Vec<(u64, Transitions)>,
     /// Each created or touched node's `animation` row (LLP 1055 D5).
     pub animations: Vec<(u64, Animations)>,
-    /// Each created or touched node's drag timeline rows (LLP 1057.002
-    /// §6.7): the timeline it drives (name, reads `x`) and the one its
-    /// animations follow (name, range).
+    /// Each created or touched node's drag timeline rows, and each consumer
+    /// whose name the commit resolved anew (LLP 1057.003 D4): whether the
+    /// timeline it drives reads `x`, and what its animations follow (the
+    /// source node its name resolved to, and their range).
     pub timelines: Vec<TimelineRows>,
     /// The sync's eligible targets; ordinary receipt sync has four per node.
     pub changes: Vec<Change>,
@@ -96,15 +97,21 @@ impl MotionSync {
             engine.set_animations(*node, animations)?;
         }
         for (node, source, binding) in &self.timelines {
-            engine.set_drag_timeline(*node, source.as_ref().map(|(n, x)| (n.as_str(), *x)));
-            engine.set_animation_timeline(*node, binding.as_ref().map(|(n, r)| (n.as_str(), *r)));
+            engine.set_drag_timeline(*node, *source);
+            engine.set_animation_timeline(*node, *binding);
         }
         Ok(())
     }
 }
 
-/// One node's drag timeline rows, as the engine takes them.
-pub type TimelineRows = (u64, Option<(String, bool)>, Option<(String, [f64; 2])>);
+/// One node's drag timeline rows, as the engine takes them: whether the
+/// timeline it drives reads `x`, and what its animations follow over which
+/// range.
+pub type TimelineRows = (
+    u64,
+    Option<bool>,
+    Option<(exact_motion::NamedTimeline, [f64; 2])>,
+);
 
 /// The animatable rows of one style, as engine values. CSS's own property
 /// vocabulary: `translate` (two lengths), `scale`, `rotate` (degrees),
@@ -595,6 +602,14 @@ impl Kernel {
         for key in receipt.created.iter().chain(receipt.touched.iter()) {
             self.motion_sync_node(*key, &mut sync);
         }
+        // A consumer the commit left alone whose name now finds another
+        // timeline (LLP 1057.003 D4).
+        for key in &receipt.timelines {
+            if let Some(slot) = self.arena().resolve(*key) {
+                sync.timelines
+                    .push(crate::timeline::rows(self.arena(), slot));
+            }
+        }
         // A `display` change cancels (`none`) or restarts every animation
         // below it (LLP 1055.000 D15): only descendants with a row are told.
         for key in &receipt.display_changed {
@@ -676,20 +691,8 @@ impl Kernel {
                 node.style.animation.clone()
             };
             sync.animations.push((id, row));
-            let style = node.style;
-            let source = style
-                .drag_timeline
-                .name
-                .clone()
-                .map(|n| (n, style.drag_timeline.axis == crate::timeline::Axis::X));
-            // `normal` has no length range to map a drag onto: unbound.
-            let binding = style.animation_timeline.0.clone().and_then(|n| {
-                style
-                    .animation_range
-                    .0
-                    .map(|[a, b]| (n, [a as f64, b as f64]))
-            });
-            sync.timelines.push((id, source, binding));
+            sync.timelines
+                .push(crate::timeline::rows(self.arena(), key.index));
         }
     }
 }

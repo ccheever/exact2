@@ -54,6 +54,8 @@ pub enum DecodeError {
     BadAnimationTimeline,
     /// Invalid `animation-range` (LLP 1057.003).
     BadAnimationRange,
+    /// Invalid `timeline-scope` (LLP 1057.003 D4).
+    BadTimelineScope,
     /// Invalid SVG paint (LLP 1055 D2).
     BadPaint,
     /// Invalid SVG `stroke-dasharray` (LLP 1055 D2).
@@ -454,6 +456,10 @@ pub enum StyleValueError {
     },
     /// Not `normal` or two distinct lengths.
     BadAnimationRange {
+        style: StyleId,
+    },
+    /// Not `none`, `all` or a list of `<dashed-ident>`s.
+    BadTimelineScope {
         style: StyleId,
     },
     /// Not one outer CSS `box-shadow` exact2 draws; `reason` names what.

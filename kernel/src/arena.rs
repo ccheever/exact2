@@ -51,6 +51,9 @@ pub struct NodeArena {
     pub(crate) exclusion_slots: SlotSet,
     /// Slots whose style writes a row in `rem`/`em` (LLP 1069.000 D3).
     pub(crate) relative_slots: SlotSet,
+    /// The timeline-bearing nodes and what each follower's name resolves
+    /// to (LLP 1057.003 D4), kept by the linked lookup after each commit.
+    pub(crate) timelines: crate::timeline::Registry,
     /// A root font size the host set since the last commit, which that
     /// commit applies (LLP 1069.000 D3).
     pub(crate) root_font_size_next: Option<f32>,
@@ -98,6 +101,7 @@ impl Clone for NodeArena {
             flow: self.flow.clone(),
             exclusion_slots: self.exclusion_slots.clone(),
             relative_slots: self.relative_slots.clone(),
+            timelines: self.timelines.clone(),
             root_font_size_next: self.root_font_size_next,
             contents: self.contents.clone(),
             intrinsic: self.intrinsic.clone(),
@@ -157,6 +161,7 @@ impl NodeArena {
         self.flow.clear();
         self.exclusion_slots.clear();
         self.relative_slots.clear();
+        self.timelines = Default::default();
         for slot in 0..self.live.len() {
             self.live[slot] = false;
             self.parents[slot] = None;

@@ -34,6 +34,7 @@ mod svg;
 mod svg_scene;
 mod text_measurement_cache;
 mod timeline;
+mod timeline_scope;
 mod transform_binding;
 mod video;
 mod wire;
